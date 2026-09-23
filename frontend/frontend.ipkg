@@ -1,0 +1,9 @@
+package idris-mlir-frontend
+version = 0.1.0
+brief = "Checked TT inspection adapter for idris-mlir"
+
+depends = idris2, contrib, network
+sourcedir = "src"
+modules = IdrisMLIR.Inspect
+main = Main
+executable = idris-mlir

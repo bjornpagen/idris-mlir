@@ -1,0 +1,34 @@
+name: scaffold
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 tools/dev.py check
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y chezscheme libgmp-dev
+      - name: Build pinned Idris and API locally
+        run: python3 tools/dev.py bootstrap-idris --scheme scheme
+      - name: Build adapter
+        run: python3 tools/dev.py build-frontend
+      - name: Test typed inspection
+        run: python3 tools/dev.py test-frontend
