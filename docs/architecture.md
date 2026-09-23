@@ -40,4 +40,4 @@ Nat. Fail explicitly when the supported subset cannot justify a lowering.
 
 We use a full, unmodified upstream checkout as a build dependency rather than
 copying TT datatypes. Git pins Idris independently from the LLVM source pin in
-toolchain.lock.json. No remote repository or publishing workflow is configured.
+toolchain.lock.json.

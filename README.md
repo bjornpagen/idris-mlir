@@ -92,3 +92,8 @@ prove source provenance.
 Next: extend the inspector from signature/quantity summaries to checked clauses
 and constructor index relationships, compare fresh and cached imports, and
 define the first typed export. No performance claim is made by this scaffold.
+
+## License
+
+Project code is licensed under [0BSD](LICENSE). The Idris 2 dependency retains
+its [upstream license](third_party/Idris2/LICENSE).
