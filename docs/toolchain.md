@@ -1,67 +1,50 @@
 # Toolchain
 
+Everything the project builds is installed under `.toolchain/`. Each bootstrap
+writes a `provenance.json` stamp only after every step succeeds, and later
+commands refuse to use a toolchain whose stamp is missing or stale.
+
+## Prerequisites
+
+On Ubuntu 24.04 (what upstream Idris CI uses):
+
+```sh
+sudo apt-get install -y chezscheme libgmp-dev   # Chez 9.5.8, built threaded
+sudo apt-get install -y git make gcc python3     # usually present
+sudo apt-get install -y cmake ninja-build g++    # only for bootstrap-llvm
+```
+
+On Apple Silicon use Chez 10 or later. If you build Chez from source, configure
+it with `--threads`. Set `CPPFLAGS`/`LDFLAGS` if GMP is outside the compiler's
+search paths. `python3 tools/dev.py doctor` reports what it finds.
+
 ## Idris
 
-The Git submodule and toolchain.lock.json must agree. The lock pins the commit
-that was upstream main when this repository was scaffolded. It is not a floating
-branch dependency. `verify-pins` also checks the source package and TTC versions
-and rejects tracked modifications inside the dependency.
-
-`bootstrap-idris` requires an existing threaded Chez executable and GMP development
-files. It builds from the pinned source and installs the compiler, libraries, and
-API into `.toolchain/idris2`. A provenance file is written only after all steps
-succeed. Compiler/API versions are built together; the frontend never chooses
-an arbitrary `idris2` from PATH. Package-search environment variables inherited
-from other installations are removed for local builds.
-
-Host C/C++ compilers, Make, and Chez are prerequisites rather than hermetically
-pinned dependencies. Record them with benchmark results. The source pins make
-dependency selection reproducible; they are not a claim of bit-identical builds
-across host systems.
+`third_party/Idris2` is an unmodified submodule; its gitlink is the pin.
+`bootstrap-idris` builds that revision with upstream's `make bootstrap`, then
+installs the compiler, libraries, and API into `.toolchain/idris2`. Idris
+package variables inherited from other installations are cleared. The build
+never uses an `idris2` found on `PATH`.
 
 ## LLVM and MLIR
 
-The lock records the commit behind `llvmorg-23.1.2`, the release selected for
-this scaffold. CMake accepts an external MLIR development package only when
-its LLVM package version matches. Build from the exact locked commit for source
-provenance; the version check alone cannot distinguish patched builds.
+`toolchain.lock.json` pins the LLVM release tag and its commit.
+`bootstrap-llvm` shallow-clones that tag into `.toolchain/llvm-project`,
+checks the commit, builds `mlir-opt`, `mlir-translate`, `opt`, and `llc`
+(MLIR enabled, native target, assertions on), and copies them to
+`.toolchain/llvm/bin`. Clang is not built: the system `cc` only links the
+object file that `llc` produces. Expect a few hours and ~15 GB of disk. You
+can delete `.toolchain/llvm-build` afterwards.
 
-One project-local source-build recipe, run from the repository root:
+Distribution packages and apt.llvm.org builds track release branches, not the
+pinned commit, so the project does not use them.
 
-```sh
-mkdir -p .toolchain
-git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git .toolchain/llvm-project
-git -C .toolchain/llvm-project checkout --detach 85ac560262434c9ccfc0c183ec22d4138ed647fb
-cmake -S .toolchain/llvm-project/llvm -B .toolchain/llvm-build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_PROJECTS=mlir \
-  -DLLVM_TARGETS_TO_BUILD=Native \
-  -DLLVM_ENABLE_ASSERTIONS=ON
-cmake --build .toolchain/llvm-build
-python3 tools/dev.py configure-mlir --mlir-dir .toolchain/llvm-build/lib/cmake/mlir
-python3 tools/dev.py build-mlir
-python3 tools/dev.py test-mlir
-```
+## Upgrades
 
-This is an optional, substantial source build. Nothing fetches/builds LLVM as
-a side effect of scaffold checks or the frontend experiment.
+Upgrade deliberately and in its own commit, never as a side effect.
 
-## Intentional upgrades
-
-For Idris, select a new exact upstream commit, update the submodule checkout
-and lock metadata together, stage the submodule entry, and rebuild the local
-compiler/API. Run the frontend tests and fresh-versus-cached inspection tests
-before accepting the upgrade. Review TT, context, serialization, and callback
-changes rather than relying only on package version numbers.
-
-For LLVM, update the lock's tag, commit, and version together; rebuild the MLIR
-driver and run its parser/transform tests. Generated output and caches should
-record the compiler/schema versions once the typed interchange format exists.
-
-## CI scope
-
-The scaffold workflow runs dependency/tooling checks and a real frontend build
-and integration test on Ubuntu with Chez. It does not build LLVM or claim MLIR
-coverage. The MLIR driver has separate CTest coverage, run when the pinned
-development toolchain is available. Add a cached pinned LLVM build job before
-depending on changes to MLIR lowering.
+- Idris: check out the new commit in the submodule and stage it. Review
+  changes to `Core/TT`, `Core/Context`, `Core/TTC.idr`, `Compiler/Common.idr`,
+  and `Idris/ProcessIdr.idr`. Rerun `bootstrap-idris`, `build`, and `test`.
+- LLVM: update the tag, commit, and version in the lock together. Rerun
+  `bootstrap-llvm` and `test-mlir-tools`; pass names change between releases.

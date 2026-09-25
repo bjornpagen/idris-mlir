@@ -2,42 +2,52 @@
 
 ```mermaid
 flowchart LR
-  Idris["Pinned Idris frontend"] --> TT["Checked TT + definition context"]
-  TT --> Adapter["Our Idris adapter"]
-  Adapter --> Typed["Our typed representation"]
-  Typed --> Optimize["Specialization and representation selection"]
-  Optimize --> Erase["Deliberate runtime erasure"]
-  Erase --> MLIR["MLIR lowering"]
-  MLIR --> LLVM["LLVM and native code"]
+  subgraph Idris["idris-mlir (Idris)"]
+    Frontend["Frontend: pinned Idris API"] --> TT["Checked TT + Defs"]
+    TT --> IR["Our typed IR"]
+    IR --> Passes["Specialization, representation, erasure"]
+    Passes --> Emit["MLIR text emitter"]
+  end
+  subgraph Tools["Pinned LLVM tools"]
+    Opt["mlir-opt"] --> Translate["mlir-translate"] --> LLVMOpt["opt"] --> Llc["llc"]
+  end
+  Emit --> Opt
+  Llc --> Link["cc (link)"]
 ```
 
-The frontend adapter and MLIR driver are scaffolded. The typed representation,
-optimization pipeline, and connection between them are not implemented.
+Only the frontend adapter exists today. The typed IR, passes, emitter, and
+runtime are not implemented.
 
-Only frontend/ imports upstream compiler types. Keep that adapter small and
-version-specific. The compiler owns the representation after the boundary;
-changes to Idris's internal records should not leak throughout the optimizer.
+## Boundaries
 
-Use `mainWithCodegens` for registration and `incCompileFile` for inspecting
-fresh modules before TTC serialization. The whole-program callback can later
-inspect loaded dependencies and consume our sidecars. Neither callback requires
-using CExp. Both run after normal Idris processing, so this does not add an
-arbitrary pre-erasure compiler pass.
+- **Idris → our IR.** Only `IdrisMLIR.Frontend.*` imports upstream compiler
+  modules; a tooling test enforces this. Everything else consumes our IR, so
+  changes to Idris's internal records stay inside the adapter.
+- **Our IR → MLIR.** The compiler writes MLIR as text using upstream dialects
+  only (`func`, `arith`, `cf`/`scf`, `memref`, `vector`, `llvm`), then shells
+  out to the pinned tools, as Idris's own backends do with Scheme and C. We
+  maintain no MLIR dialect and no C++. Idris-specific structure (constructors,
+  closures, laziness) is lowered in our passes before emission.
 
-The initial `.ttsummary` is diagnostic output. It deliberately does not pretend
-to preserve all typed information. Before defining the persistent typed IR,
-measure which signatures, checked clauses, constructor relationships, and
-generated-helper annotations survive fresh versus cached compilation.
+## Frontend
 
-The first tests use an isolated, no-Prelude vector fixture. Ordinary Prelude
-caches lack our incremental artifacts and can disable the selected incremental
-backend. Handling that boundary explicitly comes before broad language support.
+The `core-inspect` backend registers through `mainWithCodegens`. Idris calls
+its `incCompileFile` callback after a module checks successfully and before
+the module's TTC is written; it reads checked definitions through `Defs`
+(`toIR defs`) and never through `getIncCompileData` or CExp. The later
+whole-program `compileExpr` callback will be the entry point for emitting MLIR.
 
-Keep constants, erased symbolic indices, and runtime indices distinct. Preserve
-evaluation order and typed laziness. Do not infer contiguous storage from Vect,
-unique heap ownership from multiplicity one, or machine-sized arithmetic from
-Nat. Fail explicitly when the supported subset cannot justify a lowering.
+An unchanged module skips the callback. An import without our incremental
+data makes Idris drop `core-inspect` from its incremental backends, so an
+ordinary prebuilt Prelude silently disables it. Tests therefore use a
+no-Prelude fixture. Cached imports also lose information that fresh modules
+have: TTC omits runtime case trees and the types of machine-generated names.
+Measuring fresh versus cached inspection comes before defining the typed IR.
 
-We use a full, unmodified upstream checkout as a build dependency rather than
-copying TT datatypes. Git pins Idris independently from the LLVM source pin in
-toolchain.lock.json.
+## Semantic rules
+
+Keep constants, erased symbolic indices, and runtime indices distinct: erased
+does not mean constant. A multiplicity-one binder does not imply unique heap
+ownership. `Vect` does not imply contiguous storage, and `Nat` does not imply
+a machine word. Preserve evaluation order and laziness. When the supported
+subset cannot justify a lowering, fail explicitly.
