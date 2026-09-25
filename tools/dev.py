@@ -201,7 +201,7 @@ def main():
         env = idris_env()
         if not COMPILER.is_file():
             raise ValueError("Run build before test")
-        run([sys.executable, "tests/frontend/check_inspector.py", COMPILER], env=env)
+        run([sys.executable, "tests/compiler/check_compile.py", COMPILER, llvm_bin()], env=env)
     elif args.command == "test-mlir-tools":
         run([sys.executable, "tests/mlir/check_pipeline.py", llvm_bin()])
 

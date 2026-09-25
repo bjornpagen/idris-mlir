@@ -13,11 +13,11 @@ Read README.md and docs/architecture.md before changing a compiler boundary.
   or move the pin as a side effect of other work.
 - Install build dependencies under .toolchain/ through tools/dev.py. Do not
   modify the user's global compiler installation or shell configuration.
-- The frontend currently emits an inspection summary, not a typed IR. Keep
-  documentation and error messages accurate about that.
+- The backend supports a small subset (see README). Reject anything outside
+  it with an explicit `unsupported` error; never miscompile silently.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
-- Checks: `python3 tools/dev.py check` always. After Idris changes, run
-  `build` and `test`. After changing MLIR usage, run `test-mlir-tools`. If a
+- Checks: `python3 tools/dev.py check` always. After compiler changes, run
+  `build` and `test`. After changing MLIR usage, also run `test-mlir-tools`. If a
   toolchain is unavailable, say so; do not report skipped tests as passed.
 - Tests must check exit status and produced artifacts, not just stdout.

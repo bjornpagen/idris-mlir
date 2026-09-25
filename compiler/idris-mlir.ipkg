@@ -4,6 +4,9 @@ brief = "Compiler from checked Idris 2 TT to MLIR"
 
 depends = idris2, network
 sourcedir = "src"
-modules = IdrisMLIR.Frontend.Inspect
+modules = IdrisMLIR.IR
+        , IdrisMLIR.Erase
+        , IdrisMLIR.Emit
+        , IdrisMLIR.Frontend.Translate
 main = IdrisMLIR.Frontend.Main
 executable = idris-mlir
