@@ -1,13 +1,5 @@
 {
-  "schema_version": 1,
-  "idris2": {
-    "repository": "https://github.com/idris-lang/Idris2.git",
-    "revision": "1c630e67c386629a0fbbc6b78a59176fde7f0a76",
-    "upstream_ref_at_selection": "refs/heads/main",
-    "path": "third_party/Idris2",
-    "package_version": "0.8.0",
-    "ttc_version": 2025081600
-  },
+  "schema_version": 2,
   "llvm": {
     "repository": "https://github.com/llvm/llvm-project.git",
     "revision": "85ac560262434c9ccfc0c183ec22d4138ed647fb",

@@ -1,0 +1,9 @@
+package idris-mlir
+version = 0.1.0
+brief = "Compiler from checked Idris 2 TT to MLIR"
+
+depends = idris2, network
+sourcedir = "src"
+modules = IdrisMLIR.Frontend.Inspect
+main = IdrisMLIR.Frontend.Main
+executable = idris-mlir

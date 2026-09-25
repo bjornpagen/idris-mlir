@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Local development entry point. Requires only Python's standard library."""
+"""Development entry point for idris-mlir. Standard library only."""
 
 import argparse
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIX = ROOT / ".toolchain" / "idris2"
+IDRIS_SOURCE = ROOT / "third_party/Idris2"
+TOOLCHAIN = ROOT / ".toolchain"
+IDRIS_PREFIX = TOOLCHAIN / "idris2"
+LLVM_SOURCE = TOOLCHAIN / "llvm-project"
+LLVM_BUILD = TOOLCHAIN / "llvm-build"
+LLVM_PREFIX = TOOLCHAIN / "llvm"
+LLVM_TOOLS = ("mlir-opt", "mlir-translate", "opt", "llc")
+COMPILER = ROOT / "compiler/build/exec/idris-mlir"
 
 
 def run(args, cwd=ROOT, env=None, capture=False):
@@ -21,43 +27,41 @@ def run(args, cwd=ROOT, env=None, capture=False):
     )
 
 
-def lock():
+def git(*args, cwd=ROOT):
+    return run(["git", *args], cwd=cwd, capture=True).stdout.strip()
+
+
+def require(*tools):
+    for tool in tools:
+        if shutil.which(tool) is None:
+            raise ValueError(f"Missing required tool: {tool}")
+
+
+def llvm_lock():
     data = json.loads((ROOT / "toolchain.lock.json").read_text())
-    if data["schema_version"] != 1:
+    if data.get("schema_version") != 2:
         raise ValueError("Unsupported toolchain lock schema")
-    for name in ("idris2", "llvm"):
-        if not re.fullmatch(r"[0-9a-f]{40}", data[name]["revision"]):
-            raise ValueError(f"{name} must be pinned to a full Git commit")
-    return data
+    return data["llvm"]
 
 
-def verify_pins():
-    data = lock()
-    dependency = ROOT / data["idris2"]["path"]
-    if not (dependency / ".git").exists():
-        raise ValueError("Initialize dependencies with git submodule update --init --recursive")
-    actual = run(["git", "rev-parse", "HEAD"], cwd=dependency, capture=True).stdout.strip()
-    expected = data["idris2"]["revision"]
-    if actual != expected:
-        raise ValueError(f"Idris checkout is {actual}; lock requires {expected}")
-    entry = run(
-        ["git", "ls-files", "--stage", "--", data["idris2"]["path"]], capture=True
-    ).stdout.split()
-    if len(entry) < 3 or entry[0] != "160000" or entry[1] != expected:
-        raise ValueError("Staged/committed Idris submodule pin does not match the lock")
-    dirty = run(
-        ["git", "status", "--porcelain", "--untracked-files=no"],
-        cwd=dependency, capture=True,
-    ).stdout
-    if dirty:
-        raise ValueError("The Idris dependency has tracked modifications:\n" + dirty)
-    package = (dependency / "idris2api.ipkg").read_text()
-    version = re.search(r"^version\s*=\s*(\S+)", package, re.MULTILINE).group(1)
-    binary = (dependency / "src/Core/Binary.idr").read_text()
-    ttc = re.search(r"^ttcVersion\s*=\s*([0-9_]+)", binary, re.MULTILINE).group(1)
-    if version != data["idris2"]["package_version"] or int(ttc.replace("_", "")) != data["idris2"]["ttc_version"]:
-        raise ValueError("Pinned source package/TTC versions disagree with the lock")
-    return data
+def verify_idris_source():
+    """The submodule must be checked out at its staged gitlink, unmodified."""
+    if not (IDRIS_SOURCE / ".git").exists():
+        raise ValueError("Idris source missing; run: git submodule update --init")
+    entry = git("ls-files", "--stage", "--", "third_party/Idris2").split()
+    if len(entry) < 2 or entry[0] != "160000":
+        raise ValueError("third_party/Idris2 is not a submodule entry")
+    head = git("rev-parse", "HEAD", cwd=IDRIS_SOURCE)
+    if head != entry[1]:
+        raise ValueError(f"Idris checkout is {head}; the staged pin is {entry[1]}")
+    if git("status", "--porcelain", "--untracked-files=no", cwd=IDRIS_SOURCE):
+        raise ValueError("third_party/Idris2 has tracked modifications")
+    return head
+
+
+def read_stamp(prefix):
+    stamp = prefix / "provenance.json"
+    return json.loads(stamp.read_text()) if stamp.is_file() else None
 
 
 def local_env():
@@ -65,96 +69,141 @@ def local_env():
     for key in ("IDRIS2_PATH", "IDRIS2_PACKAGE_PATH", "IDRIS2_INC_CGS",
                 "IDRIS2_DATA", "IDRIS2_LIBS", "IDRIS2_CG", "IDRIS2_BOOT"):
         env.pop(key, None)
-    env["IDRIS2_PREFIX"] = str(PREFIX)
-    env["PATH"] = str(PREFIX / "bin") + os.pathsep + env.get("PATH", "")
+    env["IDRIS2_PREFIX"] = str(IDRIS_PREFIX)
+    env["PATH"] = str(IDRIS_PREFIX / "bin") + os.pathsep + env.get("PATH", "")
     return env
 
 
-def installed_env(data):
-    compiler = PREFIX / "bin/idris2"
-    stamp = PREFIX / "provenance.json"
-    if not compiler.is_file() or not stamp.is_file():
+def idris_env():
+    stamp = read_stamp(IDRIS_PREFIX)
+    if stamp is None or not (IDRIS_PREFIX / "bin/idris2").is_file():
         raise ValueError("Build the local compiler/API with bootstrap-idris first")
-    provenance = json.loads(stamp.read_text())
-    if provenance["idris2_revision"] != data["idris2"]["revision"]:
-        raise ValueError("Local toolchain is stale; rebuild for the locked revision")
+    if stamp["idris2_revision"] != verify_idris_source():
+        raise ValueError("Local Idris toolchain is stale; rerun bootstrap-idris")
     env = local_env()
-    env["CHEZ"] = provenance["scheme"]
-    return compiler, env
+    env["CHEZ"] = stamp["scheme"]
+    return env
 
 
-def bootstrap(data, scheme):
+def llvm_bin():
+    stamp = read_stamp(LLVM_PREFIX)
+    if stamp is None:
+        raise ValueError("Build the pinned MLIR tools with bootstrap-llvm first")
+    if stamp["llvm_revision"] != llvm_lock()["revision"]:
+        raise ValueError("Local LLVM tools are stale; rerun bootstrap-llvm")
+    return LLVM_PREFIX / "bin"
+
+
+def bootstrap_idris(scheme):
     executable = shutil.which(scheme)
     if executable is None:
         raise ValueError(f"Chez Scheme executable not found: {scheme}")
     executable = str(Path(executable).resolve())
-    for required in ("make", "cc", "git"):
-        if shutil.which(required) is None:
-            raise ValueError(f"Missing required tool: {required}")
-    dependency = ROOT / data["idris2"]["path"]
-    PREFIX.mkdir(parents=True, exist_ok=True)
+    require("make", "cc", "git")
+    revision = verify_idris_source()
+    IDRIS_PREFIX.mkdir(parents=True, exist_ok=True)
     # A failed rebuild must not leave a success stamp for a partial install.
-    (PREFIX / "provenance.json").unlink(missing_ok=True)
+    (IDRIS_PREFIX / "provenance.json").unlink(missing_ok=True)
     env = local_env()
-    # Upstream's bootstrap recursively changes PREFIX for its intermediate
-    # installation. An inherited IDRIS2_PREFIX would override those defaults.
+    # Upstream's bootstrap changes PREFIX for its intermediate installation;
+    # an inherited IDRIS2_PREFIX would override that.
     env.pop("IDRIS2_PREFIX", None)
     env["CHEZ"] = executable
-    options = [f"PREFIX={PREFIX}", f"SCHEME={executable}"]
-    run(["make", "bootstrap", *options], cwd=dependency, env=env)
-    run(["make", "install", *options], cwd=dependency, env=env)
-    run(["make", "install-api", *options, f"IDRIS2_BOOT={PREFIX / 'bin/idris2'}"],
-        cwd=dependency, env=env)
-    (PREFIX / "provenance.json").write_text(json.dumps({
-        "idris2_revision": data["idris2"]["revision"], "scheme": executable,
-    }, indent=2) + "\n")
+    options = [f"PREFIX={IDRIS_PREFIX}", f"SCHEME={executable}"]
+    run(["make", "bootstrap", *options], cwd=IDRIS_SOURCE, env=env)
+    run(["make", "install", *options], cwd=IDRIS_SOURCE, env=env)
+    run(["make", "install-api", *options, f"IDRIS2_BOOT={IDRIS_PREFIX / 'bin/idris2'}"],
+        cwd=IDRIS_SOURCE, env=env)
+    (IDRIS_PREFIX / "provenance.json").write_text(json.dumps(
+        {"idris2_revision": revision, "scheme": executable}, indent=2) + "\n")
+
+
+def bootstrap_llvm():
+    lock = llvm_lock()
+    require("git", "cmake", "ninja", "c++")
+    LLVM_PREFIX.mkdir(parents=True, exist_ok=True)
+    (LLVM_PREFIX / "provenance.json").unlink(missing_ok=True)
+    if not (LLVM_SOURCE / ".git").exists():
+        run(["git", "clone", "--depth", "1", "--branch", lock["tag"],
+             lock["repository"], LLVM_SOURCE])
+    head = git("rev-parse", "HEAD", cwd=LLVM_SOURCE)
+    if head != lock["revision"]:
+        raise ValueError(f"{LLVM_SOURCE} is at {head}; lock requires {lock['revision']}")
+    run(["cmake", "-S", LLVM_SOURCE / "llvm", "-B", LLVM_BUILD, "-G", "Ninja",
+         "-DCMAKE_BUILD_TYPE=Release",
+         "-DLLVM_ENABLE_PROJECTS=mlir",
+         "-DLLVM_TARGETS_TO_BUILD=Native",
+         "-DLLVM_ENABLE_ASSERTIONS=ON",
+         "-DLLVM_INCLUDE_TESTS=OFF",
+         "-DLLVM_INCLUDE_EXAMPLES=OFF",
+         "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+         "-DLLVM_PARALLEL_LINK_JOBS=1"])
+    run(["cmake", "--build", LLVM_BUILD, "--target", *LLVM_TOOLS])
+    (LLVM_PREFIX / "bin").mkdir(exist_ok=True)
+    for tool in LLVM_TOOLS:
+        shutil.copy2(LLVM_BUILD / "bin" / tool, LLVM_PREFIX / "bin" / tool)
+    (LLVM_PREFIX / "provenance.json").write_text(json.dumps(
+        {"llvm_revision": lock["revision"]}, indent=2) + "\n")
+
+
+def gmp_available():
+    probe = subprocess.run(
+        ["cc", "-E", "-x", "c", "-", *os.environ.get("CPPFLAGS", "").split()],
+        input="#include <gmp.h>\n", capture_output=True, text=True,
+    ) if shutil.which("cc") else None
+    return probe is not None and probe.returncode == 0
+
+
+def doctor():
+    try:
+        print("Idris source:", verify_idris_source())
+    except ValueError as error:
+        print("Idris source: problem:", error)
+    lock = llvm_lock()
+    print("LLVM pin:", lock["tag"], lock["revision"])
+    for tool in ("git", "make", "cc", "bash", "sha256sum",
+                 "scheme", "chez", "chezscheme", "cmake", "ninja"):
+        print(f"{tool}: {shutil.which(tool) or 'not found'}")
+    print("GMP headers:", "found" if gmp_available() else "not found")
+    stamp = read_stamp(IDRIS_PREFIX)
+    print("Local Idris/API:", f"built at {stamp['idris2_revision']}" if stamp else "not built")
+    stamp = read_stamp(LLVM_PREFIX)
+    print("Local MLIR tools:", f"built at {stamp['llvm_revision']}" if stamp else "not built")
+    for tool in LLVM_TOOLS if stamp else ():
+        output = run([LLVM_PREFIX / "bin" / tool, "--version"], capture=True).stdout
+        ok = f"version {lock['version']}" in output
+        print(f"  {tool}: {'matches lock' if ok else 'VERSION MISMATCH'}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("doctor", "check", "verify-pins", "build-frontend", "test-frontend",
-                 "build-mlir", "test-mlir"):
+    for name in ("doctor", "check", "verify-pins", "bootstrap-llvm",
+                 "build", "test", "test-mlir-tools"):
         commands.add_parser(name)
     boot = commands.add_parser("bootstrap-idris")
     boot.add_argument("--scheme", required=True, help="Threaded Chez Scheme executable")
-    config = commands.add_parser("configure-mlir")
-    config.add_argument("--mlir-dir", required=True, type=Path)
     args = parser.parse_args()
-    data = verify_pins()
-    if args.command == "verify-pins":
-        print("Idris source, Git submodule, and toolchain lock agree")
-    elif args.command == "doctor":
-        print("Idris pin:", data["idris2"]["revision"])
-        print("LLVM pin:", data["llvm"]["tag"], data["llvm"]["revision"])
-        for tool in ("git", "make", "cc", "c++", "cmake", "ninja", "scheme", "chez", "chezscheme"):
-            print(f"{tool}: {shutil.which(tool) or 'not found on PATH'}")
-        print("Local Idris/API:", "built" if (PREFIX / "provenance.json").exists() else "not built")
-        print("MLIR: supply --mlir-dir to configure-mlir; availability is not inferred")
+
+    if args.command == "doctor":
+        doctor()
+    elif args.command == "verify-pins":
+        print("Idris source matches its pin:", verify_idris_source())
     elif args.command == "check":
         run([sys.executable, "-m", "unittest", "discover", "-s", "tests/tooling", "-v"])
-        print("Scaffold checks passed; frontend and MLIR integration tests are separate")
     elif args.command == "bootstrap-idris":
-        bootstrap(data, args.scheme)
-    elif args.command == "build-frontend":
-        compiler, env = installed_env(data)
-        run([compiler, "--build", "frontend.ipkg"], cwd=ROOT / "frontend", env=env)
-    elif args.command == "test-frontend":
-        _, env = installed_env(data)
-        frontend = ROOT / "frontend/build/exec/idris-mlir"
-        if not frontend.is_file():
-            raise ValueError("Run build-frontend before test-frontend")
-        run([sys.executable, "tests/frontend/check_inspector.py", frontend], env=env)
-    elif args.command == "configure-mlir":
-        mlir_dir = args.mlir_dir.resolve()
-        if not (mlir_dir / "MLIRConfig.cmake").is_file():
-            raise ValueError(f"MLIRConfig.cmake not found in {mlir_dir}")
-        run(["cmake", "-S", ROOT, "-B", ROOT / "build/mlir", "-G", "Ninja",
-             f"-DMLIR_DIR={mlir_dir}", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON"])
-    elif args.command == "build-mlir":
-        run(["cmake", "--build", ROOT / "build/mlir", "--target", "idris-mlir-opt"])
-    elif args.command == "test-mlir":
-        run(["ctest", "--test-dir", ROOT / "build/mlir", "--output-on-failure"])
+        bootstrap_idris(args.scheme)
+    elif args.command == "bootstrap-llvm":
+        bootstrap_llvm()
+    elif args.command == "build":
+        run(["idris2", "--build", "idris-mlir.ipkg"], cwd=ROOT / "compiler", env=idris_env())
+    elif args.command == "test":
+        env = idris_env()
+        if not COMPILER.is_file():
+            raise ValueError("Run build before test")
+        run([sys.executable, "tests/frontend/check_inspector.py", COMPILER], env=env)
+    elif args.command == "test-mlir-tools":
+        run([sys.executable, "tests/mlir/check_pipeline.py", llvm_bin()])
 
 
 if __name__ == "__main__":

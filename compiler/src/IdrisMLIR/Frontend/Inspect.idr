@@ -1,4 +1,4 @@
-module IdrisMLIR.Inspect
+module IdrisMLIR.Frontend.Inspect
 
 import Compiler.Common
 import Core.Context
@@ -12,8 +12,8 @@ import System.File
 
 %default covering
 
--- This is a diagnostic summary, not the portable typed IR. Keep the complete
--- checked terms in the context; do not go through getIncCompileData/CExp.
+-- A diagnostic summary of checked TT, not a typed IR. Reads definitions
+-- through Defs; never through getIncCompileData/CExp.
 signatureQuantities : Term vars -> List String
 signatureQuantities (Bind _ _ (Pi _ quantity _ _) body) =
   show quantity :: signatureQuantities body
@@ -64,7 +64,7 @@ compileUnsupported : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
                      Core (Maybe String)
 compileUnsupported _ _ _ _ _ _ =
   throw (GenericMsg EmptyFC
-    "core-inspect does not generate executables; use --inc core-inspect --check")
+    "core-inspect only writes .ttsummary files; MLIR output is not implemented. Use --inc core-inspect --check")
 
 executeUnsupported : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
                      String -> ClosedTerm -> Core ()

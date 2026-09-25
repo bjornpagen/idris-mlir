@@ -1,8 +1,7 @@
-module Main
+module IdrisMLIR.Frontend.Main
 
-import Compiler.Common
 import Idris.Driver
-import IdrisMLIR.Inspect
+import IdrisMLIR.Frontend.Inspect
 
 main : IO ()
 main = mainWithCodegens [("core-inspect", inspector)]

@@ -1,6 +1,5 @@
 /.toolchain/
-/build/
-/frontend/build/
+/compiler/build/
 __pycache__/
 *.pyc
 .DS_Store
