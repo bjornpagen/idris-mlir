@@ -180,5 +180,6 @@ J. **Bleeding edge, evaluated critically.** HVM2/Bend and interaction nets
 2. A short chat summary: the recommendation, the evidence, and what remains
    uncertain.
 
-Do not implement compiler changes. Commit the research document on a new
-branch and push it. Do not merge to main.
+Do not implement compiler changes. Work directly on `main`: commit the
+research document there and push it (`git push origin main`). Do not create
+a branch.
