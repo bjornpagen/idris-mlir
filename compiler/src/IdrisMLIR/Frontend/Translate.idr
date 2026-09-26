@@ -34,6 +34,9 @@ record Pending where
   name : Name
   instName : String
   typeArgs : List ClosedTerm
+  ||| The instances that requested this one, innermost first, with the size
+  ||| of their keys (ELIM-MONO-3).
+  path : List (String, Nat)
 
 ||| What a constructor instance needs for case trees.
 record ConInfo where
@@ -57,10 +60,12 @@ record TS where
   seen : SortedSet String
   queue : List Pending
   moduleFC : FC
+  current : List (String, Nat)        -- the path of the instance being translated
+  perName : SortedMap String Nat      -- instances per definition (ELIM-MONO-3)
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc
+initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty
 
 fresh : {auto s : Ref TState TS} -> Core Var
 fresh = do
@@ -267,8 +272,15 @@ mutual
         t <- if isErased rig then pure ErasedT else do
                a' <- normaliseClosed a
                when (anyErased a') $
-                 reject dfc cname "PROF-TYPE-4" "a field type that depends on another field"
-               coreType dfc cname a'
+                 reject dfc cname "PROF-DATA-2" "a field type that depends on another field"
+               -- PROF-DATA-2: a field of a type that is not a runtime type.
+               catch (coreType dfc cname a') $ \err => case err of
+                 GenericMsg _ msg =>
+                   if isInfixOf "(PROF-TYPE-4)" msg
+                      then reject dfc cname "PROF-DATA-2" ("a field of type " ++ showTerm a' ++
+                                                           ", which is not a runtime type")
+                      else throw err
+                 _ => throw err
         rest <- walk cname dfc [] (subst (Erased bfc Placeholder) sc)
         pure (MkField (quantity rig) t :: rest)
       walk _ _ _ _ = pure []
@@ -290,13 +302,40 @@ mutual
 ------------------------------------------------------------------------------
 
 ||| Requests a function instance and returns its name.
-request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> List ClosedTerm -> Core String
-request n targs = do
+||| Requests a function instance and returns its name. Polymorphic recursion
+||| would request ever larger instances of one definition (ELIM-MONO-3).
+request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+          FC -> String -> Name -> List ClosedTerm -> Core String
+request fc owner n targs = do
   inst <- instanceName n targs
+  base <- show <$> toFullNames n
   st <- get TState
-  unless (contains inst st.seen) $
-    put TState ({ seen $= insert inst, queue $= (++ [MkPending n inst targs]) } st)
+  unless (contains inst st.seen) $ do
+    let size = length inst
+    when (any (\(b, k) => b == base && k < size) st.current) $
+      reject fc owner "PROF-POLY-1"
+             ("polymorphic recursion: " ++ base ++ " calls itself at a larger type (" ++ inst ++ ")")
+    let count = fromMaybe 0 (lookup base st.perName)
+    when (count >= 64) $
+      reject fc owner "PROF-POLY-1" ("more than 64 instances of " ++ base)
+    put TState ({ seen $= insert inst
+                , perName $= insert base (S count)
+                , queue $= (++ [MkPending n inst targs ((base, size) :: st.current)]) } st)
   pure inst
+
+||| PROF-DATA-5: a type constructor with indices, found before its instance
+||| is needed (a runtime type mentioning an index).
+indexedHead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              String -> ClosedTerm -> Core ()
+indexedHead owner tm = case spine tm [] of
+  (Ref _ (TyCon _) n, _) => do
+    def <- lookupDef EmptyFC owner n
+    case definition def of
+      TCon arity params _ _ _ _ _ =>
+        when (arity > 0 && any (\i => not (elem i params)) [0 .. minus arity 1]) $
+          reject (location def) (show (fullname def)) "PROF-DATA-5" "a data type with indices at runtime"
+      _ => pure ()
+  _ => pure ()
 
 ||| Parameter classification after instantiation.
 data PKind = TypeParam ClosedTerm | ErasedParam | RuntimeParam Ty
@@ -322,6 +361,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) vals'
          pure ((Q0, ErasedParam) :: rest, res)
        else do
+         indexedHead owner a'
          when (anyErased a') $
            reject fc owner "PROF-TYPE-4" "a parameter type that depends on another argument"
          t <- coreType fc owner a'
@@ -532,7 +572,7 @@ mutual
         let targs = mapMaybe (\k => case k of
                                       (_, TypeParam t) => Just t
                                       _ => Nothing) kinds
-        inst <- request name targs
+        inst <- request fc ctx.owner name targs
         given <- arguments fc loc kinds (take arity as)
         finish loc kinds given (ECall loc inst) (drop arity as)
 
@@ -543,14 +583,13 @@ mutual
         DataT inst <- coreType fc ctx.owner !(normaliseClosed resTy)
           | _ => reject fc ctx.owner "FE-TR-3" "constructor of a non-data type"
         given <- arguments fc loc kinds (take arity as)
-        -- Parameters are not fields: drop the type parameters' positions.
-        let fieldArgs = map snd (filter (not . isParam . fst) (zip kinds given))
-        finish loc (filter (not . isParam) kinds) fieldArgs
-               (ECon loc inst (show (fullname def))) (drop arity as)
-        where
-          isParam : (Quantity, PKind) -> Bool
-          isParam (_, TypeParam _) = True
-          isParam _ = False
+        -- The data type's parameters come first and are not fields; a type
+        -- argument after them is an erased field.
+        st <- get TState
+        let cname = show (fullname def)
+        let nparams = maybe 0 (length . (.params)) (lookup (inst ++ "::" ++ cname) st.cons)
+        finish loc (drop nparams kinds) (drop nparams given)
+               (ECon loc inst cname) (drop arity as)
 
       primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (Term vars) -> Core Expr
       primitive fc loc name arity op as = case op of
@@ -720,7 +759,7 @@ drain = do
   case st.queue of
     [] => pure ()
     (p :: rest) => do
-      put TState ({ queue := rest } st)
+      put TState ({ queue := rest, current := p.path } st)
       translateInstance p
       drain
 
@@ -772,7 +811,7 @@ assemble root entry = do
 export
 translateIntProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Program
 translateIntProgram main = do
-  root <- request main []
+  root <- request EmptyFC (show main) main []
   drain
   assemble root IntEntry
 
@@ -785,7 +824,7 @@ export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core Program
 translateIOProgram fc main = do
-  inst <- request main []
+  inst <- request fc (show main) main []
   drain
   st <- get TState
   let owner = show main

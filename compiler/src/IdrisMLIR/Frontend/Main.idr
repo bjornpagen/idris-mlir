@@ -22,6 +22,8 @@ import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Translate
 
 import Data.List
+import Data.List1
+import Data.Maybe
 import Data.String
 import System
 import System.Directory
@@ -127,8 +129,10 @@ compileModule c _ source = do
   -- PROF-PROG-1
   case defs.imported of
     [] => pure ()
-    ((m, _, _) :: _) => reject fc (show ident) "PROF-PROG-1"
-                          ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
+    ((m, _, _) :: _) => do
+      at <- map snd . head' <$> imports ident source
+      reject (fromMaybe fc at) (show ident) "PROF-PROG-1"
+             ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
   -- PROF-PROG-2
   let main = NS (miAsNamespace ident) (UN (Basic "main"))
   Just def <- lookupCtxtExact main (gamma defs)
@@ -189,12 +193,25 @@ compileIO c _ tmpDir outputDir tm outfile = do
                     NS ns _ => nsAsModuleIdent ns
                     _ => nsAsModuleIdent (mkNamespace "Main")
   let mods = mainIdent :: map (\(_, (m, _, _)) => m) defs.allImported
-  for_ mods $ \m =>
-    unless (trustedModule (unsafeUnfoldModuleIdent m) || null (unsafeUnfoldModuleIdent m)) $ do
-      Right path <- catch (Right <$> nsToSource fc m) (\_ => pure (Left ()))
-        | Left () => reject fc "main" "PROF-PROG-4"
-                       ("imports " ++ show m ++ ", which is neither a user module nor a trusted module")
-      checkPragmas m path
+  let user = filter (\m => not (trustedModule (unsafeUnfoldModuleIdent m) || null (unsafeUnfoldModuleIdent m))) mods
+  sources <- for user $ \m => do
+    path <- catch (Just <$> nsToSource fc m) (\_ => pure Nothing)
+    pure (m, path)
+  let userNames = map (show . fst) (filter (isJust . snd) sources)
+  -- An import of a module that is neither a user module nor trusted, at the
+  -- import itself (DIAG-LOC-1).
+  for_ sources $ \(m, path) => case path of
+    Just p => do
+      is <- imports m p
+      for_ is $ \(target, at) =>
+        unless (trustedModule (reverse (forget (split (== '.') target))) || elem target userNames) $
+          reject at (show m) "PROF-PROG-4"
+                 ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
+    Nothing => pure ()
+  for_ sources $ \(m, path) => case path of
+    Just p => checkPragmas m p
+    Nothing => reject fc "main" "PROF-PROG-4"
+                 ("loads " ++ show m ++ ", which is neither a user module nor a trusted module")
   checkReachable fc [main]
   prog <- translateIOProgram fc main
   (dir, dumpMlir) <- dumpDir base

@@ -16,6 +16,7 @@ import Parser.Lexer.Source
 import IdrisMLIR.Frontend.Translate
 
 import Data.List
+import Data.Maybe
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
@@ -51,7 +52,8 @@ allowed =
 ||| (`%charLit fromChar`, `%stringLit fromString`), with their Char and String
 ||| implementations; the dictionaries are eliminated like any static record.
 allowedPrefixes : List String
-allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar", "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString"]
+allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar", "Builtin.defaultChar",
+                   "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString", "Builtin.defaultString"]
 
 admitted : String -> Bool
 admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes
@@ -72,6 +74,31 @@ enclosing (NS ns (WithBlock outer _)) = show (NS ns (UN (Basic outer)))
 enclosing n = show n
 
 ------------------------------------------------------------------------------
+-- Imports (PROF-PROG-1, PROF-PROG-4)
+------------------------------------------------------------------------------
+
+||| The modules a user module's source imports, with the location of each
+||| `import` (PROF-PROG-1, PROF-PROG-4; DIAG-LOC-1).
+export
+imports : ModuleIdent -> String -> Core (List (String, FC))
+imports ident path = do
+  Right text <- coreLift (readFile path)
+    | Left _ => pure []
+  pure (go 0 (lines text))
+  where
+    imported : List String -> Maybe String
+    imported ("public" :: n :: _) = Just n
+    imported (n :: _) = Just n
+    imported [] = Nothing
+    go : Int -> List String -> List (String, FC)
+    go i [] = []
+    go i (l :: ls) = case words l of
+      ("import" :: rest) => case imported rest of
+        Just n => (n, MkFC (PhysicalIdrSrc ident) (i, 0) (i, cast (length l))) :: go (i + 1) ls
+        Nothing => go (i + 1) ls
+      _ => go (i + 1) ls
+
+------------------------------------------------------------------------------
 -- Pragmas (PROF-PRAG-1)
 ------------------------------------------------------------------------------
 
@@ -88,12 +115,19 @@ checkPragmas ident path = do
              "the source could not be lexed"
     Right (_, toks) => traverse_ check toks
   where
+    at : WithBounds Token -> FC
+    at tok = let b = tok.bounds in
+             MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
+    ||| PROF-ESC-1 in the source: Idris reduces `prim__believe_me` applied to
+    ||| a value during elaboration, so it can vanish from TT.
+    escape : String -> Bool
+    escape n = elem n (the (List String) ["prim__believe_me", "prim__crash", "believe_me", "idris_crash"])
     check : WithBounds Token -> Core ()
     check tok = case tok.val of
-      Pragma p => do
-        let b = tok.bounds
-        reject (MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol))
-               (show ident) "PROF-PRAG-1" ("the pragma %" ++ p)
+      Pragma p => reject (at tok) (show ident) "PROF-PRAG-1" ("the pragma %" ++ p)
+      HoleIdent h => reject (at tok) (show ident) "PROF-ESC-1" ("the hole ?" ++ h)
+      Ident n => when (escape n) $ reject (at tok) (show ident) "PROF-ESC-1" ("the escape hatch " ++ n)
+      DotSepIdent _ n => when (escape n) $ reject (at tok) (show ident) "PROF-ESC-1" ("the escape hatch " ++ n)
       _ => pure ()
 
 ||| PROF-PRAG-1 over every user module of the program.
@@ -167,7 +201,8 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
       if contains key seen then go seen rest else do
         let ns = namespaceOf full
         let trusted = trustedModule ns
-        let here = if trusted then path else (full, location def) :: path
+        -- Primitives have no location; errors name the user definition.
+        let here = if trusted || isNothing (isNonEmptyFC (location def)) then path else (full, location def) :: path
         let owner = case here of
                       ((u, _) :: _) => show u
                       [] => key
@@ -190,7 +225,7 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
           reject (userFC here) owner "PROF-LIB-1" (key ++ " is not admitted from its trusted module" ++ via here)
         -- PROF-IO-3
         unless trusted $ do
-          let refs = map show (refsOf def)
+          refs <- traverse (\r => show <$> toFullNames r) (refsOf def)
           case find (`elem` rootOnly) refs of
             Just r => reject (location def) key "PROF-IO-3" ("uses " ++ r)
             Nothing => pure ()

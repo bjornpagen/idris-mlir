@@ -1,5 +1,7 @@
 /.toolchain/
-/compiler/build/
+/build/
+build/
+/compiler/src/IdrisMLIR/Frontend/Paths.idr
 __pycache__/
 *.pyc
 .DS_Store

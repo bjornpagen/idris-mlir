@@ -92,8 +92,9 @@ emit b = do
       let (ok, relied) = safeExpr st e
       unless ok $
         fail "PROF-HEAP-5" (locOf e)
-             ("arity raising is blocked: this computation may crash or not terminate, " ++
-              "and would move from where an IO action or function is built to where it runs")
+             ("arity raising is blocked by " ++ blocking e ++ ", which may crash or not " ++
+              "terminate, and would move from where an IO action or function is built to " ++
+              "where it runs (DIAG-HEAP-1)")
       modify { assumed $= union (fromList relied) }
     _ => pure ()
   st <- get
@@ -101,6 +102,13 @@ emit b = do
     (s :: ss) => put ({ scopes := (s :< b) :: ss } st)
     [] => put ({ scopes := [[<b]] } st)
   where
+    ||| DIAG-HEAP-1: the operation that blocks arity raising.
+    blocking : Expr -> String
+    blocking (EPrim _ (Div _) _) = "a division"
+    blocking (EPrim _ (Mod _) _) = "a modulus"
+    blocking (ECall _ f _) = "a call to " ++ fst (break (== '{') f)
+    blocking (EIO _ op _ _) = "the IO operation " ++ show op
+    blocking _ = "an operation"
     ||| Branches of matches were checked as they were emitted.
     safeExpr : St -> Expr -> (Bool, List String)
     safeExpr st (EPrim _ (Div _) [_, ELit _ (LInt _ n)]) = (n /= 0, [])
@@ -170,6 +178,18 @@ isStaticTy st (FunT {}) = True
 isStaticTy st (LazyT _) = True
 isStaticTy st (DataT d) = contains d st.staticData
 isStaticTy st _ = False
+
+||| Does a static data instance hold a function (not only `Lazy` values)?
+holdsFunction : St -> String -> Bool
+holdsFunction st d = go [d] d
+  where
+    go : List String -> String -> Bool
+    go seen n = case lookupData n st.prog of
+      Just dt => any (\f => case f.type of
+                               FunT {} => True
+                               DataT m => not (elem m seen) && go (m :: seen) m
+                               _ => False) (concatMap (.fields) dt.cons)
+      Nothing => False
 
 ||| Data instances that hold static values, directly or through other data.
 staticDatas : Program -> SortedSet String
@@ -613,8 +633,9 @@ mutual
             let fields = map (\i => SCall f as (ms ++ [EProj con.name i])) [0 .. length xs `minus` 1]
             in evalK (zip xs (take (length xs) fields) ++ env) e es
           Nothing => maybe (fail "CORE-CHECK-1" l "no alternative") (\dd => evalK env dd es) def
-        _ => fail "PROF-HEAP-1" l
-               ("the constructor of a static value of type " ++ d ++ " would be chosen at runtime")
+        _ => fail (if holdsFunction st d then "PROF-HEAP-1" else "PROF-HEAP-2") l
+               ("a value of type " ++ dt.idrisName ++ " holds a function or Lazy value, and which " ++
+                "constructor it has would be chosen at runtime, so it would need the heap")
       Nothing => fail "CORE-CHECK-1" l ("unknown data " ++ d)
   matchCon env l (Dyn (EVar _ x) (DataT d)) alts def es = do
     st <- get
@@ -688,6 +709,16 @@ mutual
     case lookup key st.memo of
       Just n => pure n
       Nothing => do
+        -- PROF-HEAP-4: while `f` is being specialized, `f` is needed again
+        -- with larger static arguments (functions, actions, Lazy values): they
+        -- grow with each recursive call, and specialization would not
+        -- terminate. Nested uses on smaller arguments, such as the `>>` of a
+        -- `do` block, are fine. The counts are a backstop.
+        let base = \k => fst (break (== '{') k)
+        when (any (\k => base k == fn.name && length key > length k) (Prelude.toList st.active)) $
+          fail "PROF-HEAP-4" l
+               (fn.idrisName ++ " passes itself a function, IO action or Lazy value that " ++
+                "grows with each call, so it cannot be specialized away")
         let count = fromMaybe 0 (lookup fn.name st.counts)
         when (count >= 256 || length key > 4096) $
           fail "PROF-HEAP-4" l
