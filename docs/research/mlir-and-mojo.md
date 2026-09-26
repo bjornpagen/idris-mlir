@@ -1,6 +1,6 @@
 # MLIR, Mojo, and the Idris performance goal
 
-> Research snapshot from before the scaffold. See [the current architecture](../architecture.md) and [repository README](../../README.md) for implemented scope.
+> Research snapshot from before the scaffold. See [the architecture spec](../architecture/00-index.md) and [repository README](../../README.md) for implemented scope.
 
 This is design research, not a speedup claim. Idris source baseline:
 `1c630e67c386629a0fbbc6b78a59176fde7f0a76`. The interface recommendation is in

@@ -1,6 +1,6 @@
 # Idris 2 interfaces for a compiler that preserves static information
 
-> Research snapshot from before the scaffold. See [the current architecture](../architecture.md) and [repository README](../../README.md) for implemented scope.
+> Research snapshot from before the scaffold. See [the architecture spec](../architecture/00-index.md) and [repository README](../../README.md) for implemented scope.
 
 Source audit: Idris commit `1c630e67c386629a0fbbc6b78a59176fde7f0a76`.
 The compiler API package declares version `0.8.0`.

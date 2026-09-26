@@ -1,6 +1,6 @@
 # Starting experiment and existing test coverage
 
-> Research snapshot from before the scaffold. See [the current architecture](../architecture.md) and [repository README](../../README.md) for implemented scope.
+> Research snapshot from before the scaffold. See [the architecture spec](../architecture/00-index.md) and [repository README](../../README.md) for implemented scope.
 
 Source audit at `1c630e67c386629a0fbbc6b78a59176fde7f0a76`.
 This records inspected source, scripts, and expected outputs, not tests run
