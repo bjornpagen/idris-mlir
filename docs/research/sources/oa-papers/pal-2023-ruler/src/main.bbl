@@ -1,0 +1,980 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{64}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{} and \showURL{}.  The latter does
+%%% not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showURL}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showURL #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+\makeatletter
+\@ifundefined{NAT@parse@date}{}{\let\NAT@parse@date@orig\NAT@parse@date}
+\@ifundefined{NAT@parse@date}{}{\def\NAT@parse@date#1#2#3#4#5#6@@{\NAT@parse@date@orig#1#2#3#4#5#6@@\def\NAT@tempyear{0000}\def\NAT@tempexlab{{?}}\ifx\NAT@year\NAT@tempyear\ifx\NAT@exlab\NAT@tempexlab\def\NAT@date{[n.\,d.]}\else\edef\NAT@date{[n.\,d.]\NAT@exlab}\fi\fi}}
+\makeatother
+
+\bibitem[Abiteboul et~al\mbox{.}(1995)]%
+        {alice}
+\bibfield{author}{\bibinfo{person}{Serge Abiteboul}, \bibinfo{person}{Richard
+  Hull}, {and} \bibinfo{person}{Victor Vianu}.}
+  \bibinfo{year}{1995}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{Foundations of Databases}}.
+\newblock \bibinfo{publisher}{Addison-Wesley}.
+\newblock
+\showISBNx{0-201-53771-0}
+\urldef\tempurl%
+\url{http://webdam.inria.fr/Alice/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Bansal and Aiken(2006)]%
+        {bansal}
+\bibfield{author}{\bibinfo{person}{Sorav Bansal} {and} \bibinfo{person}{Alex
+  Aiken}.} \bibinfo{year}{2006}\natexlab{}.
+\newblock \showarticletitle{Automatic Generation of Peephole Superoptimizers}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the 12th International Conference
+  on Architectural Support for Programming Languages and Operating Systems}}
+  (San Jose, California, USA) \emph{(\bibinfo{series}{ASPLOS XII})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{394–403}.
+\newblock
+\showISBNx{1595934510}
+\href{https://doi.org/10.1145/1168857.1168906}{doi:\nolinkurl{10.1145/1168857.1168906}}
+
+
+\bibitem[Barke et~al\mbox{.}(2024a)]%
+        {hysynth}
+\bibfield{author}{\bibinfo{person}{Shraddha Barke},
+  \bibinfo{person}{Emmanuel~Anaya Gonzalez}, \bibinfo{person}{Saketh~Ram
+  Kasibatla}, \bibinfo{person}{Taylor Berg-Kirkpatrick}, {and}
+  \bibinfo{person}{Nadia Polikarpova}.} \bibinfo{year}{2024}\natexlab{a}.
+\newblock \bibinfo{title}{HYSYNTH: Context-Free LLM Approximation for Guiding
+  Program Synthesis}.
+\newblock
+\showeprint[arxiv]{2405.15880}~[cs.PL]
+\urldef\tempurl%
+\url{https://arxiv.org/abs/2405.15880}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Barke et~al\mbox{.}(2024b)]%
+        {shraddha}
+\bibfield{author}{\bibinfo{person}{Shraddha Barke}, \bibinfo{person}{Christian
+  Poelitz}, \bibinfo{person}{Carina~Suzana Negreanu}, \bibinfo{person}{Benjamin
+  Zorn}, \bibinfo{person}{José Cambronero}, \bibinfo{person}{Andrew~D.
+  Gordon}, \bibinfo{person}{Vu Le}, \bibinfo{person}{Elnaz Nouri},
+  \bibinfo{person}{Nadia Polikarpova}, \bibinfo{person}{Advait Sarkar},
+  \bibinfo{person}{Brian Slininger}, \bibinfo{person}{Neil Toronto}, {and}
+  \bibinfo{person}{Jack Williams}.} \bibinfo{year}{2024}\natexlab{b}.
+\newblock \bibinfo{title}{Solving Data-centric Tasks using Large Language
+  Models}.
+\newblock
+\showeprint[arxiv]{2402.11734}~[cs.PL]
+\urldef\tempurl%
+\url{https://arxiv.org/abs/2402.11734}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Barrett et~al\mbox{.}(2011)]%
+        {cvc4}
+\bibfield{author}{\bibinfo{person}{Clark Barrett},
+  \bibinfo{person}{Christopher~L. Conway}, \bibinfo{person}{Morgan Deters},
+  \bibinfo{person}{Liana Hadarean}, \bibinfo{person}{Dejan Jovanovi\'{c}},
+  \bibinfo{person}{Tim King}, \bibinfo{person}{Andrew Reynolds}, {and}
+  \bibinfo{person}{Cesare Tinelli}.} \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{CVC4}. In \bibinfo{booktitle}{\emph{Proceedings of
+  the 23rd International Conference on Computer Aided Verification}} (Snowbird,
+  UT) \emph{(\bibinfo{series}{CAV'11})}. \bibinfo{publisher}{Springer-Verlag},
+  \bibinfo{address}{Berlin, Heidelberg}, \bibinfo{pages}{171–177}.
+\newblock
+\showISBNx{9783642221095}
+
+
+\bibitem[Boehm(2020)]%
+        {boehm}
+\bibfield{author}{\bibinfo{person}{Hans-J. Boehm}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Towards an API for the Real Numbers}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (London, UK)
+  \emph{(\bibinfo{series}{PLDI 2020})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{562–576}.
+\newblock
+\showISBNx{9781450376136}
+\href{https://doi.org/10.1145/3385412.3386037}{doi:\nolinkurl{10.1145/3385412.3386037}}
+
+
+\bibitem[Briggs and Panchekha(2022)]%
+        {megalibm}
+\bibfield{author}{\bibinfo{person}{Ian Briggs} {and} \bibinfo{person}{Pavel
+  Panchekha}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Mathematical Identities with
+  E-Graphs}. In \bibinfo{booktitle}{\emph{Proceedings of the 1st ACM SIGPLAN
+  International Symposium on E-Graph Research, Applications, Practices, and
+  Human-Factors}} (San Diego, CA, USA) \emph{(\bibinfo{series}{EGRAPHS 2022})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{1–6}.
+\newblock
+\showISBNx{9781450392709}
+\href{https://doi.org/10.1145/3520308.3534506}{doi:\nolinkurl{10.1145/3520308.3534506}}
+
+
+\bibitem[Buchwald(2015)]%
+        {optgen}
+\bibfield{author}{\bibinfo{person}{Sebastian Buchwald}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Optgen: A Generator for Local Optimizations}. In
+  \bibinfo{booktitle}{\emph{Compiler Construction}},
+  \bibfield{editor}{\bibinfo{person}{Bj{\"o}rn Franke}} (Ed.).
+  \bibinfo{publisher}{Springer Berlin Heidelberg}, \bibinfo{address}{Berlin,
+  Heidelberg}, \bibinfo{pages}{171--189}.
+\newblock
+\showISBNx{978-3-662-46663-6}
+
+
+\bibitem[Buchwald et~al\mbox{.}(2018)]%
+        {buchwald}
+\bibfield{author}{\bibinfo{person}{Sebastian Buchwald},
+  \bibinfo{person}{Andreas Fried}, {and} \bibinfo{person}{Sebastian Hack}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Synthesizing an Instruction Selection Rule Library
+  from Semantic Specifications}. In \bibinfo{booktitle}{\emph{Proceedings of
+  the 2018 International Symposium on Code Generation and Optimization}}
+  (Vienna, Austria) \emph{(\bibinfo{series}{CGO 2018})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{300–313}.
+\newblock
+\showISBNx{9781450356176}
+\href{https://doi.org/10.1145/3168821}{doi:\nolinkurl{10.1145/3168821}}
+
+
+\bibitem[Butler(2019)]%
+        {rulesy}
+\bibfield{author}{\bibinfo{person}{Eric Butler}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \emph{\bibinfo{title}{Automatic Generation of Procedural Knowledge
+  Using Program Synthesis}}.
+\newblock \bibinfo{thesistype}{Ph.\,D. Dissertation}.
+  \bibinfo{school}{University of Washington, {USA}}.
+\newblock
+\urldef\tempurl%
+\url{https://hdl.handle.net/1773/43656}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Cao et~al\mbox{.}(2023)]%
+        {babble}
+\bibfield{author}{\bibinfo{person}{David Cao}, \bibinfo{person}{Rose Kunkel},
+  \bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Max Willsey},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Nadia
+  Polikarpova}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{Babble: Learning Better Abstractions with E-Graphs
+  and Anti-Unification}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{7}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{14}
+  (\bibinfo{date}{jan} \bibinfo{year}{2023}), \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3571207}{doi:\nolinkurl{10.1145/3571207}}
+
+
+\bibitem[Christiansen et~al\mbox{.}(2016)]%
+        {icfp16}
+\bibfield{author}{\bibinfo{person}{Jan Christiansen}, \bibinfo{person}{Nikita
+  Danilenko}, {and} \bibinfo{person}{Sandra Dylus}.}
+  \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{All Sorts of Permutations (Functional Pearl)}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{51},
+  \bibinfo{number}{9} (\bibinfo{date}{sep} \bibinfo{year}{2016}),
+  \bibinfo{pages}{168–179}.
+\newblock
+\showISSN{0362-1340}
+\href{https://doi.org/10.1145/3022670.2951949}{doi:\nolinkurl{10.1145/3022670.2951949}}
+
+
+\bibitem[Claessen et~al\mbox{.}(2013)]%
+        {hipspec}
+\bibfield{author}{\bibinfo{person}{Koen Claessen}, \bibinfo{person}{Moa
+  Johansson}, \bibinfo{person}{Dan Ros{\'e}n}, {and} \bibinfo{person}{Nicholas
+  Smallbone}.} \bibinfo{year}{2013}\natexlab{}.
+\newblock \showarticletitle{Automating Inductive Proofs Using Theory
+  Exploration}. In \bibinfo{booktitle}{\emph{Automated Deduction -- CADE-24}},
+  \bibfield{editor}{\bibinfo{person}{Maria~Paola Bonacina}} (Ed.).
+  \bibinfo{publisher}{Springer Berlin Heidelberg}, \bibinfo{address}{Berlin,
+  Heidelberg}, \bibinfo{pages}{392--406}.
+\newblock
+\showISBNx{978-3-642-38574-2}
+
+
+\bibitem[Claessen et~al\mbox{.}(2010)]%
+        {quickspec}
+\bibfield{author}{\bibinfo{person}{Koen Claessen}, \bibinfo{person}{Nicholas
+  Smallbone}, {and} \bibinfo{person}{John Hughes}.}
+  \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{QuickSpec: Guessing Formal Specifications Using
+  Testing}. In \bibinfo{booktitle}{\emph{Tests and Proofs}},
+  \bibfield{editor}{\bibinfo{person}{Gordon Fraser} {and}
+  \bibinfo{person}{Angelo Gargantini}} (Eds.). \bibinfo{publisher}{Springer
+  Berlin Heidelberg}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{6--21}.
+\newblock
+\showISBNx{978-3-642-13977-2}
+
+
+\bibitem[Coq(2022)]%
+        {coq}
+\bibfield{author}{\bibinfo{person}{Coq}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \bibinfo{title}{Library Coq.PArith.BinPos}.
+\newblock
+\newblock
+\shownote{\url{https://coq.inria.fr/library/Coq.PArith.BinPos.html}}.
+
+
+\bibitem[Coward et~al\mbox{.}(2022)]%
+        {sam2}
+\bibfield{author}{\bibinfo{person}{Samuel Coward}, \bibinfo{person}{George~A.
+  Constantinides}, {and} \bibinfo{person}{Theo Drane}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \bibinfo{title}{Abstract Interpretation on E-Graphs}.
+\newblock
+\showeprint[arxiv]{2203.09191}~[cs.LO]
+
+
+\bibitem[Coward et~al\mbox{.}(2023)]%
+        {sam1}
+\bibfield{author}{\bibinfo{person}{Samuel Coward}, \bibinfo{person}{George~A.
+  Constantinides}, {and} \bibinfo{person}{Theo Drane}.}
+  \bibinfo{year}{2023}\natexlab{}.
+\newblock \bibinfo{title}{Automating Constraint-Aware Datapath Optimization
+  using E-Graphs}.
+\newblock
+\showeprint[arxiv]{2303.01839}~[cs.AR]
+
+
+\bibitem[Davidson and Fraser(2004)]%
+        {fraser}
+\bibfield{author}{\bibinfo{person}{Jack~W. Davidson} {and}
+  \bibinfo{person}{Christopher~W. Fraser}.} \bibinfo{year}{2004}\natexlab{}.
+\newblock \showarticletitle{Automatic Generation of Peephole Optimizations}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{39},
+  \bibinfo{number}{4} (\bibinfo{date}{apr} \bibinfo{year}{2004}),
+  \bibinfo{pages}{104–111}.
+\newblock
+\showISSN{0362-1340}
+\href{https://doi.org/10.1145/989393.989407}{doi:\nolinkurl{10.1145/989393.989407}}
+
+
+\bibitem[De~Moura and Bj{\o}rner(2008)]%
+        {z3}
+\bibfield{author}{\bibinfo{person}{Leonardo De~Moura} {and}
+  \bibinfo{person}{Nikolaj Bj{\o}rner}.} \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Z3: An Efficient SMT Solver}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Theory and Practice of Software,
+  14th International Conference on Tools and Algorithms for the Construction
+  and Analysis of Systems}} (Budapest, Hungary)
+  \emph{(\bibinfo{series}{TACAS'08/ETAPS'08})}.
+  \bibinfo{publisher}{Springer-Verlag}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{337--340}.
+\newblock
+\showISBNx{3-540-78799-2, 978-3-540-78799-0}
+\urldef\tempurl%
+\url{http://dl.acm.org/citation.cfm?id=1792734.1792766}
+\showURL{%
+\tempurl}
+
+
+\bibitem[de~Moura and Bj{\o}rner(2007)]%
+        {cade}
+\bibfield{author}{\bibinfo{person}{Leonardo~Mendonça de Moura} {and}
+  \bibinfo{person}{Nikolaj~S. Bj{\o}rner}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Efficient E-Matching for SMT Solvers}. In
+  \bibinfo{booktitle}{\emph{CADE}}.
+\newblock
+
+
+\bibitem[Detlefs et~al\mbox{.}(2005)]%
+        {simplify}
+\bibfield{author}{\bibinfo{person}{David Detlefs}, \bibinfo{person}{Greg
+  Nelson}, {and} \bibinfo{person}{James~B. Saxe}.}
+  \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Simplify: A Theorem Prover for Program Checking}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{52},
+  \bibinfo{number}{3} (\bibinfo{date}{May} \bibinfo{year}{2005}),
+  \bibinfo{pages}{365--473}.
+\newblock
+\showISSN{0004-5411}
+\href{https://doi.org/10.1145/1066100.1066102}{doi:\nolinkurl{10.1145/1066100.1066102}}
+
+
+\bibitem[Dureg\r{a}rd et~al\mbox{.}(2012)]%
+        {feat}
+\bibfield{author}{\bibinfo{person}{Jonas Dureg\r{a}rd}, \bibinfo{person}{Patrik
+  Jansson}, {and} \bibinfo{person}{Meng Wang}.}
+  \bibinfo{year}{2012}\natexlab{}.
+\newblock \showarticletitle{Feat: Functional Enumeration of Algebraic Types}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the 2012 Haskell Symposium}}
+  (Copenhagen, Denmark) \emph{(\bibinfo{series}{Haskell '12})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{61–72}.
+\newblock
+\showISBNx{9781450315746}
+\href{https://doi.org/10.1145/2364506.2364515}{doi:\nolinkurl{10.1145/2364506.2364515}}
+
+
+\bibitem[Flajolet and Salvy(1995)]%
+        {flajolet}
+\bibfield{author}{\bibinfo{person}{Philippe Flajolet} {and}
+  \bibinfo{person}{Bruno Salvy}.} \bibinfo{year}{1995}\natexlab{}.
+\newblock \showarticletitle{Computer Algebra Libraries for Combinatorial
+  Structures}.
+\newblock \bibinfo{journal}{\emph{J. Symb. Comput.}} \bibinfo{volume}{20},
+  \bibinfo{number}{5–6} (\bibinfo{date}{nov} \bibinfo{year}{1995}),
+  \bibinfo{pages}{653–671}.
+\newblock
+\showISSN{0747-7171}
+\href{https://doi.org/10.1006/jsco.1995.1070}{doi:\nolinkurl{10.1006/jsco.1995.1070}}
+
+
+\bibitem[Fu et~al\mbox{.}(2023)]%
+        {qgym}
+\bibfield{author}{\bibinfo{person}{Cheng Fu}, \bibinfo{person}{Hanxian Huang},
+  \bibinfo{person}{Bram Wasti}, \bibinfo{person}{Chris Cummins},
+  \bibinfo{person}{Riyadh Baghdadi}, \bibinfo{person}{Kim Hazelwood},
+  \bibinfo{person}{Yuandong Tian}, \bibinfo{person}{Jishen Zhao}, {and}
+  \bibinfo{person}{Hugh Leather}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{Q-Gym: An Equality Saturation Framework for DNN
+  Inference Exploiting Weight Repetition}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the International Conference on
+  Parallel Architectures and Compilation Techniques}} (Chicago, Illinois)
+  \emph{(\bibinfo{series}{PACT '22})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{291--303}.
+\newblock
+\showISBNx{9781450398688}
+\href{https://doi.org/10.1145/3559009.3569673}{doi:\nolinkurl{10.1145/3559009.3569673}}
+
+
+\bibitem[Gao et~al\mbox{.}(2012)]%
+        {dreal}
+\bibfield{author}{\bibinfo{person}{Sicun Gao}, \bibinfo{person}{Jeremy Avigad},
+  {and} \bibinfo{person}{Edmund Clarke}.} \bibinfo{year}{2012}\natexlab{}.
+\newblock \bibinfo{title}{Delta-Complete Decision Procedures for Satisfiability
+  over the Reals}.
+\newblock
+\showeprint[arxiv]{1204.3513}~[cs.LO]
+\urldef\tempurl%
+\url{https://arxiv.org/abs/1204.3513}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Grannan et~al\mbox{.}(2022)]%
+        {rest-darulova}
+\bibfield{author}{\bibinfo{person}{Zachary Grannan}, \bibinfo{person}{Niki
+  Vazou}, \bibinfo{person}{Eva Darulova}, {and} \bibinfo{person}{Alexander~J.
+  Summers}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{{REST: Integrating Term Rewriting with Program
+  Verification}}. In \bibinfo{booktitle}{\emph{36th European Conference on
+  Object-Oriented Programming (ECOOP 2022)}} \emph{(\bibinfo{series}{Leibniz
+  International Proceedings in Informatics (LIPIcs)},
+  Vol.~\bibinfo{volume}{222})}, \bibfield{editor}{\bibinfo{person}{Karim Ali}
+  {and} \bibinfo{person}{Jan Vitek}} (Eds.). \bibinfo{publisher}{Schloss
+  Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik}, \bibinfo{address}{Dagstuhl,
+  Germany}, \bibinfo{pages}{13:1--13:29}.
+\newblock
+\showISBNx{978-3-95977-225-9}
+\showISSN{1868-8969}
+\href{https://doi.org/10.4230/LIPIcs.ECOOP.2022.13}{doi:\nolinkurl{10.4230/LIPIcs.ECOOP.2022.13}}
+
+
+\bibitem[Jia et~al\mbox{.}(2019)]%
+        {taso19}
+\bibfield{author}{\bibinfo{person}{Zhihao Jia}, \bibinfo{person}{Oded Padon},
+  \bibinfo{person}{James Thomas}, \bibinfo{person}{Todd Warszawski},
+  \bibinfo{person}{Matei Zaharia}, {and} \bibinfo{person}{Alex Aiken}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{TASO: Optimizing Deep Learning Computation with
+  Automatic Generation of Graph Substitutions}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 27th ACM Symposium on Operating
+  Systems Principles}} (Huntsville, Ontario, Canada)
+  \emph{(\bibinfo{series}{SOSP ’19})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{47–62}.
+\newblock
+\showISBNx{9781450368735}
+\href{https://doi.org/10.1145/3341301.3359630}{doi:\nolinkurl{10.1145/3341301.3359630}}
+
+
+\bibitem[Johansson et~al\mbox{.}(2011)]%
+        {isacosy}
+\bibfield{author}{\bibinfo{person}{Moa Johansson}, \bibinfo{person}{L. Dixon},
+  {and} \bibinfo{person}{A. Bundy}.} \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Conjecture Synthesis for Inductive Theories}.
+\newblock \bibinfo{journal}{\emph{Journal of Automated Reasoning}}
+  \bibinfo{volume}{47} (\bibinfo{year}{2011}), \bibinfo{pages}{251--289}.
+\newblock
+
+
+\bibitem[Johansson et~al\mbox{.}(2014)]%
+        {hipster}
+\bibfield{author}{\bibinfo{person}{Moa Johansson}, \bibinfo{person}{Dan
+  Ros{\'e}n}, \bibinfo{person}{Nicholas Smallbone}, {and} \bibinfo{person}{Koen
+  Claessen}.} \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{Hipster: Integrating Theory Exploration in a Proof
+  Assistant}. In \bibinfo{booktitle}{\emph{Intelligent Computer Mathematics}},
+  \bibfield{editor}{\bibinfo{person}{Stephen~M. Watt},
+  \bibinfo{person}{James~H. Davenport}, \bibinfo{person}{Alan~P. Sexton},
+  \bibinfo{person}{Petr Sojka}, {and} \bibinfo{person}{Josef Urban}} (Eds.).
+  \bibinfo{publisher}{Springer International Publishing},
+  \bibinfo{address}{Cham}, \bibinfo{pages}{108--122}.
+\newblock
+\showISBNx{978-3-319-08434-3}
+
+
+\bibitem[Joshi et~al\mbox{.}(2002)]%
+        {denali}
+\bibfield{author}{\bibinfo{person}{Rajeev Joshi}, \bibinfo{person}{Greg
+  Nelson}, {and} \bibinfo{person}{Keith Randall}.}
+  \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Denali: A Goal-directed Superoptimizer}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{37},
+  \bibinfo{number}{5} (\bibinfo{date}{May} \bibinfo{year}{2002}),
+  \bibinfo{pages}{304--314}.
+\newblock
+\showISSN{0362-1340}
+\href{https://doi.org/10.1145/543552.512566}{doi:\nolinkurl{10.1145/543552.512566}}
+
+
+\bibitem[Koehler et~al\mbox{.}(2021)]%
+        {sketch-eq}
+\bibfield{author}{\bibinfo{person}{Thomas Koehler}, \bibinfo{person}{Philip~W.
+  Trinder}, {and} \bibinfo{person}{Michel Steuwer}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Sketch-Guided Equality Saturation: Scaling Equality
+  Saturation to Complex Optimizations in Languages with Bindings}.
+\newblock \bibinfo{journal}{\emph{ArXiv}}  \bibinfo{volume}{abs/2111.13040}
+  (\bibinfo{year}{2021}).
+\newblock
+
+
+\bibitem[Kozen(1977)]%
+        {kozen}
+\bibfield{author}{\bibinfo{person}{Dexter Kozen}.}
+  \bibinfo{year}{1977}\natexlab{}.
+\newblock \showarticletitle{Complexity of Finitely Presented Algebras}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Ninth Annual ACM Symposium on
+  Theory of Computing}} (Boulder, Colorado, USA) \emph{(\bibinfo{series}{STOC
+  '77})}. \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{164–177}.
+\newblock
+\showISBNx{9781450374095}
+\href{https://doi.org/10.1145/800105.803406}{doi:\nolinkurl{10.1145/800105.803406}}
+
+
+\bibitem[Krogmeier et~al\mbox{.}(2022)]%
+        {oopsla22-logic}
+\bibfield{author}{\bibinfo{person}{Paul Krogmeier}, \bibinfo{person}{Zhengyao
+  Lin}, \bibinfo{person}{Adithya Murali}, {and} \bibinfo{person}{P.
+  Madhusudan}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Axiomatizations Using Logic Learning}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{6}, \bibinfo{number}{OOPSLA2}, Article
+  \bibinfo{articleno}{185} (\bibinfo{date}{oct} \bibinfo{year}{2022}),
+  \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3563348}{doi:\nolinkurl{10.1145/3563348}}
+
+
+\bibitem[McClurg et~al\mbox{.}(2021)]%
+        {resys}
+\bibfield{author}{\bibinfo{person}{Jedidiah McClurg}, \bibinfo{person}{Miles
+  Claver}, \bibinfo{person}{Jackson Garner}, \bibinfo{person}{Jake Vossen},
+  \bibinfo{person}{Jordan Schmerge}, {and} \bibinfo{person}{Mehmet~E.
+  Belviranli}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \bibinfo{title}{Optimizing Regular Expressions via Rewrite-Guided
+  Synthesis}.
+\newblock
+\href{https://doi.org/10.48550/ARXIV.2104.12039}{doi:\nolinkurl{10.48550/ARXIV.2104.12039}}
+
+
+\bibitem[Menendez and Nagarakatte(2017)]%
+        {alive}
+\bibfield{author}{\bibinfo{person}{David Menendez} {and}
+  \bibinfo{person}{Santosh Nagarakatte}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Alive-Infer: Data-Driven Precondition Inference for
+  Peephole Optimizations in LLVM}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{52},
+  \bibinfo{number}{6} (\bibinfo{date}{jun} \bibinfo{year}{2017}),
+  \bibinfo{pages}{49–63}.
+\newblock
+\showISSN{0362-1340}
+\href{https://doi.org/10.1145/3140587.3062372}{doi:\nolinkurl{10.1145/3140587.3062372}}
+
+
+\bibitem[Mugnier et~al\mbox{.}(2025)]%
+        {paper3}
+\bibfield{author}{\bibinfo{person}{Eric Mugnier},
+  \bibinfo{person}{Emmanuel~Anaya Gonzalez}, \bibinfo{person}{Nadia
+  Polikarpova}, \bibinfo{person}{Ranjit Jhala}, {and} \bibinfo{person}{Yuanyuan
+  Zhou}.} \bibinfo{year}{2025}\natexlab{}.
+\newblock \showarticletitle{Laurel: Unblocking automated verification with
+  large language models}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the ACM on Programming
+  Languages}} \bibinfo{volume}{9}, \bibinfo{number}{OOPSLA1}
+  (\bibinfo{year}{2025}), \bibinfo{pages}{1519--1545}.
+\newblock
+\href{https://doi.org/10.1145/3720499}{doi:\nolinkurl{10.1145/3720499}}
+
+
+\bibitem[M{\"u}ndler et~al\mbox{.}(2025)]%
+        {paper1}
+\bibfield{author}{\bibinfo{person}{Niels M{\"u}ndler},
+  \bibinfo{person}{Jingxuan He}, \bibinfo{person}{Hao Wang},
+  \bibinfo{person}{Koushik Sen}, \bibinfo{person}{Dawn Song}, {and}
+  \bibinfo{person}{Martin Vechev}.} \bibinfo{year}{2025}\natexlab{}.
+\newblock \showarticletitle{Type-Constrained Code Generation with Language
+  Models}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{9}, \bibinfo{number}{PLDI}, Article \bibinfo{articleno}{171}
+  (\bibinfo{date}{June} \bibinfo{year}{2025}), \bibinfo{numpages}{26}~pages.
+\newblock
+\href{https://doi.org/10.1145/3729274}{doi:\nolinkurl{10.1145/3729274}}
+
+
+\bibitem[Nagy et~al\mbox{.}(2026)]%
+        {paper2}
+\bibfield{author}{\bibinfo{person}{Shaan Nagy}, \bibinfo{person}{Timothy Zhou},
+  \bibinfo{person}{Nadia Polikarpova}, {and} \bibinfo{person}{Loris D'Antoni}.}
+  \bibinfo{year}{2026}\natexlab{}.
+\newblock \showarticletitle{ChopChop: A Programmable Framework for Semantically
+  Constraining the Output of Language Models}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{10}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{66}
+  (\bibinfo{date}{Jan.} \bibinfo{year}{2026}), \bibinfo{numpages}{28}~pages.
+\newblock
+\href{https://doi.org/10.1145/3776708}{doi:\nolinkurl{10.1145/3776708}}
+
+
+\bibitem[Nandi et~al\mbox{.}(2018)]%
+        {reincarnate}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi},
+  \bibinfo{person}{James~R. Wilcox}, \bibinfo{person}{Pavel Panchekha},
+  \bibinfo{person}{Taylor Blau}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Functional Programming for Compiling and
+  Decompiling Computer-Aided Design}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{2}, \bibinfo{number}{ICFP}, Article \bibinfo{articleno}{99}
+  (\bibinfo{date}{jul} \bibinfo{year}{2018}), \bibinfo{numpages}{31}~pages.
+\newblock
+\href{https://doi.org/10.1145/3236794}{doi:\nolinkurl{10.1145/3236794}}
+
+
+\bibitem[Nandi et~al\mbox{.}(2020)]%
+        {szalinski}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Max
+  Willsey}, \bibinfo{person}{Adam Anderson}, \bibinfo{person}{James~R. Wilcox},
+  \bibinfo{person}{Eva Darulova}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Structured {CAD} Models with Equality
+  Saturation and Inverse Transformations}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (London, UK)
+  \emph{(\bibinfo{series}{PLDI 2020})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{31–44}.
+\newblock
+\showISBNx{9781450376136}
+\href{https://doi.org/10.1145/3385412.3386012}{doi:\nolinkurl{10.1145/3385412.3386012}}
+
+
+\bibitem[Nandi et~al\mbox{.}(2021)]%
+        {ruler}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Max
+  Willsey}, \bibinfo{person}{Amy Zhu}, \bibinfo{person}{Yisu~Remy Wang},
+  \bibinfo{person}{Brett Saiki}, \bibinfo{person}{Adam Anderson},
+  \bibinfo{person}{Adriana Schulz}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Rewrite Rule Inference Using Equality Saturation}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{OOPSLA}, Article
+  \bibinfo{articleno}{119} (\bibinfo{date}{oct} \bibinfo{year}{2021}),
+  \bibinfo{numpages}{28}~pages.
+\newblock
+\href{https://doi.org/10.1145/3485496}{doi:\nolinkurl{10.1145/3485496}}
+
+
+\bibitem[Nelson(1980)]%
+        {nelson}
+\bibfield{author}{\bibinfo{person}{Charles~Gregory Nelson}.}
+  \bibinfo{year}{1980}\natexlab{}.
+\newblock \emph{\bibinfo{title}{Techniques for Program Verification}}.
+\newblock \bibinfo{thesistype}{Ph.\,D. Dissertation}. \bibinfo{school}{Stanford
+  University}, \bibinfo{address}{Stanford, CA, USA}.
+\newblock
+\newblock
+\shownote{AAI8011683}.
+
+
+\bibitem[Newcomb et~al\mbox{.}(2020)]%
+        {julie-halide}
+\bibfield{author}{\bibinfo{person}{Julie~L. Newcomb}, \bibinfo{person}{Andrew
+  Adams}, \bibinfo{person}{Steven Johnson}, \bibinfo{person}{Rastislav
+  Bod\'{i}k}, {and} \bibinfo{person}{Shoaib Kamil}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Verifying and Improving Halide's Term Rewriting
+  System with Program Synthesis}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{4}, \bibinfo{number}{OOPSLA}, Article
+  \bibinfo{articleno}{166} (\bibinfo{year}{2020}),
+  \bibinfo{numpages}{28}~pages.
+\newblock
+\href{https://doi.org/10.1145/3428234}{doi:\nolinkurl{10.1145/3428234}}
+
+
+\bibitem[N{\"o}tzli et~al\mbox{.}(2019)]%
+        {sat19}
+\bibfield{author}{\bibinfo{person}{Andres N{\"o}tzli}, \bibinfo{person}{Andrew
+  Reynolds}, \bibinfo{person}{Haniel Barbosa}, \bibinfo{person}{Aina Niemetz},
+  \bibinfo{person}{Mathias Preiner}, \bibinfo{person}{Clark Barrett}, {and}
+  \bibinfo{person}{Cesare Tinelli}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Syntax-Guided Rewrite Rule Enumeration for SMT
+  Solvers}. In \bibinfo{booktitle}{\emph{Theory and Applications of
+  Satisfiability Testing -- SAT 2019}},
+  \bibfield{editor}{\bibinfo{person}{Mikol{\'a}{\v{s}} Janota} {and}
+  \bibinfo{person}{In{\^e}s Lynce}} (Eds.). \bibinfo{publisher}{Springer
+  International Publishing}, \bibinfo{address}{Cham},
+  \bibinfo{pages}{279--297}.
+\newblock
+\showISBNx{978-3-030-24258-9}
+
+
+\bibitem[Pal et~al\mbox{.}(2023)]%
+        {enumo-oopsla23}
+\bibfield{author}{\bibinfo{person}{Anjali Pal}, \bibinfo{person}{Brett Saiki},
+  \bibinfo{person}{Ryan Tjoa}, \bibinfo{person}{Cynthia Richey},
+  \bibinfo{person}{Amy Zhu}, \bibinfo{person}{Oliver Flatt},
+  \bibinfo{person}{Max Willsey}, \bibinfo{person}{Zachary Tatlock}, {and}
+  \bibinfo{person}{Chandrakana Nandi}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{Equality Saturation Theory Exploration \`{a} la
+  Carte}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{7}, \bibinfo{number}{OOPSLA2}, Article
+  \bibinfo{articleno}{258} (\bibinfo{date}{oct} \bibinfo{year}{2023}),
+  \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3622834}{doi:\nolinkurl{10.1145/3622834}}
+
+
+\bibitem[Panchekha et~al\mbox{.}(2015)]%
+        {herbie}
+\bibfield{author}{\bibinfo{person}{Pavel Panchekha}, \bibinfo{person}{Alex
+  Sanchez-Stern}, \bibinfo{person}{James~R. Wilcox}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Automatically Improving Accuracy for Floating Point
+  Expressions}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{50},
+  \bibinfo{number}{6} (\bibinfo{date}{June} \bibinfo{year}{2015}),
+  \bibinfo{pages}{1--11}.
+\newblock
+\showISSN{0362-1340}
+\href{https://doi.org/10.1145/2813885.2737959}{doi:\nolinkurl{10.1145/2813885.2737959}}
+
+
+\bibitem[Park et~al\mbox{.}(2024)]%
+        {asap}
+\bibfield{author}{\bibinfo{person}{Kanghee Park}, \bibinfo{person}{Jiayu Wang},
+  \bibinfo{person}{Taylor Berg-Kirkpatrick}, \bibinfo{person}{Nadia
+  Polikarpova}, {and} \bibinfo{person}{Loris D'Antoni}.}
+  \bibinfo{year}{2024}\natexlab{}.
+\newblock \bibinfo{title}{Grammar-Aligned Decoding}.
+\newblock
+\showeprint[arxiv]{2405.21047}~[cs.AI]
+\urldef\tempurl%
+\url{https://arxiv.org/abs/2405.21047}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Pasko et~al\mbox{.}(1995)]%
+        {frep}
+\bibfield{author}{\bibinfo{person}{Alexander Pasko}, \bibinfo{person}{Valery
+  Adzhiev}, \bibinfo{person}{Alexei Sourin}, {and} \bibinfo{person}{Vladimir
+  Savchenko}.} \bibinfo{year}{1995}\natexlab{}.
+\newblock \showarticletitle{Function representation in geometric modeling:
+  concepts, implementation and applications}.
+\newblock \bibinfo{journal}{\emph{The visual computer}}  \bibinfo{volume}{11}
+  (\bibinfo{year}{1995}), \bibinfo{pages}{429--446}.
+\newblock
+
+
+\bibitem[Paulson(1986)]%
+        {isabelle}
+\bibfield{author}{\bibinfo{person}{L~C Paulson}.}
+  \bibinfo{year}{1986}\natexlab{}.
+\newblock \showarticletitle{Natural Deduction as Higher-Order Resolution}.
+\newblock \bibinfo{journal}{\emph{J. Log. Program.}} \bibinfo{volume}{3},
+  \bibinfo{number}{3} (\bibinfo{date}{oct} \bibinfo{year}{1986}),
+  \bibinfo{pages}{237–258}.
+\newblock
+\showISSN{0743-1066}
+\href{https://doi.org/10.1016/0743-1066(86)90015-4}{doi:\nolinkurl{10.1016/0743-1066(86)90015-4}}
+
+
+\bibitem[Premtoon et~al\mbox{.}(2020)]%
+        {yogo}
+\bibfield{author}{\bibinfo{person}{Varot Premtoon}, \bibinfo{person}{James
+  Koppel}, {and} \bibinfo{person}{Armando Solar-Lezama}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Semantic Code Search via Equational Reasoning}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (London, UK)
+  \emph{(\bibinfo{series}{PLDI 2020})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{1066–1082}.
+\newblock
+\showISBNx{9781450376136}
+\href{https://doi.org/10.1145/3385412.3386001}{doi:\nolinkurl{10.1145/3385412.3386001}}
+
+
+\bibitem[Ragan-Kelley et~al\mbox{.}(2013)]%
+        {halide}
+\bibfield{author}{\bibinfo{person}{Jonathan Ragan-Kelley},
+  \bibinfo{person}{Connelly Barnes}, \bibinfo{person}{Andrew Adams},
+  \bibinfo{person}{Sylvain Paris}, \bibinfo{person}{Fr\'{e}do Durand}, {and}
+  \bibinfo{person}{Saman Amarasinghe}.} \bibinfo{year}{2013}\natexlab{}.
+\newblock \showarticletitle{Halide: A Language and Compiler for Optimizing
+  Parallelism, Locality, and Recomputation in Image Processing Pipelines}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 34th ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (Seattle, Washington, USA)
+  \emph{(\bibinfo{series}{PLDI '13})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{519–530}.
+\newblock
+\showISBNx{9781450320146}
+\href{https://doi.org/10.1145/2491956.2462176}{doi:\nolinkurl{10.1145/2491956.2462176}}
+
+
+\bibitem[Rodriguez~Yakushev and Jeuring(2010)]%
+        {welltyped}
+\bibfield{author}{\bibinfo{person}{Alexey Rodriguez~Yakushev} {and}
+  \bibinfo{person}{Johan Jeuring}.} \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{Enumerating Well-Typed Terms Generically}. In
+  \bibinfo{booktitle}{\emph{Approaches and Applications of Inductive
+  Programming}}, \bibfield{editor}{\bibinfo{person}{Ute Schmid},
+  \bibinfo{person}{Emanuel Kitzelmann}, {and} \bibinfo{person}{Rinus
+  Plasmeijer}} (Eds.). \bibinfo{publisher}{Springer Berlin Heidelberg},
+  \bibinfo{address}{Berlin, Heidelberg}, \bibinfo{pages}{93--116}.
+\newblock
+\showISBNx{978-3-642-11931-6}
+
+
+\bibitem[Singh and Solar-Lezama(2016)]%
+        {swapper}
+\bibfield{author}{\bibinfo{person}{Rohit Singh} {and} \bibinfo{person}{Armando
+  Solar-Lezama}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Swapper: A Framework for Automatic Generation of
+  Formula Simplifiers Based on Conditional Rewrite Rules}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 16th Conference on Formal
+  Methods in Computer-Aided Design}} (Mountain View, California)
+  \emph{(\bibinfo{series}{FMCAD '16})}. \bibinfo{publisher}{FMCAD Inc},
+  \bibinfo{address}{Austin, Texas}, \bibinfo{pages}{185–192}.
+\newblock
+\showISBNx{9780983567868}
+
+
+\bibitem[Singh(2022)]%
+        {deepegg}
+\bibfield{author}{\bibinfo{person}{Zak Singh}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Deep Reinforcement Learning for Equality
+  Saturation}.
+\newblock \bibinfo{journal}{\emph{University of Cambridge}}
+  (\bibinfo{year}{2022}).
+\newblock
+\newblock
+\shownote{\url{https://www.cl.cam.ac.uk/~ey204/pubs/MPHIL_P3/2022_Zak.pdf}}.
+
+
+\bibitem[Singher and Itzhaky(2021)]%
+        {cav21}
+\bibfield{author}{\bibinfo{person}{Eytan Singher} {and}
+  \bibinfo{person}{Shachar Itzhaky}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Theory Exploration Powered by Deductive Synthesis}.
+  In \bibinfo{booktitle}{\emph{Computer Aided Verification}},
+  \bibfield{editor}{\bibinfo{person}{Alexandra Silva} {and}
+  \bibinfo{person}{K.~Rustan~M. Leino}} (Eds.). \bibinfo{publisher}{Springer
+  International Publishing}, \bibinfo{address}{Cham},
+  \bibinfo{pages}{125--148}.
+\newblock
+\showISBNx{978-3-030-81688-9}
+
+
+\bibitem[Ta et~al\mbox{.}(2017)]%
+        {seplogic}
+\bibfield{author}{\bibinfo{person}{Quang-Trung Ta}, \bibinfo{person}{Ton~Chanh
+  Le}, \bibinfo{person}{Siau-Cheng Khoo}, {and} \bibinfo{person}{Wei-Ngan
+  Chin}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Automated Lemma Synthesis in Symbolic-Heap
+  Separation Logic}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{2}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{9}
+  (\bibinfo{date}{dec} \bibinfo{year}{2017}), \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3158097}{doi:\nolinkurl{10.1145/3158097}}
+
+
+\bibitem[Tate et~al\mbox{.}(2009)]%
+        {eqsat}
+\bibfield{author}{\bibinfo{person}{Ross Tate}, \bibinfo{person}{Michael Stepp},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Sorin Lerner}.}
+  \bibinfo{year}{2009}\natexlab{}.
+\newblock \showarticletitle{Equality Saturation: A New Approach to
+  Optimization}. In \bibinfo{booktitle}{\emph{Proceedings of the 36th Annual
+  ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages}}
+  (Savannah, GA, USA) \emph{(\bibinfo{series}{POPL '09})}.
+  \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{264--276}.
+\newblock
+\showISBNx{978-1-60558-379-2}
+\href{https://doi.org/10.1145/1480881.1480915}{doi:\nolinkurl{10.1145/1480881.1480915}}
+
+
+\bibitem[VanHattum et~al\mbox{.}(2021)]%
+        {alexa}
+\bibfield{author}{\bibinfo{person}{Alexa VanHattum}, \bibinfo{person}{Rachit
+  Nigam}, \bibinfo{person}{Vincent~T. Lee}, \bibinfo{person}{James Bornholt},
+  {and} \bibinfo{person}{Adrian Sampson}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Vectorization for Digital Signal Processors via
+  Equality Saturation}. In \bibinfo{booktitle}{\emph{Proceedings of the 26th
+  ACM International Conference on Architectural Support for Programming
+  Languages and Operating Systems}} (Virtual, USA)
+  \emph{(\bibinfo{series}{ASPLOS 2021})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{874–886}.
+\newblock
+\showISBNx{9781450383172}
+\href{https://doi.org/10.1145/3445814.3446707}{doi:\nolinkurl{10.1145/3445814.3446707}}
+
+
+\bibitem[Wang et~al\mbox{.}(2020)]%
+        {spores}
+\bibfield{author}{\bibinfo{person}{Yisu~Remy Wang}, \bibinfo{person}{Shana
+  Hutchison}, \bibinfo{person}{Jonathan Leang}, \bibinfo{person}{Bill Howe},
+  {and} \bibinfo{person}{Dan Suciu}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{{SPORES}: Sum-Product Optimization via Relational
+  Equality Saturation for Large Scale Linear Algebra}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the VLDB Endowment}}
+  (\bibinfo{year}{2020}).
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2022)]%
+        {wetune}
+\bibfield{author}{\bibinfo{person}{Zhaoguo Wang}, \bibinfo{person}{Zhou Zhou},
+  \bibinfo{person}{Yicun Yang}, \bibinfo{person}{Haoran Ding},
+  \bibinfo{person}{Gansen Hu}, \bibinfo{person}{Ding Ding},
+  \bibinfo{person}{Chuzhe Tang}, \bibinfo{person}{Haibo Chen}, {and}
+  \bibinfo{person}{Jinyang Li}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{WeTune: Automatic Discovery and Verification of
+  Query Rewrite Rules}. In \bibinfo{booktitle}{\emph{Proceedings of the 2022
+  International Conference on Management of Data}} (Philadelphia, PA, USA)
+  \emph{(\bibinfo{series}{SIGMOD '22})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{94–107}.
+\newblock
+\showISBNx{9781450392495}
+\href{https://doi.org/10.1145/3514221.3526125}{doi:\nolinkurl{10.1145/3514221.3526125}}
+
+
+\bibitem[Willsey et~al\mbox{.}(2021)]%
+        {egg}
+\bibfield{author}{\bibinfo{person}{Max Willsey}, \bibinfo{person}{Chandrakana
+  Nandi}, \bibinfo{person}{Yisu~Remy Wang}, \bibinfo{person}{Oliver Flatt},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Pavel Panchekha}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{egg: Fast and Extensible Equality Saturation}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{23}
+  (\bibinfo{year}{2021}), \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3434304}{doi:\nolinkurl{10.1145/3434304}}
+
+
+\bibitem[Xu et~al\mbox{.}(2023)]%
+        {queso}
+\bibfield{author}{\bibinfo{person}{Amanda Xu}, \bibinfo{person}{Abtin Molavi},
+  \bibinfo{person}{Lauren Pick}, \bibinfo{person}{Swamit Tannu}, {and}
+  \bibinfo{person}{Aws Albarghouthi}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Quantum-Circuit Optimizers}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{7}, \bibinfo{number}{PLDI}, Article \bibinfo{articleno}{140}
+  (\bibinfo{year}{2023}), \bibinfo{numpages}{25}~pages.
+\newblock
+\href{https://doi.org/10.1145/3591254}{doi:\nolinkurl{10.1145/3591254}}
+
+
+\bibitem[Yang et~al\mbox{.}(2025)]%
+        {paper4}
+\bibfield{author}{\bibinfo{person}{Chenyuan Yang}, \bibinfo{person}{Xuheng Li},
+  \bibinfo{person}{Md~Rakib~Hossain Misu}, \bibinfo{person}{Jianan Yao},
+  \bibinfo{person}{Weidong Cui}, \bibinfo{person}{Yeyun Gong},
+  \bibinfo{person}{Chris Hawblitzel}, \bibinfo{person}{Shuvendu Lahiri},
+  \bibinfo{person}{Jacob~R. Lorch}, \bibinfo{person}{Shuai Lu},
+  \bibinfo{person}{Fan Yang}, \bibinfo{person}{Ziqiao Zhou}, {and}
+  \bibinfo{person}{Shan Lu}.} \bibinfo{year}{2025}\natexlab{}.
+\newblock \showarticletitle{AutoVerus: Automated Proof Generation for Rust
+  Code}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{9}, \bibinfo{number}{OOPSLA2}, Article
+  \bibinfo{articleno}{396} (\bibinfo{date}{Oct.} \bibinfo{year}{2025}),
+  \bibinfo{numpages}{29}~pages.
+\newblock
+\href{https://doi.org/10.1145/3763174}{doi:\nolinkurl{10.1145/3763174}}
+
+
+\bibitem[Yang et~al\mbox{.}(2021)]%
+        {tensat}
+\bibfield{author}{\bibinfo{person}{Yichen Yang},
+  \bibinfo{person}{Phitchaya~Mangpo Phothilimthana}, \bibinfo{person}{Yisu~Remy
+  Wang}, \bibinfo{person}{Max Willsey}, \bibinfo{person}{Sudip Roy}, {and}
+  \bibinfo{person}{Jacques Pienaar}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Equality Saturation for Tensor Graph
+  Superoptimization}. In \bibinfo{booktitle}{\emph{Proceedings of Machine
+  Learning and Systems}}.
+\newblock
+\showeprint{2101.01332}
+
+
+\end{thebibliography}

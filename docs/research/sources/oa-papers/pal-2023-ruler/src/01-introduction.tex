@@ -1,0 +1,176 @@
+\section{Introduction}
+\label{sec:intro}
+
+Equational theories in the form of rewrites ($\ell \rewritesto r$)
+ have long been used in term rewriting systems.
+Equality saturation engines in particular,
+ which have seen a recent resurgence,
+ leverage these theories to power systems in a wide
+  variety of domains like program synthesis~\citep{szalinski, herbie, spores, babble, resys},
+  formal verification~\citep{coq, z3, sat19, rest-darulova, sam1, sam2}, and
+  optimizing compilers~\citep{eqsat, tensat, denali, wetune, deepegg, qgym, sketch-eq}.
+A principal challenge in building these systems
+ is writing the rewrites themselves:
+ too few rewrites can lead to missed optimizations;
+ too many can make implementation and maintenance difficult.
+ Furthermore, even one incorrect rewrite can compromise the soundness
+ of the entire system.
+
+\textit{Theory explorers} automatically generate
+ equational theories~\citep{sat19, ruler, cav21, hipster, quickspec, hipspec, isacosy}.
+These tools generally follow a three-stage approach:
+\begin{enumerate}
+  \item
+    Enumerate terms from a given grammar,
+    typically in a bottom-up,
+    exhaustive manner~\citep{ruler, cvc4}.
+  \item
+    Generate candidate rewrite rules from the enumerated terms.
+    Naively, any pair of enumerated terms may be a candidate rewrite rule.
+    Prior work has used techniques like finger-printing, fuzzing,
+    and symbolic execution to identify ``likely sound'' candidates~\citep{ruler,sat19,cav21, bansal}.
+  \item
+    Using the candidates,
+     select a set of rewrite rules that are both sound and useful.
+    Typically,
+    this is done via a process that verifies the candidates
+    and removes redundant ones.
+   \citet{ruler} call this process ``minimization,''
+    under the assumption
+    that a smaller set of rules is more likely to be effective.
+\end{enumerate}
+
+Despite recent innovations,
+  theory explorers are still not widely used.
+We posit that their monolithic
+ implementations make them
+ too inflexible.
+They are designed for idealized ``one-shot'' use cases:
+ the user provides a grammar, interpreter, and verifier,
+ presses a button, and out comes a ruleset (set of rewrites)
+ ready for use in a rewriting or equality saturation-based system.
+In reality,
+ tools based on equational theories
+ are not developed or maintained in this manner.
+Instead,
+ engineers and domain experts
+ build, maintain, measure, debug, and compare rulesets
+ both \emph{iteratively} over time
+ and \emph{incrementally} as new features and requirements are added.
+In addition,
+ automated theory explorers are often intended
+ to replace or augment existing (handwritten) rulesets,
+ but their rigid, one-shot approach
+ leaves developers with little recourse
+ when the output is not 100\% satisfactory.
+
+\begin{figure}
+  \centering\includegraphics[width=0.75\linewidth]{workflow.png}
+  \caption{
+    \textit{(Top)}
+    Typical theory explorer workflow:
+      the user provides a grammar, interpreter, and rule validator
+      and gets a ruleset.
+    Such theory explorers are rigid and opaque;
+      there is no mechanism for users to intervene
+      or apply domain expertise to guide inference.
+    \textit{(Bottom)}
+    In contrast, the \enumo DSL
+      enables the user to guide theory exploration.
+    Users provide the same three inputs
+      as well as a short \enumo program.
+    \enumo's modular and composable operators
+      make it easy to implement existing inference strategies,
+      add domain-specific tweaks, or even implement new strategies.
+      \vspace{-0.75em}
+  }\label{fig:workflow}
+\end{figure}
+
+Existing theory explorers do not scale to the
+  needs of real systems.
+For example,
+  $x + y \rewritesto \frac{x^2 - y^2}{x-y}$
+  is useful for factoring in numerical applications.
+However,
+  discovering it via exhaustive enumeration,
+  as used in recent approaches~\citep{sat19, ruler},
+  is infeasible within even a moderately sized grammar.
+Instead,
+  users should be able to help guide
+  the theory explorer to discover such rules.
+
+We present a new paradigm:
+  theory exploration \emph{\`a la carte},
+  which breaks theory explorers down
+  into a set of modular operators.
+Users can programmatically compose these operators
+ to easily build a theory explorer suited to their needs.
+We developed \enumo,
+  an embedded domain-specific language (DSL)
+ in which term enumeration strategies and
+ rulesets are first-class values.
+Simple \enumo programs can
+  generate useful rulesets that
+  prior work~\citep{ruler} cannot.
+\enumo's abstractions also
+  inspired ``fast-forwarding,''
+  a new theory exploration algorithm
+  that supports domains where
+  equality is undecidable (e.g., real arithmetic).
+
+We demonstrate that \enumo
+  programs can synthesize
+  better rulesets compared
+  to state-of-the-art tools,
+  while also scaling to
+  much larger grammars.
+In a case study inspired by Halide's large grammar~\citep{halide},
+  an \enumo program synthesized a
+  ruleset that derives
+  90\% of Halide's handwritten rules.
+Compared to prior work in theory exploration,
+  fast-forwarding enabled Herbie~\citep{herbie}
+  to achieve 35\% higher accuracy when
+  improving floating-point rounding error (\autoref{subsec:eval-ff})
+and allowed us to find alternate implementations of trigonometric
+  functions in Megalibm, another floating-point synthesis tool~\citep{megalibm}.
+Finally, in the domain of constructive solid geometry,
+  \enumo's synthesized rules for CAD identities allow \sz~\citep{szalinski}
+  to shrink benchmarks by 87\% on average,
+  closely matching the 90\% reduction achieved by
+  expert-written rules.
+
+In summary, this paper makes the following contributions:
+\begin{itemize}
+  \item A DSL, \enumo, that offers operators for
+    generating custom workloads,
+    composing theory exploration strategies,
+    and manipulating rulesets (\autoref{sec:slide}).
+  \item A new algorithm for ``fast-forwarding'' rules to
+    infer rulesets in domains where providing
+    an interpreter is infeasible (\autoref{sec:lift}).
+  \item An extensive evaluation showing that,
+      compared to a state-of-the-art theory explorer,
+      custom workloads and ruleset composition lead
+      to better rulesets (\autoref{sec:eval}).
+  \item A set of end-to-end case studies demonstrating that
+    \enumo's synthesized rulesets are comparable to handwritten rulesets
+    across a variety of domains (\autoref{sec:eval}).
+  \item A case study extending \enumo with two operators that
+    incorporate large language models (LLMs) into rule and workload
+    synthesis, showing that the new operators compose with \enumo's
+    existing pipeline and that LLM-based and guided-search rules
+    are complementary
+    (\autoref{sec:case-study-llm}).
+  \item A detailed account of the developer experience of
+    incrementally building rulesets with \enumo (\autoref{sec:devexp}).
+\end{itemize}
+
+This paper extends our earlier conference
+version~\citep{enumo-oopsla23} with an expanded treatment of
+derivability and proving power (\autoref{sec:slide},
+\autoref{sec:eval}), a complete presentation of fast-forwarding
+together with a trigonometric case study (\autoref{sec:lift},
+\autoref{sec:devexp}), and a new case study extending \enumo with
+operators that incorporate LLMs (\autoref{sec:case-study-llm}).
+

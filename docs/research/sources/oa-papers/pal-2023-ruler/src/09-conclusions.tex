@@ -1,0 +1,30 @@
+\section{Conclusion}
+\label{sec:conclusion}
+This paper presents \enumo, a new domain-specific language
+  for rewrite rule inference using \eqsat.
+\enumo offers novel term enumeration
+  primitives and exposes useful ruleset operators
+  that enable incremental, composable,
+  workload-guided rewrite rule inference.
+We also introduce a
+  new \textit{\ff} algorithm for generating
+  rewrite rules;
+  \ff finds rewrite rules for domains not supported by
+  prior tools.
+\enumo also subsumes the capabilities of
+  state-of-the-art tools for
+  rule inference~\citep{ruler, sat19} in terms of
+  ruleset quality and scalability.
+Several case studies demonstrate that small, modular
+  \enumo programs
+  generate useful rulesets that can be plugged
+  into existing \eqsat tools
+  or composed to quickly find rulesets across diverse domains.
+\enumo is also simple to extend:
+  adding two operators sufficed to incorporate
+  large language models into theory exploration,
+  where they complement \enumo's guided search.
+\enumo enables users
+  to strategically guide the rule inference process at a high level, and
+  to incrementally build effective rulesets.
+

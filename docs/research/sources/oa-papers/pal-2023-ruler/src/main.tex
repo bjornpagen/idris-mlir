@@ -1,0 +1,210 @@
+\pdfoutput=1
+\def\preprintbuild{}
+
+\ifdefined\preprintbuild
+  \documentclass[review=false]{jfp-epi}
+\else
+  \documentclass[review]{jfp-epi}
+\fi
+
+\citestyle{acmauthoryear}
+\bibliographystyle{ACM-Reference-Format}
+
+\usepackage{booktabs}
+\usepackage{subcaption}
+\captionsetup{subrefformat=parens}
+
+\usepackage{balance}
+\usepackage{pifont}
+\usepackage{wrapfig}
+\usepackage{hyperref}
+\usepackage{fancyvrb}
+\usepackage{xspace}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\usepackage{algorithm}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{semantic}
+\usepackage{listings}
+\usepackage{array}
+\usepackage{mathpartir}
+\usepackage{stmaryrd}
+\usepackage{graphicx}
+\usepackage{syntax, etoolbox}
+\usepackage{tikz}
+\usepackage{proof}
+\usepackage{color}
+\usepackage{mathtools}
+\usepackage{adjustbox}
+\usepackage{multirow}
+\usepackage{bbding}
+\usepackage{soul}
+\usepackage{colortbl}
+
+\graphicspath{{fig/}}
+
+\newcommand{\algorithmautorefname}{Algorithm}
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+
+\lstdefinestyle{ruler}{
+  basicstyle=\footnotesize\ttfamily,
+}
+\lstdefinestyle{rewrite}{
+  basicstyle=\scriptsize\sffamily,
+  gobble=4,
+}
+
+\lstset{
+  style=ruler,
+  language=python,
+  commentstyle=\ttfamily\footnotesize\textcolor{gray},
+  columns=fullflexible,
+  showstringspaces=false,
+  numbers=left,
+  xleftmargin=1.5em,
+  mathescape,
+  escapeinside={(*@}{@*)}
+}
+
+\input{macros}
+
+\begin{document}
+
+\title{Equality saturation theory exploration à la carte}
+
+\author{Anjali Pal}
+\orcid{0009-0006-0692-0707}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{anjalip@cs.washington.edu}
+}
+
+\author{Brett Saiki}
+\orcid{0009-0002-3482-5767}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{bsaiki@cs.washington.edu}
+}
+
+\author{Ryan Tjoa}
+\orcid{0009-0003-0731-5398}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{rtjoa@cs.washington.edu}
+}
+
+\author{Cynthia Richey}
+\orcid{0009-0008-4456-9406}
+\affiliation{%
+  \institution{University of Pennsylvania}
+  \city{Philadelphia}
+  \country{USA}
+  \authoremail{lapwing@seas.upenn.edu}
+}
+
+\author{Amy Zhu}
+\orcid{0000-0001-5766-7090}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{amyzhu@cs.washington.edu}
+}
+
+\author{Oliver Flatt}
+\orcid{0000-0002-0656-235X}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{oflatt@cs.washington.edu}
+}
+
+\author{Max Willsey}
+\orcid{0000-0001-8066-4218}
+\affiliation{%
+  \institution{University of California, Berkeley}
+  \city{Berkeley}
+  \country{USA}
+  \authoremail{mwillsey@berkeley.edu}
+}
+
+\author{Zachary Tatlock}
+\orcid{0000-0002-4731-0124}
+\affiliation{%
+  \institution{University of Washington}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{ztatlock@cs.washington.edu}
+}
+
+\author{Chandrakana Nandi}
+\orcid{0000-0001-8633-8413}
+\affiliation{%
+  \institution{Certora Inc.}
+  \city{Seattle}
+  \country{USA}
+  \authoremail{chandra@certora.com}
+}
+
+\renewcommand{\shortauthors}{%
+  A. Pal, B. Saiki, R. Tjoa, C. Richey, A. Zhu, O. Flatt,
+  M. Willsey, Z. Tatlock, C. Nandi}
+
+\begin{abstract}
+  \input{00-abstract}
+\end{abstract}
+
+\maketitle
+
+\AtBeginEnvironment{grammar}{\small}
+\input{01-introduction}
+\input{02-background}
+\input{03-overview}
+\input{04-sliderule}
+\input{05-rulelifting}
+\input{06-evaluation}
+\input{07-future}
+\input{08-related}
+\input{09-conclusions}
+
+\begin{acks}
+  We thank the anonymous reviewers for their thoughtful feedback.
+  We are grateful to Ian Briggs and Pavel Panchekha for helping us run
+  Herbie and Megalibm using \enumo's rules.
+
+  This material is based upon work supported by the National Science
+  Foundation under Grant Nos.~2232339 and 2312195, and by the NSF
+  Graduate Research Fellowship Program under Grant No.~DGE-2140004.
+  Any opinions, findings, and conclusions or recommendations expressed
+  in this material are those of the author(s) and do not necessarily
+  reflect the views of the National Science Foundation.
+\end{acks}
+
+\section*{Data availability statement}
+  The code and benchmarks for this paper's original evaluation are
+  archived as the OOPSLA 2023 artifact on Zenodo
+  (\url{https://doi.org/10.5281/zenodo.8140951}).
+  \enumo{} is developed openly on GitHub
+  (\url{https://github.com/uwplse/ruler}).
+  The code and results for the new case study extending \enumo with
+  LLM-based operators (\autoref{sec:case-study-llm}), and the code
+  behind \autoref{table:herbie}'s baselines, are at tag \C{jfp2026}
+  of that repository
+  (\url{https://github.com/uwplse/ruler/tree/jfp2026}).
+
+\bibliography{reference}
+
+\end{document}

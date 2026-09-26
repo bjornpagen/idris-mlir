@@ -1,0 +1,327 @@
+\section{Developer experience with \enumo}
+\label{sec:devexp}
+
+In this section, we report on the developer experience of using
+  \enumo to generate rulesets for the trigonometric domain used in \autoref{subsubsec:numbers}
+  and the Halide domain used in \autoref{subsec:halideeval}.
+
+\subsection{Developing custom workloads for trigonometry}
+\label{subsec:trigexperience}
+
+We describe the process of developing, in \enumo, the workloads
+  we used in \autoref{subsubsec:numbers}.
+The goal is to synthesize a set of rewrite rules that will perform well in
+  \herbie, a rewrite-based tool for improving the accuracy of floating-point expressions.
+We take an incremental approach, composing together the results of many
+  invocations of the \ff algorithm.
+At each step, rules learned in prior steps are used to shrink the \egraph
+  during candidate generation and rule minimization.
+
+\subsubsection{Constants}
+First we enumerate terms that apply
+ trigonometric functions to a set of constants.
+\autoref{subsec:ffoverview} briefly describes this workload.
+We explain the process in more detail here.
+Specifically, we are interested in (possibly fractional) multiples of $\pi$.
+The goal is to find identities like
+  \C{(cos 0) \rewritesboth\, (sin (/ PI 2))}.
+We are careful to filter out terms that are undefined like
+  \C{(tan (/ PI 2))}: this term is equivalent to \C{(/ 1 0)} since
+  \C{(sin (/ PI 2))} is 1 and \C{(cos (/ PI 2))} is 0.
+Having undefined terms in the \egraph can cause other rules
+  over rationals to discover unsound equivalences\footnote{For example,
+  we include the rule \C{(/ x x) \rewritesto\, 1}, which is not sound if
+  \C{x} is 0, but it is very useful when \C{x} is nonzero. To avoid
+  unsoundness from this rule, it is important to prevent undefined
+  terms from being represented in the \egraph at any point.}.
+
+The benefit of learning these first is that they can help with additional
+  constant folding.
+Since these terms have no free variables
+  but represent non-trivial identities,
+  it is useful to discover them first in a separate phase.
+
+The concrete workload contains 22 terms and is described by this \enumo program:
+\begin{lstlisting}[name=trig]
+  app = { (OP VAL) }
+  ops = { sin cos tan }
+  consts = { 0 (/ PI 6) (/ PI 4) (/ PI 3) (/ PI 2) PI (* PI 2) }
+  W1 = app
+          .plug("OP", ops)
+          .plug("VAL", consts)
+          .filter(Filter.Not(Filter.Contains("(tan (/ PI 2))")))
+          .union({0 1})
+\end{lstlisting}
+
+The set of rewrite rules we find using \ff from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (cos (/ PI 4)) @\rewritesboth@ (sin (/ PI 4))
+  1 @\rewritesboth@ (tan (/ PI 4))
+  1 @\rewritesboth@ (sin (/ PI 2))
+  1 @\rewritesboth@ (cos (* PI 2))
+  1 @\rewritesboth@ (cos 0)
+  (tan PI) @\rewritesboth@ (cos (/ PI 2))
+  (sin PI) @\rewritesboth@ (sin (* PI 2))
+  (tan PI) @\rewritesboth@ (tan (* PI 2))
+  (sin 0) @\rewritesboth@ (sin PI)
+  (tan 0) @\rewritesboth@ (tan PI)
+  0 @\rewritesboth@ (tan PI)
+  (sin PI) @\rewritesboth@ (tan PI)
+\end{lstlisting}
+
+\subsubsection{Even/odd symmetry and periodicity}
+Next, we create a workload to
+  enumerate trigonometric functions whose arguments are transformed by (1) negation,
+  (2) translation by $\pm \pi$, or (3) doubling.
+The goal is to learn axioms like
+  evenness: \C{f (- x) \rewritesboth\, f (x)},
+  oddness: \C{f (- x) \rewritesboth\, -f (x)},
+  and anti-periodicity: \C{f (+ x  P) \rewritesboth\, -f (x)}.
+Evenness and oddness are useful for techniques like range reduction
+  when constructing math libraries,
+  where an even (or odd) function only needs
+  to be implemented for half the range and
+  the input (or output) can be transformed accordingly.
+Conveniently, anti-periodicity axioms lead to periodicity identities:
+  \C{f (+ x (* 2  P)) \rewritesto\, f (x)}.
+
+Learning these axioms early is ideal.
+Not only are they important properties of trigonometric functions,
+  they serve as simplifying rewrites in later workloads,
+  eliminating unnecessary negations and translations.
+
+The concrete workload contains 50 terms and is described by this \enumo program:
+\begin{lstlisting}
+  simple_terms = app
+                    .plug("OP", ops)
+                    .plug("VAL", {a  (- a)  (+ PI a)  (- PI a)  (+ a a)})
+  neg_terms = {(- X)}.plug("X", simple_terms)
+  W2 = W1.union(simple_terms).union(neg_terms)
+\end{lstlisting}
+
+The set of rewrite rules we obtain from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (- (cos a)) @\rewritesboth@ (cos (+ PI a))
+  (sin a) @\rewritesboth@ (sin (- PI a))
+  (tan a) @\rewritesboth@ (tan (+ PI a))
+  (- (tan a)) @\rewritesboth@ (tan (- a))
+  (- (sin a)) @\rewritesboth@ (sin (- a))
+  (cos (- a)) @\rewritesboth@ (cos a)
+\end{lstlisting}
+
+\subsubsection{Sum-of-squares}
+With this workload, we introduce sum-of-squares
+  terms which have the form: \\
+   \C{(+ (* (f x) (f x)) (* (g y) (g y)))}.
+
+A number of trigonometric identities
+  contain the square of a trigonometric function.
+At this point, the full set of terms is too large,
+so we prune away terms of the form \C{(f (+ x x))}.
+With this workload, we learn the Pythagorean identity.
+
+The concrete workload contains 116 terms and is described by this \enumo program:
+
+\begin{lstlisting}
+  no_trig_2x_filter = Filter.Not(Filter.Or(
+                            Filter.Contains("(sin (+ x x))")
+                            Filter.Contains("(cos (+ x x))")
+                            Filter.Contains("(tan (+ x x))")))
+  squares = { (sqr X) }.plug("X", app).plug("OP", ops).plug("VAL", {a b})
+  add = {(+ E E) (- E E)}
+  sum_of_squares = add.plug("E", squares)
+  W3 = W2.filter(no_trig_2x_filter).union(sum_of_squares)
+\end{lstlisting}
+
+The set of rewrite rules \enumo finds from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (+ (* (sin a) (sin a)) (* (cos a) (cos a))) @\rewritesto@ 1
+  (- (* (cos b) (cos b)) (* (cos a) (cos a))) @\rewritesboth@ (- (* (sin a) (sin a)) (* (sin b) (sin b)))
+  (- (* (sin b) (sin b)) (* (cos a) (cos a))) @\rewritesboth@ (- (* (sin a) (sin a)) (* (cos b) (cos b)))
+\end{lstlisting}
+
+\subsubsection{Coangles}
+With this workload, we try to prove coangle identities.
+Similar to the (anti-)periodicity identities,
+  these identities allow us to eliminate translations
+  by a quarter period.
+Unlike in previous workloads where we simply added terms
+  to the previous workload,
+  here we start with a fresh set of more targeted terms
+  to learn the identities quickly.
+The concrete workload contains 13 terms and is described by this \enumo program:
+\begin{lstlisting}
+  nums = { -2 -1 0 1 2 }
+  sin_cos = { sin cos }
+  base = { a  (+ (/ PI 2) a)  (- (/ PI 2) a)  (* 2 a) }
+  simple = app.plug("OP", sin_cos).plug("VAL", base)
+  W4 = simple.union(nums)
+\end{lstlisting}
+The rewrite rule \enumo finds from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (cos (- (/ PI 2) a)) @\rewritesboth@ (sin a)
+\end{lstlisting}
+
+\subsubsection{Power reduction}
+With this workload,
+  we try to learn power reduction identities,
+  which rewrite trigonometric functions raised to a
+  power into terms with smaller powers.
+For example, the following identity is a power reduction identity:
+  \C{(* (sin x) (sin x)) \rewritesto\, (/ (- 1 (cos (* 2 x))) 2)}.
+
+The concrete workload contains 57 terms and is described by this \enumo program:
+\begin{lstlisting}
+shift = { X (- 1 X) (+ 1 X) }
+scale_down = { X (/ X 2) }
+shifted_simple = shift.plug("X", simple)
+trivial_squares = { (sqr X) }.plug("X", app).plug("OP", sin_cos).plug("VAL", { a })
+shifted_simple_sqrs = shifted_simple.union(trivial_squares)
+scaled_shifted_sqrs = scale_down.plug("X", shifted_simple_sqrs)
+W5 = scaled_shifted_sqrs.union(nums)
+\end{lstlisting}
+
+The set of rewrite rules \enumo finds from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (/ (- 1 (cos (* 2 a))) 2) @\rewritesboth@ (* (sin a) (sin a))
+  (/ (+ 1 (cos (* 2 a))) 2) @\rewritesboth@ (* (cos a) (cos a))
+  (- a a) @\rewritesboth@ (- (- a a))  # minimization failed to eliminate this identity
+\end{lstlisting}
+Note that the last rule shows a limitation of \enumo's minimization approach: this
+  identity should ideally have been eliminated, but due to the incomplete nature of minimization,
+  it ends up in the final ruleset.
+
+\subsubsection{Product-to-sum}
+Similar to the previous workload,
+  this workload explores identities with
+  products of trigonometric functions such as
+  \C{(* (sin x) (sin y))}.
+
+To avoid enumerating terms from the previous workload,
+ we filter out any squared terms.
+These axioms are more general than the ones from the
+  previous workload but are harder to learn, so we learn them separately.
+While the more general versions together with other rewrites
+  can in theory be used to derive the ones in the previous section,
+  due to practical limitations like resource bounds,
+  real-world equality saturation applications can benefit from both sets of
+  rules.
+
+The concrete workload contains 373 terms and is described by this \enumo program:
+
+\begin{lstlisting}
+non_square_filter = Filter.Not(Filter.Or(
+          Filter.Contains("(* (sin x) (sin x))")
+          Filter.Contains("(* (cos x) (cos x))")))
+two_var = app
+            .plug("OP", sin_cos)
+            .plug("VAL", { a b (+ a b) (- a b) })
+sum_two_vars = { (+ X Y) (- X Y) }
+                  .plug("X", two_var)
+                  .plug("Y", two_var)
+prod_two_vars = { (* X Y) }
+                   .plug("X", two_var)
+                   .plug("Y", two_var)
+                   .filter(non_square_filter)
+sum_and_prod = sum_two_vars.union(prod_two_vars)
+scaled_sum_prod = scale_down.plug("X", sum_and_prod)
+W6 = scaled_sum_prod.union(nums)
+\end{lstlisting}
+
+The set of axioms \enumo learns from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (* (sin b) (sin a)) @\rewritesboth@ (/ (- (cos (- b a)) (cos (+ b a))) 2)
+  (* (cos b) (cos a)) @\rewritesboth@ (/ (+ (cos (+ b a)) (cos (- b a))) 2)
+  (+ b a) @\rewritesto@ (+ a b) # minimization failed to eliminate this identity
+\end{lstlisting}
+
+\subsubsection{Sums}
+Finally, we find identities involving trigonometric
+  functions with sums as their arguments, such as
+  \C{(sin (+ x y))}.
+
+These are related to the product-to-sum workload
+  since products of trigonometric functions rewrite
+  into trigonometric functions of sums and vice versa.
+This workload enumerates many terms, so we impose a number
+of filters, including removing double-angle terms,
+  e.g., \C{(sin (+ x x))}, and squared terms, e.g., \C{(sin (* x x))},
+  to keep the search tractable.
+
+The concrete workload contains 287 terms and is described by this \enumo program:
+
+\begin{lstlisting}
+trig_no_sub_filter = Filter.Not(Filter.Or(
+            Filter.Contains("(cos (- a b))")
+            Filter.Contains("(sin (- a b))")))
+two_x_filter = Filter.Not(Filter.Contains("(+ x x)"))
+two_var_no_sub = two_var.filter(trig_no_sub_filter)
+sum_of_prod = { (+ X Y) (- X Y) }
+              .plug("X", prod_two_vars)
+              .plug("Y", prod_two_vars)
+              .filter(two_x_filter)
+              .filter(non_square_filter)
+W7 = two_var_no_sub.union(sum_of_prod).union(nums)
+\end{lstlisting}
+
+The set of axioms \enumo learns from this workload is:
+\begin{lstlisting}[escapechar=@]
+  (- (* (cos b) (cos a)) (* (sin b) (sin a))) @\rewritesboth@ (cos (+ b a))
+  (sin (+ b a)) @\rewritesboth@ (+ (* (sin b) (cos a)) (* (sin a) (cos b)))
+\end{lstlisting}
+
+Note that the incremental approach to rule inference is crucial.
+Rules learned at each step are used as prior rules in subsequent steps.
+It is possible to run \ff with a single workload composed of all of the
+  terms from each of the 7 workloads described above, but the rules synthesized
+  contain more duplicates and overly complicated rules
+  (e.g., \C{(- (- b a) (- b a)) \rewritesto\, (sin PI)} instead of \C{0 \rewritesto\, (sin PI)}).
+With \enumo, it is easy to design small workloads and compose
+  rulesets incrementally.
+
+\subsection{Developing custom workloads for a Halide-inspired domain}
+\label{subsec:halide-appendix}
+It is possible to \textit{overfit} an \enumo workload by only enumerating terms
+  that correspond to the left- and right-hand sides of a desired rule.
+For example, creating a workload consisting only of the terms
+  \C{(- (* x y) (* z y))} and \C{(* (- x z) y)} in
+  order to synthesize the rule \C{(- (* x y) (* z y)) \rewritesboth\, (* (- x z) y)}
+  is possible, but requires that the desired rule is known beforehand.
+However, the real value of \enumo is its ability to discover useful rewrite rules
+  \textit{without} the domain expert needing to already know what rules they
+  are looking for.
+\enumo allows domain experts to guide the term enumeration, enabling \enumo
+  to scale past tools that rely on exhaustive term enumeration.
+While it is possible to use guided term enumeration to find specific desired rules,
+  as described above, it is more useful to use \enumo workloads to encode
+  general insights about the domain of interest.
+To see how \enumo enables users to encode \textit{broad}, rather than specific,
+  domain knowledge, consider the \enumo program for the Halide-inspired
+  grammar (\autoref{subsec:halideeval}).
+Here, we do not guide the enumeration towards specific rules we want to synthesize,
+  but rather we encode intuition about which parts of the search space are worth
+  exploring.
+
+First, we group the operators in the domain into semantic categories:
+  boolean operators, arithmetic operators, and predicate operators.
+Then, we compute an \enumo workload corresponding to exhaustive enumeration
+  using each subset of operators, and synthesize rules using each workload separately.
+The intuition guiding this strategy is that useful rules are more likely to be found
+  within each category of operators than between categories.
+Of course, there are also useful rewrite rules that use operators from multiple categories,
+  so we also create a workload that enumerates over all of the operators.
+However, we are able to use all of the rules we learned previously to shrink the
+  \egraph and make rule inference more tractable.
+Finally, we enumerate workloads with larger terms, but apply the \enumo{} \textsf{Canon}
+  filter to remove terms whose variables do not appear in canonical order,
+  again making the search space smaller and more tractable.
+Since we have already learned rules that enable reordering
+  and re-associating terms, variable order within a term should not matter as much.
+
+The domain expertise we utilize to develop this \enumo program is
+  quite general, not overly specific to the rules we intend to synthesize.
+However, it is still valuable to guide the search space in broad ways,
+  which is not feasible with one-shot theory explorers like \ruler.
+By separating the rule inference problem into smaller searches over subsets of
+  the enumeration space, we are able to synthesize a more powerful ruleset
+  than prior work.

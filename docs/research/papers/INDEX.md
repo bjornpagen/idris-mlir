@@ -193,5 +193,41 @@ served. They are recorded here so the report pass does not trust the incorrect r
     CompCert (HAL), TACO/Exo/Halide (DSpace@MIT), Futhark (author site), Halide-learning
     (eScholarship), STOKE and Alive (author sites), and Ruler (arXiv) were fetched from sources
     `ACCESS.md` had recorded only as "author host / ACM 403" or "ACM 403". Conversely, some
-    green-OA locations OpenAlex reports are not usable here: Edinburgh (403), Utrecht (no direct
-    PDF), ETH (500), Chalmers (no PDF), ANU (503), eScholarship PDFs (require a browser User-Agent).
+   green-OA locations OpenAlex reports are not usable here: Edinburgh (403), Utrecht (no direct
+   PDF), ETH (500), Chalmers (no PDF), ANU (503), eScholarship PDFs (require a browser User-Agent).
+
+## Open-access copies and newly resolved identifiers
+
+Authorized open-access copies of many of the link-only papers above now live under
+[`../sources/oa-papers/<shortname>/`](../sources/oa-papers/) (each folder has its own
+`README.md`); the full provenance — host, version, license, and the API/site that surfaced
+each — is in [`../sources/oa-locations.md`](../sources/oa-locations.md). These are
+green/bronze OA or author/project copies only; no paywall-bypassing mirror was used.
+
+Ten rows that this index lists as unresolved were resolved to concrete identifiers in
+`oa-locations.md`:
+
+| Previously-unresolved row | Resolved identifier |
+| --- | --- |
+| fractional uniqueness | `10.1145/3649848` (Functional Ownership through Fractional Uniqueness) |
+| Secrets of the GHC Inliner | `10.1017/S0956796802004331` (candidate `…4270` was wrong) |
+| MLIR (CGO 2021) | `10.1109/CGO51591.2021.9370308` |
+| `cejtin-2000-defunctionalization` | `10.1007/3-540-46425-5_4` |
+| `huang-yallop-2023-defunctionalization` | `10.1145/3591241` |
+| `maranget-2008-pattern-matching` | `10.1145/1411304.1411311` |
+| `wadler-linear-types` | no DOI (IFIP 1990); author-hosted PostScript |
+| `hovgaard-2018-defunctionalisation` | `10.1007/978-3-030-18506-0_7` |
+| `lafont-1997-interaction-combinators` | `10.1006/inco.1997.2643` |
+| `certicoq` | `10.1145/3473591`; `10.1145/3703595.3705879` (CertiCoq-Wasm) |
+
+Stored OA copies (shortname → `../sources/oa-papers/<shortname>/`):
+`adams-2019-halide-learning`, `bhat-2024-verifying-peephole`, `chataing-2024-unboxed-data-constructors`,
+`danvy-2001-defunctionalization`, `fehr-2022-irdl`, `fractional-uniqueness`, `henriksen-2017-futhark`,
+`hovgaard-2018-defunctionalisation`, `huang-yallop-2023-defunctionalization`, `ikarashi-2022-exo`,
+`jia-2019-taso`, `kjolstad-2017-taco`, `kovacs-2024-closure-free`, `leijen-2017-koka-effects`,
+`leroy-2009-compcert`, `lopes-2015-alive`, `lopes-2021-alive2`, `lorenzen-2023-fp2`,
+`maranget-2008-pattern-matching`, `marlow-2006-fast-curry`, `marshall-2022-linearity-uniqueness`,
+`mitchell-2010-rethinking-supercompilation`, `mullapudi-2016-halide-autosched`, `pal-2023-ruler` (TeX),
+`panchekha-2015-herbie`, `peytonjones-1992-stg`, `ragankelley-2013-halide`,
+`reinking-2021-perceus`, `rondon-2008-liquid-types`, `schkufza-2013-stoke`,
+`sorensen-1996-positive-supercompiler`, `wadler-linear-types` (PostScript).
