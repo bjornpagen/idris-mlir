@@ -3,8 +3,6 @@
 The normative spec is [docs/architecture/](docs/architecture/00-index.md).
 - Before changing a compiler boundary, read 00, 01, 02, 03 and 08.
 - Before any implementation work, read 16-agent-rules.md.
-- The spec is a draft until the user approves it. Do not start
-  implementation work before that.
 
 - The compiler front and middle end are Idris. The `idr` MLIR dialect and its
   passes are C++ in `foreign/idr/`, following bjornpagen/cpp-starter as

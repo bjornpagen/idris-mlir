@@ -11,7 +11,7 @@ Idris frontend (pinned) → checked TT → our IR → erasure → MLIR text
 Today everything up to MLIR text is written in Idris, and MLIR is used only
 through the stock, pinned LLVM tools with upstream dialects. The target
 architecture, specified in [docs/architecture/](docs/architecture/00-index.md)
-(draft, awaiting review), adds an MLIR dialect of our own in C++, compiles a
+(approved), adds an MLIR dialect of our own in C++, compiles a
 versioned, heap-free subset of Idris 2, and is not implemented yet.
 
 ## Current state
@@ -53,7 +53,7 @@ Everything is installed under `.toolchain/`.
 
 ## Docs
 
-- [Architecture spec](docs/architecture/00-index.md) (normative; draft)
+- [Architecture spec](docs/architecture/00-index.md) (normative)
 - [Toolchain](docs/toolchain.md)
 - [Whole-program compilation: prior art and plan](docs/research/whole-program-compilation.md)
 - [Next research brief: optimizing from first principles](docs/research/next-research-prompt.md)

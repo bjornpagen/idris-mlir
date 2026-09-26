@@ -1,8 +1,7 @@
 # idris-mlir architecture specification
 
-Status: **draft 2, awaiting review.** Once the user approves it, it governs p0
-and v0 (see [roadmap](15-roadmap.md)). Until then nothing in it may be
-implemented.
+Status: **approved (draft 2).** It governs p0, v0 and v1 (see
+[roadmap](15-roadmap.md)).
 
 This directory is the normative specification of idris-mlir: a whole-program
 compiler for a versioned, strict subset of Idris 2 (the *profile*). It lowers
