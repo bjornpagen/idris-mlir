@@ -444,7 +444,12 @@ mutual
     if isErased rig
        then ELet loc v Q0 ErasedT (EErased loc) <$> term ctx (Bound v ErasedT :: env) sc
        else do
-         t <- coreType (bestFC ctx fc) ctx.owner !(closeNormalise fc env ty)
+         -- TTC does not keep the types of lets (Core.TTC, `Let` binders):
+         -- `letTypes` infers them from the values after translation.
+         ty' <- closeNormalise fc env ty
+         t <- case ty' of
+                Erased _ _ => pure ErasedT
+                _ => coreType (bestFC ctx fc) ctx.owner ty'
          val' <- term ctx env val
          ELet loc v (quantity rig) t val' <$> term ctx (Bound v t :: env) sc
   term ctx env (Bind fc x (Lam lfc rig _ ty) sc) = do
@@ -719,12 +724,49 @@ drain = do
       translateInstance p
       drain
 
+||| The types of runtime lets that TTC did not keep (marked `ErasedT` at a
+||| runtime quantity, which no runtime let has otherwise), from their values.
+letTypes : Program -> Fn -> Maybe Fn
+letTypes prog fn = do
+  body <- go (map (\p => (p.var, p.type)) fn.params) fn.body
+  pure ({ body := body } fn)
+  where
+    go : List (Var, Ty) -> Expr -> Maybe Expr
+    go env (ELet l x q t v b) = do
+      v' <- go env v
+      t' <- if q /= Q0 && t == ErasedT then typeOf prog env v' else Just t
+      ELet l x q t' v' <$> go ((x, t') :: env) b
+    go env (EMatchCon l x alts d) = do
+      alts' <- traverse alt alts
+      EMatchCon l x alts' <$> traverse (go env) d
+      where
+        alt : ConAlt -> Maybe ConAlt
+        alt (MkConAlt c xs e) = do
+          DataT dn <- lookup x env
+            | _ => Nothing
+          con <- lookupCon dn c prog
+          MkConAlt c xs <$> go (zip xs (map (.type) con.fields) ++ env) e
+    go env (EMatchLit l x alts d) =
+      EMatchLit l x <$> traverse (\(k, e) => (k,) <$> go env e) alts <*> go env d
+    go env (ELam l x q t b) = ELam l x q t <$> go ((x, t) :: env) b
+    go env (EApp l f a) = EApp l <$> go env f <*> go env a
+    go env (EDelay l e) = EDelay l <$> go env e
+    go env (EForce l e) = EForce l <$> go env e
+    go env (EPrim l op as) = EPrim l op <$> traverse (go env) as
+    go env (EIO l op as r) = (\as' => EIO l op as' r) <$> traverse (go env) as
+    go env (ECall l f as) = ECall l f <$> traverse (go env) as
+    go env (ECon l d c as) = ECon l d c <$> traverse (go env) as
+    go env e = Just e
+
 assemble : {auto s : Ref TState TS} -> String -> EntryKind -> Core Program
 assemble root entry = do
   st <- get TState
   let datas = mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> [])
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
-  pure (MkProgram datas fns root entry 0)
+  let prog = MkProgram datas fns root entry 0
+  case the (Maybe (List Fn)) (traverse (letTypes prog) fns) of
+    Just fns' => pure ({ fns := fns' } prog)
+    Nothing => throw (GenericMsg EmptyFC "mlir backend: internal error: the type of a let could not be inferred")
 
 ||| A `main : Int` program (FE-ENTRY-2): the root is `main` itself.
 export

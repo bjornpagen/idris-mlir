@@ -5,6 +5,7 @@ brief = "Compiler from checked Idris 2 TT to MLIR"
 depends = idris2, network
 sourcedir = "src"
 modules = IdrisMLIR.Core
+        , IdrisMLIR.Core.Check
         , IdrisMLIR.Emit
         , IdrisMLIR.Simplify
         , IdrisMLIR.HeapCheck

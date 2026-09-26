@@ -13,6 +13,7 @@ import Idris.Syntax
 import Libraries.Utils.Path
 
 import IdrisMLIR.Core
+import IdrisMLIR.Core.Check
 import IdrisMLIR.Emit
 import IdrisMLIR.HeapCheck
 import IdrisMLIR.Simplify
@@ -51,23 +52,63 @@ remove path = ignore (coreLift (removeFile path))
 -- The middle end (CORE-PASS-1)
 ------------------------------------------------------------------------------
 
-||| Simplify, HeapCheck and Emit; returns the printed Core and the contract text.
-middle : {auto s : Ref TState TS} -> FC -> Program -> Core (String, String)
-middle fc prog = do
+||| The directory for `--directive dump-core` and `dump-mlir` (DRV-DUMP-1).
+dumpDir : {auto c : Ref Ctxt Defs} -> String -> Core (Maybe String, Bool)
+dumpDir base = do
+  ds <- getDirectives (Other "mlir")
+  let dir = base ++ ".dump"
+  let core = elem "dump-core" ds
+  let mlir = elem "dump-mlir" ds
+  when (core || mlir) $ do
+    Right () <- coreLift (createDirs dir)
+      | Left err => throw (FileErr dir err)
+    pure ()
+  pure (if core then Just dir else Nothing, mlir)
+  where
+    createDirs : String -> IO (Either FileError ())
+    createDirs d = do
+      ok <- exists d
+      if ok then pure (Right ()) else createDir d
+
+||| Writes the Core after a pass when dumping.
+dump : Maybe String -> String -> Program -> Core ()
+dump Nothing _ _ = pure ()
+dump (Just dir) name prog = write (dir </> name ++ ".core") (showProgram prog)
+
+||| Core.Check (CORE-CHECK-1): a failure is an internal error, with the Core
+||| on stderr for the report (DIAG-ICE-1).
+checked : FC -> String -> (Program -> Either String ()) -> Program -> Core ()
+checked fc pass check prog = case check prog of
+  Right () => pure ()
+  Left msg => do
+    ignore (coreLift (fPutStrLn stderr (showProgram prog)))
+    internal fc ("Core.Check after " ++ pass ++ ": " ++ msg)
+
+||| Simplify, HeapCheck and Emit (CORE-PASS-1); returns the printed Core and
+||| the contract text.
+middle : {auto s : Ref TState TS} -> FC -> Maybe String -> Program -> Core (String, String)
+middle fc dir prog = do
+  dump dir "01-translate" prog
+  checked fc "Translate" checkFull prog
   Right simple <- pure (simplify prog)
     | Left d => fromDiag d
-  Right checked <- pure (heapCheck simple)
+  dump dir "02-simplify" simple
+  Right heapFree <- pure (heapCheck simple)
     | Left d => fromDiag d
-  Right mlir <- pure (emit checked)
+  dump dir "03-heapcheck" heapFree
+  checked fc "HeapCheck" checkFirstOrder heapFree
+  Right mlir <- pure (emit heapFree)
     | Left msg => do
-        -- DIAG-ICE-1: an internal error; the Core goes to stderr for the report.
-        ignore (coreLift (fPutStrLn stderr (showProgram checked)))
+        ignore (coreLift (fPutStrLn stderr (showProgram heapFree)))
         internal fc msg
-  pure (showProgram checked, mlir)
+  pure (showProgram heapFree, mlir)
 
 ------------------------------------------------------------------------------
 -- main : Int programs (FE-ENTRY-2)
 ------------------------------------------------------------------------------
+
+dropExt : String -> String -> String
+dropExt path ext = if isSuffixOf ext path then substr 0 (length path `minus` length ext) path else path
 
 compileModule : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
                 String -> Core (Maybe (String, List String))
@@ -98,7 +139,8 @@ compileModule c _ source = do
     _ => reject (location def) (show main) "PROF-PROG-2" "main must have type Int"
   checkReachable fc [main]
   prog <- translateIntProgram main
-  (core, mlir) <- middle fc prog
+  (dir, _) <- dumpDir (corePath `dropExt` ".core")
+  (core, mlir) <- middle fc dir prog
   write corePath core
   write mlirPath mlir
   pure (Just (!(getObjFileName source "mlir"), []))
@@ -155,11 +197,13 @@ compileIO c _ tmpDir outputDir tm outfile = do
       checkPragmas m path
   checkReachable fc [main]
   prog <- translateIOProgram fc main
-  (core, mlir) <- middle fc prog
+  (dir, dumpMlir) <- dumpDir base
+  (core, mlir) <- middle fc dir prog
   write corePath core
   write mlirPath mlir
   -- DRV-FLOW-2: the rest of the chain, with the pinned tools.
-  run fc [idrisMlirCc, mlirPath, "-o", objPath]
+  let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
+  run fc ([idrisMlirCc, mlirPath, "-o", objPath] ++ dumps)
   run fc [pinnedCc, objPath, "-o", base]
   pure (Just base)
 

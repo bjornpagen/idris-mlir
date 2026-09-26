@@ -64,7 +64,10 @@ record St where
   counts : SortedMap String Nat
   done : SnocList Fn
   staticData : SortedSet String
-  safe : SortedSet String
+  safe : SortedSet String      -- functions and specializations that cannot crash or loop
+  active : SortedSet String    -- specializations being built
+  pending : SortedMap String (List String)  -- safe if these callees are (recursion)
+  assumed : SortedSet String   -- specializations relied on as safe before that was known
   inPrefix : Maybe Loc          -- inside the prefix of a raised function (G5)
 
 M : Type -> Type
@@ -85,25 +88,31 @@ emit : Binding -> M ()
 emit b = do
   st <- get
   case (st.inPrefix, b) of
-    (Just at, BLet _ _ _ e) =>
-      unless (safeExpr st e) $
+    (Just at, BLet _ _ _ e) => do
+      let (ok, relied) = safeExpr st e
+      unless ok $
         fail "PROF-HEAP-5" (locOf e)
              ("arity raising is blocked: this computation may crash or not terminate, " ++
               "and would move from where an IO action or function is built to where it runs")
+      modify { assumed $= union (fromList relied) }
     _ => pure ()
+  st <- get
   case st.scopes of
     (s :: ss) => put ({ scopes := (s :< b) :: ss } st)
     [] => put ({ scopes := [[<b]] } st)
   where
-    safeExpr : St -> Expr -> Bool
-    safeExpr st (EPrim _ (Div _) [_, ELit _ (LInt _ n)]) = n /= 0
-    safeExpr st (EPrim _ (Mod _) [_, ELit _ (LInt _ n)]) = n /= 0
-    safeExpr st (EPrim _ (Div _) _) = False
-    safeExpr st (EPrim _ (Mod _) _) = False
-    safeExpr st (ECall _ f _) = contains f st.safe
-    safeExpr st (EIO {}) = False
-    safeExpr st (EMatchCon _ _ alts d) = True   -- branches were checked as they were emitted
-    safeExpr st _ = True
+    ||| Branches of matches were checked as they were emitted.
+    safeExpr : St -> Expr -> (Bool, List String)
+    safeExpr st (EPrim _ (Div _) [_, ELit _ (LInt _ n)]) = (n /= 0, [])
+    safeExpr st (EPrim _ (Mod _) [_, ELit _ (LInt _ n)]) = (n /= 0, [])
+    safeExpr st (EPrim _ (Div _) _) = (False, [])
+    safeExpr st (EPrim _ (Mod _) _) = (False, [])
+    safeExpr st (ECall _ f _) =
+      if contains f st.safe then (True, [])
+      else if contains f st.active || isJust (lookup f st.pending) then (True, [f])
+      else (False, [])
+    safeExpr st (EIO {}) = (False, [])
+    safeExpr st _ = (True, [])
 
 ||| Runs `act` in a fresh scope and wraps its bindings around the result.
 scoped : M Expr -> M Expr
@@ -140,6 +149,12 @@ scopedTyped act = do
     wrapAll (BLet x q ty v :: bs) e = ELet (locOf v) x q ty v (wrapAll bs e)
     wrapAll (BUnpack x c xs :: bs) e = EMatchCon (locOf e) x [MkConAlt c xs (wrapAll bs e)] Nothing
 
+||| A variable of a runtime type; an erased one is the value `Erased`, so it
+||| only ever reaches quantity-0 positions as `Erased` (CORE-INV-3).
+dynVar : Loc -> Var -> Ty -> SVal
+dynVar l x ErasedT = Dyn (EErased l) ErasedT
+dynVar l x t = Dyn (EVar l x) t
+
 bindDyn : Loc -> Ty -> Expr -> M SVal
 bindDyn l t e = do
   x <- freshVar
@@ -174,30 +189,44 @@ staticDatas prog = go (fromList [d.name | d <- prog.datas, any (direct . (.type)
         holds acc (DataT n) = contains n acc
         holds acc _ = False
 
+||| Code that cannot crash, given which callees cannot crash or loop: no
+||| possibly-crashing primitive and no IO.
+safeCode : (String -> Bool) -> Expr -> Bool
+safeCode s (EPrim _ (Div _) [a, ELit _ (LInt _ n)]) = n /= 0 && safeCode s a
+safeCode s (EPrim _ (Mod _) [a, ELit _ (LInt _ n)]) = n /= 0 && safeCode s a
+safeCode s (EPrim _ (Div _) _) = False
+safeCode s (EPrim _ (Mod _) _) = False
+safeCode s (EPrim _ _ as) = all (safeCode s) as
+safeCode s (EIO {}) = False
+safeCode s (ECall _ f as) = s f && all (safeCode s) as
+safeCode s (ECon _ _ _ as) = all (safeCode s) as
+safeCode s (ELet _ _ _ _ v b) = safeCode s v && safeCode s b
+safeCode s (EMatchCon _ _ alts d) = all (\(MkConAlt _ _ e) => safeCode s e) alts && maybe True (safeCode s) d
+safeCode s (EMatchLit _ _ alts d) = all (safeCode s . snd) alts && safeCode s d
+safeCode s (ELam _ _ _ _ b) = safeCode s b
+safeCode s (EApp _ f a) = safeCode s f && safeCode s a
+safeCode s (EDelay _ e) = safeCode s e
+safeCode s (EForce _ e) = safeCode s e
+safeCode s _ = True
+
+||| Calls in residual code.
+callees : Expr -> List String
+callees (ECall _ f as) = f :: concatMap callees as
+callees (EPrim _ _ as) = concatMap callees as
+callees (EIO _ _ as _) = concatMap callees as
+callees (ECon _ _ _ as) = concatMap callees as
+callees (ELet _ _ _ _ v b) = callees v ++ callees b
+callees (EMatchCon _ _ alts d) = concatMap (\(MkConAlt _ _ e) => callees e) alts ++ maybe [] callees d
+callees (EMatchLit _ _ alts d) = concatMap (callees . snd) alts ++ callees d
+callees _ = []
+
 ||| Functions that cannot crash and terminate: total, no possibly-crashing
 ||| primitive, no IO, only safe callees (ELIM-G-5).
 safeFns : Program -> SortedSet String
 safeFns prog = go (fromList [f.name | f <- prog.fns, f.terminating])
   where
-    ok : SortedSet String -> Expr -> Bool
-    ok s (EPrim _ (Div _) [a, ELit _ (LInt _ n)]) = n /= 0 && ok s a
-    ok s (EPrim _ (Mod _) [a, ELit _ (LInt _ n)]) = n /= 0 && ok s a
-    ok s (EPrim _ (Div _) _) = False
-    ok s (EPrim _ (Mod _) _) = False
-    ok s (EPrim _ _ as) = all (ok s) as
-    ok s (EIO {}) = False
-    ok s (ECall _ f as) = contains f s && all (ok s) as
-    ok s (ECon _ _ _ as) = all (ok s) as
-    ok s (ELet _ _ _ _ v b) = ok s v && ok s b
-    ok s (EMatchCon _ _ alts d) = all (\(MkConAlt _ _ e) => ok s e) alts && maybe True (ok s) d
-    ok s (EMatchLit _ _ alts d) = all (ok s . snd) alts && ok s d
-    ok s (ELam _ _ _ _ b) = ok s b
-    ok s (EApp _ f a) = ok s f && ok s a
-    ok s (EDelay _ e) = ok s e
-    ok s (EForce _ e) = ok s e
-    ok s _ = True
     go : SortedSet String -> SortedSet String
-    go s = let s' = fromList [f.name | f <- prog.fns, contains f.name s, ok s f.body]
+    go s = let s' = fromList [f.name | f <- prog.fns, contains f.name s, safeCode (`contains` s) f.body]
            in if Prelude.toList s' == Prelude.toList s then s else go s'
 
 ------------------------------------------------------------------------------
@@ -596,9 +625,12 @@ mutual
     bindDyn l resTy (EMatchCon l x (map fst alts') (map fst def'))
     where
       altBranch : St -> (ConAlt, List Ty) -> M (ConAlt, Ty)
+      -- Fresh binders: the same alternative may be residualized more than
+      -- once in one function (CORE-INV-1).
       altBranch st (MkConAlt c xs e, tys) = do
-        (body, t) <- branch (zipWith (\x, t => (x, Dyn (EVar l x) t)) xs tys ++ env) e es
-        pure (MkConAlt c xs body, t)
+        ys <- traverse (\_ => freshVar) xs
+        (body, t) <- branch (zipWith3 (\x, y, t => (x, dynVar l y t)) xs ys tys ++ env) e es
+        pure (MkConAlt c ys body, t)
   matchCon env l v alts def es = fail "PROF-HEAP-1" l ("a match on " ++ shape v)
 
   ||| Applies eliminations to a value.
@@ -661,10 +693,10 @@ mutual
           fail "PROF-HEAP-4" l
                ("specializing " ++ fn.idrisName ++ " does not terminate: a recursive function " ++
                 "passes itself a different function or IO action on each call")
-        put ({ memo $= insert key key, counts $= insert fn.name (S count) } st)
+        put ({ memo $= insert key key, counts $= insert fn.name (S count), active $= insert key } st)
         let atoms = concatMap flatten args ++ concatMap flattenElim es
         params <- traverse (\(_, t) => (, t) <$> freshVar) atoms
-        let pexprs = map (\(v, _) => EVar l v) params
+        let pexprs = map (\(v, t) => if t == ErasedT then EErased l else EVar l v) params
         let (args', rest) = rebuildList args pexprs
         let (es', _) = rebuildElims es rest
         let env = zip (map (.var) fn.params) args'
@@ -676,6 +708,20 @@ mutual
           (a, _) <- toDyn fn.loc v
           pure a
         modify { inPrefix := saved }
+        -- A specialization is safe when its function terminates and its code
+        -- cannot crash. Recursion makes that conditional on specializations
+        -- not finished yet; `settle` decides once they are.
+        modify { active $= delete key }
+        st' <- get
+        let unknown = \g => contains g st'.active || isJust (lookup g st'.pending)
+        let isSafe = fn.terminating &&
+                     safeCode (\g => g == key || contains g st'.safe || unknown g) body
+        if isSafe
+           then case nub (filter (\g => g /= key && unknown g) (callees body)) of
+                  [] => modify { safe $= insert key }
+                  deps => modify { pending $= insert key deps }
+           else unsafe l key
+        settle l
         let newFn = MkFn key fn.idrisName (map (\(v, t) => MkParam v (quantityOf t) t) params)
                          resTy body fn.loc fn.terminating
         modify { done $= (:< newFn) }
@@ -685,6 +731,37 @@ mutual
       quantityOf ErasedT = Q0
       quantityOf WorldT = Q1
       quantityOf _ = QW
+
+  ||| A specialization that may crash or loop; fatal if it was relied on.
+  unsafe : Loc -> String -> M ()
+  unsafe l key = do
+    st <- get
+    when (contains key st.assumed) $
+      fail "PROF-HEAP-5" l
+           ("arity raising is blocked: " ++ key ++ " may crash or not terminate, and a " ++
+            "call to it would move from where an IO action or function is built to where it runs")
+
+  ||| Decides pending specializations: unsafe if a callee is unsafe; safe once
+  ||| no callee is unsafe and none can still reach one being built.
+  settle : Loc -> M ()
+  settle l = do
+    st <- get
+    let entries = SortedMap.toList st.pending
+    let isBad = \g => not (contains g st.safe || contains g st.active || isJust (lookup g st.pending))
+    case find (\(_, deps) => any isBad deps) entries of
+      Just (k, _) => do
+        modify { pending $= delete k }
+        unsafe l k
+        settle l
+      Nothing => do
+        let blocked = reach (fromList [k | (k, deps) <- entries, any (`contains` st.active) deps]) entries
+        let free = [k | (k, _) <- entries, not (contains k blocked)]
+        modify { pending $= \p => foldl (\m, k => delete k m) p free
+               , safe $= union (fromList free) }
+    where
+      reach : SortedSet String -> List (String, List String) -> SortedSet String
+      reach s es = let s' = union s (fromList [k | (k, deps) <- es, any (`contains` s) deps])
+                   in if Prelude.toList s' == Prelude.toList s then s else reach s' es
 
   ||| Primitives: compile-time evaluation (G6) and deferred strings (G7).
   prim : Loc -> PrimOp -> List SVal -> M SVal
@@ -787,9 +864,9 @@ maxVar prog = foldl max 0 (concatMap fnVars prog.fns) + 1
 export
 simplify : Program -> Either Diag Program
 simplify prog = do
-  let st0 = MkSt prog (maxVar prog) [] empty empty [<] (staticDatas prog) (safeFns prog) Nothing
+  let st0 = MkSt prog (maxVar prog) [] empty empty [<] (staticDatas prog) (safeFns prog) empty empty empty Nothing
   root <- maybe (Left (diag "CORE-CHECK-1" "Simplify" noLoc "no root")) Right (lookupFn prog.root prog)
-  let rootArgs = map (\p => Dyn (EVar root.loc p.var) p.type) root.params
+  let rootArgs = map (\p => dynVar root.loc p.var p.type) root.params
   (st, body) <- runStateT st0 $ scoped $ do
     v <- evalK (zip (map (.var) root.params) rootArgs) root.body []
     (a, _) <- toDyn root.loc v
