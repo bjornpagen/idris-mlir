@@ -412,19 +412,27 @@ def doctor():
         print("Idris source:", verify_idris_source())
     except ValueError as error:
         print("Idris source: problem:", error)
-    lock = llvm_lock()
-    print("LLVM pin:", lock["tag"], lock["revision"])
+    llvm = llvm_lock()
+    print("LLVM pin:", llvm["tag"], llvm["revision"])
     for tool in ("git", "make", "cc", "bash", "sha256sum",
                  "scheme", "chez", "chezscheme", "cmake", "ninja"):
         print(f"{tool}: {shutil.which(tool) or 'not found'}")
     print("GMP headers:", "found" if gmp_available() else "not found")
     stamp = read_stamp(IDRIS_PREFIX)
     print("Local Idris/API:", f"built at {stamp['idris2_revision']}" if stamp else "not built")
+    for name, prefix in (("gcc", GCC_PREFIX), ("cmake", CMAKE_PREFIX), ("ninja", NINJA_PREFIX)):
+        try:
+            stamped(prefix, name)
+            print(f"Pinned {name}: {lock(name)['version']}")
+        except ValueError as error:
+            print(f"Pinned {name}: {error}")
+    for path in (COMPILER, IDRIS_MLIR_CC, IDRIS_MLIR_OPT):
+        print(f"{path.relative_to(ROOT)}: {'built' if path.is_file() else 'not built (dev.py build)'}")
     stamp = read_stamp(LLVM_PREFIX)
     print("Local MLIR tools:", f"built at {stamp['llvm_revision']}" if stamp else "not built")
     for tool in LLVM_TOOLS if stamp else ():
         output = run([LLVM_PREFIX / "bin" / tool, "--version"], capture=True).stdout
-        ok = f"version {lock['version']}" in output
+        ok = f"version {llvm['version']}" in output
         print(f"  {tool}: {'matches lock' if ok else 'VERSION MISMATCH'}")
 
 
@@ -470,7 +478,7 @@ def main():
     elif args.command == "test-idr":
         test_idr()
     elif args.command == "test-mlir-tools":
-        run([sys.executable, "tests/mlir/check_pipeline.py", llvm_bin()])
+        run([sys.executable, "tests/mlir/check_pipeline.py", llvm_bin(), pinned_cc()])
 
 
 if __name__ == "__main__":

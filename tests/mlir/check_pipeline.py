@@ -12,10 +12,10 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures/exit_code.mlir"
 
 
 def main():
-    tools = Path(sys.argv[1])
+    tools, linker = Path(sys.argv[1]), Path(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="idris-mlir-pipeline-") as directory:
         work = Path(directory)
-        exe = build_executable(tools, FIXTURE, work)
+        exe = build_executable(tools, FIXTURE, work, linker)
         lowered = (work / "lowered.mlir").read_text()
         assert "llvm.func @main" in lowered, lowered
         optimized = (work / "opt.ll").read_text()

@@ -1,7 +1,6 @@
 """The pinned MLIR-to-executable pipeline, shared by the tests."""
 
 from pathlib import Path
-import shutil
 import subprocess
 
 TOOLS = ("mlir-opt", "mlir-translate", "opt", "llc")
@@ -14,15 +13,15 @@ def step(args):
         raise AssertionError(f"{Path(args[0]).name} failed ({result.returncode}):\n{result.stderr}")
 
 
-def build_executable(tools, source, work):
-    """Lower MLIR text at `source` to an executable in `work`; return its path."""
+def build_executable(tools, source, work, linker):
+    """Lower MLIR text at `source` to an executable in `work` with the upstream
+    tools and link it with `linker` (the pinned gcc); return its path."""
     tools, work = Path(tools), Path(work)
     for tool in TOOLS:
         if not (tools / tool).is_file():
             raise AssertionError(f"missing {tools / tool}; run tools/dev.py bootstrap-llvm")
-    linker = shutil.which("cc")
-    if linker is None:
-        raise AssertionError("missing cc")
+    if not Path(linker).is_file():
+        raise AssertionError(f"missing {linker}; run tools/dev.py bootstrap-gcc")
     work.mkdir(parents=True, exist_ok=True)
     lowered, ir, optimized, obj, exe = (work / name for name in (
         "lowered.mlir", "out.ll", "opt.ll", "out.o", "out"))

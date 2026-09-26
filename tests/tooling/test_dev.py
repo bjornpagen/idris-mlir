@@ -64,7 +64,7 @@ class ToolingTests(unittest.TestCase):
     def test_missing_mlir_tools_fail_the_smoke_test(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(
-                [sys.executable, ROOT / "tests/mlir/check_pipeline.py", directory],
+                [sys.executable, ROOT / "tests/mlir/check_pipeline.py", directory, "/usr/bin/cc"],
                 capture_output=True, text=True,
             )
         self.assertNotEqual(result.returncode, 0)
