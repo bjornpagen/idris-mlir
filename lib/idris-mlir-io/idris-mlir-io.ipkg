@@ -1,0 +1,7 @@
+package idris-mlir-io
+version = 0.1.0
+brief = "The trusted IO module of the idris-mlir profile (PROF-IO-*)"
+
+opts = "--no-prelude"
+sourcedir = "src"
+modules = IdrisMLIR.IO

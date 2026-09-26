@@ -1,9 +1,30 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "llvm": {
     "repository": "https://github.com/llvm/llvm-project.git",
     "revision": "85ac560262434c9ccfc0c183ec22d4138ed647fb",
     "tag": "llvmorg-23.1.2",
     "version": "23.1.2"
+  },
+  "gcc": {
+    "repository": "https://github.com/gcc-mirror/gcc.git",
+    "revision": "78d4ac73dd391005b895a6148cd9831e28e1208b",
+    "tag": "releases/gcc-16.2.0",
+    "version": "16.2.0",
+    "accept": "16"
+  },
+  "cmake": {
+    "repository": "https://github.com/Kitware/CMake.git",
+    "revision": "ff7c4824e7cd1f11e3a6af4cdeb39840bbb62cdc",
+    "tag": "v4.2.8",
+    "version": "4.2.8",
+    "accept": "4.2"
+  },
+  "ninja": {
+    "repository": "https://github.com/ninja-build/ninja.git",
+    "revision": "3441b633c2fe2c494e958780ba0f4227b1327634",
+    "tag": "v1.13.2",
+    "version": "1.13.2",
+    "accept": "1.13"
   }
 }
