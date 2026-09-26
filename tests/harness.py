@@ -89,9 +89,16 @@ def stock_idris():
     return dev.IDRIS_PREFIX / "bin/idris2"
 
 
-def run(args, cwd, stdin=None, env=None, timeout=600):
+def limit_stack():
+    """Programs under test run on a 1 MiB stack (SEM-RES-2)."""
+    import resource
+    resource.setrlimit(resource.RLIMIT_STACK, (2 ** 20, 2 ** 20))
+
+
+def run(args, cwd, stdin=None, env=None, timeout=600, small_stack=False):
     return subprocess.run([str(a) for a in args], cwd=cwd, input=stdin, env=env,
-                          capture_output=True, timeout=timeout)
+                          capture_output=True, timeout=timeout,
+                          preexec_fn=limit_stack if small_stack else None)
 
 
 def text(process):

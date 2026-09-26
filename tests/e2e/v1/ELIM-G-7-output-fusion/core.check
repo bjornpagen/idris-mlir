@@ -1,0 +1,9 @@
+rule: ELIM-G-7
+putStrLn of a string built from a runtime character becomes writes in order.
+CHECK-NOT: strAppend
+CHECK: io.putStr("got ",
+CHECK: io.putChar(
+CHECK: io.putStr(" = ",
+CHECK: io.putInt_Int(
+CHECK: io.putStr("\n",
+CHECK-NOT: strAppend

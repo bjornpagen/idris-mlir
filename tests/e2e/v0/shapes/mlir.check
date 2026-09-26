@@ -1,0 +1,15 @@
+// TEST-EMIT-1 on the contract the Idris side emits.
+// rule: TEST-EMIT-1, IDR-MOD-1, IDR-FN-1, IDR-FN-2, IDR-FN-3, IDR-LOC-1, IDR-DATA-5, IDR-TY-1, IDR-TY-2, FE-LOC-1, CORE-INV-4
+// CHECK: module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"}
+// CHECK: idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"}
+// CHECK-NEXT: idr.ctor @Prog.Circle tag 0 fields [i64] quantities ["w"] {idr.name = "Prog.Circle"} loc("Prog.idr":
+// CHECK-NEXT: idr.ctor @Prog.Rect tag 1 fields [i64, i64] quantities ["w", "w"]
+// CHECK: func.func private @Prog.main() -> i64
+// CHECK: idr.con @Prog.Shape::@Prog.Rect
+// CHECK: %[[E:.*]] = idr.erased : !idr.erased
+// CHECK: func.call @Prog.keep(%[[E]], %{{.*}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":14:8)
+// CHECK: func.func private @Prog.area(%{{.*}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64
+// CHECK: idr.tag
+// CHECK: scf.index_switch
+// CHECK: default
+// CHECK: func.func private @Prog.keep(%{{.*}}: !idr.erased {idr.quantity = "0"}, %{{.*}}: i64 {idr.quantity = "w"})

@@ -1,0 +1,5 @@
+rule: ELIM-G-1
+The lambda is applied at compile time and 7 * 3 is folded.
+CHECK-NOT: mul_Int
+CHECK: io.putStr("21\n",
+CHECK-NOT: mul_Int

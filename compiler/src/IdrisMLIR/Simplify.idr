@@ -66,6 +66,7 @@ record St where
   staticData : SortedSet String
   safe : SortedSet String      -- functions and specializations that cannot crash or loop
   active : SortedSet String    -- specializations being built
+  stack : List (String, String, List SVal)  -- their function, key and static arguments
   pending : SortedMap String (List String)  -- safe if these callees are (recursion)
   assumed : SortedSet String   -- specializations relied on as safe before that was known
   inPrefix : Maybe Loc          -- inside the prefix of a raised function (G5)
@@ -345,6 +346,49 @@ mutual
                                          (ms', es2) = rebuildElims ms es1
                                      in (EApply a' :: ms', es2)
   rebuildElims (m :: ms) es = let (ms', es') = rebuildElims ms es in (m :: ms', es')
+
+------------------------------------------------------------------------------
+-- Growth of static arguments (PROF-HEAP-4)
+------------------------------------------------------------------------------
+
+mutual
+  ||| Homeomorphic embedding: `a` embeds in `b` when `b` is `a` with more
+  ||| structure around or inside it. A recursive function whose static
+  ||| arguments embed the ones it received, and differ, grows them without
+  ||| bound, so specializing it would not terminate.
+  embeds : SVal -> SVal -> Bool
+  embeds a b = couple a b || any (embeds a) (children b)
+
+  couple : SVal -> SVal -> Bool
+  couple (Dyn _ t) (Dyn _ t') = t == t'
+  couple (SLam env x _ _ b) (SLam env' x' _ _ b') =
+    x == x' && fnv (showExpr 0 b) == fnv (showExpr 0 b') && envEmbeds env env'
+  couple (SDelay env e) (SDelay env' e') =
+    fnv (showExpr 0 e) == fnv (showExpr 0 e') && envEmbeds env env'
+  couple (SCon _ c fs) (SCon _ c' fs') = c == c' && pairs fs fs'
+  couple (SCall f as es) (SCall f' as' es') =
+    f == f' && pairs as as' && map elimShape es == map elimShape es'
+  couple (SString s) (SString s') = strShape s == strShape s'
+  couple _ _ = False
+
+  pairs : List SVal -> List SVal -> Bool
+  pairs [] [] = True
+  pairs (a :: as) (b :: bs) = embeds a b && pairs as bs
+  pairs _ _ = False
+
+  envEmbeds : Env -> Env -> Bool
+  envEmbeds env env' = map fst env == map fst env' && pairs (map snd env) (map snd env')
+
+  children : SVal -> List SVal
+  children (SLam env _ _ _ _) = map snd env
+  children (SDelay env _) = map snd env
+  children (SCon _ _ fs) = fs
+  children (SCall _ as es) = as ++ concatMap elimVals es
+    where
+      elimVals : Elim -> List SVal
+      elimVals (EApply v) = [v]
+      elimVals _ = []
+  children _ = []
 
 ------------------------------------------------------------------------------
 -- Free variables (closures capture only what they use)
@@ -699,8 +743,12 @@ mutual
       isDyn : SVal -> Bool
       isDyn (Dyn _ _) = True
       isDyn _ = False
+      -- A string known at compile time is a static argument, so that string
+      -- primitives on it fold (ELIM-G-6): `putStrLn "hi"` writes one
+      -- literal, "hi\n".
       literalStr : SVal -> SVal
-      literalStr (SString s) = maybe (SString s) (\lit => Dyn (ELit l (LStr lit)) StrT) (strLit s)
+      literalStr (SString s) = maybe (SString s) (\lit => SString (SLit lit)) (strLit s)
+      literalStr (Dyn (ELit _ (LStr lit)) _) = SString (SLit lit)
       literalStr v = v
 
   specialize : Loc -> Fn -> String -> List SVal -> List Elim -> Ty -> M String
@@ -710,12 +758,12 @@ mutual
       Just n => pure n
       Nothing => do
         -- PROF-HEAP-4: while `f` is being specialized, `f` is needed again
-        -- with larger static arguments (functions, actions, Lazy values): they
-        -- grow with each recursive call, and specialization would not
-        -- terminate. Nested uses on smaller arguments, such as the `>>` of a
-        -- `do` block, are fine. The counts are a backstop.
-        let base = \k => fst (break (== '{') k)
-        when (any (\k => base k == fn.name && length key > length k) (Prelude.toList st.active)) $
+        -- with static arguments (functions, actions, Lazy values) that embed
+        -- the ones it received and differ from them: they grow with each
+        -- recursive call, and specialization would not terminate. The counts
+        -- are a backstop.
+        let now = args ++ map elimVal es
+        when (any (\(g, k, old) => g == fn.name && k /= key && pairs old now) st.stack) $
           fail "PROF-HEAP-4" l
                (fn.idrisName ++ " passes itself a function, IO action or Lazy value that " ++
                 "grows with each call, so it cannot be specialized away")
@@ -724,7 +772,8 @@ mutual
           fail "PROF-HEAP-4" l
                ("specializing " ++ fn.idrisName ++ " does not terminate: a recursive function " ++
                 "passes itself a different function or IO action on each call")
-        put ({ memo $= insert key key, counts $= insert fn.name (S count), active $= insert key } st)
+        put ({ memo $= insert key key, counts $= insert fn.name (S count), active $= insert key
+             , stack $= ((fn.name, key, now) ::) } st)
         let atoms = concatMap flatten args ++ concatMap flattenElim es
         params <- traverse (\(_, t) => (, t) <$> freshVar) atoms
         let pexprs = map (\(v, t) => if t == ErasedT then EErased l else EVar l v) params
@@ -742,7 +791,7 @@ mutual
         -- A specialization is safe when its function terminates and its code
         -- cannot crash. Recursion makes that conditional on specializations
         -- not finished yet; `settle` decides once they are.
-        modify { active $= delete key }
+        modify { active $= delete key, stack $= drop 1 }
         st' <- get
         let unknown = \g => contains g st'.active || isJust (lookup g st'.pending)
         let isSafe = fn.terminating &&
@@ -758,6 +807,10 @@ mutual
         modify { done $= (:< newFn) }
         pure key
     where
+      elimVal : Elim -> SVal
+      elimVal (EApply v) = v
+      elimVal (EProj c i) = Dyn (EErased l) (DataT (c ++ "#" ++ show i))
+      elimVal EForceIt = Dyn (EErased l) ErasedT
       quantityOf : Ty -> Quantity
       quantityOf ErasedT = Q0
       quantityOf WorldT = Q1
@@ -895,7 +948,7 @@ maxVar prog = foldl max 0 (concatMap fnVars prog.fns) + 1
 export
 simplify : Program -> Either Diag Program
 simplify prog = do
-  let st0 = MkSt prog (maxVar prog) [] empty empty [<] (staticDatas prog) (safeFns prog) empty empty empty Nothing
+  let st0 = MkSt prog (maxVar prog) [] empty empty [<] (staticDatas prog) (safeFns prog) empty [] empty empty Nothing
   root <- maybe (Left (diag "CORE-CHECK-1" "Simplify" noLoc "no root")) Right (lookupFn prog.root prog)
   let rootArgs = map (\p => dynVar root.loc p.var p.type) root.params
   (st, body) <- runStateT st0 $ scoped $ do

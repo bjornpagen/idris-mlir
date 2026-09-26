@@ -1,0 +1,3 @@
+rule: ELIM-G-4
+The let-bound lambda is substituted and both applications fold.
+CHECK: io.putStr("201\n",

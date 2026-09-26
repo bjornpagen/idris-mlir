@@ -1,0 +1,8 @@
+rule: ELIM-G-8
+Both Lazy arguments are forced where they are known; no Delay survives.
+CHECK: Main.choose{_:Int;delay{{[0-9]+}}[];delay{{[0-9]+}}[]} (%{{[0-9]+}} : w Int) : Int =
+CHECK-NEXT: case %{{[0-9]+}} of
+CHECK-NEXT: 0:Int => 1:Int
+CHECK-NEXT: _ => 2:Int
+CHECK-NOT: delay (
+CHECK-NOT: force (
