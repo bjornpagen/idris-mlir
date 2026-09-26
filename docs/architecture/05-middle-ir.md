@@ -72,14 +72,20 @@ or an instance or specialization name derived from it deterministically.
   - A `MatchCon`'s scrutinee has a `DataT`, and its alternatives name
     distinct constructors of that type.
   - A `MatchLit`'s literals are distinct and have the scrutinee's type.
-  - A `MatchCon` without a default covers every constructor.
+  - A `MatchCon` without a default covers every constructor except those
+    Idris proved impossible, which the frontend drops (`FE-TR-4`,
+    `SEM-DATA-2`); `Emit` makes its last alternative the default
+    (`IDR-MATCH-2`). `Core.Check` cannot tell a dropped impossible
+    alternative from a missing one, so it checks only that such a match has
+    an alternative.
 - **CORE-INV-7 (v0).** `datas` satisfies `PROF-DATA-*`:
   - tags are `0..n-1` in Idris tag order;
   - runtime containment is acyclic.
 - **CORE-INV-8 (v0).** Every function in `fns` is reachable from `root`.
 - **CORE-INV-9 (v1).** Every `WorldT` variable is used at most once on each
-  control-flow path (`IDR-WORLD-1`). `World` appears only in the root
-  wrapper.
+  control-flow path (`IDR-WORLD-1`). `%MkWorld` never appears: the root
+  wrapper receives the world as its parameter, and raised IO functions
+  (`ELIM-G-5`) receive and return it.
 - **CORE-INV-10 (v1).** Every `StrT` value is a string literal or a variable,
   and `Prim` has no string-building operation (`PROF-HEAP-3`).
 
@@ -106,6 +112,12 @@ or an instance or specialization name derived from it deterministically.
 
   A v0 program has no lambdas or type parameters, so passes 3–5 leave it
   unchanged.
+
+  `Mono` is fused into `Frontend.Translate`: instances are requested on
+  demand while translating, keyed by their type arguments (`ELIM-MONO-1`),
+  so full `Core` is already monomorphic. There is no separate pass.
+  `Core.Check` runs its full-Core subset after `Translate` and every
+  first-order check after `HeapCheck` (`CORE-CHECK-1`).
 - **CORE-OPT-1 (v0).** The middle end performs only monomorphisation and the
   guaranteed eliminations. It MUST NOT add any other optimization:
   - first-order inlining;
@@ -127,6 +139,8 @@ or an instance or specialization name derived from it deterministically.
 - **CORE-DUMP-1 (v0).** `Core` has a deterministic text printer. The `.core`
   artifact (`FE-ART-1`) is the first-order Core that `Emit` receives. With
   `--directive dump-core`, the frontend also writes the Core after every
-  pass (`DRV-DUMP-1`). The format is informative and may change without a
+  pass (`DRV-DUMP-1`).
+  - Test: every e2e fixture checks the `.core` artifact exists; the
+    `ELIM-G-*` fixtures match the dumped Core with `FileCheck` The format is informative and may change without a
   contract change, but tests that match it must be updated in the same
   commit.

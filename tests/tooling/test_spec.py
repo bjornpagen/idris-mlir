@@ -52,6 +52,8 @@ def exempt(version, body):
 
 def in_versions(version, versions):
     base = version.split()[0].rstrip("+,")
+    if "only" in version and versions[-1] != base:
+        return False   # superseded by a rule of a later version
     return base in versions
 
 

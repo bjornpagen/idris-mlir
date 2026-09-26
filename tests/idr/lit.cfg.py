@@ -1,4 +1,4 @@
-# lit configuration for the idr dialect tests (TEST-IDR-1). Run through
+# lit configuration for the idr dialect tests. rule: TEST-IDR-1 Run through
 # `tools/dev.py test-idr`, which puts idris-mlir-opt, idris-mlir-cc and the
 # pinned FileCheck, not and count on PATH, and names the pinned C compiler.
 import os

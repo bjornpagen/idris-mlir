@@ -6,8 +6,9 @@ The normative spec is [docs/architecture/](docs/architecture/00-index.md).
 
 - The compiler front and middle end are Idris. The `idr` MLIR dialect and its
   passes are C++ in `foreign/idr/`, following bjornpagen/cpp-starter as
-  adopted in docs/architecture/11-toolchain.md. No C++ exists yet; p0 creates
-  it (docs/architecture/15-roadmap.md).
+  adopted in docs/architecture/11-toolchain.md. p0, v0 and v1 are
+  implemented (docs/architecture/15-roadmap.md); `PINS.md` records every
+  deliberate deviation from that C++ profile.
 - The compiler consumes checked Idris TT and its definition context. Do not
   replace that input with CExp or runtime case trees, and do not erase facts
   before the passes that use them.
@@ -23,7 +24,8 @@ The normative spec is [docs/architecture/](docs/architecture/00-index.md).
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
 - Checks: `python3 tools/dev.py check` always. After compiler changes, run
-  `build` and `test`. After changing MLIR usage, also run `test-mlir-tools`. If a
-  toolchain is unavailable, say so; do not report skipped tests as passed.
+  `build` and `test`. After C++ or contract changes, also run `test-idr`.
+  After changing MLIR usage, also run `test-mlir-tools`. If a toolchain is
+  unavailable, say so; do not report skipped tests as passed.
 - Tests must check exit status and produced artifacts, not just stdout.
 - Research tasks produce documents only: do not build or run anything.

@@ -32,13 +32,16 @@ developer wrote and Idris checked.
 - **RW-DAY1-1 (v0).** The middle end's pass order reserves the `Rewrite`
   position, before monomorphisation and the guaranteed eliminations
   (`CORE-PASS-1`).
+  - Check: review (the pass order of `CORE-PASS-1`)
 - **RW-DAY1-2 (v0).** The compiler never discards compile-time-only
   definitions, or their bodies and types, before the middle end has run
   (`ELIM-ERASE-2`). A proof is quantity 0, and is still a fact the compiler
   can read.
+  - Check: review (the frontend reads compile-time definitions from `Defs`)
 - **RW-DAY1-3 (v0).** The escape-hatch audit (`PROF-ESC-1`) is a reusable
   function over the transitive references of any set of definitions, not
   code tied to `main`. It is the future proof audit.
+  - Check: review (`Frontend.Profile.checkReachable` takes any list of roots)
 - **RW-DAY1-4 (v0).** `%transform` has no effect on this compiler, because
   the compiler reads `treeCT` and never `treeRT`. It is also a pragma, so
   profile programs cannot contain it (`PROF-PRAG-1`).

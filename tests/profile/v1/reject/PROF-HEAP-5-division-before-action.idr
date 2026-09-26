@@ -1,5 +1,8 @@
--- expect: PROF-HEAP-5 line 6
+-- expect: PROF-HEAP-5 line 9
+-- message: arity raising is blocked by a division
 module Main
+
+-- rule: DIAG-HEAP-1
 
 import IdrisMLIR.IO
 

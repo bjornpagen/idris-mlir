@@ -21,10 +21,19 @@ facts: all of those are made before or recorded in the contract.
   including `!idr.erased` ones. After the pass, no self tail call remains.
   Other calls are unchanged.
   - Check: a post-condition assertion in the pass
-  - Test: `tests/idr/tail-loops/*.mlir`; `tests/e2e/v0/tail-loop-deep.idr`
+  - Test: `tests/idr/tail-loops/*.mlir`; `tests/e2e/v0/tail-loop-deep`
     runs 10^8 iterations with the stack limited to 1 MiB (`SEM-RES-2`)
 - **LOW-TAIL-3 (v0).** Mutual and non-self tail calls get no guarantee in v0.
   LLVM may still optimize them.
+- **LOW-TAIL-4 (v0).** Every loop that `idr-tail-loops` creates contains
+  `idr.may_loop` in its body. MLIR removes a region op without side effects
+  whose results are unused, even if it never terminates; this was found in
+  v0, where an infinite self tail call was compiled to `ret poison`.
+  `idr.may_loop` writes a resource of its own, so no generic pass removes
+  or hoists it, and `idr-lower` turns it into a call to `llvm.sideeffect`,
+  which LLVM keeps for the same reason (`SEM-EVAL-5`). It is not allowed in
+  the input (`IDR-IN-1`).
+  - Test: `tests/idr/tail-loops/spin.mlir`, `tests/idr/pipeline/emit-llvm.mlir`
 
 ## Type conversion (`idr-lower`)
 
@@ -39,12 +48,13 @@ It applies upstream's structural conversions:
 - `func.func` signatures, `func.call` and `func.return`;
 - `scf.if`, `scf.while`, `scf.yield`.
 
-It also applies our own pattern for `scf.index_switch`. Upstream
-`populateSCFStructuralTypeConversions` covers `for`, `if`, `while` and
-`condition` but not `index_switch` (verified in the pinned source). So:
-- **LOW-SWITCH-1 (v0).** `idr-lower` includes a 1:N structural conversion
-  pattern for `scf.index_switch`, equivalent to upstream's `scf.if` pattern.
-  - Test: `tests/idr/lower/switch-1n.mlir`
+It also needs `scf.index_switch`. Upstream
+`populateSCFStructuralTypeConversionsAndLegality` in the pinned MLIR 23.1.2
+does cover it (`ConvertIndexSwitchOpTypes`; an earlier reading of the source
+missed it). So:
+- **LOW-SWITCH-1 (v0).** `idr-lower` converts `scf.index_switch` 1:N with the
+  upstream structural pattern, like `scf.if`.
+  - Test: `tests/idr/lower/data-layout.mlir`
 
 ### Data layout
 
@@ -95,7 +105,11 @@ It also applies our own pattern for `scf.index_switch`. Upstream
 
 - **LOW-IO-1 (v1).** Standard output goes through one fixed-size buffer in
   static storage (`.bss`), never the heap. The buffer is flushed with a loop
-  over `write(1, …)` that handles partial writes and `EINTR`:
+  over `write(1, …)` that handles partial writes. A failed write abandons
+  the rest of that output (`SEM-IO-6`). `EINTR` needs no handling: the
+  program installs no signal handlers, so `write` is never interrupted
+  with it, and reading `errno` would need a libc symbol (`LOW-EXT-1`). The
+  buffer is flushed:
   - when it fills;
   - before every read from standard input;
   - before `exit`;
@@ -134,25 +148,28 @@ It also applies our own pattern for `scf.index_switch`. Upstream
     - Upstream `arith.floordivsi` is floor division, not Euclidean, and is
       not used.
   - **Unsigned.** Use `arith.divui` and `arith.remui` after the zero check.
-  - Test: `tests/e2e/v0/SEM-INT-3-*.idr` (the edge-case table, with `Refl`
-    oracles); `tests/e2e/v0/SEM-INT-4-*.idr` (crashes)
+  - Test: `tests/e2e/sem.py` (the edge-case tables, with `Refl` oracles);
+    `tests/e2e/v0/crash-*` (crashes); `tests/idr/lower/crash.mlir`
 
 ### Crashes
 
-- **LOW-CRASH-1 (v0).** A crash lowers to three `llvm` ops, preceded from v1
-  by flushing the output buffer (`LOW-IO-1`):
-  1. a call to `write(2, msg, len)`;
-  2. a call to `_exit(1)`;
-  3. `llvm.unreachable`.
+- **LOW-CRASH-1 (v0).** A crash lowers to a call to the generated private
+  function `__idr_crash(msg, len)`, which:
+  1. flushes the output buffer (`LOW-IO-1`);
+  2. writes `msg` to file descriptor 2;
+  3. calls `_exit(1)`, which is declared `noreturn`, so LLVM treats the
+     code after the call as unreachable.
 
-  `msg` is an internal constant global (static data, not heap). `_exit` is
-  declared `noreturn`. The message names the cause and the Idris source
-  location of the operation.
+  `msg` is an internal constant global (static data, not heap). The message
+  names the cause and the Idris source location of the operation. The call
+  sits inside an `scf.if` branch, which needs a terminator, so the
+  `llvm.unreachable` of draft 2 is not emitted; `noreturn` gives LLVM the
+  same fact.
 - **LOW-EXT-1 (v0).** The only external symbols the object file may
   reference are `write` and `_exit`, and from v1 also `read`. The toolchain's `crt` files provide the
   process entry.
-  - Test: `tests/e2e/v0/heap-free`, which checks the object's undefined
-    symbols (`TEST-HEAP-1`)
+  - Test: every e2e fixture checks the object's undefined symbols
+    (`TEST-HEAP-1`)
 
 ### Entry point
 

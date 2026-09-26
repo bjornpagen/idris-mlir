@@ -86,7 +86,9 @@ idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
 
 ## Operations
 
-All `idr` ops have MLIR locations (`IDR-LOC-1`).
+All `idr` ops have MLIR locations (`IDR-LOC-1`). One more op,
+`idr.may_loop`, exists only inside the pipeline: `idr-tail-loops` creates it
+and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 
 | Op | Syntax (informative) | Traits and effects | Folds |
 | --- | --- | --- | --- |
@@ -167,7 +169,9 @@ All `idr` ops have MLIR locations (`IDR-LOC-1`).
     `arith.extsi`, `arith.extui`, `arith.trunci`;
   - `scf.if`, `scf.index_switch`, `scf.yield`.
   - Check: `idr-check-input`. Anything else is an internal error, because
-    the frontend broke the contract.
+    the frontend broke the contract. `idr.may_loop` (`LOW-TAIL-4`) is created
+    by `idr-tail-loops` and is not allowed in the input, and no symbol may be
+    named `@main`, which `idr-lower` creates (`LOW-ENTRY-1`).
   - Test: `tests/idr/check-input/reject-*.mlir`
 - **IDR-IN-2 (v0).** `arith` ops carry no overflow flags (`nsw`, `nuw`) and
   no `exact` flag. Wrapping is the semantics (`SEM-INT-2`).

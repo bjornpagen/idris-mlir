@@ -37,6 +37,10 @@ acceptance is a rule, not optimizer luck.
   infinite, as MLton notes for its own monomorphiser. An instantiation path
   on which the same definition recurs with a strictly larger key is rejected
   (`PROF-POLY-1`). A hard cap on instances per definition backs this up.
+  `Frontend.Translate.request` records, for each instance, the chain of
+  instances that requested it; a new instance of a definition on its own
+  chain with a longer key is rejected, and so is a 65th instance of one
+  definition.
 - **ELIM-MONO-4 (v1).** An instance is named `<name>[<arg>,…]`, with the
   arguments in their normal forms printed by Idris. This is deterministic
   (`FE-DET-1`), and is mangled for MLIR by `IDR-FN-2`.
@@ -103,7 +107,9 @@ the shape is static.
   to literal arguments becomes a literal (`SEM-INT-*`, `SEM-CHAR-*`,
   `SEM-STR-2`). The exception is a primitive that would crash, such as `div`
   by 0, which is left in place to crash at runtime. This turns
-  `putStrLn "hello"` into one literal, `"hello\n"`.
+  `putStrLn "hello"` into one literal, `"hello\n"`: a string known at
+  compile time is a static argument, so a function that receives it is
+  specialized on its value (`ELIM-G-3`).
 - **ELIM-G-7 (v1). Output fusion.** When the argument of the `putStr`
   primitive (`prim__idrPutStr`) is not a literal, the call is rewritten by
   the first matching case, applied repeatedly:
@@ -164,3 +170,4 @@ indices" (TYPES 2003).
 - **ELIM-FORCE-2 (v0).** Idris's `newtypeArg` and its Nat-to-Integer
   optimization are not used. Single-constructor types already lose their tag
   in lowering (`LOW-DATA-1`), and `Nat` is not a runtime type.
+  - Check: review (no code reads `newtypeArg`)

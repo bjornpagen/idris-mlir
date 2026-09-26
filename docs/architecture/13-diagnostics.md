@@ -27,6 +27,10 @@ There are two kinds of error:
 
   *Rationale:* `idris2 --check` exits non-zero only for errors that carry a
   source location. This was verified: an error with `EmptyFC` exits 0.
+
+  TTC keeps no term locations, only each definition's `location`. So for IO
+  programs, which Idris loads from TTC under `-o`, errors point at the
+  enclosing definition or case block, not at the term itself.
 - **DIAG-EXIT-1 (v0).** `idris-mlir --check` exits with status 1 on any user
   error and writes no artifact (`FE-ART-1`).
 - **DIAG-HEAP-1 (v1).** A `PROF-HEAP-*` error explains why the value survived.
@@ -66,3 +70,4 @@ There are two kinds of error:
 - **DIAG-ICE-2 (v0).** When the compiler cannot tell whether a construct is
   supported, it reports a user error with the most specific rule that applies
   (`GOAL-P3`). It never continues and hopes that a later stage copes.
+  - Check: review (a design rule for every check)

@@ -21,6 +21,7 @@ this meaning. Every optimization, at every level, is bound by it.
   or whose Chez behaviour cannot be expressed in fixed-width machine
   arithmetic, stays out of the profile until this document specifies it
   (`SEM-EXCL-*`).
+  - Check: review (a rule about what enters the profile)
 
 ## Evaluation
 
@@ -180,6 +181,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   with status `n mod 256`.
 - **SEM-IO-6 (v1).** If standard output or standard input fails (for example
   a closed pipe), the behaviour is unspecified in v1.
+  - Check: review (the behaviour is unspecified)
 
 ## Programs, crashes and resources
 
@@ -195,6 +197,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   `division by zero`.
 - **SEM-RES-1 (v0).** Exhausting the stack ends the process abnormally. The
   exit status and any output are unspecified.
+  - Check: review (the behaviour is unspecified)
 - **SEM-RES-2 (v0).** A self tail call (`LOW-TAIL-1`) uses constant stack.
   A function whose only recursion is self tail calls runs in stack space
   that does not grow with the number of iterations.

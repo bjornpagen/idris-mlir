@@ -25,6 +25,8 @@ the reason, and never counted as passed.
   - `Prog.idr`, the program;
   - `Oracle.idr`, which imports `Builtin` and `Prog` and contains exactly
     one proof `check : Prog.main = <integer literal>` with `check = Refl`.
+    Every definition of `Prog` is `public export`, because Idris reduces
+    only public definitions of other modules.
 
   The harness asserts that:
   1. the pinned stock `idris2 --no-prelude --check Oracle.idr` succeeds, so
@@ -59,7 +61,8 @@ the reason, and never counted as passed.
   not compared (`SEM-DEV-1`).
 - **TEST-ELIM-1 (v1).** Each `ELIM-G-*` rule has Core-level tests: a small
   program, its expected Core after `Simplify` (checked with `FileCheck` on
-  `--directive dump-core` output), and an e2e run.
+  `--directive dump-core` output, `prog.dump/02-simplify.core`), and an e2e
+  run. They are `tests/e2e/v1/ELIM-G-*`, with a `core.check` file.
 - **TEST-CRASH-1 (v0).** A crash fixture has an `expected-crash` file. The
   harness asserts exit status 1, empty stdout, and a stderr that contains
   the cause it names (`SEM-CRASH-1`).
@@ -69,7 +72,8 @@ the reason, and never counted as passed.
 - **TEST-REJ-1 (v0).** A reject fixture is
   `tests/profile/vN/reject/<RULE-ID>-<desc>.idr`. Its first line is
   `-- expect: <RULE-ID> line <n>`. The harness asserts that:
-  - `idris-mlir … --check` exits 1;
+  - `idris-mlir … --check` exits 1 (for `PROF-PROG-1`, which Idris never
+    passes to the backend, the `DRV-FLOW-1` chain fails with it instead);
   - the message contains `unsupported (<RULE-ID>)`;
   - the reported location is on line `n`;
   - no `.core` or `.mlir` file exists afterwards.
@@ -85,7 +89,9 @@ the reason, and never counted as passed.
 - **TEST-IDR-1 (v0).** Every `idr` op, verifier, folder, effect rule and
   pass, and every conversion pattern, has `lit` tests in `tests/idr/`. They
   run hand-written `.mlir` through `idris-mlir-opt` and check the result with
-  `FileCheck`, without involving Idris.
+  `FileCheck`, without involving Idris. They run on lit's internal shell
+  (the external shell is deprecated in LLVM 23); `%status N cmd` checks an
+  exact exit status.
 - **TEST-EMIT-1 (v0).** The Idris side's output is checked against the
   contract with `FileCheck` on the `.mlir` of selected fixtures (erased
   arguments present, quantity attributes, locations, switch shape), and by

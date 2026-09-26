@@ -5,6 +5,7 @@ directory of that name holding `Main.idr` and its other user modules. Its
 first line states the expectation:
 
     -- expect: <RULE-ID> line <n>      (reject)
+    -- message: <text>                 (reject, optional: in the message)
     -- exit: <status>                  (accept, optional: also run it)
     -- stdout: <text with \\n escapes>  (accept, optional)
 
@@ -18,7 +19,7 @@ import re
 from harness import (artifacts, dev, reported_line, run, text, workdir)
 
 HERE = Path(__file__).resolve().parent
-HEADER = re.compile(r"^--\s*(expect|exit|stdout):\s*(.*)$")
+HEADER = re.compile(r"^--\s*(expect|message|exit|stdout):\s*(.*)$")
 
 
 def header(source):
@@ -53,7 +54,7 @@ def compile_fixture(work, main):
     return ok, "".join(text(s) for s in steps), work / "build/exec/Main", steps[0].returncode
 
 
-# rule: TEST-REJ-1, FE-ART-1, DIAG-FMT-1, DIAG-LOC-1, DIAG-EXIT-1, DIAG-CODE-1, DIAG-ONE-1
+# rule: TEST-REJ-1, FE-ART-1, DIAG-FMT-1, DIAG-LOC-1, DIAG-EXIT-1, DIAG-CODE-1, DIAG-ONE-1, PROF-GEN-2
 def reject_case(fixture):
     def case():
         main_file = fixture / "Main.idr" if fixture.is_dir() else fixture
@@ -68,12 +69,14 @@ def reject_case(fixture):
         assert f"unsupported ({rule})" in output, f"expected unsupported ({rule}):\n{output}"
         assert output.count("unsupported (") == 1, f"expected exactly one error:\n{output}"
         assert reported_line(output) == line, f"expected line {line}, got {reported_line(output)}:\n{output}"
+        if "message" in fields:
+            assert fields["message"] in output, f"expected {fields['message']!r} in:\n{output}"
         left = artifacts(work, "*.core") + artifacts(work, "*.mlir") + artifacts(work, "*.o")
         assert not left, f"artifacts left after a rejection: {left}"
     return case
 
 
-# rule: TEST-ACC-1, TEST-VER-1
+# rule: TEST-ACC-1, TEST-VER-1, PROF-GEN-4
 def accept_case(fixture):
     def case():
         main_file = fixture / "Main.idr" if fixture.is_dir() else fixture

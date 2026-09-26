@@ -3,3 +3,7 @@ The match on the known constructor Some is gone from the specialization.
 CHECK: Main.apply{Main.Some(\0[]);_:Int} (%{{[0-9]+}} : w Int) : Int =
 CHECK-NEXT: let %{{[0-9]+}} : w Int = add_Int(10:Int, %{{[0-9]+}})
 CHECK-NEXT: %{{[0-9]+}}
+rule: CORE-OPT-1
+First-order code is not inlined by the middle end; MLIR does that.
+CHECK: Main.main{.PrimIO.MkIO#0@(_:%World)}
+CHECK-NEXT: Main.apply{Main.Some(\0[]);_:Int}(5:Int)

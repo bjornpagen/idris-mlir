@@ -1,5 +1,25 @@
 # 15. Roadmap
 
+## Status
+
+p0, v0 and v1 are implemented (`docs/architecture/VERSION` is `v1`), with
+these differences from draft 2, each recorded in the rule it changes:
+- `PROF-FN-5` (contract): only missing cases are rejected; a function that
+  divides is declared `partial`.
+- `LOW-TAIL-4` (new): loops made from recursion carry `idr.may_loop`, after
+  MLIR deleted an infinite loop.
+- `PROF-ESC-1`: escape hatches are also found lexically.
+- `PROF-HEAP-4`: growth is detected by homeomorphic embedding.
+- `PROF-LIB-1`: the literal interfaces and their default hints are admitted.
+- `OPT-PIPE-1`, `OPT-PIPE-2`: `idr-entry` added; `idr-tail-loops` after
+  `inline`.
+- `CORE-PASS-1`: `Mono` is fused into `Translate`.
+- `LOW-SWITCH-1`, `LOW-IO-1`, `LOW-CRASH-1`: upstream conversion, no
+  `EINTR` loop, a crash helper.
+- `FE-TR-1`, `DIAG-LOC-1`: TTC keeps neither `let` types nor term
+  locations.
+- `TC-DEV-3`: the lint graph is deferred (`PINS.md`).
+
 Each step ends at a stop point: the user reviews the artifacts before the
 next step starts. A step's exit criteria are all required, and a step does
 not end on a promise to fix something later.
@@ -36,7 +56,7 @@ Exit criteria:
 ## v0: first-order, monomorphic, heap-free, pure
 
 Scope: profile v0 ([02](02-profile.md)), semantics v0, and contract v0:
-- **Idris side:** `Frontend.Profile`, `Frontend.Roots`, `Frontend.Translate`,
+- **Idris side:** `Frontend.Profile`, `Frontend.Main`, `Frontend.Translate`,
   `Core`, `Core.Check`, `Emit`.
 - **C++ side:**
   - the `idr` v0 ops with their verifiers, folders and effects;

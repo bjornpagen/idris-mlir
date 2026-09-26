@@ -1,4 +1,5 @@
--- expect: PROF-HEAP-4 line 6
+-- expect: PROF-HEAP-4 line 7
+-- message: Main.iter passes itself a function, IO action or Lazy value that grows
 module Main
 
 import IdrisMLIR.IO

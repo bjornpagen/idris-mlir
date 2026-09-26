@@ -60,10 +60,13 @@ cases =
       [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
        fn "area" [MkParam 1 QW (DataT "Shape")] int
          (EMatchCon l 1 [MkConAlt "Circle" [2] (EVar l 2), MkConAlt "Circle" [3] (EVar l 3)] (Just (lit 0)))], "CORE-INV-6")
-  , ("match that does not cover", prog [shape]
+  , ("match without alternatives", prog [shape]
+      [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
+       fn "area" [MkParam 1 QW (DataT "Shape")] int (EMatchCon l 1 [] Nothing)], "CORE-INV-6")
+  , ("impossible alternative dropped", prog [shape]
       [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
        fn "area" [MkParam 1 QW (DataT "Shape")] int
-         (EMatchCon l 1 [MkConAlt "Circle" [2] (EVar l 2)] Nothing)], "CORE-INV-6")
+         (EMatchCon l 1 [MkConAlt "Circle" [2] (EVar l 2)] Nothing)], "")
   , ("literal of the wrong type", prog []
       [fn "main" [] int (ELet l 1 QW int (lit 1) (EMatchLit l 1 [(LChar 65, lit 1)] (lit 2)))], "CORE-INV-6")
   , ("tags not 0..n-1", prog [MkData "T" "T" [MkCon "A" "A" 1 [] l] l]

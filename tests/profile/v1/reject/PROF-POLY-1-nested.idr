@@ -1,5 +1,7 @@
--- expect: PROF-POLY-1 line 6
+-- expect: PROF-POLY-1 line 8
 module Main
+
+-- rule: ELIM-MONO-3
 
 import IdrisMLIR.IO
 

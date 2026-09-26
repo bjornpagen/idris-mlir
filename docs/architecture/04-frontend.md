@@ -46,8 +46,11 @@ profile violation that TT can show.
     `treeCT`, `DCon`, `TCon`, `Builtin`, `Hole`, `ExternDef`, `ForeignDef`),
     `multiplicity`, `totality`, `isEscapeHatch`, `flags`, `location`, and
     `fullname`;
-  - **the source file of each user module**, only to lex it for pragmas
-    (`PROF-PRAG-1`). User modules are those not listed in `PROF-LIB-1`.
+  - **the source file of each user module**, only to lex it for pragmas,
+    hole identifiers and escape-hatch names (`PROF-PRAG-1`, `PROF-ESC-1`),
+    and to find its `import` lines for error locations (`PROF-PROG-1`,
+    `PROF-PROG-4`). User modules are those not listed in `PROF-LIB-1`.
+  - Check: review (what the frontend reads)
 - **FE-IN-2 (v0).** The frontend MUST NOT read:
   - `treeRT`, `compexpr`, `namedcompexpr` or `schemeExpr`;
   - any `CExp`, `NamedCExp`, `Lifted`, `ANF` or `VM` form;
@@ -66,6 +69,7 @@ profile violation that TT can show.
   - *Rationale:* `safeErase` also contains positions that Idris erased by
     collapsibility analysis. v0 does not rely on that analysis
     ([06-elimination](06-elimination.md) may adopt it later, as a fact).
+  - Check: review (`Frontend.Translate.classify` decides runtime positions from quantities)
 
 ## Stages
 
@@ -123,6 +127,12 @@ error follows `DIAG-*`.
 
   Anything else is a `PROF-TYPE-2` error (v0) or a `PROF-TYPE-4` error (v1)
   at the binder's location.
+
+  TTC does not store the types of `let` binders (`Core.TTC` writes only the
+  value), so under `-o` a runtime `let` has type `Erased` in TT. Its `Core`
+  type is then inferred from its translated value once every instance is
+  translated (`Frontend.Translate.letTypes`); a value whose type cannot be
+  inferred is an internal error.
 - **FE-TR-2 (v0). Quantities.** Each Pi binder's quantity maps to `Q0`, `Q1`
   or `QW`. The quantity is recorded on every parameter, every constructor
   field, and every `let` in `Core` (`CORE-INV-4`).
@@ -196,6 +206,8 @@ error follows `DIAG-*`.
 | Constructor tag, arity, newtype argument | `DCon` | Yes |
 | Parameters, detaggable positions | `TCon` | Yes |
 | Totality | `totality`, and computed by the checker | Only for user names |
+| `let` binder types | `Bind … (Let _ _ val ty)` | No: `ty` becomes `Erased` (`FE-TR-1`) |
+| Term locations (`FC`) | every `Term` constructor | No: only definition locations survive (`DIAG-LOC-1`) |
 | Escape hatch | `isEscapeHatch` | Only for user names |
 
 `isUserName` is false for `MN` and `PV` names. After a TTC round trip, such
@@ -203,6 +215,7 @@ definitions have type `Erased` and no totality.
 - **FE-TTC-1 (v1).** If a needed fact is missing from an imported
   definition, the frontend MUST fail with `unsupported`, naming the
   definition. It MUST NOT guess.
+  - Check: review (`Frontend.Translate.lookupDef` rejects a missing definition; a TTC missing a fact cannot be produced by the pinned Idris)
 
 ## Imported modules (v1)
 

@@ -1,6 +1,6 @@
 module Prog
 
--- rule: SEM-EVAL-3, SEM-Q-1, SEM-Q-2, ELIM-ERASE-2, CORE-INV-5, FE-TR-2
+-- rule: FE-TR-1, SEM-EVAL-3, SEM-Q-1, SEM-Q-2, ELIM-ERASE-2, CORE-INV-5, FE-TR-2
 -- A proof argument and a linear argument: neither has a runtime cost.
 public export
 data LTE : Int -> Int -> Type where

@@ -6,7 +6,7 @@ case that disagrees. `Oracle.idr` proves `Prog.main = 0` with `Refl`, so the
 stock evaluator agrees with the same table (SEM-REF-1). The table itself is
 computed here from the rules in docs/architecture/03-semantics.md.
 
-rule: SEM-INT-1, SEM-INT-2, SEM-INT-3, SEM-INT-5, SEM-INT-6, SEM-INT-7, PROF-PRIM-1
+rule: TEST-SEM-1, SEM-INT-1, SEM-INT-2, SEM-INT-3, SEM-INT-5, SEM-INT-6, SEM-INT-7, PROF-PRIM-1
 rule: LOW-DIV-1, IDR-DIV-1, IDR-DIV-2, IDR-IN-3, SEM-EVAL-1, SEM-EVAL-2
 """
 

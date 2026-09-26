@@ -74,26 +74,31 @@ Superoptimization, equality saturation and search are non-goals (D7).
 
 ## Pipelines
 
-- **OPT-PIPE-1 (v0).** `idris-mlir-cc` runs exactly this pipeline. Steps 1–10
+- **OPT-PIPE-1 (v0).** `idris-mlir-cc` runs exactly this pipeline. Steps 1–11
   are also available in `idris-mlir-opt` as `--idr-pipeline` (`DRV-OPT-1`).
   1. `idr-check-input`: the contract (`IDR-*`)
-  2. `idr-tail-loops` (`LOW-TAIL-1`)
+  2. `idr-entry`: makes the root public until `idr-lower`, because
+     `symbol-dce` and the inliner do not count the `idr.entry` attribute as
+     a use (`PINS.md`: `idr-entry-public`)
   3. `inline`, with the default simplification pipeline (`canonicalize`)
-  4. `sccp`
-  5. `canonicalize`
-  6. `cse`
-  7. `symbol-dce`
-  8. `idr-lower` ([10-lowering](10-lowering.md))
-  9. `canonicalize`, `cse`
-  10. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
-  11. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
+  4. `idr-tail-loops` (`LOW-TAIL-1`)
+  5. `sccp`
+  6. `canonicalize`
+  7. `cse`
+  8. `symbol-dce`
+  9. `idr-lower` ([10-lowering](10-lowering.md))
+  10. `canonicalize`, `cse`
+  11. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
+  12. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
       object file for the host target (`LOW-TARGET-1`)
-- **OPT-PIPE-2 (v0).** `idr-tail-loops` runs before `inline`, so that self tail
-  calls are turned into loops before the inliner restructures recursive
-  functions.
+  - Test: `tests/idr/pipeline/cc-steps.mlir`
+- **OPT-PIPE-2 (v0).** `idr-tail-loops` runs after `inline`. The inliner never
+  inlines a recursive function into itself, and many self tail calls exist
+  only after inlining: a `do` block's `>>` and a raised IO function become
+  one function whose last action calls it again.
 - **OPT-PIPE-3 (v0).** The inliner uses upstream's default policy. Code-size
   limits are a later tuning decision and need their own rule.
-- **OPT-IDEM-1 (v0).** Running the pipeline's steps 3–7 a second time on
+- **OPT-IDEM-1 (v0).** Running the pipeline's steps 3–8 a second time on
   their own output changes nothing. A difference means a missing
   canonicalization and is recorded as an issue, not a failure.
   - Test: `tests/idr/pipeline/fixpoint.mlir` (informative)

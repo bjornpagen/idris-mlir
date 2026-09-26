@@ -23,6 +23,7 @@
   - Chez Scheme and GMP, for Idris;
   - a host C/C++ compiler, to build the pinned GCC;
   - GCC's own prerequisites (GMP, MPFR, MPC), as its documentation requires.
+  - Check: review (the bootstrap commands)
 
 - **TC-LIB-1 (v1).** `dev.py build` builds and installs the `idris-mlir-io`
   package with the pinned Idris into `.toolchain/`, where both `idris-mlir`
@@ -95,7 +96,10 @@ Each deviation below has a `PINS.md` entry.
   from `toolchain.lock.json` instead of containing them.
 - **TC-DEV-3 (p0). Lint compiler.** The lint graph uses the `clang` and
   `clang-tidy` built from the pinned LLVM, not cpp-starter's separately pinned
-  Clang. The project then has one LLVM, not two.
+  Clang. The project then has one LLVM, not two. *Deferred:* building clang
+  and clang-tools-extra does not fit the build machine, so the `lint` preset
+  fails at configure time with `PINS.md` `lint-graph-unbuilt`, and the GCC
+  graph with `-Werror` is the only enforcement for now.
 - **TC-DEV-4 (p0). No stdexec.** cpp-starter's stdexec dependency and wait
   backend are not adopted, because nothing here uses them.
 - **TC-DEV-5 (p0). C++17 headers.** LLVM's headers are C++17 and are compiled

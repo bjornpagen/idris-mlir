@@ -46,12 +46,17 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
 
 - **PROF-PROG-1 (v0).** A `main : Int` program is exactly one Idris source
   file, compiled with `--no-prelude`, with no `import` declarations.
-  - Check: `Frontend.Profile.programShape`
-  - Test: `tests/profile/v0/reject/PROF-PROG-1-import.idr`
+  - Check: `Frontend.Main.compileModule`, at the `import`. Idris does not call
+    the incremental backend at all for a module that imports a module without
+    `mlir` incremental data (any module of the `prelude` package): it prints
+    a warning and exits 0 without artifacts. `dev.py compile`
+    (`DRV-FLOW-1`) reports that case as this rule.
+  - Test: `tests/profile/v0/reject/PROF-PROG-1-import.idr` (through
+    `DRV-FLOW-1`)
 - **PROF-PROG-2 (v0).** In a `main : Int` program, the module defines
   `main : Int` with no arguments, and `main` is the root. The program is
   compiled with `--inc mlir --check` (`FE-ENTRY-2`).
-  - Check: `Frontend.Roots.findRoot`
+  - Check: `Frontend.Main.compileModule`
   - Test: `tests/profile/v0/reject/PROF-PROG-2-{missing,args}.idr`
 - **PROF-PROG-3 (v0).** Definitions that are not reachable are neither
   checked nor compiled. They remain subject to `PROF-PRAG-1`.
@@ -62,8 +67,8 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
   - the *trusted modules*: `Builtin` and `PrimIO` from the pinned Idris
     `prelude` package, and `IdrisMLIR.IO`, which ships with this compiler
     (`PROF-IO-*`).
-  - Check: `Frontend.Profile.programShape`
-  - Test: `tests/profile/v1/reject/PROF-PROG-4-{prelude,base}.idr`,
+  - Check: `Frontend.Main.compileIO`, at the offending `import`
+  - Test: `tests/profile/v1/reject/PROF-PROG-4-{prelude,prelude-types}.idr`,
     `tests/profile/v1/accept/PROF-PROG-4-two-modules/`
 
 *Note:* conformance fixtures state expected results as Idris proofs, or, for
@@ -76,12 +81,13 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
   | Module | Admitted definitions |
   | --- | --- |
-  | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force` |
+  | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` (`fromChar`, `fromString`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, which elaborate character and string literals in polymorphic positions |
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
   | `IdrisMLIR.IO` | every definition (`PROF-IO-1`) |
 
-  - Check: `Frontend.Profile.trusted`
-  - Test: `tests/profile/v1/reject/PROF-LIB-1-believe-me.idr`
+  - Check: `Frontend.Profile.checkReachable`
+  - Test: `tests/profile/v1/reject/PROF-LIB-1-sym.idr` (`believe_me` is an
+    escape hatch, so `PROF-ESC-1` reports it first)
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%inline`, `%default` and other
   elaboration flags. It honours `%foreign` only for the four primitives of
@@ -125,8 +131,11 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   only through the root term `unsafePerformIO main` that Idris builds for `-o`.
   So effects happen only in the single world chain that starts at `main`
   (`SEM-IO-1`).
-  - Check: `Frontend.Profile.trusted`
-  - Test: `tests/profile/v1/reject/PROF-IO-3-{unsafe-perform,mkworld}.idr`
+  - Check: `Frontend.Profile.checkReachable`
+  - Test: `tests/profile/v1/reject/PROF-IO-3-unsafe-perform.idr`. The other
+    names cannot be written in a user module: `unsafeCreateWorld` and
+    `unsafeDestroyWorld` are private to `PrimIO`, and `%MkWorld` is a pragma
+    token (`PROF-PRAG-1`).
 
 ## Runtime types
 
@@ -143,8 +152,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `Lazy` and `Inf`;
   - types with free variables;
   - types that depend on runtime values.
-  - Check: `Frontend.Profile.runtimeType`
-  - Test: `tests/profile/v0/reject/PROF-TYPE-2-{integer,double,char,string,type,function,poly,dependent}.idr`
+  - Test: superseded in v1 (`PROF-TYPE-4`)
 - **PROF-TYPE-3 (v0).** Compile-time positions (quantity 0) may have any type
   that stock Idris accepts, subject to `PROF-ESC-1`.
   - Test: `tests/profile/v0/accept/PROF-TYPE-3-erased-witness.idr`
@@ -160,7 +168,8 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `Type`;
   - `Inf` (codata);
   - types that depend on runtime values.
-  - Check: `Frontend.Profile.runtimeType` (after `Mono`)
+  - Check: `Frontend.Translate.coreType`, on each instance (monomorphisation
+    happens during translation, `CORE-PASS-1`)
   - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,double,inf,dependent}.idr`
 
 ## Data types
@@ -168,8 +177,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-DATA-1 (v0 only; replaced by PROF-DATA-5).** A data type used at
   runtime is declared in the program's module, and its type constructor has
   type `Type`: no parameters and no indices. Records are data types.
-  - Check: `Frontend.Profile.dataDecl`
-  - Test: `tests/profile/v0/reject/PROF-DATA-1-{param,index}.idr`
+  - Test: superseded in v1
 - **PROF-DATA-2 (v0).** Every constructor field in a runtime position has a
   runtime type of the current version. Quantity-0 fields may have any type.
   - Test: `tests/profile/v0/reject/PROF-DATA-2-integer-field.idr`,
@@ -178,7 +186,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   with an edge T → U whenever a constructor of T has a runtime field of type
   U, after instantiation, no cycle is reachable from a runtime data type.
   Quantity-0 fields add no edges.
-  - Check: `Frontend.Profile.dataDecl`; dialect verifier `IDR-DATA-4`
+  - Check: `Frontend.Translate.dataInstance`; dialect verifier `IDR-DATA-4`
   - Test: `tests/profile/v0/reject/PROF-DATA-3-{list,mutual}.idr`
 - **PROF-DATA-4 (v0).** Data types with zero constructors are allowed. Their
   values cannot exist at runtime.
@@ -198,23 +206,28 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - a data constructor of a profile data type;
   - a primitive allowed by `PROF-PRIM-*`;
   - a definition admitted by `PROF-LIB-1`.
-  - Check: `Frontend.Profile.definitionKind`
-  - Test: `tests/profile/v0/reject/PROF-FN-1-{extern,hole}.idr`
+  - Check: `Frontend.Translate.application`
+  - Test: review. A pragma-free user module reaches no other kind of
+    definition: `%extern` and `%foreign` are pragmas (`PROF-PRAG-1`) and
+    holes are escape hatches (`PROF-ESC-1`), both reported first.
 - **PROF-FN-2 (v0 only; replaced by PROF-FN-7).** Every function's type is a
   telescope ending in a runtime type, with as many binders as its case tree
   has arguments.
-  - Test: `tests/profile/v0/reject/PROF-FN-2-returns-lambda.idr`
+  - Test: superseded in v1
 - **PROF-FN-3 (v0 only; replaced by PROF-FN-7).** No partial application.
-  - Test: `tests/profile/v0/reject/PROF-FN-3-partial.idr`
+  - Test: superseded in v1
 - **PROF-FN-4 (v0 only; replaced by PROF-FN-7).** No lambda in a runtime
   position.
-  - Test: `tests/profile/v0/reject/PROF-FN-4-lambda.idr`
-- **PROF-FN-5 (v0).** Every runtime-reachable function is covering: not
-  `partial`, and accepted by Idris's coverage check. Termination is not
-  required.
-  - Check: `Frontend.Profile.covering`
+  - Test: superseded in v1
+- **PROF-FN-5 (v0).** Every runtime-reachable function's own patterns cover
+  every case: Idris's coverage check reports no missing cases. Calls to
+  partial functions are allowed. Idris treats `prim__div_T` and
+  `prim__mod_T` as partial, so a function that divides must be declared
+  `partial`; dividing by zero is a defined crash (`SEM-INT-4`), and a callee
+  with missing cases is rejected on its own. Termination is not required.
+  - Check: `Frontend.Translate.translateInstance`
   - Test: `tests/profile/v0/reject/PROF-FN-5-partial.idr`,
-    `tests/profile/v0/accept/PROF-FN-5-nonterminating.idr` (compile only)
+    `tests/profile/v0/accept/PROF-FN-5-{nonterminating,division}.idr`
 - **PROF-FN-6 (v0).** Recursion, including mutual recursion, is allowed.
   - Test: `tests/profile/v0/accept/PROF-FN-6-{fib,mutual,tail-loop}.idr`
 - **PROF-FN-7 (v1).** Higher-order functions, lambdas, partial application,
@@ -244,7 +257,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
   In v0 only, `Delay`, `Force`, `%World` and IO are also forbidden.
   - Check: `Frontend.Translate`
-  - Test: `tests/profile/v0/reject/PROF-TERM-2-{lazy,world,hole}.idr`
+  - Test: review. Holes are reported by `PROF-ESC-1`, `Unmatched` leaves by
+    `PROF-FN-5`, and `Type` in a runtime position by `PROF-TYPE-4`, before
+    this check can see them.
 
 ## Primitives
 
@@ -259,21 +274,21 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `prim__cast_ST` for distinct `S` and `T`.
 
   Their meaning is `SEM-INT-*`.
-  - Test: `tests/e2e/v0/SEM-INT-*`
+  - Test: `tests/e2e/sem.py` (`TEST-SEM-1`)
 - **PROF-PRIM-2 (v0).** In every version, these primitives are rejected:
   - `prim__negate_T`, `prim__shl_T`, `prim__shr_T` (`SEM-EXCL-1`);
   - everything on `Integer` or `Double`;
-  - `prim__believe_me` and `prim__crash`.
+  - `prim__believe_me` and `prim__crash`, which `PROF-ESC-1` reports first.
 
   In v0 only, primitives on `Char` and `String` are also rejected.
-  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl,believe-me,crash}.idr`
+  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl,integer,double}.idr`
 - **PROF-PRIM-3 (v1).** The `Char` primitives are allowed:
   - `prim__lt_Char`, `prim__lte_Char`, `prim__eq_Char`, `prim__gte_Char`,
     `prim__gt_Char`;
   - `prim__cast_CharT` and `prim__cast_TChar`.
 
   Their meaning is `SEM-CHAR-*`.
-  - Test: `tests/e2e/v1/SEM-CHAR-*`
+  - Test: `tests/e2e/v1/chars`
 - **PROF-PRIM-4 (v1).** Every `String` primitive may appear in the source.
   Each occurrence must be removed by compile-time evaluation or output fusion
   (`ELIM-G-6`, `ELIM-G-7`). A surviving string-building primitive is a
@@ -297,16 +312,24 @@ construct that survived, and says which elimination did not apply and why
   `String` value comes from a string literal, possibly passed through
   variables, arguments, fields and results, and lives in static data.
 - **PROF-HEAP-4 (v1).** A recursive function does not pass itself a
-  function-typed argument that differs from the one it received. This is
+  function-typed argument that grows from the one it received. This is
   Futhark's restriction that "a loop may not produce a function"; without it,
-  specialization would not terminate.
+  specialization would not terminate. `Simplify` detects it when a function
+  is needed, while its own specialization is being built, with static
+  arguments that homeomorphically embed the ones it received and differ from
+  them (the termination test of supercompilation). Nested uses on unrelated
+  or smaller arguments, such as the `>>` of a `do` block, are not growth. A
+  cap on copies per definition backs this up.
 - **PROF-HEAP-5 (v1).** Arity raising (`ELIM-G-5`) moves code only if that
   code cannot crash and cannot fail to terminate. A function that returns an
   action or function after such code cannot be raised, and its result
   survives as a function value; the error names the blocking operation.
   - Check: `Core.HeapCheck`, after `Simplify`
   - Test: `tests/profile/v1/reject/PROF-HEAP-{1..5}-*.idr`, and every v1
-    accept fixture (the check passes)
+    accept fixture (the check passes). A function value survives only when
+    a runtime choice selects it and the choice outlives the match (as a
+    static data value with several constructors); a function returned from
+    a match is raised into each branch instead.
 
 ## Escape hatches
 
@@ -316,8 +339,12 @@ construct that survived, and says which elimination did not apply and why
   - a definition marked as an escape hatch (`isEscapeHatch`);
   - a hole;
   - an `%extern` or `%foreign` definition other than those in `PROF-IO-2`.
-  - Check: `Frontend.Profile.escapeHatches`
-  - Test: `tests/profile/v0/reject/PROF-ESC-1-{believe-me-in-proof,hole-in-type}.idr`
+  - Check: `Frontend.Profile.checkReachable` on TT, and the source scan of
+    `PROF-PRAG-1`, which also rejects hole identifiers and the names
+    `prim__believe_me`, `prim__crash`, `believe_me` and `idris_crash` in user
+    modules. The scan is needed because Idris evaluates `prim__believe_me`
+    applied to a constructor during elaboration, so it can vanish from TT.
+  - Test: `tests/profile/v0/reject/PROF-ESC-1-{believe-me,crash,believe-me-in-proof,hole-in-proof}.idr`
 
   *Rationale:* the compiler trusts Idris's type checker for data layout and
   for impossible branches. An escape hatch in a proof can equate two
@@ -329,10 +356,10 @@ construct that survived, and says which elimination did not apply and why
 - **PROF-PRAG-1 (v0).** User modules contain no pragma. Every `%`-directive is
   forbidden, including `%default`. Fixity declarations (`infixl` and so on)
   are declarations, not pragmas, and are allowed.
-  - Check: `Frontend.Profile.pragmas`. It lexes each user module's source with
-    Idris's own lexer (`Parser.Lexer.Source`) and rejects every `Pragma`
-    token at its position.
-  - Test: `tests/profile/v0/reject/PROF-PRAG-1-{default,inline,transform}.idr`
+  - Check: `Frontend.Profile.checkPragmas`. It lexes each user module's
+    source with Idris's own lexer (`Parser.Lexer.Source`) and rejects every
+    `Pragma` token at its position, including in unreachable code.
+  - Test: `tests/profile/v0/reject/PROF-PRAG-1-{default,inline,transform,unreachable}.idr`
 
   *Rationale:* pragmas change elaboration or code generation in ways the
   profile does not specify. Some leave traces in TT (`%inline`, `%transform`,

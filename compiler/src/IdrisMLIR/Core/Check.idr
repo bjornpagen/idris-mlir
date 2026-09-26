@@ -186,8 +186,10 @@ mutual
       | Nothing => err fn "CORE-INV-3" ("unknown data " ++ dn)
     let names = map (\(MkConAlt c _ _) => c) alts
     unless (length (nub names) == length names) $ err fn "CORE-INV-6" "duplicate alternatives"
-    when (isNothing d && any (\c => not (elem c.name names)) dt.cons) $
-      err fn "CORE-INV-6" ("a match on " ++ dn ++ " that does not cover every constructor")
+    -- Alternatives Idris proved impossible are dropped (FE-TR-4, SEM-DATA-2),
+    -- so coverage cannot be checked here; a match needs an alternative.
+    when (isNothing d && null alts) $
+      err fn "CORE-INV-6" ("a match on " ++ dn ++ " without alternatives")
     ts <- for alts $ \(MkConAlt c xs e) => do
       Just con <- pure (find (\k => k.name == c) dt.cons)
         | Nothing => err fn "CORE-INV-6" (c ++ " is not a constructor of " ++ dn)

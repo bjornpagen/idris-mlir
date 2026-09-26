@@ -69,6 +69,7 @@ class ToolingTests(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
 
+    # rule: FE-IN-3
     def test_only_the_frontend_imports_the_idris_compiler(self):
         package = (dev.IDRIS_SOURCE / "idris2api.ipkg").read_text()
         modules = package.split("modules", 1)[1]

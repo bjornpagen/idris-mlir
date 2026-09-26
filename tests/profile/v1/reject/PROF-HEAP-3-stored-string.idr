@@ -1,4 +1,5 @@
--- expect: PROF-HEAP-3 line 12
+-- expect: PROF-HEAP-3 line 13
+-- message: a string is built at runtime here and is not written directly by putStr
 module Main
 
 import IdrisMLIR.IO

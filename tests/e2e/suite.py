@@ -60,7 +60,7 @@ def compile_v0(work):
     return exe
 
 
-# rule: TEST-CRASH-1, SEM-CRASH-1, SEM-PROG-1, DRV-FLOW-1, FE-ENTRY-2
+# rule: TEST-CRASH-1, TEST-ORACLE-2, SEM-CRASH-1, SEM-PROG-1, DRV-FLOW-1, FE-ENTRY-2, CORE-DUMP-1
 def v0_case(fixture):
     def case():
         if (fixture / "Oracle.idr").is_file():
