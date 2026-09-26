@@ -1,0 +1,730 @@
+\section{Background}\label{sec:background}
+
+Throughout the paper we follow the notation in \autoref{fig:notation}.
+%This section introduces the concepts in the figure.
+We define the
+ \egraph\ data structure and the \ematching\ problem,
+ and review background on
+ relational queries and join algorithms
+ that form the foundation of our \ematching\ algorithm.
+
+\subsection{E-Graphs and E-Matching}\label{sec:background:ematching}
+
+\newcommand\nt[1]{\ensuremath{\langle\mathit{#1}\rangle}}
+\begin{figure}
+  \centering
+  \begin{tabular}{llcl}
+     function symbols & \nt{fun} & ::= & $f \mid g \mid \ldots$                                           \\
+     variables        & \nt{var} & ::= & $x \mid y \mid z \mid \ldots \mid \alpha \mid \beta \mid \ldots$ \\
+     \eclass ids      & \nt{id}  & ::= & $i \mid j \mid \ldots$                                           \\
+     ground terms     & \nt{t}   & ::= & $\nt{fun} \mid \nt{fun}\left(\nt{t},\ldots,\nt{t}\right)$        \\
+     patterns         & \nt{p}   & ::= & $\nt{fun} \mid \nt{fun}(\nt{p},\ldots,\nt{p}) \mid \nt{var}$     \\
+     \enodes          & \nt{n}   & ::= & $\nt{fun} \mid \nt{fun}(\nt{id}, \ldots, \nt{id})$               \\
+     \eclasses        & \nt{c}   & ::= & $\{ \nt{n}, \ldots, \nt{n}\}$                                    \\
+  \end{tabular}
+  \caption{Syntax and metavariables used in this paper.}
+  \label{fig:notation}
+\end{figure}
+
+Let $\Sigma$ be a set of function symbols with associated arities. A function
+symbol is called a \textit{constant} if it has zero arity. Let $V$ be a set
+of variables. We define $T(\Sigma, V)$ to be the set of terms constructed using
+function symbols from $\Sigma$ and variables from $V$:
+
+\update{
+\begin{definition}[Terms and patterns]
+  The set of terms $T(\Sigma,V)$ over function symbols $\Sigma$ and variables $V$
+ is the smallest set such that (1) all variables and constants are in
+$T(\Sigma,V)$ and (2) $t_1,\dots,t_k\in T(\Sigma,V)$ implies
+$f(t_1,\dots,t_k)\in T(\Sigma,V)$, where $f\in \Sigma$ has arity $k$. A
+\textit{ground term} is a term in $T(\Sigma,V)$ that contains no variables.
+All terms in $T(\Sigma, \emptyset)$ are ground terms.
+A non-ground term is also called a \textit{pattern}. We call a term of the form
+$f(t_1,\ldots,t_k)$ an $f$-application term.
+\end{definition}
+
+
+We define a {\em congruence relation} over the terms as an equivalence relation 
+ that is {\em congruent}:
+
+\begin{definition}[Equivalence Relation]
+  An \textit{equivalence relation} $\equiv_\Sigma$ is a binary relation over
+$T(\Sigma,\emptyset)$ that is reflexive, symmetric, and transitive. 
+\end{definition}
+
+\begin{definition}[Congruence Relation]
+  A \textit{congruence relation} $\cong_\Sigma$ is an equivalence relation
+satisfying:
+\[
+  \forall \text{$k$-ary function symbols $f$}.\
+  \left(
+    \forall i\in\{1, \ldots, k\}.\ t_i \cong t'_i
+  \right)
+  \implies
+  f(t_1,\dots,t_k)\cong f(t'_1,\dots,t'_k)
+\]  
+The {\em congruence closure} of a binary relation $R$ on $T(\Sigma, \emptyset)$
+ is the smallest congruence relation that contains $R$.
+\end{definition}
+
+
+We write $\equiv$ and $\cong$ when $\Sigma$ is clear from the context.
+
+\newcommand{\child}{\textit{child}} \newcommand{\sym}{\textit{symbol}}
+
+An \egraph is a data structure that represents a congruence relation.
+An \egraph is built up from {\em \eclasses} and {\em \enodes}, defined as follows:
+\begin{definition}[\Eclasses and \Enodes]
+  An \eclass is a set of \enodes. Every \eclass is identified by one or more ids.
+  An \enode is a tuple $(f, \text{args})$ where $f$ is a function symbol 
+   and args is a (possibly empty) list of \eclass ids. 
+Similar to terms, we call an \enode\ of the form $(f, i_1, \ldots i_k)$
+ an $f$-application \enode.
+We will write $f(i_1, \ldots, i_k)$ for the \enode $(f, i_1, \ldots i_k)$
+\end{definition}
+
+\begin{definition}
+  A \egraph is a tuple $(C, E, I, U, M, \lookup)$ where:
+  \begin{itemize}
+    \item $C$ is a set of \eclasses over $E$ which is a set of \enodes;
+    $I$ is a set of \eclass ids.
+    \item
+      A union-find~\cite{unionfind} data structure $U$
+      stores an equivalence relation (denoted with $\equivid$)
+      over \eclass ids.
+      The union-find provides a function \find that
+       \textit{canonicalizes} \eclass ids such that
+       $\find(i_1) = \find(i_2) \iff i_1 \equivid i_2$.
+      An \eclass id $i$ is canonical if $i = \find(i)$.
+    
+    \item
+      The \textit{\eclass map} $M$ is a surjective function 
+      that maps \eclass ids to \eclasses.
+      All equivalent \eclass ids map to the same \eclass, i.e.,
+      $a \equivid b$ iff $M[a]$ is the same set as $M[b]$.
+      An \eclass id $a$ is said to \textit{refer to} the \eclass $M[\find(a)]$.
+    
+    \item
+      A function \lookup that maps \enode $n$ to an id of
+        \eclass that contains it: $n \in M[\lookup(n)]$.
+    \end{itemize}
+\end{definition}
+}
+ 
+Note that by definition, no two \enodes in the same \egraph 
+ can have the same symbol and children, i.e.,
+ an \enode's symbol and children together uniquely identify
+ the \eclass that contains it.
+This property is necessary for \lookup to be a function.
+\autoref{sec:fd} explains how this property also
+ translates to a {\em functional dependency}
+ in the \egraph's relational representation,
+ which could be leveraged to further optimize relational \ematching.
+
+ \update{
+\autoref{fig:egraph-eg} shows an example \egraph, where each dotted box
+ is an \eclass, and each solid box together with argument pointers 
+ make up an \enode. 
+In this \egraph there is one unique id for each \eclass,
+ shown in the shaded labels on the top-left corner of each \eclass. 
+For example, the \eclass in the middle contains the set of \enodes 
+$g(1), \ldots, g(N)$ and has id $i_g$. }
+
+An \egraph $E$ efficiently represents sets of ground terms in a congruence
+ relation.
+An \egraph, \eclass, or \enode is said to \textit{represent} a term $t$ if $t$ can be
+``found'' within it. 
+
+\begin{definition}[Representation]
+  Representation is defined recursively:
+\begin{itemize}
+\item An \egraph\ represents a term if any of its \eclasses\ does.
+\item An \eclass\ $c$ represents a term if any \enode $n \in c$ does.
+\item An \enode $f(j_{1}, \ldots, j_k)$ represents a term $f(t_{1}, \ldots, t_k)$
+  if they have the same function symbol $f$
+  and \eclass $M[j_{i}]$ represents term $t_{i}$ for $i \in \{1, \ldots, k\}$.
+\end{itemize}
+\end{definition}
+
+%  An \egraph~is said to \textit{represent} a ground term $t$ if its
+% \eclasses~represent it. An \eclass $c$ represents a ground term if $c$ contains
+% an \enode $a$ that represents it. An \enode $f(c_1,\dots,c_k)$ represents a
+% ground term $f(t_1,\dots,t_k)$ if they have the same function symbol $f$ and
+% each e-class $c_i$ represents term $t_i$. Terms represented by an \eclass~are
+% equivalent to each other.
+
+\begin{figure}
+  \centering
+  \includegraphics[height=5cm]{fgn.pdf}
+  \caption{An example \egraph.}\label{fig:egraph-eg}
+\end{figure}
+
+The \egraph in~\autoref{fig:egraph-eg} represents the set of
+terms (where $[N] = \{1, 2, \ldots, N\}$):
+$$[N]\cup \{g(i) \mid i\in [N]\} \cup\{f(i, g(j)) \mid i, j \in [N]\}.$$
+In addition, all $g$-terms are equivalent,
+ and all $f$-terms are equivalent.
+Note that the \egraph~has size $O(N)$,
+ yet it represents $\Omega(N^{2})$ many terms.
+In general, an \egraph is capable of representing
+ exponentially many terms in polynomial space.
+If the \egraph has cycles,
+ it can even represent an infinite set of terms.
+For example, the \egraph with a single \eclass $c = \{f(c), a\}$
+ represents the infinite set of terms $\{a, f(a), f(f(a)), \ldots\}$.
+
+
+\subsubsection*{\Ematching.}
+\Ematching~finds the set of terms in an \egraph~matching a given pattern.
+Specifically, \ematching~finds the set of \ematching~substitutions and a root
+class that represents the terms.
+
+\begin{definition}[\Ematching substitution]
+  An \textit{\ematching~substitution} $\sigma$ is a function that maps
+every variable in a pattern to an \eclass.  
+\end{definition}
+ For convenience, we use $\sigma(p)$ to
+denote the set of terms obtained by replacing every occurrence of variable $v_i$
+in $p$ with terms represented by $\sigma(v_i)$.
+
+\begin{definition}[The \Ematching problem]
+  Given an e-graph $E$ and a pattern $p$,
+\ematching~finds the set of all possible pairs $(\sigma, r)$ such that every
+term in $\sigma(p)$ is represented in the \eclass $r$. Terms in $\sigma(p)$ are
+said to be matched by pattern~$p$, and $r$ is said to be the root of matched terms.  
+\end{definition}
+For example, matching the pattern $f(\alpha, g(\alpha))$ against the \egraph~$G$
+in \autoref{fig:egraph-eg} produces the following $N$ substitutions,
+ each with the same root $i_f$:
+\[
+  \left\{
+    (\{\alpha \mapsto j\}, i_f) \mid j \in [N]
+  \right\}.
+\]
+
+Existing \ematching~algorithms perform backtracking search directly on the
+\egraph~\cite{efficient-ematching,simplify,egg}.
+\autoref{alg:backtrack} shows
+ an abstract backtracking-based
+ \ematching~algorithm.
+Most
+\ematching~algorithms using backtracking search can be viewed as
+optimizations based on this abstract algorithm. Specifically,
+it will perform a top-down search following the shape of the pattern and prune
+the result set of substitutions when necessary.
+To match pattern $f(\alpha,
+g(\alpha))$ against $G$, backtracking search visits terms in the following order
+(each $\hookrightarrow$ marks a backtrack step):
+% TODO: Say something like f(1, g(1)) is not actually a term, but a (singleton)
+% set of terms witnessed by the substitution {alpha -> 1}.
+\begin{align*}
+  f(1, g(1)) \rightarrow & \dots \rightarrow f(1, g(N)) \\
+    \hookrightarrow f(2, g(1))\rightarrow & \dots \rightarrow f(2, g(N)) \\
+    \hookrightarrow f(N, g(1))\rightarrow & \dots \rightarrow f(N, g(N))
+\end{align*}
+
+For each term $f(i, g(j))$ visited, whenever $i=j$ the algorithm yields a match
+$\alpha \mapsto i$. Despite there being only $N$ matches,
+backtracking search runs in time $O(N^{2})$.
+% Existing approaches to \ematching~rely on backtracking. For example,
+% \citet{efficient-ematching} proposed a backtracking-based e-matching algorithm
+% that is used by \textsc{Z3} \cite{Z3} and \egg \cite{egg}, two
+% state-of-the-art e-graph implementations. To match the pattern $f(\alpha,
+% g(\alpha))$ on the e-graph in Figure \ref{fig:egraph}, their algorithm does a
+% depth-first search over the e-graph:
+% % Conceptually, it recursively searches for the pattern $f(\alpha, g(\beta))$
+% % and filters out substitutions that map $\alpha$ and $\beta$ to different
+% % e-classes.
+% it searches for all $f$-application e-nodes $n_f$, adds $\alpha\mapsto
+% n_f.\textit{child}_1$ to substitution $\sigma$, iterates through all
+% $g$-application e-nodes $n_g$ in e-class $n_f.\textit{child}_2$, and only
+% yield $\sigma$ if $n_g.\textit{child}_1=\sigma(\alpha)$. In general, this
+% procedure runs in time that is quadratic of the \egraph~size. In a large
+% e-graph, there may be thousands of pairs of $n_f$ and $n_g$ where $n_g$ is in
+% e-class $n_f.\textit{child}_2$, but only a few satisfy the constraint
+% $n_f.\textit{child}_1=n_g.\textit{child}_1$.
+
+This inefficiency is due to the fact that na\"ive backtracking does not use the
+equality constraints to prune the search space \textit{globally}. Specifically,
+the above \ematching~pattern corresponds to three constraints for a potential
+matching term $t$:
+\begin{enumerate}
+\item $t$ should have function symbol $f$.
+\item $t$'s second child should have function symbol $g$.
+\item $t$'s first child should be equivalent
+      to the child of $t$'s second child.
+\end{enumerate}
+
+We can categorize these constraints into two kinds:
+\begin{itemize}
+  \item \textit{Structural constraints} are derived from the structure of the pattern.
+    The structure of pattern
+    $f(\alpha, g(\alpha))$ constrains the root symbol and the second symbol
+    to be $f$ and $g$ respectively (i.e., constraints 1 and 2).
+  \item \textit{Equality constraints}
+    are implied by multiple occurrences of the same variable.
+    Here, the occurrences of $\alpha$ implies that the terms at these positions
+    should be equivalent with each other for all matches (i.e., constraint 3),
+     which we call {\it equality constraints}.
+    Following \citet{moskal}, we define patterns without equality constraints to be
+    \textit{linear patterns}.
+\end{itemize}
+
+Backtracking search exploits the structural constraints first and defers
+ checking the equality constraints to the end.
+In our example pattern $f(\alpha, g(\alpha))$,
+ backtracking search enumerates all $f(i, g(j))$,
+ regardless of whether $i$ and $j$ are equivalent,
+ only to discard nonequivalent matches later.
+Complex query patterns may involve many variables
+ that occur at several places, which will makes na\"ive backtracking search
+ enumerate a very large number of candidates,
+ even though the result size is small.
+% In contrast, our approach exploits all equality constraints during query planning,
+%  and can yield asymptotically better performance for non-linear patterns
+%  and guarantees worst-case optimal run time in general.
+
+\def\match{{\sf match}} \def\class{{\sf class}} \def\find{{\sf find}}
+\def\dom{{\sf dom}}
+\begin{figure}
+  \begin{align*}
+    \match(x,c,S) = & \{ \sigma \cup \{ x \mapsto c\} \mid \sigma \in S, x \not \in \dom(\beta)\}\ \cup\\
+                    & \{ \sigma \mid \sigma \in S, \sigma(x) = c \}\\
+                    % \match(c,t,S) = & c \in \class(t) \text{ ? } S \text{ : } \emptyset \\
+    \match(f(p_{1}, \dots, p_{k}), c, S) = & \bigcup_{f(c_{1},\dots,c_{k})\in c}
+                                             \match(p_{k}, c_{k}, \dots, \match(p_{1}, c_{1}, S))
+  \end{align*}
+  \caption{A declarative backtracking-based \ematching{} algorithm (reproduced
+    from~\citet{efficient-ematching}). The set of substitutions for pattern $p$
+    on \egraph~$G$ with \eclasses $C$ can be obtained by computing $\bigcup_{c\in C}\match(p, c, \emptyset)$.
+    % \textbf{\color{red} maybe lets use an algo presentation to match up with GJ}
+  }\label{alg:backtrack}
+\end{figure}
+
+\subsection{Conjunctive Queries}
+
+Conjunctive queries are a subset of queries in relational algebra
+ that use only select, project, and join operators
+(as opposed to union, difference, or aggregation).
+Conjunctive queries have many desirable theoretical properties
+ (like computable equivalence checking),
+ and they enjoy efficient execution
+ thanks to decades of research from the databases community.
+
+\subsubsection*{Relational Databases.}
+A relational schema $S_D$ over domain $D$ is a set of relation symbols with
+ associated arities.
+A relation $R$ under a schema $S_D$ is a set of tuples;
+ for each tuple $(t_1,\ldots,t_k) \in R$,
+ $k$ is the arity of $R$ in $S_D$ and $t_i$ is an element in $D$.
+A database instance (or simply database) $I$ of $S_D$ is a set of relations under $S_D$.
+
+We use the notation $R(x, y).x$ to denote projection,
+ i.e., $R(x, y).x = \{x \mid (x, y) \in R \}$.
+
+\subsubsection*{Conjunctive Queries.}
+A conjunctive query $Q$ over the schema $S_D$ is a formula of the form:
+\[
+  Q(x_1,\ldots x_k) \gets R_1(x_{1,1},\ldots,x_{1,k_1}),\ldots,
+  R_n(x_{n,1},\ldots,x_{n,k_n}),
+\]
+where $R_1\ldots R_n$ are relation symbols in $S_D$ with arities
+$k_1,\ldots k_n$ and the $x$ are variables.\footnote{
+  Some definitions of conjunctive queries allow both variables and constants.
+  We only allow variables without loss of generality:
+  any constant $c$ can be specified with a distinguished relation $R_{c} = \{c\}$.}
+We call the $Q(\ldots)$ part the \textit{head} of the query,
+ the remainder is the \textit{body}.
+Each $R_i(\ldots)$ is called an {\em atom}.
+Variables that appear in the head are called \textit{free variables},
+ and they must appear in the body.
+Variables that appear in the body but not the head are called \textit{bound variables},
+ since they are implicitly existentially quantified.
+
+% $v_{i,j}$ are variables in $V$.
+% and $x_1,\ldots x_k$ are variables
+% occurring in $v_{i,j}$.
+
+\subsubsection*{Semantics of Conjunctive Queries.}
+Similar to \ematching,
+ evaluating a conjunctive query $Q$ yields substitutions.
+Specifically,
+ evaluation yields substitutions
+ that map free variables in $Q$ to
+ elements in the domain such that
+ there exists a mapping of the bound variables
+ that causes every substituted atom to be present in the database.
+Bound variables are {\em projected out} and not present in
+ resulting the substitutions.
+
+% \textbf{\color{blue} This definition may cause problems if variables in
+%   the body do not occur in the head.
+% Instead, we may say the result of CQ is a set of tuples, instantiated from a
+% substitution (of all variables in the body) such
+% that ... Example:
+% [...] Evaluating $Q$ over $I$ yield the set of all possible
+%  $(\sigma(x_1), \ldots, \sigma(x_n))$,
+%  where $\sigma$ is a substitution satisfying
+%  \[
+%    \forall j\in [n].\
+%    R_j\left( \sigma(x_{j,1}),\ldots, \sigma(x_{j,k_j})\right) \in I.
+%  \]
+% }
+
+More formally,
+ let $I$ be a database of schema $S_D$ and
+ let $Q$ be a conjunctive query over the same schema
+ with $k$ variables in its head.
+Let the $n$ atoms in the body of
+ $Q$ be $R_1, \ldots, R_n$
+ where $R_j$ has arity $k_j$.
+Evaluating $Q$ over $I$ yields
+ a substitution
+ $\sigma = \{ x_1 \mapsto t_1, \ldots, x_k \mapsto t_k \}$
+ iff
+ there exists a $\sigma' \supset \sigma$ mapping
+ all variables in $Q$ such that:
+\[
+  \bigwedge_{j \in [n]}(\sigma'(x_{j,1}),\ldots,\sigma'(x_{j,k_j})) \in R_{j}
+\]
+% Evaluating $Q$ over $I$ yields substitutions
+%  % $\sigma = \{ x_1 \mapsto t_1, \ldots, x_k \mapsto t_k \}$
+%  $\sigma = \{ x_1 \mapsto \sigma'(x_1), \ldots, x_k \mapsto \sigma'(x_k) \}$,
+%  where $\sigma'$ is a substitution subsuming $\sigma$
+%  that map variables from the bodies of $Q$ to elements from $D$.
+% Specifically, $\sigma'$ satisfies the following:
+% \[
+%   \forall j \in [n].\
+%   \left( \sigma'(x_{j,1}), \ldots, \sigma'(x_{j,k_j}) \right) \in R_j
+% \]
+% In other words, $Q$ returns the set (where $x_{l}, \ldots, x_{m}$ are body variables not in the head):
+%
+%
+%  $\sigma = \{ x_1 \maps t_1, \ldots, x_k \maps t_k \}$
+%  that map all $k$ variables
+%  in the head of $Q$ to elements of $D$ such that
+
+% $R_i(\sigma(t_1),\ldots \sigma(t_k))$ are atoms in
+%  $(\sigma(x_1),\ldots,\sigma(x_k))$ where $\sigma$ is a
+%  substitution satisfying that $R_i(\sigma(t_1),\ldots \sigma(t_k))$ are atoms in
+% $I$ for $i=1,\ldots,n$.
+% We denote the result set as $Q(I)$.
+
+% Similar to \ematching~substitutions, we define a conjunctive query substitution
+% as a function that maps every variable occurring in it to elements in
+% $D$. The semantics of conjunctive queries is defined as follows: let $Q$ be a
+% conjunctive query, $I$ be an database of schema of $S_D$.
+% Conjunctive query $Q$ yields all tuples
+% set of all $\textit{ans}(\sigma(x_1),\ldots,\sigma(x_k))$ where $\sigma$ is a
+% substitution satisfying that $R_i(\sigma(t_1),\ldots \sigma(t_k))$ are atoms in
+% $I$ for $i=1,\ldots,n$. We denote the result set as $q(I)$.
+
+In practice, conjunctive queries are often evaluated according to a \textit{query plan}
+ which dictates each step of execution.
+For example,
+ many industrial database systems will construct tree-like query plans,
+ where each node describes an operation like scanning a relation or joining two
+ intermediate relations.
+Industrial database systems typically construct query plans
+ based on binary join algorithms such as hash joins and merge-sort join,
+ which process two relations at a time.
+The quality of a query plan critically
+ determines the performance of evaluating a conjunctive query.
+
+We observe that conjunctive query and \ematching
+ are structurally similar: both are defined as finding
+ substitutions whose instantiations are present in a database.
+% In fact, the \ematching problem can be viewed as ``nested''
+%  conjunctive queries on a database where the relations are nested.
+Therefore, it is tempting to reduce \ematching to
+ a conjunctive query over the relational database,
+ thereby benefiting from well-studied techniques from the databases community,
+ including join algorithms and query optimization.
+We achieve exactly this in \autoref{sec:algorithm}.
+
+\subsection{Worst-Case Optimal Join Algorithms}
+
+% \begin{figure}
+%   \begin{subfigure}{0.45\textwidth}
+%     \centering \tikzfig{worstcase}
+%     \caption{ Input relations. }\label{fig:worst}
+%   \end{subfigure}
+%   \begin{subfigure}{0.45\textwidth}
+%     \centering \tikzfig{triangle}
+%     \caption{ $Q \leftarrow R(x,y), S(y,z), T(z, x)$. }\label{fig:triangle}
+%   \end{subfigure}
+%   \caption{ Example input and query hypergraph of $Q$. }\label{fig:wcoj}
+% \end{figure}
+
+% \begin{figure}
+% \begin{align*}
+% \textsf{GJ}(\bigwedge_i R_i(\overline{x_i}), [x_1] \concat \overline{x}, \sigma) & =
+% \{ \textsf{GJ}(x_1 = a \wedge \bigwedge_i R_i(\overline{x_i}), \overline{x}, \sigma \cup \{ x_{1} \mapsto a \} ) \mid a \in \bigcap_{x_1 \in R_j} R_j \} \\
+% \textsf{GJ}(\bigwedge_i R_i(\overline{x_i}), \emptyset, \sigma) & = \sigma
+% \end{align*}
+% \caption{Generic Join algorithm. \textsf{GJ} takes 3 arguments:
+%  a conjunction of atoms $\bigwedge_i R_i(\overline{x_i})$,
+%  a list of variables indicating the variable ordering,
+%  and a (partial) substitution $\sigma$.}
+% \end{figure}
+
+The run time of any algorithm for answering conjunctive queries
+ is lower-bounded by the output size,
+ assuming the output must be materialized.
+How large can the output of a conjunctive query be on a particular database?
+A na{\"i}ve bound is simply the product of the size of each relation,
+ which is the size of their cartesian product.
+Such a na{\"i}ve bound fails to consider the query's structure.
+The AGM bound~\cite{agm}
+ gives us a bound for the worst-case output size.
+In fact, the AGM bound is tight;
+ there always exists a database
+ where the query output size is the AGM bound.
+
+The AGM bound and worst-case optimal joins
+ are recent developments in databases research.
+We do not attempt to provide a comprehensive
+ background on these topics here;
+ familiarity with the existence of the AGM bound
+ and the generic join algorithm is sufficient for this paper.
+
+Consider $Q(x,y,z) \leftarrow R(x,y), S(y,z), T(x,z) $,
+ also known as the ``triangle query'',
+ since output tuples are triangles between the edge relations $R,S,T$.
+We calculate a trivial bound $|Q| \leq |R| \times |S| \times |T|$.
+If $|R|=|S|=|T|=N$, then $|Q| \leq N^3$.
+We can derive a tighter bound from $|Q| \leq |R| \times |S| = N^2$.
+That is because $Q$
+contains fewer tuples than the query $ Q’(x,y,z) \leftarrow R(x,y), S(y,z) $
+as $Q$ further requires $(x,z) \in T$.
+The AGM bound for $Q$ is even smaller: $N^{3/2}$.
+It is computed from the \emph{fractional edge
+  cover} of the \emph{query hypergraph}.
+
+\subsubsection*{Query Hypergraph.}
+\label{sec:hypergraph}
+
+\begin{figure}
+  \centering \tikzfig{triangle}
+  \caption{ Query hypergraph of $Q(x, y, z) \gets R(x,y), S(y,z), T(z, x)$. }\label{fig:wcoj}
+\end{figure}
+
+The hypergraph of a query is simply the hypergraph
+ with
+ a vertex for each variable
+ and a (hyper)edge for each atom.
+The edge for an atom $R(x_{i}, \ldots, x_{k})$ connects the vertices
+ corresponding to the variables $x_{i}, \ldots, x_{k}$.
+\autoref{fig:wcoj} illustrates $Q$'s hypergraph.
+% Certain hypergraphs are called \emph{cyclic}.
+% The definition of a hypergraph cycle is related to but not exactly
+%  that of cycles in conventional graphs.
+
+\subsubsection*{Cyclic and Acyclic Queries.}
+Certain queries can be represented by a tree,
+ called the \textit{join tree},
+ where each node corresponds to an atom in the query.
+Furthermore, for each variable $x$ the nodes
+ corresponding to the atom containing $x$
+ must form a connected subtree.
+Queries that admit such a join tree
+ are said to be \textit{acyclic};
+ otherwise, the query is \textit{cyclic}.\footnote{
+  A cycle in the hypergraph does not necessarily entail a cyclic query,
+   since the hypergraph may still admit a join tree.
+}
+The triangle query is cyclic because it cannot
+ be represented by a join tree.
+Acyclic queries can be answered more efficiently
+ than cyclic ones.
+
+\subsubsection*{Fractional Edge Cover.}
+A set of edges \emph{cover} a graph if they touch all vertices. For $Q$'s
+hypergraph, any two edges form a cover.
+A \emph{fractional edge cover} assigns a
+ weight in the interval $[0, 1]$ to each edge
+ such that,
+ for each vertex $v$,
+ the weights of the edges containing $v$ sum to at least 1.
+Every edge cover is a fractional cover,
+ where every edge is assigned a weight of 1 if it is in the cover,
+ and 0 otherwise.
+For $Q$'s hypergraph,
+ $\{R \mapsto 1/2, S \mapsto 1/2, T \mapsto 1/2\}$
+ is the fractional edge cover with lowest total weight.
+
+\subsubsection*{The AGM Bound.}
+The AGM bound~\cite{agm} for a query with body atoms
+ $R_{i}(\ldots)$ for $i \in [k]$
+ is defined as $\min_{w_1,\ldots,w_k} \Pi_{i \in [k]} |R_{i}|^{w_i}$,
+ where $\{R_{i} \mapsto w_{i} \mid i \in [k] \}$ forms a fractional edge cover.
+For example, the AGM bound for $Q$ is
+ $|R|^{1/2}|S|^{1/2}|T|^{1/2} = N^{3/2}$ when $|R| = |S| = |T| = N$.
+This is the upper bound of $Q$’s output size;
+ i.e.\ in the worst case $Q$ outputs this many tuples.
+
+\subsubsection*{Generic Join.}
+
+A desirable algorithm for answering conjunctive queries
+ should run in time linear to the worst case output size.
+Recent developments in the databases community have led to
+ such an algorithm~\cite{wcoj}, one of which is \textit{generic join}~\cite{gj}.
+Generic join has one parameter:
+ an ordering of the variables in the query.
+Any ordering guarantees a run time linear to the worst-case output size,
+ but different orderings can lead to dramatically different run time
+ in practice~\cite{emptyheaded}.
+
+\begin{algorithm}
+  \LinesNumbered{} \SetAlgoLined{}
+  \KwResult{$\text{GJ}(Q, \emptyset)$ computes the output of query $Q$}
+  \KwIn{query $Q$, partial substitution $\sigma$}
+  \tcc{$k$ indicates how many variables remain in query $Q$}
+  \eIf(\tcc*[f]{there are no more variables, so $\sigma$ is complete}){$k=0$}
+    {output $\sigma$}
+    {
+      choose a variable $x$\;
+      \tcc{
+        Compute $D_x$, which all possible values of $x$, by intersecting the attributes of the relations where $x$ occurs.
+        Intersection must be computed in $O(\min(|R_j.x|))$ time.}
+      $J = \{j \mid x \in \overline{X}_j\}$\;
+      $D_x = \cap_{j \in J} R_j.x$\label{ln:gj-isect}\;
+      \For()
+      {$v \in D_x$}
+      {
+        \tcc{compute residual query by replacing variable $x$ with constant $v$}
+        $Q' = Q[v/x]$\;
+        GJ$(Q', \sigma \cup \{ x \mapsto v \})$
+      }
+    }
+  \caption{
+    Generic join for the general query
+    $Q(x_1,\ldots,x_k) \gets R_1(\overline{X}_1),\ldots,R_n(\overline{X}_n)$
+  }\label{alg:gj-general}
+\end{algorithm}
+
+\autoref{alg:gj-general} shows the generic join algorithm.
+Generic join is recursive,
+ proceeding in two steps.
+First,
+ it chooses a variable from the query and
+ collects all possible values for that variable in the query.
+Then,
+ for each of those values,
+ it builds a \textit{residual query}
+ by replacing occurrences of the variable in the query with a possible
+ value for that variable.
+These residual queries are solved recursively,
+ and when there are no more variables in the residual query,
+ the algorithm yields the substitution it has accumulated so far.
+
+Generic join
+ requires two important performance
+ bounds to be met in order for its own run time to meet the AGM bound.
+First, the intersection on line \ref{ln:gj-isect}
+ must run in $O(\min(|R_j.x|))$ time.
+Second,
+ the residual relations
+ should be computed in constant time,
+ i.e., computing from the relation $R(x, y)$
+ the relation $R(v_x, y)$ for some $v_x \in R(x, y).x$
+ must take constant time.
+Both of these
+ can be solved by using tries
+ (sometimes called prefix or suffix trees)
+ as an indexing data structure.
+\autoref{fig:simple-trie} shows an example trie.
+Tries allow fast
+ intersection because
+ each node is a map which
+ can be intersected in time linear to the size of the smaller map.
+Tries also allow constant-time access
+ to residual relations according to a compatible variable ordering.
+
+ \begin{figure}
+   \begin{subfigure}[b]{0.45\linewidth}
+     \centering
+     \begin{tabular}{|lll|}
+       \hline
+       \bf x & \bf y & \bf z \\
+       \hline
+       1 & 2 & 4 \\
+       1 & 2 & 6 \\
+       1 & 3 & 7 \\
+       8 & 2 & 4 \\
+       \hline
+     \end{tabular}
+     \caption{Table for relation $R(x, y, z)$.}
+   \end{subfigure}
+   \hfill
+   \begin{subfigure}[b]{0.5\linewidth}
+     \centering
+     \includegraphics[height=22mm]{simple-trie.pdf}
+     \caption{Trie for relation $R(x, y, z)$ using ordering $[x, y, z]$.}
+   \end{subfigure}
+   \caption{
+     A trie is a tree where
+       every node is a map (typically a hashmap or sorted map)
+       from a value to a trie.
+     Every path from the root of a trie to a leaf represents a tuple in the relation.
+     Tries allow efficient computation of residual relations.
+     For example, $R(1, y, z)$ can be computed quickly by following the
+       $x=1$ edge from the root.
+   }
+   \label{fig:simple-trie}
+ \end{figure}
+
+
+A useful way to understand generic join is to observe the
+ loops and intersections it performs on a specific query.
+\autoref{alg:gj} shows generic join computing the triangle query.
+Given a variable ordering ($[x,y,z]$ in this case),
+ generic join assumes the input relations are stored in tries according to the ordering,
+ so $R(x,y)$ is
+ stored in a trie with $x$s on the first level, and $y$s on the second.
+This makes accessing the residual relations ($R(v_x, y)$) fast since
+ the replacement of variables with values
+ is done according to the given variable ordering.
+Note how the algorithm is essentially just nested \texttt{for} loops.
+There is no explicit filtering step;
+ the intersection of residual queries guarantees
+ that once a complete tuple of values is selected,
+ it can be immediately output without additional checking.
+
+\begin{algorithm}
+  \LinesNumbered{} \SetAlgoLined{}
+  \KwResult{compute $Q(x,y,z) \gets R(x,y),S(y,z),T(z,x)$}
+  $X = R(x,y).x \cap T(z,x).x$\;
+  \For(\tcc*[f]{compute $Q(v_x,y,z) = R(v_x,y),S(y,z),T(z,v_x)$})
+  {$v_x \in X$}
+  {
+    $Y = R(v_x,y).y \cap S(y,z).y$\;
+    \For(\tcc*[f]{compute $Q(v_x,v_y,z) = R(v_x,v_y),S(v_y,z),T(z,v_x)$})
+    {$v_y \in Y$}
+    {
+      $Z = S(v_y,z).z \cap T(z,v_x).z$\;
+      \For(\tcc*[f]{yield join results $Q(v_x, v_y, v_z)$})
+      {$v_z \in Z$}
+      {output$(v_x,v_y,v_z)$ } } }
+  \caption{
+    Generic join for the triangle query, with ordering $[x, y, z]$.
+  }\label{alg:gj}
+\end{algorithm}
+
+% \subsubsection{When to Use Generic Join.}
+
+% Use Generic Join when the query is cyclic - if the query is acyclic, the
+% theoretical optimal algorithm is Yannakakis (equivalent to message passing in
+% probabilistic graphical models) which runs in linear time in the input size;
+% in practice people use binary joins for acyclic queries, because Yannakakis
+% always incurs a constant factor of 3 (it’s a 3-pass algorithm).
+
+% In practice, Generic Join may have good performance compared to binary joins,
+% since it is sometimes equivalent to a linear join tree. The “average case”
+% complexity of Generic Join is open.
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

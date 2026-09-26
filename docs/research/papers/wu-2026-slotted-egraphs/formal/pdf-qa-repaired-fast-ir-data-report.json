@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "FRESH_ALL_PAGE_PDF_QA_AFTER_REPAIRED_FAST_IR_DATA_REFRESH",
+  "generated_at_utc": "2026-08-30T00:23:46Z",
+  "status": "PDF_QA_PASSED",
+  "snapshot": {
+    "author_source_graph_sha256": "29348d88fbad07dfeddca2abf880b0718a8ca2ba26d41ee82a08e8f60d94d7d1",
+    "compilable_latex_graph_sha256": "379aab0c7f1f2c6a9eaeebfcf0048257506b115189ade0bf8dbf069eb0bd6e2b",
+    "experimental_data_refresh_report": "formal/experimental-data-refresh-report.json",
+    "experimental_data_refresh_report_sha256": "71c86a4942720dc6fdc9d65286b8c2ee4e6337c2169dc16be18dea182db8699f",
+    "publication_head": "63f3b8c2931202e9b3582a8802c558725a67ac26",
+    "publication_run_id": "df4d8d4c-6265-4fe7-88d5-3aceee60398b",
+    "experiment_source_commit": "fbd9b1497a9036c55780da777f56581bc1c6bcec"
+  },
+  "clean_latex_build": {
+    "status": "PASS",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "pdf_path": "main_compressed.pdf",
+    "pdf_sha256": "0beab8b4e238d3c3834b05d555e32d3ad2c1425ba9abc8ecded96d68356e2c98",
+    "pdf_bytes": 641801,
+    "pdf_pages": 45,
+    "page_size_points": "612x792",
+    "log_sha256": "6d5b9c7ed093ef08a6711113d56e59fca96131274419a6f73cec67e98a28a838",
+    "aux_sha256": "ee880a479ab9c897205c3ea16d9e2590272a460f6ba6e195fc38b47131fd0734",
+    "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437"
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-17",
+    "main_text_page_count": 17,
+    "main_text_limit": 20,
+    "references_start_page": 18,
+    "references_pages": "18-19",
+    "appendices_start_page": 20,
+    "evaluation_appendix_start_page": 30
+  },
+  "all_page_review": {
+    "status": "PASS_45_OF_45_PAGES",
+    "render_dpi": 144,
+    "pages_reviewed": 45,
+    "blank_pages": 0,
+    "clipping_or_overlap_defects": 0,
+    "broken_glyphs": 0,
+    "margin_violations": 0,
+    "misplaced_float_defects": 0,
+    "visible_layout_defects": 0,
+    "pdf_text_changed_pages_against_baseline": [14, 15, 16, 30, 31, 33, 34, 35],
+    "changed_page_classification": "Only the authorized numeric and provenance substitutions render on these pages."
+  },
+  "chart": {
+    "status": "PASS_BYTE_UNCHANGED_AND_VISUALLY_LEGIBLE",
+    "page": 15,
+    "source_path": "figures/raw_edit_repair_coverage_relabel.png",
+    "source_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "embedded_dimensions_pixels": "976x612",
+    "series_current": true,
+    "reason_unchanged": "The plotted raw-AST and Certificate-Integrated series did not change in the repaired run."
+  },
+  "citations_and_references": {
+    "status": "PASS",
+    "unique_cited_keys": 21,
+    "bibliography_entries": 21,
+    "missing_citation_keys": 0,
+    "uncited_bibliography_entries": 0,
+    "duplicate_bibliography_entries": 0,
+    "undefined_references": 0,
+    "question_mark_placeholders": 0,
+    "reference_pages_text_identical_to_baseline": true,
+    "bibliography_sha256": "2cb748a87f85b229731723e8f6da6b99a038460aef43a79029a6b303c2ac2945"
+  },
+  "float_order": {
+    "status": "PASS_STABLE",
+    "figure_1_page": 15,
+    "table_1_page": 16,
+    "evaluation_tables_6_through_12_pages": "31-34"
+  },
+  "build_diagnostics": {
+    "overfull_boxes": 0,
+    "latex_or_package_warnings": 0,
+    "undefined_citations": 0,
+    "undefined_references": 0,
+    "nonblocking_underfull_notices": true,
+    "underfull_interpretation": "Existing dense formal-appendix typesetting notices; no visible defect."
+  },
+  "independent_review": {
+    "status": "PASS",
+    "review_scope": "All 45 rendered pages, page boundaries, chart, citations, reference layout, float order, changed-page localization, and source-diff minimality.",
+    "repairs_performed_during_qa": 0
+  },
+  "immutability": {
+    "formal_claim_changes": 0,
+    "lean_source_changes": 0,
+    "java_changes": 0,
+    "experimental_result_changes": 0,
+    "bibliography_changes": 0,
+    "chart_changes": 0,
+    "layout_changes": 0
+  },
+  "next_gate": "Package the unchanged QA-passed source graph; do not publish without separate authorization."
+}

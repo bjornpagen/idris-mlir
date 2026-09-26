@@ -1,0 +1,82 @@
+\section{Introduction}
+
+Dependently typed programming languages, such as Idris~\cite{idris-jfp},
+Agda~\cite{norell2007thesis}, and Haskell with the appropriate extensions 
+enabled~\cite{dephaskell}, allow us to give precise types which can
+describe assumptions about and relationships between inputs and outputs.
+This is valuable for reasoning about \emph{functional} properties, such as
+correctness of algorithms on collections~\cite{McBride2014}, termination of
+parsing~\cite{Danielsson2010} and 
+scope safety of programs~\cite{allais-cpp17}.
+However, reasoning about \emph{non-functional} properties in this setting,
+such as memory safety, protocol correctness, or resource safety in general, is
+more difficult though it can be achieved with techniques such as embedded
+domain specific languages~\cite{brady-tfp14} or indexed
+monads~\cite{Atkey2009,McBride2011}. These are, nevertheless, heavyweight
+techniques which can be hard to compose.
+
+Substructural type systems, such as linear type
+systems~\cite{wadler-linear,Morris2016,linhaskell},
+allow us to express \emph{when} an operation can be executed, by requiring
+that a linear resource be accessed \emph{exactly once}. Being able to
+combine linear and dependent types would give us the ability to express
+an ordering on operations, as required by a protocol, with precision
+on exactly what operations are allowed, at what time. Historically, however,
+a difficulty in combining linear and dependent types has been in deciding
+how to treat occurrences of variables in \emph{types}. This can be
+avoided~\cite{Krishnaswami-ldtp} by never allowing types to depend on a
+linear term, but more recent work on Quantitative Type Theory 
+(QTT)~\cite{qtt,nuttin} solves the problem by assigning a \emph{quantity} to
+each binder, and checking terms at a specific \emph{multiplicity}. 
+Informally, in QTT, variables and function arguments have a multiplicity: $0$,
+$1$ or unrestricted ($\omega$). We can freely use any variable in an argument
+with multiplicity $0$---e.g., in types---but we can not use a variable with
+multiplicity $0$ in an argument with any other
+multiplicity. A variable bound with multiplicity $1$ must be used exactly once.
+In this way, we can describe linear resource usage protocols, and furthermore
+clearly express \emph{erasure} properties in types.
+%We will make the concept
+%of multiplicities more precise later in the paper.
+
+Idris 2 is a new implementation of Idris, which uses QTT as its core
+type theory. In this paper, we explore the possibilities of programming with
+a full-scale language built on QTT. By full-scale, we mean a language with high
+level features such as inference, interfaces, local function definitions
+and other syntactic sugar. As an example, we will show how to implement a
+library for concurrent programming with session types~\cite{Honda1993}.
+We choose this example because, as demonstrated by the extensive literature
+on the topic, correct concurrent programming is both hard to achieve, and
+vital to the success of modern software engineering. Our aim is to show that
+a language based on QTT is an ideal environment in
+which to implement accessible tools for software developers, based on
+decades of theoretical results.
+
+%The code is
+%submitted as anonymised supplementary material (\texttt{idris2-code.tgz}).
+
+\subsection{Contributions}
+
+This paper is about exploring what is possible in a language based on
+Quantitative Type Theory (QTT), and introduces a new implementation of Idris.
+We make the following research contributions:
+
+\begin{itemize}
+\item We describe Idris 2 (Section~\ref{sec:idris}), the first implementation
+of quantitative type theory in a full programming language, and the first
+language with full first-class dependent types implemented in itself.
+\item We show how Idris 2 supports two important applications of quantities:
+\emph{erasure} (Section~\ref{sec:erasure}) which gives type-level guarantees as
+to which values are required at run-time, and \emph{linearity}
+(Section~\ref{sec:linearity}) which gives type-level guarantees of resource
+usage. We also describe a general approach to implementing linear
+resource usage protocols (Section~\ref{sec:protocols}).
+\item We give an example of QTT in practice, encoding bidirectional
+session types (Section~\ref{sec:sessions}) for safe concurrent programming.
+\end{itemize}
+
+We do not discuss the metatheory of QTT, nor the trade-offs in its design
+in any detail. Instead, our interest is in discussing how it has affected
+the design of Idris 2, and in investigating the new kinds of programming and
+reasoning it enables. Where appropriate, we will discuss the intuition behind
+how argument multiplicities work in practice.
+

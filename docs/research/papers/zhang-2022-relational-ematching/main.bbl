@@ -1,0 +1,490 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{28}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[\protect\citeauthoryear{??}{Gle}{[n.d.]}]%
+        {Glean}
+ \bibinfo{year}{[n.d.]}\natexlab{}.
+\newblock \bibinfo{title}{{Glean} System for collecting, deriving and querying
+  facts about source code}.
+\newblock \bibinfo{howpublished}{\url{https://glean.software}}.
+\newblock
+\newblock
+\shownote{Accessed: 2021-10-12.}
+
+
+\bibitem[\protect\citeauthoryear{Aberger, Lamb, Tu, N\"{o}tzli, Olukotun, and
+  R\'{e}}{Aberger et~al\mbox{.}}{2017}]%
+        {emptyheaded}
+\bibfield{author}{\bibinfo{person}{Christopher~R. Aberger},
+  \bibinfo{person}{Andrew Lamb}, \bibinfo{person}{Susan Tu},
+  \bibinfo{person}{Andres N\"{o}tzli}, \bibinfo{person}{Kunle Olukotun}, {and}
+  \bibinfo{person}{Christopher R\'{e}}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{EmptyHeaded: A Relational Engine for Graph
+  Processing}.
+\newblock \bibinfo{journal}{\emph{ACM Trans. Database Syst.}}
+  \bibinfo{volume}{42}, \bibinfo{number}{4}, Article \bibinfo{articleno}{20}
+  (\bibinfo{date}{Oct.} \bibinfo{year}{2017}), \bibinfo{numpages}{44}~pages.
+\newblock
+\showISSN{0362-5915}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3129246}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Amler}{Amler}{2017}]%
+        {eval-wcoj}
+\bibfield{author}{\bibinfo{person}{Andreas Amler}.}
+  \bibinfo{year}{2017}\natexlab{}.
+\newblock \emph{\bibinfo{title}{Evaluation of Worst-Case Optimal Join
+  Algorithm}}.
+\newblock \bibinfo{thesistype}{Master's\ thesis}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Antoniadis, Triantafyllou, and
+  Smaragdakis}{Antoniadis et~al\mbox{.}}{2017}]%
+        {doop}
+\bibfield{author}{\bibinfo{person}{Tony Antoniadis},
+  \bibinfo{person}{Konstantinos Triantafyllou}, {and} \bibinfo{person}{Yannis
+  Smaragdakis}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Porting Doop to Souffl\'{e}: A Tale of Inter-Engine
+  Portability for Datalog-Based Analyses}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 6th ACM SIGPLAN International
+  Workshop on State Of the Art in Program Analysis}} (Barcelona, Spain)
+  \emph{(\bibinfo{series}{SOAP 2017})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{25–30}.
+\newblock
+\showISBNx{9781450350723}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3088515.3088522}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Atserias, Grohe, and Marx}{Atserias
+  et~al\mbox{.}}{2008}]%
+        {agm}
+\bibfield{author}{\bibinfo{person}{Albert Atserias}, \bibinfo{person}{Martin
+  Grohe}, {and} \bibinfo{person}{D\'{a}niel Marx}.}
+  \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Size Bounds and Query Plans for Relational Joins}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the 2008 49th Annual IEEE
+  Symposium on Foundations of Computer Science}} \emph{(\bibinfo{series}{FOCS
+  '08})}. \bibinfo{publisher}{IEEE Computer Society}, \bibinfo{address}{USA},
+  \bibinfo{pages}{739–748}.
+\newblock
+\showISBNx{9780769534367}
+\urldef\tempurl%
+\url{https://doi.org/10.1109/FOCS.2008.43}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Avgustinov, De~Moor, Jones, and
+  Sch{\"a}fer}{Avgustinov et~al\mbox{.}}{2016}]%
+        {avgustinov2016ql}
+\bibfield{author}{\bibinfo{person}{Pavel Avgustinov}, \bibinfo{person}{Oege
+  De~Moor}, \bibinfo{person}{Michael~Peyton Jones}, {and} \bibinfo{person}{Max
+  Sch{\"a}fer}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{QL: Object-oriented queries on relational data}. In
+  \bibinfo{booktitle}{\emph{30th European Conference on Object-Oriented
+  Programming (ECOOP 2016)}}. Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Barrett, Conway, Deters, Hadarean, Jovanovic,
+  King, Reynolds, and Tinelli}{Barrett et~al\mbox{.}}{2011}]%
+        {cvc4}
+\bibfield{author}{\bibinfo{person}{Clark~W. Barrett},
+  \bibinfo{person}{Christopher~L. Conway}, \bibinfo{person}{Morgan Deters},
+  \bibinfo{person}{Liana Hadarean}, \bibinfo{person}{Dejan Jovanovic},
+  \bibinfo{person}{Tim King}, \bibinfo{person}{Andrew Reynolds}, {and}
+  \bibinfo{person}{Cesare Tinelli}.} \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{{CVC4}}. In \bibinfo{booktitle}{\emph{Computer
+  Aided Verification - 23rd International Conference, {CAV} 2011, Snowbird, UT,
+  USA, July 14-20, 2011. Proceedings}} \emph{(\bibinfo{series}{Lecture Notes in
+  Computer Science}, Vol.~\bibinfo{volume}{6806})},
+  \bibfield{editor}{\bibinfo{person}{Ganesh Gopalakrishnan} {and}
+  \bibinfo{person}{Shaz Qadeer}} (Eds.). \bibinfo{publisher}{Springer},
+  \bibinfo{pages}{171--177}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-642-22110-1\_14}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Ceri and Widom}{Ceri and Widom}{1991}]%
+        {DBLP:conf/vldb/CeriW91}
+\bibfield{author}{\bibinfo{person}{Stefano Ceri} {and}
+  \bibinfo{person}{Jennifer Widom}.} \bibinfo{year}{1991}\natexlab{}.
+\newblock \showarticletitle{Deriving Production Rules for Incremental View
+  Maintenance}. In \bibinfo{booktitle}{\emph{17th International Conference on
+  Very Large Data Bases, September 3-6, 1991, Barcelona, Catalonia, Spain,
+  Proceedings}}, \bibfield{editor}{\bibinfo{person}{Guy~M. Lohman},
+  \bibinfo{person}{Am{\'{\i}}lcar Sernadas}, {and} \bibinfo{person}{Rafael
+  Camps}} (Eds.). \bibinfo{publisher}{Morgan Kaufmann},
+  \bibinfo{pages}{577--589}.
+\newblock
+\showISBNx{1-55860-150-3}
+\urldef\tempurl%
+\url{http://www.vldb.org/conf/1991/P577.PDF}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{de~Moura and Bj{\o}rner}{de~Moura and
+  Bj{\o}rner}{2007}]%
+        {efficient-ematching}
+\bibfield{author}{\bibinfo{person}{Leonardo de Moura} {and}
+  \bibinfo{person}{Nikolaj Bj{\o}rner}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Efficient E-Matching for SMT Solvers}. In
+  \bibinfo{booktitle}{\emph{Automated Deduction -- CADE-21}},
+  \bibfield{editor}{\bibinfo{person}{Frank Pfenning}} (Ed.).
+  \bibinfo{publisher}{Springer Berlin Heidelberg}, \bibinfo{address}{Berlin,
+  Heidelberg}, \bibinfo{pages}{183--198}.
+\newblock
+\showISBNx{978-3-540-73595-3}
+
+
+\bibitem[\protect\citeauthoryear{de~Moura and Bj{\o}rner}{de~Moura and
+  Bj{\o}rner}{2008}]%
+        {z3}
+\bibfield{author}{\bibinfo{person}{Leonardo de Moura} {and}
+  \bibinfo{person}{Nikolaj Bj{\o}rner}.} \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Z3: An Efficient SMT Solver}. In
+  \bibinfo{booktitle}{\emph{Tools and Algorithms for the Construction and
+  Analysis of Systems}}, \bibfield{editor}{\bibinfo{person}{C.~R. Ramakrishnan}
+  {and} \bibinfo{person}{Jakob Rehof}} (Eds.). \bibinfo{publisher}{Springer
+  Berlin Heidelberg}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{337--340}.
+\newblock
+\showISBNx{978-3-540-78800-3}
+
+
+\bibitem[\protect\citeauthoryear{Detlefs, Nelson, and Saxe}{Detlefs
+  et~al\mbox{.}}{2005}]%
+        {simplify}
+\bibfield{author}{\bibinfo{person}{David Detlefs}, \bibinfo{person}{Greg
+  Nelson}, {and} \bibinfo{person}{James~B. Saxe}.}
+  \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Simplify: A Theorem Prover for Program Checking}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{52},
+  \bibinfo{number}{3} (\bibinfo{date}{May} \bibinfo{year}{2005}),
+  \bibinfo{pages}{365–473}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1066100.1066102}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Freitag, Bandle, Schmidt, Kemper, and
+  Neumann}{Freitag et~al\mbox{.}}{2020}]%
+        {freitag}
+\bibfield{author}{\bibinfo{person}{Michael Freitag},
+  \bibinfo{person}{Maximilian Bandle}, \bibinfo{person}{Tobias Schmidt},
+  \bibinfo{person}{Alfons Kemper}, {and} \bibinfo{person}{Thomas Neumann}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Adopting Worst-Case Optimal Joins in Relational
+  Database Systems}.
+\newblock \bibinfo{journal}{\emph{Proc. VLDB Endow.}} \bibinfo{volume}{13},
+  \bibinfo{number}{12} (\bibinfo{date}{July} \bibinfo{year}{2020}),
+  \bibinfo{pages}{1891–1904}.
+\newblock
+\showISSN{2150-8097}
+\urldef\tempurl%
+\url{https://doi.org/10.14778/3407790.3407797}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Kozen}{Kozen}{1977}]%
+        {ematching-nph}
+\bibfield{author}{\bibinfo{person}{Dexter Kozen}.}
+  \bibinfo{year}{1977}\natexlab{}.
+\newblock \showarticletitle{Complexity of Finitely Presented Algebras}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Ninth Annual ACM Symposium on
+  Theory of Computing}} (Boulder, Colorado, USA) \emph{(\bibinfo{series}{STOC
+  '77})}. \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{164–177}.
+\newblock
+\showISBNx{9781450374095}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/800105.803406}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Mhedhbi and Salihoglu}{Mhedhbi and
+  Salihoglu}{2019}]%
+        {mhedhbi19}
+\bibfield{author}{\bibinfo{person}{Amine Mhedhbi} {and} \bibinfo{person}{Semih
+  Salihoglu}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{{Optimizing Subgraph Queries by Combining
+  Binary and Worst-Case Optimal Joins}}}.
+\newblock
+\showeprint[arxiv]{1903.02076v2}~[cs.DB]
+
+
+\bibitem[\protect\citeauthoryear{Moskal, \L{}opusza\'{n}ski, and Kiniry}{Moskal
+  et~al\mbox{.}}{2008}]%
+        {moskal}
+\bibfield{author}{\bibinfo{person}{Micha\l{} Moskal}, \bibinfo{person}{Jakub
+  \L{}opusza\'{n}ski}, {and} \bibinfo{person}{Joseph~R. Kiniry}.}
+  \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{E-Matching for Fun and Profit}.
+\newblock \bibinfo{journal}{\emph{Electron. Notes Theor. Comput. Sci.}}
+  \bibinfo{volume}{198}, \bibinfo{number}{2} (\bibinfo{date}{May}
+  \bibinfo{year}{2008}), \bibinfo{pages}{19–35}.
+\newblock
+\showISSN{1571-0661}
+\urldef\tempurl%
+\url{https://doi.org/10.1016/j.entcs.2008.04.078}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nandi, Willsey, Anderson, Wilcox, Darulova,
+  Grossman, and Tatlock}{Nandi et~al\mbox{.}}{2020}]%
+        {szalinski}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Max
+  Willsey}, \bibinfo{person}{Adam Anderson}, \bibinfo{person}{James~R. Wilcox},
+  \bibinfo{person}{Eva Darulova}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Structured {CAD} Models with Equality
+  Saturation and Inverse Transformations}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st {ACM} {SIGPLAN}
+  International Conference on Programming Language Design and Implementation,
+  {PLDI} 2020, London, UK, June 15-20, 2020}},
+  \bibfield{editor}{\bibinfo{person}{Alastair~F. Donaldson} {and}
+  \bibinfo{person}{Emina Torlak}} (Eds.). \bibinfo{publisher}{{ACM}},
+  \bibinfo{pages}{31--44}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3385412.3386012}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nappa, Zhao, Suboti{\'c}, and Scholz}{Nappa
+  et~al\mbox{.}}{2019}]%
+        {nappa2019fast}
+\bibfield{author}{\bibinfo{person}{Patrick Nappa}, \bibinfo{person}{David
+  Zhao}, \bibinfo{person}{Pavle Suboti{\'c}}, {and} \bibinfo{person}{Bernhard
+  Scholz}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Fast Parallel Equivalence Relations in a Datalog
+  Compiler}. In \bibinfo{booktitle}{\emph{2019 28th International Conference on
+  Parallel Architectures and Compilation Techniques (PACT)}}. IEEE,
+  \bibinfo{pages}{82--96}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Ngo, Porat, R\'{e}, and Rudra}{Ngo
+  et~al\mbox{.}}{2018}]%
+        {wcoj}
+\bibfield{author}{\bibinfo{person}{Hung~Q. Ngo}, \bibinfo{person}{Ely Porat},
+  \bibinfo{person}{Christopher R\'{e}}, {and} \bibinfo{person}{Atri Rudra}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Worst-Case Optimal Join Algorithms}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{65},
+  \bibinfo{number}{3}, Article \bibinfo{articleno}{16} (\bibinfo{date}{March}
+  \bibinfo{year}{2018}), \bibinfo{numpages}{40}~pages.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3180143}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Ngo, R\'{e}, and Rudra}{Ngo
+  et~al\mbox{.}}{2014}]%
+        {gj}
+\bibfield{author}{\bibinfo{person}{Hung~Q Ngo}, \bibinfo{person}{Christopher
+  R\'{e}}, {and} \bibinfo{person}{Atri Rudra}.}
+  \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{Skew Strikes Back: New Developments in the Theory
+  of Join Algorithms}.
+\newblock \bibinfo{journal}{\emph{SIGMOD Rec.}} \bibinfo{volume}{42},
+  \bibinfo{number}{4} (\bibinfo{date}{Feb.} \bibinfo{year}{2014}),
+  \bibinfo{pages}{5–16}.
+\newblock
+\showISSN{0163-5808}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2590989.2590991}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Papadimitriou and Yannakakis}{Papadimitriou
+  and Yannakakis}{1999}]%
+        {yannakakis}
+\bibfield{author}{\bibinfo{person}{Christos~H. Papadimitriou} {and}
+  \bibinfo{person}{Mihalis Yannakakis}.} \bibinfo{year}{1999}\natexlab{}.
+\newblock \showarticletitle{On the Complexity of Database Queries}.
+\newblock \bibinfo{journal}{\emph{J. Comput. Syst. Sci.}} \bibinfo{volume}{58},
+  \bibinfo{number}{3} (\bibinfo{date}{June} \bibinfo{year}{1999}),
+  \bibinfo{pages}{407–427}.
+\newblock
+\showISSN{0022-0000}
+\urldef\tempurl%
+\url{https://doi.org/10.1006/jcss.1999.1626}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{R{\"u}mmer}{R{\"u}mmer}{2012}]%
+        {rummer2012matching}
+\bibfield{author}{\bibinfo{person}{Philipp R{\"u}mmer}.}
+  \bibinfo{year}{2012}\natexlab{}.
+\newblock \showarticletitle{E-matching with free variables}. In
+  \bibinfo{booktitle}{\emph{International Conference on Logic for Programming
+  Artificial Intelligence and Reasoning}}. Springer, \bibinfo{pages}{359--374}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Salem, Beyer, Cochrane, and Lindsay}{Salem
+  et~al\mbox{.}}{2000}]%
+        {DBLP:conf/sigmod/SalemBCL00}
+\bibfield{author}{\bibinfo{person}{Kenneth Salem}, \bibinfo{person}{Kevin~S.
+  Beyer}, \bibinfo{person}{Roberta Cochrane}, {and} \bibinfo{person}{Bruce~G.
+  Lindsay}.} \bibinfo{year}{2000}\natexlab{}.
+\newblock \showarticletitle{How To Roll a Join: Asynchronous Incremental View
+  Maintenance}. In \bibinfo{booktitle}{\emph{Proceedings of the 2000 {ACM}
+  {SIGMOD} International Conference on Management of Data, May 16-18, 2000,
+  Dallas, Texas, {USA}}}, \bibfield{editor}{\bibinfo{person}{Weidong Chen},
+  \bibinfo{person}{Jeffrey~F. Naughton}, {and} \bibinfo{person}{Philip~A.
+  Bernstein}} (Eds.). \bibinfo{publisher}{{ACM}}, \bibinfo{pages}{129--140}.
+\newblock
+\showISBNx{1-58113-217-4}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/342009.335393}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Tarjan}{Tarjan}{1975}]%
+        {unionfind}
+\bibfield{author}{\bibinfo{person}{Robert~Endre Tarjan}.}
+  \bibinfo{year}{1975}\natexlab{}.
+\newblock \showarticletitle{Efficiency of a Good But Not Linear Set Union
+  Algorithm}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{22},
+  \bibinfo{number}{2} (\bibinfo{date}{April} \bibinfo{year}{1975}),
+  \bibinfo{pages}{215–225}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/321879.321884}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Tate, Stepp, Tatlock, and Lerner}{Tate
+  et~al\mbox{.}}{2009}]%
+        {eqsat}
+\bibfield{author}{\bibinfo{person}{Ross Tate}, \bibinfo{person}{Michael Stepp},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Sorin Lerner}.}
+  \bibinfo{year}{2009}\natexlab{}.
+\newblock \showarticletitle{Equality Saturation: A New Approach to
+  Optimization}. In \bibinfo{booktitle}{\emph{Proceedings of the 36th Annual
+  ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages}}
+  (Savannah, GA, USA) \emph{(\bibinfo{series}{POPL '09})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{264–276}.
+\newblock
+\showISBNx{9781605583792}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1480881.1480915}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Urma and Mycroft}{Urma and Mycroft}{2013}]%
+        {urma2013expressive}
+\bibfield{author}{\bibinfo{person}{Raoul-Gabriel Urma} {and}
+  \bibinfo{person}{Alan Mycroft}.} \bibinfo{year}{2013}\natexlab{}.
+\newblock \showarticletitle{Expressive and Scalable Source Code Queries with
+  Graph Databases}.
+\newblock  (\bibinfo{year}{2013}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Willsey, Nandi, Wang, Flatt, Tatlock, and
+  Panchekha}{Willsey et~al\mbox{.}}{2021}]%
+        {egg}
+\bibfield{author}{\bibinfo{person}{Max Willsey}, \bibinfo{person}{Chandrakana
+  Nandi}, \bibinfo{person}{Yisu~Remy Wang}, \bibinfo{person}{Oliver Flatt},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Pavel Panchekha}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Egg: Fast and Extensible Equality Saturation}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{23}
+  (\bibinfo{date}{Jan.} \bibinfo{year}{2021}), \bibinfo{numpages}{29}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3434304}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{{Yang}, {Mangpo Phothilimtha}, {Remy Wang},
+  {Willsey}, {Roy}, and {Pienaar}}{{Yang} et~al\mbox{.}}{2021}]%
+        {tensat}
+\bibfield{author}{\bibinfo{person}{Yichen {Yang}}, \bibinfo{person}{Phitchaya
+  {Mangpo Phothilimtha}}, \bibinfo{person}{Yisu {Remy Wang}},
+  \bibinfo{person}{Max {Willsey}}, \bibinfo{person}{Sudip {Roy}}, {and}
+  \bibinfo{person}{Jacques {Pienaar}}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{{Equality Saturation for Tensor Graph
+  Superoptimization}}.
+\newblock \bibinfo{journal}{\emph{arXiv e-prints}}, Article
+  \bibinfo{articleno}{arXiv:2101.01332} (\bibinfo{date}{Jan.}
+  \bibinfo{year}{2021}), \bibinfo{numpages}{arXiv:2101.01332}~pages.
+\newblock
+\showeprint[arxiv]{2101.01332}~[cs.AI]
+
+
+\bibitem[\protect\citeauthoryear{Zhuge, Garcia{-}Molina, Hammer, and
+  Widom}{Zhuge et~al\mbox{.}}{1995}]%
+        {DBLP:conf/sigmod/ZhugeGHW95}
+\bibfield{author}{\bibinfo{person}{Yue Zhuge}, \bibinfo{person}{Hector
+  Garcia{-}Molina}, \bibinfo{person}{Joachim Hammer}, {and}
+  \bibinfo{person}{Jennifer Widom}.} \bibinfo{year}{1995}\natexlab{}.
+\newblock \showarticletitle{View Maintenance in a Warehousing Environment}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 1995 {ACM} {SIGMOD}
+  International Conference on Management of Data, San Jose, California, USA,
+  May 22-25, 1995}}, \bibfield{editor}{\bibinfo{person}{Michael~J. Carey} {and}
+  \bibinfo{person}{Donovan~A. Schneider}} (Eds.). \bibinfo{publisher}{{ACM}
+  Press}, \bibinfo{pages}{316--327}.
+\newblock
+\showISBNx{978-0-89791-731-5}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/223784.223848}
+\showDOI{\tempurl}
+
+
+\end{thebibliography}

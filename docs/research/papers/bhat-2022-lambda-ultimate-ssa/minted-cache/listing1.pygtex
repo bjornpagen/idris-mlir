@@ -1,0 +1,16 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYGZdl{} docker load \PYGZhy{}i cgo22.docker
+\PYGZdl{} docker run \PYGZhy{}it siddudruid/cgo21\PYGZhy{}v4
+\PYGZdl{} su nonroot \PYGZsh{} switch to non\PYGZhy{}root user
+\PYGZdl{} export PATH=/code/llvm\PYGZhy{}project/build/bin:\PYGZdl{}PATH
+\PYGZdl{} export PATH=/code/lean4/build/release/stage1/bin:\PYGZdl{}PATH
+\PYGZdl{} export PATH=/code/lz/build/bin:\PYGZdl{}PATH
+\PYGZdl{} export LEANLIB=/code/lean4/build/release/stage1/lib
+\PYGZdl{} export LD\PYGZus{}LIBRARY\PYGZus{}PATH=\PYGZdl{}LEANLIB:\PYGZdl{}LD\PYGZus{}LIBRARY\PYGZus{}PATH
+\PYGZdl{} cd /code/lean4/build/release \PYGZam{}\PYGZam{} \PYGZbs{}
+     make \PYGZhy{}j4 test
+\PYGZdl{} cd /code/lz/test/lambdapure/compile/bench \PYGZam{}\PYGZam{} \PYGZbs{}
+     ./speedup\PYGZhy{}time.py \PYGZhy{}\PYGZhy{}data \PYGZhy{}\PYGZhy{}plot \PYGZhy{}\PYGZhy{}nruns 10
+\PYGZdl{} cd /code/lz/test/lambdapure/compile/bench \PYGZam{}\PYGZam{} \PYGZbs{}
+     ./speedup\PYGZhy{}rgn\PYGZhy{}time.py \PYGZhy{}\PYGZhy{}data \PYGZhy{}\PYGZhy{}plot \PYGZhy{}\PYGZhy{}nruns 10
+\end{Verbatim}

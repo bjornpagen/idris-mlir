@@ -1,0 +1,164 @@
+\section{Evaluation Detail}
+\label{app:evaluation-detail}
+
+This appendix expands the immutable publication measurements summarized in
+Section~\ref{sec:evaluation}.  The Certificate-Integrated arm is an in-process
+certificate-checked implementation observation; its complete traces were not
+exported and independently replayed, and it establishes no Java--theory refinement.
+
+\begingroup
+\def\UrlBreaks{\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9%
+  \do\a\do\b\do\c\do\d\do\e\do\f}
+\Urlmuskip=0mu plus 1mu\relax
+The ACGN repository snapshot is
+\path{1e2667351532b0c632166fa21ae5fbc7308a8fe7} on branch
+\texttt{aislop}. Full-corpus measurements use publication run
+\path{db9f89bf-0965-4d74-8080-d9191d5f1aec}, completed on September 8,
+2026, from a clean checkout of source commit
+\path{8ad5fead39b687d2cadc79b01ac27743c1ece990}.
+The natural-corpus dataset SHA-256 is
+\path{d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689},
+and the executable JAR SHA-256 is
+\path{a053e40e64faa2ecffb0f4999b57aa661eae51933d6daf93a95d973144a71abf}.
+The manifest records rule set
+\path{canonical-equivalences-v3-explicit-laws} and repair metric
+\path{certified-fast-rewrite-repair-distance-v12}.  These identifiers bind the
+measurements; they do not certify the implementation against the formal model.
+All four experimental stages use that one JAR, 16 workers, an 8~GiB heap,
+OpenJDK 17.0.20, and seed 55520260811. The controlled suite has dataset
+SHA-256 \path{898d8123ce12ee9a28cb106b801c4d3cb9e1c8aaa2644e0389aedd41e6fb49c3}.
+The later assurance-only release retains these full-corpus artifacts.
+\endgroup
+
+\subsection{Arms and Representation Boundaries}
+
+\begin{table}[H]
+\caption{Evaluation arms and their representation boundaries.}
+\label{tab:engine-boundary}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{2.35cm}p{2.7cm}p{3.05cm}p{3.35cm}@{}}
+\toprule
+Arm & Stored form & Equality discovery & Boundary\\
+\midrule
+Raw & ordered fixed-arity keys & bounded concrete rewrite frontier & internal baseline\\
+Raw + De Bruijn & fixed keys with DB leaves & same frontier & binding encoding added\\
+Java egglog & flattened concrete keys & same frontier & flexible-arity internal baseline\\
+Java egglog + De Bruijn & flattened keys with DB leaves & same frontier & combined internal baseline\\
+Slotted & ordered invocations and integer slots & frontier plus bounded slot canonicalizer & precursor without the exact contract\\
+Fast Rewrite & flexible Alloy repair view & staged normalization and reference metric & high-throughput normalization arm\\
+Certificate-Integrated & typed $\Seq/\Bag/\Set/\texttt{One}$ ports & certified graph, orbit, rebuild, finite unfolding & in-process checked observation; no Java--theory refinement\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The front end constructs a temporal skeleton, moves quantifiers only within a
+temporal phase under recorded free-variable and domain conditions, and keeps
+non-primitive domain constraints as matrix guards.  It then eliminates
+implication, biconditional, and formula-level conditionals, pushes negation,
+applies safe prenexing, and performs local relational and logical rewrites.
+The certified view stores typed ports, supports, binder descriptors,
+witnesses, transition certificates, and bounded finite unfoldings; the repair
+projection removes proof and schema plumbing before measuring distance.  The
+publication run records the current explicit-law rule set and repair metric.
+Its runtime checks and empirical outputs do not prove conformance to the paper
+construction.
+
+\subsection{Corpus Views and Distance Summaries}
+
+\input{tables/table1_rev4}
+\input{tables/table2_rev4}
+\input{tables/table3_vmcai_stage1}
+
+The augmented truth pool contains the oracle and student predicates labeled
+\texttt{CORRECT} in the same invariant group, with raw-AST duplicates removed;
+comparisons do not cross group boundaries. Each repair coordinate selects its
+own nearest reference and has
+its own edit unit.  Canonical-representative tree edit distance is a diagnostic
+baseline rather than the primary repair metric.
+
+Table~\ref{tab:model-overview} records schema-level context.  Several problem
+variants share a base schema, so its ten rows do not correspond one-to-one
+with the 17 variants used above.
+
+\begin{table}[H]
+\centering
+\caption{Base-model size context.  Sig./Abs./Ext./Rel. denote signatures,
+abstract signatures, extensions, and relations.}
+\label{tab:model-overview}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\input{tables/model_overview}
+\end{table}
+
+\subsection{Full Ablation and Targeted Recognition}
+
+\input{tables/table6_ablation_vmcai_stage1}
+\input{tables/table7_capability_rev4}
+
+The compact headers in Table~\ref{tab:capability-benchmark} are preserved
+display aliases: Fix., F+DB, Var., V+DB, Slot, Leg., and Exact denote Raw,
+Raw + De Bruijn, Java egglog, Java egglog + De Bruijn, Slotted, Fast Rewrite,
+and Certificate-Integrated, respectively.
+
+The natural-corpus arms combine different normalization and representation
+boundaries, so transitions between them are pipeline-level attributions rather
+than estimates for individual rewrite rules.  Absolute timing is compared only
+within a run.  Every arm completed the recorded natural-corpus pairs, but the
+single fresh-process execution per arm does not support distributional timing
+claims or a cross-system performance ranking.
+
+\subsection{Checker Boundary and Threats to Validity}
+
+The separate certificate verifier's adversarial suite covers support
+contraction, collision and union, restriction, symmetry, rebuild, path
+compression, container laws, binder orbits, and incomplete evidence.  The
+standalone Lean module
+\path{formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean} supplies one
+fixed nontrivial abstract trace: AC reassociation, a bijective two-slot binder
+remapping, union insertion, rebuild, and congruence restoration after operand
+reordering.  It constructs the indexed trace with exact adjacency and replays
+that trace under an explicit finite-set interpreter to endpoint-denotation
+equality, packaging both facts as one checked witness.  This establishes
+only inhabitation of that abstract trace shape, not Java producer--verifier
+correspondence or coverage of other shapes.  Complete experimental traces were
+not exported and replayed.
+
+The bounded Alloy analysis covers the 4,088 claim identities in the current
+Certificate-Integrated arm's labeled-correct natural-corpus zero-distance set.  It found no
+counterexample or solver error for those identities and rejected four invalid
+probes: capture during beta
+reduction, comprehension-column permutation, signature shadowing, and a
+temporal implication error. Targeted capability validation was refreshed
+separately after the checker was repaired to detect temporal operators inside
+called predicate bodies. All 29 sampled checks, one per family/subtype
+combination, completed without a counterexample, error, or inconclusive
+result. Eight use bounded temporal solving at scope 4 with trace bounds
+1--10. This includes the six temporal checks that had previously been
+inconclusive; the older warned static reduction is superseded by this
+bounded temporal evidence.
+
+\begingroup
+\def\UrlBreaks{\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9%
+  \do\a\do\b\do\c\do\d\do\e\do\f}
+\Urlmuskip=0mu plus 1mu\relax
+The validation run is \path{659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4},
+completed on September 9, 2026, from clean source
+\path{8feab00f9190482af6a25334af5b2716653f8ac9}. Its separate JAR has
+SHA-256 \path{67e7dd088ef864a9170178e6b6c963a2c339836fa88b25cffe8e20788714f04a}.
+The manifest binds the same 5,500 generated models, but the executed solver
+sample contains only 29 checks, with one worker and a 1~GiB heap.
+The report is \path{capability_validation/soundness.json} within that run.
+Neither this validation nor the subsequent bounded constructor and
+certificate-record replay packages constitute full-corpus trace replay or
+full Java/parser refinement.
+\endgroup
+
+The natural corpus consists of short educational specifications with
+inherited labels, and excluding identical ASTs conditions the analysis on
+syntactic difference.  Distances are not calibrated semantic-error
+probabilities.  Natural and targeted artifacts have separate run and dataset
+identities, so comparisons remain within their respective manifests.  These
+data do not establish Java--theory refinement, full semantic equivalence,
+industrial generalization, or operational repair success.

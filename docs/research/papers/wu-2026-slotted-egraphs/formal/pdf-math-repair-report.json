@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "BOUNDED_PDF_MALFORMED_DISPLAY_REPAIR",
+  "generated_at_utc": "2026-08-29T08:00:37Z",
+  "status": "PDF_MATH_REPAIR_BUILD_PASSED",
+  "authorization_scope": {
+    "command": "/autonomous Repair this and complete packaging - it is very minor.",
+    "finding_id": "PDF-MATH-001",
+    "source_repairs_authorized": 1,
+    "source_repairs_executed": 1,
+    "fresh_all_page_pdf_qa_authorized": true,
+    "packaging_authorized_after_qa_pass": true,
+    "publication_authorized": false,
+    "lean_or_correspondence_work_authorized": false,
+    "java_or_experiment_work_authorized": false
+  },
+  "baseline": {
+    "blocking_report": "formal/pdf-qa-post-float-final-report.json",
+    "blocking_report_sha256": "6de743f1f2cff77eb48c41e03358d7246ff12ac9d127eeeb981525b3fcad7165",
+    "pre_repair_author_source_graph_sha256": "16154ce6bb5bc7163ff13da3907fcc8265a89a35b6184bc483fa000b4cdef24f",
+    "pre_repair_source_sha256": "0cc7ee27021750c6348be2cba034ef348530aed3bf8cab820fb6ce51e5705151"
+  },
+  "source_delta": {
+    "status": "PASS_EXACT_ONE_ROW_STATEMENT_PRESERVING_TYPESETTING_REPAIR",
+    "path": "appendixC_vmcai_stage1.tex",
+    "finding_id": "PDF-MATH-001",
+    "before": "\\operatorname{some}R & \\operatorname{no}R &&",
+    "after": "\\multicolumn{4}{c}{\\operatorname{some}R\\quad\\leftrightarrow\\quad\\operatorname{no}R}",
+    "reason": "Span the existing final dual pair across the four array columns so the unused second intercolumn equivalence separator is not emitted.",
+    "post_repair_source_sha256": "024f3df7d006825b94e6beb92005ce69fcaba1ababc25bbb3322342f11b0b77c",
+    "post_repair_author_source_graph_sha256": "1e8c1cebd6f35f8747524a971f3999a2424f698eb7957bff6aad684b903e1964",
+    "formal_statement_change_count": 0,
+    "mathematical_operand_change_count": 0,
+    "lean_mapping_change_count": 0,
+    "empirical_value_change_count": 0,
+    "citation_or_bibliography_change_count": 0,
+    "figure_or_chart_change_count": 0
+  },
+  "clean_latex_build": {
+    "status": "PASS_ONE_ISOLATED_CLEAN_BUILD",
+    "working_directory": "/workspace/scratch/0f7e6f7dcf2b/final-math-qa.4hlb3r",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "products": {
+      "pdf_pages": 45,
+      "pdf_bytes": 641799,
+      "pdf_page_size_points": "612 x 792",
+      "pdf_version": "1.5",
+      "pdf_sha256": "2cafa6e4d700e08ce9eb5481bb22d32298067bb41a5f9134f3e7b1bfca47dc7f",
+      "log_sha256": "d2fd65f8d7575f46d5baf98052c46c78bf977c36818bd9bbda795bfcc50f53cf",
+      "aux_sha256": "ee880a479ab9c897205c3ea16d9e2590272a460f6ba6e195fc38b47131fd0734",
+      "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437",
+      "blg_sha256": "2df72fa2146295f2ba87f07b9464a532300a393532df57f4673dd773ee5e6095",
+      "fls_sha256": "487f1eb8d51374aa3da240515b0f4731ef8b8be0c7831eff4ffc092688473511"
+    },
+    "final_log_diagnostics": {
+      "latex_warnings": 0,
+      "package_warnings": 0,
+      "overfull_hboxes": 0,
+      "overfull_vboxes": 0,
+      "underfull_hboxes": 358,
+      "underfull_vboxes": 4,
+      "undefined_citations_or_references": 0,
+      "multiply_defined_labels": 0,
+      "rerun_requests": 0,
+      "missing_glyphs": 0,
+      "bibtex_warnings": 0
+    }
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-17",
+    "main_text_page_count": 17,
+    "main_text_limit": 20,
+    "references_pages": "18-19",
+    "appendix_pages": "20-45"
+  },
+  "affected_page_verification": {
+    "status": "PASS",
+    "page": 42,
+    "observed": "The final row now renders exactly some R ↔ no R with no standalone operator or empty equation.",
+    "clipping_overlap_or_legibility_defect_count": 0
+  },
+  "immutability": {
+    "status": "PASS",
+    "chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "bibliography_sha256": "2cb748a87f85b229731723e8f6da6b99a038460aef43a79029a6b303c2ac2945",
+    "formal_claim_change_count": 0,
+    "lean_source_change_count": 0,
+    "java_change_count": 0,
+    "experimental_result_change_count": 0,
+    "chart_change_count": 0,
+    "bibliography_change_count": 0
+  },
+  "next_gate": "One fresh all-page PDF QA against author-source graph 1e8c1cebd6f35f8747524a971f3999a2424f698eb7957bff6aad684b903e1964, followed by packaging only on unanimous pass.",
+  "conclusion": "PDF_MATH_REPAIR_BUILD_PASSED"
+}

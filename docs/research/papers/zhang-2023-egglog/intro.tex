@@ -1,0 +1,509 @@
+\section{Introduction}
+
+% Program rewriting is at the core of many modern program optimizers~\citep{halide, TODO}.
+
+Equality saturation (\eqsat) and Datalog are both
+ fixpoint reasoning frameworks with 
+ many 
+ applications,
+ extensions,
+ and high-quality implementations~\cite{egg, souffle}.
+They share a common setup: 
+ the user provides \emph{rules} and an initial set of \emph{facts} 
+   (a term in \eqsat and a database in Datalog),
+ then the system derives a larger and larger set of facts from those inputs.
+However,
+ their commonalities have not---until now---been fully realized or exploited.
+As a result, 
+ the frameworks have developed independently and are used in different domains.
+Datalog is well-studied by the databases community, 
+ and practitioners use modern implementations
+ to build program analyses% 
+ ~\cite{cclyzer,cclyzerpp,doop-datalog}.
+%  several implementations also target commercial applications.
+Equality saturation
+ is a more recent, term-centric technique
+ favored in the programming languages community
+ for program optimization and verification.
+
+As users apply EqSat and Datalog to new, 
+  more demanding problems,
+  the limitations of each tool
+  become apparent.
+For example,
+ Herbie~\cite{herbie}, 
+ a tool that uses \eqsat to optimize floating-point accuracy, 
+ relies on unsound rewrites because it lacks the analyses
+ to prove that certain rewrites are safe 
+ (e.g. $x/x \rightarrow 1$ only if $x \neq 0$).
+To combat the unsoundness,
+ Herbie must validate the results of \eqsat
+ and discard them if unsoundness was detected.
+On the Datalog side,
+ \cclyzerpp~\cite{cclyzerpp},
+ a recent points-to analysis system implemented in Datalog
+ that supports Steensgaard analyses~\citep{DBLP:conf/popl/Steensgaard96}
+ for LLVM~\citep{llvm}
+ resorted to an ad-hoc implementation of union-find,
+ because the provided implementation of equivalence relations
+ was too slow.
+The resulting implementation's complexity led to bugs
+ in the pointer analysis.
+In short, EqSat struggles to support rich analyses, 
+  and equational reasoning in Datalog is complex and slow.
+
+\emph{Our key insight is that
+ the efficient equational reasoning of EqSat and 
+ the rich, composable semantic analyses of Datalog 
+  make up for each other's weaknesses, 
+  and unifying the two paradigms brings 
+  together---and goes beyond---the best of both worlds.}
+In fact, spontaneous developments in both communities 
+  have already begun converging towards each other:
+Datalog tools have 
+  added efficient equivalence relations~\cite{eqrel},
+  lattices~\cite{flix,ascent},
+  and some support for datatypes~\cite{souffle-adt}, 
+  while the \eqsat community
+  has recently developed support for
+  conditional rewriting,
+  lattice-based analyses~\cite{egg,metatheory.jl},
+  and relational pattern matching~\cite{relational-ematching}.
+We bring this trend to completion and close the gap
+  between EqSat and Datalog.
+
+In this work,
+ we propose \egglog,
+ a fixpoint reasoning system that subsumes both \eqsat and Datalog.
+It contains all of the innovations listed above as well as new ones,
+ and it addresses crucial limitations that have prevented progress in 
+ real-world applications.
+\egglog is essentially a Datalog engine
+ with two main extensions. % that have far-reaching consequences.
+First,
+ \egglog has a built-in, extensible notion of equality.
+The user can assert that two terms are equivalent,
+ from which point on they are indistinguishable to the system.
+For example,
+ consider a relation with a single tuple: $R = \set{(a, b)}$
+ for distinct $a$ and $b$.
+The query $R(x, x)$ would yield nothing,
+ but if the user asserts that $a$ and $b$ are equivalent,
+ then the query would return the equivalence class containing both $a$ and $b$.
+% \mw{also unification variables}
+Second,
+ \egglog has built-in support for (uninterpreted) functions.
+From a relational perspective,
+ a function is a relation with a functional dependency 
+ from its arguments to its output,
+ i.e., the output is uniquely determined by the arguments.
+However, user-extensible equality
+ introduces challenges for maintaining functional dependencies.
+Consider a function $f$ such that $f(a) = b$ and $f(c) = d$, 
+ but $b$ does not (yet) equal $d$.
+What happens when the user asserts that $a$ and $c$ are equivalent?
+An \egglog function can be annotated with a \emph{merge expression},
+ a novel mechanism that 
+ \egglog uses to resolve functional dependency violations
+ by combining the two conflicting output values.
+In the above case,
+ $f$'s merge expression might 
+ assert that $b = d$ (essentially asserting congruence of $f$),
+ or return the supremum of $b$ and $d$.
+The flexibility of merge expressions allows \egglog
+ to exceed the expressive power of both \eqsat and 
+ Datalog extensions with lattices.
+% \mw{following para seems redundant, jrw agrees}
+% \rw{The paragraph maps the solutions to the problems.
+%  Without it it's unclear how the extensions have anything to do with
+%   analyses and rewriting.  }
+% \Egglog allows users to seamlessly combine 
+%   analyses and equational reasoning. 
+% Each function can map a term to either an equivalence class 
+%   or a lattice value in some abstract domain.
+% Then, the merge expression can either unify equivalence classes 
+%   or take the join of lattice values.
+The high-level \Egglog language allows the user to specify 
+  complex interactions among terms, equivalence classes, 
+  and lattice values.
+At the same time, highly optimized algorithms for 
+  relational and equational reasoning 
+  work together to make \Egglog efficient.
+
+The combination of \eqsat and Datalog
+ also brings many practical---if somewhat more prosaic---benefits.
+For example,
+ \citet{relational-ematching}
+ observed that \eqsat is hampered by inefficient
+ \ematching (pattern matching modulo equality) algorithms,
+ and that a relational approach can be vastly more efficient.
+\egglog's Datalog-first design naturally 
+ supports efficient \ematching by reducing it to a relational query.
+This goes even further:
+incremental \ematching is only supported in some SMT solvers like Z3~\cite{z3}
+ and has not yet made its way into \eqsat implementations,
+ while \egglog supports them \emph{for free} with semi-na\"ive evaluation~\citep{seminaive},
+ a common technique that makes Datalog incremental.
+\egglog's support for functions
+ provides the basis for working with terms,
+ which only have limited support in other Datalog systems~\cite{souffle-adt}.
+Users can also define multiple
+ functions and datatypes
+ to model their domain,
+ unlike most \eqsat tools~\cite{egg,metatheory.jl}
+ where users are forced to use a single, ad-hoc datatype.
+Finally,
+ \egglog is designed as a language (as well as a library),
+ making it more accessible
+ than \eqsat libraries~\cite{egg,metatheory.jl} 
+ that are locked to their implementation language.
+% \yz{
+%   The claims made in this paragraph are not substantiated in the rest of the paper.
+%   MW: which claims specifically?
+% }
+
+We perform two case studies showing that \egglog out-performs 
+  state-of-the-art applications of \eqsat and Datalog respectively.
+First, we show that \egglog makes Steensgaard-style points-to analyses
+  faster and easier to write.
+Compared to the \souffle Datalog system,\xspace \egglog computes the points-to analysis
+  4.96$\times$ faster.
+Second, we demonstrate the power of \egglog
+ with a new, sound implementation of Herbie's \eqsat procedure.
+This allows Herbie to perform aggressive optimizations soundly,
+  and return results faster given the same error tolerance.
+
+% In both cases,
+%  the \egglog implementation is simpler, faster, 
+%  and corrects bugs from the original implementation.
+% \of{We don't have evidence we are faster than Herbie yet! We might by tonight}
+
+In summary, this paper makes the following contributions:
+\begin{compactitem}
+  \item We introduce a bottom-up, Datalog-like logic language 
+   for equality saturation and similar unification-based algorithms.
+  \item We present a fixpoint semantics for the core language of \egglog.
+  \item We present an implementation for \egglog with optimizations 
+   from database research such as semi-na\"ive evaluation.
+\end{compactitem}
+
+% Composing analysis easily using datalog
+% Making analysis more powerful with the power of equality
+% Performance improvement (seminaive?)
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%% old stuff below %%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\begin{comment}
+
+\section{Alternative Introduction}
+
+Program optimization and program analysis are 
+  two important tasks in programming languages research.
+Researchers have developed different theories and tools for each of these tasks.
+In program analysis, Datalog has been successfully applied to
+  specify analyses in a declarative yet scalable way.
+In optimization, equality saturation has seen recent breakthroughs to make it effective in many domains.
+In this work, we observe that both paradigms are based on the same principle of 
+  repeatedly applying a set of rules.
+In other words, they are both \emph{fixpoint} algorithms. 
+Building on this common core, 
+  we propose the first framework that combines equality saturation 
+  and datalog within the same system.
+Our system, called egglog, 
+  allows the user to specify tightly integrated rewrite and analysis rules 
+  using the same high-level language.
+We have used egglog to re-implement an optimizer built on equality saturation,
+  as well as a program analyzer built on Datalog.
+Doing so, we made the optimizer sound 
+  by augmenting its rewrite rules with semantic information from analyses.
+We also made the analyzer more efficient, thanks to
+  fast congruence closure algorithms developed for equality saturation. 
+
+A Datalog-based program analyzer works over a program represented as \emph{relations},  
+  where each relation is a set of \emph{facts}. 
+A fact conveys structural information about the program, 
+  from the source code or a more detailed representation such as the control flow graph.
+For example, the fact \lstinline|store(x, y)| is generated from the assignment \lstinline|*x = y|.
+Given a set of such structural facts, the analyzer infers further \emph{semantic} facts 
+  by applying a set of inference rules to the facts.
+For example, the rule \lstinline|vpt(x, y) :- store(x, y)| says that
+  if there is a statement assigning the value of \lstinline|y| to the address \lstinline|x|,
+  then \lstinline|x| is a pointer to \lstinline|y|.
+An inference rule can also be recursive,
+  for example the rule \lstinline|vpt(x, y) :- vpt(x, z), vpt(z, y)|
+  says \lstinline|vpt| is transitively closed.
+The analyzer applies the rules to infer new facts, 
+  and then applies the rules on the union of old and new facts to infer more facts.
+This process continues until no new facts can be found, 
+  and the analyzer outputs the final set of facts.
+In our example, the \lstinline|vpt| relation gives a points-to graph for the input program.
+Specifying analyses in Datalog has many benefits.
+First, the declarative nature of Datalog allows one to specify complex analyses with 
+  a small set of rules. \rw{Cite evidence showing Datalog analyses are short (might not be true).}
+Second, analyses written in Datalog are \emph{composable}.
+Since each analysis is specified with a set of rules,
+  and the rules can be arbitrarily mutually recursive,
+  one may combine multiple analyses by simply ``hooking up'' their rule sets.
+Third, thanks to decades of research optimizing the performance of Datalog engines,
+  Datalog analyses are scalable.
+\rw{Cite Souffle, DOOP etc. to support scalability.}
+
+An optimizer based on equality saturation also works over a program represented as relations.
+A relation in equality saturation typically represents syntactic strucure of the program.
+For example, the relation \lstinline|+(c, x, y)| roughly says ``the AST node c has + as the operator, 
+  and x and y are its operands''.
+One relation is special: the \emph{equivalence} relation groups programs and subprograms 
+  into \emph{equivalence classes}, 
+  where two programs are in the same equivalence class if they are equivalent.
+In the beginning, each (sub)-term is in its own equivalence class.
+Then the optimizer expands the classes by applying a set of \emph{rewrite rules}.
+For example, the rule \lstinline|(+ x y) => (+ y x)| matches on all \lstinline|+|-nodes
+  and rewrites the matched term by commutativity. 
+Crucially, a rewrite in equality saturation does not delete the rewritten term, 
+  but instead adds a new term and asserts that the two terms are equivalent.
+In other words, the rewrite rule above can be broken down into two rules in the style of Datalog:
+  the first rule \lstinline|+(c2, y, x) :- +(c1, x, y)| says that if there is a \lstinline|+|-node \lstinline|c|
+  with operands \lstinline|x| and \lstinline|y|,
+  then we add a new \lstinline|+|-node \lstinline|c'| with operands \lstinline|y| and \lstinline|x|;
+  the second rule \lstinline|c1 = c2 :- +(c1, x, y), +(c2, y, x)| says that if there are two \lstinline|+|-nodes
+  with their operands swapped, then they are equivalent.
+
+The fact that we can express rewrite rules in the style of Datalog suggests
+  that it is possible to implement equality saturation using Datalog.
+Doing so brings many benefits. 
+First, we can benefit from the powerful optimizations developed for Datalog 
+  to speed up equality saturation.
+Such optimizations include semi-na\"ive evaluation, 
+  magic set transformation, and join ordering.
+Second, we can leverage the composability of Datalog analyses to 
+  gain finer control over the rewrites.
+For example, an interval analysis allows us to deduce a term 
+  is never zero, if its interval does not contain zero, 
+  then we can specify the (\emph{sound}) division cancellation rule
+  \lstinline|(/ x x) => 1 if x != 0|. 
+Finally, the long and fruitful research on Datalog 
+  has produced many theoretical results, 
+  and these results may help us better understand equality saturation.
+For example, equality saturation may fail to terminate in surprising ways, 
+  but researchers have developed precise termination conditions for 
+  various extensions of Datalog\footnote{Termination has been extensively studied in the context of \emph{the Chase} 
+  which generalizes both Datalog and equality saturation.}, 
+  some of which generalize equality saturation.
+
+Nevertheless, a na\"ive encoding of equality saturation in Datalog can be inefficient.
+The simplest encoding uses a vanilla binary relation \lstinline|eq(c1, c2)| to represent
+  the equivalence relation,
+  and supply the reflexivity, symmetry, and transitivity rules for this relation.
+Such a relation takes space quadratic to the size of each equivalence class, 
+  whereas the union-find data structure used in standard equality saturation implementations 
+  take only linear space.
+Although certain Datalog engines like Souffle support representing equivalence relations 
+  with union-find data structures, 
+  simply using this feature is not enough.
+The reason is that, when matching the LHS of a rewrite rule, 
+  we must match on terms \emph{modulo equivalence}.
+For example, the LHS of the associativity rule \lstinline|(+ x (+ y z)) => (+ (+ x y) z)|
+  expands to \lstinline|+(c, x, c1), +(c2, y, z), eq(c1, c2)|.
+Running this rule as-is requires two joins among three relations, 
+  whereas the standard equality saturation implementation only needs one join.
+Aside from efficiency, there are also semantic challenges in supporting equality saturation in Datalog.
+An important assumption in Datalog is that the rules are \emph{monotonic},
+  which allows the rules to be applied in any order. 
+The evaluation algorithm and various optimizations for Datalog 
+  were designed under this assumption.
+Yet it is not clear if the complex rules required to implement 
+  rewriting and analyses in equality saturation are monotonic.
+\rw{IDK how much we want to care about monotonicity in this paper. 
+I just want to add another challenge outside of efficiency. Feel free to change.}
+Having experimented with many Datalog engines, 
+  we have found none of them satisfy all of our requirements. 
+Therefore, we opted to design and implement a new engine, egglog, 
+  to combine the best of Datalog and equality saturation.
+
+\rw{Below is pulled from old text.}
+ We propose \egglog, a logic language that supports composable rewrites, analyses, and extraction.
+\Egglog combines the power of equality saturation and fixpoint reasoning \textit{a la} Datalog.
+To combines these two, which uses two totally different representations (term-based v.s.\ relation-based), 
+ we extend previous work on relational encoding of e-graphs with rewrites and congruence maintenance, 
+ which we call relational e-graphs.
+The resulting framework is very powerful, with applications beyond sound rewrites and precise extractions.
+
+For example, it is known that different kinds of semantic analyses can have beneficial interactions with each other~\citep{TODO}:
+a constant propagation analysis can be used to determine 
+ that certain branching conditions are equivalent to boolean constants,
+ which allows dead-code elimination to eliminate more branches,
+ which may in turn help the constant propagation.
+While manually composing analyses requires careful design of interactions,
+ \citet{lerner-analyses-transformations}
+ shows that program rewriting can be used
+ as a common ground for automatically communicating analyses.
+Not only being able to express this composable analyses technique,
+ our framework indeed improves it further by incorporating the power of equality saturation,
+ which allows even more precise analyses to be derived via non-destructive rewriting.
+
+Moreover, potentially mention sketch-guided eqsat\dots
+
+Compared to the traditional e-graph representation,
+ our relational e-graphs also makes equality saturation more efficient.
+For example, we are able to apply semi-na\"ive evaluation, a standard optimization in database literature,
+ to incrementalize equality saturation.
+We are also able to use the recently proposed relational e-matching algorithm~\citep{relational-ematching}:
+Relational e-matching views the pattern matching problem in equality saturation as a relational query
+ and provides orders-of-magnitude speedups for complex queries.
+However, to have both efficient rewriting and efficient matching, 
+ a traditional equality saturation framework needs to switch back and forth
+ between the e-graph and its relational representation, which can be costly.
+\Egglog commits to a single relational representation
+ and relationalizes the equality saturation algorithm itself,
+ thus eliminating this cost.
+
+
+%% even older text
+ 
+In fact,
+ recently the systems have been developing similar features in parallel.
+Both have recently grown features for working with lattice-based domains,
+ and 
+
+
+Equality Saturation engines have recently provided state-of-the-art results
+across a diverse range of program optimization, synthesis, and verification tasks.
+A key enabler for EqSat is that it is based on congruence and e-graphs.
+This means that EqSat search can explore vast spaces of equivalent candidate
+terms using only a modest amount of space.
+Unfortunately, analyses do not compose in EqSat and just using them requires
+writing custom Rust code and learning a new API.
+
+Datalog has been successful for decades.
+Recent Datalog extensions (e.g., in Souffle) have enabled state-of-the-art results
+in program analysis.
+A key enabler for Datalog is that rules compose and Datalog provides a unified
+mental model for program execution: relations and rules.
+Unfortunately, Datalog engines do not directly support congruence-based reasoning,
+and simple efforts to encode it encounter quadratic overhead.
+This limits the scale of terms that can be explored with Datalog-only approaches.
+
+In this paper, we propose a new solver abstraction that provides the best
+of both EqSat and Datalog's key features: a minimal fixpoint API in which
+the programmer can work in a unified, Datalog-like model of relations and queries where
+``everything is (composable) rules'', but
+which integrates congruence-based reasoning to enable EqSat-scale search.
+
+
+
+
+Program optimizers often stratify rewriting into different phases and apply them sequentially.
+However,
+ the order of rewrite application
+ could drastically affect the quality of optimized programs,
+ since applying one rewrite may disable other rewrite from firing.
+This is known as the phase-ordering problem in the literature.
+Equality saturation~\citep{eqsat} mitigates this problem by
+ applying all the rewrites at the same time \textit{non-destructively}.
+Equality saturation additionally uses e-graphs to compactly store the large set of generated programs.
+The equality saturation approach has been shown to be successful in recent years, 
+ with applications in a diverse range of domains including floating-point arithmetic \cite{herbie},
+ rule synthesis \cite{ruler}, and query optimization~\citep{wang2022optimizing}.
+% New rewrite system implementations
+%  are also proposed that are specialized to the equality saturation workloads~\citep{egg}.
+
+Despite the success,
+ many equality saturation applications are limited by the expressivity of rewrite rules.
+For example,
+ Herbie, a system that uses equality saturation to improve the accuracy of floating-point expressions,
+ uses unsound rules (e.g., $a/a\rightarrow 1$, which is unsound when $a=0$) 
+ to simplify expressions.
+To ensure soundness under the presence of unsound rules,
+Herbie stops rewriting immediately 
+ and returns the best result so far when inconsistencies are discovered,.
+Sound rewrites in these cases are difficult if not impossible to express syntactically.
+% As a result, semantic analyses are needed (e.g., a program analysis that shows $a$ is never equal to $0$)).
+To make the rewrite rule sound, semantic analyses need to prove certain properties over the (set of) terms under rewriting
+ (e.g., $a$ is never equal to $0$).
+Many equality saturation systems like egg support simple semantic analyses.
+In egg, an e-class analysis associates a lattice value to each equivalent class (or e-class) of programs.
+When an e-class is modified, changes to e-class analyses are propagated bottom-up.
+However, multiple analyses cannot co-exist in a single e-graph, 
+ so the semantic analyses is not directly composable in these frameworks.
+For example, the developers cannot specify three independent analyses 
+ that track the upper bound, lower bound, and non-zeroability of an e-class
+ and communicate with each other.
+
+The limited expressiveness also affects the quality of the final extracted programs.
+Extractions are often used at the end of equality saturation to extract from a large equivalence class of programs
+ subject to given cost functions.
+Many applications define the cost functions based on the node types and simple analyses,
+ which are nonetheless insufficient in some cases.
+For example, an application that optimizes lambda calculus may want to define the cost function based on the type.
+This is not doable in frameworks like egg because e-class analysis is computed bottom up, 
+ while type checking needs to propagate the context information top down.
+
+To solve these issues, 
+ we propose \egglog, a logic language that supports composable rewrites, analyses, and extraction.
+\Egglog combines the power of equality saturation and fixpoint reasoning \textit{a la} Datalog.
+To combines these two, which uses two totally different representations (term-based v.s.\ relation-based), 
+ we extend previous work on relational encoding of e-graphs with rewrites and congruence maintenance, 
+ which we call relational e-graphs.
+The resulting framework is very powerful, with applications beyond sound rewrites and precise extractions.
+
+For example, it is known that different kinds of semantic analyses can have beneficial interactions with each other~\citep{TODO}:
+a constant propagation analysis can be used to determine 
+ that certain branching conditions are equivalent to boolean constants,
+ which allows dead-code elimination to eliminate more branches,
+ which may in turn help the constant propagation.
+While manually composing analyses requires careful design of interactions,
+ \citet{lerner-analyses-transformations}
+ shows that program rewriting can be used
+ as a common ground for automatically communicating analyses.
+Not only being able to express this composable analyses technique,
+ our framework indeed improves it further by incorporating the power of equality saturation,
+ which allows even more precise analyses to be derived via non-destructive rewriting.
+
+Moreover, potentially mention sketch-guided eqsat\dots
+
+Compared to the traditional e-graph representation,
+ our relational e-graphs also makes equality saturation more efficient.
+For example, we are able to apply semi-na\"ive evaluation, a standard optimization in database literature,
+ to incrementalize equality saturation.
+We are also able to use the recently proposed relational e-matching algorithm~\citep{relational-ematching}:
+Relational e-matching views the pattern matching problem in equality saturation as a relational query
+ and provides orders-of-magnitude speedups for complex queries.
+However, to have both efficient rewriting and efficient matching, 
+ a traditional equality saturation framework needs to switch back and forth
+ between the e-graph and its relational representation, which can be costly.
+\Egglog commits to a single relational representation
+ and relationalizes the equality saturation algorithm itself,
+ thus eliminating this cost.
+
+% Semantic analyses are not only used during rewriting:
+%  in the case of EqSat, they are also used as part of the cost functions when users want 
+%   to extract optimal programs from the equivalent classes of programs.
+% For example, Storel~\citep{todo}, a system that optimizes tensor storages using EqSat,
+%  uses lambda calculus as its intermediate representations, 
+%  and the developers wanted to get the type and shape information of each e-class of their tensor programs 
+%  with e-class analysis but failed,
+%  because the type and shape of a term depends not only on the term itself, but also the context it is in, 
+%  which is nonetheless propagated top down.
+% yz: maybe we should just not mention multi-patterns in the intro
+% For example, Tensat, which uses EqSat for optimizing tensor computation graphs, 
+%  rewrite multiple terms together to share computation with rules like
+%  \[
+%   \begin{cases}
+%       m_1\cdot m_2\rightarrow \textit{split}_0(m)\\
+%       m_1\cdot m_3\rightarrow \textit{split}_1(m)
+%   \end{cases}
+%  \]
+% where $m$ is $m_1\cdot \textit{concat}(m_2, m_3)$.
+% This is known in the literature as multi-patterns.
+
+
+
+\end{comment}

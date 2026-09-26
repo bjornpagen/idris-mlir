@@ -1,0 +1,570 @@
+{
+  "scope": "Final notation/type audit for authorized Background and empirical refresh. Baseline rows all rechecked against revised closure/diff; no formal notation changed.",
+  "rows": [
+    {
+      "surface": "c_a,c_2,c; a,2; ×,+,g",
+      "kind": "e-classes; arithmetic term constants/variables; object operators",
+      "type": "classes of arithmetic e-nodes; ×,+ binary and g unary",
+      "arity": "2/1",
+      "binding": "Local arithmetic example in Background",
+      "properties": "Valid equation x×2=x+x explicitly assumed",
+      "equality": "Known equational congruence, not all semantic equalities",
+      "definition": "prelims_compressed.tex:6–15",
+      "consumers": "Background e-graph example",
+      "overload": "Arithmetic a is local; formal e-class identifier a is reintroduced in F03 prose"
+    },
+    {
+      "surface": "Seq,Bag,Set,K^J; K^+,K^0,K^{=k}",
+      "kind": "finite collection carriers and arity restriction",
+      "type": "Seq(X)=finite lists; Bag(X)=finite-support X→Nat; Set(X)=finite subsets",
+      "arity": "one carrier argument plus J index",
+      "binding": "X carrier; K one of three declared carriers; J nonempty subset Nat",
+      "properties": "Sequence preserves order/multiplicity; bag quotients order; set quotients order and duplication",
+      "equality": "Extensional collection equality distinct from F05 occurrence-vector syntax",
+      "definition": "foundations_compressed.tex:FND-004",
+      "consumers": "Background; F05/F06/F12; algorithm; operator-law table",
+      "overload": "K without carrier superscript denotes extracted kernel when locally bound"
+    },
+    {
+      "surface": "Ty,τ,α,rank",
+      "kind": "type carrier, object types/type variables, injection",
+      "type": "rank:Ty→Nat",
+      "arity": "1",
+      "binding": "Type variables in signature/type grammar; rank fixed once",
+      "properties": "Injective rank; canonical sorting preserves type-fibre counts",
+      "equality": "Type equality",
+      "definition": "foundations_compressed.tex:F02",
+      "consumers": "All formal sections and typed Alloy example",
+      "overload": "None"
+    },
+    {
+      "surface": "Γ,S,T,Δ,Λ,Ξ,Ω; Can(Γ)",
+      "kind": "finite typed contexts; canonical-context function",
+      "type": "Finite lists of coordinate types; Can:Context→Context",
+      "arity": "1",
+      "binding": "Slots are distinct positions even at equal types; bound scope separate",
+      "properties": "Stable rank sort; same cardinality per type fibre",
+      "equality": "Context equality or typed isomorphism only when stated",
+      "definition": "foundations_compressed.tex:F02",
+      "consumers": "F03–F27; Appendix C; algorithm",
+      "overload": "S_in and S_K are scalar sizes, not contexts; T_φ is temporal skeleton"
+    },
+    {
+      "surface": "TEmb(S,T); m,e,ι",
+      "kind": "type-preserving embeddings",
+      "type": "Injection S→T",
+      "arity": "2 context parameters; unary map application",
+      "binding": "Domain/codomain stated locally; supports retained through composition",
+      "properties": "Injective, not generally surjective; composition/id closed",
+      "equality": "Map equality where equations compare composites",
+      "definition": "foundations_compressed.tex:F03/F04",
+      "consumers": "Invocation, actions, PC, extraction, collision",
+      "overload": "Do not invert embedding ι or ω unless separately known bijective"
+    },
+    {
+      "surface": "TRen(S,T); ρ,σ,π,η",
+      "kind": "proof-relevant renamings/isomorphisms",
+      "type": "Embedding S→T with inverse T→S and two inverse laws",
+      "arity": "2 context parameters",
+      "binding": "ρ generally source→target; σ canonical→effective context; π same-context permutation",
+      "properties": "Bijective and type-preserving; inverse/composition typed",
+      "equality": "Map equality; distinct from semantic equality",
+      "definition": "foundations_compressed.tex:F03/F04",
+      "consumers": "Alpha relations; canonicalization; binder/leader groups; collision",
+      "overload": "η also denotes evaluation environment in model judgments; roles locally bound"
+    },
+    {
+      "surface": "a,(S_a,τ_a),m*a",
+      "kind": "class identifier, interface, invocation constructor",
+      "type": "a class ID; m:TEmb(S_a,Γ); invocation output τ_a",
+      "arity": "Binary constructor m*a",
+      "binding": "a abbreviates id_{S_a}*a; star is explicitly not map action",
+      "properties": "No variable substitution or renaming is inferred from star alone",
+      "equality": "Invocation syntax; graph alignment has separate relation",
+      "definition": "foundations_compressed.tex:F03 prose/F09",
+      "consumers": "Background; all structural/metatheory consumers; algorithm",
+      "overload": "None"
+    },
+    {
+      "surface": "β,Δ_β,Aut(β); o=(Δ_o,a_o),BOcc_β(Γ)",
+      "kind": "binder descriptor, typed context, certified group, occurrence",
+      "type": "Aut(β)≤Perm_ty(Δ_β); a_o:TRen(Δ_β,Δ_o)",
+      "arity": "Descriptor/schema indexed",
+      "binding": "Δ_o fresh/disjoint from Γ in proposed named presentation; checked syntax uses separate de Bruijn scope",
+      "properties": "Only descriptor-certified permutations; domain/multiplicity/disjointness/dependency constraints",
+      "equality": "Certified descriptor symmetry, not arbitrary alpha/permutation equality",
+      "definition": "foundations_compressed.tex:FND-006/F05/F12",
+      "consumers": "Appendix C; block branch of proposed algorithm",
+      "overload": "Named occurrence pseudocode explicitly separate from checked de Bruijn contract in Appendix C APP-003"
+    },
+    {
+      "surface": "κ,One(τ),Bind(τ,κ),BindBlock(β,κ),Port_Γ(κ)",
+      "kind": "schema constructors and indexed port carrier",
+      "type": "Schema; port indexed by free context, bound scope, schema",
+      "arity": "One unary, Bind/BindBlock binary, K^J unary child schema",
+      "binding": "Binder constructors extend bound-type list; free action does not allocate bound coordinates",
+      "properties": "Arity proof attached to stored occurrence vector",
+      "equality": "Raw syntax distinct from bag/set structural quotient",
+      "definition": "foundations_compressed.tex:F05",
+      "consumers": "F06–F22; algorithm",
+      "overload": "None"
+    },
+    {
+      "surface": "Σ,f_θ,θ,p,Law_Σ,Flat_Σ",
+      "kind": "signature, instantiated operator, type substitution, port path, policy and flat license",
+      "type": "Law subset {A,C,I,U}; Flat exact operator/path license",
+      "arity": "Operator arity r; each port schema declared",
+      "binding": "θ fixed per exact operator; p path local to signature",
+      "properties": "Flat only sole root homogeneous carrier with A; nullable flat requires U/source unit",
+      "equality": "Policy label alone introduces no equation",
+      "definition": "foundations_compressed.tex:FND-007–010",
+      "consumers": "Background scope; ACI explanation; Appendix C law table",
+      "overload": "p also locally means shape or finite parent path; indices and local binders distinguish"
+    },
+    {
+      "surface": "A,C,I,U; B_Σ; F(ū); Lfrak",
+      "kind": "law labels, independent proof theory, source realizer, law identity tuple",
+      "type": "Certificate families for exact permutation/surjection/splice/unit endpoints",
+      "arity": "F variadic under J",
+      "binding": "Fixed outside arguments and profile/operator/path/carrier/J",
+      "properties": "C permutation; I typed surjection; A legal splice; U source unit plus empty deletion",
+      "equality": "EqCert inhabitants; labels/flags not proofs",
+      "definition": "foundations_compressed.tex:FND-009–010",
+      "consumers": "Intro; Background; example figure; metatheory and formal rules",
+      "overload": "A/B/C in Alloy example are local Boolean abbreviations; C in F17 is canonicalizer"
+    },
+    {
+      "surface": "n=f(q_1,…,q_r); Node_Γ(τ); out(n)",
+      "kind": "typed node and output projection",
+      "type": "n:Node_Γ(τ_f); q_i:Port_Γ(κ_i)",
+      "arity": "Operator-specific r",
+      "binding": "n and q indexed by free context and bound scope",
+      "properties": "Output index preserved under embedding",
+      "equality": "Node syntax; semantic/equational realization separately",
+      "definition": "foundations_compressed.tex:F06",
+      "consumers": "F07–F22; algorithm",
+      "overload": "F25 explicitly rebinds n as source Term, rather than silently coercing node"
+    },
+    {
+      "surface": "slots(x),slots(m*a),slots(c),slots(n)",
+      "kind": "structural support function",
+      "type": "Finite subset/predicate of caller free coordinates",
+      "arity": "1",
+      "binding": "Bound de Bruijn indices contribute no free slot; binders recurse on free support",
+      "properties": "Embedding action takes direct image; leaderization may contract support",
+      "equality": "Extensional support equality/inclusion",
+      "definition": "foundations_compressed.tex:F06/F08",
+      "consumers": "F10–F17; extraction and algorithm",
+      "overload": "c locally container, elsewhere e-class or stored case"
+    },
+    {
+      "surface": "e·q,e·n,e·t; e_*d",
+      "kind": "free-context action and certificate transport",
+      "type": "Port/Node/Term Γ→Γ′; EqCert Γ→Γ′",
+      "arity": "2",
+      "binding": "Acts only on free-context index; captures avoided by typed scope separation",
+      "properties": "Identity/composition laws; node output and schema unchanged",
+      "equality": "Syntax action, transported certificate endpoints",
+      "definition": "foundations_compressed.tex:DEF-005/F19",
+      "consumers": "All formal sections; algorithm; model naturality",
+      "overload": "None"
+    },
+    {
+      "surface": "G=(U,M,H); B_a(p)=(T_{a,p},ρ_{a,p}); G_a",
+      "kind": "graph, parent/record/index structures, stored cases, symmetry group",
+      "type": "U parent forest; M class records; H shape→owner membership relation; ρ:TRen(slots(p),T)",
+      "arity": "Indexed by class/shape",
+      "binding": "S_a⊆T_{a,p}; leader roots absent parent in checked encoding / identity lookup in proposed U",
+      "properties": "Depth-decreasing parent forest; finite stored-shape domains; G_a group closure",
+      "equality": "H collision candidacy, never automatic equality",
+      "definition": "foundations_compressed.tex:F10; appendixC_vmcai_stage1.tex:Notation",
+      "consumers": "F11–F27; algorithm",
+      "overload": "Root identity U is explicitly proposed notation; do not upgrade to checked self-edge"
+    },
+    {
+      "surface": "find_Γ(m*a)=mhat*ℓ",
+      "kind": "leader-finding function",
+      "type": "Invocation Γ→leader invocation Γ",
+      "arity": "1 invocation parameter",
+      "binding": "mhat=m∘emb(path), parent embedding directed from parent interface into child interface",
+      "properties": "Total on checked finite forest; composite support subset im(m)",
+      "equality": "Equational soundness only with coherent PC certificates",
+      "definition": "foundations_compressed.tex:F10/F11/F24",
+      "consumers": "Graph-relative relation; extraction; theorem",
+      "overload": "None"
+    },
+    {
+      "surface": "q≡_{α;κ}^ρ r; q≡_{α;κ}r",
+      "kind": "indexed structural relation / unindexed relation",
+      "type": "Ports Γ and Γ′ under ρ:TRen(Γ,Γ′)",
+      "arity": "Binary ports with schema/map index",
+      "binding": "Bound head fixed/permitted descriptor prefix; outer scope acts under selected permutation",
+      "properties": "Reflexive/symmetric/transitive closure; bag bijection preserves multiplicity; set two-sided mates",
+      "equality": "Structural alpha/carrier relation, not raw syntax equality",
+      "definition": "foundations_compressed.tex:F12/F13",
+      "consumers": "Graph-relative variant; F20; Background alpha explanation",
+      "overload": "None"
+    },
+    {
+      "surface": "≡_{G;α}; ρ∘mhat=mhat′∘π",
+      "kind": "graph-relative invocation alignment",
+      "type": "Common found leader and admitted π∈G_ℓ",
+      "arity": "Binary invocations with ρ index",
+      "binding": "Callers may differ; exact map equation required",
+      "properties": "Transport by η′∘ρ∘η^{-1}; identity alignment preserves image support",
+      "equality": "Known certified alignment; parent equality never implies child symmetry",
+      "definition": "foundations_compressed.tex:DEF-009/F14/F15",
+      "consumers": "Leader normalization; proposed canonicalizer; finite-unfolding theorem",
+      "overload": "None"
+    },
+    {
+      "surface": "LPort_{G,Λ}(κ),LNode_{G,Λ}(τ)",
+      "kind": "leader-normalized structural carriers",
+      "type": "Values with all invocation identifiers leaders",
+      "arity": "Context/schema or output indexed",
+      "binding": "Support only contained in Λ, not necessarily exact",
+      "properties": "Quiescent graph required",
+      "equality": "Structural carriers",
+      "definition": "foundations_compressed.tex:DEF-011",
+      "consumers": "F15; algorithm leader-port normalization",
+      "overload": "None"
+    },
+    {
+      "surface": "P,X,∼_P,Q_P(x)",
+      "kind": "finite quotient presentation, carrier, generated equivalence, least normal form",
+      "type": "Q_P:X→X; finite complete enumeration and decided generated relation",
+      "arity": "Q_P unary",
+      "binding": "Local generators fixed independently of normalizer",
+      "properties": "Complete finite carrier, linear order, observation invariance; exactness/idempotence",
+      "equality": "Q_P(q)=Q_P(r) iff q∼_P r",
+      "definition": "foundations_compressed.tex:DEF-012/F16",
+      "consumers": "F17; Appendix C APP-004/SCOPE-001",
+      "overload": "Generic finite P is not the Java pipeline or unbounded carrier"
+    },
+    {
+      "surface": "C,K_C(n),Shape_C(n),Δ_n",
+      "kind": "effective-support canonicalizer, kernel selector, shape, exact kernel context",
+      "type": "Shape_C(n)=Q_C(K_C(n))",
+      "arity": "Unary projections under C",
+      "binding": "Canonicalizer supplies exact kernel/support observations and typed witness selector",
+      "properties": "Extraction and finite structural presentation assumed; no ambient renaming conclusion",
+      "equality": "Shape equality iff proof-relevant generated typed kernel relation",
+      "definition": "foundations_compressed.tex:DEF-013/F17",
+      "consumers": "F26; proposed algorithm and record tuple",
+      "overload": "C is local canonicalizer, distinct from context C and C-law label"
+    },
+    {
+      "surface": "K_G(n),ι_n,ξ_n,σ_n,ω_n,d_n^w",
+      "kind": "proposed kernel, inclusion, provenance, shape witness, ambient transport, certificate",
+      "type": "σ:TRen(Can(Δ_n),Δ_n); ι:TEmb(Δ_n,Γ0); ω=ι∘σ; d:EqCert(Γ0;n,ι·K)",
+      "arity": "Record fields",
+      "binding": "Γ0 exact input support; Δ_n exact kernel support; replay depends on coherent w",
+      "properties": "σ bijective; ω may be proper and is not inverted; provenance excluded from collision key",
+      "equality": "Separate structural shape equality and replayed endpoint equality",
+      "definition": "appendixC_vmcai_stage1.tex:APP-001–003; final_alg_vmcai_stage1.tex",
+      "consumers": "F25/F26; algorithm",
+      "overload": "Proposed named-slot producer is not verified concrete realization"
+    },
+    {
+      "surface": "triangleleft,prec,triangleleft_map,triangleleft_lex; b,None,Some",
+      "kind": "orders and candidate-selection state",
+      "type": "Port/node key order; shape order; renaming tie order; optional (shape,map)",
+      "arity": "Binary relations; option state",
+      "binding": "Locally fixed total orders and finite enumeration",
+      "properties": "Nonempty candidate list; present least selection; shape only is key",
+      "equality": "Ordered structural equality, not semantic equality",
+      "definition": "appendixC_vmcai_stage1.tex:Notation; final_alg_vmcai_stage1.tex",
+      "consumers": "Canonicalizer candidate loop",
+      "overload": "Same-as-main map-order phrase is historical nonmaterial notation reference; no changed consumer uses it"
+    },
+    {
+      "surface": "Q_G^Λ(q),canonLeaderPort_G(κ,q,ρ)",
+      "kind": "proposed graph-port quotient / producer",
+      "type": "Leader port Λ′ after ρ:TRen(Λ,Λ′)",
+      "arity": "3 input parameters",
+      "binding": "Separate per-invocation group and per-block local group actions",
+      "properties": "Bag aggregation/set dedup after child orbit selection",
+      "equality": "Specification target, not proved program equality",
+      "definition": "final_alg_vmcai_stage1.tex; appendixC_vmcai_stage1.tex:ALG-009/APP-004",
+      "consumers": "Proposed canonicalizer only",
+      "overload": "None"
+    },
+    {
+      "surface": "S_in,S_K,L,InvOcc,BlockOcc,P_Q,ℓ(s),B_T",
+      "kind": "sizes, occurrence collections, reporting factor, logarithm, budget",
+      "type": "Natural scalars; InvOcc multiset, BlockOcc occurrence collection",
+      "arity": "P_Q and B_T unary; ℓ(s)=ceilLog2(2+s)",
+      "binding": "τ fibre/block/invocation indices locally quantified",
+      "properties": "Accounting definitions only; no runtime theorem",
+      "equality": "Numeric equalities, not asymptotic Java guarantee",
+      "definition": "foundations_compressed.tex:DEF-014/ACC-001–004",
+      "consumers": "Complexity paragraph",
+      "overload": "None"
+    },
+    {
+      "surface": "T,Term_Γ(τ),EqCert_T(Γ;s,t),T⊢_Γs=t",
+      "kind": "source theory, term family, derivation type, inhabitedness judgment",
+      "type": "Finite typed derivation tree between same-context/same-type endpoints",
+      "arity": "Γ plus two endpoint parameters",
+      "binding": "Typed embedding transport; reflexivity/primitive/congruence/symmetry/transitivity",
+      "properties": "Only declared constructor rules; forward congruence does not imply injectivity",
+      "equality": "Certified equational equality",
+      "definition": "foundations_compressed.tex:F19",
+      "consumers": "EC/PC/SC; F20–F27; algorithm replay",
+      "overload": "F22 omits inferable context in displayed EqCert abbreviation"
+    },
+    {
+      "surface": "Mfrak,Env_Mfrak(Γ),η,eval_Mfrak(t,η)",
+      "kind": "typed model, environment carrier, environment, evaluation",
+      "type": "Term_Γ(τ)×Env(Γ)→Value(τ)",
+      "arity": "2 evaluation inputs",
+      "binding": "Target environments η′ under renaming; restriction along embeddings",
+      "properties": "Naturality and local soundness supplied by model",
+      "equality": "Model-denotation equality follows from EqCert",
+      "definition": "foundations_compressed.tex:DEF-017/018/F20",
+      "consumers": "F27 model soundness",
+      "overload": "η renaming only in F14 locally; no shared binding"
+    },
+    {
+      "surface": "R,Q; R(n)",
+      "kind": "structural realizer and local law family",
+      "type": "R structural syntax→typed source terms; Q supplies endpoint certificates/congruences",
+      "arity": "Constructor indexed",
+      "binding": "Each realizer constructor carries one-step naturality; block law endpoint-indexed",
+      "properties": "No semantic equation from bare descriptor token",
+      "equality": "R(e·n)=e·R(n) is syntax naturality; certificate theorem distinct",
+      "definition": "foundations_compressed.tex:DEF-019/020/F20–F22",
+      "consumers": "Metatheory; proposed replay",
+      "overload": "Q_P normal form and example Q are separately scoped"
+    },
+    {
+      "surface": "w=(w_a),O,EC,PC,SC",
+      "kind": "witness family, raw obligations, certificate families",
+      "type": "w_a:Term_{S_a}(τ_a); PC edge a→b labeled m:S_b→S_a",
+      "arity": "One family member per exact obligation",
+      "binding": "EC stored ambient T_c; PC source S_a; SC same S_a",
+      "properties": "Coherent means all obligations carry exact certificates; group words derive from generators",
+      "equality": "EC r_c=ι_c·w_a; PC w_a=m·w_b; SC w_a=π·w_a",
+      "definition": "foundations_compressed.tex:F23",
+      "consumers": "F24–F27; extraction/collision/rebuild obligations",
+      "overload": "None"
+    },
+    {
+      "surface": "p,emb(p),mbar,PaperFiniteUnfolding,t,u",
+      "kind": "raw parent path, composite embedding, caller extension, unfolding witness, source terms",
+      "type": "mbar:T_c→Γ with mbar∘ι_c=m; unfolding trace t→mbar·r_c",
+      "arity": "Witness for invocation/output term",
+      "binding": "Actual stored case chosen; finite primitive/forward-congruence trace (symmetry allowed)",
+      "properties": "Raw paths require coherent PC; unfoldings require exact stored-case compatibility",
+      "equality": "Term certificate under final coherent witness",
+      "definition": "foundations_compressed.tex:DEF-022/F24",
+      "consumers": "F27",
+      "overload": "p here path, not shape or operator-port path"
+    },
+    {
+      "surface": "p_i,real:P→Term_C(τ),σ_i,ρ=σ_2∘σ_1^{-1},c_{1,2},e_i",
+      "kind": "collision records and bridges",
+      "type": "c:EqCert(Δ_2;ρ·K_1,K_2); e_i:Γ_i→Ω",
+      "arity": "2 records",
+      "binding": "Shared output τ, canonical C, shape type P, realizer required",
+      "properties": "e1∘ι1=e2∘ι2∘ρ; never infer context/output from untagged shape bytes",
+      "equality": "Shape equality yields kernel cert then ambient cert",
+      "definition": "foundations_compressed.tex:F26",
+      "consumers": "Collision contract; algorithm",
+      "overload": "None"
+    },
+    {
+      "surface": "LocalCertifiedTrace; nine step families",
+      "kind": "proof-relevant abstract transitions",
+      "type": "Finite obligation-state trace; exact adjacent endpoints",
+      "arity": "Source and destination states",
+      "binding": "Starts obligation-free, ends exactly O; local certificate premises",
+      "properties": "Addition/rekey/composition/removal preserve coherence",
+      "equality": "Derivable finite unfolding equality only under path and symmetry alignment",
+      "definition": "foundations_compressed.tex:F27",
+      "consumers": "Intro/abstract/conclusion; witness description; formal appendix",
+      "overload": "Step names not Java transition semantics"
+    },
+    {
+      "surface": "A(x,y),B(x,y),C(y),Γ_Q,Q,Imp,α_ΓQ,ACI_∨",
+      "kind": "local Boolean abbreviations, typed quotient context, displayed quotient, certified steps",
+      "type": "User×Photo→Bool, Photo→Bool; Γ_Q=(User,Photo)",
+      "arity": "2/1 atom arguments",
+      "binding": "q0 User and q1 Photo; renaming preserves their types",
+      "properties": "Implication elimination plus disjunction ACI; different-type binders cannot exchange",
+      "equality": "Readable projection of common observation, no independent equality authority",
+      "definition": "figures/alloy-certificate-example.tex",
+      "consumers": "Implementation opening example",
+      "overload": "A/B/C/Q locally scoped separate from formal law/model letters"
+    },
+    {
+      "surface": "φ,ψ,T_φ,B_φ,M_φ,d_repair,d_temp,d_quant,d_matrix",
+      "kind": "Alloy formulas, repair projections, distance functions",
+      "type": "Repair distance=sum of three view-specific edit coordinates",
+      "arity": "Binary metric arguments",
+      "binding": "Projection excludes proof/support plumbing; nearest references same invariant group",
+      "properties": "Ordered temporal DP; exact compatible binder orbit; carrier-specific matrix matching",
+      "equality": "Distance zero implementation key, not unrestricted semantic completeness",
+      "definition": "eval_compressed.tex:Repair distance and coverage",
+      "consumers": "Distance tables; chart; cost interpretation",
+      "overload": "B_φ binding view vs B_a stored record; M_φ matrix vs M graph map"
+    },
+    {
+      "surface": "r,d=0,n=61598,n=42386",
+      "kind": "radius, implementation zero observation, population counts",
+      "type": "Nonnegative edit radius; pair or incorrect-predicate denominators",
+      "arity": "Scalar",
+      "binding": "All chart radii inclusive; independent nearest AST-distinct truth per view",
+      "properties": "Different edit units; denominator includes values above axis cap",
+      "equality": "Empirical observation, not repair success or equal-budget improvement",
+      "definition": "eval_compressed.tex; tables/table3_vmcai_stage1.tex; figures/aci_canonicalization_distance.tex",
+      "consumers": "Empirical claims",
+      "overload": "n here population scalar; formal n structural value locally scoped"
+    },
+    {
+      "surface": "Fix.,F+DB,Var.,V+DB,Slot,Leg.,Exact",
+      "kind": "seven display aliases",
+      "type": "Raw, Raw+DB, Java egglog, Java egglog+DB, Slotted, Fast Rewrite, CI",
+      "arity": "N/A",
+      "binding": "Fixed table column mapping",
+      "properties": "Arms same Java pipeline variants, not external executions",
+      "equality": "500 per family / 5500 total in-vocabulary recognition",
+      "definition": "appendix_eval.tex:Full Ablation; tables/table7_capability_rev4.tex",
+      "consumers": "Headline capability comparisons",
+      "overload": "None"
+    },
+    {
+      "surface": "⇒,↔,¬,∧,∨,top,bottom,ite; forall/exists/no/one/lone/notone/notlone",
+      "kind": "Boolean operators/quantifiers and proposed orientations",
+      "type": "Bool truth functions; finite Boolean lists for checked quantifier rules",
+      "arity": "Declared 1/2/3 or list arity",
+      "binding": "Displayed x:D notation suggestive; checked finite-list scope explicit",
+      "properties": "Only listed scoped equations; actual Alloy AST normalization is separate",
+      "equality": "Boolean equation distinct from Java semantics",
+      "definition": "appendixC_vmcai_stage1.tex:RULE-005–012/016/019",
+      "consumers": "Illustrative Alloy example; theory boundary",
+      "overload": "None"
+    },
+    {
+      "surface": "always,eventually,historically,once,until,releases,since,triggered; atomicDual,temporalDual",
+      "kind": "temporal constructors and lookup functions",
+      "type": "Constructor dual lookup with conditional inverse equation",
+      "arity": "Unary/binary per constructor",
+      "binding": "Fixed source syntax family",
+      "properties": "Formal theorem does not prove temporal semantics or Java phase behavior",
+      "equality": "Lookup equalities, not unbounded semantic model theorem",
+      "definition": "appendixC_vmcai_stage1.tex:RULE-007/008",
+      "consumers": "Targeted temporal validation",
+      "overload": "New bounded validation must remain empirical and separately provenance-bound"
+    },
+    {
+      "surface": "Fin(2^w),checkedAdd4,none,some",
+      "kind": "modular integer carrier, checked signed addition, option constructors",
+      "type": "Arithmetic on Fin(2^w); checkedAdd4:Int×Int→Option Int",
+      "arity": "2 inputs",
+      "binding": "Four-bit signed example uses 7,1,-1",
+      "properties": "Modular AC; overflow-forbidding associativity counterexample",
+      "equality": "Arithmetic equality; no Alloy/Java mode correspondence inferred",
+      "definition": "appendixC_vmcai_stage1.tex:RULE-015/CE-003",
+      "consumers": "Operator law boundary",
+      "overload": "None"
+    },
+    {
+      "surface": "R,none,univ,+,&,x in R",
+      "kind": "abstract relation predicates and operators",
+      "type": "Relations α→Prop; membership in Alloy denotes subset semantics as specified",
+      "arity": "Binary union/intersection/subset",
+      "binding": "Nonempty x witness needed for x in none→false",
+      "properties": "Scope excludes typed AST and multiplicity analysis",
+      "equality": "Pointwise predicate equations",
+      "definition": "appendixC_vmcai_stage1.tex:RULE-018",
+      "consumers": "Source-law boundary",
+      "overload": "R structural realizer elsewhere; here relation locally bound"
+    },
+    {
+      "surface": "canonicalDistance_P(x,y)",
+      "kind": "discrete canonical distance",
+      "type": "X×X→{0,1}",
+      "arity": "2",
+      "binding": "Finite normalization presentation P supplied",
+      "properties": "0 iff equal normal forms iff P.relation",
+      "equality": "Distinct from empirical repair and tree-edit distances",
+      "definition": "appendixC_vmcai_stage1.tex:SCOPE-001",
+      "consumers": "Boundary paragraph",
+      "overload": "None"
+    }
+  ],
+  "unresolved_material_rows": [],
+  "permitted_overloads": "All overloads are locally bound or explicitly indexed as recorded; preserve those boundaries.",
+  "delta": [
+    {
+      "symbol": "c_a,c_2,c; a,2; ×,+,g",
+      "before": "Same original arithmetic e-graph example.",
+      "after": "Example unchanged; explanatory e-node/e-class/congruence/rebuilding/saturation/extraction prose expanded.",
+      "reason": "U: user-authorized intuition",
+      "propagated_consumers": [
+        "prelims_compressed.tex",
+        "eval_compressed.tex opening cross-reference"
+      ],
+      "type_check": "Same local arithmetic sorts and arities; no semantic completeness assertion."
+    },
+    {
+      "symbol": "forall x:T.P(x); forall y:T.P(y); P(x)",
+      "before": "No local binding example in Background.",
+      "after": "New same-type bound-renaming example and open-body explanation.",
+      "reason": "U",
+      "propagated_consumers": [
+        "prelims_compressed.tex:45–50"
+      ],
+      "type_check": "x,y are bound objects of T; P is locally unary predicate T→Bool. Open P(x) retains x dependence; no unconditional P(x)=P(y)."
+    },
+    {
+      "symbol": "S_a,m*a; Seq/Bag/Set",
+      "before": "Formal meanings and brief Background introduction.",
+      "after": "Added caller-variable mapping/type explanation and explicit distinction of order/multiplicity.",
+      "reason": "U",
+      "propagated_consumers": [
+        "prelims_compressed.tex:33–71",
+        "unchanged F03/F05/F06 consumers"
+      ],
+      "type_check": "Invocation constructor, map direction, type preservation and separate A/C/I licenses preserved."
+    },
+    {
+      "symbol": "sig,pred,extends,one,all,in,dot; User,Photo,Ad,Day",
+      "before": "Definitions in evaluation opening and unchanged worked example.",
+      "after": "Accessible Alloy definitions and bounded run/check explanations moved/expanded in Background; example cross-reference updated.",
+      "reason": "U",
+      "propagated_consumers": [
+        "prelims_compressed.tex:73–98",
+        "eval_compressed.tex:4–6",
+        "figures/alloy-certificate-example.tex (unchanged)"
+      ],
+      "type_check": "Same sets/relations; follows maps User to sets of User; date one Day; join interpretation unchanged; solver result explicitly bounded."
+    },
+    {
+      "symbol": "d_repair,d_temp,d_quant,d_matrix; T_phi,B_phi,M_phi",
+      "before": "Three coordinate metric and exact type-compatible binder matching.",
+      "after": "Equation byte-identical; one binder-owner mapping reused through inherited temporal phases is now explicit.",
+      "reason": "E",
+      "propagated_consumers": [
+        "eval_compressed.tex:64–78"
+      ],
+      "type_check": "Supported by QuotientRepairDistance.java:566–591 and 780–809; view-specific metric and scope preserved."
+    },
+    {
+      "symbol": "N populations, r radii, d=0; archival/refinement labels",
+      "before": "Existing exact denominators, units, bounded interpretations, archived statuses.",
+      "after": "Numeric times/provenance and separate solver sample updated; truth pool clarified; archived table explicitly dated; no formal type or row-status change.",
+      "reason": "E",
+      "propagated_consumers": [
+        "appendixC_vmcai_stage1.tex",
+        "appendix_closure_tables.tex",
+        "appendix_eval.tex",
+        "eval_compressed.tex",
+        "figures/aci_canonicalization_distance.tex",
+        "tables/table6_ablation_vmcai_stage1.tex"
+      ],
+      "type_check": "61,598/19,212/42,386, 5,500 and separate 29-sample populations remain distinct; empirical zero distinct from certified/model equality."
+    }
+  ]
+}

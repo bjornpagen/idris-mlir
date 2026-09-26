@@ -1,0 +1,33 @@
+Memory allocation is very efficient in garbage collectors used in
+state-of-the-art compilers such as ocamlopt and ghc. The OCaml garbage
+collector is a modern hybrid generational and incremental collector
+that is known to often outperform manual memory
+allocation. Generational garbage collectors also improve cache
+locality~\cite{ZornGC} which is an important feature for modern
+hardware architectures where poor locality often reduces program
+performance~\cite{cachelocality}.
+
+We initially used the standard \emph{malloc} and \emph{free} from the C standard library to implement
+our runtime, and have observed poor performance in many benchmarks.
+Profiling data made it clear that \emph{malloc} and \emph{free} were the bottlenecks.
+We addressed this issue by switching to \emph{jemalloc}~\cite{jemalloc}, a \emph{malloc}
+and \emph{free} replacement, and have observed a significant performance
+improvement in many benchmarks by up to 3x. We obtained another $30\%$
+performance improvement by implementing our own custom memory allocator
+optimized for small values. Our allocator uses a new memory allocation
+technique developed by \citet{freelistsharding} for the Koka programming
+language~\cite{Koka} runtime.
+
+We have also implemented lazy reference counting as a configuration option
+in our runtime for users that might be concerned with long pauses when
+deallocating values. The idea is quite simple: The instruction
+$\kw{dec}\ x$ just puts $x$ in a deletion queue if its reference count
+becomes $0$.  Before we allocate memory, we check the deletion queue,
+and remove one value if it is not empty, and invoke $\kw{dec}$ on
+nested values. \citet{BoehmCostRC} shows that lazy reference
+counting may result in an unacceptable worst-case space overhead. We
+did not manage to observe the worst-case behavior in any of our
+benchmarks, but further investigation is needed. We suspect that
+providing a primitive for (partially) flushing the lazy reference
+counting queue should be sufficient to address any program that may
+experience a significant space overhead.

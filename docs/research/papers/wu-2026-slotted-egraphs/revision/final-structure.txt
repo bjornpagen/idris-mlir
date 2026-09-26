@@ -1,0 +1,14 @@
+Main: main_compressed.tex
+Reachable TeX files: 21
+Bibliography files: 1
+Graphics files: 1
+Labels: 86
+References: 35
+Citations: 21
+Missing Inputs: 0
+Missing Bibliographies: 0
+Missing Graphics: 0
+Duplicate Labels: 0
+Undefined References: 0
+Undefined Citations: 0
+Dynamic Constructs Requiring Manual Review: 0

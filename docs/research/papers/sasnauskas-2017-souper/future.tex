@@ -1,0 +1,49 @@
+\section{Future Work}
+
+Every optimization discovered by \tool{} is specific: it is not
+parameterized by bitwidths, values of constants, or choice or ordering
+of instructions.
+%
+On the other hand, optimizations implemented by compiler developers are
+almost always generic along one or more of these dimensions.
+%
+It would be useful for \tool{} to automate some of this
+generalization, for example emitting an Alive~\cite{Lopes15} pattern
+for each optimization it discovers.
+%
+Generalization would improve our rankings by preventing important
+optimizations that happen to have many different forms from hiding low
+in the rankings where they are unlikely to be looked at.
+%
+Generalization would also present compiler developers with
+optimizations that are more like the ones that they will presumably
+implement, saving them the effort of generalization by hand.
+%
+In particular, it can be very difficult to write a sound and precise
+precondition for an optimization, especially in the presence
+of undefined behavior.
+
+
+A middle-end superoptimizer cannot exploit
+target-specific code sequences.
+%
+Our hypothesis is that future compilers should contain two
+superoptimizers.
+%
+First, one in the middle-end that, like \tool{}, tries to generate
+constants and perform other obviously-profitable transformations that
+can be exploited by other middle-end passes.
+%
+Second, a target-aware backend superoptimizer that interacts with
+instruction selection, scheduling, and register allocation.
+
+
+Finally, we believe that \tool{} IR can be extracted from CompCert RTL
+in the same way that we extract it from LLVM IR and Microsoft Visual
+C++ IR\@.
+%
+Synthesizing optimizations is then trivial.
+%
+The research problem is to take the resulting equivalence proofs
+emitted by a proof-producing solver and integrate them into CompCert's
+overall proof.

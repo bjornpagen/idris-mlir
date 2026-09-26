@@ -1,0 +1,72 @@
+\label{sec:beta}
+We now consider the problem of inferring borrowing signatures, i.e. a mapping
+$\beta : \ty{Const} \rightharpoonup \{\own{}, \bor{}\}^*$, which for every
+function should return a list describing each parameter of the function as
+either \own{}{}wned or \bor{}{}orrowed.
+Borrow annotations can be provided manually by users (which is always safe), but we have two motivations
+for inferring them: avoiding the burden of annotations, and making our IR a convenient target
+for other systems (e.g., Coq, Idris, and Agda) that do not have borrow annotations.
+
+If a function $f$ takes a parameter $x$ as a borrowed reference, then
+at runtime $x$ may be a shared value even when its reference counter
+is $1$. Thus, we must never mark $x$ as borrowed if it is used by
+a $\kw{let}\ y = \kw{reset}\ x$ instruction. We also assume that
+each $\beta(c)$ has the same length as the corresponding parameter
+list in $\delta(c)$.
+
+Partially applying constants with borrowed parameters is also
+problematic because, in general, we cannot statically assert that the
+resulting value will not escape the current function and thus the
+scope of borrowed references. Therefore we extend $\delta\reuse$ to
+the program $\delta_\beta$ by defining a trivial wrapper
+constant $c_\own{} := c$ (we will assume that this name is fresh) for any
+such constant $c$, set $\beta(c_\own{}) := \many{\own{}}$, and replace any
+occurrence of $\Pap c \many{y}$ with $\Pap {c_\own{}} \many{y}$.
+The compiler step given in the next subsection will,
+as part of the general transformation,
+insert the necessary \kw{inc} and \kw{dec} instructions into
+$c_\own{}$ to convert between the two signatures.
+
+Our heuristic is based on the fact that when we mark a parameter as
+borrowed, we reduce the number of RC operations needed, but we
+also prevent $\kw{reset}$ and $\kw{reuse}$ as well as primitive
+operations from reusing memory cells.  Our heuristic collects which
+parameters and variables should be owned.  We say a parameter $x$
+should be owned if $x$ or one of its projections is used in a
+\kw{reset}, or is passed to a function that takes an owned reference.
+The latter condition is a heuristic and is not required for
+correctness.  We use it because the function taking an owned reference
+may try to reuse its memory cell.  A formal definition is given in
+\cref{fig:collect_O}. Many refinements are possible, and we
+discuss one of them in the next section.
+\begin{figure}
+\begin{lstlisting}
+$\textit{collect}_\own{}$ : $\ty{FnBody}\RC \rightarrow 2^{\ty{Vars}}$
+$\textit{collect}_\own{}$(let z = ctor_i $\many{x}$; F) = $\textit{collect}_\own{}(F)$
+$\textit{collect}_\own{}$(let z = reset x; F) = $\textit{collect}_\own{}(F) \cup \{x\}$
+$\textit{collect}_\own{}$(let z = reuse x in ctor_i $\many{x}$; F) = $\textit{collect}_\own{}(F)$
+$\textit{collect}_\own{}$(let z = c $\many{x}$; F) = $\textit{collect}_\own{}(F) \cup \{x_i \in \many{x}\ |\ \beta(c)_i = \own{} \}$
+$\textit{collect}_\own{}$(let z = x y; F) = $\textit{collect}_\own{}(F) \cup \{x, y\}$
+$\textit{collect}_\own{}$(let z = pap $c_\own{}$ $\many{x}; F$) = $\textit{collect}_\own{}(F) \cup \{\many{x}\}$
+$\textit{collect}_\own{}$(let z = proj_i x; F) = $\textit{collect}_\own{}(F) \cup \{x\}$ $\text{if } z \in \textit{collect}_\own{}(F)$
+$\textit{collect}_\own{}$(let z = proj_i x; F) = $\textit{collect}_\own{}(F)$ $\text{if } z \not\in \textit{collect}_\own{}(F)$
+$\textit{collect}_\own{}$(ret x) = $\emptyset$
+$\textit{collect}_\own{}$(case x of $\many{F}$) = $\bigcup_{F_i \in \many{F}} \textit{collect}_\own{}(F_i)$
+\end{lstlisting}
+\caption{Collecting variables that should not be marked as borrowed\label{fig:collect_O}}
+\end{figure}
+Note that if a call is recursive, we do not know which parameters are owned, yet. Thus, given
+$\delta(c) = \lambda \many{y}.\ b$, we infer the value of $\beta(c)$ by starting
+with the approximation $\beta(c) = \bor{}^n$, then we compute $S = \textit{collect}_\own{}(b)$,
+update $\beta(c)_i := \own{}$ if $y_i \in S$, and
+repeat the process until we reach a fix point and no further updates
+are performed on $\beta(c)$. The procedure described here does not
+consider mutually recursive definitions, but this is a simple
+extension where we process a block of mutually recursive functions
+simultaneously.
+By applying our heuristic to the $\textit{hasNone}$ function described before, we obtain $\beta(\textit{hasNone}) = \bor{}$. That is, in an application $\textit{hasNone}\ \textit{xs}$, $\textit{xs}$ is taken as a borrowed reference.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

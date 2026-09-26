@@ -1,0 +1,69 @@
+\subsection{Artifact-refinement boundary}
+\label{app:artifact-refinement-boundary}
+
+Table~\ref{tab:artifact-refinement-boundary} renders the archived assessment
+at repository snapshot \texttt{6764808}, retained in
+\texttt{formal/artifact-refinement-map.json}.  ``Exact Lean specification''
+means that the paper-side contract has a distinct compiled declaration; it
+does not mean that the listed Java producer refines that contract. No row
+in that archived assessment has a Lean refinement proof or a Lean-checked
+implementation trace. The newer bounded replay evidence noted in
+Appendix~\ref{app:evaluation-detail} is separate from this frozen matrix;
+it does not establish the full component refinements listed here.
+
+\begingroup\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{@{}p{2.75cm}p{3.0cm}p{3.65cm}p{1.45cm}@{}}
+\caption{Artifact-refinement matrix.}\label{tab:artifact-refinement-boundary}\\
+\toprule
+Bridge row & Paper-side status & Artifact evidence class & Bridge status\\
+\midrule\endfirsthead
+\toprule
+Bridge row & Paper-side status & Artifact evidence class & Bridge status\\
+\midrule\endhead
+\texttt{ART-TYPED-}\newline\texttt{CARRIERS} & Exact Lean specification & Property/mutation tests & \texttt{OPEN}\\
+\texttt{ART-LEADER-}\newline\texttt{KERNEL} & Exact Lean specification & Independent non-Lean checker & \texttt{OPEN}\\
+\path{ART-CANONICALIZER} & Exact Lean specification & Property/mutation tests & \texttt{OPEN}\\
+\texttt{ART-CERTIFICATE-}\newline\texttt{VERIFIER} & Exact Lean specification & Independent non-Lean checker & \texttt{OPEN}\\
+\path{ART-REBUILD} & Exact Lean specification & Property/mutation tests & \texttt{OPEN}\\
+\texttt{ART-ALLOY-}\newline\texttt{NORMALIZATION} & Exact Lean rule specifications & Bounded partial repair & \texttt{PARTIAL}\\
+\texttt{ART-OPERATOR-LAW-}\newline\texttt{ROUTING} & Exact Lean specification & Independent non-Lean checker & \texttt{OPEN}\\
+\texttt{ART-EXPERIMENT-}\newline\texttt{PIPELINE} & Exact scope boundary & Pure Java/run-manifest evidence & \texttt{OPEN}\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+Thus the abstract mathematical layer and the implementation bridge have
+different denominators: the former is the 146-unit paper--Lean registry,
+whereas the latter consists of these eight Java-facing rows.  Closing the
+former cannot upgrade any status in the latter.
+
+\subsection{Edge-case closure summary}
+\label{app:edge-case-closure}
+
+Table~\ref{tab:edge-case-closure} renders the layer assessments in
+\texttt{formal/edge-case-closure.json}.  ``Proved narrow claim'' records the
+exact scoped Lean result, not an end-to-end implementation fact.
+
+\begingroup\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{@{}p{3.05cm}p{2.55cm}p{2.15cm}p{3.2cm}@{}}
+\caption{Edge-case closure by layer.}\label{tab:edge-case-closure}\\
+\toprule
+Edge case & Abstract Lean layer & Artifact layer & Scope boundary\\
+\midrule\endfirsthead
+\toprule
+Edge case & Abstract Lean layer & Artifact layer & Scope boundary\\
+\midrule\endhead
+\texttt{EDGE-PROPER-PARENT-}\newline\texttt{SUPPORT} & Proved narrow claim & \texttt{OPEN} & Parent paths and restriction remain separate obligations.\\
+\texttt{EDGE-PARENT-}\newline\texttt{NONINJECTIVITY} & Proved nonimplication & \texttt{OPEN} & Parent equality alone supplies no child symmetry.\\
+\texttt{EDGE-QUOTIENT-BEFORE-}\newline\texttt{MINIMUM} & Proved finite-presentation contract & \texttt{OPEN} & The Java orbit producer is not refined.\\
+\texttt{EDGE-BINDER-}\newline\texttt{DESCRIPTOR} & Proved certified scope & \texttt{OPEN} & Only descriptor-admitted automorphisms apply.\\
+\texttt{EDGE-EMPTY-}\newline\texttt{BINDINGS} & Proved rule specification & \texttt{PARTIAL} & Bounded regressions do not refine the parser/normalizer.\\
+\texttt{EDGE-HETEROGENEOUS-}\newline\texttt{JOIN} & Proved operator boundary & Bounded tested & Heterogeneous chains are excluded from homogeneous flattening.\\
+\texttt{EDGE-INTEGER-OVERFLOW-}\newline\texttt{PROFILE} & Proved modular-profile scope & \texttt{OPEN} & Adapter/profile correspondence remains unproved.\\
+\texttt{EDGE-RAW-SOURCE-}\newline\texttt{REFINEMENT} & Out of scope & \texttt{OPEN} & Raw Alloy parsing and normalization are not Lean-replayed.\\
+\texttt{EDGE-BOUNDED-REWRITE-}\newline\texttt{SATURATION} & Out of scope of the finite-rebuild proposition & Bounded tested & A 32-pass rewrite guard is not finite administrative rebuild.\\
+\bottomrule
+\end{longtable}
+\endgroup

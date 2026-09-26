@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-arxiv-correspondence-2026-09-02",
+  "review_round": 1,
+  "role": "LEAN_METADATA_COHERENCE_AND_IDENTIFIER_LEAK_SCAN",
+  "reviewer_task_id": "/root/round1_metadata_review",
+  "fresh_instance": true,
+  "snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+  "snapshot_manifest_sha256": "308f47cc9ef4c5a1c81f002ac82908d9f98abf8c0f1cd5f657649beff3fae13c",
+  "mapping_set_sha256": "602f9971f28b3017349820928d7c736faf5888320235ab7948fb4fb0e89f15e8",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "coverage": {
+    "audit_rows": "158/158",
+    "active_mappings_tags_declarations_and_spans": "146/146",
+    "named_environments": "27/27",
+    "compiler_telescope_binders": "1024/1024",
+    "indexed_hypothesis_records": "107/107",
+    "axiom_rows": "83/83",
+    "proof_sketch_rows": "19/19",
+    "snapshot_bound_files": "14/14",
+    "identifier_leak_scans": "1/1"
+  },
+  "hypothesis_inventory": {
+    "explicit_binders": 369,
+    "implicit_binders": 639,
+    "instance_implicit_binders": 16
+  },
+  "curated_paper_graph": {
+    "nodes": 158,
+    "direct_edges": 221,
+    "transitive_pairs": 1480,
+    "acyclic": true
+  },
+  "compiler_active_graph": {
+    "nodes": 146,
+    "direct_edges": 200,
+    "transitive_pairs": 207,
+    "strongly_connected_components": 146,
+    "cycles": 0,
+    "self_loops": 0
+  },
+  "formal_source_config": {
+    "entries": 23,
+    "sha256": "1ea8b2d58e1f4c3c007f8da46f77c7818d716b21bf418929ea9f9ecb8bef5afa"
+  },
+  "trace_witness_binding": {
+    "status": "PASS",
+    "sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f",
+    "git_blob_sha1": "48528272445b6fa81ebd6c1f30680cd285751b5f",
+    "lake_root_count": 1,
+    "paper_index_changed": false,
+    "active_claim_count_delta": 0
+  },
+  "identifier_leak_result": {
+    "status": "PASS",
+    "exposed_tsg_ids": 0,
+    "exposed_raw_witness_declaration_handles": 0,
+    "explicit_f01_f27_formal_cross_references_classified_as_intentional": true
+  },
+  "fresh_compiler_dump_count": 0,
+  "Lean_builds_executed": false,
+  "blocking_findings": [],
+  "verdict": "PASS",
+  "source_mutation_observed": false,
+  "mutation_count": 0,
+  "latex_or_pdf_actions_executed": false
+}

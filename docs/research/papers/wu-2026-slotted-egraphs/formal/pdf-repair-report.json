@@ -1,0 +1,178 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "BOUNDED_PDF_PRESENTATION_REPAIR",
+  "generated_at_utc": "2026-08-29T03:50:23Z",
+  "status": "PDF_REPAIR_BUILD_PASSED_PENDING_FRESH_ALL_PAGE_QA",
+  "authorization_scope": {
+    "authorized_defect_ids": [
+      "PDF-CITE-001",
+      "PDF-FLOAT-001",
+      "PDF-FLOAT-002",
+      "PDF-FIGURE-001"
+    ],
+    "clean_latex_builds_authorized": 1,
+    "all_page_pdf_qa_authorized": false,
+    "packaging_authorized": false,
+    "publication_authorized": false
+  },
+  "baseline": {
+    "correspondence_reviewed_snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+    "review_snapshot_manifest": "formal/review-snapshot-manifest.json",
+    "review_snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+    "pdf_qa_report": "formal/pdf-qa-report.json",
+    "pdf_qa_report_sha256": "dd6c601016dcf2836e6c07184b32b62121fa690851c508a4aacbb6da2ea952b5",
+    "reviewed_author_source_graph_sha256": "e5ed4bb73d6b1ca664b5428ad22a5d36b460ef67bca180f261d894c2c647203c"
+  },
+  "source_delta": {
+    "status": "PASS_EXACT_ALLOWLIST_FIVE_FILES",
+    "aggregate_algorithm": "SHA-256 of canonical compact JSON (sorted object keys, source-list order preserved) of the same 20 path/SHA-256 entries recorded in formal/formal-units.yaml source_snapshot.files",
+    "author_source_file_count": 20,
+    "changed_file_count": 5,
+    "unchanged_file_count": 15,
+    "post_repair_author_source_graph_sha256": "17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183",
+    "changed_files": [
+      {
+        "path": "main_compressed.tex",
+        "before_sha256": "28b9dc897e1d5f5a6a2a0a55611d67c24ff3886c5ace1dd2b120317e421d4003",
+        "after_sha256": "4459c0d597fc0632bfa51f11fac8309252920cff5602682d12f806347e214c49",
+        "change": "Load needspace for the bounded Figure 2 pagination guard."
+      },
+      {
+        "path": "figures/final_alg_vmcai_stage1.tex",
+        "before_sha256": "f30fa9e1e5f8bee9c140500441bbbd4eeef219d7342b274daf1eea2ccd7205dd",
+        "after_sha256": "dbf196f23f146aabe44f74ef66d9aba9abaae028fd8297c5cedee418f2ae6c87",
+        "change": "Reserve 18 small-font baselines for the Figure 2 caption, status strip, and opening procedure."
+      },
+      {
+        "path": "tables/table1_rev4.tex",
+        "before_sha256": "7367ca94f67b101e543a2c3e51a7dc0980ceeb6b22b55e8f29584431072d1cae",
+        "after_sha256": "737b36c3732a9249f8b18370469a747ab4c35c5fd5011a310d8f4f1e080e1d82",
+        "change": "Change Table 7 placement from [t] to [H]."
+      },
+      {
+        "path": "tables/table6_ablation_vmcai_stage1.tex",
+        "before_sha256": "d1c1be43db16e45eee63ba45a81ebc18dd30d9cc9a31fddb8f0f00cdbc75366f",
+        "after_sha256": "a97c6b4ba1c4fcc82149001b416c55e7012fe6a45c103f6047acb10558b9de1f",
+        "change": "Change Table 11 placement from [t] to [H]."
+      },
+      {
+        "path": "ref.bib",
+        "before_sha256": "cdbb195bc5ac3c575a403fba9efb40dcf7ca2f4d27f7085cb1d6a87f330786d9",
+        "after_sha256": "2cb748a87f85b229731723e8f6da6b99a038460aef43a79029a6b303c2ac2945",
+        "change": "Remove only the DOI-identical URL fields from the eight cited entries recorded by PDF-CITE-001; retain every DOI field."
+      }
+    ]
+  },
+  "defect_repairs": [
+    {
+      "id": "PDF-CITE-001",
+      "repair_status": "SOURCE_REPAIRED_BUILD_VERIFIED_VISUAL_QA_PENDING",
+      "details": "Removed eight redundant doi.org URL fields for egraphsOG, conchon2012canonized, deBruijn, kodkod, deMouraUllrich2021Lean4, alloy4funDataset2023, kapur2021ModularAC, and maziarz2021HashingAlpha. The canonical DOI fields remain. The generated BBL contains 21 bibliography items, 17 DOI emissions, zero explicit doi.org URL emissions, and zero BibTeX warnings."
+    },
+    {
+      "id": "PDF-FLOAT-001",
+      "repair_status": "SOURCE_REPAIRED_BUILD_VERIFIED_VISUAL_QA_PENDING",
+      "details": "Table 7 is now nonfloating [H], following the already nonfloating Table 6. AUX labels place both on page 30 in source order."
+    },
+    {
+      "id": "PDF-FLOAT-002",
+      "repair_status": "SOURCE_REPAIRED_BUILD_VERIFIED_VISUAL_QA_PENDING",
+      "details": "Table 11 is now nonfloating [H], following the already nonfloating Table 10. AUX labels place both on page 32 in source order."
+    },
+    {
+      "id": "PDF-FIGURE-001",
+      "repair_status": "SOURCE_REPAIRED_BUILD_VERIFIED_VISUAL_QA_PENDING",
+      "details": "A Needspace reservation now keeps room for the Figure 2 caption, status strip, and opening procedure before the multipage longtable starts. The Figure 2 AUX label moved from page 35 to page 36."
+    }
+  ],
+  "clean_latex_build": {
+    "status": "PASS",
+    "actual_compilation_count": 1,
+    "working_directory": "/workspace/scratch/0f7e6f7dcf2b/pdf-repair-build.EUl08Y",
+    "source_copy_policy": "Fresh rsync copy excluding prior LaTeX products and caches, followed by latexmk -C.",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "orchestration_note": "One preceding launcher attempt stopped before TeX because it was invoked from the parent directory and could not find main_compressed.tex; it performed no compilation and is not counted as a build.",
+    "tool_versions": {
+      "pdftex": "pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)",
+      "latexmk": "4.83",
+      "bibtex": "0.99d (TeX Live 2023/Debian)"
+    },
+    "products": {
+      "pdf_pages": 43,
+      "pdf_bytes": 636629,
+      "pdf_sha256": "a462e90f6585d27a8e2e27e11313abc7f7b87f2f7a8236761b1351de3f268e28",
+      "log_sha256": "f5e285cdf5ee87d0a6514c697862fe4062ca8480cc64ecb26fd21e3ab845f27e",
+      "aux_sha256": "6835f4c2859857e79d72b0840ccf969c846b6d175271340072dd197eaa736ee7",
+      "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437",
+      "blg_sha256": "2df72fa2146295f2ba87f07b9464a532300a393532df57f4673dd773ee5e6095",
+      "fls_sha256": "f56ce4836964f5e4035e35387fe522be9de3ee0968ffa0a2c6554cb610694441"
+    },
+    "final_log_diagnostics": {
+      "latex_warnings": 0,
+      "package_warnings": 0,
+      "overfull_boxes": 0,
+      "underfull_boxes": 359,
+      "undefined_citations_or_references": 0,
+      "multiply_defined_labels": 0,
+      "rerun_requests": 0,
+      "missing_glyphs": 0,
+      "bibtex_warnings": 0
+    }
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-16",
+    "main_text_page_count": 16,
+    "main_text_limit": 20,
+    "main_text_margin_pages": 4,
+    "references_start_page": 17,
+    "references_pages": "17-18",
+    "appendix_start_page": 19,
+    "appendix_pages": "19-43",
+    "aux_evidence": {
+      "end_main_text": 16,
+      "start_references": 17,
+      "start_appendix_A": 19
+    }
+  },
+  "immutability_and_statement_surface": {
+    "status": "PASS",
+    "formal_statement_files": [
+      {
+        "path": "foundations_compressed.tex",
+        "sha256": "b01d1bbc7c0904b82004f61f49e4afe33c0433d38073fb2da1d9e49fff09e0dd"
+      },
+      {
+        "path": "appendixC_vmcai_stage1.tex",
+        "sha256": "7882e07490a6c2c7924934162995be68a93424ab48388ec70af8c78abec6fb7c"
+      }
+    ],
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "correspondence_review_sha256": "841a624aa36f87b8a0f66b2cc8c277716292a2699afd65c06bd630b04b3d2332",
+    "clean_lean_build_summary_sha256": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d",
+    "uploaded_zip_sha256": "4dbba4c3d380b8aa07fbe6c9ba16fabfa654f1a70e6b03b384ed365f95c3061c",
+    "uploaded_replacement_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "active_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "artifact_refinement_map_sha256": "cbf13e4c8b3945ca211abd148e2e30d070af6a91d5e4964ef07cdc1bef3c5f8d",
+    "edge_case_closure_sha256": "aa36c63af9f0dce435335165486094d66d9751c0569b8e27169245fd17f7cbfd",
+    "java_artifact_commit": "676480899dc2ed29253d00c59beaf116ebd2c675",
+    "experiment_source_commit": "88363ea23728329948ccc9d5cdad690cc5787ca5",
+    "statement_or_lean_change_count": 0,
+    "java_change_count": 0,
+    "experimental_result_change_count": 0,
+    "chart_byte_change_count": 0
+  },
+  "not_executed": {
+    "fresh_all_page_render_and_pdf_qa": "NOT_EXECUTED_REQUIRES_SEPARATE_AUTONOMOUS_ROUND",
+    "packaging": "NOT_EXECUTED",
+    "publication": "NOT_EXECUTED",
+    "lean_rebuild": "NOT_EXECUTED_FORMAL_SOURCES_UNCHANGED",
+    "correspondence_rereview": "NOT_EXECUTED_FORMAL_STATEMENT_SURFACES_UNCHANGED"
+  },
+  "next_gate": "One fresh full all-page PDF QA against post-repair author-source graph 17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183."
+}

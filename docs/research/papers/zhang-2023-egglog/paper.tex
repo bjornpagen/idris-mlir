@@ -1,0 +1,254 @@
+% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
+% \documentclass[acmsmall,screen,review,anonymous]{acmart}
+% \settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For double-blind review submission, w/ CCS and ACM Reference
+%\documentclass[sigplan,review,anonymous]{acmart}\settopmatter{printfolios=true}
+%% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
+%\documentclass[sigplan,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For single-blind review submission, w/ CCS and ACM Reference
+%\documentclass[sigplan,review]{acmart}\settopmatter{printfolios=true}
+%% For final camera-ready submission, w/ required CCS and ACM Reference
+\documentclass[acmsmall,screen,nonacm]{acmart}
+
+%% Conference information
+%% Supplied to authors by publisher for camera-ready submission;
+%% use defaults for review submission.
+\setcopyright{rightsretained}
+\acmPrice{}
+\acmDOI{10.1145/3591239}
+\acmYear{2023}
+\copyrightyear{2023}
+\acmSubmissionID{pldi23main-p129-p}
+\acmJournal{PACMPL}
+\acmVolume{7}
+\acmNumber{PLDI}
+\acmArticle{125}
+\acmMonth{6}
+\received{2022-11-10}
+\received[accepted]{2023-03-31}
+
+
+\bibliographystyle{ACM-Reference-Format}
+\citestyle{acmauthoryear} 
+
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{subcaption}
+\usepackage{bm}
+\usepackage{mathpartir}
+\usepackage{listings}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{paralist}
+
+\usepackage{hyperref}
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\algtext*{EndWhile}% Remove "end while" text
+\algtext*{EndIf}% Remove "end if" text
+\algtext*{EndFor}
+\algtext*{EndProcedure}
+
+
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+
+\lstdefinelanguage{Souffle}{
+  sensitive,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  moredelim=[s][{\itshape\color[rgb]{0,0,0.75}}]{\#[}{]},
+  morestring=[b]{"},
+  alsodigit={},
+  alsoother={},
+  alsoletter={!},
+  % keywords
+  otherkeywords={=>},
+  otherkeywords={:-},
+  otherkeywords={|},
+  otherkeywords={.},
+  morekeywords={decl, type}
+}%
+\lstdefinelanguage{egglog}{
+  sensitive,
+  morecomment=[l]{;},
+  % morecomment=[s]{/*}{*/},
+  moredelim=[s][{\itshape\color[rgb]{0,0,0.75}}]{\#[}{]},
+  morestring=[b]{"},
+  alsodigit={},
+  alsoother={},
+  alsoletter={!},
+  alsoletter={:},
+  alsoletter={-},
+  % keywords
+  otherkeywords={=>},
+  otherkeywords={:-},
+  % otherkeywords={:},
+  otherkeywords={|},
+  otherkeywords={.},
+  morekeywords={assert, function, relation, datatype, rewrite,
+                rule, union, merge, default, when,
+                check, set, run, sort, define, extract,
+                old, new},
+  otherkeywords={:merge, :default, :when}
+}%
+
+\lstset{
+  columns=flexible,
+  keepspaces=true,
+  showstringspaces=false,
+  stringstyle=\slshape\color{green!40!black},
+  basicstyle=\ttfamily\footnotesize,
+  language=egglog,
+  morekeywords={*, self},
+  commentstyle=\slshape\color{black!60},
+  tabsize=2,
+}
+
+\newcommand{\yz}[1]{\todo[inline,color=green]{\textsf{#1} \hfill \textsc{--Yihong}}}
+\newcommand{\yzinline}[1]{{\color{green} \textsf{#1} \textsc{--Yihong}}}
+\newcommand{\zt}[1]{\todo[inline,color=cyan]{\textsf{#1} \hfill \textsc{--Zach}}}
+\newcommand{\mw}[1]{\todo[inline,color=orange]{\textsf{#1} \hfill \textsc{--Max}}}
+\newcommand{\rw}[1]{\todo[inline,color=yellow]{\textsf{#1} \hfill \textsc{--Remy}}}
+\newcommand{\of}[1]{\todo[inline,color=red]{\textsf{#1} \hfill \textsc{--Oliver}}}
+\newcommand{\pz}[1]{\todo[inline,color=pink]{\textsf{#1} \hfill \textsc{--Philip}}}
+\newcommand{\er}[1]{\todo[inline,color=orange]{\textsf{#1} \hfill \textsc{--Eli}}}
+
+\input{macros.tex}
+\input{egglogdatasmall/macros.tex}
+\input{egglogdatabignodelimit/macros.tex}
+
+\begin{document}
+
+% \title{Composing Rewrites, Analyses, and Extractions in Equality Saturation}
+\title{Better Together: Unifying Datalog and Equality Saturation}
+% \title{
+%   \egglog $\supset$ (Datalog $\cup$ Equality Saturation)
+%   \egglog $>$ (Datalog $+$ Equality Saturation)
+% }
+% \titlenote{with title note}
+% \subtitle{Subtitle}
+% \subtitlenote{with subtitle note}
+
+
+
+%% Author with single affiliation.
+\author{Yihong Zhang}
+\orcid{0009-0006-5928-4396}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+\author{Yisu Remy Wang}
+\orcid{0000-0002-6887-9395}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+\author{Oliver Flatt}
+\orcid{0000-0002-0656-235X}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+\author{David Cao}
+\orcid{0000-0002-6163-1821}
+\affiliation{
+  \institution{UC San Diego}
+  \country{USA}
+}
+\author{Philip Zucker}
+\orcid{0000-0003-0244-5962}
+\affiliation{
+  \institution{Draper Laboratory}
+  \country{USA}
+}
+\author{Eli Rosenthal}
+\orcid{0009-0008-9386-1614}
+\affiliation{
+  \institution{Google}
+  \country{USA}
+}
+\author{Zachary Tatlock}
+\orcid{0000-0002-4731-0124}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+\author{Max Willsey}
+\orcid{0000-0001-8066-4218}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+
+%% Abstract
+%% Note: \begin{abstract}...\end{abstract} environment must come
+%% before \maketitle command
+\begin{abstract}
+  \input{abstract}
+\end{abstract}
+
+
+%% 2012 ACM Computing Classification System (CSS) concepts
+%% Generate at 'http://dl.acm.org/ccs/ccs.cfm'.
+\begin{CCSXML}
+  <ccs2012>
+     <concept>
+         <concept_id>10003752.10003790.10003795</concept_id>
+         <concept_desc>Theory of computation~Constraint and logic programming</concept_desc>
+         <concept_significance>300</concept_significance>
+         </concept>
+     <concept>
+         <concept_id>10003752.10003790.10003798</concept_id>
+         <concept_desc>Theory of computation~Equational logic and rewriting</concept_desc>
+         <concept_significance>500</concept_significance>
+         </concept>
+   </ccs2012>
+\end{CCSXML}
+  
+\ccsdesc[300]{Theory of computation~Constraint and logic programming}
+\ccsdesc[500]{Theory of computation~Equational logic and rewriting}
+%% End of generated code
+
+
+\keywords{Program optimization, Rewrite systems, Equality saturation, Datalog}
+
+\maketitle
+
+\renewcommand{\shortauthors}{Y.~Zhang, Y.~R.~Wang, O.~Flatt, D.~Cao, P.~Zucker, E.~Rosenthal, Z.~Tatlock, and M.~Willsey}
+
+
+\input{intro.tex}
+\input{background.tex}
+\input{overview.tex}
+\input{semantics.tex}
+\input{implementation.tex}
+\input{case-study.tex}
+\input{relatedwork.tex}
+\input{conclusion.tex}
+\begin{acks}
+We thank the anonymous reviewers for their thoughtful feedback.
+We are grateful to Martin Bidlingmaier 
+ for sharing his insights on \texttt{EqLog}, a concurrent work to \egglog,
+ to Martin Bravenboer for discussions on
+ the \texttt{Rel} programming language,
+ to Scott Moore and Langston Barrett
+ for answering questions about \cclyzerpp,
+ and to friends at the UW PLSE group 
+ for their feedback on the early draft.
+  This material is based upon work supported by the National Science Foundation under Grant No. 1749570, by the U.S. Department of Energy under Award Number DE-SC0022081, by DARPA under contract FA8650-20-2-7008, and by the Applications Driving Architectures (ADA) Research Center, a JUMP Center co-sponsored by SRC and DARPA.
+\end{acks}
+
+\bibliography{references}
+
+\appendix
+\newpage
+\input{pearls.tex}
+\input{sn.tex}
+
+\end{document}

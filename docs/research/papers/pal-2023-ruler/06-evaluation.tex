@@ -1,0 +1,55 @@
+\section{Evaluation and case studies}
+\label{sec:eval}
+
+\paragraph*{Implementation.}
+\enumo is an embedded DSL,
+  implemented as a \rust library.
+The entire implementation
+  is 3095 LOC, including unit tests but excluding
+  the implementations of the various domains.
+The domains together add another 4430 LOC,
+ which comprises a grammar, evaluator, and validator for
+ each basic domain,
+ and a grammar and fast-forwarding rules for
+ each domain employing fast-forwarding.
+The various \enumo programs add up to 718 LOC.
+Our \enumo implementation, the domain implementations, and all the \enumo programs
+  are publicly available.
+
+To evaluate our contributions,
+  this section answers the following
+  research questions.
+
+\begin{enumerate}
+
+\item How does guided enumeration in \enumo
+  compare to prior work on rewrite rule synthesis?
+  (\autoref{subsec:eval-enumo})
+
+\item Can \enumo scale to larger grammars than
+  existing tools can handle?
+  (\autoref{subsec:eval-enumo})
+
+\item Can \enumo's fast-forwarding algorithm enable rule
+  inference for new domains that prior work could not support?
+  (\autoref{subsec:eval-ff})
+
+\item How does fast-forwarding impact client applications
+    in terms of performance and results?
+    (\autoref{subsec:eval-ff})
+
+\item Can \enumo be extended with new synthesis techniques,
+    and do the new operators compose with existing ones?
+    (\autoref{sec:case-study-llm})
+\item Do the abstractions in \enumo
+    enable cross-domain rule synthesis?
+    (\autoref{sec:case-study-bv})
+
+\end{enumerate}
+
+\input{06-guided-search}
+\input{06-herbie}
+\input{06-megalibm}
+\input{06-szalinski}
+\input{06-extensibility}
+\input{06-devexp}

@@ -1,0 +1,61 @@
+{
+  "repository": "AlexandervonWu/ACGN",
+  "branch": "aislop",
+  "snapshot": "1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+  "retrieved_at": "2026-09-09T17:25:15.047Z",
+  "url": "https://github.com/AlexandervonWu/ACGN/commit/1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+  "full_run_source": "8ad5fead39b687d2cadc79b01ac27743c1ece990",
+  "implementation_comparisons": [
+    {
+      "head_blob": "31bca9a0cd6705e104b1ed5a35c462be957163b1",
+      "path": "src/is/fivefivefive/CanDis/CanonicalAlloyPipeline.java",
+      "same": true,
+      "source_blob": "31bca9a0cd6705e104b1ed5a35c462be957163b1"
+    },
+    {
+      "head_blob": "bcf0ad84e987445ffb97577f7c11e104c2000b82",
+      "path": "src/is/fivefivefive/CanDis/core/CanonicalDistance.java",
+      "same": true,
+      "source_blob": "bcf0ad84e987445ffb97577f7c11e104c2000b82"
+    },
+    {
+      "head_blob": "e04c0d5ca7ac0fdb7cca32e0ab0b912781dc6320",
+      "path": "src/is/fivefivefive/CanDis/metric/QuotientRepairDistance.java",
+      "same": true,
+      "source_blob": "e04c0d5ca7ac0fdb7cca32e0ab0b912781dc6320"
+    },
+    {
+      "head_blob": "3126245a52a4537abdad286875fc06532457df01",
+      "path": "src/is/fivefivefive/CanDis/Alloy4FunAugmenter.java",
+      "same": true,
+      "source_blob": "3126245a52a4537abdad286875fc06532457df01"
+    },
+    {
+      "head_blob": "806789258fb622823b53bf8f8ab026b7f3e06001",
+      "path": "src/is/fivefivefive/CanDis/EGraphAblationStudy.java",
+      "same": true,
+      "source_blob": "806789258fb622823b53bf8f8ab026b7f3e06001"
+    },
+    {
+      "head_blob": "f02853160e497d600b26a8206d7a50f3e958412c",
+      "path": "src/is/fivefivefive/CanDis/core/egraph/AlloyRewriteSystem.java",
+      "same": true,
+      "source_blob": "f02853160e497d600b26a8206d7a50f3e958412c"
+    },
+    {
+      "head_blob": "a8eb8f7b8d391a3abaac9d93c9b591edacfca17a",
+      "path": "src/is/fivefivefive/CanDis/theory/TypedSlottedPortEGraph.java",
+      "same": true,
+      "source_blob": "a8eb8f7b8d391a3abaac9d93c9b591edacfca17a"
+    }
+  ],
+  "coverage_plot_comparison": {
+    "identical": true,
+    "new_blob": "f1da2716d30967429c1ab65e4d8aa85c3f01b9bb",
+    "old_blob": "f1da2716d30967429c1ab65e4d8aa85c3f01b9bb",
+    "old_ref": "63f3b8c2931202e9b3582a8802c558725a67ac26",
+    "new_ref": "1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+    "path": "alloy4fun-augmented/raw_edit_repair_coverage_ast_canonical.svg"
+  },
+  "note": "All repository source was fetched through the connected GitHub plugin at immutable SHAs."
+}

@@ -1,0 +1,290 @@
+\section{Experience with \tool{} as an Offline Optimization Generator}
+\label{sec:offline}
+
+The goal is to give compiler developers actionable advice about
+missing optimizations.
+%
+To do this, someone uses \texttt{sclang} to extract \tool{} left-hand
+sides from programs of interest.
+%
+Since \tool{} finds many more optimizations than developers could
+reasonably implement, the crux is ranking them in such a way that
+desirable optimizations are found early in the list.
+%
+We are not aware of any single best ranking function, but rather we
+have created several such functions that can be used together or
+separately.
+
+
+\paragraph{Static profile count}
+%
+The first time a given LHS is encountered, it is stored in Redis.
+%
+Each subsequent time it is encountered, \tool{} simply increments a
+static profile count, also stored in Redis, that is associated with
+the optimization.
+%
+Thus, counts are automatically aggregated across multiple compiler
+invocations.
+%
+Implementing optimizations with high static profile counts will lead
+to optimizations that fire many times, presumably leading to benefits
+in terms of code size.
+
+\paragraph{Dynamic profile count}
+%
+To make programs faster instead of smaller, it is desirable to focus
+on optimizations that execute many times dynamically, as opposed to
+statically.
+%
+We support dynamic profiling in \tool{} by optionally instrumenting
+each compiled code module to associate a 64-bit counter with each
+(potentially) optimized code site.
+%
+These counters are atomically incremented each time the associated
+site is reached, and then when the program is shutting down the total
+values are added to dynamic profile counts in the Redis database.
+%
+Counts can be lost if a program crashes or
+otherwise fails to execute its atexit
+handlers.\footnote{\url{http://man7.org/linux/man-pages/man3/atexit.3.html}}
+
+
+\paragraph{LHS complexity}
+%
+Since \tool{} does not have any default limit on the number of
+instructions it extracts, LHSs may be large.
+%
+Developers are unlikely to want to implement recognizers for large
+instruction patterns, and furthermore such patterns are unlikely to be
+broadly applicable.
+%
+Therefore, it makes sense to suppress large LHSs when ranking
+optimizations.
+%
+Alternatively, we have experimented with depth-limited extraction of
+LHSs: this reduces the number of optimizations that can be
+synthesized, but the optimizations that remain are much more likely to
+be of interest to developers.
+
+
+\paragraph{Benefit}
+%
+The benefit due to an optimization is the difference in cost between
+the LHS and RHS\@.
+%
+So far we have employed only simple cost functions such as those that
+count instructions (perhaps weighting expensive instructions such as
+divides higher).
+%
+Doing better than this has proved difficult.
+%
+First, LLVM has many canonicalization rules which dictate that certain
+IR forms are preferable over others; these rules are, unfortunately,
+implicit and informal.
+%
+Second, despite the ``low level'' in LLVM, it is fairly high level,
+delegating a lot of translation work to the backends, making it hard
+to determine a cost model at the LLVM level.
+
+
+\subsection{Improving LLVM}
+
+There is one additional piece of the puzzle to solve before
+synthesized superoptimizer results can be presented to developers in a
+useful fashion: derived optimizations should be suppressed when LLVM
+already knows how to perform them.
+%
+\tool{} gets LHSs that LLVM can optimize for two reasons.
+%
+First, \tool{} gets run five different times by the LLVM optimizer,
+and during early phases many optimizations remain undone.
+%
+Also, even when LLVM is finished optimizing, there remain opportunities
+that LLVM could optimize because it simply runs a fixed ordering of
+passes, it does not run to fixpoint.
+%
+We could run LLVM's optimizer to fixpoint, but this would be pointless
+because \tool{} would still extract many LHSs that LLVM can optimize,
+because many performable optimizations are rejected by profitability
+heuristics.
+%
+Typically, rewriting a code sequence into a better code sequence is
+deemed unprofitable if values in the original sequence have external uses.
+%
+To solve this problem we translate each \tool{} LHS back into LLVM IR
+and see if it optimizes.
+%
+Because no value in the translated LLVM code has external uses, this
+is a fairly reliable way to avoid showing compiler developers
+optimizations that have already been implemented.
+
+
+In November 2014 and in July 2015 we presented ranked lists of
+optimizations derived by \tool{} while compiling LLVM to the LLVM
+community.
+%
+The 2014 results contained only synthesized integer values and the
+2015 results had synthesized instructions as well.
+%
+This was a learning experience for us, particularly with respect to
+the importance of having good LLVM-specific profitability estimation
+methods.
+%
+For example, this optimization eliminates an LLVM instruction and
+seems intuitively appealing:
+
+{\small\begin{verbatim}
+%0:i64 = var
+%1:i64 = and 1:i64, %0
+%2:i1 = ne 0:i64, %1
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\small\begin{verbatim}
+%3:i1 = trunc %0
+result %3
+\end{verbatim}}
+
+However, it turns out that this optimization is undesirable by
+convention, and in fact the LLVM optimizer will canonicalize the
+\texttt{trunc} back to the two-instruction version.
+
+
+We do not have a good way to quantify any improvements in LLVM's
+optimizer that might have resulted from our work, but we do know that
+some of \tool{}'s suggestions were implemented.
+%
+Here are some things that LLVM developers said:
+\begin{itemize}
+\item
+  ``Cool! Looks like we do lots of provably unnecessary alignment checks. :)''
+\item
+  ``That’s a great post and really interesting data, thank you!''
+\item
+  ``I’m pretty sure I’ve fixed the most egregious cases of this going wrong with r222928.''
+\item
+  ``IIRC, the following commits are a direct/indirect result of using
+  [deanonymized name of SSO]'' (followed by a list of seven commits)
+\end{itemize}
+%
+Additionally, we seen some other commits that mention \tool{} as a
+source, and we have watched a lot of optimizations with high profile
+counts disappearing from \tool{}'s output as LLVM's optimizers have
+become stronger over time.
+
+
+\iffalse
+Hi John,
+IIRC, the following commits are a direct/indirect result of using Souper:
+
+r268735: [SimplifyCFG] Prefer a simplification based on a dominating condition.
+r268636: [ValueTracking] Improve isImpliedCondition for matching LHS and Imm RHSs.
+r268104: [InstCombine] Determine the result of a select based on a dominating condition.
+r267430: [ValueTracking] Improve isImpliedCondition when the dominating cond is false.
+r267177: [SimplifyCFG] Add final missing implications to isImpliedTrueByMatchingCmp.
+r267171: [SimplifyCFG] Add missing implications to isImpliedTrueByMatchingCmp.
+r266767: [ValueTracking] Improve isImpliedCondition for conditions with matching operands.
+
+Chad
+\fi
+
+We plan to continue periodically posting \tool-derived optimizations.
+%
+In particular, it will be exciting to extract LHSs from novel sources
+of LLVM IR: Haskell, Swift, Rust, and UBSan output.
+%
+We expect that each of these will contain idioms that are frequent and
+that are not well-optimized at present.
+%
+In particular, LLVM is known to be very weak at eliminating the
+integer overflow checks inserted by UBSan.
+%
+Removing these is becoming more desirable as production code is deployed
+with integer overflow checking turned on.%
+\footnote{\url{http://android-developers.blogspot.com/2016/05/hardening-media-stack.html}}
+
+
+
+\iffalse
+{\small\begin{verbatim}
+%0:i64 = var
+%1:i64 = and 0xf:i64, %0
+%2:i1 = eq 0:i64, %1
+pc %2 1:i1
+%3:i64 = and 0xfffffffffffffff0:i64, %0
+infer %3
+\end{verbatim}}
+$\Rightarrow$
+{\small\begin{verbatim}
+result %0
+\end{verbatim}}
+\fi
+
+
+\subsection{Improving Microsoft Visual C++}
+
+The Visual C++ compiler IR is similar enough to LLVM that we were able
+to extract a subset of it directly to \tool{} IR (for the workflow
+described in this section, LLVM is not involved at all).
+%
+In this extractor we limited each LHS to five instructions and we did
+not extract path conditions or blockpcs; this would be useful
+future work.
+%
+We extracted LHSs for several major components of Windows, along with
+their static profile counts.
+%
+In this section, we focus on LHSs extracted from the Windows kernel in
+its x86-64 configuration.
+
+
+\input{fig-windows}
+
+Out of 15,846 unique LHSs that were extracted, \tool's synthesizer
+discovered a cheaper RHS for 935 of them within a one-minute timeout.
+%
+However, many of these optimizations were already supported---Visual
+C++ has a large collection of SSA-level peephole optimizations---but
+had not been performed since one or more of the values on the LHS had
+uses not visible in the \tool{} IR\@.
+%
+We plan to implement a compiler-specific filter to automatically weed
+out these undesired optimizations, like the one that we implemented
+for LLVM, but we have not yet done so.
+%
+Out of the remaining optimizations, we implemented 40 that had
+high static profile counts.
+%
+We manually rewrote each of these in a generic form, verified the
+correctness of that form using Alive~\cite{Lopes15}, and then
+implemented it in the Visual C++ compiler.
+%
+Figure~\ref{fig:windows} shows some representative examples.
+%
+Implementing the new optimizations required two new dataflow analyses
+to be added to the Visual C++ compiler.
+%
+First, a \emph{bit estimator} that attempts to prove that individual
+bits of values are zero or one.
+%
+Second, a \emph{demanded bits} analysis that attempts to show that
+some bits of a value have no influence on the computation.
+%
+For example, if the only use of \texttt{x} is in computing \texttt{x |
+  0xff}, the low eight bits of \texttt{x} are not demanded: their
+value is irrelevant to the program.
+%
+Together, these analyses drive optimizations that remove useless
+instructions.
+
+
+The new optimizations that we implemented reduce the code size of the
+Windows kernel by a few KB (about a 0.1\% savings) and the code size
+of a Windows 10 build by 296\,KB for x86 and 316\,KB for x86-64 (about
+a 0.02\% savings).
+%
+However, the effect of optimizations on code size is complicated:
+there were some binaries in Windows that got larger; this was mostly
+caused by more functions being inlined.
+

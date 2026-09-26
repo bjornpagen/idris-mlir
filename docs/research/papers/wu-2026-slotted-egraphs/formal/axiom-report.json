@@ -1,0 +1,917 @@
+{
+  "schema_version": "2.0",
+  "status": "CURRENT_REGISTRY_BOUND_TO_PRIOR_AXIOM_OUTPUT_BY_EXACT_LEAN_FILE_HASH",
+  "foundation_profile": "STANDARD_LEAN_EXPLICIT_TCB",
+  "allowed_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "observed_axiom_union": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "proof_bearing_active_count": 83,
+  "direct_paper_index_sentinel_count": 83,
+  "violations": [],
+  "lean_version": "Lean (version 4.33.0, x86_64-unknown-linux-gnu, commit d8b18978322de05a8f3dba51ef03cf5461676c17, Release)",
+  "paper_index": "formal/PaperIndex.lean",
+  "paper_index_sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb",
+  "formal_units_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+  "entries": [
+    {
+      "formal_id": "TSG-FND-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACClosureCounts",
+      "statement_hash": "795bd01d724e2d55284a1df4603b64b85a2288907d875a57adfa159b425801ee",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACClosureCounts",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-PROP-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+      "statement_hash": "e4334a5411bf148c35ad5c9d5e5756824b8bef0d76abcf5d1f05f10e9f4fe1fe",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes",
+      "statement_hash": "426190d09f950222d532f4dbc5ba7210ac497d1df1b0624a63118af38ee158b1",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-COR-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteSlotSupportInvariance",
+      "statement_hash": "78ef31ac144d2be9ecca426520e86371ef4e65aa4329635bda03c454a1aec94f",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteSlotSupportInvariance",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-COR-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "statement_hash": "5bdbd9a7c6ca45d3a93faaccff0fff6d1fc442d0ce837b564c5e133643ba9033",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-INV-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.F10FiniteQuiescentGraphEnvironment.collisionIndexExact",
+      "statement_hash": "e514f4692c510793cac51c06399a38be98b3b1113d1c04abdab1f20362ff8ba4",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.F10FiniteQuiescentGraphEnvironment.collisionIndexExact",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+      "statement_hash": "cc2cc05d276f8f6e9a3f3c90eb6f3f7352c0189a857802330b4fe746769d0644",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-PROP-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "statement_hash": "5958a456312ae2accd02b458484e2f513e8a93007b4b27951b12c76ee4a9b64a",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-004",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "statement_hash": "ac0b3a6fc849e09166e0a6a3ba7267ba37dbfdc14517727908ca79e41f78613c",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-005",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "statement_hash": "bb9bf09a81e14d90e79e912b586b81f42876dce680f6d207278a5811943edb76",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-006",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+      "statement_hash": "f38f33333b2f738b891e8458f54dcf22579ec81adf4f7e00903fb3c58cb891ea",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-INV-005",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "statement_hash": "19aaa59cb9f0550052ac2a34d41bae37971c82023163eecbd81d18b14c34d2de",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-COR-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "statement_hash": "ab958cad8a9b79adcc10d52940e9cdcdb8dca437f09295b0e3649be89f69bd3b",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-PROP-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.finiteRebuildQuiescence",
+      "statement_hash": "9adf0659e20ff2133b4275195864eb09e26e34ba03b4e7ed79206c5b0c666a9b",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.finiteRebuildQuiescence",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-007",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "statement_hash": "6c17ff8fd9cebcdeb7b42bed597e93347df7c6ff56c0f351c78f4fd96472b9de",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-008",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "statement_hash": "3f2b28e0190855e8e9f47e413078e35821a6f00aa8829092dd7efe7ef02d584d",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-009",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "statement_hash": "846a95264df33e966446dbb8c3c739c72ce95acc1621cee5afd6b4faeab122fb",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-010",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "statement_hash": "d606d940421457397f801a80c460a5c9752050c2fa233a6d4ee4beaf846c5ef6",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-LEM-011",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "statement_hash": "ec80838ba8b3ac95e455a71a5f3d56271daaa5c15cbfbb2e61f2d451ccb20fa9",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-COR-004",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "statement_hash": "90ada0833065225a0e39e1b7fd747c79f7e601fd4ad66441a4a6d655624928e5",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-THM-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "statement_hash": "3dc00323c4bc4cf733c87457fb6237efea76eea5b18645a11c51b49ef4b6eab1",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-CE-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.parentEqualityDoesNotImplyChildSymmetry",
+      "statement_hash": "3783cca822812e12ef8fa59e1165d49b494a3b721fe9d826d733eea4c8af9421",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.parentEqualityDoesNotImplyChildSymmetry",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-CE-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.properEmbeddingDoesNotImplyIndependence",
+      "statement_hash": "9c4168363f24abde765c24f86210f37b6550f5ce2c10a7dd9fdaa01f95c5080f",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.properEmbeddingDoesNotImplyIndependence",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-APP-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract",
+      "statement_hash": "94df516587343f183606d97c780b985652b3abedc8251bf6af0b035bc715c688",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-APP-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp002_completeCanonicalRecords",
+      "statement_hash": "f5d828b75009c94c73d3cb749f13c97d7c1250b367271c3cde3a2fe5a5f3b5d8",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgApp002_completeCanonicalRecords",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-APP-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract",
+      "statement_hash": "60beb0bc2c26f362cacc1d3e3efe3083dbb49b239aa224f246a54c1fedc9a2a8",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-APP-004",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "statement_hash": "66bef1758cf9df2eb0777faa9add3ae8e124df8027deddf3d4098ff0020b89b2",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-APP-005",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGAPP005CertifiedAbstractRebuildContract",
+      "statement_hash": "248773f47c7794add55148fc3563859a8c2fecdff20b4d7918df0a90ca6023d0",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ClaimLedger.TSGAPP005CertifiedAbstractRebuildContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ALG-005",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract",
+      "statement_hash": "c24d01c3ea15a5661c179049c95e9b15e3839cc00a84f77f3264a9e4a8a9ce6a",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ALG-007",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract",
+      "statement_hash": "9f19c91b1dc24c10bb5397a03be3b58168f730b24b1b4eac4fafef031208fcb4",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ALG-008",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract",
+      "statement_hash": "5d8c130e94d09daf4d8f9ffd53f3addb1815aa14c233ba6b7dddc33b20829280",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ALG-009",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+      "statement_hash": "69a8ada1665103379e508b8abf86c3b2a2fad584d9a491fce0ae2a57bb3bf11b",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule001_orderedRulePipeline",
+      "statement_hash": "d063fc2c3c7329a90b44b0eb183934d77f25e37ca4ffd5b0318db991e21e001c",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule001_orderedRulePipeline",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule002_parserHeadNormalization",
+      "statement_hash": "077d03f82f91ddcb52599e0a4104065743baf1d457e91cf3a40ac07a1659e5db",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule002_parserHeadNormalization",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule003_parserStructuralCleanup",
+      "statement_hash": "7a673bfb41ceaca90de506a63d8d8e13a189addeabd086c7d3af1c1bf75bcde8",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule003_parserStructuralCleanup",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-004",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule004_captureAvoidingLetBeta",
+      "statement_hash": "8d315f4673ec52c7aa31fd96a1be34490b680305fad671dedfbf2c2d923f09f1",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule004_captureAvoidingLetBeta",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-005",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule005_branchConnectiveElimination",
+      "statement_hash": "65219f15ab9fe168fdfc44b295a217a7ff872eda52f2a496ccd36bcb966b8512",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule005_branchConnectiveElimination",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-006",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule006_booleanNegationNormalForm",
+      "statement_hash": "8f4dd2687c56dc503ae019ed6bbc085dae632cf348be384af2a7fe82401ed544",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule006_booleanNegationNormalForm",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-007",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule007_involutiveAtomicNegationDuals",
+      "statement_hash": "eb548d29bf9e580f81f4a1e4d7ddce16527a4646713aed7fedf080d49dc0bed9",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule007_involutiveAtomicNegationDuals",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-008",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule008_temporalNegationDuals",
+      "statement_hash": "014960402835d7472cf193708e8d122e6aba8c17e685fce63b58ced29dd229ee",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule008_temporalNegationDuals",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-009",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule009_quantifierNegation",
+      "statement_hash": "2ecf182b224a9a04a99513129a148b082b810e2940ddb4bcfa59d3cbe5d4ede6",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule009_quantifierNegation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-010",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule010_emptyAdmissibleBindings",
+      "statement_hash": "638504b734803b8cf6639e76c9e3fc15bbfd6cfb8dd8dfec4826cc19c113e36e",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule010_emptyAdmissibleBindings",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-011",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule011_constantBodyQuantifiers",
+      "statement_hash": "3d00ffb82c1a49d43cd3c2ce065d8baa87629e803a3b67b6113a985abdf08da4",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule011_constantBodyQuantifiers",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-012",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding",
+      "statement_hash": "c657e0cb0168088c4f275371ab59305cee3539f628fd019060021f71a767d8b6",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-013",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation",
+      "statement_hash": "72ebc7de451961dfb985d6810a046d18ac04cb011f97c6ae607ae0e78ec90f7f",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-014",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+      "statement_hash": "11e03531e3a80add5ccdc2e660a794b01c70129cc78a6b576a4de5e066a57a72",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-015",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile",
+      "statement_hash": "754fd742cfb9e7ac1170d7258314a6205ebb1ccf1db9b8a1783af1a2d72dae5e",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-CE-003",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgCe003_overflowReassociationCounterexample",
+      "statement_hash": "ec58334c99d6e76ef6ac8ddad7256fe93638214d85a4e0263ab2cce7a884ed8e",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgCe003_overflowReassociationCounterexample",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-016",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation",
+      "statement_hash": "8bd59693c6c7dee869677d57a0b023bb31e3bce0aaef123c89eaaaacaf7d35d0",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-017",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation",
+      "statement_hash": "2d8819fef30f98f68d698952edc70569c66d23eded26e1d7232196e1d74c6493",
+      "axioms": [
+        "propext"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-018",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule018_relationalLocalSaturation",
+      "statement_hash": "b8494af5768f919a7edfbcd75e42ec23b532ecea68489620b55acb7924bbe52f",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule018_relationalLocalSaturation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-RULE-019",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule019_implicationLocalSaturation",
+      "statement_hash": "3b1d6cc0222ce5a01e8908848d6b4365a99ad62e6ca66324c68efff759d7050a",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgRule019_implicationLocalSaturation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-SCOPE-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary",
+      "statement_hash": "56321c485c735db4fa5e7ac41622aa0e3895ed46e38283fd0bc386a8c71d26bd",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-001",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACProductClassCount",
+      "statement_hash": "9c4e8409e2a35888c8787cfbe6361affde0eec0d0247f291a554d7dcb636b5de",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACProductClassCount",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-002",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACOperatorNodeCount",
+      "statement_hash": "bc5261b762c016d70bc4ab4ca6fea4bb36cc05e7eddd4b8e453be816ba1bbc53",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACOperatorNodeCount",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-008",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.embeddedNodeOutputTypeUnchanged",
+      "statement_hash": "0d403b39907b5badbb3719d1364fcdd6f9673fb1977278e8f7bd34491f1a116b",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.embeddedNodeOutputTypeUnchanged",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-009",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortSupportImageEquality",
+      "statement_hash": "d32403a25c14a2d641cf284c9be7a04b605064406e1b2afd51535f3dddbebbf1",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concretePortSupportImageEquality",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-010",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteNodeSupportImageEquality",
+      "statement_hash": "28fe9aa460af374791805a0f296a48c5722894f5fc8cd010e8fe6478160fd4d8",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteNodeSupportImageEquality",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-013",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.invocationActionComposition",
+      "statement_hash": "4fad5b1ca3f1c2e9d6c46825cb6d5c15cc2aad4a1f088d4921e0951a44b4b78d",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.invocationActionComposition",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-017",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "statement_hash": "d1933b38bb536e78b8e78aca8ab947903d5a7776741b673479702e9fed2801b8",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-020",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound",
+      "statement_hash": "10d4fd1d3a455f38cf160c0322061bfc87bc533a78348f5aa46add9e6aad9c48",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-021",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff",
+      "statement_hash": "51a7c606090bb436090b948802a4f2758c0c9073231e0c23561f38bec63b304b",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-022",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_support",
+      "statement_hash": "4c24e20c9fbb1da5187eff08bb5d21c2ebda2d673ff1d215a2ce87bb0705a68c",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_support",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-023",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_schema_leafTypes_output",
+      "statement_hash": "a2dc4f2bab51d5695645587d7488e4bc41fb9559bd1a0d94a829de0c00cdf3f2",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_schema_leafTypes_output",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-025",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_idempotent",
+      "statement_hash": "de1f218161ee2974f133375abcf3aef132a9d6336a1145e25977f6b8d824860d",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_idempotent",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-026",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming",
+      "statement_hash": "813374a6c2a248998090e98f5558a343ad992a9977c44728357b0190e8e9d690",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-027",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_exactness_preserves_output",
+      "statement_hash": "0f5cf6810340be30e9f3dec17291298f8380fa3dcd85ceb867ca2f817af1893c",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_exactness_preserves_output",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-028",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom028AlphaEquivalenceEvaluationTransport",
+      "statement_hash": "1e83d64819dda55b473d24061fad1e67f430ea01c6a350427d13c166cee8e19e",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom028AlphaEquivalenceEvaluationTransport",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-029",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "statement_hash": "da7a0e330ee487d4455c7844eb429e3c9482145353e9c097b8d3ae7d017832c4",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-030",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation",
+      "statement_hash": "c905e5886ebd470a65404608f799cc10d8764d3cb8111c2148480b81fb991c36",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-031",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceSemanticSoundness",
+      "statement_hash": "6bb40e903f1ae66372f52354d3637c4ad92a6618767cfda9c77157394465e4c2",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceSemanticSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-032",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.sameContextIdentityCongruence",
+      "statement_hash": "56df92f7fc62e949c00699d2ab6b8606a07ffadc9bffe9f43963652de38d1922",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.AtomicLedger.sameContextIdentityCongruence",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-033",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate",
+      "statement_hash": "783c4c88adb3ba65f754a6ef7551fbf4103770fc9b44aec28269fbe61143e7bf",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-034",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "statement_hash": "9b7e5fa5e191bc4d4d0a882307ebfebe115e99250f85088b20f4f417172aa653",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-037",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate",
+      "statement_hash": "a5106c3bfac4fe6980f6af5e8d1f94d5a8e6ea1cd2d226d560ef346662e17767",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-038",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom038AmbientCollisionCertificate",
+      "statement_hash": "0af3c7f918539447027f6bf6bf1f1d2516937cedcc4e69a229b2ca618031506a",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom038AmbientCollisionCertificate",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-039",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+      "statement_hash": "a3ef9796c90de39a0a34ce2e763203bf21f722f6b27f7581f6bdbbb640abe6e4",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-040",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness",
+      "statement_hash": "17b320836bb0f7fd26c24b32b76ede26eb72fdb831b6360c49702ed6051f5bdc",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-041",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+      "statement_hash": "856616c62323206fa2c4a4bf840655e80b9b578cb8fc3748668dceb8f7fdaa63",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-042",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness",
+      "statement_hash": "f6a4fd99c1bac251217b9b86b4c38dcd79232c83f0a510398838e868ed67ea41",
+      "axioms": [],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-043",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.productClassCountThetaTwoPow",
+      "statement_hash": "0eb32dc881ce4b352f0f79f6c9d11bd41b31fb6827e579c021c135b407eb37c1",
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ACClosureCounts.productClassCountThetaTwoPow",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-044",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.binaryOperatorNodeCountThetaThreePow",
+      "statement_hash": "9661da711df8c5203c7fb3c556d702e6ceec3747f95be27ddee1425821c4d4f8",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.ACClosureCounts.binaryOperatorNodeCountThetaThreePow",
+      "paper_index_direct_sentinel": true
+    },
+    {
+      "formal_id": "TSG-ATOM-045",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "statement_hash": "b8b860bfea8f39e225f3d3ed5585e4f3bcce5f53831739cdc6f23192ad0a5d2d",
+      "axioms": [
+        "Quot.sound"
+      ],
+      "whitelist_subset": true,
+      "audit_command": "#print axioms TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "paper_index_direct_sentinel": true
+    }
+  ],
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "regeneration_provenance": {
+    "fresh_axiom_commands_executed": false,
+    "mapped_lean_file_hashes_verified": 146,
+    "next_clean_build_gate_pending": true
+  }
+}

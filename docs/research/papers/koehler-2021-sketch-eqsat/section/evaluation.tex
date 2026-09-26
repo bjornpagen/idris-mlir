@@ -1,0 +1,403 @@
+\section{Evaluation}
+\label{evaluation}
+
+We now evaluate our two proposed techniques for scaling equality saturation to complex optimizations of functional programs.
+\Cref{fig:eval-overview} illustrates our evaluation process.
+Starting from the naive lambda calculus encoding used in egg's example \cite{willsey2021-egg}, we first investigate the effectiveness of the new encoding from \cref{eqsat-bindings}, implemented in \kles{}, for unguided equality saturation (\cref{lambda-eval}).
+Thereafter, we adopt the new lambda calculus encoding in \kles{}, and compare unguided and sketch-guided equality saturation to reproduce seven complex matrix multiplication optimizations previously applied with \Elevate{} rewriting strategies (\cref{mm-eval}).
+
+\begin{figure}[b]
+    \centering
+\[\begin{tikzcd}[sep=tiny]
+	&&&&&&&&&&& \text{\parbox{8em}{\centering{}\kles{}\\ + sketch-guiding\\\footnotesize(evaluated in \cref{mm-eval})}} & {} \\
+	\\
+	\\
+	{} \\
+	& {} &&&& {} & {} \\
+	\\
+	& {} \\
+	\\
+	{} & {} & \text{\parbox{8em}{\centering{}egg\\\cite{willsey2021-egg}}} &&&&&&&&& \text{\parbox{8em}{\centering{}\kles{}\\\footnotesize(evaluated in \cref{lambda-eval})}} & {} \\
+	{} & {} & {} &&&& {} &&&&& {} & {}
+	\arrow["\textit{unguided equality saturation}"' at start, "\text{rewriting guidance (\cref{sketching})}"', "\textit{sketch-guided equality saturation}"' at end, from=9-13, to=1-13]
+	\arrow["\textit{naive}"' at start, "\lambda~\text{calculus encoding (\cref{eqsat-bindings})}"', "\textit{efficient}"' at end, from=10-3, to=10-12]
+	\arrow[dashed, from=9-12, to=1-12]
+	\arrow[dashed, from=9-3, to=9-12]
+\end{tikzcd}\]
+\caption{We first evaluate our efficient $\lambda$ calculus encoding before evaluating sketch-guided equality saturation using this encoding.}
+    \label{fig:eval-overview}
+\end{figure}
+
+
+\subsection{Impact of Lambda Calculus Encoding}
+\label{lambda-eval}
+
+The efficiency of equality saturation for the lambda calculus is evaluated by attempting to discover three rewrite goals using four combinations of the substitution and name binding techniques outlined in \cref{eqsat-bindings}.
+The naive lambda calculus encoding uses explicit substitution and variable names.
+The efficient encoding uses extraction-based substitution to avoid intermediate substitution steps, and De Bruijn indices to avoid duplicating $\alpha$-equivalent terms.
+\emph{Discovering a rewrite goal} means that it is feasible to grow an e-graph starting from the initial program until the goal program is represented in the e-class of the initial program.
+% In other words, is it possible to reach a point where the optimized program could be extracted, given the right cost function?
+
+\paragraph{Experimental Setup}
+The alternate encodings are realized for an untyped subset of the \Rise{} language in an early prototype of \kles{}.\footnote{https://github.com/Bastacyclop/egg-rise}
+% \footnote{link omitted for double-blind reviewing}
+%\kles{} builds on top of the egg library \cite{willsey2021-egg}.
+To measure search runtime, we use egg's built-in mechanisms, falling back to the GNU time utility in case of an out-of-memory exception.
+Maximum memory residency is measured with  the GNU time utility.
+The experiments are run on a laptop with an AMD Ryzen 5 PRO 2500U processor, and we limit the available RAM to 2 GB.
+
+\paragraph{Rewrite Goals}
+We use three rewrite goals with increasing complexity.
+
+\def\reductionGoal {\goalStyle{reduction}}
+The \reductionGoal{} rewrite goal in \cref{fig:reduction-rewrite} is based on a unit test from egg's lambda calculus example, and only uses \ref{eta-reduction} and \ref{beta-reduction} rules.
+The lambda calculus examples from egg are relatively simple, as the rewrite rules involved do not introduce new names on their right-hand side and in most cases do not increase term size: the e-graph size does not grow explosively.
+
+\begin{figure}[b]
+\begin{rise}
+($\lambda$comp.
+  ($\lambda$add1.
+    comp add1 (comp add1 (comp add1 (comp add1 (comp add1 (comp add1 add1)))))
+  ) ($\lambda$y. y + 1)
+) ($\lambda$f. $\lambda$g. $\lambda$x. f (g x))
+\end{rise}
+$$ \rewritesTo{}^* $$
+\begin{rise}
+$\lambda$x. ((((((x + 1) + 1) + 1) + 1) + 1) + 1) + 1
+\end{rise}
+\caption{\textbf{\reductionGoal{} rewrite goal.}
+The initial program creates a \inlineRise{comp} combinator for function composition and uses it to compose the \inlineRise{add1} function with itself 7 times.
+All uses of \inlineRise{comp} and \inlineRise{add1} are $\beta$-reduced in the final program, which simply applies \inlineRise{+ 1} to its input value 7 times.}
+\label{fig:reduction-rewrite}
+\end{figure}
+
+\def\fission {\goalStyle{fission}}
+The \fission{} rewrite goal in \cref{fig:fission-rewrite} adds the use of \ref{map-fusion} and \ref{map-fission} rewrite rules that introduce new name bindings on their right-hand-side, and interact with each other as well as \ref{beta-reduction} to create many possibilities: the e-graph size starts to explode.
+
+\begin{figure}[b]
+\begin{rise}
+map ($\lambda$x. f$_5$ (f$_4$ (f$_3$ (f$_2$ (f$_1$ x)))))
+\end{rise}
+$$ \rewritesTo{}^* $$
+\begin{rise}
+$\lambda$y. map ($\lambda$x. f$_5$ (f$_4$ (f$_3$ x))) (map ($\lambda$x. (f$_2$ (f$_1$ x))) y)
+\end{rise}
+\caption{\textbf{\fission{} rewrite goal.}
+The initial program successively applies \inlineRise!f$_1$! to \inlineRise!f$_5$! inside a \inlineRise{map} pattern.
+The final program first applies \inlineRise!f$_1$! and \inlineRise!f$_2$! inside one \inlineRise{map} pattern, before applying \inlineRise!f$_3$! to \inlineRise!f$_5$! inside another \inlineRise{map} pattern.}
+\label{fig:fission-rewrite}
+\end{figure}
+
+\def\binomial {\goalStyle{binomial}}
+The \binomial{} rewrite goal from \cref{fig:binom-rewrite} is a real optimization that requires 6 more rewrite rules, increasing interactions between rewrite rules and aggravating the e-graph growth rate.
+A binomial filter is an essential component of many image processing pipelines, where it reduces noise or detail.
+It is a 2D convolution, and in \Rise{} uses a range of patterns including \inlineRise{zip}, \inlineRise{transpose} and \inlineRise{slide} that reshape arrays in various ways.
+% creating a sliding window to group neighboring elements that are then multiplied with the convolution kernel and summed.
+The purpose of the rewrite is to separate the 2D convolution into two 1D convolutions according to the well-known convolution kernel equation:
+\begin{equation*}\label{binom-weights}
+\scriptsize
+    \left[\begin{matrix}
+        1 & 2 & 1 \\
+        2 & 4 & 2 \\
+        1 & 2 & 1 \\
+    \end{matrix}\right]
+    =
+    \left[\begin{matrix}
+        1 \\
+        2 \\
+        1 \\
+    \end{matrix}\right]
+    \times
+    \left[\begin{matrix}
+        1 & 2 & 1 \\
+    \end{matrix}\right]
+\end{equation*}
+
+
+This separation optimization reduces both memory accesses and arithmetic complexity.
+Although more complex than the previous two rewrite goals, this rewrite goal is still relatively simple and we consider that unguided equality saturation should at least scale to this goal to be useful in practice for \Rise{}.
+Prior work achieved this optimization by orchestrating 30 rewrite rules -- including 17 $\eta$/$\beta$-reductions -- with \Elevate{} rewriting strategies \cite{koehler2021-elevate-imgproc}.
+
+
+\begin{figure}
+  \begin{rise}
+map (map $\lambda$nbh. dot (join weights2d) (join nbh))
+  (map transpose (slide 3 1 (map (slide 3 1) input)))
+  \end{rise}
+  $$ \rewritesTo{}^* $$
+  \begin{rise}
+map ($\lambda$nbhL. map ($\lambda$nbhH. dot weightsH nbhH)
+    (slide 3 1 (map ($\lambda$nbhV. dot weightsV nbhV) transpose nbhL))) (slide 3 1 input)
+  \end{rise}
+  \caption{\textbf{\binomial{} rewrite goal.}
+  The initial \Rise{} program iterates over 2D neighborhoods (\inlineRise{nbh}).
+  A \inlineRise{dot} product is computed between the weights (\inlineRise{weight2d} shown in \cref{binom-weights}) and each neighborhood.
+  The final program iterates over two 1D neighborhoods (vertical and horizontal) instead.}
+  \label{fig:binom-rewrite}
+\end{figure}
+
+\paragraph{Results}
+
+
+\newcommand{\yes}{\ding{51}}
+\newcommand{\no}{\ding{55}}
+\begin{table}[b]
+\small
+\begin{tabular}{|c|c|c|c|r|r|r|r|r|} \hline
+\multicolumn{2}{|c|}{$\lambda$ calculus encoding} & \multirow{2}{*}{\textbf{goal}} & \multirow{2}{*}{\textbf{found?}} & \multirow{2}{*}{\textbf{runtime}} & \multirow{2}{*}{\textbf{RAM}} & \multirow{2}{*}{\textbf{rules}} & \multicolumn{2}{c|}{e-graph size} \\ \cline{1-2}\cline{8-9}
+\textbf{\footnotesize extraction?} & \textbf{\footnotesize De Bruijn?} &&&&&& \textbf{\footnotesize e-nodes} & \textbf{\footnotesize e-classes} \\ \hline \hline
+\no & \no & \reductionGoal{} & \yes & 0.02s & 3 MB & 0.5K & 0.5K & 0.1K \\ \hline
+\no & \no & \fission{} & \color{red}\no & 16s & $>$2000 MB &  &  &  \\ \hline
+\no & \no & \binomial{} & \color{red}\no & 15s & $>$2000 MB &  &  &  \\ \hline \hline
+
+\no & \yes & \reductionGoal{} & \yes & 0.2s & 35 MB & 28K & 53K & 25K \\ \hline
+\no & \yes & \fission{} & \yes & 0.3s & 36 MB & 39K & 21K & 10K \\ \hline
+\no & \yes & \binomial{} & \color{red}\no & 30s & $>$2000 MB &  &  &  \\ \hline \hline
+
+\yes & \no & \reductionGoal{} & \yes & 0.004s & 3 MB & 0.1K & 0.3K & 0.2K \\ \hline
+\yes & \no & \fission{} & \yes & 0.006s & 3 MB & 0.2K & 1K & 0.7K \\ \hline
+\yes & \no & \binomial{} & \color{red}\no & 20s & $>$2000 MB &  &  &  \\ \hline \hline
+
+\rowcolor{green!45}
+\yes & \yes & \reductionGoal{} & \yes & 0.002s & 3 MB & 0.1K & 0.2K & 0.1K \\ \hline
+\rowcolor{green!45}
+\yes & \yes & \fission{} & \yes & 0.006s & 3 MB & 0.6K & 0.6K & 0.3K \\ \hline
+\rowcolor{green!45}
+\yes & \yes & \binomial{} & \yes & 0.1s & 8 MB & 5K & 3K & 1K \\ \hline
+\end{tabular}
+\caption{Evaluating the efficiency of lambda calculus encoding techniques on three rewrite goals.
+Combining extraction-based substitution and De Bruijn indices minimizes runtime and memory consumption (green background), and is the only encoding that finds the \binomial{} rewrite goal.}
+\label{fig:lambda-res}
+\end{table}
+
+\Cref{fig:lambda-res} compares the performance of equality saturation using different combinations of substitution (explicit/extraction-based) and name binding (named/De Bruijn) techniques.
+It reports whether the goal is found, the search runtime, memory consumption, number of applied rewrite rules, and e-graph size.
+The simple \reductionGoal{} goal is found by all combinations, although explicit substitution with De Bruijn indices is less efficient with 25K rewrite rules, 25K e-classes, and occupying 35 MB.
+The \fission{} goal is not found if explicit substitution is used with named variables, exhausting the 2 GB memory and showing that this encoding is particularly inefficient.
+
+The \binomial{} goal is only found by combining extraction-based substitution and De Bruijn indices.
+With this encoding, all three rewrite goals are found by applying less than 5K rewrite rules, producing e-graphs with fewer than 3K e-nodes and 1K e-classes, and occupying less than 8 MB of memory.
+For all three rewrite goals, this combination provides the fastest searches and most compact e-graphs, often by orders of magnitude.
+We conclude that \emph{combining extraction-based substitution and De Bruijn indices gives an efficient encoding of lambda calculus for equality saturation}.
+
+
+\subsection{Impact of Sketch Guidance}
+\label{mm-eval}
+
+This section compares unguided equality saturation to the new sketch-guided equality saturation to achieve complex optimization goals.
+In the evaluation, \emph{both} equality saturation techniques use the efficient lambda calculus encoding from \cref{lambda-eval}.
+Matrix multiplication is selected as the case study as it allows us to compare against published \Elevate{} strategies that specify optimizations equivalent to TVM schedules~\cite{hagedorn2020-elevate}.
+TVM is a state-of-the-art deep learning compiler \cite{chen2018-tvm}, and \citet{hagedorn2020-elevate} demonstrate that expressing optimizations performed by TVM as compositions of rewrites is possible and achieves the same high performance as TVM.
+We evaluate the seven matrix multiplication optimizations described in the TVM manual and presented in~\cite{hagedorn2020-elevate}.
+The optimizations are typical compiler optimizations, including loop blocking, loop permutation, vectorization, and multi-threading.
+
+In this evaluation, we compare how much runtime and memory are required for unguided equality saturation and our sketch-guided equality saturation.
+For both guided and unguided equality saturation the optimization goal is specified as a sketch, that acts as the stopping criteria.
+This is less restrictive than the searches for a goal program in the previous subsection as the sketch goal may be satisfied by many programs.
+
+We validate that the result of each complex optimizations is high performance code as follows.
+When a program satisfying the optimization goal sketch is found, we check that the generated C code is equivalent, modulo variable names, to the manually optimized versions that already demonstrated performance competitive with TVM.
+
+%\begin{table}
+%\small
+%\begin{tabular}{|l|c|c|c|c|}
+%\hline
+%\textbf{goal} & \textbf{time} & \textbf{RAM} & \textbf{steps} & \textbf{rules} \\
+%\hline
+%baseline & <1s & <0.2 GB & 657 & 8 \\
+%\hline
+%blocking & <1s & <0.2 GB & 40K & 9K \\
+%\hline
+%vectorization & <1s & <0.2 GB & 40K & 9K \\
+%\hline
+%loop-perm & <1s & <0.2 GB & 40K & 8K \\
+%\hline
+%array-packing & <1s & <0.2 GB & 63K & 11K \\
+%\hline
+%cache-blocks & <1s & <0.2 GB & 63K & 11K \\
+%\hline
+%parallel & <1s & <0.2 GB & 63K & 11K \\
+%\hline
+%\end{tabular}
+%\caption{Runtime statistics for \Elevate{} strategies on AMD Ryzen 5 PRO 2500U.
+%From left to right: goal, strategy runtime, strategy memory usage, number of rewrite steps, number of applied rules.}
+%\label{fig:s1}
+%\end{table}
+
+\paragraph{Experimental Setup}
+% Both \Elevate{}\footnote{\url{https://github.com/elevate-lang/elevate}} and
+The full version of \kles{}\footnote{\url{https://github.com/rise-lang/shine/tree/sges/src/main/scala/rise/eqsat}} is implemented in Scala, and we use standard Java utilities for measurements: \texttt{System.nanoTime()} to measure search runtime, and the \texttt{Runtime} api to approximate maximum heap memory residency with regular  sampling.
+%\footnote{link omitted for reviewing}
+
+The experiments are performed on two platforms.
+For \Elevate{} strategies and our sketch-guided equality saturation, we use a less powerful AMD Ryzen 5 PRO 2500U with 4 GB of RAM available to the JVM.
+For unguided equality saturation, we use a more powerful Intel Xeon E5-2640 v2 with 60 GB of RAM available to the JVM.
+
+\def\baseline {\goalStyle{baseline}}
+\def\blocking {\goalStyle{blocking}}
+\def\vectorization {\goalStyle{vectorization}}
+\def\loopperm {\goalStyle{loop-perm}}
+\def\arraypacking {\goalStyle{array-packing}}
+\def\cacheblocks {\goalStyle{cache-blocks}}
+\def\parallel {\goalStyle{parallel}}
+
+\begin{table}
+\small
+\begin{tabular}{|l|c|r|r|r|r|r|}
+\hline
+\textbf{goal} & \textbf{found?} & \textbf{runtime} & \textbf{RAM} & \textbf{rules} & \textbf{e-nodes} & \textbf{e-classes} \\
+\hline
+\baseline{} & \yes & 0.5s & 0.02 GB & 2 & 51 & 49 \\
+\hline
+\blocking{} & \yes & >1h & 35 GB & 5M & 4M & 2M \\
+\hline
+\vectorization{} & \color{red} \no & >1h & >60 GB &  &  &  \\
+\hline
+\loopperm{} & \color{red} \no & >1h & >60 GB &  &  &  \\
+\hline
+\arraypacking{} & \color{red} \no & 35mn & >60 GB &  &  &  \\
+\hline
+\cacheblocks{} & \color{red} \no & 35mn & >60 GB &  &  &  \\
+\hline
+\parallel{} & \color{red} \no & 35mn & >60 GB &  &  &  \\
+\hline
+\end{tabular}
+\caption{Runtime and memory consumption for \textbf{unguided equality saturation} with efficient lambda calculus encoding.
+Only the \baseline{} and \blocking{} optimization goals are found, with other optimizations exceeding 60 GB.}
+\label{fig:s2}
+\end{table}
+
+\paragraph{Unguided Equality Saturation}
+\Cref{fig:s2} shows the runtime and memory consumption required to find the optimization goals with unguided equality saturation.
+The search terminates when the sketch describing the optimization goal is found in the e-graph.
+Most optimization goals are not found before exhausting the 60 GB of available memory.
+Only the \baseline{} and \blocking{} goals are found, and the search for \blocking{} requires more than 1h and about 35 GB of RAM.
+Millions of rewrite rules are applied, and the e-graph contains millions of e-nodes and e-classes.
+More complex optimizations involve more rewrite rules, creating a richer space of equivalent programs but exhausting memory faster.
+As examples, \vectorization{} and \loopperm{} use vectorization rules, while \arraypacking{}, \cacheblocks{}, and \parallel{} use rules for optimizing memory storage.
+
+\begin{table}
+\small
+\begin{tabular}{|l|c|c|r|r|r|r|r|}
+\hline
+\textbf{goal} & \textbf{sketch guides} & \textbf{found?} & \textbf{runtime} & \textbf{RAM} & \textbf{rules} & \textbf{e-nodes} & \textbf{e-classes} \\
+\hline
+\baseline{} & 0 & \yes & 0.5s & 0.02 GB & 2 & 51 & 49 \\
+\hline
+\blocking{} & 1 & \yes & 7s & 0.3 GB & 11K & 11K & 7K \\
+\hline
+\vectorization{} & 2 & \yes & 7s & 0.4 GB & 11K & 11K & 7K \\
+\hline
+\loopperm{} & 2 & \yes & 4s & 0.3 GB & 6K & 10K & 7K \\
+\hline
+\arraypacking{} & 3 & \yes & 5s & 0.4 GB & 9K & 10K & 7K \\
+\hline
+\cacheblocks{} & 3 & \yes & 5s & 0.5 GB & 9K & 10K & 7K \\
+\hline
+\parallel{} & 3 & \yes & 5s & 0.4 GB & 9K & 10K & 7K \\
+\hline
+\end{tabular}
+\caption{Runtime and memory consumption for \textbf{sketch-guided equality saturation} with efficient lambda calculus encoding.
+All optimizations are found in seconds using less than 0.5 GB of memory, and requiring at most 3 sketch guides.}
+\label{fig:s3}
+\end{table}
+
+\paragraph{Sketch-Guided Equality Saturation}
+\Cref{fig:s3} shows the runtime and memory consumption for sketch-guided equality saturation, where sketches guide the optimization process and break a single equality saturation search into multiple.
+All optimizations are found in less than 10s, using less than 0.5 GB of RAM.
+Interestingly, the number of rewrite rules applied by sketch-guided equality saturation is in the same order of magnitude as for the manual \Elevate{} strategies reported in~\cite{hagedorn2020-elevate}.
+On one hand, equality saturation applies more rules than necessary because of its explorative nature.
+On the other hand, \Elevate{} strategies apply more rules than necessary because they re-apply the same rule to the same sub-expression and do not necessarily orchestrate the shortest possible rewrite path.
+% This indicates that applying rewrite rules is more expensive in the equality saturation setting, corresponding to the cost of exploring all possibilities.
+The e-graphs contain no more than $10^{4}$ e-nodes and e-classes, two orders of magnitude less than the $10^{6}$ required for \blocking{} without sketch-guidance.
+% $10^{6}$ = millions
+
+\paragraph{E-Graph Evolution in Guided and Unguided Search}
+\Cref{fig:evolution-over-iterations} plots the growth of the e-graphs during unguided and sketch-guided equality saturation searches for the \blocking{} and \parallel{} optimization goals from Tables~\ref{fig:s2} and~\ref{fig:s3}.
+The e-graphs produced by unguided equality saturation grow exponentially with each search iteration. The e-graph contains millions of e-nodes and e-classes, and millions of rules have been applied, within a small number of iterations (less than 10). Such rapid growth limits the scalability of unguided search, for example in the 7th iteration of the \parallel{} search the e-graph exhausts 60GB memory.
+
+While the e-graphs produced by sketch-guided equality saturation typically also grow exponentially with each iteration, sketches are satisfied within a small number of iterations thanks to an appropriate selection of sketch guides.
+In consequence the number of rewrites and crucially the maximum size of the e-graphs is \emph{three orders of magnitudes smaller} than for unguided search: no more than 11K in our example searches.
+Once a program satisfying a sketch guide is found, a new search is started for the next sketch using that program, growing a fresh e-graph that remains small.
+Hence sketch-guided equality saturation can scale to more complex optimizations of functional programs, such as \parallel{}. 
+Conceptually factoring optimizations into a long sequence of sketch-guided searches means that there is no limit on the complexity of the optimizations, i.e. the number of rewrites, that may be searched for.
+
+The search for the final \parallel{} sketch goal shows linear rather than exponential growth. This is likely because the set of rewrite rules used by the search have little interaction. We will discuss the impact of choosing suitable sets of rewrite rules shortly.
+
+\begin{figure}
+\captionsetup{justification=centering}
+    \centering
+    \begin{subfigure}[b]{0.49\linewidth}
+    \centering
+    \resizebox{!}{8em}{\input{media/unguided-blocking.pgf}}
+    \caption{unguided equality saturation\\ \blocking{} (found: \yes)}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.49\linewidth}
+    \resizebox{!}{8em}{\input{media/unguided-parallel.pgf}}
+    \caption{unguided equality saturation\\ \parallel{} (found: {\color{red}\no})}
+    \end{subfigure}\\
+    \begin{subfigure}[b]{0.49\linewidth}
+    \centering
+    \resizebox{!}{8em}{\input{media/guided-blocking.pgf}}
+    \caption{sketch-guided equality saturation\\ \blocking{} (found: \yes)}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.49\linewidth}
+    \resizebox{!}{8em}{\input{media/guided-parallel.pgf}}
+    \caption{sketch-guided equality saturation\\ \parallel{} (found: \yes)}
+    \end{subfigure}
+\captionsetup{justification=justified, singlelinecheck=off}
+    \caption{The evolution of the e-graph, and the number of rewrite rules applied, during searches for two optimization goals.
+    Sketch guides are depicted with purple vertical lines.
+    % The blocking optimization is guided by one sketch, while the parallel optimization is guided by three sketches.
+    Note that the scale of the y-axes for unguided graphs (a) and (b) is millions, while for guided graphs (c) and (d) it is thousands.}
+    \label{fig:evolution-over-iterations}
+\end{figure}
+
+\paragraph{Sketches Guiding the Search}
+\Cref{fig:sketch-logical} shows how each optimization goal is described by logical optimization steps, each corresponding to a sketch describing the program after the step is applied.
+It transpires that the \goalStyle{split} sketch in \cref{mm-blocking-split-sketch} is a useful first guide for all optimization goals.
+While the sketch sizes range from 7 to 12, programs are of size 90 to 124, showing that a sketch elides around 90\% of the program.
+Even when 4 sketches must be written, the total size of the sketches is still small: the largest total being 38.
+Intricate aspects of the optimized program never need to be specified in the sketches, for example array reshaping patterns such as \inlineRise{split}, \inlineRise{join} and \inlineRise{transpose}.
+
+\begin{table}
+  \small
+\begin{tabular}{|l|l|l|r|r|} \hline
+\textbf{goal} & \textbf{sketch guides} & \textbf{sketch goal} & \textbf{sketch sizes} & \textbf{program size}\\ \hline
+\blocking{} & \goalStyle{split} & \goalStyle{reorder$_1$} & 7 & 90 \\ \hline
+\vectorization{} & \goalStyle{split} + \goalStyle{reorder$_1$} & \goalStyle{lower$_1$} & 7 & 124 \\ \hline
+\loopperm{} & \goalStyle{split} + \goalStyle{reorder$_2$} & \goalStyle{lower$_2$} & 7 & 104 \\ \hline
+\arraypacking{} & \goalStyle{split} + \goalStyle{reorder$_2$} + \goalStyle{store} & \goalStyle{lower$_3$} & 7-12 & 121 \\ \hline
+\cacheblocks{} & \goalStyle{split} + \goalStyle{reorder$_2$} + \goalStyle{store} & \goalStyle{lower$_4$} & 7-12 & 121 \\ \hline
+\parallel{} & \goalStyle{split} + \goalStyle{reorder$_2$} + \goalStyle{store} & \goalStyle{lower$_5$} & 7-12 & 121 \\ \hline
+\end{tabular}
+\caption{Decomposition of each optimization goal into logical steps. A sketch is defined for each logical step. In this table, sketch size counts operators such as \inlineRiseSketch{containsMap}, program size counts operators such as \inlineRise{map}, lambdas, variables and constants: $\lambda$ applications are not counted.}
+\label{fig:sketch-logical}
+\end{table}
+
+\paragraph{Choice of Rules and Cost Model}
+Besides the sketches, programmers also specify the rules used in each search and a cost model.
+For the \texttt{split} sketch, 8 rules are required explaining how to split \inlineRise{map} and \inlineRise{reduce}.
+The \texttt{reorder} sketches require 9 rules that swap various nestings of \inlineRise{map} and \inlineRise{reduce}.
+The \texttt{store} sketch requires 4 rules and the \texttt{lower} sketches 10 rules including \ref{map-fusion}, 6 rules for vectorization, 1 rule for loop unrolling and 1 rule for loop parallelization.
+If we naively use all rules for the blocking search, the search runtime increases by about 25$\times$, still finding the optimizations in minutes but showing the importance of selecting a small set of rules.
+
+We use a simple cost model that minimizes weighted term size.
+Rules and cost models may be reused and packaged into libraries for recurring logical steps.
+
+% \paragraph{Cost Model} The model required for matrix multiplication is very simple. That is, minimizing weighted term size is sufficient, as the sketches are already precise:
+
+% $$ \mathrm{c}(f(k_1, .., k_n)) = \mathrm{weight(f)} + \sum_{i} k_i $$
+
+
+
+
+
+
+% \paragraph{E-Graph Pruning}
+% \michelcomment{This might go}
+% Often there are programs that we are obviously not interested in, and could be removed from the e-graph during a search.
+% Due to the extensive sharing, deleting individual programs from the e-graph is difficult in general.
+% However, there are some simple cases.
+% For example, we implement a filter removing all e-classes that only contribute to constructing programs of more than a given size limit.
+% This is useful because exploring unreasonably large terms is typically not desirable.

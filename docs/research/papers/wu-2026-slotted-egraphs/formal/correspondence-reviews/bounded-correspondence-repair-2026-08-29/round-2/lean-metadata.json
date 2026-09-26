@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "review_round": 2,
+  "role": "LEAN_METADATA_AND_CORRESPONDENCE_COHERENCE",
+  "reviewer_task_id": "/root/approved_round_mechanical",
+  "fresh_instance": true,
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "coverage": {
+    "frozen_hashes": "20/20",
+    "active_mappings_tags_declarations_and_spans": "146/146",
+    "named_environments": "27/27",
+    "compiler_metadata": "146/146",
+    "axiom_checks": "83/83",
+    "lean_source_hashes": "19/19",
+    "formal_source_config_entries": "22/22",
+    "proof_sketches": "19/19",
+    "artifact_rows_preserved": "8/8",
+    "edge_rows_preserved": "9/9"
+  },
+  "lean_version": "4.33.0",
+  "fresh_compiler_dump_count": 2,
+  "fresh_compiler_dumps_raw_byte_identical": true,
+  "fresh_compiler_dump_sha256": "6b4043e23d2a396f1eeb5f92d8162c1e102554a36f6c7ad65025cf09d0d11bb6",
+  "axiom_union": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "axiom_whitelist_violations": [],
+  "curated_paper_graph": {
+    "nodes": 158,
+    "direct_edges": 221,
+    "acyclic": true
+  },
+  "compiler_active_graph": {
+    "nodes": 146,
+    "direct_edges": 200,
+    "transitive_pairs": 207,
+    "strongly_connected_components": 146,
+    "cycles": 0,
+    "self_loops": 0
+  },
+  "artifact_commit": "676480899dc2ed29253d00c59beaf116ebd2c675",
+  "experiment_source_commit": "88363ea23728329948ccc9d5cdad690cc5787ca5",
+  "artifact_refinement_status": "PARTIAL",
+  "experimental_replay_status": "PARTIAL",
+  "blocking_findings": [],
+  "verdict": "PASS",
+  "source_mutation_observed": false,
+  "builds_executed": false
+}

@@ -1,0 +1,118 @@
+\section{Related Work}
+\label{sec:related}
+
+% todo:
+% http://www.eecs.qmul.ac.uk/~gretay/papers/onward2017.pdf
+
+\paragraph{Superoptimization for LLVM and GCC}
+%
+A superoptimizer by Sands~\cite{Sands11} pointed out many opportunities
+for optimizations that had not yet been implemented in LLVM around 2010
+and 2011.
+%
+This tool had many similarities to \tool{}: it extracted directed
+acyclic graphs of LLVM IR during compilation and then attempted to
+optimize them, it focused on the integer subset of LLVM, and it
+presented its results ordered by static profile count.
+%
+On the other hand, Sands' tool relied on testing to perform
+equivalence checking and was, therefore, unsound; this did not lead to
+miscompilations since it worked offline, and was only intended to
+generate suggestions for developers to implement.
+%
+To synthesize right-hand sides, this superoptimizer applied various
+heuristic simplifications of the left-hand side.
+%
+Analogously, the GNU superoptimizer~\cite{Granlund92} was an unsound,
+enumeration-based tool that was used to improve GCC's code generation
+by deriving ways to turn code with control flow into straight-line
+code.
+
+
+\paragraph{An online superoptimizer}
+%
+Most previous superoptimizers have been intended for offline use: it
+has not been practical to run them during regular compiles.
+%
+Bansal and Aiken's tool~\cite{Bansal06} is one of the few exceptions:
+it achieved good performance by caching its results in a database
+(among other techniques).
+%
+Additionally, it was sound, using a SAT solver to verify equivalence.
+%
+This tool was a direct inspiration for \tool{}, though our work
+improves upon it in important ways, for example by using synthesis
+instead of enumeration to construct RHSs, by learning dataflow facts
+from diverging and converging control flow, and by extracting
+instructions that are related by dataflow rather than instructions
+that happen to be close to each other in the instruction stream.
+%
+Bansal and Aiken's tool, on the other hand, could deal with memory
+accesses and vector instructions, while \tool{} cannot.
+
+
+\paragraph{The original superoptimizer}
+%
+Massalin~\cite{Massalin87} coined the term \emph{superoptimizer} to
+emphasize the fact that regular optimizers produce code that is
+far from optimal.
+%
+His tool was offline and unsound, using enumeration to discover
+right-hand sides and testing to rule out inequivalent ones.
+
+
+\paragraph{The earliest superoptimizers}
+%
+Fraser's 1979 paper~\cite{Fraser79} is the earliest work we know of
+that captures all of the essential ideas of superoptimization:
+extracting instruction sequences from real programs, searching for
+cheaper ways to compute them, and checking each candidate using an
+equivalence checker.
+%
+Moreover, unlike much subsequent work, Fraser's equivalence checker
+was sound.
+%
+Subsequently, in 1984, Kessler~\cite{Kessler84} developed a sound
+superoptimizer for a Lisp compiler.
+
+
+\paragraph{Recent superoptimizers}
+%
+There has been significant progress in superoptimizers in recent
+years.
+%
+Optgen~\cite{Buchwald15}, like \tool{} and unlike almost all of the
+other work described in this section, operates on IR rather than
+assembly language.
+%
+It generates all optimizations up to a cost limit, rather than
+extracting code sequences from programs.
+%
+Unlike \tool{}, it can synthesize optimizations containing symbolic
+constants.
+%
+STOKE~\cite{Schkufza13,Schkufza14,Sharma15} is a sound superoptimizer
+that uses randomized search, rather than solver-based synthesis, to
+find cheap right-hand sides.
+%
+It can handle many features that \tool{} cannot, including memory,
+floating point instructions, approximations, and even, in conjunction
+with the DDEC tool~\cite{Sharma13}, loops.
+%
+Chlorophyll~\cite{Phothilimthana14} is a synthesis-aided compiler for
+a 144-core chip.
+%
+Finally, GreenThumb~\cite{Phothilimthana16} is a generic
+superoptimizer that can be easily retargeted; it has been used to
+optimize LLVM IR\@.
+
+
+
+
+\paragraph{Synthesis}
+%
+There has been enormous progress in program sketching and synthesis in
+the last few years.
+%
+Our work mainly builds upon a single paper, Gulwani et
+al.~\cite{Gulwani11}.

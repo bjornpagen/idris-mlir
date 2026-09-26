@@ -1,0 +1,44 @@
+\section{Related Work}
+
+\MLIR is a project that overlaps with multiple different domains. While the
+composed infrastructure provides a novel system, individual components have analogs in the literature. For references and discussion directly related to the IR design itself, please refer to Section~\ref{sec:design}.
+
+\MLIR is a compiler infrastructure akin to
+LLVM~\cite{LLVM:CGO04}, but where LLVM has been a great boon to scalar
+optimizations and homogeneous compilation, \MLIR aims to model a rich set of data structures and algorithms as first-class values and operations, including tensor algebra and algorithms, graph representations, as well as heterogeneous compilation.
+%For example, canonicalization, folding, and dead code elimination operate on all operations, and to some extent global optimizations like function inlining.
+\MLIR allows mix-and-match optimization decomposing compilation passes into components and redefining lowering, cleanup roles. This is largely attributed to the pattern rewriting infrastructure, capturing full-fledged transformations as a composition of small local patterns and controlling which pattern rewrites are applied at the granularity of an individual operation. Extending, formalizing, and verifying the rewriting logic automatically would be an important next step \cite{DBLP:journals/scp/BravenboerKVV08,Meseguer:2010:TYR:1927806.1927809}.
+On the backend side, \MLIR's DDR has an analogue to LLVM's instruction selection infrastructure, supporting extensible operations with multi-result patterns and specification as constraints \cite{Thier:2018:FFI:3178372.3179501}.
+%Heterogeneity may be seen from the frontend languages, often domain-specific, and their interactions within a single application; and of course also in terms of the diverse hardware targets and their communication and synchronization devices.
+
+Numerous programming languages and models tackle hardware heterogeneity. Originally a homogeneous programming model, OpenMP added support for offloading tasks and parallel regions to accelerators \cite{OpenMP}, based on earlier proposals such as StarSs and OpenACC \cite{DBLP:journals/ijhpca/PlanasBAL09,OpenACC}. \Cpp AMP, HCC and SyCL leverage a conventional Clang/LLVM flow and modern \Cpp to provide a high-level abstraction for hardware acceleration~\cite{SyCL}. Unfortunately, all these examples very quickly lower high-level constructs to calls to a runtime execution environment, relying on pre-existing optimizations in the host language (typically \Cpp) to alleviate the abstraction penalty. Far fewer efforts target the heterogeneous compilation process itself. Parallel intermediate representations extending LLVM IR address part of the issue but traditionally focus on the homogeneous setting \cite{Khaldi:2015:LPI:2833157.2833158,Schardl:2017:TEF:3155284.3018758}. The most ambitious effort to date may be Liquid Metal \cite{Auerbach:2012:CRH:2228360.2228411}, with a co-designed Domain Specific Language (DSL) and compilation flow converting managed object semantics into static, vector or reconfigurable hardware; yet most of the effort in its Lime compiler reside in fitting round objects into square hardware (paraphrasing Kou and Palsberg \cite{Kou:2010:OFF:1869459.1869470}). \MLIR provides a direct embedding for high level languages embracing heterogeneity through extensible set of operations and types, while providing a common infrastructure for gradually lowering these constructs with maximal reuse of common components across the different targets.
+
+Tackling language heterogeneity has been a long-term promise of metaprogramming systems, and of multistage programming in particular. Lightweight Modular Staging (LMS)~\cite{DBLP:journals/cacm/RompfO12} is a state of the art framework and runtime code generator, providing a library of core components for generating efficient code and embedding DSLs in Scala. Delite~\cite{DBLP:journals/tecs/SujeethBLRCOO14} promises dramatic productivity improvements for DSL developers, while supporting parallel and heterogeneous execution. We believe this approach is complementary to \MLIR, providing a higher-level of abstraction to embed DSLs and implement optimizations through generic metaprogramming constructs.
+
+One step further up into the language syntax,
+ANTLR~\cite{antlr} is among a class of parser generators that aim to make it
+easy to develop a new compiler frontend. \MLIR currently does not have a general
+parser generation, no AST construction or modeling functionality.
+Combining \MLIR
+with a system such as ANTLR could result in reusable compiler libraries
+from user input through to code generation.
+
+More narrowly construed by their application to machine learning, XLA~\cite{xla},
+Glow~\cite{rotem2018glow} and TVM~\cite{auto-tvm}, address
+similar heterogeneous compilation objectives. Yet these are rather specific code generation instances starting
+from a graph abstraction and targeting multi-dimensional vector abstractions for
+accelerators. All of these could leverage \MLIR as infrastructure, taking advantage of
+the common functionality while using their current code generation strategies.
+Similarly, the loop nest metaprogramming techniques from Halide~\cite{halide}
+and
+TVM~\cite{auto-tvm}, earlier loop nest
+metaprogramming~\cite{uruk,10.1007/978-3-642-19595-2_10,DBLP:conf/cgo/BagneresZHB16,Cohen:2006:SPG:1161486.1161489},
+and fully automatic flows such as PolyMage~\cite{mullapudi2015asplos}, Tensor
+Comprehensions~\cite{tc}, Stripe~\cite{plaidml}, Diesel~\cite{Elango:2018:DDL:3211346.3211354}, Tiramisu \cite{Bag19} and their underlying polyhedral compilation
+techniques~\cite{Fea92b,isl,bondhugula08pldi,ppcg} could
+co-exist as different code
+generation paths within an \MLIR-based compilation framework.
+Serialization and interoperability formats, such as ONNX~\cite{onnx}, have a
+different approach towards addressing the diversity of ML frontends by providing
+a common set of ops that different frameworks could map on to. ONNX would be a
+candidate as a dialect in \MLIR to which other ops could be lowered to and from.

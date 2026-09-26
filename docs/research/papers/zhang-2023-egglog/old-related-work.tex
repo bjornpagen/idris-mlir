@@ -1,0 +1,416 @@
+
+\begin{comment}
+
+% SMT solvers orchestrating theory specific solvers around a boolean SAT solver.
+% It is essentially ubiquitous that one of these theory specific solvers is the
+% theory of uninterpreted functions, backed in some form by an \egraph. One of the
+% possible mechanisms by which to treat universal quantifiers is e-matching.
+% Universally quantified formulas may be annotated by trigger multi-patterns,
+% which search the \egraph and instantiate the axiom upon a match.
+
+% In distinction to egglog, SMT solvers are heavily backtracking based.
+
+% At a high level, SMT solvers contain the pieces from which one might construct a
+% solver similar to Egglog, but they are not arranged in this way.
+
+% SMT solvers are difficult to debug and understand. The input language is highly
+% declarative, with very little operational intent. Egglog's operational semantics
+% is quite simple and predictable enough to be programmable.
+
+% There is more content in the result returned by Egglog compared to a SMT solver.
+% A SMT solver may either return unsat with a proof or SAT with a model. The
+% egglog database only contains facts that can be justified by the application of
+% rules. A SMT model has no requirements for justification.
+
+% You can take an inferred fact from the egglog database, assert its negation to
+% an SMT solver, and the SMT solver may return unsat (or unknown or loop forever).
+% In this case, the egglog justification and the SMT unsat proof may align.
+% However, there appears to be no obvious modality of use of an SMT solver that
+% would find this derived fact and return it to the user.
+
+% Z3 exposes it's rewriting simplifier via a simplify command. This simplifier
+% however is not programmable, and does not use assumptions in the solver context
+% that may be necessary, such as no-aliasing conditions in array expressions.
+
+% Horn clauses specified in SMTLib are capable of expressing a subset of the
+% syntax of egglog rules.
+
+% Z3 also has a built in Datalog engine. This Datalog engine is largely disjoint
+% from the main capabilities of Z3 and is mostly an entirely separate project in
+% the same codebase.
+
+
+\yz{what's a canonical reference for prolog?}
+
+% TODO: mention unification variables cannot be removed
+
+% z3 is not minimal. A solution to equality saturation will union everything together.
+
+\subsection{E-graphs}
+
+\Egraphs are first introduced in Greg Nelson's seminal thesis~\citep{nelson}
+ in late 1970s 
+ as a way of effectively deciding the theory of equalities.
+A more efficient algorithm is later introduced by \citet{tarjan-congruence} 
+ and the time complexity of this algorithm is analyzed.
+\Egraphs are then used at the core of 
+ various theorem provers and solvers~\citep{simplify, z3, cvc4}.
+In the 2000s, 
+ \egraphs are repurposed for program optimization \citet{eqsat,denali}.
+The technique, known as equality saturation, 
+ repeatedly performs non-destructive rewriting on the \egraphs 
+ to grow a compact space of equivalent programs.
+An extraction procedure is then applied to extract the optimal program.
+In essence, equality saturation mitigates the phase-ordering problem by keeping 
+ all programs.
+This inspires later work on using \egraphs for
+ translation validation~\citep{eqsat-llvm}, 
+ floating-point arithmetic~\citep{herbie},
+ semantic code search~\citep{yogo-pldi20},
+ and computer-aided design~\citep{wu_siga19}.
+However, a generic framework for \egraphs is not yet available,
+ and developing \egraphs--based applications
+ requires implementing \egraphs from scratch and is therefore a tedious effort.
+Recently, a generic framework for \egraphs, 
+ called \texttt{egg}, is developed~\citep{egg}.
+As a result, many projects sprang up building domain-specific projects using \egraphs,
+ including rewrite rule synthesis~\citep{ruler}, machine learning compiler~\citep{tensat,glenside},
+ relational query optimization~\citep{spores}, and
+ digital signal processing vectorization~\citep{diospyros}.
+
+The connection between \egraphs and relational databases
+ is first studied by \citet{relational-ematching}.
+They propose to view an \egraph as a relational database,
+ which makes \ematching orders of magnitude faster
+ and prove desired theoretical properties.
+However, to use this technique,
+ one has to keep both the \egraph and its relational representation 
+ and convert back and forth, which limits its practical adoptions.
+We build on their work, 
+ which only takes a static relational snapshot of \egraph each time,
+ and explore how \egraphs as a relational database will behave dynamically.
+This saves us from the labor of keeping and syncing between the two \egraph representations
+ and further exploits the benefits of the relational \ematching approach.
+
+Many works on improving \egraphs focus on the efficiency and usability of \egraphs.
+% Some of these works are subsumed by the relational \egraphs.
+Relational \egraphs bring a new perspective to some of these works.
+For example, \citet{efficient-e-matching} studied
+ the incremental maintenance problem of the \ematching procedure
+ and one of its standard extension called multi-patterns.
+\citet{tensat} also proposed an algorithm 
+ to extend \egraph frameworks with multi-patterns for equality saturations.
+In relational \egraphs, multi-patterns are supported naturally~\citep{relational-ematching},
+ and incremental maintenance can be achieved using semi-na\"ive evaluation,
+ which is a standard technique for evaluating Datalog programs~\citep{seminaive}.
+Many applications extend the expressiveness of \egraphs 
+ by writing domain-specific analyses in a general purpose language.
+For example, to reason about lambda calculus in \egg, 
+ a user may want to implement an analysis that
+ manually tracks the set of free and bound variables~\citep{egg}
+ in Rust.
+Such analyses can be written as rules in pure relational \egraphs.
+For some other works, 
+ the problem of finding and understanding its relational dual 
+ is still open to future research.
+For instance,
+ applications like SMT solvers not only want to know if two terms are equivalent, 
+ but also why they are equivalent.
+Techniques are developed to generate proofs for equivalences in \egraphs~\citep{pp-congr}\%
+\revision{, a future work is to explore proof generation for \egglog programs}.
+\delete{
+ It is speculated that proofs for congruence closure in relational form 
+ may just be database provenance~\citep{prov-semiring,prov-souffle}.
+}
+Moreover,
+ scheduling is a critical component of equality saturation~\citep{egg}, 
+ and a good scheduling algorithm is a key enabler of scalable equality saturations.
+However, 
+ for relational languages like Datalog,
+ the scheduling problem is less studied,
+ because Datalog programs are usually run to fixpoint,
+ while the fixpoint for equality saturation is usually infinitary.
+A future direction is to study the scheduling problem for relational \egraphs.
+
+Other data structures for compact program representation 
+ have also been long studied in the literature for decades,
+ in particular version space algebras (VSAs)~\citep{vsa,flashmeta} 
+ and finite tree automata~\citep{blaze, dace}.
+Recently, it is shown that both \egraphs and VSAs are special cases of finite tree automata~\citep{vsa-eq-fta}.
+A natural question is therefore if we can encode 
+ VSAs, finite tree automata, and operations over them in a relational approach,
+ and how we can possibly benefit from such an encoding for tasks 
+ like program synthesis and program optimization.
+
+\subsection{Relational databases and Datalog}
+
+Our work is closely related to works on Datalog and relational database.
+Relational \egraphs are directly inspired by work on data dependencies and the chase.
+Equality generating dependencies (EGDs) are data dependencies of the form 
+ $\forall \vec{x}.\lambda(\vec{x}) \rightarrow x_i=x_j$,
+ which asserts the equality between terms under conditions given by predicate $\lambda$.
+EGDs generalizes the congruences in equality saturation, 
+ e.g., the congruence property of binary operator \textit{add} can be written as
+ $\forall x,y,z_1,z_2.\textit{add}(x, y, z_1), \textit{add}(x, y, z_2)\rightarrow z_1=z_2$.
+Tuple generating dependencies (TGDs) are another kind of data dependencies of the form
+ $\forall \vec{x}, \lambda(\vec{x})\rightarrow \exists \vec{y}, \rho(\vec{x}, \vec{y})$,
+ which essentially generalizes Datalog rules with existential quantifiers in the body.
+TGDs generalizes rewrite rules in equality saturation.
+For example, the associativity is expressed as TGD
+ $\forall x,y,xy,z,xyz. \textit{add}(x, y, xy), \textit{add}(xy, z, xyz)\rightarrow \exists yz.\textit{add}(y, z, yz), \textit{add}(x, yz, xyz)$.
+The chase is a family of iterative algorithms
+ for reasoning about data dependencies~\citep{chase-revisited, bench-chase}.
+Therefore,
+ equality saturation can be effectively viewed as a chase algorithm.
+As a chase procedure, equality saturation has many interesting properties that are worth further study:
+While there may be many finite universal models to data dependencies in the chase,
+ in equality saturation,
+ there will be at most one finite universal model, 
+ which is the core.
+Moreover,
+ equality saturation terminates 
+ if and only if there is a finite universal model of the given dependencies, 
+ which equality saturation will output,
+In contrast,
+ the (non-core) chase does not necessarily terminate 
+ even when a finite universal solution of the input dependencies exists,
+ or such a finite solution is very expensive to compute (with the core chase~\citep{chase-revisited}).
+A future direction is 
+ to understand equality saturation using the theories developed 
+ in database research.
+
+Many applications using \egraphs rely on domain-specific analyses.
+To express these analyses in a generic \egraph framework, 
+ \egg proposed a framework called \eclass analyses.
+%  which maintains a lattice associated with each \eclass monotonically.
+An \eclass analysis can be thought of as an aggregation of 
+ information in the corresponding \eclass's \enodes and their children's \eclass analyses.
+\Eclass analyses are interdependent,
+ because the \eclass analysis of one \eclass depends on its children's \eclass analyses.
+Therefore,
+ \eclass analyses can be formulated as recursive aggregates in Datalog.
+However, unconstrained aggregates within recursions are dangerous, 
+ as it can lead to non-monotonic programs and there may not be (stable) models,
+ so in practice aggregate stratification is enforced.
+Several approaches are proposed to loosen the aggregate stratification requirement 
+~\citep{mono-agg,bloom-lattice,datalogo,prov-semiring,flix}.
+Among these approaches,
+ the \eclass analyses naturally matches the lattice semantics proposed by Flix~\citep{flix},
+ as each \eclass analysis monotonically maintains a lattice, which is associated with each \eclass,
+In Flix, relations are optionally annotated with a lattice,
+ which aggregates over values passed it according to the lattice join operation.
+% This is precisely the semantics of \eclass analyses in relational form.
+Our relational \egraphs extends Flix by allowing multiple atoms in the head.
+A similar lattice-based approach is studied 
+ in the Bloom$^\text{L}$ language~\citep{bloom-lattice}.
+
+Following relational \ematching~\citep{relational-ematching}, 
+ we use worst-case optimal join for solving queries over relational \egraphs.
+Different from relational \ematching,
+ which only needs to consider static snapshots of a relational database
+ (i.e., no writes),
+ we have to also consider insertions and updates to the database.
+Several previous works considered 
+ adopting worst-case optimal joins for practical systems.
+Two critical dimensions in the design space is the design of indexes
+ and query planning.
+For indices,
+ EmptyHeaded only considers scenarios with static dataset~\citep{emptyheaded}
+ and therefore their indexes are read-optimized and need to be precomputed.
+Our context for using worst-case optimal join requires to update the database
+ and is therefore more similar to LogicBlox.
+LogicBlox is a commercial database system that uses leapfrog triejoin (LFTJ)~\citep{lftj}, 
+ which is worst-case optimal,
+ for its query processing~\citep{logicblox}.
+To support both LFTJ and efficient updates, 
+ LogicBlox uses write-optimized B-trees for indexes.
+Different indexes are created and maintained 
+ when they are used by query plans generated from the query optimizer.
+Recently, 
+ \citet{umbra-wcoj} implements a worst-case optimal join 
+ inside the Umbra database system.
+In their design,
+ the indices are built on-the-fly during join processing
+ and are optimized for fast building.
+This design allows efficient updates to databases 
+ since no additional indices need to be maintained during updates.
+
+In terms of query optimization,
+ LogicBlox uses a sampling-based technique to pick a good query plan.
+EmptyHeaded uses generalized hypertree decomposition (GHD),
+ which allows it to provide guarantees even stronger than 
+ those provided by standard worst-case optimal joins.
+\citep{umbra-wcoj} uses cardinality information to optimize its query plans,
+ and allows hybrid query plans that use binary joins like hash joins
+ when it is deemed that worst-case optimal join does not offer a benefit.
+Currently, the query optimizer of our relational \egraph is relatively simple,
+ and we hope to study and adopt techniques used in other database systems 
+ that use worst-case optimal joins.
+
+\subsection{Egg}
+Egglog is a generalization and homogenization of the work in Egg. A novel
+feature of Egg compared to previous work on egraphs was the presence of
+Analyses, data annotated on top of eclasses. Egglog offers a concrete
+s-expression based syntax that avoids the need to code and compile Rust, a new
+high performance relational  e-matching engine, and allows easy and
+compositional creation of analyses in the datalog style.
+
+\subsection{Datalog}
+Datalog is a variant of prolog that is commonly executed in a bottom up fashion
+using database algorithms. In its narrow definition, it does not allow for
+structured data or unbounded arithmetic operations. These restrictions allow for
+trivial arguments for it's termination. The final database is bounded above by a
+fully saturated database filled with every combination of initial symbols.
+
+There are a number of enhancements that one can make to Datalog.
+
+Datalog can include terms. If new terms are constructable, the simple
+termination guarantees of Datalog are out the window.
+
+Some extensions to Datalog can be interpreted as logically motivated ways to
+achieve deletion.
+
+Lattice types are one possible addition to Datalog. The canonical example of
+such a Datalog is Flix. The axioms of a lattice give the leeway necessary to
+unconstrain the order and multiplicity of application of the datalog rules. The
+resolution of collisions between distinct lattice values is very reminiscent of
+egglog's resolution of congruence violations.
+
+Another feature which achieves a principled deletion is that of subsumption, a
+feature that souffle has. One may declare conditions upon which one entry in the
+database is subsumed by another.
+
+\subsection{The Chase}
+Egglog's operational semantics are some variant of the chase. Indeed Datalog
+itself can be seen as a variant of the chase.
+
+\pz{Are there restrictions of egglog compared to full chase that make it 
+simpler/faster/tuned to egraph use cases? Or is it just emphasis? 
+In the standard chase, the functional nature of a relation would be 
+described via a clause, whereas it is built in facet of the definition of a 
+function in egglog.}
+
+Datalog+/- https://www.cs.ox.ac.uk/publications/publication6640-abstract.html
+https://www.aaai.org/ocs/index.php/KR/KR14/paper/viewFile/7965/7972 is a datalog
+language that allows equality and existentials in the heads of it's rules.
+Egglog is perhaps an example of a Datalog+/-. It is not clear that Datalog+/- is
+more than a theoretical exercise.
+
+\subsection{Prolog}
+Prolog is the canonical logic programming language.
+https://arxiv.org/abs/2201.10816 Prolog is a general purpose programming
+language and includes many non-monotonic operational constructs such as cut and
+IO.
+
+Prolog is distinguished by having first class support for unification variables
+and backtracking search. As a pure logical inference system, it has it's
+deficits. Prolog by default has an incomplete search strategy and can easily get
+into infinite loops.
+
+The elegant combination of Horn clauses with a union-find suggests that egglog
+might be an answer to how to add unification variables to datalog. This is
+however not the case. The "unification variables" in egglog are global, whereas
+prolog's are branch local and backtrackable.
+
+Prolog terms are compared to each other via structural unification. This is very
+different from egglog, in which structural dissimilar terms can indeed be equal
+to each other.
+
+Constraint Logic Programming and Constrained Horn clauses are two related
+languages in which horn clauses additionally allow theory specific constraints.
+There are disparate methods for solving these systems, but a typical one is a
+prolog like search with a constraint store. Egglog could be said to be
+expressing constrained horn clauses, where the theory is the theory of
+uninterpreted functions. This theory however is deeply coupled to the terms of
+the language of egglog, in a manner that is not typically implied by the two
+formalisms.
+
+\subsection{Constraint Handling Rules}
+Constraint Handling Rules are a multiset term rewriting system. Because they are
+multisets, they have a database character. With deduplication rules, it is
+simple to embed datalog into CHR. Constraint Handling Rules have been used to
+implement union-finds, and term rewriting systems. They are a very flexible
+system for defining propagating information about bespoke constraints. However,
+it is known to be the case that solvers developed specifically for individual
+systems can outperform the general purpose mechanisms of CHR. It is possible to
+embed e-matching and congruence closure into CHR, but again at a performance
+cost.
+
+\subsection{Proto-Egglogs}
+Egg-lite is an e-graph implementation based around SQLite.
+
+egglog0 is a datalog built upon the egg library using a simple e-matching
+multipattern implementation. It had no support for primitives or for analyses,
+and used a weaker non relational e-matching engine.
+
+souffle-egglog is an embedding of e-graphs into Souffle datalog. Ultimately, the
+lack of rebuild as an intrinsic operation makes this encoding too inefficient.
+It is also highly burdensome to perform manual flattening of terms in rules
+without at least a metaprogramming system.
+
+\subsection{Formulog}
+Formulog is a system that combines datalog with SMT solvers by adding SMT
+expressions as a primitive type and SMT queries as a primitive function to a
+datalog engine. Egglog and Formulog have some overlapping capabilities, however
+egglog deeply integrates the SMT-internal egraph into it's structure, whereas
+Formulog allows for search like backtracking disjunctional behavior when it
+hands over control to the SMT solver.
+
+An somewhat unfair set of equations
+$$
+formulog = Datalog + smt
+$$
+$$
+smt = egraph + sat
+$$
+$$
+egglog = egraph + datalog = formulog - sat
+$$
+\subsection{Satisfiability Modulo Theories (SMT)}
+SMT solvers orchestrating theory specific solvers around a boolean SAT solver.
+It is essentially ubiquitous that one of these theory specific solvers is the
+theory of uninterpreted functions, backed in some form by an \egraph. One of the
+possible mechanisms by which to treat universal quantifiers is e-matching.
+Universally quantified formulas may be annotated by trigger multi-patterns,
+which search the \egraph and instantiate the axiom upon a match.
+
+In distinction to egglog, SMT solvers are heavily backtracking based.
+
+At a high level, SMT solvers contain the pieces from which one might construct a
+solver similar to Egglog, but they are not arranged in this way.
+
+SMT solvers are difficult to debug and understand. The input language is highly
+declarative, with very little operational intent. Egglog's operational semantics
+is quite simple and predictable enough to be programmable.
+
+There is more content in the result returned by Egglog compared to a SMT solver.
+A SMT solver may either return unsat with a proof or SAT with a model. The
+egglog database only contains facts that can be justified by the application of
+rules. A SMT model has no requirements for justification.
+
+You can take an inferred fact from the egglog database, assert its negation to
+an SMT solver, and the SMT solver may return unsat (or unknown or loop forever).
+In this case, the egglog justification and the SMT unsat proof may align.
+However, there appears to be no obvious modality of use of an SMT solver that
+would find this derived fact and return it to the user.
+
+Z3 exposes it's rewriting simplifier via a simplify command. This simplifier
+however is not programmable, and does not use assumptions in the solver context
+that may be necessary, such as no-aliasing conditions in array expressions.
+
+Horn clauses specified in SMTLib are capable of expressing a subset of the
+syntax of egglog rules.
+
+Z3 also has a built in Datalog engine. This datalog engine is largely disjoint
+from the main capabilities of Z3 and is mostly an entirely separate project in
+the same codebase.
+
+\subsection{Algebraic Theories}
+Algebraic theories are those specified by universally quantified equational
+axioms, such as groups or rings. Egraph rewriting is a natural theorem proving
+technique to apply to these axiom systems. Three related systems that extend
+algebraic theories are essentially algebraic theories, generalized algebraic
+theories
+\href{https://www.sciencedirect.com/science/article/pii/0168007286900539?via%3Dihub} , and partial Horn Logic \href{http://www2.math.uu.se/~palmgren/partialalgebras_pre.pdf} . These system allow partial operators and axioms whose well formedness is conditioned upon the truth of other equations, or well typedness conditions. The pure sort fragment of egglog considered as a logic is very similar to these systems and can be used to encode a prover for them. These systems may form a theoretical justification for the design of egglog.
+
+\end{comment}

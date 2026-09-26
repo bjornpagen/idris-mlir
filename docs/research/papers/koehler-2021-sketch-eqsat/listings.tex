@@ -1,0 +1,258 @@
+\usepackage{listings}
+
+\lstset{
+  basicstyle=\linespread{.75}\ttfamily\scriptsize,
+  frame=tb,
+  %numbers=left,
+}
+
+\crefname{lstlisting}{listing}{listings}
+\Crefname{lstlisting}{Listing}{Listings}
+
+% \definecolor{halide}{HTML}{882255}
+% \definecolor{elevate}{HTML}{332288}
+\definecolor{rise}{HTML}{117733}
+\definecolor{sketch}{HTML}{1c4ca6}
+\definecolor{highlight}{HTML}{c7143e}
+% \definecolor{RoyalPurple}{HTML}{7851a9}
+% \definecolor{MidnightBlue}{HTML}{191970}
+% \definecolor{RedViolet}{HTML}{a20067}
+
+\lstdefinestyle{rise}{
+  morekeywords = {def},
+  % keywordstyle=\bfseries\color{black!75},
+  morecomment = [l][\itshape\color{gray}]{|},
+  commentstyle=\itshape\color{gray},
+  morekeywords= [6]{ % rise patterns
+    % def, fun, % TODO: different color?
+    app, dot,
+    map, mapSeq, mapSeqUnroll, mapPar,
+    mapGlobal, mapVec, mapStream,
+    toMem,
+    zip, fst, snd, generate, unzip,
+    reduce, reduceSeq, reduceSeqUnroll,
+    asVector, asScalar, vectorFromScalar,
+    padEmpty, padClamp, take,
+    slide, split, join, transpose,
+    circularBuffer, rotateValues, iterateStream,
+    global, local, private % TODO: different color?
+  },
+  keywordstyle= [6]{\bfseries\color{rise}},
+  basicstyle=\ttfamily\scriptsize,
+  commentstyle=\itshape, % Color of comments
+  xleftmargin=2.5em,
+  numbers=left, % Change left to none to remove line numbers
+  numberstyle=\scriptsize, % Font size of the line numbers
+  tabsize = 2,
+  numbersep=8pt, % Distance of line numbers from code listing
+  breaklines=true, % Force the code to stay in the confines of the listing box
+  %backgroundcolor = \color{black!05},
+  frame=tb, % Frame border - none/leftline/topline/bottomline/lines/single/shadowbox/L
+  %belowcaptionskip=.5\baselineskip,
+  %belowskip=\baselineskip,
+  %abovecaptionskip=.5\baselineskip, % Space after the "Listing #: Desciption" text and the listing box
+  %aboveskip=\baselineskip,
+  %captionpos=b,
+  mathescape=true,
+  %literate={*}{{{\bfseries\color{orange}*}}}{1}
+  moredelim=[is][\bfseries\color{highlight}]{*}{*},
+	captionpos=b,
+}
+\lstnewenvironment{rise}[1][]{\lstset{style=rise, #1}}{}
+\newcommand{\inlineRise}{\lstinline[style=rise]}
+
+\lstdefinestyle{rise-sketch}{
+  %language=elevate-rise,
+  morekeywords = {def},
+  % keywordstyle=\bfseries\color{black!75},
+  morecomment = [l][\itshape\color{gray}]{|},
+  commentstyle=\itshape\color{gray},
+  otherkeywords={?, ::},
+  morekeywords= [5]{ % sketches
+    ?, contains, ::,
+    containsMap, containsMapPar,
+    containsReduceSeq, containsReduceSeqUnroll,
+    containsAddMul, containsAddMulVec,
+    isSlide, isCircularBuffer,
+    containsGrayLine, containsSobelLine, containsCoarsityLine,
+  },
+  keywordstyle= [5]{\bfseries\color{sketch}},
+  morekeywords= [6]{ % rise patterns
+    % def, fun, % TODO: different color?
+    app, dot,
+    map, mapSeq, mapSeqUnroll,
+    mapGlobal, mapVec, mapStream,
+    toMem,
+    zip, fst, snd, generate, unzip,
+    reduce, reduceSeq, reduceSeqUnroll,
+    asVector, asScalar, vectorFromScalar,
+    padEmpty, padClamp, take,
+    split, join, transpose,
+    rotateValues, iterateStream,
+    global, local, private % TODO: different color?
+  },
+  keywordstyle= [6]{\bfseries\color{rise}},
+  basicstyle=\ttfamily\scriptsize,
+  commentstyle=\itshape, % Color of comments
+  xleftmargin=2.5em,
+  numbers=left, % Change left to none to remove line numbers
+  numberstyle=\scriptsize, % Font size of the line numbers
+  tabsize = 2,
+  numbersep=8pt, % Distance of line numbers from code listing
+  breaklines=true, % Force the code to stay in the confines of the listing box
+  %backgroundcolor = \color{black!05},
+  frame=tb, % Frame border - none/leftline/topline/bottomline/lines/single/shadowbox/L
+  %belowcaptionskip=.5\baselineskip,
+  %belowskip=\baselineskip,
+  %abovecaptionskip=.5\baselineskip, % Space after the "Listing #: Desciption" text and the listing box
+  %aboveskip=\baselineskip,
+  %captionpos=b,
+  mathescape=true,
+  %literate={*}{{{\bfseries\color{orange}*}}}{1}
+  moredelim=[is][\bfseries\color{highlight}]{*}{*},
+	captionpos=b,
+}
+\lstnewenvironment{rise-sketch}[1][]{\lstset{style=rise-sketch, #1}}{}
+\newcommand{\inlineRiseSketch}{\lstinline[style=rise-sketch]}
+
+\lstnewenvironment{c-code}[1][]{\lstset{
+  language=C,
+#1}}{}
+
+\lstdefinestyle{elevate-rise}{
+  language=scala,
+  morekeywords = {apply},
+  deletekeywords={try},
+  otherkeywords = {;, |>, =>, >>, <<, <+, @},
+  keywordstyle=\bfseries\color{black!75}, % Add \bfseries for bold
+  morekeywords= [2]{ % elevate build-in patterns
+  ;,seq,
+  <+,lChoice,
+  try,
+  repeat,
+  all,one,some,
+  topDown,
+  allTopDown,
+  tryAll,
+  allBottomUp,
+  bottomUp,
+  normalize,
+  Strategy,
+  RewriteResult,
+  Success,
+  Failure,
+  @
+  },
+  keywordstyle= [2]{\bfseries\color{MidnightBlue!75}},
+  morekeywords = [3]{ % elevate user defined functions
+    separateDot,isTransposedB,
+    lowerToSeqC,
+    mapFusion,
+    fuseReduceMap,
+    isReduce,
+    isMap,isTranspose,isToMem,
+    lowerToC,inLambda,isLambda,
+    blocking,
+    baseline,
+    loopPerm,inToMem,par,
+    arrayPacking,
+    packB,
+    parallelizeCopy,
+    outermost,mapNest,innermost,
+    body,isTransposeB, extractInToMem, permuteB,
+    lowerStore,storeInMemory,isTranspose,transposedB,
+    function,
+    argument,appliedMap,
+    fmap,appliedReduce,isApplied,fissionReduceMap,
+    reorder,
+    interchange,
+    argOf,
+    not,isFun,isApp,isApplication,
+    betaReduction,
+    etaAbstraction,etaReduction,
+    id,fail,
+    buildGet, lenBuild, letPartialEval, letApp, funToLet,
+    parallel,vectorize,unroll,tile,tileND,DFNF,BENF,
+  },
+  keywordstyle = [3]{\color{RoyalPurple}},
+  morekeywords = [4]{ % elevate user defined variables
+    p, e, s
+  },
+  keywordstyle = [4]{\color{Plum}},
+  morekeywords = [5]{% elevate-rise cross language variables
+    bf,
+    mm,
+    dot,
+    threemaps,
+    mt
+  },
+  keywordstyle = [5]{\bfseries\color{RedViolet}},
+  morekeywords= [6]{ % rise patterns
+    |>, >>, <<,
+    fun,
+    app,
+    map,
+    zip,Identifier,
+    toMem,
+    fst,snd,
+    reduce,reduceSeq,reduceSeqUnroll,
+    mapSeq,mapSeqUnroll,
+    mapSeq,
+    mapVec,
+    asVector,
+    asScalar,
+    map2D,
+    pad,
+    pad2D,
+    slide,
+    slide2D,
+    join,
+    transpose,
+    split,
+    add,mult
+  },
+  keywordstyle= [6]{\bfseries\color{OliveGreen!95}},
+  morekeywords = [7]{ % rise user defined functions
+    dot,
+    mm
+  },
+  keywordstyle = [7]{\color{RawSienna}},
+  morekeywords = [8]{ % rise user defined variables
+    weights2d,weightsH,weightsV,
+    nbh,
+    x,y,
+    f,nf,
+    g,
+    h,
+    xs,
+    img,
+    a, na,
+    b, nb,
+    M,K,N,as,bs,ab,
+    ak, bk,arow,bcol,
+    float,
+  },
+  keywordstyle = [8]{\color{RedOrange}},
+	basicstyle=\ttfamily\scriptsize, % Makes listings a smaller font size and a different font
+	commentstyle=\itshape\color{gray}, % Color of comments
+	stringstyle=\itshape, % Font type to use for strings
+	xleftmargin=2.5em,
+	numbers=left, % Change left to none to remove line numbers
+	numberstyle=\scriptsize, % Font size of the line numbers
+	stepnumber=1, % Increment of line numbers
+  tabsize = 2,
+	numbersep=8pt, % Distance of line numbers from code listing
+	showstringspaces=false, % Sets whether spaces in strings should appear underlined
+	breaklines=true, % Force the code to stay in the confines of the listing box
+	%frameround=ftff, % Uncomment for rounded frame
+	backgroundcolor = \color{black!05},
+	frame=lines, % Frame border - none/leftline/topline/bottomline/lines/single/shadowbox/L
+	% abovecaptionskip=.5\baselineskip, % Space after the "Listing #: Desciption" text and the listing box
+	% aboveskip=\baselineskip,
+  escapechar=\#,
+	captionpos=b,
+  mathescape=true,
+  literate={`}{\lq}1 % TODO: fix this
+}
+
+\newcommand{\elevateConstruct}{\lstinline[basicstyle=\ttfamily\scriptsize\color{RoyalPurple}]}

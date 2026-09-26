@@ -1,0 +1,92 @@
+\section{Introduction}
+
+An ahead-of-time compiler is typically structured as a frontend, a
+collection of optimizations, and a backend.
+%
+The optimizations in the ``middle-end'' of the compiler are numerous,
+time-consuming to develop, hard to get right, and accrete assumptions
+about costs that are difficult to excise as hardware platforms evolve.
+%
+An alternate strategy for implementing some parts of a middle-end is
+to use a superoptimizer: a program that looks at the code being
+compiled and uses a search procedure, a cost function, and an
+equivalence verifier to automatically discover better (or even
+optimal) code sequences.
+%
+The idea dates back at least 37~years~\cite{Fraser79}, and has been
+the subject of dozens of papers since then.
+%
+We created \tool, a synthesizing superoptimizer that automatically
+derives novel middle-end optimizations; it was originally designed for
+LLVM~\cite{Lattner04} but we have also used it to find new
+optimizations for the Microsoft Visual C++ compiler.
+
+
+Several trends convinced us that it was time to write a new
+superoptimizer.
+%
+There has been increased pressure on compiler
+developers due to the adoption of higher-level programming languages and a
+proliferation of interesting hardware platforms.
+%
+SAT and SMT solvers continue to improve; they are already more than
+capable of discovering equivalence proofs necessary to verify compiler
+optimizations involving tens to hundreds of instructions.
+%
+Solvers are also a key enabler for program synthesis, which supports
+the discovery of new optimizations that are out of reach for naïve
+search.
+%
+Finally, verified compilers appear to be much more difficult to extend
+than are traditional compilers.
+%
+Though we have not yet done so, a natural extension of
+superoptimization research would be to use a proof-producing solver to
+greatly reduce the effort involved in incorporating new optimizations
+into a proved-correct compiler~\cite{Leroy09, Mullen16}.
+%
+In summary, it appears to be a good time to re-evaluate some aspects
+of compiler implementation, including how middle-end optimizers are
+constructed.
+
+
+Our contributions include the design and implementation of \tool{}, a
+synthesis-based superoptimizer for a domain-specific intermediate
+representation (IR) that resembles a purely functional,
+control-flow-free subset of LLVM IR\@.
+%
+\tool{} implements an extension of Gulwani et al.'s synthesis
+algorithm~\cite{Gulwani11}, allowing it to synthesize
+LLVM's bitwidth-polymorphic instructions.
+
+
+\tool{} has two intended use cases.
+%
+First, its results can be turned into actionable advice for compiler
+developers; both LLVM and Microsoft compiler developers have
+implemented optimizations suggested by \tool{}.
+%
+Second, \tool{} can run as an LLVM optimization pass, ensuring that
+its code improvements can be exploited by other passes, such as
+constant propagation and dead code elimination.
+%
+When building LLVM itself, \tool{} discovers about 7,900 distinct
+optimizations, many of which cannot be performed by LLVM on its own,
+and applies them a total of 85,000 times.
+%
+An \tool-optimized Clang-3.9 binary is almost 3\,MB (4.4\%) smaller
+than one built without \tool, though it is also about 2\% slower.
+%
+(We do not yet know why; in this configuration, the only optimizations
+performed by \tool{} were replacing variables by constants. This
+should not hurt performance. In fact, versions of \tool{} based on
+earlier versions of LLVM did get speedups in this case.)
+%
+Although the initial compilation of a program using \tool{} is often
+$5\times$ to $25\times$ slower than optimized compilation with LLVM,
+\tool{}'s discoveries are cached and subsequent compilations have much
+lower overhead.
+%
+For example, the time for \tool{} with a warm cache to compile
+LLVM on our test machine is about nine minutes, as opposed to
+about eight minutes without \tool{}.

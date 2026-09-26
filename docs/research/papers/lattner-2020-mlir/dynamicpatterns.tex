@@ -1,0 +1,25 @@
+\subsection{Optimizing \MLIR pattern rewriting}
+
+\MLIR is used to represent and optimize multiple different domain specific
+optimization problems. But \MLIR itself also has problems that require domain
+specific optimization, and for this we use \MLIR again. I.e., \MLIR is used to
+represent and optimize \MLIR. A particular instance of using \MLIR in this way
+is dynamic pattern rewrite specification.
+
+In~\secref{drr} the pattern rewrite mechanism using DRR was presented. This
+is a very concise mechanism to express rewrite patterns, but was initially
+limited to static representation. But we also had applications where the
+rewrite patterns needed to be expressed dynamically. An example use case is
+enabling hardware vendors to perform new lowerings. We defined a new pattern
+rewriting dialect which effectively represented a Finite State Machine (FSM)
+matcher and rewriter.
+
+The dialect allowed both representing the matching FSM as well as optimizing
+them. In particular both the LLVM SelectionDAG~\cite{selectiondag} optimizations
+of contracting nodes and factoring nodes was implemented as transformation in
+\MLIR matcher dialect. The effectiveness of factoring was further enhanced by
+also reordering predicates during rewrite pattern optimization.
+
+Expressing the rewrites using \MLIR not only resulted in specifying rewrites
+dynamically, but also allowed using \MLIR's optimization (e.g., CSE) on the
+specified rewrite patterns.

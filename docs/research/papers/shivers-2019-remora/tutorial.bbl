@@ -1,0 +1,40 @@
+\begin{thebibliography}{1}
+
+\bibitem{Dean:mapreduce}
+Jeffrey Dean and Sanjay Ghemawat.
+\newblock Mapreduce: Simplified data processing on large clusters.
+\newblock {\em Commun. ACM}, 51(1):107--113, January 2008.
+
+\bibitem{APL}
+Kenneth~E. Iverson.
+\newblock {\em A Programming Language}.
+\newblock John Wiley \& Sons, Inc., New York, NY, USA, 1962.
+
+\bibitem{J}
+{Jsoftware, Inc.}
+\newblock Jsoftware: High-performance development platform.
+\newblock \url{http://www.jsoftware.com/}.
+
+\bibitem{Slepak:PhD}
+Justin Slepak.
+\newblock {\em A Typed Programming Language: The Semantics of Rank
+  Polymorphism}.
+\newblock PhD thesis, Khoury College of Computing Sciences, Northeastern
+  University, Boston, Massachussetts, 2020.
+\newblock In preparation.
+
+\bibitem{Slepak+:ESOP14}
+Justin Slepak, Olin Shivers, and Panagiotis Manolios.
+\newblock An array-oriented language with static rank polymorphism.
+\newblock In {\em Proceedings of the 23rd European Symposium on Programming
+  ({ESOP'14})}, volume 8410 of {\em Lecture Notes in Computer Science}, pages
+  27--46, Grenoble, France, April 2014. Springer.
+
+\bibitem{Slepak+:semantics-rank-poly-preprint}
+Justin Slepak, Olin Shivers, and Panagiotis Manolios.
+\newblock The semantics of rank polymorphism.
+\newblock {\em CoRR}, abs/1907.00509, 2019.
+\newblock Preprint of article currently in journal submission.
+  \url{http://arxiv.org/abs/1907.00509}.
+
+\end{thebibliography}

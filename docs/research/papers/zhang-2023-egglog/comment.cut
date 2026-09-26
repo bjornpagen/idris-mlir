@@ -1,0 +1,10 @@
+We thank the anonymous reviewers for their thoughtful feedback.
+We are grateful to Martin Bidlingmaier
+ for sharing his insights on \texttt{EqLog}, a concurrent work to \egglog,
+ to Martin Bravenboer for discussions on
+ the \texttt{Rel} programming language,
+ to Scott Moore and Langston Barrett
+ for answering questions about \cclyzerpp,
+ and to friends at the UW PLSE group
+ for their feedback on the early draft.
+  This material is based upon work supported by the National Science Foundation under Grant No. 1749570, by the U.S. Department of Energy under Award Number DE-SC0022081, by DARPA under contract FA8650-20-2-7008, and by the Applications Driving Architectures (ADA) Research Center, a JUMP Center co-sponsored by SRC and DARPA.

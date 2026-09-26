@@ -1,0 +1,54 @@
+{
+  "schema_version": "4.0",
+  "status": "FROZEN_CURRENT_SINGLE_ROUND_CORRESPONDENCE_REVIEW_INPUT",
+  "snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+  "snapshot_id_algorithm": "SHA-256 of canonical compact JSON with sorted keys of snapshot_material",
+  "snapshot_material": {
+    "repair_scope": "LISTED_LITERAL_DEFECTS_AND_EXACT_TRACE_WITNESS_BINDING_ONLY",
+    "input_zip_sha256": "736ab5787c2c1f32c9904df432a256fea8e453d7fbd71e687c2e475b21305a61",
+    "active_manuscript_graph_sha256": "712e1c6849da7dcae46a910cf53a59a85c799d482f9635229eb51cf5a6a42f9b",
+    "formal_source_config_sha256": "1ea8b2d58e1f4c3c007f8da46f77c7818d716b21bf418929ea9f9ecb8bef5afa",
+    "mapping_set_sha256": "602f9971f28b3017349820928d7c736faf5888320235ab7948fb4fb0e89f15e8",
+    "trace_envelope_witness_sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f",
+    "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+    "paper_lean_map_sha256": "250af7056edf1a20f821b2975b6ba37660fd2b8a39772705527441c61760c445",
+    "compiler_metadata_sha256": "69c7939032a3811177e93d95e296b8f90c3b78cd6bd5417c206fc8361ca85143",
+    "paper_dependency_graph_sha256": "6a179fd479685742c9c9e4472385887609abf1d4c815c8119209ca704e0e1966",
+    "compiler_dependency_graph_sha256": "d466a2432ba66cc1196aa2d6d06d776ba6d2bac8e1d2ea08c1259cd5f03292d4",
+    "proof_sketch_audit_sha256": "7f1e372ba2533a95bfb44185a4caa61c12eb01dbf57ce2b0845ca20e080f9fd2",
+    "axiom_report_sha256": "3eb2c480811b6c24c1737f82ec861fd05cb0524d3fa161f7cb4eb944c285e12a",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "formal_statement_index_sha256": "d4574d0f1b19ad67046d98e5758df98af9203d048ab3a0abc94dfc63556bdc0c",
+    "artifact_refinement_map_sha256": "55b8f376075dfc219a320d095b72bdebf25e334ead1d373792ed36dda39ee002",
+    "edge_case_closure_sha256": "7572885f4e4ed83300a76dceca6813dc998dcdb81618558980a74906ade9c629",
+    "trace_witness_binding_report_sha256": "8f53e6adace38e5929cb32bbb76edaff25a1d552badb564969b90d1198cf6a3f",
+    "metadata_generator_sha256": "52fa450fd2372373549fb193134021addc5fbba9f2279cfbb1304be83d4f63f1",
+    "snapshot_generator_sha256": "a63a3dca7e32a7157a28bf13449223f3c823ac4e9895678d5c046eb0f331f348",
+    "counts": {
+      "audit_rows": 158,
+      "active_formal_units": 146,
+      "proofs": 83,
+      "definitions": 44,
+      "constructors": 19,
+      "named_environments": 27,
+      "inline_leanref_tags": 146,
+      "supplemental_witness_active_claim_delta": 0
+    }
+  },
+  "mapping_set_algorithm": "Select ACTIVE rows, sort by formal_id, retain exact paper span, normalized paper hash, controlled statement, Lean type/hash, paper and compiler hypotheses, curated and compiler dependencies, axioms, and status fields; then SHA-256 canonical compact JSON with sorted keys.",
+  "review_requirements": {
+    "process_id": "bounded-arxiv-correspondence-2026-09-02",
+    "fresh_independent_reviewer_count": 2,
+    "required_roles": [
+      "PAPER_LEAN_SEMANTIC_CORRESPONDENCE_AND_IDENTIFIER_LEAK_SCAN",
+      "LEAN_METADATA_COHERENCE_AND_IDENTIFIER_LEAK_SCAN"
+    ],
+    "maximum_review_rounds": 1,
+    "completed_review_rounds": 0,
+    "this_is_only_permitted_round": true,
+    "coverage": "All 146 ACTIVE mappings, all 27 named environments, and the supplemental witness binding.",
+    "source_mutation_during_review": "PROHIBITED",
+    "latex_build": "PROHIBITED_THIS_GATE",
+    "pdf_qa": "PROHIBITED_THIS_GATE"
+  }
+}

@@ -1,0 +1,16 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+In this paper, we present relational \ematching, a novel \ematching~algorithm
+ that is conceptually simpler, asymptotically faster, and worst-case optimal.
+We reduce \ematching\ to conjunctive queries answering,
+ a well-studied problem in databases research.
+This relational presentation provides a unified way
+ to exploit in query planning not only structural constraints,
+ but also equality constraints,
+ which are constraints that traditional \ematching\ algorithms cannot effectively leverage.
+We implement relational \ematching\ with the worst-case optimal generic join algorithm,
+ using which we derive the first data complexity for \ematching.
+We integrate our implementation in the state-of-the-art equality saturation engine
+\egg, and show relational \ematching\ to be flexible (readily supports multi-patterns)
+and efficient (achieves orders of magnitude speedup).

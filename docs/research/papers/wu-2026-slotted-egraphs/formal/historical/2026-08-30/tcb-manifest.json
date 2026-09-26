@@ -1,0 +1,334 @@
+{
+  "schema_version": "2.0",
+  "manifest_status": "TRACE_WITNESS_SYNC_BUILD_AND_AFFECTED_PAGE_QA_PASSED_LATEX_BUNDLE_PACKAGED_NO_PUBLICATION",
+  "selected_foundation_profile": "STANDARD_LEAN_EXPLICIT_TCB",
+  "allowed_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "observed_axiom_union": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "project_defined_axioms_allowed": false,
+  "proof_placeholders_allowed": false,
+  "native_decide_allowed": false,
+  "unsafe_proof_dependencies_allowed": false,
+  "partial_proof_dependencies_allowed": false,
+  "compiler_or_ffi_oracles_allowed": false,
+  "unverified_external_solver_results_allowed": false,
+  "noncomputable_definitions_allowed": true,
+  "toolchain": {
+    "required_lean_version": "4.33.0",
+    "lean_toolchain_content": "leanprover/lean4:v4.33.0\n",
+    "lean_toolchain_sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b",
+    "direct_lean_version_check": "Lean (version 4.33.0, x86_64-unknown-linux-gnu, commit d8b18978322de05a8f3dba51ef03cf5461676c17, Release)",
+    "observed_lake_version": "Lake version 5.0.0-src+d8b1897 (Lean version 4.33.0)",
+    "toolchain_archive_sha256": "4b3fb03c29a1e0a253fb1d11f9bae3725f19a0dc6fc09b3ea16d2c9df3349e2c",
+    "launcher_readlink_shim_sha256": "1b3a3cfed63f31e02bf94fccee49d8f4d158920cc1ea3927680a8ae4ca405304",
+    "network_during_build": false
+  },
+  "package": {
+    "name": "TypedSlottedEGraphsPaper",
+    "lakefile_sha256": "623a833d7a2b602434c68375110536c49db59cc2338a38b273b4e96078f6a147",
+    "lake_manifest_sha256": "8ef31448075569bcc02890b83a9b2de99b4f38ffa7417bd2dc41e1e43f870c71",
+    "dependency_count": 0,
+    "lean_source_file_count": 19,
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "source_files": [
+      {
+        "path": "PaperIndex.lean",
+        "sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/ACClosureCounts.lean",
+        "sha256": "315b12e3e27c06e6808e3390daa524b21857dba720b2e41b1da495ccdff1dedf"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/AtomicLedger.lean",
+        "sha256": "25a990fd4c861ff1aa348e1ca3f40fa09159d7a3c7a25b087f90a7f0ee26523a"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/Certificates.lean",
+        "sha256": "7be18f91fc04f884a5b07137baeaf6660b1517e2170c5d6091931ac97e40e0a3"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/ClaimLedger.lean",
+        "sha256": "526329e5d1b0578237004638a2ca3d44b2339ba60441bab0af228715d7886f39"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/ContextGraph.lean",
+        "sha256": "d068f48794557707c45d2daa889edc87884a10f453db86821281e87b10ae0dd1"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/Core.lean",
+        "sha256": "9055850cd92761d3c6984a1efdbde79a1f04583eff2f102ff9cf537eb0404b01"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/FiniteNormalization.lean",
+        "sha256": "8f3cf0cd01b873465e0aa335014d7a3e7ea5c1224dc836de6d692eca9791013d"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/NormalizationBridge.lean",
+        "sha256": "d9e3daae5f323855680f3e351de48ce629abb471e89d064fac7a8ddf71eb457a"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/PaperDefinitions.lean",
+        "sha256": "11ddb546ebfebeceb9c671007c810f2111a3eb9d6d7411ef9e5f80a8029a864f"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/ProfileRules.lean",
+        "sha256": "597fcd73946f3b86e98ae480161ac5b9c33cc4f6b5bbbf3f7c05924edf550dad"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/Reachability.lean",
+        "sha256": "07e05e20824378303f71230fabc9d401b471b5bba36f50c596250e21f4bf8ec3"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/Replay.lean",
+        "sha256": "2cff55e357a599b53cd465b1e1a77838437cf76f24d581a250c0c8007bf2554c"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/StructuralClaims.lean",
+        "sha256": "eca40852233b8eb3c3418a5c58747a7018276b29dc4eb16ae7d82f74244c1dea"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/StructuralContainerAdapter.lean",
+        "sha256": "fbbe4fce7ddbcb6bb1da8c4b8177b2c0e1b53ee23b5edc652914daf93c6bf876"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/StructuralSemantics.lean",
+        "sha256": "5a508d8d4636d67508e999a4ab2ad8fa108b760a713275f0e9f310e625f6ac02"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/SyntaxSupport.lean",
+        "sha256": "b2789ec432c960a17e581d4fd6a5d1fa3b68496a689237bceb5e523b8930e1d3"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/TheoremBridge.lean",
+        "sha256": "0b11af31e2341f71f89d7ed85ab9c39f83db96847deb4258bd1ae11674fe8ff2"
+      },
+      {
+        "path": "TypedSlottedEGraphsPaper/TraceSemantics.lean",
+        "sha256": "dfca14876cb1cc5090838ccaedab193aa8139e8a21e2259361503e5119222b05"
+      }
+    ],
+    "formal_source_aggregate_algorithm": "SHA-256 of canonical compact JSON (sorted object keys, list order preserved) of the exact root-relative path/SHA-256 entries displayed in package.formal_source_config_entries",
+    "formal_source_config_entries": [
+      {
+        "path": "formal/PaperIndex.lean",
+        "sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ACClosureCounts.lean",
+        "sha256": "315b12e3e27c06e6808e3390daa524b21857dba720b2e41b1da495ccdff1dedf"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/AtomicLedger.lean",
+        "sha256": "25a990fd4c861ff1aa348e1ca3f40fa09159d7a3c7a25b087f90a7f0ee26523a"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Certificates.lean",
+        "sha256": "7be18f91fc04f884a5b07137baeaf6660b1517e2170c5d6091931ac97e40e0a3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ClaimLedger.lean",
+        "sha256": "526329e5d1b0578237004638a2ca3d44b2339ba60441bab0af228715d7886f39"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ContextGraph.lean",
+        "sha256": "d068f48794557707c45d2daa889edc87884a10f453db86821281e87b10ae0dd1"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Core.lean",
+        "sha256": "9055850cd92761d3c6984a1efdbde79a1f04583eff2f102ff9cf537eb0404b01"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/FiniteNormalization.lean",
+        "sha256": "8f3cf0cd01b873465e0aa335014d7a3e7ea5c1224dc836de6d692eca9791013d"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/NormalizationBridge.lean",
+        "sha256": "d9e3daae5f323855680f3e351de48ce629abb471e89d064fac7a8ddf71eb457a"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/PaperDefinitions.lean",
+        "sha256": "11ddb546ebfebeceb9c671007c810f2111a3eb9d6d7411ef9e5f80a8029a864f"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ProfileRules.lean",
+        "sha256": "597fcd73946f3b86e98ae480161ac5b9c33cc4f6b5bbbf3f7c05924edf550dad"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Reachability.lean",
+        "sha256": "07e05e20824378303f71230fabc9d401b471b5bba36f50c596250e21f4bf8ec3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Replay.lean",
+        "sha256": "2cff55e357a599b53cd465b1e1a77838437cf76f24d581a250c0c8007bf2554c"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralClaims.lean",
+        "sha256": "eca40852233b8eb3c3418a5c58747a7018276b29dc4eb16ae7d82f74244c1dea"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralContainerAdapter.lean",
+        "sha256": "fbbe4fce7ddbcb6bb1da8c4b8177b2c0e1b53ee23b5edc652914daf93c6bf876"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralSemantics.lean",
+        "sha256": "5a508d8d4636d67508e999a4ab2ad8fa108b760a713275f0e9f310e625f6ac02"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/SyntaxSupport.lean",
+        "sha256": "b2789ec432c960a17e581d4fd6a5d1fa3b68496a689237bceb5e523b8930e1d3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/TheoremBridge.lean",
+        "sha256": "0b11af31e2341f71f89d7ed85ab9c39f83db96847deb4258bd1ae11674fe8ff2"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/TraceSemantics.lean",
+        "sha256": "dfca14876cb1cc5090838ccaedab193aa8139e8a21e2259361503e5119222b05"
+      },
+      {
+        "path": "formal/lake-manifest.json",
+        "sha256": "8ef31448075569bcc02890b83a9b2de99b4f38ffa7417bd2dc41e1e43f870c71"
+      },
+      {
+        "path": "formal/lakefile.toml",
+        "sha256": "623a833d7a2b602434c68375110536c49db59cc2338a38b273b4e96078f6a147"
+      },
+      {
+        "path": "formal/lean-toolchain",
+        "sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b"
+      }
+    ]
+  },
+  "registry": {
+    "formal_units_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "active_count": 146,
+    "distinct_mapping_count": 146,
+    "source_tag_gate": {
+      "status": "PASS_EXACT_BIJECTION_REGENERATED_CANDIDATE",
+      "tag_count": 146,
+      "unique_active_id_count": 146,
+      "unique_exact_declaration_count": 146,
+      "files": [
+        "foundations_compressed.tex",
+        "appendixC_vmcai_stage1.tex"
+      ]
+    },
+    "per_declaration_axiom_report": "formal/axiom-report.json",
+    "axiom_report_sha256": "0d18c9dcfb27aa3341458b7e755098cff7bde724892e1357672d6090bb890880",
+    "compiler_dependency_graph": "formal/compiler-dependency-graph.json",
+    "compiler_dependency_graph_sha256": "1e430b523cb6dcd8e5db7f22295f2380a6d632ea191d967083ed1c96e094075e",
+    "paper_dependency_graph": "formal/dependency-graph.json",
+    "paper_dependency_graph_sha256": "1e85f5d91f7a9478ca1b1573f64e88483bbadd3211442fd1503e453d68d874ec",
+    "correspondence_review": "formal/correspondence-review.json",
+    "correspondence_review_sha256": "841a624aa36f87b8a0f66b2cc8c277716292a2699afd65c06bd630b04b3d2332"
+  },
+  "correspondence_review": {
+    "status": "ROUND_2_UNANIMOUS_PASS_CORRESPONDENCE_REVIEW_CLOSED",
+    "process_id": "bounded-correspondence-repair-2026-08-29",
+    "failed_snapshot_id": "a1968bcda191b303983649d557ffa07a5845d971ea57258db62fe239b6ab675a",
+    "failed_review_sha256": "79edd88f6d20cbed21341841507e07f7bd7918f31387f6cbb903ce9c666c4f3b",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "maximum_review_rounds": 2,
+    "completed_review_rounds": 2,
+    "remaining_review_rounds": 0,
+    "round_1_summary": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/summary.json",
+    "round_1_summary_sha256": "00e28a7fcad81db127d0a7daf35932fe2a7b9bfeca1aef66f3c74a9062d01fcf",
+    "round_2_snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+    "round_2_snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+    "round_2_summary": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/summary.json",
+    "round_2_summary_sha256": "4705ff60f9186e44610483b1a7b5763a857acaa0e6300f3fe3de62647fee9460",
+    "required_fresh_independent_passes_on_round_2_snapshot": 2,
+    "completed_fresh_independent_passes": 2,
+    "unanimous_pass": true,
+    "blocking_findings": []
+  },
+  "integration_build": {
+    "status": "PASS_TWO_ISOLATED_CLEAN_BUILDS",
+    "command": "LD_PRELOAD=<pinned-shim> lake clean && lake build && lake env lean PaperIndex.lean",
+    "required_independent_build_count": 2,
+    "completed_independent_build_count": 2,
+    "source_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "observed_lean_version": "Lean (version 4.33.0, x86_64-unknown-linux-gnu, commit d8b18978322de05a8f3dba51ef03cf5461676c17, Release)",
+    "observed_lake_version": "Lake version 5.0.0-src+d8b1897 (Lean version 4.33.0)",
+    "build_A_evidence": "formal/build-evidence/clean-build-A.json",
+    "build_A_evidence_sha256": "928e58b98c3deb18c540f088c984870ef28affd919500b3e5ebc6911fe8cd684",
+    "build_B_evidence": "formal/build-evidence/clean-build-B.json",
+    "build_B_evidence_sha256": "829ac214601897895f18d343f4a35e92d18f134b5aa44162808b8d1ace6cafe7",
+    "build_summary": "formal/build-evidence/clean-build-summary.json",
+    "build_summary_sha256": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d",
+    "closure_manifest_sha256": "c2bfd59523bc96b8834ddf856efe1881774e92e9f6c7d8f9f39be93317f26fda",
+    "closure_manifests_byte_identical": true,
+    "normalized_compiled_product_mismatch_count": 0,
+    "snapshot_stable_after_builds": true
+  },
+  "pdf_qa": {
+    "status": "PASS_BOUNDED_TRACE_WITNESS_SYNC_BUILD_AND_AFFECTED_PAGE_QA",
+    "current_report": "formal/trace-envelope-witness-sync-report.json",
+    "current_report_sha256": "c395345131f8679c0a45db97719204765e25cdd564ff4b43b61e17a8911b36dd",
+    "author_source_graph_sha256": "6e386c342c9866479a31186ec31968a2f007d780fba3715a28a6172626dc1411",
+    "pdf_sha256": "7b349a474591b6a64f8cc9fc99a2fe5c29c41e1eb5e8c93e549297d5ef33f256",
+    "isolated_clean_latex_build": "PASS",
+    "main_text_page_limit": "PASS_17_OF_20_PAGES",
+    "references_start_page": 18,
+    "appendices_start_page": 20,
+    "chart_identity": "PASS_BYTE_UNCHANGED",
+    "affected_page_render_and_layout_qa": "PASS_PAGES_16_17_35",
+    "all_page_render_and_layout_qa": "NOT_RERUN_PRE_WITNESS_SYNC_PASS_PRESERVED_HISTORICALLY",
+    "citations_and_float_order": "PASS_BUILD_AND_AFFECTED_PAGE_SCOPE",
+    "formal_statement_surfaces_unchanged": true,
+    "source_repair_performed_during_qa": false,
+    "historical_pdf_reports_preserved": true,
+    "packaging_executed": true,
+    "publication_executed": false
+  },
+  "experimental_data_refresh": {
+    "status": "REPAIRED_FAST_IR_DATA_REFRESH_AND_CORRESPONDENCE_PASSED",
+    "report": "formal/experimental-data-refresh-report.json",
+    "report_sha256": "71c86a4942720dc6fdc9d65286b8c2ee4e6337c2169dc16be18dea182db8699f",
+    "repository_publication_head": "63f3b8c2931202e9b3582a8802c558725a67ac26",
+    "publication_run_id": "df4d8d4c-6265-4fe7-88d5-3aceee60398b",
+    "ablation_run_id": "f46b5647-7373-4cd7-ac3d-f8fd9b802db6",
+    "capability_run_id": "2a27663f-28d6-4f42-b841-5cc7a5d5a488",
+    "experiment_source_commit": "fbd9b1497a9036c55780da777f56581bc1c6bcec",
+    "pre_refresh_author_source_graph_sha256": "1e8c1cebd6f35f8747524a971f3999a2424f698eb7957bff6aad684b903e1964",
+    "data_refresh_author_source_graph_sha256": "29348d88fbad07dfeddca2abf880b0718a8ca2ba26d41ee82a08e8f60d94d7d1",
+    "current_author_source_graph_sha256": "6e386c342c9866479a31186ec31968a2f007d780fba3715a28a6172626dc1411",
+    "data_refresh_appendix_eval_sha256": "0888b7aab69ff720add187681f9d19535667807c0213419d1c5ad32436a98845",
+    "current_appendix_eval_sha256": "fe2b8253d5e613c86ebc9b247110f91b5ee78b8de85f07e5a178a79040ff4582",
+    "formal_registry_preserved_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "normalization_contract_preserved_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "formal_source_config_preserved_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "lean_source_and_config_graph_preserved_sha256": "424088773b7381cd60e7f4367e2e3939aae3b29874217fd34b24e5f8528fe61c",
+    "formal_statement_hypothesis_dependency_projection_changes": 0,
+    "author_files_changed": 5,
+    "layout_changes": 0,
+    "java_or_result_mutations": 0,
+    "full_all_page_pdf_qa": "PASS_45_OF_45_PAGES_PRE_WITNESS_SYNC",
+    "post_witness_sync_affected_page_qa": "PASS_PAGES_16_17_35"
+  },
+  "required_final_updates": [
+    "obtain separate authorization before publication"
+  ],
+  "trusted_computing_base": [
+    "Lean 4.33.0 parser, elaborator, kernel, and standard library",
+    "Lake 5.0.0-src+d8b1897 as build orchestration",
+    "operating system and hardware for artifact transport",
+    "exact source/toolchain/registry hashes in this manifest"
+  ],
+  "not_in_tcb_as_proof_evidence": [
+    "Java implementation",
+    "Java or non-Lean certificate checker",
+    "Alloy/SAT/SMT results without a Lean-checked proof object",
+    "bounded tests and mutation tests",
+    "experimental output files",
+    "reviewer or agent approval"
+  ]
+}

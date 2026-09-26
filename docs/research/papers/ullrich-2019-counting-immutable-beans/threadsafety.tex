@@ -1,0 +1,81 @@
+We use the following basic task management primitives to
+develop the Lean frontend.
+\begin{lstlisting}
+Task.mk :$\ $ (Unit -> $\alpha$) -> Task $\alpha$
+Task.bind : Task $\alpha$ -> ($\alpha$ -> Task $\beta$) -> Task $\beta$
+Task.get : Task $\alpha$ -> $\alpha$
+\end{lstlisting}
+The function $\textit{Task.mk}$ converts a closure into a \kw{task} value
+and executes it in a separate thread,
+$\textit{Task.bind}\ t\ f$ creates a \kw{task} value that waits for $t$ to finish and
+produce result $a$, and then starts $f\ a$ and waits for it to finish.
+Finally, $\textit{Task.get}\ t$ waits for $t$ to finish and returns the
+value produced by it. These primitives are part of the Lean runtime,
+implemented in C++, and are available to regular users.
+
+The standard way of implementing thread safe reference counting uses
+memory fences~\cite{Boost}.  The reference counters are incremented
+using an atomic fetch and add operation with a relaxed memory
+order. The relaxed memory order can be used because new references to
+a value can only be formed from an existing reference, and passing
+an existing reference from one thread to another must already provide
+any required synchronization. When decrementing a reference counter, it
+is important to enforce that any decrements of the counter from other threads
+are visible before checking if the object should be deleted. The
+standard way of achieving this effect uses a \emph{release} operation
+after dropping a reference, and an \emph{acquire} operation before
+the deletion check. This approach has been used in the previous
+version of the Lean compiler, and we have observed that the memory
+fences have a significant performance impact even when only one thread
+is being executed. This is quite unfortunate because most values
+are only touched by a single execution thread.
+
+We have addressed this performance problem in our runtime by tagging
+values as \emph{single-threaded}, \emph{multi-threaded}, or
+\emph{persistent}. As the name suggests, a single-threaded value is
+accessed by a single thread and a multi-threaded one by one or more
+threads. If a value is tagged as single-threaded, we do not use any
+memory fence for incrementing or decrementing its reference counter.
+Persistent values are never deallocated and do not even need a
+reference counter.  We use persistent values to implement values
+that are created at program initialization time and remain alive
+until program termination.  Our runtime enforces the following
+invariant: from persistent values, we can only reach other persistent
+values, and from multi-threaded values, we can only reach persistent
+or multi-threaded values. There are no constraints on the kind of
+value that can be reached from a single-threaded value. By default,
+values are single-threaded, and our runtime provides a
+$\textit{markMT}(o)$ procedure that tags all single-threaded values
+reachable from $o$ as multi-threaded.  This procedure is used to
+implement $\textit{Task.mk}\ f$ and $\textit{Task.bind x f}$.  We use
+$\textit{markMT}(f)$ and $\textit{markMT}(x)$ to ensure that all
+values reachable from these values are tagged as multi-threaded \emph{before} we
+create a new task, that is, while they are still accessible from only one thread.
+Our invariant ensures that $\textit{markMT}$ does
+not need to visit values reachable from a value already tagged
+as multi-threaded.  Thus values are visited at most once by
+$\textit{markMT}$ during program execution. Note that task creation is not
+a constant time operation in our approach because it is proportional to the number of
+single-threaded values reachable from $x$ and $f$. This does not seem
+to be a problem in practice, but if it becomes an issue we can provide a
+primitive $\textit{asMT}\ g$ that ensures that all values allocated
+when executing $g$ are immediately tagged as multi-threaded.
+Users would then use this flag in code that creates the values reachable by
+$\textit{Task.mk}\ f$ and $\textit{Task.bind x f}$.
+
+The reference counting operations perform an extra operation to test
+the value tag and decide whether a memory fence is needed or not.
+This additional test does not require any synchronization because the
+tag is only modified before a value is shared with other execution
+threads. In the experimental section, we demonstrate that this simple
+approach significantly boosts performance. This is not surprising
+because the additional test is much cheaper than memory fences on
+modern hardware.
+The approach above can be adapted to more complex libraries for
+writing multi-threaded code. We just need to identify which functions
+may send values to other execution threads, and use $\textit{markMT}$.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

@@ -1,0 +1,361 @@
+
+With a complete representation of the search space by relational algebra, our
+next step is to explore this space and find the optimal expression in it.
+Traditional optimizing compilers commonly resort to heuristics to select from
+available rewrites to apply. SystemML implements a number of heuristics for its
+algebraic rewrite rules, and we discuss a few categories of them here.
+
+\textsc{Competing or Conflicting Rewrites} The same expression may be eligible
+for more than one rewrites. For example, $sum(AB)$ rewrites to
+$sum(sum_{col}(A)^T*sum_{row}(B))$, but when both $A$ and $B$ are vectors the
+expression can also be rewritten to a single dot product. SystemML then
+implements heuristics to only perform the first rewrite when the expression is
+not a dot product. In the worst case, a set of rules interacting with each other
+may create a quadratic number of such conflicts, complicating the codebase.
+
+\textsc{Order of Rewrites} Some rewrite should be applied after others to be
+effective. For example, $X/y$ could be rewritten to $X*1/y$ which may be more
+efficient, since SystemML provides efficient implementation for sparse
+multiplication but not for division. This rewrite should occur before constant
+folding; otherwise it may create spurious expressions like $X / (1/y)
+\rightarrow X * (1/(1/y))$, and without constant folding the double division
+will persist. However, a rewrite like $1/(1 + exp(-X)) \rightarrow sigmoid(X)$
+should come after constant folding, in order to cover expressions like $(3-2)/(1
++ exp(-X))$. Since SystemML requires all rewrites to happen in one phase and
+constant folding another, it has to leave out\footnote{Another reason to leave
+  out this rewrite is that $X*1/y$ rounds twice, whereas $X/y$ only rounds
+  once.} rewrites like $X/y \rightarrow X*1/y$.
+
+\textsc{Dependency on Input / Program Properties} Our example optimization from 
+$sum((X-UV^T)^2)$  to $sum(X^2) -2U^TXV + U^TU*V^TV$
+improves performance only if $X$ is sparse. Otherwise,
+computing $X^2$ and $X*UV^T$ would both create dense intermediates. Similarly,
+some rewrites depend on program properties like common subexpressions. Usually,
+these rewrites only apply when the matched expression shares no CSE with others
+in order to leverage common subexpression elimination. Testing input and program
+properties like this becomes boilerplate code, making implementation tedious and
+adds burden to maintenance.
+
+\textsc{Composing Rewrites} Even more relevant to us is the problem of composing
+larger rewrites out of smaller ones. Our equality rules $R_{EQ}$ are very
+fine-grained, and any rule is unlikely to improve performance on its own. 
+Our example optimization from $sum((X-UV^T)^2)$ to $sum(X^2) - 2U^TXV + U^TU * V^TV$ 
+takes around 10 applications of $R_{EQ}$ rules. 
+ If an optimizer applies rewrites one by one, it is
+then very difficult, if not impossible, for it to discover the correct sequence
+of rewrites that compose together and lead to the best performance.
+
+Stepping back, the challenge of orchestrating rewrites is known as the
+\emph{phase-ordering problem} in compiler optimization. Tate
+et al. \cite{DBLP:journals/corr/abs-1012-1802} proposed a solution to this
+problem dubbed
+\textit{equality saturation}, which we adapt and extend in SPORES.
+
+\subsection{Equality Saturation}
+
+Equality saturation optimizes an expression in two steps:
+
+\textit{Saturation}: given the input expression, the optimizer  enumerates
+equivalent expressions and collects them into a compact representation called
+the E-Graph \cite{10.5555/909447}.
+
+\textit{Extraction}: given a cost function, the optimizer selects the optimal
+expression from the E-Graph. An expression is represented by a subgraph of the
+E-Graph, and the optimizer uses a constraint solver to find the subgraph that is
+equivalent to the input, and is optimal according to the cost function.
+
+\subsubsection*{The E-Graph Data Structure}
+
+\begin{figure}
+\centering
+    \includegraphics[scale=0.6]{XYY} \qquad \includegraphics[scale=0.6]{assoc}
+    \caption{E-Graph representing $(X*Y)*Y$ (left), and the graph after applying
+      associativity to the root (right). New nodes are in gray. Each dashed box is an E-Class.}
+    \label{assoc}
+\end{figure}
+
+An E-Graph represents sets of equivalent expressions. A node in the graph is
+called an E-Class, which contains the root operators of a set of equivalent
+expressions. The edges are similar to the edges in an abstract syntax tree; but
+instead of pointing from an operator directly to a child, each edge points from
+an operator to an E-Class of expressions. For example, in Figure~\ref{assoc} the
+top class in the middle represents the set of equivalent expressions \{$(X*Y)*Y,
+X*(Y*Y)$\}. Note that the class represents two expressions, each with 2
+appearances of $Y$ and one appearance of $X$, whereas each variable only appears
+once in the E-Graph. This is because the E-Graph makes sure its expressions share
+all possible common subexpressions. As the size of the graph grows, this
+compression becomes more and more notable; in some cases a graph can 
+represent a number of expressions exponential to its
+size \cite{DBLP:journals/corr/abs-1012-1802}. We take advantage of this
+compression in SPORES to efficiently cover vast portions of the search
+space. If saturation, as described below, carries out to convergence, the E-Graph represents the search space exhaustively. 
+
+An E-Graph can also be seen as an AND-OR DAG over expressions. Each E-Class is an OR node whose children are equivalent expressions from
+which the optimizer chooses from. Each operator is an AND node whose children must all be picked if the operator itself is picked. In this paper we favor the terms E-Graph and E-Class to emphasize each OR node is an equivalence class. 
+
+\subsubsection*{Saturating the E-Graph}
+At the beginning of the optimization process, the optimizer instantiates the
+graph by inserting the nodes in the syntax tree of the input expression one by
+one in post order. For example, for input $(X*Y)*Y$, we construct the left graph
+in Figure~\ref{assoc} bottom-up. By inserting in post order, we readily exploit
+existing common subexpressions in the input. Once the entire input expression is
+inserted, the optimizer starts to extend the graph with new expressions equivalent to
+the input. It considers a list of equations, and matches either side of the
+equation to subgraphs of the E-Graph. If an equation matches, the optimizer then
+inserts the expression on the other side of the equation to the graph. For
+example, applying the associative rule extends the left graph in
+Figure~\ref{assoc} with $X*(Y*Y)$, resulting in the right graph.
+Figure~\ref{eqsat} shows the pseudo code for this process. While inserting new
+expressions, the optimizer checks if any subexpression of the new expression is
+already in the graph. If so, it reuses the existing node, thereby exploiting all
+possible common-subexpressions to keep the E-Graph compact. In
+Figure~\ref{assoc}, only two $*$ are added since the variables $X$ and $Y$ are
+already in the graph. Once the entire new expression has been added, the
+optimizer then merges the newly created E-Class at its root with the E-Class
+containing the matched expression, asserting them equal. Importantly, the
+optimizer also propagates the congruent closure of this new equality. For
+example, when $A+A$ is merged with $2*A$, the optimizer also merges $(A+A)^2$
+with $(2*A)^2$. Figure~\ref{fig:egraphadd} shows the pseudo code for adding an
+expression to E-Graph. This process of match-and-insert is repeated until the
+graph stops changing, or reaching a user-specified bound on the number of 
+saturation iterations. If this process does converge, that means no rule can add new
+expressions to the graph any more. If the set of rules are complete, as is our
+$R_{EQ}$, convergence of saturation implies the resulting E-Graph represents
+the transitive closure of the equality rules applied to the initial expression.
+In other words, it contains \textit{all} expressions equivalent to the input under the equality rules.
+
+\begin{figure}
+\centering
+\begin{minipage}{0.5\textwidth}
+\begin{lstlisting}[language=Python]
+def saturate(egraph, equations):
+  for eq in equations: 
+    matches = egraph.match(eq.lhs)
+    for eclass in matches: 
+      ec = egraph.add(eq.rhs)
+      egraph.merge(eclass, c)
+\end{lstlisting}
+\end{minipage}
+    \caption{Pseudo code for saturating the E-Graph given a set of equalities.
+      \texttt{match} returns the IDs of the root class of any matching subgraph;
+      \texttt{merge} combines two E-Classes given their IDs; it also propagates
+      the congruent closure of the new equality.
+      Figure~\ref{fig:egraphadd} defines \texttt{add}.}
+    \label{eqsat}
+\end{figure}
+\begin{figure}
+\centering
+\begin{minipage}{0.5\textwidth}
+\begin{lstlisting}[language=Python]
+def add(expr):
+  ID = egraph.find(expr)
+  if ID != NULL:
+    return ID
+  else:
+    cids = expr.children.map(add)
+    ID = egraph.insert(expr.op, cids)
+    return ID
+\end{lstlisting}
+\end{minipage}
+    \caption{Pseudo code for adding an expression to the E-Graph. \texttt{find}
+      looks for the given expression in the E-Graph, and returns its root ID if
+      it already exists, or \texttt{NULL} otherwise. \texttt{insert} adds the
+      given operator to the E-Graph, and points its children to E-Classes with the
+      given class IDs. }
+    \label{fig:egraphadd}
+\end{figure}
+
+The outer loop that matches equations to the graph can be implemented by a more
+efficient algorithm like the Rete algorithm \cite{DBLP:journals/ai/Forgy82} when
+the number of equations is large. However, we did not find matching to be
+expensive and simply match by traversing the graph. Our implementation uses the
+E-Graph data structure from the \texttt{egg}~\cite{EGG} library. 
+
+\subsubsection*{Dealing with Expansive Rules}
+While in theory equality saturation will converge with well-constructed rewrite
+rules, in practice the E-Graph may explode for certain inputs under certain rules. For example, a long
+chain of multiplication can be rewritten to an exponential number of
+permutations under associativity and commutativity (AC rules). If we 
+apply AC rules everywhere applicable in each iteration, the graph would soon use
+up available memory. We call this application strategy the \emph{depth-first}
+strategy because it eagerly applies expansive rules like AC. 
+AC rules by themselves rarely affect performance, and
+SystemML also provides the fused \texttt{mmchain} operator that efficiently computes
+multiplication chains, so permuting a chain is likely futile. In practice, AC
+rules are useful because they can enable other rewrites. Suppose we have a rule
+$R_{factor}: A*X + B*X \rightarrow (A+B)*X$ and an expression $U*Y + Y*V$.
+Applying commutativity to $Y*V$ would then transform the expression to be
+eligible for $R_{factor}$. With this insight, we change each saturation
+iteration to sample a limited number of matches to apply per rule, instead of
+applying all matches. This amounts to adding \texttt{matches = sample(matches, limit)} between line 3 and line 4 in Figure~\ref{fig:egraphadd}. 
+Sampling encourages each rule to be considered equally often
+and prevents any single rule from exploding the graph. This helps ensure good
+exploration of the search space when exhaustive search is impractical. 
+But when it is
+possible for saturation to converge and be exhaustive, it still converges with high probability
+when we sample matches. Our experiments in Section~\ref{overhead} show sampling
+always preserve convergence in practice.
+
+\subsubsection*{Extracting the Optimal Plan}
+
+\begin{figure}
+\centering
+    \includegraphics[scale=0.6]{CSE}
+    \caption{The CSE problem. Each node shows its cost. A greedy optimizer picks nodes with costs 0, 1 and both nodes with cost 4; but the optimal plan uses nodes with costs 0, 2 and shares the same node with cost 4.}
+    \label{cse}
+\end{figure}
+
+A greedy strategy to extract the best plan from the saturated E-Graph is to
+traverse the graph bottom-up, picking the best plan at each level. This assumes
+the best plan for any expression also contains the best plan for any of its
+subexpressions. However, the presence of common subexpressions breaks this
+assumption. In Figure~\ref{cse} each operator node is annotated with its cost. 
+Between the nodes with costs 1 and 2, a greedy strategy would choose 1, which
+incurs total cost of $1+4=5$. The greedy strategy then needs to pick the root
+node with cost 0 and the other node with cost 4, incurring a total cost of 9. 
+However, the optimal strategy is to pick the nodes with 0, 2 and share the same
+node with cost 4, incurring a total cost of 6. 
+
+We handle the complexity of the search problem with a constraint
+solver. We assign a variable to each operator and each E-Class, then construct
+constraints over the variables for the solver to select operators that make up a
+valid expression. The solver will then optimize a cost function defined over the
+variables; the solution then corresponds to the optimal expression equivalent to
+the input.
+
+\subsubsection*{Constraint Solving and Cost Function}
+We encode the problem of extracting the cheapest plan from the E-Graph with
+integer linear programming (ILP). Figure~\ref{ilp} shows this encoding. For each
+operator in the graph, we generate a boolean variable $B_{op}$; for each E-Class
+we generate a variable $B_c$. For the root class, we use the variable $B_r$.
+Constraint $F(op)$ states that if the solver selects an operator, it must also
+select all its children; constraint $G(c)$ states that if the solver selects an
+E-Class, it must select at least one of its members. Finally, we assert $B_r$ must 
+be selected, which constrains the extracted expression
+to be in the same E-Class as the unoptimized expression. These three constraints together
+ensure the
+selected nodes form a valid expression equivalent to the unoptimized input.
+Satisfying these constraints, the solver now minimizes the cost function given
+by the total cost of the selected operators. Because each $B_{op}$ represents an
+operator node in the E-Graph which can be shared by multiple parents, this
+encoding only assigns the cost once for every shared common subexpression. In
+our implementation, we use Gurobi~\cite{gurobi} to solve the ILP problem.
+
+\begin{figure}
+    \begin{align*}
+Constraints &\equiv B_r \wedge \bigwedge_{op} F(op) \wedge \bigwedge_c G(c)
+\\ F(op) &\equiv B_{op} \rightarrow \bigwedge_{c \in op.children} B_c \\ G(c)
+&\equiv B_c \rightarrow \bigvee_{op \in c.nodes} B_{op}
+\end{align*}
+\[\textbf{minimize} \sum_{op} B_{op} \cdot C_{op} \textbf{ s.t. } Constraints\]
+
+    \caption{ILP constraint and objective for extraction. }
+    \label{ilp}
+\end{figure}
+
+Each operation usually has cost proportional to the output size in terms of
+memory allocation and computation. Since the size of a matrix is proportional
+its the number of non-zeroes (nnz), we use SystemML's estimate of nnz as the
+cost for each operation. Under our relational interpretation, this corresponds
+to the cardinality of relational queries. We use the simple estimation scheme in
+Figure~\ref{fig:cost}, which we find to work well. Future work can hinge on the
+vast literature on sparsity and cardinality estimation to improve the cost
+model.
+
+\begin{figure}
+\begin{align*}
+    \textbf{S}[X*Y] &= min(\textbf{S}[X], \textbf{S}[Y]) \\ \textbf{S}[X+Y] &=
+    min(1, \textbf{S}[X]+\textbf{S}[Y]) \\ \textbf{S}[\sum_i X] &= min(1, |i|
+    \cdot \textbf{S}[X])
+\end{align*}
+    \caption[Sparsity estimation]{Sparsity estimation. We define $sparsity = nnz
+      / size$, i.e. a 0 matrix has sparsity $0.0$\protect\footnotemark. $|i|$ is
+      the size of the aggregated dimension. }
+    \label{fig:cost}
+\end{figure}
+\footnotetext{Some may find this definition counter-intuitive; we define it so
+  to be consistent with SystemML.}
+
+\subsection{Schema and Sparsity as Class Invariant}
+In the rules $R_{EQ}$ used by the saturation process, Rule~(\ref{RRC_ma}) If $i
+\not\in A$, $A * \sum_i B = \sum_i (A * B)$ contains a condition on attribute
+$i$ which may be deeply nested in the expression. This means the optimizer
+cannot find a match with a simple pattern match. Fortunately, all expressions in
+the same class must contain the same set of free attributes (attributes not
+bound by aggregates). In other words, the set of free variables is invariant
+under equality. This corresponds precisely to the schema of a database -
+equivalent queries must share the same schema. We therefore annotate each class
+with its schema, and also enable each equation to match on the schema.
+
+In general, we find class invariants to be a powerful construct for programming
+with E-Graphs. For each class we track as class invariant if there is a constant
+scalar in the class. As soon as all the children of an operator are found to
+contain constants, we can fold the operator with the constant it computes. This
+seamlessly integrates constant folding with the rest of the rewrites. We also
+treat sparsity as a class invariant and track it throughout equality saturation.
+Because our sparsity estimation is conservative, equal expressions that use
+different operators may have different estimates. But as soon as we identify
+them as equal, we can merge their sparsity estimates by picking the tighter one,
+thereby improving our cost function. Finally, we also take advantage of the
+schema invariant during constraint generation. Because we are only interested in
+RA expressions that can be translated to LA, we only generate symbolic variables
+for classes that have no more than two attributes in their schema. This prunes
+away a large number of invalid candidates and helps the solver avoid wasting
+time on them. We implement class invariants using \texttt{egg}'s Metadata API.
+
+\subsection{Translation, Operator Fusion and Custom Functions}
+Since equality saturation can rewrite any expression given a set of equations,
+we can directly perform the translation between LA and RA within saturation,
+simply by adding the translation rules $R_{LR}$ from Figure~\ref{RMR}.
+Furthermore, saturation has flexible support for custom functions. The simplest
+option is to treat a custom functions as a black box, so saturation can still
+optimize below and above them. With a little more effort, we have the option to
+extend our equations $R_{EQ}$ to reason about custom functions, removing the
+optimization barrier. We take this option for common operators that are not part
+of the core RA semantics, e.g. square, minus and divide. In the best scenario,
+if the custom function can be modeled by a combination of basic operators, we
+can add a rule equating the two, and retain both versions in the same graph for
+consideration. In fact, this last option enables us to encode fused operators
+and seamlessly integrate fusion with other rewrite rules. As a result, the
+compiler no longer need to struggle with ordering fusion and rewrites, because
+saturation simultaneously considers all possible ordering.
+
+\subsection{Saturation v.s. Heuristics}
+
+Using equality saturation, SPORES elegantly remedies the drawbacks of
+heuristics mentioned in the beginning of section~\ref{explore}. First, when two
+or more conflicting rewrites apply, they would be added to the same E-Class, and
+the extraction step will pick the more effective one based on the global cost
+estimate. Second, there is no need to carefully order rewrites, because
+saturation simultaneously considers all possible orders. For example, when rules
+$R_1$ and $R_2$ can rewrite expression $e$ to either $R_1(R_2(e))$ or
+$R_2(R_1(e))$, one iteration of saturation would add $R_1(e)$ and $R_2(e)$ to
+the graph, and another iteration would add both $R_1(R_2(e))$ and $R_2(R_1(e))$
+to the same E-Class. Third, rules do not need to reason about their dependency on
+input or program properties, because extraction uses a global cost model that
+holistically incorporates factors like input sparsity and common subexpressions.
+Finally, every rule application in saturation applies one step of rewrite on top
+of those already applied, naturally composing complex rewrites out of simple
+ones.
+
+
+
+\subsection{Integration within SystemML}
+
+We integrate SPORES into SystemML to leverage its compiler
+infrastructure. Figure~\ref{warp} shows the architecture of the integrated
+system: the optimizer plugs into the algebraic rewrite pass in SystemML. It
+takes in a DAG of linear algebra operations, and outputs the optimized DAG.
+Within the optimizer, it first translates the LA DAG into relational algebra,
+performs equality saturation, and finally translates the optimal expression back
+into LA. We obtain matrix characteristics such as dimensions and sparsity
+estimation from SystemML. Since we did not focus our efforts in supporting
+various operators and data types unrelated to linear algebra computation (e.g.
+string manipulation), we only invoke SPORES on important LA expressions
+from the inner loops of the input program.
+
+\begin{figure}
+    \centering \includegraphics[width=0.6\linewidth]{arch}
+    \caption{Architecture of SPORES and integration within SystemML}
+    \label{warp}
+\end{figure}{}

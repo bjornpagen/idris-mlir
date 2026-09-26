@@ -1,0 +1,163 @@
+{
+  "decision": "PASS_SCIENTIFIC_SOURCES_AND_REVIEWED_BUILD",
+  "source_repairs_required": [],
+  "blockers": [],
+  "repository": "AlexandervonWu/ACGN",
+  "branch": "aislop",
+  "snapshot": "1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+  "scientific_source_files": 25,
+  "scientific_source_hashes": {
+    "appendixC_vmcai_stage1.tex": "41f46ead337bf15d2dd7b07c554a6942103c4ef755b0c4268a1748192f73aa69",
+    "appendix_closure_tables.tex": "ca97212953c0759dd8390be5e03a1a838a16fcde4a0d8f65f475fdaeae44000e",
+    "appendix_eval.tex": "7a6f4da2cbec10d806c3201f7b5aeb184d7bfee9d678ba1d4fff5ebe66d1cb2b",
+    "appendix_formal.tex": "4395af55de70fae6eec9fbc1b49e5a90d4a681746e25caafc1ef22bc932ee9cb",
+    "conclusion_compressed.tex": "3d4b68c41bc0a5bb18ba412ee0f7c507517b8c91df3b2e2031503c0a87307ffc",
+    "eval_compressed.tex": "f23ce06253235f9740f5f358d2d909fb674fb0c8e1ca495498bdbba228373d82",
+    "figures/aci_canonicalization_distance.tex": "74f13a48481b2a8f99edc0536df88014050ced6390485715bd34f8860a281676",
+    "figures/alloy-certificate-example.tex": "94f219a3d9233c57cfaf3ffdf436b239b257042f146a4cddbe696485862fded9",
+    "figures/final_alg_vmcai_stage1.tex": "dbf196f23f146aabe44f74ef66d9aba9abaae028fd8297c5cedee418f2ae6c87",
+    "formal/formal-statement-index.tex": "d4574d0f1b19ad67046d98e5758df98af9203d048ab3a0abc94dfc63556bdc0c",
+    "foundations_compressed.tex": "6ec9c34781058b70209e1b4060c01117ec60c6f7a9f35fbb3236f9cbe6709ca7",
+    "intro_compressed.tex": "5b7d95104af0d15687aebb4e08f892fa1e328b82cae0abbe4859c7f060846ab7",
+    "macros_compressed.tex": "24f22bf63c8d4c17b05f89613822fa5f25d6b2c4dea4394d63b3a9a3c1a6741d",
+    "main_compressed.tex": "076d7c8ab6b6b35f99e7e30e7cb20b2e66d2a97f17aa22218ce043d6ea85cae6",
+    "prelims_compressed.tex": "34d8cfaa1e8cbd9ee068f16b7abbd3a0a02049a422f81f7dc874d041faf8cb7d",
+    "tables/model_overview.tex": "61bdcbd9cf87c3b2adf040f71b0a45ef2c3d4ff5c343d009e7f84137bafcac87",
+    "tables/table1_rev4.tex": "337b3e79a738a7f8cb446b018ceafcefa2623c43101bcab7a764c777803b415f",
+    "tables/table2_rev4.tex": "130bc113fb0bb9136ce6c41ee73e7bcc43b97ca3fd242cf74b8fde28b3c3ac72",
+    "tables/table3_vmcai_stage1.tex": "784b22e6196fbd29390abdd0bfc1184f81dde564d57888e0e1d8c73c1eebdecb",
+    "tables/table6_ablation_vmcai_stage1.tex": "b2ed38d242fb09e635dbe85055f8b68f36287cdfc6b20b08f2410f20ad0f5899",
+    "tables/table7_capability_rev4.tex": "e3d1307502680c5ad4219eec3eab501a01cbd4b329922fdc4638b649324680d7",
+    "ref.bib": "c60f325d76c7bdd8417d135e70cbd72968fc5724e5c561b79a2149c9bb246882",
+    "llncs.cls": "92c3bada01fa8cd46a0f761e7c0e3bcd1cdf6a47bcc9e130fef497cfc47a270a",
+    "splncs04.bst": "6f1fe5dd74efa8b1898f93e5042a6347f192b887afe254a0121bd0a9b9472100",
+    "figures/raw_edit_repair_coverage_relabel.png": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5"
+  },
+  "changed_tex_files": [
+    {
+      "path": "appendixC_vmcai_stage1.tex",
+      "before_sha256": "e6dc4140a7ab894dc8989aab6167988dd2f39123d712445fece2b4ab4578d73f",
+      "after_sha256": "41f46ead337bf15d2dd7b07c554a6942103c4ef755b0c4268a1748192f73aa69"
+    },
+    {
+      "path": "appendix_closure_tables.tex",
+      "before_sha256": "8aa814fb993258cd3a58b5b96c44d0352e8ee4464754288a21dabacfacae1830",
+      "after_sha256": "ca97212953c0759dd8390be5e03a1a838a16fcde4a0d8f65f475fdaeae44000e"
+    },
+    {
+      "path": "appendix_eval.tex",
+      "before_sha256": "6bde4ab16b61cc5fc31abf737c317189ca5016bbad5c5bfbd033dcd629b2081d",
+      "after_sha256": "7a6f4da2cbec10d806c3201f7b5aeb184d7bfee9d678ba1d4fff5ebe66d1cb2b"
+    },
+    {
+      "path": "eval_compressed.tex",
+      "before_sha256": "66f2dbb26d522650f036e8881de1ae2f0815d306152055867dd01df626328e3c",
+      "after_sha256": "f23ce06253235f9740f5f358d2d909fb674fb0c8e1ca495498bdbba228373d82"
+    },
+    {
+      "path": "figures/aci_canonicalization_distance.tex",
+      "before_sha256": "1940d71c43416dfcd18dc9fbbfc0ab248e7ea5e7d2e6a0d4e559998b6686a93f",
+      "after_sha256": "74f13a48481b2a8f99edc0536df88014050ced6390485715bd34f8860a281676"
+    },
+    {
+      "path": "prelims_compressed.tex",
+      "before_sha256": "01a6a5dc7e211c08fe293e04d1557acb06638e3895ad8945c5fcc0e5dc3699a0",
+      "after_sha256": "34d8cfaa1e8cbd9ee068f16b7abbd3a0a02049a422f81f7dc874d041faf8cb7d"
+    },
+    {
+      "path": "tables/table6_ablation_vmcai_stage1.tex",
+      "before_sha256": "9cd666b3f7f7a87a39a63a6cc760cd8d18bccb44d1ad897380f4459f82b14026",
+      "after_sha256": "b2ed38d242fb09e635dbe85055f8b68f36287cdfc6b20b08f2410f20ad0f5899"
+    }
+  ],
+  "formal_source_spans": 146,
+  "formal_source_spans_unchanged": 146,
+  "formal_excerpt_hashes_match": 146,
+  "formal_directory_files_unchanged": 75,
+  "ledger_claim_hash_checks": [
+    {
+      "path": "egraph_ablation/comparison.json",
+      "match": true
+    },
+    {
+      "path": "egraph_ablation/comparison.json",
+      "match": true
+    },
+    {
+      "path": "capability_benchmark/results.json",
+      "match": true
+    },
+    {
+      "path": "distance_results/summary.md",
+      "match": true
+    },
+    {
+      "path": "alloy4fun-augmented/summary.md",
+      "match": true
+    },
+    {
+      "path": "alloy4fun-augmented/summary.md",
+      "match": true
+    },
+    {
+      "path": "egraph_ablation/semantic_soundness.md",
+      "match": true
+    },
+    {
+      "path": "publication_runs/659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4/capability_validation/soundness.json",
+      "match": true
+    },
+    {
+      "path": "docs/release-v2.17.md",
+      "match": true
+    },
+    {
+      "path": "docs/obligation-repair/fifth-five/README.md",
+      "match": true
+    },
+    {
+      "path": "src/is/fivefivefive/CanDis/metric/QuotientRepairDistance.java",
+      "match": true
+    }
+  ],
+  "build": {
+    "pdf_sha256": "3165c447bfb2d365d0c0ecb273e90dcbe98f6a5df958f0df773c444393133a0f",
+    "pages": 49,
+    "main_last_page": 20,
+    "references_first_page": 21,
+    "overfull": 0,
+    "undefined_references": 0,
+    "undefined_citations": 0,
+    "baseline_underfull": 363,
+    "current_underfull": 364,
+    "inherited_font_substitution": true
+  },
+  "visual_review_pages": [
+    2,
+    3,
+    4,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    32,
+    33,
+    34,
+    37,
+    38,
+    39
+  ],
+  "visual_review_material_defects": [],
+  "notation_baseline_rows": 41,
+  "notation_delta_rows": 6,
+  "metadata_status": "README/package manifest refresh pending parent; audit this reviewed scientific hash set and PDF, not unfinished packaging.",
+  "verification_limits": [
+    "No experiment rerun; large LFS distances.json/index.json were not independently downloaded/reaggregated; manifest-bound summaries and selected structured aggregates checked.",
+    "No Lean rebuild, theorem/axiom re-audit or new whole-manuscript formal correspondence review; exact preservation of all registered active source spans and formal files independently checked.",
+    "Author-supplied class/BST retained; 20-page main-body condition from task plan checked. No new official venue/template certification.",
+    "Visual pass covers 15 changed/dependent pages; parent conducts full-document visual QA."
+  ],
+  "note": "Final source comparison was recomputed after the final Background wording change; earlier revision.diff and change-manifest checksums must be refreshed to the reviewed current bytes."
+}

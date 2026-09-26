@@ -1,0 +1,21 @@
+# Grab docker image from http://doi.org/10.5281/zenodo.5786074
+$ curl https://zenodo.org/record/5786074/files/cgo22.docker?download=1 > cgo22.docker
+$ docker load -i cgo22.docker
+$ docker run -it siddudruid/cgo21-v4
+$ su nonroot # switch to non-root user
+$ export PATH=/code/llvm-project/build/bin:$PATH
+$ export PATH=/code/lean4/build/release/stage1/bin:$PATH
+$ export PATH=/code/lz/build/bin:$PATH
+$ export LEANLIB=/code/lean4/build/release/stage1/lib
+$ export LD_LIBRARY_PATH=$LEANLIB:$LD_LIBRARY_PATH
+$ cd /code/lean4/build/release/ && make -j test # NO test failures
+100% tests passed, 0 tests failed out of 648
+
+Total Test time (real) = 399.28 sec
+[100%] Built target test
+
+$ cd /code/lz/test/lambdapure/compile/bench && \
+./speedup-time.py --data --plot --nruns 10
+
+$ cd /code/lz/test/lambdapure/compile/bench && \
+./speedup-rgn-time.py --data --plot --nruns 10

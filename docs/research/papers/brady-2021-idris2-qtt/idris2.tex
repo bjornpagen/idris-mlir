@@ -1,0 +1,384 @@
+\section{An Overview of Idris}
+
+\label{sec:idris}
+
+Idris is a purely functional programming language, with \emph{first-class}
+dependent types. That is, types can be computed, passed to and returned from
+functions, and stored in variables, just like any other value. In this section,
+we give a brief overview of the fundamental features which we 
+use in this paper. A full tutorial is available
+online\footnote{\url{https://idris2.readthedocs.io/en/latest/tutorial/index.html}}.
+Readers who are already familiar with Idris may skip to Section~\ref{sec:idris2}
+which introduces the new implementation.
+
+\subsection{Functions and Data Types}
+
+\label{sec:typevars}
+
+The syntax of Idris is heavily influenced by the syntax of Haskell. Function
+application is by juxtaposition and, like Haskell and ML and other related
+languages, functions are defined by recursive pattern matching equations. For
+example, to append two lists:
+
+\begin{lstlisting}
+append : List a -> List a -> List a
+append [] ys = ys
+append (x :: xs) ys = x :: append xs ys
+\end{lstlisting}
+
+The first line is a \demph{type declaration}, which is required in
+Idris\footnote{Note that unlike Haskell, we use a single colon for the type
+declaration.}. Names in the type declaration which begin with a lower case
+letter are \emph{type level variables}, therefore \TC{append} is parameterised
+by an element type.
+Data types, like \TC{List}, are defined in terms of their \demph{type
+constructor} and \demph{data constructors}:
+
+\begin{lstlisting}
+data List : Type -> Type where
+     Nil  : List elem
+     (::) : elem -> List elem -> List elem
+\end{lstlisting}
+
+The type of types is \TC{Type}.
+%\footnote{There is also an infinite hierarchy
+%of cumulative universes, but the details are beyond the scope of this paper}
+Therefore, this declaration states that \TC{List} is parameterised by a
+\TC{Type}, and can be constructed using either \TC{Nil} (an empty list) or
+\TC{::} (``cons'', a list consisting of a head element and and tail).
+%
+As we'll see in more detail shortly, types in Idris are first-class, thus
+the type of \TC{List} (\TC{Type -> Type}) is an ordinary function type.
+Syntax sugar allows us to write \texttt{[]} for \DC{Nil}, and comma separated
+values in brackets expand to applications of \texttt{::}, e.g. \texttt{[1, 2]}
+expands to \texttt{1 :: 2 :: Nil}.
+
+\subsection{Interactive Programs}
+
+\label{sec:interactive}
+
+Idris is a pure language, therefore functions have no side effects. Like
+Haskell~\cite{awkward}, we write interactive programs by \emph{describing} interactions using
+a parameterised type \TC{IO}. For example, we have primitives for Console I/O, including:
+
+\begin{lstlisting}
+putStrLn : String -> IO ()
+getLine : IO String
+\end{lstlisting}
+
+\TC{IO t} is the type of an interactive action which produces a result of
+type \TC{t}. So, \TC{getLine} is an interactive action which, when executed,
+produces a \TC{String} read from the console. Idris the language \emph{evaluates}
+expressions to produce a description of an interactive action as an \TC{IO t}.
+It is the job of the run time system to \emph{execute} the resulting action.
+Actions can be chained using the $\mathtt{>>=}$ operator:
+
+\begin{lstlisting}
+(>>=) : IO a -> (a -> IO b) -> IO b
+\end{lstlisting}
+
+For example, to read a line from the console then echo the input:
+
+\begin{lstlisting}
+echo : IO ()
+echo = getLine >>= \x => 
+       putStrLn x
+\end{lstlisting}
+
+For readability, again like Haskell, Idris provides \texttt{do}-notation which
+translates an imperative style syntax to applications of $\mathtt{>>=}$. The
+following definition is equivalent to the definition of \texttt{echo}
+above.
+
+\begin{lstlisting}
+echo : IO ()
+echo = do x <- getLine
+          putStrLn x
+\end{lstlisting}
+
+The translation from \texttt{do}-notation to applications of $\mathtt{>>=}$
+is purely syntactic. In practice therefore we can, and do, use a more general
+type for $\mathtt{>>=}$ to use \texttt{do}-notation in other contexts. We will
+see this later, when implementing linear resource usage protocols.
+
+\subsection{First-Class Types}
+
+The main distinguishing feature of Idris compared to other languages, even
+some other languages with dependent types, is that types are \emph{first-class}.
+This means that we can use types anywhere that we can use any other value.
+For example we can pass them as arguments to functions, return them from
+functions, or store them in variables. This enables us to define type synonyms,
+to compute types from data, and express relationships between and properties
+of data.
+% 
+% \subsubsection{Type Synonyms}
+% 
+As an initial example, we can define a \emph{type synonym} as follows:
+
+\begin{lstlisting}
+Point : Type
+Point = (Int, Int)
+\end{lstlisting}
+
+Wherever the type checker sees \FN{Point} it will evaluate it,
+and treat it as \TC{(Int, Int)}:
+
+\begin{lstlisting}
+moveRight : Point -> Point
+moveRight (x, y) = (x + 1, y)
+\end{lstlisting}
+
+Languages often include type synonyms as a special feature (e.g.
+\texttt{typedef} in C or \texttt{type} declarations in Haskell). In Idris,
+no special feature is needed. 
+%First-class types also allow us to define: \emph{variadic functions}, where
+%an argument is used to compute the rest of a function's type; and
+%\emph{dependent data types}, where types are parameterised by values.
+
+\subsubsection{Computing Types}
+
+\label{sec:printf}
+
+First-class types allow us to compute types from data.
+A well-known example is \texttt{printf} in C, where
+a format string determines the types of arguments to be printed.
+C compilers typically use extensions to check the validity of the format string;
+first-class types allow us to implement a \texttt{printf}-style variadic
+function, with compile time checking of the format. We begin by defining
+valid formats (limited to numbers, strings, and literals here):
+
+\begin{lstlisting}
+data Format : Type where
+     Num : Format -> Format
+     Str : Format -> Format
+     Lit : String -> Format -> Format
+     End : Format
+\end{lstlisting}
+
+This describes the expected input types. We can calculate
+a corresponding function type:
+  
+\begin{lstlisting}
+PrintfType : Format -> Type
+PrintfType (Num f) = (i : Int) -> PrintfType f
+PrintfType (Str f) = (str : String) -> PrintfType f
+PrintfType (Lit str f) = PrintfType f
+PrintfType End = String
+\end{lstlisting}
+
+A function which computes a type can be used anywhere that Idris expects a
+value of type \TC{Type}. So, for the type of \FN{printf}, we name the first
+argument \VV{fmt}, and use it to compute the rest of the type of \FN{printf}:
+
+\begin{lstlisting}
+printf : (fmt : Format) -> PrintfType fmt
+\end{lstlisting}
+
+We can check the type of an expression, even using an as yet undefined function,
+at the Idris REPL. For example, a format corresponding to \texttt{"\%d \%s"}:
+
+\begin{lstlisting}
+Main> :t printf (Num (Lit " " (Str End)))
+printf (Num (Lit " " (Str End))) : Int -> String -> String
+\end{lstlisting}
+
+We will implement this via a helper function which accumulates a string:
+
+\begin{lstlisting}
+printfFmt : (fmt : Format) -> (acc : String) -> PrintfType fmt
+\end{lstlisting}
+
+Idris has support
+for \emph{interactive} program development, via text editor plugins and REPL
+commands. In this paper, we will use \emph{holes} extensively.
+An expression of the form \texttt{?hole} stands for an as yet unimplemented
+part of a program. This defines a top level function \texttt{hole}, with a type
+but no definition, which we can inspect at the REPL. So, we can write a partial
+definition of \texttt{printfFmt}:
+
+\begin{lstlisting}
+printfFmt : (fmt : Format) -> (acc : String) -> PrintfType fmt
+printfFmt (Num f) acc = ?printfFmt_rhs_1
+printfFmt (Str f) acc = ?printfFmt_rhs_2
+printfFmt (Lit str f) acc = ?printfFmt_rhs_3
+printfFmt End acc = ?printfFmt_rhs_4
+\end{lstlisting}
+
+Then, if we inspect the type of \texttt{printfFmt\_rhs\_1} at the REPL, we
+can see the types of the variables in scope, and the expected type of
+the right hand side:
+
+\begin{lstlisting}
+Example> :t printfFmt_rhs_1
+   f : Format
+   acc : String
+------------------------------
+printfFmt_rhs_1 : Int -> PrintfType f
+\end{lstlisting}
+
+So, a format specifier of \DC{Num} means we need to write a function that
+expects an \TC{Int}. 
+%
+% Similarly, if we inspect the type of
+% \texttt{printfFmt\_rhs\_2}, we'll see that a format specifier of \DC{Str} means
+% we need to write a function that expects a \TC{String}:
+% 
+% \begin{lstlisting}
+%    f : Format
+%    acc : String
+% ------------------------------
+% printfFmt_rhs_2 : String -> PrintfType f
+% \end{lstlisting}
+%
+For reference, the complete definition is given in Listing~\ref{printfdef}.
+As a final step (omitted here) we can write a C-style \texttt{printf} by
+converting a \TC{String} to a \TC{Format} specifier.
+
+\begin{lstlisting}[caption={The complete definition of \texttt{printf}},label=printfdef,float=h]
+printfFmt : (fmt : Format) -> (acc : String) -> PrintfType fmt
+printfFmt (Num f) acc = \i => printfFmt f (acc ++ show i)
+printfFmt (Str f) acc = \str => printfFmt f (acc ++ str)
+printfFmt (Lit str f) acc = printfFmt f (acc ++ str)
+printfFmt End acc = acc
+  
+printf : (fmt : Format) -> PrintfType fmt
+printf fmt = printfFmt fmt ""
+\end{lstlisting}
+
+This example uses data which is known at compile time---the format
+specifier---to calculate the rest of the type. In Section~\ref{sec:protocols},
+we will see a similar idea used to calculate a type from data which is not
+known until \emph{run time}.
+
+\subsubsection{Dependent Data Types}
+
+We define data types (such as \TC{List a} and \TC{Format} earlier) by giving
+explicit types for the \emph{type constructor} and the \emph{data
+constructors}.
+We defined \TC{List} as having type \TC{Type -> Type}, a function type, since
+\TC{List} is parameterised by an element type. We are
+not limited to parameterising by types;
+type constructors can be parameterised by any value. The canonical example
+is a vector, \TC{Vect}, a list with its length encoded in the type:
+
+\begin{lstlisting}
+data Vect : Nat -> Type -> Type where
+     Nil  : Vect Z a
+     (::) : a -> Vect k a -> Vect (S k) a
+\end{lstlisting}
+
+\TC{Nat} is the type of natural numbers, declared as follows as part of the
+Idris Prelude (its standard library), where \texttt{Z} stands for ``zero'' and
+\texttt{S} stands for ``successor'', here using a Haskell-style \texttt{data}
+declaration, which is sugar for the fully explicit type and data constructors:
+
+\begin{lstlisting}
+data Nat = Z | S Nat
+\end{lstlisting}
+
+\textbf{Note:}
+%It is convenient to use this unary declaration of numbers to
+%describe lengths and sizes of other structures, because then the structure of
+%\texttt{Nat} allows a \texttt{S} to correspond to adding an element. 
+Idris
+optimises \texttt{Nat} to a binary representation at run time, although
+in practice, values of type \texttt{Nat} can often be erased when the
+type system can guarantee they are not needed at run time.
+
+Since vectors have their lengths encoded in their types, functions over vectors
+encode their effect on vector length in their types:
+
+\begin{lstlisting}
+append : Vect n a -> Vect m a -> Vect (n + m) a
+append [] ys = ys
+append (x :: xs) ys = x :: append xs ys
+\end{lstlisting}
+
+%We will see several examples of dependent data types throughout this paper.
+
+\subsection{Implicit Arguments}
+
+\label{sec:implicits}
+
+As we noted in Section~\ref{sec:typevars}, lower case names in type definitions
+are type level variables. So, in the following definition\ldots
+
+\begin{lstlisting}
+append : Vect n a -> Vect m a -> Vect (n + m) a
+\end{lstlisting}
+
+\ldots \VV{n}, \VV{a} and \VV{m} are type level variables. Note that we do not
+say ``type variable'' since they are not necessarily of type \TC{Type}!
+Type level variables are bound as \emph{implicit arguments}. Written
+out in full, the type of \FN{append} is:
+
+\begin{lstlisting}
+append : {n : Nat} -> {m : Nat} -> {a : Type} ->
+         Vect n a -> Vect m a -> Vect (n + m) a
+\end{lstlisting}
+
+\textbf{Note:} We will refine this when introducing multiplicities in
+Section~\ref{sec:quantities}.
+
+The implicit arguments are concrete arguments to \FN{append}, like the
+\TC{Vect} arguments. Their values are solved by
+unification~\cite{millerunification,gundrythesis}.  Typically implicit
+arguments are only necessary at compile time, and unused at run time.
+However, we can use an implicit argument in a definition, since
+the names of the arguments are in scope in the right hand side:
+
+\begin{lstlisting}
+length : {n : Nat} -> Vect n a -> Nat
+length xs = n
+\end{lstlisting}
+
+One challenge with first-class types is in distinguishing those parts of
+programs which are required at run time, and those which can be erased.
+Tradtionally, this phase distinction has been clear: types are erased at run
+time, values preserved. But this correspondence is merely a coincidence,
+arising from the special (non first-class) status of types! As we see with
+\FN{length} and \FN{append}, sometimes an argument might be required (in
+\FN{length}) and sometimes it might be erasable (in \FN{append}).
+%
+Idris 1 uses a constraint solving algorithm~\cite{matusicfp}, which has been
+effective in practice, but has a weakness that it is not possible to tell from
+a definition's type alone which arguments are required at run time.  In
+Section~\ref{sec:erasure} we will see how quantitative type theory allows us to
+make a precise distinction between the run time relevant parts of a program and
+the compile time only parts.
+
+\subsection{Idris 2}
+
+\label{sec:idris2}
+
+Idris 2 is a new version of Idris, implemented in itself, and based on
+Quantitative Type Theory (QTT) as defined in recent work by Atkey~\cite{qtt}
+following initial ideas by McBride~\cite{nuttin}. 
+In QTT, each variable binding is associated with a \emph{quantity} (or
+\emph{multiplicity}) which denotes the number of times a variable can be
+used in its scope: either zero, exactly once, or unrestricted. We will
+describe these further shortly. 
+Several factors have motivated the new implementation:
+
+\begin{itemize}
+\item In implementing Idris in itself, we have necessarily done the engineering
+required on Idris to implement a system of this scale. Furthermore, although it is
+outside the scope of the present paper, we can explore the benefits of
+dependently typed programming in implementing a full-scale programming language.
+\item A limitation of Idris 1 is that it is not always clear which arguments to
+functions and constructors are required \emph{at run time}, and which are 
+erased, even despite previous work~\cite{Brady2005,matusicfp,matus-draft}. QTT allows us
+to state clearly, in a type, which arguments are erased.
+Erased arguments are still relevant \emph{at compile time}.
+\item There has, up to now, been no full-scale implementation of a language
+based on QTT which allows exploration of the possibilities of linear and
+dependent types.
+\item Purely pragmatically, Idris 1 has outgrown the requirements of its
+initial experimental implementation, and since significant re-engineering has
+been required, it was felt that it was time to re-implement it in Idris itself.
+\end{itemize}
+
+In the following sections, we will discuss the new features in Idris 2 which
+arise as a result of using QTT as the core: firstly, how to express
+\emph{erasure} in the type system; and secondly, how to encode resource usage
+protocols using linearity.

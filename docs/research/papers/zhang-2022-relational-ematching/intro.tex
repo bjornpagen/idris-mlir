@@ -1,0 +1,152 @@
+\section{Introduction}
+
+The congruence closure data structure,
+ also known as the \egraph,
+ is a central component of SMT-solvers~\cite{simplify, z3, moskal, cvc4}
+ and equality saturation-based optimizers~\cite{eqsat, egg}.
+An \egraph compactly represents a set of terms
+ and an equivalence relation over the terms.
+An important operation on \egraphs is \ematching,
+ which finds the set of terms in an \egraph
+ matching a given pattern.
+In SMT-solvers, \ematching is used to instantiate
+ quantified formulas over ground terms.
+% For instance, suppose the solver input contains the
+%  formula $\forall x . \phi(x, g(x)) \rightarrow \psi(x)$
+%  for predicate symbol $\phi, \psi$
+%  and function symbol $g$.
+% The solver will search for potential instantiation
+%  of the form $\phi(x, g(x))$ in its internal \egraph
+%  data structure.
+% For every ground term found,
+%  the solver is able to deduce $\psi(x)$ as a fact.
+In equality saturation, \ematching is used
+ to match rewrite rules on an \egraph
+ to discover new equivalent programs.
+% In equality saturation, rewrite rules of the form
+%  $f(\alpha, g(\alpha)) \Rightarrow h(\alpha)$ match
+%  the left-hand-side pattern $f(\alpha, g(\alpha))$
+%  on terms represented by the \egraph;
+% upon every match, the right-hand-side $h(\alpha)$ is
+%  instantiated with the substitution $\alpha \mapsto t$
+%  into $h(t)$ and is added to the \egraph.
+% One can view the rewrite rule
+%  $f(\alpha, g(\alpha)) \Rightarrow h(\alpha)$
+%  as a formula where the pattern variable $\alpha$ is
+%  $\forall$-quantified,
+%  so the \ematching~instances in SMT-solvers and equality
+%  saturation are practically the same.
+The efficiency of \ematching~greatly affects the overall performance
+ of the SMT-solver~\cite{z3, cvc4},
+ and slow \ematching~is a major bottleneck
+ in equality saturation~\cite{egg, tensat, szalinski}.
+In a typical application of equality saturation,
+ \ematching~is responsible for 60--90\% of the overall run time~\cite{egg}.
+
+Several algorithms have been proposed for e-matching~\cite{efficient-ematching, moskal, simplify}.
+However, due to the NP-completeness of \ematching~\cite{ematching-nph},
+ most algorithms implement some form of backtracking search,
+ which are inefficient in many cases.
+In particular, backtracking search only exploits \textit{structural constraints},
+ which are constraints about the shape of a pattern,
+ but defers checking \textit{equality constraints},
+ which are constraints that variables should be consistently mapped.
+This leads to suboptimal run time when
+ the equality constraints dominate the structural constraints.
+
+To improve the performance of backtracking-based \ematching,
+ existing systems implement various optimizations.
+Some of these optimizations only deal with
+ patterns of certain simple shapes and are therefore \textit{ad hoc}
+ in nature~\cite{moskal}.
+Others attempt to incrementalize \ematching\ upon changes to the \egraph,
+ or match multiple similar patterns together
+ to eliminate duplicated work~\cite{efficient-ematching}.
+However, these optimizations are complex to implement
+ and fail to generalize to workloads where the \egraph~changes rapidly
+ or when the patterns are complex.
+
+% Finally, despite the NP-completeness of the general \ematching~problem, most
+% researchers acknowledge \ematching~is almost always tractable, thanks to the
+% small size of patterns encountered in practice. This hints at possible
+% algorithmic improvements to \ematching.
+
+To tackle the inefficiency and complexity involved in \ematching,
+ we propose a systematic approach to \ematching~called \textbf{relational \ematching}.
+Our approach is based on the observation that
+ \ematching\ is an instance of a well-studied problem
+ in the databases community,
+ namely answering {\em conjunctive queries}.
+We therefore propose to solve \ematching\ on an \egraph\ by reducing it
+ to answering conjunctive queries on a relational database.
+This approach has several benefits.
+First, by reducing \ematching to conjunctive queries,
+ we simplify \ematching by taking advantage of
+ decades of study by the databases community.
+Second, the relational representation provides a unified way to
+ express both the structural constraints and equality constraints in patterns,
+ allowing query optimizers to leverage both kinds of constraints
+ to generate asymptotically faster query plans.
+Finally, by leveraging the generic join algorithm,
+ a novel algorithm developed in the databases community,
+ our technique achieves the first worst-case optimal bound for \ematching.
+
+Relational \ematching is provably optimal despite the NP-hardness of \ematching.
+The databases community makes a clear distinction between
+ {\em query complexity}, the complexity dependent on the size of the query,
+ and {\em data complexity}, the complexity dependent on the size of the database.
+The NP-hardness result~\cite{ematching-nph} is stated over the size of the pattern,
+ yet in practice only small patterns are matched on a large \egraph.
+When we hold the size of each pattern constant,
+ relational \ematching runs in time polynomial over the size of the \egraph.
+
+Our approach is widely applicable.
+For example, \textit{multi-patterns} are
+ typically framed as an extension to \ematching
+ that allows the user to find matches
+ satisfying multiple patterns simultaneously.
+Efficient support for multi-patterns requires modifying the basic
+ backtracking algorithm~\cite{efficient-ematching}.
+In contrast, relational \ematching inherently supports multi-patterns for free.
+The relational model also opens the door
+ to entirely new kinds of optimizations,
+ such as persistent or incremental \egraphs.
+
+To evaluate our approach, we implemented relational \ematching for \egg, a
+ state-of-the-art implementation of \egraphs.
+Relational \ematching
+ is simpler, more modular, and orders of magnitude faster
+ than \egg's \ematching implementation.
+
+In summary, we make the following contributions in this paper:
+\begin{itemize}
+\item We propose relational \ematching, a systematic approach to \ematching that
+  is simple, fast, and optimal.
+\item We adapt generic join to implement relational \ematching,
+  and provide the first data complexity results for \ematching.
+\item We prototyped relational \ematching\footnote{
+  Our implementation can be found here: \url{https://github.com/yihozhang/relational-ematching-benchmark}.
+  } in \egg,
+  a state-of-the-art \egraph implementation,
+  and we show that relational \ematching can be orders of magnitude faster.
+\end{itemize}
+
+The rest of the paper is organized as follows: \autoref{sec:background} reviews
+relevant background on the \egraph~data structure, the \ematching~problem,
+conjunctive queries and join algorithms.
+\autoref{sec:algorithm} presents our
+ relational view of \egraphs,
+ our \ematching algorithm,
+ and the complexity results.
+\autoref{sec:optimization} discusses
+optimizations on our core algorithm and addresses various practical concerns.
+\autoref{sec:evaluation} evaluates our algorithm and implementation with a set of
+experiments in the context of equality saturation.
+\autoref{sec:discussion} discusses how the relational model opens up
+ many avenues for future work in \egraphs and \ematching,
+ and \autoref{sec:conclusion} concludes.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

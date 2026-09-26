@@ -1,0 +1,43 @@
+\section{Related Work}
+
+\paragraph{Hierarchical Multiscale RNNs}
+Hierarchical RNNs are a classic technique in sequence prediction domains~\cite{hihi-hierarchical}.
+\tool{} uses a hierarchical multiscale RNN as the core of its prediction methodology, similar to many other proposed hierarchical RNN models.
+\tool{} has some inherent advantages over other models from the literature: as opposed to the methodology proposed in~\cite{chung-hierarchical}, the hierarchical structure in instruction embedding and throughput prediction is explicit rather than latent.
+\tool{}'s structure is instead most similar to boundary-aware hierarchical RNNs, such as the one presented in~\cite{baraldi-hierarchical} for video captioning based on a hierarchy of frames and scenes.
+
+\paragraph{DAG-RNNs and Graph Neural Networks}
+Neural networks with generic graph based structures have been used in NLP tasks to model relations among words in sentences ~\cite{acl:rel-extraction, arxiv:rel-extraction}.
+Programs also can be represented using Gated Graph Neural Networks~\cite{ggnn}, to perform high-level tasks such as variable naming, or identifying variable misuses.
+\citet{binary-similarity}~uses graph neural networks to find binary similarity between different execution platforms.
+In experimenting with a DAG-RNN~\cite{dag-rnn1,dag-rnn2}, we hoped to be able to take advantage of the program semantics of a basic block, although that approach does not perform as well in our collected datasets.
+
+\paragraph{Analytical Models for Throughput and Runtime Estimation}
+
+Apart from state-of-the-art tools like llvm-mca and IACA, other analytical models exist for throughput estimation~\cite{taha-tp} of instructions.
+OSACA~\cite{laukemann-osaca} is an open source analytical model similar to llvm-mca and IACA, which automates some of the collection of the tabular data which is plugged into the model.
+There are also analytical models such as~\cite{chen-tp-multi} to estimate throughput for multithreaded programs.
+Cycle--accurate simulators such as ZSim~\cite{sanchez-sim} and Marss~\cite{marss-sim} have a high start-up cost and are more suited for coarse grained simulations.
+
+Coarser analytical models exist for predicting program runtimes~\cite{park-prediction}.
+Work has also been done in developing analytical models to predict performance of restricted classes of programs.
+For example, work on predicting parallel program runtimes include~\cite{rugina-parallel, adve-parallel, hartleb-parallel, blanco-parallel, fahringer-parallel}
+and work on predicting worst case execution times include~\cite{ferdinand-wcet,li-wcet}.
+
+All of these models require detailed processor modeling and considerable human development effort.
+
+
+\paragraph{Learned Models for Throughput and Runtime Estimation}
+
+There has been work on developing machine learning--based models for absolute and relative runtime estimation.
+\cite{sparse-reg}~introduces sparse polynomial regression to predict execution time of programs by using a set of hand--crafted features of high level programs.
+\citet{suif-speedup}~uses neural networks with hand-crafted features to estimate the speedup between two code sequences.
+GameTime~\cite{gametime, gametime2} uses SMT solvers to generate inputs and game theoretic approaches to predict the distribution of runtimes of programs.
+
+These models require manual feature engineering, and runtime predictions are done at a coarser granularity (e.g. at the full program level).
+In contrast, \tool{} automatically learns how to predict throughput of basic blocks with minimal architectural knowledge embedded into the model.
+
+\paragraph{Microarchitectural Predictions}
+
+Similar to basic block throughput estimation, various microarchitectural prediction tasks have been explored with machine learning.
+For example, RNN models can be used for predicting memory access~\cite{learning-memory}, and perceptron models can be used for branch prediction~\cite{perceptron-branch}

@@ -1,0 +1,231 @@
+\section{Related Work}
+
+\paragraph{E-graphs and Equality Saturation}
+\Egraphs were first introduced by \citet{nelson}
+ in late 1970s 
+ to support a decision procedure for the theory of equalities.
+\citet{tarjan-congruence} later introduced
+ a more efficient algorithm
+ and analyzed the its time complexity.
+\Egraphs are used at the core of 
+ many theorem provers and solvers~\citep{simplify, z3, cvc4}.
+Because \egraphs can compactly represent program spaces,
+ they were repurposed for program optimization in the 2000s~\citep{eqsat,denali}.
+Other data structures for compact program space representations are developed in parallel,
+ including finite tree automata~\citep{dace,blaze} and version space algebras~\citep{vsa,flashmeta}.
+There are two essential problems to these data structures:
+ how to construct the desired program space and how to search it.
+\citet{eqsat} observed that 
+ the program space can be grown via equational, non-destructive rewrites, 
+ which they called equality saturation.
+This insight
+ leads to a line of work on using equality saturation 
+ for program optimization and program synthesis~\citep{herbie,ruler,tensat,spores,diospyros,szalinski}.
+However, 
+ a problem with this rewriting-based approach to program space construction is that,
+ in many cases,
+ sound rewrite rules are difficult to define in a purely syntactic way.
+The \egg framework by \citet{egg} mitigates this issue 
+ by introducing \eclass analyses, 
+ which allow simple semantic analyses over the \egraphs.
+Our work improves \eclass analyses 
+ by allowing more expressive analysis rules to be defined
+ compositionally.
+
+\citet{relational-ematching} first studied 
+ the connection between \egraphs and relational databases.
+By reducing pattern matching over \egraphs to relational queries,
+ they made the matching procedure orders of magnitude faster.
+However, their technique has the dual representation problem, 
+ i.e., one has to keep both the \egraph and its relational representation, 
+ which limits its practical adoptions.
+We build on their work
+ and view the entire equality saturation algorithm from the relational perspective.
+This saves us from synchronizing two representations of \egraphs
+ and further exploits the performance benefits of the relational approach.
+
+\Egglog also brings new insights on some problems in \egraphs and equality saturation.
+For example, 
+ the literature studied the problem of incremental pattern matching over \egraphs.
+\citet{relational-ematching} conjectured that this problem can be solved by 
+ classical techniques of incremental view maintenance in databases.
+We complement their argument with a concrete implementation of 
+ incremental matching using semi-na\"ive evaluation~\citep{seminaive}.
+Moreover, 
+ the literature studied the ``proof'' problem on \egraphs~\citep{pp-congr,flatt2022small}:
+ many domains require not only the optimized terms that are equivalent to the original terms,
+ but also a proof why they are equivalent.
+\revdel{The database counterpart of this problem, called provenance, is also studied by database researchers~\citep{prov-semiring,prov-souffle}.}
+A future direction is to study proof generations for \egglog programs%
+\revdel{~by incorporating algorithms developed in both fields}.
+
+% On the other hand, some components of equality saturation are unique due to its workloads.
+% Because rewrite rules do not usually saturate in equality saturation,
+%  schedulers are used in practice to prioritize rewrites that are more likely to be fruitful~\citep{egg}.
+% However, because programs in languages like Datalog are usually run to fixpoint,
+%  the scheduling problem for these languages are less studied.
+
+\paragraph{Datalog and Relational Databases}
+% Our work is closely related to two lines of works on Datalog and relational databases.
+Functional dependency repairs via lattice joins in \egglog is directly inspired by Flix~\citep{flix}.
+Flix extends Datalog by allowing relations to be optionally annotated by lattices.
+With this feature, 
+ Flix is able to express many advanced program analyses algorithms efficiently.
+% \Egglog slightly generalizes Flix by allowing multiple heads in the rules, 
+% A difference between Flix and \egglog is that 
+%  we use the standard equality joins 
+%  while Flix uses meet-semantics for relational joins,
+%  which can nonetheless be simulated in \egglog.
+\egglog can simulate Flix programs by setting \merge to the lattice join operator.   
+Flix can be regarded as among the works that 
+ try to find a theoretical foundation for recursive aggregates~\citep{agg-semantics,datalog-subsumption,mono-agg,datalogo}.
+A similar lattice-based approach to recursive aggregates is studied by $\text{Bloom}^L$~\citep{bloom-lattice}.
+\revision{Other Datalog systems that support recursive aggregates include LogicBlox~\citep{logicblox} 
+ and Rel~\citep{rel-refernce}.
+}
+
+Rewrite rules in \egglog generalize rules in Datalog 
+ because the heads of rules can generate fresh ids.
+This is called tuple-generating dependencies (TGDs) in the database literature.
+Moreover, 
+ while functional dependencies has the form $R(x_1,\ldots,x_i,\ldots,x_k),R(x_1,\ldots,x_i',\ldots x_k)\rightarrow x_i=x_i'$
+ equality-generating dependencies (EGDs) generalize functional dependencies 
+ by allowing equalities between different columns in different relations.
+A family of algorithms called the chase can be used to reason about both TGDs and EGDs~\citep{chase-revisited,bench-chase}.
+Moreover,
+ the model semantics of the chase directly 
+ gives a model semantics of a subset of \egglog where 
+ union is the only \lstinline[language=egglog]{:merge} operation.
+Compared to general TGDs and EGDs,
+ \egglog imposes syntactic constraints over the programs 
+ so that rules applications are deterministic and efficient.
+$\text{Datalog}^{\pm}$~\citep{datalogpm} is 
+ a family of extensions to Datalog based on TGDs and EGDs for ontological reasoning.
+
+\revision{
+Concurrent to our work and independent to the work on the chase, 
+ \citet{bidlingmaier2023algebraic}
+ formalizes Datalog with equality, which shares the same core idea to \egglog, 
+ as relational Horn logic and partial Horn logic
+ and studies its properties from a categorical point of view.
+\citet{bidlingmaier2023evaluation} further describes an evaluation algorithm 
+ for Datalog with equality similar to the chase.
+Different from theirs, our work is motivated by practical applications 
+ in program optimization and program analysis,
+ and we focus on a simpler operational model of \egglog.
+}
+
+\revision{
+While termination for Datalog with a variety of extensions is well studied, 
+ the termination condition of \egglog is quite open.
+In the future, 
+ we hope to better understand the termination of \egglog by 
+ further studying the connection between \egglog and the chase.
+For example, 
+ the database theory community has established many conditions 
+ for chase termination (e.g., \citet{data-exchange,datalogpm,vadalog}),
+ and one could potentially apply these results to \egglog
+ by translating \egglog rewrite rules and functional dependencies into TGDs and EGDs.
+On the other hand,
+ nearly all instantiations of equality saturation in practice will diverge . 
+Being a generalization of equality saturation, \egglog allows for divergence by design.}
+
+\revision{
+A key feature of \egglog is its efficient equational reasoning.
+Although equational reasoning can be expressed in Datalog 
+ with an explicit equivalence relation,
+ doing so is very inefficient.
+The \texttt{patched} baseline in \autoref{sec:points-to} 
+ is a slightly more efficient encoding of equational reasoning in Datalog
+ using \souffle extensions including choice domain and subsumptive rules.
+We also attempted several other approaches to optimize equational reasoning 
+ with existing features such as recursive aggregates and
+ Constraint Handling Rule's simpagation rules \citep{chr}.
+However, 
+ we found none of these encodings 
+ provide a natural abstraction nor competent performance.
+}
+
+% \yz{Other things to potentially talk about: 
+%  functional programming in Datalog;
+%  terms in Datalog;
+%  formulog?}
+
+\paragraph{Logic Programming and Automated Theorem Proving}
+\revdel{
+\egglog bears some similarity with logic programming languages like Prolog.
+Prolog has unification variables similar to \egglog, except that they are backtrackable.
+In general, Prolog allows disjunction and backtracking search
+ at the cost of incomplete search strategy and potentially getting into infinite loops.
+Moreover, Prolog programs are usually evaluated top-down,
+ while Datalog and \egglog programs are evaluated bottom-up.
+}
+
+\revision{
+\egglog bears some similarity with logic programming languages like Prolog.
+Similar to unification variables in Prolog, 
+ fresh ids in \egglog can represent unknown information 
+ (see, e.g., \citet[Appendix~A.1]{egglog-preprint}), 
+ and the congruence closure can be viewed 
+ as a dual procedure to unification \citep{congr-duality}. 
+In \citet[Appendix~A.3]{egglog-preprint}, we also show an 
+ implementation of a Hindley-Milner type inference algorithm,
+ of which the key construct is the unification mechanism implemented 
+ as a few \egglog rules.
+
+However, 
+ several distinguishing features make \egglog highly efficient for its target domains, namely program analysis and optimization. 
+For example,
+ \egglog does not allow backtracking, 
+ so its union-find data structure does not need to be backtrackable or persistent (unlike in Prolog or SMT solvers), 
+ which makes it efficient for tasks that are monotone in nature 
+ (e.g., equality saturation and pointer analysis).
+Moreover, \egglog uses a bottom-up evaluation algorithm 
+ more similar to Datalog than Prolog 
+ (top-down backtracking search). 
+One way of (partially) viewing \egglog is as a logic programming language that combines the bottom-up evaluation of Datalog
+ and the unification mechanism of Prolog. The ``magic-set transformation'' is a closely related technique to simulate top-down evaluation 
+ in a bottom-up language in a demand-driven fashion. 
+We show in the full version \citep{egglog-preprint} several pearls that uses this idea to simulate top-down evaluations.
+% We are continuing to explore to what extent this approach is expressive enough to implement key Prolog features.
+On the other hand,
+ Prolog has imperative features such as \texttt{cut}, which removes choice points.
+ \Egglog does not have a direct analog of \texttt{cut}
+ (because \egglog does not backtrack), 
+ although \egglog has other imperative features borrowed from EqSat techniques
+ that makes fine control of the execution such as rule scheduling.
+}
+
+SMT solvers are powerful tools for deciding combinations of logic theories and
+ automatically proving theorems~\citep{z3,cvc4}.
+Many rewrite rules in \egglog can be expressed as SMT axioms.
+% For example, rule \lstinline[language=egglog]{(rewrite (Add a b) (Add b a))}
+%  can be expressed as SMT axiom \lstinline{(forall ((x Expr) (y Expr)) (= (add x y) (add y x)))}.
+In fact,
+ SMT solvers support a richer language than \egglog with features like disjunction 
+ and built-in theories like the theory of integer programming.
+However, a key difference between \egglog and SMT solvers is that
+ the output of \egglog is \emph{minimal} (or universal in database terminology).
+% For instance, 
+%  if we directly translate \autoref{fig:egglog-unification:b} into SMT axioms
+%  and call an SMT solver,
+%  the solver may return a trivial solution
+%  by equating all expressions in the program (e.g., \lstinline{(Num 2)} and \lstinline{(Num 6)}) 
+%  together and effectively having only one element in the universe.
+% The solution by \egglog will instead make the least number of unifications,
+%  which is more useful for many applications.
+While it is possible to ``hack into'' an SMT solver to repurpose it 
+ as an EqSat engine~\cite{flatt2022small}, 
+ such techniques are arcane and not officially supported.
+\eqsat and \egglog's native support for extraction
+ makes them better suited for program optimization.
+% \yz{I believe this is true, but I'm not 100\% sure about this. 
+% Will a reviewer nitpick by giving a very smart encoding of eqsat in SMT?}
+% \rw{Check with Oliver, he has abused SMT as egraphs.}
+Recently, researchers have extended Datalog to dispatch more complex constraints 
+ to be solved by an SMT solver~\cite{DBLP:journals/pacmpl/Bembenek0C20}.
+This greatly extends the reach of Datalog, 
+ allowing the user to specify constraints in a variety of theories and logics.
+In \egglog we emphasize efficiency, 
+ and chose more conservative extensions that can be implemented 
+ by fast data structures like union-find.

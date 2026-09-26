@@ -1,0 +1,70 @@
+\section{Evaluation: Applications of \MLIR}
+
+\MLIR is a system that aims to generalize and drive a wide range of
+compiler projects, so our primary evaluation metric is to show that it
+is being adopted and used for diverse projects.  We provide a summary
+of community activity and describe a few use cases in more detail to
+highlight the generality and extensibility of \MLIR and demonstrate
+how well it implements the customizability design principle.
+
+Today, \MLIR is a growing open source project with a community
+spanning academia and industry.  For example, the academic workshop
+about use of \MLIR in High-Performance Computing (HPC) was attended by
+individuals from 16 universities and involved 4 national laboratories
+from 4 different countries.  \MLIR was also endorsed by 14
+multinational companies and at the LLVM Developer Meeting more than
+100 industry developers attended a roundtable event about \MLIR.
+Community adoption and participation is a proxy measure for usability
+and need.  More than 26 dialects are in development in public or
+private and 7 projects across different companies are replacing custom
+infrastructure with \MLIR.  We argue that this shows a real need for
+\MLIR, as well as endorses its usability.
+
+\input{tf.tex}
+\input{affine.tex}
+\input{flang.tex}
+
+\subsection{Domain-specific compilers}
+
+The applications of \MLIR above are within large compilation
+workflows, but it is also used to build domain specific compilers for
+specific small workflows.  A reusable and modular infrastructure makes
+these specialized paths feasible and relatively cheap to build.
+
+\paragraph{Optimizing \MLIR pattern rewriting}
+
+\MLIR has an extensible system for pattern rewrites described in~\secref{infra}.
+In addition to statically declared patterns, we had
+applications where the rewrite patterns needed to be dynamically
+extensible at runtime, allowing hardware vendors to add new lowerings
+in drivers.  The solution was to express \MLIR pattern rewrites as an
+\MLIR dialect itself, allowing us to use \MLIR infrastructure to build
+and optimize efficient Finite State Machine (FSM) matcher and
+rewriters on the fly.  This work includes FSM optimizations seen in
+other systems, such as the LLVM SelectionDAG and GlobalISel
+instruction selection systems.
+
+%\paragraph{Scientific modeling abstractions}
+%	Domain specific dialect for scientific modeling, in particular dialect created for
+%  weather modeling, is being developed. This dialect, combined with another intermediate dialect,
+%  allows specifying the simulation problem at a high level, optimizing at the
+%  domain specific levels before lowering to affine and finally code generation.
+
+\paragraph{Lattice regression compiler}
+
+Lattice regression~\cite{NIPS2009_3694} is a machine learning
+technique renowned for fast evaluation times and interpretability.
+The predecessor of the compiler was implemented using \Cpp
+templates. This allowed for high-performance code with
+metaprogramming, but expressing general optimizations on the
+end-to-end models was not straightforward. This particular lattice
+regression system is used in applications with multiple millions of
+users and hence performance improvements are critical.
+
+\MLIR was used as the basis for a new compiler for this specialized
+area, which was driven by a specialized search approach---effectively
+resulting in a machine learning problem being solved during
+compilation. The resultant compiler was developed by investing a  3
+person-month effort, and resulted in up to $8\times$ performance improvement
+on a production model, while also improving transparency during
+compilation.

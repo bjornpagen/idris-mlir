@@ -1,0 +1,125 @@
+In the previous section, we have shown how to automatically insert
+$\kw{reset}$ and $\kw{reuse}$ instructions that minimize the number of
+memory allocations at execution time. We now discuss techniques we have been using
+for taking advantage of this transformation when writing functional
+code. Two fundamental questions when using this optimization are: Does
+a $\kw{reuse}$ instruction now guard my constructor applications?
+Given a $\kw{let}\ y = \kw{reset}\ x$ instruction, how often is $x$
+not shared at runtime? We address the first question using a simple
+static analyzer that when invoked by a developer, checks whether
+\kw{reuse} instructions are guarding constructor applications in a
+particular function.  This kind of analyzer is straightforward to
+implement in Lean since our IR is a Lean inductive datatype. This kind
+of analyzer is in the same spirit of the \emph{inspection-testing}
+package available for GHC~\cite{breitner2018promise}.
+We cope with the second question using
+runtime instrumentation.  For each $\kw{let}\ y = \kw{reset}\ x$
+instruction, we can optionally emit two counters that track how often
+$x$ is shared or not. We have found these two simple techniques quite
+useful when optimizing our own code. Here, we report one instance
+that produced a significant performance improvement.
+%% Here, we report two instances that produced significant performance improvements:
+%% \emph{red-black trees} and \emph{monad transformers}.
+
+\subsection*{Red-black trees}
+Red-black trees are implemented in the Lean standard
+library and are often used to write proof automation.
+For the purposes of this section, it is sufficient to have
+an abstract description of this kind of tree, and one of the re-balancing functions used by the insertion
+function.
+\begin{lstlisting}
+Color  = R | B
+Tree a = E | T Color (Tree a) a (Tree a)
+balance_1 v t (T _ (T R l x r_1) y r_2)  = T R (T B l x r_1) y (T B r_2 v t)
+balance_1 v t (T _ l_1 y  (T R l_2 x r)) = T R (T B l_1 y l_2) x (T B r v t)
+balance_1 v t (T _ l y r)              = T B (T R l y r) v t
+insert (T B a y b) x = balance_1 y b (insert a x) if x < y and a is red
+...
+\end{lstlisting}
+Note that the first two $\textit{balance}_1$ equations create three $T$ constructor values, but the patterns on the
+left-hand side use only two $T$ constructors. Thus, the generated IR for $\textit{balance}_1$ contains $T$ constructor
+applications that are not guarded by $\textit{reuse}$, and this fact can be detected at compilation time.
+Note that even if the result of $(\textit{insert}\ a\ x)$ contains only nonshared values, we still have to allocate one
+constructor value. We can avoid this unnecessary memory allocation by inlining $\textit{balance}_1$.
+After inlining, the input value $(T\ B\ a\ y\ b)$ is reused in the $\textit{balance}_1$ code.
+The final generated code now contains a single constructor application that is not guarded by a $\textit{reuse}$, the one for
+the equation:
+\begin{lstlisting}
+insert E x = T R E x E
+\end{lstlisting}
+The generated code now has the property that if the input tree is not shared, then only a single new node is allocated.
+Moreover, even if the input tree is shared we have observed a positive performance impact using \kw{reset} and \kw{reuse}.
+The recursive call $(\textit{insert}\ a\ x)$ always returns a nonshared node even if $x$ is shared. Thus,
+$\textit{balance}_1\ y\ b\ (\textit{insert}\ a\ x)$ always reuses at least one memory cell at runtime.
+
+There is another way to avoid the unnecessary memory allocation that does not rely on inlining.
+We can chain the $T$ constructor value from $\textit{insert}$ to $\textit{balance}_1$.
+We accomplish this by rewriting $\textit{balance}_1$ and $\textit{insert}$ as follows
+\begin{lstlisting}
+balance_1 (T _ _ v t) (T _ (T R l x r_1) y r_2)  = T R (T B l x r_1) y (T B r_2 v t)
+balance_1 (T _ _ v t) (T _ l_1 y  (T R l_2 x r)) = T R (T B l_1 y l_2) x (T B r v t)
+balance_1 (T _ _ v t) (T _ l y r)               = T B (T R l y r) v t
+insert (T B a y b) x = balance_1 (T B E y b) (insert a x) if x < y and a is red
+\end{lstlisting}
+Now, the input value $(T\ B\ a\ y\ b)$ is reused to create value $(T\ B\ E\ y\ b)$ which is passed to $\textit{balance}_1$. Note that
+we have replaced $a$ with $E$ to make sure the recursive application $(\textit{insert}\ a\ x)$
+may also perform destructive updates if $a$ is not shared.
+This simple modification guarantees that $\textit{balance}_1$ does not allocate memory when
+the input trees are not shared.
+
+%% \subsection*{Monad transformers}
+%% Monads provide a powerful way to build computations with effects~\cite{WadlerMonad},
+%% and are ubiquitous in pure functional programming. Monad
+%% transformers~\cite{MonadTransformers} take a monad as an argument and return a
+%% new monad with new effects. Monad transformers are used to compose
+%% effects encapsulated by monads in a modular way. We use monad
+%% transformers extensively in the new implementation of the Lean
+%% programming language.  The new Lean parser, macro expander, IR compiler, and
+%% elaborator are all implemented using monad transformers.  A small
+%% modification on these monad transformers allows our compiler to
+%% generate much better code that avoids unnecessary memory allocations.
+%% We demonstrate the main idea using the state monad, but one can apply the same idea
+%% in the implementation of the state and exception monad transformers.
+%% \begin{lstlisting}
+%% State $\sigma$ $\alpha$ = $\sigma$ -> ($\alpha \times \sigma$)
+%% pure (a : $\alpha$) : State $\sigma$ $\alpha$ = $\lambda$ s. (a, s)
+%% bind (x : State $\sigma$ $\alpha$) (f : $\alpha$ -> State $\sigma$ $\beta$) : State $\sigma$ $\beta$ =
+%%   $\lambda$ s. let (b, s') = x s in f b s'
+%% get : State $\sigma$ $\sigma$ = $\lambda$ s. (s, s)
+%% put (s' : $\sigma$) : State $\sigma$ Unit = $\lambda$ s. (unit, s')
+%% \end{lstlisting}
+%% The $\textit{State}$ monad allows us to chain the state
+%% $\sigma$ through a series of function calls using the $\textit{bind}$
+%% combinator.  The action $\textit{get}$ returns the current state, and
+%% $\textit{put}\ s$ updates it. Note that the functions $\textit{pure}$,
+%% $\textit{get}$ and $\textit{put}$ need to allocate a pair to store the
+%% result.  This is a known problem, and Haskell uses unboxed pairs in
+%% the definition of the IO monad to avoid this allocation~\cite{haskelUnboxed}. However, to
+%% the best of our knowledge, unboxed pairs cannot be used in the
+%% definition of polymorphic code, and monad transformer libraries cannot use them.
+%% The worker/wrapper optimization~\cite{Jones96compilinghaskell} may introduce unboxed return types locally,
+%% but does not do so for sum types (such as from the exception monad) or nested return
+%% values (e.g.\ from a monad transformer) in its current implementation.
+%% We now consider an alternative definition of the state monad where we chain not only the state, but also a pair.
+%% \begin{lstlisting}
+%% State $\sigma$ $\alpha$ = (Unit $\times$ $\sigma$) -> ($\alpha \times \sigma$)
+%% pure a = $\lambda$ (unit, s). (a, s)
+%% bind x f = $\lambda$ (unit, s). let (b, s') = x (unit, s) in f b (unit, s')
+%% get = $\lambda$ (unit, s). (s, s)
+%% put s' = $\lambda$ (unit, s). (unit, s')
+%% \end{lstlisting}
+%% Given this definition, our compiler automatically inserts $\textit{reset}$
+%% and $\textit{reuse}$ instructions to reuse this pair and avoid memory
+%% allocations at $\textit{pure}$, $\textit{get}$ and $\textit{put}$.
+%% Our experimental results demonstrate this simple modification produces
+%% a significant performance improvement.
+%% We found a similar pattern in the exception monad transformer where $\textit{pure}\ a$
+%% allocates a value of type $\textit{Either}$. We can change this
+%% transformer to chain a value of type $\textit{Either}$, and again
+%% avoid the memory allocation.
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

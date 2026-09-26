@@ -1,0 +1,18 @@
+\section{Limitations and Future work}
+\label{sec:limitation}
+One of \Ansor's limitations is that \Ansor cannot optimize graphs with dynamic shapes~\cite{shen2020nimble}.
+\Ansor requires the shapes in the computational graph to be static and known in advance
+to do analysis, construct the search space, and perform measurements. How to generate programs for symbolic or dynamic shape is an interesting future direction.
+Another limitation is that \Ansor only supports dense operators. 
+To support sparse operators (\textit{e.g.}, SpMM) that are commonly used in sparse neural networks~\cite{gale2019state} and graph neural networks~\cite{hu2020featgraph}, we expect that a large portion of \Ansor can still be reused, but we need to redesign the search space.
+Lastly, \Ansor only performs program optimizations at a high level but relies on other code generators (\textit{e.g.}, LLVM and NVCC) to do platform-dependent optimizations ({\textit{e.g.}, instruction selection}). \Ansor comes short of utilizing the special instructions, such as Intel VNNI, NVIDIA Tensor Core, and ARM Dot for mixed-precision and low-precision operators, which are not handled well by the off-the-shelf code generators currently.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We propose \Ansor, an automated search framework that generates high-performance tensor programs for deep neural networks. 
+By efficiently exploring a large search space and prioritizing performance bottlenecks,
+\Ansor finds high-performance programs that are outside the search space of existing approaches.
+\Ansor outperforms existing manual libraries and search-based frameworks on a diverse set of neural networks and hardware platforms by up to $3.8 \times$.
+By automatically searching for better programs, we hope that \Ansor will help bridge the gap between the increasing demand in computing power and limited hardware performance.
+\Ansor is integrated into the Apache TVM open-source project \footnote{\url{https://tvm.apache.org/}}.

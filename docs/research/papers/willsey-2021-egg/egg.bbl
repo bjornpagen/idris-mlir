@@ -1,0 +1,581 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{33}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[\protect\citeauthoryear{Andries, Engels, Habel, Hoffmann, Kreowski,
+  Kuske, Plump, Sch\"{u}rr, and Taentzer}{Andries et~al\mbox{.}}{1999}]%
+        {graphs}
+\bibfield{author}{\bibinfo{person}{Marc Andries}, \bibinfo{person}{Gregor
+  Engels}, \bibinfo{person}{Annegret Habel}, \bibinfo{person}{Berthold
+  Hoffmann}, \bibinfo{person}{Hans-J\"{o}rg Kreowski}, \bibinfo{person}{Sabine
+  Kuske}, \bibinfo{person}{Detlef Plump}, \bibinfo{person}{Andy Sch\"{u}rr},
+  {and} \bibinfo{person}{Gabriele Taentzer}.} \bibinfo{year}{1999}\natexlab{}.
+\newblock \showarticletitle{Graph Transformation for Specification and
+  Programming}.
+\newblock \bibinfo{journal}{\emph{Sci. Comput. Program.}} \bibinfo{volume}{34},
+  \bibinfo{number}{1} (\bibinfo{date}{April} \bibinfo{year}{1999}),
+  \bibinfo{pages}{1–54}.
+\newblock
+\showISSN{0167-6423}
+\urldef\tempurl%
+\url{https://doi.org/10.1016/S0167-6423(98)00023-9}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Boehm}{Boehm}{2019}]%
+        {Boehm_2019}
+\bibfield{author}{\bibinfo{person}{Matthias Boehm}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Apache {SystemML}}.
+\newblock \bibinfo{journal}{\emph{Encyclopedia of Big Data Technologies}}
+  (\bibinfo{year}{2019}), \bibinfo{pages}{81–86}.
+\newblock
+\showISBNx{9783319775258}
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-319-77525-8_187}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Boyle, Harmer, and Winter}{Boyle
+  et~al\mbox{.}}{1996}]%
+        {DBLP:conf/scitools/BoyleHW96}
+\bibfield{author}{\bibinfo{person}{James~M. Boyle}, \bibinfo{person}{Terence~J.
+  Harmer}, {and} \bibinfo{person}{Victor~L. Winter}.}
+  \bibinfo{year}{1996}\natexlab{}.
+\newblock \showarticletitle{The {TAMPR} Program Transformation System:
+  Simplifying the Development of Numerical Software}. In
+  \bibinfo{booktitle}{\emph{Modern Software Tools for Scientific Computing,
+  SciTools 1996, Oslo, Norway, September 16-18, 1996}},
+  \bibfield{editor}{\bibinfo{person}{Erlend Arge}, \bibinfo{person}{Are~Magnus
+  Bruaset}, {and} \bibinfo{person}{Hans~Petter Langtangen}} (Eds.).
+  \bibinfo{publisher}{Birkh{\"{a}}user}, \bibinfo{pages}{353--372}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-1-4612-1986-6\_17}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Davis and Putnam}{Davis and Putnam}{1960}]%
+        {dpll}
+\bibfield{author}{\bibinfo{person}{Martin Davis} {and} \bibinfo{person}{Hilary
+  Putnam}.} \bibinfo{year}{1960}\natexlab{}.
+\newblock \showarticletitle{A Computing Procedure for Quantification Theory}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{7},
+  \bibinfo{number}{3} (\bibinfo{date}{July} \bibinfo{year}{1960}),
+  \bibinfo{pages}{201–215}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/321033.321034}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{de~Moura and Bj{\o}rner}{de~Moura and
+  Bj{\o}rner}{2007}]%
+        {ematching}
+\bibfield{author}{\bibinfo{person}{Leonardo de Moura} {and}
+  \bibinfo{person}{Nikolaj Bj{\o}rner}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Efficient E-Matching for SMT Solvers}. In
+  \bibinfo{booktitle}{\emph{Automated Deduction -- CADE-21}},
+  \bibfield{editor}{\bibinfo{person}{Frank Pfenning}} (Ed.).
+  \bibinfo{publisher}{Springer Berlin Heidelberg}, \bibinfo{address}{Berlin,
+  Heidelberg}, \bibinfo{pages}{183--198}.
+\newblock
+\showISBNx{978-3-540-73595-3}
+
+
+\bibitem[\protect\citeauthoryear{De~Moura and Bj{\o}rner}{De~Moura and
+  Bj{\o}rner}{2008}]%
+        {z3}
+\bibfield{author}{\bibinfo{person}{Leonardo De~Moura} {and}
+  \bibinfo{person}{Nikolaj Bj{\o}rner}.} \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Z3: An Efficient SMT Solver}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Theory and Practice of Software,
+  14th International Conference on Tools and Algorithms for the Construction
+  and Analysis of Systems}} (Budapest, Hungary)
+  \emph{(\bibinfo{series}{TACAS'08/ETAPS'08})}.
+  \bibinfo{publisher}{Springer-Verlag}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{337--340}.
+\newblock
+\showISBNx{3-540-78799-2, 978-3-540-78799-0}
+\urldef\tempurl%
+\url{http://dl.acm.org/citation.cfm?id=1792734.1792766}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Dershowitz}{Dershowitz}{1993}]%
+        {nachum-rewrites}
+\bibfield{author}{\bibinfo{person}{Nachum Dershowitz}.}
+  \bibinfo{year}{1993}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{A taste of rewrite systems}}.
+\newblock \bibinfo{publisher}{Springer Berlin Heidelberg},
+  \bibinfo{address}{Berlin, Heidelberg}, \bibinfo{pages}{199--228}.
+\newblock
+\showISBNx{978-3-540-47776-1}
+\urldef\tempurl%
+\url{https://doi.org/10.1007/3-540-56883-2_11}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Dershowitz and Jouannaud}{Dershowitz and
+  Jouannaud}{1990}]%
+        {rewritesystems}
+\bibfield{author}{\bibinfo{person}{Nachum Dershowitz} {and}
+  \bibinfo{person}{Jean{-}Pierre Jouannaud}.} \bibinfo{year}{1990}\natexlab{}.
+\newblock \showarticletitle{Rewrite Systems}.
+\newblock In \bibinfo{booktitle}{\emph{Handbook of Theoretical Computer
+  Science, Volume {B:} Formal Models and Semantics}},
+  \bibfield{editor}{\bibinfo{person}{Jan van Leeuwen}} (Ed.).
+  \bibinfo{publisher}{Elsevier and {MIT} Press}, \bibinfo{pages}{243--320}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1016/b978-0-444-88074-1.50011-1}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Detlefs, Nelson, and Saxe}{Detlefs
+  et~al\mbox{.}}{2005}]%
+        {simplify}
+\bibfield{author}{\bibinfo{person}{David Detlefs}, \bibinfo{person}{Greg
+  Nelson}, {and} \bibinfo{person}{James~B. Saxe}.}
+  \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Simplify: A Theorem Prover for Program Checking}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{52},
+  \bibinfo{number}{3} (\bibinfo{date}{May} \bibinfo{year}{2005}),
+  \bibinfo{pages}{365--473}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1066100.1066102}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Downey, Sethi, and Tarjan}{Downey
+  et~al\mbox{.}}{1980}]%
+        {downey-cse}
+\bibfield{author}{\bibinfo{person}{Peter~J. Downey}, \bibinfo{person}{Ravi
+  Sethi}, {and} \bibinfo{person}{Robert~Endre Tarjan}.}
+  \bibinfo{year}{1980}\natexlab{}.
+\newblock \showarticletitle{Variations on the Common Subexpression Problem}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{27},
+  \bibinfo{number}{4} (\bibinfo{date}{Oct.} \bibinfo{year}{1980}),
+  \bibinfo{pages}{758–771}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/322217.322228}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Du, Priya~Inala, Pu, Spielberg, Schulz, Rus,
+  Solar-Lezama, and Matusik}{Du et~al\mbox{.}}{2018}]%
+        {inverse}
+\bibfield{author}{\bibinfo{person}{Tao Du}, \bibinfo{person}{Jeevana
+  Priya~Inala}, \bibinfo{person}{Yewen Pu}, \bibinfo{person}{Andrew Spielberg},
+  \bibinfo{person}{Adriana Schulz}, \bibinfo{person}{Daniela Rus},
+  \bibinfo{person}{Armando Solar-Lezama}, {and} \bibinfo{person}{Wojciech
+  Matusik}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{InverseCSG: automatic conversion of 3D models to
+  CSG trees}. \bibinfo{pages}{1--16}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3272127.3275006}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Ellis, Ritchie, Solar-Lezama, and
+  Tenenbaum}{Ellis et~al\mbox{.}}{2018}]%
+        {latex}
+\bibfield{author}{\bibinfo{person}{Kevin Ellis}, \bibinfo{person}{Daniel
+  Ritchie}, \bibinfo{person}{Armando Solar-Lezama}, {and}
+  \bibinfo{person}{Joshua~B. Tenenbaum}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Learning to Infer Graphics Programs from Hand-Drawn
+  Images}. In \bibinfo{booktitle}{\emph{Neural Information Processing Systems
+  (NIPS)}}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Jia, Padon, Thomas, Warszawski, Zaharia, and
+  Aiken}{Jia et~al\mbox{.}}{2019}]%
+        {taso}
+\bibfield{author}{\bibinfo{person}{Zhihao Jia}, \bibinfo{person}{Oded Padon},
+  \bibinfo{person}{James Thomas}, \bibinfo{person}{Todd Warszawski},
+  \bibinfo{person}{Matei Zaharia}, {and} \bibinfo{person}{Alex Aiken}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{TASO: optimizing deep learning computation with
+  automatic generation of graph substitutions}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 27th ACM Symposium on Operating
+  Systems Principles}}. \bibinfo{pages}{47--62}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Joshi, Nelson, and Randall}{Joshi
+  et~al\mbox{.}}{2002}]%
+        {denali}
+\bibfield{author}{\bibinfo{person}{Rajeev Joshi}, \bibinfo{person}{Greg
+  Nelson}, {and} \bibinfo{person}{Keith Randall}.}
+  \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Denali: A Goal-directed Superoptimizer}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{37},
+  \bibinfo{number}{5} (\bibinfo{date}{May} \bibinfo{year}{2002}),
+  \bibinfo{pages}{304--314}.
+\newblock
+\showISSN{0362-1340}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/543552.512566}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Kozen}{Kozen}{1977}]%
+        {kozen-stoc77}
+\bibfield{author}{\bibinfo{person}{Dexter Kozen}.}
+  \bibinfo{year}{1977}\natexlab{}.
+\newblock \showarticletitle{Complexity of Finitely Presented Algebras}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Ninth Annual ACM Symposium on
+  Theory of Computing}} (Boulder, Colorado, USA) \emph{(\bibinfo{series}{STOC
+  '77})}. \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{164–177}.
+\newblock
+\showISBNx{9781450374095}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/800105.803406}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Massalin}{Massalin}{1987}]%
+        {massalin}
+\bibfield{author}{\bibinfo{person}{Henry Massalin}.}
+  \bibinfo{year}{1987}\natexlab{}.
+\newblock \showarticletitle{Superoptimizer: A Look at the Smallest Program}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Second International Conference
+  on Architectual Support for Programming Languages and Operating Systems}}
+  (Palo Alto, California, USA) \emph{(\bibinfo{series}{ASPLOS II})}.
+  \bibinfo{publisher}{IEEE Computer Society Press},
+  \bibinfo{address}{Washington, DC, USA}, \bibinfo{pages}{122–126}.
+\newblock
+\showISBNx{0818608056}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/36206.36194}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nandi, Wilcox, Panchekha, Blau, Grossman, and
+  Tatlock}{Nandi et~al\mbox{.}}{2018}]%
+        {reincarnate}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi},
+  \bibinfo{person}{James~R. Wilcox}, \bibinfo{person}{Pavel Panchekha},
+  \bibinfo{person}{Taylor Blau}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Functional Programming for Compiling and
+  Decompiling Computer-aided Design}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{2}, \bibinfo{number}{ICFP}, Article \bibinfo{articleno}{99}
+  (\bibinfo{date}{July} \bibinfo{year}{2018}), \bibinfo{numpages}{31}~pages.
+\newblock
+\showISSN{2475-1421}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3236794}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nandi, Willsey, Anderson, Wilcox, Darulova,
+  Grossman, and Tatlock}{Nandi et~al\mbox{.}}{2020}]%
+        {szalinski}
+\bibfield{author}{\bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Max
+  Willsey}, \bibinfo{person}{Adam Anderson}, \bibinfo{person}{James~R. Wilcox},
+  \bibinfo{person}{Eva Darulova}, \bibinfo{person}{Dan Grossman}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Synthesizing Structured {CAD} Models with Equality
+  Saturation and Inverse Transformations}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (London, UK)
+  \emph{(\bibinfo{series}{PLDI 2020})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{31–44}.
+\newblock
+\showISBNx{9781450376136}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3385412.3386012}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nelson}{Nelson}{1980}]%
+        {nelson}
+\bibfield{author}{\bibinfo{person}{Charles~Gregory Nelson}.}
+  \bibinfo{year}{1980}\natexlab{}.
+\newblock \emph{\bibinfo{title}{Techniques for Program Verification}}.
+\newblock \bibinfo{thesistype}{Ph.D. Dissertation}. \bibinfo{address}{Stanford,
+  CA, USA}.
+\newblock
+\newblock
+\shownote{AAI8011683.}
+
+
+\bibitem[\protect\citeauthoryear{Nelson and Oppen}{Nelson and Oppen}{1980}]%
+        {nelson-oppen-78}
+\bibfield{author}{\bibinfo{person}{Greg Nelson} {and} \bibinfo{person}{Derek~C.
+  Oppen}.} \bibinfo{year}{1980}\natexlab{}.
+\newblock \showarticletitle{Fast Decision Procedures Based on Congruence
+  Closure}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{27},
+  \bibinfo{number}{2} (\bibinfo{date}{April} \bibinfo{year}{1980}),
+  \bibinfo{pages}{356–364}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/322186.322198}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Nieuwenhuis and Oliveras}{Nieuwenhuis and
+  Oliveras}{2005}]%
+        {pp-congr}
+\bibfield{author}{\bibinfo{person}{Robert Nieuwenhuis} {and}
+  \bibinfo{person}{Albert Oliveras}.} \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Proof-Producing Congruence Closure}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 16th International Conference on
+  Term Rewriting and Applications}} (Nara, Japan)
+  \emph{(\bibinfo{series}{RTA’05})}. \bibinfo{publisher}{Springer-Verlag},
+  \bibinfo{address}{Berlin, Heidelberg}, \bibinfo{pages}{453–468}.
+\newblock
+\showISBNx{3540255966}
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-540-32033-3_33}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Panchekha, Sanchez-Stern, Wilcox, and
+  Tatlock}{Panchekha et~al\mbox{.}}{2015}]%
+        {herbie}
+\bibfield{author}{\bibinfo{person}{Pavel Panchekha}, \bibinfo{person}{Alex
+  Sanchez-Stern}, \bibinfo{person}{James~R. Wilcox}, {and}
+  \bibinfo{person}{Zachary Tatlock}.} \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Automatically Improving Accuracy for Floating Point
+  Expressions}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{50},
+  \bibinfo{number}{6} (\bibinfo{date}{June} \bibinfo{year}{2015}),
+  \bibinfo{pages}{1–11}.
+\newblock
+\showISSN{0362-1340}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2813885.2737959}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Premtoon, Koppel, and Solar-Lezama}{Premtoon
+  et~al\mbox{.}}{2020}]%
+        {yogo-pldi20}
+\bibfield{author}{\bibinfo{person}{Varot Premtoon}, \bibinfo{person}{James
+  Koppel}, {and} \bibinfo{person}{Armando Solar-Lezama}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Semantic Code Search via Equational Reasoning}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} (London, UK)
+  \emph{(\bibinfo{series}{PLDI 2020})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{1066–1082}.
+\newblock
+\showISBNx{9781450376136}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3385412.3386001}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Rust}{Rust}{[n.d.]}]%
+        {rust}
+\bibfield{author}{\bibinfo{person}{Rust}.} \bibinfo{year}{[n.d.]}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{Rust programming language}}.
+\newblock
+\urldef\tempurl%
+\url{https://www.rust-lang.org/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Sharma, Goyal, Liu, Kalogerakis, and
+  Maji}{Sharma et~al\mbox{.}}{2017}]%
+        {csgnet}
+\bibfield{author}{\bibinfo{person}{Gopal Sharma}, \bibinfo{person}{Rishabh
+  Goyal}, \bibinfo{person}{Difan Liu}, \bibinfo{person}{Evangelos Kalogerakis},
+  {and} \bibinfo{person}{Subhransu Maji}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{CSGNet: Neural Shape Parser for Constructive Solid
+  Geometry}.
+\newblock \bibinfo{journal}{\emph{CoRR}}  \bibinfo{volume}{abs/1712.08290}
+  (\bibinfo{year}{2017}).
+\newblock
+\showeprint[arxiv]{1712.08290}
+\urldef\tempurl%
+\url{http://arxiv.org/abs/1712.08290}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Stepp, Tate, and Lerner}{Stepp
+  et~al\mbox{.}}{2011}]%
+        {eqsat-llvm}
+\bibfield{author}{\bibinfo{person}{Michael Stepp}, \bibinfo{person}{Ross Tate},
+  {and} \bibinfo{person}{Sorin Lerner}.} \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Equality-Based Translation Validator for LLVM}. In
+  \bibinfo{booktitle}{\emph{Computer Aided Verification}},
+  \bibfield{editor}{\bibinfo{person}{Ganesh Gopalakrishnan} {and}
+  \bibinfo{person}{Shaz Qadeer}} (Eds.). \bibinfo{publisher}{Springer Berlin
+  Heidelberg}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{737--742}.
+\newblock
+\showISBNx{978-3-642-22110-1}
+
+
+\bibitem[\protect\citeauthoryear{Tarjan}{Tarjan}{1975}]%
+        {unionfind}
+\bibfield{author}{\bibinfo{person}{Robert~Endre Tarjan}.}
+  \bibinfo{year}{1975}\natexlab{}.
+\newblock \showarticletitle{Efficiency of a Good But Not Linear Set Union
+  Algorithm}.
+\newblock \bibinfo{journal}{\emph{J. ACM}} \bibinfo{volume}{22},
+  \bibinfo{number}{2} (\bibinfo{date}{April} \bibinfo{year}{1975}),
+  \bibinfo{pages}{215–225}.
+\newblock
+\showISSN{0004-5411}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/321879.321884}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Tate, Stepp, Tatlock, and Lerner}{Tate
+  et~al\mbox{.}}{2009}]%
+        {eqsat}
+\bibfield{author}{\bibinfo{person}{Ross Tate}, \bibinfo{person}{Michael Stepp},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Sorin Lerner}.}
+  \bibinfo{year}{2009}\natexlab{}.
+\newblock \showarticletitle{Equality Saturation: A New Approach to
+  Optimization}. In \bibinfo{booktitle}{\emph{Proceedings of the 36th Annual
+  ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages}}
+  (Savannah, GA, USA) \emph{(\bibinfo{series}{POPL '09})}.
+  \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{264--276}.
+\newblock
+\showISBNx{978-1-60558-379-2}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1480881.1480915}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Tian, Luo, Sun, Ellis, Freeman, Tenenbaum, and
+  Wu}{Tian et~al\mbox{.}}{2019}]%
+        {shape}
+\bibfield{author}{\bibinfo{person}{Yonglong Tian}, \bibinfo{person}{Andrew
+  Luo}, \bibinfo{person}{Xingyuan Sun}, \bibinfo{person}{Kevin Ellis},
+  \bibinfo{person}{William~T. Freeman}, \bibinfo{person}{Joshua~B. Tenenbaum},
+  {and} \bibinfo{person}{Jiajun Wu}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Learning to Infer and Execute 3D Shape Programs}.
+  In \bibinfo{booktitle}{\emph{International Conference on Learning
+  Representations}}.
+\newblock
+\urldef\tempurl%
+\url{https://openreview.net/forum?id=rylNH20qFQ}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{van~den Brand, Heering, Klint, and
+  Olivier}{van~den Brand et~al\mbox{.}}{2002}]%
+        {DBLP:journals/toplas/BrandHKO02}
+\bibfield{author}{\bibinfo{person}{Mark van~den Brand}, \bibinfo{person}{Jan
+  Heering}, \bibinfo{person}{Paul Klint}, {and} \bibinfo{person}{Pieter~A.
+  Olivier}.} \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Compiling language definitions: the {ASF+SDF}
+  compiler}.
+\newblock \bibinfo{journal}{\emph{{ACM} Trans. Program. Lang. Syst.}}
+  \bibinfo{volume}{24}, \bibinfo{number}{4} (\bibinfo{year}{2002}),
+  \bibinfo{pages}{334--368}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/567097.567099}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Visser, Benaissa, and Tolmach}{Visser
+  et~al\mbox{.}}{1998}]%
+        {DBLP:conf/icfp/VisserBT98}
+\bibfield{author}{\bibinfo{person}{Eelco Visser},
+  \bibinfo{person}{Zine{-}El{-}Abidine Benaissa}, {and}
+  \bibinfo{person}{Andrew~P. Tolmach}.} \bibinfo{year}{1998}\natexlab{}.
+\newblock \showarticletitle{Building Program Optimizers with Rewriting
+  Strategies}. In \bibinfo{booktitle}{\emph{Proceedings of the third {ACM}
+  {SIGPLAN} International Conference on Functional Programming {(ICFP} '98),
+  Baltimore, Maryland, USA, September 27-29, 1998}},
+  \bibfield{editor}{\bibinfo{person}{Matthias Felleisen}, \bibinfo{person}{Paul
+  Hudak}, {and} \bibinfo{person}{Christian Queinnec}} (Eds.).
+  \bibinfo{publisher}{{ACM}}, \bibinfo{pages}{13--26}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/289423.289425}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Wang, Hutchison, Leang, Howe, and Suciu}{Wang
+  et~al\mbox{.}}{2020}]%
+        {spores}
+\bibfield{author}{\bibinfo{person}{Yisu~Remy Wang}, \bibinfo{person}{Shana
+  Hutchison}, \bibinfo{person}{Jonathan Leang}, \bibinfo{person}{Bill Howe},
+  {and} \bibinfo{person}{Dan Suciu}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{{SPORES}: Sum-Product Optimization via Relational
+  Equality Saturation for Large Scale Linear Algebra}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the VLDB Endowment}}
+  (\bibinfo{year}{2020}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Wu, Zhao, Nandi, Lipton, Tatlock, and
+  Schulz}{Wu et~al\mbox{.}}{2019}]%
+        {wu_siga19}
+\bibfield{author}{\bibinfo{person}{Chenming Wu}, \bibinfo{person}{Haisen Zhao},
+  \bibinfo{person}{Chandrakana Nandi}, \bibinfo{person}{Jeffrey~I. Lipton},
+  \bibinfo{person}{Zachary Tatlock}, {and} \bibinfo{person}{Adriana Schulz}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Carpentry Compiler}.
+\newblock \bibinfo{journal}{\emph{ACM Transactions on Graphics}}
+  \bibinfo{volume}{38}, \bibinfo{number}{6} (\bibinfo{year}{2019}),
+  \bibinfo{pages}{Article No. 195}.
+\newblock
+\newblock
+\shownote{presented at SIGGRAPH Asia 2019.}
+
+
+\end{thebibliography}

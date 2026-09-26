@@ -1,0 +1,194 @@
+{
+  "schema_version": "1.0",
+  "status": "PDF_QA_BLOCKED_PRESENTATION_DEFECTS",
+  "decision": "PDF_QA_BLOCKED",
+  "authorization_scope": "ONE_BOUNDED_FULL_PDF_QA_ROUND_ONLY",
+  "review_rounds_executed_in_this_authorization": 1,
+  "source_repair_performed": false,
+  "packaging_executed": false,
+  "publication_executed": false,
+  "snapshot": {
+    "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+    "snapshot_manifest": "formal/review-snapshot-manifest.json",
+    "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+    "active_manuscript_graph_sha256": "e5ed4bb73d6b1ca664b5428ad22a5d36b460ef67bca180f261d894c2c647203c",
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "uploaded_zip_sha256": "4dbba4c3d380b8aa07fbe6c9ba16fabfa654f1a70e6b03b384ed365f95c3061c",
+    "replacement_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "artifact_refinement_map_sha256": "cbf13e4c8b3945ca211abd148e2e30d070af6a91d5e4964ef07cdc1bef3c5f8d",
+    "edge_case_closure_sha256": "aa36c63af9f0dce435335165486094d66d9751c0569b8e27169245fd17f7cbfd"
+  },
+  "isolated_clean_latex_build": {
+    "status": "PASS",
+    "entrypoint": "main_compressed.tex",
+    "prior_products_and_caches_excluded": true,
+    "command": "latexmk -C main_compressed.tex; latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex",
+    "pdftex_version": "pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)",
+    "latexmk_version": "4.83",
+    "poppler_pdftoppm_version": "26.05.0",
+    "pdf_sha256": "526dc13aa1a286337b28950b65bc32fc18b98f6246a7da6af7bc4f9085d1c972",
+    "pdf_bytes": 637859,
+    "pdf_pages": 43,
+    "log_sha256": "b2658e62679261425a81f55d81dd7d7023af6e53e1637c542c6348197351a0cc",
+    "aux_sha256": "f135402ac15fb8beeaf91b7d6125c046231588a981cd33b6315c66ae86550477",
+    "bbl_sha256": "46ead18a4485c28d62d0ca8d7468af271e29e1458d7d6f170d34a9b259b96f73",
+    "blg_sha256": "637ff0cc0ff797e3c5d802aa2aa5dd1751f121957af665f0467b69483a1e786d",
+    "fls_sha256": "cc16862758cac386e85da376d15071f8095daa184bbd3d772d96c003a1208fe8"
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-16",
+    "main_text_page_count": 16,
+    "main_text_limit": 20,
+    "main_text_margin_pages": 4,
+    "references_pages": "17-18",
+    "appendix_pages": "19-43",
+    "aux_evidence": {
+      "end_main_text": 16,
+      "start_references": 17,
+      "start_appendix_A": 19
+    }
+  },
+  "build_log_and_citations": {
+    "resolution_status": "PASS",
+    "latex_warnings": 0,
+    "package_warnings": 0,
+    "overfull_boxes": 0,
+    "missing_character_or_glyph_warnings": 0,
+    "undefined_references_or_citations": 0,
+    "multiply_defined_labels": 0,
+    "rerun_requests": 0,
+    "underfull_boxes": 365,
+    "underfull_boxes_disposition": "NONBLOCKING_AFTER_VISUAL_INSPECTION; concentrated in the generated formal index, narrow appendix tables, and bibliography",
+    "citation_occurrences": 25,
+    "unique_citation_keys": 21,
+    "resolved_bibliography_items": 21,
+    "missing_bib_keys": [],
+    "missing_bbl_keys": [],
+    "duplicate_bib_keys": [],
+    "unresolved_placeholder_pages": []
+  },
+  "chart_verification": {
+    "status": "PASS",
+    "active_asset": "figures/raw_edit_repair_coverage_relabel.png",
+    "active_asset_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "uploaded_replacement": "../../upload/fig_curve_new.png",
+    "uploaded_replacement_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "byte_identical": true,
+    "dimensions": "976x612 RGBA",
+    "fls_inclusion_verified": true,
+    "embedded_pdf_page": 15,
+    "embedded_dimensions": "976x612",
+    "effective_resolution_ppi": "261x261",
+    "caption_identifies_curves": true,
+    "caption_preserves_full_denominator_and_radius_cap": true,
+    "caption_disclaims_candidate_generation_execution_and_operational_repair_success": true,
+    "checkpoint_prose": {
+      "radii": [1, 2, 5, 10],
+      "certificate_integrated_ir_percent": [4.0, 10.4, 31.0, 59.3],
+      "raw_ast_percent": [8.2, 11.7, 23.8, 43.0]
+    }
+  },
+  "rendered_page_review": {
+    "status": "BLOCKED",
+    "rendered_page_count": 43,
+    "visually_reviewed_page_count": 43,
+    "render_dpi": 144,
+    "rendered_page_manifest_sha256": "08343e5b17232a1a97d64093410f5ec90121a27d2690ceb9ab9a0608650a2fb0",
+    "page_range_reviews": [
+      {"pages": "1-10", "result": "PASS_WITH_NONBLOCKING_PAGE_BREAK_OBSERVATIONS"},
+      {"pages": "11-20", "result": "BLOCKED_DUPLICATE_DOI_RENDERING"},
+      {"pages": "21-30", "result": "BLOCKED_TABLE_FLOAT_ORDER"},
+      {"pages": "31-40", "result": "BLOCKED_TABLE_FLOAT_ORDER_AND_ORPHANED_FIGURE_CAPTION"},
+      {"pages": "41-43", "result": "PASS"}
+    ]
+  },
+  "blocking_findings": [
+    {
+      "id": "PDF-CITE-001",
+      "severity": "BLOCKING_PRESENTATION_DEFECT",
+      "pages": [17, 18],
+      "finding": "Eight references render the same DOI twice, once as a DOI and again as an identical doi.org URL.",
+      "references": [1, 3, 6, 7, 9, 10, 12, 16],
+      "bib_keys": [
+        "deBruijn",
+        "conchon2012canonized",
+        "kapur2021ModularAC",
+        "alloy4funDataset2023",
+        "maziarz2021HashingAlpha",
+        "deMouraUllrich2021Lean4",
+        "egraphsOG",
+        "kodkod"
+      ],
+      "source_evidence": [
+        "ref.bib:18-31",
+        "ref.bib:86-98",
+        "ref.bib:157-168",
+        "ref.bib:234-250",
+        "ref.bib:340-365",
+        "ref.bib:368-398"
+      ]
+    },
+    {
+      "id": "PDF-FLOAT-001",
+      "severity": "BLOCKING_READING_ORDER_DEFECT",
+      "pages": [30],
+      "finding": "Table 7 floats above subsection B.1 and above Table 6, reversing numerical and section reading order.",
+      "source_evidence": [
+        "appendix_eval.tex:10-49",
+        "tables/table1_rev4.tex:1-18"
+      ]
+    },
+    {
+      "id": "PDF-FLOAT-002",
+      "severity": "BLOCKING_READING_ORDER_DEFECT",
+      "pages": [31, 32],
+      "finding": "Page 31 announces Table 10, but Table 11 floats above Table 10 on page 32.",
+      "source_evidence": [
+        "appendix_eval.tex:57-74",
+        "tables/table6_ablation_vmcai_stage1.tex:1-43"
+      ]
+    },
+    {
+      "id": "PDF-FIGURE-001",
+      "severity": "BLOCKING_LAYOUT_DEFECT",
+      "pages": [35, 36],
+      "finding": "Figure 2's caption and status strip are orphaned at the bottom of page 35 while the pseudocode body begins on page 36 under a continuation header.",
+      "source_evidence": [
+        "appendixC_vmcai_stage1.tex:106-140",
+        "figures/final_alg_vmcai_stage1.tex:13-40"
+      ]
+    }
+  ],
+  "nonblocking_observations": [
+    "The title leaves the word Study on a third line.",
+    "A few sentences, a one-line proof, and one display lead-in break awkwardly across pages in the main text.",
+    "The y-axis wording uses repaired within radius, but the adjacent caption explicitly prevents an operational-repair interpretation.",
+    "The generated formal index is dense and small but remains legible when zoomed.",
+    "Page 43 ends with substantial blank space, consistent with a clean document end."
+  ],
+  "snapshot_stability": {
+    "status": "PASS",
+    "original_active_manuscript_files_checked": 20,
+    "isolated_build_input_files_checked": 20,
+    "formal_source_config_files_checked": 22,
+    "original_active_manuscript_mismatches": [],
+    "isolated_build_input_mismatches": [],
+    "formal_source_config_mismatches": [],
+    "snapshot_id_recomputed": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+    "java_artifact_or_experiment_changes": []
+  },
+  "gates": {
+    "CLEAN_LATEX_BUILD": "PASS",
+    "MAIN_TEXT_20_PAGE_LIMIT": "PASS_16_PAGES",
+    "REFERENCE_AND_CITATION_RESOLUTION": "PASS",
+    "CHART_IDENTITY_AND_SEMANTICS": "PASS",
+    "ALL_PAGE_RENDER_AND_LAYOUT_QA": "BLOCKED",
+    "SNAPSHOT_STABILITY": "PASS",
+    "PAPER_FORMAL_CLOSURE": "BLOCKED_PENDING_BOUNDED_PDF_REPAIR_AND_FRESH_PDF_QA",
+    "PACKAGING": "NOT_EXECUTED",
+    "PUBLICATION": "NOT_EXECUTED",
+    "PERMITTED_PUBLIC_LABEL": "NO_FORMAL_CLOSURE_CLAIM"
+  },
+  "next_playbook_requires_new_authorization": true
+}

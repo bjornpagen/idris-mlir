@@ -1,0 +1,179 @@
+\subsection{Herbie: Making an \eqsat Application Sound}
+\label{sec:herbie}
+
+
+Herbie~\cite{herbie} is a widely-used, open-source tool
+ for making floating-point programs more accurate,
+ with thousands of users and yearly stable releases.
+Herbie takes as input a real expression,
+ and returns the most accurate floating-point implementation
+ it can synthesize.
+Since floating-point error is a critical issue
+ in scientific computing,
+ Herbie is used in a variety of domains,
+ including machine learning, computer graphics,
+ and computational biology.
+
+
+The core of Herbie's algorithm
+ is to run equality saturation to explore equivalent programs.
+These programs are mathematically equivalent
+ over the real numbers,
+ but may have different behavior over floating-point numbers.
+Herbie considers candidate programs from the
+ results of equality saturation,
+ finding the most accurate among them.
+
+Herbie's rewrite rules are known to be unsound,
+ which has been the cause of numerous bugs in the past.
+In addition, unsound rules prevent Herbie from running equality saturation
+  longer once unsoundness occurs.
+Unfortunately, merely removing the unsound rules makes Herbie
+  useless on a large portion of its benchmark suite.
+For example, \autoref{fig:herbierule} shows a rewrite rule which
+  is critical to Herbie's ability to find more accurate programs.
+Using these unsound rules in a sound way requires a more sophisticated
+  analysis of Herbie's input programs.
+This analysis was nearly impossible with Herbie's existing \egraph implementation.
+
+\Egglog has allowed us to implement precise analyses to
+ make all rewrites sound.
+First, we implement an interval analysis in \egglog, allowing rules to
+  utilize information about the range of terms in the program (\autoref{fig:egglogsqrt}).
+This unlocks a range of crucial rules involving division, including the rule shown in \autoref{fig:herbierule2}.
+
+
+\begin{figure}
+  \begin{minipage}{0.40\linewidth}
+  \begin{subfigure}{\linewidth}
+    \[
+      \frac{a*b}{c} \implies \frac{a}{\frac{c}{b}}
+    \]
+    \caption{
+      A fraction rule which requires $b \neq 0$.
+    }
+    \label{fig:herbierule2}
+  \end{subfigure}
+  \\[1em]
+  \begin{subfigure}{\linewidth}
+    \[
+      x - y \implies \frac{x^3-y^3}{x^2+xy+y^2}
+    \]
+    \caption{
+      A more complex rule derived from
+       the factorization of $x^3-y^3 = (x-y)(x^2+xy+y^2)$.
+      This is sound if either $x \neq 0 $ or $y \neq 0$.
+    }
+    \label{fig:herbierule}
+  \end{subfigure}
+  \caption{
+    Herbie~\cite{herbie} uses
+    rewrite rules to create program variants
+    with less floating-point error from phenomena like cancellation.
+    Some rules are only sound under certain conditions.
+  }
+  \end{minipage}
+  \hfill
+  \begin{minipage}{0.55\linewidth}
+  \begin{lstlisting}[language=egglog]
+(function lo (Math) Rational :merge (max old new))
+(function hi (Math) Rational :merge (min old new))
+
+(rule ((= e (Sqrt a)))
+      ((set (lo e) (rational 0 0))))
+
+(rule ((= e (Sqrt a))
+       (= loa (lo a)))
+      ((set (lo e) (sqrt loa))))
+  \end{lstlisting}
+\caption{
+  A few example rules for interval analysis of sqrt in \egglog.
+  The $lo$ relation tracks the lower bound for each term,
+   and we merge lower bounds by taking the max.
+  Similarly, the $hi$ relation tracks the upper bound.
+  First, we know that root of anything is non-negative.
+  Next, since taking the root is monotonic,
+   we can propagate the bounds from the arguments
+   directly to the bounds of the result.
+}
+\label{fig:egglogsqrt}
+  \end{minipage}
+\end{figure}
+
+While the interval analysis enables many of Herbie's rules, it is not
+  sufficient for some more difficult cases.
+We additionally implemented a ``not equals to'' analysis,
+  which leverages both the interval analysis
+  as well as facts inferred during rewriting.
+%This composition of two analyses is particularly difficult to implement
+%  in a traditional \egraph implementation.
+\egglog's support for multiple interacting analyses
+  enables cleanly separating interval and $\neq$ rules;
+  in other \eqsat frameworks they would be implemented
+  as a fused, monolithic analysis requiring much
+  significantly more complicated rules.
+%\rw{Can you explain how exactly \egglog makes it easier?
+%Do the analyses interact with each other via rewrites? }
+The not-equals analysis allows Herbie to soundly solve one of its
+  classic cancellation benchmarks: $\sqrt[3]{v+1} - \sqrt[3]{v}$.
+First, the interval analysis proves that $v+1 \neq v$.
+%\rw{How does it prove that? It's not obvious the intervals are disjoint.}
+Next, the rule $a \neq b \implies \sqrt{a} \neq \sqrt{b}$
+ implies $\sqrt[3]{v+1} \neq \sqrt[3]{v}$.
+This allows us to finally apply
+  the rewrite from \autoref{fig:herbierule},
+  substituting $\sqrt[3]{v+1}$ for $x$ and $\sqrt[3]{v}$ for $y$,
+  reducing the error of the expression from extremely high to near zero.
+
+
+\begin{figure}
+    \includegraphics[scale=0.5]{egglogdatasmall/errorhist.pdf}
+
+  \caption{Graph showing the difference in error between Herbie using
+    \egglog's sound analysis and Herbie using the unsound ruleset across all of Herbie's benchmark suite.
+  The horizontal axis is the difference 
+   in the average bits of error using 
+   Herbie's unsound rules vs.\ \egglog's sound rules.
+  The vertical axis is the number of benchmarks. 
+  Negative values
+    represent benchmarks in which Herbie found a more accurate program using \egglog's analysis.}
+  \label{fig:herbieeval}
+\end{figure}
+
+\begin{figure}
+  \includegraphics[scale=0.5]{egglogdatasmall/timehistsecs.pdf}
+  \caption{Graph showing the difference in runtime (in seconds)  between Herbie using \egglog's sound analysis and Herbie using the unsound ruleset across all of Herbie's benchmark suite.
+  The horizontal axis is the difference in time to execute the benchmark.
+  The vertical axis is the number of benchmarks.
+  Negative values represent benchmarks in which Herbie was faster using \egglog's analysis.}
+  \label{fig:herbietime}
+\end{figure}
+
+\autoref{fig:herbieeval} shows the results
+ of our evaluation of Herbie using \egglog.
+Herbie has a benchmark suite of \numtests floating-point programs,
+ collected from a variety of domains.
+We ran Herbie on each of these programs
+ using both the unsound ruleset and \egglog's sound analysis.
+Using \egglog's analysis makes Herbie faster overall
+  (\timeegglogminutes minutes vs \timevanillaminutes minutes).
+This is because \egglog generates no unsound programs, which slow down
+  Herbie's search.
+
+In \numbettererror cases,
+ Herbie using a sound analysis is actually able
+ to find a more accurate program than Herbie
+ using the unsound ruleset.
+In \numworseerror cases,
+ Herbie's unsound ruleset finds more accurate results
+ than \egglog's sound analysis.
+%\rw{Give intuition for the accuracy differences?}
+%  ZT -- too hard, need to account for taylor and regimes etc.
+There are several outliers in \autoref{fig:herbieeval}.
+The point on the far left represents a benchmark
+  which Herbie using the unsound ruleset is unable to solve.
+This input program is $9x^4 - y^2(y^2-2)$,
+  and the solution involves an algebraic rearrangement
+  and fma (fused multiply-add) operation.
+The point on the far right represents a program that
+  overflows \egglog's rational type, which can be easily fixed in the future.

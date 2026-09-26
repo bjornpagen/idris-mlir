@@ -1,0 +1,157 @@
+We have implemented the RC optimizations described in the previous
+sections in the new compiler for the Lean programming language.
+We have implemented all optimizations in Lean, and they are available
+online~\footnote{\url{https://github.com/leanprover/lean4/tree/master/library/init/lean/compiler/ir}}.
+At the time of writing, the compiler supports only one backend where we emit
+C code. We are currently working on an LLVM backend for
+our compiler. To test the efficiency of the compiler and RC
+optimizations, we have devised a number of benchmarks\footnote{\url{https://github.com/leanprover/lean4/tree/IFL19/tests/bench}}
+that aim to replicate common tasks performed in compilers and proof assistants.
+All timings are arithmetic means of 50 runs as reported by the \texttt{temci}
+benchmarking tool~\cite{bechberger16bachelorarbeit},
+executed on a PC with an i7-3770 Intel CPU and 16~GB RAM running Ubuntu 18.04,
+using Clang 9.0.0 for compiling the Lean runtime library
+as well as the C code emitted by the Lean compiler.
+\begin{itemize}
+\item \verb!deriv! and \verb!const_fold! implement
+  differentiation and constant folding, respectively, as examples of symbolic
+  term manipulation where big expressions are constructed and transformed.
+  We claim they reflect operations frequently performed by proof automation procedures used in theorem provers.
+\item \verb!rbmap! stress tests the red-black tree implementation from the Lean standard library.
+  The benchmarks \verb!rbmap_10! and \verb!rbmap_1! are two variants where
+  we perform updates on shared trees.
+\item \verb!parser! is the new parser we are developing for the next version of
+  Lean. It is written purely in Lean (approximately $2000$ lines of code).
+\item \verb!qsort! it is the basic quicksort algorithm for sorting arrays.
+\item \verb!binarytrees! is taken from the Computer Languages Benchmarks
+Game\footnote{\url{https://benchmarksgame-team.pages.debian.net/benchmarksgame/performance/binarytrees.html}}.
+This benchmark is a simple adaption of Hans Boehm's \texttt{GCBench} benchmark\footnote{\url{http://hboehm.info/gc/gc_bench/}}.
+The Lean version is a translation of the fastest, parallelized Haskell solution,
+using \texttt{Task} in place of the Haskell \texttt{parallel} API.
+\item \verb!unionfind! implements the union-find algorithm which is frequently used
+  to implement decision procedures in automated reasoning. We use arrays to store
+  the \emph{find} table, and thread the state using a state monad transformer
+\end{itemize}
+
+We have tested the impact of each optimization by selectively disabling it and
+comparing the resulting runtime with the base runtime~(\cref{fig:leanbench}):
+\begin{itemize}
+\item \emph{-reuse} disables the insertion of \kw{reset}/\kw{reuse} operations
+\item \emph{-borrow} disables borrow inference, assuming that all parameters are
+  owned. Note that the compiler must still honor borrow annotations on builtins,
+  which are unaffected.
+\item \emph{-ST} uses atomic RC operations for all values
+%% \item \emph{-MT} disables multi-threading and uses non-atomic RC operations for all values
+%% \item ...
+\end{itemize}
+
+\begin{figure}
+  \centering
+  \begin{tabular}{lrrrr} \toprule
+    & base & \emph{-reuse} & \emph{-borrow} & \emph{-ST} \\ \midrule
+    \input{report_lean}
+    \bottomrule
+  \end{tabular}
+  \caption{Lean variant benchmarks, normalized by the base run time (\texttt{rbmap} for \texttt{rbmap\_*}). Digits whose
+    order of magnitude is no larger than that of twice the standard deviation are marked by squiggly lines.}
+  \label{fig:leanbench}
+\end{figure}
+
+The results show that the new \kw{reset} and \kw{reuse} instructions significantly improve
+performance in the benchmarks \verb!const_fold!, \verb!rbmap!, and
+\verb!unionfind!. The borrowed inference heuristic
+provides significant speedups in benchmarks \verb!binarytrees! and
+\verb!deriv!.
+%% is also effective
+%% in all but the \verb!const_fold! benchmark. Our thread safe RC scheme
+%% improves performance in all benchmarks.
+%% Finally, we have that \verb!unionfind1! is significantly
+%% faster than \verb!unionfind2! demonstrating that our alternative definition for the state monad
+%% (\cref{sec:reuse}) does indeed take advantage of the \kw{reset} and \kw{reuse} instructions.
+
+We have also directly translated some of these programs to other statically
+typed, functional languages: Haskell, OCaml, and Standard ML (\cref{fig:crossbench}).
+For the latter we selected the compilers MLton~\cite{Weeks:2006:WCM:1159876.1159877},
+which performs whole program optimization and can switch between multiple GC schemes at runtime,
+and MLKit, which combines Region Inference and garbage collection~\cite{het02}.
+While not primarily a functional language, we have also included Swift as a
+popular statically typed language using reference counting.
+For \verb!binarytrees!, we have used the original files and compiler flags from the fastest Benchmark
+Game implementations. For Swift, we used the second-fastest, safe
+implementation, which is much more comparable to the other versions than the
+fastest one completely depending on unsafe code. The Benchmark Game does not include an SML version.
+For \verb!qsort!, the Lean code is pure and relies on the fact that array
+updates are destructive if the array is not shared. The Swift code behaves
+similarly because Swift arrays are copy-on-write.
+All other versions use destructive updates, using the \textit{ST} monad in the case of Haskell.
+
+\begin{figure*}
+  \centering
+  \begin{tabular}{lrrrrrrrrrrrrrrrrrr} \toprule
+    &\multicolumn{3}{c}{Lean 4} & \multicolumn{3}{c}{GHC 8.8.3} & \multicolumn{3}{c}{ocamlopt 4.10} & \multicolumn{3}{c}{MLton 20180207} & \multicolumn{3}{c}{MLKit 4.4.2} & \multicolumn{3}{c}{Swift 5.1.1} \\
+    \cmidrule(lr{.5em}){2-4} \cmidrule(lr{.5em}){5-7} \cmidrule(lr{.5em}){8-10} \cmidrule(lr{.5em}){11-13} \cmidrule(lr{.5em}){14-16} \cmidrule(lr{.5em}){17-19}
+    & Time & Del & CM & Time & GC & CM & Time & GC & CM & Time & GC & CM & Time & GC & CM & Time & GC & CM \\ \midrule
+    \input{report_cross}
+    \bottomrule
+  \end{tabular}
+  \footnotetext{Because OCaml does not currently support multi-threading, the
+    program uses the Unix \texttt{fork} call instead}
+
+  \caption{Cross-language benchmarks. The measurements include wall clock time
+    (normalized by the Lean base run time), GC time (in percent, as reported
+    by the respective compiler), and last-level cache misses (CM, in million per
+    second, as reported by \texttt{perf stat}). For Swift, we measure time spent
+    in inc, dec, and deallocation runtime functions as GC time using \texttt{perf}.
+    For Lean, the former are always inlined, so we can only measure object deletion
+    time.}
+  \label{fig:crossbench}
+\end{figure*}
+While the absolute runtimes in \cref{fig:crossbench}
+are influenced by many factors other than the implementation
+of garbage collection that make direct comparisons difficult,
+the results still signify that both our garbage collection
+and the overall runtime and compiler implementation are very
+competitive.  We initially conjectured the good performance was a result of
+reduced cache misses due to reusing allocations and a lack
+of GC tracing.
+However, the results demonstrate this is not the case.  The
+only benchmark where the code generated by our compiler produces
+significantly fewer cache misses is \verb!rbmap!.  Note that Lean is
+5x as fast as OCaml on \verb!const_fold!  even though it
+triggers more cache misses per second.  The results
+suggest that Lean code is often faster in the benchmarks where
+the code generated by other compilers spends a significant amount of time performing GC. Using
+\verb!const_fold! as an example again, Lean spends only $17\%$
+of the runtime deallocating memory, while OCaml spends $90\%$ in the
+GC.  This comparison is not entirely precise since it does not include
+the amount of time Lean spends updating reference counts, but it seems
+to be the most plausible explanation for the difference in
+performance.  The results for \verb!qsort! are surprising, the
+Lean and Swift implementations outperforms all destructive ones but
+MLton. We remark that MLton and Swift have a clear advantage since they use
+arrays of unboxed machine integers, while Lean and the other compilers
+use boxed values. We did not find a way to disable this optimization
+in MLton or Swift to confirm our conjecture.  We believe this benchmark
+demonstrates that our compiler allows programmers to write efficient
+pure code that uses arrays and hashtables. For \verb!rbmap!, Lean is
+much faster than all other systems except for OCaml. We imagined this would only be the case
+when the tree was not shared. Then we devised the two variants
+\verb!rbmap_10! and \verb!rbmap_1! which save the
+current tree in a list after every tenth or every insertion, respectively.
+The idea is to simulate the behavior of a backtracking search where we
+store a copy of the state before each case-split. As expected, Lean's
+performance decreases on these two variants since the tree is now a
+shared value, and the time spent deallocating objects increases
+substantially.  However, Lean still outperforms all systems but MLton
+on \verb!rbmap_1!.  In all other systems but MLton and Swift, the time
+spent on GC increases considerably. Finally, we point out that
+MLton spends significantly less time on GC than the other languages using
+a tracing GC in general.
+
+% , and we should not
+% discard reference counting as a viable memory management technique.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

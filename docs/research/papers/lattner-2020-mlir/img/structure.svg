@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="130.68819mm"
+   height="80.795319mm"
+   viewBox="0 0 130.68819 80.795319"
+   version="1.1"
+   id="svg8"
+   inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
+   sodipodi:docname="structure.svg">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="1.4"
+     inkscape:cx="78.513607"
+     inkscape:cy="170.52852"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="1920"
+     inkscape:window-height="1019"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     fit-margin-top="0"
+     fit-margin-left="0"
+     fit-margin-right="0"
+     fit-margin-bottom="0" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-34.914095,-20.764095)">
+    <rect
+       rx="2.0370488"
+       ry="2.0370491"
+       y="20.896387"
+       x="35.046387"
+       height="80.530739"
+       width="130.4236"
+       id="rect973"
+       style="fill:#f9f9f9;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458332;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+    <rect
+       style="fill:#efefef;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458332;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect815"
+       width="125.13193"
+       height="59.931038"
+       x="37.692223"
+       y="25.129725"
+       ry="2.0370491"
+       rx="2.0370488" />
+    <rect
+       ry="2.0370488"
+       y="29.892227"
+       x="40.338058"
+       height="35.362583"
+       width="120.02925"
+       id="rect965"
+       style="fill:#e6e6e6;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458332;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       rx="2.0370488" />
+    <rect
+       rx="2.0370488"
+       style="fill:#e6e6e6;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458332;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect967"
+       width="120.02925"
+       height="14.762881"
+       x="40.338058"
+       y="68.5214"
+       ry="2.0370488" />
+    <rect
+       ry="2.0370488"
+       y="34.125561"
+       x="42.643711"
+       height="24.212286"
+       width="115.49354"
+       id="rect1027"
+       style="fill:#dcdcdc;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458329;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       rx="2.0370488" />
+    <rect
+       rx="2.0370488"
+       style="fill:#d2d2d2;fill-opacity:1;stroke:#a3a3a3;stroke-width:0.26458329;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect971"
+       width="111.71378"
+       height="9.8491898"
+       x="44.23122"
+       y="37.829731"
+       ry="2.0370488" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="40.443451"
+       y="24.290176"
+       id="text819"><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="24.290176"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan825"><tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan897">%results</tspan>:42 = <tspan
+   style="fill:#a43d00;fill-opacity:1"
+   id="tspan867">&quot;d.operation&quot;</tspan>(<tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan919">%operand</tspan>, <tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan921">%oprnd</tspan>) ({</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="28.699898"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';fill:#7f7f7f;fill-opacity:1;stroke-width:0.26458332"
+         id="tspan829">/* Regions belong to Ops. */</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="33.109619"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan831"><tspan
+   style="fill:#d82fcc;fill-opacity:1"
+   id="tspan959">^block</tspan>(<tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan927">%argument</tspan>: <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan935">!d.type</tspan>):</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="37.519344"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan833">  <tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan929">%value</tspan> = &quot;nested.operation&quot;() ({</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="41.929066"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';fill:#7f7f7f;fill-opacity:1;stroke-width:0.26458332"
+         id="tspan835">    /* Regions can be nested. */</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="46.338787"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan837">    <tspan
+   style="fill:#a43d00;fill-opacity:1"
+   id="tspan885">&quot;d.op&quot;</tspan>() : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan945">() -&gt; ()</tspan></tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="50.748508"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';fill:#7f7f7f;fill-opacity:1;stroke-width:0.26458332"
+         id="tspan839">  /* Ops have function types */</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="55.15823"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan841">  }) : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan947">() -&gt; (!d.other_type)</tspan></tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="59.567955"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan843" /><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="63.977676"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan845">  <tspan
+   style="fill:#a43d00;fill-opacity:1"
+   id="tspan887">&quot;consume.value&quot;</tspan>(<tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan931">%value</tspan>) : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan949">(!d.other_type) -&gt; ()</tspan></tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="68.387398"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan847" /><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="72.797119"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan849"><tspan
+   style="fill:#d82fcc;fill-opacity:1"
+   id="tspan963">^other_block</tspan>:</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="77.206841"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan851">  <tspan
+   style="fill:#a43d00;fill-opacity:1"
+   id="tspan889">&quot;d.terminator&quot;</tspan>() [<tspan
+   style="fill:#d82fcc;fill-opacity:1"
+   id="tspan961">^block</tspan>(<tspan
+   style="fill:#1001d3;fill-opacity:1"
+   id="tspan933">%argument</tspan> : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan953">!d.type</tspan>)]</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="81.616562"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan853">  : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan951">() -&gt; ()</tspan></tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="86.026283"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan969"> </tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="90.436005"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan855">}) </tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="94.845734"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';fill:#7f7f7f;fill-opacity:1;stroke-width:0.26458332"
+         id="tspan857">/* Ops have a list of attributes. */</tspan><tspan
+         sodipodi:role="line"
+         x="40.443451"
+         y="99.255455"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1;font-family:'Noto Sans Mono';-inkscape-font-specification:'Noto Sans Mono';stroke-width:0.26458332"
+         id="tspan859">{attribute=<tspan
+   style="fill:#d88400;fill-opacity:1"
+   id="tspan891">&quot;value&quot;</tspan> : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan955">!d.type</tspan>} : <tspan
+   style="fill:#0ca712;fill-opacity:1"
+   id="tspan957">() -&gt; ()</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:10.58333302px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="89.769341"
+       y="34.117558"
+       id="text925"><tspan
+         sodipodi:role="line"
+         id="tspan923"
+         x="89.769341"
+         y="43.481327"
+         style="stroke-width:0.26458332" /></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="148.59543"
+       y="24.101191"
+       id="text977"><tspan
+         sodipodi:role="line"
+         id="tspan975"
+         x="148.59543"
+         y="24.101191"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332">Op</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="139.5088"
+       y="41.789883"
+       id="text977-2"><tspan
+         sodipodi:role="line"
+         id="tspan975-6"
+         x="139.5088"
+         y="41.789883"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332">Region+</tspan><tspan
+         sodipodi:role="line"
+         x="139.5088"
+         y="46.170345"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332"
+         id="tspan1029">Block</tspan></text>
+    <text
+       id="text999"
+       y="28.844496"
+       x="148.59543"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       xml:space="preserve"><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332"
+         y="28.844496"
+         x="148.59543"
+         id="tspan997"
+         sodipodi:role="line">Region</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="148.59543"
+       y="33.587799"
+       id="text977-8"><tspan
+         sodipodi:role="line"
+         id="tspan975-5"
+         x="148.59543"
+         y="33.587799"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332">Block</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="148.52176"
+       y="72.349113"
+       id="text977-8-2"><tspan
+         sodipodi:role="line"
+         id="tspan975-5-8"
+         x="148.52176"
+         y="72.349113"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332">Block</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:4.23333311px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="139.5088"
+       y="37.329777"
+       id="text977-3"><tspan
+         sodipodi:role="line"
+         id="tspan975-67"
+         x="139.5088"
+         y="37.329777"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Roboto;-inkscape-font-specification:Roboto;stroke-width:0.26458332">Op</tspan></text>
+  </g>
+</svg>

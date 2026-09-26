@@ -1,0 +1,67 @@
+{
+  "repository": {
+    "name": "AlexandervonWu/ACGN",
+    "branch": "aislop",
+    "head": "1e2667351532b0c632166fa21ae5fbc7308a8fe7"
+  },
+  "scope": [
+    "Synchronize empirical claims to explicitly superseding result runs",
+    "Improve background for reviewers unfamiliar with e-graphs and Alloy"
+  ],
+  "pre_edit_gates": {
+    "identity": "PASS",
+    "package_closure": "PASS; independent auditor read 21 reachable TeX files plus dependencies",
+    "evidence": "PASS; comparable full-corpus snapshot, separate validation, exact fetched artifact hashes",
+    "notation": "PASS; no changed formal statement planned",
+    "format": "Retain bundled LNCS v2.20, named authors, bibliography and appendix order; preserve main-body limit of 20 pages"
+  },
+  "changes": [
+    {
+      "file": "prelims_compressed.tex",
+      "reason": "U: explicit user request for intuitive background",
+      "planned": "Define e-node/e-class, rebuilding, extraction, ACI, typed slot use, Alloy models and bounded checks; retain existing worked example and related-work citations."
+    },
+    {
+      "file": "eval_compressed.tex",
+      "reason": "E/U",
+      "planned": "Update run/source prefixes, times and ratios, memory, validation outcome; connect existing Alloy example to new background; state coherent binder mapping."
+    },
+    {
+      "file": "appendix_eval.tex",
+      "reason": "E",
+      "planned": "Pin refreshed full-corpus and validation identities separately; update checker outcomes; explicitly include oracle in truth pools."
+    },
+    {
+      "file": "tables/table6_ablation_vmcai_stage1.tex",
+      "reason": "E",
+      "planned": "Replace measured wall/CPU/RSS cells from same new full-corpus run; other cells unchanged."
+    },
+    {
+      "file": "figures/aci_canonicalization_distance.tex",
+      "reason": "E",
+      "planned": "Clarify reference pool includes oracle; existing plot retained since old and new producing SVG bytes are identical."
+    },
+    {
+      "file": "appendix_closure_tables.tex",
+      "reason": "E",
+      "planned": "Date the archived bridge assessment so its old no-replay statement cannot be mistaken for a current repository census; no row status changes."
+    },
+    {
+      "file": "README.md, PACKAGE-MANIFEST.json, revision/*",
+      "reason": "C/E",
+      "planned": "Bind updated source and PDF to this refresh; preserve prior formal evidence with explicit original scope."
+    }
+  ],
+  "unchanged": [
+    "Formal statement/proof source spans",
+    "Lean source/configuration",
+    "Existing bibliography keys",
+    "All published distance/coverage/capability cells",
+    "Chart geometry"
+  ],
+  "limits": [
+    "No corpus rerun in this task",
+    "Large LFS distances/index records not materialized; manifest-bound generated summaries are the empirical evidence",
+    "No new Lean build or paper-Java refinement assertion"
+  ]
+}

@@ -1,0 +1,180 @@
+\subsubsection{Geometric domain}
+\label{subsec:geo-domain}
+\newcommand{\Caddy}{\textit{Caddy}\xspace}
+\newcommand{\CoreCaddy}{\textit{Core Caddy}\xspace}
+
+\sz~\citep{szalinski} is an \eqsat-driven
+  tool that shrinks 3D CAD (Computer-Aided Design) programs
+  by performing rewrites
+  over a language called \Caddy.
+  \Caddy expresses CAD programs with
+  primitives for
+  constructive solid geometry (e.g., \C{Cube}, \C{Scale}, \C{Union}),
+  basic rational arithmetic,
+  various list constructors,
+  and inverse transformations.
+\sz shrinks \Caddy programs using
+  two rulesets:
+  a set of CAD
+  identities
+  and a set of custom procedural rewrite rules
+  which discover opportunities to use inverse
+  transformations.
+
+We focus on synthesizing
+  the CAD identities,
+  which help \sz expose
+  hidden structure in its input programs.
+Synthesizing these identities using
+  traditional rule inference algorithms
+  requires a full CAD interpreter,
+  which is difficult to implement and
+  too slow for use in rule synthesis.
+Instead, we leverage \enumo's \ff approach.
+
+\paragraph*{Synthesizing CAD identities.}
+Solid geometry can be
+  represented mathematically via
+  a function representation (F-Rep).
+An F-Rep is a function $f(x, y, z)$
+  which interprets an arithmetic expression
+  over $x$, $y$, and $z$ as the geometric solid
+  defined where $f$ is positive~\citep{frep}.
+For example, the unit sphere can be represented
+  by $1 - x^2 - y^2 - z^2$.
+
+We use \enumo to synthesize a set of CAD
+  identities by
+  fast-forwarding from a small set of 5
+  translational rules from CAD to F-Rep
+  combined with 15 rules over the F-Rep domain.
+Our prior rules for F-Rep included 6 rules
+  over rationals and 9 substitution rules
+  over operators that allowed it to express \Caddy
+  transformations.
+Here are two examples of these rules:
+\[
+  \mathit{Sphere}(r) \rewritesto  1 -  \left(\frac{x}{r}\right)^2 - \left(\frac{y}{r}\right)^2 - \left(\frac{z}{r}\right)^2
+  \qquad
+  \mathit{Scale}([w, h, l], e) \rewritesto e\left[ x \mapsto \frac{x}{w}\right]\left[ y \mapsto \frac{y}{h}\right]\left[ z \mapsto \frac{z}{l}\right]
+\]
+Using \enumo's guided search and fast-forwarding,
+  we synthesized a set of 10 large bidirectional
+  CAD identities of up to 13 atoms:
+\begin{enumerate}
+  \item \foottt{(Trans (Vec3 0 0 0) a) \rewritesboth \xspace a}
+  \item \foottt{(Scale (Vec3 1 1 1) a) \rewritesboth \xspace a}
+  \item \foottt{(Cylinder (Vec3 b b b) a true) \rewritesboth \linebreak
+    (Scale (Vec3 b b b) (Cylinder (Vec3 1 1 1) a true))}
+  \item \foottt{(Sphere b a) \rewritesboth \xspace (Scale (Vec3 b b b) (Sphere 1 a))}
+  \item \foottt{(Scale (Vec3 f e d) (Cube (Vec3 c b a) false)) \rewritesboth \linebreak
+    (Scale (Vec3 (* f c) (* e b) (* d a)) (Cube (Vec3 1 1 1) false))}
+  \item \foottt{(Cube (Vec3 (* f e) (* d c) (* b a)) false) \rewritesboth \linebreak
+    (Scale (Vec3 f d b) (Cube (Vec3 e c a) false))}
+  \item \foottt{(Trans (Vec3 g f e) (Scale (Vec3 d c b) a)) \rewritesboth \linebreak
+    (Scale (Vec3 d c b) (Trans (Vec3 (/ g d) (/ f c) (/ e b)) a))}
+  \item \foottt{(Scale (Vec3 g f e) (Trans (Vec3 d c b) a)) \rewritesboth \linebreak
+    (Trans (Vec3 (* d g) (* c f) (* b e)) (Scale (Vec3 g f e) a))}
+  \item \foottt{(Scale (Vec3 g f e) (Scale (Vec3 d c b) a)) \rewritesboth \linebreak
+    (Scale (Vec3 (* g d) (* f c) (* e b)) a)}
+  \item \foottt{(Trans (Vec3 (+ g f) (+ e d) (+ c b)) a) \rewritesboth \linebreak
+    (Trans (Vec3 g e c) (Trans (Vec3 f d b) a))}
+\end{enumerate}
+
+The workload we used is shown in \autoref{fig:szalinski-workload}.
+
+\paragraph*{Results.}
+We evaluate \sz's performance
+  on a set of
+  benchmarks taken from the paper (Table 2 of \citealt{szalinski})\footnote{
+    \citet{szalinski} states that
+     these benchmarks were decompiled using the
+     Reincarnate~\citep{reincarnate} mesh decompiler.}.
+The results are shown in \autoref{fig:szalinski-results}.
+Using \enumo's synthesized rules for CAD identities, \sz is able
+  to shrink input benchmarks by 87\% on average, while the original, handwritten
+  rules shrink input benchmarks by 90\% on average.
+Upon closer inspection, we found that a subset of the \enumo-synthesized
+  rules matches the performance of \sz's handwritten CAD identities.
+There are some rules in the \enumo ruleset that
+  cannot be derived from \sz's CAD identities.
+However, we posit that these additional rules
+  are not very useful for the \sz benchmark tests, so their
+  presence in the \enumo ruleset leads to worse
+  performance at low node limits.
+
+\begin{figure}
+
+  \begin{lstlisting}[
+    name=szalinski-workload-code,
+    language=Python,
+    basicstyle=\footnotesize\ttfamily,
+    numbers=left,
+    xleftmargin=2.5em]
+  def iter_szalinski(n):
+    lang = { (AFFINE VEC SOLID) (Cube VEC) (Cylinder VEC) (Sphere SCALAR) }
+    return iter_metric(lang, "SOLID", Depth, n)
+             .plug("VEC", { (Vec3 0 0 0) (Vec3 1 1 1) (Vec3 a a a) (Vec3 a b c)
+                           (Vec3 d e f) (Vec3 (BOP a d) (BOP b e) (BOP c f)) })
+             .plug("AFFINE", { Scale Trans })
+             .plug("SCALAR", { a 1 })
+             .plug("BOP", { + * / })
+
+  cad_idents = []
+  for i in [2, 3]:
+      wkld = iter_szalinski(i)
+      chosen = fast_forward(wkld, frep_rules, cad_idents)
+      cad_idents.extend(chosen)
+  \end{lstlisting}
+  \caption{
+    An \enumo program for learning CAD identities. \texttt{iter_szalinski}
+    is a function that constructs workloads for \Caddy expressions.
+  }
+  \label{fig:szalinski-workload}
+  \label{fig:szalinski-recipe}
+\end{figure}
+
+\begin{table}[h]
+    \footnotesize
+  \begin{tabular}{lccc}
+    Program Id & No Identities & \sz's Identities & \enumo's Identities \\
+\midrule
+TackleBox & 79\% (60) & 91\% (26) & 85\% (41) \\
+SDCardRack & 72\% (57) & 87\% (26) & 86\% (28) \\
+SingleRowHolder & 84\% (31) & 92\% (16) & \textbf{92\% (16)} \\
+CircleCell & 61\% (31) & 80\% (16) & \textbf{80\% (16)} \\
+CNCBitCase & 88\% (27) & 93\% (15) & 93\% (16) \\
+CassetteStorage & 81\% (27) & 89\% (15) & \textbf{89\% (15)} \\
+RaspberryPiCover & 90\% (27) & 96\% (12) & \textbf{96\% (12)} \\
+ChargingStation & 81\% (27) & 89\% (15) & 82\% (25) \\
+CardFramer & 52\% (83) & 76\% (42) & \textbf{76\% (42)} \\
+HexWrenchHolder & 90\% (31) & 95\% (16) & 84\% (52) \\
+\midrule
+Average & 80\% (40.1) & 90\% (19.9) & 87\% (26.3) \\
+    \end{tabular}
+
+\caption{End-to-end evaluation of
+  \sz{} (Table 2 of \citealt{szalinski})
+  using CAD identities from \enumo.
+The inputs are flat CAD programs from  Reincarnate~\citep{reincarnate}.
+For each set of identities,
+  we show the percentages by which the initial program's AST sizes decreased
+  (higher is better), and in parentheses, the output AST sizes (lower is better).
+\texttt{No Identities}, \texttt{\sz's Identities}, and \texttt{\enumo's Identities} show the results of running \sz
+  without CAD identities, with all identities enabled, and with
+  \enumo's synthesized CAD identities in place of the original ones, respectively.
+  \enumo's CAD identities exactly matched the
+  performance of Szalinski's on 5 of 10 inputs.}
+
+\label{fig:szalinski-results}
+\end{table}
+
+\autoref{fig:szalinski-results} shows that
+  \enumo's CAD identities are able to closely match the performance
+  of the handwritten CAD identities.
+Fast-forwarding is effective at synthesizing rules for
+  constructive geometry,
+  which is a domain containing rewrite rules with term sizes that
+  cannot be exhaustively enumerated,
+  for which writing an interpreter is challenging,
+  and which prior work did not support.

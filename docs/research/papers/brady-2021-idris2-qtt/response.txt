@@ -1,0 +1,414 @@
+Thanks for your feedback: we are especially pleased that the referees agree
+that the paper is well-written (or makes for easy reading)!
+
+> If you were to cut out some of the tutorial part, what insights (à la
+> the conclusion) would you add in? (#44A)
+
+We would have liked to add more depth to the session types example,
+particularly showing that the library supports dependent session types with no
+further extension, going beyond what is possible in many other implementations
+(especially Rust). We mention dependent session types in related work, and note
+that a QTT based language supports them directly - you see it here with using
+the 'case' operator in the session type, but another example (e.g. "send an
+integer, then send that many characters") would make it clearer.
+
+> It's starting 
+> to exhibit a classic problem of dependent types: the type specification 
+> [...] all of the program logic (#44A)
+
+We disagree that this is a problem. In fact, it's a strength! The only program
+logic contained in the type is that the protocol *requires* this dynamic check.
+You can write the program however you like, in general (e.g. interleaving
+multiple protocols, adding other logic such as UI code), but you *must* check
+this result for the security protocol to be implemented correctly.
+Still: it is a design challenge when using dependent types to decide what to
+put in the type (in this case, what is the appropriate abstraction of the protocol,
+what guarantees do we need?), and what to leave out.
+
+> I wonder if session types are really the example to give. Rust can
+> more or less achieve them, and it doesn't even have higher-kinded
+
+Rust can't do dependent session types (e.g., send an integer, then send that
+many characters). We can do them with no further work thanks to QTT, while
+other systems require entire papers to explain how to extend their type
+system to support even minimal forms of dependency. We try to illustrate
+this using 'case' in a session type, but we'd be happy to add another example
+which makes this more explicit.
+
+> no choice between sending and receiving yields a very restrictive set of
+> protocols.
+
+We're not sure how to interpret this comment - there is the same choice between
+sending and receiving as in any other implementation of session types, and
+indeed we can choose dynamically, in a type safe way, e.g.
+
+do s <- Request Bool
+   if s then do Request A
+                Respond B
+        else do Respond A
+                Request B
+
+...the client requests a Bool from the server. If True, it sends and A then
+receives a B, otherwise it receives an A then sends a B. We have the full
+language at the type level, so full flexibility in describing dyadic protocols.
+
+> (e.g., Stephanie Weirich declared length-indexed vectors passé
+> in her 2017 POPL keynote). (#44A)
+
+Indeed - but their familiarity is very useful when presenting a new concept (in
+this case, multiplicities, and their relationship to implicit arguments).
+Nevertheless, if we were to remove tutorial material and extend the session
+type example, we could consider using run-length encoding as an introductory
+example and explain dependent types and multiplicities together.
+
+> Is there a reason you don't call `IO` a monad? (#44A)
+
+It is a monad, but it's also a lot of other things! However, the fact that it's
+a monad isn't relevant to the rest of the discussion in this section.
+
+> Classic C `printf` let's you compute a format string. What kinds of
+> computed format strings can Idris realistically support? (#44A)
+
+Type-level computation is first class, so you can compute any format string
+you like - it would require a (statically enforced) dynamic check that the
+parameters are correct w.r.t. the format string, which is a good thing
+for safety.
+
+> interfaces and [...] don't get a
+> full exploration in the paper. Are the quantities inferred there
+> verified by the type checker? 
+
+Yes, they are desugared to data types and functions then checked. Interfaces
+and related topics are important to explore, but this is a topic for another
+paper if we are to explore them properly.
+
+> What are the programmer-facing pragmatics? (#44A)
+
+The same rules apply as elsewhere: type-level variables default to 0,
+multiplicities in methods work the same as in other functions.
+
+> examples. For example, the encoding of IO doesn't seem to add very
+> much in comparison to the ATM or the session types examples, and
+> omitting it would leave space for more detail on the other examples. (#44B)
+
+We chose this example as similar techniques can be used for other protocols,
+and it is nice to note that this primitive can be implemented in a type-safe
+way, but we would be happy to extend the session types example in its place.
+
+> Thus, the complexity of designing the program seems to move from the 'code'
+> to the types; but that does not mean that complexity goes away. (#44C)
+
+This is a very interesting point, and a worthwhile topic to explore, but not
+one of the main points of the paper.
+
+> The paper lacks a formal definition of the language. (#44C)
+
+The formal details of QTT are described in detail elsewhere (as you also
+noted), and thus we considered it more important to explain the pragmatics of
+QTT from a programmer's perspective.
+
+> but the approach requires further experimentation (and abstraction?) to make
+> it palatable to programmers. (#44C)
+
+This is a good point - we think finding the right abstractions is key to the
+accessibility of Idris 2. Even so, we can already describe fairly complex
+protocols. An important aspect of future work will be the ergonomics of
+programming with linear protocols. We will make this explicit in the
+conclusion.
+
+-------
+Some other minor points raised by the reviews, and answers to more
+specific questions:
+
+> What connects the `elem` and the type parameter of `List` at L90?
+
+The type of List is Type -> Type, so 'List elem' means that 'elem' must be
+a Type.
+
+> You say that unary `Nat`s are converted a "binary representation"
+> (L249). Do you mean machine unsigned integers, or something else?
+
+They are compiled to Scheme integers (or alternatively, GMP integers).
+
+> I didn't entirely understand the Note at L439. The syntax there is for
+> naming a 0-multiplicity value, or...?
+
+It says that the 'ty' argument to RunLength, and hence the element type of
+'xs', is the same type as the element type of the list returned by 'uncompress'
+
+> The end of Section 4 felt somehow incomplete. What do `initATM` and
+> `shutDown` do if the ATM runs interactively? What does one do on the
+> unhappy path?
+
+This was intended to show that the operations could be ordered differently
+and still satisfy the protocol, but we could complete this by adding the
+relevant UI code (it would be similar to Listing 3). We could simulate the
+ATM with IO code, but we feel this would obscure the interesting detail of
+how the protocol implementation corresponds to the types.
+
+> * 392: does this definition of length change the runtime
+>   representation of `Vect`
+
+No, it just means the length is passed. So, the length would have to be
+computed, and would be stored on the stack at least.
+
+Thank you for the other minor comments, noting typos, etc.
+
+-----------------------------------------------
+> ECOOP 2021 Paper #44 Reviews and Comments
+> ===========================================================================
+> Paper #44 Idris 2: Quantitative Type Theory in Practice
+> 
+> 
+> Review #44A
+> ===========================================================================
+> 
+> Overall merit
+> -------------
+> C. Weak reject
+> 
+> Reviewer expertise
+> ------------------
+> Y. Knowledgeable
+> 
+> Paper summary
+> -------------
+> Idris is a dependently typed programming language inspired by
+> Haskell. This paper describes Idris 2, a self-hosting revision of the
+> Idris language around Quantitative Type Theory (QTT).
+> 
+> QTT adds 0/1/many annotations to binders to track their use in runtime
+> contexts. 0-binders exist only statically and are not evaluated at
+> runtime (i.e., in types, at compile time). 1-binders are evaluated
+> just once (i.e., linearly). many-binders are evaluated an arbitrary
+> number of times.
+> 
+> QTT is useful in Idris 2 both as a way to write expressive protocols
+> and to reason about erasure. To demonstrate expressivity, two example
+> protocols are given: an automated teller machine whose FSM state is
+> tracked by the type system, and a toy client/server protocol using
+> dyadic session types. Erasure---where static-only information isn't
+> represented at runtime---corresponds neatly with "0-binders". Language
+> defaults set things up neatly, and expert programmers can mark other
+> erasable bits as 0-binders, with support from the type system in case
+> they accidentally try to evaluate things which won't be present at
+> runtime.
+> 
+> The paper has a gentle, tutorial feel, introducing the reader to Idris
+> syntax and concepts slowly before giving examples of how QTT helps
+> Idris 2 (but no formal exposition).
+> 
+> Comments for author
+> -------------------
+> The tutorial feel makes for easy reading, and it is good to have this
+> sort of high-level summary of work at the intersection of engineering
+> and theory. I'm not certain the contributions quite stack up to a
+> paper, though---I wish there were more insight to take away. The
+> conclusion was a much richer vein of insight than the rest of the
+> paper (e.g., Stephanie Weirich declared length-indexed vectors passé
+> in her 2017 POPL keynote).
+> 
+> I could also be wrong: I have seen these dependent type examples over
+> and over, and I may simply be jaded. The tutorial aspect is well
+> constructed and easy to read.
+> 
+> Accordingly, I am the weakest of rejects, i.e., a very positive C. If
+> there are other important insights to add, it would be a fine trade to
+> reduce the language tutorial and increase the design discussion: say,
+> two more pages like the conclusion, winning two pages from tightening
+> up the better understood material.
+> 
+> # Minor questions and thoughts
+> 
+> What connects the `elem` and the type parameter of `List` at L90?
+> 
+> Is there a reason you don't call `IO` a monad? (L103)
+> 
+> What can your `printf` example do that, say, OCaml's pre-processor
+> can't? How does your `printf` relate to Sage's (Knowles et al. 2006)?
+> Classic C `printf` let's you compute a format string. What kinds of
+> computed format strings can Idris realistically support?
+> 
+> You say that unary `Nat`s are converted a "binary representation"
+> (L249). Do you mean machine unsigned integers, or something else?
+> 
+> I found the hole-based programming intuitive, but I've used Coq and
+> Agda quite a bit. It may pay to add a line or two (L222).
+> 
+> I quite liked the discussion of pragmatics before Section 3.2; more
+> explicit discussion of design decisions of this sort would be
+> good. Relatedly, it's worth emphasizing in the proof-relevant `length`
+> (L389) that merely stating `{n:nat}` as an implicit parameter makes
+> use of the default just established, i.e., `n` has ω-multiplicity.
+> 
+> I didn't entirely understand the Note at L439. The syntax there is for
+> naming a 0-multiplicity value, or...?
+> 
+> The exception issues discussed around L599 were also interesting, and
+> could bear elaborating. Haskell has powerful (and confusing)
+> asynchronous exceptions, which haven proven particularly useful in
+> concurrent settings.
+> 
+> The remark about how the library `L` definition is actually a
+> transformer over arbitrary monads, not just IO (L651) is
+> confusing... IO doesn't show up anywhere at all until `action` on the
+> next page. Maybe move the note to the end of 4.2?
+> 
+> The ATM example was an interesting demonstration of the power of the
+> type system, but the type of `checkPIN` in particular was worrying to
+> me. It's starting to exhibit a classic problem of dependent types: the
+> type specification ends up containing all of the program logic, and
+> now you have to type everything twice! I haven't ever followed the
+> Idris type-driven programming approach, and maybe the duplication here
+> isn't a problem if you write the spec first. In any case, I think this
+> tension should be addressed.
+> 
+> It's a bit of a shame that interfaces and
+> related "full-scale language" features (like inference) don't get a
+> full exploration in the paper. Are the quantities inferred there
+> verified by the type checker? What are the programmer-facing
+> pragmatics?
+> 
+> The end of Section 4 felt somehow incomplete. What do `initATM` and
+> `shutDown` do if the ATM runs interactively? What does one do on the
+> unhappy path?
+> 
+> Your presentation of session types was interesting, but the most
+> interesting thing is that you use choice in the language inside of the
+> messages via datatypes, but not as part of the session types. It's
+> cool that you can use datatypes and dependency in this way, but no
+> choice between sending and receiving yields a very restrictive set of
+> protocols.
+> 
+> I wonder if session types are really the example to give. Rust can
+> more or less achieve them, and it doesn't even have higher-kinded
+> types, nevermind dependency. Relatedly, Rust has a story for relaxing
+> linearity/affinity to runtime checks (e.g., `RefCell`, `RwLock`,
+> etc.). Could Idris do that without the need for some notion of
+> `unsafe`?
+> 
+> The discussion of security protocols should probably cite Cédric
+> Fournet's work.
+> 
+> # Trivia
+> 
+> Footnotes look very strange if they come before punctuation, even if
+> our modern printers can handle it just fine.
+> 
+> You sometimes separated distinct mathematical expressions with only
+> punctuation (e.g., `List` (`Type -> Type`)` on L98; again on L418). I
+> find parsing to be much easier if you can put words between notation.
+> 
+> L104 'Console' -> 'console'?
+> 
+> Throughout: 'type level variable' -> 'type-level variable'?
+> 
+> L328 'varible'
+> 
+> L799 I would appreciate it if you wouldn't tell everyone my PIN and
+> luggage combination! :)
+> 
+> Questions for authors’ response
+> ---------------------------------
+> If you were to cut out some of the tutorial part, what insights (à la
+> the conclusion) would you add in?
+> 
+> 
+> 
+> Review #44B
+> ===========================================================================
+> 
+> Overall merit
+> -------------
+> A. Accept
+> 
+> Reviewer expertise
+> ------------------
+> Y. Knowledgeable
+> 
+> Paper summary
+> -------------
+> This paper describes and demonstrates Idris 2, a new version of Idris,
+> a language with dependent types that is intended to be usable for
+> programming rather than theorem proving. The key innovation in Idris 2
+> is the use of Quantitative Type Theory (a substructural version of
+> type theory), but the formal details of QTT are not presented
+> here. Instead, a general outline of Idris and dependent types is
+> presented, along with showing how multiplicities encode linearity and
+> erasure in conjunction with dependency. 
+> 
+> Worked examples include an ATM state machine, session types, and the
+> implementation of the IO monad.
+> 
+> Comments for author
+> -------------------
+> This is a very nice paper which motivates QTT and Idris 2
+> effectively. 
+> 
+> I think the paper would be stronger with more focus on fewer
+> examples. For example, the encoding of IO doesn't seem to add very
+> much in comparison to the ATM or the session types examples, and
+> omitting it would leave space for more detail on the other examples. 
+> 
+> #### Smaller comments
+> 
+> * line 223: should be "expects an Int"
+> * 322: might be nice to specify + and * for the semiring in a footnote
+> * 392: does this definition of length change the runtime
+>   representation of `Vect`, or does it simply require that n be passed
+>   to `length` (the phrase "storage costs" suggests the former, but
+>   that seems very strange).
+>   
+> * 444: it took me a second to recall that xs has multiplicity 0
+>   because it's not an explicit argument, that could be made clearer in
+>   the text
+> 
+> 
+> 
+> Review #44C
+> ===========================================================================
+> 
+> Overall merit
+> -------------
+> A. Accept
+> 
+> Reviewer expertise
+> ------------------
+> Y. Knowledgeable
+> 
+> Paper summary
+> -------------
+> The paper presents Idris 2, the successor of Idris, a dependently typed functional programming language.
+> 
+> The main new feature of Idris 2 is Quantitave Type Theory (QTT), which allows reasoning about usage of variables by means of multiplicities (zero, one, or unlimited uses). In particular, this allows reasoning about erasure of types at run time.
+> 
+> The paper gives a general introduction to Idris in Section 2 by means of examples. Sections 3, 4, and 5 introduce the application of QTT in Idris 2 by means of a series of examples, including the encoding of state machine protocols and session types.
+> 
+> Comments for author
+> -------------------
+> This is a well written introduction to Idris 2, motivating its design and illustrating it with a series of non-trivial examples.
+> 
+> PRO
+> 
+> - The paper is well-written, and motivates the design of the language with relevant examples.
+> 
+> - Idris 2 is the first full scale language with Quantitave Type Theory (QTT) at its core. QTT seems a useful basis for a dependently typed programming language and Idris 2 provides a useful basis for exploring it use.
+> 
+> - The Idris 2 compiler is self hosted, i.e. implemented in itself. Although the paper does discuss that self implementation in any detail, this should give the reader some confidence that the language can handle serious programs.
+> 
+> - Idris (at least as presented in this paper) does not support mixfix operators. I find that this helps in understanding the code, since the syntax is predictable, especially since dependent types are already complicated enough. (Comparing to the understanding of Agda code with heavy use of mixfix syntax.)
+> 
+> CON
+> 
+> - The paper gives a user oriented introduction to Idris 2. That is, it explains the language using examples. The paper lacks a formal definition of the language. However, I think this is a minor concern for this paper; adding a syntax and semantics would not have contributed to a better understanding of the application of the language, and we understand, generally, how such functional languages work. And the language design builds on the earlier formal work of McBride and Atkey.
+> 
+> - While the examples in section 3 are easy to follow, the (types in the) more advanced examples (e.g. Listing 2) require quite a bit of study to untangle. The paper and Idris 2 provide a useful playground for experimenting with QTT, but the approach requires further experimentation (and abstraction?) to make it palatable to programmers.
+> 
+> - A related note is regarding type-oriented programming, i.e. constructing a program by asking the type checker for possible completions, which is advocated at several places in the paper. This is certainly a very convenient feature. However, it requires that one first constructs the types. Thus, the complexity of designing the program seems to move from the 'code' to the types; but that does not mean that complexity goes away. Indeed, it seems to require operating on a higher abstraction level in order to come up with a program design. (Rather than exploring a program's operation one explores its types, which seems harder to do.)
+> 
+> I don't think these issues should detract from publication of the paper.
+> 
+> ## Minor Remarks
+> 
+> Many entries in the bibliography are incomplete.
+> 

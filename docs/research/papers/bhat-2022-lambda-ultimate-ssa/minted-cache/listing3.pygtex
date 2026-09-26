@@ -1,0 +1,5 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYGZdl{} docker container ls \PYGZsh{} find   ID
+\PYGZdl{} docker cp \PYGZlt{}CONTAINERID\PYGZgt{}:\PYGZlt{}PATH/INSIDE/CONTAINER\PYGZgt{} \PYGZbs{}
+            \PYGZlt{}PATH/OUTSIDE/CONTAINER\PYGZgt{}
+\end{Verbatim}

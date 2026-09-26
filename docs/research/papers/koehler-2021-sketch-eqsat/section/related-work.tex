@@ -1,0 +1,55 @@
+\section{Related Work}
+
+\paragraph{\textbf{Controlling optimizations}}
+Historically, programmers had either to explicitly write optimized code, e.g. explicit vectorization or loop ordering, or to entrust optimization to a black box compiler.
+
+\emph{Automating optimization.}
+Some compiler optimizations are fully automated via equality saturation \cite{tate2009-equality-saturation, yang2021-eqsat-tensor} or heuristic searches \cite{lift-rewrite-2015, polymage-2015}.
+Although this approach can automatically yield high performance, it is not always feasible or even desirable, as it may result in poor performance or may be too time-consuming \cite{maleki2011-vectorizing-compilers, parello2004-pragmatic-opt}.
+When automatic optimization is unsatisfactory, programmers often fall back to manual optimization in order to achieve their performance goals \cite{niittylahti2002-high-perf, hlt-lacassagne-2014, lemaitre2017-cholesky}.
+
+\emph{Rewriting strategies and schedules.}
+More recently, compiler optimizations can be precisely controlled by the programmer specifying rewriting strategies \cite{visser1998-strategies, hagedorn2020-elevate, koehler2021-elevate-imgproc} or schedules \cite{halide-2012, chen2018-tvm}.
+However, these are challenging to write as the phase ordering problem is passed on to the programmer~\cite{ikarashi2021-guided}, as discussed in~\cref{elevaterewrite}.
+
+\paragraph{\textbf{Guidance used outside of optimizations}}
+Although equality saturation exploits e-graphs for program optimization~\cite{tate2009-equality-saturation}, e-graphs were originally designed for efficient congruence closure in theorem provers \cite{nelson1980-techniques, de2008-z3}, and are useful in other settings such as program synthesis, or semantic code search \cite{premtoon2020-yogo}.
+
+\emph{Guidance in theorem proving.}
+In the realm of theorem proving, guidance is typically required because automation is both theoretically undecidable and difficult in practice.
+Just as rewriting strategies specify how to transform a program step-by-step, proof tactics \cite{gordon1979-edinburgh} specify how to transform a proof state step-by-step in procedural proof languages.
+% \cite{harrison1996-hol, paulson1994-isabelle}
+In declarative proof languages, proof sketches specify partial proofs and can guide theorem proving \cite{wiedijk2003-formal-proof-sketches, corbineau2007-declarative-coq}. Proof sketches are analogous to program sketches that specify partial programs to guide optimization.
+
+% procedural proof languages \cite{kaufmann1996-acl2, paulson1994-isabelle}
+% declarative proof languages \cite{wenzel2002-mizar, norell2007-agda}
+
+\emph{Sketching for synthesizing programs.}
+The idea of sketching has been used for program synthesis \cite{solar2008-synthesis-sketching}, along with counterexample guided inductive synthesis that combines a synthesizer with a validation procedure.
+Our approach differs as we use sketches for optimizations rather than program synthesis. 
+We use sketches as program patterns to filter a set of equivalent programs generated via equality saturation, and as a result do not require a validation procedure.
+% \todo{Sketching also uses enumeration, and this approach doesn’t! That’s a useful way to distinguish them. This approach only looks for sketch matches in a pre-existing database (egraph).}
+
+\paragraph{\textbf{Other techniques for scaling equality saturation}}
+There exists a number of prior techniques for scaling equality saturation in practice.
+
+\emph{Languages with binding.}
+We are not the first to attempt applying equality saturation to languages with binding.
+\citet{willsey2021-egg} implements a partial evaluator for the lambda calculus using explicit substitution.
+Although conceptually simple, this is too inefficient for complex optimizations, as demonstrated in \cref{lambda-eval}.
+\citet{smith2021-access-patterns} proposes \emph{access patterns} to avoid the need for binding structures when representing tensor programs.
+In \cref{eqsat-bindings}, we instead present lambda calculus encoding techniques that make equality saturation significantly more efficient.
+
+% yang (graph rewriting, multi-pattern rewrite rules, no name scoping)
+% relational e-matching?
+
+\emph{Rewrite rule scheduling.}
+To reduce e-graph growth, previous work proposes rewrite rule schedulers as a way to control which rewrite rules should be applied on a given equality saturation iteration \cite{willsey2021-egg}.
+% The \texttt{SimpleScheduler} from the egg library applies all rewrite rules on each iteration.
+By default, the egg library uses a \texttt{BackoffScheduler} preventing specific rules from being applied too often, and reducing e-graph growth in the presence of ``explosive'' rules such as associativity and commutativity.
+Our experience with \Rise{} optimization is that using the \texttt{BackoffScheduler} is often counterproductive as the desired optimization depends on some explosive rules.
+Future work may explore better ways to schedule rewrite rules, but at present \kles{} does
+not use a rewrite rule scheduler.
+
+\emph{External solvers.}
+External solvers may add equivalences to the e-graph~\cite{nandi2020-synthesizing-CAD}, but this requires the identification of sub-tasks that can benefit from being delegated.

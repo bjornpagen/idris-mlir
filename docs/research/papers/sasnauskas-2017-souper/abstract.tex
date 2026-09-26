@@ -1,0 +1,21 @@
+\begin{abstract}
+%
+If we can automatically derive compiler optimizations, we might be
+able to sidestep some of the substantial engineering challenges
+involved in creating and maintaining a high-quality compiler.
+%
+We developed \tool{}, a synthesizing superoptimizer, to see how far
+these ideas might be pushed in the context of LLVM\@.
+%
+Along the way, we discovered that \tool's intermediate representation
+was sufficiently similar to the one in Microsoft Visual C++ that
+we applied \tool{} to that compiler as well.
+%
+Shipping, or about-to-ship, versions of both compilers contain
+optimizations suggested by \tool{} but implemented by hand.
+%
+Alternately, when \tool{} is used as a fully automated optimization
+pass it compiles a Clang compiler binary that is about 3\,MB (4.4\%)
+smaller than the one compiled by LLVM\@.
+%
+\end{abstract}

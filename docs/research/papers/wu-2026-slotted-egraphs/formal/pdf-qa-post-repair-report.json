@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "FRESH_POST_REPAIR_ALL_PAGE_PDF_QA",
+  "generated_at_utc": "2026-08-29T04:16:49Z",
+  "status": "PDF_QA_PASSED",
+  "authorization_scope": {
+    "authorized_author_source_graph_sha256": "17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183",
+    "fresh_clean_latex_builds_authorized": 1,
+    "fresh_all_page_pdf_qa_authorized": true,
+    "repairs_authorized": false,
+    "packaging_authorized": false,
+    "publication_authorized": false
+  },
+  "input_evidence": {
+    "baseline_pdf_qa_report": "formal/pdf-qa-report.json",
+    "baseline_pdf_qa_report_sha256": "dd6c601016dcf2836e6c07184b32b62121fa690851c508a4aacbb6da2ea952b5",
+    "bounded_pdf_repair_report": "formal/pdf-repair-report.json",
+    "bounded_pdf_repair_report_sha256": "9564e03544718a7fea87432e6daf2df487aad68c48e384756af9029786d53f6b",
+    "prior_tcb_manifest_sha256": "407d014e9ecc6a831612dd5a7cca9ebd070fe13c2e0cb2ecccdb0e13f06c4d80",
+    "prior_layered_closure_report_sha256": "e6995f44af3bb1786cd94c5481cce137c09d9bf7ae289954e33a46fc37bec327",
+    "correspondence_review_sha256": "841a624aa36f87b8a0f66b2cc8c277716292a2699afd65c06bd630b04b3d2332",
+    "clean_lean_build_summary_sha256": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d"
+  },
+  "source_snapshot": {
+    "status": "PASS_EXACT_AUTHORIZED_GRAPH_UNCHANGED",
+    "author_source_file_count": 20,
+    "aggregate_algorithm": "SHA-256 of canonical compact JSON (sorted object keys, source-list order preserved) of current path/SHA-256 entries for the same 20 paths recorded in formal/formal-units.yaml source_snapshot.files",
+    "workspace_author_source_graph_sha256": "17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183",
+    "clean_copy_author_source_graph_sha256": "17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183",
+    "workspace_clean_copy_mismatch_count": 0,
+    "author_source_change_count_during_qa": 0,
+    "formal_statement_or_lean_change_count": 0,
+    "java_change_count": 0,
+    "experimental_result_change_count": 0
+  },
+  "clean_latex_build": {
+    "status": "PASS_ONE_INDEPENDENT_CLEAN_BUILD",
+    "actual_compilation_count": 1,
+    "working_directory": "/workspace/scratch/0f7e6f7dcf2b/pdf-final-qa.ZMMKSF",
+    "source_copy_policy": "Fresh rsync copy excluding .git, .lake, tmp, and all prior main_compressed build products, followed by latexmk -C.",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "products": {
+      "pdf_pages": 43,
+      "pdf_bytes": 636629,
+      "pdf_page_size_points": "612 x 792",
+      "pdf_version": "1.5",
+      "pdf_sha256": "d5f99d8c7e7b4ef587d95088acb93b809115af3e015ea7b96969641022db7025",
+      "log_sha256": "b80ec07c1db2e609435744e91d5b9e54703634c3999ce8c47caaea4d17a9d891",
+      "aux_sha256": "6835f4c2859857e79d72b0840ccf969c846b6d175271340072dd197eaa736ee7",
+      "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437",
+      "blg_sha256": "2df72fa2146295f2ba87f07b9464a532300a393532df57f4673dd773ee5e6095",
+      "fls_sha256": "b18809408f5ada1a4b62a456903b201ce5ca9f2e8e57c96caaf0e9b568aca70b"
+    },
+    "final_log_diagnostics": {
+      "latex_warnings": 0,
+      "package_warnings": 0,
+      "overfull_boxes": 0,
+      "underfull_boxes": 359,
+      "undefined_citations_or_references": 0,
+      "multiply_defined_labels": 0,
+      "rerun_requests": 0,
+      "missing_glyphs": 0,
+      "bibtex_warnings": 0
+    }
+  },
+  "snapshot_stability": {
+    "status": "PASS_RENDER_AND_TEXT_STABLE",
+    "prior_repair_build_pdf_sha256": "a462e90f6585d27a8e2e27e11313abc7f7b87f2f7a8236761b1351de3f268e28",
+    "fresh_pdf_byte_identical_to_prior_repair_build": false,
+    "fresh_and_prior_extracted_layout_text_sha256": "45b56de689d0307135a5444a3203a42e0a8fa041dacf54157a9ebfef8f9cf99a",
+    "fresh_and_prior_render_page_count": 43,
+    "fresh_and_prior_byte_identical_render_page_mismatch_count": 0,
+    "aux_byte_identical": true,
+    "bbl_byte_identical": true,
+    "blg_byte_identical": true,
+    "interpretation": "The independently rebuilt PDF has a different container hash, while all 43 rasterized pages, extracted layout text, AUX, BBL, and BLG are byte-identical to the bounded repair build. Presentation content is stable."
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-16",
+    "main_text_page_count": 16,
+    "main_text_limit": 20,
+    "main_text_margin_pages": 4,
+    "references_start_page": 17,
+    "references_pages": "17-18",
+    "appendix_start_page": 19,
+    "appendix_pages": "19-43",
+    "aux_evidence": {
+      "end_main_text": 16,
+      "start_references": 17,
+      "start_appendix_A": 19
+    }
+  },
+  "all_page_render_and_review": {
+    "status": "PASS_43_OF_43_PAGES",
+    "render_command": "pdftoppm -r 144 -png main_compressed.pdf tmp/pdfs/qa-render/page",
+    "rendered_page_count": 43,
+    "render_manifest_sha256": "e37ddcaf0d50fd565e8c27a5ded7d0e20d214fa9e14d72c13a6858f184b9bab8",
+    "render_manifest_algorithm": "SHA-256 of the ordered GNU sha256sum lines for page-01.png through page-43.png",
+    "primary_review": {
+      "reviewer": "root",
+      "pages": "1-43",
+      "method": "All eleven 2x2 contact sheets inspected at original resolution; pages 15, 17, 18, 30, 31, 32, 35, 36, 37, and 43 additionally inspected as full-resolution individual renders.",
+      "status": "PASS"
+    },
+    "independent_range_reviews": [
+      {
+        "pages": "1-8",
+        "status": "PASS"
+      },
+      {
+        "pages": "9-16",
+        "status": "PASS"
+      },
+      {
+        "pages": "17-24",
+        "status": "PASS"
+      },
+      {
+        "pages": "25-32",
+        "status": "PASS"
+      },
+      {
+        "pages": "33-38",
+        "status": "PASS"
+      },
+      {
+        "pages": "39-43",
+        "status": "PASS"
+      }
+    ],
+    "blocking_visual_findings": [],
+    "nonblocking_visual_notes": [
+      "Page 1 leaves the word 'Study' alone on the third title line; this is cosmetic and does not affect legibility or margins.",
+      "The chart raster has no in-image legend and uses the phrase 'repaired within radius'; its adjacent caption and following prose directly identify both curves and explicitly limit the measurement to nearest-reference coverage rather than operational repair success."
+    ]
+  },
+  "citation_qa": {
+    "status": "PASS",
+    "unique_citation_key_count": 21,
+    "resolved_bibcite_count": 21,
+    "bibliography_item_count": 21,
+    "doi_macro_emission_count": 17,
+    "url_macro_emission_count": 4,
+    "doi_identical_url_emission_count": 0,
+    "duplicate_rendered_doi_count": 0,
+    "undefined_citation_or_reference_count": 0,
+    "bibtex_warning_count": 0,
+    "reference_pages_visual_status": "PASS_PAGES_17_18"
+  },
+  "float_and_figure_qa": {
+    "status": "PASS",
+    "table_6_page": 30,
+    "table_7_page": 30,
+    "table_6_before_table_7": true,
+    "table_10_page": 32,
+    "table_11_page": 32,
+    "table_10_before_table_11": true,
+    "figure_2_start_page": 36,
+    "figure_2_continuation_page": 37,
+    "figure_2_caption_status_and_opening_procedure_kept_together": true,
+    "figure_2_page_break_at_valid_case_row_boundary": true,
+    "orphaned_caption_heading_or_float_count": 0
+  },
+  "chart_qa": {
+    "status": "PASS",
+    "active_asset": "figures/raw_edit_repair_coverage_relabel.png",
+    "active_asset_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "uploaded_replacement_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "byte_identical_to_uploaded_replacement": true,
+    "pdf_page": 15,
+    "embedded_dimensions_pixels": "976 x 612",
+    "embedded_resolution_ppi": "261 x 261",
+    "caption_semantics": "PASS_NEAREST_REFERENCE_COVERAGE_NOT_OPERATIONAL_REPAIR_SUCCESS",
+    "checkpoint_values": {
+      "radii": [
+        1,
+        2,
+        5,
+        10
+      ],
+      "certificate_integrated_ir_percent": [
+        4.0,
+        10.4,
+        31.0,
+        59.3
+      ],
+      "raw_ast_percent": [
+        8.2,
+        11.7,
+        23.8,
+        43.0
+      ]
+    }
+  },
+  "layout_qa": {
+    "status": "PASS",
+    "all_fonts_embedded": true,
+    "overfull_box_count": 0,
+    "underfull_box_count": 359,
+    "visually_blocking_underfull_box_count": 0,
+    "clipping_overlap_margin_intrusion_count": 0,
+    "broken_or_missing_glyph_count": 0,
+    "header_footer_defect_count": 0,
+    "table_or_equation_collision_count": 0
+  },
+  "authorized_pdf_defect_closure": [
+    {
+      "id": "PDF-CITE-001",
+      "status": "CLOSED_BY_FRESH_ALL_PAGE_QA"
+    },
+    {
+      "id": "PDF-FLOAT-001",
+      "status": "CLOSED_BY_FRESH_ALL_PAGE_QA"
+    },
+    {
+      "id": "PDF-FLOAT-002",
+      "status": "CLOSED_BY_FRESH_ALL_PAGE_QA"
+    },
+    {
+      "id": "PDF-FIGURE-001",
+      "status": "CLOSED_BY_FRESH_ALL_PAGE_QA"
+    }
+  ],
+  "immutability": {
+    "status": "PASS",
+    "uploaded_zip_sha256": "4dbba4c3d380b8aa07fbe6c9ba16fabfa654f1a70e6b03b384ed365f95c3061c",
+    "uploaded_replacement_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "formal_statement_files": [
+      {
+        "path": "foundations_compressed.tex",
+        "sha256": "b01d1bbc7c0904b82004f61f49e4afe33c0433d38073fb2da1d9e49fff09e0dd"
+      },
+      {
+        "path": "appendixC_vmcai_stage1.tex",
+        "sha256": "7882e07490a6c2c7924934162995be68a93424ab48388ec70af8c78abec6fb7c"
+      }
+    ],
+    "java_artifact_commit": "676480899dc2ed29253d00c59beaf116ebd2c675",
+    "experiment_source_commit": "88363ea23728329948ccc9d5cdad690cc5787ca5"
+  },
+  "not_executed": {
+    "source_repairs": "NOT_EXECUTED",
+    "lean_rebuild": "NOT_EXECUTED_FORMAL_SOURCES_UNCHANGED",
+    "correspondence_rereview": "NOT_EXECUTED_FORMAL_STATEMENT_SURFACES_UNCHANGED",
+    "packaging": "NOT_EXECUTED",
+    "publication": "NOT_EXECUTED"
+  },
+  "conclusion": "PDF_QA_PASSED"
+}

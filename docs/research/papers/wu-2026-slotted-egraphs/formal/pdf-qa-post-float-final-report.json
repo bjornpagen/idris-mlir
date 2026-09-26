@@ -1,0 +1,192 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "FRESH_POST_FLOAT_REPAIR_ALL_PAGE_PDF_QA_AND_PACKAGE_GATE",
+  "generated_at_utc": "2026-08-29T07:29:44Z",
+  "status": "PDF_QA_BLOCKED",
+  "decision": "PDF_QA_BLOCKED",
+  "authorization_scope": {
+    "command": "/autonomous Do all-page QA and packaging now.",
+    "author_source_graph_sha256": "16154ce6bb5bc7163ff13da3907fcc8265a89a35b6184bc483fa000b4cdef24f",
+    "fresh_clean_latex_builds_authorized": 1,
+    "fresh_clean_latex_builds_executed": 1,
+    "fresh_all_page_pdf_qa_authorized": true,
+    "source_repairs_authorized_in_this_gate": false,
+    "package_only_after_pdf_qa_pass": true,
+    "publication_authorized": false
+  },
+  "input_evidence": {
+    "float_repair_report": "formal/pdf-float-repair-003-004-report.json",
+    "float_repair_report_sha256": "0e1914e63aa405448404586a912737828128cbdea5da99e26ff553e9233a7aea",
+    "pre_repair_blocking_pdf_qa_report": "formal/pdf-qa-final-emission-report.json",
+    "pre_repair_blocking_pdf_qa_report_sha256": "5bcc83caf8340d00af7dd463134c611b55c8760258ce45459d196f44117a5015",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6"
+  },
+  "source_snapshot": {
+    "status": "PASS_EXACT_FROZEN_GRAPH_UNCHANGED",
+    "aggregate_algorithm": "SHA-256 of canonical compact JSON with sorted object keys and source-list order preserved for current path/SHA-256 entries over the same 20 paths recorded in formal/formal-units.yaml.",
+    "author_source_file_count": 20,
+    "workspace_author_source_graph_sha256": "16154ce6bb5bc7163ff13da3907fcc8265a89a35b6184bc483fa000b4cdef24f",
+    "isolated_copy_author_source_graph_sha256": "16154ce6bb5bc7163ff13da3907fcc8265a89a35b6184bc483fa000b4cdef24f",
+    "workspace_isolated_copy_mismatch_count": 0,
+    "author_source_change_count_during_qa": 0,
+    "formal_statement_or_lean_change_count": 0,
+    "java_change_count": 0,
+    "experimental_result_change_count": 0
+  },
+  "clean_latex_build": {
+    "status": "PASS_ONE_ISOLATED_CLEAN_BUILD",
+    "working_directory": "/workspace/scratch/0f7e6f7dcf2b/final-postfloat-qa.AmTZli",
+    "source_copy_policy": "Fresh rsync copy excluding .git, .lake, formal/.lake, tmp, and prior main_compressed build products, followed by latexmk -C.",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "products": {
+      "pdf_pages": 45,
+      "pdf_bytes": 641816,
+      "pdf_page_size_points": "612 x 792",
+      "pdf_version": "1.5",
+      "pdf_sha256": "b73707ecdfdab4ef7cb937591574570a033a12fa7d7fbe0c49025eaac9ae2682",
+      "log_sha256": "80cc5c80aab9cee74aacb3b0979bfd96ae065e8311775e1c6046e9252d644c08",
+      "aux_sha256": "ee880a479ab9c897205c3ea16d9e2590272a460f6ba6e195fc38b47131fd0734",
+      "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437",
+      "blg_sha256": "2df72fa2146295f2ba87f07b9464a532300a393532df57f4673dd773ee5e6095",
+      "fls_sha256": "4cbc12e96fa86bbd60613646685b5c9399da9d1dda1c885bdb779c4b53855b5e"
+    },
+    "final_log_diagnostics": {
+      "latex_warnings": 0,
+      "package_warnings": 0,
+      "overfull_hboxes": 0,
+      "overfull_vboxes": 0,
+      "underfull_hboxes": 358,
+      "underfull_vboxes": 4,
+      "undefined_citations_or_references": 0,
+      "multiply_defined_labels": 0,
+      "rerun_requests": 0,
+      "missing_glyphs": 0,
+      "bibtex_warnings": 0
+    },
+    "workspace_pdf_updated_from_verified_build": false
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-17",
+    "main_text_page_count": 17,
+    "main_text_limit": 20,
+    "main_text_margin_pages": 3,
+    "references_pages": "18-19",
+    "references_start_page": 18,
+    "appendix_pages": "20-45",
+    "appendix_start_page": 20,
+    "evaluation_appendix_start_page": 30,
+    "visual_boundary_status": "PASS_CONCLUSION_REFERENCES_APPENDIX_TRANSITIONS"
+  },
+  "all_page_render_and_review": {
+    "status": "BLOCK_45_OF_45_PAGES_REVIEWED_ONE_MALFORMED_EQUATION",
+    "render_command": "pdftoppm -png -r 144 main_compressed.pdf tmp/pdfs/render/page",
+    "rendered_page_count": 45,
+    "render_dimensions_pixels": "1224 x 1584",
+    "unique_render_hash_count": 45,
+    "uniform_blank_page_count": 0,
+    "layout_text_sha256": "d074a332df94932abb57ba160e341445534d546070ee9aca55c28d05630952fb",
+    "independent_range_reviews": [
+      {"pages": "1-8", "status": "PASS"},
+      {"pages": "9-16", "status": "PASS"},
+      {"pages": "17-24", "status": "PASS"},
+      {"pages": "25-32", "status": "PASS"},
+      {"pages": "33-40", "status": "PASS"},
+      {"pages": "41-45", "status": "BLOCK_PDF_MATH_001"}
+    ],
+    "root_full_resolution_confirmation": "CONFIRMED_PDF_MATH_001_ON_PAGE_42",
+    "blocking_visual_finding_count": 1,
+    "other_clipping_overlap_legibility_margin_or_float_order_defect_count": 0
+  },
+  "blocking_findings": [
+    {
+      "id": "PDF-MATH-001",
+      "severity": "BLOCKING_MALFORMED_DISPLAY",
+      "page": 42,
+      "source": "appendixC_vmcai_stage1.tex",
+      "source_sha256": "0cc7ee27021750c6348be2cba034ef348530aed3bf8cab820fb6ce51e5705151",
+      "source_region": "atomic-negation dual array immediately after TSG-RULE-007",
+      "finding": "The final array row supplies only the left pair, some R and no R, while the four-column array preamble still inserts the second intercolumn equivalence separator. The rendered result therefore contains a standalone right-hand ↔ with no operands.",
+      "semantic_impact": "The left dual pair is readable, but the extra operator is a visibly incomplete mathematical statement and fails final emission QA.",
+      "independent_confirmation": "PASS_ONE_INDEPENDENT_RANGE_REVIEW_PLUS_ROOT_FULL_RESOLUTION_CONFIRMATION",
+      "repair_status": "NOT_EXECUTED_BY_AUTHORIZATION_BOUNDARY"
+    }
+  ],
+  "float_order_qa": {
+    "status": "PASS_ALL_PREVIOUS_FLOAT_FINDINGS_CLOSED",
+    "page_32_order": ["subsection B.2", "Table 7", "Table 8"],
+    "page_34_order": ["subsection B.3", "Table 11", "Table 12"],
+    "additional_float_order_defect_count": 0
+  },
+  "citation_qa": {
+    "status": "PASS",
+    "unique_citation_key_count": 21,
+    "resolved_bibcite_count": 21,
+    "bibliography_item_count": 21,
+    "doi_macro_emission_count": 17,
+    "unique_doi_count": 17,
+    "url_macro_emission_count": 4,
+    "unique_url_count": 4,
+    "doi_identical_url_emission_count": 0,
+    "duplicate_rendered_doi_or_url_count": 0,
+    "undefined_citation_or_reference_count": 0,
+    "bibtex_warning_count": 0,
+    "reference_pages_visual_status": "PASS_PAGES_18_19"
+  },
+  "chart_qa": {
+    "status": "PASS",
+    "active_asset": "figures/raw_edit_repair_coverage_relabel.png",
+    "active_asset_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "uploaded_replacement_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "byte_identical_to_uploaded_replacement": true,
+    "pdf_page": 15,
+    "embedded_dimensions_pixels": "976 x 612",
+    "embedded_resolution_ppi": "261 x 261",
+    "caption_semantics": "PASS_NEAREST_REFERENCE_COVERAGE_NOT_OPERATIONAL_REPAIR_SUCCESS"
+  },
+  "provenance_qa": {
+    "status": "PASS_ALL_FOUR_EXACT_VALUES_AFTER_WHITESPACE_ELISION",
+    "publication_head": "3e85fe1d36a6a0119c5838a0aaea8b697807dec2",
+    "experiment_source_commit": "88363ea23728329948ccc9d5cdad690cc5787ca5",
+    "dataset_sha256": "d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689",
+    "jar_sha256": "7b308e3156fbb36dfeda4af52f8ec339132546a0fcabb24129227f41debbad71"
+  },
+  "layout_qa": {
+    "status": "BLOCK_MALFORMED_MATHEMATICAL_DISPLAY_ONLY",
+    "all_fonts_embedded": true,
+    "overfull_box_count": 0,
+    "visually_blocking_underfull_box_count": 0,
+    "clipping_overlap_margin_intrusion_count": 0,
+    "broken_or_missing_glyph_count": 0,
+    "header_footer_defect_count": 0,
+    "float_order_defect_count": 0,
+    "malformed_mathematical_display_count": 1
+  },
+  "immutability": {
+    "status": "PASS",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "bibliography_sha256": "2cb748a87f85b229731723e8f6da6b99a038460aef43a79029a6b303c2ac2945",
+    "java_change_count": 0,
+    "experimental_result_change_count": 0,
+    "lean_source_change_count": 0,
+    "formal_claim_change_count": 0,
+    "chart_change_count": 0,
+    "bibliography_change_count": 0
+  },
+  "not_executed": {
+    "source_repairs": "NOT_EXECUTED_BY_AUTHORIZATION_BOUNDARY",
+    "packaging": "NOT_EXECUTED_PDF_QA_BLOCKED",
+    "bundle_extraction_rebuild": "NOT_EXECUTED_PDF_QA_BLOCKED",
+    "publication": "NOT_EXECUTED_OUT_OF_SCOPE",
+    "lean_build": "NOT_EXECUTED_FORMAL_SOURCES_UNCHANGED",
+    "java_or_experiment_execution": "NOT_EXECUTED"
+  },
+  "next_gate": "/autonomous Repair only PDF-MATH-001, run one clean LaTeX build, verify page boundaries, and stop before fresh all-page QA or packaging.",
+  "conclusion": "PDF_QA_BLOCKED"
+}

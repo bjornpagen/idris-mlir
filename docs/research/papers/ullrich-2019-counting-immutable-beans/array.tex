@@ -1,0 +1,70 @@
+In our runtime, every value starts with a header containing two
+tags. The first tag specifies the value kind: \kw{ctor}, \kw{pap},
+\kw{array}, \kw{string}, \kw{num}, \kw{thunk}, or \kw{task}. The
+second tag specifies whether the value is single-threaded,
+multi-threaded, or \emph{persistent}. We will describe how this kind is used to
+implement thread safe reference counting in the next subsection. The kinds \kw{ctor} and
+\kw{pap} are used to implement the corresponding values used in the
+formal semantics of \pureIR{} and \rcIR{}.
+The kinds \kw{array}, \kw{string}, and \kw{thunk} are self
+explanatory.  The kind \kw{num} is for arbitrary precision numbers
+implemented using the GNU multiple precision library (GMP).
+The \kw{task} value is described in the next subsection.
+
+Values tagged as single- or multi-threaded also contain a reference
+counter. This counter is stored in front of the standard value header.
+We will primarily focus on the layout of \kw{ctor} values here because  it is the most
+relevant one for the ideas presented in this paper. A $\kw{ctor}_i$
+value header also includes the constructor index $i$, the number of
+pointers to other values and/or boxed values, and the number of bytes used to store scalar
+unboxed values such as machine integers and enumeration types. In a
+64-bit machine, the \kw{ctor} value header is 16 bytes long, twice the
+size of the header used in OCaml to implement the corresponding kind
+of value.  After the header, we store all pointers to other values
+and boxed values, and then all unboxed values. Thus, in a 64 bit machine,
+our runtime uses 32 bytes to implement a \emph{List} \emph{Cons} value:
+16 bytes for the header, and 16 bytes for storing the list head and tail.
+The unboxed value support has restrictions similar to the ones found in GHC.
+For example, to pass an unboxed value to a polymorphic function we must first box it.
+
+Our runtime has built-in support for array and string operations.
+Strings are just a special case of arrays where the elements are
+characters. We perform destructive updates when the array is not shared.
+For example, given the array write primitive
+\begin{lstlisting}
+Array.write : Array $\alpha$ -> Nat -> $\alpha$ -> Array $\alpha$
+\end{lstlisting}
+the function application $\textit{Array.write}\ a\ i\ v$ will
+destructively update and return the array $a$ if it is not shared.
+This is a well known optimization for systems based on
+reference counting~\cite{GCbook}, nonetheless we mention it here
+because it is relevant for many applications. Moreover,
+destructive array updates and our \kw{reset}/\kw{reuse} technique
+complement each other. As an example, if we have a nonshared list of
+integer arrays \textit{xs},
+$\textit{map}\ (\textit{Array.map}\ \textit{inc})\ \textit{xs}$
+destructively updates the list and all arrays. In the experimental
+section we demonstrate that our pure quick sort is as efficient as the
+quick sort using destructive updates in OCaml, and the quick sort
+using the primitive ST monad in Haskell.
+
+%% in automated reasoning and proof automation,
+%% where hash-tables and arrays are frequently used in the implementation
+%% of decision procedures.
+
+%% When we create array and string values, we allocate extra storage to make sure
+%% primitives such as
+%% \begin{align*}
+%%   \textit{array.push} &: \textit{Array}\ \alpha \rightarrow \alpha \rightarrow \textit{Array}\ \alpha \\
+%%   \textit{string.push} &: \textit{String} \rightarrow \textit{Char} \rightarrow \textit{String} \\
+%%   \textit{string.append} &: \textit{String} \rightarrow \textit{String} \rightarrow \textit{String}
+%% \end{align*}
+%% do not necessarily reallocate memory each time they are used when the
+%% reference counter of the input value is 1. This approach is similar
+%% to the \emph{vector} class used in imperative languages such as C++
+%% and Java.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

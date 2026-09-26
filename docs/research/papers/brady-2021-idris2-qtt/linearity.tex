@@ -1,0 +1,185 @@
+\subsection{Linearity}
+
+\label{sec:linearity}
+
+An argument with multiplicity \texttt{0} is guaranteed to be erased at run
+time. Correspondingly, an argument with multiplicity \texttt{1} is guaranteed
+to be used exactly once. The intuition, similar to that of Linear
+Haskell~\cite{linhaskell}, is that, given a function type of the form\ldots
+
+\begin{lstlisting}
+f : (1 x : a) -> b
+\end{lstlisting}
+
+\ldots then, if an expression \texttt{f x} is evaluated exactly once, 
+\texttt{x} is evaluated exactly once in the process. 
+%
+QTT is a new core language, and the combination of linearity with dependent
+types has not yet been extensively explored. Thus, we consider
+the multiplicity \texttt{1} to be experimental, and in general Idris 2
+programmers can get by without it---nothing in the Prelude exposes an interface
+which requires it. Nevertheless, we have found
+that an important application of linearity is in controlling resource
+usage.
+In the rest of this section, we describe two examples of this. First, 
+we show in general how linearity can prevent us duplicating an argument, which can be
+important if the argument represents an external resource; then, we give a 
+more concrete example showing how the \TC{IO} type described in
+Section~\ref{sec:interactive} is implemented.
+
+\subsubsection{Example 1: Preventing Duplication}
+
+To illustrate multiplicity \texttt{1} in practice, we can try (and fail!) to
+write a function which duplicates a value declared as ``use once'',
+interactively:
+
+\begin{lstlisting}
+dup : (1 x : a) -> (a, a)
+dup x = ?dup_rhs
+\end{lstlisting}
+
+Inspecting the \texttt{dup\_rhs} hole shows that we have:
+
+\begin{lstlisting}
+ 0 a : Type
+ 1 x : a
+-------------------------------------
+dup_rhs : (a, a)
+\end{lstlisting}
+
+
+So, \texttt{a} is not available at run-time, and \texttt{x} must be used
+exactly once in the definition of \texttt{dup\_rhs}. We can write a
+partial definition:
+
+\begin{lstlisting}
+dup x = (x, ?second_x)
+\end{lstlisting}
+
+However, if we check the hole \texttt{second\_x} we see that \texttt{x}
+is not available, because there was only 1 and it has already been consumed:
+
+\begin{lstlisting}
+ 0 a : Type
+ 0 x : a
+-------------------------------------
+second_x : a
+\end{lstlisting}
+
+We see the same result if we try \texttt{dup x = (?second\_x, x)}. If
+we persist, and try\ldots
+
+\begin{lstlisting}
+dup x = (x, x)
+\end{lstlisting}
+
+\ldots then Idris reports ``\texttt{There are 2 uses of linear name x}''.
+
+\textbf{Remark:} As we noted earlier, only usages in the body of a definition
+count. This means we can still parameterise data by linear variables. For
+example, if we have an \texttt{Ordered} predicate on lists, we can write
+an \FN{insert} function on ordered linear lists:
+
+\begin{lstlisting}
+insert : a -> (1 xs: List a) -> (0 _ : Ordered xs) -> List a
+\end{lstlisting}
+
+The use in \TC{Ordered} does not count, and since \TC{Ordered} has multiplicity
+$0$ it is erased at run time, so any occurrence of \texttt{xs} when
+building the \TC{Ordered} proof also does not count.
+
+\subsubsection{Example 2: I/O in Idris 2}
+
+\label{sec:io}
+
+Like Idris 1 and Haskell, Idris 2 uses a parameterised type \texttt{IO} to
+describe interactive actions. Unlike the previous implementation, this is
+implemented via a function which takes an abstract representation of the
+outside world, of primitive type \texttt{\%World}:
+
+\begin{lstlisting}
+PrimIO : Type -> Type
+PrimIO a = (1 x : %World) -> IORes a
+\end{lstlisting}
+
+The \texttt{\%World} is consumed exactly once, so
+it is not possible to use previous worlds (after all, you
+can't unplay a sound, or unsend a network message). It returns an
+\texttt{IORes}:
+
+\begin{lstlisting}
+data IORes : Type -> Type where
+     MkIORes : (result : a) -> (1 w : %World) -> IORes a
+\end{lstlisting}
+
+This is a pair of a result (with usage $\omega$), 
+and an updated world state. The
+intuition for multiplicities in data constructors is the same as 
+in functions: here, if \texttt{MkIORes result w} is evaluated exactly once, then
+the world \texttt{w} is evaluated exactly once.
+We can now define \texttt{IO}:
+
+\begin{lstlisting}
+data IO : Type -> Type where
+     MkIO : (1 fn : PrimIO a) -> IO a
+\end{lstlisting}
+
+There is a primitive \texttt{io\_bind} operator (which we can use to implement
+$\mathtt{>>=}$), which guarantees that an action and its continuation are
+executed exactly once:
+
+\label{sec:iobind}
+\begin{lstlisting}
+io_bind : (1 act : IO a) -> (1 k : a -> IO b) -> IO b
+io_bind (MkIO fn) = \k => MkIO (\w => let MkIORes x' w' = fn w
+                                          MkIO res = k x' in res w')
+\end{lstlisting}
+
+The multiplicities of the \texttt{let} bindings are inferred from the values
+being bound. Since \texttt{fn w} uses \texttt{w}, which is required to be
+linear from the type of \texttt{MkIO}, \texttt{MkIORes x' w'} must itself be
+linear, meaning that \texttt{w'} must also be linear. It can be informative
+to insert a hole:
+%to see how the multiplicities are updated:
+
+\begin{lstlisting}
+io_bind (MkIO fn)
+    = \k => MkIO (\w => let MkIORes x' w' = fn w in ?io_bind_rhs)
+\end{lstlisting}
+
+This shows that, at the point \texttt{io\_bind\_rhs} is evaluated, we have
+consumed \texttt{fn} and \texttt{w}, and we still have to run the continuation
+\texttt{k} once, and use the updated world \texttt{w'} once:
+
+\begin{lstlisting}
+ 0 b : Type
+ 0 a : Type
+ 0 fn : (1 x : %World) -> IORes a
+ 1 k : a -> IO b
+ 0 w : %World
+ 1 w' : %World
+   x' : a
+-------------------------------------
+io_bind_rhs : IORes b
+\end{lstlisting}
+
+This implementation of \texttt{IO} is similar to the Haskell
+approach~\cite{awkward}, with two differences:
+
+\begin{enumerate}
+\item The \texttt{\%World} token is guaranteed to be consumed exactly once, so
+there is a type level guarantee that the outside world is never duplicated or
+thrown away.
+\item There is no built-in mechanism for exception handling, because the
+type of \texttt{io\_bind} requires that the continuation is executed
+exactly once. So, in \texttt{IO} primitives, we must be explicit about
+where errors can occur. One can, however, implement higher level abstractions
+which allow exceptions if required.
+\end{enumerate}
+
+Linearity is, therefore, fundamental to the implementation of \TC{IO} in
+Idris 2. Fortunately, none of the implementation details need to be exposed
+to application programmers who are using \TC{IO}.
+However, once a programmer has an understanding of the combination of linear
+and dependent types, they can use it to encode and verify more sophisticated
+APIs. %, as we will see in the next section.

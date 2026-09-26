@@ -1,0 +1,280 @@
+\section{Formal Statement Index and Proof Details}
+\label{app:formal-details}
+
+Table~\ref{tab:formal-index} records the complete named-unit inventory in
+dependency order.  The main-text tags map each named unit to its Lean
+declaration, while the packaged ledger records the atomic units.
+
+\begin{longtable}{@{}p{0.8cm}p{2.0cm}p{7.7cm}@{}}
+\caption{Named formal units.}\label{tab:formal-index}\\
+\toprule
+ID & Kind & Paper unit\\
+\midrule
+\endfirsthead
+\toprule ID & Kind & Paper unit\\ \midrule
+\endhead
+F01 & Lemma & Size of a Complete Binary AC Closure\\
+F02 & Definition & Types, typed slots, finite contexts, and canonical context\\
+F03 & Definition & Typed embeddings, renamings, and permutations\\
+F04 & Proposition & Identity, composition, and inverses of typed embeddings\\
+F05 & Definition & Port grammar and context-indexed port values\\
+F06 & Definition & Typed flexible-arity e-nodes and structural support\\
+F07 & Lemma & Typed embeddings preserve port and node types\\
+F08 & Corollary & Slot support invariance under embeddings\\
+F09 & Corollary & Type safety and functoriality of invocation\\
+F10 & Definition & Flexible-arity typed slotted e-graph state and quiescence\\
+F11 & Lemma & Leaderization contracts support\\
+F12 & Definition & Indexed typed alpha-equivalence of ports\\
+F13 & Proposition & Typed alpha-equivalence groupoid laws\\
+F14 & Lemma & Transport of graph-relative invocation alignment\\
+F15 & Lemma & Identity alignment preserves leader-invocation support\\
+F16 & Lemma & Ambient quotient-normal-form exactness\\
+F17 & Corollary & Effective-support canonical-shape exactness\\
+F18 & Proposition & Finite rebuild quiescence\\
+F19 & Definition & Typed equational certificates\\
+F20 & Lemma & Semantic soundness of typed alpha-equivalence and block automorphisms\\
+F21 & Lemma & Naturality of structural realization\\
+F22 & Lemma & Soundness of certified direct node congruence\\
+F23 & Definition & Coherent EC/PC/SC certificate family\\
+F24 & Lemma & Find and finite unfolding preserve equational certificates\\
+F25 & Lemma & Certified leader-kernel extraction\\
+F26 & Corollary & Certified effective-shape collision\\
+F27 & Theorem & Certificate-preserving reachability and finite-unfolding soundness\\
+\bottomrule
+\end{longtable}
+
+\input{formal/formal-statement-index}
+
+\subsection{Structural proofs}
+
+\paragraph{F01: complete binary AC closure.}
+\label{app:proof-F01}
+For distinct generators $X=\{x_1,\ldots,x_n\}$ in the free commutative
+semigroup, with no unit or additional equations, every nonempty subset
+$Y\subseteq X$ appears as a subproduct in some permutation and
+parenthesization, yielding $2^n-1$ product classes.  A binary node is indexed
+by an ordered pair of nonempty disjoint subsets $(Y,Z)$.  Giving each
+generator one of the states ``left,'' ``right,'' or ``absent'' and excluding
+an empty side yields $3^n+1-2^{n+1}$ nodes.  The compiled Lean declaration
+constructs bijections to both finite cardinalities from binary and ternary
+assignment encodings and proves the two stated natural-number growth
+relations.  This is a combinatorial encoding theorem, not a claim about an
+operational e-graph saturation procedure.
+
+\paragraph{F04: embedding laws.}
+\label{app:proof-F04}
+The identity is injective and type preserving; a composite of injective,
+type-preserving maps has both properties.  For a proof-relevant typed
+renaming, the stored inverse laws give
+$\rho^{-1}\circ\rho=\operatorname{id}$ directly.  No finite-cardinality or
+surjective-injection argument is used.
+
+\paragraph{F07--F09: typing and support.}
+\label{app:proof-F07}
+The concrete action is defined recursively on ports, heterogeneous argument
+lists, and nodes.  Because schema, bound-scope, and output type are indices,
+applying the action immediately supplies inhabitants at the same schema and
+output indices; the node-output equality is reflexivity.
+\label{app:proof-F08}
+The recursive support calculation proves, for every target slot, that support
+after action is exactly the direct image of support before action.  Function
+extensionality and propositional extensionality turn those pointwise facts
+into the two predicate equalities for ports and nodes.  Bound indices are
+carried by a separate de Bruijn scope; this theorem introduces no fresh free
+coordinate.
+\label{app:proof-F09}
+F09 unfolds the concrete invocation constructor.  Its result schema contains
+the class output by construction, the bare occurrence is definitionally the
+identity-embedded invocation, and ambient action definitionally composes the
+outer and inner embeddings.
+
+\paragraph{F11: leader support.}
+\label{app:proof-F11}
+The compiled statement is the range inclusion for two typed embeddings.  If
+$s=(m\circ p)(x)$ for caller map $m$ and parent-path embedding $p$, choose
+$p(x)$ as the witness that $s\in\operatorname{im}(m)$.  The conclusion is
+only invocation-image containment: it neither lifts the result to arbitrary
+ports or nodes nor proves independence from a missing coordinate.
+
+\paragraph{F13: alpha groupoid laws.}
+\label{app:proof-F13}
+The public indexed judgement is the reflexive--symmetric--transitive closure
+of the concrete direct structural generators.  Identity, inverse, and
+composition are therefore respectively its \texttt{reflexive},
+\texttt{symmetric}, and \texttt{transitive} constructors; the composite
+renaming is retained in the transitive index.  The unindexed carrier is the
+dependent sum of a context and a port value, and its relation existentially
+retains the typed renaming, so the same three constructors prove equivalence.
+The container and binder clauses belong to the direct generator; F13 does not
+independently prove them closed under inversion.
+
+\paragraph{F14: graph-relative transport.}
+\label{app:proof-F14}
+Unpack the invocation alignment into its two checked parent paths, common
+leader, admitted symmetry, and embedding equation.  From
+$\rho\circ\widehat m=\widehat m'\circ\pi$ obtain, after independently
+renaming the callers,
+\[
+(\eta'\circ\rho\circ\eta^{-1})\circ\eta\circ\widehat m
+=\eta'\circ\widehat m'\circ\pi.
+\]
+The stored inverse law cancels $\eta^{-1}\circ\eta$.  This is an
+invocation-level transport theorem; it asserts no recursive container or
+binder transport.
+
+\paragraph{F15: identity-aligned support.}
+\label{app:proof-F15}
+For leader invocations the identity-alignment equation reduces to
+$m=m'\circ\pi$ for an admitted typed permutation $\pi$.  The forward image
+direction applies $\pi$ to the leader-slot witness; the reverse direction
+applies its stored inverse.  The statement is exactly pointwise equivalence of
+the two invocation-image predicates, not a structural-support theorem for
+containers or binders.
+
+\paragraph{F16: quotient-normal-form exactness.}
+\label{app:proof-F16}
+An \texttt{AmbientQuotientPresentation} supplies a complete finite carrier,
+fixed local generators, their observation laws, and a linear order.  The
+finite-presentation lemmas show that the least enumerated orbit member is
+related to its input and that two such least members are equal exactly when
+the inputs are in the generated relation.  Generator invariance yields
+preservation of support, schema, leaf types, and output; exactness applied to
+the normal form yields idempotence.  This proof is generic over the carrier
+and does not verify a recursive port/node normalization program.
+
+\paragraph{F17: shape exactness.}
+\label{app:proof-F17}
+An \texttt{EffectiveSupportCanonicalizer} first extracts each exact kernel and
+then applies its structural quotient presentation.  F16's exactness and the
+bridge from the unindexed generated relation to its proof-relevant typed
+derivation give
+\[
+\operatorname{Shape}_C(n)=\operatorname{Shape}_C(n')
+\quad\Longleftrightarrow\quad
+\exists\rho.\ \operatorname{Nonempty}(K_C(n)\Rightarrow_\rho K_C(n')).
+\]
+The quotient observation law and the two kernel-output equations give output
+equality in either direction.  The theorem constructs neither an ambient
+input-context renaming nor a least renaming witness.
+
+\paragraph{F18: rebuild quiescence.}
+\label{app:proof-F18}
+The compiled statement takes an explicit rebuild-step relation, a quiescence
+predicate, progress from every nonquiescent state, and a natural-valued strict
+decrease witness.  Lean embeds the step relation into strict order on that
+natural measure, obtains well-foundedness, and uses well-founded induction.
+At a nonquiescent state, progress supplies a decreasing successor; at a
+quiescent state, the reflexive trace closes the proof.  No particular graph
+worklist or lexicographic implementation measure is part of F18.
+
+\subsection{Certificate and semantic proofs}
+
+\paragraph{F20: semantic alpha-soundness.}
+\label{app:proof-F20}
+First induct on the concrete alpha-closure derivation.  A direct generator is
+converted to an equational certificate by the supplied
+\texttt{ConcreteStructuralLaws}; reflexivity uses rename-identity, symmetry
+transports the recursively obtained certificate along the inverse renaming,
+and transitivity transports and composes certificates using rename
+composition.  Typed-certificate semantic soundness then gives the displayed
+equality for every target environment.  A descriptor automorphism is usable
+only through the policy and local certificate laws supplied to this proof; no
+consumer-invariance theorem is inferred from a permutation label.
+
+\paragraph{F21: realization naturality.}
+\label{app:proof-F21}
+The mutual structural recursor covers complete values and their child
+forests.  Each atom, container, unary binder, binder block, and node case
+rewrites with the corresponding constructor-level naturality field of the
+realizer; the forest cases reduce to list-map composition.  This proves the
+syntactic equality $R(e\cdot n)=e\cdot R(n)$ and uses neither fresh-name
+choice nor sibling/flat equational laws.
+
+\paragraph{F22: certified congruence.}
+\label{app:proof-F22}
+The concrete node-alignment structure carries a certified concrete leaf at
+every atom step; each leaf contains exactly the required endpoint
+certificate.  Recursive port/argument certificate soundness combines those
+leaves with the supplied one-constructor laws, and node congruence closes the
+outer node.  The model result is obtained by applying typed-certificate
+semantic soundness.  Thus F22 assumes the licensed local constructor rules
+and per-leaf certificates; it does not manufacture them from graph metadata.
+
+\paragraph{F23: coherent certificate family.}
+\label{app:proof-F23}
+The raw graph-obligation structure contains only stored-case realizations and
+inclusions, parent-edge embeddings, and symmetry-generator renamings.  F23 is
+the proposition that every obligation in each of those three endpoint
+families has, respectively, an (EC), (PC), or (SC) certificate.  It is a
+coherence specification, not an existence theorem; F27 derives an inhabitant
+for the final obligation family from a certified trace.
+
+\paragraph{F24: find and finite unfolding.}
+\label{app:proof-F24}
+For find, induct on the raw finite parent path.  Transport each (PC)
+certificate along the preceding embedding, compose it with the recursive
+path certificate, and rewrite by rename composition.  A
+\texttt{PaperFiniteUnfolding} chooses one actual stored case, a caller
+extension compatible with its stored inclusion, and a finite trace whose
+local steps are primitive equations or structural-congruence rules (in either
+direction).  Induction on that trace gives its endpoint certificate;
+transported (EC) and the compatibility equation identify the caller witness.
+Composing this result with find proves the two certificates returned by F24.
+F24 itself has no redundant-coordinate-independence conclusion.
+
+\paragraph{F25: certified kernel extraction.}
+\label{app:proof-F25}
+A \texttt{PaperCertifiedKernelExtraction} explicitly records the original
+term, exact kernel, its typed inclusion, and a finite
+\texttt{CertifiedKernelReplay} from the original to the renamed kernel.  An
+induction on that replay maps reflexive, primitive, congruence, symmetric, and
+transitive constructors to the corresponding equational-certificate
+constructors.  F25 performs this replay only; it does not claim that a
+particular extraction algorithm constructs the record.
+
+\paragraph{F26: certified collision.}
+\label{app:proof-F26}
+Each certified canonical record supplies an exact kernel, a renaming from a
+shared canonical context to its support, a shape in one shared shape type,
+and normalization replay to one shared function
+\texttt{canonicalRealization}.  Shape equality becomes equality of those
+canonical terms by congruence.  Transport the left normalization through the
+right support renaming, compose with that equality, and reverse the right
+normalization to obtain the directed kernel certificate.  Transporting this
+certificate and the two F25 certificates to a common context, then rewriting
+by the stated embedding-compatibility equation, gives the ambient source
+certificate.  F26 assumes shape equality and common output/context indices;
+it does not derive them.
+
+\paragraph{F27: trace preservation and finite-unfolding soundness.}
+\label{app:proof-F27}
+An obligation-free initial state is coherent by elimination.  Induction on
+the proof-relevant \texttt{LocalCertifiedTrace} then uses exactly four local
+preservation schemas: insertion and rebuild add inherited or locally
+certified obligations; canonicalization, symmetry, and interface restriction
+rekey an obligation with checked endpoint bridges; collision, union, and path
+compression compose two source obligations with checked bridges; and a
+noninferential union only removes or inherits obligations.  Converting the
+resulting coherence of the exact final endpoint state constructs F23.  These
+nine constructors are abstract certificate-transition families, not a Lean
+refinement theorem for particular graph code.
+
+For finite-unfolding soundness, F24 sends both unfoldings along their raw
+parent paths to one leader.  The recorded (SC) generators close under
+identity, inverse, and composition to certify the supplied symmetry word; its
+exact embedding equation transports that certificate between the two leader
+endpoints.  Transitivity yields the term certificate, typed-model soundness
+yields evaluation equality, and transport gives the common-context result
+only when the two embeddings of the caller context are equal.
+
+\subsection{Foundation and evidence boundary}
+
+The selected profile is \textsc{standard-lean-explicit-tcb}; the only
+permitted foundational axioms are \texttt{propext}, \texttt{Quot.sound}, and
+\texttt{Classical.choice}.  Each proof-bearing declaration receives a
+per-declaration axiom report.  Java tests, bounded checks, mutation rejection,
+and corpus measurements do not establish a Lean refinement.  The final
+artifact-refinement and experimental-replay matrices therefore remain
+separate from the mathematical statement index.
+
+\input{appendix_closure_tables}

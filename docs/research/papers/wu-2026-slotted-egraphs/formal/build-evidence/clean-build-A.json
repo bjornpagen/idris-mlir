@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "build_id": "A",
+  "status": "PASS",
+  "isolated_work_directory": "/workspace/scratch/0f7e6f7dcf2b/lean-clean-A.xXx5Qh",
+  "source_copy": "rsync -a --exclude=.lake authoritative-formal/ isolated/formal/",
+  "preexisting_build_cache_copied": false,
+  "network_dependency_fetches": 0,
+  "commands": [
+    {
+      "command": "lake clean",
+      "exit_code": 0
+    },
+    {
+      "command": "lake build",
+      "exit_code": 0
+    },
+    {
+      "command": "lake env lean PaperIndex.lean",
+      "exit_code": 0
+    }
+  ],
+  "lean_version": "Lean (version 4.33.0, x86_64-unknown-linux-gnu, commit d8b18978322de05a8f3dba51ef03cf5461676c17, Release)",
+  "lake_version": "Lake version 5.0.0-src+d8b1897 (Lean version 4.33.0)",
+  "source_manifest_sha256": "654693df418c084a0b014605b9fb85b259a88e81fe146884beb4f0cd8e403f80",
+  "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+  "build_log_sha256": "66ccc1db461d12ad0110945289237031b66d3de3979827325012bd618e05144b",
+  "raw_product_manifest_sha256": "a9f4d1d111d01a8f4db478607af012463e39ad6c2abc85cffa8e47363c15de7d",
+  "compiled_product_count": 38,
+  "closure_manifest": "formal/build-evidence/closure-manifest-A.json",
+  "closure_manifest_sha256": "c2bfd59523bc96b8834ddf856efe1881774e92e9f6c7d8f9f39be93317f26fda",
+  "warning_count": 15,
+  "fatal_warning_classes_observed": [],
+  "forbidden_construct_matches": []
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": "3.0",
+  "status": "FROZEN_CURRENT_WORKFLOW_ROUND_2_REVIEW_INPUT",
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_id_algorithm": "SHA-256 of canonical compact JSON (sorted keys) of snapshot_material",
+  "snapshot_material": {
+    "repair_scope": "FAILED_CORRESPONDENCE_ROWS_ONLY",
+    "failed_snapshot_id": "a1968bcda191b303983649d557ffa07a5845d971ea57258db62fe239b6ab675a",
+    "active_manuscript_graph_sha256": "e5ed4bb73d6b1ca664b5428ad22a5d36b460ef67bca180f261d894c2c647203c",
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "mapping_set_sha256": "fbce59c2d409ab1d9d90761861bb84067fe8c6bbf6fc82c6a3d425b2fa8fe1b3",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "paper_lean_map_sha256": "59857fc54e19f240320d342dcd800998d51b84f843c048e0d362a16101fd5d0b",
+    "compiler_metadata_sha256": "763cdfd8c0bd1bc5709a61a2e49762cf423026e517274cff32d32ae39414a421",
+    "paper_dependency_graph_sha256": "1e85f5d91f7a9478ca1b1573f64e88483bbadd3211442fd1503e453d68d874ec",
+    "compiler_dependency_graph_sha256": "1e430b523cb6dcd8e5db7f22295f2380a6d632ea191d967083ed1c96e094075e",
+    "proof_sketch_audit_sha256": "84cb1624c0dc3956c132d902cc1e3cefdb7c5bf351994c31d65d8b7332042848",
+    "axiom_report_sha256": "0d18c9dcfb27aa3341458b7e755098cff7bde724892e1357672d6090bb890880",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "formal_statement_index_sha256": "7b42e76d2e8ef229325a3da5bad211e47412fa38fe830c29cb472c7255f6a1b0",
+    "artifact_refinement_map_sha256": "cbf13e4c8b3945ca211abd148e2e30d070af6a91d5e4964ef07cdc1bef3c5f8d",
+    "edge_case_closure_sha256": "aa36c63af9f0dce435335165486094d66d9751c0569b8e27169245fd17f7cbfd",
+    "generator_sha256": "fc7c7e4cb9f09be9ad0bdddf3c8865f2f7cc5c3020aab0ac36a2414982402c6a",
+    "compiler_dump_tool_sha256": "3bc7f48e525a3235e5e42120e284027b56a8b05fbb8466f275ca578cabe08578",
+    "mapped_declarations_tsv_sha256": "9d330c4d686d8595d71cf1ff723a628b656919ad93c5481e0e7ffc1530a1b22a",
+    "lean_binary_sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+    "lake_binary_sha256": "60330ab6f07dce20f3fa9ebb08e8b984ea9549eac172afeb15d9d2227060e2b3",
+    "launcher_shim_sha256": "1b3a3cfed63f31e02bf94fccee49d8f4d158920cc1ea3927680a8ae4ca405304",
+    "counts": {
+      "audit_rows": 158,
+      "active_formal_units": 146,
+      "proofs": 83,
+      "definitions": 44,
+      "constructors": 19,
+      "named_environments": 27,
+      "inline_leanref_tags": 146,
+      "failed_rows_repaired": 36
+    }
+  },
+  "mapping_set_algorithm": "Select ACTIVE rows, sort by formal_id, retain source/proof/type/dependency mapping fields, then SHA-256 canonical compact JSON with sorted keys.",
+  "review_requirements": {
+    "process_id": "bounded-correspondence-repair-2026-08-29",
+    "fresh_independent_reviewer_count": 2,
+    "required_roles": [
+      "PAPER_LEAN_SEMANTIC_CORRESPONDENCE",
+      "LEAN_METADATA_AND_CORRESPONDENCE_COHERENCE"
+    ],
+    "maximum_review_rounds": 2,
+    "completed_review_rounds": 1,
+    "this_is_final_permitted_round": true,
+    "coverage": "All 146 ACTIVE mappings and all 27 named environments under the frozen normalization contract.",
+    "source_mutation_during_review": "PROHIBITED"
+  }
+}

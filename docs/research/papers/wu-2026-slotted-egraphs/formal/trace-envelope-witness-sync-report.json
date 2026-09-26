@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0",
+  "status": "PASSED",
+  "completed_at_utc": "2026-08-30T02:55:19Z",
+  "scope": "BOUNDED_SECTION_5_AND_APPENDIX_B_TRACE_ENVELOPE_WITNESS_SYNC",
+  "frozen_inputs": {
+    "pre_sync_package_manifest_sha256": "c566bb9ff7f777cafacf720bd01ea142ecca797806d013f40347411502f584d1",
+    "pre_sync_author_source_graph_sha256": "29348d88fbad07dfeddca2abf880b0718a8ca2ba26d41ee82a08e8f60d94d7d1",
+    "repository": "AlexandervonWu/ACGN",
+    "branch": "aislop",
+    "commit": "f5dbc1a04e10b61e39e6fe1b0fe8d5b236728625",
+    "commit_url": "https://github.com/AlexandervonWu/ACGN/commit/f5dbc1a04e10b61e39e6fe1b0fe8d5b236728625",
+    "witness_path": "paper-claims/formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean",
+    "witness_git_blob_sha1": "48528272445b6fa81ebd6c1f30680cd285751b5f",
+    "witness_sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f"
+  },
+  "import_closure_blob_parity": {
+    "status": "PASS",
+    "method": "The seven imported project dependency files in the isolated build were compared byte-for-byte by Git blob identity with the pinned repository files.",
+    "git_blob_sha1": {
+      "TypedSlottedEGraphsPaper/TraceSemantics.lean": "343ec4946e692481f88c33b2cbc22b6b31160b1a",
+      "TypedSlottedEGraphsPaper/ProfileRules.lean": "5479f73d385d66929bd18e40a43ec3fd20e5110a",
+      "TypedSlottedEGraphsPaper/Replay.lean": "d69d3cccbbe1fb13e9962c4950cc1f2f21c92c7e",
+      "TypedSlottedEGraphsPaper/FiniteNormalization.lean": "c1114b55775222786d6e7714ec8d8250224d8707",
+      "TypedSlottedEGraphsPaper/Certificates.lean": "6d822ebc2527a96e745d7f9f0423881454ea3164",
+      "TypedSlottedEGraphsPaper/StructuralClaims.lean": "7e3b8310c8603aac39e1439e186ba4de567603ab",
+      "TypedSlottedEGraphsPaper/Core.lean": "e47c21d7761cada6558a14b87e23f15c8cfa3dc0"
+    }
+  },
+  "focused_lean_verification": {
+    "status": "PASS",
+    "toolchain_file_content": "leanprover/lean4:v4.33.0\n",
+    "toolchain_file_sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b",
+    "official_release_archive_bytes": 574882764,
+    "official_release_archive_sha256": "4b3fb03c29a1e0a253fb1d11f9bae3725f19a0dc6fc09b3ea16d2c9df3349e2c",
+    "observed_lean_version": "4.33.0",
+    "observed_lean_commit": "d8b18978322de05a8f3dba51ef03cf5461676c17",
+    "observed_lake_env_lean_version": "4.33.0",
+    "command": "lake build TypedSlottedEGraphsPaper.TraceEnvelopeWitness",
+    "exit_code": 0,
+    "built_jobs": 9,
+    "environmental_proc_exe_launcher_shim": {
+      "purpose": "Redirect only blocked /proc/<pid>/exe readlink lookups to the equivalent /proc/self/exe path used to locate the unmodified official Lean installation.",
+      "source_sha256": "ae7ffd7735e4be075fb0d355b701f71690307a54df1dad43c1147041f79f5d0f",
+      "shared_object_sha256": "a174edbd835ea52a1459956bf0b0718352a556cce89b03a7d689e843bfb26dc4",
+      "compiler_or_kernel_modified": false
+    },
+    "axiom_report": {
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.acReassociateSound": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.binderRemapSound": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.unionInsertSound": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.rebuildSound": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.congruenceRestoreSound": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.d1_trace_obligation": [],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.d2_trace_obligation": ["propext", "Quot.sound"],
+      "TypedSlottedEGraphsPaper.TraceEnvelopeWitness.machineCheckedEndToEndWitness": ["propext", "Quot.sound"]
+    },
+    "axiom_union": ["propext", "Quot.sound"],
+    "foundation_profile": "STANDARD_LEAN_EXPLICIT_TCB",
+    "forbidden_construct_scan": {
+      "status": "PASS_ZERO_MATCHES",
+      "project_import_closure_file_count": 8,
+      "scanned": ["sorry", "sorryAx", "admit", "project axiom", "unsafe", "partial", "implemented_by", "native_decide", "Lean.ofReduceBool", "ofReduceBool", "extern"]
+    },
+    "nonblocking_warnings": "Unused simp arguments or variables in the witness and pre-existing universe linter warnings in imported modules."
+  },
+  "supported_statement": "One fixed nontrivial abstract structural trace comprises AC reassociation, a bijective two-slot binder remapping, union insertion, rebuild, and congruence restoration after operand reordering. Its indexed construction enforces adjacency and replay under the supplied finite-set interpreter proves endpoint-denotation equality.",
+  "explicit_nonclaims": [
+    "Java producer-verifier correspondence",
+    "Java-Lean refinement",
+    "coverage or completeness for other trace shapes",
+    "export and replay of complete experimental traces",
+    "experimental corpus replay",
+    "whole-artifact correctness"
+  ],
+  "paper_edits": {
+    "reason_code": "E",
+    "changed_author_files": 2,
+    "files": [
+      {
+        "path": "eval_compressed.tex",
+        "section": "Section 5, Independent checks and limits",
+        "pre_sha256": "c2c0523c07cc36f26d25ca2059880011e0304609c725aedf6a195189b87088da",
+        "post_sha256": "eafcd18c1c18156a9aa691435268a1cfc0b703879aad57d2d589c31a2b8c0ff4"
+      },
+      {
+        "path": "appendix_eval.tex",
+        "section": "Appendix B.4, Checker Boundary and Threats to Validity",
+        "pre_sha256": "0888b7aab69ff720add187681f9d19535667807c0213419d1c5ad32436a98845",
+        "post_sha256": "fe2b8253d5e613c86ebc9b247110f91b5ee78b8de85f07e5a178a79040ff4582"
+      }
+    ],
+    "formal_claim_changes": 0,
+    "notation_changes": 0,
+    "layout_command_changes": 0,
+    "bibliography_changes": 0,
+    "figure_changes": 0
+  },
+  "post_sync_build": {
+    "status": "PASS",
+    "command": "latexmk -C main_compressed.tex && latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex",
+    "engine": "pdfTeX 3.141592653-2.6-1.40.25",
+    "pages": 45,
+    "main_text_pages": "1-17",
+    "references_pages": "18-19",
+    "appendices_pages": "20-45",
+    "undefined_references_or_citations": 0,
+    "affected_rendered_pages_reviewed": [16, 17, 35],
+    "affected_page_visual_status": "PASS",
+    "author_source_graph_sha256": "6e386c342c9866479a31186ec31968a2f007d780fba3715a28a6172626dc1411",
+    "compilable_latex_graph_sha256": "fce9421d00fe409d55e2aaa21a19ee55616f98e82aa68c167bd605b91adc5beb",
+    "pdf_sha256": "7b349a474591b6a64f8cc9fc99a2fe5c29c41e1eb5e8c93e549297d5ef33f256",
+    "pdf_bytes": 642894
+  },
+  "immutability": {
+    "lean_source_and_config_graph_sha256": "424088773b7381cd60e7f4367e2e3939aae3b29874217fd34b24e5f8528fe61c",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "paper_index_sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb",
+    "experimental_data_refresh_report_sha256": "71c86a4942720dc6fdc9d65286b8c2ee4e6337c2169dc16be18dea182db8699f",
+    "active_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "java_changes": 0,
+    "experimental_result_changes": 0,
+    "lean_source_changes": 0
+  },
+  "layer_status_after_sync": {
+    "PAPER_FORMAL_CLOSURE": "CLOSED",
+    "PAPER_LEAN_CORRESPONDENCE_CLOSURE": "CLOSED",
+    "ABSTRACT_KERNEL_CLOSURE": "CLOSED",
+    "ARTIFACT_REFINEMENT_CLOSURE": "PARTIAL",
+    "EXPERIMENTAL_REPLAY_CLOSURE": "PARTIAL",
+    "PERMITTED_PUBLIC_LABEL": "NO_FORMAL_CLOSURE_CLAIM"
+  }
+}

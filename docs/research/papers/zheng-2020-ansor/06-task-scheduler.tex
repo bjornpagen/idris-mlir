@@ -1,0 +1,83 @@
+\section{Task Scheduler}
+\label{sec:task-scheduler}
+
+A DNN can be partitioned into many independent subgraphs (\textit{e.g.}, conv2d + relu). For some subgraphs, spending time in tuning them does not improve the end-to-end DNN performance significantly. This is due to two reasons: either (1) the subgraph is not a performance bottleneck, or (2) tuning brings only minimal improvement in the subgraph's performance.
+
+To avoid wasting time on tuning unimportant subgraphs, \Ansor dynamically allocates different amounts of time resources to different subgraphs.
+Take ResNet-50 for example, it has 29 unique subgraphs after the graph partitioning.
+Most of these subgraphs are convolution layers with different shapes configurations (input size, kernel size, stride, etc). We need to generate different programs for different convolution layers because the best tensor program depends on these shape configurations. 
+In reality, users may have multiple DNNs for all their applications. This leads to more subgraphs as well as more opportunities to reduce the total tuning time, because we can share and reuse knowledge between subgraphs.
+A subgraph can also appear multiple times in a DNN or across different DNNs.
+
+We define a task as a process performed to generate high-performance programs for a subgraph.
+It means that optimizing a single DNN requires finishing dozens of tasks (\textit{e.g.}, 29 tasks for ResNet-50).
+\Ansor's task scheduler allocates time resources to tasks in an iterative manner.
+At each iteration, \Ansor selects a task, generates a batch of promising programs for the subgraph, and measures the program on hardware.
+We define such an iteration as one unit of time resources. When we allocate one unit of time resources to a task, the task obtains an opportunity to generate and measure new programs, which also means the chance to find better programs.
+We next present the formulation of the scheduling problem and our solution.
+
+\subsection{Problem Formulation}
+\label{subsec:task-scheduler-problem}
+When tuning a DNN or a set of DNNs, a user can have various types of goals, for example, reducing a DNN's latency, meeting latency requirements for a set of DNNs, or minimizing tuning time when tuning no longer improves DNN performance significantly. We thus provide users a set of objective functions to express their goals. Users can also provide their own objective functions. 
+
+Suppose there are $n$ tasks in total. Let $t \in \mathbf{Z}^n$ be the allocation vector, where $t_i$ is the number of time units spent on task $i$. Let the minimum subgraph latency task $i$ achieves be a function of the allocation vector $g_i(t)$. Let the end-to-end cost of the DNNs be a function of the latency of the subgraphs $f(g_1(t), g_2(t), ..., g_3(t))$. Our objective is to minimize the end-to-end cost:
+\preeq \preeq
+$$ \text{minimize } f(g_1(t), g_2(t), ..., g_3(t)) $$
+\posteq
+
+To minimize the end-to-end latency of a single DNN, we can define $f(g_1, g_2, ..., g_n) = \sum_{i=1}^{n} {w_i \times g_i}$,
+where $w_i$ is the number of appearances of task $i$ in the DNN. This formulation is straightforward because $f$ is an approximation of the end-to-end DNN latency.
+
+When tuning a set of DNNs, there are several options.
+\autoref{table:objective-function-multiple-network} shows a number of example objective functions for tuning multiple DNNs.
+Let $m$ be the number of DNNs, $S(j)$ is the set of tasks that belong to DNN $j$.
+$f_1$ adds up the latency of every DNN, which means to optimize the cost of a pipeline that sequentially runs all DNNs once.
+In $f_2$, we define $L_j$ as the latency requirement of DNN $j$, meaning that we do not want to spend time on a DNN if its latency has already met the requirement.
+In $f_3$, we define $B_j$ as the reference latency of a DNN $j$. As a result, our goal is to maximize the geometric mean of speedup against the given reference latency.
+Finally in $f_4$, we define a function $ES(g_i, t)$ that returns an early stopping value by looking at the history of latency of task $i$. It can achieve the effect of per-task early stopping.
+
+
+\begin{table}[t!]
+	\renewcommand{\arraystretch}{1.4}
+	\centering
+	\begin{tabular}{ll}
+		\hline
+		$f_1 =\sum_{j=1}^{m} \sum_{i \in S(j)} w_i \times g_i(t) $ \\ 
+		$f_2 = \sum_{j=1}^{m} { \max( \sum_{i \in S(j)} w_i \times g_i(t), L_j)}$ \\
+        $f_3 = -(\prod_{j=1}^{m} { \frac{B_j}{\sum_{i \in S(j)} w_i \times g_i(t)} }) ^ {\frac{1}{m}} $ \\
+        $f_4 = \sum_{j=1}^{m} { \sum_{i \in S(j)} w_i \times \max( g_i(t), ES(g_i, t))}$ \\
+		\hline
+	\end{tabular}
+	\caption{Examples of objective functions for multiple neural networks}
+\postcap
+	\label{table:objective-function-multiple-network}
+\end{table}
+
+\subsection{Optimizing with Gradient Descent}
+\label{subsec:grdient-descent}
+We propose a scheduling algorithm based on gradient descent to efficiently optimize the objective function.
+Given the current allocation $t$, the idea is to approximate the gradient of the objective function $\frac{\partial f}{\partial t_i}$ in order to choose the task $i$ such that $i = \operatorname*{argmax}_i{|\frac{\partial f}{\partial t_i}|}$.
+We approximate the gradient by making an optimistic guess and considering the similarity between tasks.
+
+The derivation is in \autoref{sec:gradient-approximation}.
+We approximate the gradient by 
+
+\preeq \preeq \preeq
+\begin{align*}
+\frac{\partial f}{\partial t_i} 
+&\approx \frac{\partial f}{\partial g_i} (\alpha \frac{g_i(t_i) - g_i(t_i - \Delta t)}{\Delta t}  
++ \\
+& (1-\alpha)  (\min( - \frac{g_i(t_i)}{t_i}, \beta \frac{C_i}{\max_{k\in N(i)} {V_k}}  - g_i(t_i)))) \\
+\end{align*}
+\posteq \posteq \posteq \posteq
+
+\noindent where $\Delta t$ is a small backward window size, $g_i(t_i)$ and $g_i(t_i - \Delta t)$ are known from the history of allocations. $N(i)$ is the set of similar tasks of $i$, $C_i$ is the number of floating point operation in task $i$ and $V_k$ is the number of floating point operation per second we can achieve in task $k$. 
+The parameter $\alpha$ and  $\beta$ control the weight to trust some predictions.
+
+To run the algorithm, \Ansor starts from $t = \mathbf{0}$ and warms up with a round of round-robin to get an initial allocation vector $t = (1, 1, ..., 1)$.
+After the warm-up, at each iteration, we compute the gradient of each task and pick $\operatorname*{argmax}_i{|\frac{\partial f}{\partial t_i}|}$.
+Then we allocate the resource unit to task $i$ and update the allocation vector $t_i = t_i + 1$.
+The optimization process continues until we run out of the time budget.
+To encourage exploration, we adopt a $\epsilon$-greedy strategy \cite{sutton2018reinforcement}, which preserves a probability of $\epsilon$ to randomly select a task.
+
+Taking the case of optimizing for a single DNN's end-to-end latency for example, \Ansor prioritizes a subgraph that has a high initial latency because our optimistic guess says we can reduce its latency quickly. Later, if \Ansor spends many iterations on it without observing a decrease in its latency, \Ansor leaves the subgraph because its $|\frac{\partial f}{\partial t_i}|$ decreases.

@@ -1,0 +1,215 @@
+\section{Discussion}
+\label{sec:discussion}
+
+The relational model for \ematching is
+ not only simple and fast,
+ but it opens the door to a wide range of future work
+ to further improve \egraphs and \ematching.
+
+\subsection{Relational Representation of Code}
+
+\update{
+The representation of \enodes as relations and patterns as
+ relational queries is simple and natural.
+It may even feel obvious to someone familiar with Prolog-style programming,
+ where a function with arity $k$ is often written as a relation with arity $k+1$, 
+ with 1 extra argument for the output.
+This relational representation can also be found in the literature on congruence closure.
+For example, \citet{rummer2012matching} uses the same encoding to 
+ simulate congruence closure procedures with a hyper-resolution calculus.
+Unlike our focus on the performance of \ematching, 
+ their goal is to improve the completeness of quantified reasoning in SMT solvers.
+Research on large-scale code search and analysis~\cite{urma2013expressive, avgustinov2016ql, doop, Glean}
+ has also explored storing program repositories in a database.
+Programmers may issue queries against the database 
+ to find code that match certain patterns, 
+ which may be examples of API usage or 
+ ``anti-patterns'' that pose security risks.
+Certain complex queries can even express sophisticated analyses like 
+ the points-to analysis~\cite{doop, avgustinov2016ql}. 
+These code search and analysis engines need to balance the 
+ need for expressiveness, efficiency, and ease of use.
+
+While the idea to represent code as relations is not new, 
+ we are the first, to the best of our knowledge, 
+ to leverage relational join algorithms to speed up \ematching.
+We designed optimizations specialized for \ematching, 
+ and also derived the first non-trivial complexity bound
+ for \ematching from a careful analysis of the generic join algorithm.
+}
+\subsection{Pushdown Optimization}
+
+An \ematching pattern may have additional filtering
+ condition associated with it.
+For example, a rewrite rule with left hand side \verb|(* (/ x y) y)| may
+ additionally require that $y\neq 0$.
+When the variables involved in conditions all occur in a single relation (e.g.,
+ $R_*$ and $R_/$),
+ this relation can be effectively filtered
+ even before being joined
+ (e.g., using predicate $\find(\sigma(y))\neq\find(\lookup(0))$),
+ which could immediately prune a large search space.
+
+We call this \textit{pushdown optimization},
+ which can be considered as
+ \egraph's version of the relational query
+ optimization that always pushes the filter operations down to the bottom
+ of the join tree.
+Note
+ that the ability to do pushdown optimization stems
+ from relational \ematching's ability to consider the constraints in any order;
+ backtracking \ematching could not support this technique.
+We currently do
+ not implement this,
+ because it requires breaking
+ changes to \egg's interface.
+
+Conditions that involve multiple variables can be ``pushed down'' as well.
+In generic join,
+ the filter can occur immediately after the variables appear in the variable ordering.
+Thus,
+ an implementation that supports these conditional filters
+ should take this into account when determining variable ordering.
+
+% The ``top-down'' approach of backtracking \ematching
+%  cannot pre-filter
+% To see this, consider the pattern $f(g(\alpha),g(\beta))$,
+%  with the requirement $\sigma(\alpha)\neq 0$ and $\sigma(\beta)=0$.
+% The \egraph cannot prune \enodes $g(i)$ using both
+%  filtering condition $i=\find(\lookup(0))$
+%  and $i\neq \find(\lookup(0))$ simultaneously.
+
+\subsection{Join Algorithms}
+Research in databases has proposed a myriad of different join algorithms.
+For example, state-of-the-art database systems implement two-way joins
+ like hash join and merge-sort join.
+They have a longer history than generic join,
+ and benefit from various constant factor optimizations.
+Extensive research has focused on generating highly efficient query plans
+ using two-way joins.
+On the other hand, Yannakakis' algorithm~\cite{yannakakis}
+ is proven to be optimal on a class of queries called {\em full ayclic queries},
+ running in time linear to the total size of the input and the output.
+All linear patterns correspond to acyclic queries,
+ but some nonlinear patterns correspond to cyclic ones.
+ Recent research~\cite{mhedhbi19,
+ freitag} has also experimented with combining
+ traditional join algorithms with generic join,
+ achieving good performance.
+In this paper we choose generic join for its simplicity,
+ and future work may consider other join algorithms for relational \ematching.
+
+\subsection{Incremental Processing}\label{sec:incremental}
+We have focused on improving the core \ematching\ algorithm in this paper,
+ yet prior work has successfully sped up \ematching\ by making it incremental~\cite{efficient-ematching}.
+When the changes to the \egraph\ are small and the results of \ematching\
+ patterns are frequently queried,
+ maintaining the already-discovered matches becomes crucial for efficiency.
+From our relational perspective, incremental \ematching\
+ is captured precisely by the classic problem of
+ incremental view maintenance (IVM)~\cite{DBLP:conf/vldb/CeriW91,
+ DBLP:conf/sigmod/SalemBCL00,DBLP:conf/sigmod/ZhugeGHW95} in databases.
+IVM aims to efficiently update an already-computed query result upon changes
+ to the database, without recomputing the query from scratch.
+\update{
+Future research can follow our approach but implement e-graphs directly on top of
+ a relational database engine, 
+ inheriting the incrementality from the underlying system. 
+For example, a datalog engine provides semi-naive evaluation.}
+
+There is opportunity to improve relational \ematching\ even without a
+ full-fledged IVM solution.
+For example, we have shown in \autoref{fig:speedup} that index building
+ can take up a significant portion of the run time.
+Our index implementation is based on a hash trie,
+ which is simple but difficult to update efficiently.
+We are experimenting with an alternative index design based on sort tries,
+ in the hope that it can make updates as simple as inserting into a sorted array.
+
+\subsection{Building on Existing Database Systems}
+Given our reduction from \ematching\ to conjunctive query answering,
+ one may wonder if other \egraph operations could be reduced to
+ relational operations so that a fully functioning \egraph engine
+ can be implemented purely on top of an off-the-shelf database system.
+There are many benefits to it.
+For example, we could enjoy an industrial-strength query optimization
+ and execution engine for free
+ (although most industrial databases do not use worst-case optimal join algorithms),
+ and eliminates the cost of transforming an \egraph
+ to a relational database.
+Moreover, this approach would enjoy any properties of the host database
+ system, including persistence, incremental maintenance, concurrency, and fault-tolerance.
+% {\color{blue} (It may also be worth mentioning the idea of scalability / persistent e-graphs / egraph as a
+%  service / etc.)}
+
+As a proof of concept, we implemented a prototype \egraph implementation on top of SQLite,
+ an embedded relational database system, with 160 lines of Racket code.
+\Egraph operations like insertion and merging are translated into
+ high-level SQL queries and executed
+ using SQLite.
+% Therefore, the costs of rebuilding both the relational database and its indices
+%  are naturally avoided,
+%  which can sometimes be the bottleneck.
+This na\"ive prototype is not competitive with highly optimized
+ implementations like \egg,
+ especially given our relational \ematching approach.
+However, with appropriate indices and query plan,
+ it could have similar asymptotic performance.
+ % the standard \egraph algorithm.
+Specialized data structures to represent equivalence relations~\cite{nappa2019fast}
+ could also help performance.
+Therefore, not only \ematching but also other \egraph operations can be
+ expressed as relational queries,
+ which hints at the possibility of developing real-world \egraph engines
+ on top of existing relational database systems.
+
+% \subsection{Other Potential Optimizations}
+
+% \yz{I'm stuck on how to write this subsection.}
+
+% There are many more techniques in the database community that we could use to
+% achieve better performance but we have not implemented. In this subsection, we
+% name a few potential optimizations that we are aware of that could potentially
+% improve the performance of relational \ematching.
+
+% \subsubsection*{Query Optimizations}
+
+% \yz{I don't know much about query optimization literatures}
+
+% There are many existing literatures that
+% explores various query optimization techniques. For example, cardinality
+% estimation is widely used in commercial databases to find efficient query plans.
+% Such techniques could also be used in the setting of relational \ematching.
+
+% \yz{
+%   The emptyheaded paper also mentions hypertree decomposition as an optimization
+%   technique for generic join, which is something we can mention.
+% }
+
+% \subsubsection*{Set Intersections}
+
+% A key operation of generic join is set intersection. Currently we implement set
+% intersection as simple hash lookup, which is nonetheless cache unfriendly.
+% However, many literature has explored faster and more cache-friendly algorithms
+% for set intersection. TODO.
+
+% \yz{
+%   There is a paper on set intersection (not sure if it's sota; also see related works): https://arxiv.org/pdf/1103.2409.pdf.
+%   EmptyHeaded also describes several set intersection algorithms they use for generic
+%   join that is optimized for SIMD.
+% }
+
+% \subsubsection*{In-memory Databases}
+
+% \yz{we should probably mention that we
+%   specialize our operators, which is great, but there are also tons of
+%   researches done on speeding up in-memory databases that we can exploit.}
+
+% \subsubsection*{Functional Dependencies}
+
+% \subsection{Symmetry Breaking}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

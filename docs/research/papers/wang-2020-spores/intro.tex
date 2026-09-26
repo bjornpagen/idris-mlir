@@ -1,0 +1,119 @@
+Consider the Linear Algebra (LA) expression $sum((X-UV^T)^2)$ which
+defines a typical loss function for approximating a matrix $X$ with a
+low-rank matrix $UV^T$. Here, $sum()$ computes the sum of all matrix
+entries in its argument, and $A^2$ squares the matrix $A$
+element-wise. Suppose $X$ is a sparse, 1M x 500k matrix, and suppose
+$U$ and $V$ are dense vectors of dimensions 1M and 500k respectively.
+Thus, $UV^T$ is a rank 1 matrix of size 1M x 500k, and computing it
+naively requires 0.5 trillion multiplications, plus memory allocation.
+Fortunately, the expression is equivalent to
+$sum(X^2) - 2U^TXV + U^TU * V^TV$.  Here $U^TXV$ is a scalar that can
+be computed efficiently by taking advantage of the sparsity of $X$,
+and, similarly, $U^TU$ and $V^TV$ are scalar values requiring only 1M
+and 500k multiplications respectively.
+
+Optimization opportunities like this are ubiquitous in machine
+learning programs. State-of-the-art optimizing compilers such as
+SystemML~\cite{DBLP:reference/bdt/Boehm19},
+OptiML\cite{DBLP:conf/icml/SujeethLBRCWAOO11}, and
+Cumulon\cite{DBLP:conf/sigmod/HuangB013} commonly implement syntactic
+rewrite rules that exploit the algebraic properties of the LA
+expressions. For example, SystemML includes a rule that rewrites the
+preceding example to a specialized operator \footnote{See the
+  \href{https://systemml.apache.org/docs/0.12.0/engine-dev-guide.html}{SystemML
+    Engine Developer Guide} for details on the weighted-square loss
+  operator \texttt{wsloss}. } to compute the result in a streaming
+fashion.  However, such syntactic rules fail on the simplest
+variations, for example SystemML fails to optimize $sum((X+UV^T)^2)$,
+where we just replaced $-$ with $+$.  Moreover, rules may interact
+with each other in complex ways.  In addition, complex ML programs
+often have many common subexpressions (CSE), that further interact
+with syntactic rules, for example the same expression $UV^T$ may occur
+in multiple contexts, each requiring different optimization rules.
+
+%%%% (Dan: I found the next paragraph a bit too vague, so I shorted
+%%%% the idea)
+% Moreover, these rules resort to heuristics when
+% multiple factors impact execution cost. The interaction among these
+% factors can become complex: for example, if $UV^T$ in our example
+% appears somewhere else in the same program, the original form may be
+% preferable since all of its parents can share the computation result,
+% and common-subexpression (CSE) elimination avoids recomputing the
+% product. The compiler engineer may then add heuristics to only perform
+% the rewrite when $UV^T$ does not have other parents. However, if its
+% other parents can also be optimized by other rewrites, the heuristics
+% will lead the compiler to miss the optimization opportunity. In
+% general, heuristics like this complicate the codebase, add maintenance
+% cost, and may miss high-impact optimizations.
+
+% These opportunities and challenges call for a more principled approach
+% to optimizing linear algebra expressions in machine learning programs.
+In this paper we describe \sys, a novel optimization approach for
+complex linear algebra programs that leverages relational algebra as
+an intermediate representation to completely represent the search
+space. SPORES first transforms LA expressions into traditional
+Relational Algebra (RA) expressions consisting of joins $*$, union $+$
+and aggregates $\sum$.  It then performs a cost-based optimizations on
+the resulting Relational Algebra expressions, using only standard
+identities in RA.  Finally, the resulting RA expression is converted
+back to LA, and executed.
+
+A major advantage of \sys\ is that the optimization rules in RA are
+complete.  Linear Algebra seems to require an endless supply of clever
+rewrite rules, but, in contrast, by converting to RA, we can prove
+that SPORES is complete.  The RA expressions in this paper are
+over $K$-relations~\cite{DBLP:conf/pods/GreenKT07}; a tuple $X(i,j)$
+is no longer true or false, but has a numerical value, e.g. $5$; in
+other words, the RA expressions that result from LA expressions are
+interpreted over bags instead of sets.  A folklore theorem states that
+two Unions of Conjunctive Queries over bag semantics are equivalent
+iff they are isomorphic\footnote{This was claimed, for conjunctive
+  queries only, in Theorem 5.2 in~\cite{DBLP:conf/pods/ChaudhuriV93}
+  but a proof was never produced; a proof was given for bag-set
+  semantics in~\cite{DBLP:journals/tocl/CohenSN05}.  See the
+  discussion in~\cite{DBLP:conf/icdt/Green09}.}, which implies that
+checking equivalence is decidable.  (In contrast, {\em containment} of
+two UCQs with bag semantics is
+undecidable~\cite{DBLP:journals/tods/IoannidisR95}; we do not consider
+containment in this paper.)  We prove that our optimizer rules are
+sufficient to convert any RA expression into its {\em canonical form},
+i.e.  to an UCQ, and thus can, in principle, can discover all
+equivalent rewritings.
+
+However, we faced a major challenge in trying to exploit the
+completeness of the optimizer.  The search space is very large,
+typically larger than that encountered in standard database
+optimizers, because of the prevalence of unions $+$, large number of
+aggregates $\sum$, and frequent common subexpressions. To tackle this,
+\sys\ adopts and extends a technique from compilers called {\em
+  equality saturation}~\cite{DBLP:journals/corr/abs-1012-1802}.
+% to search the space.  Equality saturation 
+It uses a data structure called the E-Graph \cite{10.5555/909447} to
+compactly represent the space of equivalent expressions, and equality
+rules to populate the E-Graph, then leverages constraint solvers to
+extract the optimal expression from the E-Graph.  
+
+We have integrated \sys\ into
+SystemML~\cite{DBLP:reference/bdt/Boehm19}, and show that it can
+derive all hand-coded rules of SystemML.  We evaluated \sys\ on a
+spectrum of machine learning tasks, showing competitive performance
+improvement compared with more mature heuristic-based optimizers. Our
+optimizer rediscovers all optimizations by the latter, and also finds
+new optimizations that contribute to speedups of 1.2X to 5X.
+
+We make the following contributions in this paper:
+\begin{enumerate}
+\item We describe a novel approach for optimizing complex Linear
+  Algebra expressions by converting them to Relational Algebra, and
+  prove that this approach is complete (Sec.~\ref{sec:la:to:ra}).
+\item We present search algorithm based on Equality Saturation that
+  can explore a large search space while reusing memory (Sec.~\ref{explore}).
+\item We conduct an empirical evaluation of the optimizer using
+  several real-world machine learning tasks, and demonstrate it's
+  superiority over an heuristics-driven optimizer in SystemML
+  (Sec.~\ref{sec:evaluation}).
+\end{enumerate}{}
+
+% \dan{Add: ``We make the following contributions in this paper:''
+%   Bullet 1, bullet 2, etc}
+% \remy{Added above.}

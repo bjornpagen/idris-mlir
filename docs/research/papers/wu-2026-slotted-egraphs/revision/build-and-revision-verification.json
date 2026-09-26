@@ -1,0 +1,261 @@
+{
+  "scope": "Current empirical/background revision and supplied proof-package preservation",
+  "generated_at_utc": "2026-09-09T17:56:08.832888+00:00",
+  "source_graph": {
+    "algorithm": "SHA-256 of UTF-8 canonical JSON (ensure_ascii=false, sort_keys=true, separators=(',',':')); entries sorted by relative path",
+    "file_count": 25,
+    "sha256": "4bce698854ea72afe536129b5acd5f64c2e35e9c3f5051446b22eb9afb79d458",
+    "files": [
+      {
+        "path": "appendixC_vmcai_stage1.tex",
+        "sha256": "41f46ead337bf15d2dd7b07c554a6942103c4ef755b0c4268a1748192f73aa69"
+      },
+      {
+        "path": "appendix_closure_tables.tex",
+        "sha256": "ca97212953c0759dd8390be5e03a1a838a16fcde4a0d8f65f475fdaeae44000e"
+      },
+      {
+        "path": "appendix_eval.tex",
+        "sha256": "7a6f4da2cbec10d806c3201f7b5aeb184d7bfee9d678ba1d4fff5ebe66d1cb2b"
+      },
+      {
+        "path": "appendix_formal.tex",
+        "sha256": "4395af55de70fae6eec9fbc1b49e5a90d4a681746e25caafc1ef22bc932ee9cb"
+      },
+      {
+        "path": "conclusion_compressed.tex",
+        "sha256": "3d4b68c41bc0a5bb18ba412ee0f7c507517b8c91df3b2e2031503c0a87307ffc"
+      },
+      {
+        "path": "eval_compressed.tex",
+        "sha256": "f23ce06253235f9740f5f358d2d909fb674fb0c8e1ca495498bdbba228373d82"
+      },
+      {
+        "path": "figures/aci_canonicalization_distance.tex",
+        "sha256": "74f13a48481b2a8f99edc0536df88014050ced6390485715bd34f8860a281676"
+      },
+      {
+        "path": "figures/alloy-certificate-example.tex",
+        "sha256": "94f219a3d9233c57cfaf3ffdf436b239b257042f146a4cddbe696485862fded9"
+      },
+      {
+        "path": "figures/final_alg_vmcai_stage1.tex",
+        "sha256": "dbf196f23f146aabe44f74ef66d9aba9abaae028fd8297c5cedee418f2ae6c87"
+      },
+      {
+        "path": "figures/raw_edit_repair_coverage_relabel.png",
+        "sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5"
+      },
+      {
+        "path": "formal/formal-statement-index.tex",
+        "sha256": "d4574d0f1b19ad67046d98e5758df98af9203d048ab3a0abc94dfc63556bdc0c"
+      },
+      {
+        "path": "foundations_compressed.tex",
+        "sha256": "6ec9c34781058b70209e1b4060c01117ec60c6f7a9f35fbb3236f9cbe6709ca7"
+      },
+      {
+        "path": "intro_compressed.tex",
+        "sha256": "5b7d95104af0d15687aebb4e08f892fa1e328b82cae0abbe4859c7f060846ab7"
+      },
+      {
+        "path": "llncs.cls",
+        "sha256": "92c3bada01fa8cd46a0f761e7c0e3bcd1cdf6a47bcc9e130fef497cfc47a270a"
+      },
+      {
+        "path": "macros_compressed.tex",
+        "sha256": "24f22bf63c8d4c17b05f89613822fa5f25d6b2c4dea4394d63b3a9a3c1a6741d"
+      },
+      {
+        "path": "main_compressed.tex",
+        "sha256": "076d7c8ab6b6b35f99e7e30e7cb20b2e66d2a97f17aa22218ce043d6ea85cae6"
+      },
+      {
+        "path": "prelims_compressed.tex",
+        "sha256": "34d8cfaa1e8cbd9ee068f16b7abbd3a0a02049a422f81f7dc874d041faf8cb7d"
+      },
+      {
+        "path": "ref.bib",
+        "sha256": "c60f325d76c7bdd8417d135e70cbd72968fc5724e5c561b79a2149c9bb246882"
+      },
+      {
+        "path": "splncs04.bst",
+        "sha256": "6f1fe5dd74efa8b1898f93e5042a6347f192b887afe254a0121bd0a9b9472100"
+      },
+      {
+        "path": "tables/model_overview.tex",
+        "sha256": "61bdcbd9cf87c3b2adf040f71b0a45ef2c3d4ff5c343d009e7f84137bafcac87"
+      },
+      {
+        "path": "tables/table1_rev4.tex",
+        "sha256": "337b3e79a738a7f8cb446b018ceafcefa2623c43101bcab7a764c777803b415f"
+      },
+      {
+        "path": "tables/table2_rev4.tex",
+        "sha256": "130bc113fb0bb9136ce6c41ee73e7bcc43b97ca3fd242cf74b8fde28b3c3ac72"
+      },
+      {
+        "path": "tables/table3_vmcai_stage1.tex",
+        "sha256": "784b22e6196fbd29390abdd0bfc1184f81dde564d57888e0e1d8c73c1eebdecb"
+      },
+      {
+        "path": "tables/table6_ablation_vmcai_stage1.tex",
+        "sha256": "b2ed38d242fb09e635dbe85055f8b68f36287cdfc6b20b08f2410f20ad0f5899"
+      },
+      {
+        "path": "tables/table7_capability_rev4.tex",
+        "sha256": "e3d1307502680c5ad4219eec3eab501a01cbd4b329922fdc4638b649324680d7"
+      }
+    ],
+    "composition": {
+      "tex": 21,
+      "bibliography": 1,
+      "graphic": 1,
+      "class": 1,
+      "bibliography_style": 1
+    }
+  },
+  "pdf": {
+    "filename": "Typed_Flexible_Arity_Slotted_EGraphs_updated.pdf",
+    "sha256": "3165c447bfb2d365d0c0ecb273e90dcbe98f6a5df958f0df773c444393133a0f",
+    "bytes": 673309,
+    "pages": 49,
+    "main_text_pages": [
+      1,
+      20
+    ],
+    "reference_pages": [
+      21,
+      22
+    ],
+    "appendix_pages": [
+      23,
+      49
+    ],
+    "main_body_page_limit": 20
+  },
+  "build": {
+    "command": "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error -outdir=<separate-build-directory> main_compressed.tex",
+    "exit_code": 0,
+    "engine": "pdfTeX 1.40.25 (TeX Live 2023/Debian)",
+    "log_sha256": "5313231eb4e29bd07fddaaf423fc39afbca01e37b3f44875cbc67b73ae2e0579",
+    "recorder_sha256": "04fc0e4ce89cda4878c8150ae8a526ddddb4ee46d3b4fcff84635e6ad2b4c857",
+    "bibtex_output_sha256": "5d2c7df2cb9ca68d646a76b24a6794cf55940869e1084fbfa0b3b4f07aed156b",
+    "overfull_messages": 0,
+    "undefined_references": 0,
+    "undefined_citations": 0,
+    "missing_inputs": 0,
+    "missing_glyphs": 0,
+    "underfull_messages": 364,
+    "inherited_font_substitution_warnings": true,
+    "supplied_source_local_baseline": {
+      "pages": 47,
+      "main_text_pages": [
+        1,
+        19
+      ],
+      "reference_pages": [
+        20,
+        21
+      ],
+      "appendix_pages": [
+        22,
+        47
+      ]
+    },
+    "baseline_note": "The supplied README's historical 45-page rendering was not reproduced in this local toolchain; the source baseline built to 47 pages."
+  },
+  "visual_qa": {
+    "all_49_pages_rendered_and_reviewed": true,
+    "method": "Full-document page contact sheets plus detailed inspection of changed and dependent pages",
+    "independent_detailed_pages": [
+      2,
+      3,
+      4,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      32,
+      33,
+      34,
+      37,
+      38,
+      39
+    ],
+    "material_defects_found": []
+  },
+  "formal_preservation": {
+    "active_mapped_spans_unchanged": 146,
+    "registered_excerpt_hashes_match": 146,
+    "formal_directory_files_unchanged": 75,
+    "source_config_files": 23,
+    "source_config_graph_sha256": "1ea8b2d58e1f4c3c007f8da46f77c7818d716b21bf418929ea9f9ecb8bef5afa",
+    "source_config_hash_algorithm": "Canonical JSON as above, using original tcb-manifest package source_files then configuration_files order",
+    "lean_version_pin": "4.33.0",
+    "new_lean_build": false,
+    "new_axiom_audit": false,
+    "new_whole_source_correspondence_review": false,
+    "archive_scope": "All retained formal reports describe their original snapshots. Their full-source hashes are not current-paper hashes; Appendix C has one nonformal run-ID change outside all mapped spans."
+  },
+  "independent_scientific_review": {
+    "decision": "PASS_SCIENTIFIC_SOURCES_AND_REVIEWED_BUILD",
+    "required_repairs": [],
+    "report_path": "revision/final_emission_audit.json",
+    "report_sha256": "9f466d5f0e9bea96907e43b0e71f666eecb1c1f0f8331c96e3e7a46a4a430419"
+  },
+  "repository_evidence": {
+    "repository": "AlexandervonWu/ACGN",
+    "branch": "aislop",
+    "snapshot": "1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+    "retrieved_at": "2026-09-09T17:25:15.047Z",
+    "runs": [
+      {
+        "kind": "full_corpus_publication",
+        "run_id": "db9f89bf-0965-4d74-8080-d9191d5f1aec",
+        "source_commit": "8ad5fead39b687d2cadc79b01ac27743c1ece990",
+        "jar_sha256": "a053e40e64faa2ecffb0f4999b57aa661eae51933d6daf93a95d973144a71abf",
+        "natural_dataset_sha256": "d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689",
+        "workers": 16,
+        "maximum_heap_gib": 8,
+        "completed_date": "2026-09-08",
+        "manifest_path": "publication_runs/db9f89bf-0965-4d74-8080-d9191d5f1aec/run-manifest.json",
+        "manifest_sha256": "fc9b71eb588c9d0375e1dda37b5e14f59687c7a762d1ee27e1c19942a3f3d11b",
+        "manifest_url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/publication_runs/db9f89bf-0965-4d74-8080-d9191d5f1aec/run-manifest.json",
+        "generated_capability_dataset_sha256": "898d8123ce12ee9a28cb106b801c4d3cb9e1c8aaa2644e0389aedd41e6fb49c3"
+      },
+      {
+        "kind": "separate_bounded_capability_validation",
+        "run_id": "659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4",
+        "source_commit": "8feab00f9190482af6a25334af5b2716653f8ac9",
+        "jar_sha256": "67e7dd088ef864a9170178e6b6c963a2c339836fa88b25cffe8e20788714f04a",
+        "workers": 1,
+        "maximum_heap_gib": 1,
+        "completed_date": "2026-09-09",
+        "checks": 29,
+        "temporal_checks": 8,
+        "counterexamples": 0,
+        "errors": 0,
+        "inconclusive": 0,
+        "temporal_object_scope": 4,
+        "temporal_trace_bounds": [
+          1,
+          10
+        ],
+        "manifest_path": "publication_runs/659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4/run-manifest.json",
+        "manifest_sha256": "c08804050280e5c964fccef8ac8e8d9d8b59980507ca2b45fec07758599c6f9a",
+        "manifest_url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/publication_runs/659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4/run-manifest.json",
+        "generated_capability_dataset_sha256": "898d8123ce12ee9a28cb106b801c4d3cb9e1c8aaa2644e0389aedd41e6fb49c3"
+      }
+    ]
+  },
+  "limits": [
+    "Published manifest-bound results were reconciled; no experiments were rerun.",
+    "Large LFS raw distances and the augmented index were not independently downloaded or reaggregated.",
+    "No new Lean build, axiom audit or whole-source formal closure claim is made.",
+    "Bounded Alloy checks and bounded constructor/certificate-record replays do not establish full Java/parser refinement or whole-corpus trace replay.",
+    "The supplied LNCS class/style were retained; no new official venue-template or submission-system certification was attempted."
+  ]
+}

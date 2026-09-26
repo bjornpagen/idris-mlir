@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-arxiv-correspondence-2026-09-02",
+  "review_round": 1,
+  "role": "PAPER_LEAN_SEMANTIC_CORRESPONDENCE_AND_IDENTIFIER_LEAK_SCAN",
+  "reviewer_task_id": "/root/round1_semantic_review",
+  "fresh_instance": true,
+  "snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+  "snapshot_manifest_sha256": "308f47cc9ef4c5a1c81f002ac82908d9f98abf8c0f1cd5f657649beff3fae13c",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "coverage": {
+    "active_mappings": "146/146",
+    "named_environments": "27/27",
+    "supplemental_witness_bindings": "1/1",
+    "identifier_leak_scans": "2/2"
+  },
+  "semantic_checks": [
+    "quantifier order",
+    "premises and conclusions",
+    "explicit and implicit hypotheses",
+    "claim strength and finite/generic scope",
+    "same-context and transport distinctions",
+    "Java, parser, artifact, and experiment nonclaims",
+    "supplemental witness adjacency and replay boundary"
+  ],
+  "identifier_leak_result": {
+    "status": "PASS",
+    "confusing_reader_facing_internal_identifiers": 0,
+    "intentional_formal_index_and_silent_tag_names_excluded": true,
+    "trace_witness_filename_classification": "INTENTIONAL_EVIDENCE_POINTER"
+  },
+  "blocking_findings": [],
+  "verdict": "PASS",
+  "source_mutation_observed": false,
+  "mutation_count": 0,
+  "builds_executed": false,
+  "latex_or_pdf_actions_executed": false
+}

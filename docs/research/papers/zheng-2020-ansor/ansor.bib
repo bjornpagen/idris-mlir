@@ -1,0 +1,560 @@
+%%% Deep Learning Trend Survey
+@article{openai2018compute,
+	title={AI and compute},
+	author={Amodei, Dario and Hernandez, Danny},
+	year={2018},
+    url={https://openai.com/blog/ai-and-compute/},
+	publisher={OpenAI Blog}	
+}
+
+
+%%% TensorFlow, MXNet, PyTorch, ONNX
+@inproceedings{abadi2016tensorflow,
+  title={Tensorflow: a system for large-scale machine learning},
+  author={Abadi, Mart{\'\i}n and Barham, Paul and Chen, Jianmin and Chen, Zhifeng and Davis, Andy and Dean, Jeffrey and Devin, Matthieu and Ghemawat, Sanjay and Irving, Geoffrey and Isard, Michael and others},
+  booktitle={12th USENIX Symposium on Operating Systems Design and Implementation (OSDI 16)},
+  pages={265--283},
+  year={2016}
+}
+
+@inproceedings{paszke2019pytorch,
+  title={PyTorch: an imperative style, high-performance deep learning library},
+  author={Paszke, Adam and Gross, Sam and Massa, Francisco and Lerer, Adam and Bradbury, James and Chanan, Gregory and Killeen, Trevor and Lin, Zeming and Gimelshein, Natalia and Antiga, Luca and others},
+  booktitle={Advances in Neural Information Processing Systems},
+  pages={8024--8035},
+  year={2019}
+}
+
+@article{chen2015mxnet,
+	title={Mxnet: a flexible and efficient machine learning library for heterogeneous distributed systems},
+	author={Chen, Tianqi and Li, Mu and Li, Yutian and Lin, Min and Wang, Naiyan and Wang, Minjie and Xiao, Tianjun and Xu, Bing and Zhang, Chiyuan and Zhang, Zheng},
+	journal={arXiv preprint arXiv:1512.01274},
+	year={2015}
+}
+
+@misc{bai2019onnx,
+    author = {Bai, Junjie and Lu, Fang and Zhang, Ke and others},
+    title = {ONNX: open neural network exchange},
+    year = {2019},
+    publisher = {GitHub},
+    journal = {GitHub repository},
+    commit = {94d238d96e3fb3a7ba34f03c284b9ad3516163be}
+}
+% howpublished = {\url{https://github.com/onnx/onnx}},
+
+%%% CuDNN, MKL-DNN, EIGEN
+@article{chetlur2014cudnn,
+  title={cudnn: efficient primitives for deep learning},
+  author={Chetlur, Sharan and Woolley, Cliff and Vandermersch, Philippe and Cohen, Jonathan and Tran, John and Catanzaro, Bryan and Shelhamer, Evan},
+  journal={arXiv preprint arXiv:1410.0759},
+  year={2014}
+}
+
+@misc{intel2017mkldnn,
+	author={Intel},
+	title={Intel® math kernel library for deep learning networks},
+	url={https://software.intel.com/en-us/articles/intel-mkl-dnn-part-1-library-overview-and-installation},
+	year={2017}
+}
+
+@misc{nvidia2017tensorcore,
+	author={Nvidia},
+	title={NVIDIA tensor cores},
+	url={https://www.nvidia.com/en-us/data-center/tensorcore/},
+	year={2017}
+}
+
+@misc{nvidia2017tensorrt,
+	author={Nvidia},
+	title={NVIDIA TensorRT: programmable inference accelerator},
+	url={https://developer.nvidia.com/tensorrt},
+	year={2017}
+}
+
+@MISC{eigenweb,
+  author = {Ga\"{e}l Guennebaud and Beno\^{i}t Jacob and others},
+  title = {Eigen v3},
+  howpublished = {http://eigen.tuxfamily.org},
+  year = {2010}
+}
+
+%%% Halide
+@article{ragan2013halide,
+	title={Halide: a language and compiler for optimizing parallelism, locality, and recomputation in image processing pipelines},
+	author={Ragan-Kelley, Jonathan and Barnes, Connelly and Adams, Andrew and Paris, Sylvain and Durand, Fr{\'e}do and Amarasinghe, Saman},
+	journal={Acm Sigplan Notices},
+	volume={48},
+	number={6},
+	pages={519--530},
+	year={2013},
+	publisher={ACM}
+}
+
+@article{mullapudi2016automatically,
+	title={Automatically scheduling halide image processing pipelines},
+	author={Mullapudi, Ravi Teja and Adams, Andrew and Sharlet, Dillon and Ragan-Kelley, Jonathan and Fatahalian, Kayvon},
+	journal={ACM Transactions on Graphics (TOG)},
+	volume={35},
+	number={4},
+	pages={83},
+	year={2016},
+	publisher={ACM}
+}
+
+@article{li2018differentiable,
+	title={Differentiable programming for image processing and deep learning in Halide},
+	author={Li, Tzu-Mao and Gharbi, Micha{\"e}l and Adams, Andrew and Durand, Fr{\'e}do and Ragan-Kelley, Jonathan},
+	journal={ACM Transactions on Graphics (TOG)},
+	volume={37},
+	number={4},
+	pages={139},
+	year={2018},
+	publisher={ACM}
+}
+
+@article{adams2019learning,
+  title={Learning to optimize halide with tree search and random programs},
+  author={Adams, Andrew and Ma, Karima and Anderson, Luke and Baghdadi, Riyadh and Li, Tzu-Mao and Gharbi, Micha{\"e}l and Steiner, Benoit and Johnson, Steven and Fatahalian, Kayvon and Durand, Fr{\'e}do and others},
+  journal={ACM Transactions on Graphics (TOG)},
+  volume={38},
+  number={4},
+  pages={1--12},
+  year={2019},
+  publisher={ACM New York, NY, USA}
+}
+
+@inproceedings{suriana2017parallel,
+  title={Parallel associative reductions in halide},
+  author={Suriana, Patricia and Adams, Andrew and Kamil, Shoaib},
+  booktitle={2017 IEEE/ACM International Symposium on Code Generation and Optimization (CGO)},
+  pages={281--291},
+  year={2017},
+  organization={IEEE}
+}
+
+@article{haj2020protuner,
+	title={ProTuner: tuning programs with monte carlo tree search},
+	author={Haj-Ali, Ameer and Genc, Hasan and Huang, Qijing and Moses, William and Wawrzynek, John and Asanovi{\'c}, Krste and Stoica, Ion},
+	journal={arXiv preprint arXiv:2005.13685},
+	year={2020}
+}
+
+
+%%% TVM
+
+@inproceedings{chen2018tvm,
+  title={TVM: an automated end-to-end optimizing compiler for deep learning},
+  author={Chen, Tianqi and Moreau, Thierry and Jiang, Ziheng and Zheng, Lianmin and Yan, Eddie and Shen, Haichen and Cowan, Meghan and Wang, Leyuan and Hu, Yuwei and Ceze, Luis and others},
+  booktitle={13th USENIX Symposium on Operating Systems Design and Implementation (OSDI 18)},
+  pages={578--594},
+  year={2018}
+}
+
+@inproceedings{chen2018learning,
+  title={Learning to optimize tensor programs},
+  author={Chen, Tianqi and Zheng, Lianmin and Yan, Eddie and Jiang, Ziheng and Moreau, Thierry and Ceze, Luis and Guestrin, Carlos and Krishnamurthy, Arvind},
+  booktitle={Advances in Neural Information Processing Systems},
+  pages={3389--3400},
+  year={2018}
+}
+
+@article{roesch2019relay,
+  title={Relay: a high-level compiler for deep learning},
+  author={Roesch, Jared and Lyubomirsky, Steven and Kirisame, Marisa and Pollock, Josh and Weber, Logan and Jiang, Ziheng and Chen, Tianqi and Moreau, Thierry and Tatlock, Zachary},
+  journal={arXiv preprint arXiv:1904.08368},
+  year={2019}
+}
+
+@inproceedings{zheng2020flextensor,
+  title={FlexTensor: an automatic schedule exploration and optimization framework for tensor computation on heterogeneous system},
+  author={Zheng, Size and Liang, Yun and Wang, Shuo and Chen, Renze and Sheng, Kaiwen},
+  booktitle={Proceedings of the Twenty-Fifth International Conference on Architectural Support for Programming Languages and Operating Systems},
+  pages={859--873},
+  year={2020}
+}
+
+@inproceedings{liu2019optimizing,
+	title={Optimizing CNN model inference on CPUs},
+	author={Liu, Yizhi and Wang, Yao and Yu, Ruofei and Li, Mu and Sharma, Vin and Wang, Yida},
+	booktitle={2019 USENIX Annual Technical Conference (USENIX ATC 19)},
+	pages={1025--1040},
+	year={2019}
+}
+
+@inproceedings{wang2019unified,
+	title={A unified optimization approach for CNN model inference on integrated GPUs},
+	author={Wang, Leyuan and Chen, Zhi and Liu, Yizhi and Wang, Yao and Zheng, Lianmin and Li, Mu and Wang, Yida},
+	booktitle={Proceedings of the 48th International Conference on Parallel Processing},
+	pages={1--10},
+	year={2019}
+}
+
+@article{moreau2019hardware,
+  title={A hardware--software blueprint for flexible deep learning specialization},
+  author={Moreau, Thierry and Chen, Tianqi and Vega, Luis and Roesch, Jared and Yan, Eddie and Zheng, Lianmin and Fromm, Josh and Jiang, Ziheng and Ceze, Luis and Guestrin, Carlos and others},
+  journal={IEEE Micro},
+  volume={39},
+  number={5},
+  pages={8--16},
+  year={2019},
+  publisher={IEEE}
+}
+
+@misc{zheng2020ansor,
+  title={Ansor: generating high-performance tensor programs for deep learning},
+  author={Zheng, Lianmin and Jia, Chengfan and Sun, Minmin and Wu, Zhao and Yu, Cody Hao and Haj-Ali, Ameer and Wang, Yida and Yang, Jun and Zhuo, Danyang and Sen, Koushik and others},
+  howpublished = {\url{https://arxiv.org/abs/2006.06762}},
+  year={2020}
+}
+
+
+%%% Tensor Comprehensions
+@article{vasilache2018tensor,
+  title={Tensor comprehensions: framework-agnostic high-performance machine learning abstractions},
+  author={Vasilache, Nicolas and Zinenko, Oleksandr and Theodoridis, Theodoros and Goyal, Priya and DeVito, Zachary and Moses, William S and Verdoolaege, Sven and Adams, Andrew and Cohen, Albert},
+  journal={arXiv preprint arXiv:1802.04730},
+  year={2018}
+}
+
+@article{vasilache2019next,
+  title={The next 700 accelerated layers: from mathematical expressions of network computation graphs to accelerated GPU kernels, automatically},
+  author={Vasilache, Nicolas and Zinenko, Oleksandr and Theodoridis, Theodoros and Goyal, Priya and Devito, Zachary and Moses, William S and Verdoolaege, Sven and Adams, Andrew and Cohen, Albert},
+  journal={ACM Transactions on Architecture and Code Optimization (TACO)},
+  volume={16},
+  number={4},
+  pages={1--26},
+  year={2019},
+  publisher={ACM New York, NY, USA}
+}
+
+%%% Machine Learning models
+@article{hinton2018matrix,
+	title={Matrix capsules with EM routing},
+	author={Hinton, Geoffrey E and Sabour, Sara and Frosst, Nicholas},
+	year={2018}
+}
+
+@article{yu2015multi,
+	title={Multi-scale context aggregation by dilated convolutions},
+	author={Yu, Fisher and Koltun, Vladlen},
+	journal={arXiv preprint arXiv:1511.07122},
+	year={2015}
+}
+
+@inproceedings{hara3dcnns,
+  author={Kensho Hara and Hirokatsu Kataoka and Yutaka Satoh},
+  title={Can spatiotemporal 3D CNNs retrace the history of 2D CNNs and ImageNet?},
+  booktitle={Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  pages={6546--6555},
+  year={2018},
+}
+
+@inproceedings{sandler2018mobilenetv2,
+  title={Mobilenetv2: inverted residuals and linear bottlenecks},
+  author={Sandler, Mark and Howard, Andrew and Zhu, Menglong and Zhmoginov, Andrey and Chen, Liang-Chieh},
+  booktitle={Proceedings of the IEEE conference on computer vision and pattern recognition},
+  pages={4510--4520},
+  year={2018}
+}
+
+@article{radford2015unsupervised,
+  title={Unsupervised representation learning with deep convolutional generative adversarial networks},
+  author={Radford, Alec and Metz, Luke and Chintala, Soumith},
+  journal={arXiv preprint arXiv:1511.06434},
+  year={2015}
+}
+
+@inproceedings{vaswani2017attention,
+  title={Attention is all you need},
+  author={Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob and Jones, Llion and Gomez, Aidan N and Kaiser, {\L}ukasz and Polosukhin, Illia},
+  booktitle={Advances in neural information processing systems},
+  pages={5998--6008},
+  year={2017}
+}
+
+@article{ioffe2015batch,
+  title={Batch normalization: accelerating deep network training by reducing internal covariate shift},
+  author={Ioffe, Sergey and Szegedy, Christian},
+  journal={arXiv preprint arXiv:1502.03167},
+  year={2015}
+}
+
+@inproceedings{redmon2016you,
+  title={You only look once: unified, real-time object detection},
+  author={Redmon, Joseph and Divvala, Santosh and Girshick, Ross and Farhadi, Ali},
+  booktitle={Proceedings of the IEEE conference on computer vision and pattern recognition},
+  pages={779--788},
+  year={2016}
+}
+
+@inproceedings{cordts2016cityscapes,
+  title={The cityscapes dataset for semantic urban scene understanding},
+  author={Cordts, Marius and Omran, Mohamed and Ramos, Sebastian and Rehfeld, Timo and Enzweiler, Markus and Benenson, Rodrigo and Franke, Uwe and Roth, Stefan and Schiele, Bernt},
+  booktitle={Proceedings of the IEEE conference on computer vision and pattern recognition},
+  pages={3213--3223},
+  year={2016}
+}
+
+@inproceedings{alhaija2017augmented,
+  title={Augmented reality meets deep learning for car instance segmentation in urban scenes},
+  author={Alhaija, Hassan Abu and Mustikovela, Siva Karthik and Mescheder, Lars and Geiger, Andreas and Rother, Carsten},
+  booktitle={British machine vision conference},
+  volume={1},
+  pages={2},
+  year={2017}
+}
+
+@article{devlin2018bert,
+  title={BERT: pre-training of deep bidirectional transformers for language understanding},
+  author={Devlin, Jacob and Chang, Ming-Wei and Lee, Kenton and Toutanova, Kristina},
+  journal={arXiv preprint arXiv:1810.04805},
+  year={2018}
+}
+
+@article{howard2017mobilenets,
+  title={Mobilenets: efficient convolutional neural networks for mobile vision applications},
+  author={Howard, Andrew G and Zhu, Menglong and Chen, Bo and Kalenichenko, Dmitry and Wang, Weijun and Weyand, Tobias and Andreetto, Marco and Adam, Hartwig},
+  journal={arXiv preprint arXiv:1704.04861},
+  year={2017}
+}
+
+@inproceedings{he2016deep,
+	title={Deep residual learning for image recognition},
+	author={He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
+	booktitle={Proceedings of the IEEE conference on computer vision and pattern recognition},
+	pages={770--778},
+	year={2016}
+}
+
+%%% Other
+@article{ahn2020ordering,
+	title={Ordering chaos: memory-aware scheduling of irregularly wired neural networks for edge devices},
+	author={Ahn, Byung Hoon and Lee, Jinwon and Lin, Jamie Menjay and Cheng, Hsin-Pai and Hou, Jilei and Esmaeilzadeh, Hadi},
+	journal={arXiv preprint arXiv:2003.02369},
+	year={2020}
+}
+
+@inproceedings{garba2019saturn,
+	title={SATURN-Software deobfuscation framework based on LLVM},
+	author={Garba, Peter and Favaro, Matteo},
+	booktitle={Proceedings of the 3rd ACM Workshop on Software Protection},
+	pages={27--38},
+	year={2019}
+}
+
+@article{medress1977speech,
+  title={Speech understanding systems: report of a steering committee},
+  author={Medress, Mark F. and Cooper, Franklin S and Forgie, Jim W. and Green, CC and Klatt, Dennis H. and O'Malley, Michael H. and Neuburg, Edward P and Newell, Allen and Reddy, DR and Ritea, B and others},
+  journal={Artificial Intelligence},
+  volume={9},
+  number={3},
+  pages={307--316},
+  year={1977},
+  publisher={Elsevier}
+}
+
+
+@inproceedings{barham2019machine,
+	title={Machine learning systems are stuck in a rut},
+	author={Barham, Paul and Isard, Michael},
+	booktitle={Proceedings of the Workshop on Hot Topics in Operating Systems},
+	pages={177--183},
+	year={2019}
+}
+
+@inproceedings{lavin2016fast,
+  title={Fast algorithms for convolutional neural networks},
+  author={Lavin, Andrew and Gray, Scott},
+  booktitle={Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition},
+  pages={4013--4021},
+  year={2016}
+}
+
+@inproceedings{vikhar2016evolutionary,
+  title={Evolutionary algorithms: a critical review and its future prospects},
+  author={Vikhar, Pradnya A},
+  booktitle={2016 International conference on global trends in signal processing, information computing and communication (ICGTSPICC)},
+  pages={261--265},
+  year={2016},
+  organization={IEEE}
+}
+
+@inproceedings{chen2016xgboost,
+  title={Xgboost: a scalable tree boosting system},
+  author={Chen, Tianqi and Guestrin, Carlos},
+  booktitle={Proceedings of the 22nd acm sigkdd international conference on knowledge discovery and data mining},
+  pages={785--794},
+  year={2016}
+}
+
+@book{sutton2018reinforcement,
+  title={Reinforcement learning: an introduction},
+  author={Sutton, Richard S and Barto, Andrew G},
+  year={2018},
+  publisher={MIT press}
+}
+
+
+%%%% Related work
+
+@inproceedings{jia2019optimizing,
+  title={Optimizing DNN computation with relaxed graph substitutions},
+  author={Jia, Zhihao and Thomas, James and Warszawski, Todd and Gao, Mingyu and Zaharia, Matei and Aiken, Alex},
+  booktitle={Proceedings of the 2nd Conference on Systems and Machine Learning (SysML’19)},
+  year={2019}
+}
+
+
+@inproceedings{jia2019taso,
+  title={TASO: optimizing deep learning computation with automatic generation of graph substitutions},
+  author={Jia, Zhihao and Padon, Oded and Thomas, James and Warszawski, Todd and Zaharia, Matei and Aiken, Alex},
+  booktitle={Proceedings of the 27th ACM Symposium on Operating Systems Principles},
+  pages={47--62},
+  year={2019}
+}
+
+@article{looks2017deep,
+  title={Deep learning with dynamic computation graphs},
+  author={Looks, Moshe and Herreshoff, Marcello and Hutchins, DeLesley and Norvig, Peter},
+  journal={arXiv preprint arXiv:1702.02181},
+  year={2017}
+}
+
+@article{schkufza2013stochastic,
+  title={Stochastic superoptimization},
+  author={Schkufza, Eric and Sharma, Rahul and Aiken, Alex},
+  journal={ACM SIGARCH Computer Architecture News},
+  volume={41},
+  number={1},
+  pages={305--316},
+  year={2013},
+  publisher={ACM New York, NY, USA}
+}
+
+@inproceedings{ansel2014opentuner,
+  title={OpenTuner: an extensible framework for program autotuning},
+  author={Ansel, Jason and Kamil, Shoaib and Veeramachaneni, Kalyan and Ragan-Kelley, Jonathan and Bosboom, Jeffrey and O'Reilly, Una-May and Amarasinghe, Saman},
+  booktitle={Proceedings of the 23rd international conference on Parallel architectures and compilation},
+  pages={303--316},
+  year={2014}
+}
+
+@inproceedings{Fialho2010,
+	author="Fialho, {\'A}lvaro and Da Costa, Luis and Schoenauer, Marc and Sebag, Mich{\`e}le",
+	title="Analyzing bandit-based adaptive operator selection mechanisms",
+	journal="Ann Math Artif Intell",
+	year="2010",
+}
+
+@inproceedings{whaley1998automatically,
+  title={Automatically tuned linear algebra software},
+  author={Whaley, R Clinton and Dongarra, Jack J},
+  booktitle={SC'98: Proceedings of the 1998 ACM/IEEE conference on Supercomputing},
+  pages={38--38},
+  year={1998},
+  organization={IEEE}
+}
+
+@inproceedings{frigo1998fftw,
+  title={FFTW: an adaptive software architecture for the FFT},
+  author={Frigo, Matteo and Johnson, Steven G},
+  booktitle={Proceedings of the 1998 IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP'98 (Cat. No. 98CH36181)},
+  volume={3},
+  pages={1381--1384},
+  year={1998},
+  organization={IEEE}
+}
+
+@inproceedings{baghdadi2019tiramisu,
+  title={Tiramisu: a polyhedral compiler for expressing fast and portable code},
+  author={Baghdadi, Riyadh and Ray, Jessica and Romdhane, Malek Ben and Del Sozzo, Emanuele and Akkas, Abdurrahman and Zhang, Yunming and Suriana, Patricia and Kamil, Shoaib and Amarasinghe, Saman},
+  booktitle={2019 IEEE/ACM International Symposium on Code Generation and Optimization (CGO)},
+  pages={193--205},
+  year={2019},
+  organization={IEEE}
+}
+
+@inproceedings{tillet2019triton,
+  title={Triton: an intermediate language and compiler for tiled neural network computations},
+  author={Tillet, Philippe and Kung, HT and Cox, David},
+  booktitle={Proceedings of the 3rd ACM SIGPLAN International Workshop on Machine Learning and Programming Languages},
+  pages={10--19},
+  year={2019}
+}
+
+@inproceedings{bondhugula2008practical,
+  title={A practical automatic polyhedral parallelizer and locality optimizer},
+  author={Bondhugula, Uday and Hartono, Albert and Ramanujam, Jagannathan and Sadayappan, Ponnuswamy},
+  booktitle={Proceedings of the 29th ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  pages={101--113},
+  year={2008}
+}
+
+@article{verdoolaege2013polyhedral,
+  title={Polyhedral parallel code generation for CUDA},
+  author={Verdoolaege, Sven and Carlos Juega, Juan and Cohen, Albert and Ignacio Gomez, Jose and Tenllado, Christian and Catthoor, Francky},
+  journal={ACM Transactions on Architecture and Code Optimization (TACO)},
+  volume={9},
+  number={4},
+  pages={1--23},
+  year={2013},
+  publisher={ACM New York, NY, USA}
+}
+
+@article{verdoolaege2016presburger,
+  title={Presburger formulas and polyhedral compilation},
+  author={Verdoolaege, Sven},
+  year={2016}
+}
+
+@inproceedings{haj2020autophase,
+  title={AutoPhase: juggling HLS phase orderings in random forests with deep reinforcement learning},
+  author={Haj-Ali, Ameer and Huang, Qijing and Moses, William and Xiang, John and Wawrzynek, John and Asanovic, Krste and Stoica, Ion},
+  booktitle={Third Conference on Machine Learning and Systems (ML-Sys)},
+  year={2020}
+}
+
+@article{zheng2020fusionstitching,
+  title={FusionStitching: boosting memory intensive computations for deep learning workloads},
+  author={Zheng, Zhen and Zhao, Pengzhan and Long, Guoping and Zhu, Feiwen and Zhu, Kai and Zhao, Wenyi and Diao, Lansong and Yang, Jun and Lin, Wei},
+  journal={arXiv preprint arXiv:2009.10924},
+  year={2020}
+}
+
+@article{shen2020nimble,
+  title={Nimble: Efficiently Compiling Dynamic Neural Networks for Model Inference},
+  author={Shen, Haichen and Roesch, Jared and Chen, Zhi and Chen, Wei and Wu, Yong and Li, Mu and Sharma, Vin and Tatlock, Zachary and Wang, Yida},
+  journal={arXiv preprint arXiv:2006.03031},
+  year={2020}
+}
+
+@article{hu2020featgraph,
+  title={FeatGraph: A Flexible and Efficient Backend for Graph Neural Network Systems},
+  author={Hu, Yuwei and Ye, Zihao and Wang, Minjie and Yu, Jiali and Zheng, Da and Li, Mu and Zhang, Zheng and Zhang, Zhiru and Wang, Yida},
+  journal={arXiv preprint arXiv:2008.11359},
+  year={2020}
+}
+
+@article{gale2019state,
+  title={The state of sparsity in deep neural networks},
+  author={Gale, Trevor and Elsen, Erich and Hooker, Sara},
+  journal={arXiv preprint arXiv:1902.09574},
+  year={2019}
+}
+
+@inproceedings{huang2019autophase,
+  title={Autophase: compiler phase-ordering for hls with deep reinforcement learning},
+  author={Huang, Qijing and Haj-Ali, Ameer and Moses, William and Xiang, John and Stoica, Ion and Asanovic, Krste and Wawrzynek, John},
+  booktitle={2019 IEEE 27th Annual International Symposium on Field-Programmable Custom Computing Machines (FCCM)},
+  pages={308--308},
+  year={2019},
+  organization={IEEE}
+}
+
+@inproceedings{haj2020neurovectorizer,
+  title={NeuroVectorizer: end-to-end vectorization with deep reinforcement learning},
+  author={Haj-Ali, Ameer and Ahmed, Nesreen K and Willke, Ted and Shao, Yakun Sophia and Asanovic, Krste and Stoica, Ion},
+  booktitle={Proceedings of the 18th ACM/IEEE International Symposium on Code Generation and Optimization},
+  pages={242--255},
+  year={2020}
+}

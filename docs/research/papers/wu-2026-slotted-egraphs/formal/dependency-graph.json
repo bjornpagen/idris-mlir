@@ -1,0 +1,4774 @@
+{
+  "schema_version": "2.0",
+  "graph_status": "CURRENT_CURATED_EDGES_AND_TRANSITIVE_CLOSURE_RECOMPUTED",
+  "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+  "source_tag_gate": {
+    "status": "PASS_EXACT_BIJECTION_CURRENT_SNAPSHOT",
+    "tag_count": 146,
+    "unique_active_id_count": 146,
+    "unique_exact_declaration_count": 146,
+    "files": [
+      "foundations_compressed.tex",
+      "appendixC_vmcai_stage1.tex"
+    ]
+  },
+  "nodes": [
+    {
+      "formal_id": "TSG-FND-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Size of a Complete Binary AC Closure",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACClosureCounts",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-FND-002",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Typed permutation group cardinality",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-003",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Balanced typed-permutation reduction",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Finite sequence, bag, set, and arity-restricted carriers",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.FiniteContainerCarrierDefinition",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-005",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Lifted container equivalence and structural key congruence",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Types, slots, typed contexts, and canonical contexts",
+      "lean_declaration": "TypedSlottedEGraphsPaper.FiniteTypedContext.f02CanonicalContextEncoding",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed embeddings, renamings, and permutations",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-PROP-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed embedding identity, composition, and renaming inverse",
+      "lean_declaration": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-FND-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder descriptor occurrence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Port schemas and well-typed port values",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Signature law requirements",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Set-port arity downward closure",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.SetArityDownwardClosed",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Flat-license admissibility",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Flat-port splice closure",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.FlatAritySpliceClosed",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-009",
+      "active_status": "ACTIVE",
+      "paper_title": "C, I, and A endpoint-indexed certificate families",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-FND-010",
+      "active_status": "ACTIVE",
+      "paper_title": "U endpoint-indexed certificate family",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.UnitEndpointCertificateFamily",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-001",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Visible same-head flat smart construction",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed Flexible-Arity E-Nodes",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Capture-avoiding typed embedding action",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed Embeddings Preserve Types",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-COR-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Slot Support Invariance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteSlotSupportInvariance",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Type Safety of Invocation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed shape carrier",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF006TypedShapeCarrier",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Flexible Arity Typed Slotted E-Graph",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-INV-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Exact quiescent collision index",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.F10FiniteQuiescentGraphEnvironment.collisionIndexExact",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Leaderization Contracts Support",
+      "lean_declaration": "TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Proper parent embeddings require endpoint certificates",
+      "lean_declaration": "TypedSlottedEGraphsPaper.CertifiedParentEdge",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed Alpha-Equivalence of Port Values",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-PROP-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed Alpha-Equivalence Laws",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Graph-relative typed structural relation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Transport of Graph-Relative Invocation Alignment",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-010",
+      "active_status": "ACTIVE",
+      "paper_title": "Leader-kernel extraction and provenance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-011",
+      "active_status": "ACTIVE",
+      "paper_title": "Leader-normalized ports and nodes",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredValue.LeaderNormalized",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Identity Alignment Preserves Leader-Invocation Support",
+      "lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-012",
+      "active_status": "ACTIVE",
+      "paper_title": "Ambient quotient normalizer Q",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Ambient Quotient-Normal-Form Exactness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-013",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonical candidate set and canonical record",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-INV-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonical shape witness and support postconditions",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Effective-Support Canonical-Shape Exactness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ALG-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Direct finite canonicalization contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-014",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonicalization work factor P_Q",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.canonicalizationWorkFactor",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ASY-001",
+      "active_status": "ACCOUNTING_HISTORY",
+      "paper_title": "Conservative canonicalization time",
+      "lean_declaration": null,
+      "mapping_status": "EXCLUDED_ACCOUNTING_HISTORY",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ASY-002",
+      "active_status": "ACCOUNTING_HISTORY",
+      "paper_title": "Auxiliary and result space",
+      "lean_declaration": null,
+      "mapping_status": "EXCLUDED_ACCOUNTING_HISTORY",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Abstract obligation-composition contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG003CompatibilityGatedCollisionContract",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Abstract obligation-addition contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG004CertificatePreservingRebuildContract",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-PROP-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Finite Rebuild Quiescence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.finiteRebuildQuiescence",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-FND-011",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder-descriptor certificate family",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralLocalLaws",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-015",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified structural and input equational theories",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedTermLanguage",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-016",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed Equational Certificate",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedEquationalCertificate",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-017",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed model, environment, and port semantic carriers",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedModel",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-018",
+      "active_status": "ACTIVE",
+      "paper_title": "Structural evaluation with opaque class interpretations",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedModel.evaluate",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder admissibility naturality",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGINV006BinderAdmissibilityNaturality",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder automorphism and consumer invariance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralLocalLaws.binderBlockAutomorphismCongruence",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder consumer outer-context naturality",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlockNatural",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-019",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder-block body function and evaluation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Soundness of Typed Alpha-Equivalence Modulo Binder-Block Automorphisms",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-020",
+      "active_status": "ACTIVE",
+      "paper_title": "Source-port values and structural realization",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Naturality of Structural Realization",
+      "lean_declaration": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Soundness of Direct Node Congruence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-021",
+      "active_status": "ACTIVE",
+      "paper_title": "Coherent Equational Certificate Family",
+      "lean_declaration": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-DEF-022",
+      "active_status": "ACTIVE",
+      "paper_title": "Indexed finite representation relation Rep",
+      "lean_declaration": "TypedSlottedEGraphsPaper.PaperFiniteUnfolding",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-010",
+      "active_status": "ACTIVE",
+      "paper_title": "Find and Finite Unfolding Preserve Equational Certificates",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-LEM-011",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified Leader-Kernel Extraction",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-COR-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified Effective-Shape Collision",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-DEF-023",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified transition trace",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-THM-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Certificate-Preserving Reachability and Finite-Unfolding Soundness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-CE-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Parent equality does not imply child symmetry",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.parentEqualityDoesNotImplyChildSymmetry",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-CE-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Empty-context Boolean value cannot realize one-slot identity",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.properEmbeddingDoesNotImplyIndependence",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-APP-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Structural trace and dependent replay separation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-APP-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Complete structural and theorem-facing canonical records",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp002_completeCanonicalRecords",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-APP-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonical binder-block occurrence transport",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-APP-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Recursive ambient quotient-normalization procedure",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-APP-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified interface restriction during rebuild",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGAPP005CertifiedAbstractRebuildContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ALG-005",
+      "active_status": "ACTIVE",
+      "paper_title": "leaderKernelTrace pseudocode contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-006",
+      "active_status": "ACTIVE",
+      "paper_title": "canon pseudocode contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG006CompleteCanonPseudocodeContract",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-ALG-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Kernel-certificate replay pseudocode contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Certificate-bearing canonicalization wrapper",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ALG-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Port quotient-normalizer pseudocode contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Phase-local canonical rewrite order",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule001_orderedRulePipeline",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Parser-head normalization",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule002_parserHeadNormalization",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-003",
+      "active_status": "ACTIVE",
+      "paper_title": "NOOP/END structural cleanup",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule003_parserStructuralCleanup",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Capture-avoiding let beta reduction",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule004_captureAvoidingLetBeta",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Implication, biconditional, and Boolean conditional elimination",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule005_branchConnectiveElimination",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Boolean negation normal form",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule006_booleanNegationNormalForm",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Involutive atomic negation duals",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule007_involutiveAtomicNegationDuals",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Temporal negation duals",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule008_temporalNegationDuals",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Quantifier negation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule009_quantifierNegation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-010",
+      "active_status": "ACTIVE",
+      "paper_title": "Quantifiers over no admissible bindings",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule010_emptyAdmissibleBindings",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-011",
+      "active_status": "ACTIVE",
+      "paper_title": "Carrier-independent constant-body simplification",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule011_constantBodyQuantifiers",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-012",
+      "active_status": "ACTIVE",
+      "paper_title": "Phase-local prenex laws",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-013",
+      "active_status": "ACTIVE",
+      "paper_title": "Descriptor-certified declaration permutation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-014",
+      "active_status": "ACTIVE",
+      "paper_title": "Complete repaired Alloy operator-law boundary",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-015",
+      "active_status": "ACTIVE",
+      "paper_title": "Profile-dependent integer associativity and commutativity",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-CE-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Reassociation under overflow-forbidding semantics",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgCe003_overflowReassociationCounterexample",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-RULE-016",
+      "active_status": "ACTIVE",
+      "paper_title": "Boolean identities, annihilators, complements, and nonempty Set+ contract",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-017",
+      "active_status": "ACTIVE",
+      "paper_title": "Complement detection through normalized atomic duals",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-018",
+      "active_status": "ACTIVE",
+      "paper_title": "Relational constants and idempotence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule018_relationalLocalSaturation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-RULE-019",
+      "active_status": "ACTIVE",
+      "paper_title": "Implication identities",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule019_implicationLocalSaturation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-INV-009",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Minimum theorem-claiming implementation evidence",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-SCOPE-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Scope of zero canonical distance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Exact nonempty product-class count",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACProductClassCount",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Exact binary product-node count",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACOperatorNodeCount",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed embedding identity",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.id",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed embedding composition",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.comp",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Typed renaming inverse",
+      "lean_declaration": "TypedSlottedEGraphsPaper.TypedSlotRenaming.symm",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Embedding action preserves port typing",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcretePort.act",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Embedding action preserves node typing",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteFlexibleArityENode.act",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Embedding action preserves output type",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.embeddedNodeOutputTypeUnchanged",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Port support equivariance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortSupportImageEquality",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-010",
+      "active_status": "ACTIVE",
+      "paper_title": "Node support equivariance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteNodeSupportImageEquality",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-011",
+      "active_status": "ACTIVE",
+      "paper_title": "Invocation output type",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteInvocation",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-012",
+      "active_status": "ACTIVE",
+      "paper_title": "Identity invocation law",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteIdentityInvocation",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-013",
+      "active_status": "ACTIVE",
+      "paper_title": "Invocation action composition",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.invocationActionComposition",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-014",
+      "active_status": "ACTIVE",
+      "paper_title": "Indexed alpha reflexivity",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.reflexive",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-015",
+      "active_status": "ACTIVE",
+      "paper_title": "Indexed alpha inverse",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.symmetric",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-016",
+      "active_status": "ACTIVE",
+      "paper_title": "Indexed alpha composition",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.transitive",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-017",
+      "active_status": "ACTIVE",
+      "paper_title": "Dependent-carrier unindexed alpha equivalence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-018",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Node alpha groupoid laws",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-019",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Node alpha preserves output type",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-020",
+      "active_status": "ACTIVE",
+      "paper_title": "Q soundness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-021",
+      "active_status": "ACTIVE",
+      "paper_title": "Q exactness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-022",
+      "active_status": "ACTIVE",
+      "paper_title": "Q support preservation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_support",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-023",
+      "active_status": "ACTIVE",
+      "paper_title": "Q preserves schema and types",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_schema_leafTypes_output",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-024",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Q node soundness/exactness/support",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-025",
+      "active_status": "ACTIVE",
+      "paper_title": "Q idempotence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_idempotent",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-026",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonical shape equality iff effective-kernel equivalence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-027",
+      "active_status": "ACTIVE",
+      "paper_title": "Canonical shape equality preserves output",
+      "lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_exactness_preserves_output",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-028",
+      "active_status": "ACTIVE",
+      "paper_title": "Alpha-equivalence evaluation transport",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom028AlphaEquivalenceEvaluationTransport",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-029",
+      "active_status": "ACTIVE",
+      "paper_title": "Binder-block automorphism evaluation invariance",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-030",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified direct node equation",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-031",
+      "active_status": "ACTIVE",
+      "paper_title": "Direct node-alignment semantic equality",
+      "lean_declaration": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceSemanticSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-032",
+      "active_status": "ACTIVE",
+      "paper_title": "Untransported same-context congruence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.AtomicLedger.sameContextIdentityCongruence",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-033",
+      "active_status": "ACTIVE",
+      "paper_title": "Find witness certificate",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-034",
+      "active_status": "ACTIVE",
+      "paper_title": "Finite-unfolding witness certificate",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-035",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Redundant-coordinate independence of finite representation",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-036",
+      "active_status": "OMITTED_HISTORY",
+      "paper_title": "Shape collision type/support consequences",
+      "lean_declaration": null,
+      "mapping_status": "NOT_ACTIVE",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-037",
+      "active_status": "ACTIVE",
+      "paper_title": "Effective-kernel collision certificate",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-038",
+      "active_status": "ACTIVE",
+      "paper_title": "Ambient collision certificate composition",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom038AmbientCollisionCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-039",
+      "active_status": "ACTIVE",
+      "paper_title": "Certified reachability preserves coherence",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-040",
+      "active_status": "ACTIVE",
+      "paper_title": "Finite-unfolding equational soundness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-041",
+      "active_status": "ACTIVE",
+      "paper_title": "Finite-unfolding model soundness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-042",
+      "active_status": "ACTIVE",
+      "paper_title": "Common-context weakened finite-unfolding soundness",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-addition constructor (insertion label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.insertion",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-rekey constructor (canonicalization label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.canonicalization",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-composition constructor (collision label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.collision",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-composition constructor (union label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.union",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-005",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-rekey constructor (symmetry label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.symmetry",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-006",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-rekey constructor (interface-restriction label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.interfaceRestriction",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-007",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-removal constructor (noninferential-union label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.noninferentialUnion",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-008",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-addition constructor (rebuild label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.rebuild",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-STEP-009",
+      "active_status": "ACTIVE",
+      "paper_title": "Obligation-composition constructor (path-compression label)",
+      "lean_declaration": "TypedSlottedEGraphsPaper.LocalCertifiedStep.pathCompression",
+      "mapping_status": "EXACT_CONSTRUCTOR",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-043",
+      "active_status": "ACTIVE",
+      "paper_title": "Nonempty AC product-class asymptotics",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.productClassCountThetaTwoPow",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ATOM-044",
+      "active_status": "ACTIVE",
+      "paper_title": "Binary AC operator-node asymptotics",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.binaryOperatorNodeCountThetaThreePow",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "formal_id": "TSG-ACC-001",
+      "active_status": "ACTIVE",
+      "paper_title": "Executable ceiling base-two logarithm",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.ceilLog2",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ACC-002",
+      "active_status": "ACTIVE",
+      "paper_title": "Structural computation budget B_T",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.structuralComputationBudget",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ACC-003",
+      "active_status": "ACTIVE",
+      "paper_title": "Auxiliary kernel workspace budget",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.auxiliaryKernelWorkspaceBudget",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ACC-004",
+      "active_status": "ACTIVE",
+      "paper_title": "Returned structural-record budget",
+      "lean_declaration": "TypedSlottedEGraphsPaper.ClaimLedger.returnedStructuralRecordBudget",
+      "mapping_status": "EXACT_DEFINITION",
+      "foundation_axioms": []
+    },
+    {
+      "formal_id": "TSG-ATOM-045",
+      "active_status": "ACTIVE",
+      "paper_title": "Recorded symmetry-word certificate closure",
+      "lean_declaration": "TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "mapping_status": "EXACT_PROOF",
+      "foundation_axioms": [
+        "Quot.sound"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "TSG-FND-002",
+      "to": "TSG-FND-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle"
+    },
+    {
+      "from": "TSG-FND-002",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-FND-005",
+      "to": "TSG-FND-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FiniteContainerCarrierDefinition"
+    },
+    {
+      "from": "TSG-DEF-002",
+      "to": "TSG-DEF-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.FiniteTypedContext.f02CanonicalContextEncoding"
+    },
+    {
+      "from": "TSG-PROP-001",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-FND-006",
+      "to": "TSG-DEF-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle",
+      "lean_to": "TypedSlottedEGraphsPaper.FiniteTypedContext.f02CanonicalContextEncoding"
+    },
+    {
+      "from": "TSG-FND-006",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-DEF-003",
+      "to": "TSG-FND-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FiniteContainerCarrierDefinition"
+    },
+    {
+      "from": "TSG-DEF-003",
+      "to": "TSG-FND-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle"
+    },
+    {
+      "from": "TSG-DEF-003",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-FND-007",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-INV-001",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.SetArityDownwardClosed",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-FND-008",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-INV-002",
+      "to": "TSG-FND-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.FlatAritySpliceClosed",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense"
+    },
+    {
+      "from": "TSG-FND-009",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-FND-009",
+      "to": "TSG-INV-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SetArityDownwardClosed"
+    },
+    {
+      "from": "TSG-FND-009",
+      "to": "TSG-INV-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FlatAritySpliceClosed"
+    },
+    {
+      "from": "TSG-FND-009",
+      "to": "TSG-DEF-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy"
+    },
+    {
+      "from": "TSG-FND-010",
+      "to": "TSG-FND-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.UnitEndpointCertificateFamily",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies"
+    },
+    {
+      "from": "TSG-FND-010",
+      "to": "TSG-INV-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.UnitEndpointCertificateFamily",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FlatAritySpliceClosed"
+    },
+    {
+      "from": "TSG-ALG-001",
+      "to": "TSG-FND-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense"
+    },
+    {
+      "from": "TSG-ALG-001",
+      "to": "TSG-FND-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.CIAEndpointCertificateFamilies"
+    },
+    {
+      "from": "TSG-ALG-001",
+      "to": "TSG-FND-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.UnitEndpointCertificateFamily"
+    },
+    {
+      "from": "TSG-DEF-004",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-DEF-004",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-DEF-005",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-DEF-005",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-DEF-005",
+      "to": "TSG-DEF-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition"
+    },
+    {
+      "from": "TSG-LEM-002",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-COR-001",
+      "to": "TSG-LEM-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteSlotSupportInvariance",
+      "lean_to": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes"
+    },
+    {
+      "from": "TSG-COR-002",
+      "to": "TSG-PROP-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "lean_to": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+    },
+    {
+      "from": "TSG-COR-002",
+      "to": "TSG-LEM-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "lean_to": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes"
+    },
+    {
+      "from": "TSG-DEF-006",
+      "to": "TSG-DEF-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF006TypedShapeCarrier",
+      "lean_to": "TypedSlottedEGraphsPaper.FiniteTypedContext.f02CanonicalContextEncoding"
+    },
+    {
+      "from": "TSG-DEF-006",
+      "to": "TSG-DEF-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF006TypedShapeCarrier",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition"
+    },
+    {
+      "from": "TSG-DEF-007",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-DEF-007",
+      "to": "TSG-DEF-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF006TypedShapeCarrier"
+    },
+    {
+      "from": "TSG-INV-003",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.F10FiniteQuiescentGraphEnvironment.collisionIndexExact",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-LEM-003",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-INV-004",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.CertifiedParentEdge",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-INV-004",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.CertifiedParentEdge",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-DEF-008",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-DEF-008",
+      "to": "TSG-FND-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle"
+    },
+    {
+      "from": "TSG-PROP-002",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-PROP-002",
+      "to": "TSG-PROP-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+    },
+    {
+      "from": "TSG-DEF-009",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-DEF-009",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-LEM-004",
+      "to": "TSG-DEF-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy"
+    },
+    {
+      "from": "TSG-LEM-004",
+      "to": "TSG-PROP-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "lean_to": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+    },
+    {
+      "from": "TSG-DEF-010",
+      "to": "TSG-LEM-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction",
+      "lean_to": "TypedSlottedEGraphsPaper.leaderizationContractsSupport"
+    },
+    {
+      "from": "TSG-DEF-011",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredValue.LeaderNormalized",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-LEM-005",
+      "to": "TSG-DEF-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy"
+    },
+    {
+      "from": "TSG-LEM-005",
+      "to": "TSG-DEF-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredValue.LeaderNormalized"
+    },
+    {
+      "from": "TSG-DEF-012",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-DEF-012",
+      "to": "TSG-DEF-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy"
+    },
+    {
+      "from": "TSG-DEF-012",
+      "to": "TSG-DEF-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredValue.LeaderNormalized"
+    },
+    {
+      "from": "TSG-LEM-006",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-DEF-013",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-DEF-013",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-INV-005",
+      "to": "TSG-DEF-013",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer"
+    },
+    {
+      "from": "TSG-INV-005",
+      "to": "TSG-LEM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport"
+    },
+    {
+      "from": "TSG-INV-005",
+      "to": "TSG-LEM-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness"
+    },
+    {
+      "from": "TSG-COR-003",
+      "to": "TSG-DEF-013",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer"
+    },
+    {
+      "from": "TSG-COR-003",
+      "to": "TSG-LEM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport"
+    },
+    {
+      "from": "TSG-COR-003",
+      "to": "TSG-LEM-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness"
+    },
+    {
+      "from": "TSG-ALG-002",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-ALG-002",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ALG-002",
+      "to": "TSG-DEF-013",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer"
+    },
+    {
+      "from": "TSG-DEF-014",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.canonicalizationWorkFactor",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-ASY-001",
+      "to": "TSG-DEF-014",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.canonicalizationWorkFactor"
+    },
+    {
+      "from": "TSG-ASY-001",
+      "to": "TSG-ALG-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract"
+    },
+    {
+      "from": "TSG-ASY-002",
+      "to": "TSG-ALG-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract"
+    },
+    {
+      "from": "TSG-DEF-016",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedEquationalCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-DEF-016",
+      "to": "TSG-DEF-015",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedEquationalCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedTermLanguage"
+    },
+    {
+      "from": "TSG-DEF-017",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedModel",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-DEF-017",
+      "to": "TSG-DEF-015",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedModel",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedTermLanguage"
+    },
+    {
+      "from": "TSG-DEF-018",
+      "to": "TSG-DEF-017",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedModel.evaluate",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedModel"
+    },
+    {
+      "from": "TSG-INV-006",
+      "to": "TSG-DEF-017",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGINV006BinderAdmissibilityNaturality",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedModel"
+    },
+    {
+      "from": "TSG-DEF-019",
+      "to": "TSG-DEF-018",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedModel.evaluate"
+    },
+    {
+      "from": "TSG-DEF-019",
+      "to": "TSG-INV-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralLocalLaws.binderBlockAutomorphismCongruence"
+    },
+    {
+      "from": "TSG-DEF-019",
+      "to": "TSG-INV-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlockNatural"
+    },
+    {
+      "from": "TSG-LEM-007",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-LEM-007",
+      "to": "TSG-DEF-019",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock"
+    },
+    {
+      "from": "TSG-LEM-007",
+      "to": "TSG-INV-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGINV006BinderAdmissibilityNaturality"
+    },
+    {
+      "from": "TSG-LEM-007",
+      "to": "TSG-INV-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralLocalLaws.binderBlockAutomorphismCongruence"
+    },
+    {
+      "from": "TSG-LEM-007",
+      "to": "TSG-INV-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlockNatural"
+    },
+    {
+      "from": "TSG-DEF-020",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-DEF-020",
+      "to": "TSG-DEF-015",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedTermLanguage"
+    },
+    {
+      "from": "TSG-LEM-008",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-LEM-008",
+      "to": "TSG-DEF-015",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedTermLanguage"
+    },
+    {
+      "from": "TSG-LEM-008",
+      "to": "TSG-DEF-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer"
+    },
+    {
+      "from": "TSG-LEM-009",
+      "to": "TSG-DEF-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy"
+    },
+    {
+      "from": "TSG-LEM-009",
+      "to": "TSG-LEM-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness"
+    },
+    {
+      "from": "TSG-LEM-009",
+      "to": "TSG-LEM-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality"
+    },
+    {
+      "from": "TSG-LEM-009",
+      "to": "TSG-DEF-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer"
+    },
+    {
+      "from": "TSG-DEF-021",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-DEF-021",
+      "to": "TSG-DEF-016",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedEquationalCertificate"
+    },
+    {
+      "from": "TSG-DEF-021",
+      "to": "TSG-DEF-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer"
+    },
+    {
+      "from": "TSG-DEF-022",
+      "to": "TSG-DEF-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperFiniteUnfolding",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+    },
+    {
+      "from": "TSG-DEF-022",
+      "to": "TSG-DEF-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.PaperFiniteUnfolding",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteStructuralRealizer"
+    },
+    {
+      "from": "TSG-LEM-010",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-LEM-010",
+      "to": "TSG-DEF-022",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperFiniteUnfolding"
+    },
+    {
+      "from": "TSG-LEM-010",
+      "to": "TSG-LEM-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality"
+    },
+    {
+      "from": "TSG-LEM-010",
+      "to": "TSG-LEM-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "lean_to": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate"
+    },
+    {
+      "from": "TSG-LEM-011",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-LEM-011",
+      "to": "TSG-DEF-016",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedEquationalCertificate"
+    },
+    {
+      "from": "TSG-COR-004",
+      "to": "TSG-COR-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness"
+    },
+    {
+      "from": "TSG-COR-004",
+      "to": "TSG-LEM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport"
+    },
+    {
+      "from": "TSG-COR-004",
+      "to": "TSG-LEM-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality"
+    },
+    {
+      "from": "TSG-COR-004",
+      "to": "TSG-LEM-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "lean_to": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate"
+    },
+    {
+      "from": "TSG-COR-004",
+      "to": "TSG-LEM-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+    },
+    {
+      "from": "TSG-DEF-023",
+      "to": "TSG-ALG-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract"
+    },
+    {
+      "from": "TSG-DEF-023",
+      "to": "TSG-ALG-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG003CompatibilityGatedCollisionContract"
+    },
+    {
+      "from": "TSG-DEF-023",
+      "to": "TSG-ALG-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG004CertificatePreservingRebuildContract"
+    },
+    {
+      "from": "TSG-DEF-023",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-DEF-023",
+      "to": "TSG-COR-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedTrace",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-DEF-023",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.LocalCertifiedTrace"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-ATOM-039",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-ATOM-040",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-ATOM-041",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness"
+    },
+    {
+      "from": "TSG-THM-001",
+      "to": "TSG-ATOM-042",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness"
+    },
+    {
+      "from": "TSG-APP-001",
+      "to": "TSG-DEF-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction"
+    },
+    {
+      "from": "TSG-APP-001",
+      "to": "TSG-LEM-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+    },
+    {
+      "from": "TSG-APP-003",
+      "to": "TSG-FND-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle"
+    },
+    {
+      "from": "TSG-APP-003",
+      "to": "TSG-FND-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralLocalLaws"
+    },
+    {
+      "from": "TSG-APP-004",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-APP-004",
+      "to": "TSG-INV-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalRecordPostconditions"
+    },
+    {
+      "from": "TSG-APP-004",
+      "to": "TSG-APP-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract"
+    },
+    {
+      "from": "TSG-APP-005",
+      "to": "TSG-PROP-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGAPP005CertifiedAbstractRebuildContract",
+      "lean_to": "TypedSlottedEGraphsPaper.finiteRebuildQuiescence"
+    },
+    {
+      "from": "TSG-ALG-006",
+      "to": "TSG-ALG-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG006CompleteCanonPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract"
+    },
+    {
+      "from": "TSG-ALG-006",
+      "to": "TSG-APP-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG006CompleteCanonPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract"
+    },
+    {
+      "from": "TSG-ALG-007",
+      "to": "TSG-LEM-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+    },
+    {
+      "from": "TSG-ALG-007",
+      "to": "TSG-ALG-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract"
+    },
+    {
+      "from": "TSG-ALG-008",
+      "to": "TSG-ALG-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG006CompleteCanonPseudocodeContract"
+    },
+    {
+      "from": "TSG-ALG-008",
+      "to": "TSG-ALG-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract"
+    },
+    {
+      "from": "TSG-ALG-009",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ALG-009",
+      "to": "TSG-APP-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract"
+    },
+    {
+      "from": "TSG-RULE-004",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule004_captureAvoidingLetBeta",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-RULE-012",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-RULE-013",
+      "to": "TSG-FND-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle"
+    },
+    {
+      "from": "TSG-RULE-013",
+      "to": "TSG-FND-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralLocalLaws"
+    },
+    {
+      "from": "TSG-RULE-014",
+      "to": "TSG-FND-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful"
+    },
+    {
+      "from": "TSG-RULE-014",
+      "to": "TSG-FND-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense"
+    },
+    {
+      "from": "TSG-RULE-016",
+      "to": "TSG-RULE-014",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary"
+    },
+    {
+      "from": "TSG-RULE-017",
+      "to": "TSG-RULE-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule007_involutiveAtomicNegationDuals"
+    },
+    {
+      "from": "TSG-RULE-017",
+      "to": "TSG-RULE-016",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation"
+    },
+    {
+      "from": "TSG-RULE-018",
+      "to": "TSG-RULE-014",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule018_relationalLocalSaturation",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary"
+    },
+    {
+      "from": "TSG-RULE-019",
+      "to": "TSG-RULE-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule019_implicationLocalSaturation",
+      "lean_to": "TypedSlottedEGraphsPaper.ProfileRules.tsgRule005_branchConnectiveElimination"
+    },
+    {
+      "from": "TSG-INV-009",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-INV-009",
+      "to": "TSG-DEF-023",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.LocalCertifiedTrace"
+    },
+    {
+      "from": "TSG-ATOM-003",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.id",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-ATOM-004",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.comp",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-ATOM-005",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.TypedSlotRenaming.symm",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-ATOM-006",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcretePort.act",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-ATOM-007",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteFlexibleArityENode.act",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-ATOM-008",
+      "to": "TSG-ATOM-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.embeddedNodeOutputTypeUnchanged",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteFlexibleArityENode.act"
+    },
+    {
+      "from": "TSG-ATOM-009",
+      "to": "TSG-ATOM-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortSupportImageEquality",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcretePort.act"
+    },
+    {
+      "from": "TSG-ATOM-010",
+      "to": "TSG-ATOM-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteNodeSupportImageEquality",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteFlexibleArityENode.act"
+    },
+    {
+      "from": "TSG-ATOM-011",
+      "to": "TSG-DEF-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteInvocation",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition"
+    },
+    {
+      "from": "TSG-ATOM-012",
+      "to": "TSG-PROP-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteIdentityInvocation",
+      "lean_to": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+    },
+    {
+      "from": "TSG-ATOM-013",
+      "to": "TSG-PROP-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.invocationActionComposition",
+      "lean_to": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+    },
+    {
+      "from": "TSG-ATOM-013",
+      "to": "TSG-DEF-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.invocationActionComposition",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+    },
+    {
+      "from": "TSG-ATOM-014",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.reflexive",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-ATOM-015",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.symmetric",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-ATOM-015",
+      "to": "TSG-ATOM-005",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.symmetric",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedSlotRenaming.symm"
+    },
+    {
+      "from": "TSG-ATOM-016",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.transitive",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-ATOM-016",
+      "to": "TSG-ATOM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.transitive",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.comp"
+    },
+    {
+      "from": "TSG-ATOM-017",
+      "to": "TSG-ATOM-014",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.reflexive"
+    },
+    {
+      "from": "TSG-ATOM-017",
+      "to": "TSG-ATOM-015",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.symmetric"
+    },
+    {
+      "from": "TSG-ATOM-017",
+      "to": "TSG-ATOM-016",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concreteUnindexedAlphaPortEquivalenceLaws",
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteAlphaPortClosure.transitive"
+    },
+    {
+      "from": "TSG-ATOM-018",
+      "to": "TSG-DEF-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort"
+    },
+    {
+      "from": "TSG-ATOM-020",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ATOM-021",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ATOM-022",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_support",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ATOM-023",
+      "to": "TSG-DEF-012",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_schema_leafTypes_output",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+    },
+    {
+      "from": "TSG-ATOM-024",
+      "to": "TSG-ATOM-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound"
+    },
+    {
+      "from": "TSG-ATOM-024",
+      "to": "TSG-ATOM-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff"
+    },
+    {
+      "from": "TSG-ATOM-024",
+      "to": "TSG-ATOM-022",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_preserves_support"
+    },
+    {
+      "from": "TSG-ATOM-025",
+      "to": "TSG-ATOM-020",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_idempotent",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_sound"
+    },
+    {
+      "from": "TSG-ATOM-025",
+      "to": "TSG-ATOM-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_idempotent",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal_eq_iff"
+    },
+    {
+      "from": "TSG-ATOM-026",
+      "to": "TSG-LEM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming",
+      "lean_to": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport"
+    },
+    {
+      "from": "TSG-ATOM-026",
+      "to": "TSG-LEM-006",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness"
+    },
+    {
+      "from": "TSG-ATOM-027",
+      "to": "TSG-ATOM-026",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_exactness_preserves_output",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming"
+    },
+    {
+      "from": "TSG-ATOM-028",
+      "to": "TSG-DEF-019",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom028AlphaEquivalenceEvaluationTransport",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlock"
+    },
+    {
+      "from": "TSG-ATOM-029",
+      "to": "TSG-INV-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralLocalLaws.binderBlockAutomorphismCongruence"
+    },
+    {
+      "from": "TSG-ATOM-029",
+      "to": "TSG-INV-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlockNatural"
+    },
+    {
+      "from": "TSG-ATOM-029",
+      "to": "TSG-ATOM-028",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.binderBlockAutomorphismEvaluationInvariant",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom028AlphaEquivalenceEvaluationTransport"
+    },
+    {
+      "from": "TSG-ATOM-030",
+      "to": "TSG-LEM-007",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation",
+      "lean_to": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness"
+    },
+    {
+      "from": "TSG-ATOM-030",
+      "to": "TSG-LEM-008",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation",
+      "lean_to": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality"
+    },
+    {
+      "from": "TSG-ATOM-031",
+      "to": "TSG-ATOM-030",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation"
+    },
+    {
+      "from": "TSG-ATOM-031",
+      "to": "TSG-DEF-017",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceSemanticSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedModel"
+    },
+    {
+      "from": "TSG-ATOM-032",
+      "to": "TSG-ATOM-030",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.AtomicLedger.sameContextIdentityCongruence",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom030CertifiedGraphRelativeNodeEquation"
+    },
+    {
+      "from": "TSG-ATOM-033",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-ATOM-034",
+      "to": "TSG-DEF-022",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperFiniteUnfolding"
+    },
+    {
+      "from": "TSG-ATOM-034",
+      "to": "TSG-ATOM-033",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate"
+    },
+    {
+      "from": "TSG-ATOM-034",
+      "to": "TSG-LEM-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate"
+    },
+    {
+      "from": "TSG-ATOM-035",
+      "to": "TSG-ATOM-034",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate"
+    },
+    {
+      "from": "TSG-ATOM-036",
+      "to": "TSG-COR-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": null,
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness"
+    },
+    {
+      "from": "TSG-ATOM-037",
+      "to": "TSG-ATOM-026",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.canonicalShape_eq_iff_effectiveKernel_typedRenaming"
+    },
+    {
+      "from": "TSG-ATOM-037",
+      "to": "TSG-LEM-009",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate"
+    },
+    {
+      "from": "TSG-ATOM-038",
+      "to": "TSG-LEM-011",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom038AmbientCollisionCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+    },
+    {
+      "from": "TSG-ATOM-038",
+      "to": "TSG-ATOM-037",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom038AmbientCollisionCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom037EffectiveKernelCollisionCertificate"
+    },
+    {
+      "from": "TSG-ATOM-039",
+      "to": "TSG-DEF-023",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+      "lean_to": "TypedSlottedEGraphsPaper.LocalCertifiedTrace"
+    },
+    {
+      "from": "TSG-ATOM-039",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    },
+    {
+      "from": "TSG-ATOM-040",
+      "to": "TSG-LEM-010",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates"
+    },
+    {
+      "from": "TSG-ATOM-041",
+      "to": "TSG-ATOM-040",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness"
+    },
+    {
+      "from": "TSG-ATOM-041",
+      "to": "TSG-DEF-017",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedModel"
+    },
+    {
+      "from": "TSG-ATOM-042",
+      "to": "TSG-ATOM-040",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness"
+    },
+    {
+      "from": "TSG-ATOM-042",
+      "to": "TSG-ATOM-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedSlotEmbedding.comp"
+    },
+    {
+      "from": "TSG-STEP-001",
+      "to": "TSG-ALG-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedStep.insertion",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG004CertificatePreservingRebuildContract"
+    },
+    {
+      "from": "TSG-STEP-003",
+      "to": "TSG-ALG-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedStep.collision",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG003CompatibilityGatedCollisionContract"
+    },
+    {
+      "from": "TSG-STEP-004",
+      "to": "TSG-ALG-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedStep.union",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG003CompatibilityGatedCollisionContract"
+    },
+    {
+      "from": "TSG-STEP-008",
+      "to": "TSG-ALG-004",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedStep.rebuild",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG004CertificatePreservingRebuildContract"
+    },
+    {
+      "from": "TSG-STEP-009",
+      "to": "TSG-ALG-003",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.LocalCertifiedStep.pathCompression",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG003CompatibilityGatedCollisionContract"
+    },
+    {
+      "from": "TSG-ATOM-043",
+      "to": "TSG-ATOM-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ACClosureCounts.productClassCountThetaTwoPow",
+      "lean_to": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACProductClassCount"
+    },
+    {
+      "from": "TSG-ATOM-044",
+      "to": "TSG-ATOM-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ACClosureCounts.binaryOperatorNodeCountThetaThreePow",
+      "lean_to": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACOperatorNodeCount"
+    },
+    {
+      "from": "TSG-ACC-002",
+      "to": "TSG-DEF-014",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.structuralComputationBudget",
+      "lean_to": "TypedSlottedEGraphsPaper.AtomicLedger.canonicalizationWorkFactor"
+    },
+    {
+      "from": "TSG-ACC-002",
+      "to": "TSG-ACC-001",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.ClaimLedger.structuralComputationBudget",
+      "lean_to": "TypedSlottedEGraphsPaper.ClaimLedger.ceilLog2"
+    },
+    {
+      "from": "TSG-ATOM-045",
+      "to": "TSG-DEF-002",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+    },
+    {
+      "from": "TSG-ATOM-045",
+      "to": "TSG-DEF-016",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.TypedEquationalCertificate"
+    },
+    {
+      "from": "TSG-ATOM-045",
+      "to": "TSG-DEF-021",
+      "kind": "PAPER_DIRECT_DEPENDENCY",
+      "lean_from": "TypedSlottedEGraphsPaper.paperF23SymmetryWordCertificate",
+      "lean_to": "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily"
+    }
+  ],
+  "transitive_dependencies": {
+    "TSG-FND-001": [],
+    "TSG-FND-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007"
+    ],
+    "TSG-FND-003": [],
+    "TSG-FND-004": [],
+    "TSG-FND-005": [
+      "TSG-FND-004"
+    ],
+    "TSG-DEF-001": [],
+    "TSG-DEF-002": [
+      "TSG-DEF-001"
+    ],
+    "TSG-PROP-001": [
+      "TSG-DEF-001",
+      "TSG-DEF-002"
+    ],
+    "TSG-FND-006": [
+      "TSG-DEF-001",
+      "TSG-DEF-002"
+    ],
+    "TSG-DEF-003": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006"
+    ],
+    "TSG-FND-007": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003"
+    ],
+    "TSG-INV-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007"
+    ],
+    "TSG-FND-008": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007"
+    ],
+    "TSG-INV-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-FND-008"
+    ],
+    "TSG-FND-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-INV-001",
+      "TSG-FND-008",
+      "TSG-INV-002",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009"
+    ],
+    "TSG-FND-010": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-INV-001",
+      "TSG-FND-008",
+      "TSG-INV-002",
+      "TSG-FND-009",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009"
+    ],
+    "TSG-ALG-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-INV-001",
+      "TSG-FND-008",
+      "TSG-INV-002",
+      "TSG-FND-009",
+      "TSG-FND-010",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009"
+    ],
+    "TSG-DEF-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007"
+    ],
+    "TSG-DEF-005": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004"
+    ],
+    "TSG-LEM-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-COR-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-LEM-002"
+    ],
+    "TSG-COR-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-LEM-002"
+    ],
+    "TSG-DEF-006": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004"
+    ],
+    "TSG-DEF-007": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006"
+    ],
+    "TSG-INV-003": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007"
+    ],
+    "TSG-LEM-003": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007"
+    ],
+    "TSG-INV-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010"
+    ],
+    "TSG-DEF-008": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003"
+    ],
+    "TSG-PROP-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008"
+    ],
+    "TSG-DEF-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008"
+    ],
+    "TSG-LEM-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009"
+    ],
+    "TSG-DEF-010": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003"
+    ],
+    "TSG-DEF-011": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007"
+    ],
+    "TSG-LEM-005": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011"
+    ],
+    "TSG-DEF-012": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011"
+    ],
+    "TSG-LEM-006": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-DEF-013": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-INV-005": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013"
+    ],
+    "TSG-COR-003": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013"
+    ],
+    "TSG-ALG-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-DEF-013"
+    ],
+    "TSG-DEF-014": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010"
+    ],
+    "TSG-ASY-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-DEF-013",
+      "TSG-ALG-002",
+      "TSG-DEF-014"
+    ],
+    "TSG-ASY-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-DEF-013",
+      "TSG-ALG-002"
+    ],
+    "TSG-ALG-003": [],
+    "TSG-ALG-004": [],
+    "TSG-PROP-003": [],
+    "TSG-FND-011": [],
+    "TSG-DEF-015": [],
+    "TSG-DEF-016": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-015"
+    ],
+    "TSG-DEF-017": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015"
+    ],
+    "TSG-DEF-018": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015",
+      "TSG-DEF-017"
+    ],
+    "TSG-INV-006": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015",
+      "TSG-DEF-017"
+    ],
+    "TSG-INV-007": [],
+    "TSG-INV-008": [],
+    "TSG-DEF-019": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-007",
+      "TSG-INV-008"
+    ],
+    "TSG-LEM-007": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019"
+    ],
+    "TSG-DEF-020": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015"
+    ],
+    "TSG-LEM-008": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-015",
+      "TSG-DEF-020"
+    ],
+    "TSG-LEM-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008"
+    ],
+    "TSG-DEF-021": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-020"
+    ],
+    "TSG-DEF-022": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-015",
+      "TSG-DEF-020"
+    ],
+    "TSG-LEM-010": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022"
+    ],
+    "TSG-LEM-011": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010",
+      "TSG-DEF-015",
+      "TSG-DEF-016"
+    ],
+    "TSG-COR-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-LEM-011"
+    ],
+    "TSG-DEF-023": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003",
+      "TSG-ALG-002",
+      "TSG-ALG-003",
+      "TSG-ALG-004",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-LEM-011",
+      "TSG-COR-004"
+    ],
+    "TSG-THM-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003",
+      "TSG-ALG-002",
+      "TSG-ALG-003",
+      "TSG-ALG-004",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-LEM-010",
+      "TSG-LEM-011",
+      "TSG-COR-004",
+      "TSG-DEF-023",
+      "TSG-ATOM-004",
+      "TSG-ATOM-039",
+      "TSG-ATOM-040",
+      "TSG-ATOM-041",
+      "TSG-ATOM-042"
+    ],
+    "TSG-CE-001": [],
+    "TSG-CE-002": [],
+    "TSG-APP-001": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-LEM-011"
+    ],
+    "TSG-APP-002": [],
+    "TSG-APP-003": [
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-FND-011"
+    ],
+    "TSG-APP-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-INV-005",
+      "TSG-FND-011",
+      "TSG-APP-003"
+    ],
+    "TSG-APP-005": [
+      "TSG-PROP-003"
+    ],
+    "TSG-ALG-005": [],
+    "TSG-ALG-006": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-INV-005",
+      "TSG-FND-011",
+      "TSG-APP-003",
+      "TSG-APP-004",
+      "TSG-ALG-005"
+    ],
+    "TSG-ALG-007": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-LEM-011",
+      "TSG-ALG-005"
+    ],
+    "TSG-ALG-008": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-INV-005",
+      "TSG-FND-011",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-LEM-011",
+      "TSG-APP-003",
+      "TSG-APP-004",
+      "TSG-ALG-005",
+      "TSG-ALG-006",
+      "TSG-ALG-007"
+    ],
+    "TSG-ALG-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-FND-011",
+      "TSG-APP-003"
+    ],
+    "TSG-RULE-001": [],
+    "TSG-RULE-002": [],
+    "TSG-RULE-003": [],
+    "TSG-RULE-004": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-RULE-005": [],
+    "TSG-RULE-006": [],
+    "TSG-RULE-007": [],
+    "TSG-RULE-008": [],
+    "TSG-RULE-009": [],
+    "TSG-RULE-010": [],
+    "TSG-RULE-011": [],
+    "TSG-RULE-012": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-RULE-013": [
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-FND-011"
+    ],
+    "TSG-RULE-014": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-FND-008"
+    ],
+    "TSG-RULE-015": [],
+    "TSG-CE-003": [],
+    "TSG-RULE-016": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-FND-008",
+      "TSG-RULE-014"
+    ],
+    "TSG-RULE-017": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-FND-008",
+      "TSG-RULE-007",
+      "TSG-RULE-014",
+      "TSG-RULE-016"
+    ],
+    "TSG-RULE-018": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-FND-008",
+      "TSG-RULE-014"
+    ],
+    "TSG-RULE-019": [
+      "TSG-RULE-005"
+    ],
+    "TSG-INV-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003",
+      "TSG-ALG-002",
+      "TSG-ALG-003",
+      "TSG-ALG-004",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-LEM-011",
+      "TSG-COR-004",
+      "TSG-DEF-023"
+    ],
+    "TSG-SCOPE-001": [],
+    "TSG-ATOM-001": [],
+    "TSG-ATOM-002": [],
+    "TSG-ATOM-003": [
+      "TSG-DEF-001",
+      "TSG-DEF-002"
+    ],
+    "TSG-ATOM-004": [
+      "TSG-DEF-001",
+      "TSG-DEF-002"
+    ],
+    "TSG-ATOM-005": [
+      "TSG-DEF-001",
+      "TSG-DEF-002"
+    ],
+    "TSG-ATOM-006": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-ATOM-007": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-ATOM-008": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-ATOM-007"
+    ],
+    "TSG-ATOM-009": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-ATOM-006"
+    ],
+    "TSG-ATOM-010": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-ATOM-007"
+    ],
+    "TSG-ATOM-011": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003"
+    ],
+    "TSG-ATOM-012": [
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001"
+    ],
+    "TSG-ATOM-013": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005"
+    ],
+    "TSG-ATOM-014": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008"
+    ],
+    "TSG-ATOM-015": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008",
+      "TSG-ATOM-005"
+    ],
+    "TSG-ATOM-016": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008",
+      "TSG-ATOM-004"
+    ],
+    "TSG-ATOM-017": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008",
+      "TSG-ATOM-004",
+      "TSG-ATOM-005",
+      "TSG-ATOM-014",
+      "TSG-ATOM-015",
+      "TSG-ATOM-016"
+    ],
+    "TSG-ATOM-018": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-008"
+    ],
+    "TSG-ATOM-019": [],
+    "TSG-ATOM-020": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-ATOM-021": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-ATOM-022": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-ATOM-023": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012"
+    ],
+    "TSG-ATOM-024": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-ATOM-020",
+      "TSG-ATOM-021",
+      "TSG-ATOM-022"
+    ],
+    "TSG-ATOM-025": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-ATOM-020",
+      "TSG-ATOM-021"
+    ],
+    "TSG-ATOM-026": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006"
+    ],
+    "TSG-ATOM-027": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-ATOM-026"
+    ],
+    "TSG-ATOM-028": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019"
+    ],
+    "TSG-ATOM-029": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-ATOM-028"
+    ],
+    "TSG-ATOM-030": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-008",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008"
+    ],
+    "TSG-ATOM-031": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-008",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-ATOM-030"
+    ],
+    "TSG-ATOM-032": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-008",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-ATOM-030"
+    ],
+    "TSG-ATOM-033": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-020",
+      "TSG-DEF-021"
+    ],
+    "TSG-ATOM-034": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-ATOM-033"
+    ],
+    "TSG-ATOM-035": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-ATOM-033",
+      "TSG-ATOM-034"
+    ],
+    "TSG-ATOM-036": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003"
+    ],
+    "TSG-ATOM-037": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-015",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-ATOM-026"
+    ],
+    "TSG-ATOM-038": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-LEM-011",
+      "TSG-ATOM-026",
+      "TSG-ATOM-037"
+    ],
+    "TSG-ATOM-039": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-PROP-001",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-LEM-004",
+      "TSG-DEF-010",
+      "TSG-DEF-011",
+      "TSG-DEF-012",
+      "TSG-LEM-006",
+      "TSG-DEF-013",
+      "TSG-COR-003",
+      "TSG-ALG-002",
+      "TSG-ALG-003",
+      "TSG-ALG-004",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-LEM-011",
+      "TSG-COR-004",
+      "TSG-DEF-023"
+    ],
+    "TSG-ATOM-040": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-LEM-010"
+    ],
+    "TSG-ATOM-041": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-LEM-010",
+      "TSG-ATOM-040"
+    ],
+    "TSG-ATOM-042": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-008",
+      "TSG-DEF-009",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-017",
+      "TSG-DEF-018",
+      "TSG-INV-006",
+      "TSG-INV-007",
+      "TSG-INV-008",
+      "TSG-DEF-019",
+      "TSG-LEM-007",
+      "TSG-DEF-020",
+      "TSG-LEM-008",
+      "TSG-LEM-009",
+      "TSG-DEF-021",
+      "TSG-DEF-022",
+      "TSG-LEM-010",
+      "TSG-ATOM-004",
+      "TSG-ATOM-040"
+    ],
+    "TSG-STEP-001": [
+      "TSG-ALG-004"
+    ],
+    "TSG-STEP-002": [],
+    "TSG-STEP-003": [
+      "TSG-ALG-003"
+    ],
+    "TSG-STEP-004": [
+      "TSG-ALG-003"
+    ],
+    "TSG-STEP-005": [],
+    "TSG-STEP-006": [],
+    "TSG-STEP-007": [],
+    "TSG-STEP-008": [
+      "TSG-ALG-004"
+    ],
+    "TSG-STEP-009": [
+      "TSG-ALG-003"
+    ],
+    "TSG-ATOM-043": [
+      "TSG-ATOM-001"
+    ],
+    "TSG-ATOM-044": [
+      "TSG-ATOM-002"
+    ],
+    "TSG-ACC-001": [],
+    "TSG-ACC-002": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-LEM-003",
+      "TSG-DEF-010",
+      "TSG-DEF-014",
+      "TSG-ACC-001"
+    ],
+    "TSG-ACC-003": [],
+    "TSG-ACC-004": [],
+    "TSG-ATOM-045": [
+      "TSG-FND-004",
+      "TSG-DEF-001",
+      "TSG-DEF-002",
+      "TSG-FND-006",
+      "TSG-DEF-003",
+      "TSG-FND-007",
+      "TSG-DEF-004",
+      "TSG-DEF-005",
+      "TSG-DEF-006",
+      "TSG-DEF-007",
+      "TSG-DEF-015",
+      "TSG-DEF-016",
+      "TSG-DEF-020",
+      "TSG-DEF-021"
+    ]
+  },
+  "cycle_count": 0,
+  "active_node_count": 146,
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "graph_kind": "CURATED_PAPER_DEPENDENCY_GRAPH",
+  "dependency_semantics": "Author-curated logical/expository dependencies recorded in formal-units.yaml. These are not compiler-used constants. The distinct mechanically derived graph required by the normalization contract is formal/compiler-dependency-graph.json.",
+  "compiler_dependency_graph": "formal/compiler-dependency-graph.json",
+  "compiler_dependency_graph_sha256": "d466a2432ba66cc1196aa2d6d06d776ba6d2bac8e1d2ea08c1259cd5f03292d4",
+  "edge_count": 221,
+  "regeneration_provenance": {
+    "direct_edges_recomputed_from": "formal-units.yaml:direct_dependencies",
+    "transitive_closure_recomputed": true
+  }
+}

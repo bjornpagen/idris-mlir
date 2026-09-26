@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "review_round": 1,
+  "fresh_instance": true,
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "snapshot_id": "134e916ecde752eee5e464dd171513e9e7ba92319300755f259bd2a8c20bc681",
+  "snapshot_manifest_sha256": "b004370d512b03227ee60cb0ec3622d45efd4097b55bd6de76d62ec1739ecd68",
+  "source_mutation_observed": false,
+  "builds_executed": false,
+  "role": "PAPER_LEAN_SEMANTIC_CORRESPONDENCE",
+  "reviewer_task_id": "/root/fresh_semantic_pass",
+  "coverage": {
+    "active_spans": "146/146",
+    "named_environments": "27/27",
+    "constructors": "19/19",
+    "normalized_statement_rows": "11/11",
+    "counterexample_prose_rows": "2/2",
+    "proof_sketch_repair_rows": "7/7"
+  },
+  "verdict": "PASS",
+  "blocking_findings": []
+}

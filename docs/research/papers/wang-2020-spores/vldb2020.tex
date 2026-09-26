@@ -1,0 +1,362 @@
+% THIS IS AN EXAMPLE DOCUMENT FOR VLDB 2012
+% based on ACM SIGPROC-SP.TEX VERSION 2.7
+% Modified by  Gerald Weber <gerald@cs.auckland.ac.nz>
+% Removed the requirement to include *bbl file in here. (AhmetSacan, Sep2012)
+% Fixed the equation on page 3 to prevent line overflow. (AhmetSacan, Sep2012)
+
+\documentclass{article}
+
+
+\usepackage{arxiv}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx}
+\graphicspath{{img/}}
+\usepackage{balance}  % for  \balance command ON LAST PAGE  (only there!)
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usepackage{color, colortbl}
+\usetikzlibrary{cd, positioning}
+\usepackage[inline]{enumitem}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily, keywordstyle=\bfseries, 
+  numbers=left,
+  stepnumber=1,    
+  firstnumber=1,
+  numberfirstline=true
+}
+
+% Include information below and uncomment for camera ready
+\title{Sum-Product Optimization via
+  Relational Equality Saturation for Large Scale Linear Algebra}
+%   \vldbAuthors{Yisu Remy Wang, Shana Hutchison,
+%   Jonathan Leang, Bill Howe, Dan Suciu}
+% \vldbDOI{https://doi.org/10.14778/xxxxxxx.xxxxxxx} \vldbVolume{12}
+% \vldbNumber{xxx} \vldbYear{2019}
+
+\input{macros}
+
+\begin{document}
+
+% ****************** TITLE ****************************************
+
+\title{\sys: Sum-Product Optimization via
+  Relational Equality Saturation for Large Scale Linear Algebra}
+
+% possible, but not really needed or used for PVLDB: \subtitle{[Extended
+%Abstract] \titlenote{A full version of this paper is available
+%as\textit{Author's Guide to Preparing ACM SIG Proceedings Using
+%\LaTeX$2_\epsilon$\ and BibTeX} at \texttt{www.acm.org/eaddress.htm}}}
+
+% ****************** AUTHORS **************************************
+
+% You need the command \numberofauthors to handle the 'placement
+% and alignment' of the authors beneath the title.
+%
+% For aesthetic reasons, we recommend 'three authors at a time'
+% i.e. three 'name/affiliation blocks' be placed beneath the title.
+%
+% NOTE: You are NOT restricted in how many 'rows' of
+% "name/affiliations" may appear. We just ask that you restrict
+% the number of 'columns' to three.
+%
+% Because of the available 'opening page real-estate'
+% we ask you to refrain from putting more than six authors
+% (two rows with three columns) beneath the article title.
+% More than six makes the first-page appear very cluttered indeed.
+%
+% Use the \alignauthor commands to handle the names
+% and affiliations for an 'aesthetic maximum' of six authors.
+% Add names, affiliations, addresses for
+% the seventh etc. author(s) as the argument for the
+% \additionalauthors command.
+% These 'additional authors' will be output/set for you
+% without further effort on your part as the last section in
+% the body of your article BEFORE References or any Appendices.
+
+% \numberofauthors{5} %  in this sample file, there are a *total*
+% of EIGHT authors. SIX appear on the 'first-page' (for formatting
+% reasons) and the remaining two appear in the \additionalauthors section.
+\author{
+Yisu Remy Wang\\
+      University of Washington\\
+      Seattle, Washington\\
+      \texttt{remywang@cs.washington.edu}
+% 2nd. author
+\And
+Shana Hutchison\\
+      University of Washington\\
+      Seattle, Washington\\
+      \texttt{shutchis@cs.washington.edu}
+% 3rd. author
+\And Jonathan Leang\\
+      University of Washington\\
+      Seattle, Washington\\
+      \texttt{jleang@cs.washington.edu}
+\And  % use '\and' if you need 'another row' of author names
+% 4th. author
+ Bill Howe\\
+      University of Washington\\
+      Seattle, Washington\\
+      \texttt{billhowe@cs.washington.edu}
+% 5th. author
+\And Dan Suciu\\
+      University of Washington\\
+      Seattle, Washington\\
+      \texttt{suciu@cs.washington.edu}
+}
+
+% \author{
+% You can go ahead and credit any number of authors here,
+% e.g. one 'row of three' or two rows (consisting of one row of three
+% and a second row of one, two or three).
+%
+% The command \alignauthor (no curly braces needed) should
+% precede each author name, affiliation/snail-mail address and
+% e-mail address. Additionally, tag each line of
+% affiliation/address with \affaddr, and tag the
+% e-mail address with \email.
+%
+% 1st. author
+% \alignauthor
+% Yisu Remy Wang\\
+%       \affaddr{University of Washington}\\
+%       \affaddr{Seattle, Washington}\\
+%       \email{remywang@uw.edu}
+% % 2nd. author
+% \alignauthor
+% Shana Hutchison\\
+%       \affaddr{University of Washington}\\
+%       \affaddr{Seattle, Washington}\\
+%       \email{shutchis@uw.edu}
+% % 3rd. author
+% \alignauthor Jonathan Leang\\
+%       \affaddr{University of Washington}\\
+%       \affaddr{Seattle, Washington}\\
+%       \email{jleang@uw.edu}
+% \and  % use '\and' if you need 'another row' of author names
+% % 4th. author
+% \alignauthor Bill Howe\\
+%       \affaddr{University of Washington}\\
+%       \affaddr{Seattle, Washington}\\
+%       \email{billhowe@uw.edu}
+% % 5th. author
+% \alignauthor Dan Suciu\\
+%       \affaddr{University of Washington}\\
+%       \affaddr{Seattle, Washington}\\
+%       \email{suciu@cs.washington.edu}
+% }
+% % There's nothing stopping you putting the seventh, eighth, etc.
+% % author on the opening page (as the 'third row') but we ask,
+% % for aesthetic reasons that you place these 'additional authors'
+% % in the \additional authors block, viz.
+% % Just remember to make sure that the TOTAL number of authors
+% % is the number that will appear on the first page PLUS the
+% % number that will appear in the \additionalauthors section.
+
+\maketitle
+
+\begin{abstract}
+  Machine learning algorithms are commonly specified in linear algebra
+  (LA). LA expressions can be rewritten into more efficient forms, by
+  taking advantage of input properties such as \textit{sparsity}, as
+  well as program properties such as \textit{common subexpressions}
+  and \textit{fusible operators}.  The complex interaction among these
+  properties' impact on the execution cost poses a challenge to
+  optimizing compilers. Existing compilers resort to intricate
+  heuristics that complicate the codebase and add maintenance cost
+  but fail to search through the large space of equivalent LA
+  expressions to find the cheapest one.  We introduce a general
+  optimization technique for LA expressions, by converting the LA
+  expressions into Relational Algebra (RA) expressions, optimizing the
+  latter, then converting the result back to (optimized) LA
+  expressions.  One major advantage of this method is that it is
+  complete, meaning that any equivalent LA expression can be found
+  using the equivalence rules in RA.  The challenge is the major size
+  of the search space, and we address this by adopting and extending a
+  technique used in compilers, called \textit{equality saturation}. We
+  integrate the optimizer into SystemML and validate it empirically
+  across a spectrum of machine learning tasks; we show that we can
+  derive all existing hand-coded optimizations in SystemML, and
+  perform new optimizations that lead to speedups from $1.2X$ to $5X$.
+%% 
+  %% a technique for optimizing LA expressions with sum, product and
+  %% aggregate operations, while exploiting sparsity and common
+  %% subexpressions, and supporting operator fusion and custom
+  %% functions. Our optimizer leverages relational algebra as an
+  %% intermediate representation to completely represent the search
+  %% space; it then searches for the optimal expression with a
+  %% holistic optimization technique called \textit{equality
+  %% saturation}. We integrate the optimizer into SystemML, and run
+  %% experiments across a spectrum of machine learning tasks. The
+  %% experiments show our approach can derive all optimizations found
+  %% by hand-coded heuristics in SystemML, and also performs new
+  %% optimizations that lead to speedups from $1.2X$ to $5X$.
+\end{abstract}
+
+\section{Introduction}
+\input{intro.tex}
+
+\section{Representing the Search Space} \label{sec:la:to:ra}
+\input{rplan.tex}
+
+\section{Exploring the Search Space} \label{explore}
+\input{saturation.tex}
+
+\section{Evaluation} \label{sec:evaluation}
+\input{eval.tex}
+
+\section{Related Work}
+\input{related.tex}
+
+% \section{Future Work}
+% \input{future.tex}
+
+\section{Conclusion}
+\input{conclusion.tex}
+
+\section{Acknowledgement}
+The authors would like to thank Alexandre Evfimievski, Matthias Boehm, and Berthold Reinwald for their insights in developing SystemMLs internals. We would also like to thank Mathew Luo and Brendan Murphy for their guidance in piloting an ILP extractor as well as Zach Tatlock, Max Willsey and Chandrakana Nandi for their valuable feedback and discussion.
+
+\balance
+
+\bibliographystyle{abbrv}
+\bibliography{vldb2020}
+
+\newpage
+
+\appendix
+\section{Uniqueness of RA Canonical Form}
+
+To prove Lemma~\ref{lemma:unique:nf} (\textit{uniqueness of canonical form}), we first give formal definitions for several important constructs. First, we interpret a tensor (high dimensional matrix) as a function from a tuple of indices to a real number: 
+\begin{definition}{{\em (Tensors)}}
+A {\em \textbf{tensor}} is a function $A: [N]^d \rightarrow \R$ such that $A(i,j,\dots)$ returns the tensor entry $A_{ij\dots}$. $d$ is the {\em \textbf{dimensionality}} of $A$, and $N$ is the {\em \textbf{dimension size}}. Each argument to $A$ is an {\em \textbf{index}}, and we write \pmb{$i$} (in bold) for a tuple of indices. We write $\pmb{A}$ (in bold) for $A(\pmb{i})$, i.e. a tensor indexed with a tuple of indices. 
+\end{definition}
+We use the terms {\em \textbf{tensor}} and {\em \textbf{relation}} interchangingly. Note that we assume every dimension has the same size $N$ for simplicity. If the dimension sizes differ in a tensor $A$, we can easily set $N$ to be the maximum size and fill $A$ with zeroes accordingly. For example, for a 2D matrix $A$ with dimensions $|d_1| = m < |d_2| =n$, we simply set $N=n$ and have $A_{ij}=0$ for $i>m$. 
+
+Now we give names for special forms of expressions at each level of the normal form: 
+\begin{definition}{{\em (Atoms, Monomials, Terms, Polyterms)}}\label{forms} 
+An indexed tensor $\pmb{A}$ is also called an {\em \textbf{atom}}. 
+A {\em \textbf{monomial}} $m$ is a product of any number of atoms. A {\em \textbf{term}} $t$ is an aggregate of a monomial over a set of indices. A {\em \textbf{polyterm}} $e$ is the sum of terms (with a constant term $c$ at the end), where each term has a constant factor: 
+\begin{alignat*}{3}
+      &\pmb{A} & & := A(\pmb{i}) && (1)\, atoms \\
+      &m & & := \pmb{A}_1 \times \pmb{A}_2 \times \dots \pmb{A}_n && (2)\, monomials  \\
+      &t & & := \textstyle \sum_{\pmb{i}} m  &&(3)\, terms \\
+      &e & & := c_1 t_1 + c_2 t_2 + \dots c_n t_n + c \,&&(4)\, polyterms
+\end{alignat*}{}
+We identify the monomial $m$ with a bag of atoms, denoted $bag(m)$, such
+  that for every atom $\pmb{A}$ occurring $n$ times in $m$, $bag(m)$
+  contains $n$ copies of $\pmb{A}$. 
+  An index $i$ in a term $t=\sum_{\pmb{i}} m$ is {\em \textbf{bound}} if $i \in \pmb{i}$; otherwise it is {\em \textbf{free}}. We write $bv(t)$ for the set of bound indices in $t$, $fv(t)$ for the set of free indices in $t$, and $vars(t)$ for the set of all indices in $t$. 
+\end{definition}{}
+\begin{example}{}
+The polyterm 
+$2 \sum_{j} A(i,j) \times A(i,j) \times B(j,k) \times B(j,k) + 3 \sum_{l} A(i,l) \times C(l,k) + 2$ represents the linear algebra expression $2A^2B^2 + 3AC + 2$, where $A^2$ squares the matrix element-wise. The monomial $A(i,j) \times A(i,j) \times B(j,k) \times B(j,k)$ is the same as $A(i,j)  \times B(j,k) \times A(i,j) \times B(j,k)$, and we view it as the bag $\{A(i,j), A(i,j), B(j,k), B(j,k)\}$. 
+\end{example}
+Before giving the formal definition of a canonical form, we need to define two syntactical relationships between our expressions, namely {\em homomorphism} and {\em isomorphism}. Fix terms $t = \sum_{\pmb{i}} m$ and $t' = \sum_{\pmb{i'}} m'$, and let $f: \pmb{i} \rightarrow \pmb{i}'$ be any function. Let $\pmb{A} \in bag(m)$ be an atom of $m$. We write $f(A)$ for the result of applying $f$ to all bound indices of $\pmb{A}$. We write $f(bag(m))$ for the bag obtained by applying $f$ to each atom $\pmb{A} \in bag(m)$. 
+\begin{definition}{\em (Term Homomorphism)}
+A homomorphism $f: t \rightarrow t'$ is a function $f: \pmb{i} \rightarrow \pmb{i}'$ such that $f(bag(m))=bag(m')$. Note that $f$ is a one-to-one mapping between $bag(m)$ and $bag(m')$. 
+\end{definition}{}
+\begin{example}
+Between terms
+$t_1 = \sum_{vwst} A(i,v) \times B(v,w) \times A(i,s) \times B(s,t)$ and 
+$t_2= \sum_{jk} A^2(i,j) \times B^2(j,k)$
+there is a homomorphism:  $$t_1 \rightarrow t_2:[v \mapsto j, w \mapsto k, s \mapsto j, t \mapsto k]$$
+\end{example}
+We extend $f$ to take $vars(t_1)$ where free variables map to themselves. It is easy to see for any homomorphism $f$, $f(vars(t_1))=vars(t_2)$. 
+\begin{corollary}\label{surjective}
+Homomorphism is \emph{\textbf{surjective}} on the indices. 
+\end{corollary}
+\begin{proof}
+Suppose for the sake of contradiction that a homomorphism $f: t_1 \rightarrow t_2$ is not 
+surjective. Then there exists an index $i \in vars(t_2)$ that is not in $f(vars(t_1))$, 
+and the atom containing $i$ does not appear in $f(t_1)$. That implies the monomial in $f(t_1)$ is cannot be equal to the monomial in $t_2$, so $f$ is not a homomorphism -- contradiction. 
+\end{proof}{}
+
+\begin{corollary}\label{compose}
+Homomorphism is closed under composition: 
+given homomorphisms $f: t_1 \rightarrow t_2$ and $g: t_2 \rightarrow t_3$, $g \circ f: t_1 \rightarrow t_3$ is a homomorphism from $t_1$ to $t_3$. 
+\end{corollary}
+\begin{proof}
+A homomorphism is a function on indices, so composing homomorphisms is just composing functions. 
+\end{proof}{}
+A stronger correspondence between terms is an \emph{isomorphism}: 
+\begin{definition}[Term Isomorphism]
+Terms $t_1=\sum_{\pmb{i_1}}m_1$ and $t_2=\sum_{\pmb{i_2}}m_2$ are \emph{\textbf{isomorphic}} iff there is a bijective homomorphism between them. 
+We write $t_1 \equiv t_2$ to mean $t_1$ and $t_2$ are isomorphic. 
+\end{definition}
+
+A pair of homomorphisms $t_1 \rightarrow t_2$ and $t_2 \rightarrow t_1$ produce an isomorphism: 
+\begin{lemma}\label{homocycle}
+Given two terms $t_1$ and $t_2$, if there is a homomorphism $f: t_1 \rightarrow t_2$ and a homomorphism $g: t_2 \rightarrow t_1$ then $t_1 \equiv t_2$. If there is a cycle of homomorphisms among a number of terms, all terms on the cycle are isomorphic. 
+\end{lemma}{}
+\begin{proof}
+By Corollary~\ref{surjective}, a pair of homomorphisms between two terms are a pair of surjective maps between the terms' indices. A pair of surjective maps induce a bijective map which is an isomorphism. 
+By Corollary~\ref{compose}, if $t_1$ and $t_2$ are on a cycle of homomorphism, we can retract the homomorphism chains between them to obtain a pair of homomorphisms $f: t_1 \rightarrow t_2$ and $g: t_2 \rightarrow t_1$, which implies $t_1 \equiv t_2$. 
+\end{proof}{}
+We are now ready to formally define the canonical form for RA expressions: 
+
+\begin{definition}{\em (Canonical Form)} An RPlan expression (as defined in Table~\ref{tPlanOps}) is {\em \textbf{canonical}} if it is a polyterm (Definition~\ref{forms}) containing no isomorphic terms. 
+\end{definition}{}
+
+Our ultimate goal is to identify canonical form isomorphism with equivalence. That is, two canonical expressions are equivalent iff they are isomorphic. By equivalence we mean the expressions evaluate to the same result given any same inputs: 
+
+\begin{definition}{\em (Equivalence of Expressions)} Two expressions are {\em \textbf{equivalent}} iff $\forall \pmb{T}. e_1(\pmb{T}) = e_2(\pmb{T})$, where $\pmb{T}$ is the set of input tensors to the expressions. We write $e_1 = e_2$ to mean $e_1$ and $e_2$ are equivalent. 
+\end{definition}{}
+
+We can canonicalize any expression by pulling $+$ to the top and pushing $\times$ to the bottom, while combining isomorphic terms $c_1 t + c_2 t$ into $(c_1 + c_2) t$: 
+
+\begin{lemma}
+For every RPlan expression, there is an equivalent canonical expression. 
+\end{lemma}{}
+\begin{proof}
+The proof is a standard application of the rewrite rules $R_{EQ}$ in Figure~\ref{RRC}. 
+\end{proof}{}
+
+We can identify canonical expressions syntactically using term isomorphism: 
+
+\begin{definition}{\em (Isomorphic Canonical Expressions)} 
+Given two canonical expressions $e = \sum_{\pmb{i}} c_1 t_1 + \dots + c_n t_n + c $ and $e' = \sum_{\pmb{i'}} c_1' t_1' + \dots + c_m' t_m' + c'$, $e$ and $e'$ are isomorphic if there is a bijection $\sigma: [n] \rightarrow [m]$ (in particular $n=m$), such that $\forall i \in [n]$, 
+     $c_i = c_{\sigma(i)}'$, 
+     $t_i \equiv t_{\sigma(i)}'$, and 
+     $c = c'$. 
+\end{definition}{}
+
+Note that isomorphic expressions have the same free variables. We now show two expressions are isomorphic iff they are equivalent: 
+
+\begin{theorem}{(\textbf{Isomorphism Captures Equivalence})} For canonical expressions $e_1$ and $e_2$: 
+$$e_1 \equiv e_2 \iff e_1 = e_2$$ 
+\end{theorem}{}
+\begin{proof}
+The left-to-right direction is straightforward: isomorphism only renames indices and reorders $+$ and $\times$, which does not change semantics. And because RA semantics is deterministic, two isomorphic expressions compute the same function. 
+
+The right-to-left direction is exactly Lemma~\ref{lemma:unique:nf}, the uniqueness of canonical forms: 
+$$e_1  = e_2  \Rightarrow e_1  \equiv e_2 $$
+Without loss of generality, we make the following simplifying assumptions. First, we assume $e_1$ and $e_2$ contain no constant terms. Otherwise the expressions would evaluate to their respective constants on all-0 inputs, so the constant terms must be equal. Subtracting the same constant preserves equivalence and isomorphism, so we can simply remove equal constant terms. 
+Second, we assume no term in $e_1$ is isomorphic to any term in $e_2$. 
+Otherwise if $e_1$ contains $c_1t_1$ and $e_2$ contains $c_2t_2$ with $t_1 \equiv t_2$, then we can write $e_1 = c_1 t_1 + e_1'$ and $e_2 = c_2 t_2 + e_2'$ where $e_1'$ and $e_2'$ are polyterms. Assume w.l.o.g that $c_1 \leq c_2$. Since $c_1t_1 + e_1' = c_2 t_2 + e_2'$, $e_1' = (c_2 - c_1)t_2 +e_2'$ and we have removed $t_1$ from $e_1$. 
+Furthermore, $e_1 = e_2 \Rightarrow e_1' = e_2'$ and $e_1' \equiv e_2' \Rightarrow e_1 \equiv e_2$. 
+Then by proving $e_1' = e_2' \Rightarrow  e_1' \equiv e_2'$ we can show the following:
+$$e_1 = e_2 \Rightarrow e_1' = e_2' \Rightarrow  e_1' \equiv e_2' \Rightarrow e_1 \equiv e_2$$
+Finally we assume $e_1$ and $e_2$ are fully aggregated, i.e. every index is bound. Without this assumption, we first observe $e_1$ and $e_2$ must have the same free indices to output tensors with the same dimensionality. Then we define $e_1' = \sum_{\pmb{i}} e_2$ and $e_2' = \sum_{\pmb{i}} e_2$, where $\pmb{i}$ is the set of free variables of $e_1$ and $e_2$. We can easily show $e_1 = e_2 \Rightarrow e_1' = e_2'$ and $e_1' \equiv e_2' \Rightarrow e_1 \equiv e_2$, and with a proof of $e_1' = e_2' \Rightarrow e_1' \equiv e_2'$ it follows $e_1 = e_2 \Rightarrow e_1 \equiv e_2$. 
+
+Each expression can now be viewed as a set of terms, where each term has a constant factor and no two terms are isomorphic. Denoting by $t_1 < t_2$ if there is a homomorphism $t_1 \rightarrow t_2$, we observe homomorphism induces a partial order on the terms of $e_1$ and $e_2$. There is no cycle of homomorphisms, because by Lemma~\ref{homocycle} such a cycle implies isomorphisms, but we have assumed no isomorphic terms. 
+
+We now prove Lemma~\ref{lemma:unique:nf} through its contrapositive: 
+
+$$e_1 \not \equiv e_2 \Rightarrow e_1 \not = e_2$$
+
+We proceed by constructing a set of witness input tensors given which $e_1$ and $e_2$ return different results. First, let $t_1 = \sum_{i_1 i_2 \dots} \pmb{X}_1 \times \pmb{X}_2 \times \dots$ be the minimal term under the partial order induced by homomorphism. Assume w.l.o.g $t_1 \in e_1$. Define bijective function $\phi: i_n \rightarrow n$ mapping each index to a unique number. For each $\pmb{X}_n = X_n(\pmb{i}_n)$ introduce a real-valued variable $x_{n}$ and construct the input tensor $X_n$ such that $X_{\pmb{i}_n} = x_n$. Finally, set all undefined entries of each input tensor to $0$. 
+
+Given the input tensors defined above, $t_1$ evaluates to a polynomial $p_1$ of variables $x_1 \dots x_n$. Every monomial in $p_1$ corresponds to a function from $t_1$'s atoms $\pmb{X}_a, \pmb{X}_b, \dots$ to some variables $x_m, x_n, \dots$, and we call such a function $f_m$. There is one special (bijective) $f_m$ that maps each atom to its own variable: 
+let $m_1$ be the monomial in $t_1$, $m_1 = \pmb{X}_1 \times \pmb{X}_2 \times \dots$. We define $f_p(t_1) = m_1(\phi(i_1), \phi(i_2), \dots) = x_1 x_2 \dots$. $f_p(t_1)$ does not appear in any polynomial from other terms. Otherwise if it appears in polynomial $p_2$ from term $t_2$, we would be able to construct a homomorphism
+ $t_2 \rightarrow t_1 = f_m \circ f_p^{-1}$, where $f_m$ maps the monomial $m_2$ in $p_2$ to $t_1$. But that is impossible because we have picked $t_1$ to be the minimal term under homomorphism. Therefore, $p_1$ differs from any polynomial from terms in $t_2$, and by the fundamental theorem of algebra the polynomial are inequivalent. As a result, $e_1 \not = e_2$. 
+\end{proof}{}
+
+\end{document}

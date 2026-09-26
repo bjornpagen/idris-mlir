@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "contract_id": "paper-lean-correspondence-normalization-v1",
+  "status": "FROZEN_FOR_BOUNDED_CORRESPONDENCE_REPAIR",
+  "scope": "The 146 ACTIVE formal-unit mappings in the audited Typed Slotted E-Graphs paper snapshot.",
+  "frozen_input": {
+    "failed_review_snapshot_sha256": "a1968bcda191b303983649d557ffa07a5845d971ea57258db62fe239b6ab675a",
+    "failed_formal_registry_sha256": "9bf8c89f3dc03d6b9de275c4a2c78d312f608547d438615678d717aefdb7aa9e",
+    "failed_mapping_digest_sha256": "d063aae529e0eac1ddcddc1cc137027411f58b3b2c27192604ef1a1b04043012",
+    "failed_round2_review_sha256": "79edd88f6d20cbed21341841507e07f7bd7918f31387f6cbb903ce9c666c4f3b"
+  },
+  "paper_source_normal_form": {
+    "input": "The inclusive UTF-8 source span recorded for one formal unit.",
+    "steps": [
+      "Convert CRLF and CR line endings to LF.",
+      "Apply Unicode NFC normalization.",
+      "Remove TeX comments beginning at an unescaped percent sign.",
+      "Remove only the complete leanref tag that identifies the unit.",
+      "Collapse every remaining whitespace run to one ASCII space and trim both ends."
+    ],
+    "hash_field": "paper_source_normal_sha256",
+    "hash_algorithm": "SHA-256 of the UTF-8 paper source normal form"
+  },
+  "lean_type_normal_form": {
+    "input": "The exact elaborated declaration type obtained from the Lean 4.33.0 environment.",
+    "pretty_printer": {
+      "pp.universes": true,
+      "pp.explicit": false,
+      "pp.fullNames": true,
+      "pp.fieldNotation": false
+    },
+    "steps": [
+      "Pretty-print the elaborated type with the fixed options above.",
+      "Convert CRLF and CR line endings to LF.",
+      "Apply Unicode NFC normalization.",
+      "Collapse every whitespace run to one ASCII space and trim both ends."
+    ],
+    "hash_field": "lean_type_normal_sha256",
+    "hash_algorithm": "SHA-256 of the UTF-8 Lean type normal form"
+  },
+  "mechanically_derived_metadata": {
+    "provenance": "Defining module and declaration range from the Lean 4.33.0 environment.",
+    "hypotheses": "The outer elaborated telescope, retaining binder name, binder kind, and exact elaborated binder type.",
+    "dependencies": "Direct constants used by the declaration body, filtered to distinct ACTIVE mapped declarations; transitive dependencies are the closure of those direct edges.",
+    "controlled_english": "normative_statement is a reviewer-facing paraphrase and is never substituted for either mechanical normal form or hash."
+  },
+  "correspondence_equivalence": {
+    "permitted": [
+      "Binder and universe alpha-renaming.",
+      "Notation desugaring.",
+      "Let/zeta reduction.",
+      "Transparent unfolding of the mapped declaration itself, including its structure fields or inductive constructor surface."
+    ],
+    "forbidden": [
+      "Theorem rewriting or use of an unrecorded lemma.",
+      "Quantifier reordering.",
+      "Premise deletion, insertion, or weakening.",
+      "Conclusion strengthening or weakening.",
+      "Changing binder explicitness or binder order.",
+      "Changing the identity of a relation, the direction of an equality, or the order of conjuncts.",
+      "Adding semantic qualifiers or implementation claims absent from the elaborated type.",
+      "Treating prose similarity or a controlled-English paraphrase as normalized equality."
+    ]
+  },
+  "change_control": {
+    "frozen_after_first_use": true,
+    "amendment_rule": "Any change creates a new contract identifier and invalidates all reviews performed under this identifier."
+  }
+}

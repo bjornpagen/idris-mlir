@@ -1,0 +1,373 @@
+\begin{thebibliography}{10}
+
+\bibitem{tensorflow2015-whitepaper}
+M.~Abadi, A.~Agarwal, P.~Barham, E.~Brevdo, Z.~Chen, C.~Citro, G.~S. Corrado,
+  A.~Davis, J.~Dean, M.~Devin, S.~Ghemawat, I.~Goodfellow, A.~Harp, G.~Irving,
+  M.~Isard, Y.~Jia, R.~Jozefowicz, L.~Kaiser, M.~Kudlur, J.~Levenberg,
+  D.~Man\'{e}, R.~Monga, S.~Moore, D.~Murray, C.~Olah, M.~Schuster, J.~Shlens,
+  B.~Steiner, I.~Sutskever, K.~Talwar, P.~Tucker, V.~Vanhoucke, V.~Vasudevan,
+  F.~Vi\'{e}gas, O.~Vinyals, P.~Warden, M.~Wattenberg, M.~Wicke, Y.~Yu, and
+  X.~Zheng.
+\newblock {TensorFlow}: Large-scale machine learning on heterogeneous systems,
+  2015.
+\newblock Software available from tensorflow.org.
+
+\bibitem{Appel98ssais}
+A.~W. Appel.
+\newblock {SSA} is functional programming.
+\newblock {\em ACM SIGPLAN NOTICES}, 33(4):17--20, 1998.
+
+\bibitem{Auerbach:2012:CRH:2228360.2228411}
+J.~Auerbach, D.~F. Bacon, I.~Burcea, P.~Cheng, S.~J. Fink, R.~Rabbah, and
+  S.~Shukla.
+\newblock A compiler and runtime for heterogeneous computing.
+\newblock In {\em Proceedings of the 49th Annual Design Automation Conference},
+  DAC '12, pages 271--276, New York, NY, USA, 2012. ACM.
+
+\bibitem{Bag19}
+R.~Baghdadi, J.~Ray, M.~B. Romdhane, E.~Del~Sozzo, A.~Akkas, Y.~Zhang,
+  P.~Suriana, S.~Kamil, and S.~Amarasinghe.
+\newblock Tiramisu: A polyhedral compiler for expressing fast and portable
+  code.
+\newblock In {\em Proceedings of the 2019 IEEE/ACM International Symposium on
+  Code Generation and Optimization}, CGO 2019, page 193–205. IEEE Press,
+  2019.
+
+\bibitem{DBLP:conf/cgo/BagneresZHB16}
+L.~Bagn{\`{e}}res, O.~Zinenko, S.~Huot, and C.~Bastoul.
+\newblock Opening polyhedral compiler's black box.
+\newblock In {\em Proceedings of the 2016 International Symposium on Code
+  Generation and Optimization, {CGO} 2016, Barcelona, Spain, March 12-18,
+  2016}, pages 128--138, 2016.
+
+\bibitem{balakrishnan}
+G.~Balakrishnan and T.~Reps.
+\newblock Wysinwyx: What you see is not what you execute.
+\newblock {\em ACM Trans. Program. Lang. Syst.}, 32(6):23:1--23:84, Aug. 2010.
+
+\bibitem{cloog}
+C.~Bastoul.
+\newblock Code generation in the polyhedral model is easier than you think.
+\newblock In {\em Proceedings of the 13th International Conference on Parallel
+  Architectures and Compilation Techniques}, PACT '04, pages 7--16, Washington,
+  DC, USA, 2004. IEEE Computer Society.
+
+\bibitem{bondhugula08pldi}
+U.~Bondhugula, A.~Hartono, J.~Ramanujam, and P.~Sadayappan.
+\newblock A practical automatic polyhedral parallelizer and locality optimizer.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} 2008 Conference on
+  Programming Language Design and Implementation, Tucson, AZ, USA, June 7-13,
+  2008}, pages 101--113, 2008.
+
+\bibitem{DBLP:journals/scp/BravenboerKVV08}
+M.~Bravenboer, K.~T. Kalleberg, R.~Vermaas, and E.~Visser.
+\newblock Stratego/xt 0.17. {A} language and toolset for program
+  transformation.
+\newblock {\em Sci. Comput. Program.}, 72(1-2):52--70, 2008.
+
+\bibitem{pollytactics}
+L.~Chelini, O.~Zinenko, T.~Grosser, and H.~Corporaal.
+\newblock Declarative loop tactics for domain-specific optimization.
+\newblock {\em {TACO}}, 16(4):55:1--55:25, 2020.
+
+\bibitem{auto-tvm}
+T.~Chen, T.~Moreau, Z.~Jiang, L.~Zheng, E.~Yan, H.~Shen, M.~Cowan, L.~Wang,
+  Y.~Hu, L.~Ceze, C.~Guestrin, and A.~Krishnamurthy.
+\newblock {TVM}: An automated end-to-end optimizing compiler for deep learning.
+\newblock In {\em 13th {USENIX} Symposium on Operating Systems Design and
+  Implementation ({OSDI} 18)}, pages 578--594, Carlsbad, CA, Oct. 2018.
+  {USENIX} Association.
+
+\bibitem{DBLP:conf/pldi/ChenGZWFER13}
+Y.~Chen, A.~Groce, C.~Zhang, W.~Wong, X.~Z. Fern, E.~Eide, and J.~Regehr.
+\newblock Taming compiler fuzzers.
+\newblock In {\em {ACM} {SIGPLAN} Conference on Programming Language Design and
+  Implementation, {PLDI} '13, Seattle, WA, USA, June 16-19, 2013}, pages
+  197--208, 2013.
+
+\bibitem{Click1995}
+C.~Click and K.~D. Cooper.
+\newblock Combining analyses, combining optimizations.
+\newblock {\em ACM Trans. Program. Lang. Syst.}, 17(2):181--196, Mar. 1995.
+
+\bibitem{Cohen:2006:SPG:1161486.1161489}
+A.~Cohen, S.~Donadio, M.-J. Garzaran, C.~Herrmann, O.~Kiselyov, and D.~Padua.
+\newblock In search of a program generator to implement generic transformations
+  for high-performance computing.
+\newblock {\em Sci. Comput. Program.}, 62(1):25--46, Sept. 2006.
+
+\bibitem{Cytron:1991:ECS:115372.115320}
+R.~Cytron, J.~Ferrante, B.~K. Rosen, M.~N. Wegman, and F.~K. Zadeck.
+\newblock Efficiently computing static single assignment form and the control
+  dependence graph.
+\newblock {\em ACM Trans. Program. Lang. Syst.}, 13(4):451--490, Oct. 1991.
+
+\bibitem{Elango:2018:DDL:3211346.3211354}
+V.~Elango, N.~Rubin, M.~Ravishankar, H.~Sandanagobalane, and V.~Grover.
+\newblock Diesel: Dsl for linear algebra and neural net computations on gpus.
+\newblock In {\em Proceedings of the 2nd ACM SIGPLAN International Workshop on
+  Machine Learning and Programming Languages}, MAPL 2018, pages 42--51, New
+  York, NY, USA, 2018. ACM.
+
+\bibitem{Fea92b}
+P.~Feautrier.
+\newblock Some efficient solutions to the affine scheduling problem. part {II}.
+  multidimensional time.
+\newblock {\em Int. J. Parallel Program.}, 21(6):389--420, 1992.
+
+\bibitem{NIPS2009_3694}
+E.~Garcia and M.~Gupta.
+\newblock Lattice regression.
+\newblock In Y.~Bengio, D.~Schuurmans, J.~D. Lafferty, C.~K.~I. Williams, and
+  A.~Culotta, editors, {\em Advances in Neural Information Processing Systems
+  22}, pages 594--602. Curran Associates, Inc., 2009.
+
+\bibitem{uruk}
+S.~Girbal, N.~Vasilache, C.~Bastoul, A.~Cohen, D.~Parello, M.~Sigler, and
+  O.~Temam.
+\newblock Semi-automatic composition of loop transformations for deep
+  parallelism and memory hierarchies.
+\newblock {\em Int. J. Parallel Program.}, 34(3):261--317, June 2006.
+
+\bibitem{polly}
+T.~Grosser, A.~Gr{\"{o}}{\ss}linger, and C.~Lengauer.
+\newblock Polly - performing polyhedral optimizations on a low-level
+  intermediate representation.
+\newblock {\em Parallel Processing Letters}, 22(4), 2012.
+
+\bibitem{DBLP:conf/hpca/HavankiBC98}
+W.~A. Havanki, S.~Banerjia, and T.~M. Conte.
+\newblock Treegion scheduling for wide issue processors.
+\newblock In {\em Proceedings of the Fourth International Symposium on
+  High-Performance Computer Architecture, Las Vegas, Nevada, USA, January 31 -
+  February 4, 1998}, pages 266--276, 1998.
+
+\bibitem{Johnson:1994:PST:178243.178258}
+R.~Johnson, D.~Pearson, and K.~Pingali.
+\newblock The program structure tree: Computing control regions in linear time.
+\newblock In {\em Proceedings of the ACM SIGPLAN 1994 Conference on Programming
+  Language Design and Implementation}, PLDI '94, pages 171--185, New York, NY,
+  USA, 1994. ACM.
+
+\bibitem{Khaldi:2015:LPI:2833157.2833158}
+D.~Khaldi, P.~Jouvelot, F.~Irigoin, C.~Ancourt, and B.~Chapman.
+\newblock {LLVM} parallel intermediate representation: Design and evaluation
+  using {OpenSHMEM} communications.
+\newblock In {\em Proceedings of the Second Workshop on the LLVM Compiler
+  Infrastructure in HPC}, LLVM '15, pages 2:1--2:8, New York, NY, USA, 2015.
+  ACM.
+
+\bibitem{Kou:2010:OFF:1869459.1869470}
+S.~Kou and J.~Palsberg.
+\newblock From oo to fpga: Fitting round objects into square hardware?
+\newblock In {\em Proceedings of the ACM International Conference on Object
+  Oriented Programming Systems Languages and Applications}, OOPSLA '10, pages
+  109--124, New York, NY, USA, 2010. ACM.
+
+\bibitem{LLVM:CGO04}
+C.~Lattner and V.~Adve.
+\newblock {LLVM}: A compilation framework for lifelong program analysis \&
+  transformation.
+\newblock In {\em Proceedings of the International Symposium on Code Generation
+  and Optimization: Feedback-directed and Runtime Optimization}, CGO '04, pages
+  75--, Washington, DC, USA, 2004. IEEE Computer Society.
+
+\bibitem{Lindholm:1999:JVM:553607}
+T.~Lindholm and F.~Yellin.
+\newblock {\em Java Virtual Machine Specification}.
+\newblock Addison-Wesley Longman Publishing Co., Inc., Boston, MA, USA, 2nd
+  edition, 1999.
+
+\bibitem{Meseguer:2010:TYR:1927806.1927809}
+J.~Meseguer.
+\newblock Twenty years of rewriting logic.
+\newblock In {\em Proceedings of the 8th International Conference on Rewriting
+  Logic and Its Applications}, WRLA'10, pages 15--17, Berlin, Heidelberg, 2010.
+  Springer-Verlag.
+
+\bibitem{mullapudi2015asplos}
+R.~T. Mullapudi, V.~Vasista, and U.~Bondhugula.
+\newblock {PolyMage}: Automatic optimization for image processing pipelines.
+\newblock In {\em International Conference on Architectural Support for
+  Programming Languages and Operating Systems (ASPLOS)}, pages 429--443, 2015.
+
+\bibitem{Necula:2000:TVO:358438.349314}
+G.~C. Necula.
+\newblock Translation validation for an optimizing compiler.
+\newblock {\em SIGPLAN Not.}, 35(5):83--94, May 2000.
+
+\bibitem{open64}
+{Open64 Developers}.
+\newblock {Open64} compiler and tools, 2001.
+
+\bibitem{OpenACC}
+{OpenACC} application programming interface.
+\newblock Online, \url{https://www.openacc.org}, accessed Feb 19, 2020.
+
+\bibitem{OpenMP}
+{OpenMP ARB}.
+\newblock The {OpenMP API} specification for parallel programming.
+\newblock Online, \url{https://www.openmp.org}, accessed Feb 19, 2020.
+
+\bibitem{antlr}
+T.~J. Parr and R.~W. Quong.
+\newblock Antlr: A predicated-ll(k) parser generator.
+\newblock {\em Softw. Pract. Exper.}, 25(7):789--810, July 1995.
+
+\bibitem{DBLP:journals/ijhpca/PlanasBAL09}
+J.~Planas, R.~M. Badia, E.~Ayguad{\'{e}}, and J.~Labarta.
+\newblock Hierarchical task-based programming with starss.
+\newblock {\em {IJHPCA}}, 23(3):284--299, 2009.
+
+\bibitem{DBLP:conf/tacas/PnueliSS98}
+A.~Pnueli, M.~Siegel, and E.~Singerman.
+\newblock Translation validation.
+\newblock In {\em Tools and Algorithms for Construction and Analysis of
+  Systems, 4th International Conference, {TACAS} '98, Held as Part of the
+  European Joint Conferences on the Theory and Practice of Software, ETAPS'98,
+  Lisbon, Portugal, March 28 - April 4, 1998, Proceedings}, pages 151--166,
+  1998.
+
+\bibitem{halide}
+J.~Ragan-Kelley, A.~Adams, D.~Sharlet, C.~Barnes, S.~Paris, M.~Levoy,
+  S.~Amarasinghe, and F.~Durand.
+\newblock Halide: Decoupling algorithms from schedules for high-performance
+  image processing.
+\newblock {\em Commun. ACM}, 61(1):106--115, Dec. 2017.
+
+\bibitem{DBLP:journals/toplas/Ramalingam02}
+G.~Ramalingam.
+\newblock On loops, dominators, and dominance frontiers.
+\newblock {\em {ACM} Trans. Program. Lang. Syst.}, 24(5):455--490, 2002.
+
+\bibitem{chandan}
+C.~Reddy and U.~Bondhugula.
+\newblock Effective automatic computation placement and data allocation for
+  parallelization of regular programs.
+\newblock In {\em Proceedings of the 28th ACM International Conference on
+  Supercomputing}, ICS '14, pages 13--22, New York, NY, USA, 2014. ACM.
+
+\bibitem{DBLP:journals/cacm/RompfO12}
+T.~Rompf and M.~Odersky.
+\newblock Lightweight modular staging: a pragmatic approach to runtime code
+  generation and compiled dsls.
+\newblock {\em Commun. {ACM}}, 55(6):121--130, 2012.
+
+\bibitem{rotem2018glow}
+N.~Rotem, J.~Fix, S.~Abdulrasool, G.~Catron, S.~Deng, R.~Dzhabarov, N.~Gibson,
+  J.~Hegeman, M.~Lele, R.~Levenstein, J.~Montgomery, B.~Maher, S.~Nadathur,
+  J.~Olesen, J.~Park, A.~Rakhov, M.~Smelyanskiy, and M.~Wang.
+\newblock Glow: Graph lowering compiler techniques for neural networks, 2018.
+
+\bibitem{10.1007/978-3-642-19595-2_10}
+G.~Rudy, M.~M. Khan, M.~Hall, C.~Chen, and J.~Chame.
+\newblock A programming language interface to describe transformations and code
+  generation.
+\newblock In K.~Cooper, J.~Mellor-Crummey, and V.~Sarkar, editors, {\em
+  Languages and Compilers for Parallel Computing}, pages 136--150, Berlin,
+  Heidelberg, 2011. Springer Berlin Heidelberg.
+
+\bibitem{Schardl:2017:TEF:3155284.3018758}
+T.~B. Schardl, W.~S. Moses, and C.~E. Leiserson.
+\newblock Tapir: Embedding fork-join parallelism into {LLVM}'s intermediate
+  representation.
+\newblock {\em SIGPLAN Not.}, 52(8):249--265, Jan. 2017.
+
+\bibitem{compcert}
+B.~Schommer, C.~Cullmann, G.~Gebhard, X.~Leroy, M.~Schmidt, and S.~Wegener.
+\newblock {Embedded Program Annotations for WCET Analysis}.
+\newblock In {\em {WCET 2018: 18th International Workshop on Worst-Case
+  Execution Time Analysis}}, volume~63, Barcelona, Spain, July 2018. {Dagstuhl
+  Publishing}.
+
+\bibitem{flang}
+E.~Schweitz.
+\newblock An {MLIR} dialect for high-level optimization of fortran.
+\newblock LLVM Developer Meeting, Oct 2019.
+
+\bibitem{DBLP:journals/tecs/SujeethBLRCOO14}
+A.~K. Sujeeth, K.~J. Brown, H.~Lee, T.~Rompf, H.~Chafi, M.~Odersky, and
+  K.~Olukotun.
+\newblock Delite: {A} compiler architecture for performance-oriented embedded
+  domain-specific languages.
+\newblock {\em {ACM} Trans. Embedded Comput. Syst.}, 13(4s):134:1--134:25,
+  2014.
+
+\bibitem{SyCL}
+{SyCL}: C++ single-source heterogeneous programming for {OpenCL}.
+\newblock Online, \url{https://www.khronos.org/sycl}, accessed Feb 19, 2020.
+
+\bibitem{tablegen}
+{TableGen - LLVM 10 Documentation}.
+\newblock Online, \url={https://llvm.org/docs/TableGen/}, accessed Nov 22,
+  2019, 2019.
+
+\bibitem{onnx}
+{The Linux Foundation}.
+\newblock {ONNX}: Open neural network exchange.
+\newblock Online, \url{https://github.com/onnx/onnx}, accessed Feb 19, 2020.
+
+\bibitem{Thier:2018:FFI:3178372.3179501}
+P.~Thier, M.~A. Ertl, and A.~Krall.
+\newblock Fast and flexible instruction selection with constraints.
+\newblock In {\em Proceedings of the 27th International Conference on Compiler
+  Construction}, CC 2018, pages 93--103, New York, NY, USA, 2018. ACM.
+
+\bibitem{DBLP:conf/popl/TristanL08}
+J.~Tristan and X.~Leroy.
+\newblock Formal verification of translation validators: a case study on
+  instruction scheduling optimizations.
+\newblock In {\em Proceedings of the 35th {ACM} {SIGPLAN-SIGACT} Symposium on
+  Principles of Programming Languages, {POPL} 2008, San Francisco, California,
+  USA, January 7-12, 2008}, pages 17--27, 2008.
+
+\bibitem{DBLP:conf/pldi/TristanL09}
+J.~Tristan and X.~Leroy.
+\newblock Verified validation of lazy code motion.
+\newblock In {\em Proceedings of the 2009 {ACM} {SIGPLAN} Conference on
+  Programming Language Design and Implementation, {PLDI} 2009, Dublin, Ireland,
+  June 15-21, 2009}, pages 316--326, 2009.
+
+\bibitem{tc}
+N.~Vasilache, O.~Zinenko, T.~Theodoridis, P.~Goyal, Z.~Devito, W.~S. Moses,
+  S.~Verdoolaege, A.~Adams, and A.~Cohen.
+\newblock The next 700 accelerated layers: From mathematical expressions of
+  network computation graphs to accelerated {GPU} kernels, automatically.
+\newblock {\em ACM Trans. Archit. Code Optim.}, 16(4):38:1--38:26, Oct. 2019.
+
+\bibitem{veen}
+A.~Veen.
+\newblock Dataflow machine architecture.
+\newblock {\em ACM Comput. Surv.}, 18:365--396, 12 1986.
+
+\bibitem{isl}
+S.~Verdoolaege.
+\newblock {ISL}: An integer set library for the polyhedral model.
+\newblock In {\em Proceedings of the Third International Congress Conference on
+  Mathematical Software}, ICMS'10, pages 299--302, Berlin, Heidelberg, 2010.
+  Springer-Verlag.
+
+\bibitem{ppcg}
+S.~Verdoolaege, J.~Carlos~Juega, A.~Cohen, J.~Ignacio~G\'{o}mez, C.~Tenllado,
+  and F.~Catthoor.
+\newblock Polyhedral parallel code generation for {CUDA}.
+\newblock {\em ACM Trans. Archit. Code Optim.}, 9(4):54:1--54:23, Jan. 2013.
+
+\bibitem{Vu20}
+S.~T. Vu, K.~Heydemann, A.~de~Grandmaison, and A.~Cohen.
+\newblock Secure delivery of program properties through optimizing compilation.
+\newblock In {\em {ACM SIGPLAN 2020 International Conference on Compiler
+  Construction (CC 2020)}}, San Diego, CA, Feb. 2020.
+
+\bibitem{xla}
+{XLA} - {TensorFlow}, compiled.
+\newblock Google Developers Blog,
+  \url{https://developers.googleblog.com/2017/03/xla-tensorflow-compiled.html},
+  Mar 2017.
+
+\bibitem{plaidml}
+T.~Zerrell and J.~Bruestle.
+\newblock Stripe: Tensor compilation via the nested polyhedral model.
+\newblock {\em CoRR}, abs/1903.06498, 2019.
+
+\end{thebibliography}

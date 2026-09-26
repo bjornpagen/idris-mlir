@@ -1,0 +1,424 @@
+\section{Case Studies}
+\label{sec:case-studies}
+
+This section relates three independently-developed, published projects from diverse domains
+  that incorporated \egg
+  as an easy-to-use, high-performance \egraph implementation.
+In all three cases, the developers had first rolled their own \egraph
+  implementations.
+\Egg allowed them to delete code, gain performance, and in some cases
+  dramatically broaden the project's scope thanks to \egg's speed and
+  flexibility.
+In addition to gaining performance, all three projects use \egg's novel
+  extensibility features like \eclass analyses and dynamic/conditional rewrites.
+
+\subsection{Herbie: Improving Floating Point Accuracy}
+\label{sec:herbie}
+
+Herbie automatically improves accuracy
+  for floating-point expressions,
+  using random sampling to measure error,
+  a set of rewrite rules for generating program variants,
+  and algorithms that prune and combine program variants
+  to achieve minimal error.
+Herbie received PLDI 2015's Distinguished Paper award~\cite{herbie}
+  and has been continuously developed since then,
+  sporting hundreds of Github stars, hundreds of downloads,
+  and thousands of users on its online version.
+Herbie uses \egraphs for algebraic simplification of mathematical expressions,
+  which is especially important for avoiding floating-point errors
+  introduced by cancellation, function inverses, and redundant computation.
+
+Until our case study,
+  Herbie used a custom \egraph implementation
+  written in Racket (Herbie's implementation language)
+  that closely followed traditional \egraph implementations.
+With timeouts disabled,
+  \egraph-based simplification consumed
+  the vast majority of Herbie's run time.
+As a fix, Herbie sharply limits the simplification process,
+  placing a size limit on the \egraph itself and a time limit on the whole
+  procedure.
+When the timeout is exceeded, simplification fails altogether.
+Furthermore, the Herbie authors knew of several features
+  that they believed would improve Herbie's output
+  but could not be implemented because
+  they required more calls to simplification
+  and would thus introduce unacceptable slowdowns.
+Taken together, slow simplification reduced Herbie's performance, completeness,
+  and efficacy.
+
+We implemented a \egg simplification backend for Herbie.
+The \egg backend is over $3000\times$ faster than Herbie's initial simplifier and
+  is now used by default as of Herbie 1.4.
+Herbie has also backported some of \egg's features like batch simplification and
+  rebuilding to its \egraph implementation
+  (which is still usable, just not the default),
+  demonstrating the portability of \egg's conceptual improvements.
+% This has led to over a $200\times$ speedup over its initial design,
+%   demonstrating that \egg's
+
+\subsubsection{Implementation}
+
+Herbie is implemented in Racket while \egg is in Rust;
+  the \egg simplification backend is thus implemented as a Rust library that
+  provides a C-level API for Herbie to access via foreign-function interface (FFI).
+The Rust library defines the Herbie expression grammar
+  (with named constants, numeric constants, variables, and operations)
+  as well as the \eclass analysis necessary to do constant folding.
+The library is implemented in under 500 lines of Rust.
+
+Herbie's set of rewrite rules is not fixed;
+  users can select which rewrites to use using command-line flags.
+Herbie serializes the rewrites to strings,
+  and the \egg backend parses and instantiates them on the Rust side.
+
+Herbie separates exact and inexact program constants:
+  exact operations on exact constants
+  (such as the addition of two rational numbers)
+  are evaluated and added to the \egraph,
+  while operations on inexact constants or that yield inexact outputs
+  are not.
+We thus split numeric constants in the Rust-side grammar
+  between exact rational numbers and inexact constants,
+  which are described by an opaque identifier,
+  and transformed Racket-side expressions into this form
+  before serializing them and passing them to the Rust driver.
+To evaluate operations on exact constants,
+  we used the constant folding \eclass analysis
+  to track the ``exact value'' of each \eclass.%
+\footnote{Herbie's rewrite rules guarantee that different exact values
+  can never become equal; the semilattice \textsf{join} checks this invariant on the Rust side.}
+Every time an operation \enode is added to the \egg \egraph,
+  we check whether all arguments to that operation have exact value (using the analysis data),
+  and if so do rational number arithmetic to evaluate it.
+The \eclass analysis is cleaner than the corresponding code in Herbie's implementation,
+  which is a built-in pass over the entire \egraph.
+
+\subsubsection{Results}
+
+\begin{figure}
+  \centering
+  \includegraphics[height=5.5cm]{herbie}
+  \caption{
+    Herbie sped up its expression simplification phase
+      by adopting \egg-inspired features like
+      batched simplification and rebuilding
+      into its Racket-based \egraph implementation.
+    Herbie also supports using \egg itself for additional speedup.
+    Note that the y-axis is log-scale.
+  }
+  \label{fig:herbie-results}
+\end{figure}
+
+Our \egg simplification backend
+  is a drop-in replacement to the existing Herbie simplifier,
+  making it easy to compare speed and results.
+We compare using
+  Herbie's standard test suite of roughly 500 benchmarks,
+  with timeouts disabled.
+\autoref{fig:herbie-results} shows the results.
+The \egg simplification backend is over
+  $3000\times$ faster than Herbie's initial simplifier.
+This speedup eliminated Herbie's largest bottleneck:
+  the initial implementation dominated Herbie's total run time at $98.1\%$,
+  backporting \egg improvements into Herbie cuts
+  that to about half the total run time,
+  and \egg simplification takes under $5\%$ of the total run time.
+Practically, the run time of Herbie's initial implementation was smaller, since
+  timeouts cause tests failures when simplification takes too long.
+Therefore, the speedup also improved Herbie's completeness,
+  as simplification now never times out.
+
+Since incorporating \egg into Herbie, the Herbie developers have backported some
+  of \egg's key performance improvements into the Racket \egraph implementation.
+First, batch simplification gives a large speedup because Herbie simplifies many
+  similar expressions.
+When done simultaneously in one equality saturation, the \egraph's structural
+  sharing can massively deduplicate work.
+Second, deferring rebuilding (as discussed in \autoref{sec:rebuilding}) gives a
+  further $2.2\times$ speedup.
+As demonstrated in \autoref{fig:eval-iter}, rebuilding offers an asymptotic
+  speedup, so Herbie's improved implementation (and the \egg backend as well)
+  will scale better as the search size grows.
+
+\subsection{Spores: Optimizing Linear Algebra}
+\label{sec:spores}
+
+Spores \cite{spores} is an optimizer for machine learning programs. It
+translates linear algebra (LA) expressions to relational algebra (RA), performs
+rewrites, and finally translates the result back to linear algebra. Each rewrite
+is built up from simple identities in relational algebra like the associativity
+of join. These relational identities express more fine-grained equality than
+textbook linear algebra identities, allowing Spores to discover novel
+optimizations not found by traditional optimizers based on LA identities. Spores
+performs holistic optimization, taking into account the complex interactions
+among factors like sparsity, common subexpressions, and fusible operators and
+their impact on execution time.
+
+% \Max{we should probably tone down some of the language below}
+
+\subsubsection{Implementation}
+% \Max{don't say ``we''}
+
+Spores is implemented entirely in Rust using \Egg.
+\Egg empowers Spores to orchestrate
+  the complex interactions described above elegantly and effortlessly.
+Spores works in three steps: first, it translates the input LA expression to RA;
+second, it optimizes the RA expression by equality saturation; finally, it
+translates the optimized RA expression back to LA.
+Since the translation between LA and RA is
+straightforward, we focus the discussion on the equality saturation step in RA.
+Spores represents a relation as a function from tuples to real numbers: $A:
+(a_1, a_2, ..., a_n) \rightarrow \mathbb{R}$. This is similar to the index
+notation in linear algebra, where a matrix A can be viewed as a function
+$\lambda i, j . A_{ij}$. A tuple is identified with a named record,
+e.g. $(1, 2) = \{a_1: 1, a_2: 2\} = \{a_2: 2, a_1: 1\}$, so that order in a
+tuple doesn't matter. There are just three operations on relations: join, union
+and aggregate. Join ($\otimes$) takes two relations and returns their natural
+join, multiplying the associated real number for joined tuples:
+\[ A \otimes B = \lambda \bar{a} \cup \bar{b} . A(\bar{a}) \times B(\bar{b})\]
+Here $\bar{a}$ is the set of field names for the records in $A$. In RA
+terminology, $\bar{a}$ is the {\em schema} of $A$. Union ($\oplus$) is a join in
+disguise: it also performs natural join on its two arguments, but adds the
+associated real instead of multiplying it:
+\[A \oplus B = \lambda \bar{a} \cup \bar{b} . A(\bar{a}) + B(\bar{b})\] Finally,
+aggregate ($\Sigma$) sums its argument along a given dimension. It
+coincides precisely with the ``sigma notation'' in mathematics:
+\[\sum_{a_i} A = \lambda \bar{a}-a_i . \sum_{a_i} A(\bar{a})\]
+
+\begin{figure}
+\centering
+\begin{align}
+  \label{eq:RRC_pp} A \oplus (B \oplus C) &= \oplus (A, B, C)
+  & \text{($\oplus$ is assoc. \& comm.)}
+  \\
+  \label{eq:RRC_mm} A \otimes (B \otimes C) &= \otimes (A, B, C)
+  & \text{($\otimes$ is assoc. \& comm.)}
+  \\
+  \label{eq:RRC_mp} A \otimes (B \oplus C) &= A \otimes B \oplus A \otimes C
+  & \text{($\otimes$ distributes over $\oplus$)}
+  \\
+  \label{eq:RRC_ap} \sum_i (A \oplus B) &= \sum_i A \oplus \sum_i B
+  \\
+  \label{eq:RRC_aa} \sum_i \sum_j A &= \sum_{i,j} A
+  \\
+  \label{eq:RRC_ma} A \otimes \sum_i B &= \sum_i (A \otimes B)
+  &\text{(requires $i \not\in A$)}
+  \\
+  \label{eq:RRC_ac} \sum_i A &= A \otimes \textsf{dimension}(i)
+  &\text{(requires $i \not\in A$)}
+\end{align}
+\caption{RA equality rules $R_{EQ}$.}
+\label{fig:RRC}
+\end{figure}
+
+The RA identities, presented in \autoref{fig:RRC}, are also simple and intuitive.
+The notation $i \not\in A$ means $i$ is not in the schema of $A$, and $dim(i)$
+is the size of dimension $i$ (e.g. length of rows in a matrix). In
+\autoref{eq:RRC_ma}, when $i \in A$, we first rename every $i$ to a fresh variable
+$i'$ in $B$, which gives us: $A \otimes \sum_i B = \sum_{i'} (A \otimes B[i
+\rightarrow i'])$. In addition to these equalities, Spores also supports
+replacing expressions with fused operators. For example, $(X-UV)^2$ can be
+replaced by $sqloss(X, U, V)$ which streams values from $X, U, V$ and
+computes the result without creating intermediate matrices. Each of these fused
+operators is encoded with a simple identity in \Egg.
+
+Note that \autoref{eq:RRC_ma} requires a way
+to store the schema of every expression during optimization.
+Spores uses an \eclass analysis to annotate \eclasses with the appropriate
+  schema. It also leverages the \eclass analysis for cost estimation,
+  using a conservative cost model that overapproximates.
+As a result, equivalent expressions may have different cost estimates.
+The \texttt{merge} operation on the analysis data takes the lower cost,
+  incrementally improving the cost estimate.
+Finally, Spores' \eclass analysis also performs constant folding.
+As a whole, the \eclass analysis is a composition of three smaller analyses
+  in a similar style to the composition of lattices in abstract interpretation.
+
+\subsubsection{Results}
+Spores is integrated into Apache SystemML \cite{Boehm_2019} in a prototype,
+where it is able to derive all of 84 hand-written rules and heuristics for
+sum-product optimization. It also discovered novel rewrites that contribute
+to $1.2\times$ to $5\times$ speedup in end-to-end experiments. With greedy
+extraction, all compilations completed within a second.
+
+\subsection{Szalinski: Decompiling CAD into Structured Programs}
+\label{sec:szalinski}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{sz-overview}
+  \caption[Szalinski decompiles flat CSG into structured CAD]{
+  (Figure from Nandi et.\ al.\ \cite{szalinski})
+  Existing mesh decompilers turn
+    triangle meshes into flat, computational solid geometry (CSG) expressions.
+  %  The size of both mesh and CSG are roughly proportional to
+  %    the number of geometric features in the CAD model.
+  \sz~\cite{szalinski} takes in these CSG expressions
+    in a format called Core Caddy,
+    and it synthesizes smaller, structured programs in language called Caddy
+    that is enriched with functional-style features.
+  This can ease customization by simplifying edits:
+    small, mostly local changes
+    yield usefully different models.
+  The photo shows the 3D printed hex wrench holder after
+    customizing hole sizes.
+  \sz is powered by \egg's extensible equality saturation, relying on its high
+    performance, \eclass analyses, and dynamic rewrites.
+  }
+  \label{fig:sz-overview}
+\end{figure}
+
+Several tools have emerged
+  that reverse engineer high level
+  Computer Aided Design (CAD) models from polygon
+  meshes and voxels~\cite{reincarnate, inverse, shape, csgnet, latex}.
+The output of these tools are constructive solid geometry (CSG) programs.
+A CSG program is comprised of
+  3D solids like cubes, spheres, cylinders,
+  affine transformations like scale, translate, rotate
+  (which take a 3D vector and a CSG expression as arguments),
+  and binary operators like union, intersection, and difference
+  that combine CSG expressions.
+For repetitive models like a gear, CSG programs can be too long
+  and therefore difficult to comprehend.
+A recent tool, \sz~\cite{szalinski},
+  extracts the inherent structure
+  in the CSG outputs of mesh decompilation tools
+  by automatically inferring maps and folds (\autoref{fig:sz-overview}).
+\sz accomplished this using \egg's extensible equality saturation system,
+  allowing it to:
+
+\begin{itemize}
+
+  \item Discover structure using loop rerolling rules.
+    This allows \sz to infer functional patterns like
+    \texttt{Fold}, \texttt{Map2}, \texttt{Repeat} and
+    \texttt{Tabulate} from flat CSG inputs.
+
+  \item Identify equivalence among CAD terms that are
+    expressed as different expressions by mesh decompilers.
+    \sz accomplishes this by using CAD identities.
+    An example of one such CAD identity in \sz is
+    $e \leftrightarrow \mathit{rotate}~[0 ~ 0 ~ 0] ~ e$.
+    This implies that any CAD expression $e$
+    is equivalent to a CAD expression that applies
+    a rotation by zero degrees about x, y, and z axes
+    to $e$.
+
+  \item Use external solvers to
+    speculatively add potentially profitable
+    expressions to the \egraph.
+    Mesh decompilers often generate CSG expressions
+    that order and/or group list elements in
+    non-intuitive ways.
+    To recover structure from such expressions,
+    a tool like \sz must be able to reorder and regroup
+    lists that expose any latent structure.
+
+\end{itemize}
+
+\subsubsection{Implementation}
+
+Even though CAD is
+  different from traditional languages
+  targeted by programming language techniques,
+  \egg supports \sz's CAD language in a straightforward manner.
+\sz uses purely syntactic rewrites to express
+  CAD identities and some loop rerolling rules
+  (like inferring a \texttt{Fold} from a list of CAD expressions).
+Critically, however, \sz relies on \egg's
+  dynamic rewrites and \eclass analysis to infer functions
+  for lists.
+
+Consider the flat CSG program in \autoref{fig:sz-egg-input}.
+A structure finding rewrite first rewrites the flat list of \texttt{Union}s to:
+$$\texttt{(Fold Union (Map2 Translate [(0 0 0) (2 0 0) ...] (Repeat Cube 5)))}$$
+The list of vectors is stored as \texttt{Cons} elements (sugared above for brevity).
+\sz uses an \eclass analysis to track the accumulated lists in a similar style
+  to constant folding.
+Then, a dynamic rewrite uses an arithmetic solver to rewrite the concrete
+  list of 3D vectors in the analysis data
+  to \mbox{\texttt{(Tabulate (i 5) (* 2 i))}}.
+A final set of syntactic rewrites can hoist the \texttt{Tabulate}, yielding the
+  result on the right of \autoref{fig:sz-egg}.
+Thanks to the set of syntactic CAD rewrites, this structure finding even works
+  in the face of CAD identities.
+For example, the original program may omit the no-op
+  \texttt{Translate (0 0 0)}, even though it is necessary to see repetitive
+  structure.
+
+\begin{figure}
+\begin{subfigure}[b]{0.3\linewidth}
+  \includegraphics[width=\linewidth]{cubes}
+  \caption{Five cubes in a line.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.3\linewidth}
+  \begin{lstlisting}[language=Rust, gobble=4, basicstyle=\footnotesize\ttfamily]
+    (Union
+      (Translate (0 0 0) Cube)
+      (Translate (2 0 0) Cube)
+      (Translate (4 0 0) Cube)
+      (Translate (6 0 0) Cube)
+      (Translate (8 0 0) Cube))
+  \end{lstlisting}
+  \caption{Flat CSG input to \sz.}
+  \label{fig:sz-egg-input}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.35\linewidth}
+  \begin{lstlisting}[language=Rust, gobble=4, basicstyle=\footnotesize\ttfamily, showlines=true, xleftmargin=5mm]
+    (Fold Union
+      (Tabulate (i 5)
+        (Translate
+          ((* 2 i) 0 0)
+          Cube)))
+
+  \end{lstlisting}
+  \caption{Output captures the repetition.}
+  \label{fig:sz-egg-output}
+\end{subfigure}
+  \caption{
+    \sz integrates solvers into \egg's equality saturation as a dynamic rewrite.
+    The solver-backed rewrites can transform repetitive lists into
+    \texttt{Tabulate} expressions that capture the repetitive structure.
+  }
+  \label{fig:sz-egg}
+\end{figure}
+
+In many cases, the repetitive structure of input CSG expression is further
+  obfuscated because subexpressions may appear in arbitrary order.
+For these inputs, the arithmetic solvers must first reorder
+  the expressions to find a closed form like a \texttt{Tabulate}
+  as shown in \autoref{fig:sz-egg}.
+However, reordering a list does not preserve equivalence, so adding it to the
+  \eclass of the concrete list would be unsound.
+\sz therefore introduces \textit{inverse transformations},
+  a novel technique that allows solvers to speculatively reorder and regroup list
+  elements to find a closed form.
+The solvers annotate the potentially profitable expression with the
+  permutation or grouping that led to the successful discovery
+  of the closed form.
+Later in the rewriting process, syntactic rewrites eliminate the inverse
+  transformations when possible
+  (e.g., reordering lists under a \texttt{Fold Union} can be eliminated).
+\egg supported this novel technique without modification.
+
+\subsubsection{Results}
+\sz's initial protoype used a custom \egraph written in OCaml.
+Anecdotally, switching to \egg
+  removed most of the code,
+  eliminated bugs,
+  facilitated the key contributions of solver-backed rewrites and inverse transformations,
+  and made the tool about $1000 \times$ faster.
+\egg's performance allowed a shift from running on small, hand-picked
+  examples to a comprehensive evaluation on over 2000 real-world models from
+  a 3D model sharing forum~\cite{szalinski}.
+
+
+
+%%% Local Variables:
+%%% TeX-master: "egg"
+%%% End:

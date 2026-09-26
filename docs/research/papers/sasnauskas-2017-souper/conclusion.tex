@@ -1,0 +1,18 @@
+\section{Conclusion}
+
+We created a synthesizing superoptimizer that is integrated with LLVM,
+and we showed that it can derive many optimizations that LLVM does not
+yet have.
+%
+As a result of our work, some of these optimizations have been
+implemented by hand in LLVM, where they benefit all users of that
+toolchain.
+%
+We also showed that when \tool{} is used to synthesize integer
+constants, it can be used as an online compiler that results in a
+significant code size reduction in some cases.
+%
+Finally, we showed that \tool's IR is generic enough that Microsoft
+Visual C++'s IR can be translated into it, and that \tool's
+suggestions about missing optimizations were actionable by the MSVC
+compiler developers.

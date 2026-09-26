@@ -1,0 +1,85 @@
+{
+  "schema_version": "2.0",
+  "computed_at_phase": "BOUNDED_TRACE_WITNESS_SYNC_AND_AFFECTED_PAGE_QA_PASSED",
+  "inputs": {
+    "paper_registry": "formal/formal-units.yaml",
+    "paper_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "formal_source_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "artifact_bridge": "formal/artifact-refinement-map.json",
+    "edge_cases": "formal/edge-case-closure.json",
+    "foundation_profile": "STANDARD_LEAN_EXPLICIT_TCB",
+    "source_tag_gate": {
+      "status": "PASS_EXACT_BIJECTION_REGENERATED_CANDIDATE",
+      "tag_count": 146,
+      "unique_active_id_count": 146,
+      "unique_exact_declaration_count": 146,
+      "files": [
+        "foundations_compressed.tex",
+        "appendixC_vmcai_stage1.tex"
+      ]
+    },
+    "active_manuscript_graph_sha256": "6e386c342c9866479a31186ec31968a2f007d780fba3715a28a6172626dc1411",
+    "pre_trace_witness_sync_manuscript_graph_sha256": "29348d88fbad07dfeddca2abf880b0718a8ca2ba26d41ee82a08e8f60d94d7d1",
+    "pre_repaired_fast_ir_refresh_manuscript_graph_sha256": "1e8c1cebd6f35f8747524a971f3999a2424f698eb7957bff6aad684b903e1964",
+    "correspondence_reviewed_manuscript_graph_sha256": "e5ed4bb73d6b1ca664b5428ad22a5d36b460ef67bca180f261d894c2c647203c",
+    "pre_empirical_refresh_manuscript_graph_sha256": "17a1ed53bafabdfbe9fdfda4c28ced12d6fc2de38e5cd663f8d55b05fb7ad183",
+    "experimental_data_refresh_report": "formal/experimental-data-refresh-report.json",
+    "experimental_data_refresh_report_sha256": "71c86a4942720dc6fdc9d65286b8c2ee4e6337c2169dc16be18dea182db8699f",
+    "provenance_layout_repair_report": "formal/provenance-layout-repair-report.json",
+    "provenance_layout_repair_report_sha256": "2412e7c5acfcfc79922af837ec7f4d949a7c0a4a78f758594b16c291d58f3b16",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "paper_dependency_graph_sha256": "1e85f5d91f7a9478ca1b1573f64e88483bbadd3211442fd1503e453d68d874ec",
+    "compiler_dependency_graph_sha256": "1e430b523cb6dcd8e5db7f22295f2380a6d632ea191d967083ed1c96e094075e",
+    "correspondence_review_sha256": "841a624aa36f87b8a0f66b2cc8c277716292a2699afd65c06bd630b04b3d2332",
+    "clean_build_summary_sha256": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d",
+    "trace_witness_sync_report": "formal/trace-envelope-witness-sync-report.json",
+    "trace_witness_sync_report_sha256": "c395345131f8679c0a45db97719204765e25cdd564ff4b43b61e17a8911b36dd",
+    "historical_all_page_pdf_qa_report": "formal/pdf-qa-repaired-fast-ir-data-report.json",
+    "historical_all_page_pdf_qa_report_sha256": "01087813e6be08fe1d398c6202d74cad20717d224173311c6e082912878547f0",
+    "pdf_repair_report": "formal/pdf-repair-report.json",
+    "pdf_repair_report_sha256": "9564e03544718a7fea87432e6daf2df487aad68c48e384756af9029786d53f6b",
+    "pdf_qa_post_repair_report": "formal/pdf-qa-post-repair-report.json",
+    "pdf_qa_post_repair_report_sha256": "2a22d232a1c95afce24c1356f28885183fd14da4a154e15e391f3a7c43b982a5"
+  },
+  "registry_metrics": {
+    "active": 146,
+    "mapped_distinct": 146,
+    "uncovered": 0,
+    "unproved": 0,
+    "observed_axiom_union": [
+      "propext",
+      "Quot.sound",
+      "Classical.choice"
+    ]
+  },
+  "statuses": {
+    "PAPER_FORMAL_CLOSURE": "CLOSED",
+    "PAPER_LEAN_CORRESPONDENCE_CLOSURE": "CLOSED",
+    "ABSTRACT_KERNEL_CLOSURE": "CLOSED",
+    "ARTIFACT_REFINEMENT_CLOSURE": "PARTIAL",
+    "EXPERIMENTAL_REPLAY_CLOSURE": "PARTIAL",
+    "LEAN_GITHUB_PUBLICATION": "OUT_OF_SCOPE_CURRENT_TASK",
+    "PERMITTED_PUBLIC_LABEL": "NO_FORMAL_CLOSURE_CLAIM"
+  },
+  "reasons": {
+    "PAPER_FORMAL_CLOSURE": [
+      "The bounded trace-witness synchronization changed only two evaluation paragraphs outside every formal environment and recorded formal source span. It changed no formal claim, Lean declaration, proof, normalization contract, registry, or formal source/config file."
+    ],
+    "PAPER_LEAN_CORRESPONDENCE_CLOSURE": [
+      "The two prose edits report one fixed external abstract witness and introduce no retained paper theorem or formal-environment change. All 146 ACTIVE mappings, 27 named environments, hypotheses, dependencies, and compiler projections remain identical to the unanimously reviewed correspondence snapshot."
+    ],
+    "ABSTRACT_KERNEL_CLOSURE": [
+      "All 146 mapped declarations, 83 proof-bearing axiom checks, and two isolated Lean 4.33.0 clean builds remain bound to the unchanged formal source/config graph. Separately, the pinned nontrivial trace witness focus-builds under Lean 4.33.0 with an allowed axiom union."
+    ],
+    "ARTIFACT_REFINEMENT_CLOSURE": [
+      "Six theorem-critical Java bridge rows remain OPEN. The new witness inhabits an abstract Lean trace interface; it is not a Java-produced or verifier-replayed trace and establishes no Java refinement."
+    ],
+    "EXPERIMENTAL_REPLAY_CLOSURE": [
+      "The manuscript is now synchronized to the immutable publication run, but raw-source normalization and theorem-relevant experiment traces are not Lean-replayed."
+    ],
+    "LEAN_GITHUB_PUBLICATION": [
+      "GitHub publication is outside the current bounded authorization."
+    ]
+  },
+  "label_rule_result": "The formal layers remain closed because the bounded witness synchronization preserves the complete reviewed formal projection. A clean LaTeX build, page-boundary check, and affected-page render review passed the current author graph. No FORMALLY_CLOSED-family public label is issued because GitHub publication was not authorized or executed; artifact refinement and experimental replay remain separately PARTIAL."
+}

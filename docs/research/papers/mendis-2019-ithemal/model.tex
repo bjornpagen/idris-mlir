@@ -1,0 +1,64 @@
+\section{Model Architecture}
+\label{sec:model}
+
+Figure~\ref{fig:overall} presents the high-level design of \tool{}'s approach.
+We model the problem of throughput estimation as a regression problem: given the assembly input, \tool{} predicts the throughput of the instruction sequence as a real-valued number.
+At the core of \tool{} is a hierarchical multiscale RNN~\cite{dag-rnn1, dag-rnn2} that sequentially processes all instructions in the basic block and outputs an embedding, which \tool{} then uses to directly estimate the throughput.
+Altogether, we decompose the end-to-end model into the following stages: \emph{canonicalization}, \emph{embedding} and \emph{estimation}.
+
+\subsection{Canonicalization}
+\label{sec:canonicalization}
+
+The canonicalization stage converts the assembly input into a more structured form, dictated by the syntax of the assembly instructions.
+\tool{} takes a compiled assembly block, disassembles it, and maps it to a list of instructions.
+Each instruction consists of a list of tokens representing its operation code (opcode, e.g. \texttt{add}), source operands, and destination operands, separated by distinguished delimiter tokens.
+
+For example, consider the instruction \texttt{mul ecx}, which multiplies the value in register \texttt{ecx} with \texttt{eax}, and places the result into registers \texttt{edx} and \texttt{eax}.
+Note that the source operand \texttt{eax} and both of the destination operands \texttt{eax} and \texttt{edx} are implicit in the Intel syntax \texttt{mul ecx}.
+The final canonicalized set of tokens for the instruction is:
+$$(\texttt{mul},\,\textit{<S>},\,\texttt{eax},\,\texttt{ecx},\,\textit{<D>},\,\texttt{edx},\,\texttt{eax},\,\textit{<E>})$$
+where the bracketed tokens are the delimiters representing the break between the opcode, source, and destination operands.
+
+Assembly code permits more than just register operands, such as constants and memory operands.
+We map all constants (e.g. integer constants, memory addresses, etc.) to a single \texttt{CONST} token.
+We demarcate memory operands (consisting of a base address, and an optional offset and displacement) by surrounding them with \texttt{<M>} and \texttt{</M>} delimiter tokens.
+We present the full canonicalization scheme in Appendix~\ref{app:token-grammar}.
+
+\subsection{Embedding}
+\label{sec:nnembeddings}
+
+{\tool}'s embedding stage takes a canonicalized token stream of instructions, and for each instruction produces an \emph{embedding}: a representation of an instruction as a real-valued vector in a high-dimensional space.
+The first step is the \textit{token layer}, which maps a given token to an embedding.
+We implement the token layer by mapping each token in the sequence to an $n$-dimensional vector by learning a linear transformation of the one-hot token vectors (this is equivalent to learning a lookup table).
+
+\tool{} then maps the sequence of token embeddings to an embedding for each instruction in the basic block.
+We call this the \textit{instruction layer}.
+Because each instruction can have a variable number of tokens depending on its number of source and destination operands, the size of the input to the embedding stage is variable.
+We therefore implement the instruction layer with a sequential Recurrent Neural Network (RNN) architecture with Long Short Term Memory (LSTM)~\cite{lstm} cells.
+
+Figure~\ref{fig:overall} presents the operation of our RNN-based instruction embedding approach on a small example.
+The bottommost row shows the original assembly input.
+The second row shows the sequence of tokens for each instruction.
+The third row (the token layer) shows the sequence of {\em token embeddings}, e.g. $v_\texttt{mov}$, which are mapped directly from each syntactic token.
+The fourth row (the instruction layer) shows the application of an LSTM to reduce the token embedding sequence into the final instruction embedding, $h_{\texttt{mov}}$.
+
+\subsection{Prediction}
+\label{sec:nnoverview}
+
+The final prediction comes from the \textit{prediction layer}, which maps a basic block (a sequence of instruction embeddings) to a throughput value.
+This is again implemented with an RNN with LSTM cells, which has entirely disjoint weights from the LSTM in the instruction layer.
+This corresponds to the topmost layer in Figure~\ref{fig:overall}.
+Using the final output from the instruction LSTM ($h_{\texttt{block}}$), \tool{} predicts the basic block's throughput with a linear layer.
+Specifically, {\tool} computes $w \cdot h_{\texttt{block}} + b$, where $w$ is a learned weight vector and $b$ is a bias.
+This produces a final real-valued number that represents the network's throughput prediction.
+
+The hierarchical combination of the RNN in the instruction layer and the RNN in the prediction layer has several benefits over a non-hierarchical model:
+\begin{itemize}
+\item Memory and backpropagation paths are significantly shorter than a model using a non-hierarchical (i.e., single) RNN.
+  The average length of a block in our dataset is $6.04$ instructions, and the average length of an instruction is $7.97$ tokens.
+  The average length of a token-level RNN across the entire basic block would instead be about $48$ RNN cell applications, more than three times as long as a path through the hierarchical RNN.
+\item
+  Instructions are embedded atomically: the prediction layer is only able to generate throughput estimates at specific points in the overall token stream, i.e. after complete instructions.
+  This means that the network does not have an obligation to produce states that correspond to predictions at points in between instructions.
+\end{itemize}
+We compare this hierarchical architecture against other architecture choices in Section~\ref{sec:exploration}, showing the efficacy of \tool{}'s hierarchical architecture.

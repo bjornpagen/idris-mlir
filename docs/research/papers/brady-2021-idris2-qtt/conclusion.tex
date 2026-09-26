@@ -1,0 +1,214 @@
+\section{Related Work}
+
+\paragraph*{Substructural Types}
+
+Linear types~\cite{wadler-linear} and other substructural type systems have
+several applications, e.g. verifying unique access to
+external resources~\cite{Ennals2004} and as a basis for session
+types~\cite{Honda1993}.  These applications typically use domain specific type
+systems, rather than the generality which would be given by full dependent
+types.  There are also several implementations of linear or other substructural
+type systems in functional
+languages~\cite{Tov2011a,granule,cleanuniq,Morris2016}.
+While these languages do not
+have full dependent types, Granule~\cite{granule} allows many of the
+same properties to be expressed with a sophisticated notion of graded types
+which allows quantitative reasoning about resource usage, and work is in
+progress to add dependent types to Granule~\cite{granuleesop,granulepopl}. 
+%
+ATS~\cite{Shi2013} is a functional language with linear types with support for
+theorem proving, which allows reasoning about resource usage and low level
+programming. An important mainstream example of the benefit of substructural
+type systems is Rust\footnote{\url{https://rust-lang.org/}}~\cite{rustbelt}
+which guarantees memory safety of imperative programs without garbage
+collection or any run time overhead, and is expressive enough to implement
+session types~\cite{rustsession}.
+
+Historically, combining linear types and dependent types in a fully
+general way---with first-class types, and the full language available
+at the type level---has been a difficult problem, primarily because it is not
+clear whether to count variable usages in types. The problem can be
+avoided~\cite{Krishnaswami-ldtp} by disallowing dependent linear functions or
+by limiting the form of dependency~\cite{Gaboardi2013},
+but these approaches limit expressivity. For
+example, we may still want to reason about linear variables which have been
+consumed. Or, as we saw at the end of Section~\ref{sec:sessions}, we may
+want to use a linear value as part of the computation of another type.
+Quantitative Type Theory~\cite{qtt,nuttin}, allows full dependent
+types with no restrictions on whether variables are used in types or terms, by
+checking terms at a specific multiplicity.
+
+\paragraph*{Erasure}
+
+While linearity has clear potential benefits in allowing reasoning about
+effects and resource usage, one of the main motivations for using QTT
+is to give a clear semantics for erasure in the type system.
+We distinguish \emph{erasure} from
+\emph{relevance}, meaning that erased arguments are still relevant during
+type-checking, but erased at run time.
+Early approaches in Idris include the notion of ``forced arguments'' and
+``collapsible data types''~\cite{Brady2005}, which give a predictable, if
+not fully general, method for determining which arguments can be erased.
+Idris 1 uses a whole program analysis~\cite{matus-draft}, partly inspired
+by earlier work on Erasure Pure Type Systems~\cite{mishralinger-erasure}
+to determine which arguments can be erased, which works well in practice but
+doesn't allow a programmer to require specific arguments to be erased,
+and means that separate compilation is difficult.
+The problem of what to erase also exists in Haskell to some extent, even
+without full dependent types, when implementing zero cost
+coercions~\cite{rolehaskell}.
+%
+Our experience of the $0$ multiplicity of QTT so far is that it provides the 
+cleanest solution to the erasure problem, although we no longer infer which
+other arguments can be erased.
+
+% \paragraph*{Interactive Editing and Program Synthesis}
+% 
+% We have briefly discussed how QTT improves support for program synthesis
+% by taking usage restrictions into account in the search. Program synthesis
+% in Idris has not yet been explored deeply, and existing work on
+% type-driven program synthesis~\cite{Polikar2016},
+% resource-guided program synthesis~\cite{Knoth19} and example-driven
+% program synthesis~\cite{Osera15}
+% will provide important insight into improving program search. Nevertheless,
+% even a brute force search of a hint database has (anecdotally)
+% proved remarkably effective for small search problems.
+% 
+% There is also a lot of scope for using quantitative types in interactive
+% editing support. To make linear dependent types practically
+% useful and accessible to application developers, good interactive tooling
+% is essential. Recent work on front end tooling~\cite{Robert2018} and
+% structural editing with typed holes~\cite{hazel} will influence
+% Idris 2.
+
+\paragraph*{Reasoning about Effects}
+
+One of the motivations for using QTT beyond expressing erasure in types is
+that it provides a core language which allows reasoning about resource
+usage---and hence, reasoning about interactions with external libraries.
+Previous work on reasoning about effects and resources with dependent types
+has relied on indexed monads~\cite{Atkey2009,McBride2011} or embedded DSLs
+for describing effects~\cite{brady-tfp14}. These are effective, but
+generally difficult to compose; even if we can compose effects in a
+single EDSL, it is hard to compose multiple EDSLs, especially when
+parameterised with type information. Other successful approaches
+such as Hoare Type Theory~\cite{Ynot2008} are sufficiently expressive, but
+difficult to apply in everyday programming. Having linear types in the core
+language means that tracking state changes, which we have previously had to
+encode in a state-tracking monad, is now possible directly in the language. We
+can compose multiple resources by using multiple linear arguments.
+Combining dependent and linear types, along with protocol descriptions in
+\TC{L}, gives us similar power to
+Typestate~\cite{typestate_2009,typestate_2014}, in that we can use dependency
+to capture the state of a value in its type, and linearity to ensure that it is
+always used in a valid state. First-class types gives us additional flexibility:
+we can reason about state changes which are only known at run-time,
+such as state changes which depend on a run-time check of a PIN in an ATM.
+
+
+% The \texttt{App} library provides similar expressivity to runners of algebraic 
+% effects~\cite{ahmanrunners}, which provide a mathematical model of resource
+% management, and, like our \texttt{(>>=)} operator, ensure that continuations
+% are run at most once.
+% While our approach using \texttt{App} is not as expressive as, say,
+% algebraic effects~\cite{Plotkin2009,Lindley2017}, monad
+% transformers~\cite{Liang1995} or separation logic, it is composable with these
+% more expressive approaches in exactly the same way as \texttt{IO}. For example,
+% \texttt{App} could be used at the bottom of a monad transformer stack, or 
+% as a way of instantiating a program built on algebraic effects or free monads.
+
+\paragraph*{Session Types}
+
+In Section~\ref{sec:sessions} we gave an example of using QTT
+to implement Dyadic Session Types~\cite{Honda1993}. In previous 
+work~\cite{brady-lambda2017} Idris has been experimentally extended with
+uniqueness types, to support verification of concurrent protocols. However,
+this earlier system did not support erasure, and as implemented it was hard
+to combine unique and non-unique references. Our experience with QTT is that
+its approach to linearity, with multiplicities on the binders rather than on
+the types, is much easier to combine with other non-linear programs.
+
+Given linearity and dependent types, we can already have dependent session
+types, where, for example, the progress of a session depends on a message
+sent earlier. Thus, the embedding gives us label-dependent session
+types~\cite{labelst} with no additional cost. Previous work in exploring value-dependent
+sessions in a dependently typed language~\cite{janplaces2019} is directly
+expressible using linearity in Idris 2.  
+We have not yet explored further extensions to
+session types, however, such as multiparty session types~\cite{Honda2008},
+dealing with exceptions during protocol execution~\cite{Fowler2019} or
+dealing with errors in transmission in distributed systems.
+
+
+\section{Conclusions and Further Work}
+
+Implementing Idris 2 with Quantitative Type Theory in the core has immediately
+given us a lot more expressivity in types than Idris 1.  For most day to day
+programming tasks, expressing erasure at the type level is the most valuable
+user-visible new feature enabled by QTT, in that it is unambiguous which
+function and data arguments will be erased at run time.  Erasure has been a
+difficulty for dependently typed languages for decades and until recently has been
+handled in partial and unsatisfying ways (e.g.~\cite{brady_inductive_2003}).
+Quantitative Types, and related recent work~\cite{matus-draft}, are the most
+satisfying so far, in that they give the programmer complete control over what
+is erased at run time. In future, we may consider combining QTT with inference
+for additional erasure~\cite{matus-draft}.
+
+The $1$ multiplicity enables programming with full linear dependent types.
+Therefore reasoning about resources, which previously required heavyweight
+library implementations, is now possible directly, in pure functions. We have
+also seen, briefly, that quantities give more information when inspecting the
+types of holes. More expressive types, with interactive editing tools.  make
+programming a \emph{dialogue} with the machine, rather than an exercise in
+frustration when submitting complete (but wrong!) programs to the type checker.
+
+We have often found full dependent types, where a type is a first class
+language construct, to be extremely valuable in developing libraries with
+expressive interfaces, even if the programs which use those libraries do not
+use dependent types much. The \texttt{L} type for embedding linear protocols
+is an example of this, in that it allows a programmer to express precisely
+not only \emph{what} a function does, but also \emph{when} it is allowed to
+do it. It is important that the type system remains accessible to programmers,
+however. Dependent and linear types are powerful concepts, and without care in
+library design, can be hard to use. However, they don't have to be: they are based on
+concepts that programmers routinely understand and use, such as using a
+variable once and making assumptions about the relationships between data. 
+A challenge for language and tool designers
+is to find the right syntax and the right feedback mechanisms, so that
+powerful verification tools are within reach of all software developers.
+
+%\subsection{Future work}
+
+While we have already found many benefits of being able to express
+quantities in types, we have only just begun exploring, and have encountered
+some limitations in the theory which we hope to address, perhaps adapting
+ideas from related work~\cite{granulepopl}. Most
+importantly, we would like to express \emph{polymorphic}
+quantities. This may, for example, help give an appropriate type to
+$\mathtt{>>=}$ taking into account that some monads guarantee to execute
+the continuation exactly once, but others need more flexibility. Similarly,
+like Granule~\cite{granule}, we may find it useful to use quantities other
+than \texttt{0} and \texttt{1}, and the theory behind QTT supports
+this.
+
+We have not discussed performance in this paper, but for an interactive
+system it is vital, and will be a primary concern in the near future.
+Following~\cite{kovacs-smalltt}, Idris 2 minimises substitution of unification
+solutions. Initial results are promising: Idris 2 is now self-hosting, and
+builds itself in around 90 seconds\footnote{Dell XPS 13 Laptop, running Ubuntu 18.03 LTS}.
+We are using the interactive development tools, especially holes, in developing
+Idris itself.
+
+Finally, an important application of reasoning about linear resource usage
+is in implementing communication and security protocols correctly. The
+\TC{Protocol} type in Section~\ref{sec:sessions} provides a preliminary example
+which demonstrates the possibilites, but realistically it will need to
+handle timeouts, exceptions and more sophisticated protocols. Implementing
+these protocols correctly is difficult and error prone, and errors lead
+to damaging security problems\footnote{e.g. \url{https://www.imperialviolet.org/2014/02/22/applebug.html}}.
+But in describing a session type, we have explained a protocol in detail,
+and the machine calculates a lot of information about how the protocol
+proceeds. We should not let the type checker keep this information to itself!
+Thus, interactive programming of protocols based on linear resource usage
+gives a foundation for secure programming.
+

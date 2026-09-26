@@ -1,0 +1,527 @@
+\section{\Egglog}
+\label{sec:overview}
+
+\Egglog is a logic programming language 
+ that bears many similarities to Datalog,
+ and it also incorporates features 
+ that allow for program optimization and verification as in equality saturation.
+In this section, 
+ we approach \egglog by example,
+ starting from the Datalog perspective
+ and adding features until 
+ it subsumes equality saturation.
+
+\subsection{Datalog in \Egglog}
+
+\begin{figure}
+    \centering
+    \hfill
+    \begin{subfigure}[t]{0.40\linewidth}
+        \begin{lstlisting}[language=egglog, numbers=left,escapechar=!,xleftmargin=1em]
+(relation edge (i64 i64)) !\label{lst:edge-decl}!
+(relation path (i64 i64)) !\label{lst:path-decl}!
+            
+(rule ((edge x y)) !\label{lst:tc-start}!
+      ((path x y)))
+(rule ((path x y) (edge y z))
+      ((path x z))) !\label{lst:tc-end}!
+
+(edge 1 2) !\label{lst:edge-1}!
+(edge 2 3) !\label{lst:edge-2}!
+(edge 3 4) !\label{lst:edge-3}!
+
+(run) 
+(check (path 1 4)) ;; succeeds
+\end{lstlisting}
+        \caption{Reachability in the classic Datalog style.}
+        \label{fig:egglog-is-datalog:a}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.55\linewidth}
+        \begin{lstlisting}[language=egglog, numbers=left]
+(function edge (i64 i64) i64)
+(function path (i64 i64) i64 :merge (min old new))
+            
+(rule ((= (edge x y) len))
+      ((set (path x y) len)))
+(rule ((= (path x y) xy) (= (edge y z) yz))
+      ((set (path x z) (+ xy yz))))
+
+(set (edge 1 2) 10)
+(set (edge 2 3) 10)
+(set (edge 1 3) 30)
+
+(run) 
+(check (path 1 3)) ;; prints "20"
+\end{lstlisting}
+        \caption{Reachability including shortest path length.}
+        \label{fig:egglog-is-datalog:b}
+    \end{subfigure}
+    \caption{
+        \Egglog supports classic Datalog programs like reachability
+         written in the natural way.
+        Functions and \lstinline{:merge}
+         allow \egglog to support Datalog with lattices similar to tools
+         like Flix~\cite{flix} or Ascent~\cite{ascent}.
+    }
+    \label{fig:egglog-is-datalog}
+\end{figure}
+
+\Egglog uses a concrete syntax based on s-expressions,
+ but despite this surface-level difference,
+ readers familiar with Datalog should find many 
+ \egglog programs familiar.
+The program in \autoref{fig:egglog-is-datalog:a}
+ computes the transitive closure of a graph,
+ just like the Datalog program in \autoref{fig:datalog-tc-code}.
+It first declares two relations of pairs of 64-bit integers 
+ (\lstinline{i64} is one of \egglog's base types).
+The \lstinline{edge} relation stores the edges of a graph 
+ and is initially populated manually on lines~\ref{lst:edge-1}-\ref{lst:edge-3}.
+The \lstinline{path} relation is populated by the rules on lines~\ref{lst:tc-start}-\ref{lst:tc-end}.
+These rules compute the transitive closure of the \lstinline{edge} relation.
+Finally, the last two lines execute the program and check that 
+ there is a path from 1 to 4.
+% \autoref{fig:egglog-is-datalog:a} 
+%  declares two relations, 
+%  declares two rules,
+%  populates the \lstinline{edge} relation with three facts,
+%  and then runs the program.%
+% \footnote{
+%   In Datalog, running the program is usually implicit,
+%   but \egglog requires an explicit \lstinline{(run)} command.
+%   This becomes more useful later when 
+%   we may not desire to run the program all the way to fixpoint.
+% }
+
+Let us take a closer look at the second rule in \autoref{fig:egglog-is-datalog:a}:
+ it states that if there is a path from $x$ to $y$ 
+ and an edge from $y$ to $z$, 
+ then there is a path from $x$ to $z$.
+In \egglog, a rule has two parts: 
+ a \emph{query} and a list of \emph{actions}.%
+\footnote{
+Note that this is backwards from the
+ more traditional Datalog syntax:
+ \lstinline{path(X, Z) :- path(X, Y), edge(Y, Z).}
+An \egglog rule's query and actions are analogous 
+ to the body and head of a Datalog rule, respectively.
+}
+The query is a set of \emph{patterns},
+ all of which must match for the rule to fire.
+If all patterns do match, the query binds each variable to a value.
+The actions dictate what happens when the rule fires,
+ and they can use the variables that are bound by the query.
+Typically, as in this example, the actions assert
+ new facts to be added to the database.
+
+% \yz{talk about \lstinline[language=egglog]{define}}
+
+\subsection{Functions and \lstinline{:merge}}
+\label{sec:merge}
+
+Unlike traditional Datalog, 
+ \egglog stores data as partial functions rather than relations.
+A relation in \egglog actually 
+ desugars to a function whose return type is the built-in unit type.
+To model a unary relation $R$,
+ we can use a function $f_R$ to unit such that
+ $f_R(x) = () \text{ if } x \in R \text{ else undefined}$.
+While a Datalog program's rules add tuples to relations,
+ \egglog's functions become defined for more and more tuples
+ over the course of a program's execution,
+ a concept that we will explore in more detail in \autoref{sec:semantics}.
+Every user-defined function in \egglog is
+ backed by a map (as opposed to a set in in Datalog).
+Crucially, the map enforces the functional dependency from inputs to outputs.
+In other words, a function maps each input to a unique output.
+Throughout this paper, 
+ we will use the term ``table'' to refer to either
+ the backing map of an \egglog function
+ or the backing set of a Datalog relation.
+
+Consider the program in \autoref{fig:egglog-is-datalog:b}
+ that computes the length of shortest path between all nodes.
+Ignoring the \lstinline{:merge} declaration for now,
+ the program is substantially similar 
+ to the reachability program in \autoref{fig:egglog-is-datalog:a},
+ but it uses functions instead of relations.
+The program defines 
+ \lstinline{edge} and \lstinline{path} functions to \lstinline{i64}
+ rather than functions to unit (i.e., relations).
+The first rule (the base case) in \autoref{fig:egglog-is-datalog:b}
+ is similar to before: 
+ it says that an edge of length $\mathsf{len}$ from $x$ to $y$
+ implies there is a path of (at most) length $\mathsf{len}$ from $x$ to $y$.
+The query uses
+ \lstinline{=} to bind the output
+ of the \lstinline{edge} function to the variable \lstinline{len}.
+% A query is a list of unit-typed facts,
+%  and the \lstinline{=} operator 
+%  is a partial function from pairs of some type to unit.
+In the action, 
+ we see the \lstinline{set} construct,
+ which asserts
+ that a function maps some arguments to a given value.
+The action in the 
+ analogous rule in \autoref{fig:egglog-is-datalog:a}
+ desugars to \lstinline{(set (path x y) ())}.
+Note that if the arguments are already mapped to a value, 
+ we need to reconcile the old value with the new one
+ to preserve the functional dependency.
+This is resolved by the \lstinline{:merge} declaration which 
+ we will describe next.
+
+The second rule in \autoref{fig:egglog-is-datalog:b}
+ is the transitive case,
+ and here we see the purpose of the \lstinline{:merge} declaration.
+This rule says that if there is a path from $x$ to $y$ of length $xy$,
+ and an edge from $y$ to $z$ of length $yz$,
+ then there is a path from $x$ to $z$ of length $xy + yz$.
+But what if the function \lstinline{path} is already defined
+ on the arguments $x$ and $z$?
+Functions must map equivalent arguments to unique output,
+ so the \lstinline{:merge} declaration tells \egglog 
+ how to resolve this conflict.
+Given the facts later in \autoref{fig:egglog-is-datalog:b},
+ the program will discover two paths from $1$ to $3$:
+ the single edge with length $30$ 
+ will be discovered first,
+ and then two-edge path with length $20$.
+When \lstinline{(set (path 1 3) (+ 10 10))} 
+ is executed,
+ \egglog must come up with a single value to map \lstinline{(path 1 3)} to.
+To do this,
+ it evaluates the expression given after \lstinline{:merge} 
+ in the function's declaration
+ with \lstinline{old} and \lstinline{new} bound to the old and new values,
+ respectively.
+% The default \lstinline{:merge} 
+%  for functions that output base types 
+%  crashes the program if a function called with the same arguments 
+%  is set to two different values.
+In this case,
+ \lstinline{path}'s \lstinline{:merge} expression
+ simply takes the minimum of the two path lengths.
+It can be viewed as the join operator,
+ which takes the supremum of a set of values, 
+ of the min lattice over \lstinline{i64} 
+ where the partial order is $x\sqsubseteq y\iff x\geq y$.
+This is similar to the lattice semantics of Flix~\citep{flix},
+ which also enforces functional dependency by taking the join
+ over the old and new values in some lattice.
+% While this is itself useful for many Datalog programs,
+%  \autoref{fig:egglog-unification:b} shows how the lattice semantics corresponds to
+%  and actually generalize \eclass analyses in equality saturation.
+% \mw{Does it? Jrw is also confused about this.}
+% \of{Is there an opportunity to say how egglog does better than just datalog because it only keeps the minimum path?}
+However, \egglog does not restrict the \lstinline{:merge} expression
+ to only join operations over lattices.
+In the following sections we will show how a \lstinline{:merge} expression
+ that unifies values naturally gives rise to equality saturation.
+
+% \mw{something about lattices and flix here}
+% \yz{
+%     We should point out the beautiful connection between 
+%     this lattice semantics of Datalog and e-class analysis
+%     in the overview, or in the background section.
+% }
+
+\subsection{Sorts and Equality}
+
+\Egglog gives the user the ability to declare new
+ \emph{uninterpreted} sorts,
+ and functions use these new sorts as inputs or outputs.
+Crucially, values of user-defined sorts (as opposed to base types)
+ can be \emph{unified} by the \lstinline{union} action.
+\lstinline{union}-ing two values makes them point to the same element 
+ in the underlying universe of uninterpreted sorts.
+In other words, 
+ values that have been unified are essentially indistinguishable
+ to \egglog, 
+ and all unified variables can be substituted for the same pattern variable.
+
+\begin{figure}
+    \centering
+    \begin{subfigure}[t]{0.40\linewidth}
+        \begin{lstlisting}[language=egglog]
+(sort Node)
+(function mk (i64) Node)
+(relation edge (Node Node))
+(relation path (Node Node))
+            
+(rule ((edge x y))
+      ((path x y)))
+(rule ((path x y) (edge y z))
+      ((path x z)))
+
+(edge (mk 1) (mk 2))
+(edge (mk 2) (mk 3))
+(edge (mk 5) (mk 6))
+
+(union (mk 3) (mk 5))
+(run)
+(check (edge (mk 3) (mk 6)))
+(check (path (mk 1) (mk 6)))
+\end{lstlisting}
+        \caption{Combining nodes with unification}
+        \label{fig:egglog-unification:a}
+    \end{subfigure}
+    \begin{subfigure}[t]{0.55\linewidth}
+        \begin{lstlisting}[language=egglog]
+(datatype Math
+  (Num i64)
+  (Var String)
+  (Add Math Math)
+  (Mul Math Math))
+
+;; expr1 = 2 * (x + 3)
+(define expr1 (Mul (Num 2) (Add (Var "x") (Num 3)))) 
+;; expr2 = 6 + 2 * x
+(define expr2 (Add (Num 6) (Mul (Num 2) (Var "x"))))
+
+(rewrite (Add a b)         (Add b a))
+(rewrite (Mul a (Add b c)) (Add (Mul a b) (Mul a c)))
+(rewrite (Add (Num a) (Num b)) (Num (+ a b)))
+(rewrite (Mul (Num a) (Num b)) (Num (* a b)))
+
+(run)
+(check (= expr1 expr2))
+\end{lstlisting}
+        \caption{Basic equality saturation}
+        \label{fig:egglog-unification:b}
+    \end{subfigure}
+    \caption{
+        Unification and EqSat in \egglog.
+    }
+    \label{fig:egglog-unification}
+\end{figure}
+
+Consider an enhanced version of path reachability 
+ in \autoref{fig:egglog-unification:a},
+ where we use unification to implement node contraction
+ (sometimes called vertex contraction).
+The program declares a new sort \lstinline{Node},
+ which is necessary because base types (like \lstinline{i64})
+ cannot be unified.
+The \lstinline{mk} function is the sole constructor of \lstinline{Node}s.
+After the rule declarations (same as in \autoref{fig:egglog-is-datalog:a})
+ and some edge assertions,
+ we see our first \lstinline{union} action,
+ which takes two arguments
+ of the same user-defined sort and unifies them.
+Now that nodes $3$ and $5$ are unified,
+ running the rules will indeed find a path from $1$ to $6$, 
+ a path that did not exist before the unification.
+
+In \egglog, users define uninterpreted sorts.
+A sort is a set of opaque integer values
+ called \emph{ids} and an equivalence relation over those ids.
+The equivalence relation is implemented
+ with a union-find data structure~\cite{unionfind}
+ that can \emph{canonicalize} ids;
+ two ids are equivalent iff 
+ they canonicalize to the same id.
+Equivalent ids are considered indistinguishable by \egglog.
+In fact,
+ \egglog ensures that all ids appearing in the database are canonical.
+These ids corresponds to \eclass ids from the \eqsat perspective.
+
+% \of{the following paragraph is a bit confusing, and comes out of nowhere. What's the best place to put this information about defaults and total functions?}
+The second line of \autoref{fig:egglog-unification:a}
+ declares \lstinline{mk}, 
+ a function from \lstinline{i64} to \lstinline{Node}.
+This looks like a constructor, for \lstinline{Node}s, 
+ but it is just like any other function from \egglog's perspective;
+ the \lstinline{mk} function is backed 
+ by a map from \lstinline{i64}s to \lstinline{Node} ids.
+In this program,
+ we never query over the \lstinline{mk} function,
+ but we do call it, treating it like a total function.
+What is the value of \lstinline{(mk 1)},
+ especially since we did not \lstinline{set} it to anything
+ prior to calling it?
+Functions in \egglog can be imbued with a 
+ \lstinline{:default} expression that extends
+ the partial function as defined by the underlying map to be total.
+Calling a function \lstinline{(f x)} will first see if
+ the map for function \lstinline{f} defines 
+ an output for \lstinline{x}.
+If so, it returns that output.
+Otherwise, 
+ \egglog evaluates the \lstinline{:default} expression,
+ stores the result in the map,
+ and returns it.
+Unless otherwise specified,
+ the \lstinline{:default} for functions that output a
+ user-defined sort is to create an equivalence class in the union-find
+ and return its id
+ (the ``make-set'' operation);
+ for base types the default \lstinline{:default} 
+ is to crash the program.
+In other words,
+ calling a function that outputs a user-defined sort
+ is essentially a ``get or make-set'' operation.
+% \yz{For sorts, :merge being union and :default being union is more like a must, 
+%  which is implied by the semantics in \autoref{sec:semantics}.
+%  This seem to imply the default can be anything}
+
+The upcoming subsection will discuss how these features enable
+ equality saturation,
+ but \autoref{sec:points-to} will demonstrate how
+ the canonicalizing union-find is useful even in a domain
+ where Datalog is traditionally strong: pointer analysis.
+
+\subsection{Terms and Equality Saturation}\label{sec:eqsat}
+
+% \yz{Maybe good to come up with a throughout example that is used both here and in the introduction.}
+
+In \autoref{fig:egglog-unification:a},
+ the \lstinline{Node} sort only has a single constructor, 
+ \lstinline{mk}, which takes an \lstinline{i64}.
+\egglog also supports functions that take user-defined sorts as inputs.
+In this way, terms are easily constructed in \egglog.
+Combined with the built-in equivalence relation,
+ this term representation directly supports equality saturation in \egglog.
+
+Consider \autoref{fig:egglog-unification:b},
+ where we define a datatype \lstinline{Math} 
+ that represents a simple language of arithmetic expressions.
+The \lstinline{datatype} construct is sugar for
+ a \lstinline{sort} declaration
+ and a \lstinline{function} declaration for each constructor.
+Each constructor is a function that returns a value of type \lstinline{Math},
+ and its \lstinline{:default} behavior creates a fresh id
+ as described above
+ (we will get to its \lstinline{:merge} behavior shortly).
+Now we can create terms by just nesting function calls.
+The \lstinline{define} statements do just that, 
+ creating two terms that we will later prove are equivalent.
+These statements actually create nullary (constant) functions;
+ \lstinline{(define x e)} desugars to
+ \lstinline{(function x () T) (set (x) e)} 
+ where \lstinline{T} is the type of \lstinline{e}.
+Evaluating these terms
+ adds them to the database (if not already present)
+ thanks to the \lstinline{:default} behavior of the constructors.
+
+Term rewriting in equality saturation
+ has two important qualities:
+ (1) pattern matching is done \emph{modulo equality} and
+ (2) rewriting is \emph{non-destructive}, i.e., 
+     it only adds information to the e-graph/database.
+\Egglog meets both of these criteria:
+ (1) all queries are performed modulo equality since
+     \egglog canonicalizes the database with respect 
+     to its built-in equivalence relation,
+     and
+ (2) \egglog rules (like standard Datalog rules) only add information
+     to the database.
+\Egglog provides the 
+ \lstinline{rewrite} statement
+ to simplify creating
+ equality saturation rewrite rules.
+A \lstinline{(rewrite p1 p2)} statement
+ desugars to a \lstinline{rule} that queries
+ for \lstinline{p1}, binds it to some variable,
+ and \lstinline{union}s the variable with \lstinline{p2}:
+ \lstinline{(rule ((= __var p1)) ((union __var p2)))}.
+
+The program in \autoref{fig:egglog-unification:b}
+ proves \lstinline{expr1} equivalent to \lstinline{expr2}
+ using two uninterpreted rewrites
+ and two that interpret the \lstinline{Add} and \lstinline{Mul} functions
+ using the built-in \lstinline{+} and \lstinline{*} functions over \lstinline{i64}.
+\eqsat frameworks like \egg 
+ require the user to separate the uninterpreted rules
+ from the interpreted part from the computed part using
+ an \eclass analysis~\cite{egg}.
+\egglog uses rules for both.
+
+Like other functions that output user-defined sorts,
+ the \lstinline{Math} constructors' \lstinline{:merge} behavior
+ is to union the two ids.
+Combined with \egglog's canonicalization,
+ this means that the built-in equivalence relation is also
+ a congruence relation with respect to these functions.
+Consider the following map for the
+ \lstinline{Add} function:
+ $\{ (a, b) \mapsto c, (a, d) \mapsto e \}$.
+If we \lstinline{union} $b$ and $d$ 
+ such that $b$ is now canonical,
+ canonicalizing the database reveals a violation 
+ of the functional dependency 
+ from \lstinline{Add}'s inputs to its output:
+ $(a, b) \mapsto c$ but also $(a, b) \mapsto e$.
+To resolve the conflict,
+ \egglog invokes the \lstinline{:merge} expression
+ of the \lstinline{Add} function,
+ which in this case \lstinline{union}s $c$ and $e$.
+
+After running the rules,
+ the final line \lstinline{check}s 
+ that \lstinline{expr1} and \lstinline{expr2} are now equivalent.
+The type of both \lstinline{expr1} and \lstinline{expr2} 
+ is \lstinline{Math}---a user-defined sort---%
+ so the underlying value of the expressions are both ids.
+Since \egglog canonicalizes the database,
+ the \lstinline{check} is implemented 
+ with simple equality on the ids.
+\egglog supports optimization as well as verification;
+ the \lstinline{extract} command prints the 
+ smallest term equivalent to its given input. 
+
+% \yz{TODO: add e-class analyses to this EqSat overview}
+
+\subsection{Beyond \eqsat}
+
+\Egglog is not limited to just Datalog or \eqsat;
+ the combination allows for possibilities outside the reach of either tool.
+The combining nodes example 
+ from \autoref{fig:egglog-is-datalog:a}
+ hints at the power of unification in Datalog,
+ and \autoref{sec:points-to} takes this 
+ further by implementing a unification-based pointer analysis in \egglog.
+In \autoref{sec:herbie},
+ we go the other way, 
+ implementing several Datalog-like anaylses
+ to assist an \eqsat-powered term rewriting system.
+
+But \egglog goes beyond these applications;
+ we
+ describes more \egglog pearls in the full version \citep{egglog-preprint},
+ including functional programming,
+ type analyses for the simply typed lambda calculus in equality saturation,
+ type inference for Hindley-Milner type systems,
+ multivariable equational solving,
+ and matrix algebra optimization with Kronecker products.
+% While Datalog and \eqsat engines may struggle to express these applications,
+%  users can express them straightforwardly in \egglog
+These pearls hint at the potential novel applications in program optimizations and analyses using \egglog in the future.
+% While writing these applications in \egglog is straightforward,
+%  writing them in Datalog or \egglog can be tricky if not impossible.
+
+% But \egglog does not stop here.
+% \autoref{sec:pearls} is dedicated to demonstrating this point.
+% \autoref{sec:funprog} shows how to express 
+%  first-order functional programs in \egglog
+%  in a natural way.
+% While top-down semantic reasoning is difficult to express in \eclass analyses,
+%  \autoref{sec:stlc} shows that we can achieve such reasoning easily 
+%  by showing a type inference algorithm for \eqsat
+%  with simply typed lambda calculus, 
+%  something difficult to express in existing \eqsat frameworks.
+% We go even beyond: the key idea of the type inference algorithm
+%  for Hindley-Milner type systems is exactly its unification over types,
+%  so there is nothing preventing us from doing it.
+% \autoref{sec:hm} shows Hindley-Milner type inference in \egglog.
+% Finally,
+%  \autoref{sec:other-pearls} shows three more examples:
+%  \egglog can solve multivariable equations by 
+%  rewriting not only terms but also equations;
+%  can encode, hashcons, and extract proofs for Datalog predicates;
+%  and can use equational preconditions--guarded rewrite rules
+%  to optimize matrix expressions with Kronecker products.
+
+% \mw{point to supp material}
+% \yz{we need an example to show analyses over eqsat}

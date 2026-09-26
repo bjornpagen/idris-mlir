@@ -1,0 +1,532 @@
+\section{Semantics of \egglog}
+
+In this section we describe the semantics of core \egglog.
+Core \egglog differs from the full \egglog language in several aspects.
+For example,
+ \egglog allows multiple actions in a rule 
+ while core \egglog allows only one atom in the head,
+ and core \egglog does not have the \lstinline{union} operation.
+These \egglog features can be desugared into the core language.
+However, there are also some assumptions we made about the core \egglog.
+For example, we assume the \lstinline{:merge} expression over ids
+ are \lstinline{union} and the \lstinline{:merge} expressions 
+ over interpreted constants is the join operator of a given lattice,
+ while \egglog allows \lstinline{:merge} to be any valid \egglog expression.
+In other words,
+ the core \egglog captures a well-behaving subset of the full \egglog language.
+
+\subsection{Syntax}
+
+Given the set of (interpreted) constants $C$,
+ the syntax of the core \egglog language is shown in \autoref{fig:syntax}.
+An \egglog program is defined as a list of rules, 
+ and each rule consists of an atom in the head
+ and a list of atoms in the body.
+An atom has the form $f(p_1,\ldots,p_k)\mapsto o$ 
+ and intuitively means function $f$ has value $o$ on $p_1,\ldots, p_k$.
+A pattern $p$ is a nested expression 
+ constructed using function symbols, variables, and constants.
+We additionally define a ground term (or term) $t$ to be a pattern with no variables,
+ and a ground atom to be an atom where all the patterns are ground terms.
+
+A valid \egglog program should not explicitly refer to 
+ a specific uninterpreted constant $n$.
+We include uninterpreted constants in the syntax nonetheless
+ since they are useful when describing the semantics of \egglog programs.
+
+% \rw{Do we need $f(p_1, \ldots, p_k)$ as another case in Atom? I think having $f(p_1, \ldots, p_k) \mapsto 0$ is enough?}
+
+% \newcommand\nt[1]{\ensuremath{\mathit{#1}}}
+\begin{figure}
+  \centering
+  \begin{tabular}{llcl}
+     Program        & $P$ & ::= & $R_1,\ldots, R_n$                                                                 \\
+     Rule           & $R$ & ::= & $A\ngets A_1,\ldots A_m$.                 \\
+     Atom           & $A$ & ::= & $f(p_1,\ldots, p_k)\mapsto o\mid f(p_1,\ldots, p_k)$                 \\
+     Pattern        & $p$ & ::= & $f(p_1, \ldots, p_k)\mid o$                 \\
+     Term           & $t$ & ::= & $f(t_1, \ldots, t_k)\mid v$                 \\
+     Base pattern          & $o$ & ::= & $v\mid x$                                               \\
+     Constant       & $v$ & ::= & $c\mid n$ \\
+     Interpreted Constant       & $c\in C$                                           \\
+     Uninterpreted Constant       & $n\in N$                                           \\
+     Variable       & $x, y, \ldots$  \\
+  \end{tabular}
+  \caption{
+    Syntax of core \egglog. 
+    % Moreover, in Section \ref{sec:semantics}, 
+    % we also use $n\in N$ to denote an uninterpreted constant
+    % and $t\in N\cup C$ to denote a constant in general.
+    }
+  \label{fig:syntax}
+\end{figure}
+
+\subsection{Semantics}\label{sec:semantics}
+
+\def\DB{\mathit{DB}}
+\def\bmt{\textbf{t}}
+\def\bmv{\textbf{v}}
+\def\mergef{\mathit{merge}}
+Given an infinite set of uninterpreted constants\footnote{
+    These uninterpreted constants 
+    play a similar role as \eclass ids in \eqsat
+    or labelled nulls in the chase from the database literature.
+}
+ $N = \{n_1,n_2, \ldots\}$ 
+ and a complete lattice $L = (C, \sqsubseteq, \sqcup)$ 
+ over domain of interpreted constants $C$,
+ We define $\bot$ to be the least element of $L$.
+A schema $S$ is a collection of function symbols and their function signatures, 
+ where the types range over $\{N, C\}$.
+Given a schema $S$, an instance of $S$ is defined $I=(\DB, \equiv)$,
+ where $\DB$ is a set of function entries $f(v_1,\ldots, v_k)\mapsto v$
+ that is consistent with the schema
+ and $\equiv$ is an equivalence relation over $N\cup C$ 
+ satisfying $\forall c_1, c_2\in C. c_1\equiv c_2\rightarrow c_1=c_2$ 
+ (i.e., interpreted constants are only equivalent to themselves).
+\revision{For convenience, we also lift set operator (e.g., union, difference)
+ to be between an instance and a database, 
+ which applies the operator to instance's database.}
+
+Given an arbitrary total order $<$ over $N\cup C$,
+we define the canonicalization function $\lambda_{\equiv}(t)=\min t':t'\equiv t$.
+For convenience, we lift $\lambda_{\equiv}$ to 
+ also work on sets 
+ and the whole database instances by pointwise canonicalization.
+
+Before proceeding to define the semantics of an \egglog program,
+ we need to first define what it means for a ground atom (an atom without variables)
+ to be in the database and what it means to add one to the database.
+First, we use the judgement $I\vdash A$ 
+ to denote a ground atom is contained in the database $I$.
+% \pz{Suggestion: First, we use the judgement $I\vdash A$ 
+% to denote a ground atom $A$ is contained in the database $I$. yz: done}
+\begin{mathpar}
+    \inferrule{
+        I\vdash t_i\mapsto v_i \text{ for $i=1\ldots k$}\\\\\and
+        I=(\DB{}, \equiv)\and
+        f(v_1, \ldots, v_k)\mapsto v \in \DB{}
+    }{
+        I\vdash f(t_1, \ldots, t_k)\mapsto v
+    }
+    \and
+    \inferrule{
+    }{
+        I\vdash v\mapsto v
+    }
+    \and
+    \inferrule{
+        I\vdash f(t_1, \ldots, t_k)\mapsto v \text{ for some $v$}
+    }{
+        I\vdash f(t_1, \ldots, t_k)
+    }
+\end{mathpar}
+% We also loose the definition and use $I\vdash_{\lambda} A$ to denote whether an atom is in the database after canonicalization, i.e., $I\vdash_{\lambda} A$ iff $I\vdash \lambda_{\equiv}(A)$.
+
+\def\flatten{\textit{flatten}}
+\def\aux{\textit{aux}}
+
+We also define $\flatten{}_I$ in \autoref{fig:flatten}
+ to flatten function entries to be inserted 
+ into $I$ given a nested ground atom $A$.
+
+\begin{figure}
+\begin{align*}
+    \flatten{}_I(A) &= s\quad \text{where $(v, s) = \aux{}(A)$}\\
+    \aux{}(f(t_1,\ldots, t_k)\mapsto v)
+      & = \left(
+        v,
+        \{f(v_1,\ldots, v_k)\mapsto v\}\cup \bigcup_{i=1,\ldots,k}s_i
+      \right)\\
+      & \text{where $(v_i, s_i)=\aux{}(t_i)$ for $i=1,\ldots,k$.}\\
+    \aux{}(f(t_1,\ldots, t_k))
+      & = \left(
+        v,
+        \{f(v_1,\ldots, v_k)\mapsto v\}\cup \bigcup_{i=1,\ldots,k}s_i
+      \right)\\
+      & \text{where $(v_i, s_i)=\aux{}(t_i)$ for $i=1,\ldots,k$}\\
+      & \text{and $I\vdash f(v_1,\ldots, v_k)\mapsto v$ 
+        if such $v$ exists and $v=\textit{default}_f$ otherwise.}\\
+    \aux{}(v) &= \left(v, \emptyset\right)
+\end{align*}
+\caption{
+$\flatten{}_I(A)$ 
+ flattens function entries to be inserted 
+ into $I$ given a nested ground atom $A$.
+If the output type of $f$ is $N$,
+ then $\textit{default}_f$ is a fresh constant from $N$; 
+ otherwise it is $\bot$.
+The auxillary function $\aux$ 
+ takes a ground atom and
+ returns the ``output value'' of the ground atom
+ and the set of flattened facts
+ it will populate.
+}\label{fig:flatten}
+\end{figure}
+% We say $f(\bmt{})\mapsto t\in I$ 
+%  if $\DB{}[f](\lambda_{\equiv}(\bmt{}){})\equiv t$.
+
+Now we can define the semantics of an \egglog program.
+It consists of two parts: the immediate consequence operator and the rebuilding operator.
+We can define the (inflationary) immediate consequence
+ operator $T^\uparrow_P$ as follows.%
+ \footnote{
+     The definition of immediate consequence operator
+      in standard Datalog does not union with $\DB{}$,
+     because rule applications in standard Datalog are monotone.
+     This is not the case in \egglog in general.
+     For example, rule $Q(e)\ngets \textit{lo}(e)\mapsto 5$, where 
+      $\textit{lo}$ tracks the lower bound of an expression,
+     is not monotone because the value of $\textit{lo}(e)$ can increase over time.
+     Although one can adapt the meet semantics of Flix~\citep{flix} for relational joins to enforce monotonicity, 
+     we do not do this in \egglog to be compatible with existing \egg applications, 
+     which can be non-monotonic.
+     Instead, we define \egglog semantics using the inflationary immediate consequence operator, 
+     which is used to describe semantics for non-monotonic extension of Datalog such as $\text{Datalog}^\neg$~\citep{neg-by-fixpoint}.
+ }
+Let $\sigma$ denote a substitution that maps variables to constants,
+ and let $A[\sigma]$ denote the ground atom obtained by applying $\sigma$ to atom $A$
+ in the standard way.
+Given an \egglog program $P$ 
+ consisting of a set of rules and $I=(\DB{}, \equiv)$,
+ then $T^{\uparrow}_P(I)=\DB\cup T_P(I)$ and $T_P(I)=(\DB{}', \equiv)$, where
+\[
+    \DB{}'=
+    \bigcup_{
+        (A\ngets A_1,\ldots, A_m) \in P
+    }
+    \left\{ 
+        \displaystyle
+        \textit{flatten}_I(A[\sigma])\mid
+        \forall_{i=1,\ldots,m}\ 
+        I\vdash A_i[\sigma]
+    \right\}
+\]
+
+However, functions in $T^\uparrow_P(I)$ may no longer preserve the functional dependencies, 
+ as it is possible that the same key $(v_1,\ldots, v_k)$ are mapped to more than one $v$ in some $f$.
+We call $T^\uparrow_P(I)$ a \emph{pre-instance}, since it is not a valid instance yet.
+To transform a pre-instance into a valid instance, 
+ we further define the rebuilding operator \(
+    R((\DB{}, \equiv)) = (\DB{}_R, \equiv_R)
+\), where:
+\begin{align*}
+    (\equiv_R) &=
+    \text{equivalence closure of }
+    \left(
+    (\equiv) \cup
+    \left\{
+        (n_1,n_2)\;
+        \bigg|
+        \begin{array}{l}
+          f(v_1,\ldots, v_k)\mapsto n_1\in \DB{}, \\
+          f(v_1,\ldots, v_k)\mapsto n_2\in \DB{}, \\
+          n_1, n_2\in N
+        \end{array}
+    \right\}
+    \right)
+    \\
+    \DB{}_R &=
+    \lambda_{\equiv_R}
+    \left(\left\{
+        f(v_1,\ldots, v_k)
+        \mapsto 
+        \mergef_{f,\equiv}\left(
+            K
+        \right)
+        \bigg|
+        \begin{array}{r}
+          K=\left\{v: f(v_1,\ldots, v_k)\mapsto v\in \DB{}\right\} \\
+          \text{and $K$ is not empty}
+        \end{array}
+    \right\}\right)
+    \\
+    \mergef_{f,\equiv}(K) &=
+    \begin{cases}
+        \min\left(\lambda_{\equiv}(K)\right) &\text{if the output type of $f$ is $N$;}\\
+        \bigsqcup K &\text{if the output type of $f$ is $C$.}
+    \end{cases}
+\end{align*}
+% \[
+%     \equiv\cup 
+%     \{(n_1,n_2)\mid f(v_1,\ldots, v_k)\mapsto n_1\in \DB{}, 
+%     f(v_1,\ldots, v_k)\mapsto n_2\in \DB{}, n_1, n_2\in N\}
+% \]
+% and
+% \[
+%     % \DB{}_R[f]=\left\{
+%     %     \bmt\mapsto 
+%     %     \mergef_{f,\equiv}\left(
+%     %         \left\{t: f\left(\bmt\right)\mapsto t\in I\right\}
+%     %     \right)\mid
+%     %     \text{for all $\bmt$ where $\left\{t: f\left(\bmt\right)\mapsto t\in I\right\}$ is not empty}
+%     % \right\}
+%     \DB{}_R=\lambda_{\equiv_R}\left(\left\{
+%     f(v_1,\ldots, v_k)\mapsto 
+%     \mergef_{f,\equiv}\left(
+%         K
+%     \right)\mid 
+%     \text{ $K=\left\{v: f(v_1,\ldots, v_k)\mapsto v\in \DB{}\right\}$ and $K$ is not empty}
+%     \right\}\right)
+% \]
+% where \[
+%     \mergef_{f,\equiv}(K)=
+%     \min\left(\lambda_{\equiv}(K)\right)
+% \]
+% if the output type of $f$ is $N$ and \[
+%     \mergef_{f,\equiv}(K)=\bigsqcup K
+% \] if the output type of $f$ is $C$.
+% where
+%  \[
+%     \mergef_{f,\equiv}(K)=
+%     \begin{cases}
+%         \min\left(\lambda_{\equiv}(K)\right) &\text{if the output type of $f$ is $N$;}\\
+%         \bigsqcup K &\text{if the output type of $f$ is $C$.}
+%     \end{cases}
+% \]
+% \pz{Have we lost the definition of $\lambda_{\equiv_R}$?  Should this be $\mergef_{f,\equiv_R}$? }
+
+\def\lfp{\mathit{lfp}}
+
+Note that the canonicalization in computing $\DB{}_R$ 
+ (i.e., $\lambda_{\equiv_R}$) may cause $I$ to be invalid again,
+ so successive rounds of rebuilding may be needed. 
+Therefore, the complete rebuilding function $R^{\infty}$ 
+ is defined as iterative applications of $R$ until fixpoint.
+\revision{The rebuilding process always terminates, 
+ as it shrinks the size of the database in each iteration.}
+
+We define one iteration of evaluating 
+ an \egglog program $F_P$ as $R^{\infty}\circ T^\uparrow_P$, i.e.,
+ do rule application once, and apply rebuilding until fixpoint. 
+Intuitively, applying $F_P$ to a database makes it ``larger'', 
+ in the sense that more facts may be represented.
+To capture this monotonicity, we define the expanded database 
+ $E_{\equiv}(\DB{})$
+ such that 
+ $f(v_1, \ldots, v_k)\mapsto n\in E_{\equiv}(\DB{})$ iff
+  $f(\lambda_{\equiv}(v_1),\ldots, \lambda_{\equiv}(v_k))\mapsto \lambda_{\equiv}(n)\in \DB{}$
+ and
+ $f(v_1, \ldots, v_k)\mapsto c\in E_{\equiv}(\DB{})$ iff
+  $\exists c'. f(\lambda_{\equiv}(v_1),\ldots, \lambda_{\equiv}(v_k))\mapsto c'\in \DB{}\land c\sqsubseteq c'$.
+A database is larger than or equal to another database
+ if it knows at least as many facts and equalities,
+ so we define
+ $(\DB_1, \equiv_1)\sqsubseteq_I (\DB_2, \equiv_2)$ iff
+ $E_{\equiv_1}(\DB_1)\subseteq E_{\equiv_2}(\DB_2)$ 
+ and
+ $\equiv_1\subseteq\equiv_2$.
+
+Although $F_P$ is not a monotone function in general,
+the following sequence of iterative applications is always monotonically increasing:
+\[
+    I_{\bot}\sqsubseteq_I F_P(I_{\bot})\sqsubseteq_I F_P(F_P(I_{\bot}))\sqsubseteq_I  F_P(F_P(F_P(I_{\bot})))\sqsubseteq_I \ldots
+\]
+for initial database $I_{\bot}=(\emptyset, \textit{Id}_{N\cup C})$
+where $\textit{Id}_{N\cup C}$ is the identity relation
+over $N\cup C$. This ensures the existence of a fixpoint.
+
+Finally, the result of evaluating an \egglog program $P$ is defined as the inductive fixpoint of $F_P$, 
+ i.e., \(
+    [\![P]\!]=F_P^{\infty}(I_{\bot})% =\sup\left(\{F_P^n(I_{\bot})\mid n\in\mathbb{N}\}\right)
+\).
+% If $F_P$ is monotone, then $F_P^{\infty}(I_{\bot})$ is also the least fixpoint of $F_P$.
+For many practical applications, 
+ $[\![P]\!]$ often has an infinite size, 
+ so we only calculate a finite under-approximation of the result, 
+ i.e., $(R^{\infty}\circ T^\uparrow_P)^n(I_\bot)$ for some iteration size $n$. 
+\revdel{
+This gives the \naive algorithm for evaluating an \egglog program given iteration size $n$ shown in Algorithm~\ref{alg:eval}.
+}
+
+\def\UF{\textit{UF}}
+
+\revision{
+\subsection{Semi-na\"ive Evaluation}\label{sec:seminaive}
+}
+
+% We now present a \seminaive algorithm for evaluating an \egglog program.
+% Algorithm~\ref{alg:eval} shows the pseudo-code for the algorithm.
+% We begin by initializing the database $DB_0$, 
+% the differential database $\Delta\DB{}_0$, 
+% and the Union-Find $\UF$ to be empty.
+% Each iteration of the main loop computes the new differential database $\Delta\DB{}_i$.
+% For each rule $A \ngets A_1, \ldots, A_m$ in the program, 
+%  $\textsc{evalQuery}$ generates $m$ \emph{delta rules}~\footnote{
+% Certain variants of the semi-na\"ive algorithm keeps track of both 
+% the ``current'' and ``previous'' versions of the database to 
+% further speed up the evaluation.
+% For simplicity, we only use the current database.
+% }
+%  $\{\Delta A \ngets A_1, \ldots, A_{j-1}, \Delta A_j, A_{j+1}, \ldots, A_m 
+%  \mid j \in [1\ldots m]\}$, 
+%  then evaluates each delta rule to compute the new facts in $\Delta\DB{}_i$.
+% Next, we remove the old facts in $DB_{i-1}$ from $\Delta\DB{}_i$, 
+%  and combine the old database with the differential into $DB_i$. 
+% Finally, we rebuild $DB_i$, $\Delta\DB{}_i$, and $\UF$ to resolve functional dependencies.
+% During rebuilding, 
+%  any new or updated tuple is also added to $\Delta\DB{}_i$, 
+%  and old tuples are removed from both $DB_i$ and $\Delta\DB{}_i$.
+
+\def\SN{\mathit{SN}}
+\def\N{\mathit{N}}
+
+Last section gives an algorithm for evaluating \egglog programs, 
+ which iteratively apply the immediate consequence operator ($T^\uparrow_P$)
+ and the rebuilding operator $R^\infty$.
+We call this algorithm the \naive evaluation.
+Despite straightforward,
+ the \naive evaluation may duplicate works by re-discovering same facts
+ over and over again.
+The \seminaive algorithm mitigates this problem 
+ by incrementalizing the evaluation.
+In \seminaive evaluation, each iteration maintains a differential database $\Delta\DB_i$,
+ which will only contain tuples that are updated or new in this iteration.
+The \seminaive rule application operator $T^\SN_P(I_i, \Delta\DB_i)$ 
+ additionally takes a differential database.
+For each rule $A\ngets A_1, \ldots, A_m$, $T^\SN_P$ will expand it
+ into $m$ delta rules 
+ $\{A \ngets A_1, \ldots, A_{j-1}, \Delta A_j, A_{j+1}, \ldots, A_m \mid j \in 1\ldots m\}$
+ and apply these rules to the database similar to $T_P$.
+
+\begin{algorithm}
+    \caption{The \seminaive evaluation of an \egglog program.}
+    \label{alg:eval}
+    \begin{algorithmic}
+    \Procedure{$F^\SN_P$}{$P, n$}
+        \State $I_0\gets I_\bot$;\ \ $\Delta\DB{}_0\gets \emptyset$;
+        \For{$i = 1\ldots n$}
+            \State $\left(\DB_i{},\equiv_i\right) \gets R^\infty\left(
+                I_{i-1}\cup T^\SN_P\left(
+                    I_{i-1}, \Delta\DB_{i-1}
+                \right)
+            \right)$;
+            \State $\Delta\DB{}_i \gets \DB{}_{i} - \DB{}_{i-1}$;
+            \State $I_i\gets \left(\DB_i{},\equiv_i\right)$;
+        \EndFor
+        \State \Return $I_n$;
+    \EndProcedure
+    \end{algorithmic}
+\end{algorithm}
+
+
+% \begin{algorithm}
+%     \caption{The \seminaive evaluation of an \egglog program.
+%     Removing the underlined parts results in the \naive algorithm.
+%      }
+%     \label{alg:eval}
+%     \begin{algorithmic}
+%     \Procedure{EvalEqLog}{$P, n$}
+%         \State $\DB{}_0, \Delta\DB{}_0, \UF{} \gets \textsc{newDB}(), \textsc{newDB}(), \textsc{newUnionFind}()$;
+%         % \State $\UF{} \gets \textsc{newUnionFind}()$
+%         \For{$i = 1\ldots n$}
+%             \State $\DB{}_i \gets DB{}_{i-1}$
+%             % \State \uwave{$\Delta\DB{}\gets \textsc{newDB}()$};
+%             \For{$A\ngets A_1,\ldots, A_m \in P$} \Comment{Search}
+%                 % \For{\underline{rule $\in \textsc{deltaRules}$(rule)}}
+%                     % \State $A\ngets A_1,\ldots, A_m \gets$ rule;
+%                     \For{$\textit{subst}\in \textsc{evalQuery}((A_1,\ldots, A_m), \DB{}_{i-1}, \underline{\Delta\DB{}_{i-1}})$}
+%                        \State $\DB{}_i.\textit{add}(
+%                            A.\textit{subst}(\textit{subst})
+%                        )$;
+%                        \Comment{Apply}
+%                     \EndFor
+%                 % \EndFor
+%             \EndFor
+%             % \State $\DB{}_i \gets \DB{}_{i-1} \cup \Delta\DB{}_{i}$; \Comment{Apply}
+%             % \State $\DB{}_i,\UF{} \gets \textit{rebuild}(\DB{}_i,\UF{})$; \Comment{Rebuild}
+%             \Repeat \Comment{Rebuild}
+%                 \State $\DB_i{},\UF_i{} \gets \textit{rebuildOnce}(\DB{}_i,\UF_i{})$;
+%             \Until{$DB$ does not change};
+
+%             \State $\Delta\DB{}_i \gets \DB{}_{i} - \DB{}_{i-1}$;
+%             \If{$\Delta\DB{}_i=\emptyset$}
+%                 \State \Return $(\DB{}_i, \UF{})$;
+%             \EndIf
+%         \EndFor
+%         \State \Return $(\DB{}_n, \UF{})$;
+%     \EndProcedure
+%     \end{algorithmic}
+% \end{algorithm}
+
+% The fixpoint semantics in \autoref{sec:semantics} directly prescribes a \emph{na\"ive} evaluation algorithm
+%  of \egglog programs.
+% It differs from the \seminaive algorithm in three ways:
+% first, $\textsc{evalQuery}$ simply runs each rule as-is using only $DB_{i-1}$;
+%  second, $\Delta\DB{}_i$ is directly merged with $\DB{}_i$ without removing old facts;
+%  finally, rebuilding need only operate on $DB_i$ and not $\Delta\DB{}_i$.
+% In other words, removing the underlined parts from Algorithm~\ref{alg:eval} 
+% results in the na\"ive algorithm.
+
+We prove the following theorem in the full version \citep{egglog-preprint}.
+
+\begin{theorem}
+    The \seminaive evaluation of an \egglog program
+    produces the same database as the \naive
+    evaluation.
+\end{theorem}
+
+% Old proof
+
+% To see the semi-na\"ive algorithm computes the same result as the na\"ive algorithm,
+% we need to establish the following two properties: 
+% first, the result of $\textsc{evalQuery}$ for the semi-na\"ive algorithm
+%  is a subset of its result for the na\"ive algorithm;
+% second, any tuple produced by the na\"ive algorithm
+%  but not by the semi-na\"ive algorithm
+%  must already be in the database.
+% The first condition  holds because $\Delta\DB{}_i$ is always a subset of $\DB{}_i$
+%  when $\textsc{evalQuery}$ is called, 
+%  and since we disallow negated relations, every \emph{query} is monotone in 
+%  each relation (even though the \emph{action} may not be monotone).
+% For the second condition, we first establish an invariant for $rebuild$: 
+% the difference $DB_i - \Delta\DB{}_i$ after rebuilding is a subset 
+%  of their difference before rebuilding.
+% This is because any tuple added by $rebuild$ is added to both $DB_i$ and $\Delta\DB{}_i$,
+%  and any tuple removed from $\Delta\DB{}_i$ is also removed from $DB_i$, 
+%  if it is present there. 
+% Next, we note that any tuple $t$ produced by na\"ive but not \seminaive 
+%  must also be produced by evaluating the query over $\DB_{i-1}-\Delta\DB_{i-1}$.
+% Now since $\DB_{i-1}-\Delta\DB_{i-1}$ before rebuilding is itself a subset 
+%  of $DB_{i-2}$ (because of the line $DB_i \gets DB_{i-1} \cup \Delta\DB{}_i$), 
+%  we have that $t$ must have already been produced by running the query on 
+%  $DB_{i-2}$, and therefore is already in the database. 
+% Finally, we can show the semi-na\"ive algorithm is equivalent to the na\"ive 
+% algorithm by induction on the number of iterations $i$,
+% using the two properties above.
+
+
+
+
+
+% % \pz{Might be interesting to note "finite (under) approximation" to re-emphasize that the sense this is 
+% % an approximation is rigorous}
+% \def\UF{\textit{UF}}
+% \begin{algorithm}
+%     \caption{Evaluating an \egglog program}
+%     \label{alg:eval}
+%     \begin{algorithmic}
+%     \Procedure{EvalEqLog}{$P,n$}
+%         \State $\DB{}, \UF{} \gets \textsc{newDB}(), \textsc{newUnionFind}()$;
+%         % \State $\DB{} \gets \textsc{newDB}()$
+%         % \State $\UF{} \gets \textsc{newUnionFind}()$
+%         \For{$i=1\ldots n$}
+%             \State $\Delta\DB{}\gets \textsc{newDB}()$;
+%             \For{$A\ngets A_1,\ldots, A_m \in P$} \Comment{Search}
+%                  \For{$\textit{subst}\in \textsc{evalQuery}((A_1,\ldots, A_m), \DB{})$}
+%                     \State $\Delta\DB{}.\textit{add}(
+%                         A.\textit{subst}(\textit{subst})
+%                     )$;
+%                  \EndFor
+%             \EndFor
+%             \State $\DB{}.\textit{insertAll}(\Delta\DB{})$; \Comment{Apply}
+%             \If{$\DB{}$ does not change}
+%                 \State \textbf{break};
+%             \EndIf
+%             \Repeat \Comment{Rebuild}
+%                 \State $\DB{},\UF{} \gets \textit{rebuildOnce}(\DB{},\UF{})$;
+%             \Until{$DB$ does not change};
+%         \EndFor
+%         \Return $(\DB{}, \UF{})$;
+%     \EndProcedure
+%     \end{algorithmic}
+% \end{algorithm}

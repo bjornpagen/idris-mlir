@@ -1,0 +1,48 @@
+{
+  "schema_version": "3.0",
+  "computed_at_phase": "POST_SINGLE_ROUND_CORRESPONDENCE_PRE_BUILD_PRE_PDF_QA",
+  "inputs": {
+    "author_source_graph_sha256": "712e1c6849da7dcae46a910cf53a59a85c799d482f9635229eb51cf5a6a42f9b",
+    "formal_source_config_sha256": "1ea8b2d58e1f4c3c007f8da46f77c7818d716b21bf418929ea9f9ecb8bef5afa",
+    "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "correspondence_snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+    "correspondence_review_sha256": "e680e45407032ef439e12d624e178da8ebb524731e2798e432ed6fbe2b5c7918",
+    "trace_witness_sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f"
+  },
+  "registry_metrics": {
+    "active": 146,
+    "mapped_distinct": 146,
+    "source_tags": 146,
+    "proofs": 83,
+    "definitions": 44,
+    "constructors": 19,
+    "supplemental_witness_active_claim_delta": 0
+  },
+  "statuses": {
+    "PAPER_LEAN_CORRESPONDENCE_CLOSURE": "CLOSED",
+    "PAPER_FORMAL_CLOSURE": "PENDING_CURRENT_CLEAN_LEAN_BUILDS",
+    "ABSTRACT_KERNEL_CLOSURE": "PENDING_CURRENT_CLEAN_LEAN_BUILDS",
+    "ARTIFACT_REFINEMENT_CLOSURE": "PARTIAL",
+    "EXPERIMENTAL_REPLAY_CLOSURE": "PARTIAL",
+    "LATEX_BUILD_AND_PDF_QA": "NOT_EXECUTED_CURRENT_SNAPSHOT",
+    "LEAN_GITHUB_PUBLICATION": "NOT_EXECUTED",
+    "PERMITTED_PUBLIC_LABEL": "NO_FORMAL_CLOSURE_CLAIM"
+  },
+  "reasons": {
+    "PAPER_LEAN_CORRESPONDENCE_CLOSURE": [
+      "Two fresh independent read-only passes unanimously covered all 146 active mappings and 27 named environments.",
+      "Both reviewers found no literal statement, hypothesis, dependency, or internal-identifier leak blocker.",
+      "The exact supplemental witness is bound separately and changes the active claim count by zero."
+    ],
+    "PAPER_FORMAL_CLOSURE": [
+      "The current 23-file Lean source/config graph has not received the next two isolated Lean 4.33.0 builds.",
+      "Historical build evidence is preserved but does not bind the current Lake graph."
+    ],
+    "LATEX_BUILD_AND_PDF_QA": [
+      "The user required this gate to stop before any current LaTeX build or PDF QA.",
+      "The stale uploaded PDF is excluded from the output candidate."
+    ]
+  },
+  "label_rule_result": "NO_FORMAL_CLOSURE_CLAIM"
+}

@@ -1,0 +1,611 @@
+\section{Relational E-Matching}
+\label{sec:algorithm}
+
+% {\centering
+% \begin{minipage}{.8\linewidth}
+% \begin{algorithm}%[H]
+%   \LinesNumbered{} \SetAlgoLined{} \KwIn{a function symbol $f$ and variable
+%     ordering $\pi$. } \KwOut{ a trie $R_{f} : \{ \pi((c, \bar x)) \mid f(\bar
+%     x) \in G[c] \}$. } \For{ $f(\bar x) \in G$ }{ $R_{f}$.insert$(\pi(f.\eclass,
+%     \bar x))$ }
+%   \caption{ Converting $f$-nodes in $G$ into a relation (as a trie).
+%     \yz{should we keep this?}
+%   }\label{alg:g2trie}
+% \end{algorithm}
+% \end{minipage}
+% \par}
+
+\Ematching via
+ backtracking search is inefficient because it handles equality constraints
+ suboptimally.
+In fact, backtracking search follows edges in the \egraph and only
+ visits concrete terms that satisfy structural constraints.
+However, equality constraints
+ are checked \emph{a posteriori} only after the search visits a (partial) term.\footnote{
+   Backtracking \ematching can perform the check as soon as it has traversed
+   enough of the pattern to encounter a variable more than once.
+}
+Whenever there are many
+ terms that satisfy the structural constraints but not the equality constraints,
+ as is in our example pattern $f(\alpha, g(\alpha))$,
+ backtracking will waste time visiting terms that do not yield a match.
+
+By reducing \ematching to evaluating conjunctive queries,
+ we can use join algorithms that take advantage of both structural
+ \emph{and} equality constraints.
+\autoref{fig:emvhj} conveys this intuition
+ using the pattern $f(\alpha, g(\alpha))$ and the
+ example \egraph and database from \autoref{fig:egraph-and-table}.
+The backtracking approach considers every possible assignment
+ to the variables, even those where the two occurrences of $\alpha$
+ do not agree.
+
+We can instead formulate a conjunctive query
+ that is equivalent to the following pattern:
+ $$Q(root, \alpha) \gets R_f(root, \alpha, x), R_g(x, \alpha).$$
+Later subsections will detail how this conversion is done,
+ but note how the auxiliary variable $x$ captures the structural
+ constraint from the pattern.
+Evaluating $Q$ with a simple hash join strategy exemplifies the
+ benefits of the relational approach:
+ it considers structural \emph{and} equality constraints
+ (in this case by doing a hash join keyed on $(x, \alpha)$);
+ indeed, the relational perspective sees
+ no difference between the two kinds of constraints.
+
+\begin{figure}
+  \begin{subfigure}{0.45\textwidth}
+    \centering
+    \begin{tabular}{ c c c }
+      $f(1, i_{g})$ & $g(1)$ & \checkmark\\
+      \multicolumn{3}{c}{\vdots} \\
+                    & $g(N)$ & $\times$\\
+      $f(2, i_{g})$ & $g(1)$ & $\times$\\
+                    & $g(2)$ & \checkmark\\
+      \multicolumn{3}{c}{\vdots} \\
+                    & $g(N)$ & $\times$\\
+      $f(N, i_{g})$ & $g(1)$ & $\times$\\
+      \multicolumn{3}{c}{\vdots} \\
+                    & $g(N)$ & \checkmark\\
+    \end{tabular}
+    \caption{ Backtracking takes time $O(N^{2})$ }\label{tab:hj}
+  \end{subfigure}
+  \begin{subfigure}{0.45\textwidth}
+    \centering $\rotatebox[origin=c]{90}{build hash}%
+    \left\downarrow
+      \begin{tabular}{ c }
+        $R_g(i_g, 1)$ \\
+        $R_g(i_g, 2)$ \\
+        $R_g(i_g, 3)$ \\
+        $\vdots$ \\
+        $R_g(i_g, N)$ \\
+      \end{tabular}
+    \right.$ $\rotatebox[origin=c]{90}{probe}%
+    \left\downarrow
+      \begin{tabular}{ c c }
+        $R_f(i_f, 1, i_g)$ & \checkmark \\
+        $R_f(i_f, 2, i_g)$ & \checkmark\\
+        $R_f(i_f, 3, i_g)$ & \checkmark\\
+        $\vdots$ & \\
+        $R_f(i_f, N, i_g)$ & \checkmark\\
+      \end{tabular}
+    \right.$
+    \caption{ Hash join takes time $O(N)$. }\label{tab:hj}
+  \end{subfigure}
+  \caption{
+    \Ematching $f(\alpha, g(\alpha))$
+    with backtracking search and a simple hash join
+    on the \egraph/database in \autoref{fig:egraph-and-table}.
+  }\label{fig:emvhj}
+\end{figure}
+
+
+This observation leads us to a very simple
+ algorithm for relational \ematching,
+ shown in \autoref{alg:main}.
+Relational \ematching~takes an e-graph $E$ and a set
+ of patterns $\textit{ps}$.
+It first transforms the \egraph to a relational database $I$.
+Then, it reduces every pattern $p$ to a conjunctive query $q$.
+Finally, it evaluates the conjunctive queries over $I$.
+These intermediate steps will be detailed in the following subsections.
+
+\begin{algorithm}
+  \LinesNumbered{} \SetAlgoLined{}
+  \KwIn{An \egraph~$E$ and a list of \ematching~patterns $\textit{ps}$}
+  \KwOut{The result of running $\textit{ps}$ on $E$}
+  $I  \gets \textsc{EGraphToDatabase}(E)$\;
+  $qs \gets \{ \textsc{PatternToCQ}(p) \mid p \in ps \}$\;
+  \Return $\{\textsc{EvalCQ}(q, I)\ \mid q \in qs \}$
+  \caption{\textsc{RelationalEMatching}}
+  \label{alg:main}
+\end{algorithm}
+
+\subsection{From the E-Graph to a Relational Database}
+
+% \begin{figure}
+%   \centering
+%   \begin{align*}
+%     \textsc{EgraphToDatabase}(G) &= \{\textsc{EnodeToAtom}(n)\ \mid\text{ for \enode\ } n\in G\}\\
+%     \textsc{EnodeToAtom}(f(c_1,\ldots,c_k)) &= R_f(\textit{lookup}(f(c_1,\ldots,c_k)), c_1,\ldots, c_k)
+%   \end{align*}
+%   \caption{Transforming an \egraph~to relational database}
+%   \label{fig:egraph_to_db}
+% \end{figure}
+
+\begin{figure}
+  \begin{subfigure}{0.45\textwidth}
+    \centering \includegraphics[width=0.65\linewidth]{fgn.pdf}
+    \caption{An example \egraph, reproduced from \autoref{fig:egraph-eg}.}\label{fig:egraph-eg2}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.25\textwidth}
+    \centering
+    \begin{tabular}{ c c c }
+      \toprule
+      id & $\text{arg}_{1}$ & $\text{arg}_{2}$ \\
+      \midrule
+      $i_{f}$ & 1 & $i_{g}$ \\
+      $i_{f}$ & 2 & $i_{g}$ \\
+      \vdots & \vdots & \vdots \\
+      $i_{f}$ & $N$ & $i_{g}$ \\
+      \bottomrule
+    \end{tabular}
+    \caption{Relation of $f$.}\label{tab:rel-f}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.25\textwidth}
+    \centering
+    \begin{tabular}{ c c }
+      \toprule
+      id & $\text{arg}_{1}$ \\
+      \midrule
+      $i_{g}$ & 1 \\
+      $i_{g}$ & 2 \\
+      \vdots & \vdots \\
+      $i_{g}$ & $N$ \\
+      \bottomrule
+    \end{tabular}
+    \caption{Relation of $g$.}\label{tab:rel-g}
+  \end{subfigure}
+  \caption{ An \egraph~and its relational representation. Each \eclass~(dotted
+    box) is labeled with its id.
+  }\label{fig:egraph-and-table}
+\end{figure}
+
+The first step of relational e-matching is to transform the \egraph $E$
+ into a relational database $I$.
+The domain of the database is \eclass ids,
+ and its schema is determined
+ by the function symbols in $\Sigma$.
+Every \enode with symbol $f$ in the \egraph
+ corresponds to a tuple in the relation $R_f$ in the database.
+If $f$ has arity $k$,
+ then $R_f$ will have arity $k + 1$;
+ its first attribute is the \eclass id that contains
+ the corresponding \enode,
+ and the remaining attributes are the $k$ children of the $f$ \enode.
+\autoref{fig:egraph-and-table} shows an example \egraph
+ and part of its corresponding database.
+In particular, only the relations
+ of function symbols $f$ and $g$ are presented in this figure.
+There are $N$ other relations;
+ each relation $R_j$ represents a constant
+ $j$ and has exactly one tuple (i.e., singleton $(j)$).
+
+We construct the database $I$
+ by simply looping over every \enode in every \eclass in $E$
+ and making
+ a tuple in the corresponding relation:
+\[
+  I =
+  \left\{
+    R_f \gets (\find(i), \find(j_1), \ldots, \find(j_k))
+    \mid
+    M[i] = f(j_1, \ldots, j_k)
+  \right\}
+\]
+Note that the tuples in the database contain only canonical \eclass
+ ids returned from the \find{} function.
+
+% An \egraph~$E$ representing a congruence relation over
+% $T(\Sigma,\emptyset)$ will be mapped to a relational database over $C$, the set
+% of \eclasses, with schema $S_C$, and every \enode~in $E$ will correspond to an
+% atom in this relational database. Specifically, for every $k$-ary symbol $f$ in
+% $\Sigma$, We add an $k+1$-ary symbol $R_f$ to $S_C$. We refer to fields of $R_f$
+% as $\eclass, \text{arg}_1,\ldots,\text{arg}_k$ respectively, and they denote the
+% \eclass~ an \enode~belongs to and the children \eclasses~of this
+% \enode~respectively. For every \enode~in the \egraph, relational
+% \ematching~insert an atom in the relational database. The algorithm is presented
+% in \autoref{fig:egraph_to_db}.
+
+% Take the \egraph~in Figure~\ref{fig:egraph-eg} for example. The transformed
+% relation $R_f$ and $R_g$ for function symbol $f$ and $g$ are presented in
+% Figure~\ref{tab:rel-f} and Figure~\ref{tab:rel-g}. The $f$-application
+% \enodes~in \eclass~$c_f$ translate to atom $R_f(c_f, i,c_g)$ for $i\in[N]$,
+% because the \enodes~are contained in \eclass~$c_f$ and have children $i$ and
+% $c_g$ for some $i\in[N]$. Similarly, the $g$-application \enode~in \eclass~$c_g$
+% translates to the atom $R_g(c_g, i)$ for $i\in[N]$. \autoref{fig:egraph_to_db}
+% only shows the relation representing $f$ and $g$. Besides the relation $R_f$ and
+% $R_g$ presented, there are $N$ other relations, each representing a constant
+% symbol and contains one entry that denotes the \eclass~where the corresponding
+% \enode~is contained.
+
+Our presentation in this paper specifically targets
+ \ematching use cases like equality saturation,
+ where the building of the database $I$ can be amortized.
+In this setting, \ematching is done in large batches,
+ and expensive work like congruence closure can be
+ amortized between these batches using a technique called ``rebuilding''~\cite{egg}.
+The time complexity of building this database is always linear,
+ which is subsumed by the time complexity
+ of most non-trivial \ematching patterns.
+In \autoref{sec:incremental},
+ we discuss how this technique could be
+ generalized to the non-amortized setting of
+ frequently updated \egraph as future work.
+
+
+\subsection{From Patterns to Conjunctive Queries}
+\label{sec:pattern-to-query}
+
+\def\aux{\textsc{Aux}} \def\compile{\textsc{Compile}}
+\begin{figure}
+  \begin{align*}
+    \compile(p) &= Q(\textit{root}, v_1,\ldots,v_k) \leftarrow \textit{atoms}\\
+                &\text{\quad where $v_1\dots v_k$ are variables in $p$}\\
+                &\text{\quad and $\aux(p) = \textit{root} \sim \textit{atoms}$}
+    \\
+    \aux(f(p_1,\ldots, p_k)) &= v \sim R_f(v, v_1, \ldots, v_k), A_1, \ldots, A_k \\
+                & \text{\quad { where} $v$ is fresh and }\aux(p_i) = v_i \sim A_i
+    \\
+    \aux(x) &= x \sim \emptyset \text{\qquad { where} $x$ is a pattern variable}\\
+  \end{align*}
+  \caption{Compiling a pattern to a conjunctive query.}\label{alg:compile}
+\end{figure}
+
+
+
+Once we have a database that corresponds to the \egraph,
+ we must convert each pattern we wish to \ematch to a conjunctive query.
+We use the algorithm in
+\autoref{alg:compile} to ``unnest'' a pattern to a conjunctive query
+ by connecting nested patterns with \textit{auxiliary variables}.
+
+The \aux{}
+function returns a variable and a conjunctive query atom list.
+Particularly, for
+non-variable pattern $f(p_1,\ldots p_k)$,
+\aux{} produces a fresh variable $v$
+and a concatenation of $R_f(v, v_1,\ldots, v_k)$ and atoms from $A_i$, where
+$v_i\sim A_i$ is the result of calling $\aux(p_i)$.
+For variable pattern $x$,
+ \aux{} simply returns $x$ and an empty list.
+Note that the auxiliary variables introduced by
+ $\aux(f(\ldots))$ are not included in the head of the query,
+ and thus are not part of the output.
+
+Given a pattern $p$, the \compile{}
+function returns a conjunctive query with body atoms from $\aux(p)$ and the head
+atom consisting of the root variable and variables in $p$. The compiled
+conjunctive query and the original \ematching~query are equivalent because there
+is a one-to-one correspondence between the output of them.
+Specifically, each
+ \ematching output
+ $(i_{\textit{root}}, \sigma)$
+ corresponds to a query output of
+ $\{ \textit{root} \mapsto i_{\textit{root}} \} \cup \sigma$.
+The only difference is that
+ returning the root \eclass id is a special consideration for \ematching,
+ but it is just another variable in the conjunctive query.
+
+The \compile{} function (specifically the \aux{} subroutine) relies on
+ the fact that the database contains only canonical \eclass ids.
+Without this fact, nested patterns would require an additional join
+ on the equivalence relation $\equivid$.
+But since $i \equivid j \iff i = j$
+ if $i$ and $j$ are canonical \eclass ids,
+ we can omit introducing the additional join,
+ instead joining nested patterns directly on the auxiliary variable.
+
+Using this algorithm, the example pattern $f(\alpha, g(\alpha))$ is compiled to
+the following conjunctive query:
+\begin{equation}
+  \label{eqn:nonlinear-cq}
+  Q(\mathit{root},\alpha)\gets
+  R_f(\mathit{root},\alpha,x),R_g(x,\alpha).
+\end{equation}
+Compared to the original
+\ematching~pattern, this flattened representation enables relational \ematching to
+utilize both the structural and the equality constraints. For example, a reasonable
+query plan that database optimizers will synthesize is a hash join
+on both join variables (i.e., $x$ and $\alpha$), which takes
+$O(N)$ time. In contrast, backtracking-based \ematching{} takes $O(N^2)$ time.
+
+Figure~\ref{fig:emvhj} shows the traces for running a direct backtracking search on the
+\egraph~and running hash join on the relational representation.
+Every term enumerated by hash join will simultaneously satisfy all the constraints.
+Conceptually, backtracking-based \ematching~can be seen as a hash join that only builds and
+look-ups a single variable (i.e., $x$),
+ and filters the outputs using the equality predicate on $\alpha$.
+In other words, existing \ematching~algorithms
+ will consider all $f(\alpha, g(\beta))$ terms regardless of whether $\alpha$ is congruent
+ to $\beta$,
+ while the generated conjunctive query gives the query optimizer the
+ freedom to synthesize query plans that will consider only tuples where $\alpha\cong\beta$.
+
+\subsection{Answering CQs with Generic Join}
+
+
+% \begin{figure}
+%   \includegraphics[width=0.9\linewidth]{trie.pdf}
+%   \begin{minipage}{0.45\textwidth}
+%     \subcaption{Trie for relation $R_f$ (\autoref{tab:rel-f}).}
+%     \label{fig:trie-Rf}
+%   \end{minipage}
+%   \begin{minipage}{0.45\textwidth}
+%     \subcaption{Trie for relation $R_g$ (\autoref{tab:rel-g}).}
+%     \label{fig:trie-Rg}
+%   \end{minipage}
+%   \caption{
+%     The tries built
+%     for pattern $f(\alpha, g(\alpha))$
+%     using variable ordering $[\alpha, x, \textit{root}]$
+%     on \egraph from \autoref{fig:egraph-and-table}.
+%   }\label{fig:trie}
+% \end{figure}
+
+Finally, we consider the problem of efficiently solving the compiled conjunctive
+queries. We propose to use the generic join algorithm to solve the generated
+conjunctive queries. Although traditional query plans, which are based on two
+way joins such as hash joins and merge-sort joins, are extensively used in
+industrial relational database engine, they may suffer on certain queries
+compiled from patterns. For example, consider the pattern
+$f(g(\alpha),h(\alpha))$. The compiled conjunctive query is:
+\begin{equation}
+  \label{eqn:cyclic-cq}
+  Q(\textit{root},\alpha)\gets
+  R_f(\textit{root}, x, y), R_g(x, \alpha), R_h(y, \alpha).
+\end{equation}
+Like the classic triangle query,
+ this is a cyclic conjunctive query (\autoref{sec:hypergraph}).
+We call \ematching~patterns that generate cyclic conjunctive
+ queries \textit{cyclic patterns}.
+For such cyclic queries,
+ \citet{wcoj} show there exist databases on which {\em any}
+ two-way join plan is suboptimal.
+In contrast, generic join is guaranteed to run in time linear
+ to the worst case output size.
+Moreover, generic join can have comparable performance on acyclic
+ queries with two-way join plans.
+These properties make generic join our ideal
+ solver for conjunctive queries generated from \ematching patterns.
+
+% Suppose we fix the variable ordering $\pi$ to be $[x,y,\alpha,root]$.
+% We first build a trie for $R_f$ on index
+% $(\text{arg}_1,\text{arg}_2,\eclass)$ and a trie for $R_g$ on index
+% $(\eclass, \text{arg}_1)$ as a preprocessing before actually  running the
+% generic join
+% algorithm. Then, the algorithm will intersect on
+% column $\text{arg}_1$ of $R_f$ and column $\eclass$ of $R_g$, which nails down
+% the possible values of $x$ and obtains residual relations $R_f[\text{arg}_1=x]$ and
+% $R_g[\eclass=x]$. Next, it will intersect on column $\text{arg}_2$ of $R_f$ and
+% column $\eclass$ of $R_g$ to nail down the values of $y$ and obtain residual
+% relations $R_f[\text{arg}_1=x,\text{arg}_2=y]$ and $R_g[\eclass=y]$. To obtain a
+% value for $\alpha$, the algorithm will then intersect on $R_g[\eclass=x]$ and
+% $R_g[\eclass=y]$, and it will finally enumerate
+% $R_f[\text{arg}_1=x,\text{arg}_2=y]$ to decide values for $\textit{root}$.
+
+Using the generic join algorithm, suppose we fix the variable ordering to be
+$[\alpha, x, \textit{root}]$ on the generated conjunctive query \ref{eqn:nonlinear-cq}.
+The algorithm below shows generic join instantiated on this particular CQ:
+% We first build
+%  a trie for $R_f$ on index $(\mathit{child}_1, \mathit{child}_2, \mathit{root})$
+%  a trie for $R_g$ on index $(\mathit{child}_1, \mathit{root})$
+%  (tries shown in \autoref{fig:trie-Rf} and Figure~\ref{fig:trie-Rg}).
+% Then, the algorithm will intersect on column $\mathit{child}_1$ of $R_f$ and on
+% column $\mathit{child}_1$ of $R_g$, which nails down the possible values of
+% $\alpha$ and obtains residual relation $R_f[\mathit{child}_1=\alpha]$ and
+% $R_g[\mathit{child}_1=\alpha]$. Next, it will intersect on column $\mathit{child}_2$
+% of $R_f[\mathit{child}_1=\alpha]$ and on $\eclass$ of
+% $R_g[\mathit{child}_1=\alpha]$ to obtain possible values of $x$ and residual
+% relation $R_f[\mathit{child}_1=\alpha, \mathit{child}_2=x]$. Finally, we enumerate
+% terms of $R_f[\mathit{child}_1=\alpha, \mathit{child}_2=x]$ to find possible values
+% of $\mathit{root}$.
+
+\begin{algorithm}
+  \LinesNumbered{} \SetAlgoLined{}
+  \KwResult{compute $Q(\mathit{root},\alpha) \gets R_f(\mathit{root},\alpha,x),R_g(x,\alpha)$}
+  \tcp{compute all possible values of $\alpha$}
+  $A = R_f(\mathit{root},\alpha,x).\alpha \cap R_g(x,\alpha).\alpha$\;
+  \For(){$i_\alpha \in A$} {
+    \tcp{compute all possible values of $x$ given $\alpha=i_\alpha$}
+    $X = R_f(\mathit{root},i_\alpha,x).x \cap R_g(x,i_\alpha).x$\;
+    \For(){$i_x \in X$} {
+      \tcp{compute all possible values of $\mathit{root}$ given $\alpha=i_\alpha$ and $x=i_x$}
+      $\mathit{Roots} = R_f(\mathit{root},i_\alpha,i_x).\mathit{root} \cap R_g(i_x,i_\alpha).\mathit{root}$\;
+      \For(){$i_{\mathit{root}} \in \mathit{Roots}$}{
+        output$(i_{\mathit{root}}, i_\alpha)$ } } }
+  \caption{
+    Relational \ematching using GJ for $f(\alpha, g(\alpha))$,
+    with ordering $[\alpha, x, \mathit{root}]$.
+  }\label{alg:gj-pattern}
+\end{algorithm}
+
+\subsection{Complexity of Relational \Ematching}
+% The translation of \ematching to query-answering on a database
+%  is only productive if the size of the database is comparable to
+%  that of the \egraph.
+% Our relational encoding satisfies this requirement:
+% \begin{lemma}\label{lem:bounded}
+%   Let $I$ be the database representing the \egraph,
+%    and let $N, C$ be the number of \enodes and \eclasses
+%    in the \egraph, respectively.
+%   We then have $\sum_{R \in I} |R| \leq N + C$,
+%    where $|R| = \sum_{t \in R} |t|$
+%    is the total size of the tuples in $R$,
+%    and each value in the tuple has constant size.
+% \end{lemma}
+
+% \begin{proof}
+%   Every \enode  corresponds to exactly one tuple,
+%    and every tuple has exactly one extra attribute
+%    than its \enode has children.
+%   In addition, there may be \eclasses that are not children of
+%    any \enodes.
+%   Therefore $I$ has exactly $N$ tuples
+%    and at most $N+C$ values.
+% \end{proof}
+
+Generic join guarantees worst-case optimality with respect to the output size,
+ and relational \ematching preserves this optimality.
+In particular, we have the following theorem:
+\begin{theorem}
+  Relational \ematching is worst-case optimal; that is, fix a pattern $p$, let
+  $M(p,E)$ be the set of substitutions yielded by \ematching on an \egraph $E$
+  with $N$ \enodes, relational \ematching runs in time $O(\max_E(|M(p,E)|))$.
+\end{theorem}
+
+\begin{proof}
+  Notice that there is an one-to-one correspondence between output tuples of
+  the generated conjunctive query and the \ematching pattern. Therefore, the
+  worst-case bound is the same across an \ematching pattern and the conjunctive
+  query it generated. Because generic join is worst-case optimal, relational
+  \ematching also runs in worst-case optimal time with respect to the output
+  size.
+\end{proof}
+
+The structure of \ematching patterns allows us to derive an additional bound
+ dependent on the {\em actual} output size rather than the worst-case output size.
+% Let $|\mathit{out}|$ denote the number of matches found,
+%  we have the following:
+\begin{theorem}
+  Fix an \egraph $E$ with $N$ \enodes that compiles to a database $I$,
+   and a fix pattern $p$ that compiles to conjunctive query
+  $Q(\overline{X}) \gets R_1(\overline{X_1}),\ldots,R_m(\overline{X_m})$.
+  Relational \ematching $p$ on $E$
+   runs in time
+   $O\left(\sqrt{|Q(I)| \times \Pi_{i}|R_i|}\right)
+   \leq
+    O\left(\sqrt{|Q(I)| \times N^m}\right)
+   $.
+% of a pattern with $|A|$ \enodes\
+%    on an \egraph\ of size $N$ runs in time $O(\sqrt{N^m|Q(I)|})$.
+\end{theorem}
+
+\begin{proof}
+  Let $\overline{X^\circ}$ be the set of isolated variables,
+   those that occur in only one atom.
+  Note that $\overline{X^\circ} \subseteq \overline{X}$,
+   since $\overline{X}$ is precisely the pattern variables and the root,
+   and auxiliary variables must occur in at least two atoms.
+  Using these,
+   define two new queries:
+  \begin{align*}
+  C(\overline{X^\circ}) & \gets R_{1}(\overline{X_{1}}), \ldots, R_m(\overline{X_m}) \\
+  Q'(\overline{X}) & \gets R_{1}(\overline{X_{1}}), \ldots, R_m(\overline{X_m}), C(\overline{X^\circ})
+  \end{align*}
+ Since $\overline{X^\circ} \subseteq \overline{X}$,
+  $C$ is the same query as $Q$ but with zero or more variables projected out.
+ Therefore,
+  every tuple in $C(I)$ corresponds to one in the output $Q(I)$,
+  so $C(I) \subseteq Q(I)$ and $|C(I)| \leq |Q(I)|$.
+
+ Now we can compute the AGM bound for $Q'$.
+ Our new atom $C(\overline{X^\circ})$
+  includes all those variables that only appear in one atom of $Q$.
+ Therefore, every variable in $Q'$ occurs in at least two atoms,
+  so assigning $1/2$ to each edge is a fractional edge cover.
+ Thus:
+ \begin{align*}
+   \textsf{AGM}(Q') &= \sqrt{|C(I)| \times \Pi_i |R_i|} \\
+                    &\leq \sqrt{|Q(I)| \times \Pi_i |R_i|} &\text{\quad since $|C(I)| \leq |Q(I)|$} \\
+                    &\leq \sqrt{|Q(I)| \times N^m} &\text{\quad since $|R_i| < N$}
+ \end{align*}
+
+ Let $\GJ(Q', I)$ denote the running time
+  of generic join with query $Q'$ on database $I$.
+ We know that $\GJ(Q', I) \leq \textsf{AGM}(Q')$.
+ Because $C(I) \subseteq Q(I)$, we also know $Q'(I) = Q(I)$,
+  and we can use $GJ(Q', I)$ to bound $GJ(Q, I)$.
+ Now we show that $\GJ(Q, I) \leq \GJ(Q', I)$.
+
+ The query $Q'$ is just $Q$ with an additional
+  atom $C(\overline{X^\circ})$ that
+  covers the variables that only appeared in one atom from $Q$.
+ Fix a variable ordering for generic join that puts those variables
+  in $\overline{X^\circ}$ at the end.
+ So loops of both \GJ instantiations are the same,
+  except that, in $Q'$,
+  each loop corresponding to a variable in $\overline{X^\circ}$ performs an intersection with $C$,
+  but not in $Q$.
+ But these intersections are in the innermost loops,
+  at which point all intersections with atoms from $Q$ have already been done.
+ So the intersections with $C$ do nothing,
+  since $C$ is precisely $Q$ projected down to the variables in $\overline{X^\circ}$!
+ Since those intersections are not helpful and $Q$ simply does not do them,
+  $\GJ(Q, I) \leq \GJ(Q', I)$.
+
+ Putting the inequalities together,
+  we get:
+ \[
+   \GJ(Q, I)
+   \leq
+   \GJ(Q', I)
+   \leq
+   AGM(Q')
+   \leq
+   O\left(\sqrt{|Q(I)| \times \Pi_{i}|R_i|}\right)
+   \leq
+    O\left(\sqrt{|Q(I)| \times N^m}\right)
+ \].
+\end{proof}
+
+\begin{example}[Complexity of relational \ematching]
+  Consider the pattern $f(g(\alpha))$,
+   which compiles to the query $Q(r, \alpha) \gets R_{f}(r, x), R_{g}(x, \alpha)$.
+  Following the proof we define $C(r,\alpha) \gets R_{f}(r,x), R_{g}(x,\alpha)$
+   and
+   $Q'(r, \alpha) \gets R_{f}(r, x), R_{g}(x, \alpha), C(r, \alpha)$.
+  The AGM bound for $Q'$ is $N^{1/2}N^{1/2}|C|^{1/2} = N\sqrt{|C|} = N\sqrt{|Q|}$.
+  This also bounds the run time of generic join on $Q$.
+\end{example}
+
+The above bound is tight for linear patterns,
+ in which case each variable occurs exactly twice in $Q'$.
+In the case of nonlinear patterns,
+ we may find tighter covers than assigning $1/2$ to each atom,
+ thereby improving the bound.
+
+\subsection{Supporting Multi-patterns}
+
+Multi-patterns are an extension to \ematching used in both
+ SMT solvers~\cite{efficient-ematching}
+ and program optimizations~\cite{tensat}.
+A multi-pattern is a list of patterns of the form $(p_1, \ldots, p_k)$
+ that are to be simultaneously matched (i.e., the instantiation of each contained pattern
+should use the same substitution $\sigma$).
+For example, \ematching the multi-pattern
+ $(f(\alpha, \beta), f(\alpha, \gamma))$ searches for pairs of two $f$-applications
+ whose first arguments are equivalent.
+Efficient support for multi-patterns
+ on top of backtracking search requires complicated additions
+ to state-of-the-art \ematching algorithms~\cite{efficient-ematching}.
+Relational e-matching supports multi-patterns
+ ``for free'':
+ a multi-pattern is compiled to a single
+ conjunctive query just like a single pattern.
+For example, the conjunctive query for the
+ multi-pattern $(f(\alpha, \beta), f(\alpha, \gamma))$ is
+\begin{equation}
+  Q(\textit{root}_1,\textit{root}_2,\alpha,\beta, \gamma)\gets
+  R_f(\textit{root}_1,\alpha,\beta), R_g(\textit{root}_2, \alpha, \gamma).
+\end{equation}
+This is one example that shows the wide applicability of the relational
+ model adopted in relational \ematching.
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

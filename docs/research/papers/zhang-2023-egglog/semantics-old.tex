@@ -1,0 +1,142 @@
+\newpage
+\section{Formalization}
+% Id = {id1, id2, ...}
+% Cst = some constant domain
+
+% Type = 'Id | 'Cst
+% Schema = [Type] 
+
+% DB = (ConstFun, IdFun, I, =_Id, R) where
+%     ConstFun: Symbol -> (Schema, Cst x Cst -> Cst)
+%     IdFun: Symbol -> Schema
+%     // Fun: SYmbol -> (Schema, CstxCst->Cst | 'union)
+%     I: (s:Symbol) -> Set<D^(arity(s)+1)>
+%     R: [Rule]
+
+% Rule ::= [P] => [A]
+% P ::= (= Var Pat)
+% A ::= (set (func Pat ...) Pat)
+% Pat ::= (func Pat ...) | Cst | Var
+
+% (schema, merge) = ConstFun(f)
+% DB = (ConstFun, IdFun, I, =_Id, R)
+% DB' = (ConstFun, IdFun, I', =_Id, R)
+% c_i = eval(Gamma, p_i) for i = 1 ... k
+% c =  eval(Gamma, p)
+% // TODO: c' may not exist
+% c' = { c' : (c1, ..., ck, c') in I(f) }
+% I' = I[f -> I(f) - {(c1, ..., ck, c')} + {(c1, ..., ck, merge(c, c')) ]
+% ------------------------------------
+% Gamma |- DB -[ (set (f p1 ... pk) p) ]-> DB'
+
+
+% DB' = ICO(DB)
+
+% TODO: if we define the lattice as constants, 
+% then you can do "plain" matching over the lattices,
+% which is not semantically sound. 
+% The bigger question is, should we disallow non-monotonic operations
+% Well, the lambda example has it.
+% you can syntactically restrict to something like (= c (max (lo ...) (lo ...))), so that it's always sound.
+% this is not Zach's "VM view" though...
+
+\def\DB{\mathit{DB}}
+\def\bmt{\textbf{t}}
+\def\mergef{\mathit{merge}}
+
+Given an infinite set of uninterpreted constants $N = \{n_1,n_2, \ldots\}$ 
+ and a bounded semi-lattice of (interpreted) constants $L = (C, \bot, \sqcup)$,
+ a schema $S$ is a collection of function symbols and their function signatures, 
+ where the types range over $\{N, C\}$.
+Given a schema $S$, an instance of $S$ is defined $I=(\DB, \equiv)$,
+ where $\DB$ is as a mapping from a function symbol $f$ in $S$ 
+ to a partial function implementing the associated signature, 
+ and $\equiv$ is an equivalence relation over $N\cup C$ 
+ satisfying $\forall c_1, c_2\in C. c_1\equiv c_2\rightarrow c_1=c_2$ (i.e., constants are only equivalent to themselves).
+
+Given an arbitrary total order $<$ over $N\cup C$,
+we define the canonicalization function $\lambda_{\equiv}(t)=\min t':t'\equiv t$.
+We say $f(\bmt{})\mapsto t\in I$ if $\DB{}[f](\lambda_{\equiv}(\bmt{}){})\equiv t$.
+For convenience, we lift $\lambda_{\equiv}$ to 
+ also work on sets 
+ and the whole database instances by pointwise canonicalization.
+
+Given an \egglog program $P$ 
+ consisting of a set of rules and $I=(\DB{}, \equiv)$, 
+ we define the immediate consequence operator $T_P(I)=(\DB{}', \equiv)$, where
+\begin{align*}
+    \DB{}'[f]=&\{ \bmt{}\mapsto t\;|\;f(\bmt{})\mapsto t\;\textit{:-}\;F_1,\ldots,F_n \text{ is an instantiation of a rule in $P$ where $F_i\in I$ } \}\\
+    \cup& \{ \bmt{}\mapsto \textit{default}_f\;|\;\exists t.f(\bmt{})\mapsto t\;\textit{:-}\;F_1,\ldots,F_n \text{ is an instantiation of a rule in $P$ where $F_i\in I$}\\
+    &\text{\quad\quad\quad\quad\quad\quad\  and $\not \exists t. f(\bmt{})\mapsto t\in I$\} } 
+\end{align*}
+where $\textit{default}_f$ is a fresh constant from $N$ not occurring in the database if the output type of $f$ is $N$ and is $\bot$ otherwise.
+
+Note however $\DB{}'[f]$ may no longer be functions, 
+ as it is possible that the same key $\bmt{}$ can now be mapped to more than one $t$.
+We call $T_P(I)$ a ``pre-instance'', since they are not valid instances yet.
+To transform a pre-instance into a valid instance, 
+ we further define the rebuilding operator \(
+    R(I) = (\DB{}_R, \equiv_R)
+\), 
+where $\equiv_R$ is the equivalence closure of 
+\[
+    \equiv\cup 
+    \{(t_1,t_2)\;|f(\bmt{})\mapsto t_1\in I, 
+    f(\bmt{})\mapsto t_2\in I\}
+\]
+and
+\[
+    % \DB{}_R[f]=\left\{
+    %     \bmt\mapsto 
+    %     \mergef_{f,\equiv}\left(
+    %         \left\{t: f\left(\bmt\right)\mapsto t\in I\right\}
+    %     \right)\;|\; 
+    %     \text{for all $\bmt$ where $\left\{t: f\left(\bmt\right)\mapsto t\in I\right\}$ is not empty}
+    % \right\}
+    \DB{}_R[f]=\lambda_{\equiv_R}\left(\left\{
+    \bmt\mapsto 
+    \mergef_{f,\equiv}\left(
+        K
+    \right)\;|\; 
+    \text{ $K=\left\{t: f(\bmt)\mapsto t\in I\right\}$ and $K$ is not empty}
+    \right\}\right)
+\]
+% where \[
+%     \mergef_{f,\equiv}(K)=
+%     \min\left(\lambda_{\equiv}(K)\right)
+% \]
+% if the output type of $f$ is $N$ and \[
+%     \mergef_{f,\equiv}(K)=\bigsqcup K
+% \] if the output type of $f$ is $C$.
+where \[
+    \mergef_{f,\equiv}(K)=
+    \begin{cases}
+        \min\left(\lambda_{\equiv}(K)\right) &\text{if the output type of $f$ is $N$;}\\
+        \bigsqcup K &\text{if the output type of $f$ is $C$.}
+    \end{cases}
+\]
+
+\def\lfp{\mathit{lfp}}
+
+Note that the canonicalization in computing $\DB{}_R[f]$ 
+ (i.e., $\lambda_{\equiv_R}$) may cause $I$ to be invalid again,
+ which needs another round of rebuilding. 
+Therefore, the complete rebuilding function $R^*$ is defined as the Kleene star of $R$.
+
+Finally, the evaluation of an \egglog program $P$ is defined as the Kleene star of $R^*\circ T_P$, 
+ i.e., $[\![P]\!](I)=(R^*\circ T_P)^*(I)$. 
+For many practice applications, 
+ $[\![P]\!](I)$ often has infinite size, 
+ so we only calcluated a finite approximation of result, 
+ i.e., $\bigcup_{i=1,\ldots,n}(R^*\circ T_P)^n(I)$ for some iteration size $n$.
+
+(Note: I think $[\![P]\!](I)=(R^*\circ T_P)^*(I)$ may
+be more faithful to the implementation because 
+in the implementation we never start with a fresh database
+in each iteration. We accumulate)
+
+(Note: Compared with Flix, we specifically does not constraint $T_P$ to be monotonic. 
+In fact, \egglog programs can be non-monotonic. 
+This is to be compatible with egg, as some egg applications use non-monotonic rules)
+
+\newpage

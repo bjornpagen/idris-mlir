@@ -1,0 +1,151 @@
+\documentclass[10pt]{article}
+\pdfoutput=1
+
+%\usepackage[normalem]{ulem}
+
+\usepackage{amsmath}
+\usepackage{xcolor}
+
+% comments on
+%\usepackage{marginalia}
+% comments off
+%\usepackage[hide=true]{marginalia}
+
+
+\usepackage{listings}
+\lstset{%
+  basicstyle=\small\ttfamily,
+  columns=flexible
+}
+
+%\usepackage{algorithm}
+%\usepackage{algorithmic}
+%\usepackage[noend]{algpseudocode}
+
+\usepackage{microtype}
+\usepackage[T1]{fontenc}
+\usepackage[inline]{enumitem}
+\usepackage{tabularx}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage{booktabs}
+\usepackage{todonotes}
+\usepackage{siunitx}
+\usepackage{xr-hyper}
+
+\usepackage{multirow}
+\usepackage{hyperref}
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage[accepted]{icml2019}
+
+% If accepted, instead use the following line for the camera-ready submission:
+%\usepackage[accepted]{icml2019}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\newcommand{\tool}[0]{Ithemal} %Instruction THroughput Estimation using MAchine Learning
+
+\icmltitlerunning{\tool{}: Basic Block Throughput Prediction}
+
+%definitions
+\definecolor{xxxcolor}{rgb}{0.8,0,0}
+\definecolor{maroon}{RGB}{128,0,64}
+\definecolor{darkgreen}{RGB}{0,128,64}
+\newcommand{\IGNORE}[1]{}
+\newcommand{\TODO}[1]{{\color{xxxcolor}{[}\emph{#1}{]}}}
+%\newcommand{\TODO}[1]{}
+%\newcommand{\TODO}[1]{}
+\newcommand{\pack}[2]{\{#1,#2\}}
+\newcommand{\packv}[2]{V_{\{#1,#2\}}}
+\newcommand{\rnntoken}[0]{$\texttt{RNN}_{token}$}
+\newcommand{\gnninstr}[0]{$\texttt{GNN}_{instr}$}
+
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+
+\DeclareMathOperator*{\argmin}{argmin}
+%\algrenewcommand\algorithmicindent{0.5em}%
+\usepackage{titlesec}
+
+\titlespacing\section{0pt}{10pt plus 4pt minus 2pt}{0pt plus 2pt minus 2pt}
+\titlespacing\subsection{0pt}{6pt plus 1pt minus 1pt}{0pt plus 1pt minus 1pt}
+\titlespacing\subsubsection{0pt}{6pt plus 1pt minus 1pt}{0pt plus 1pt minus 1pt}
+
+\externaldocument{supplemental}
+
+\begin{document}
+
+
+%float spacing
+\setlength{\abovecaptionskip}{-10pt}
+\setlength{\belowcaptionskip}{-10pt}
+%\setlength{\floatsep}{3pt}
+%\setlength{\textfloatsep}{7pt}
+\setlength{\intextsep}{7pt}
+\setlength{\dbltextfloatsep}{8pt}
+\setlength{\dblfloatsep}{8pt}
+
+%paragraph spacing
+\setlength{\parskip}{0.2cm plus1mm minus1mm}
+
+%math spacing
+\setlength{\abovedisplayskip}{1pt}
+\setlength{\belowdisplayskip}{3pt}
+
+\twocolumn[
+\icmltitle{\tool{}: Accurate, Portable and Fast Basic Block Throughput Estimation using Deep Neural Networks}
+
+\begin{icmlauthorlist}
+\icmlauthor{Charith Mendis}{MIT}
+\icmlauthor{Alex Renda}{MIT}
+\icmlauthor{Saman Amarasinghe}{MIT}
+\icmlauthor{Michael Carbin}{MIT}
+\end{icmlauthorlist}
+
+\icmlaffiliation{MIT}{MIT CSAIL}
+
+\icmlcorrespondingauthor{Charith Mendis}{charithm@mit.edu}
+
+% You may provide any keywords that you
+% find helpful for describing your paper; these are used to populate
+% the "keywords" metadata in the PDF but will not be shown in the document
+\icmlkeywords{Throughput Prediction, Deep Neural Networks}
+
+\vskip 0.3in
+]
+
+% this must go after the closing bracket ] following \twocolumn[ ...
+
+% This command actually creates the footnote in the first column
+% listing the affiliations and the copyright notice.
+% The command takes one argument, which is text to display at the start of the footnote.
+% The \icmlEqualContribution command is standard text for equal contribution.
+% Remove it (just {}) if you do not need this facility.
+
+\printAffiliationsAndNotice{}  % leave blank if no need to mention equal contribution
+%\printAffiliationsAndNotice{\icmlEqualContribution} % otherwise use the standard text.
+
+\input{abstract}
+\input{introduction}
+\input{motivation}
+\input{model}
+\input{dataset}
+\input{evaluation}
+\input{search}
+\input{related}
+\input{conclusion}
+\input{acks}
+
+\bibliography{references}
+
+\bibliographystyle{icml2019}
+
+\input{appendix}
+
+\end{document}

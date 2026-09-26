@@ -1,0 +1,13 @@
+\section{Programming Language Inspiration}
+
+We were facing the problem of building a system to support $O(100)$ accelerator platforms that seemed to be evolving for a machine learning library with $O(1000)$ operations. The previous approaches were not scaling, going from a system that support $A$ to $A'$ required re-implementing large parts of the infrastructure.
+
+\begin{figure}
+    \centering
+    %\includegraphics{}
+    Diagram showing mid-level IRs.
+    \caption{Caption}
+    \label{fig:pl-midlevel}
+\end{figure}
+
+We turned to existing programming language compilation strategies~\figref{pl-midlevel} to tame combinatorial explosion.

@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "status": "PASS_TWO_ISOLATED_CLEAN_BUILDS",
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "required_build_count": 2,
+  "completed_build_count": 2,
+  "independent_work_directories": true,
+  "source_build_caches_excluded": true,
+  "lean_version_exact": "4.33.0",
+  "lean_toolchain_sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b",
+  "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+  "source_manifests_byte_identical": true,
+  "source_manifest_sha256": "654693df418c084a0b014605b9fb85b259a88e81fe146884beb4f0cd8e403f80",
+  "closure_manifests_byte_identical": true,
+  "closure_manifest_sha256": "c2bfd59523bc96b8834ddf856efe1881774e92e9f6c7d8f9f39be93317f26fda",
+  "raw_product_manifests_byte_identical": false,
+  "raw_product_difference_count": 6,
+  "raw_product_difference_scope": "Six .olean files embed the distinct absolute temporary build root.",
+  "product_normalization": "Replace only the exact equal-length absolute temporary-root prefix with one canonical equal-length placeholder before hashing.",
+  "normalized_compiled_product_mismatch_count": 0,
+  "normalized_product_set_sha256": "e33087b6bc9e40b3910b69f0de6461451ceb6f42b8ad34a4eefe991c274bfd90",
+  "warning_sets_identical": true,
+  "warning_count_per_build": 15,
+  "sorted_warning_set_sha256": "e65a8df20e5a93389e1e2ea4373d4e620334eab333e25e0377794733a783081e",
+  "fatal_warning_classes_observed": [],
+  "forbidden_lean_construct_matches": [],
+  "snapshot_stability_check": {
+    "frozen_inputs_checked": 17,
+    "mismatches": [],
+    "snapshot_id_recomputed": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+    "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57"
+  },
+  "acceptance_tests": {
+    "FC8": "PASS",
+    "FC16_BUILD_PORTION": "PASS"
+  },
+  "pdf_qa": "NOT_EXECUTED_IN_THIS_ROUND"
+}

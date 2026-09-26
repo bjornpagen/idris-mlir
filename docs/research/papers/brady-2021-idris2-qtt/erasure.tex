@@ -1,0 +1,240 @@
+\section{Quantities in Types}
+
+\label{sec:quantities}
+
+The biggest distinction between Idris 2 and its predecessor is that it is
+built on Quantitative Type Theory (QTT)~\cite{nuttin,qtt}. In QTT, each
+variable binding (including function arguments) has a \emph{multiplicity}.
+QTT itself takes a general approach to multiplicities, allowing any semiring.
+For Idris 2, we make a concrete choice of semiring, where a
+multiplicity can be one of:
+
+\begin{itemize}
+\item $0$: the variable is not used at run time
+\item $1$: the variable is used exactly once at run time
+\item $\omega$: no restrictions on the variable's usage at run time
+\end{itemize}
+
+In this section, we describe the syntax and informal semantics of
+multiplicities, and discuss the most important practical applications:
+erasure, and linearity. The formal semantics are presented
+elsewhere~\cite{qtt}; here, we aim to describe the intuition.
+In summary:
+
+\begin{itemize}
+\item Variable bindings have multiplicities which describe how often the
+varible must be used within the scope of its binding.
+\item A variable is ``used'' when it appears in the body of a definition (that
+is, not a type declaration), in an argument position with multiplicity $1$ or
+$\omega$.
+\item A function's type gives the multiplicities the arguments have in the
+function's body.
+\end{itemize}
+
+Variables with multiplicity $\omega$ are truly unrestricted, meaning that they
+can be passed to argument positions with multiplicity $0$, $1$ or $\omega$.
+A function which
+takes an argument with multiplicity $1$ promises that it will not share the
+argument in the future; there is no requirement that it has not been shared
+in the past.
+
+\subsection{Syntax}
+
+When declaring a funcion type we can, optionally, give an explicit multiplicity
+of \texttt{0} or \texttt{1}. If an argument has no multiplicity
+given, it defaults to $\omega$.  For example, we can declare the type of
+an identity function which takes its polymorpic type \emph{explicitly}, and
+mark it erased:
+
+\begin{lstlisting}
+id_explicit : (0 a : Type) -> a -> a 
+\end{lstlisting}
+
+If we give a partial definition of \FN{id\_explicit}, then inspect the type of
+the hole in the right hand side, we can see the multiplicities of the variables
+in scope:
+
+\begin{lstlisting}
+id_explicit a x = ?id_explicit_rhs
+
+Main> :t id_explicit_rhs
+0 a : Type
+  x : a
+------------------------------
+id_explicit_rhs : a
+\end{lstlisting}
+
+This means that \VV{a} is not available at run time, and \VV{x} is unrestricted
+at run time. If there is no explicit multiplicity given, it is $\omega$. A
+variable which is not available at run time can only be used in
+argument positions with multiplicity \texttt{0}.
+%
+Implicitly bound arguments are also given
+multiplicity \texttt{0}. So, in the following declaration of \FN{append}\ldots
+
+\begin{lstlisting}
+append : Vect n a -> Vect m a -> Vect (n + m) a
+\end{lstlisting}
+
+\ldots \FN{n}, \FN{a} and \FN{m} have multiplicity \texttt{0}. In Idris 2,
+therefore, unlike Idris 1, the declaration is equivalent to writing:
+
+\begin{lstlisting}
+append : {0 n : Nat} -> {0 m : Nat} -> {0 a : Type} ->
+         Vect n a -> Vect m a -> Vect (n + m) a
+\end{lstlisting}
+
+The default multiplicities for arguments are, therefore:
+
+\begin{itemize}
+\item If you explicitly write the binding, the default is $\omega$.
+\item If you omit the binding (e.g. in a type level variable), the default is $0$.
+\end{itemize}
+
+This design choice, that type level variables are by default
+erased, is primarily influenced by the common usage in Idris 1, that
+implicit type level variables are typically compile-time only.
+As a result, the most common use cases involve the most lightweight syntax.
+
+\subsection{Erasure}
+
+\label{sec:erasure}
+
+The multiplicity \texttt{0} gives us control over whether a function
+argument---\TC{Type} or otherwise---is used at run time. This is important in
+a language with first-class types since we often parameterise types by values
+in order to make relationships between data explicit, or to make assumptions
+explicit. In this section, we will consider two examples of this, and see
+how multiplicity 0 allows us to control which data is available at run time.
+
+\subsubsection{Example 1: Vector length}
+
+We have seen how a vector's type includes its length;
+we can use this length at run time, even though it is
+part of the type, provided that it has non-zero multiplicity:
+
+\begin{lstlisting}
+length : {n : Nat} -> Vect n a -> Nat
+length xs = n
+\end{lstlisting}
+
+With this definition, the length \VV{n} is available at run time, which has
+a storage cost, as well as potentially the cost of computing the length
+elsewhere. If we want the length to be erased, we would need to recompute it
+in the \FN{length} function:
+
+\begin{lstlisting}
+length : Vect n a -> Nat
+length [] = Z
+length (_ :: xs) = S (length xs)
+\end{lstlisting}
+
+The type of \FN{length} in each case makes it explicit whether or not the
+length of the \TC{Vect} is available. Let us now consider a more realistic
+example, using the type system to ensure soundness of a compressed encoding
+of a list.
+
+\subsubsection{Example 2: Run-length Encoding of Lists}
+
+Run-length encoding is a compression scheme which collapses sequences (runs)
+of the same element in a list. It was originally developed for reducing the
+bandwidth required for television pictures~\cite{rle}, and later used in
+image compression and fax formats, among other things.
+
+We will define a data type for storing run-length encoded lists, and use the
+type system to ensure that the encoding is sound with respect to the
+original list. To begin, we define a function which constructs a list by
+repeating an element a given number of times. We will need this for
+explaining the relationship between compressed and uncompressed data.
+
+\begin{lstlisting}
+rep : Nat -> a -> List a
+rep Z x = []
+rep (S k) x = x :: rep k x
+\end{lstlisting}
+
+Using this, and the concatenation operator for \TC{List} (\FN{++}, which is
+defined like \FN{append}), we can describe what it means to be a run-length
+encoded list:
+
+\begin{lstlisting}
+data RunLength : List ty -> Type where
+     Empty : RunLength []
+     Run : (n : Nat) -> (x : ty) -> (rle : RunLength more) ->
+           RunLength (rep (S n) x ++ more)
+\end{lstlisting}
+
+%We can read this as:
+
+\begin{itemize}
+\item \DC{Empty} is the run-length encoding of the empty list \DC{[]}
+\item Given a length \VV{n}, an element \VV{x}, and an encoding \VV{rle} of the
+list \VV{more}, \DC{Run} \VV{n} \VV{x} \VV{rle} is the encoding
+of the list \texttt{rep (S n) x ++ more}. That is, $n+1$ copies of \texttt{x}
+followed by \VV{more}.
+\end{itemize}
+
+We use \texttt{S n} to ensure that \texttt{Run} always increases the length
+of the list, but otherwise we make no attempt (in the type) to ensure that
+the encoding is optimal; we merely ensure that the encoding is sound with
+respect to the encoded list.
+%
+Let us try to write a function which uncompresses a run-length encoded list,
+beginning with a partial definition:
+
+\begin{lstlisting}
+uncompress : RunLength {ty} xs -> List ty
+uncompress rle = ?uncompress_rhs
+\end{lstlisting}
+
+\textbf{Note:} The \VV{\{ty\}} syntax gives an explicit value for the implicit
+argument to \TC{RunLength}. This is to state in the type that the element type
+of the list being returned is the same as the element type in the encoded
+list.
+
+Like our initial implementation of \FN{length} on \TC{Vect}, we might be
+tempted to return \VV{xs} directly, since the index of the encoded list gives
+us the original uncompressed list. However, if we check the type of
+\texttt{uncompress\_rhs}, we see that \texttt{xs} isn't available at run time:
+
+\begin{lstlisting}
+ 0 xs : List ty
+   rle : RunLength xs
+------------------------------
+uncompress_rhs : List ty
+\end{lstlisting}
+
+This is a good thing: if the uncompressed list were available at
+run-time, there would have been no point in compressing it!
+We can still take advantage of having the uncompressed list available
+as part of the type, though, by refining the type of \FN{uncompress}:
+
+\begin{lstlisting}
+data Singleton : a -> Type where
+     Val : (x : a) -> Singleton x
+
+uncompress : RunLength xs -> Singleton xs
+\end{lstlisting}
+
+A value of type \texttt{Singleton x} has exactly one value, \texttt{Val x}.
+The type of \FN{uncompress} expresses that the uncompressed list
+is guaranteed to have the same value as the original list, although it must
+still be reconstructed at run-time. We can implement it as follows:
+
+\begin{lstlisting}
+uncompress : RunLength xs -> Singleton xs
+uncompress Empty = Val []
+uncompress (Run n x y) = let Val ys = uncompress y in
+                             Val (x :: (rep n x ++ ys))
+\end{lstlisting}
+
+\textbf{Aside:} This implementation was generated by type-directed program
+synthesis~\cite{polikarpova_program_2016}, rather than written by hand,
+taking advantage of the explicit relationship given in the type between the
+input and the output. The definition of \TC{RunLength} more or less directly
+gives the uncompression algorithm, so we should not need to write it again!
+
+The \texttt{0} multiplicity, therefore, allows us to reason about values
+at compile time, without requiring them to be present at run time.
+Furthermore, QTT gives us a guarantee of erasure, as well as an
+explicit type level choice as to whether an index is erased or not.

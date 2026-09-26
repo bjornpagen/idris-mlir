@@ -1,0 +1,86 @@
+\documentclass[10pt,nocopyrightspace,preprint,numbers]{sigplanconf}
+
+% The following \documentclass options may be useful:
+
+% preprint      Remove this option only once the paper is in final form.
+% 10pt          To set in 10-point type instead of 9-point.
+% 11pt          To set in 11-point type instead of 9-point.
+% numbers       To obtain numeric citation style instead of author/year.
+
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+
+\begin{document}
+
+\special{papersize=8.5in,11in}
+\setlength{\pdfpageheight}{\paperheight}
+\setlength{\pdfpagewidth}{\paperwidth}
+
+\conferenceinfo{PLDI '17}{Month d--d, 20yy, City, ST, Country}
+\copyrightyear{2017}
+\copyrightdata{978-1-nnnn-nnnn-n/yy/mm}
+\copyrightdoi{nnnnnnn.nnnnnnn}
+
+% Uncomment the publication rights you want to use.
+%\publicationrights{transferred}
+%\publicationrights{licensed}     % this is the default
+%\publicationrights{author-pays}
+
+\iffalse
+\titlebanner{banner above paper title}        % These are ignored unless
+\preprintfooter{short description of paper}   % 'preprint' option specified.
+\fi
+
+\title{A Synthesizing Superoptimizer}
+
+\authorinfo{Raimondas Sasnauskas}
+           {SES Engineering}
+           {raimondas.sasnauskas@ses.com}
+\authorinfo{Yang Chen}
+           {Nvidia, Inc.}
+           {yangchen@nvidia.com}
+\authorinfo{Peter Collingbourne}
+           {Google, Inc.}
+           {pcc@google.com}
+\authorinfo{Jeroen Ketema}
+           {Embedded Systems Innovation by TNO}
+           {jeroen.ketema@tno.nl}
+\authorinfo{Gratian Lup}
+           {Microsoft, Inc.}
+           {gratilup@microsoft.com}
+\authorinfo{Jubi Taneja}
+           {University of Utah}
+           {jubi@cs.utah.edu}
+\authorinfo{John Regehr}
+           {University of Utah}
+           {regehr@cs.utah.edu}
+
+\maketitle
+
+\newcommand{\cL}{{\cal L}}
+\newcommand*{\var}[1]{{\texttt{\%#1}}}
+\newcommand{\tool}{Souper}
+
+\input{abstract}
+
+\iffalse
+\category{CR-number}{subcategory}{third-level}
+
+% general terms are not compulsory anymore,
+% you may leave them out
+\terms
+term1, term2
+
+\keywords
+keyword1, keyword2
+\fi
+
+\input{body}
+
+% We recommend abbrvnat bibliography style.
+
+\bibliographystyle{abbrvnat}
+
+\end{document}

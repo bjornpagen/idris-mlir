@@ -1,0 +1,393 @@
+{
+   "sources" : [
+      {
+         "usage" : "toplevel",
+         "filename" : "main_compressed.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "PACKAGE-MANIFEST.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "README.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/PaperIndex.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/ACClosureCounts.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/AtomicLedger.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/Certificates.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/ClaimLedger.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/ContextGraph.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/Core.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/FiniteNormalization.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/NormalizationBridge.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/PaperDefinitions.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/ProfileRules.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/Reachability.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/Replay.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/StructuralClaims.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/StructuralContainerAdapter.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/StructuralSemantics.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/SyntaxSupport.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/TheoremBridge.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/TypedSlottedEGraphsPaper/TraceSemantics.lean"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/artifact-refinement-map.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/axiom-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/build-evidence/clean-build-A.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/build-evidence/clean-build-B.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/build-evidence/clean-build-summary.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/build-evidence/closure-manifest-A.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/build-evidence/closure-manifest-B.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/compiler-correspondence-metadata.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/compiler-dependency-graph.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-review.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-arxiv-correspondence-2026-09-02/round-1/lean-metadata.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-arxiv-correspondence-2026-09-02/round-1/semantics.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-arxiv-correspondence-2026-09-02/round-1/summary.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/correspondence-review.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/lean-metadata.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/semantics.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/summary.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/lean-metadata.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/review-snapshot-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/semantics.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/summary.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/dependency-graph.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/edge-case-closure.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/experimental-data-refresh-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/final-formal-closure-report.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/formal-units.yaml"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/foundation-impact-report.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/historical/2026-08-30/final-formal-closure-report.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/historical/2026-08-30/layered-closure-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/historical/2026-08-30/tcb-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/lake-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/lakefile.toml"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/layered-closure-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/lean-toolchain"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/normalization-contract.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/paper-lean-map.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-float-repair-003-004-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-math-repair-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-final-emission-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-final-package-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-post-float-final-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-post-repair-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-repaired-fast-ir-data-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-qa-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/pdf-repair-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/proof-sketch-audit.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/provenance-layout-repair-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/review-snapshot-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/tcb-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/tools/build_source_candidate_manifest.py"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/tools/freeze_correspondence_snapshot.py"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/tools/regenerate_current_metadata.py"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/trace-envelope-witness-binding-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "formal/trace-envelope-witness-sync-report.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/README.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/baseline_audit.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/baseline_evidence_verification.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/baseline_notation_ledger.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/baseline_source_checksums.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/build-and-revision-verification.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/change-manifest.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/claim-evidence-ledger.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/final-structure.txt"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/final_auditor_formal_invariance.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/final_emission_audit.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/final_emission_audit.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/final_notation_ledger.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/formal-invariance.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/pre-edit-plan.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/previous-PACKAGE-MANIFEST.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/previous-README.md"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/retrieval-provenance.json"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "revision/revision.diff"
+      }
+   ],
+   "spec_version" : 1,
+   "texlive_version" : "2025",
+   "process" : {
+      "compiler" : "pdflatex"
+   }
+}

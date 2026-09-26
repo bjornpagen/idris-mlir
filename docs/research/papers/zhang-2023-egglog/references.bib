@@ -1,0 +1,2188 @@
+@article{DBLP:journals/pacmpl/Bembenek0C20,
+  author    = {Aaron Bembenek and
+               Michael Greenberg and
+               Stephen Chong},
+  title     = {Formulog: Datalog for SMT-based static analysis},
+  journal   = {Proc. {ACM} Program. Lang.},
+  volume    = {4},
+  number    = {{OOPSLA}},
+  pages     = {141:1--141:31},
+  year      = {2020},
+  url       = {https://doi.org/10.1145/3428209},
+  doi       = {10.1145/3428209},
+  timestamp = {Wed, 17 Feb 2021 08:53:58 +0100},
+  biburl    = {https://dblp.org/rec/journals/pacmpl/Bembenek0C20.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{DBLP:conf/popl/Steensgaard96,
+  author    = {Bjarne Steensgaard},
+  editor    = {Hans{-}Juergen Boehm and
+               Guy L. Steele Jr.},
+  title     = {Points-to Analysis in Almost Linear Time},
+  booktitle = {Conference Record of POPL'96: The 23rd {ACM} {SIGPLAN-SIGACT} Symposium
+               on Principles of Programming Languages, Papers Presented at the Symposium,
+               St. Petersburg Beach, Florida, USA, January 21-24, 1996},
+  pages     = {32--41},
+  publisher = {{ACM} Press},
+  year      = {1996},
+  url       = {https://doi.org/10.1145/237721.237727},
+  doi       = {10.1145/237721.237727},
+  timestamp = {Sun, 02 Jun 2019 21:12:56 +0200},
+  biburl    = {https://dblp.org/rec/conf/popl/Steensgaard96.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@phdthesis{andersen1994program,
+  title  = {Program analysis and specialization for the C programming language},
+  author = {Andersen, Lars Ole},
+  year   = {1994},
+  school = {Citeseer}
+}
+
+@article{Floyd-Warshall,
+  author     = {Floyd, Robert W.},
+  title      = {Algorithm 97: Shortest Path},
+  year       = {1962},
+  issue_date = {June 1962},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {5},
+  number     = {6},
+  issn       = {0001-0782},
+  url        = {https://doi.org/10.1145/367766.368168},
+  doi        = {10.1145/367766.368168},
+  journal    = {Commun. ACM},
+  month      = {jun},
+  pages      = {345},
+  numpages   = {5}
+}
+
+@inproceedings{tarjan-off-line-lca,
+  author    = {Gabow, Harold N. and Tarjan, Robert Endre},
+  title     = {A Linear-Time Algorithm for a Special Case of Disjoint Set Union},
+  year      = {1983},
+  isbn      = {0897910990},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/800061.808753},
+  doi       = {10.1145/800061.808753},
+  abstract  = {This paper presents a linear-time algorithm for the special case of the disjoint set union problem in which the structure of the unions (defined by a “union tree”) is known in advance. The algorithm executes an intermixed sequence of m union and find operations on n elements in 0(m+n) time and 0(n) space. This is a slight but theoretically significant improvement over the fastest known algorithm for the general problem, which runs in 0(mα(m+n, n)+n) time and 0(n) space, where α is a functional inverse of Ackermann's function. Used as a subroutine, the algorithm gives similar improvements in the efficiency of algorithms for solving a number of other problems, including two-processor scheduling, the off-line min problem, matching on convex graphs, finding nearest common ancestors off-line, testing a flow graph for reducibility, and finding two disjoint directed spanning trees. The algorithm obtains its efficiency by combining a fast algorithm for the general problem with table look-up on small sets, and requires a random access machine for its implementation. The algorithm extends to the case in which single-node additions to the union tree are allowed. The extended algorithm is useful in finding maximum cardinality matchings on nonbipartite graphs.},
+  booktitle = {Proceedings of the Fifteenth Annual ACM Symposium on Theory of Computing},
+  pages     = {246–251},
+  numpages  = {6},
+  series    = {STOC '83}
+}
+
+@inproceedings{proofs-refutations-z3,
+  author  = {de Moura, Leonardo and Bjørner, Nikolaj},
+  year    = {2008},
+  month   = {01},
+  pages   = {},
+  title   = {Proofs and Refutations, and Z3},
+  volume  = {418},
+  journal = {CEUR Workshop Proceedings}
+}
+
+@article{egg,
+  author     = {Willsey, Max and Nandi, Chandrakana and Wang, Yisu Remy and Flatt, Oliver and Tatlock, Zachary and Panchekha, Pavel},
+  title      = {Egg: Fast and Extensible Equality Saturation},
+  year       = {2021},
+  issue_date = {January 2021},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {5},
+  number     = {POPL},
+  url        = {https://doi.org/10.1145/3434304},
+  doi        = {10.1145/3434304},
+  abstract   = {An e-graph efficiently represents a congruence relation over many expressions. Although they were originally developed in the late 1970s for use in automated theorem provers, a more recent technique known as equality saturation repurposes e-graphs to implement state-of-the-art, rewrite-driven compiler optimizations and program synthesizers. However, e-graphs remain unspecialized for this newer use case. Equality saturation workloads exhibit distinct characteristics and often require ad-hoc e-graph extensions to incorporate transformations beyond purely syntactic rewrites.  This work contributes two techniques that make e-graphs fast and extensible, specializing them to equality saturation. A new amortized invariant restoration technique called rebuilding takes advantage of equality saturation's distinct workload, providing asymptotic speedups over current techniques in practice. A general mechanism called e-class analyses integrates domain-specific analyses into the e-graph, reducing the need for ad hoc manipulation.  We implemented these techniques in a new open-source library called egg. Our case studies on three previously published applications of equality saturation highlight how egg's performance and flexibility enable state-of-the-art results across diverse domains.},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {jan},
+  articleno  = {23},
+  numpages   = {29},
+  keywords   = {e-graphs, equality saturation}
+}
+
+@book{garey1979computers,
+  title     = {Computers and intractability},
+  author    = {Garey, Michael R and Johnson, David S},
+  volume    = {174},
+  year      = {1979},
+  publisher = {freeman San Francisco}
+}
+@inproceedings{pratt1995anatomy,
+  title        = {Anatomy of the Pentium bug},
+  author       = {Pratt, Vaughan},
+  booktitle    = {Colloquium on Trees in Algebra and Programming},
+  pages        = {97--107},
+  year         = {1995},
+  organization = {Springer}
+}
+@inproceedings{DBLP:conf/icfp/VisserBT98,
+  author    = {Eelco Visser and
+               Zine{-}El{-}Abidine Benaissa and
+               Andrew P. Tolmach},
+  editor    = {Matthias Felleisen and
+               Paul Hudak and
+               Christian Queinnec},
+  title     = {Building Program Optimizers with Rewriting Strategies},
+  booktitle = {Proceedings of the third {ACM} {SIGPLAN} International Conference
+               on Functional Programming {(ICFP} '98), Baltimore, Maryland, USA,
+               September 27-29, 1998},
+  pages     = {13--26},
+  publisher = {{ACM}},
+  year      = {1998},
+  url       = {https://doi.org/10.1145/289423.289425},
+  doi       = {10.1145/289423.289425},
+  timestamp = {Tue, 06 Nov 2018 16:59:24 +0100},
+  biburl    = {https://dblp.org/rec/conf/icfp/VisserBT98.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@article{DBLP:journals/toplas/BrandHKO02,
+  author    = {Mark van den Brand and
+               Jan Heering and
+               Paul Klint and
+               Pieter A. Olivier},
+  title     = {Compiling language definitions: the {ASF+SDF} compiler},
+  journal   = {{ACM} Trans. Program. Lang. Syst.},
+  volume    = {24},
+  number    = {4},
+  pages     = {334--368},
+  year      = {2002},
+  url       = {https://doi.org/10.1145/567097.567099},
+  doi       = {10.1145/567097.567099},
+  timestamp = {Fri, 27 Dec 2019 21:14:55 +0100},
+  biburl    = {https://dblp.org/rec/journals/toplas/BrandHKO02.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{DBLP:conf/scitools/BoyleHW96,
+  author    = {James M. Boyle and
+               Terence J. Harmer and
+               Victor L. Winter},
+  editor    = {Erlend Arge and
+               Are Magnus Bruaset and
+               Hans Petter Langtangen},
+  title     = {The {TAMPR} Program Transformation System: Simplifying the Development
+               of Numerical Software},
+  booktitle = {Modern Software Tools for Scientific Computing, SciTools 1996, Oslo,
+               Norway, September 16-18, 1996},
+  pages     = {353--372},
+  publisher = {Birkh{\"{a}}user},
+  year      = {1996},
+  url       = {https://doi.org/10.1007/978-1-4612-1986-6\_17},
+  doi       = {10.1007/978-1-4612-1986-6\_17},
+  timestamp = {Fri, 24 Apr 2020 15:05:23 +0200},
+  biburl    = {https://dblp.org/rec/conf/scitools/BoyleHW96.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+@incollection{rewritesystems,
+  author    = {Nachum Dershowitz and
+               Jean{-}Pierre Jouannaud},
+  editor    = {Jan van Leeuwen},
+  title     = {Rewrite Systems},
+  booktitle = {Handbook of Theoretical Computer Science, Volume {B:} Formal Models
+               and Semantics},
+  pages     = {243--320},
+  publisher = {Elsevier and {MIT} Press},
+  year      = {1990},
+  url       = {https://doi.org/10.1016/b978-0-444-88074-1.50011-1},
+  doi       = {10.1016/b978-0-444-88074-1.50011-1},
+  timestamp = {Tue, 06 Aug 2019 09:45:21 +0200},
+  biburl    = {https://dblp.org/rec/books/el/leeuwen90/DershowitzJ90.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@article{denali,
+  author     = {Joshi, Rajeev and Nelson, Greg and Randall, Keith},
+  title      = {Denali: A Goal-directed Superoptimizer},
+  journal    = {SIGPLAN Not.},
+  issue_date = {May 2002},
+  volume     = {37},
+  number     = {5},
+  month      = may,
+  year       = {2002},
+  issn       = {0362-1340},
+  pages      = {304--314},
+  numpages   = {11},
+  url        = {http://doi.acm.org/10.1145/543552.512566},
+  doi        = {10.1145/543552.512566},
+  acmid      = {512566},
+  publisher  = {ACM},
+  address    = {New York, NY, USA},
+  keywords   = {optimizing compiler, superoptimizer}
+}
+
+@phdthesis{nelson,
+  author  = {Nelson, Charles Gregory},
+  title   = {Techniques for Program Verification},
+  year    = {1980},
+  note    = {AAI8011683},
+  school  = {Stanford University},
+  address = {Stanford, CA, USA}
+}
+
+@inproceedings{pp-congr,
+  author    = {Nieuwenhuis, Robert and Oliveras, Albert},
+  title     = {Proof-Producing Congruence Closure},
+  year      = {2005},
+  isbn      = {3540255966},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/978-3-540-32033-3\_33},
+  doi       = {10.1007/978-3-540-32033-3\_33},
+  booktitle = {Proceedings of the 16th International Conference on Term Rewriting and Applications},
+  pages     = {453–468},
+  numpages  = {16},
+  location  = {Nara, Japan},
+  series    = {RTA’05}
+}
+
+@inproceedings{eqsat,
+  author    = {Tate, Ross and Stepp, Michael and Tatlock, Zachary and Lerner, Sorin},
+  title     = {Equality Saturation: A New Approach to Optimization},
+  booktitle = {Proceedings of the 36th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages},
+  series    = {POPL '09},
+  year      = {2009},
+  isbn      = {978-1-60558-379-2},
+  location  = {Savannah, GA, USA},
+  pages     = {264--276},
+  numpages  = {13},
+  url       = {http://doi.acm.org/10.1145/1480881.1480915},
+  doi       = {10.1145/1480881.1480915},
+  acmid     = {1480915},
+  publisher = {ACM},
+  address   = {New York, NY, USA},
+  keywords  = {compiler optimization, equality reasoning, intermediate representation}
+}
+
+@article{dpll,
+  author     = {Davis, Martin and Putnam, Hilary},
+  title      = {A Computing Procedure for Quantification Theory},
+  year       = {1960},
+  issue_date = {July 1960},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {7},
+  number     = {3},
+  issn       = {0004-5411},
+  url        = {https://doi.org/10.1145/321033.321034},
+  doi        = {10.1145/321033.321034},
+  journal    = {J. ACM},
+  month      = jul,
+  pages      = {201–215},
+  numpages   = {15}
+}
+
+@inproceedings{eqsat-llvm,
+  author    = {Stepp, Michael
+               and Tate, Ross
+               and Lerner, Sorin},
+  editor    = {Gopalakrishnan, Ganesh
+               and Qadeer, Shaz},
+  title     = {Equality-Based Translation Validator for LLVM},
+  booktitle = {Computer Aided Verification},
+  year      = {2011},
+  publisher = {Springer Berlin Heidelberg},
+  address   = {Berlin, Heidelberg},
+  pages     = {737--742},
+  abstract  = {We updated our Peggy tool, previously presented in [6], to perform translation validation for the LLVM compiler using a technique called Equality Saturation. We present the tool, and illustrate its effectiveness at doing translation validation on SPEC 2006 benchmarks.},
+  isbn      = {978-3-642-22110-1}
+}
+
+@inbook{nachum-rewrites,
+  author    = {Dershowitz, Nachum},
+  editor    = {Lauer, Peter E.},
+  title     = {A taste of rewrite systems},
+  booktitle = {Functional Programming, Concurrency, Simulation and Automated Reasoning: International Lecture Series 1991--1992 McMaster University, Hamilton, Ontario, Canada},
+  year      = {1993},
+  publisher = {Springer Berlin Heidelberg},
+  address   = {Berlin, Heidelberg},
+  pages     = {199--228},
+  abstract  = {This survey of the theory and applications of rewriting with equations discusses the existence and uniqueness of normal forms, the KnuthBendix completion procedure and its variations, as well as rewriting-based (functional and logic) programming and (equational, first-order, and inductive) theorem proving. Ordinary, associative-commutative, and conditional rewriting are covered. Current areas of research are summarized and an extensive bibliography is provided.},
+  isbn      = {978-3-540-47776-1},
+  doi       = {10.1007/3-540-56883-2_11},
+  url       = {https://doi.org/10.1007/3-540-56883-2_11}
+}
+
+@article{simplify,
+  author     = {Detlefs, David and Nelson, Greg and Saxe, James B.},
+  title      = {Simplify: A Theorem Prover for Program Checking},
+  journal    = {J. ACM},
+  issue_date = {May 2005},
+  volume     = {52},
+  number     = {3},
+  month      = may,
+  year       = {2005},
+  issn       = {0004-5411},
+  pages      = {365--473},
+  numpages   = {109},
+  url        = {http://doi.acm.org/10.1145/1066100.1066102},
+  doi        = {10.1145/1066100.1066102},
+  acmid      = {1066102},
+  publisher  = {ACM},
+  address    = {New York, NY, USA},
+  keywords   = {Theorem proving, decision procedures, program checking}
+}
+
+@inproceedings{z3,
+  author    = {De Moura, Leonardo and Bj{\o}rner, Nikolaj},
+  title     = {Z3: An Efficient SMT Solver},
+  booktitle = {Proceedings of the Theory and Practice of Software, 14th International Conference on Tools and Algorithms for the Construction and Analysis of Systems},
+  series    = {TACAS'08/ETAPS'08},
+  year      = {2008},
+  isbn      = {3-540-78799-2, 978-3-540-78799-0},
+  location  = {Budapest, Hungary},
+  pages     = {337--340},
+  numpages  = {4},
+  url       = {http://dl.acm.org/citation.cfm?id=1792734.1792766},
+  acmid     = {1792766},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg}
+}
+
+@article{graphs,
+  author     = {Andries, Marc and Engels, Gregor and Habel, Annegret and Hoffmann, Berthold and Kreowski, Hans-J\"{o}rg and Kuske, Sabine and Plump, Detlef and Sch\"{u}rr, Andy and Taentzer, Gabriele},
+  title      = {Graph Transformation for Specification and Programming},
+  year       = {1999},
+  issue_date = {April 1999},
+  publisher  = {Elsevier North-Holland, Inc.},
+  address    = {USA},
+  volume     = {34},
+  number     = {1},
+  issn       = {0167-6423},
+  url        = {https://doi.org/10.1016/S0167-6423(98)00023-9},
+  doi        = {10.1016/S0167-6423(98)00023-9},
+  journal    = {Sci. Comput. Program.},
+  month      = apr,
+  pages      = {1–54},
+  numpages   = {54},
+  keywords   = {transformation units, rule-based specification, structuring, graph transformation}
+}
+
+@article{herbie,
+  author     = {Panchekha, Pavel and Sanchez-Stern, Alex and Wilcox, James R. and Tatlock, Zachary},
+  title      = {Automatically Improving Accuracy for Floating Point Expressions},
+  year       = {2015},
+  issue_date = {August 2015},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {50},
+  number     = {6},
+  issn       = {0362-1340},
+  url        = {https://doi.org/10.1145/2813885.2737959},
+  doi        = {10.1145/2813885.2737959},
+  journal    = {SIGPLAN Not.},
+  month      = jun,
+  pages      = {1–11},
+  numpages   = {11},
+  keywords   = {Floating point, program rewriting, numerical accuracy}
+}
+
+@misc{rust,
+  title        = {Rust programming language},
+  author       = {Rust},
+  howpublished = {\url{https://www.rust-lang.org/}},
+  url          = {https://www.rust-lang.org/},
+  urldate      = {2020-04-01}
+}
+
+@inproceedings{szalinski,
+  title     = {Synthesizing Structured {CAD} Models with Equality Saturation and Inverse Transformations},
+  author    = {
+               Chandrakana Nandi and
+               Max Willsey and
+               Adam Anderson and
+               James R. Wilcox and
+               Eva Darulova and
+               Dan Grossman and
+               Zachary Tatlock
+               },
+  year      = {2020},
+  isbn      = {9781450376136},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3385412.3386012},
+  doi       = {10.1145/3385412.3386012},
+  booktitle = {Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  pages     = {31–44},
+  numpages  = {14},
+  keywords  = {Program Synthesis, Equality Saturation, Computer-Aided Design, Decompilation},
+  location  = {London, UK},
+  series    = {PLDI 2020}
+}
+
+@article{reincarnate,
+  author     = {Nandi, Chandrakana and Wilcox, James R. and Panchekha, Pavel and Blau, Taylor and Grossman, Dan and Tatlock, Zachary},
+  title      = {Functional Programming for Compiling and Decompiling Computer-aided Design},
+  journal    = {Proc. ACM Program. Lang.},
+  issue_date = {September 2018},
+  volume     = {2},
+  number     = {ICFP},
+  month      = jul,
+  year       = {2018},
+  issn       = {2475-1421},
+  pages      = {99:1--99:31},
+  articleno  = {99},
+  numpages   = {31},
+  url        = {http://doi.acm.org/10.1145/3236794},
+  doi        = {10.1145/3236794},
+  acmid      = {3236794},
+  publisher  = {ACM},
+  address    = {New York, NY, USA},
+  keywords   = {3D printing, denotational semantics, language design, program synthesis}
+}
+
+@inproceedings{inverse,
+  author = {Du, Tao and Priya Inala, Jeevana and Pu, Yewen and Spielberg, Andrew and Schulz, Adriana and Rus, Daniela and Solar-Lezama, Armando and Matusik, Wojciech},
+  year   = {2018},
+  month  = {12},
+  pages  = {1-16},
+  title  = {InverseCSG: automatic conversion of 3D models to CSG trees},
+  doi    = {10.1145/3272127.3275006}
+}
+
+@inproceedings{shape,
+  title     = {Learning to Infer and Execute 3D Shape Programs},
+  author    = {Yonglong Tian and Andrew Luo and Xingyuan Sun and Kevin Ellis and William T. Freeman and Joshua B. Tenenbaum and Jiajun Wu},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2019},
+  url       = {https://openreview.net/forum?id=rylNH20qFQ}
+}
+
+
+@inproceedings{latex,
+  title     = {Learning to Infer Graphics Programs from Hand-Drawn Images},
+  author    = {Kevin Ellis and Daniel Ritchie and Armando Solar-Lezama and Joshua B. Tenenbaum},
+  booktitle = {Neural Information Processing Systems (NIPS)},
+  year      = {2018}
+}
+
+@article{csgnet,
+  author        = {Gopal Sharma and
+                   Rishabh Goyal and
+                   Difan Liu and
+                   Evangelos Kalogerakis and
+                   Subhransu Maji},
+  title         = {CSGNet: Neural Shape Parser for Constructive Solid Geometry},
+  journal       = {CoRR},
+  volume        = {abs/1712.08290},
+  year          = {2017},
+  url           = {http://arxiv.org/abs/1712.08290},
+  archiveprefix = {arXiv},
+  eprint        = {1712.08290},
+  timestamp     = {Mon, 13 Aug 2018 16:47:26 +0200},
+  biburl        = {https://dblp.org/rec/bib/journals/corr/abs-1712-08290},
+  bibsource     = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{ematching,
+  author    = {de Moura, Leonardo and Bj{\o}rner, Nikolaj},
+  editor    = {Pfenning, Frank},
+  title     = {Efficient E-Matching for SMT Solvers},
+  booktitle = {Automated Deduction -- CADE-21},
+  year      = {2007},
+  publisher = {Springer Berlin Heidelberg},
+  address   = {Berlin, Heidelberg},
+  pages     = {183--198},
+  abstract  = {Satisfiability Modulo Theories (SMT) solvers have proven highly scalable, efficient and suitable for integrating theory reasoning. However, for numerous applications from program analysis and verification, the ground fragment is insufficient, as proof obligations often include quantifiers. A well known approach for quantifier reasoning uses a matching algorithm that works against an E-graph to instantiate quantified variables. This paper introduces algorithms that identify matches on E-graphs incrementally and efficiently. In particular, we introduce an index that works on E-graphs, called E-matching code trees that combine features of substitution and code trees, used in saturation based theorem provers. E-matching code trees allow performing matching against several patterns simultaneously. The code trees are combined with an additional index, called the inverted path index, which filters E-graph terms that may potentially match patterns when the E-graph is updated. Experimental results show substantial performance improvements over existing state-of-the-art SMT solvers.},
+  isbn      = {978-3-540-73595-3}
+}
+
+@article{10.1145/36177.36194,
+  author     = {Massalin, Henry},
+  title      = {Superoptimizer: A Look at the Smallest Program},
+  year       = {1987},
+  issue_date = {November 1987},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {15},
+  number     = {5},
+  issn       = {0163-5964},
+  url        = {https://doi.org/10.1145/36177.36194},
+  doi        = {10.1145/36177.36194},
+  journal    = {SIGARCH Comput. Archit. News},
+  month      = oct,
+  pages      = {122–126},
+  numpages   = {5}
+}
+
+  
+
+@inproceedings{massalin,
+  author    = {Massalin, Henry},
+  title     = {Superoptimizer: A Look at the Smallest Program},
+  year      = {1987},
+  isbn      = {0818608056},
+  publisher = {IEEE Computer Society Press},
+  address   = {Washington, DC, USA},
+  url       = {https://doi.org/10.1145/36206.36194},
+  doi       = {10.1145/36206.36194},
+  booktitle = {Proceedings of the Second International Conference on Architectual Support for Programming Languages and Operating Systems},
+  pages     = {122–126},
+  numpages  = {5},
+  location  = {Palo Alto, California, USA},
+  series    = {ASPLOS II}
+}
+
+@article{unionfind1964,
+  author     = {Galler, Bernard A. and Fisher, Michael J.},
+  title      = {An Improved Equivalence Algorithm},
+  year       = {1964},
+  issue_date = {May 1964},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {7},
+  number     = {5},
+  issn       = {0001-0782},
+  url        = {https://doi.org/10.1145/364099.364331},
+  doi        = {10.1145/364099.364331},
+  journal    = {Commun. ACM},
+  month      = may,
+  pages      = {301–303},
+  numpages   = {3}
+}
+
+@article{unionfind,
+  author     = {Tarjan, Robert Endre},
+  title      = {Efficiency of a Good But Not Linear Set Union Algorithm},
+  year       = {1975},
+  issue_date = {April 1975},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {22},
+  number     = {2},
+  issn       = {0004-5411},
+  url        = {https://doi-org.offcampus.lib.washington.edu/10.1145/321879.321884},
+  doi        = {10.1145/321879.321884},
+  journal    = {J. ACM},
+  month      = apr,
+  pages      = {215–225},
+  numpages   = {11}
+}
+
+@article{Boehm_2019,
+  author    = {Boehm, Matthias},
+  title     = {Apache {SystemML}},
+  year      = 2019,
+  pages     = {81–86},
+  doi       = {10.1007/978-3-319-77525-8_187},
+  url       = {http://dx.doi.org/10.1007/978-3-319-77525-8_187},
+  isbn      = 9783319775258,
+  journal   = {Encyclopedia of Big Data Technologies},
+  publisher = {Springer International Publishing}
+}
+
+@article{spores,
+  title     = {{SPORES}: Sum-Product Optimization via Relational Equality Saturation for Large Scale Linear Algebra},
+  author    = {Wang, Yisu Remy and Hutchison, Shana and Leang, Jonathan and Howe, Bill and Suciu, Dan},
+  journal   = {Proceedings of the VLDB Endowment},
+  year      = {2020},
+  publisher = {VLDB Endowment}
+}
+
+@article{wu_siga19,
+  author  = {Chenming Wu and Haisen Zhao and Chandrakana Nandi and Jeffrey I. Lipton and Zachary Tatlock and Adriana Schulz},
+  title   = {Carpentry Compiler},
+  journal = {ACM Transactions on Graphics},
+  note    = {presented at SIGGRAPH Asia 2019},
+  volume  = {38},
+  number  = {6},
+  pages   = {Article No. 195},
+  year    = {2019}
+}
+
+@inproceedings{sygus-rws-enum,
+  author    = {N{\"o}tzli, Andres
+               and Reynolds, Andrew
+               and Barbosa, Haniel
+               and Niemetz, Aina
+               and Preiner, Mathias
+               and Barrett, Clark
+               and Tinelli, Cesare},
+  editor    = {Janota, Mikol{\'a}{\v{s}}
+               and Lynce, In{\^e}s},
+  title     = {Syntax-Guided Rewrite Rule Enumeration for SMT Solvers},
+  booktitle = {Theory and Applications of Satisfiability Testing -- SAT 2019},
+  year      = {2019},
+  publisher = {Springer International Publishing},
+  address   = {Cham},
+  pages     = {279--297},
+  abstract  = {The performance of modern Satisfiability Modulo Theories (SMT) solvers relies crucially on efficient decision procedures as well as static simplification techniques, which include large sets of rewrite rules. Manually discovering and implementing rewrite rules is challenging. In this work, we propose a framework that uses enumerative syntax-guided synthesis (SyGuS) to propose rewrite rules that are not implemented in a given SMT solver. We implement this framework in cvc4, a state-of-the-art SMT and SyGuS solver, and evaluate several use cases. We show that some SMT solvers miss rewriting opportunities, or worse, have bugs in their rewriters. We also show that a variation of our approach can be used to test the correctness of a rewriter. Finally, we show that rewrites discovered with this technique lead to significant improvements in cvc4 on both SMT and SyGuS problems over bit-vectors and strings.},
+  isbn      = {978-3-030-24258-9}
+}
+
+@inproceedings{yogo-pldi20,
+  author    = {Premtoon, Varot and Koppel, James and Solar-Lezama, Armando},
+  title     = {Semantic Code Search via Equational Reasoning},
+  year      = {2020},
+  isbn      = {9781450376136},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3385412.3386001},
+  doi       = {10.1145/3385412.3386001},
+  booktitle = {Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  pages     = {1066–1082},
+  numpages  = {17},
+  keywords  = {equational reasoning, code search},
+  location  = {London, UK},
+  series    = {PLDI 2020}
+}
+
+@inproceedings{taso,
+  title     = {TASO: optimizing deep learning computation with automatic generation of graph substitutions},
+  author    = {Jia, Zhihao and Padon, Oded and Thomas, James and Warszawski, Todd and Zaharia, Matei and Aiken, Alex},
+  booktitle = {Proceedings of the 27th ACM Symposium on Operating Systems Principles},
+  pages     = {47--62},
+  year      = {2019}
+}
+
+@inbook{diospyros,
+  author    = {VanHattum, Alexa and Nigam, Rachit and Lee, Vincent T. and Bornholt, James and Sampson, Adrian},
+  title     = {Vectorization for Digital Signal Processors via Equality Saturation},
+  year      = {2021},
+  isbn      = {9781450383172},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3445814.3446707},
+  abstract  = {Applications targeting digital signal processors (DSPs) benefit from fast implementations of small linear algebra kernels. While existing auto-vectorizing compilers are effective at extracting performance from large kernels, they struggle to invent the complex data movements necessary to optimize small kernels. To get the best performance, DSP engineers must hand-write and tune specialized small kernels for a wide spectrum of applications and architectures. We present Diospyros, a search-based compiler that automatically finds efficient vectorizations and data layouts for small linear algebra kernels. Diospyros combines symbolic evaluation and equality saturation to vectorize computations with irregular structure. We show that a collection of Diospyros-compiled kernels outperform implementations from existing DSP libraries by 3.1\texttimes{} on average, that Diospyros can generate kernels that are competitive with expert-tuned code, and that optimizing these small kernels offers end-to-end speedup for a DSP application.},
+  booktitle = {Proceedings of the 26th ACM International Conference on Architectural Support for Programming Languages and Operating Systems},
+  pages     = {874–886},
+  numpages  = {13}
+}
+
+@inproceedings{glenside,
+  author    = {Smith, Gus Henry and Liu, Andrew and Lyubomirsky, Steven and Davidson, Scott and McMahan, Joseph and Taylor, Michael and Ceze, Luis and Tatlock, Zachary},
+  title     = {Pure Tensor Program Rewriting via Access Patterns (Representation Pearl)},
+  year      = {2021},
+  isbn      = {9781450384674},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3460945.3464953},
+  doi       = {10.1145/3460945.3464953},
+  abstract  = {Tensor kernels in machine learning (ML) often correspond to pure mathematical expressions, making term rewriting an attractive strategy for optimization and mapping to specialized hardware accelerators. However, existing ML intermediate representations (IRs) tend to either be pure but high-level, making low-level rewrites to hardware targets inexpressible, or low-level but impure, hampering the use of term rewriting altogether. This paper introduces Glenside, a pure IR whose core abstraction—the access pattern—enables low-level, layout-aware, hardware-centric program rewrites. We demonstrate how term rewriting in Glenside can be used to map program fragments to hardware accelerator invocations and automatically discover classic data layout transformations like im2col. Glenside establishes a new foundation for exploring further term rewriting techniques in optimizing low-level tensor programs.},
+  booktitle = {Proceedings of the 5th ACM SIGPLAN International Symposium on Machine Programming},
+  pages     = {21–31},
+  numpages  = {11},
+  keywords  = {term rewriting, machine learning compilers},
+  location  = {Virtual, Canada},
+  series    = {MAPS 2021}
+}
+
+@inproceedings{tensat,
+  title     = {Equality Saturation for Tensor Graph Superoptimization},
+  author    = {Yichen Yang and Phitchaya Mangpo Phothilimtha and Yisu Remy Wang and Max Willsey and Sudip Roy and Jacques Pienaar},
+  eprint    = {2101.01332},
+  booktitle = {Proceedings of Machine Learning and Systems},
+  year      = {2021}
+}
+
+@article{metatheory.jl,
+  doi       = {10.21105/joss.03078},
+  url       = {https://doi.org/10.21105/joss.03078},
+  year      = {2021},
+  publisher = {The Open Journal},
+  volume    = {6},
+  number    = {59},
+  pages     = {3078},
+  author    = {Alessandro Cheli},
+  title     = {Metatheory.jl: Fast and Elegant Algebraic Computation in Julia with Extensible Equality Saturation},
+  journal   = {Journal of Open Source Software}
+}
+
+@article{ruler,
+  author     = {Nandi, Chandrakana and Willsey, Max and Zhu, Amy and Wang, Yisu Remy and Saiki, Brett and Anderson, Adam and Schulz, Adriana and Grossman, Dan and Tatlock, Zachary},
+  title      = {Rewrite Rule Inference Using Equality Saturation},
+  year       = {2021},
+  issue_date = {October 2021},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {5},
+  number     = {OOPSLA},
+  url        = {https://doi.org/10.1145/3485496},
+  doi        = {10.1145/3485496},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {oct},
+  articleno  = {119},
+  numpages   = {28},
+  keywords   = {Program Synthesis, Rewrite Rules, Equality Saturation}
+}
+
+@inproceedings{yingyang,
+  author    = {Winterer, Dominik and Zhang, Chengyu and Su, Zhendong},
+  title     = {Validating SMT Solvers via Semantic Fusion},
+  year      = {2020},
+  isbn      = {9781450376136},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3385412.3385985},
+  doi       = {10.1145/3385412.3385985},
+  abstract  = {We introduce Semantic Fusion, a general, effective methodology for validating Satisfiability Modulo Theory (SMT) solvers. Our key idea is to fuse two existing equisatisfiable (i.e., both satisfiable or unsatisfiable) formulas into a new formula that combines the structures of its ancestors in a novel manner and preserves the satisfiability by construction. This fused formula is then used for validating SMT solvers. We realized Semantic Fusion as YinYang, a practical SMT solver testing tool. During four months of extensive testing, YinYang has found 45 confirmed, unique bugs in the default arithmetic and string solvers of Z3 and CVC4, the two state-of-the-art SMT solvers. Among these, 41 have already been fixed by the developers. The majority (29/45) of these bugs expose critical soundness issues. Our bug reports and testing effort have been well-appreciated by SMT solver developers.},
+  booktitle = {Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  pages     = {718–730},
+  numpages  = {13},
+  keywords  = {Semantic fusion, SMT solvers, Fuzz testing},
+  location  = {London, UK},
+  series    = {PLDI 2020}
+}
+
+@inproceedings{cvc4,
+  author    = {Barrett, Clark and Conway, Christopher L. and Deters, Morgan and Hadarean, Liana and Jovanovi\'{c}, Dejan and King, Tim and Reynolds, Andrew and Tinelli, Cesare},
+  title     = {CVC4},
+  year      = {2011},
+  isbn      = {9783642221095},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  abstract  = {CVC4 is the latest version of the Cooperating Validity Checker. A joint project of NYU and U Iowa, CVC4 aims to support the useful feature set of CVC3 and SMT-LIBv2 while optimizing the design of the core system architecture and decision procedures to take advantage of recent engineering and algorithmic advances. CVC4 represents a completely new code base; it is a from-scratch rewrite of CVC3, and many subsystems have been completely redesigned. Additional decision procedures for CVC4 are currently under development, but for what it currently achieves, it is a lighter-weight and higher-performing tool than CVC3. We describe the system architecture, subsystems of note, and discuss some applications and continuing work.},
+  booktitle = {Proceedings of the 23rd International Conference on Computer Aided Verification},
+  pages     = {171–177},
+  numpages  = {7},
+  location  = {Snowbird, UT},
+  series    = {CAV'11}
+}
+
+
+@inproceedings{smt-backtracking,
+  title     = {DPLL( T): Fast Decision Procedures},
+  author    = {Harald Ganzinger and George Hagen and Robert Nieuwenhuis and Albert Oliveras and Cesare Tinelli},
+  booktitle = {CAV},
+  year      = {2004}
+}
+
+@inproceedings{fast-proof-checking,
+  author    = {Oe, Duckki and Reynolds, Andrew and Stump, Aaron},
+  title     = {Fast and Flexible Proof Checking for SMT},
+  year      = {2009},
+  isbn      = {9781605584843},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/1670412.1670414},
+  doi       = {10.1145/1670412.1670414},
+  abstract  = {Fast and flexible proof checking can be implemented for SMT using the Edinburgh Logical Framework with Side Conditions (LFSC). LFSC provides a declarative format for describing proof systems as signatures. We describe several optimizations for LFSC proof checking, and report experiments on QF_IDL benchmarks showing proof-checking overhead of 32% of the solving time required by our clsat solver.},
+  booktitle = {Proceedings of the 7th International Workshop on Satisfiability Modulo Theories},
+  pages     = {6–13},
+  numpages  = {8},
+  keywords  = {proof checking, LF with side conditions, Edinburgh LF, satisfiability modulo theories},
+  location  = {Montreal, Canada},
+  series    = {SMT '09}
+}
+
+@inproceedings{leo-proofs,
+  author    = {Leonardo de Moura and
+               Nikolaj Bj{\o}rner},
+  editor    = {Piotr Rudnicki and
+               Geoff Sutcliffe and
+               Boris Konev and
+               Renate A. Schmidt and
+               Stephan Schulz},
+  title     = {Proofs and Refutations, and {Z3}},
+  booktitle = {Proceedings of the {LPAR} 2008 Workshops, Knowledge Exchange: Automated
+               Provers and Proof Assistants, and the 7th International Workshop on
+               the Implementation of Logics, Doha, Qatar, November 22, 2008},
+  series    = {{CEUR} Workshop Proceedings},
+  volume    = {418},
+  publisher = {CEUR-WS.org},
+  year      = {2008},
+  url       = {http://ceur-ws.org/Vol-418/paper10.pdf},
+  timestamp = {Wed, 12 Feb 2020 16:44:58 +0100},
+  biburl    = {https://dblp.org/rec/conf/lpar/MouraB08.bib}
+}
+@online{yingyangwebsite,
+  author  = {Zhendong Su and Dominik Winterer and Chengyu Zhang and Jiwon Park},
+  title   = {Project Yin-Yang for SMT Solver Testing},
+  year    = 2022,
+  url     = {https://testsmt.github.io/},
+  urldate = {2022-1-14}
+}
+
+@article{coqhammer,
+  author  = {Czajka, \Lukasz and Kaliszyk, Cezary},
+  year    = {2018},
+  month   = {06},
+  pages   = {},
+  title   = {Hammer for Coq: Automation for Dependent Type Theory},
+  volume  = {61},
+  journal = {Journal of Automated Reasoning},
+  doi     = {10.1007/s10817-018-9458-4}
+}
+
+@inproceedings{isabelle-z3-proofs,
+  author    = {Sascha B{\"o}hme},
+  title     = {Proof Reconstruction for {Z3} in {Isabelle/HOL}},
+  booktitle = {7th International Workshop on
+               Satisfiability Modulo Theories (SMT '09)},
+  year      = 2009
+}
+
+@inproceedings{efficient-e-matching,
+  author    = {Moura, Leonardo and Bj\o{}rner, Nikolaj},
+  title     = {Efficient E-Matching for SMT Solvers},
+  year      = {2007},
+  isbn      = {9783540735946},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/978-3-540-73595-3_13},
+  doi       = {10.1007/978-3-540-73595-3\_13},
+  abstract  = {Satisfiability Modulo Theories (SMT) solvers have proven highly scalable, efficient and suitable for integrating theory reasoning. However, for numerous applications from program analysis and verification, the ground fragment is insufficient, as proof obligations often include quantifiers. A well known approach for quantifier reasoning uses a matching algorithm that works against an E-graph to instantiate quantified variables. This paper introduces algorithms that identify matches on E-graphs incrementally and efficiently. In particular, we introduce an index that works on E-graphs, called <em>E-matching code trees</em>that combine features of substitution and code trees, used in saturation based theorem provers. E-matching code trees allow performing matching against several patterns simultaneously. The code trees are combined with an additional index, called the <em>inverted path index</em>, which filters E-graph terms that may potentially match patterns when the E-graph is updated. Experimental results show substantial performance improvements over existing state-of-the-art SMT solvers.},
+  booktitle = {Proceedings of the 21st International Conference on Automated Deduction: Automated Deduction},
+  pages     = {183–198},
+  numpages  = {16},
+  location  = {Bremen, Germany},
+  series    = {CADE-21}
+}
+
+@article{relational-ematching,
+  author     = {Zhang, Yihong and Wang, Yisu Remy and Willsey, Max and Tatlock, Zachary},
+  title      = {Relational E-Matching},
+  year       = {2022},
+  issue_date = {January 2022},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {6},
+  number     = {POPL},
+  url        = {https://doi.org/10.1145/3498696},
+  doi        = {10.1145/3498696},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {jan},
+  articleno  = {35},
+  numpages   = {22},
+  keywords   = {E-matching, Relational Join Algorithms}
+}
+
+@article{gowda2022high,
+  title     = {High-performance symbolic-numerics via multiple dispatch},
+  author    = {Gowda, Shashi and Ma, Yingbo and Cheli, Alessandro and Gw{\'o}{\'z}zd{\'z}, Maja and Shah, Viral B and Edelman, Alan and Rackauckas, Christopher},
+  journal   = {ACM Communications in Computer Algebra},
+  volume    = {55},
+  number    = {3},
+  pages     = {92--96},
+  year      = {2022},
+  publisher = {ACM New York, NY, USA}
+}
+
+@inproceedings{singher2021theory,
+  title        = {Theory exploration powered by deductive synthesis},
+  author       = {Singher, Eytan and Itzhaky, Shachar},
+  booktitle    = {International Conference on Computer Aided Verification},
+  pages        = {125--148},
+  year         = {2021},
+  organization = {Springer}
+}
+
+@article{cheli2021metatheory,
+  title   = {Metatheory. jl: Fast and Elegant Algebraic Computation in Julia with Extensible Equality Saturation},
+  author  = {Cheli, Alessandro},
+  journal = {Journal of Open Source Software},
+  volume  = {6},
+  number  = {59},
+  pages   = {3078},
+  year    = {2021}
+}
+
+@article{wang2021vchain+,
+  title   = {vChain+: Optimizing Verifiable Blockchain Boolean Range Queries},
+  author  = {Wang, Haixin and Xu, Cheng and Zhang, Ce and Xu, Jianliang and Peng, Zhe and Pei, Jian},
+  journal = {Technical Report},
+  year    = {2021}
+}
+
+@article{huang2022specialized,
+  title   = {Specialized Accelerators and Compiler Flows: Replacing Accelerator APIs with a Formal Software/Hardware Interface},
+  author  = {Huang, Bo-Yuan and Lyubomirsky, Steven and Li, Yi and He, Mike and Tambe, Thierry and Smith, Gus Henry and Gaonkar, Akash and Canumalla, Vishal and Wei, Gu-Yeon and Gupta, Aarti and others},
+  journal = {arXiv preprint arXiv:2203.00218},
+  year    = {2022}
+}
+
+@inproceedings{kourta2022caviar,
+  title     = {Caviar: an e-graph based TRS for automatic code optimization},
+  author    = {Kourta, Smail and Namani, Adel Abderahmane and Benbouzid-Si Tayeb, Fatima and Hazelwood, Kim and Cummins, Chris and Leather, Hugh and Baghdadi, Riyadh},
+  booktitle = {Proceedings of the 31st ACM SIGPLAN International Conference on Compiler Construction},
+  pages     = {54--64},
+  year      = {2022}
+}
+
+@article{koehler2021sketch,
+  title   = {Sketch-Guided Equality Saturation: Scaling Equality Saturation to Complex Optimizations in Languages with Bindings},
+  author  = {Koehler, Thomas and Trinder, Phil and Steuwer, Michel},
+  journal = {arXiv preprint arXiv:2111.13040},
+  year    = {2021}
+}
+
+@article{coward2022abstract,
+  title   = {Abstract Interpretation on E-Graphs},
+  author  = {Coward, Samuel and Constantinides, George A and Drane, Theo},
+  journal = {arXiv preprint arXiv:2203.09191},
+  year    = {2022}
+}
+
+@article{wang2022optimizing,
+  title   = {Optimizing Recursive Queries with Program Synthesis},
+  author  = {Wang, Yisu Remy and Khamis, Mahmoud Abo and Ngo, Hung Q and Pichler, Reinhard and Suciu, Dan},
+  journal = {arXiv preprint arXiv:2202.10390},
+  year    = {2022}
+}
+
+@article{iravanian2022symbolic,
+  title   = {Symbolic-Numeric Integration of Univariate Expressions based on Sparse Regression},
+  author  = {Iravanian, Shahriar and Martensen, Carl Julius and Cheli, Alessandro and Gowda, Shashi and Jain, Anand and Ma, Yingbo and Rackauckas, Chris},
+  journal = {arXiv preprint arXiv:2201.12468},
+  year    = {2022}
+}
+
+@article{dong2022webrobot,
+  title   = {WebRobot: Web Robotic Process Automation using Interactive Programming-by-Demonstration},
+  author  = {Dong, Rui and Huang, Zhicheng and Lam, Ian Iong and Chen, Yan and Wang, Xinyu},
+  journal = {arXiv preprint arXiv:2203.09993},
+  year    = {2022}
+}
+
+@article{humphrey2022novel,
+  title   = {Novel Algorithms for Computing Correlation Functions of Nuclei},
+  author  = {Humphrey, Nabil and Detmold, William and Young, Ross D and Zanotti, James M},
+  journal = {arXiv preprint arXiv:2201.04269},
+  year    = {2022}
+}
+
+@phdthesis{kommrusch2021machine,
+  title  = {Machine Learning for Computer Aided Programming: From Stochastic Program Repair to Verifiable Program Equivalence},
+  author = {Kommrusch, Steve},
+  year   = {2021},
+  school = {Colorado State University}
+}
+
+@article{zhao2022co,
+  title     = {Co-Optimization of Design and Fabrication Plans for Carpentry},
+  author    = {Zhao, Haisen and Willsey, Max and Zhu, Amy and Nandi, Chandrakana and Tatlock, Zachary and Solomon, Justin and Schulz, Adriana},
+  journal   = {ACM Transactions on Graphics (TOG)},
+  volume    = {41},
+  number    = {3},
+  pages     = {1--13},
+  year      = {2022},
+  publisher = {ACM New York, NY}
+}
+
+@article{graefe1995cascades,
+  title   = {The cascades framework for query optimization},
+  author  = {Graefe, Goetz},
+  journal = {IEEE Data Eng. Bull.},
+  volume  = {18},
+  number  = {3},
+  pages   = {19--29},
+  year    = {1995}
+}
+
+@misc{ego,
+  title  = {ego: e-graphs in {OCaml}},
+  author = {Kiran Gopinathan},
+  url    = {https://gitlab.com/gopiandcode/ego}
+}
+
+@misc{smtlib,
+  author       = {Clark Barrett and Pascal Fontaine and Cesare Tinelli},
+  title        = {{The Satisfiability Modulo Theories Library (SMT-LIB)}},
+  howpublished = {\url{www.SMT-LIB.org}},
+  year         = 2016
+}
+
+@inproceedings{DBLP:conf/sigmod/TaftSMVLGNWBPBR20,
+  author    = {Rebecca Taft and
+               Irfan Sharif and
+               Andrei Matei and
+               Nathan VanBenschoten and
+               Jordan Lewis and
+               Tobias Grieger and
+               Kai Niemi and
+               Andy Woods and
+               Anne Birzin and
+               Raphael Poss and
+               Paul Bardea and
+               Amruta Ranade and
+               Ben Darnell and
+               Bram Gruneir and
+               Justin Jaffray and
+               Lucy Zhang and
+               Peter Mattis},
+  editor    = {David Maier and
+               Rachel Pottinger and
+               AnHai Doan and
+               Wang{-}Chiew Tan and
+               Abdussalam Alawini and
+               Hung Q. Ngo},
+  title     = {CockroachDB: The Resilient Geo-Distributed {SQL} Database},
+  booktitle = {Proceedings of the 2020 International Conference on Management of
+               Data, {SIGMOD} Conference 2020, online conference [Portland, OR, USA],
+               June 14-19, 2020},
+  pages     = {1493--1509},
+  publisher = {{ACM}},
+  year      = {2020},
+  url       = {https://doi.org/10.1145/3318464.3386134},
+  doi       = {10.1145/3318464.3386134},
+  timestamp = {Wed, 04 May 2022 13:02:28 +0200},
+  biburl    = {https://dblp.org/rec/conf/sigmod/TaftSMVLGNWBPBR20.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@article{DBLP:journals/pvldb/ChuMRCS18,
+  author    = {Shumo Chu and
+               Brendan Murphy and
+               Jared Roesch and
+               Alvin Cheung and
+               Dan Suciu},
+  title     = {Axiomatic Foundations and Algorithms for Deciding Semantic Equivalences
+               of {SQL} Queries},
+  journal   = {Proc. {VLDB} Endow.},
+  volume    = {11},
+  number    = {11},
+  pages     = {1482--1495},
+  year      = {2018},
+  url       = {http://www.vldb.org/pvldb/vol11/p1482-chu.pdf},
+  doi       = {10.14778/3236187.3236200},
+  timestamp = {Sat, 25 Apr 2020 13:59:29 +0200},
+  biburl    = {https://dblp.org/rec/journals/pvldb/ChuMRCS18.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+
+
+
+@inproceedings{oeuf-cakeml,
+  author    = {Ramana Kumar and
+               Eric Mullen and
+               Zachary Tatlock and
+               Magnus O. Myreen},
+  title     = {Software Verification with ITPs Should Use Binary Code Extraction to Reduce the TCB},
+  booktitle = {Interactive Theorem Proving - 9th International Conference, {ITP} 2018},
+  year      = {2018}
+}
+
+@inproceedings{tatlock-daisy-herbie,
+  author    = {Heiko Becker and
+               Pavel Panchekha and
+               Eva Darulova and
+               Zachary Tatlock},
+  title     = {Combining Tools for Optimization and Analysis of Floating-Point Computations},
+  booktitle = {{FM} 2018: Formal Methods, 25th International Symposium on Formal Methods},
+  year      = {2018}
+}
+
+
+@article{tatlock-disel,
+  author    = {Ilya Sergey and
+               James R. Wilcox and
+               Zachary Tatlock},
+  title     = {Programming and proving with distributed protocols},
+  journal   = {{PACMPL}},
+  volume    = {2},
+  number    = {{POPL}},
+  pages     = {28:1--28:30},
+  year      = {2018},
+  url       = {http://doi.acm.org/10.1145/3158116},
+  doi       = {10.1145/3158116},
+  timestamp = {Fri, 05 Jan 2018 00:00:00 +0100},
+  biburl    = {https://dblp.org/rec/bib/journals/pacmpl/SergeyWT18},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-oeuf,
+  author    = {Eric Mullen and
+               Stuart Pernsteiner and
+               James R. Wilcox and
+               Zachary Tatlock and
+               Dan Grossman},
+  title     = {{\OE}uf: minimizing the Coq extraction {TCB}},
+  booktitle = {Proceedings of the 7th {ACM} {SIGPLAN} International Conference on
+               Certified Programs and Proofs, {CPP} 2018, Los Angeles, CA, USA, January
+               8-9, 2018},
+  pages     = {172--185},
+  year      = {2018},
+  url       = {http://doi.acm.org/10.1145/3167089},
+  doi       = {10.1145/3167089},
+  timestamp = {Sat, 30 Dec 2017 17:33:25 +0100},
+  biburl    = {https://dblp.org/rec/bib/conf/cpp/MullenPWTG18},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-herbgrind,
+  author    = {Alex Sanchez{-}Stern and
+               Pavel Panchekha and
+               Sorin Lerner and
+               Zachary Tatlock},
+  title     = {Finding root causes of floating point error},
+  booktitle = {Proceedings of the 39th {ACM} {SIGPLAN} Conference on Programming
+               Language Design and Implementation, {PLDI} 2018, Philadelphia, PA,
+               USA, June 18-22, 2018},
+  pages     = {256--269},
+  year      = {2018},
+  url       = {http://doi.acm.org/10.1145/3192366.3192411},
+  doi       = {10.1145/3192366.3192411},
+  timestamp = {Wed, 13 Jun 2018 08:38:27 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/Sanchez-SternPL18},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+
+@inproceedings{tatlock-neutrons,
+  author    = {Stuart Pernsteiner and
+               Calvin Loncaric and
+               Emina Torlak and
+               Zachary Tatlock and
+               Xi Wang and
+               Michael D. Ernst and
+               Jonathan Jacky},
+  title     = {Investigating Safety of a Radiotherapy Machine Using System Models
+               with Pluggable Checkers},
+  booktitle = {Computer Aided Verification - 28th International Conference, {CAV}
+               2016, Toronto, ON, Canada, July 17-23, 2016, Proceedings, Part {II}},
+  pages     = {23--41},
+  year      = {2016},
+  url       = {https://doi.org/10.1007/978-3-319-41540-6_2},
+  doi       = {10.1007/978-3-319-41540-6_2},
+  timestamp = {Thu, 25 May 2017 01:00:00 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/cav/PernsteinerLTTW16},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-fpbench,
+  author    = {Nasrine Damouche and
+               Matthieu Martel and
+               Pavel Panchekha and
+               Chen Qiu and
+               Alexander Sanchez{-}Stern and
+               Zachary Tatlock},
+  title     = {Toward a Standard Benchmark Format and Suite for Floating-Point Analysis},
+  booktitle = {Numerical Software Verification - 9th International Workshop, {NSV}
+               2016, Toronto, ON, Canada, July 17-18, 2016, [collocated with {CAV}
+               2016], Revised Selected Papers},
+  pages     = {63--77},
+  year      = {2016},
+  url       = {https://doi.org/10.1007/978-3-319-54292-8_6},
+  doi       = {10.1007/978-3-319-54292-8_6},
+  timestamp = {Thu, 25 May 2017 01:00:00 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/cav/DamoucheMPQST16},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-verdi-raft,
+  author    = {Doug Woos and
+               James R. Wilcox and
+               Steve Anton and
+               Zachary Tatlock and
+               Michael D. Ernst and
+               Thomas E. Anderson},
+  title     = {Planning for change in a formal verification of the raft consensus
+               protocol},
+  booktitle = {Proceedings of the 5th {ACM} {SIGPLAN} Conference on Certified Programs
+               and Proofs, Saint Petersburg, FL, USA, January 20-22, 2016},
+  pages     = {154--165},
+  year      = {2016},
+  url       = {http://doi.acm.org/10.1145/2854065.2854081},
+  doi       = {10.1145/2854065.2854081},
+  timestamp = {Mon, 18 Jan 2016 19:35:36 +0100},
+  biburl    = {https://dblp.org/rec/bib/conf/cpp/WoosWATEA16},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{bagpipe-netpl,
+  author    = {Konstantin Weitz and
+               Doug Woos and
+               Emina Torlak and
+               Michael D. Ernst and
+               Arvind Krishnamurthy and
+               Zachary Tatlock},
+  title     = {Formal semantics and automated verification for the border gateway protocol},
+  booktitle = {NetPL 2016, Networks and Programming Languages},
+  year      = {2016}
+}
+
+
+@inproceedings{tatlock-bagpipe,
+  author    = {Konstantin Weitz and
+               Doug Woos and
+               Emina Torlak and
+               Michael D. Ernst and
+               Arvind Krishnamurthy and
+               Zachary Tatlock},
+  title     = {Scalable verification of border gateway protocol configurations with
+               an {SMT} solver},
+  booktitle = {Proceedings of the 2016 {ACM} {SIGPLAN} International Conference on
+               Object-Oriented Programming, Systems, Languages, and Applications,
+               {OOPSLA} 2016, part of {SPLASH} 2016, Amsterdam, The Netherlands,
+               October 30 - November 4, 2016},
+  pages     = {765--780},
+  year      = {2016},
+  url       = {http://doi.acm.org/10.1145/2983990.2984012},
+  doi       = {10.1145/2983990.2984012},
+  timestamp = {Tue, 25 Oct 2016 15:06:14 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/oopsla/WeitzWTEKT16},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-peek,
+  author    = {Eric Mullen and
+               Daryl Zuniga and
+               Zachary Tatlock and
+               Dan Grossman},
+  title     = {Verified peephole optimizations for CompCert},
+  booktitle = {Proceedings of the 37th {ACM} {SIGPLAN} Conference on Programming
+               Language Design and Implementation, {PLDI} 2016, Santa Barbara, CA,
+               USA, June 13-17, 2016},
+  pages     = {448--461},
+  year      = {2016},
+  url       = {http://doi.acm.org/10.1145/2908080.2908109},
+  doi       = {10.1145/2908080.2908109},
+  timestamp = {Mon, 06 Jun 2016 12:07:41 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/MullenZTG16},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+
+@inproceedings{tatlock-verdi,
+  author    = {James R. Wilcox and
+               Doug Woos and
+               Pavel Panchekha and
+               Zachary Tatlock and
+               Xi Wang and
+               Michael D. Ernst and
+               Thomas E. Anderson},
+  title     = {Verdi: a framework for implementing and formally verifying distributed
+               systems},
+  booktitle = {Proceedings of the 36th {ACM} {SIGPLAN} Conference on Programming
+               Language Design and Implementation, Portland, OR, USA, June 15-17,
+               2015},
+  pages     = {357--368},
+  year      = {2015},
+  url       = {http://doi.acm.org/10.1145/2737924.2737958},
+  doi       = {10.1145/2737924.2737958},
+  timestamp = {Mon, 08 Jun 2015 01:00:00 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/WilcoxWPTWEA15},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-neutrons-snapl,
+  author    = {Michael D. Ernst and
+               Dan Grossman and
+               Jon Jacky and
+               Calvin Loncaric and
+               Stuart Pernsteiner and
+               Zachary Tatlock and
+               Emina Torlak and
+               Xi Wang},
+  title     = {Toward a Dependability Case Language and Workflow for a Radiation
+               Therapy System},
+  booktitle = {1st Summit on Advances in Programming Languages, {SNAPL} 2015, May
+               3-6, 2015, Asilomar, California, {USA}},
+  pages     = {103--112},
+  year      = {2015},
+  url       = {https://doi.org/10.4230/LIPIcs.SNAPL.2015.103},
+  doi       = {10.4230/LIPIcs.SNAPL.2015.103},
+  timestamp = {Tue, 23 May 2017 01:00:00 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/snapl/ErnstGJLPTTW15},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-safe-dispatch,
+  author    = {Dongseok Jang and
+               Zachary Tatlock and
+               Sorin Lerner},
+  title     = {SafeDispatch: Securing {C++} Virtual Calls from Memory Corruption
+               Attacks},
+  booktitle = {21st Annual Network and Distributed System Security Symposium, {NDSS}
+               2014, San Diego, California, USA, February 23-26, 2014},
+  year      = {2014},
+  url       = {https://www.ndss-symposium.org/ndss2014/safedispatch-securing-c-virtual-calls-memory-corruption-attacks},
+  timestamp = {Tue, 16 Jan 2018 13:23:48 +0100},
+  biburl    = {https://dblp.org/rec/bib/conf/ndss/JangTL14},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-jitk,
+  author    = {Xi Wang and
+               David Lazar and
+               Nickolai Zeldovich and
+               Adam Chlipala and
+               Zachary Tatlock},
+  title     = {Jitk: {A} Trustworthy In-Kernel Interpreter Infrastructure},
+  booktitle = {11th {USENIX} Symposium on Operating Systems Design and Implementation,
+               {OSDI} '14, Broomfield, CO, USA, October 6-8, 2014.},
+  pages     = {33--47},
+  year      = {2014},
+  url       = {https://www.usenix.org/conference/osdi14/technical-sessions/presentation/wang_xi},
+  timestamp = {Tue, 18 Nov 2014 17:19:16 +0100},
+  biburl    = {https://dblp.org/rec/bib/conf/osdi/WangLZCT14},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-reflex,
+  author    = {Daniel Ricketts and
+               Valentin Robert and
+               Dongseok Jang and
+               Zachary Tatlock and
+               Sorin Lerner},
+  title     = {Automating formal proofs for reactive systems},
+  booktitle = {{ACM} {SIGPLAN} Conference on Programming Language Design and Implementation,
+               {PLDI} '14, Edinburgh, United Kingdom - June 09 - 11, 2014},
+  pages     = {452--462},
+  year      = {2014},
+  url       = {http://doi.acm.org/10.1145/2594291.2594338},
+  doi       = {10.1145/2594291.2594338},
+  timestamp = {Thu, 15 Jun 2017 01:00:00 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/RickettsRJTL14},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-quark,
+  author    = {Dongseok Jang and
+               Zachary Tatlock and
+               Sorin Lerner},
+  title     = {Establishing Browser Security Guarantees through Formal Shim Verification},
+  booktitle = {Proceedings of the 21th {USENIX} Security Symposium, Bellevue, WA,
+               USA, August 8-10, 2012},
+  pages     = {113--128},
+  year      = {2012},
+  url       = {https://www.usenix.org/conference/usenixsecurity12/technical-sessions/presentation/jang},
+  timestamp = {Fri, 19 Aug 2016 15:38:03 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/uss/JangTL12},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+
+@inproceedings{tatlock-xcert,
+  author    = {Zachary Tatlock and
+               Sorin Lerner},
+  title     = {Bringing extensibility to verified compilers},
+  booktitle = {Proceedings of the 2010 {ACM} {SIGPLAN} Conference on Programming
+               Language Design and Implementation, {PLDI} 2010, Toronto, Ontario,
+               Canada, June 5-10, 2010},
+  pages     = {111--121},
+  year      = {2010},
+  url       = {http://doi.acm.org/10.1145/1806596.1806611},
+  doi       = {10.1145/1806596.1806611},
+  timestamp = {Mon, 07 Jun 2010 09:26:41 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/TatlockL10},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{tatlock-pec,
+  author    = {Sudipta Kundu and
+               Zachary Tatlock and
+               Sorin Lerner},
+  title     = {Proving optimizations correct using parameterized program equivalence},
+  booktitle = {Proceedings of the 2009 {ACM} {SIGPLAN} Conference on Programming
+               Language Design and Implementation, {PLDI} 2009, Dublin, Ireland,
+               June 15-21, 2009},
+  pages     = {327--337},
+  year      = {2009},
+  url       = {http://doi.acm.org/10.1145/1542476.1542513},
+  doi       = {10.1145/1542476.1542513},
+  timestamp = {Thu, 18 Jun 2009 21:03:05 +0200},
+  biburl    = {https://dblp.org/rec/bib/conf/pldi/KunduTL09},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+
+@article{solar2013program,
+  title     = {Program sketching},
+  author    = {Solar-Lezama, Armando},
+  journal   = {International Journal on Software Tools for Technology Transfer},
+  volume    = {15},
+  number    = {5},
+  pages     = {475--495},
+  year      = {2013},
+  publisher = {Springer}
+}
+
+@article{coward2022automatic,
+  title   = {Automatic Datapath Optimization using E-Graphs},
+  author  = {Coward, Samuel and Constantinides, George A and Drane, Theo},
+  journal = {arXiv preprint arXiv:2204.11478},
+  year    = {2022}
+}
+
+@misc{cranelift-rfc,
+  title        = {Cranelift: Using E-Graphs for Verified, Cooperating Middle-End Optimizations},
+  author       = {Chris Fallin},
+  year         = {2022},
+  howpublished = {\url{https://github.com/bytecodealliance/rfcs/pull/27}}
+}
+
+@misc{hegg,
+  title        = {hegg: Fast equality saturation in Haskell},
+  author       = {Rodrigo Mesquita},
+  howpublished = {\url{https://github.com/alt-romes/hegg}}
+}
+
+@misc{quiche,
+  title        = {Quiche: a python implementation of egraphs},
+  author       = {Rebecca Swords},
+  howpublished = {\url{https://github.com/riswords/quiche}}
+}
+
+@article{halide,
+  author     = {Ragan-Kelley, Jonathan and Adams, Andrew and Sharlet, Dillon and Barnes, Connelly and Paris, Sylvain and Levoy, Marc and Amarasinghe, Saman and Durand, Fr\'{e}do},
+  title      = {Halide: Decoupling Algorithms from Schedules for High-Performance Image Processing},
+  year       = {2017},
+  issue_date = {January 2018},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {61},
+  number     = {1},
+  issn       = {0001-0782},
+  url        = {https://doi.org/10.1145/3150211},
+  doi        = {10.1145/3150211},
+  abstract   = {Writing high-performance code on modern machines requires not just locally optimizing inner loops, but globally reorganizing computations to exploit parallelism and locality---doing things such as tiling and blocking whole pipelines to fit in cache. This is especially true for image processing pipelines, where individual stages do much too little work to amortize the cost of loading and storing results to and from off-chip memory. As a result, the performance difference between a naive implementation of a pipeline and one globally optimized for parallelism and locality is often an order of magnitude. However, using existing programming tools, writing high-performance image processing code requires sacrificing simplicity, portability, and modularity. We argue that this is because traditional programming models conflate the computations defining the algorithm with decisions about intermediate storage and the order of computation, which we call the schedule.We propose a new programming language for image processing pipelines, called Halide, that separates the algorithm from its schedule. Programmers can change the schedule to express many possible organizations of a single algorithm. The Halide compiler then synthesizes a globally combined loop nest for an entire algorithm, given a schedule. Halide models a space of schedules which is expressive enough to describe organizations that match or outperform state-of-the-art hand-written implementations of many computational photography and computer vision algorithms. Its model is simple enough to do so often in only a few lines of code, and small changes generate efficient implementations for x86, ARM, Graphics Processors (GPUs), and specialized image processors, all from a single algorithm.Halide has been public and open source for over four years, during which it has been used by hundreds of programmers to deploy code to tens of thousands of servers and hundreds of millions of phones, processing billions of images every day.},
+  journal    = {Commun. ACM},
+  month      = {dec},
+  pages      = {106–115},
+  numpages   = {10}
+}
+
+@inproceedings{datalog-program-analysis,
+  author    = {Smaragdakis, Yannis and Bravenboer, Martin},
+  title     = {Using Datalog for Fast and Easy Program Analysis},
+  year      = {2010},
+  isbn      = {9783642242052},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/978-3-642-24206-9_14},
+  doi       = {10.1007/978-3-642-24206-9_14},
+  abstract  = {Our recent work introduced the Doop framework for points-to analysis of Java programs. Although Datalog has been used for points-to analyses before, Doop is the first implementation to express full end-to-end context-sensitive analyses in Datalog. This includes key elements such as call-graph construction as well as the logic dealing with various semantic complexities of the Java language (native methods, reflection, threading, etc.).The findings from the Doop research effort have been surprising. We set out to create a framework that would be highly complete and elegant without sacrificing performance "too much". By the time Doop reached maturity, it was a full order-of-magnitude faster than Lhot$#225;k and Hendren's Paddle--the state-of-the-art framework for context-sensitive points-to analyses. For the exact same logical points-to definitions (and, consequently, identical precision) Doop is more than 15x faster than Paddle for a 1-call-site sensitive analysis, with lower but still substantial speedups for other important analyses. Additionally, Doop scales to very precise analyses that are impossible with prior frameworks, directly addressing open problems in past literature. Finally, our implementation is modular and can be easily configured to analyses with a wide range of characteristics, largely due to its declarativeness.Although this performance difference is largely attributable to architectural choices (e.g., the use of an explicit representation vs. BDDs), we believe that our ability to efficiently optimize our implementation was largely due to the declarative specifications of analyses. Working at the Datalog level eliminated much of the artificial complexity of a points-to analysis implementation, allowing us to concentrate on indexing optimizations and on the algorithmic essence of each analysis.},
+  booktitle = {Proceedings of the First International Conference on Datalog Reloaded},
+  pages     = {245–251},
+  numpages  = {7},
+  location  = {Oxford, UK},
+  series    = {Datalog'10}
+}
+
+@article{inca,
+  author     = {Szab\'{o}, Tam\'{a}s and Bergmann, G\'{a}bor and Erdweg, Sebastian and Voelter, Markus},
+  title      = {Incrementalizing Lattice-Based Program Analyses in Datalog},
+  year       = {2018},
+  issue_date = {November 2018},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {2},
+  number     = {OOPSLA},
+  url        = {https://doi.org/10.1145/3276509},
+  doi        = {10.1145/3276509},
+  abstract   = {Program analyses detect errors in code, but when code changes frequently as in an IDE, repeated re-analysis from-scratch is unnecessary: It leads to poor performance unless we give up on precision and recall. Incremental program analysis promises to deliver fast feedback without giving up on precision or recall by deriving a new analysis result from the previous one. However, Datalog and other existing frameworks for incremental program analysis are limited in expressive power: They only support the powerset lattice as representation of analysis results, whereas many practically relevant analyses require custom lattices and aggregation over lattice values. To this end, we present a novel algorithm called DRedL that supports incremental maintenance of recursive lattice-value aggregation in Datalog. The key insight of DRedL is to dynamically recognize increasing replacements of old lattice values by new ones, which allows us to avoid the expensive deletion of the old value. We integrate DRedL into the analysis framework IncA and use IncA to realize incremental implementations of strong-update points-to analysis and string analysis for Java. As our performance evaluation demonstrates, both analyses react to code changes within milliseconds.},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {oct},
+  articleno  = {139},
+  numpages   = {29},
+  keywords   = {Incremental Computing, Static Analysis, Domain-Specific Language, Language Workbench, Lattice, Datalog}
+}
+
+@article{flix,
+  author     = {Madsen, Magnus and Yee, Ming-Ho and Lhot\'{a}k, Ond\v{r}ej},
+  title      = {From Datalog to Flix: A Declarative Language for Fixed Points on Lattices},
+  year       = {2016},
+  issue_date = {June 2016},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {51},
+  number     = {6},
+  issn       = {0362-1340},
+  url        = {https://doi.org/10.1145/2980983.2908096},
+  doi        = {10.1145/2980983.2908096},
+  abstract   = {We present Flix, a declarative programming language for specifying and solving least fixed point problems, particularly static program analyses. Flix is inspired by Datalog and extends it with lattices and monotone functions. Using Flix, implementors of static analyses can express a broader range of analyses than is currently possible in pure Datalog, while retaining its familiar rule-based syntax. We define a model-theoretic semantics of Flix as a natural extension of the Datalog semantics. This semantics captures the declarative meaning of Flix programs without imposing any specific evaluation strategy. An efficient strategy is semi-naive evaluation which we adapt for Flix. We have implemented a compiler and runtime for Flix, and used it to express several well-known static analyses, including the IFDS and IDE algorithms. The declarative nature of Flix clearly exposes the similarity between these two algorithms.},
+  journal    = {SIGPLAN Not.},
+  month      = {jun},
+  pages      = {194–208},
+  numpages   = {15},
+  keywords   = {Datalog, logic programming, static analysis}
+}
+
+@article{tarjan-congruence,
+  title     = {Variations on the Common Subexpression Problem},
+  abstract  = {Let G be a directed graph such that for each vertex v in G, the successors of v are ordered Let C be any equivalence relation on the vertices of G. The congruence closure C* of C is the finest equivalence relation containing C and such that any two vertices having corresponding successors equivalent under C* are themselves equivalent under C* Efficient algorithms are described for computing congruence closures in the general case and in the following two special cases. 0) G under C* is acyclic, and (it) G is acychc and C identifies a single pair of vertices. The use of these algorithms to test expression eqmvalence (a problem central to program verification) and to test losslessness of joins in relational databases is described.},
+  keywords  = {common subexpresslon, congruence closure, decision procedure, expression equivalence, graph algorithm, lossless join, relational database, theory of equality, unification, uniform word problem},
+  author    = {Downey, {Peter J.} and Ravi Sethi and Tarjan, {Robert Endre}},
+  year      = {1980},
+  month     = oct,
+  day       = {1},
+  doi       = {10.1145/322217.322228},
+  language  = {English (US)},
+  volume    = {27},
+  pages     = {758--771},
+  journal   = {Journal of the ACM},
+  issn      = {0004-5411},
+  publisher = {Association for Computing Machinery (ACM)},
+  number    = {4}
+}
+
+@article{seminaive,
+  author     = {Isaac Balbin and Kotagiri Ramamohanarao},
+  title      = {A Generalization of the Differential Approach to Recursive Query Evaluation},
+  year       = {1987},
+  issue_date = {Sept. 1987},
+  publisher  = {Elsevier Science Inc.},
+  address    = {USA},
+  volume     = {4},
+  number     = {3},
+  issn       = {0743-1066},
+  url        = {https://doi.org/10.1016/0743-1066(87)90004-5},
+  doi        = {10.1016/0743-1066(87)90004-5},
+  journal    = {J. Log. Program.},
+  month      = {sep},
+  pages      = {259–262},
+  numpages   = {4}
+}
+
+@inproceedings{prov-semiring,
+  author    = {Green, Todd J. and Karvounarakis, Grigoris and Tannen, Val},
+  title     = {Provenance Semirings},
+  year      = {2007},
+  isbn      = {9781595936851},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/1265530.1265535},
+  doi       = {10.1145/1265530.1265535},
+  abstract  = {We show that relational algebra calculations for incomplete databases, probabilistic databases, bag semantics and why-provenance are particular cases of the same general algorithms involving semirings. This further suggests a comprehensive provenance representation that uses semirings of polynomials. We extend these considerations to datalog and semirings of formal power series. We give algorithms for datalog provenance calculation as well as datalog evaluation for incomplete and probabilistic databases. Finally, we show that for some semirings containment of conjunctive queries is the same as for standard set semantics.},
+  booktitle = {Proceedings of the Twenty-Sixth ACM SIGMOD-SIGACT-SIGART Symposium on Principles of Database Systems},
+  pages     = {31–40},
+  numpages  = {10},
+  keywords  = {data provenance, data lineage, incomplete databases, formal power series, datalog, semirings, probabilistic databases},
+  location  = {Beijing, China},
+  series    = {PODS '07}
+}
+
+@article{prov-souffle,
+  author     = {Zhao, David and Suboti\'{c}, Pavle and Scholz, Bernhard},
+  title      = {Debugging Large-Scale Datalog: A Scalable Provenance Evaluation Strategy},
+  year       = {2020},
+  issue_date = {June 2020},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {42},
+  number     = {2},
+  issn       = {0164-0925},
+  url        = {https://doi.org/10.1145/3379446},
+  doi        = {10.1145/3379446},
+  abstract   = {Logic programming languages such as Datalog have become popular as Domain Specific Languages (DSLs) for solving large-scale, real-world problems, in particular, static program analysis and network analysis. The logic specifications that model analysis problems process millions of tuples of data and contain hundreds of highly recursive rules. As a result, they are notoriously difficult to debug. While the database community has proposed several data provenance techniques that address the Declarative Debugging Challenge for Databases, in the cases of analysis problems, these state-of-the-art techniques do not scale.In this article, we introduce a novel bottom-up Datalog evaluation strategy for debugging: Our provenance evaluation strategy relies on a new provenance lattice that includes proof annotations and a new fixed-point semantics for semi-na\"{\i}ve evaluation. A debugging query mechanism allows arbitrary provenance queries, constructing partial proof trees of tuples with minimal height. We integrate our technique into Souffl\'{e}, a Datalog engine that synthesizes C++ code, and achieve high performance by using specialized parallel data structures. Experiments are conducted with DOOP/DaCapo, producing proof annotations for tens of millions of output tuples. We show that our method has a runtime overhead of 1.31\texttimes{} on average while being more flexible than existing state-of-the-art techniques.},
+  journal    = {ACM Trans. Program. Lang. Syst.},
+  month      = {apr},
+  articleno  = {7},
+  numpages   = {35},
+  keywords   = {Static analysis, provenance, datalog}
+}
+
+
+@article{vsa,
+  author  = {Wolfman, Steven and Domingos, Pedro and Weld, Daniel},
+  year    = {2001},
+  month   = {12},
+  pages   = {},
+  title   = {Programming By Demonstration Using Version Space Algebra},
+  volume  = {53},
+  journal = {Machine Learning},
+  doi     = {10.1023/A:1025671410623}
+}
+
+@article{flashmeta,
+  author     = {Polozov, Oleksandr and Gulwani, Sumit},
+  title      = {FlashMeta: A Framework for Inductive Program Synthesis},
+  year       = {2015},
+  issue_date = {October 2015},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {50},
+  number     = {10},
+  issn       = {0362-1340},
+  url        = {https://doi.org/10.1145/2858965.2814310},
+  doi        = {10.1145/2858965.2814310},
+  abstract   = {Inductive synthesis, or programming-by-examples (PBE) is gaining prominence with disruptive applications for automating repetitive tasks in end-user programming. However, designing, developing, and maintaining an effective industrial-quality inductive synthesizer is an intellectual and engineering challenge, requiring 1-2 man-years of effort. Our novel observation is that many PBE algorithms are a natural fall-out of one generic meta-algorithm and the domain-specific properties of the operators in the underlying domain-specific language (DSL). The meta-algorithm propagates example-based constraints on an expression to its subexpressions by leveraging associated witness functions, which essentially capture the inverse semantics of the underlying operator. This observation enables a novel program synthesis methodology called data-driven domain-specific deduction (D4), where domain-specific insight, provided by the DSL designer, is separated from the synthesis algorithm. Our FlashMeta framework implements this methodology, allowing synthesizer developers to generate an efficient synthesizer from the mere DSL definition (if properties of the DSL operators have been modeled). In our case studies, we found that 10+ existing industrial-quality mass-market applications based on PBE can be cast as instances of D4. Our evaluation includes reimplementation of some prior works, which in FlashMeta become more efficient, maintainable, and extensible. As a result, FlashMeta-based PBE tools are deployed in several industrial products, including Microsoft PowerShell 3.0 for Windows 10, Azure Operational Management Suite, and Microsoft Cortana digital assistant.},
+  journal    = {SIGPLAN Not.},
+  month      = {oct},
+  pages      = {107–126},
+  numpages   = {20},
+  keywords   = {Inductive program synthesis, programming by examples, search-based synthesis, domain-specific languages, frameworks, deductive inference}
+}
+
+@article{blaze,
+  author     = {Wang, Xinyu and Dillig, Isil and Singh, Rishabh},
+  title      = {Program Synthesis Using Abstraction Refinement},
+  year       = {2017},
+  issue_date = {January 2018},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {2},
+  number     = {POPL},
+  url        = {https://doi.org/10.1145/3158151},
+  doi        = {10.1145/3158151},
+  abstract   = {We present a new approach to example-guided program synthesis based on counterexample-guided abstraction refinement. Our method uses the abstract semantics of the underlying DSL to find a program P whose abstract behavior satisfies the examples. However, since program P may be spurious with respect to the concrete semantics, our approach iteratively refines the abstraction until we either find a program that satisfies the examples or prove that no such DSL program exists. Because many programs have the same input-output behavior in terms of their abstract semantics, this synthesis methodology significantly reduces the search space compared to existing techniques that use purely concrete semantics. While synthesis using abstraction refinement (SYNGAR) could be implemented in different settings, we propose a refinement-based synthesis algorithm that uses abstract finite tree automata (AFTA). Our technique uses a coarse initial program abstraction to construct an initial AFTA, which is iteratively refined by constructing a proof of incorrectness of any spurious program. In addition to ruling out the spurious program accepted by the previous AFTA, proofs of incorrectness are also useful for ruling out many other spurious programs. We implement these ideas in a framework called Blaze, which can be instantiated in different domains by providing a suitable DSL and its corresponding concrete and abstract semantics. We have used the Blaze framework to build synthesizers for string and matrix transformations, and we compare Blaze with existing techniques. Our results for the string domain show that Blaze compares favorably with FlashFill, a domain-specific synthesizer that is now deployed in Microsoft PowerShell. In the context of matrix manipulations, we compare Blaze against Prose, a state-of-the-art general-purpose VSA-based synthesizer, and show that Blaze results in a 90x speed-up over Prose. In both application domains, Blaze also consistently improves upon the performance of two other existing techniques by at least an order of magnitude.},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {dec},
+  articleno  = {63},
+  numpages   = {30},
+  keywords   = {Abstract Interpretation, Program Synthesis, Counterexample Guided Abstraction Refinement, Tree Automata}
+}
+
+@article{dace,
+  author     = {Wang, Xinyu and Dillig, Isil and Singh, Rishabh},
+  title      = {Synthesis of Data Completion Scripts Using Finite Tree Automata},
+  year       = {2017},
+  issue_date = {October 2017},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {1},
+  number     = {OOPSLA},
+  url        = {https://doi.org/10.1145/3133886},
+  doi        = {10.1145/3133886},
+  abstract   = {In application domains that store data in a tabular format, a common task is to fill the values of some cells using values stored in other cells. For instance, such data completion tasks arise in the context of missing value imputation in data science and derived data computation in spreadsheets and relational databases. Unfortunately, end-users and data scientists typically struggle with many data completion tasks that require non-trivial programming expertise. This paper presents a synthesis technique for automating data completion tasks using programming-by-example (PBE) and a very lightweight sketching approach. Given a formula sketch (e.g., AVG(?1, ?2)) and a few input-output examples for each hole, our technique synthesizes a program to automate the desired data completion task. Towards this goal, we propose a domain-specific language (DSL) that combines spatial and relational reasoning over tabular data and a novel synthesis algorithm that can generate DSL programs that are consistent with the input-output examples. The key technical novelty of our approach is a new version space learning algorithm that is based on finite tree automata (FTA). The use of FTAs in the learning algorithm leads to a more compact representation that allows more sharing between programs that are consistent with the examples. We have implemented the proposed approach in a tool called DACE and evaluate it on 84 benchmarks taken from online help forums. We also illustrate the advantages of our approach by comparing our technique against two existing synthesizers, namely Prose and Sketch.},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = {oct},
+  articleno  = {62},
+  numpages   = {26},
+  keywords   = {Program synthesis, Programming-by-example, Finite tree automata, Data imputation}
+}
+
+@inproceedings{chase-revisited,
+  author    = {Deutsch, Alin and Nash, Alan and Remmel, Jeff},
+  title     = {The Chase Revisited},
+  year      = {2008},
+  isbn      = {9781605581521},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/1376916.1376938},
+  doi       = {10.1145/1376916.1376938},
+  abstract  = {We revisit the standard chase procedure, studying its properties and applicability to classical database problems. We settle (in the negative) the open problem of decidability of termination of the standard chase, and we provide sufficient termination conditions which are strictly less over-conservative than the best previously known. We investigate the adequacy of the standard chase for checking query containment under constraints, constraint implication and computing certain answers in data exchange, gaining a deeper understanding by separating the algorithm from its result. We identify the properties of the chase result that are essential to the above applications, and we introduce the more general notion of F-universal model set, which supports query and constraint languages that are closed under a class F of mappings. By choosing F appropriately, we extend prior results to existential first-order queries and ∀∃-firstorder constraints. We show that the standard chase is incomplete for finding universal model sets, and we introduce the extended core chase which is complete, i.e. finds an F-universal model set when it exists. A key advantage of the new chase is that the same algorithm can be applied for all mapping classes F of interest, simply by modifying the set of constraints given as input. Even when restricted to the typical input in prior work, the new chase supports certain answer computation and containment/implication tests in strictly more cases than the incomplete standard chase.},
+  booktitle = {Proceedings of the Twenty-Seventh ACM SIGMOD-SIGACT-SIGART Symposium on Principles of Database Systems},
+  pages     = {149–158},
+  numpages  = {10},
+  keywords  = {chase},
+  location  = {Vancouver, Canada},
+  series    = {PODS '08}
+}
+
+@inproceedings{bench-chase,
+  author    = {Benedikt, Michael and Konstantinidis, George and Mecca, Giansalvatore and Motik, Boris and Papotti, Paolo and Santoro, Donatello and Tsamoura, Efthymia},
+  title     = {Benchmarking the Chase},
+  year      = {2017},
+  isbn      = {9781450341981},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3034786.3034796},
+  doi       = {10.1145/3034786.3034796},
+  abstract  = {The chase is a family of algorithms used in a number of data management tasks, such as data exchange, answering queries under dependencies, query reformulation with constraints, and data cleaning. It is well established as a theoretical tool for understanding these tasks, and in addition a number of prototype systems have been developed. While individual chase-based systems and particular optimizations of the chase have been experimentally evaluated in the past, we provide the first comprehensive and publicly available benchmark---test infrastructure and a set of test scenarios---for evaluating chase implementations across a wide range of assumptions about the dependencies and the data. We used our benchmark to compare chase-based systems on data exchange and query answering tasks with one another, as well as with systems that can solve similar tasks developed in closely related communities. Our evaluation provided us with a number of new insights concerning the factors that impact the performance of chase implementations.},
+  booktitle = {Proceedings of the 36th ACM SIGMOD-SIGACT-SIGAI Symposium on Principles of Database Systems},
+  pages     = {37–52},
+  numpages  = {16},
+  keywords  = {chase},
+  location  = {Chicago, Illinois, USA},
+  series    = {PODS '17}
+}
+
+@inproceedings{mono-agg,
+  author    = {Ross, Kenneth A. and Sagiv, Yehoshua},
+  title     = {Monotonic Aggregation in Deductive Databases},
+  year      = {1992},
+  isbn      = {0897915194},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/137097.137852},
+  doi       = {10.1145/137097.137852},
+  abstract  = {We propose a semantics for aggregates in deductive databases based on a notion of minimality. Unlike some previous approaches, we form a minimal model of a program component including aggregate operators, rather than insisting that the aggregate apply to atoms that have been fully determined, or that aggregate functions are rewritten in terms of negation. In order to guarantee the existence of such a minimal model we need to insist that the domains over which we are aggregating are complete lattices, and that the program is in a sense monotonic. Our approach generalizes previous approaches based on the well-founded semantics and various forms of stratification. We are also able to handle a large variety of monotonic (or pseudo-monotonic) aggregate functions.},
+  booktitle = {Proceedings of the Eleventh ACM SIGACT-SIGMOD-SIGART Symposium on Principles of Database Systems},
+  pages     = {114–126},
+  numpages  = {13},
+  location  = {San Diego, California, USA},
+  series    = {PODS '92}
+}
+
+@inproceedings{agg-semantics,
+  author    = {Van Gelder, Allen},
+  title     = {The Well-Founded Semantics of Aggregation},
+  year      = {1992},
+  isbn      = {0897915194},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/137097.137854},
+  doi       = {10.1145/137097.137854},
+  abstract  = {Common aggregation predicates have natural definitions in logic, either as first order sentences (min, max, etc.), or with elementary induction over a data structure that represents the relation (sum, count, etc.). The well-founded semantics for logic programs provides an interpretation of such definitions. The interpretation of first-order aggregates seems to be quite natural and intuitively satisfying, even in the presence of recursion through aggregation. Care is needed to get useful results on inductive aggregates, however. A basic building block is the “subset” predicate, which states that a data structure represents a subset of an IDB predicate, and which is definable in the well-founded semantics. The analogous “superset” is also definable, and their combination yields a “generic” form of findall. Surprisingly, findall must be used negatively to obtain useful approximations when the exact relation is not yet known.Extensions to the semantics, restrictions on the input, and other supplementary requirements proposed in earlier studies appear to be unnecessary for the purpose of attaching a meaning to a program that involves recursion through aggregation. For example, any reasonable definition of “shortest paths” tolerates negative weight edges, correctly computes shortest paths that exist, and leave tuples undefined where negative-weight cycles cause the shortest path not to exist. Other examples exhibit similarly robust behavior, when defined carefully. Connections with the generic model of computation are discussed briefly.},
+  booktitle = {Proceedings of the Eleventh ACM SIGACT-SIGMOD-SIGART Symposium on Principles of Database Systems},
+  pages     = {127–138},
+  numpages  = {12},
+  location  = {San Diego, California, USA},
+  series    = {PODS '92}
+}
+
+@article{umbra-wcoj,
+  author     = {Freitag, Michael and Bandle, Maximilian and Schmidt, Tobias and Kemper, Alfons and Neumann, Thomas},
+  title      = {Adopting Worst-Case Optimal Joins in Relational Database Systems},
+  year       = {2020},
+  issue_date = {August 2020},
+  publisher  = {VLDB Endowment},
+  volume     = {13},
+  number     = {12},
+  issn       = {2150-8097},
+  url        = {https://doi.org/10.14778/3407790.3407797},
+  doi        = {10.14778/3407790.3407797},
+  abstract   = {Worst-case optimal join algorithms are attractive from a theoretical point of view, as they offer asymptotically better runtime than binary joins on certain types of queries. In particular, they avoid enumerating large intermediate results by processing multiple input relations in a single multi-way join. However, existing implementations incur a sizable overhead in practice, primarily since they rely on suitable ordered index structures on their input. Systems that support worst-case optimal joins often focus on a specific problem domain, such as read-only graph analytic queries, where extensive precomputation allows them to mask these costs.In this paper, we present a comprehensive implementation approach for worst-case optimal joins that is practical within general-purpose relational database management systems supporting both hybrid transactional and analytical workloads. The key component of our approach is a novel hash-based worst-case optimal join algorithm that relies only on data structures that can be built efficiently during query execution. Furthermore, we implement a hybrid query optimizer that intelligently and transparently combines both binary and multi-way joins within the same query plan. We demonstrate that our approach far outperforms existing systems when worst-case optimal joins are beneficial while sacrificing no performance when they are not.},
+  journal    = {Proc. VLDB Endow.},
+  month      = {jul},
+  pages      = {1891–1904},
+  numpages   = {14}
+}
+
+@inproceedings{lftj,
+  author    = {Todd L. Veldhuizen},
+  editor    = {Nicole Schweikardt and
+               Vassilis Christophides and
+               Vincent Leroy},
+  title     = {Triejoin: {A} Simple, Worst-Case Optimal Join Algorithm},
+  booktitle = {Proc. 17th International Conference on Database Theory (ICDT), Athens,
+               Greece, March 24-28, 2014},
+  pages     = {96--106},
+  publisher = {OpenProceedings.org},
+  year      = {2014},
+  url       = {https://doi.org/10.5441/002/icdt.2014.13},
+  doi       = {10.5441/002/icdt.2014.13},
+  timestamp = {Tue, 16 Jan 2018 17:46:10 +0100},
+  biburl    = {https://dblp.org/rec/conf/icdt/Veldhuizen14.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{logicblox,
+  author    = {Aref, Molham and ten Cate, Balder and Green, Todd J. and Kimelfeld, Benny and Olteanu, Dan and Pasalic, Emir and Veldhuizen, Todd L. and Washburn, Geoffrey},
+  title     = {Design and Implementation of the LogicBlox System},
+  year      = {2015},
+  isbn      = {9781450327589},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/2723372.2742796},
+  doi       = {10.1145/2723372.2742796},
+  abstract  = {The LogicBlox system aims to reduce the complexity of software development for modern applications which enhance and automate decision-making and enable their users to evolve their capabilities via a ``self-service'' model. Our perspective in this area is informed by over twenty years of experience building dozens of mission-critical enterprise applications that are in use by hundreds of large enterprises across industries such as retail, telecommunications, banking, and government. We designed and built LogicBlox to be the system we wished we had when developing those applications.In this paper, we discuss the design considerations behind the LogicBlox system and give an overview of its implementation, highlighting innovative aspects. These include: LogiQL, a unified and declarative language based on Datalog; the use of purely functional data structures; novel join processing strategies; advanced incremental maintenance and live programming facilities; a novel concurrency control scheme; and built-in support for prescriptive and predictive analytics.},
+  booktitle = {Proceedings of the 2015 ACM SIGMOD International Conference on Management of Data},
+  pages     = {1371–1382},
+  numpages  = {12},
+  keywords  = {predictive analytics, transaction repair, logicblox, datalog, incremental maintenance, leapfrog triejoin, live programming, logiql},
+  location  = {Melbourne, Victoria, Australia},
+  series    = {SIGMOD '15}
+}
+
+@article{emptyheaded,
+  author     = {Aberger, Christopher R. and Lamb, Andrew and Tu, Susan and N\"{o}tzli, Andres and Olukotun, Kunle and R\'{e}, Christopher},
+  title      = {EmptyHeaded: A Relational Engine for Graph Processing},
+  year       = {2017},
+  issue_date = {November 2017},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {42},
+  number     = {4},
+  issn       = {0362-5915},
+  url        = {https://doi.org/10.1145/3129246},
+  doi        = {10.1145/3129246},
+  abstract   = {There are two types of high-performance graph processing engines: low- and high-level engines. Low-level engines (Galois, PowerGraph, Snap) provide optimized data structures and computation models but require users to write low-level imperative code, hence ensuring that efficiency is the burden of the user. In high-level engines, users write in query languages like datalog (SociaLite) or SQL (Grail). High-level engines are easier to use but are orders of magnitude slower than the low-level graph engines. We present EmptyHeaded, a high-level engine that supports a rich datalog-like query language and achieves performance comparable to that of low-level engines. At the core of EmptyHeaded’s design is a new class of join algorithms that satisfy strong theoretical guarantees, but have thus far not achieved performance comparable to that of specialized graph processing engines. To achieve high performance, EmptyHeaded introduces a new join engine architecture, including a novel query optimizer and execution engine that leverage single-instruction multiple data (SIMD) parallelism. With this architecture, EmptyHeaded outperforms high-level approaches by up to three orders of magnitude on graph pattern queries, PageRank, and Single-Source Shortest Paths (SSSP) and is an order of magnitude faster than many low-level baselines. We validate that EmptyHeaded competes with the best-of-breed low-level engine (Galois), achieving comparable performance on PageRank and at most 3\texttimes{} worse performance on SSSP. Finally, we show that the EmptyHeaded design can easily be extended to accommodate a standard resource description framework (RDF) workload, the LUBM benchmark. On the LUBM benchmark, we show that EmptyHeaded can compete with and sometimes outperform two high-level, but specialized RDF baselines (TripleBit and RDF-3X), while outperforming MonetDB by up to three orders of magnitude and LogicBlox by up to two orders of magnitude.},
+  journal    = {ACM Trans. Database Syst.},
+  month      = oct,
+  articleno  = {20},
+  numpages   = {44},
+  keywords   = {generalized hypertree decomposition, Worst-case optimal join, graph processing, single-instruction multiple data, GHD, SIMD}
+}
+
+@inproceedings{bloom-lattice,
+  author    = {Neil Conway and
+               William R. Marczak and
+               Peter Alvaro and
+               Joseph M. Hellerstein and
+               David Maier},
+  title     = {Logic and lattices for distributed programming},
+  booktitle = {{ACM} Symposium on Cloud Computing, {SOCC} '12, San Jose, CA, USA,
+               October 14-17, 2012},
+  pages     = {1},
+  year      = {2012},
+  url       = {https://doi.org/10.1145/2391229.2391230},
+  doi       = {10.1145/2391229.2391230},
+  timestamp = {Tue, 06 Nov 2018 00:00:00 +0100},
+  biburl    = {https://dblp.org/rec/conf/cloud/ConwayMAHM12.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@misc{vsa-eq-fta,
+  doi       = {10.48550/ARXIV.2107.12568},
+  url       = {https://arxiv.org/abs/2107.12568},
+  author    = {Koppel, James},
+  keywords  = {Programming Languages (cs.PL), FOS: Computer and information sciences, FOS: Computer and information sciences},
+  title     = {Version Space Algebras are Acyclic Tree Automata},
+  publisher = {arXiv},
+  year      = {2021},
+  copyright = {Creative Commons Attribution 4.0 International}
+}
+
+@inproceedings{datalogo,
+  author    = {Abo Khamis, Mahmoud and Ngo, Hung Q. and Pichler, Reinhard and Suciu, Dan and Wang, Yisu Remy},
+  title     = {Convergence of Datalog over (Pre-) Semirings},
+  year      = {2022},
+  isbn      = {9781450392600},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3517804.3524140},
+  doi       = {10.1145/3517804.3524140},
+  abstract  = {Recursive queries have been traditionally studied in the framework of datalog, a language that restricts recursion to monotone queries over sets, which is guaranteed to converge in polynomial time in the size of the input. But modern big data systems require recursive computations beyond the Boolean space. In this paper we study the convergence of datalog when it is interpreted over an arbitrary semiring. We consider an ordered semiring, define the semantics of a datalog program as a least fixpoint in this semiring, and study the number of steps required to reach that fixpoint, if ever. We identify algebraic properties of the semiring that correspond to certain convergence properties of datalog programs. Finally, we describe a class of ordered semirings on which one can use the semi-naive evaluation algorithm on any datalog program.},
+  booktitle = {Proceedings of the 41st ACM SIGMOD-SIGACT-SIGAI Symposium on Principles of Database Systems},
+  pages     = {105–117},
+  numpages  = {13},
+  keywords  = {fixpoint, semirings, datalog},
+  location  = {Philadelphia, PA, USA},
+  series    = {PODS '22}
+}
+
+@inproceedings{cclyzer,
+  author    = {George Balatsouras and
+               Yannis Smaragdakis},
+  editor    = {Xavier Rival},
+  title     = {Structure-Sensitive Points-To Analysis for {C} and {C++}},
+  booktitle = {Static Analysis - 23rd International Symposium, {SAS} 2016, Edinburgh,
+               UK, September 8-10, 2016, Proceedings},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {9837},
+  pages     = {84--104},
+  publisher = {Springer},
+  year      = {2016},
+  url       = {https://doi.org/10.1007/978-3-662-53413-7\_5},
+  doi       = {10.1007/978-3-662-53413-7\_5}
+}
+
+@inproceedings{doop-datalog,
+  author    = {Smaragdakis, Yannis and Bravenboer, Martin},
+  title     = {Using Datalog for Fast and Easy Program Analysis},
+  year      = {2010},
+  isbn      = {9783642242052},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/978-3-642-24206-9_14},
+  doi       = {10.1007/978-3-642-24206-9_14},
+  abstract  = {Our recent work introduced the Doop framework for points-to analysis of Java programs. Although Datalog has been used for points-to analyses before, Doop is the first implementation to express full end-to-end context-sensitive analyses in Datalog. This includes key elements such as call-graph construction as well as the logic dealing with various semantic complexities of the Java language (native methods, reflection, threading, etc.).The findings from the Doop research effort have been surprising. We set out to create a framework that would be highly complete and elegant without sacrificing performance "too much". By the time Doop reached maturity, it was a full order-of-magnitude faster than Lhot$#225;k and Hendren's Paddle--the state-of-the-art framework for context-sensitive points-to analyses. For the exact same logical points-to definitions (and, consequently, identical precision) Doop is more than 15x faster than Paddle for a 1-call-site sensitive analysis, with lower but still substantial speedups for other important analyses. Additionally, Doop scales to very precise analyses that are impossible with prior frameworks, directly addressing open problems in past literature. Finally, our implementation is modular and can be easily configured to analyses with a wide range of characteristics, largely due to its declarativeness.Although this performance difference is largely attributable to architectural choices (e.g., the use of an explicit representation vs. BDDs), we believe that our ability to efficiently optimize our implementation was largely due to the declarative specifications of analyses. Working at the Datalog level eliminated much of the artificial complexity of a points-to analysis implementation, allowing us to concentrate on indexing optimizations and on the algorithmic essence of each analysis.},
+  booktitle = {Proceedings of the First International Conference on Datalog Reloaded},
+  pages     = {245–251},
+  numpages  = {7},
+  location  = {Oxford, UK},
+  series    = {Datalog'10}
+}
+
+@inproceedings{doop,
+  author    = {Bravenboer, Martin and Smaragdakis, Yannis},
+  title     = {Strictly Declarative Specification of Sophisticated Points-to Analyses},
+  year      = {2009},
+  isbn      = {9781605587660},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/1640089.1640108},
+  doi       = {10.1145/1640089.1640108},
+  abstract  = {We present the DOOP framework for points-to analysis of Java programs. DOOP builds on the idea of specifying pointer analysis algorithms declaratively, using Datalog: a logic-based language for defining (recursive) relations. We carry the declarative approach further than past work by describing the full end-to-end analysis in Datalog and optimizing aggressively using a novel technique specifically targeting highly recursive Datalog programs.As a result, DOOP achieves several benefits, including full order-of-magnitude improvements in runtime. We compare DOOP with Lhotak and Hendren's PADDLE, which defines the state of the art for context-sensitive analyses. For the exact same logical points-to definitions (and, consequently, identical precision) DOOP is more than 15x faster than PADDLE for a 1-call-site sensitive analysis of the DaCapo benchmarks, with lower but still substantial speedups for other important analyses. Additionally, DOOP scales to very precise analyses that are impossible with PADDLE and Whaley et al.'s bddbddb, directly addressing open problems in past literature. Finally, our implementation is modular and can be easily configured to analyses with a wide range of characteristics, largely due to its declarativeness.},
+  booktitle = {Proceedings of the 24th ACM SIGPLAN Conference on Object Oriented Programming Systems Languages and Applications},
+  pages     = {243–262},
+  numpages  = {20},
+  keywords  = {points-to analysis, declarative, DOOP, datalog, bdds},
+  location  = {Orlando, Florida, USA},
+  series    = {OOPSLA '09}
+}
+
+
+@inproceedings{bddbddb,
+  author    = {Whaley, John and Avots, Dzintars and Carbin, Michael and Lam, Monica S.},
+  title     = {Using Datalog with Binary Decision Diagrams for Program Analysis},
+  year      = {2005},
+  isbn      = {3540297359},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/11575467_8},
+  doi       = {10.1007/11575467_8},
+  abstract  = {Many problems in program analysis can be expressed naturally and concisely in a declarative language like Datalog. This makes it easy to specify new analyses or extend or compose existing analyses. However, previous implementations of declarative languages perform poorly compared with traditional implementations. This paper describes bddbddb, a BDD-Based Deductive DataBase, which implements the declarative language Datalog with stratified negation, totally-ordered finite domains and comparison operators. bddbddb uses binary decision diagrams (BDDs) to efficiently represent large relations. BDD operations take time proportional to the size of the data structure, not the number of tuples in a relation, which leads to fast execution times. bddbddb is an effective tool for implementing a large class of program analyses. We show that a context-insensitive points-to analysis implemented with bddbddb is about twice as fast as a carefully hand-tuned version. The use of BDDs also allows us to solve heretofore unsolved problems, like context-sensitive pointer analysis for large programs.},
+  booktitle = {Proceedings of the Third Asian Conference on Programming Languages and Systems},
+  pages     = {97–118},
+  numpages  = {22},
+  location  = {Tsukuba, Japan},
+  series    = {APLAS'05}
+}
+
+@inproceedings{eqrel,
+  author    = {Nappa, Patrick and Zhao, David and Subotić, Pavle and Scholz, Bernhard},
+  booktitle = {2019 28th International Conference on Parallel Architectures and Compilation Techniques (PACT)},
+  title     = {Fast Parallel Equivalence Relations in a Datalog Compiler},
+  year      = {2019},
+  volume    = {},
+  number    = {},
+  pages     = {82-96},
+  doi       = {10.1109/PACT.2019.00015}
+}
+
+@misc{cclyzerpp,
+  author       = {Langston Barrett and Scott Moore},
+  title        = {cclyzer++: Scalable and Precise Pointer Analysis for LLVM},
+  year         = {2022},
+  howpublished = {\url{https://galois.com/blog/2022/08/cclyzer-scalable-and-precise-pointer-analysis-for-llvm/}}
+}
+
+@inproceedings{choice-datalog,
+  title     = {Non-Deterministic Choice in Datalog},
+  author    = {Ravi Krishnamurthy and Shamim A. Naqvi},
+  booktitle = {JCDKB},
+  year      = {1988}
+}
+
+@inproceedings{choice-souffle,
+  author    = {Hu, Xiaowen and Karp, Joshua and Zhao, David and Zreika, Abdul and Wu, Xi and Scholz, Bernhard},
+  title     = {The Choice Construct in the Souffl\'{e} Language},
+  year      = {2021},
+  isbn      = {978-3-030-89050-6},
+  publisher = {Springer-Verlag},
+  address   = {Berlin, Heidelberg},
+  url       = {https://doi.org/10.1007/978-3-030-89051-3_10},
+  doi       = {10.1007/978-3-030-89051-3_10},
+  abstract  = {Datalog has become a popular implementation language for solving large-scale, real world problems, including bug finders, network analysis tools, and disassemblers. These applications express complex behaviour with hundreds of relations and rules that often require a non-deterministic choice for tuples in relations to express worklist algorithms.This work is an experience report that describes the implementation of a choice construct in the Datalog engine Souffl\'{e}. With the choice construct we can express worklist algorithms such as spanning trees in a few lines of code. We highlight the differences between rule-based choice as described in prior work, and relation-based choice introduced by this work. We show that a choice construct enables certain worklist algorithms to be computed up&nbsp;to 10k\texttimes{} faster than having no choice construct.},
+  booktitle = {Programming Languages and Systems: 19th Asian Symposium, APLAS 2021, Chicago, IL, USA, October 17–18, 2021, Proceedings},
+  pages     = {163–181},
+  numpages  = {19},
+  keywords  = {Datalog, Non-deterministic, Static analysis},
+  location  = {Chicago, IL, USA}
+}
+
+@article{datalog-subsumption,
+  author     = {K\"{o}stler, Gerhard and Kiessling, Werner and Th\"{o}ne, Helmut and G\"{u}ntzer, Ulrich},
+  title      = {Fixpoint Iteration with Subsumption in Deductive Databases},
+  year       = {1995},
+  issue_date = {March 1995},
+  publisher  = {Kluwer Academic Publishers},
+  address    = {USA},
+  volume     = {4},
+  number     = {2},
+  issn       = {0925-9902},
+  url        = {https://doi.org/10.1007/BF00961871},
+  doi        = {10.1007/BF00961871},
+  journal    = {J. Intell. Inf. Syst.},
+  month      = {mar},
+  pages      = {123–148},
+  numpages   = {26},
+  keywords   = {deductive databases, aggregation, semantic query optimization, heuristic search, subsumption}
+}
+
+@misc{storel,
+  doi       = {10.48550/ARXIV.2210.06267},
+  url       = {https://arxiv.org/abs/2210.06267},
+  author    = {Schleich, Maximilian and Shaikhha, Amir and Suciu, Dan},
+  keywords  = {Databases (cs.DB), Programming Languages (cs.PL), FOS: Computer and information sciences, FOS: Computer and information sciences},
+  title     = {Optimizing Tensor Programs on Flexible Storage},
+  publisher = {arXiv},
+  year      = {2022},
+  copyright = {Creative Commons Attribution 4.0 International}
+}
+
+@inproceedings{souffle,
+  title        = {Souffl{\'e}: On synthesis of program analyzers},
+  author       = {Jordan, Herbert and Scholz, Bernhard and Suboti{\'c}, Pavle},
+  booktitle    = {International Conference on Computer Aided Verification},
+  pages        = {422--430},
+  year         = {2016},
+  organization = {Springer}
+}
+
+@misc{souffle-adt,
+  title        = {Souffl{\'e} Algebraic Data Types},
+  author       = {Souffl{\'e} Developers},
+  howpublished = {\url{https://souffle-lang.github.io/types\#algebraic-data-types-adt}},
+  note         = {Accessed: 2022-11-01}
+}
+
+@inproceedings{flatt2022small,
+  title        = {Small Proofs from Congruence Closure},
+  author       = {Flatt, Oliver and Coward, Samuel and Willsey, Max and Tatlock, Zachary and Panchekha, Pavel},
+  booktitle    = {Proceedings of The 22nd Conference on Formal Methods in Computer-Aided Design (FMCAD '22)},
+  volume       = {3},
+  pages        = {75},
+  year         = {2022},
+  url          = { https://doi.org/10.34727/2022/isbn.978-3-85448-053-2_13},
+  organization = {TU Wien Academic Press}
+}
+@article{congr-duality,
+  title    = {On the relationship of congruence closureand unification},
+  journal  = {Journal of Symbolic Computation},
+  volume   = {7},
+  number   = {3},
+  pages    = {427-444},
+  year     = {1989},
+  note     = {Unification: Part 1},
+  issn     = {0747-7171},
+  doi      = {https://doi.org/10.1016/S0747-7171(89)80018-5},
+  url      = {https://www.sciencedirect.com/science/article/pii/S0747717189800185},
+  author   = {Paris C. Kanellakis and Peter Z. Revesz},
+  abstract = {Congruence closure is a fundamental operation for symbolic computation. Unification closureis defined as its directional dual, i.e., on the same inputs but top-down as opposed to bottom-up. Unifying terms is another fundamental operation for symbolic computation and is commonly computed using unification closure. We clarify the directional duality by reducing unification closure to a special form of congruence closure. This reduction reveals a correspondence between repeated variables in terms to be unified and equalities of monadic ground terms. We then show that: (1) single equality congruence closure on a directed acyclic graph, and (2) acyclic congruence closure of a fixed number of equalities, are in the parallel complexity class NC. The directional dual unification closures in these two cases are known to be log-space complete for PTIME. As a consequence of our reductions we show that if the number of repeated variables in the input terms is fixed, then term unification can be performed in NC; this extends the known parallelizable cases of term unification. Using parallel complexity we also clarify the relationship of unification closure and the testing of deterministic finite automata for equivalence.}
+}
+
+@inproceedings{datalogpm,
+  author    = {Cal\`{\i}, Andrea and Gottlob, Georg and Lukasiewicz, Thomas},
+  title     = {A General Datalog-Based Framework for Tractable Query Answering over Ontologies},
+  year      = {2009},
+  isbn      = {9781605585536},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/1559795.1559809},
+  doi       = {10.1145/1559795.1559809},
+  abstract  = {In this paper, we introduce a family of expressive extensions of Datalog, called Datalog+/-, as a new paradigm for query answering over ontologies. The Datalog+/- family admits existentially quantified variables in rule heads, and has suitable restrictions to ensure highly efficient ontology querying. We show in particular that Datalog+/- generalizes the DL-Lite family of tractable description logics, which are the most common tractable ontology languages in the context of the Semantic Web and databases. We also show how stratified negation can be added to Datalog+/- while keeping ontology querying tractable. Furthermore, the Datalog+/- family is of interest in its own right and can, moreover, be used in various contexts such as data integration and data exchange.},
+  booktitle = {Proceedings of the Twenty-Eighth ACM SIGMOD-SIGACT-SIGART Symposium on Principles of Database Systems},
+  pages     = {77–86},
+  numpages  = {10},
+  keywords  = {tractability, dependencies, chase, semantic web, datalog, constraints, query evaluation, ontologies, complexity, conjunctive queries},
+  location  = {Providence, Rhode Island, USA},
+  series    = {PODS '09}
+}
+
+@inproceedings{llvm,
+  author    = {Chris Lattner and Vikram Adve},
+  booktitle = {International Symposium on Code Generation and Optimization, 2004. CGO 2004.},
+  title     = {LLVM: a compilation framework for lifelong program analysis \& transformation},
+  year      = {2004},
+  volume    = {},
+  number    = {},
+  pages     = {75-86},
+  doi       = {10.1109/CGO.2004.1281665}
+}
+
+@inproceedings{neg-by-fixpoint,
+  author    = {Kolaitis, Phokion G. and Papadimitriou, Christos H.},
+  title     = {Why Not Negation by Fixpoint?},
+  year      = {1988},
+  isbn      = {0897912632},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/308386.308446},
+  doi       = {10.1145/308386.308446},
+  abstract  = {There is a fixpoint semantics for DATALOG programs with negation that is a natural generalization of the standard semantics for DATALOG programs without negation. We show that, unfortunately, several compelling complexity-theoretic obstacles rule out its efficient implementation. As an alternative, we propose Inflationary DATALOG, an efficiently implementable semantics for negation, based on inflationary fixpoints},
+  booktitle = {Proceedings of the Seventh ACM SIGACT-SIGMOD-SIGART Symposium on Principles of Database Systems},
+  pages     = {231–239},
+  numpages  = {9},
+  location  = {Austin, Texas, USA},
+  series    = {PODS '88}
+}
+@inproceedings{ascent,
+  title     = {Seamless deductive inference via macros},
+  author    = {Sahebolamri, Arash and Gilray, Thomas and Micinski, Kristopher},
+  booktitle = {Proceedings of the 31st ACM SIGPLAN International Conference on Compiler Construction},
+  pages     = {77--88},
+  year      = {2022}
+}
+
+@article{generic-join,
+  title     = {Worst-case optimal join algorithms},
+  author    = {Ngo, Hung Q and Porat, Ely and R{\'e}, Christopher and Rudra, Atri},
+  journal   = {Journal of the ACM (JACM)},
+  volume    = {65},
+  number    = {3},
+  pages     = {1--40},
+  year      = {2018},
+  publisher = {ACM New York, NY, USA}
+}
+
+@article{hindley-milner,
+  title    = {A theory of type polymorphism in programming},
+  journal  = {Journal of Computer and System Sciences},
+  volume   = {17},
+  number   = {3},
+  pages    = {348-375},
+  year     = {1978},
+  issn     = {0022-0000},
+  doi      = {https://doi.org/10.1016/0022-0000(78)90014-4},
+  url      = {https://www.sciencedirect.com/science/article/pii/0022000078900144},
+  author   = {Robin Milner},
+  abstract = {The aim of this work is largely a practical one. A widely employed style of programming, particularly in structure-processing languages which impose no discipline of types, entails defining procedures which work well on objects of a wide variety. We present a formal type discipline for such polymorphic procedures in the context of a simple programming language, and a compile time type-checking algorithm W which enforces the discipline. A Semantic Soundness Theorem (based on a formal semantics for the language) states that well-type programs cannot “go wrong” and a Syntactic Soundness Theorem states that if W accepts a program then it is well typed. We also discuss extending these results to richer languages; a type-checking algorithm based on W is in fact already implemented and working, for the metalanguage ML in the Edinburgh LCF system.}
+}
+
+@book{alice-book,
+  author    = {Serge Abiteboul and
+               Richard Hull and
+               Victor Vianu},
+  title     = {Foundations of Databases},
+  publisher = {Addison-Wesley},
+  year      = {1995},
+  url       = {http://webdam.inria.fr/Alice/},
+  isbn      = {0-201-53771-0},
+  timestamp = {Sat, 11 Nov 2017 21:53:30 +0100},
+  biburl    = {https://dblp.org/rec/books/aw/AbiteboulHV95.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+
+@inproceedings{data-exchange,
+  author    = {Fagin, Ronald
+               and Kolaitis, Phokion G.
+               and Miller, Ren{\'e}e J.
+               and Popa, Lucian},
+  editor    = {Calvanese, Diego
+               and Lenzerini, Maurizio
+               and Motwani, Rajeev},
+  title     = {Data Exchange: Semantics and Query Answering},
+  booktitle = {Database Theory --- ICDT 2003},
+  year      = {2003},
+  publisher = {Springer Berlin Heidelberg},
+  address   = {Berlin, Heidelberg},
+  pages     = {207--224},
+  abstract  = {Data exchange is the problem of taking data structured under a source schema and creating an instance of a target schema that reflects the source data as accurately as possible. In this paper, we address foundational and algorithmic issues related to the semantics of data exchange and to query answering in the context of data exchange. These issues arise because, given a source instance, there may be many target instances that satisfy the constraints of the data exchange problem. We give an algebraic specification that selects, among all solutions to the data exchange problem, a special class of solutions that we call universal. A universal solution has no more and no less data than required for data exchange and it represents the entire space of possible solutions. We then identify fairly general, and practical, conditions that guarantee the existence of a universal solution and yield algorithms to compute a canonical universal solution efficiently.We adopt the notion of ``certain answers'' in indefinite databases for the semantics for query answering in data exchange. We investigate the computational complexity of computing the certain answers in this context and also study the problem of computing the certain answers of target queries by simply evaluating them on a canonical universal solution.},
+  isbn      = {978-3-540-36285-2}
+}
+
+@article{vadalog,
+  author     = {Bellomarini, Luigi and Sallinger, Emanuel and Gottlob, Georg},
+  title      = {The Vadalog System: Datalog-Based Reasoning for Knowledge Graphs},
+  year       = {2018},
+  issue_date = {May 2018},
+  publisher  = {VLDB Endowment},
+  volume     = {11},
+  number     = {9},
+  issn       = {2150-8097},
+  url        = {https://doi.org/10.14778/3213880.3213888},
+  doi        = {10.14778/3213880.3213888},
+  abstract   = {Over the past years, there has been a resurgence of Datalog-based systems in the database community as well as in industry. In this context, it has been recognized that to handle the complex knowledge-based scenarios encountered today, such as reasoning over large knowledge graphs, Datalog has to be extended with features such as existential quantification. Yet, Datalog-based reasoning in the presence of existential quantification is in general undecidable. Many efforts have been made to define decidable fragments. Warded Datalog+/- is a very promising one, as it captures PTIME complexity while allowing ontological reasoning. Yet so far, no implementation of Warded Datalog+/- was available. In this paper we present the Vadalog system, a Datalog-based system for performing complex logic reasoning tasks, such as those required in advanced knowledge graphs. The Vadalog system is Oxford's contribution to the VADA research programme, a joint effort of the universities of Oxford, Manchester and Edinburgh and around 20 industrial partners. As the main contribution of this paper, we illustrate the first implementation of Warded Datalog+/-, a high-performance Datalog+/- system utilizing an aggressive termination control strategy. We also provide a comprehensive experimental evaluation.},
+  journal    = {Proc. VLDB Endow.},
+  month      = {may},
+  pages      = {975–987},
+  numpages   = {13}
+}
+
+@misc{rel-refernce,
+  title   = {Rel reference},
+  url     = {https://docs.relational.ai/rel/ref/overview},
+  journal = {RAI Documentation},
+  author  = {Rel developers},
+  urldate = {03/19/2023}
+} 
+
+@misc{bidlingmaier2023evaluation,
+  title         = {An Evaluation Algorithm for Datalog with Equality},
+  author        = {Martin E. Bidlingmaier},
+  year          = {2023},
+  eprint        = {2302.05792},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.PL}
+}
+
+@misc{bidlingmaier2023algebraic,
+  title         = {Algebraic Semantics of Datalog with Equality},
+  author        = {Martin E. Bidlingmaier},
+  year          = {2023},
+  eprint        = {2302.03167},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.LO}
+}
+
+@article{chr,
+  title    = {Theory and practice of constraint handling rules},
+  journal  = {The Journal of Logic Programming},
+  volume   = {37},
+  number   = {1},
+  pages    = {95-138},
+  year     = {1998},
+  issn     = {0743-1066},
+  doi      = {https://doi.org/10.1016/S0743-1066(98)10005-5},
+  url      = {https://www.sciencedirect.com/science/article/pii/S0743106698100055},
+  author   = {Thom Frühwirth},
+  abstract = {Constraint Handling Rules (CHR) are our proposal to allow more flexibility and application-oriented customization of constraint systems. CHR are a declarative language extension especially designed for writing user-defined constraints. CHR are essentially a committed-choice language consisting of multi-headed guarded rules that rewrite constraints into simpler ones until they are solved. In this broad survey we aim at covering all aspects of CHR as they currently present themselves. Going from theory to practice, we will define syntax and semantics for CHR, introduce an important decidable property, confluence, of CHR programs and define a tight integration of CHR with constraint logic programming languages. This survey then describes implementations of the language before we review several constraint solvers – both traditional and nonstandard ones – written in the CHR language. Finally we introduce two innovative applications that benefited from using CHR.}
+}
+
+@misc{egglog-preprint,
+      title={Better Together: Unifying Datalog and Equality Saturation}, 
+      author={Yihong Zhang and Yisu Remy Wang and Oliver Flatt and David Cao and Philip Zucker and Eli Rosenthal and Zachary Tatlock and Max Willsey},
+      year={2023},
+      eprint={2304.04332},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL}
+}

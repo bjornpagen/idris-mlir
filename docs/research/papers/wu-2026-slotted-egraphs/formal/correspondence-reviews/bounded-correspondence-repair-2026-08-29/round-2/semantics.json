@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "review_round": 2,
+  "role": "PAPER_LEAN_SEMANTIC_CORRESPONDENCE",
+  "reviewer_task_id": "/root/approved_round_semantic",
+  "fresh_instance": true,
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "coverage": {
+    "active_mappings": "146/146",
+    "named_environments": "27/27",
+    "proofs": "83/83",
+    "definitions": "44/44",
+    "constructors": "19/19",
+    "affected_ids": "36/36",
+    "proof_sketches": "19/19"
+  },
+  "special_checks": [
+    "TSG-CE-001",
+    "TSG-CE-002",
+    "TSG-LEM-004",
+    "TSG-LEM-005",
+    "TSG-LEM-009",
+    "F10",
+    "F24",
+    "F26",
+    "F27"
+  ],
+  "java_parser_artifact_or_experiment_claim_imported": false,
+  "blocking_findings": [],
+  "verdict": "PASS",
+  "source_mutation_observed": false,
+  "builds_executed": false
+}

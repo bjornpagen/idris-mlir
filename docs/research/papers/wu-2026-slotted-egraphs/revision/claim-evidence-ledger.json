@@ -1,0 +1,453 @@
+{
+  "repository": "AlexandervonWu/ACGN",
+  "branch": "aislop",
+  "snapshot": "1e2667351532b0c632166fa21ae5fbc7308a8fe7",
+  "full_run": "db9f89bf-0965-4d74-8080-d9191d5f1aec",
+  "full_run_source": "8ad5fead39b687d2cadc79b01ac27743c1ece990",
+  "validation_run": "659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4",
+  "claims": [
+    {
+      "claim": "Seven-arm natural-corpus counts, distances, process times, engine CPU, memory and representation units",
+      "paper_locations": [
+        "eval_compressed.tex: Corpus and protocol / Observation and equality / headline table / cost",
+        "tables/table6_ablation_vmcai_stage1.tex"
+      ],
+      "evidence_path": "egraph_ablation/comparison.json",
+      "evidence_selector": "runs[]",
+      "evidence_sha256": "f2369c8e43553d3c194ff98132a359441b8e90fd8d91e61267eb1fe060c2ab01",
+      "value": {
+        "raw-egraph": {
+          "engine": "raw-egraph",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 820,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 18.364167667781423,
+          "processElapsedSeconds": 19.37,
+          "engineCpuNanos": 4255491820,
+          "maximumRssKb": 1561488,
+          "peakUsedHeapBytes": 826596688,
+          "averageRepresentationUnits": 58.07264846261242
+        },
+        "raw-egraph-debruijn": {
+          "engine": "raw-egraph-debruijn",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 2160,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 17.911490632812754,
+          "processElapsedSeconds": 19.38,
+          "engineCpuNanos": 5014984924,
+          "maximumRssKb": 1613488,
+          "peakUsedHeapBytes": 832443200,
+          "averageRepresentationUnits": 57.75176142082535
+        },
+        "java-egglog": {
+          "engine": "java-egglog",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 820,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 18.146514497223937,
+          "processElapsedSeconds": 19.27,
+          "engineCpuNanos": 4175644565,
+          "maximumRssKb": 1511072,
+          "peakUsedHeapBytes": 786590776,
+          "averageRepresentationUnits": 57.05506672294555
+        },
+        "java-egglog-debruijn": {
+          "engine": "java-egglog-debruijn",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 2160,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 17.690038637618105,
+          "processElapsedSeconds": 18.86,
+          "engineCpuNanos": 4880780993,
+          "maximumRssKb": 1491908,
+          "peakUsedHeapBytes": 789513632,
+          "averageRepresentationUnits": 56.73159842852041
+        },
+        "slotted-egraph": {
+          "engine": "slotted-egraph",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 2159,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 17.824231306211242,
+          "processElapsedSeconds": 19.67,
+          "engineCpuNanos": 15565457770,
+          "maximumRssKb": 1652740,
+          "peakUsedHeapBytes": 874943592,
+          "averageRepresentationUnits": 53.16838209032761
+        },
+        "canonical": {
+          "engine": "canonical",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 4074,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 13.943342316308971,
+          "processElapsedSeconds": 23.99,
+          "engineCpuNanos": 68819704884,
+          "maximumRssKb": 2110864,
+          "peakUsedHeapBytes": 1092714904,
+          "averageRepresentationUnits": 30.00051949738628
+        },
+        "typed-slotted-port-egraph": {
+          "engine": "typed-slotted-port-egraph",
+          "eligiblePairs": 61598,
+          "successes": 61598,
+          "failures": 0,
+          "correctPairs": 19212,
+          "incorrectPairs": 42386,
+          "correctEquivalentPairs": 4088,
+          "incorrectEquivalentPairs": 0,
+          "averageDistance": 14.02172148446378,
+          "processElapsedSeconds": 2684.11,
+          "engineCpuNanos": 40811846807185,
+          "maximumRssKb": 9158644,
+          "peakUsedHeapBytes": 7484537280,
+          "averageRepresentationUnits": 29.54142991655573
+        }
+      },
+      "status": "supported",
+      "comparability": "same population/configuration; supported",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/egraph_ablation/comparison.json"
+    },
+    {
+      "claim": "CI/Fast Rewrite performance ratios",
+      "paper_locations": [
+        "eval_compressed.tex: cost"
+      ],
+      "evidence_path": "egraph_ablation/comparison.json",
+      "evidence_selector": "ratios of corresponding runs[] fields; targeted ratio uses capability_benchmark/arms/comparison.json",
+      "evidence_sha256": "f2369c8e43553d3c194ff98132a359441b8e90fd8d91e61267eb1fe060c2ab01",
+      "value": {
+        "natural_wall": 111.8845352230096,
+        "engine_CPU": 593.0256003854705,
+        "targeted_wall": 86.92032967032966
+      },
+      "status": "supported",
+      "comparability": "same population/configuration; supported",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/egraph_ablation/comparison.json"
+    },
+    {
+      "claim": "Targeted 11 x 500 recognition counts; same 77 cells and seven totals",
+      "paper_locations": [
+        "eval_compressed.tex: capability",
+        "tables/table7_capability_rev4.tex"
+      ],
+      "evidence_path": "capability_benchmark/results.json",
+      "evidence_selector": "families[].arms[arm].zero",
+      "evidence_sha256": "41dd46580ad23faff4fbd3b9a7501e31577a84ca768ffe62d217e2b63eb70ad6",
+      "value": {
+        "alpha": [
+          0,
+          500,
+          0,
+          500,
+          500,
+          500,
+          500
+        ],
+        "aci": [
+          500,
+          500,
+          500,
+          500,
+          500,
+          500,
+          500
+        ],
+        "binder_permutation": [
+          1,
+          22,
+          1,
+          22,
+          500,
+          500,
+          500
+        ],
+        "safe_prenex": [
+          500,
+          500,
+          500,
+          500,
+          500,
+          500,
+          500
+        ],
+        "logical_normalization": [
+          500,
+          500,
+          500,
+          500,
+          500,
+          500,
+          500
+        ],
+        "temporal_normalization": [
+          500,
+          500,
+          500,
+          500,
+          500,
+          500,
+          500
+        ],
+        "alpha_ac": [
+          0,
+          500,
+          0,
+          500,
+          500,
+          500,
+          500
+        ],
+        "alpha_binder_permutation": [
+          0,
+          22,
+          0,
+          22,
+          500,
+          500,
+          500
+        ],
+        "binder_permutation_prenex": [
+          22,
+          22,
+          22,
+          22,
+          500,
+          500,
+          500
+        ],
+        "ac_logical": [
+          500,
+          500,
+          500,
+          500,
+          500,
+          500,
+          500
+        ],
+        "mixed": [
+          62,
+          62,
+          62,
+          62,
+          500,
+          500,
+          500
+        ]
+      },
+      "status": "supported",
+      "comparability": "same population/configuration; supported",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/capability_benchmark/results.json"
+    },
+    {
+      "claim": "Paired distance and student-side view sizes; unchanged means",
+      "paper_locations": [
+        "eval_compressed.tex: Observation and equality / Repair distance",
+        "tables/table1_rev4.tex",
+        "tables/table3_vmcai_stage1.tex"
+      ],
+      "evidence_path": "distance_results/summary.md",
+      "evidence_selector": "named generated summary fields",
+      "evidence_sha256": "a83edd78ad0a4647e7d34304bd32d4a979897be0092dfc4d79704e8e7de05b5d",
+      "value": {
+        "Average Certificate-Integrated IR repair distance": "14.021721",
+        "Average Fast Rewrite IR distance": "13.943342",
+        "Average predicate-body Levenshtein distance": "39.261064",
+        "Average raw AST tree distance": "22.841358",
+        "Average raw AST size": "26.787315",
+        "Average Certificate-Integrated IR repair observation size": "17.990130",
+        "Average canonical representative tree size": "33.198773",
+        "Average Fast Rewrite IR NormalForm size": "18.195980",
+        "Average canonical representative TED baseline": "32.255544"
+      },
+      "status": "supported",
+      "comparability": "Manifest-bound aggregate summary; 253 MB LFS raw distance file not materialized in this refresh",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/distance_results/summary.md"
+    },
+    {
+      "claim": "Grouped truth counts and CI equivalence classes; oracle plus CORRECT students",
+      "paper_locations": [
+        "eval_compressed.tex: Observation and equality",
+        "appendix_eval.tex: Corpus Views",
+        "tables/table2_rev4.tex"
+      ],
+      "evidence_path": "alloy4fun-augmented/summary.md",
+      "evidence_selector": "Correct Truth Pools; 17 problem rows and Total",
+      "evidence_sha256": "c3bc36744ddf682d28c22171c46d142424a54c5a0b4448c66be97fd473441294",
+      "value": {
+        "recorded": 19393,
+        "raw_AST_unique": 4496,
+        "CI_classes": 2101,
+        "CI_zero_pairs": 11382,
+        "Fast_forms": 2136,
+        "Fast_zero_pairs": 10934,
+        "origin": "19212 CORRECT students plus 181 oracles"
+      },
+      "status": "supported",
+      "comparability": "same population/configuration; supported",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/alloy4fun-augmented/summary.md"
+    },
+    {
+      "claim": "Nearest-truth means and inclusive-radius coverage",
+      "paper_locations": [
+        "eval_compressed.tex: Repair distance and coverage",
+        "tables/table3_vmcai_stage1.tex",
+        "figures/aci_canonicalization_distance.tex"
+      ],
+      "evidence_path": "alloy4fun-augmented/summary.md",
+      "evidence_selector": "Nearest Correct-Predicate Distance Averages / Raw Edit Distance Coverage Comparison",
+      "evidence_sha256": "c3bc36744ddf682d28c22171c46d142424a54c5a0b4448c66be97fd473441294",
+      "value": {
+        "n": 42386,
+        "means": {
+          "Levenshtein": 28.054924,
+          "AST": 15.987944,
+          "Fast": 11.451257,
+          "CI": 11.562709
+        },
+        "radii": [
+          1,
+          2,
+          5,
+          10
+        ],
+        "AST_counts": [
+          3479,
+          4962,
+          10106,
+          18242
+        ],
+        "CI_counts": [
+          1676,
+          4417,
+          13156,
+          25143
+        ]
+      },
+      "status": "supported",
+      "comparability": "Each coordinate independently selects nearest truth in same invariant group using its own edit units; large LFS index not recomputed",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/alloy4fun-augmented/summary.md"
+    },
+    {
+      "claim": "4,088 unique natural-corpus claim identities with no bounded counterexample/error; four invalid probes unmerged",
+      "paper_locations": [
+        "eval_compressed.tex: Independent checks",
+        "appendix_eval.tex: Checker Boundary"
+      ],
+      "evidence_path": "egraph_ablation/semantic_soundness.md",
+      "evidence_selector": "Checked unique predicate pairs / Results By Arm / Targeted Rule-Level Probes",
+      "evidence_sha256": "7be85654fd2e23463994083697babd15fd5394345bb44349e8091b3c9e1e649a",
+      "value": {
+        "claim_identities": 4088,
+        "counterexamples": 0,
+        "errors": 0,
+        "invalid_probes": 4
+      },
+      "status": "supported",
+      "comparability": "Bounded using each model check command; distinct from 29-case generated validation",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/egraph_ablation/semantic_soundness.md"
+    },
+    {
+      "claim": "Refreshed targeted solver validation",
+      "paper_locations": [
+        "eval_compressed.tex: Independent checks",
+        "appendix_eval.tex: Checker Boundary"
+      ],
+      "evidence_path": "publication_runs/659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4/capability_validation/soundness.json",
+      "evidence_selector": "checks[]",
+      "evidence_sha256": "65e8f1f502558220674b5d5bec0203c6ae585af285c1dcc6b26bb2d050927d7f",
+      "value": {
+        "total": 29,
+        "temporal": 8,
+        "counterexamples": 0,
+        "errors": 0,
+        "inconclusive": 0,
+        "temporal_scope": 4,
+        "trace_bounds": [
+          1,
+          10
+        ]
+      },
+      "status": "supported",
+      "comparability": "Separate one-worker/1 GiB validation; same generated dataset hash, not 5500 solver checks or a new corpus run",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/publication_runs/659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4/capability_validation/soundness.json"
+    },
+    {
+      "claim": "Later assurance release preserves full corpus and separate validation",
+      "paper_locations": [
+        "appendix_eval.tex: provenance / Checker Boundary",
+        "appendix_closure_tables.tex: archived matrix"
+      ],
+      "evidence_path": "docs/release-v2.17.md",
+      "evidence_selector": "Experimental Impact / Remaining Boundary",
+      "evidence_sha256": "0e7efb97db6a6e39e1753bf216329c4ff9f57ad7e87dfb4975d9eb2786a7da8d",
+      "value": {
+        "full_corpus_unchanged": true,
+        "full_parser_Java_refinement": false
+      },
+      "status": "supported",
+      "comparability": "New bounded record/constructor replay is not a reclassification of archived whole-component bridge rows",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/docs/release-v2.17.md"
+    },
+    {
+      "claim": "Later bounded constructor and certificate-record replay evidence",
+      "paper_locations": [
+        "eval_compressed.tex: Independent checks",
+        "appendix_eval.tex: Checker Boundary"
+      ],
+      "evidence_path": "docs/obligation-repair/fifth-five/README.md",
+      "evidence_selector": "bounded direct conformance / replay package",
+      "evidence_sha256": "90b1b3893054356700efbbb96eda7a4ef7c5da889e8f3bfa4c3f3e04ce930392",
+      "value": {
+        "scope": "finite Java observations and Lean replay; full corpus not replayed"
+      },
+      "status": "supported",
+      "comparability": "No new assurance count or closure label added to manuscript",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/docs/obligation-repair/fifth-five/README.md"
+    },
+    {
+      "claim": "One binder-owner mapping is reused across inherited temporal phases",
+      "paper_locations": [
+        "eval_compressed.tex: Repair distance and coverage"
+      ],
+      "evidence_path": "src/is/fivefivefive/CanDis/metric/QuotientRepairDistance.java",
+      "evidence_selector": "matrixDistance / evaluateGlobalMatrices, lines 566-591 and 780-809",
+      "evidence_sha256": "e215ca8bb7386751caf1f8e66854b7e27400bfa3bea7324ddfb622315ff33870",
+      "value": "matrix comparisons use one selected owner-coordinate mapping across inherited phases",
+      "status": "supported",
+      "comparability": "Implementation description; does not assert a Lean refinement theorem",
+      "url": "https://github.com/AlexandervonWu/ACGN/blob/1e2667351532b0c632166fa21ae5fbc7308a8fe7/src/is/fivefivefive/CanDis/metric/QuotientRepairDistance.java"
+    }
+  ],
+  "limits": [
+    "No experimental rerun; generated summaries and selected aggregates are checked against frozen manifests.",
+    "Large LFS distances.json and index.json were not materialized/reaggregated.",
+    "Schema overview and formal theorem statements are unchanged; schema context retains its dataset provenance.",
+    "No Lean recompile or whole-source formal correspondence claim from this paper refresh."
+  ]
+}

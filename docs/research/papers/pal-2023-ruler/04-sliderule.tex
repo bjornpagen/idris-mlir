@@ -1,0 +1,569 @@
+\section{\enumo: A DSL for strategic theory exploration}
+\label{sec:slide}
+
+\renewcommand\denote[1]{\ensuremath{\left\llbracket #1 \right\rrbracket}}
+\newcommand\set[2]{\ensuremath{\left\{#1 \hspace{3pt} \left\vert \hspace{3pt} #2 \right.\right\}}}
+\newcommand\plugsexp{\ensuremath{\mathsf{plug\_sexp}}}
+
+\begin{figure}
+  \begin{subfigure}{\linewidth}
+    \begin{minipage}[t]{0.45\linewidth}
+      \begin{grammar}
+      <workload> ::=  Set <s-exp>*
+        \alt Union <workload>*
+        \alt Filter <filter> <workload>
+        \alt Plug <workload> <string> <workload>
+
+      <s-exp> ::=  Atom <string> \alt List <s-exp>+
+
+      \end{grammar}
+    \end{minipage}\hfill%
+    \begin{minipage}[t]{0.5\linewidth}
+      \begin{grammar}
+
+      <filter> ::=
+        MetricLt <metric> <\N>
+        \alt MetricEq <metric> <\N>
+        \alt Contains <pattern>
+        \alt Canon <string>+
+        \alt And <filter>+ | Or <filter>+ | Not <filter>
+
+      <metric> ::= Atoms | List | Depth
+      \end{grammar}%
+      \end{minipage}%
+    \caption{\enumo workload abstract syntax.}
+    \label{fig:workload-grammar}
+  \end{subfigure}
+
+  \begin{subfigure}{\linewidth}
+    \begin{align*}
+      \denote{ \mathsf{Set} ~ ts } &= ts
+      &
+      \denote{ \mathsf{Filter} ~ \mathit{filter} ~ \W } &=
+      \set{t \in \denote{ \W }}{\denote{ \mathit{filter} } (t) = true}
+      \\
+      \denote{ \mathsf{Union} ~ \W_1 ~ \W_2 } &=
+      \denote{ \W_1 }~\cup~\denote{ \W_2 } \hspace{8mm}
+      &
+      \denote{ \mathsf{Plug} ~ \W_1 ~ \mathit{tgt} ~ \W_2 } &=
+        \bigcup_{e \in \denote{\W_1}}
+        \denote{ \plugsexp ~ e ~ \mathit{tgt} ~ \W_2 }
+    \end{align*}
+    \begin{align*}
+      \denote{ \plugsexp ~ (Atom ~ s) ~ \mathit{s} ~ \W } &=
+      \denote{ \W }
+      \\
+      \denote{ \plugsexp ~ (Atom ~ s) ~ \mathit{tgt} ~ \W } &=
+      \{Atom ~ s\} ~\mathsf{when} ~ s \neq \mathit{tgt}
+      \\
+      \denote{ \plugsexp ~ (List ~ s_1 ~ \ldots ~ s_n) ~ \mathit{tgt} ~ \W } &=
+      \set{List ~ t_1 ~ \ldots ~ t_n}{t_i \in \denote{ \plugsexp ~ s_i ~ \mathit{tgt} ~ \W }}
+    \end{align*}
+    \caption{\enumo workload semantics.}
+    \label{fig:denote-workload}
+  \end{subfigure}
+
+  \begin{subfigure}{\linewidth}
+    \begin{align*}
+      \denote{\mathsf{MetricLt} ~ M ~ n}(t) &= \denote{ M } (t) < n  &
+      \denote{\mathsf{Contains} ~ p}(t) &=
+        \exists \sigma, \sigma(p) \in \mathsf{subterms}(t) \\
+      \denote{\mathsf{MetricEq} ~ M ~ n}(t) &= \denote{ M } (t) = n  &
+      \denote{\mathsf{Canon} ~ \vec{a} ~ }(t) &= canon(\vec{a}, t) == t
+    \end{align*}
+    \caption{
+      \enumo filter semantics.
+      Metric filters test various measures of term size
+        (number of atoms, number of lists, or depth), e.g.,
+        \texttt{(+ a b)} has 3 atoms, 1 list, and depth 2.
+      The $\mathsf{Contains}$ filter tests whether
+        any subterm of $t$ matches a pattern $p$.
+      The $\mathsf{Canon}$ filter tests whether
+        $t$ is \textit{canonical} with respect to
+        a vector of atoms $\vec{a}$, e.g.,
+        $\mathsf{Canon} ~ [a, b, c] ~ \mathtt{(+ ~ a ~ b ~ c)}$ is true while
+        $\mathsf{Canon} ~ [a, b, c] ~ \mathtt{(+ ~ b ~ a ~ c)}$ is false.
+    }\label{fig:denote-filter}
+  \end{subfigure}
+
+  \caption{
+    Syntax and semantics for the workload fragment of the \enumo DSL.
+  }\label{fig:workload}
+\end{figure}
+
+This section presents the core of
+  the \enumo DSL for
+  guided term enumeration and
+  incremental rewrite rule inference.
+\enumo programs primarily manipulate two kinds of values:
+  \textit{workloads} representing sets of terms and
+  \textit{rulesets}, which are sets of pairs of patterns.
+Both terms within workloads and
+  patterns within rewrite rules are
+  represented as (untyped) s-expressions.
+
+At a high level, \enumo programs
+  typically iterate the following steps:
+\begin{enumerate}
+  \item Construct a workload $\W$
+    representing a search space
+    with terms of interest.
+  \item Convert $\W$ to an \egraph and
+    use the current ruleset to
+    merge equivalent \eclasses.
+  \item Search this compressed \egraph
+    to find candidate rewrite rules,
+    i.e., unmerged pairs of \eclasses of terms
+    that fuzzing or other techniques suggest
+    may be equivalent.
+  \item Minimize the candidates:
+    remove rules that are redundant
+    given the current ruleset.
+  \item Add the set of minimized candidates to
+    the current ruleset.
+\end{enumerate}
+
+\enumo provides a number of operators for
+  constructing and manipulating both
+  workloads and rulesets, including
+  \textit{plugging} and \textit{iterating} workloads
+    to build up sets of terms,
+  \textit{forcing} to materialize and insert a
+    workload of terms into an e-graph,
+  \textit{searching} e-graphs built from workloads for
+    candidate rewrite rules, and
+  \textit{minimizing} rulesets to
+    remove redundant rules.
+\enumo programs then are just a sequence of bindings
+ from variables to workload and ruleset expressions
+ embedded in a host language,
+ e.g., a simple lambda calculus.
+
+\subsection{Workloads}
+\label{subsec:workloads}
+
+\autoref{fig:workload} shows the syntax and semantics of
+  workloads in \enumo.
+Workloads have four constructors:
+  \textsf{Set} represents a literal set of \sexps,
+  \textsf{Union} represents unions of workloads,
+  \textsf{Filter} represents a subset of terms in a workload, and
+  \textsf{Plug} represents substituting
+    one workload into another.
+Note that workloads only \textbf{represent} sets of terms:
+  \C{force} can be applied to a workload to
+  materialize the set of
+  untyped \sexps (i.e., terms)
+  it represents.
+This laziness is a key design decision
+  that allows \enumo programs to efficiently
+  represent and manipulate large sets of terms.
+
+\textsf{Set} and \textsf{Union}
+  have straightforward semantics
+  (\autoref{fig:denote-workload}).
+\textsf{Filter}
+ takes a workload $\W$ and a filter predicate $P$,
+ and represents the set of terms from $\W$ that satisfy $P$.
+\autoref{fig:workload-grammar} shows the
+ syntax of filter predicates,
+ some of which use term \textit{metrics}.
+Metrics count
+ the number of atoms, lists, and
+ depth of a term.
+The semantics for filters is given in \autoref{fig:denote-filter}.
+The \textsf{MetricEq} and \textsf{MetricLt} filters
+ measure a metric of a term and compare it to a given value.
+The \textsf{Contains} filter
+ checks whether the given pattern occurs in a term.
+The \textsf{Canon} filter
+ checks that a given term is canonical with respect
+ to a given list of variables.
+The \textsf{Not}, \textsf{Or}, and \textsf{And} filters
+ are simply the usual logical connectives.
+
+\textsf{Plug}
+  allows the user to substitute all combinations
+  of terms from one workload in for
+  a given variable in another workload.
+As the semantics in \autoref{fig:denote-workload} show,
+  \textsf{Plug} provides a special kind of substitution
+  that performs a Cartesian product:
+  \textsf{Plug $\W_1$ $s$ $\W_2$}
+  returns a workload
+  that denotes a set of
+  $\sum_{e \in \denote{\W_1}} |\denote{\W_2}|^{k_e}$ terms\footnote{
+    Duplicate terms are removed, so this is an upper bound on the number
+    of terms in the resulting workload.
+  },
+  where $k_e$ is the number of occurrences of $s$ in the term $e$.
+The following \enumo snippet demonstrates
+  the semantics of \textsf{Plug}:
+\begin{lstlisting}
+w1 = { X (foo X X) }
+w2 = { 1 y }
+plugged = w1.plug("X", w2) # { 1 y (foo 1 1) (foo 1 y) (foo y 1) (foo y y)}
+\end{lstlisting}
+
+\enumo's operators can be composed into useful,
+  reusable strategies beyond the concise reimplementation
+  of past work.
+As an example,
+  \T{iter_metric}, defined in the following \enumo snippet,
+  can be used to create size-parameterized workloads:
+  \T{iter_metric(W, tgt, Atoms, n)} produces all terms
+  from the workload
+  with at most $n$ atoms, and \T{iter_metric(W, tgt, Depth, n)}
+  produces all terms from the workload up to depth $n$. \T{iter_metric}
+  can be used to generate workloads with successively larger terms
+  and thus guide the exploration of successively deeper rules
+  across domains (\autoref{sec:eval}).
+
+\begin{lstlisting}[
+language=Python,
+basicstyle=\footnotesize\ttfamily,
+numbers=left,
+xleftmargin=2.5em]
+def iter_plug(W, tgt, n):
+  if n <= 0: return W
+  return W.plug(tgt, iter_plug(W, tgt, n - 1))
+
+def iter_metric(W, tgt, metric, n):
+  return iter_plug(W, tgt, n).filter(metric <= n)
+\end{lstlisting}
+
+\paragraph*{Optimizing workloads.}
+
+\textsf{Plug} is the key workload combinator
+  for representing search spaces by
+  enumerating terms from a grammar.
+\textsf{Plug} typically represents
+  combinatorially many more terms
+  than its arguments,
+  but the result of a \textsf{Plug}
+  is often \textsf{Filter}ed to
+  target a more specific subset of
+  the represented terms.
+We introduce an essential optimization
+  to speed up workload evaluation (forcing)
+  that avoids unnecessary work during
+  combinatorial substitution by
+  pushing some \textsf{Filter}s through \textsf{Plug}s
+  according to the following equation:
+\begin{align*}
+  \denote{\mathsf{Filter} ~ \mathit{filter} ~
+          (\mathsf{Plug} ~ \W_1 ~ s ~ \W_2)} &=
+  \denote{\mathsf{Filter} ~ \mathit{filter} ~
+          (\mathsf{Plug} ~ \W_1 ~ s ~ (\mathsf{Filter} ~ \mathit{filter} ~ \W_2))}
+\end{align*}
+\noindent
+when \textit{filter} is monotonic.
+A filter $f$ is \emph{monotonic}
+  if, for every term $t$ satisfying $f$,
+  every subterm $s \in t$ also satisfies $f$.
+Note that the outer \textsf{Filter}
+  remains in place even after the optimization,
+  as removing it entirely would not
+  preserve semantics.
+This still yields an exponential reduction
+  in the number of terms that must be
+  materialized and filtered.
+\textit{
+  All of the \enumo programs in our evaluation
+  depend heavily on this optimization.}
+
+In the current \enumo implementation,
+  \textsf{And} and \textsf{MetricLt} filters (among others) are pushed
+  through \textsf{Plug}s.
+This optimization and its
+  monotonicity constraint are inspired by the
+  classic relational algebra optimization
+  of pushing certain selections through joins~\citep{alice};
+  \textsf{Plug}'s combinatorial behavior,
+  in some ways, resembles a relational join.
+
+\subsection{\Egraphs and rulesets}
+\label{subsec:ruleset-sem}
+
+\renewcommand{\to}{\textrightarrow\xspace}
+\newcommand{\head}[1]{\textsf{\sc #1}}
+\begin{figure}
+  \footnotesize
+  \begin{minipage}[t]{0.5\linewidth}
+  \centering
+    \raggedright\tt
+    \head{E-graph Generating Operators} \\
+    \vspace{4pt}
+    \toeggl  : $\T{workload}$ \to \eggl \\
+    $\T{eqsat}$    : \eggl \to \ruleset \to \eggl \\
+    $\T{compress}$ : \eggl \to \ruleset \to \eggl \\[1mm]
+    \vspace{4pt}
+    \head{Rule Testing Operators} \\
+    \vspace{4pt}
+    $\T{is\_saturating}$ : \rl \to $\T{bool}$ \\
+    $\T{is\_valid}$      : \rl \to $\T{bool}$ \\
+    $\T{can\_derive}$    : \ruleset \to \rl \to $\T{bool}$
+    \vspace{4pt}
+  \end{minipage}
+  \begin{minipage}[t]{0.65\linewidth}
+  \centering
+    \raggedright\tt
+    \head{Ruleset Generating Operators} \\
+    \vspace{4pt}
+    $\T{find\_candidates}$    : \eggl \to \ruleset \\
+    $\T{partition}$          : \ruleset \to (\rl \to $\T{bool}$) \to \ruleset $\ast$ \ruleset \\
+    $\T{minimize}$           : \ruleset \to \ruleset \to \ruleset \\
+    $\T{union}$              : \ruleset \to \ruleset \to \ruleset \\
+    $\T{candidates\_by\_diff}$ : \eggl \to \eggl \to \ruleset
+  \end{minipage}
+  \caption{
+    \enumo's operators over rulesets and \egraphs.
+  }\label{fig:ruleops}
+\end{figure}
+
+In addition to novel, programmable term enumeration,
+ \enumo also provides primitives to
+ create and manipulate \egraphs and rulesets.
+\autoref{fig:ruleops} shows
+  these operators and their types.
+Many mirror parts of
+  earlier monolithic theory explorers;
+\enumo's key insight lies in turning such tools
+  ``inside out'' to provide their components
+  as composable operators in a DSL that
+  allows users to strategically guide
+  the search for rewrites and
+  incrementally build rulesets.
+
+\paragraph*{\Egraph operators.}
+For the purposes of the \enumo language definition,
+  an \egraph is an abstract data type
+  that provides the operations described
+  in \autoref{sec:bg-egraphs}.
+A typical \enumo program (\autoref{sec:overview})
+ converts a workload into an \egraph
+ using the \toeggl operator
+ before proceeding to candidate generation.
+The resulting \egraph represents every term in the set
+ denoted by the workload.
+
+The \texttt{eqsat} and \texttt{compress} operators
+ both run equality saturation on the given \egraph
+ with the given ruleset.
+The former allows the \egraph to grow while the latter
+  only applies merges over existing terms in the \egraph.
+From \enumo's perspective,
+ \texttt{compress}'s main purpose is to
+ remove redundancy from the \egraph implied
+ by a ruleset of already-learned rewrites.
+Because we build on the \egg library,
+ \texttt{eqsat} in our implementation
+ is also parameterized over a \emph{strategy}
+ that determines how a ruleset is applied to the \egraph
+ (\autoref{subsec:cmp}).
+
+\paragraph*{Ruleset operators.}
+
+A ruleset is a set of rewrite rules,
+ where each rule is a pair of patterns.
+Rulesets can be
+ read from or written to a file,
+ manipulated using the ruleset operators in \autoref{fig:ruleops},
+ and used to perform equality saturation on \egraphs
+ using the \texttt{eqsat} operator described above.
+
+In a typical \enumo program,
+ the \T{find\_candidates} operator
+ is used to infer a ruleset from an \egraph.
+\T{find\_candidates}
+ is parameterized on a user-provided interpreter
+ which is used to
+ identify likely sound rule candidates
+ by evaluating the terms over a set of inputs (fuzzing);
+ terms that disagree are certainly not equivalent,
+ but those that agree may be~\citep{ruler,bansal}.
+\renewcommand{\eval}{\textsf{eval}}
+\newcommand{\repr}{\textsf{repr}}
+To define \T{find\_candidates} formally,
+ let $\repr(e)$ denote a \textit{representative} term from
+ \eclass $e$
+ and let $\eval(t)$ denote the result of evaluating $t$
+ over a set of input values.
+Then \T{find\_candidates}
+  on \egraph $E$ returns a set of rules:
+\[
+  \set{\repr(e_l) \rewritesto \repr(e_r)}{
+    \text{$e_l, e_r \in E$}.\
+    \eval(\repr(e_l)) = \eval(\repr(e_r))
+  }
+\]
+
+The \T{partition} operator takes a \ruleset $R$
+  and a predicate $P$ over rules and
+  returns $(R_1, R_2)$ such that
+  $R = R_1 \cup R_2$,
+  $r \in R_1 \rightarrow P(r)$, and
+  $r \in R_2 \rightarrow \neg P(r)$.
+\autoref{fig:ruleops}
+ contains two such predicates, \T{is\_valid} and \T{is\_saturating}.
+The \T{is\_valid} predicate
+ checks whether a rule $\ell \rewritesto r$
+ is valid for all inputs,
+ using a user-provided verifier
+ for the domain.
+Depending on the domain,
+ the verifier may use SMT, model checking,
+ or other techniques like fuzzing.
+The built-in \T{is\_saturating} predicate
+ checks whether a rule is \textit{saturating},
+ i.e., applying the rule to an \egraph
+ will not increase the size of the \egraph,
+ measured as the number of \eclasses.
+At a high level,
+  saturating rules are those whose right-hand side pattern
+  only contains subterms that appear in the left-hand side,
+  except potentially for the root operator.
+For example,
+  $x + y \rewritesto y + x$ is saturating
+  since all non-root subterms in the right-hand side ($x$ and $y$) also
+  occur in the left-hand side but
+  $x + (y + z) \rewritesto (x + y) + z$ is not
+  since the right-hand side contains a non-root subterm $x + y$
+  that does not appear in the left-hand side.
+Applying only saturating rules
+  to an \egraph
+  is guaranteed to reach a fixpoint
+  past which further application of the rules
+  will no longer change the \egraph.
+
+The \T{can_derive} operator
+ tests whether a \ruleset $R$
+ can derive a rule $\ell \rewritesto r$,
+ discussed below in \autoref{subsec:derivability}.
+The \T{minimize} operator
+ takes a ruleset $R$ and prior rules $P$
+ and \textit{minimizes} $R$ with respect to $P$,
+ guaranteeing that $
+  \mathtt{minimize}(R, P) = R' \implies
+  \forall r \in R \setminus R',
+  \T{can\_derive}(P \cup R', r)
+ $.
+Conceptually,
+ this filters $R$ to a small subset $R'$ of rules
+ such that $r \in R' \rightarrow \neg \T{can\_derive}(P, r)$.
+However, \enumo's \T{minimize} operator provides
+ an optimization that batches these checks to simultaneously
+ eliminate redundant rules, initially described in \citet{ruler}.
+
+The final core operator
+  is \T{candidates\_by\_diff},
+  which takes two \egraphs $e_1$ and $e_2$ and
+  returns an inferred ruleset.
+\T{candidates\_by\_diff}
+  infers candidate rewrite rules from
+  \eclasses which merged during an \eqsat run,
+  i.e., terms which a given ruleset could prove equivalent.
+Typically, $e_2$ is the result of
+  running \eqsat on $e_1$ with ruleset $R$.
+If, by application of $R$, the equivalence between
+  terms $t$ and $t'$ is discovered,
+  then \T{candidates\_by\_diff} will learn a
+  rule candidate by extracting the best expression from the \eclasses
+  representing $t$ and $t'$ in $e_1$.
+\T{candidates\_by\_diff} enables rule synthesis for new domains
+  which prior work could not support. This utility is
+  briefly exemplified in~\autoref{subsec:ffoverview},
+  and formally presented in~\autoref{sec:lift}.
+
+\subsection{Discussion on derivability}
+\label{subsec:derivability}
+
+Given two rulesets, how do we know which is better?
+While it may be tempting to use ruleset size as a proxy
+  for ruleset quality, more rules are not necessarily better
+  because overly redundant rules lead to slower performance of \eqsat
+  systems.
+A small set of simple rules is often easier to maintain and
+  debug than a large set of complicated rules.
+On the other hand, a ruleset with too few rules is less useful
+  because fewer equivalences will be found,
+  especially since resource limits restrict
+  the number of iterations of \eqsat.
+Since saturation is rare in practice, it is often helpful to have
+  \textit{some} redundancy in the rulesets to get better results
+  under given resource limits (see \autoref{sec:lift}).
+ A ruleset's \textit{proving power} under given resource
+  limits is subtle and difficult to estimate.
+In this section, we define ruleset \textit{derivability}, a
+  metric for measuring proving power that we use for comparing rulesets.
+
+\paragraph*{Derivability.}
+Prior work has not established a standard definition of derivability
+  in the context of \eqsat.
+In this paper, we formalize two ``obvious'' definitions of derivability:
+  \lhsandrhs and \lhs.
+To test whether a ruleset $R$ can derive a rule $\ell \rewritesto r$
+  under given resource limits, we use the \eqsat procedure
+  (\autoref{fig:eqsat-alg}).
+The function \C{timeout}
+  determines when to stop the \eqsat loop based on available resources
+  (e.g., node count, iteration, or time bounds).
+If running \eqsat using ruleset $R$ causes \eclasses representing
+  $\ell$ and $r$ to merge, we say $\ell \rewritesto r$ is \textit{derivable}
+  from $R$ under given resource bounds.
+The \lhsandrhs derivability metric measures whether the equivalence between
+  $\ell$ and $r$ can be recovered by applying the rules in $R$ to
+  an \egraph initialized with both $\ell$ and $r$.
+In contrast, the stronger \lhs definition for derivability states
+  that $\ell \rewritesto r$ can be recovered given only $\ell$.
+Prior work used \lhsandrhs derivability~\citep{ruler}.
+
+In the context of \eqsat, the initial state of the \egraph interacts with
+  resource limits in subtle ways because it changes what terms are
+  available during e-matching.
+Rules in $R$ must find concrete terms in the \egraph that match the
+  left side of the rule in order to add the right side and merge the two
+  \eclasses.
+Changing the initialization of the \egraph changes what rule matches
+  are possible.
+
+To illustrate the difference between \lhs and \lhsandrhs derivability,
+  consider the rule $a \rewritesto b$
+  (where $a$ and $b$ are arbitrary patterns) and a ruleset containing
+  the rule $b \rewritesto a$.
+In an \egraph initialized with both $a$ and $b$ (\lhsandrhs), the rule
+  $b \rewritesto a$ will fire and the \eclasses will merge, so the
+  rule $a \rewritesto b$ will be considered derivable.
+In an \egraph initialized with just $a$ (\lhs), $b \rewritesto a$
+  will not fire, so the rule $a \rewritesto b$ will not be considered
+  derivable.
+\lhs and \lhsandrhs derivabilities may also require different resource
+  limits.
+For example, consider using
+  $R = \{a \rewritesto b, b \rewritesto c, c \rewritesto b \}$ to
+  derive the rule $a \rewritesto c$.
+Under \lhsandrhs, the \eclasses representing $a$ and $c$ will
+  merge within a single iteration of \eqsat.
+In contrast, using \lhs derivability, recovering the equality between $a$ and
+  $c$ will take two iterations of \eqsat.
+First, the rule $a \rewritesto b$ will fire, creating an \eclass for
+  $b$ and merging it with $a$'s \eclass.
+In the second iteration, the rule $b \rewritesto c$ will fire, creating
+  an \eclass for $c$ and merging it with the \eclass that represents
+  $a$ and $b$, thus recovering the equivalence between $a$ and $c$.
+This example shows that \lhsandrhs derivability may be able to derive equivalences
+  in fewer iterations (i.e., using fewer resources) than \lhs because it can
+  match on the left-hand and right-hand sides simultaneously.
+
+In general, \lhs derivability is more conservative.
+Anecdotally, we find that it is preferable
+  when the user is interested in optimization-based
+  \eqsat applications where an \egraph is initialized
+  with a single term $t$, and \eqsat is used to find
+  a better, equivalent version of $t$.
+In contrast, \lhsandrhs derivability is looser,
+  but may be appropriate in equivalence-checking
+  \eqsat applications where two terms $t_1$ and $t_2$
+  are added to an \egraph and \eqsat is used only to
+  determine whether their \eclasses merge.
+

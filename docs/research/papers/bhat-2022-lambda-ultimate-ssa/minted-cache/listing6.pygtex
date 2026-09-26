@@ -1,0 +1,6 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYGZdl{} cd /code/lz/test/lambdapure/compile/bench \PYGZam{}\PYGZam{} \PYGZbs{}
+    ./speedup\PYGZhy{}time.py \PYGZhy{}\PYGZhy{}data \PYGZhy{}\PYGZhy{}plot \PYGZhy{}\PYGZhy{}nruns 10
+\PYGZdl{} cd /code/lz/test/lambdapure/compile/bench \PYGZam{}\PYGZam{} \PYGZbs{}
+    ./speedup\PYGZhy{}rgn\PYGZhy{}time.py \PYGZhy{}\PYGZhy{}data \PYGZhy{}\PYGZhy{}plot \PYGZhy{}\PYGZhy{}nruns 10
+\end{Verbatim}

@@ -1,0 +1,392 @@
+{
+  "schema_version": "2.0",
+  "repository_snapshot": {
+    "repository": "AlexandervonWu/ACGN",
+    "commit": "676480899dc2ed29253d00c59beaf116ebd2c675",
+    "historical_matrix": "docs/theory-artifact-matrix.md",
+    "controlling_boundary": "The historical EXACT labels are inventory only; the current closed-world refinement gate is not passed.",
+    "audited_commit": "676480899dc2ed29253d00c59beaf116ebd2c675",
+    "experiment_source_commit": "fbd9b1497a9036c55780da777f56581bc1c6bcec",
+    "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a"
+  },
+  "closure_status": "PARTIAL",
+  "entries": [
+    {
+      "artifact_claim_id": "ART-TYPED-CARRIERS",
+      "paper_claim_ids": [
+        "TSG-DEF-001",
+        "TSG-DEF-002",
+        "TSG-DEF-003",
+        "TSG-DEF-004",
+        "TSG-COR-002"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/theory/GraphType.java",
+        "src/is/fivefivefive/CanDis/theory/TypedSlot.java",
+        "src/is/fivefivefive/CanDis/theory/TypedSlotContext.java",
+        "src/is/fivefivefive/CanDis/theory/TypedEmbedding.java",
+        "src/is/fivefivefive/CanDis/theory/TypedRenaming.java",
+        "src/is/fivefivefive/CanDis/theory/TypedInvocation.java",
+        "src/is/fivefivefive/CanDis/theory/PortSchema.java",
+        "src/is/fivefivefive/CanDis/theory/TypedENode.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.FiniteTypedContext.f02CanonicalContextEncoding",
+        "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition",
+        "TypedSlottedEGraphsPaper.TypedPortSchemaAndValueDefinition",
+        "TypedSlottedEGraphsPaper.TypedENodeAndSupportDefinition",
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+      ],
+      "bridge evidence class": "PROPERTY_OR_MUTATION_TEST",
+      "certificate or proof location": "docs/theory-artifact-matrix.md rows TY-01--INV-04 and PORT-01--PORT-08",
+      "ledger row identifiers": [
+        "TY-01",
+        "TY-02",
+        "TY-03",
+        "TY-04",
+        "EMB-01",
+        "EMB-02",
+        "EMB-03",
+        "EMB-04",
+        "EMB-05",
+        "INV-01",
+        "INV-02",
+        "INV-03",
+        "INV-04",
+        "PORT-01",
+        "PORT-02",
+        "PORT-03",
+        "PORT-04",
+        "PORT-05",
+        "PORT-06",
+        "PORT-07",
+        "PORT-08"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java runtime",
+        "Java constructors and invariant checks",
+        "Java tests"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-LEADER-KERNEL",
+      "paper_claim_ids": [
+        "TSG-DEF-010",
+        "TSG-LEM-003",
+        "TSG-LEM-011",
+        "TSG-ALG-005"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/theory/LeaderKernelExtractor.java",
+        "src/is/fivefivefive/CanDis/theory/LeaderKernelTrace.java",
+        "src/is/fivefivefive/CanDis/theory/LeaderKernelResult.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.FiniteTypedParentForest.find_support_contracts",
+        "TypedSlottedEGraphsPaper.PaperCertifiedKernelExtraction",
+        "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+      ],
+      "bridge evidence class": "INDEPENDENT_CHECKER_NONLEAN",
+      "certificate or proof location": "src/is/fivefivefive/CanDis/theory/KernelReplayCertificate.java; docs/theory-phase-da-leader-kernel.md",
+      "ledger row identifiers": [
+        "SUP-01",
+        "SUP-02",
+        "SUP-03",
+        "T1-01"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java producer",
+        "Java certificate verifier",
+        "serialized trace schema"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-CANONICALIZER",
+      "paper_claim_ids": [
+        "TSG-DEF-012",
+        "TSG-LEM-006",
+        "TSG-DEF-013",
+        "TSG-COR-003",
+        "TSG-ALG-006",
+        "TSG-ALG-009"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/theory/ProductionGraphCanonicalizer.java",
+        "src/is/fivefivefive/CanDis/theory/CanonicalizationResult.java",
+        "src/is/fivefivefive/CanDis/theory/CertifiedCanonicalizationResult.java",
+        "src/is/fivefivefive/CanDis/core/SlotPermutationGroup.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+        "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+        "TypedSlottedEGraphsPaper.ClaimLedger.TSGALG002CompleteFiniteCanonicalizationContract",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract"
+      ],
+      "bridge evidence class": "PROPERTY_OR_MUTATION_TEST",
+      "certificate or proof location": "docs/theory-phase-e-canonicalizer.md; src/is/fivefivefive/CanDis/theory/CanonicalOrbitCertificate.java",
+      "ledger row identifiers": [
+        "T1-02",
+        "T1-03"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java canonicalizer",
+        "Java finite-group enumeration",
+        "Java structural keys",
+        "Java tests"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-CERTIFICATE-VERIFIER",
+      "paper_claim_ids": [
+        "TSG-DEF-016",
+        "TSG-DEF-021",
+        "TSG-LEM-009",
+        "TSG-LEM-010",
+        "TSG-LEM-011",
+        "TSG-COR-004"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/theory/CertificateVerifier.java",
+        "src/is/fivefivefive/CanDis/theory/ParentEdgeCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/SymmetryCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/StructuralAlphaCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/KernelReplayCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/FiniteUnfoldingEqualityWitness.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.TypedEquationalCertificate",
+        "TypedSlottedEGraphsPaper.PaperF23CoherentCertificateFamily",
+        "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+        "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+        "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+        "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness"
+      ],
+      "bridge evidence class": "INDEPENDENT_CHECKER_NONLEAN",
+      "certificate or proof location": "docs/independent-certificate-verifier-audit.md; docs/theory-phase-f-certificates.md",
+      "ledger row identifiers": [
+        "LAW-01",
+        "LAW-02",
+        "LAW-03",
+        "T1-04",
+        "T1-05",
+        "T1-07",
+        "T1-08",
+        "T1-09"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java certificate verifier",
+        "Java certificate schema",
+        "Java producer",
+        "JVM"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-REBUILD",
+      "paper_claim_ids": [
+        "TSG-ALG-003",
+        "TSG-ALG-004",
+        "TSG-PROP-003",
+        "TSG-DEF-023",
+        "TSG-THM-001"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/theory/TypedSlottedPortEGraph.java",
+        "src/is/fivefivefive/CanDis/theory/RebuildReport.java",
+        "src/is/fivefivefive/CanDis/theory/ParentPath.java",
+        "src/is/fivefivefive/CanDis/theory/TypedFindResult.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.RebuildSystem",
+        "TypedSlottedEGraphsPaper.finiteRebuildQuiescence",
+        "TypedSlottedEGraphsPaper.LocalCertifiedStep.rebuild",
+        "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness"
+      ],
+      "bridge evidence class": "PROPERTY_OR_MUTATION_TEST",
+      "certificate or proof location": "docs/theory-phase-g-rebuild.md; src/is/fivefivefive/CanDis/theory/RebuildCongruenceReplayTest.java",
+      "ledger row identifiers": [
+        "T1-01",
+        "T1-03",
+        "T1-04",
+        "T1-05",
+        "T1-06",
+        "T1-07",
+        "T1-08",
+        "T1-09",
+        "RW-08"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java graph state",
+        "Java mutation boundary",
+        "Java tests"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-ALLOY-NORMALIZATION",
+      "paper_claim_ids": [
+        "TSG-RULE-001",
+        "TSG-RULE-002",
+        "TSG-RULE-003",
+        "TSG-RULE-004",
+        "TSG-RULE-005",
+        "TSG-RULE-006",
+        "TSG-RULE-007",
+        "TSG-RULE-008",
+        "TSG-RULE-009",
+        "TSG-RULE-010",
+        "TSG-RULE-011",
+        "TSG-RULE-012",
+        "TSG-RULE-013",
+        "TSG-RULE-016",
+        "TSG-RULE-017",
+        "TSG-RULE-018",
+        "TSG-RULE-019",
+        "TSG-SCOPE-001"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/NormalForm.java",
+        "src/is/fivefivefive/CanDis/AlloyRewriteSystem.java",
+        "src/is/fivefivefive/CanDis/theory/TheoryAlloyAdapter.java",
+        "src/is/fivefivefive/CanDis/QuantiVar.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule001_orderedRulePipeline",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule002_parserHeadNormalization",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary"
+      ],
+      "bridge evidence class": "PARTIALLY_REPAIRED",
+      "certificate or proof location": "docs/theory-artifact-matrix.md rows RW-01--RW-08",
+      "ledger row identifiers": [
+        "RW-01",
+        "RW-02",
+        "RW-03",
+        "RW-04",
+        "RW-05",
+        "RW-06",
+        "RW-07",
+        "RW-08",
+        "INT-02"
+      ],
+      "theorem_critical": false,
+      "reported_experiment_critical": true,
+      "status": "PARTIALLY_REPAIRED",
+      "trusted components": [
+        "Alloy parser",
+        "Java normalizer",
+        "Java adapter",
+        "bounded regression tests"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-OPERATOR-LAW-ROUTING",
+      "paper_claim_ids": [
+        "TSG-FND-007",
+        "TSG-FND-008",
+        "TSG-RULE-014",
+        "TSG-RULE-015"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/core/EGraphNode.java",
+        "src/is/fivefivefive/CanDis/theory/OperatorDeclaration.java",
+        "src/is/fivefivefive/CanDis/theory/ContainerLawDeclaration.java",
+        "src/is/fivefivefive/CanDis/theory/ContainerLawCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/TheoryAlloyAdapter.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.AtomicLedger.SignaturePathLawful",
+        "TypedSlottedEGraphsPaper.AtomicLedger.FlatLicense",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile"
+      ],
+      "bridge evidence class": "INDEPENDENT_CHECKER_NONLEAN",
+      "certificate or proof location": "docs/theory-artifact-matrix.md rows LAW-01--LAW-03, FLAT-01--FLAT-03, RW-06",
+      "ledger row identifiers": [
+        "LAW-01",
+        "LAW-02",
+        "LAW-03",
+        "FLAT-01",
+        "FLAT-02",
+        "FLAT-03",
+        "RW-06"
+      ],
+      "theorem_critical": true,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java signature construction",
+        "Java verifier",
+        "adapter profile routing"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    },
+    {
+      "artifact_claim_id": "ART-EXPERIMENT-PIPELINE",
+      "paper_claim_ids": [
+        "TSG-SCOPE-001"
+      ],
+      "Java classes and methods": [
+        "src/is/fivefivefive/CanDis/CanonicalAlloyPipeline.java",
+        "src/is/fivefivefive/CanDis/CanonicalBatchTest.java",
+        "src/is/fivefivefive/CanDis/Alloy4FunAugmenter.java",
+        "src/is/fivefivefive/CanDis/EGraphAblationStudy.java",
+        "src/is/fivefivefive/CanDis/CapabilityBenchmark.java",
+        "src/is/fivefivefive/CanDis/AblationRunManifest.java"
+      ],
+      "Lean specification declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary"
+      ],
+      "bridge evidence class": "PURE_JAVA_BEHAVIOR",
+      "certificate or proof location": "publication_runs/df4d8d4c-6265-4fe7-88d5-3aceee60398b; docs/theory-artifact-matrix.md row INT-03",
+      "ledger row identifiers": [
+        "INT-03",
+        "MET-01",
+        "MET-02",
+        "MET-03"
+      ],
+      "theorem_critical": false,
+      "reported_experiment_critical": true,
+      "status": "OPEN",
+      "trusted components": [
+        "Java pipeline",
+        "run manifest",
+        "dataset",
+        "JVM",
+        "filesystem",
+        "report generator"
+      ],
+      "lean_bridge_status": "NO_LEAN_REFINEMENT_PROOF_OR_LEAN_CHECKED_IMPLEMENTATION_TRACE"
+    }
+  ],
+  "mechanical_conclusion": "No entry currently has LEAN_REFINEMENT_PROOF or LEAN_CHECKED_CERTIFICATE evidence. ARTIFACT_REFINEMENT_CLOSURE cannot be CLOSED.",
+  "summary": {
+    "theorem_critical_open": 6,
+    "theorem_critical_partially_repaired": 0,
+    "closure_inference": "None of the exact Lean specification declarations proves the listed Java code refines that specification."
+  },
+  "metadata_rebinding": {
+    "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+    "java_changes": 0,
+    "experimental_result_changes": 0,
+    "closure_status_preserved": "PARTIAL"
+  }
+}

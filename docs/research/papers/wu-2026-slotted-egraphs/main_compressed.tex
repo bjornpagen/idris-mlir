@@ -1,0 +1,61 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage{amsmath,amssymb}
+\usepackage{array,booktabs,float,graphicx,listings,multirow,xcolor,tikz,url}
+\usepackage{longtable,capt-of,needspace}
+\usetikzlibrary{arrows.meta,backgrounds,fit}
+\emergencystretch=1.5em
+
+\definecolor{vanilla}{RGB}{75,105,145}
+\definecolor{flexible}{RGB}{0,125,120}
+\definecolor{slotblue}{RGB}{20,85,155}
+\definecolor{slotorange}{RGB}{180,80,10}
+\input{macros_compressed}
+
+\title{Typed Flexible-Arity Slotted E-Graphs:\\
+A Soundness Construction and an Alloy Case Study}
+\titlerunning{Typed Flexible-Arity Slotted E-Graphs}
+\author{Guanxuan Wu\orcidID{0009-0006-8102-7329} \and
+Allison Sullivan\orcidID{0000-0001-7400-2218}}
+\authorrunning{G. Wu and A. Sullivan}
+\institute{University of Texas at Arlington, Arlington, TX 76019, USA\\
+\email{gxw6804@mavs.uta.edu, allison.sullivan@uta.edu}}
+%\author{Anonymous Author(s)}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+Slotted e-graphs represent open terms modulo consistent renaming, while
+algebraic operators benefit from canonical sequence, bag, or set children.
+In this paper, we compose the two at a specification level: typed slot-mapped invocations inhabit operator-declared
+ports whose sibling quotient and recursive flattening licenses are certified
+separately.  A generic finite quotient presentation proves exactness of its
+least-orbit normal form, while certified records specify effective-support
+kernel extraction and collision.  For abstract obligation traces carrying
+local endpoint certificates, we prove finite-unfolding equational soundness.
+We use an Alloy case study to compare seven
+related pipeline arms on a frozen corpus and a controlled transformation
+suite.  
+%Its measurements characterize bounded capability and structural
+%consolidation; they do not establish refinement of the Java artifact or
+%experimental replay against the formal model.
+\keywords{E-graphs \and Binding \and AC rewriting \and Alloy \and
+Canonical intermediate representations}
+\end{abstract}
+
+\input{intro_compressed}
+\input{prelims_compressed}
+\input{foundations_compressed}
+\input{eval_compressed}
+\input{conclusion_compressed}
+%\clearpage
+\label{start:references}
+\bibliographystyle{splncs04}
+\bibliography{ref}
+
+\appendix
+\clearpage
+\input{appendix_formal}
+\input{appendix_eval}
+\input{appendixC_vmcai_stage1}
+\end{document}

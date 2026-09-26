@@ -1,0 +1,29 @@
+name = "TypedSlottedEGraphsPaper"
+version = "0.1.0"
+defaultTargets = ["TypedSlottedEGraphsPaper"]
+
+[[lean_lib]]
+name = "TypedSlottedEGraphsPaper"
+srcDir = "."
+roots = [
+  "TypedSlottedEGraphsPaper.Core",
+  "TypedSlottedEGraphsPaper.StructuralClaims",
+  "TypedSlottedEGraphsPaper.Certificates",
+  "TypedSlottedEGraphsPaper.Replay",
+  "TypedSlottedEGraphsPaper.Reachability",
+  "TypedSlottedEGraphsPaper.FiniteNormalization",
+  "TypedSlottedEGraphsPaper.SyntaxSupport",
+  "TypedSlottedEGraphsPaper.PaperDefinitions",
+  "TypedSlottedEGraphsPaper.ACClosureCounts",
+  "TypedSlottedEGraphsPaper.StructuralSemantics",
+  "TypedSlottedEGraphsPaper.TraceSemantics",
+  "TypedSlottedEGraphsPaper.TraceEnvelopeWitness",
+  "TypedSlottedEGraphsPaper.ContextGraph",
+  "TypedSlottedEGraphsPaper.AtomicLedger",
+  "TypedSlottedEGraphsPaper.ProfileRules",
+  "TypedSlottedEGraphsPaper.NormalizationBridge",
+  "TypedSlottedEGraphsPaper.StructuralContainerAdapter",
+  "TypedSlottedEGraphsPaper.TheoremBridge",
+  "TypedSlottedEGraphsPaper.ClaimLedger",
+  "PaperIndex"
+]

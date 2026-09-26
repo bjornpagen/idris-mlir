@@ -1,0 +1,176 @@
+% Requires \usepackage{longtable,array,capt-of,needspace} in the document preamble.
+\providecommand{\algline}[2][0pt]{%
+  \hangindent=#1\hangafter=1\hspace*{#1}#2\strut\\%
+}
+
+\begingroup
+\small
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{0pt}
+\setlength{\LTpre}{0pt}
+\setlength{\LTpost}{0pt}
+
+% Reserve room for the caption, status strip, and opening procedure.
+\Needspace{18\baselineskip}
+\noindent\captionof{figure}{Proposed graph-relative canonicalization refinement
+target (not verified as a producer by Lean).  The design minimizes invocation
+and binder-block orbits before bag aggregation and set deduplication.  It would
+retain $K_{\mathcal G}(n)$, $\iota_n$, $\omega_n$, and $\xi_n$ in the structural
+record, obtain a dependent certificate $d_n^{\mathbf w}$ only by separate
+replay, and use only $p_{\min}$ as a hash key.  The exact checked contracts are
+stated after the figure.}
+\label{alg:canon-g}
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.98\linewidth}@{}}
+\hline
+\endfirsthead
+
+\multicolumn{1}{@{}l@{}}{\small\itshape Figure~\thefigure\ continued}\\
+\hline
+\endhead
+
+\hline
+\endfoot
+
+\endlastfoot
+
+\algline{\textbf{status:} specification-only pseudocode; every producer and
+  Java correspondence below is a separate refinement obligation}
+
+\noalign{\vskip 0.35em}
+
+\algline{\textbf{procedure} $\operatorname{leaderKernelTrace}_{\mathcal G}(n)$}
+\algline[2.4em]{\textbf{require} $n$ is well typed and
+  $\Gamma_0=\operatorname{slots}(n)$ is its exact context}
+\algline[2.4em]{$(\widehat n_{\mathcal G},\xi)\leftarrow
+  \operatorname{findAllWithTrace}_{\mathcal G}(n)$
+  \hfill\textit{// find every invocation; do not unfold leaders}}
+\algline[2.4em]{$(\widehat n_{\mathcal G},\xi)\leftarrow
+  \operatorname{normalizeSignatureAdmittedPortsWithTrace}
+  (\widehat n_{\mathcal G},\xi)$}
+\algline[2.4em]{$\Delta\leftarrow\operatorname{slots}(\widehat n_{\mathcal G});
+  \iota\leftarrow\operatorname{inclusion}(\Delta,\Gamma_0)$}
+\algline[2.4em]{$n^\downarrow\leftarrow
+  \operatorname{restrictExactContext}(\widehat n_{\mathcal G},\Delta)$}
+\algline[2.4em]{\textbf{return} $(n^\downarrow,\iota,\xi)$}
+
+\noalign{\vskip 0.35em}
+
+\algline{\textbf{procedure}
+  $\operatorname{canon}_{\mathcal G}(n=f_\theta(q_1,\ldots,q_r))$}
+\algline[2.4em]{\textbf{require} $n$ is well typed and already uses its
+  declared sibling quotients and explicit flat licenses}
+\algline[2.4em]{$(K,\iota_n,\xi_n)\leftarrow
+  \operatorname{leaderKernelTrace}_{\mathcal G}(n)$}
+\algline[2.4em]{write $K=f_\theta(\bar q_1,\ldots,\bar q_r)$}
+\algline[2.4em]{$\Delta\leftarrow\operatorname{slots}(K)$;
+  $C\leftarrow\operatorname{Can}(\Delta)$}
+\algline[2.4em]{$b\leftarrow\mathsf{None}$
+  \hfill\textit{// option of a shape--renaming pair}}
+\algline[2.4em]{\textbf{for each} $\sigma\in\operatorname{TRen}(C,\Delta)$ \textbf{do}}
+\algline[4.8em]{$\rho\leftarrow\sigma^{-1}$
+  \hfill\textit{// effective source slots to canonical slots}}
+\algline[4.8em]{\textbf{for} $i\leftarrow1$ \textbf{to} $r$ \textbf{do}}
+\algline[7.2em]{$r_i\leftarrow\operatorname{canonLeaderPort}_{\mathcal G}
+  (\theta(\kappa_i),\bar q_i,\rho)$}
+\algline[4.8em]{$p\leftarrow f_\theta(r_1,\ldots,r_r)$}
+\algline[4.8em]{\textbf{if} $b=\mathsf{None}$ or
+  $(p,\sigma)\mathrel{\triangleleft_{\mathrm{lex}}}\operatorname{get}(b)$
+  \textbf{then} $b\leftarrow\mathsf{Some}(p,\sigma)$}
+\algline[2.4em]{\textbf{require} $b=\mathsf{Some}(p_{\min},\sigma_{\min})$
+  \hfill\textit{// $\operatorname{TRen}(C,\Delta)$ contains a bijection}}
+\algline[2.4em]{$\omega_{\min}\leftarrow\iota_n\circ\sigma_{\min}$}
+\algline[2.4em]{\textbf{return}
+  $(K,p_{\min},\sigma_{\min},\iota_n,\omega_{\min},\xi_n)$}
+
+\noalign{\vskip 0.35em}
+
+\algline{\textbf{procedure} $\operatorname{replayKernelCertificate}_{\mathcal G,\mathbf w}
+  (n,K,\iota,\xi)$}
+\algline[2.4em]{\textbf{require} $\mathbf w$ is a coherent witness family for $\mathcal G$}
+\algline[2.4em]{\textbf{require} $(K,\iota,\xi)=\operatorname{leaderKernelTrace}_{\mathcal G}(n)$
+  and every certificate named by $\xi$ verifies}
+\algline[2.4em]{$\Gamma_0\leftarrow\operatorname{slots}(n)$}
+\algline[2.4em]{$d^{\mathbf w}\leftarrow
+  \operatorname{replayTrace}_{\mathcal G,\mathbf w}(n,K,\iota,\xi)$}
+\algline[2.4em]{\textbf{require}
+  $d^{\mathbf w}:\operatorname{EqCert}_{\mathcal T_{\Sigma,\mathcal E}}
+  (\Gamma_0;\lfloor n\rfloor_{\mathbf w},
+  \iota\mathbin\cdot\lfloor K\rfloor_{\mathbf w})$}
+\algline[2.4em]{\textbf{return} $d^{\mathbf w}$}
+
+\noalign{\vskip 0.35em}
+
+\algline{\textbf{procedure} $\operatorname{canon}_{\mathcal G}^{\mathbf w}(n)$}
+\algline[2.4em]{$(K,p,\sigma,\iota,\omega,\xi)\leftarrow\operatorname{canon}_{\mathcal G}(n)$}
+\algline[2.4em]{$d^{\mathbf w}\leftarrow
+  \operatorname{replayKernelCertificate}_{\mathcal G,\mathbf w}
+  (n,K,\iota,\xi)$}
+\algline[2.4em]{\textbf{return}
+  $(K,p,\sigma,\iota,\omega,\xi,d^{\mathbf w})$}
+
+\noalign{\vskip 0.35em}
+
+\algline{\textbf{procedure}
+  $\operatorname{canonLeaderPort}_{\mathcal G}(\kappa,q,\rho)$}
+\algline[2.4em]{\textbf{require}
+  $q\in\operatorname{LPort}_{\mathcal G,\Lambda}(\kappa)$ and
+  $\rho\in\operatorname{TRen}(\Lambda,\Lambda')$}
+\algline[2.4em]{\textbf{target postcondition} result is
+  $Q_{\mathcal G}^{\Lambda'}(\rho\mathbin\cdot q)$}
+\algline[2.4em]{\textbf{match} $(\kappa,q)$ \textbf{with}}
+\algline[4.8em]{$(\texttt{One}(\tau),\mathord{\$}x)$:\quad
+  \textbf{return} $\rho(\mathord{\$}x)$}
+\algline[4.8em]{$(\texttt{One}(\tau),m*\ell)$:}
+\algline[7.2em]{\textbf{require} $\ell$ is a leader;
+  $b\leftarrow\mathsf{None}$}
+\algline[7.2em]{\textbf{for each} $\pi\in G_\ell$ \textbf{do}}
+\algline[9.6em]{$u\leftarrow((\rho\circ m)\circ\pi)*\ell$}
+\algline[9.6em]{$b\leftarrow\operatorname{keepLeast}_{\triangleleft}(b,u)$}
+\algline[7.2em]{\textbf{return} $\operatorname{get}(b)$
+  \hfill\textit{// $\operatorname{id}\in G_\ell$}}
+\algline[4.8em]{$(\texttt{Seq}^{J}(\kappa'),[q_1,\ldots,q_k])$:}
+\algline[7.2em]{\textbf{return}
+  $[\operatorname{canonLeaderPort}_{\mathcal G}
+    (\kappa',q_i,\rho)]_{i=1}^{k}$}
+\algline[4.8em]{$(\texttt{Bag}^{J}(\kappa'),b)$:}
+\algline[7.2em]{$b'\leftarrow$ the empty finite multiplicity map}
+\algline[7.2em]{\textbf{for each} $q'\in\operatorname{supp}(b)$
+  \textbf{do}}
+\algline[9.6em]{$u\leftarrow\operatorname{canonLeaderPort}_{\mathcal G}
+  (\kappa',q',\rho)$;
+  $b'(u)\leftarrow b'(u)+b(q')$}
+\algline[7.2em]{\textbf{return} $b'$
+  \hfill\textit{// serialization order is not part of the bag}}
+\algline[4.8em]{$(\texttt{Set}^{J}(\kappa'),Y)$:}
+\algline[7.2em]{\textbf{return}
+  $\{\operatorname{canonLeaderPort}_{\mathcal G}
+    (\kappa',q',\rho)\mid q'\in Y\}$}
+\algline[4.8em]{$(\texttt{Bind}(\tau,\kappa'),
+  \operatorname{bind}\mathord{\$}x{:}\tau.q)$:}
+\algline[7.2em]{$\mathord{\$}y\leftarrow
+  \operatorname{freshCanonicalSlot}(\tau,\operatorname{cod}(\rho))$}
+\algline[7.2em]{$\rho'\leftarrow
+  \rho\mathbin{\uplus}[\mathord{\$}x\mapsto\mathord{\$}y]$}
+\algline[7.2em]{\textbf{return}
+  $\operatorname{bind}\mathord{\$}y{:}\tau.
+  \operatorname{canonLeaderPort}_{\mathcal G}(\kappa',q,\rho')$}
+\algline[4.8em]{$(\texttt{BindBlock}(\beta,\kappa'),
+  \operatorname{bind}_{\beta}^{o}q)$:}
+\algline[7.2em]{$(o_B,\alpha_o,A_B)\leftarrow
+  \operatorname{canonicalBlockOccurrence}(\beta,o,
+  \operatorname{cod}(\rho))$}
+\algline[7.2em]{\hspace{1em}\textit{// $o_B=(B,a_B)$ is fresh;
+  $\alpha_o=a_B\circ a_o^{-1}$; $A_B$ is the transported group}}
+\algline[7.2em]{$b\leftarrow\mathsf{None}$}
+\algline[7.2em]{\textbf{for each} $\pi_B\in A_B$ \textbf{do}}
+\algline[9.6em]{$\rho_{\pi}\leftarrow
+  \rho\mathbin{\uplus}(\pi_B\circ\alpha_o)$}
+\algline[9.6em]{$u\leftarrow\operatorname{bind}_{\beta}^{o_B}
+  \operatorname{canonLeaderPort}_{\mathcal G}(\kappa',q,\rho_{\pi})$}
+\algline[9.6em]{$b\leftarrow\operatorname{keepLeast}_{\triangleleft}(b,u)$}
+\algline[7.2em]{\textbf{return} $\operatorname{get}(b)$
+  \hfill\textit{// $\operatorname{id}\in\operatorname{Aut}(\beta)$}}
+\hline
+\end{longtable}
+\endgroup

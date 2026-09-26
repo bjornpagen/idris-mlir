@@ -1,0 +1,94 @@
+The idea of representing RC operations as explicit instructions so as to
+optimize them via static analysis is described as early as
+\citet{Barth:1977:SGC:359636.359713}.
+\citet{Schulte:1994} describes a system with many
+features similar to ours. %% , as we will detail below.
+In general, Schulte's language is much simpler than ours, with a single list type
+as the only non-primitive type, and no higher-order functions. He does
+not give a formal dynamic semantics % or static type system
+for his system. He gives an algorithm for inserting RC instructions that, like ours,
+has an on-the-fly optimization for omitting \kw{inc} instructions if a
+variable is already dead and would immediately be decremented
+afterwards. Schulte briefly discusses how RC operations can be
+minimized by treating some parameters as ``nondestructive'' in the
+sense of our borrowed references. In contrast to our inference of
+borrow annotations, Schulte proposes to create one copy of a function
+for each possible destructive/nondestructive combination of parameters
+(i.e.\ exponential in the number of (non-primitive) parameters) and
+to select an appropriate version for each call site of the function. Our
+approach never duplicates code.
+
+Introducing destructive updates into pure programs has traditionally focused on
+primitive operations like array updates~\cite{Hudak:1985:AUP:318593.318660}, particularly in the functional array
+languages \textsc{Sisal}~\cite{sisal} and \textsc{SaC}~\cite{sac}. \citet{sac-reuse} propose an \verb!alloc_or_reuse!
+instruction for \textsc{SaC} that can select one of multiple array candidates for reuse, but do not describe
+heuristics for when to use the instruction.
+\citet{Ferey:2016:CGU:2963372.2963387} describe how functional update operations
+explicit in the source language can be turned into destructive updates using the
+reference counter. In contrast, \citet{Schulte:1994} presents a ``reusage'' optimization that has an effect similar to the one
+obtained with our \kw{reset}/\kw{reuse} instructions. In particular, it is
+independent of a specific surface-level update syntax.
+However, his optimization (transformation $T14$) is more restrictive
+and is only applicable to a branch of a $\kw{case}\ x$ if $x$ is dead at the beginning of the branch.
+% Although Schulte demonstrates his optimization can produce code for the list append function where
+% destructive updates are performed when the list is not shared,
+His optimization cannot handle the simple $\textit{swap}$ described earlier,
+let alone more complex functions such as the red black
+tree re-balancing function $\textit{balance}_1$.
+
+While not a purely functional language, the Swift programming
+language\footnote{\url{https://developer.apple.com/swift/}} has directly
+influenced many parts of our work. To the best of our knowledge, Swift was the
+first non-research language to use an intermediate representation with explicit RC
+instructions, as well as the idea of (safely) avoiding RC operations via ``borrowed''
+parameters (which are called ``+0'' or ``guaranteed'' in Swift), in its
+implementation. While Swift's primitives may also elide copies when given a
+unique reference, no speculative destructive updates are introduced for
+user-defined types, but this may not be as important for an impure language as
+it is for Lean. Parameters default to borrowed in Swift, but the compiler may
+locally change the calling convention inside individual modules.
+
+\citet{Baker:1994:MRC:185009.185016} describes optimizing reference counting by
+use of \emph{two} pointer kinds, a standard one and a \emph{deferred increment}
+pointer kind. The latter kind can be copied freely without adding RC operations,
+but must be converted into the standard kind by incrementing it before storing it in an object or returning it. The two kinds
+are distinguished at runtime by pointer tagging. Our borrowed references
+can be viewed as a static refinement of this idea. Baker then describes an
+extended version of deferred-increment he calls \emph{anchored} pointers that
+store the stack level (i.e.\ the lifetime) of the standard pointer they have been
+created from. Anchored pointers do not have to be converted to the standard kind if returned
+from a stack frame above this level. In order to statically approximate this
+extended system, we would need to extend our type system
+with support for some kind of \emph{lifetime annotations} on return types
+as featured in Cyclone~\cite{jim2002cyclone} and
+Rust~\cite{Matsakis:2014:RL:2663171.2663188}.
+
+%% In our notation, his optimization could be presented as transforming
+%% \[ \Case x F_1 (\Dec x; C[\Ctor_2 ])\]
+
+%% \citet{chirimar_gunter_riecke_1996} give both a natural and a reference-counting
+%% big-step semantics on a linearly typed language and prove their equivalence.
+%% Their linearly typed language is not a simplified intermediate representation but the
+%% source language. We have discussed how their proofs could be adapted to our extended type system and
+%% semantics in \cref{sec:ty}. \citet{Ferey:2016:CGU:2963372.2963387} give a
+%% natural and a RC big-step semantics on a non-linear intermediate representation
+%% without explicit RC operations, which are directly part of the RC semantics instead.
+%% \citet{Hudak:1986:SMR:319838.319876} gives a denotational semantics of reference counting.
+
+\citet{dynamic-atomicity} optimize Swift's reference counting scheme
+by using a single bit to tag objects possibly shared between multiple
+threads, much like our approach. However, because of mutability, every
+single store operation must be intercepted to (recursively) tag objects
+before becoming reachable from an already tagged object.
+\citet{biasedRC} remove the need for tagging by extending every object header
+with the ID of the thread $T$ that allocated the value, and two
+reference counters: a shared one that requires atomic operations, and
+another one that is only updated by $T$.
+Thanks to immutability, we can make use of the simpler scheme without
+introducing store barriers during normal code generation. Object tagging
+instead only has to be done in threading primitives.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

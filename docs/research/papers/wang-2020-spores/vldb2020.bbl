@@ -1,0 +1,193 @@
+\begin{thebibliography}{10}
+
+\bibitem{DBLP:reference/bdt/Boehm19}
+M.~Boehm.
+\newblock Apache systemml.
+\newblock In S.~Sakr and A.~Y. Zomaya, editors, {\em Encyclopedia of Big Data
+  Technologies}. Springer, 2019.
+
+\bibitem{DBLP:journals/pvldb/BoehmRHSEP18}
+M.~Boehm, B.~Reinwald, D.~Hutchison, P.~Sen, A.~V. Evfimievski, and N.~Pansare.
+\newblock On optimizing operator fusion plans for large-scale machine learning
+  in systemml.
+\newblock {\em {PVLDB}}, 11(12):1755--1768, 2018.
+
+\bibitem{DBLP:conf/pods/ChaudhuriV93}
+S.~Chaudhuri and M.~Y. Vardi.
+\newblock Optimization of \emph{Real} conjunctive queries.
+\newblock In {\em Proceedings of the Twelfth {ACM} {SIGACT-SIGMOD-SIGART}
+  Symposium on Principles of Database Systems, May 25-28, 1993, Washington, DC,
+  {USA}}, pages 59--70, 1993.
+
+\bibitem{DBLP:journals/tocl/CohenSN05}
+S.~Cohen, Y.~Sagiv, and W.~Nutt.
+\newblock Equivalences among aggregate queries with negation.
+\newblock {\em {ACM} Trans. Comput. Log.}, 6(2):328--360, 2005.
+
+\bibitem{ElgamalLBETRS17}
+T.~Elgamal, S.~Luo, M.~Boehm, A.~V. Evfimievski, S.~Tatikonda, B.~Reinwald, and
+  P.~Sen.
+\newblock {SPOOF: Sum-Product Optimization and Operator Fusion for Large-Scale
+  Machine Learning}.
+\newblock In {\em {CIDR}}, 2017.
+
+\bibitem{DBLP:journals/ai/Forgy82}
+C.~Forgy.
+\newblock Rete: {A} fast algorithm for the many patterns/many objects match
+  problem.
+\newblock {\em Artif. Intell.}, 19(1):17--37, 1982.
+
+\bibitem{Graefe95a}
+G.~Graefe.
+\newblock {The Cascades Framework for Query Optimization}.
+\newblock {\em {IEEE} Data Eng. Bull.}, 18(3), 1995.
+
+\bibitem{DBLP:conf/icdt/Green09}
+T.~J. Green.
+\newblock Containment of conjunctive queries on annotated relations.
+\newblock In {\em Database Theory - {ICDT} 2009, 12th International Conference,
+  St. Petersburg, Russia, March 23-25, 2009, Proceedings}, pages 296--309,
+  2009.
+
+\bibitem{DBLP:conf/pods/GreenKT07}
+T.~J. Green, G.~Karvounarakis, and V.~Tannen.
+\newblock Provenance semirings.
+\newblock In L.~Libkin, editor, {\em Proceedings of the Twenty-Sixth {ACM}
+  {SIGACT-SIGMOD-SIGART} Symposium on Principles of Database Systems, June
+  11-13, 2007, Beijing, China}, pages 31--40. {ACM}, 2007.
+
+\bibitem{gurobi}
+L.~Gurobi~Optimization.
+\newblock Gurobi optimizer reference manual, 2019.
+
+\bibitem{DBLP:conf/sigmod/HuangB013}
+B.~Huang, S.~Babu, and J.~Yang.
+\newblock Cumulon: optimizing statistical data analysis in the cloud.
+\newblock In K.~A. Ross, D.~Srivastava, and D.~Papadias, editors, {\em
+  Proceedings of the {ACM} {SIGMOD} International Conference on Management of
+  Data, {SIGMOD} 2013, New York, NY, USA, June 22-27, 2013}, pages 1--12.
+  {ACM}, 2013.
+
+\bibitem{DBLP:journals/corr/HutchisonHS17}
+D.~Hutchison, B.~Howe, and D.~Suciu.
+\newblock Laradb: {A} minimalist kernel for linear and relational algebra
+  computation.
+\newblock {\em CoRR}, abs/1703.07342, 2017.
+
+\bibitem{DBLP:journals/tods/IoannidisR95}
+Y.~E. Ioannidis and R.~Ramakrishnan.
+\newblock Containment of conjunctive queries: Beyond relations as sets.
+\newblock {\em {ACM} Trans. Database Syst.}, 20(3):288--324, 1995.
+
+\bibitem{Joglekar2016AJARAA}
+M.~R. Joglekar, R.~Puttagunta, and C.~R{\'e}.
+\newblock Ajar: Aggregations and joins over annotated relations.
+\newblock In {\em PODS}. ACM, 2016.
+
+\bibitem{DBLP:conf/pldi/JoshiNR02}
+R.~Joshi, G.~Nelson, and K.~H. Randall.
+\newblock Denali: {A} goal-directed superoptimizer.
+\newblock In J.~Knoop and L.~J. Hendren, editors, {\em Proceedings of the 2002
+  {ACM} {SIGPLAN} Conference on Programming Language Design and Implementation
+  (PLDI), Berlin, Germany, June 17-19, 2002}, pages 304--314. {ACM}, 2002.
+
+\bibitem{DBLP:journals/corr/NgoNOS17}
+M.~A. Khamis, H.~Q. Ngo, X.~Nguyen, D.~Olteanu, and M.~Schleich.
+\newblock In-database learning with sparse tensors.
+\newblock {\em CoRR}, abs/1703.04780, 2017.
+
+\bibitem{KhamisNR16}
+M.~A. Khamis, H.~Q. Ngo, and A.~Rudra.
+\newblock {FAQ: Questions Asked Frequently}.
+\newblock In {\em {PODS}}. ACM, 2016.
+
+\bibitem{DBLP:conf/sigmod/LiC019}
+S.~Li, L.~Chen, and A.~Kumar.
+\newblock Enabling and optimizing non-linear feature interactions in factorized
+  linear algebra.
+\newblock In P.~A. Boncz, S.~Manegold, A.~Ailamaki, A.~Deshpande, and
+  T.~Kraska, editors, {\em Proceedings of the 2019 International Conference on
+  Management of Data, {SIGMOD} Conference 2019, Amsterdam, The Netherlands,
+  June 30 - July 5, 2019}, pages 1571--1588. {ACM}, 2019.
+
+\bibitem{MoerkotteN06}
+G.~Moerkotte and T.~Neumann.
+\newblock {Analysis of Two Existing and One New Dynamic Programming Algorithm
+  for the Generation of Optimal Bushy Join Trees without Cross Products}.
+\newblock In {\em VLDB}, 2006.
+
+\bibitem{MoerkotteN08}
+G.~Moerkotte and T.~Neumann.
+\newblock {Dynamic Programming Strikes Back}.
+\newblock In {\em {SIGMOD}}, 2008.
+
+\bibitem{DBLP:journals/corr/abs-1909-12252}
+C.~Nandi, A.~Anderson, M.~Willsey, J.~R. Wilcox, E.~Darulova, D.~Grossman, and
+  Z.~Tatlock.
+\newblock Using e-graphs for {CAD} parameter inference.
+\newblock {\em CoRR}, abs/1909.12252, 2019.
+
+\bibitem{10.5555/909447}
+C.~G. Nelson.
+\newblock {\em Techniques for Program Verification}.
+\newblock PhD thesis, Stanford University, Stanford, CA, USA, 1980.
+\newblock AAI8011683.
+
+\bibitem{DBLP:conf/pldi/PanchekhaSWT15}
+P.~Panchekha, A.~Sanchez{-}Stern, J.~R. Wilcox, and Z.~Tatlock.
+\newblock Automatically improving accuracy for floating point expressions.
+\newblock In D.~Grove and S.~Blackburn, editors, {\em Proceedings of the 36th
+  {ACM} {SIGPLAN} Conference on Programming Language Design and Implementation,
+  Portland, OR, USA, June 15-17, 2015}, pages 1--11. {ACM}, 2015.
+
+\bibitem{DBLP:conf/sigmod/SchleichOC16}
+M.~Schleich, D.~Olteanu, and R.~Ciucanu.
+\newblock Learning linear regression models over factorized joins.
+\newblock In F.~{\"{O}}zcan, G.~Koutrika, and S.~Madden, editors, {\em
+  Proceedings of the 2016 International Conference on Management of Data,
+  {SIGMOD} Conference 2016, San Francisco, CA, USA, June 26 - July 01, 2016},
+  pages 3--18. {ACM}, 2016.
+
+\bibitem{selinger1979access}
+P.~G. Selinger, M.~M. Astrahan, D.~D. Chamberlin, R.~A. Lorie, and T.~G. Price.
+\newblock Access path selection in a relational database management system.
+\newblock In {\em Proceedings of the 1979 ACM SIGMOD international conference
+  on Management of data}, pages 23--34. ACM, 1979.
+
+\bibitem{DBLP:conf/asplos/Solar-LezamaTBSS06}
+A.~Solar{-}Lezama, L.~Tancau, R.~Bod{\'{\i}}k, S.~A. Seshia, and V.~A.
+  Saraswat.
+\newblock Combinatorial sketching for finite programs.
+\newblock In J.~P. Shen and M.~Martonosi, editors, {\em Proceedings of the 12th
+  International Conference on Architectural Support for Programming Languages
+  and Operating Systems, {ASPLOS} 2006, San Jose, CA, USA, October 21-25,
+  2006}, pages 404--415. {ACM}, 2006.
+
+\bibitem{DBLP:conf/icml/SujeethLBRCWAOO11}
+A.~K. Sujeeth, H.~Lee, K.~J. Brown, T.~Rompf, H.~Chafi, M.~Wu, A.~R. Atreya,
+  M.~Odersky, and K.~Olukotun.
+\newblock Optiml: An implicitly parallel domain-specific language for machine
+  learning.
+\newblock In L.~Getoor and T.~Scheffer, editors, {\em Proceedings of the 28th
+  International Conference on Machine Learning, {ICML} 2011, Bellevue,
+  Washington, USA, June 28 - July 2, 2011}, pages 609--616. Omnipress, 2011.
+
+\bibitem{DBLP:journals/corr/abs-1012-1802}
+R.~Tate, M.~Stepp, Z.~Tatlock, and S.~Lerner.
+\newblock Equality saturation: {A} new approach to optimization.
+\newblock {\em Logical Methods in Computer Science}, 7(1), 2011.
+
+\bibitem{DBLP:conf/sigmod/Trummer017}
+I.~Trummer and C.~Koch.
+\newblock Solving the join ordering problem via mixed integer linear
+  programming.
+\newblock In S.~Salihoglu, W.~Zhou, R.~Chirkova, J.~Yang, and D.~Suciu,
+  editors, {\em Proceedings of the 2017 {ACM} International Conference on
+  Management of Data, {SIGMOD} Conference 2017, Chicago, IL, USA, May 14-19,
+  2017}, pages 1025--1040. {ACM}, 2017.
+
+\bibitem{EGG}
+M.~Willsey, C.~Nandi, Y.~R. Wang, O.~Flatt, Z.~Tatlock, and P.~Panchekha.
+\newblock egg: Fast and extensible equality saturation, 2020.
+
+\end{thebibliography}

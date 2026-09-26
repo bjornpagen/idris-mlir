@@ -1,0 +1,153 @@
+\section{Implementation}
+
+Now that we know what the IR is, we shall present in this section the
+structure and infrastructure provided by \MLIR and how it is used in practice.
+
+% ODS, passes (constant prop, CSE, inlining, etc can be just listed), Interfaces  with inlining as an example, convey the idea of multiple dialects mixed together and why that is a good thing.
+
+\subsection{Structure}
+
+\begin{figure}
+	% TODO: use example from tutorial slides.
+\lstinputlisting[basicstyle=\tiny]{example.mlir}
+\caption{\MLIR generic textual format for Op.}
+\end{figure}
+
+\MLIR is a compiler intermediate representation (IR) based on static single
+assignment (SSA) form.  It takes a radical approach to the simplicity and
+extensibility of compiler IRs. The unit of semantics in \MLIR is an operation,
+commonly referred to as an Op. Ops are are equivalent to instructions in
+conventional IRs, but can also provide additional structure as described below.
+\MLIR does not have a predefined set of Ops.  Instead, it operates on sets of
+Ops with user-defined semantics. This means that users of \MLIR can mix and
+match existing Ops and introduce new ones to suit their needs. The core
+infrastructure is designed to conservatively operate on opaque Ops whose
+semantics may be unknown. In particular, opaque Ops can be parsed, printed and
+copied without any knowledge of their semantics.
+
+\subsubsection{Operations}
+
+Ops accept as operands and produce as results lists of typed values, which obey
+SSA. Values represent data that the IR operates upon, i.e. the data that is
+known at run time. In addition to that, an Op may have a set of attributes with
+values known at compile time. On the structure side, Ops may have successor
+blocks as well as attached regions.
+
+\subsubsection{Blocks and CFG}
+
+Lists of Ops form (basic) blocks. The last Op in a block is always a terminator
+Op, which may or may not have successors. Terminators are commonly used to
+describe control across blocks and are, together with regions, the core control
+flow abstractions. The transfer of control is up to the semantics of the
+specific terminator Op. For example, a terminator may transfer control to
+another named block (branch operation), or immediately exit from a surrounding
+region (return operation).
+
+References to successor blocks in a terminator Op define a control flow graph
+(CFG), where nodes correspond to blocks and edges correspond to the links
+between a block and successors listed in its terminator Op. \MLIR adopts block
+arguments as the way to pass values across blocks, in contrast to the often
+used phi instructions. Each block has a potentially empty list of typed block
+arguments, which are regular values and obey SSA. Terminator Ops referring to
+successor blocks are required to pass values to block arguments, which is
+roughly equivalent to renaming the value inside before using it in the next
+block. For the purposes of SSA, block arguments are considered to be defined
+before the first Op in the block.
+
+Blocks are a core IR concept and provide one level of value scoping. Ops in a
+block can be thought of as executed in order. As a result, any operation is
+allowed to use as operands the values produced by preceding operations, in
+addition to block arguments and other visibility rules based on dominance and
+structure (see below).
+
+\subsection{Regions}
+Lists of blocks form regions, which are an essential structuring abstraction in
+\MLIR. Regions do not have semantics by themselves. It is assigned to them by
+the Op they are associated with. The containing Op defines if and how a region
+is executed.
+
+This approach enables straightforward definition of structured control flow
+using regions. A conditional (\lstinline!if! operation) is merely an Op with a
+condition operand and two regions: one containing the ``true'' branch and another
+containing the ``false'' branch. The semantics of the op could define that the
+control flow is transferred to the first or the second region based on the
+value of the operand.
+
+The first block of a region is referred to as entry block and can be
+semantically connected to the surrounding Op. In particular, the Op semantics
+prescribes what values the arguments of the entry block have when the control
+flow is transferred to the region. The arguments of the entry block are treated
+as arguments of the region containing the block. These values can be connected
+to the Op operands. For example, a simple counted loop (\lstinline!for! operation) can be
+implemented as an Op with a single region executed multiple times with an
+argument taking the value of the induction variable on each step.
+
+\subsubsection{Symbols and Symbol Tables}
+<...>
+
+\subsubsection{Functions and Modules}
+Similarly to conventional IRs, \MLIR can be structured into functions and
+modules. However, these are not first-class concepts in \MLIR. Instead they are
+implemented as Ops.
+
+A module is an Op with a single region containing a single block, and
+terminated by a dummy Op that does not transfer the control flow. A module is a
+symbol and can be referenced. Like any block, its body contains a list of Ops,
+which may or may not have the semantics of a function. For example, modules may
+also contain Ops for global variables or compiler metadata.
+
+A function is an Op with a single region, with arguments corresponding to
+function arguments. It is a symbol and can be referenced. The control flow is
+transferred into a function using a function call Op. Once inside, the control
+flow follows the CFG of the blocks in the region. A special terminator returns
+the control flow from the body region and transfers it to the immediate
+control-flow successor of the call Op. Any operands of the ``return'' terminator
+are transmitted to the result of the call Op.
+
+\subsubsection{Type System}
+
+\subsection{Operation description}
+
+Ops form the core of \MLIR, and \MLIR allows and open Op ecosystem, but Ops
+with regions and verification enables very powerful abstractions. In \MLIR we
+wanted to make it easy to define operations and their verification, to this end
+we developed Operation Descriptions (ODS) a declarative format to define Ops
+using the data modelling language TableGen~\cite{tblgen}.
+
+\begin{figure}
+\lstinputlisting[basicstyle=\tiny]{leakyrelu.td}
+\caption{Operation description of LeakyRelu.}
+\end{figure}
+
+\subsubsection{Attributes}
+
+\subsubsection{Traits}
+
+\subsubsection{Verifier}
+
+Ops can have verifiers defined and these verifiers can also act upon the
+regions of Ops. This allows verifying invariants from local properties, e.g.,
+the input operands to the Op are integral, to more structural, e.g., the
+accesses within the affine loop are indeed affine.
+
+\subsection{Declarative rewrites}
+
+Ops are the fundamentally representational element in \MLIR, and manipulating
+Ops core to all transformations and lowerings in \MLIR. Some transformations
+can be expressed simply as $N-M$ DAG rewrites while others require more
+complicated transformations. In \MLIR we did not want to give up either the
+generality of op transformations or the simplicity of DAG-DAG rewrites, so we
+developed a general graph rewriting framework and layered a declarative rewrite
+system on top of it. Thereby not complicating the simple case for the sake
+of generality.
+
+\subsection{Passes}
+
+\subsection{Interfaces}\label{sec:interfaces}
+
+Passes in \MLIR are intended to apply to multiple dialects and multiple levels,
+interfaces provides the mechanism to enable this flexibility. Interfaces
+provide a mechanism to define passes operating on structure of operations and
+allowing dialects/Ops to opt-in to specific optimization behavior.
+
+Consider as an example inlining.

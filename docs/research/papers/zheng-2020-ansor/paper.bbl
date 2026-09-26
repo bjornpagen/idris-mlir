@@ -1,0 +1,388 @@
+\begin{thebibliography}{10}
+
+\bibitem{abadi2016tensorflow}
+Mart{\'\i}n Abadi, Paul Barham, Jianmin Chen, Zhifeng Chen, Andy Davis, Jeffrey
+  Dean, Matthieu Devin, Sanjay Ghemawat, Geoffrey Irving, Michael Isard, et~al.
+\newblock Tensorflow: a system for large-scale machine learning.
+\newblock In {\em 12th USENIX Symposium on Operating Systems Design and
+  Implementation (OSDI 16)}, pages 265--283, 2016.
+
+\bibitem{adams2019learning}
+Andrew Adams, Karima Ma, Luke Anderson, Riyadh Baghdadi, Tzu-Mao Li,
+  Micha{\"e}l Gharbi, Benoit Steiner, Steven Johnson, Kayvon Fatahalian,
+  Fr{\'e}do Durand, et~al.
+\newblock Learning to optimize halide with tree search and random programs.
+\newblock {\em ACM Transactions on Graphics (TOG)}, 38(4):1--12, 2019.
+
+\bibitem{alhaija2017augmented}
+Hassan~Abu Alhaija, Siva~Karthik Mustikovela, Lars Mescheder, Andreas Geiger,
+  and Carsten Rother.
+\newblock Augmented reality meets deep learning for car instance segmentation
+  in urban scenes.
+\newblock In {\em British machine vision conference}, volume~1, page~2, 2017.
+
+\bibitem{ansel2014opentuner}
+Jason Ansel, Shoaib Kamil, Kalyan Veeramachaneni, Jonathan Ragan-Kelley,
+  Jeffrey Bosboom, Una-May O'Reilly, and Saman Amarasinghe.
+\newblock Opentuner: an extensible framework for program autotuning.
+\newblock In {\em Proceedings of the 23rd international conference on Parallel
+  architectures and compilation}, pages 303--316, 2014.
+
+\bibitem{baghdadi2019tiramisu}
+Riyadh Baghdadi, Jessica Ray, Malek~Ben Romdhane, Emanuele Del~Sozzo,
+  Abdurrahman Akkas, Yunming Zhang, Patricia Suriana, Shoaib Kamil, and Saman
+  Amarasinghe.
+\newblock Tiramisu: a polyhedral compiler for expressing fast and portable
+  code.
+\newblock In {\em 2019 IEEE/ACM International Symposium on Code Generation and
+  Optimization (CGO)}, pages 193--205. IEEE, 2019.
+
+\bibitem{bai2019onnx}
+Junjie Bai, Fang Lu, Ke~Zhang, et~al.
+\newblock Onnx: open neural network exchange, 2019.
+
+\bibitem{barham2019machine}
+Paul Barham and Michael Isard.
+\newblock Machine learning systems are stuck in a rut.
+\newblock In {\em Proceedings of the Workshop on Hot Topics in Operating
+  Systems}, pages 177--183, 2019.
+
+\bibitem{bondhugula2008practical}
+Uday Bondhugula, Albert Hartono, Jagannathan Ramanujam, and Ponnuswamy
+  Sadayappan.
+\newblock A practical automatic polyhedral parallelizer and locality optimizer.
+\newblock In {\em Proceedings of the 29th ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, pages 101--113, 2008.
+
+\bibitem{chen2016xgboost}
+Tianqi Chen and Carlos Guestrin.
+\newblock Xgboost: a scalable tree boosting system.
+\newblock In {\em Proceedings of the 22nd acm sigkdd international conference
+  on knowledge discovery and data mining}, pages 785--794, 2016.
+
+\bibitem{chen2015mxnet}
+Tianqi Chen, Mu~Li, Yutian Li, Min Lin, Naiyan Wang, Minjie Wang, Tianjun Xiao,
+  Bing Xu, Chiyuan Zhang, and Zheng Zhang.
+\newblock Mxnet: a flexible and efficient machine learning library for
+  heterogeneous distributed systems.
+\newblock {\em arXiv preprint arXiv:1512.01274}, 2015.
+
+\bibitem{chen2018tvm}
+Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Haichen
+  Shen, Meghan Cowan, Leyuan Wang, Yuwei Hu, Luis Ceze, et~al.
+\newblock Tvm: an automated end-to-end optimizing compiler for deep learning.
+\newblock In {\em 13th USENIX Symposium on Operating Systems Design and
+  Implementation (OSDI 18)}, pages 578--594, 2018.
+
+\bibitem{chen2018learning}
+Tianqi Chen, Lianmin Zheng, Eddie Yan, Ziheng Jiang, Thierry Moreau, Luis Ceze,
+  Carlos Guestrin, and Arvind Krishnamurthy.
+\newblock Learning to optimize tensor programs.
+\newblock In {\em Advances in Neural Information Processing Systems}, pages
+  3389--3400, 2018.
+
+\bibitem{chetlur2014cudnn}
+Sharan Chetlur, Cliff Woolley, Philippe Vandermersch, Jonathan Cohen, John
+  Tran, Bryan Catanzaro, and Evan Shelhamer.
+\newblock cudnn: efficient primitives for deep learning.
+\newblock {\em arXiv preprint arXiv:1410.0759}, 2014.
+
+\bibitem{cordts2016cityscapes}
+Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler,
+  Rodrigo Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele.
+\newblock The cityscapes dataset for semantic urban scene understanding.
+\newblock In {\em Proceedings of the IEEE conference on computer vision and
+  pattern recognition}, pages 3213--3223, 2016.
+
+\bibitem{devlin2018bert}
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova.
+\newblock Bert: pre-training of deep bidirectional transformers for language
+  understanding.
+\newblock {\em arXiv preprint arXiv:1810.04805}, 2018.
+
+\bibitem{frigo1998fftw}
+Matteo Frigo and Steven~G Johnson.
+\newblock Fftw: an adaptive software architecture for the fft.
+\newblock In {\em Proceedings of the 1998 IEEE International Conference on
+  Acoustics, Speech and Signal Processing, ICASSP'98 (Cat. No. 98CH36181)},
+  volume~3, pages 1381--1384. IEEE, 1998.
+
+\bibitem{gale2019state}
+Trevor Gale, Erich Elsen, and Sara Hooker.
+\newblock The state of sparsity in deep neural networks.
+\newblock {\em arXiv preprint arXiv:1902.09574}, 2019.
+
+\bibitem{haj2020neurovectorizer}
+Ameer Haj-Ali, Nesreen~K Ahmed, Ted Willke, Yakun~Sophia Shao, Krste Asanovic,
+  and Ion Stoica.
+\newblock Neurovectorizer: end-to-end vectorization with deep reinforcement
+  learning.
+\newblock In {\em Proceedings of the 18th ACM/IEEE International Symposium on
+  Code Generation and Optimization}, pages 242--255, 2020.
+
+\bibitem{haj2020protuner}
+Ameer Haj-Ali, Hasan Genc, Qijing Huang, William Moses, John Wawrzynek, Krste
+  Asanovi{\'c}, and Ion Stoica.
+\newblock Protuner: tuning programs with monte carlo tree search.
+\newblock {\em arXiv preprint arXiv:2005.13685}, 2020.
+
+\bibitem{haj2020autophase}
+Ameer Haj-Ali, Qijing Huang, William Moses, John Xiang, John Wawrzynek, Krste
+  Asanovic, and Ion Stoica.
+\newblock Autophase: juggling hls phase orderings in random forests with deep
+  reinforcement learning.
+\newblock In {\em Third Conference on Machine Learning and Systems (ML-Sys)},
+  2020.
+
+\bibitem{hara3dcnns}
+Kensho Hara, Hirokatsu Kataoka, and Yutaka Satoh.
+\newblock Can spatiotemporal 3d cnns retrace the history of 2d cnns and
+  imagenet?
+\newblock In {\em Proceedings of the IEEE Conference on Computer Vision and
+  Pattern Recognition (CVPR)}, pages 6546--6555, 2018.
+
+\bibitem{he2016deep}
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+\newblock Deep residual learning for image recognition.
+\newblock In {\em Proceedings of the IEEE conference on computer vision and
+  pattern recognition}, pages 770--778, 2016.
+
+\bibitem{hinton2018matrix}
+Geoffrey~E Hinton, Sara Sabour, and Nicholas Frosst.
+\newblock Matrix capsules with em routing.
+\newblock 2018.
+
+\bibitem{howard2017mobilenets}
+Andrew~G Howard, Menglong Zhu, Bo~Chen, Dmitry Kalenichenko, Weijun Wang,
+  Tobias Weyand, Marco Andreetto, and Hartwig Adam.
+\newblock Mobilenets: efficient convolutional neural networks for mobile vision
+  applications.
+\newblock {\em arXiv preprint arXiv:1704.04861}, 2017.
+
+\bibitem{hu2020featgraph}
+Yuwei Hu, Zihao Ye, Minjie Wang, Jiali Yu, Da~Zheng, Mu~Li, Zheng Zhang, Zhiru
+  Zhang, and Yida Wang.
+\newblock Featgraph: A flexible and efficient backend for graph neural network
+  systems.
+\newblock {\em arXiv preprint arXiv:2008.11359}, 2020.
+
+\bibitem{huang2019autophase}
+Qijing Huang, Ameer Haj-Ali, William Moses, John Xiang, Ion Stoica, Krste
+  Asanovic, and John Wawrzynek.
+\newblock Autophase: compiler phase-ordering for hls with deep reinforcement
+  learning.
+\newblock In {\em 2019 IEEE 27th Annual International Symposium on
+  Field-Programmable Custom Computing Machines (FCCM)}, pages 308--308. IEEE,
+  2019.
+
+\bibitem{intel2017mkldnn}
+Intel.
+\newblock Intel® math kernel library for deep learning networks, 2017.
+
+\bibitem{ioffe2015batch}
+Sergey Ioffe and Christian Szegedy.
+\newblock Batch normalization: accelerating deep network training by reducing
+  internal covariate shift.
+\newblock {\em arXiv preprint arXiv:1502.03167}, 2015.
+
+\bibitem{jia2019taso}
+Zhihao Jia, Oded Padon, James Thomas, Todd Warszawski, Matei Zaharia, and Alex
+  Aiken.
+\newblock Taso: optimizing deep learning computation with automatic generation
+  of graph substitutions.
+\newblock In {\em Proceedings of the 27th ACM Symposium on Operating Systems
+  Principles}, pages 47--62, 2019.
+
+\bibitem{lavin2016fast}
+Andrew Lavin and Scott Gray.
+\newblock Fast algorithms for convolutional neural networks.
+\newblock In {\em Proceedings of the IEEE Conference on Computer Vision and
+  Pattern Recognition}, pages 4013--4021, 2016.
+
+\bibitem{li2018differentiable}
+Tzu-Mao Li, Micha{\"e}l Gharbi, Andrew Adams, Fr{\'e}do Durand, and Jonathan
+  Ragan-Kelley.
+\newblock Differentiable programming for image processing and deep learning in
+  halide.
+\newblock {\em ACM Transactions on Graphics (TOG)}, 37(4):139, 2018.
+
+\bibitem{liu2019optimizing}
+Yizhi Liu, Yao Wang, Ruofei Yu, Mu~Li, Vin Sharma, and Yida Wang.
+\newblock Optimizing cnn model inference on cpus.
+\newblock In {\em 2019 USENIX Annual Technical Conference (USENIX ATC 19)},
+  pages 1025--1040, 2019.
+
+\bibitem{looks2017deep}
+Moshe Looks, Marcello Herreshoff, DeLesley Hutchins, and Peter Norvig.
+\newblock Deep learning with dynamic computation graphs.
+\newblock {\em arXiv preprint arXiv:1702.02181}, 2017.
+
+\bibitem{medress1977speech}
+Mark~F. Medress, Franklin~S Cooper, Jim~W. Forgie, CC~Green, Dennis~H. Klatt,
+  Michael~H. O'Malley, Edward~P Neuburg, Allen Newell, DR~Reddy, B~Ritea,
+  et~al.
+\newblock Speech understanding systems: report of a steering committee.
+\newblock {\em Artificial Intelligence}, 9(3):307--316, 1977.
+
+\bibitem{moreau2019hardware}
+Thierry Moreau, Tianqi Chen, Luis Vega, Jared Roesch, Eddie Yan, Lianmin Zheng,
+  Josh Fromm, Ziheng Jiang, Luis Ceze, Carlos Guestrin, et~al.
+\newblock A hardware--software blueprint for flexible deep learning
+  specialization.
+\newblock {\em IEEE Micro}, 39(5):8--16, 2019.
+
+\bibitem{mullapudi2016automatically}
+Ravi~Teja Mullapudi, Andrew Adams, Dillon Sharlet, Jonathan Ragan-Kelley, and
+  Kayvon Fatahalian.
+\newblock Automatically scheduling halide image processing pipelines.
+\newblock {\em ACM Transactions on Graphics (TOG)}, 35(4):83, 2016.
+
+\bibitem{nvidia2017tensorcore}
+Nvidia.
+\newblock Nvidia tensor cores, 2017.
+
+\bibitem{nvidia2017tensorrt}
+Nvidia.
+\newblock Nvidia tensorrt: programmable inference accelerator, 2017.
+
+\bibitem{paszke2019pytorch}
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory
+  Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et~al.
+\newblock Pytorch: an imperative style, high-performance deep learning library.
+\newblock In {\em Advances in Neural Information Processing Systems}, pages
+  8024--8035, 2019.
+
+\bibitem{radford2015unsupervised}
+Alec Radford, Luke Metz, and Soumith Chintala.
+\newblock Unsupervised representation learning with deep convolutional
+  generative adversarial networks.
+\newblock {\em arXiv preprint arXiv:1511.06434}, 2015.
+
+\bibitem{ragan2013halide}
+Jonathan Ragan-Kelley, Connelly Barnes, Andrew Adams, Sylvain Paris, Fr{\'e}do
+  Durand, and Saman Amarasinghe.
+\newblock Halide: a language and compiler for optimizing parallelism, locality,
+  and recomputation in image processing pipelines.
+\newblock {\em Acm Sigplan Notices}, 48(6):519--530, 2013.
+
+\bibitem{roesch2019relay}
+Jared Roesch, Steven Lyubomirsky, Marisa Kirisame, Josh Pollock, Logan Weber,
+  Ziheng Jiang, Tianqi Chen, Thierry Moreau, and Zachary Tatlock.
+\newblock Relay: a high-level compiler for deep learning.
+\newblock {\em arXiv preprint arXiv:1904.08368}, 2019.
+
+\bibitem{sandler2018mobilenetv2}
+Mark Sandler, Andrew Howard, Menglong Zhu, Andrey Zhmoginov, and Liang-Chieh
+  Chen.
+\newblock Mobilenetv2: inverted residuals and linear bottlenecks.
+\newblock In {\em Proceedings of the IEEE conference on computer vision and
+  pattern recognition}, pages 4510--4520, 2018.
+
+\bibitem{schkufza2013stochastic}
+Eric Schkufza, Rahul Sharma, and Alex Aiken.
+\newblock Stochastic superoptimization.
+\newblock {\em ACM SIGARCH Computer Architecture News}, 41(1):305--316, 2013.
+
+\bibitem{shen2020nimble}
+Haichen Shen, Jared Roesch, Zhi Chen, Wei Chen, Yong Wu, Mu~Li, Vin Sharma,
+  Zachary Tatlock, and Yida Wang.
+\newblock Nimble: Efficiently compiling dynamic neural networks for model
+  inference.
+\newblock {\em arXiv preprint arXiv:2006.03031}, 2020.
+
+\bibitem{suriana2017parallel}
+Patricia Suriana, Andrew Adams, and Shoaib Kamil.
+\newblock Parallel associative reductions in halide.
+\newblock In {\em 2017 IEEE/ACM International Symposium on Code Generation and
+  Optimization (CGO)}, pages 281--291. IEEE, 2017.
+
+\bibitem{sutton2018reinforcement}
+Richard~S Sutton and Andrew~G Barto.
+\newblock {\em Reinforcement learning: an introduction}.
+\newblock MIT press, 2018.
+
+\bibitem{tillet2019triton}
+Philippe Tillet, HT~Kung, and David Cox.
+\newblock Triton: an intermediate language and compiler for tiled neural
+  network computations.
+\newblock In {\em Proceedings of the 3rd ACM SIGPLAN International Workshop on
+  Machine Learning and Programming Languages}, pages 10--19, 2019.
+
+\bibitem{vasilache2018tensor}
+Nicolas Vasilache, Oleksandr Zinenko, Theodoros Theodoridis, Priya Goyal,
+  Zachary DeVito, William~S Moses, Sven Verdoolaege, Andrew Adams, and Albert
+  Cohen.
+\newblock Tensor comprehensions: framework-agnostic high-performance machine
+  learning abstractions.
+\newblock {\em arXiv preprint arXiv:1802.04730}, 2018.
+
+\bibitem{vasilache2019next}
+Nicolas Vasilache, Oleksandr Zinenko, Theodoros Theodoridis, Priya Goyal,
+  Zachary Devito, William~S Moses, Sven Verdoolaege, Andrew Adams, and Albert
+  Cohen.
+\newblock The next 700 accelerated layers: from mathematical expressions of
+  network computation graphs to accelerated gpu kernels, automatically.
+\newblock {\em ACM Transactions on Architecture and Code Optimization (TACO)},
+  16(4):1--26, 2019.
+
+\bibitem{vaswani2017attention}
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+  Aidan~N Gomez, {\L}ukasz Kaiser, and Illia Polosukhin.
+\newblock Attention is all you need.
+\newblock In {\em Advances in neural information processing systems}, pages
+  5998--6008, 2017.
+
+\bibitem{verdoolaege2016presburger}
+Sven Verdoolaege.
+\newblock Presburger formulas and polyhedral compilation.
+\newblock 2016.
+
+\bibitem{verdoolaege2013polyhedral}
+Sven Verdoolaege, Juan Carlos~Juega, Albert Cohen, Jose Ignacio~Gomez,
+  Christian Tenllado, and Francky Catthoor.
+\newblock Polyhedral parallel code generation for cuda.
+\newblock {\em ACM Transactions on Architecture and Code Optimization (TACO)},
+  9(4):1--23, 2013.
+
+\bibitem{vikhar2016evolutionary}
+Pradnya~A Vikhar.
+\newblock Evolutionary algorithms: a critical review and its future prospects.
+\newblock In {\em 2016 International conference on global trends in signal
+  processing, information computing and communication (ICGTSPICC)}, pages
+  261--265. IEEE, 2016.
+
+\bibitem{wang2019unified}
+Leyuan Wang, Zhi Chen, Yizhi Liu, Yao Wang, Lianmin Zheng, Mu~Li, and Yida
+  Wang.
+\newblock A unified optimization approach for cnn model inference on integrated
+  gpus.
+\newblock In {\em Proceedings of the 48th International Conference on Parallel
+  Processing}, pages 1--10, 2019.
+
+\bibitem{whaley1998automatically}
+R~Clinton Whaley and Jack~J Dongarra.
+\newblock Automatically tuned linear algebra software.
+\newblock In {\em SC'98: Proceedings of the 1998 ACM/IEEE conference on
+  Supercomputing}, pages 38--38. IEEE, 1998.
+
+\bibitem{yu2015multi}
+Fisher Yu and Vladlen Koltun.
+\newblock Multi-scale context aggregation by dilated convolutions.
+\newblock {\em arXiv preprint arXiv:1511.07122}, 2015.
+
+\bibitem{zheng2020flextensor}
+Size Zheng, Yun Liang, Shuo Wang, Renze Chen, and Kaiwen Sheng.
+\newblock Flextensor: an automatic schedule exploration and optimization
+  framework for tensor computation on heterogeneous system.
+\newblock In {\em Proceedings of the Twenty-Fifth International Conference on
+  Architectural Support for Programming Languages and Operating Systems}, pages
+  859--873, 2020.
+
+\bibitem{zheng2020fusionstitching}
+Zhen Zheng, Pengzhan Zhao, Guoping Long, Feiwen Zhu, Kai Zhu, Wenyi Zhao,
+  Lansong Diao, Jun Yang, and Wei Lin.
+\newblock Fusionstitching: boosting memory intensive computations for deep
+  learning workloads.
+\newblock {\em arXiv preprint arXiv:2009.10924}, 2020.
+
+\end{thebibliography}

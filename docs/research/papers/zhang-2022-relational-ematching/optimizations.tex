@@ -1,0 +1,138 @@
+\section{Optimizations}
+\label{sec:optimization}
+
+Our implementation of relational \ematching
+ using generic join is simple (under 500 lines),
+ but that does not preclude having several optimizations
+ important for practical performance.
+
+\subsection{Degenerate Patterns}
+\label{sec:degenerate}
+
+Not all patterns correspond to conjunctive queries that involve relational
+joins.
+Non-nested patterns (whether linear or non-linear) will produce
+ relational queries without any joins:
+\begin{align*}
+  f(\alpha, \beta) &\leftrightarrow R_f(\mathit{root}, \alpha, \beta) \\
+  f(\alpha, \alpha) &\leftrightarrow R_f(\mathit{root}, \alpha, \alpha)
+\end{align*}
+The corresponding query plan is simply a
+ scan of a relation with possible filtering.
+For these queries,
+ generic join (or any other join plan) offers no benefit,
+ and building the indices for generic join incurs unnecessary overhead.
+A relational \ematching implementation (or any other kind)
+ should have a ``fast path''
+ for these relatively common types of queries
+ that simply scans the \egraph/database for matching \enodes/tuples.
+For this reason,
+ we exclude these kinds of patterns from our evaluation in \autoref{sec:eval}.
+
+\subsection{Variable Ordering}
+
+Different variable orderings can dramatically affect performance
+ for generic join~\cite{eval-wcoj, emptyheaded},
+ so choosing a variable ordering is important.
+Compared to join plans for binary joins,
+ query plans for generic join is much less studied.
+In relational \ematching\ we choose a variable ordering
+ using two simple heuristics:
+First, we prioritize variables that occur in many relations,
+ because the intersected set of many relations is likely to be smaller.
+Second, we prioritize variables that occur in small relations,
+ because intersections involving a small relations are also likely to be smaller.
+Performing smaller intersections first can prune down the search space early.
+
+Using these two heuristics,
+ the optimizer is able to find more efficient query plans
+ than the top-down search of backtracking-based \ematching.
+This is even true for linear patterns,
+ where our relational \ematching\ has no more information than
+ \ematching, but it does have more flexibility.
+Consider the linear pattern $f(g(h(\alpha)))$ compiled to
+the query $R_f(\mathit{root}, x), R_g(x, y), R_h(y, \alpha)$.
+When there are very few $h$-application \enodes\ in the \egraph,
+ $R_h$ will be small.
+The variable ordering $[y, x, \mathit{root}, \alpha]$
+ takes advantage of this by
+ intersecting $R_g.y \cap R_h.y$ first,
+ resulting in an intersection no larger than $R_h$.
+This ``bottom-up'' traversal is not possible in
+ conventional \ematching.
+
+%  For example, for queries like $+(a, \alpha)$, our optimizer is able to
+% exploit the fact that there is only one atom in $R_a$ (i.e., the relation
+% representing constant $a$), so enumerating this relation and use attributes of
+% $R_a$ to prune $R_+$ will immediately produces all valid substitutions (assuming
+% the indices on $R_+$ is built).
+% Meanwhile, in the top-down fashion of backtracking-based \ematching, the
+% matching procedure will need to go through all atoms of $R_+$ and check if
+% constant $a$ resides in their second child. Such query plan examines much more
+% unnecessary atoms in $R_+$, because only a small number of $+$-application
+% \enodes{} are connected to $a$.
+
+\subsection{Functional Dependencies}
+\label{sec:fd}
+
+Functional dependencies describe the dependencies between columns. For example,
+a functional dependency on relation $R(y, x_1, x_2, x_3)$ of the form
+$x_1,x_2,x_3\rightarrow y$ indicates that
+for each tuple of $R$,  the values of $x_1$, $ x_2$, and $x_3$ uniquely
+determines the value $y$. Functional dependencies are ubiquitous in relational
+\ematching. In fact, every transformed schema of the form $R_f(\textit{e-class},
+\textit{arg}_1,\ldots, \textit{arg}_k)$ has a functional dependency from
+$\textit{arg}_1,\ldots,\textit{arg}_k$ to $\textit{e-class}$.
+When the variable graph formed by functional dependencies is
+ acyclic~\footnote{Cyclicity of functional dependencies is unrelated to cyclicity of the query.},
+ we can speed up generic join by ordering the variables to follow the
+ topological order of the functional dependency graph.
+Every conjunctive query compiled from an \ematching\ pattern
+ has acyclic functional dependencies,
+ because each dependency goes from the \enode's children to the \enode's parent \eclass.
+Relational \ematching~can therefore always choose a variable
+ ordering that is consistent with the functional dependency.
+Our implementation tries to respect functional dependencies,
+ but prioritizes larger intersections more.
+
+As an example, consider conjunctive query~\ref{eqn:cyclic-cq} again. It is
+synthesized from pattern $f(g(\alpha), h(\alpha))$ and, assuming each relation
+has size $N$, an AGM bound of $O(N^{3/2})$. Suppose however that we pick the
+variable ordering $\pi$ to be $[\alpha, x, y, \textit{root}]$. For every
+possible value of $\alpha$ chosen, there will be at most one possible value for
+$x,y,$ and $\textit{root}$ by functional dependency, which can be immediately
+determined. This reduces the run time from $O(N^{3/2})$ to $O(N)$.
+
+\subsection{Batching}
+Generic join always processes one variable at a time,
+ even if multiple consecutive variables are from the same atom.
+We find this strategy to be inefficient in practice,
+ as it results in deeper recursion that does little useful work.
+
+Consider the query $Q(x, y, z, w) \gets R(x, y, \alpha), S(\alpha, z, w)$.
+The right variable ordering places $\alpha$ at the front,
+ since it is the only intersection.
+We observe that variables that only appear
+ in one atom can be ``batched''
+ with others that only appear in the same atom.
+Batched variables are treated as a single variable
+ in the trie and intersections.
+So instead of variable ordering $[\alpha, x, y, z, w]$,
+ we can use $[\alpha, (x, y), (z, w)]$.
+This lowers the recursion depth of generic join (from 5 to 3)
+ and improves data locality by reducing pointer-chasing.
+
+% For example, suppose the algorithm need to loop over a 2-level
+%  trie with two nested loops (without intersection),
+%  where the outer loop is large but the inner loop is always small.
+% Each loop incurs overhead due to caching,
+%  processing the trie with nested loops is slower than
+%  simply scanning a flattened vector.
+% For this reason, we flatten the last levels of each trie where
+%  the variables do not participate in any intersection,
+%  thereby ``batching'' the variables.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

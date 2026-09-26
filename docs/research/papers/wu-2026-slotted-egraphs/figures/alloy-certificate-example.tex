@@ -1,0 +1,96 @@
+\begin{figure}[t]
+\centering
+\scriptsize
+\setlength{\fboxsep}{4pt}
+
+\fbox{%
+\begin{minipage}{0.93\linewidth}
+\textbf{Model context}\par
+\ttfamily
+sig User \{\\
+\hspace*{1em}follows: set User,\\
+\hspace*{1em}sees: set Photo,\\
+\hspace*{1em}posts: set Photo,\\
+\hspace*{1em}suggested: set User\\
+\}\\
+sig Influencer extends User \{\}\hspace{1.5em}%
+sig Photo \{ date: one Day \}\\
+sig Ad extends Photo \{\}\hspace{1.5em}sig Day \{\}
+\end{minipage}%
+}
+
+\vspace{4pt}
+
+\begin{minipage}[t]{0.47\linewidth}
+\raggedright
+\textbf{LEFT}\par
+\ttfamily
+pred left \{\\
+\hspace*{1em}all u: User, p: Photo |\\
+\hspace*{2em}p in u.sees implies\\
+\hspace*{3em}(p not in Ad) implies\\
+\hspace*{4em}p in u.follows.posts\\
+\hspace*{5em}or p in Ad\\
+\}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.47\linewidth}
+\raggedright
+\textbf{RIGHT}\par
+\ttfamily
+pred right \{\\
+\hspace*{1em}all user: User, photo: Photo |\\
+\hspace*{2em}photo in user.sees implies\\
+\hspace*{3em}photo in user.follows.posts\\
+\hspace*{4em}or photo in Ad\\
+\}
+\end{minipage}
+
+\vspace{4pt}
+
+\begin{minipage}{0.95\linewidth}
+Let
+\(A(x,y)\equiv y\in x.\mathsf{sees}\),
+\(B(x,y)\equiv y\in x.\mathsf{follows}.\mathsf{posts}\), and
+\(C(y)\equiv y\in\mathsf{Ad}\).
+The typed quotient context is
+\(\Gamma_Q=\{q_0:\mathsf{User},q_1:\mathsf{Photo}\}\).
+
+\[
+\begin{aligned}
+\mathsf{left}
+&\stackrel{\mathrm{Imp},\,\alpha_{\Gamma_Q}}{\Longrightarrow}
+  \neg A(q_0,q_1)\lor C(q_1)\lor B(q_0,q_1)\lor C(q_1)\\
+&\stackrel{\mathrm{ACI}_{\lor}}{\Longrightarrow} Q,
+\\[1mm]
+\mathsf{right}
+&\stackrel{\mathrm{Imp},\,\alpha_{\Gamma_Q}}{\Longrightarrow}
+  \neg A(q_0,q_1)\lor B(q_0,q_1)\lor C(q_1)\\
+&\stackrel{\mathrm{ACI}_{\lor}}{\Longrightarrow} Q.
+\end{aligned}
+\]
+\end{minipage}
+
+\vspace{2pt}
+
+\fbox{%
+\begin{minipage}{0.93\linewidth}
+{\centering\textbf{Shared readable quotient}\par}
+\ttfamily
+all \_q0: User, \_q1: Photo |\\
+\hspace*{1em}\_q1 not in \_q0.sees\\
+\hspace*{1em}or \_q1 in \_q0.follows.posts\\
+\hspace*{1em}or \_q1 in Ad
+\end{minipage}%
+}
+
+\caption{Schematic certificate-bound saturation of two Alloy
+predicates. $\mathrm{Imp}$ denotes certified implication elimination;
+$\alpha_{\Gamma_Q}$ admits only type-preserving binder renamings, so
+the \texttt{User} and \texttt{Photo} coordinates cannot be exchanged;
+and $\mathrm{ACI}_{\lor}$ flattens, reorders, and deduplicates the
+visible disjunction children under the declared ACI certificates.
+The final Alloy text is a readable projection of the common canonical
+observation, rather than an independent authority for equality.}
+\label{fig:alloy-certificate-example}
+\end{figure}

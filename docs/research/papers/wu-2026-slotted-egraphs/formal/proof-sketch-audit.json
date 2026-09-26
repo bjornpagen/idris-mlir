@@ -1,0 +1,523 @@
+{
+  "schema_version": "2.0",
+  "audit_status": "CURRENT_PROOF_AND_HYPOTHESIS_METADATA_REBOUND_PENDING_FRESH_REVIEW",
+  "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+  "entry_count": 19,
+  "entries": [
+    {
+      "formal_id": "TSG-FND-001",
+      "paper_title": "Size of a Complete Binary AC Closure",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.ACClosureCounts.completeBinaryACClosureCounts",
+      "central_type_hash": "795bd01d724e2d55284a1df4603b64b85a2288907d875a57adfa159b425801ee",
+      "principal_lean_dependencies": [],
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-FND-001 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [],
+      "proof_sketch_principal_paper_dependencies": []
+    },
+    {
+      "formal_id": "TSG-PROP-001",
+      "paper_title": "Typed embedding identity, composition, and renaming inverse",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+      "central_type_hash": "e4334a5411bf148c35ad5c9d5e5756824b8bef0d76abcf5d1f05f10e9f4fe1fe",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.paperTypedEmbeddingRenamingDefinition"
+      ],
+      "foundation_axioms": [
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-PROP-001 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-002"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-002"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-002",
+      "paper_title": "Typed Embeddings Preserve Types",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes",
+      "central_type_hash": "426190d09f950222d532f4dbc5ba7210ac497d1df1b0624a63118af38ee158b1",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.ClaimLedger.TSGDEF005ConcreteEmbeddingActionBundle"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-002 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-005"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-005"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-001",
+      "paper_title": "Slot Support Invariance",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concreteSlotSupportInvariance",
+      "central_type_hash": "78ef31ac144d2be9ecca426520e86371ef4e65aa4329635bda03c454a1aec94f",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-COR-001 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-LEM-002"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-LEM-002"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-002",
+      "paper_title": "Type Safety of Invocation",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concreteTypeSafetyOfInvocation",
+      "central_type_hash": "5bdbd9a7c6ca45d3a93faaccff0fff6d1fc442d0ce837b564c5e133643ba9033",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws",
+        "TypedSlottedEGraphsPaper.concreteTypedEmbeddingsPreserveTypes"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-COR-002 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-PROP-001",
+        "TSG-LEM-002"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-PROP-001",
+        "TSG-LEM-002"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-003",
+      "paper_title": "Leaderization Contracts Support",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+      "central_type_hash": "cc2cc05d276f8f6e9a3f3c90eb6f3f7352c0189a857802330b4fe746769d0644",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.f10FiniteQuiescentGraphEncoding"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-003 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-007"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-007"
+      ]
+    },
+    {
+      "formal_id": "TSG-PROP-002",
+      "paper_title": "Typed Alpha-Equivalence Laws",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaFullEquivalenceLaws",
+      "central_type_hash": "5958a456312ae2accd02b458484e2f513e8a93007b4b27951b12c76ee4a9b64a",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.ConcreteTypedAlphaPort",
+        "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-PROP-002 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-008",
+        "TSG-PROP-001"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-008",
+        "TSG-PROP-001"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-004",
+      "paper_title": "Transport of Graph-Relative Invocation Alignment",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+      "central_type_hash": "ac0b3a6fc849e09166e0a6a3ba7267ba37dbfdc14517727908ca79e41f78613c",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy",
+        "TypedSlottedEGraphsPaper.typedEmbeddingCategoryLaws"
+      ],
+      "foundation_axioms": [
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-004 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-009",
+        "TSG-PROP-001"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-009",
+        "TSG-PROP-001"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-005",
+      "paper_title": "Identity Alignment Preserves Leader-Invocation Support",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.identityAlignedLeaderSupport",
+      "central_type_hash": "bb9bf09a81e14d90e79e912b586b81f42876dce680f6d207278a5811943edb76",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredAlignedBy",
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.GraphStructuredValue.LeaderNormalized"
+      ],
+      "foundation_axioms": [
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-005 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-009",
+        "TSG-DEF-011"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-009",
+        "TSG-DEF-011"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-006",
+      "paper_title": "Ambient Quotient-Normal-Form Exactness",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness",
+      "central_type_hash": "f38f33333b2f738b891e8458f54dcf22579ec81adf4f7e00903fb3c58cb891ea",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.quotientNormal"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-006 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-012"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-012"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-003",
+      "paper_title": "Effective-Support Canonical-Shape Exactness",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+      "central_type_hash": "ab958cad8a9b79adcc10d52940e9cdcdb8dca437f09295b0e3649be89f69bd3b",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer",
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+        "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-COR-003 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-013",
+        "TSG-LEM-004",
+        "TSG-LEM-006"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-013",
+        "TSG-LEM-004",
+        "TSG-LEM-006"
+      ]
+    },
+    {
+      "formal_id": "TSG-PROP-003",
+      "paper_title": "Finite Rebuild Quiescence",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.finiteRebuildQuiescence",
+      "central_type_hash": "9adf0659e20ff2133b4275195864eb09e26e34ba03b4e7ed79206c5b0c666a9b",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.rebuildStepWellFounded",
+        "TypedSlottedEGraphsPaper.RebuildSystem.progress",
+        "TypedSlottedEGraphsPaper.RebuildReachable.reflexive",
+        "TypedSlottedEGraphsPaper.RebuildReachable.step"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "Well-founded induction on the supplied natural dirty measure R.dirtyMeasure; progress strictly decreases it.",
+      "where_certificates_enter": "Not applicable: F18 is the abstract administrative rebuild termination result.",
+      "where_classical_or_extensional_reasoning_enters": "The audited declaration depends only on propext, Classical.choice, and Quot.sound.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-PROP-003 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [],
+      "proof_sketch_principal_paper_dependencies": []
+    },
+    {
+      "formal_id": "TSG-LEM-007",
+      "paper_title": "Soundness of Typed Alpha-Equivalence Modulo Binder-Block Automorphisms",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+      "central_type_hash": "6c17ff8fd9cebcdeb7b42bed597e93347df7c6ff56c0f351c78f4fd96472b9de",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.concreteAlphaPortClosureCertificateSoundness",
+        "TypedSlottedEGraphsPaper.typedCertificateSemanticSoundness"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "Induction on ConcreteAlphaPortClosure, followed by induction on TypedEquationalCertificate for semantic soundness.",
+      "where_certificates_enter": "ConcreteStructuralLaws supplies certificates for direct leaves; closure constructors compose them.",
+      "where_classical_or_extensional_reasoning_enters": "The audited declaration depends on propext and Quot.sound.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-007 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-008",
+        "TSG-DEF-019",
+        "TSG-INV-006",
+        "TSG-INV-007",
+        "TSG-INV-008"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-008",
+        "TSG-DEF-019",
+        "TSG-INV-006",
+        "TSG-INV-007",
+        "TSG-INV-008"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-008",
+      "paper_title": "Naturality of Structural Realization",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+      "central_type_hash": "3f2b28e0190855e8e9f47e413078e35821a6f00aa8829092dd7efe7ef02d584d",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.StructuralSyntax.rec",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.atomNatural",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.containerNatural",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.binderNatural",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.binderBlockNatural",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.nodeNatural"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "Mutual structural recursion over StructuralSyntax values and StructuralForest children.",
+      "where_certificates_enter": "Not applicable: F21 is a naturality theorem for structural realization.",
+      "where_classical_or_extensional_reasoning_enters": "None; the audited declaration has an empty axiom set.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-008 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-005",
+        "TSG-DEF-015",
+        "TSG-DEF-020"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-005",
+        "TSG-DEF-015",
+        "TSG-DEF-020"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-009",
+      "paper_title": "Soundness of Direct Node Congruence",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+      "central_type_hash": "846a95264df33e966446dbb8c3c739c72ce95acc1621cee5afd6b4faeab122fb",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.certifiedConcreteStructuralLaws",
+        "TypedSlottedEGraphsPaper.concreteNodeAlignmentCertificateSoundness"
+      ],
+      "foundation_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "Recursive certificate construction over ConcreteNodeAlignment and its port/argument alignment derivations.",
+      "where_certificates_enter": "Every CertifiedConcreteLeaf supplies a certificate; constructor laws close the recursive alignment cases.",
+      "where_classical_or_extensional_reasoning_enters": "The audited declaration depends on propext and Quot.sound.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-009 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-009",
+        "TSG-LEM-007",
+        "TSG-LEM-008",
+        "TSG-DEF-020"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-016",
+        "TSG-DEF-020"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-010",
+      "paper_title": "Find and Finite Unfolding Preserve Equational Certificates",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.paperF24FindAndFiniteUnfoldingPreserveEquationalCertificates",
+      "central_type_hash": "d606d940421457397f801a80c460a5c9752050c2fa233a6d4ee4beaf846c5ef6",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.paperAtom033FindWitnessCertificate",
+        "TypedSlottedEGraphsPaper.paperAtom034FiniteUnfoldingWitnessCertificate",
+        "TypedSlottedEGraphsPaper.PaperParentPath.callerCertificate",
+        "TypedSlottedEGraphsPaper.certifiedFiniteUnfoldingTraceCertificate"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "Induction on the raw parent path and on the finite local unfolding trace.",
+      "where_certificates_enter": "PC certificates enter the find path; EC plus primitive/congruence certificates enter finite unfolding.",
+      "where_classical_or_extensional_reasoning_enters": "None; the audited declaration has an empty axiom set.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-010 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-021",
+        "TSG-DEF-022",
+        "TSG-LEM-008",
+        "TSG-LEM-009"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-021",
+        "TSG-DEF-022",
+        "TSG-ATOM-033",
+        "TSG-ATOM-034"
+      ]
+    },
+    {
+      "formal_id": "TSG-LEM-011",
+      "paper_title": "Certified Leader-Kernel Extraction",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction",
+      "central_type_hash": "ec80838ba8b3ac95e455a71a5f3d56271daaa5c15cbfbb2e61f2d451ccb20fa9",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.certifiedKernelReplayCertificate"
+      ],
+      "foundation_axioms": [],
+      "induction_or_recursion_measure": "Induction on CertifiedKernelReplay.",
+      "where_certificates_enter": "Replay constructors build certificates by reflexivity, primitive steps, congruence, symmetry, and transitivity.",
+      "where_classical_or_extensional_reasoning_enters": "None; the audited declaration has an empty axiom set.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-LEM-011 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-010",
+        "TSG-DEF-016"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-010",
+        "TSG-DEF-016"
+      ]
+    },
+    {
+      "formal_id": "TSG-COR-004",
+      "paper_title": "Certified Effective-Shape Collision",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.paperF26CertifiedEffectiveShapeCollision",
+      "central_type_hash": "90ada0833065225a0e39e1b7fd747c79f7e601fd4ad66441a4a6d655624928e5",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.NormalizationBridge.EffectiveSupportCanonicalizer.effectiveSupportCanonicalShapeExactness",
+        "TypedSlottedEGraphsPaper.QuiescentFiniteTypedEGraph.graphInvocationAlignment_transport",
+        "TypedSlottedEGraphsPaper.StructuralRealizer.structuralRealizationNaturality",
+        "TypedSlottedEGraphsPaper.concretePortAndNodeCongruenceCertificate",
+        "TypedSlottedEGraphsPaper.paperF25CertifiedLeaderKernelExtraction"
+      ],
+      "foundation_axioms": [
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "No hidden recursion; see the exact compiled declaration and appendix sketch.",
+      "where_certificates_enter": "Only through the explicit certificate arguments shown in the Lean type.",
+      "where_classical_or_extensional_reasoning_enters": "Controlled by the exact axiom list.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-COR-004 in formal/dependency-graph.json",
+      "audit_result": "INTERNAL_REPAIRED_TYPE_AND_SKETCH_CHECK_COMPLETE_ROUND2_INDEPENDENT_REVIEW_PENDING",
+      "registry_paper_direct_dependencies": [
+        "TSG-COR-003",
+        "TSG-LEM-004",
+        "TSG-LEM-008",
+        "TSG-LEM-009",
+        "TSG-LEM-011"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-COR-003",
+        "TSG-LEM-004",
+        "TSG-LEM-008",
+        "TSG-LEM-009",
+        "TSG-LEM-011"
+      ]
+    },
+    {
+      "formal_id": "TSG-THM-001",
+      "paper_title": "Certificate-Preserving Reachability and Finite-Unfolding Soundness",
+      "central_lean_declaration": "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness",
+      "central_type_hash": "3dc00323c4bc4cf733c87457fb6237efea76eea5b18645a11c51b49ef4b6eab1",
+      "principal_lean_dependencies": [
+        "TypedSlottedEGraphsPaper.paperAtom039CertifiedReachabilityPreservesCoherence",
+        "TypedSlottedEGraphsPaper.paperAtom040FiniteUnfoldingEquationalSoundness",
+        "TypedSlottedEGraphsPaper.paperAtom041FiniteUnfoldingModelSoundness",
+        "TypedSlottedEGraphsPaper.paperAtom042CommonContextWeakenedFiniteUnfoldingSoundness"
+      ],
+      "foundation_axioms": [
+        "Quot.sound"
+      ],
+      "induction_or_recursion_measure": "LocalCertifiedTrace induction establishes coherence; the finite-unfolding helpers recurse on symmetry words, parent paths, and finite unfolding traces.",
+      "where_certificates_enter": "ATOM-039 preserves the family, ATOM-040 constructs the unfolding certificate, ATOM-041 applies model soundness, and ATOM-042 transports it to a common context.",
+      "where_classical_or_extensional_reasoning_enters": "The audited declaration depends only on Quot.sound.",
+      "appendix_proof_pointer": "appendix_formal.tex; exact dependency node TSG-THM-001 in formal/dependency-graph.json",
+      "audit_result": "REGENERATED_FROM_APPENDIX_SKETCH_AND_EXACT_LEAN_DEPENDENCIES",
+      "registry_paper_direct_dependencies": [
+        "TSG-DEF-023",
+        "TSG-DEF-021",
+        "TSG-ATOM-039",
+        "TSG-ATOM-040",
+        "TSG-ATOM-041",
+        "TSG-ATOM-042"
+      ],
+      "proof_sketch_principal_paper_dependencies": [
+        "TSG-DEF-023",
+        "TSG-DEF-021",
+        "TSG-ATOM-039",
+        "TSG-ATOM-040",
+        "TSG-ATOM-041",
+        "TSG-ATOM-042"
+      ]
+    }
+  ],
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "dependency_field_semantics": {
+    "registry_paper_direct_dependencies": "Exact curated direct_dependencies copied mechanically from formal-units.yaml.",
+    "proof_sketch_principal_paper_dependencies": "The smaller narrative path emphasized by the appendix proof sketch; it is not asserted to equal the registry graph.",
+    "principal_lean_dependencies": "Named Lean declarations emphasized by the proof sketch; compiler-used ACTIVE edges live in compiler-dependency-graph.json."
+  },
+  "regeneration_provenance": {
+    "paper_fields_regenerated": true,
+    "Lean_proof_fields_carried_forward_by_exact_file_hash": true
+  }
+}

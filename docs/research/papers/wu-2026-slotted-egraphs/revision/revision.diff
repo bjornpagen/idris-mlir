@@ -1,0 +1,398 @@
+--- original/appendixC_vmcai_stage1.tex
++++ updated/appendixC_vmcai_stage1.tex
+@@ -11,7 +11,7 @@
+ Figure~\ref{alg:canon-g} and the Alloy/Java names are a refinement target for
+ those abstract objects, not a proved implementation correspondence.  An arrow
+ below denotes a proposed representative orientation unless the text marks the
+-operation as structural cleanup.  Publication run \path{df4d8d4c-6265-4fe7-88d5-3aceee60398b}
++operation as structural cleanup.  Publication run \path{db9f89bf-0965-4d74-8080-d9191d5f1aec}
+ records rule set \path{canonical-equivalences-v3-explicit-laws}.  This binds the
+ measured configuration but does not prove that Java realizes this appendix's
+ abstract rules or contracts.
+--- original/appendix_closure_tables.tex
++++ updated/appendix_closure_tables.tex
+@@ -1,11 +1,15 @@
+ \subsection{Artifact-refinement boundary}
+ \label{app:artifact-refinement-boundary}
+ 
+-Table~\ref{tab:artifact-refinement-boundary} is a compact rendering of
++Table~\ref{tab:artifact-refinement-boundary} renders the archived assessment
++at repository snapshot \texttt{6764808}, retained in
+ \texttt{formal/artifact-refinement-map.json}.  ``Exact Lean specification''
+ means that the paper-side contract has a distinct compiled declaration; it
+-does not mean that the listed Java producer refines that contract.  No row
+-has a Lean refinement proof or a Lean-checked implementation trace.
++does not mean that the listed Java producer refines that contract. No row
++in that archived assessment has a Lean refinement proof or a Lean-checked
++implementation trace. The newer bounded replay evidence noted in
++Appendix~\ref{app:evaluation-detail} is separate from this frozen matrix;
++it does not establish the full component refinements listed here.
+ 
+ \begingroup\scriptsize
+ \setlength{\tabcolsep}{3pt}
+--- original/appendix_eval.tex
++++ updated/appendix_eval.tex
+@@ -10,18 +10,24 @@
+ \def\UrlBreaks{\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9%
+   \do\a\do\b\do\c\do\d\do\e\do\f}
+ \Urlmuskip=0mu plus 1mu\relax
+-The evidence is bound to ACGN publication HEAD
+-\path{63f3b8c2931202e9b3582a8802c558725a67ac26} and immutable publication run
+-\path{df4d8d4c-6265-4fe7-88d5-3aceee60398b}, generated from a clean checkout
+-of source commit \path{fbd9b1497a9036c55780da777f56581bc1c6bcec}.
++The ACGN repository snapshot is
++\path{1e2667351532b0c632166fa21ae5fbc7308a8fe7} on branch
++\texttt{aislop}. Full-corpus measurements use publication run
++\path{db9f89bf-0965-4d74-8080-d9191d5f1aec}, completed on September 8,
++2026, from a clean checkout of source commit
++\path{8ad5fead39b687d2cadc79b01ac27743c1ece990}.
+ The natural-corpus dataset SHA-256 is
+ \path{d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689},
+ and the executable JAR SHA-256 is
+-\path{361b33ef56f6ccb1089a7a6fdda2a92bf621e501166c5a1c73330a0cc1686807}.
++\path{a053e40e64faa2ecffb0f4999b57aa661eae51933d6daf93a95d973144a71abf}.
+ The manifest records rule set
+ \path{canonical-equivalences-v3-explicit-laws} and repair metric
+ \path{certified-fast-rewrite-repair-distance-v12}.  These identifiers bind the
+ measurements; they do not certify the implementation against the formal model.
++All four experimental stages use that one JAR, 16 workers, an 8~GiB heap,
++OpenJDK 17.0.20, and seed 55520260811. The controlled suite has dataset
++SHA-256 \path{898d8123ce12ee9a28cb106b801c4d3cb9e1c8aaa2644e0389aedd41e6fb49c3}.
++The later assurance-only release retains these full-corpus artifacts.
+ \endgroup
+ 
+ \subsection{Arms and Representation Boundaries}
+@@ -65,9 +71,10 @@
+ \input{tables/table2_rev4}
+ \input{tables/table3_vmcai_stage1}
+ 
+-The augmented truth pool is restricted to predicates labeled
+-\texttt{CORRECT} in the same invariant group; comparisons do not cross group
+-boundaries.  Each repair coordinate selects its own nearest reference and has
++The augmented truth pool contains the oracle and student predicates labeled
++\texttt{CORRECT} in the same invariant group, with raw-AST duplicates removed;
++comparisons do not cross group boundaries. Each repair coordinate selects its
++own nearest reference and has
+ its own edit unit.  Canonical-representative tree edit distance is a diagnostic
+ baseline rather than the primary repair metric.
+ 
+@@ -123,10 +130,30 @@
+ counterexample or solver error for those identities and rejected four invalid
+ probes: capture during beta
+ reduction, comprehension-column permutation, signature shadowing, and a
+-temporal implication error.  None of 23 conclusive non-temporal targeted
+-subtypes failed.  Six temporal checks remained inconclusive because temporal
+-analysis was unavailable; a warned static reduction is not counted as a pass
+-or failure.
++temporal implication error. Targeted capability validation was refreshed
++separately after the checker was repaired to detect temporal operators inside
++called predicate bodies. All 29 sampled checks, one per family/subtype
++combination, completed without a counterexample, error, or inconclusive
++result. Eight use bounded temporal solving at scope 4 with trace bounds
++1--10. This includes the six temporal checks that had previously been
++inconclusive; the older warned static reduction is superseded by this
++bounded temporal evidence.
++
++\begingroup
++\def\UrlBreaks{\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9%
++  \do\a\do\b\do\c\do\d\do\e\do\f}
++\Urlmuskip=0mu plus 1mu\relax
++The validation run is \path{659e248c-d3d6-4a2b-8d99-67a0ebcf9eb4},
++completed on September 9, 2026, from clean source
++\path{8feab00f9190482af6a25334af5b2716653f8ac9}. Its separate JAR has
++SHA-256 \path{67e7dd088ef864a9170178e6b6c963a2c339836fa88b25cffe8e20788714f04a}.
++The manifest binds the same 5,500 generated models, but the executed solver
++sample contains only 29 checks, with one worker and a 1~GiB heap.
++The report is \path{capability_validation/soundness.json} within that run.
++Neither this validation nor the subsequent bounded constructor and
++certificate-record replay packages constitute full-corpus trace replay or
++full Java/parser refinement.
++\endgroup
+ 
+ The natural corpus consists of short educational specifications with
+ inherited labels, and excluding identical ASTs conditions the analysis on
+--- original/eval_compressed.tex
++++ updated/eval_compressed.tex
+@@ -1,14 +1,9 @@
+ \section{Implementation and Evaluation}
+ \input{figures/alloy-certificate-example}
+ \label{sec:evaluation}
+-Alloy is a typed relational specification language.~\cite{alloy} A \texttt{sig}
+-declares a set of atoms, a field declares a relation,
+-\texttt{extends} declares a subsignature, dot is relational join, and
+-\texttt{all x:T |}~$\varphi$ universally quantifies an atom of type
+-\texttt{T}. Thus, \texttt{u.follows.posts} denotes the photos posted by
+-users followed by \texttt{u}, while \texttt{p in u.sees} tests whether
+-\texttt{u} sees \texttt{p}. Figure~\ref{fig:alloy-certificate-example}
+-compares two predicates for the same policy. Predicate \texttt{left}
++Figure~\ref{fig:alloy-certificate-example} uses the social-media model
++introduced in Section~\ref{sec:background} to compare two predicates for
++the same policy. Predicate \texttt{left}
+ uses a nested implication; after implication elimination, its body
+ contains two copies of \texttt{p in Ad}. Predicate \texttt{right}
+ states directly that every seen photo is either posted by a followed
+@@ -31,13 +26,9 @@
+ not establish that the Java adapter refines the formal construction, that the
+ reported equalities are complete for Alloy semantics, or that the corpus has
+ been replayed by an independently verified checker.  The values below are
+-bound to clean publication run prefix \texttt{df4d8d4c} and source-commit
+-prefix \texttt{fbd9b149}; Appendix~\ref{app:evaluation-detail} records the
++bound to clean publication run prefix \texttt{db9f89bf} and source-commit
++prefix \texttt{8ad5fead}; Appendix~\ref{app:evaluation-detail} records the
+ complete manifest identities and hashes.
+-
+-%\Fix{The brief background on Alloy can go here or where mentioned earlier.}
+-
+-%\Fix{This is where I think we should also add a few illustrative examples (or we may find them better suited in the background section). We can introduce one small model from alloy4fun, and an incorrect and correct predicate pair, egraph version of them, edit distance calculations between them, etc to contextualize the experiments as well as the theoretical work. Overall, as mentioned, it is important for the paper to be able to stand alone. So, we do need to provide more context on Alloy. Besides how it works, the reviewer may wonder `what is a correct predicate and how do you check that?' Or similar aspects.}
+ 
+ \paragraph{Corpus and protocol.}
+ The classified Alloy4Fun snapshot~\cite{alloy4funDataset2023,alloy4fun,novice} contains 66,080
+@@ -78,7 +69,9 @@
+ \end{equation}
+ The coordinates respectively use ordered dynamic programming, exact
+ type-compatible binder-orbit matching, and carrier-specific sequence,
+-bag-assignment, set-assignment, or direct-child comparison.  Proof wrappers,
++bag-assignment, set-assignment, or direct-child comparison.
++The matrix comparison reuses one binder-owner mapping across every inherited
++temporal phase. Proof wrappers,
+ certificates, rebuild metadata, and support plumbing are absent from the
+ projection.  The Certificate-Integrated paired mean is 14.022, compared with
+ 13.943 for Fast Rewrite.  Over the 42,386 incorrect predicates, their
+@@ -117,10 +110,10 @@
+ \toprule
+ Arm & Correct $d=0$ & Incorrect $d=0$ & Wall (s) & Targeted\\
+ \midrule
+-Raw + De Bruijn & 2,160 & 0 & 19.440 & 3,628/5,500\\
+-Slot-shaped core & 2,159 & 0 & 19.300 & 5,500/5,500\\
+-Fast Rewrite IR & 4,074 & 0 & 23.860 & 5,500/5,500\\
+-Certificate-Integrated & 4,088 & 0 & 2,775.650 & 5,500/5,500\\
++Raw + De Bruijn & 2,160 & 0 & 19.380 & 3,628/5,500\\
++Slot-shaped core & 2,159 & 0 & 19.670 & 5,500/5,500\\
++Fast Rewrite IR & 4,074 & 0 & 23.990 & 5,500/5,500\\
++Certificate-Integrated & 4,088 & 0 & 2,684.110 & 5,500/5,500\\
+ \bottomrule
+ \end{tabular}
+ \end{table}
+@@ -139,13 +132,13 @@
+ occurrence-bound, while memoization is local to one adaptation, so these
+ objects cannot be reused wholesale across predicates.  The measured path did
+ not retain an independent replay trace.  With 16 workers, it reached
+-7,153.183~MiB peak used heap and 8,912.141~MiB maximum Resident Set Size (RSS).  No GC-pause or
++7,137.811~MiB peak used heap and 8,943.988~MiB maximum Resident Set Size (RSS).  No GC-pause or
+ object-allocation profile was collected, so the measurements do not attribute
+ a quantified share of the slowdown to garbage collection.
+ 
+-Against Fast Rewrite on the same snapshot, this arm was 116.331 times slower
+-in process wall time and used 573.666 times more engine CPU; on the targeted
+-suite the process-wall ratio was 87.680.  Its average pair-level ablation
++Against Fast Rewrite on the same snapshot, this arm took 111.885 times as much
++process wall time and used 593.026 times as much engine CPU; on the targeted
++suite the process-wall ratio was 86.920. Its average pair-level ablation
+ representation-unit count was slightly smaller, 29.541 versus 30.001.  The observed gap is therefore
+ consistent with this audit-heavy implementation---global validation, exact
+ renaming and certificate work, rebuilds, and finite unfolding---rather than
+@@ -166,12 +159,17 @@
+ checks rather than complete exported-and-replayed traces.  A manifest-bound
+ bounded Alloy analysis covered the union of 4,088 current correct-pair
+ zero-distance claim identities from the Fast Rewrite and
+-Certificate-Integrated arms.  Its supported analyses found no counterexample
+-or solver error and rejected four deliberately invalid probes; 23 conclusive
+-non-temporal targeted checks had no failures.  Six temporal checks were
+-inconclusive, and one raw solver counterexample arose only under a warned,
+-unsupported static reduction and is not evidence about temporal semantics.
++Certificate-Integrated arms. Its supported analyses found no counterexample
++or solver error and rejected four deliberately invalid probes. A separate
++validation refresh checked one generated example from each of 29
++family/subtype combinations, with no counterexample, solver error, or
++inconclusive result. Eight checks used bounded temporal solving at object
++scope 4 and trace bounds 1--10. This refresh fixes temporal-mode detection
++through predicate calls and supersedes the six previously inconclusive
++temporal checks; it does not replace the full-corpus measurements.
++Newer repository packages also check bounded Java-to-Lean constructor and
++certificate-record replays, separately from these corpus observations.
+ Consequently, the evaluation supports bounded structural-consolidation and
+-transformation-recognition observations only; Java--Lean refinement,
++transformation-recognition observations only; full Java--Lean refinement,
+ full-trace replay, semantic completeness, industrial generalization, and
+ causal attribution remain open.
+--- original/figures/aci_canonicalization_distance.tex
++++ updated/figures/aci_canonicalization_distance.tex
+@@ -4,7 +4,7 @@
+ \caption{Cumulative nearest-reference coverage for the $n=42{,}386$
+ non-\texttt{CORRECT} predicates.  At inclusive radius $r$, blue is the
+ Certificate-Integrated IR observation distance and orange is raw-AST tree-edit
+-distance to the nearest AST-distinct recorded \texttt{CORRECT} predicate in
++distance to the nearest AST-distinct oracle or \texttt{CORRECT} student predicate in
+ the same invariant group.  The horizontal axis is capped at 50 while all
+ 42,386 predicates remain in the denominator.  ``Repaired'' in the axis label
+ denotes only falling within this nearest-reference radius: no candidate is
+--- original/prelims_compressed.tex
++++ updated/prelims_compressed.tex
+@@ -1,9 +1,12 @@
+ \section{Background and Scope}
+ \label{sec:background}
+-%\Fix{Overall, this background section is very brief. I think there is space to expand it so that the paper can stand alone without the reader having to look through other papers. In general, reviewers tend to knock papers that require you to read something else to get what it says. I think our two gaps are (1) demonstrating what an e-graph is and briefly explicitly stating what purpose it serves and (2) context on Alloy for the evaluation to be understood.}
+-An e-graph stores e-nodes in equivalence classes, represents class equality
+-with union--find, hash-conses canonical keys, and rebuilds parent keys after
+-unions~\cite{ogEgraphs1,egraphsOG,egg}. 
++
++\paragraph{E-graphs and equality saturation.}
++An e-graph compactly records expressions that have been shown equal under a
++chosen set of equations. An \emph{e-node} stores an operator and references to
++its child \emph{e-classes}; an e-class groups alternative expressions already
++known to be equal. Thus a child reference can stand for several expressions,
++and shared subexpressions need not be copied~\cite{ogEgraphs1,egraphsOG,egg}.
+ Assume an arithmetic language in which $x\times 2=x+x$ is a valid
+ equation. Let $c_a=\{a\}$ and $c_2=\{2\}$ be singleton e-classes.
+ The term $a\times 2$ is represented by the e-node
+@@ -14,51 +17,99 @@
+ $$
+ A parent e-node $g(c)$ therefore represents both $g(a\times 2)$ and
+ $g(a+a)$ while sharing their common subterms.
+-%\Fix{We should not expect that the reviewers know what egraphs are/details about them. We should have a small illustrative example to introduce them. While it is good to highlight the work done in the field to make better egraph representations (second paragraph) it is also good to highlight what role they serve at large. Why make and use an egraph?} 
+ 
+-Ordinary positional nodes do not internalize ACI: explicit bidirectional rules may materialize many
+-parenthesizations and permutations.  Rewriting modulo AC and canonized
++This propagation from equal children to equal parent expressions is
++\emph{congruence}. An implementation uses union--find to track merged
++classes and \emph{hash-consing} to reuse nodes with the same operator and
++child-class key. After a merge, \emph{rebuilding} updates parent keys and
++merges any newly identical parents. \emph{Equality saturation} repeats
++equation application and rebuilding until no new nodes or equalities are found or a
++resource limit is reached. The alternatives remain available until
++\emph{extraction} selects a represented term, for example one with least
++cost under a chosen cost model. In this paper, the e-graph provides the
++shared structure on which flexible-arity operators and typed slot renamings
++are combined.
++
++\paragraph{Algebraic structure and binding.}
++Ordinary positional nodes do not internalize associativity, commutativity,
++and idempotence (ACI): explicit bidirectional rules may materialize many
++parenthesizations and permutations. For conjunction, associativity permits
++flattening nested conjunctions, commutativity forgets operand order, and
++idempotence removes repeated operands. These are distinct choices: a
++sequence preserves order and multiplicity, a bag forgets order but retains
++multiplicity, and a set forgets both. Rewriting modulo AC and canonized
+ completion provides the established basis for flat bags and
+-sets~\cite{conchon2012canonized,kapur2021ModularAC}.  Here we combine these
++sets~\cite{conchon2012canonized,kapur2021ModularAC}. Here we combine these
+ techniques with typed open-term interfaces.
+ 
+-Thus, an e-graph represents a family of known-equivalent terms rather
+-than one selected term. Its purpose is to retain alternatives while
+-rewrites are explored, propagate equalities through congruence, and
+-defer the choice of a representative until extraction. In this paper,
+-it provides the shared structure on which flexible-arity operators and
+-typed slot renamings are combined.
+-%\Fix{This paragraph seems to be an overview of the existing related work for e-graphs. I would add a transition sentence to express that as this paragraph feels disjointed from what is expressed above it. There is also a disconnect in flow where the paper where the above sentence outlines what we do at a high level, then we have this related work, then the next paragraph is what we do again. So we may want to further reorder this even with a transition sentence to contextualize what this paragraph expresses.}
+-Various existing works has encoded flattening of variadic operators and 
+-variable bindings in e-graphs and general programming languages that 
+-extends naturally with implementations of equality saturation. 
++Variable binding introduces a separate source of syntactic variation:
++$\forall x{:}T.\,P(x)$ and $\forall y{:}T.\,P(y)$ differ only in a
++consistently renamed bound variable. This is $\alpha$-equivalence. An open
++term, such as the body $P(x)$ considered outside its quantifier, must retain
++its dependence on $x$; sharing it in another scope therefore requires an
++explicit account of which variable fills that position.
++
++Prior work addresses these representation choices in several ways.
+ Egglog supports typed container values in a relational fixpoint
+ system~\cite{egglog,egglog_software}; E-graphs Modulo Theories supplies a
+ general interface to theory-specific canonical
+-domains~\cite{zucker2025omeletsneedonionsegraphs}.  Lifting E-Graphs represents open
++domains~\cite{zucker2025omeletsneedonionsegraphs}. Lifting E-Graphs represents open
+ terms as functions over interfaces~\cite{zucker2026lifting}, while
+ Categorical E-Graphs treats binding through hierarchical
+-hypergraphs~\cite{egBindings}.  Slotted E-Graphs instead expose a finite slot interface
++hypergraphs~\cite{egBindings}. Slotted E-Graphs instead expose a finite slot interface
+ $S_a$ for each class and represent an occurrence as $m*a$, where $m$ maps
+-$S_a$ into the caller~\cite{slottedEGraphs}.  Shapes quotient concrete slot
++$S_a$ into the caller~\cite{slottedEGraphs}. The slots record the class's
++exposed variable positions; the map says which caller variables fill them.
++In our typed setting, a \texttt{User} slot must map to a \texttt{User}
++coordinate, and a \texttt{Photo} slot to a \texttt{Photo} coordinate.
++The notation $m*a$ denotes an occurrence with that interface map, not a
++claim that arbitrary assignments to its free variables give equal values.
++Shapes quotient concrete slot
+ names; separately justified groups record symmetries, and a coordinate may be
+-removed only after independence is proved.  De Bruijn indices normalize
++removed only after independence is proved. De Bruijn indices normalize
+ ordinary alpha-renaming but do not express side-conditioned
+ permutations of declaration blocks~\cite{deBruijn,maziarz2021HashingAlpha}.
+ 
++\paragraph{Alloy models and checks.}
++Alloy is a typed relational specification language with temporal
++operators~\cite{alloy,kodkod}. A model describes sets of objects and relations
++between them. A \texttt{sig} declares a set of atoms, a field declares a
++relation, \texttt{extends} declares a subsignature, and a \texttt{pred}
++packages a formula. In the social-media model of
++Figure~\ref{fig:alloy-certificate-example}, \texttt{User} and \texttt{Photo}
++are sets, \texttt{Ad} is a subset of \texttt{Photo}, and
++\texttt{follows: set User} associates each user with any number of users.
++The multiplicity \texttt{one} in \texttt{date: one Day} requires exactly
++one day per photo. Dot denotes relational join:
++\texttt{u.follows.posts} is the set of photos posted by users whom
++\texttt{u} follows. The formula \texttt{p in u.sees} tests whether
++\texttt{u} sees \texttt{p}, and \texttt{all u: User |} universally
++quantifies a user.
++
++The Alloy Analyzer searches for instances satisfying a predicate with
++\texttt{run}, or for counterexamples to an assertion with \texttt{check}.
++The search uses a specified object scope and, for bounded temporal analysis,
++trace bounds. Checking equivalence asks whether the two predicates can
++disagree in a permitted instance; finding no disagreement is evidence within
++those bounds. In our dataset, each exercise supplies an oracle predicate
++expressing the intended constraint. A student predicate is overconstrained
++when it excludes oracle-allowed instances, underconstrained when it admits
++oracle-forbidden instances, or both. The evaluation inherits the dataset's
++labels and reports its own bounded checks separately.
++
++\paragraph{Scope of the construction.}
+ Our scope is the following composition: operator-declared
+ $\Seq/\Bag/\Set$ ports contain typed slot-mapped invocations, and their keys
+ are rebuilt jointly with leaders, invocation embeddings, certified slot
+-symmetries, and binder-block automorphisms.  Flat construction opens only
++symmetries, and binder-block automorphisms. A port is an operator's declared
++argument position or argument container. Flat construction opens only
+ visible applications of the same type-instantiated operator; it never unfolds
+-an opaque invocation.  A carrier annotation contributes no semantic equation
+-without its endpoint-indexed certificate.
++an opaque invocation. A carrier annotation contributes no semantic equation
++without its endpoint-indexed certificate: the evidence must identify the
++exact two well-typed expressions that the step equates.
+ 
+-Alloy, a formal language expressing first-order temporal logic with a particular type system
+-based on declared sets, is the evaluation target~\cite{alloy,kodkod}.  In that study,
+-``canonical'' means canonical under the implementation's stored keys and
+-declared rewrite vocabulary; the checked normal-form result is instead
+-generic over a supplied finite presentation.  Neither layer claims semantic
+-completeness, unrestricted saturation termination, parser correctness, Java
+-refinement, or experimental replay.
+-%\Fix{You should not assume the reader knows anything about Alloy. The paper needs to introduce enough context so that the evaluation makes sense. Typically, you outline a small illustrative model and overview of the execution process. You may find it appropriate to add this background here or in the set up to the evaluation / case study section.}+In the Alloy study, \emph{canonical} means canonical under the implementation's
++stored keys and declared rewrite vocabulary; the checked normal-form result
++is instead generic over a supplied finite presentation. Neither layer claims
++semantic completeness, unrestricted saturation termination, parser
++correctness, full Java refinement, or full-corpus experimental replay.
+--- original/tables/table6_ablation_vmcai_stage1.tex
++++ updated/tables/table6_ablation_vmcai_stage1.tex
+@@ -26,13 +26,13 @@
+ \toprule
+ Arm & Wall (s) & Engine CPU (s) & Max RSS (MiB) & Mean units\\
+ \midrule
+-Raw & 19.440 & 4.335 & 1,485.313 & 58.073\\
+-Raw + De Bruijn & 19.440 & 5.292 & 1,491.105 & 57.752\\
+-Java egglog & 19.010 & 4.099 & 1,608.297 & 57.055\\
+-Java egglog + De Bruijn & 19.090 & 5.010 & 1,647.250 & 56.732\\
+-Slotted & 19.300 & 16.389 & 1,772.973 & 53.168\\
+-Fast Rewrite & 23.860 & 73.605 & 1,840.508 & 30.001\\
+-Certificate-Integrated & 2,775.650 & 42,224.753 & 8,912.141 & 29.541\\
++Raw & 19.370 & 4.255 & 1,524.891 & 58.073\\
++Raw + De Bruijn & 19.380 & 5.015 & 1,575.672 & 57.752\\
++Java egglog & 19.270 & 4.176 & 1,475.656 & 57.055\\
++Java egglog + De Bruijn & 18.860 & 4.881 & 1,456.941 & 56.732\\
++Slotted & 19.670 & 15.565 & 1,614.004 & 53.168\\
++Fast Rewrite & 23.990 & 68.820 & 2,061.391 & 30.001\\
++Certificate-Integrated & 2,684.110 & 40,811.847 & 8,943.988 & 29.541\\
+ \bottomrule
+ \end{tabular}
+ 

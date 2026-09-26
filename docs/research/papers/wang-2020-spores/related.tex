@@ -1,0 +1,104 @@
+% TODO emphasize SystemML
+% TODO ADD Immanual Trummer, PILP
+% Morpheus
+% lara
+% volcano
+There is a vast body of literature for both relational query optimization and
+optimizing compilers for machine learning. Since we optimize machine learning programs through a
+relational lens, our work relates to research in both fields. As we have pointed
+out, numerous state-of-the-art optimizing compilers for machine learning
+ resort to syntactic rewrites and heuristics to optimize linear algebra
+expressions~\cite{DBLP:reference/bdt/Boehm19}~\cite{DBLP:conf/icml/SujeethLBRCWAOO11}~\cite{DBLP:conf/sigmod/HuangB013}. We distinguish our work which performs optimization based on a
+relational semantics of linear algebra and holistically explore the complex
+search space. A majority of relational query optimization focus on join order
+optimization \cite{Graefe95a} \cite{MoerkotteN06} \cite{MoerkotteN08}
+\cite{selinger1979access}; we distinguish our work which optimizes programs with
+join (product), union (addition), and aggregate (sum) operations. Sum-product optimization considers operators other than join while optimizing
+relational queries. Recent years have seen a line of excellent theoretical and
+practical research in this area \cite{KhamisNR16} \cite{Joglekar2016AJARAA}.
+These work gives significant improvement for queries involving $*$ and $\sum$,
+but fall short of LA workloads that occur in practice. We step past these
+frameworks by incorporating common subexpressions and incorporating addition
+($+$). 
+
+In terms of approach, our design of relational IR ties in to research that
+explores the connection between linear algebra and relational algebra. Our
+design and implementation of the optimizer ties into research that leverage
+equality saturation and \textsc{and-or dag}s for query optimization and compiler
+optimization for programming languages. Since we focus on optimizing sum-product
+expressions in linear algebra, our work naturally relates to research in sum-product
+optimization. We now discuss these three lines of research in detail. 
+
+\subsection{Relational Algebra and Linear Algebra}
+Elgamal et al. \cite{ElgamalLBETRS17} envisions \textsc{spoof}, a compiler for machine learning programs
+that leverages relational query optimization techniques for LA sum-product optimization. 
+We realize this vision by providing the translation
+rules from LA to RA and the relational equality rules that completely represents
+the search space for sum-product expressions. One important distinction is, Elgamal
+et al. proposes \emph{restricted relational algebra} where every expression must
+have at most two free attributes. This ensures every relational expression in every step of the
+optimization process to be expressible in LA. In contrast, we remove this restriction and only require the 
+optimized output to be in linear algebra. This allows us to trek out to spaces not
+covered by linear algebra equality rules and achieve completeness. In addition 
+to sum-product expressions, Elgamal et al. also considers selection and projection operations
+like selecting the positive entries of a matrix. We plan to explore supporting
+selection and projection in the future. Elgamal et al. also proposes compile-time generation of
+fused operators, which is implemented by Boehm et al.~\cite{DBLP:journals/pvldb/BoehmRHSEP18}.  SPORES readily takes advantage of existing fused operators, and we
+plan to explore combining sum-product rewrite with fusion generation in the future. 
+
+MorpheusFI by Li et al.~\cite{DBLP:conf/sigmod/LiC019} and LARA by Hutchison et al.~\cite{DBLP:journals/corr/HutchisonHS17} explore optimizations across the interface of machine learning and database systems. In particular, MorpheusFI speeds up machine learning algorithms over large joins by pushing computation into each joined table, thereby avoiding expensive
+materialization. LARA implements linear algebra operations with relational operations and
+shows competitive optimizations alongside popular data processing systems. 
+Schleich et al.\cite{DBLP:conf/sigmod/SchleichOC16} and Khamis et al.\cite{DBLP:journals/corr/NgoNOS17} explore in-database learning, which aims to push entire
+machine learning algorithms into the database system. 
+We contribute in this space by showing that even without a relational engine, the
+relational abstraction can still benefit machine learning tasks as a powerful
+intermediate abstraction. 
+
+\subsection{Equality Saturation and AND-OR DAGs}
+Equality saturation and \textsc{and-or dag}s have been applied to optimize
+low-level assembly code~\cite{DBLP:conf/pldi/JoshiNR02}, Java programs \cite{DBLP:journals/corr/abs-1012-1802}, 
+database queries \cite{Graefe95a}, floating point arithmetics \cite{DBLP:conf/pldi/PanchekhaSWT15}, and even computer-aided
+design models \cite{DBLP:journals/corr/abs-1909-12252}. The design of our relational IR brings unique challenges
+in adopting equality saturation. Compared to database query optimizers 
+that focus on optimizing join orders, unions and aggregates play a central
+role in our relational IR and are prevalent in real-world programs. As
+a result, our
+equality rules depend on the expression schema which is not immediately accessible
+from the syntax. We propose class invariants as a solution to access schema
+information, and show it to be a powerful construct that enables constant
+folding and improves cost estimation. Compared to optimizers for low-level
+assembly code or Java program, we commonly encounter linear algebra expressions
+that trigger expansive rules and make saturation convergence impractical. 
+We propose to sample rewrite matches in order to achieve good exploration
+without full saturation. Equality saturation takes advantage of constraint solvers which have also been applied to program optimization and query
+optimization. In particular, the use of solvers for satisfiability
+modulo theories by \cite{DBLP:conf/asplos/Solar-LezamaTBSS06} has spawned a paradigm now known as \textit{program synthesis}. 
+In query optimization research, 
+\cite{DBLP:conf/sigmod/Trummer017} applies Mixed Integer Linear Programming for optimizing join ordering. 
+Although constraint solvers offer pleasing guarantees of optimality, our
+experiments show their overhead does not bring significant gains for optimizing
+LA expressions. 
+
+% \subsection{Exploiting Sparsity}
+% A number of optimizing compilers for linear algebra programs support sparse
+% matrix operators . SystemML \cite{boehm2014systemml} and Cumulon
+% \cite{DBLP:conf/sigmod/HuangB013} includes a variety of hand-fused sparse operators.
+% \cite{ElgamalLBETRS17} further automates the generation of fused operator
+% implementation. However, all existing approach either work on a per-operator
+% basis, or rely on hand-coded rules to rewrite expressions to fused operators.
+% Using equality saturation, we can automatically discover opportunity for
+% operator fusion based on a simple set of equality rules. And even with the
+% absence of operator fusion, we can still take advantage of sparsity in our
+% optimization.
+
+% \subsection{Multi-query Optimization}
+% The research in Multi-query Optimization aims to share common subqueries among
+% multiple queries to speed up processing \cite{Kathuria017}. This is closely
+% related to our problem of exploiting CSEs in linear algebra, although our focus
+% is intra-query instead of inter-query. Moreover, the majority of multi-query
+% optimizers focus on joins, whereas union and aggregate are essential for linear
+% algebra programs. One lesson we can learn from the literature multi-query
+% optimization is to perform equality saturation for multiple expressions in the
+% same egraph, thereby enabling sharing across optimization sessions and reducing
+% compilation time.

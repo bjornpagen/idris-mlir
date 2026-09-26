@@ -1,0 +1,38 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented two new techniques,
+  rebuilding and \eclass analysis,
+  that make equality saturation
+  fast and extensible enough for a new family of
+  applications.
+Rebuilding is a new way to
+  amortize the cost of maintaining the \egraph's
+  data structure invariants,
+  specializing the \egraph to the equality saturation workload.
+\Eclass analysis is a general framework
+  %for lifting a form of abstract
+  %interpretation to the \egraph level,
+  allowing for interpreted reasoning
+  beyond what purely syntactic rewrites can provide.
+
+We implemented both of these techniques in \egg,
+  a reusable, extensible, and efficient \egraph library.
+\Egg is generic over the user-defined language,
+  which allowed focused effort on optimization and efficiency
+  while obviating the need for
+  ad hoc \egraph implementations and manipulations.
+Our case studies show that equality saturation can now scale
+  further and be used more flexibly than before;
+  \egg provided new functionality and large speedups.
+We believe that these contributions
+  position equality saturation as a powerful toolkit for
+  program synthesis and optimization.
+
+
+
+
+
+%%% Local Variables:
+%%% TeX-master: "egg"
+%%% End:

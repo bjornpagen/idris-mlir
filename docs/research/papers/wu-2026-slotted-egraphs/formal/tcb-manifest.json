@@ -1,0 +1,188 @@
+{
+  "schema_version": "3.0",
+  "manifest_status": "CORRESPONDENCE_CLOSED_CURRENT_SNAPSHOT_LEAN_AND_PDF_GATES_PENDING",
+  "selected_foundation_profile": "STANDARD_LEAN_EXPLICIT_TCB",
+  "allowed_axioms": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "observed_axiom_union_from_hash_identical_mapped_sources": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "project_defined_axioms_allowed": false,
+  "proof_placeholders_allowed": false,
+  "native_decide_allowed": false,
+  "unsafe_proof_dependencies_allowed": false,
+  "partial_proof_dependencies_allowed": false,
+  "compiler_or_ffi_oracles_allowed": false,
+  "unverified_external_solver_results_allowed": false,
+  "toolchain": {
+    "required_lean_version": "4.33.0",
+    "lean_toolchain_content": "leanprover/lean4:v4.33.0\\n",
+    "lean_toolchain_sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b",
+    "current_round_Lean_build_executed": false
+  },
+  "package": {
+    "name": "TypedSlottedEGraphsPaper",
+    "lean_source_file_count": 20,
+    "formal_source_config_entry_count": 23,
+    "formal_source_config_sha256": "1ea8b2d58e1f4c3c007f8da46f77c7818d716b21bf418929ea9f9ecb8bef5afa",
+    "source_files": [
+      {
+        "path": "formal/PaperIndex.lean",
+        "sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ACClosureCounts.lean",
+        "sha256": "315b12e3e27c06e6808e3390daa524b21857dba720b2e41b1da495ccdff1dedf"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/AtomicLedger.lean",
+        "sha256": "25a990fd4c861ff1aa348e1ca3f40fa09159d7a3c7a25b087f90a7f0ee26523a"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Certificates.lean",
+        "sha256": "7be18f91fc04f884a5b07137baeaf6660b1517e2170c5d6091931ac97e40e0a3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ClaimLedger.lean",
+        "sha256": "526329e5d1b0578237004638a2ca3d44b2339ba60441bab0af228715d7886f39"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ContextGraph.lean",
+        "sha256": "d068f48794557707c45d2daa889edc87884a10f453db86821281e87b10ae0dd1"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Core.lean",
+        "sha256": "9055850cd92761d3c6984a1efdbde79a1f04583eff2f102ff9cf537eb0404b01"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/FiniteNormalization.lean",
+        "sha256": "8f3cf0cd01b873465e0aa335014d7a3e7ea5c1224dc836de6d692eca9791013d"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/NormalizationBridge.lean",
+        "sha256": "d9e3daae5f323855680f3e351de48ce629abb471e89d064fac7a8ddf71eb457a"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/PaperDefinitions.lean",
+        "sha256": "11ddb546ebfebeceb9c671007c810f2111a3eb9d6d7411ef9e5f80a8029a864f"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/ProfileRules.lean",
+        "sha256": "597fcd73946f3b86e98ae480161ac5b9c33cc4f6b5bbbf3f7c05924edf550dad"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Reachability.lean",
+        "sha256": "07e05e20824378303f71230fabc9d401b471b5bba36f50c596250e21f4bf8ec3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/Replay.lean",
+        "sha256": "2cff55e357a599b53cd465b1e1a77838437cf76f24d581a250c0c8007bf2554c"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralClaims.lean",
+        "sha256": "eca40852233b8eb3c3418a5c58747a7018276b29dc4eb16ae7d82f74244c1dea"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralContainerAdapter.lean",
+        "sha256": "fbbe4fce7ddbcb6bb1da8c4b8177b2c0e1b53ee23b5edc652914daf93c6bf876"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/StructuralSemantics.lean",
+        "sha256": "5a508d8d4636d67508e999a4ab2ad8fa108b760a713275f0e9f310e625f6ac02"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/SyntaxSupport.lean",
+        "sha256": "b2789ec432c960a17e581d4fd6a5d1fa3b68496a689237bceb5e523b8930e1d3"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/TheoremBridge.lean",
+        "sha256": "0b11af31e2341f71f89d7ed85ab9c39f83db96847deb4258bd1ae11674fe8ff2"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean",
+        "sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f"
+      },
+      {
+        "path": "formal/TypedSlottedEGraphsPaper/TraceSemantics.lean",
+        "sha256": "dfca14876cb1cc5090838ccaedab193aa8139e8a21e2259361503e5119222b05"
+      }
+    ],
+    "configuration_files": [
+      {
+        "path": "formal/lake-manifest.json",
+        "sha256": "8ef31448075569bcc02890b83a9b2de99b4f38ffa7417bd2dc41e1e43f870c71"
+      },
+      {
+        "path": "formal/lakefile.toml",
+        "sha256": "3e1e5c89daec1816d559d9598ffdaa4ca6e9524c3301029d9f52630e742bee5a"
+      },
+      {
+        "path": "formal/lean-toolchain",
+        "sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b"
+      }
+    ],
+    "paper_index_sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb",
+    "supplemental_trace_witness": {
+      "path": "formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean",
+      "sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f",
+      "active_claim_count_delta": 0,
+      "Lake_root_bound": true
+    }
+  },
+  "registry": {
+    "path": "formal/formal-units.yaml",
+    "sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+    "active_count": 146,
+    "distinct_mapping_count": 146,
+    "source_tag_count": 146,
+    "proof_count": 83,
+    "definition_count": 44,
+    "constructor_count": 19,
+    "author_source_graph_sha256": "712e1c6849da7dcae46a910cf53a59a85c799d482f9635229eb51cf5a6a42f9b",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6"
+  },
+  "current_correspondence": {
+    "status": "CORRESPONDENCE_CLOSED",
+    "process_id": "bounded-arxiv-correspondence-2026-09-02",
+    "maximum_review_rounds": 1,
+    "completed_review_rounds": 1,
+    "required_fresh_independent_passes": 2,
+    "completed_fresh_independent_passes": 2,
+    "unanimous_pass": true,
+    "blocking_findings": [],
+    "snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+    "snapshot_manifest": "308f47cc9ef4c5a1c81f002ac82908d9f98abf8c0f1cd5f657649beff3fae13c",
+    "round_summary": "1c35c98641e9bd217b3b450e62b8501cd2de6d718c612d9f37942cc4f6843f9d",
+    "correspondence_review": "e680e45407032ef439e12d624e178da8ebb524731e2798e432ed6fbe2b5c7918",
+    "independent_identifier_leak_passes": 2
+  },
+  "current_build_gate": {
+    "status": "NOT_EXECUTED_CURRENT_FORMAL_GRAPH",
+    "required_next": "TWO_ISOLATED_CLEAN_LEAN_4_33_0_BUILDS",
+    "historical_evidence": "formal/build-evidence/clean-build-summary.json",
+    "historical_evidence_does_not_bind_current_formal_source_config_graph": true
+  },
+  "current_pdf_gate": {
+    "status": "NOT_EXECUTED_CURRENT_AUTHOR_GRAPH",
+    "latex_build_executed": false,
+    "page_boundary_verified": false,
+    "all_page_pdf_qa_executed": false,
+    "stale_input_pdf_excluded_from_candidate_bundle": true,
+    "historical_reports_preserved": true
+  },
+  "immutable_boundaries": {
+    "Java_changes": 0,
+    "experimental_result_changes": 0,
+    "figure_changes": 0,
+    "bibliography_content_changes": 0,
+    "artifact_refinement_status": "PARTIAL",
+    "experimental_replay_status": "PARTIAL"
+  },
+  "strongest_permitted_public_label": "NO_FORMAL_CLOSURE_CLAIM",
+  "next_authorization_gate": "LEAN_BUILD_AND_OR_LATEX_PDF_QA"
+}

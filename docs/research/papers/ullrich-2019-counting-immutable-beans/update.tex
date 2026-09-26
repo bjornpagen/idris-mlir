@@ -1,0 +1,139 @@
+In this subsection, we will discuss a heuristics-based implementation of a function
+\[ \delta\reuse : \ty{Const} \rightarrow \ty{Fn}_{\textit{RC}} \]
+that inserts \kw{reset}/\kw{reuse} instructions.
+Given $\kw{let}\ z = \kw{reset}\ x$, we remark that, in every control path, $z$ may
+appear at most once, and in one of the following two instructions:
+$\kw{let}\ y = \kw{reuse}\ z\ \kw{ctor}_i\ \many{w}$, or $\kw{dec}\ z$.
+We use $\kw{dec}\ z$ for control paths where $z$ cannot be reused.
+We implement the function $\delta\reuse$ as
+\[ \delta\reuse(c) = \lambda\ \many{y}.\ R(F) \text{ where } \delta(c) = \lambda\ \many{y}.\ F \]
+The function $R(F)$ (\cref{fig:resetreuse}) uses a simple heuristic for replacing
+$\kw{ctor}_i\ \many{y}$ expressions occurring in $F$ with
+$\kw{reuse}\ w\ \kw{in ctor}_i\ \many{y}$ where $w$ is a fresh
+variable introduced by $R$ as the result of a new $\kw{reset}$
+operation. For each arm $F_i$ in
+a $\kw{case}\ x\ \kw{of}\ \many{F}$ operation, the function $R$ requires the arity $n$
+of the corresponding matched constructor. In the actual implementation,
+we store this information for each arm when we compile our typed frontend language into \pureIR{}.
+The auxiliary functions $D$ and $S$ implement the \emph{dead} variable search and \emph{substitution} steps respectively.
+For each \kw{case} operation, $R$ attempts to insert \kw{reset}/\kw{reuse} instructions
+for the variable matched by the \kw{case}. This is done using $D$ in each arm of the \kw{case}.
+Function $D(z, n, F)$ takes as parameters the variable $z$ to reuse and the arity $n$ of the matched constructor.
+$D$ proceeds to the first location where $z$ is dead, i.e. not used in the remaining function body,
+and then uses $S$ to attempt to find and substitute a \emph{matching}
+constructor $\kw{ctor}_i\ \many{y}$ instruction with a $\kw{reuse}\ w\ \kw{in}\ \kw{ctor}_i\ \many{y}$ in the remaining code.
+If no matching constructor instruction can be found, $D$ does not modify the function body.
+%
+\begin{figure}
+  \begin{flalign*}
+    &R : \ty{FnBody}\pure \rightarrow \ty{FnBody}\RC \\
+    &R(\kw{let}\ x = e;\ F) = \kw{let}\ x = e;\ R(F) \\
+    &R(\kw{ret}\ x) = \kw{ret}\ x \\
+    &R(\kw{case}\ x\ \kw{of}\ \many{F}) = \kw{case}\ x\ \kw{of}\ \many{D(x, n_i, R(F_i))} && \\
+      &\phantom{==} \text{where } n_i = \#\text{fields of } x \text{ in } i\text{-th branch}
+  \end{flalign*}
+
+\begin{flalign*}
+  &D : \ty{Var} \times \mathbb{N} \times \ty{FnBody}\RC \rightarrow \ty{FnBody}\RC && \\
+  &D(z, n, \kw{case}\ x\ \kw{of}\ \many{F}) = \kw{case}\ x\ \kw{of}\ \many{D(z, n, F)} \\
+  &D(z, n, \kw{ret}\ x) = \kw{ret}\ x \\
+  &D(z, n, \kw{let}\ x = e;\ F) = \kw{let}\ x = e;\ D(z, n, F) \\
+  &\phantom{==} \text{if } z \in e \text{ or } z \in F \\
+  &D(z, n, F) = \kw{let}\ w = \kw{reset}\ z;\ S(w, n, F) \\
+  &\phantom{==} \text{otherwise, if } S(w, n, F) \ne F \text{ for a fresh }w \\
+  &D(z, n, F) = F \phantom{=} \text{otherwise}
+\end{flalign*}
+
+\begin{flalign*}
+  &S : \ty{Var} \times \mathbb{N} \times \ty{FnBody}\RC \rightarrow \ty{FnBody}\RC && \\
+  &S(w, n, \kw{let}\ x = \kw{ctor}_i\ \many{y};\ F) = \kw{let}\ x = \kw{reuse}\ w\ \kw{in}\ \kw{ctor}_i\ \many{y};\ F \\
+  &   \phantom{==} \text{if } \abs{\many{y}} = n \\
+  &S(w, n, \kw{let}\ x = e;\ F) = \kw{let}\ x = e;\ S(w, n, F) \phantom{=} \text{otherwise} \\
+  &S(w, n, \kw{ret}\ x) = \kw{ret}\ x \\
+  &S(w, n, \kw{case}\ x\ \kw{of}\ \many{F}) = \kw{case}\ x\ \kw{of}\ \many{S(w, n, F)}
+\end{flalign*}
+\caption{Inserting \kw{reset}/\kw{reuse} pairs}
+\label{fig:resetreuse}
+\end{figure}
+
+As an example, consider the $\textit{map}$ function for lists
+\begin{lstlisting}
+  map f xs = case xs of
+    (ret xs)
+    (let x = proj_1 xs; let s := proj_2 xs;
+     let y = f x; let ys = map f s;
+     let r = ctor_2 y ys; ret r)
+\end{lstlisting}
+Applying $R$ to the body of $\textit{map}$ , we have $D$ looking for opportunities to \kw{reset}/\kw{reuse} $\textit{xs}$
+in both \kw{case} arms.
+Since $\textit{xs}$ is unused after $\kw{let}\ s = \kw{proj}_2\ \textit{xs}$, $S$ is applied to the rest of the function,
+looking for constructor calls with two parameters. Indeed, such a call can be found in the let-binding for $r$. Thus,
+function $D$ successfully inserts the appropriate instructions, and we obtain the function described in \cref{sec:examples}.
+%% \begin{lstlisting}
+%%   map f xs = case xs of
+%%     (ret xs)
+%%     (let x = proj_1 xs; inc x; let s := proj_2 xs; inc s;
+%%      let w = reset xs;
+%%      let y = f x; let ys = map f s;
+%%      let r = (reuse w in ctor_2 y ys); ret r)
+%% \end{lstlisting}
+Now, consider the list \emph{swap} function that swaps the first two elements of a list.
+It is often defined as
+\begin{lstlisting}
+  swap [] = []
+  swap [x] = [x]
+  swap (x:y:zs) = y:x:zs
+\end{lstlisting}
+In \pureIR{}, this function is encoded as
+\begin{lstlisting}
+  swap xs = case xs of
+     (ret xs)
+     (let t_1 = proj_2 xs; case t_1 of
+       (ret xs)
+       (let h_1 = proj_1 xs;
+        let h_2 = proj_1 t_1; let t_2 = proj_2 t_1;
+        let r_1 = ctor_2 h_1 t_2; let r_2 = ctor_2 h_2 r_1; ret r_2))
+\end{lstlisting}
+By applying $R$ to \emph{swap}, we obtain
+\pagebreak
+\begin{lstlisting}
+  swap xs = case xs of
+    (ret xs)
+    (let t_1 = proj_2 xs; case t_1 of
+      (ret xs)
+      (let h_1 = proj_1 xs; let w_1 = reset xs;
+       let h_2 = proj_1 t_1; let t_2 = proj_2 t_1;
+       let w_2 = reset t_1; let r_1 = reuse w_2 in ctor_2 h_1 t_2;
+       let r_2 = reuse w_1 in ctor_2 h_2 r_1; ret r_2))
+\end{lstlisting}
+Similarly to the $\textit{map}$ function, the code generated for the
+function $\textit{swap}$ will \emph{not} allocate any memory when the
+list value is not shared. This example demonstrates that our heuristic
+procedure can avoid memory allocations even in functions containing
+many nested $\kw{case}$ instructions. The example also makes it clear
+that we could further optimize our \rcIR{} by adding additional
+instructions. For example, we can
+add an instruction that combines $\kw{reset}$ and $\kw{reuse}$ into a single instruction
+and is used in situations where $\kw{reuse}$ occurs \emph{immediately}
+after the corresponding $\kw{reset}$ instruction such as in the example above where we have
+$\kw{let}\ w_2 = \kw{reset}\ t_1;\ \kw{let}\ r_1 =\kw{reuse}\ w_2\ \kw{in}\ \kw{ctor}_2\ h_1\ t_2$,
+
+% For example,  where a
+
+%% \begin{thm}
+%%   For any constant $c \in \dom(\delta)$, we have
+%%     \[\delta\reuse \vdash\reuse c\]
+%%     and
+%%     \[\erase\RC(\delta\reuse(c)) = \delta(c)\]
+%% \end{thm}
+%% \begin{proof}
+%%   By induction over $\delta(c)$'s body.
+%% \end{proof}
+
+%% In the remaining text, instead of depending on a specific implementation of
+%% $\delta\reuse$, we will merely assume these two properties.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "refcount"
+%%% End:

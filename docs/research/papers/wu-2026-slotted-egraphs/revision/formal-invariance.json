@@ -1,0 +1,1177 @@
+{
+  "active_spans_compared": 146,
+  "unchanged": 146,
+  "formal_directory_files_unchanged": 75,
+  "basis": "byte equality to supplied package, not a new Lean build or theorem review",
+  "full_file_caveat": "appendixC_vmcai_stage1.tex changes only the publication-run UUID outside all 146 mapped spans. Prior full-manuscript snapshots remain historical.",
+  "spans": [
+    {
+      "id": "TSG-FND-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 11,
+      "line_end": 23,
+      "unchanged": true,
+      "sha256": "998c5f06417e33aa435825b2fc6c623fdeb58fe7e938ed6829cec7e3e3f8be07"
+    },
+    {
+      "id": "TSG-FND-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 26,
+      "line_end": 37,
+      "unchanged": true,
+      "sha256": "cd691814c6794374a715b73066c6f6611e8480361407ebd3061f46eb931468f3"
+    },
+    {
+      "id": "TSG-DEF-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 39,
+      "line_end": 54,
+      "unchanged": true,
+      "sha256": "8d522c0290be757623a2eaf44ce87012baf63a5b9677cc3cdcbfa86cc9213749"
+    },
+    {
+      "id": "TSG-DEF-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 56,
+      "line_end": 68,
+      "unchanged": true,
+      "sha256": "3051e143fe8eb8f890e342f6b7ecadf08b382003a6b0bf7333f55a788f2bbc6c"
+    },
+    {
+      "id": "TSG-PROP-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 75,
+      "line_end": 89,
+      "unchanged": true,
+      "sha256": "7a85a0b0f368d7b477484945f4201e571b64d7194899aa4195db12dc9c189fee"
+    },
+    {
+      "id": "TSG-FND-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 93,
+      "line_end": 100,
+      "unchanged": true,
+      "sha256": "70c5e23e93bfbe78eb45f76e4b393f9c28cb804549ad49a52d025a73b2f0ff29"
+    },
+    {
+      "id": "TSG-DEF-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 102,
+      "line_end": 116,
+      "unchanged": true,
+      "sha256": "e829d996f84b4fed7ac67f56d623ca6b9b54668e78768c975a6366f0f61b6314"
+    },
+    {
+      "id": "TSG-FND-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 118,
+      "line_end": 124,
+      "unchanged": true,
+      "sha256": "58c12a82e81172c82239f73fc4b1dfd6918a8a9b6cb2c60677078ae803ea2b2a"
+    },
+    {
+      "id": "TSG-INV-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 125,
+      "line_end": 128,
+      "unchanged": true,
+      "sha256": "c6d1081daa4daf75552bd9160496aa73a0b24b43bf576c1183eb2d5ecf73409e"
+    },
+    {
+      "id": "TSG-FND-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 133,
+      "line_end": 137,
+      "unchanged": true,
+      "sha256": "52e0e2013d1e9580419cb6bb73909f1acc90818e8a038fb7670965077e5a3e3a"
+    },
+    {
+      "id": "TSG-INV-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 129,
+      "line_end": 131,
+      "unchanged": true,
+      "sha256": "cbe8d60db7b3dcc7e10507744f26ce697ec9d895d1d05b9d36f62aa97c8feb0d"
+    },
+    {
+      "id": "TSG-FND-009",
+      "file": "foundations_compressed.tex",
+      "line_start": 139,
+      "line_end": 154,
+      "unchanged": true,
+      "sha256": "92429fb90d4629e634af707c5c828b614510e6d3a5cae7f123653c74e614a4fe"
+    },
+    {
+      "id": "TSG-FND-010",
+      "file": "foundations_compressed.tex",
+      "line_start": 153,
+      "line_end": 156,
+      "unchanged": true,
+      "sha256": "b3ab2f351bb49dde5d7142ba7d6fb800891a067a4ec1af9ecc1f27622b91d790"
+    },
+    {
+      "id": "TSG-DEF-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 158,
+      "line_end": 180,
+      "unchanged": true,
+      "sha256": "e961c9c761a8e1c81e629ec9f7e97713843bdfd15065ddb238def19e134a1374"
+    },
+    {
+      "id": "TSG-DEF-005",
+      "file": "foundations_compressed.tex",
+      "line_start": 182,
+      "line_end": 187,
+      "unchanged": true,
+      "sha256": "46857a8fe35ff7803f57fd6cb754086d47260f14b5bd0ac459f5a273020fbe04"
+    },
+    {
+      "id": "TSG-LEM-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 189,
+      "line_end": 203,
+      "unchanged": true,
+      "sha256": "8ce9d7c94196e7015996be67cd0c60c55c4ac63374ae11cb1c22875abc06334e"
+    },
+    {
+      "id": "TSG-COR-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 206,
+      "line_end": 214,
+      "unchanged": true,
+      "sha256": "88494823f996e3b8fc2ad3d19190c8cd55c12dab0ce243360861ca64b56f21ce"
+    },
+    {
+      "id": "TSG-COR-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 218,
+      "line_end": 227,
+      "unchanged": true,
+      "sha256": "5105427ebe11a5cfc39f6493faf5fba71a6d348827cb0465c6e8087cadb6fa98"
+    },
+    {
+      "id": "TSG-DEF-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 233,
+      "line_end": 236,
+      "unchanged": true,
+      "sha256": "e40281aa1223d57198e8065c190f410e1ff9e358321f3b9f70baa86ac4d92e52"
+    },
+    {
+      "id": "TSG-DEF-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 238,
+      "line_end": 259,
+      "unchanged": true,
+      "sha256": "2fc39381336182748bca8de4c77629583366eb2f26dfacacd681ae92d528bd8a"
+    },
+    {
+      "id": "TSG-INV-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 254,
+      "line_end": 258,
+      "unchanged": true,
+      "sha256": "095386ff9023f503f5de7d7fa273076e66dc53701ef35ee1836626b67820c324"
+    },
+    {
+      "id": "TSG-LEM-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 261,
+      "line_end": 268,
+      "unchanged": true,
+      "sha256": "3700e32a7f3e41d47df5b1f00a642544d51793f9e6e6305b978cc2adff8a0893"
+    },
+    {
+      "id": "TSG-INV-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 274,
+      "line_end": 277,
+      "unchanged": true,
+      "sha256": "aba7ceb38ae029601730b2ef87f8604e06fa2a7efecff830cb27cd9af2c10be6"
+    },
+    {
+      "id": "TSG-DEF-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 279,
+      "line_end": 301,
+      "unchanged": true,
+      "sha256": "06ff66dbf81dc79f29852ca532216378b67cb0ec94e53d91a39a91938c457001"
+    },
+    {
+      "id": "TSG-PROP-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 303,
+      "line_end": 326,
+      "unchanged": true,
+      "sha256": "4f7dec0305cf4f3942c3ad889ec5ab64398c9328a9e5ce7ea5a9f71984d126e8"
+    },
+    {
+      "id": "TSG-DEF-009",
+      "file": "foundations_compressed.tex",
+      "line_start": 329,
+      "line_end": 344,
+      "unchanged": true,
+      "sha256": "908419c6768e81749ba32f4a7953de975f91432a1b1679f7da42605d4ee7de86"
+    },
+    {
+      "id": "TSG-LEM-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 349,
+      "line_end": 359,
+      "unchanged": true,
+      "sha256": "b73597fa19cf8a502a28c7eadf70b58972c1e5126d14fcaca7df00281ddd4c9f"
+    },
+    {
+      "id": "TSG-DEF-010",
+      "file": "foundations_compressed.tex",
+      "line_start": 362,
+      "line_end": 370,
+      "unchanged": true,
+      "sha256": "5afc4250c07921cc88744da098dc8e46d015570c90502f18e8ea244e13725432"
+    },
+    {
+      "id": "TSG-DEF-011",
+      "file": "foundations_compressed.tex",
+      "line_start": 372,
+      "line_end": 376,
+      "unchanged": true,
+      "sha256": "09a48f156ca01a25cef9c620ce05758b640e337e905d8b99917be8be5e12866f"
+    },
+    {
+      "id": "TSG-LEM-005",
+      "file": "foundations_compressed.tex",
+      "line_start": 378,
+      "line_end": 384,
+      "unchanged": true,
+      "sha256": "dfa4ad575ae4f954b1371ac410f9cb961cba7b8e606cfd632f8779b30cf303bc"
+    },
+    {
+      "id": "TSG-DEF-012",
+      "file": "foundations_compressed.tex",
+      "line_start": 387,
+      "line_end": 398,
+      "unchanged": true,
+      "sha256": "25f3b52cbc312310a89edc98ea075409f02454c7c10e490da1faf57c16ebad5e"
+    },
+    {
+      "id": "TSG-LEM-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 400,
+      "line_end": 416,
+      "unchanged": true,
+      "sha256": "14272052c0cf66b5acadddd08d3c13d86b9297e4f024766d315451abc2b397b5"
+    },
+    {
+      "id": "TSG-DEF-013",
+      "file": "foundations_compressed.tex",
+      "line_start": 423,
+      "line_end": 435,
+      "unchanged": true,
+      "sha256": "f7a337d8547bf269bd33f0261c3cc0977a17d31423b24882d244bebacdf56bd2"
+    },
+    {
+      "id": "TSG-INV-005",
+      "file": "foundations_compressed.tex",
+      "line_start": 424,
+      "line_end": 435,
+      "unchanged": true,
+      "sha256": "1342d9f3228e090f7000256e5d622ba136eac716cbec3569f6f12677537a1bf0"
+    },
+    {
+      "id": "TSG-COR-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 437,
+      "line_end": 453,
+      "unchanged": true,
+      "sha256": "19e025ab86b76800b945832df235b2867d2673744d14fa9fca1c11bab6781846"
+    },
+    {
+      "id": "TSG-ALG-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 459,
+      "line_end": 465,
+      "unchanged": true,
+      "sha256": "8d32b8b17397f7f8761940083555decfbcd0e11e0de8342b21470732dc9b6759"
+    },
+    {
+      "id": "TSG-DEF-014",
+      "file": "foundations_compressed.tex",
+      "line_start": 468,
+      "line_end": 476,
+      "unchanged": true,
+      "sha256": "b91473805907132576b61b42a384bf7a25c778273e50e5f93ce0806c86aba0b2"
+    },
+    {
+      "id": "TSG-ALG-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 494,
+      "line_end": 500,
+      "unchanged": true,
+      "sha256": "fae428eaf164ae01a5cc3a033dc935eb10b4d3b7c69b45ce0f4034bf12077ff9"
+    },
+    {
+      "id": "TSG-ALG-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 495,
+      "line_end": 500,
+      "unchanged": true,
+      "sha256": "6e706c6e2bec59d433d2b45467de6ab8cf0f76c5ff83434cb979026f7a118a01"
+    },
+    {
+      "id": "TSG-PROP-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 502,
+      "line_end": 509,
+      "unchanged": true,
+      "sha256": "78a4a973d9c1556b73f98bd3f287220b791e599b89e34f4ccb7f5cb3de57613d"
+    },
+    {
+      "id": "TSG-FND-011",
+      "file": "foundations_compressed.tex",
+      "line_start": 515,
+      "line_end": 521,
+      "unchanged": true,
+      "sha256": "01955ddf3670e5d5543aa5e5dc524011c72a0738dcec070030e3eea3a3382bfb"
+    },
+    {
+      "id": "TSG-DEF-015",
+      "file": "foundations_compressed.tex",
+      "line_start": 522,
+      "line_end": 528,
+      "unchanged": true,
+      "sha256": "5eae7f953f989dda4cd67575dd17892817ad938c0276975cd3b647346b0fefbb"
+    },
+    {
+      "id": "TSG-DEF-016",
+      "file": "foundations_compressed.tex",
+      "line_start": 530,
+      "line_end": 549,
+      "unchanged": true,
+      "sha256": "4af12369d4b82e36e309dc293134a7190ddc6bcc93f7ec89b0f6f83b3172b6cf"
+    },
+    {
+      "id": "TSG-DEF-017",
+      "file": "foundations_compressed.tex",
+      "line_start": 551,
+      "line_end": 570,
+      "unchanged": true,
+      "sha256": "7b762b1ceea28d157f21e89975a55cf19edf5e9703c5d4a6db9626026e70609a"
+    },
+    {
+      "id": "TSG-DEF-018",
+      "file": "foundations_compressed.tex",
+      "line_start": 555,
+      "line_end": 557,
+      "unchanged": true,
+      "sha256": "15579fe557574b482fe1b5d810ba0137d0d2ccebe9674d5b117b7e04f98f98a7"
+    },
+    {
+      "id": "TSG-INV-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 567,
+      "line_end": 570,
+      "unchanged": true,
+      "sha256": "050be38446d41389a44a1c24b4c36c1bfdbb4db26adc18869101ff88792e780b"
+    },
+    {
+      "id": "TSG-INV-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 564,
+      "line_end": 570,
+      "unchanged": true,
+      "sha256": "e545ff19fd7428750d8349ecf0d0d4b59f91f2c74b5ab045b1916210a525f854"
+    },
+    {
+      "id": "TSG-INV-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 562,
+      "line_end": 570,
+      "unchanged": true,
+      "sha256": "77504abf2c677d6fa2392ecb6549cf7e5ca8ee344b17613071805bffddcb232f"
+    },
+    {
+      "id": "TSG-DEF-019",
+      "file": "foundations_compressed.tex",
+      "line_start": 558,
+      "line_end": 566,
+      "unchanged": true,
+      "sha256": "0da911a7c862b80631880acea23154be4f4f5895bd97a9b88d430b11a64e5dc1"
+    },
+    {
+      "id": "TSG-LEM-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 572,
+      "line_end": 586,
+      "unchanged": true,
+      "sha256": "cbe25d5db11cd4483ec125992129bd83caeb8f698d71343dda003ebd5f3bd84c"
+    },
+    {
+      "id": "TSG-DEF-020",
+      "file": "foundations_compressed.tex",
+      "line_start": 559,
+      "line_end": 566,
+      "unchanged": true,
+      "sha256": "98038cc4fd93eb6281206d914938eb37254b6acd0b401a0a3ee3094c933d8495"
+    },
+    {
+      "id": "TSG-LEM-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 592,
+      "line_end": 599,
+      "unchanged": true,
+      "sha256": "28271822d7b3922bafc0336e85517941cdf77a96f6ed52e185df4021ab432944"
+    },
+    {
+      "id": "TSG-LEM-009",
+      "file": "foundations_compressed.tex",
+      "line_start": 602,
+      "line_end": 617,
+      "unchanged": true,
+      "sha256": "93f96aa2cbf2f4f5f63ef121e9b42d0fc285c86fb5f3623e650c6131252f46ef"
+    },
+    {
+      "id": "TSG-DEF-021",
+      "file": "foundations_compressed.tex",
+      "line_start": 624,
+      "line_end": 644,
+      "unchanged": true,
+      "sha256": "36872d85cdcf59d9b5d30cf90217f1e07a08c4b4d29d5121a705ec23e1598630"
+    },
+    {
+      "id": "TSG-DEF-022",
+      "file": "foundations_compressed.tex",
+      "line_start": 646,
+      "line_end": 652,
+      "unchanged": true,
+      "sha256": "b795fd38b1173ab7ebbe5d14fedb49615ea421b951fe24f39d0927cc8182771b"
+    },
+    {
+      "id": "TSG-LEM-010",
+      "file": "foundations_compressed.tex",
+      "line_start": 654,
+      "line_end": 673,
+      "unchanged": true,
+      "sha256": "09e63e30e0753bfedc9bac0b46efcf87be5e13015b937fe51fb8ff3a362494f6"
+    },
+    {
+      "id": "TSG-LEM-011",
+      "file": "foundations_compressed.tex",
+      "line_start": 676,
+      "line_end": 693,
+      "unchanged": true,
+      "sha256": "1862f367b01655dac5f57c99493303fe169cee7d956e063d24a148042b89a615"
+    },
+    {
+      "id": "TSG-COR-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 696,
+      "line_end": 725,
+      "unchanged": true,
+      "sha256": "6344f3e8b3a01b8be28d35eb780a19640c9d6d45ee8ad0b68a81d1c7546a82ce"
+    },
+    {
+      "id": "TSG-DEF-023",
+      "file": "foundations_compressed.tex",
+      "line_start": 732,
+      "line_end": 754,
+      "unchanged": true,
+      "sha256": "6d96d255174c13c4f1d4f61fec841b57720a5efc2879f417c75f183baaf30cda"
+    },
+    {
+      "id": "TSG-THM-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 728,
+      "line_end": 776,
+      "unchanged": true,
+      "sha256": "a6070bc7d9d9e4628b155007c1333d41c56565fd2024eda9aeefb40093da007f"
+    },
+    {
+      "id": "TSG-CE-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 345,
+      "line_end": 347,
+      "unchanged": true,
+      "sha256": "3a55a8d98158b2609381ccce40a90b4e4cbded51585e6cbdf6b3b0876d76ad26"
+    },
+    {
+      "id": "TSG-CE-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 271,
+      "line_end": 273,
+      "unchanged": true,
+      "sha256": "edce55a603102706acd25c4ffd27d866ed25cf5ed88587d07934e801d8afe4c0"
+    },
+    {
+      "id": "TSG-APP-001",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 60,
+      "line_end": 70,
+      "unchanged": true,
+      "sha256": "b965b84b808270dfaa3d98fcfefec5179f597a48726e44562e06b3a64d6f7d99"
+    },
+    {
+      "id": "TSG-APP-002",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 109,
+      "line_end": 123,
+      "unchanged": true,
+      "sha256": "3779ca270bf655d4edd4a82a8d1839b1391779976ba0ea7cf5e432faac037aa2"
+    },
+    {
+      "id": "TSG-APP-003",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 125,
+      "line_end": 134,
+      "unchanged": true,
+      "sha256": "7032b4d3a8f1a4c7882099627cec1515027904a331b3954b4d7b62e959c5a64d"
+    },
+    {
+      "id": "TSG-APP-004",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 168,
+      "line_end": 177,
+      "unchanged": true,
+      "sha256": "38b1b226f1049395f0dc5d952d3304fb0c11a7efed8bcdde49867094f45b6c48"
+    },
+    {
+      "id": "TSG-APP-005",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 179,
+      "line_end": 188,
+      "unchanged": true,
+      "sha256": "1cd22285a1dfdb7cc4f7e0b3c2c75dd8cfaf7c933eab9f2e413667528545263d"
+    },
+    {
+      "id": "TSG-ALG-005",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 141,
+      "line_end": 144,
+      "unchanged": true,
+      "sha256": "0b9deb17dc9762922449ea6a7b78094f3f9b176cd7eec150c79b6983eb2ac657"
+    },
+    {
+      "id": "TSG-ALG-006",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 145,
+      "line_end": 151,
+      "unchanged": true,
+      "sha256": "896dec834faec5edcf5573e1840bb1b4d67a5004c5246cddd3f65d5b9b96da55"
+    },
+    {
+      "id": "TSG-ALG-007",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 152,
+      "line_end": 154,
+      "unchanged": true,
+      "sha256": "54ddcbe9c1c7671ac7411d3539b4b10ad5f00a217d376c40c5ea8eaa4677bcf6"
+    },
+    {
+      "id": "TSG-ALG-008",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 155,
+      "line_end": 157,
+      "unchanged": true,
+      "sha256": "0b5db7fb71af7eac089ef15e06561f479d66ee3e9c062c2f5a8a139a8a6f99ca"
+    },
+    {
+      "id": "TSG-ALG-009",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 158,
+      "line_end": 167,
+      "unchanged": true,
+      "sha256": "e6a58d0ced539350244d256f9e6f3bd789d4a6230ad692d615762f46e9584ecd"
+    },
+    {
+      "id": "TSG-RULE-001",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 193,
+      "line_end": 203,
+      "unchanged": true,
+      "sha256": "dcac1937379ceeeb36ef663b71b668fe56a727378f5ffb24e899d8f403992551"
+    },
+    {
+      "id": "TSG-RULE-002",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 207,
+      "line_end": 238,
+      "unchanged": true,
+      "sha256": "56a70b6b096d6712331bf63f7322a62d34e88cf45cd6b5213264c1fff47b1402"
+    },
+    {
+      "id": "TSG-RULE-003",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 240,
+      "line_end": 252,
+      "unchanged": true,
+      "sha256": "d062f4588af12ef75180d9dfbe7c7a047f78931727376e769e2e97e9caf06cdd"
+    },
+    {
+      "id": "TSG-RULE-004",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 254,
+      "line_end": 263,
+      "unchanged": true,
+      "sha256": "b7b10192da67583d99a0ed42296ad9688b126748ca79d8687b0e5b5e9648b2e0"
+    },
+    {
+      "id": "TSG-RULE-005",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 267,
+      "line_end": 285,
+      "unchanged": true,
+      "sha256": "053646a94b730119ee09c9d6784a739d16406ce5607f85c156ce149a668ad0a8"
+    },
+    {
+      "id": "TSG-RULE-006",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 287,
+      "line_end": 297,
+      "unchanged": true,
+      "sha256": "35f39a3425361ac660b273179872ada76ed3ef579b104b6ded51b5b3f257a333"
+    },
+    {
+      "id": "TSG-RULE-007",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 299,
+      "line_end": 313,
+      "unchanged": true,
+      "sha256": "476bca30fa7a881584a41e8e84359dd3064ec191b1481ab53f2532c39ab1447c"
+    },
+    {
+      "id": "TSG-RULE-008",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 317,
+      "line_end": 341,
+      "unchanged": true,
+      "sha256": "ee4c8cac09035d1be1689a47d81794de8952d2a10d46549096ac9ca003c03bd6"
+    },
+    {
+      "id": "TSG-RULE-009",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 345,
+      "line_end": 359,
+      "unchanged": true,
+      "sha256": "aff7f94df3ce20a20e5e5cf150cf5048f0a423eb508ec27f96c7116c599d7fa7"
+    },
+    {
+      "id": "TSG-RULE-010",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 361,
+      "line_end": 377,
+      "unchanged": true,
+      "sha256": "72212ff4f418a647c54ab13270f9330d24d36378238ea9b0fc03bef9f1343b1a"
+    },
+    {
+      "id": "TSG-RULE-011",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 379,
+      "line_end": 394,
+      "unchanged": true,
+      "sha256": "4ca9258e46512e70de1fc266483db790fcafa7d42ebc5e5b694d2ede291198a5"
+    },
+    {
+      "id": "TSG-RULE-012",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 396,
+      "line_end": 411,
+      "unchanged": true,
+      "sha256": "45db8709355bb22c7abd306822027a5c963a8cfabb9752b0d6e70831d0e90e35"
+    },
+    {
+      "id": "TSG-RULE-013",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 413,
+      "line_end": 423,
+      "unchanged": true,
+      "sha256": "27b460e56fc1c7f9d89305be898dea7770da062dffd3c3fe09234119f91baceb"
+    },
+    {
+      "id": "TSG-RULE-014",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 427,
+      "line_end": 461,
+      "unchanged": true,
+      "sha256": "dc4f3c0d4b263603af5771673ecae098d052a3b930c6be3e9188bb3194c73fc0"
+    },
+    {
+      "id": "TSG-RULE-015",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 463,
+      "line_end": 466,
+      "unchanged": true,
+      "sha256": "90c6d16f3a2402c84c626902c98414fe825b6f1cd45b83d0cb33de5aca216633"
+    },
+    {
+      "id": "TSG-CE-003",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 467,
+      "line_end": 471,
+      "unchanged": true,
+      "sha256": "6def989636262671f94ff23061f8334cde9e405bbbd1251bd7585bd13ccd97f8"
+    },
+    {
+      "id": "TSG-RULE-016",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 482,
+      "line_end": 495,
+      "unchanged": true,
+      "sha256": "3a8f8f27b93a1704bfb7cda1cd5c298d68b148c231a5fcdb1f7d1df5e2826c7f"
+    },
+    {
+      "id": "TSG-RULE-017",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 497,
+      "line_end": 507,
+      "unchanged": true,
+      "sha256": "9b46977a1ac1811da1fa4d65297fe8fe694ebf42177cf102d87a96a4c4a25931"
+    },
+    {
+      "id": "TSG-RULE-018",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 509,
+      "line_end": 523,
+      "unchanged": true,
+      "sha256": "c8e101434516b08f6b5d33c5b8a46c941f96a31d36effeabcc380ebd5bb5db26"
+    },
+    {
+      "id": "TSG-RULE-019",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 525,
+      "line_end": 534,
+      "unchanged": true,
+      "sha256": "47073aa71fee51b687a5e155552f565ea00bf1a6937d67beb355463d6a5552eb"
+    },
+    {
+      "id": "TSG-SCOPE-001",
+      "file": "appendixC_vmcai_stage1.tex",
+      "line_start": 538,
+      "line_end": 549,
+      "unchanged": true,
+      "sha256": "c42754a2251ec5728f52b68f74db0e5aab2c2494bd256dbf435b3a3a359f4a4f"
+    },
+    {
+      "id": "TSG-ATOM-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 14,
+      "line_end": 22,
+      "unchanged": true,
+      "sha256": "1ea06ade43f5022275f80cee80a7f602c61e801102b63736f910bfb48ffad25a"
+    },
+    {
+      "id": "TSG-ATOM-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 15,
+      "line_end": 22,
+      "unchanged": true,
+      "sha256": "0cf5212b1e1a5726c5e5a58b361960686a7e522ee60615a895d12833ab52f13a"
+    },
+    {
+      "id": "TSG-ATOM-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 78,
+      "line_end": 84,
+      "unchanged": true,
+      "sha256": "9b478f30f402087c8aa1f1280fa5d0ad64eec8b691b6c589fd1350c0433d184d"
+    },
+    {
+      "id": "TSG-ATOM-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 79,
+      "line_end": 84,
+      "unchanged": true,
+      "sha256": "0f9e075286ec453969a1702010189bbf47f028529500eff08d5c8c61c471f4b4"
+    },
+    {
+      "id": "TSG-ATOM-005",
+      "file": "foundations_compressed.tex",
+      "line_start": 86,
+      "line_end": 88,
+      "unchanged": true,
+      "sha256": "c3f687c3b43939743e787c93edf3ca298bd36d20614c73cd2ee225d98bfa76a1"
+    },
+    {
+      "id": "TSG-ATOM-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 192,
+      "line_end": 200,
+      "unchanged": true,
+      "sha256": "28d9c3695228e94208374bb778d3b007cfbe351a2217d013f3eb50e3fd387ce7"
+    },
+    {
+      "id": "TSG-ATOM-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 193,
+      "line_end": 200,
+      "unchanged": true,
+      "sha256": "ae648503e4992b50d879b607c66e006e9e30f9cdd91e3c1b48845955d486c1e9"
+    },
+    {
+      "id": "TSG-ATOM-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 201,
+      "line_end": 202,
+      "unchanged": true,
+      "sha256": "65d6f93b54059f5f73def2b68f58db9dead6313b264563bfb437c8bec5154693"
+    },
+    {
+      "id": "TSG-ATOM-009",
+      "file": "foundations_compressed.tex",
+      "line_start": 209,
+      "line_end": 213,
+      "unchanged": true,
+      "sha256": "fa246582914cacfb589692db751026c7d58c2b446d12e76bd1a13434d3656444"
+    },
+    {
+      "id": "TSG-ATOM-010",
+      "file": "foundations_compressed.tex",
+      "line_start": 210,
+      "line_end": 213,
+      "unchanged": true,
+      "sha256": "d14896880e883ac4ad19c7a620eee9cdf0b33f2fa8575bb1d7655400b0ec78ef"
+    },
+    {
+      "id": "TSG-ATOM-011",
+      "file": "foundations_compressed.tex",
+      "line_start": 221,
+      "line_end": 222,
+      "unchanged": true,
+      "sha256": "a1a8a111be7b2929007f0d024f5485de32eeea4ee503ffa11d84c6306a7714c9"
+    },
+    {
+      "id": "TSG-ATOM-012",
+      "file": "foundations_compressed.tex",
+      "line_start": 223,
+      "line_end": 225,
+      "unchanged": true,
+      "sha256": "1d9268f8f8c4d2283e8857d9915a20699b00b3d7bf2b0474ea60760bb6c4485f"
+    },
+    {
+      "id": "TSG-ATOM-013",
+      "file": "foundations_compressed.tex",
+      "line_start": 224,
+      "line_end": 226,
+      "unchanged": true,
+      "sha256": "73bca609ec9f22068353d6745fc9f570acf0123c44d2b2db4b3911459c966951"
+    },
+    {
+      "id": "TSG-ATOM-014",
+      "file": "foundations_compressed.tex",
+      "line_start": 311,
+      "line_end": 313,
+      "unchanged": true,
+      "sha256": "76b5cc5b9b02a6e3be37c2b758d70c1b5ed5b107b25dd17e900847435ce7e374"
+    },
+    {
+      "id": "TSG-ATOM-015",
+      "file": "foundations_compressed.tex",
+      "line_start": 314,
+      "line_end": 316,
+      "unchanged": true,
+      "sha256": "716f754a198eccc0ce08c9bda047ffd087554aba689c16a6dac446c1f0ac912f"
+    },
+    {
+      "id": "TSG-ATOM-016",
+      "file": "foundations_compressed.tex",
+      "line_start": 317,
+      "line_end": 320,
+      "unchanged": true,
+      "sha256": "45fe421abb300c8b85d193eb20ab848266a7fd4c023e25d0395c7a49f1820331"
+    },
+    {
+      "id": "TSG-ATOM-017",
+      "file": "foundations_compressed.tex",
+      "line_start": 322,
+      "line_end": 325,
+      "unchanged": true,
+      "sha256": "09c88865de47ad1e85fef0f360549340a311ebe159f165fc6f7dbe0adb93f82a"
+    },
+    {
+      "id": "TSG-ATOM-020",
+      "file": "foundations_compressed.tex",
+      "line_start": 403,
+      "line_end": 408,
+      "unchanged": true,
+      "sha256": "bccc71030ef65d8717172d4a84fdf54f38a5c2ed0c6d775b727feeb7603b1ca2"
+    },
+    {
+      "id": "TSG-ATOM-021",
+      "file": "foundations_compressed.tex",
+      "line_start": 407,
+      "line_end": 408,
+      "unchanged": true,
+      "sha256": "f1f31639ae739e68bbc33d45eb2fc0c164966ca1ace2cd89fae2c51706b55fb1"
+    },
+    {
+      "id": "TSG-ATOM-022",
+      "file": "foundations_compressed.tex",
+      "line_start": 409,
+      "line_end": 410,
+      "unchanged": true,
+      "sha256": "c2be64258b4fa508abc2e7877bd241be85e2806cbfda85a970b2a8fb293c5dd8"
+    },
+    {
+      "id": "TSG-ATOM-023",
+      "file": "foundations_compressed.tex",
+      "line_start": 412,
+      "line_end": 413,
+      "unchanged": true,
+      "sha256": "ad42f1ab6eecc15b5817893bd5ca34f5a4a24fd52aa30e1cca98ecd5e2da6dea"
+    },
+    {
+      "id": "TSG-ATOM-025",
+      "file": "foundations_compressed.tex",
+      "line_start": 414,
+      "line_end": 415,
+      "unchanged": true,
+      "sha256": "35a887ebc2cd552b3b36495707e37e72eeabbf3b5ac12a158e3e5afaa5079bb5"
+    },
+    {
+      "id": "TSG-ATOM-026",
+      "file": "foundations_compressed.tex",
+      "line_start": 443,
+      "line_end": 451,
+      "unchanged": true,
+      "sha256": "2551bb8b1f5d357d4c9b82ddc298ea5b41caa56beabb94b393900928ff1483d5"
+    },
+    {
+      "id": "TSG-ATOM-027",
+      "file": "foundations_compressed.tex",
+      "line_start": 450,
+      "line_end": 452,
+      "unchanged": true,
+      "sha256": "b03a3ff98442f531b98269c1cb77cef4f88980a6eb7ace10735870baf599eb65"
+    },
+    {
+      "id": "TSG-ATOM-028",
+      "file": "foundations_compressed.tex",
+      "line_start": 575,
+      "line_end": 585,
+      "unchanged": true,
+      "sha256": "ef23698c35bcb54268bf2544bf34616c8370d0a744d984c82e3cb6a59b27bd73"
+    },
+    {
+      "id": "TSG-ATOM-029",
+      "file": "foundations_compressed.tex",
+      "line_start": 583,
+      "line_end": 585,
+      "unchanged": true,
+      "sha256": "4ee8d9ae03fe1baab7e0c0183127a1e608d6dda2c3d5342afe1344166411575a"
+    },
+    {
+      "id": "TSG-ATOM-030",
+      "file": "foundations_compressed.tex",
+      "line_start": 605,
+      "line_end": 611,
+      "unchanged": true,
+      "sha256": "b2ef738585a856a00c483c12c26840b8f4b85f1e889197ba0614be2765df64e7"
+    },
+    {
+      "id": "TSG-ATOM-031",
+      "file": "foundations_compressed.tex",
+      "line_start": 612,
+      "line_end": 616,
+      "unchanged": true,
+      "sha256": "f29bb3fa9dcccba8fdf144ab0686c189a7ae204e36e2927e77a8a60a9e09b384"
+    },
+    {
+      "id": "TSG-ATOM-032",
+      "file": "foundations_compressed.tex",
+      "line_start": 614,
+      "line_end": 616,
+      "unchanged": true,
+      "sha256": "435ad68caa3e7bb1289612264e989fb108bd5b40b40a6e2ef214fa171c3ccd36"
+    },
+    {
+      "id": "TSG-ATOM-033",
+      "file": "foundations_compressed.tex",
+      "line_start": 657,
+      "line_end": 665,
+      "unchanged": true,
+      "sha256": "935bce247150ca1028df278b04c0fd52579e5af68f9011de34550d953bd92236"
+    },
+    {
+      "id": "TSG-ATOM-034",
+      "file": "foundations_compressed.tex",
+      "line_start": 666,
+      "line_end": 672,
+      "unchanged": true,
+      "sha256": "dd7ba0fa536b819bfbc94c6258f94df8941cc79cbb2a6648ff37b209c5884886"
+    },
+    {
+      "id": "TSG-ATOM-037",
+      "file": "foundations_compressed.tex",
+      "line_start": 704,
+      "line_end": 714,
+      "unchanged": true,
+      "sha256": "a9a4395ca2166d663ed619703301ce144f9173276fb1496b7cff80742ba2d5c1"
+    },
+    {
+      "id": "TSG-ATOM-038",
+      "file": "foundations_compressed.tex",
+      "line_start": 715,
+      "line_end": 722,
+      "unchanged": true,
+      "sha256": "1ee3c2077de56b162c3cf8fd46081aed3222d2fc23d77373f40887ed118f8441"
+    },
+    {
+      "id": "TSG-ATOM-039",
+      "file": "foundations_compressed.tex",
+      "line_start": 731,
+      "line_end": 754,
+      "unchanged": true,
+      "sha256": "aa4624e0f869cd0bb8a7aa149443f4cc342fee79bf6b6104ba644dbc5a7a0e63"
+    },
+    {
+      "id": "TSG-ATOM-040",
+      "file": "foundations_compressed.tex",
+      "line_start": 756,
+      "line_end": 764,
+      "unchanged": true,
+      "sha256": "24ed3bbaae2b0b4d2aca2740d5f7813d0e81af49ac6fca1c0b9684d8eed468f2"
+    },
+    {
+      "id": "TSG-ATOM-041",
+      "file": "foundations_compressed.tex",
+      "line_start": 765,
+      "line_end": 772,
+      "unchanged": true,
+      "sha256": "56fb138c810d177d01491de33da3833f2dd730aa455cce3a0e103996a52d171a"
+    },
+    {
+      "id": "TSG-ATOM-042",
+      "file": "foundations_compressed.tex",
+      "line_start": 773,
+      "line_end": 775,
+      "unchanged": true,
+      "sha256": "cc51be6f85f329dfb406c7fbd1ec5732c6ebf0f1f7b743a97c023615059eeb49"
+    },
+    {
+      "id": "TSG-STEP-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 738,
+      "line_end": 740,
+      "unchanged": true,
+      "sha256": "b13be45599830c9d766d3bb3942a70063963bf4aec5df317df6d39ea021b56a0"
+    },
+    {
+      "id": "TSG-STEP-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 741,
+      "line_end": 745,
+      "unchanged": true,
+      "sha256": "ff3def732f7d536b1e53b64cf6bb6a115b46a055e17197d5ad438237a4e0bfa8"
+    },
+    {
+      "id": "TSG-STEP-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 746,
+      "line_end": 750,
+      "unchanged": true,
+      "sha256": "738117470b3372cafd500b931ebb34ad08cd27ee7a74daffd0ea9fd2197960c6"
+    },
+    {
+      "id": "TSG-STEP-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 747,
+      "line_end": 750,
+      "unchanged": true,
+      "sha256": "54652ee76c9acb5ead7e05b3a650874006482f6d1da60536861acf2910ff95d7"
+    },
+    {
+      "id": "TSG-STEP-005",
+      "file": "foundations_compressed.tex",
+      "line_start": 742,
+      "line_end": 745,
+      "unchanged": true,
+      "sha256": "433814a6f796f6d0755a96f6f2ef934fb614b33aa2d21066bfd5744de889446d"
+    },
+    {
+      "id": "TSG-STEP-006",
+      "file": "foundations_compressed.tex",
+      "line_start": 743,
+      "line_end": 745,
+      "unchanged": true,
+      "sha256": "9390427432eee265b2d53bd4b60380e571b28b4ec8fda6ea88255933e1fcdaa8"
+    },
+    {
+      "id": "TSG-STEP-007",
+      "file": "foundations_compressed.tex",
+      "line_start": 751,
+      "line_end": 752,
+      "unchanged": true,
+      "sha256": "b142604b4291b4f88a96f6550188a384baf888018f95ac7c33e2e7e1e1e4fe18"
+    },
+    {
+      "id": "TSG-STEP-008",
+      "file": "foundations_compressed.tex",
+      "line_start": 739,
+      "line_end": 740,
+      "unchanged": true,
+      "sha256": "108db00ec2e60efc7d8c426c7bc0ba29d66c6264d3829ab9ac7a877e2aa96336"
+    },
+    {
+      "id": "TSG-STEP-009",
+      "file": "foundations_compressed.tex",
+      "line_start": 748,
+      "line_end": 750,
+      "unchanged": true,
+      "sha256": "7618d560fd1b7ab1799a81d0e42324c78963ead7cc15e38dc271f63e861f64bb"
+    },
+    {
+      "id": "TSG-ATOM-043",
+      "file": "foundations_compressed.tex",
+      "line_start": 19,
+      "line_end": 22,
+      "unchanged": true,
+      "sha256": "ac02ce4994f1fb9839aa20bac935ad7d2d3675d5dc7d4c1d0cb9e40648e5f9af"
+    },
+    {
+      "id": "TSG-ATOM-044",
+      "file": "foundations_compressed.tex",
+      "line_start": 20,
+      "line_end": 22,
+      "unchanged": true,
+      "sha256": "1f6b06c41056fca91189128adf52be3293a0d4920db8674a801628191a596c57"
+    },
+    {
+      "id": "TSG-ACC-001",
+      "file": "foundations_compressed.tex",
+      "line_start": 477,
+      "line_end": 484,
+      "unchanged": true,
+      "sha256": "b50e326126cb666c72eed9c55eabf30316e5cacee0b7ef24f6ac4e8ec1bebffd"
+    },
+    {
+      "id": "TSG-ACC-002",
+      "file": "foundations_compressed.tex",
+      "line_start": 467,
+      "line_end": 480,
+      "unchanged": true,
+      "sha256": "af07fb7e5494e85922a0281ef79ad4893578c05d8c8de18ed60df5012be1e849"
+    },
+    {
+      "id": "TSG-ACC-003",
+      "file": "foundations_compressed.tex",
+      "line_start": 485,
+      "line_end": 489,
+      "unchanged": true,
+      "sha256": "8e95151a669e4bd402f6affb439d02831a42d27cce9179715b38f90dd5e68d84"
+    },
+    {
+      "id": "TSG-ACC-004",
+      "file": "foundations_compressed.tex",
+      "line_start": 486,
+      "line_end": 489,
+      "unchanged": true,
+      "sha256": "e592ddbabf96d1cd6eadb6f99d322603518de3f28efa9313d9bde0f6eab70bf7"
+    },
+    {
+      "id": "TSG-ATOM-045",
+      "file": "foundations_compressed.tex",
+      "line_start": 641,
+      "line_end": 643,
+      "unchanged": true,
+      "sha256": "4a8a0c4b98d412ede399c1f3d13173428c1c0d8d6702e2b25ff64e361a80ede3"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "status": "EXACT_WITNESS_BYTES_BOUND_SUPPLEMENTAL_TO_146_UNIT_REGISTRY",
+  "scope": "CURRENT_CORRESPONDENCE_ONLY_NO_LEAN_BUILD_NO_LATEX_BUILD_NO_PDF_QA",
+  "repository": "AlexandervonWu/ACGN",
+  "repository_commit": "f5dbc1a04e10b61e39e6fe1b0fe8d5b236728625",
+  "repository_path": "paper-claims/formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean",
+  "repository_git_blob_sha1": "48528272445b6fa81ebd6c1f30680cd285751b5f",
+  "repository_sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f",
+  "packaged_path": "formal/TypedSlottedEGraphsPaper/TraceEnvelopeWitness.lean",
+  "packaged_sha256": "d4571f177607c4073f35466ab7d8bd2bf642bd1190a4ba38508c5a5ddfa93b7f",
+  "byte_identity": true,
+  "lake_root": "TypedSlottedEGraphsPaper.TraceEnvelopeWitness",
+  "lakefile_sha256": "3e1e5c89daec1816d559d9598ffdaa4ca6e9524c3301029d9f52630e742bee5a",
+  "paper_index_changed": false,
+  "active_formal_unit_count_before": 146,
+  "active_formal_unit_count_after": 146,
+  "active_claim_count_delta": 0,
+  "declaration_inventory": {
+    "total": 30,
+    "structures": 1,
+    "inductives": 2,
+    "definitions": 19,
+    "theorems": 8
+  },
+  "historical_focused_build_evidence": {
+    "report": "formal/trace-envelope-witness-sync-report.json",
+    "witness_sha256_match": true,
+    "reported_axiom_union": [
+      "propext",
+      "Quot.sound"
+    ],
+    "current_round_fresh_build_executed": false
+  },
+  "supported_statement": "One fixed nontrivial abstract trace has exact indexed adjacency and replays under the module's finite-set interpreter to equal endpoint denotations.",
+  "explicit_nonclaims": [
+    "Java producer-verifier correspondence",
+    "parser refinement",
+    "whole-artifact correctness",
+    "coverage of all trace shapes",
+    "experimental trace replay"
+  ]
+}

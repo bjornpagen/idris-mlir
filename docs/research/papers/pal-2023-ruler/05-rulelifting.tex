@@ -1,0 +1,226 @@
+\section{A fast-forwarding theory explorer}
+\label{sec:lift}
+\label{subsec:ff-nointerp}
+\label{subsec:perf}
+
+This section presents a new
+  \textit{fast-forwarding} theory exploration
+  algorithm, which has two key applications.
+First, as \autoref{subsec:ffoverview} showed,
+  it enables rewrite rule inference
+  for domains where writing an interpreter
+  is prohibitively difficult.
+Second,
+  it mitigates performance problems that arise
+  when resource limits interact poorly with
+  the kinds of rules in a ruleset.
+
+The \textit{kinds} of rules that comprise a ruleset
+  significantly affect performance,
+  even in efficient \eqsat-driven systems.
+Since reaching saturation
+  in an \egraph is rare in practice,
+  iteration and/or node limits are used
+  to ensure termination.
+As a result,
+  two rulesets can have vastly different
+  performance
+  even if they are equivalent under derivability.
+
+The key motivation behind
+  the fast-forwarding algorithm is that
+  the ``right'' set of rules
+  can help \textit{fast-forward} equality saturation by
+  skipping intermediate derivations.
+Skipping intermediate derivations has two benefits:
+  first, it requires fewer iterations to prove
+  a target equivalence;
+  second, it often
+  reduces the number of intermediate terms in the \egraph,
+  reducing unhelpful rewriting on these terms.
+Determining the ``right'' rules requires domain knowledge
+  and depends on the application.
+To that end, we assume that the user can provide
+  a set of \textit{allowed} ($\mathcal{A}$) and
+  \textit{forbidden} ($\mathcal{F}$) operators.
+We then say that
+  if a pattern $p$ contains \textit{any} operator $o \in \mathcal{F}$,
+  then $p$ is forbidden.
+If \textit{all} operators in $p$ are allowed,
+  then the pattern is allowed.
+Since a rule is simply a pair
+  of patterns,
+  these definitions extend to rules.
+
+For example, in the case of the trigonometric
+  rule synthesis task in \autoref{subsec:ffoverview},
+  the allowed operators are \texttt{sin}, \texttt{cos}, \texttt{tan},
+  \texttt{PI}, \texttt{+, -, $\times$}, etc., and
+  the forbidden operators are
+  \texttt{cis} and \texttt{I} because we wanted \enumo to synthesize
+  rewrite rules over the trigonometric domain only.
+Recall that this task also required an additional set of
+  \textit{exploratory} ($\mathcal{E}$) rewrite rules that relate
+  terms with allowed operators to terms with \emph{other} operators.
+Crucially, these ``other'' operators can be either allowed or
+  forbidden.
+The intuition behind $\mathcal{E}$
+  is that it helps \textit{explore}
+  new equivalences between allowed terms in the \egraph by
+  applying a \textit{known} set of rewrites over terms containing the
+  \emph{other} operators
+  (shown by \texttt{explore} in \autoref{subsec:ffoverview}).
+
+\begin{figure}
+\begin{lstlisting}
+def fast_forward_naive($\mathcal{W},\, \mathcal{R}$):
+  $\mathcal{G}$ = $\mathcal{W}$.to_egraph() # convert workload to e-graph
+  $\mathcal{G'}$ = $\mathcal{G}$.compress($\mathcal{R}$) # run equality saturation with all rules
+  # any two terms from the unions are potential candidates:
+  candidates = candidates_by_diff($\mathcal{G}$, $\mathcal{G'}$)
+  return candidates.minimize($\mathcal{R}$) # minimize candidates
+\end{lstlisting}
+  \caption{A naive algorithm for fast-forwarding theory exploration which
+  applies \eqsat to terms represented by $\mathcal{W}$ using
+  \T{compress}.}
+\label{fig:ff-naive}
+\end{figure}
+
+\autoref{fig:ff-naive} shows a naive implementation
+  of fast-forwarding
+  using the set of core \enumo operators
+  from \autoref{sec:slide}.
+The process consists of
+  applying \T{eqsat} to a workload representing
+  \textit{allowed} terms
+  using a ruleset, $\mathcal{R}$, which contains both
+  allowed and forbidden rules.
+First, it creates an \eggl from the terms obtained by
+  evaluating the workload.
+Then, it \textit{shrinks} the \egraph using the
+  \T{compress} operator.
+\T{compress} is an \eqsat \textit{strategy} (\autoref{fig:ruleops}) that prevents
+  the \egraph from getting intractably large.
+It applies the rewrites on a duplicate of the original
+  \egraph and only copies the
+  equivalences back.
+It adds no new \enodes or \eclasses to the original \egraph.
+The next step in the algorithm extracts candidates from $\mathcal{G}$
+  based on the equalities discovered in $\mathcal{G'}$
+  using a cost function that penalizes forbidden operators.
+Finally, it minimizes the resulting ruleset as explained
+  in \autoref{sec:slide}.
+Notice that this naive algorithm
+  simply performs a single phase of \T{compress} with
+  \textit{all} the rules.
+
+\begin{figure}
+\begin{lstlisting}
+def fast_forward($\mathcal{W},\, \mathcal{R},\, \mathcal{E}$):
+  $\mathcal{G}$ = $\mathcal{W}$.to_egraph() $\label{ln:5}$ # convert workload to egraph
+  allowed = $\{r ~ \in ~ \mathcal{R} ~ | ~ \forall ~ o ~\in~ (ops(r.lhs) ~ \cup ~ ops(r.rhs)), ~ o ~\in~ \mathcal{A} \}$  $\label{ln:6}$
+  $\mathcal{G'}$ = $\mathcal{G}$.compress(allowed) $\label{ln:7}$ # compress the egraph with allowed rules
+  $\mathcal{G''}$ = $\mathcal{G'}$.eqsat($\mathcal{E}$) $\label{ln:11}$ # grow the egraph with exploratory rules
+  $\mathcal{G'''}$ = $\mathcal{G''}$.compress($\mathcal{R}$) $\label{ln:12}$ # compress to find equalities with all of $\mathcal{R}$
+  candidates = candidates_by_diff($\mathcal{G'}$, $\mathcal{G'''}$) $\,$# extract learned rules with no ops in $\mathcal{F}$
+  return candidates.minimize(allowed) # minimize candidates
+\end{lstlisting}
+\caption{A practical fast-forwarding theory exploration algorithm that
+  approximates the naive version. \textit{ops} is a helper function that returns
+  all the operators in a term.}
+\label{fig:ff-actual}
+\end{figure}
+
+\paragraph*{A practical algorithm.}
+Unfortunately, the naive algorithm in \autoref{fig:ff-naive}
+  does not find useful
+  rules in practice for two reasons.
+First, it does not scale:
+  for large workloads, the \egraph blows up and
+  resource limits (e.g., timeout, iterations) are exhausted
+  before useful equivalences emerge.
+Second, exploring in a breadth-first manner
+  prevents finding interesting fast-forwarding opportunities,
+  which only occur after several rounds of \eqsat.
+
+Instead, we propose a more practical, approximate algorithm
+  that applies \eqsat
+  in a more strategic way by leveraging a user's domain
+  knowledge in the form of $\mathcal{E}$,
+  $\mathcal{F}$, and $\mathcal{A}$.
+The algorithm in \autoref{fig:ff-actual}
+  \textit{selectively} grows and compresses
+  the \egraph using the rules provided by the user.
+The algorithm first creates an \eggl
+  from the terms represented by $\mathcal{W}$,
+  then compresses the \egraph with allowed rules
+  (lines \ref{ln:6}--\ref{ln:7}).
+This step  \textit{shrinks} the \egraph with known
+  equivalences.
+In the next step,
+  the algorithm \textit{grows} the \egraph with
+  $\mathcal{E}$ (line \ref{ln:11}).
+Crucially, this step does \emph{not} use \T{compress};
+  it performs simple \T{eqsat} that introduces
+  new terms and equivalences in the \egraph.
+The final \eqsat step applies another round of compression
+  using all the rules in $\mathcal{R}$, discovering new
+  fast-forwarded rules.
+The minimization step in this algorithm
+  uses the \T{allowed} rules instead of the entire
+  ruleset in order to avoid forbidden operators
+  in the minimized ruleset.
+The rest of the algorithm is similar to \autoref{fig:ff-naive}.
+
+\subsection{Comparing different scheduling strategies}
+\label{subsec:cmp}
+The key idea in our fast-forwarding algorithm is to
+  perform \eqsat in phases,
+  using subsets of $\mathcal{R}$ to selectively
+  grow and compress the \egraph.
+To understand how this affects performance,
+  we ran an experiment to evaluate and compare
+  the difference between using
+  \C{eqsat} and \C{compress}
+  in \autoref{fig:ff-actual}.
+We used a workload of 287 terms
+  from the domain of trigonometric operators
+  ($\sin$, $\cos$, $\tan$, $\pi$, $\pi/2$, etc.).
+\autoref{table:ff-cmp} shows the
+  results of the comparison.
+The first two rows, which use \C{eqsat} in all three phases, do not terminate
+  within 20 minutes.
+These treatments demonstrate the importance of \C{compress}, which does not
+  allow the \egraph to grow.
+The next two rows use \C{compress} in all three phases.
+The third row does not split up the rules in $\mathcal{R}$ and simply runs
+  \C{compress($\mathcal{R}$)} three times.
+The fourth row compresses with the allowed rules ($\mathcal{A}$) in
+  Phase 1, the exploratory rules ($\mathcal{E}$)
+  in Phase 2, and all rules ($\mathcal{R}$) in Phase 3.
+Both of these treatments finish within seconds, but do not find any new rules.
+The approach in the last row, which corresponds to the actual \ff algorithm
+  described in \autoref{fig:ff-actual}, finds 4 useful trigonometric
+  identities in about 3 minutes.
+This experiment demonstrates the importance of using \C{eqsat} and \C{compress}
+  together to strategically grow and compress the \egraph.
+
+\begin{table}[h]
+  \footnotesize
+\begin{tabular}{llllc}
+  Phase 1 & Phase 2 & Phase 3 & Time (s) & \# Rules with Trig Operators \\ \cline{1-5}
+eqsat ($\mathcal{R}$) & eqsat ($\mathcal{R}$) & eqsat ($\mathcal{R}$) & Timeout & - \\
+eqsat ($\mathcal{A}$) & eqsat ($\mathcal{E}$) & eqsat ($\mathcal{R}$) & Timeout & - \\
+compress ($\mathcal{R}$) & compress ($\mathcal{R}$) & compress ($\mathcal{R}$) & 18.66 & 0 \\
+compress ($\mathcal{A}$) & compress ($\mathcal{E}$) & compress ($\mathcal{R}$) & 9.42 & 0 \\
+compress ($\mathcal{A}$) & eqsat ($\mathcal{E}$) & compress ($\mathcal{R}$) & 175.78 & 4 \\
+\end{tabular}%
+\caption{Comparing \texttt{compress} and \texttt{eqsat} with different
+    subsets of $\mathcal{R}$ for the three phases of \autoref{fig:ff-actual}.
+    $\mathcal{A}$ is the allowed rules of $\mathcal{R}$ and
+    $\mathcal{E}$ is the exploratory rules of $\mathcal{R}$.
+    The last row corresponds to \autoref{fig:ff-actual};
+    it is the only treatment that finds any trigonometric rules.}
+\label{table:ff-cmp}
+\end{table}
+

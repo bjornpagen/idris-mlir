@@ -1,0 +1,37 @@
+\documentclass[12pt]{article}                                   % -*- latex -*-
+
+% standard packages
+\usepackage{times}
+\usepackage[hyperfootnotes=false]{hyperref} % url package comes with this
+\usepackage{type1cm} % We are using scalable fonts. Really.
+\usepackage{amsmath}
+
+% private packages
+\usepackage{texlib/ct}
+\usepackage{texlib/code}
+\usepackage{texlib/headings}	% Tighter section titles
+
+\hypersetup{linkcolor=black,urlcolor=black,citecolor=black,pdfborder=0 0 0}
+
+\input{decls}
+
+\newcommand{\Section}[1]{\section*{#1}}
+\newcommand{\Subsection}[1]{\subsection*{#1}}
+\newcommand{\Bibliography}[1]{\clearpage\bibliography{#1}}
+
+\bibliographystyle{plain}
+
+\title{An Introduction to \\ Rank-polymorphic Programming \\
+       in Remora \\
+       (Draft)
+       }
+\author{Olin Shivers, Justin Slepak, Panagiotis Manolios \\
+        Northeastern University}
+
+% Because of the horrible JFP tabular hackery.
+\newenvironment{oldtabular}{\begin{tabular}}{\end{tabular}}
+
+\begin{document}
+\maketitle
+\input{body}
+\end{document}

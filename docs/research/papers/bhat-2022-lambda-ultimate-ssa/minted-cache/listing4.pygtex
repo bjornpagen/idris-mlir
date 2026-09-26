@@ -1,0 +1,3 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYGZdl{} cd /code/lean4/build/release \PYGZam{}\PYGZam{} make \PYGZhy{}j test
+\end{Verbatim}

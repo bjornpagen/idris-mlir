@@ -1,0 +1,15 @@
+\begin{tikzpicture}
+	\begin{pgfonlayer}{nodelayer}
+		\node [style=node] (3) at (3.5, -2) {$z$};
+		\node [style=node] (4) at (0, 3.75) {$x$};
+		\node [style=node] (5) at (-3.5, -2) {$y$};
+		\node [style=none] (10) at (2.5, 1.5) {$T$};
+		\node [style=none] (11) at (0, -2.75) {$S$};
+		\node [style=none] (12) at (-2.5, 1.5) {$R$};
+	\end{pgfonlayer}
+	\begin{pgfonlayer}{edgelayer}
+		\draw (4) to (3);
+		\draw (5) to (3);
+		\draw (4) to (5);
+	\end{pgfonlayer}
+\end{tikzpicture}

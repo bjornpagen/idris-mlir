@@ -1,0 +1,126 @@
+\section{Design Principles}\label{sec:design}
+
+% This entire section should be devoid of MLIR, this is not about implementation.
+
+Let us now explore the requirements that guided the design of \MLIR.
+
+\paragraph{Little builtin, everything customizable}
+
+The system is based on a minimal number of fundamental concepts, leaving
+most of the intermediate representation fully customizable. A handful of
+abstractions---types, operations and attributes, which are the most common in
+IRs---should be used to express everything else,
+allowing fewer and more consistent abstractions that are easy to comprehend,
+extend and adopt. Broadly, customizability ensures the system can adapt to
+changing requirements and is more likely to be applicable to future problems.
+In that sense, we ought to build an IR as a rich infrastructure with reusable components and programming abstractions supporting the syntax and semantics of its intermediate language.
+
+A success criterion for customization is the possibility to express a diverse
+set of abstractions including machine learning graphs, ASTs, mathematical
+abstractions such as polyhedral, Control Flow Graphs (CFGs) and instruction-level IRs such as LLVM
+IR, all without hard coding concepts from these abstractions into the system.
+
+Certainly, customizability creates a risk of internal fragmentation due to
+poorly compatible abstractions. While there is unlikely a purely technical
+solution to the ecosystem fragmentation problem, the system should encourage
+one to design reusable abstractions and assume they will be used outside of
+their initial scope.
+
+\paragraph{SSA and regions}
+
+The Static Single Assignment (SSA) form \cite{Cytron:1991:ECS:115372.115320} is a
+widely used representation
+in compiler IRs.  It provides numerous advantages including making dataflow
+analysis simple and sparse, is widely understood by the compiler community for its relation with continuation-passing style,
+and is established in major frameworks.  While many existing IRs use a flat, linearized
+CFG, representing higher level abstractions push introducing \emph{nested
+regions} as a first-class concept in the IR.
+This goes beyond the traditional region formation to lift higher level abstractions (e.g., loop trees), speeding up the compilation process or extracting instruction, or SIMD parallelism~\cite{Johnson:1994:PST:178243.178258,DBLP:conf/hpca/HavankiBC98,DBLP:journals/toplas/Ramalingam02}. To support heterogeneous compilation, the system has to support
+the expression of structured control flow, concurrency constructs,
+closures in source languages, and many other purposes. One specific challenge is to make CFG-based analyses and transformations compose over nested regions.
+
+In doing so, we aim to sacrifice the normalization, and sometimes the canonicalization properties of LLVM. Being able to lower a variety of data and control structures into a smaller collection of normalized representations is key to keeping compiler complexity under control. The canonical loop structure with its pre-header, header, latch, body, is a prototypical case of a linearized control flow representation of a variety of loop constructs in front-end languages. We aim at offering users a choice: depending on the compilation algorithm of interest, of the pass in the compilation flow, nested loops may be captured as nested regions, or as linearized control flow. By offering such a choice, we depart from the normalization-only orientation of LLVM while retaining the ability to deal with higher level abstractions when it matters. In turn, leveraging such choices raises questions about how to control the normalization of abstractions, whith is the purpose of the next paragraph.
+
+\paragraph{Progressive lowering}
+
+The system should support \emph{progressive lowering}, i.e.\ from the
+higher-level representation down to the lowest-level, with the lowering being performed
+in small steps along multiple abstraction levels. The need for multiple levels
+of abstractions stems from the variety of platforms and programming models that
+a generic compiler infrastructure has to support.
+
+Previous compilers have been introducing multiple fixed levels of abstraction in
+their pipeline---e.g.\ the Open64 WHIRL representation \cite{open64} has five levels,
+as does the Clang compiler which lowers from ASTs to LLVM IR,
+to SelectionDAG, to MachineInstr, and to MCInst.  Whereas these approaches are
+done in a rigid way, more flexible designs are required to support
+extensibility.
+
+This has deep implications on the
+phase ordering of transformations. As compiler experts started implementing
+more and more transformation passes, complex interactions between these passes
+started appearing. It was shown early on that combining optimization passes
+allows the compiler to discover more facts about the program. One of the first
+illustrations of the benefits of combining passes was to mix constant
+propagation, value numbering and unreachable code
+elimination~\cite{Click1995}.
+More generally, compiler passes can be roughly categorized into four roles:
+(1) optimizing transformations, (2) enabling transformations, (3) lowering and
+(4) cleanup. The system should allow for mixing and matching these roles at the
+granularity of a single operation rather than sequencing passes on the full
+compilation unit.
+
+\paragraph{Maintain higher-level semantics}
+
+The system needs to retain higher-level semantics and structure of computations
+that are required for analysis or optimizing performance. Attempts to raise
+semantics once lowered are fragile and shoehorning this information into a
+low-level often invasive (e.g., all passes need to be verified/revisited in the
+case of using debug information to record structure). Instead, the system should
+maintain structure of computation and progressively lower to the hardware
+abstraction. The loss of structure is then conscious and happens only where the
+structure is no longer needed to match the underlying execution model.
+For example, the system should preserve the structured control flow such as
+loop structure throughout the relevant transformations; removing this
+structure, i.e. going to CFG-based control flow, essentially means no further
+transformations will be performed on this level.
+The state of the art in modeling parallel computing constructs in a production compiler highlights how difficult the task may be in general~\cite{Khaldi:2015:LPI:2833157.2833158,Schardl:2017:TEF:3155284.3018758}.
+
+As a corollary, mixing different levels of abstractions and different concepts in
+the same IR is a key property of the system to allow a part of the
+representation to remain in higher-level abstraction while another part is
+lowered. This would enable, for instance, a compiler for a custom accelerator to reuse
+some higher-level structure and abstractions defined by the system alongside
+with primitive scalar/vector instructions specific to the accelerator.
+
+\paragraph{IR validation}
+
+The openness of the ecosystem calls for an extensive validation
+mechanism. While verification and testing are useful to detect compiler bugs, and to capture IR
+invariants, the need for robust validation methodologies and tools is amplified in an extensible system. The mechanism should aim to make this easy to define and as declarative
+as practical, providing a single source of truth.
+
+A long term goal would be to reproduce the successes of translation
+validation
+\cite{DBLP:conf/tacas/PnueliSS98,Necula:2000:TVO:358438.349314,DBLP:conf/popl/TristanL08,DBLP:conf/pldi/TristanL09}
+and modern approaches to compiler testing
+\cite{DBLP:conf/pldi/ChenGZWFER13}. Both are currently open problems in the context of an extensible
+compiler ecosystem.
+
+\paragraph{Declarative rewrite patterns}
+
+Defining representation modifiers should be as simple as that of new
+abstractions; a compiler infrastructure is only as good as the
+transformations it supports. Common transformations should be implementable as
+rewrite rules expressed declaratively, in a machine-analyzable format to reason
+about properties of the rewrites such as complexity and completion. Rewriting systems have been studied extensively for their soundness and efficiency, and applied to numerous compilation problems, from type systems to instruction selection. Since we aim for unprecedented extensibility and incremental lowering capabilities, this opens numerous avenues for modeling program transformations as rewrite systems. It also raises interesting questions about how to represent the rewrite rules and strategies, and how to build machine descriptions capable of steering rewriting strategies through multiple levels of abstraction. The system needs to address these questions while preserving extensibility and enforcing a sound, monotonic and reproducible behavior.
+
+\paragraph{Source location tracking and traceability}
+
+The provenance of an operation---including its original location and applied
+transformations---should be easily traceable within the system. This intends to
+address the lack-of-transparency problem, common to complex compilation
+systems, where it is virtually impossible to understand how the final
+representation was constructed from the original one.
+
+This is particularly problematic when compiling safety-critical and sensitive applications, where tracing lowering and optimization steps is an essential component of software certification procedures \cite{compcert}. When operating on secure code such as cryptographic protocols or algorithms operating on privacy-sensitive data, the compiler often faces seemingly redundant or cumbersome computations that embed a security or privacy property not fully captured by the functional semantics of the source program: this code may prevent the exposure of side channels or harden the code against cyber or fault attacks. Optimizations may alter or completely invalidate such protections \cite{Vu20}; this lack of transparency is known as WYSINWYX \cite{balakrishnan} in secure compilation. One indirect goal of accurately propagating high-level information to the lower levels is to help support secure and traceable compilation.

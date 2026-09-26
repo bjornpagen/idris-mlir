@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "review_round": 2,
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "required_roles": [
+    "PAPER_LEAN_SEMANTIC_CORRESPONDENCE",
+    "LEAN_METADATA_AND_CORRESPONDENCE_COHERENCE"
+  ],
+  "reviewer_records": {
+    "semantics": {
+      "path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/semantics.json",
+      "sha256": "a6521a37c706d1666990032ddb25e06625e69ca493af84e01b33a873d305c482",
+      "reviewer_task_id": "/root/approved_round_semantic",
+      "fresh_instance": true,
+      "verdict": "PASS"
+    },
+    "lean_metadata": {
+      "path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/lean-metadata.json",
+      "sha256": "6311d815a9a74dec409b1fd64f372803f39e6168575109cde3c6dd8b628a2e9b",
+      "reviewer_task_id": "/root/approved_round_mechanical",
+      "fresh_instance": true,
+      "verdict": "PASS"
+    }
+  },
+  "same_snapshot_and_contract": true,
+  "exact_required_role_set": true,
+  "source_mutation_observed": false,
+  "unanimous_pass": true,
+  "blocking_findings": [],
+  "round_verdict": "PASS",
+  "disposition": "CORRESPONDENCE_REVIEW_CLOSED_CLEAN_BUILDS_NEXT_GATE"
+}

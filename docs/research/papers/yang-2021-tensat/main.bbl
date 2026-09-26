@@ -1,0 +1,233 @@
+\begin{thebibliography}{33}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Bansal \& Aiken(2006)Bansal and Aiken]{Bansal:peephole}
+Bansal, S. and Aiken, A.
+\newblock Automatic generation of peephole superoptimizers.
+\newblock In \emph{ASPLOS}, 2006.
+
+\bibitem[Chen \& Tian(2019)Chen and Tian]{NeuRewriter}
+Chen, X. and Tian, Y.
+\newblock Learning to perform local rewriting for combinatorial optimization.
+\newblock In \emph{Advances in Neural Information Processing Systems 32 Annual
+  Conference}, NeurIPS '19, pp.\  6278--6289, 2019.
+
+\bibitem[de~Moura \& Bj{\o}rner(2007)de~Moura and Bj{\o}rner]{ematching}
+de~Moura, L. and Bj{\o}rner, N.
+\newblock Efficient e-matching for smt solvers.
+\newblock In \emph{Automated Deduction -- CADE-21}, pp.\  183--198, Berlin,
+  Heidelberg, 2007. Springer Berlin Heidelberg.
+
+\bibitem[Detlefs et~al.(2005)Detlefs, Nelson, and Saxe]{simplify}
+Detlefs, D., Nelson, G., and Saxe, J.~B.
+\newblock Simplify: A theorem prover for program checking.
+\newblock \emph{J. ACM}, 52\penalty0 (3):\penalty0 365--473, May 2005.
+\newblock URL \url{http://doi.acm.org/10.1145/1066100.1066102}.
+
+\bibitem[Devlin et~al.(2019)Devlin, Chang, Lee, and Toutanova]{bert}
+Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K.
+\newblock Bert: Pre-training of deep bidirectional transformers for language
+  understanding.
+\newblock In \emph{NAACL-HLT}, 2019.
+
+\bibitem[Fang et~al.(2020)Fang, Shen, Wang, and Chen]{Fang:sampling}
+Fang, J., Shen, Y., Wang, Y., and Chen, L.
+\newblock {Optimizing DNN Computation Graph Using Graph Substitutions}.
+\newblock \emph{Proc. VLDB Endow.}, 13\penalty0 (12):\penalty0 2734–2746,
+  July 2020.
+\newblock URL \url{https://doi.org/10.14778/3407790.3407857}.
+
+\bibitem[Gamrath et~al.(2020)Gamrath, Anderson, Bestuzheva, Chen, Eifler,
+  Gasse, Gemander, Gleixner, Gottwald, Halbig, Hendel, Hojny, Koch, Le~Bodic,
+  Maher, Matter, Miltenberger, M{\"u}hmer, M{\"u}ller, Pfetsch, Schl{\"o}sser,
+  Serrano, Shinano, Tawfik, Vigerske, Wegscheider, Weninger, and Witzig]{scip}
+Gamrath, G., Anderson, D., Bestuzheva, K., Chen, W.-K., Eifler, L., Gasse, M.,
+  Gemander, P., Gleixner, A., Gottwald, L., Halbig, K., Hendel, G., Hojny, C.,
+  Koch, T., Le~Bodic, P., Maher, S.~J., Matter, F., Miltenberger, M.,
+  M{\"u}hmer, E., M{\"u}ller, B., Pfetsch, M.~E., Schl{\"o}sser, F., Serrano,
+  F., Shinano, Y., Tawfik, C., Vigerske, S., Wegscheider, F., Weninger, D., and
+  Witzig, J.
+\newblock {The SCIP Optimization Suite 7.0}.
+\newblock Technical report, Optimization Online, March 2020.
+\newblock URL
+  \url{http://www.optimization-online.org/DB_HTML/2020/03/7705.html}.
+
+\bibitem[{He} et~al.(2016){He}, {Zhang}, {Ren}, and {Sun}]{resnet}
+{He}, K., {Zhang}, X., {Ren}, S., and {Sun}, J.
+\newblock Deep residual learning for image recognition.
+\newblock In \emph{2016 IEEE Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, pp.\  770--778, 2016.
+
+\bibitem[Iandola et~al.(2017)Iandola, Moskewicz, Ashraf, Han, Dally, and
+  Keutzer]{squeezenet}
+Iandola, F.~N., Moskewicz, M.~W., Ashraf, K., Han, S., Dally, W., and Keutzer,
+  K.
+\newblock Squeezenet: Alexnet-level accuracy with 50x fewer parameters and
+  $<$1mb model size.
+\newblock \emph{ArXiv}, abs/1602.07360, 2017.
+
+\bibitem[Jia et~al.(2019{\natexlab{a}})Jia, Padon, Thomas, Warszawski, Zaharia,
+  and Aiken]{taso}
+Jia, Z., Padon, O., Thomas, J., Warszawski, T., Zaharia, M., and Aiken, A.
+\newblock {TASO: Optimizing Deep Learning Computation with Automatic Generation
+  of Graph Substitutions}.
+\newblock In \emph{Proceedings of the 27th ACM Symposium on Operating Systems
+  Principles}, SOSP '19, pp.\  47–62, New York, NY, USA, 2019{\natexlab{a}}.
+  Association for Computing Machinery.
+\newblock URL \url{https://doi.org/10.1145/3341301.3359630}.
+
+\bibitem[Jia et~al.(2019{\natexlab{b}})Jia, Thomas, Warszawski, Gao, Zaharia,
+  and Aiken]{metaflow}
+Jia, Z., Thomas, J., Warszawski, T., Gao, M., Zaharia, M., and Aiken, A.
+\newblock {Optimizing DNN Computation with Relaxed Graph Substitutions}.
+\newblock In \emph{Proceedings of the 2nd SysML Conference}, SysML '19,
+  2019{\natexlab{b}}.
+
+\bibitem[Joshi et~al.(2002)Joshi, Nelson, and Randall]{denali}
+Joshi, R., Nelson, G., and Randall, K.
+\newblock Denali: a goal-directed superoptimizer.
+\newblock In \emph{PLDI}, 2002.
+
+\bibitem[{Liu} \& {Deng}(2015){Liu} and {Deng}]{vgg}
+{Liu}, S. and {Deng}, W.
+\newblock Very deep convolutional neural network based image classification
+  using small training sample size.
+\newblock In \emph{2015 3rd IAPR Asian Conference on Pattern Recognition
+  (ACPR)}, pp.\  730--734, 2015.
+
+\bibitem[Massalin(1987)]{massalin}
+Massalin, H.
+\newblock Superoptimizer: a look at the smallest program.
+\newblock In \emph{ASPLOS}, 1987.
+
+\bibitem[Nandi et~al.(2020)Nandi, Willsey, Anderson, Wilcox, Darulova,
+  Grossman, and Tatlock]{szalinski}
+Nandi, C., Willsey, M., Anderson, A., Wilcox, J.~R., Darulova, E., Grossman,
+  D., and Tatlock, Z.
+\newblock Synthesizing structured {CAD} models with equality saturation and
+  inverse transformations.
+\newblock In \emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}, PLDI 2020, pp.\  31–44,
+  New York, NY, USA, 2020.
+
+\bibitem[Nelson(1980)]{nelson}
+Nelson, C.~G.
+\newblock \emph{Techniques for Program Verification}.
+\newblock PhD thesis, Stanford, CA, USA, 1980.
+\newblock AAI8011683.
+
+\bibitem[Panchekha et~al.(2015)Panchekha, Sanchez-Stern, Wilcox, and
+  Tatlock]{herbie}
+Panchekha, P., Sanchez-Stern, A., Wilcox, J.~R., and Tatlock, Z.
+\newblock Automatically improving accuracy for floating point expressions.
+\newblock \emph{SIGPLAN Not.}, 50\penalty0 (6):\penalty0 1–11, June 2015.
+\newblock URL \url{https://doi.org/10.1145/2813885.2737959}.
+
+\bibitem[Perron \& Furnon()Perron and Furnon]{ortools}
+Perron, L. and Furnon, V.
+\newblock Or-tools.
+\newblock URL \url{https://developers.google.com/optimization/}.
+
+\bibitem[Phothilimthana et~al.(2016{\natexlab{a}})Phothilimthana, Thakur,
+  Bodik, and Dhurjati]{greenthumb-asplos}
+Phothilimthana, P.~M., Thakur, A., Bodik, R., and Dhurjati, D.
+\newblock Scaling up superoptimization.
+\newblock In \emph{Proceedings of the Twenty-First International Conference on
+  Architectural Support for Programming Languages and Operating Systems},
+  ASPLOS '16, pp.\  297–310, New York, NY, USA, 2016{\natexlab{a}}.
+
+\bibitem[Phothilimthana et~al.(2016{\natexlab{b}})Phothilimthana, Thakur,
+  Bodik, and Dhurjati]{greenthumb-cc}
+Phothilimthana, P.~M., Thakur, A., Bodik, R., and Dhurjati, D.
+\newblock Greenthumb: Superoptimizer construction framework.
+\newblock In \emph{Proceedings of the 25th International Conference on Compiler
+  Construction}, CC 2016, pp.\  261–262, New York, NY, USA,
+  2016{\natexlab{b}}.
+
+\bibitem[Premtoon et~al.(2020)Premtoon, Koppel, and Solar-Lezama]{yogo}
+Premtoon, V., Koppel, J., and Solar-Lezama, A.
+\newblock Semantic code search via equational reasoning.
+\newblock In \emph{Proceedings of the 41st ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}, PLDI 2020, pp.\
+  1066–1082, New York, NY, USA, 2020.
+
+\bibitem[Rust()]{rust}
+Rust.
+\newblock Rust programming language.
+\newblock \url{https://www.rust-lang.org/}.
+\newblock URL \url{https://www.rust-lang.org/}.
+
+\bibitem[Sasnauskas et~al.(2017)Sasnauskas, Chen, Collingbourne, Ketema,
+  Taneja, and Regehr]{Souper}
+Sasnauskas, R., Chen, Y., Collingbourne, P., Ketema, J., Taneja, J., and
+  Regehr, J.
+\newblock Souper: {A} synthesizing superoptimizer.
+\newblock \emph{CoRR}, abs/1711.04422, 2017.
+\newblock URL \url{http://arxiv.org/abs/1711.04422}.
+
+\bibitem[Schkufza et~al.(2013)Schkufza, Sharma, and Aiken]{stoke:asplos}
+Schkufza, E., Sharma, R., and Aiken, A.
+\newblock Stochastic superoptimization.
+\newblock In \emph{ASPLOS}, 2013.
+
+\bibitem[Schkufza et~al.(2014)Schkufza, Sharma, and Aiken]{stoke:pldi}
+Schkufza, E., Sharma, R., and Aiken, A.
+\newblock Stochastic optimization of floating-point programs with tunable
+  precision.
+\newblock In \emph{PLDI}, 2014.
+
+\bibitem[Stepp et~al.(2011)Stepp, Tate, and Lerner]{eqsat-llvm}
+Stepp, M., Tate, R., and Lerner, S.
+\newblock Equality-based translation validator for llvm.
+\newblock In \emph{Computer Aided Verification}, pp.\  737--742, Berlin,
+  Heidelberg, 2011.
+
+\bibitem[Szegedy et~al.(2016)Szegedy, Vanhoucke, Ioffe, Shlens, and
+  Wojna]{inceptionv3}
+Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., and Wojna, Z.
+\newblock Rethinking the inception architecture for computer vision.
+\newblock \emph{2016 IEEE Conference on Computer Vision and Pattern Recognition
+  (CVPR)}, pp.\  2818--2826, 2016.
+
+\bibitem[Tate et~al.(2009)Tate, Stepp, Tatlock, and Lerner]{eqsat}
+Tate, R., Stepp, M., Tatlock, Z., and Lerner, S.
+\newblock Equality saturation: A new approach to optimization.
+\newblock In \emph{Proceedings of the 36th Annual ACM SIGPLAN-SIGACT Symposium
+  on Principles of Programming Languages}, POPL '09, pp.\  264--276, New York,
+  NY, USA, 2009.
+
+\bibitem[Wang et~al.(2020)Wang, Hutchison, Leang, Howe, and Suciu]{spores}
+Wang, Y.~R., Hutchison, S., Leang, J., Howe, B., and Suciu, D.
+\newblock {SPORES}: Sum-product optimization via relational equality saturation
+  for large scale linear algebra.
+\newblock \emph{Proceedings of the VLDB Endowment}, 2020.
+
+\bibitem[Willsey et~al.(2020)Willsey, Wang, Flatt, Nandi, Panchekha, and
+  Tatlock]{egg}
+Willsey, M., Wang, Y.~R., Flatt, O., Nandi, C., Panchekha, P., and Tatlock, Z.
+\newblock egg: Fast and extensible e-graphs, 2020.
+
+\bibitem[{Xie} et~al.(2017){Xie}, {Girshick}, {Dollár}, {Tu}, and
+  {He}]{resnext50}
+{Xie}, S., {Girshick}, R., {Dollár}, P., {Tu}, Z., and {He}, K.
+\newblock Aggregated residual transformations for deep neural networks.
+\newblock In \emph{2017 IEEE Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, pp.\  5987--5995, 2017.
+
+\bibitem[Zoph \& Le(2017)Zoph and Le]{nasrnn}
+Zoph, B. and Le, Q.~V.
+\newblock Neural architecture search with reinforcement learning.
+\newblock 2017.
+\newblock URL \url{https://arxiv.org/abs/1611.01578}.
+
+\bibitem[{Zoph} et~al.(2018){Zoph}, {Vasudevan}, {Shlens}, and {Le}]{nasneta}
+{Zoph}, B., {Vasudevan}, V., {Shlens}, J., and {Le}, Q.~V.
+\newblock Learning transferable architectures for scalable image recognition.
+\newblock In \emph{2018 IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition}, pp.\  8697--8710, 2018.
+
+\end{thebibliography}

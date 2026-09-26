@@ -1,0 +1,64 @@
+\section{Related Work}
+\label{sec:relatedworks}
+
+\paragraph{\Ematching}
+
+The \ematching problem is first described by a seminal thesis of
+ \citet{nelson-thesis} in the context of program verification,
+ although it has been proved earlier that the problem
+ of \ematching is NP-complete.
+\citet{simplify} shows the first formal description of
+ an \ematching algorithm, which is implemented as
+ backtracking iterators.
+Modern SMT solvers implement various \ematching algorithms
+ for quantifier instantiation.
+Moreover, equality saturation-based optimizers uses \ematching to discover
+ new terms equivalent to the original program.
+Several improvements are introduced
+ later~\cite{moskal, efficient-ematching},
+ all based on the idea of backtracking.
+In particular, \citet{efficient-ematching} describes an
+ efficient \ematching virtual machine that computes
+ \ematching incrementally.
+Their algorithm uses several indices to track changes
+ incrementally and speed up \ematching.
+However, their algorithm is difficult to implement and
+ cannot utilize the equality constraints in general.
+Their incremental maintenance algorithm can also be viewed
+ as a specialized algorithm for incremental view maintenance
+ if taking a relational view of \egraphs.
+
+\paragraph{Graph processing engine}
+
+\Ematching bears many similarity with graph analytics queries
+ like graph pattern matching, both of which try to find patterns
+ on an \egraph.
+Since many real-world data such as social networks
+ can be naturally expressed as graphs, systems for graph analytics
+ has increasing becoming the focus of database researches
+ and many graph processing engines are developed.
+Some engines use dedicated graph data structures and
+ graph algorithms for graph analytics~\cite{ligra, snap, powergraph}.
+Other engines use a relational database system
+ for performing the analytics~\cite{socialite,grail,emptyheaded}.
+In particular, Emptyheaded shows that a relational engine using
+ the generic join algorithm can beat low-level systems dedicated
+ to graph analytics~\cite{emptyheaded}.
+Consistent with this conclusion, we use the generic join algorithm for
+ the \ematching problem.
+
+
+\paragraph{Equality saturation}
+
+\paragraph{SMT solver}
+
+\paragraph{Rewrite systems}
+
+Rete's algorithm.
+
+\paragraph{Join algorithms}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "main"
+%%% End:

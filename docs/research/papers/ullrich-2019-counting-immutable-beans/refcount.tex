@@ -1,0 +1,567 @@
+\documentclass[sigconf]{acmart}
+\pdfoutput=1
+\include{header}
+
+\begin{document}
+%% \maketitle
+%% Note: \maketitle command must come after title commands, author
+%% commands, abstract environment, Computing Classification System
+%% environment and commands, and keywords command.
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+\input{intro}
+
+\section{The pure IR}
+\label{sec:pure}
+
+Our source language \pureIR{} is a simple untyped functional
+intermediate representation (IR) in the style of A-normal
+form~\cite{Flanagan:1993:ECC:155090.155113}. It captures the relevant
+features of the actual IR we have implemented and avoids unnecessary
+complexity that would only distract the reader from the ideas proposed here.
+\begin{alignat*}{3}
+  w, x, y, z \syncat{Var}\\
+  c \syncat{Const}\\
+  e \syncat{Expr} &::=&\ c\ \many{y} \mid \Pap c \many{y} \mid x\ y \mid \Ctor_i \many{y} \mid \Proj_i x \\
+  F \syncat{FnBody} &::=&\ \Ret x \mid \Let x = e; F \mid \Case x \many{F} \\
+  f \syncat{Fn} &::=&\ \Lambda \many{y}. F \\
+  \delta \syncat{Program} &=&\ \ty{Const} \rightharpoonup \ty{Fn}
+\end{alignat*}
+All arguments of function applications are variables. The applied function is
+a constant $c$, with partial applications marked with the keyword \kw{pap}, a
+variable $x$, the $i$-th constructor of an
+erased datatype, or the special function $\kw{proj}_i$, which returns the $i$-th
+argument of a constructor application. Function bodies always end with
+evaluating and returning a variable.
+They can be chained with (non-recursive) \kw{let} statements and branch using \kw{case}
+statements, which evaluate to their $i$-th arm given an application of $\kw{ctor}_i$.
+As further detailed in \cref{sec:incdec}, we consider tail calls to be of the form
+$\kw{let}\ r = c\ \many{x};\ \kw{ret}\ r$.
+A program is a partial map from constant names to their implementations. The
+body of a constant's implementation may refer back to the constant,
+which we use to represent recursion, and analogously mutual recursion.
+In examples, we use $f\ \many{x} = F$ as syntax sugar for $\delta(f) = \lambda\ \many{x}.\ F$.
+
+As an intermediate representation, we can and should impose restrictions on the
+structure of \pureIR{} to simplify working with it. We assume that
+
+\begin{itemize}
+\item all constructor applications are fully applied by eta-expanding them.
+\item no constant applications are over-applied by splitting them into two applications where necessary.
+\item all variable applications take only one argument, again by splitting them
+  where necessary. While this simplification can introduce additional
+  allocations of intermediary partial applications, it greatly simplifies the
+  presentation of our operational semantics. All presented program
+  transformations can be readily extended to a system with $n$-ary variable
+  applications, which are handled analogously to $n$-ary constant applications.
+\item every function abstraction has been lambda-lifted
+  to a top-level constant $c$.
+\item trivial bindings $\kw{let}\ x = y$ have been eliminated through copy propagation.
+\item all dead \kw{let} bindings have been removed.
+  \item all parameter and \kw{let} names of a function are mutually distinct. Thus we
+    do not have to worry about name capture.
+\end{itemize}
+
+In the actual IR we have implemented\footnote{\url{https://github.com/leanprover/lean4/blob/IFL19/library/init/lean/compiler/ir/basic.lean}}, we also have instructions for
+storing and accessing unboxed data in constructor values, boxing
+and unboxing machine integers and scalar values, and creating literals
+of primitive types such as strings and numbers. Our IR also supports
+\emph{join points} similar to the ones used in the Haskell Core
+language~\cite{JoinPoints}. Join points are local
+function declarations that are never partially applied (i.e., they never
+occur in $\kw{pap}$ instructions), and are always tail-called. The actual
+IR has support for defining join points, and a $\kw{jmp}$ instruction for
+invoking them.
+%% (Leo): the following sentence is stating the obvious.
+%% Join points are implemented by our compiler backend using \emph{goto}s.
+
+\section{Syntax and semantics of the reference-counted IR}
+\label{sec:rc}
+
+The target language \rcIR{} is an extension of \pureIR{}:
+\begin{alignat*}{3}
+  e \syncat{Expr} &&::= \ldots \mid \Reset x \mid \Reuse_i x \many{y} \\
+  F \syncat{FnBody} &&::= \ldots \mid \Inc x; F \mid \Dec x; F
+\end{alignat*}
+We use the subscripts $\pure$ or $\RC$ (e.g., $\ty{Expr}\pure$ or $\ty{Expr}\RC$) to refer to the base or
+extended syntax, respectively, where otherwise ambiguous.
+%% We will use $\ty{Expr}\pure$ or $\ty{Expr}\RC$ to refer to the base or
+%% extended syntax, respectively, where otherwise ambiguous.
+The new expressions \kw{reset} and \kw{reuse} work together to reuse memory used
+to store constructor values, and, as discussed in \cref{sec:examples}, simulate
+destructive updates in constructor values.
+% implement destructive
+% updates\todo{and should be further explained here or elsewhere}.
+% The statements \kw{inc} and \kw{dec} implement explicit reference counting.
+
+%% (Leo): \erase is relevant for the proofs that we are not including in this paper.
+%% As a subset, \pureIR{} can be trivially embedded into \rcIR{}. We define an inverse
+%% function $\erase\RC : \ty{Fn}\RC \twoheadrightarrow \ty{Fn}\pure$ that erases
+%% all new operations (reducing \kw{reuse} expressions to basic \kw{ctor}
+%% expressions) so that we can apply the pure semantics to programs in \rcIR{}.
+%% The full definition is given in the appendix.
+
+We define the semantics of \rcIR{} (Figures~\ref{fig:rc:sem1}~and~\ref{fig:rc:sem2}) using a
+big-step relation $\rcsem{\rho}{F}{\sigma}{l}{\sigma'}$ that maps the
+body $F$ and a mutable \emph{heap} $\sigma$ under a context $\rho$ to
+a location and the resulting heap. The context $\rho$ maps
+variables to locations. A heap $\sigma$ is a mapping from locations to
+pairs of values and reference counters.
+A value is a constructor value
+%% application (which, by the assumption above, is always fully applied)
+or a partially-applied constant.
+The reference counters of live values should always be positive; dead values
+are removed from the heap map.
+\begin{alignat*}{3}
+  l &\in \ty{Loc}\\
+  \rho &\in \ty{Ctxt} &=&\ \ty{Var} \rightharpoonup \ty{Loc}\\
+  \sigma &\in \ty{Heap} &=&\ \ty{Loc} \rightharpoonup \ty{Value} \times \mathbb{N}^+\\
+  v \syncat{Value} ::&=&\ \kw{ctor}_i\ \many{l} \mid \kw{pap}\ c\ \many{l}
+\end{alignat*}
+%% To accommodate side-effecting instructions like \kw{inc}, we split a mutable
+%% \emph{store} or \emph{heap} $\sigma$ from the context $\rho$, which now maps to
+%% \emph{locations} pointing to pairs of values and reference counters in the heap.
+%% The reference counters of live values should always be positive; dead values
+%% are removed from the heap map.
+%% \begin{alignat*}{3}
+%%   l &\in \ty{Loc}\\
+%%   \rho &\in \ty{Ctxt} &=&\ \ty{Var} \rightharpoonup \ty{Loc}\\
+%%   \sigma &\in \ty{Store} &=&\ \ty{Loc} \rightharpoonup \ty{Value} \times \mathbb{N}^+\\
+%%   v \syncat{Value} ::&=&\ \kw{ctor}_i\ \many{l} \mid \kw{pap}\ c\ \many{l}
+%% \end{alignat*}
+%% The big-step relation $\rcsem{\rho}{F}{\sigma}{l}{\sigma'}$ is
+%% adjusted (Figure~\ref{fig:rc:sem}) to return a location instead of a value and to thread the heap through
+%% the evaluation.
+When applying a variable, we have to be careful to increment the
+partial application arguments when copying them out of the \kw{pap} cell, and to
+decrement the cell afterwards.\footnote{If the \kw{pap} reference is unique, the
+two steps can be coalesced so that the arguments do not have to be touched.}
+We cannot do so via explicit reference counting instructions because the number of
+arguments in a \kw{pap} cell is not known statically.
+\begin{figure}
+\begin{gather*}
+  \infer[Const-App-Full]{
+    \delta(c) = \lambda\ \many{y_{\textit{c}}}.\ F \\
+    \many{l} = \many{\rho(y)} \\
+    \rcsem{[\many{y_{\textit{c}}} \mapsto \many{l}]}{F}{\sigma}{l'}{\sigma'}
+  }{\rcsem{\rho}{c\ \many{y}}{\sigma}{l'}{\sigma'}} \\
+  \infer[Const-App-Part]{
+    \delta(c) = \lambda\ \many{y_{\textit{c}}}.\ F \\
+    \many{l} = \many{\rho(y)} \\
+    \abs{\many{l}} < \abs{\many{y_c}} \\
+    l' \not\in \dom(\sigma)
+  }{\rcsem{\rho}{\kw{pap}\ c\ \many{y}}{\sigma}{l'}{\sigma[l' \mapsto (\kw{pap}\ c\ \many{l}, 1)]}} \\
+  \infer[Var-App-Full]{
+    \sigma(\rho(x)) = (\kw{pap}\ c\ \many{l}, \_) \\
+    \delta(c) = \lambda\ \many{y_c}.\ F \\
+    l_y = \rho(y) \\
+    \rcsem{[\many{y_c} \mapsto \many{l}\ l_y]}{F}{\dec(\rho(x), \inc(\many{l}, \sigma))}{l'}{\sigma'}
+  }{\rcsem{\rho}{x\ y}{\sigma}{l'}{\sigma'}} \\
+  \infer[Var-App-Part]{
+    \sigma(\rho(x)) = (\kw{pap}\ c\ \many{l}, \_) \\
+    \delta(c) = \lambda\ \many{y_c}.\ F \\
+    l_y = \rho(y) \\
+    \abs{\many{l}\ l_y} < \abs{\many{y_c}} \\
+    l' \not\in \dom(\sigma)
+  }{\rcsem{\rho}{x\ y}{\sigma}{l'}{\dec(\rho(x), \inc(\many{l}, \sigma))[l' \mapsto (\kw{pap}\ c\ \many{l}\ l_y, 1)]}} \\
+  \infer[Ctor-App]{
+    \many{l} = \many{\rho(y)} \\
+    l' \not\in \dom(\sigma)
+  }{\rcsem{\rho}{\kw{ctor}_i\ \many{y}}{\sigma}{l'}{\sigma[l' \mapsto (\kw{ctor}_i\ \many{l}, 1)]}}\;\; \\
+  \infer[Proj]{
+    \sigma(\rho(x)) = (\kw{ctor}_j\ \many{l}, \_) \\
+    l' = \many{l}_i
+  }{\rcsem{\rho}{\kw{proj}_i\ x}{\sigma}{l'}{\sigma}}\;\;
+  \infer[Return]{
+    \rho(x) = l
+  }{\rcsem{\rho}{\kw{ret}\ x}{\sigma}{l}{\sigma}} \\
+  \infer[Let]{
+    \rcsem{\rho}{e}{\sigma}{l}{\sigma'} \\
+    \rcsem{\rho[x \mapsto l]}{F}{\sigma'}{l'}{\sigma''}
+  }{\rcsem{\rho}{\kw{let}\ x = e;\ F}{\sigma}{l'}{\sigma''}} \\
+  \infer[Case]{
+    \sigma(\rho(x)) = (\kw{ctor}_i\ \many{l}, \_) \\
+    \rcsem{\rho}{F_i}{\sigma}{l'}{\sigma'}
+  }{\rcsem{\rho}{\kw{case}\ x\ \kw{of}\ \many{F}}{\sigma}{l'}{\sigma'}}
+\end{gather*}
+\caption{\rcIR{} semantics\label{fig:rc:sem1}: the \pureIR{} fragment}
+\end{figure}
+
+\begin{figure}
+\begin{gather*}
+  \infer[Inc]{\rcsem{\rho}{F}{\inc(\rho(x), \sigma)}{l'}{\sigma'}}{\rcsem{\rho}{\kw{inc}\ x;\ F}{\sigma}{l'}{\sigma'}}\;\;
+  \infer[Dec]{
+    \rcsem{\rho}{F}{\dec(\rho(x), \sigma)}{l'}{\sigma'}
+  }{\rcsem{\rho}{\kw{dec}\ x;\ F}{\sigma}{l'}{\sigma'}}
+\end{gather*}
+\begin{align*}
+  \inc(l, \sigma) &= \sigma[l \mapsto (v, i + 1)] \;\;\;\text{ if } \sigma(l) = (v, i) \\
+  \inc(l\ \many{l'}, \sigma) &= \inc(\many{l'}, \inc(l, \sigma)) \\
+  \dec(l, \sigma) &= \begin{cases}
+    \sigma &\text{if } l = \nullptr \\
+    \sigma[l \mapsto (v, i - 1)] &\text{if } \sigma(l) = (v, i), i > 1\\
+    \dec(\many{l'}, \sigma[l \mapsto \bot]) &\text{if } \sigma(l) = (\kw{pap}\ c\ \many{l'}, 1)\\
+    \dec(\many{l'}, \sigma[l \mapsto \bot]) &\text{if } \sigma(l) = (\kw{ctor}_i\ \many{l'}, 1)
+  \end{cases}\\
+  \dec(l\ \many{l'}, \sigma) &= \dec(\many{l'}, \dec(l, \sigma))
+\end{align*}
+\begin{gather*}
+  \infer[Reset-Uniq]{
+    \rho(x) = l \\
+    \sigma(l) = (\kw{ctor}_i\ \many{l'}, 1)
+  }{\rcsem{\rho}{\kw{reset}\ x}{\sigma}{l}{\dec(\many{l'}, \sigma[l \mapsto (\kw{ctor}_i\ \nullptr^{\abs{\many{l'}}}, 1)])}} \\
+  \infer[Reset-Shared]{
+    \rho(x) = l \\
+    \sigma(l) = (\_, i) \\
+    i \neq 1
+  }{\rcsem{\rho}{\kw{reset}\ x}{\sigma}{\nullptr}{\dec(l, \sigma)}} \\
+  \infer[Reuse-Uniq]{
+    \rho(x) = l \\
+    \sigma(l) = (\kw{ctor}_j\ \nullptr^{\abs{\many{y}}}, 1) \\
+    \many{\rho(y)} = \many{l''} \\
+  }{\rcsem{\rho}{\kw{reuse}\ x\ \kw{in}\ \kw{ctor}_i\ \many{y}}{\sigma}{l}{\sigma[l \mapsto (\kw{ctor}_i\ \many{l''}, 1)]}} \\
+  %% \infer[Reuse-Uniq']{
+  %%   \rho(x) = l \\
+  %%   \sigma(l) = (\kw{ctor}_j\ \nullptr^n, 1) \\
+  %%   n \ne \abs{\many{y}} \\
+  %%   \rcsem{\rho}{\kw{ctor}_i\ \many{y}}{\sigma}{l'}{\sigma'}
+  %% }{\rcsem{\rho}{\kw{reuse}\ x\ \kw{in}\ \kw{ctor}_i\ \many{y}}{\sigma}{l'}{\sigma'}} \\
+  \infer[Reuse-Shared]{
+    \rho(x) = \nullptr \\
+    \rcsem{\rho}{\kw{ctor}_i\ \many{y}}{\sigma}{l'}{\sigma'}
+  }{\rcsem{\rho}{\kw{reuse}\ x\ \kw{in}\ \kw{ctor}_i\ \many{y}}{\sigma}{l'}{\sigma'}}
+\end{gather*}
+\vspace{-1.5em}
+\caption{\rcIR{} semantics cont.}
+\label{fig:rc:sem2}
+\end{figure}
+%\todo{maybe gray out unchanged parts}
+Decrementing a unique reference removes the value from the heap and recursively
+decrements its components.
+\kw{reset}, when used on a unique reference, eagerly decrements the components
+of the referenced value,
+%%\todo{for the reasons described in some previous part of
+%% the paper},
+replaces them with $\nullptr$,\footnote{which can be represented by
+  any unused pointer value such as the null pointer in a real implementation.
+  In our actual implementation, we avoid this memory write by introducing a
+  \texttt{del} instruction that behaves like \texttt{dec} but ignores the
+  constructor fields.}
+and returns the location of the now-invalid cell. This value is intended to be
+used only by \kw{reuse} or \kw{dec}. The former reuses it for a new constructor
+cell, asserting that its size is compatible with the old cell. The latter frees
+the cell, ignoring the replaced children.
+
+If \kw{reset} is used on a shared, non-reusable reference, it behaves like
+\kw{dec} and returns $\nullptr$, which instructs \kw{reuse} to behave like
+\kw{ctor}. Note that we cannot simply return the reference in both cases and do
+another uniqueness check in \kw{reuse} because other code between the two
+expressions may have altered its reference count.
+%% The \textsc{Reuse-Uniq'} rule falls back to regular allocation in case the value
+%% was reset but the size does not match. We include this rule to make sure that
+%% our formal semantics does not get stuck in case the informal size hints we will
+%% discuss in \cref{sec:update} are incorrect. To do otherwise would greatly
+%% increase the complexity of the formalization for a negligible increase of
+%% runtime performance.
+
+%%There is one other instruction that has to handle the return value of
+%%\kw{reset}: If the value is not consumed by a \kw{reuse} in every branch of a
+%%\kw{case}, the compiler should instead \kw{dec} the value in those branches
+%%in order to free it. We therefore extend the $\dec$ function with the
+%%following cases:
+%%\begin{align*}
+%%  \dec(\nullptr, \sigma) &= \sigma \\
+%%  \dec(l, \sigma)    &= \sigma[l \mapsto \bot] &\text{if } \sigma(l) = (\kw{ctor}_i\ \nullptr^n, 1)
+%%\end{align*}
+
+%% \input{typesystem}
+
+\section{A compiler from \pureIR{} to \rcIR{}}
+\label{sec:compiler}
+
+Following the actual implementation of our compiler, we will discuss a %% formal
+compiler from \pureIR{} to \rcIR{} in three steps:
+
+\begin{enumerate}
+\item Inserting \kw{reset}/\kw{reuse} pairs (\cref{sec:update})
+\item Inferring borrowed parameters (\cref{sec:borrowinf})
+\item Inserting \kw{inc}/\kw{dec} instructions (\cref{sec:incdec})
+\end{enumerate}
+
+The first two steps are optional for obtaining correct \rcIR{} programs.
+% (\cref{sec:rc_correct}), as we will further note below.
+
+\subsection{Inserting destructive update operations}
+\label{sec:update}
+
+\input{update}
+
+\subsection{Inferring borrowing signatures}
+\label{sec:borrowinf}
+
+\input{borrowinf}
+
+\subsection{Inserting reference counting operations}
+\label{sec:incdec}
+
+Given any well-formed definition of $\beta$ and $\delta_\beta$, we
+finally give a procedure for correctly inserting \kw{inc} and \kw{dec}
+instructions.\footnote{We will tersely say that a variable $x$ ``is incremented/decremented'' when an \kw{inc}/\kw{dec}
+  operation is applied to it, i.e.\ the RC of the referenced object is incremented/decremented at runtime.}
+\begin{align*}
+  \delta_{\textit{RC}}(c) &: \ty{Const} \rightarrow \ty{Fn}_{\textit{RC}} \\
+  \delta_{\textit{RC}}(c) &= \lambda\ \many{y}.\ \own{}^-(\many{y}, C(F, \beta_l)) &&\text{ where } \hspace{-1em}&&\delta_\beta(c) = \lambda\ \many{y}.\ F, \\
+  &&&&&\beta_l = [\many{y} \mapsto \beta(c), \ldots \mapsto \own{}]
+\end{align*}
+The map $\beta_l : \ty{Var} \rightarrow \{\own{}, \bor{}\}$
+keeps track of the borrow status of each local variable. For simplicity, we default all missing entries to \own{}.
+
+In general, variables should be incremented prior to being used in an \emph{owned context}
+that consumes an RC token.
+Variables used in any other (\emph{borrowed}) context do not need to be
+incremented. Owned references should be decremented after their last use. We use
+the following two helper functions to conditionally add RC instructions
+(\cref{fig:compiler}) in these contexts:
+\begin{itemize}
+\item $\own{}^+_x$ prepares $x$ for usage in an owned context by incrementing it. The
+  increment can be omitted on the last use of an owned variable, with $V$
+  representing the set of live variables after the use.
+  \begin{align*}
+    %\own{}^+_x &: 2^{\ty{Var}} \times \ty{FnBody}_{\textit{RC}} \rightarrow \ty{FnBody}_{\textit{RC}} \\
+    \own{}^+_x(V, F, \beta_l) &= F &&\text{if } \beta_l(x) = \own{} \wedge x \not\in V \\
+    \own{}^+_x(V, F, \beta_l) &= \kw{inc}\ x;\ F &&\text{otherwise}
+  \end{align*}
+\item $\own{}^-_x$ decrements $x$ if it is both owned and dead.
+  $\own{}^-(\many{x}, F, \beta_l)$ decrements multiple variables, which may be needed at
+  the start of a function or \kw{case} branch.
+  \begin{lstlisting}
+    $\own{}^-_x(F, \beta_l) = \kw{dec}\ x;\ F$  $\hspace{0.8cm} \text{if } \beta_l(x) = \own{} \wedge x \not\in \FV(F)$
+    $\own{}^-_x(F, \beta_l) = F$  $\hspace{1.7cm} \text{otherwise}$
+    $\own{}^-(x\ \many{x'}, F, \beta_l) = \own{}^-(\many{x'}, \own{}^-_x(F, \beta_l), \beta_l)$
+    $\own{}^-([], F, \beta_l) = F$
+  \end{lstlisting}
+\end{itemize}
+Applications are handled separately, recursing over the arguments and parameter
+borrow annotations in parallel (in the case of partial applications, the former
+list may be shorter); for partial, variable and constructor applications, the
+latter default to \own{}.
+\begin{figure}
+\begin{lstlisting}
+C : $\ty{FnBody}_{\textit{RC}} \times (\ty{Var} \rightarrow \{\own{}, \bor{}\}) \rightarrow \ty{FnBody}_{\textit{RC}}$
+C (ret x, $\beta_l$) = $\own{}^+_x$($\emptyset$, ret x, $\beta_l$)
+C (case x of $\many{F}$, $\beta_l$) = case x of $\many{\own{}^-(\many{y}, C(F, \beta_l), \beta_l)}$
+                   $\text{where } \{\many{y}\} = \FV(\Case x \many{F})$
+C (let y = proj_i x; F, $\beta_l$) = let y = proj_i x; inc y; $\own{}^-_x(C(F, \beta_l), \beta_l)$
+                         $\text{if } \beta_l(x) = \own{}$
+C (let y = proj_i x; F, $\beta_l$) = let y = proj_i x; C (F, $\beta_l[y \mapsto \bor{}]$)
+                         $\text{if } \beta_l(x) = \bor{}$
+C (let y = reset x; F, $\beta_l$) = let y = reset x; C (F, $\beta_l$)
+C (let z = c $\many{y}$; F, $\beta_l$) = $C_{\textit{app}}(\many{y}, \beta(c), \kw{let}\ z = c\ \many{y};\ C(F, \beta_l), \beta_l)$
+C (let z = pap c $\many{y}$; F, $\beta_l$) = $C_{\textit{app}}(\many{y}, \beta(c), \kw{let}\ z = \kw{pap}\ c\ \many{y};\ C(F, \beta_l), \beta_l)$
+C (let z = x y; F, $\beta_l$) = $C_{\textit{app}}(x\ y, \own{}\ \own{}, \kw{let}\ z = x\ y;\ C(F, \beta_l), \beta_l)$
+C (let z = ctor_i $\many{y}$; F, $\beta_l$) = $C_{\textit{app}}(\many{y}, \many{\own{}}, \kw{let}\ z = \kw{ctor}_i\ \many{y};\ C(F, \beta_l), \beta_l)$
+C (let z = reuse x in ctor_i $\many{y}$; F, $\beta_l$) =
+   $C_{\textit{app}}(\many{y}, \many{\own{}}, \kw{let}\ z =\ \kw{reuse}\ x\ \kw{in}\ \kw{ctor}_i\ \many{y};\ C(F, \beta_l), \beta_l)$
+
+$C_{\textit{app}} : \ty{Var}^* \times \{\own{}, \bor{}\}^* \times \ty{FnBody}_{\textit{RC}} \times (\ty{Var} \rightarrow \{\own{}, \bor{}\}) \rightarrow \ty{FnBody}_{\textit{RC}}$
+$C_{\textit{app}}(y\ \many{y'}, \own{}\ \many{b}, \kw{let}\ z = e;\ F, \beta_l) =$
+      $\own{}^+_y(\many{y'} \cup \FV(F), C_{\textit{app}}(\many{y'}, \many{b}, \kw{let}\ z = e;\ F, \beta_l), \beta_l)$
+$C_{\textit{app}}(y\ \many{y'}, \bor{}\ \many{b}, \kw{let}\ z = e;\ F, \beta_l) =$
+      $C_{\textit{app}}(\many{y'}, \many{b}, \kw{let}\ z = e;\ \own{}^-_y(F, \beta_l), \beta_l)$
+$C_{\textit{app}}([], \_, \kw{let}\ z = e;\ F, \beta_l) = \kw{let}\ z = e;\ F$
+\end{lstlisting}
+\caption{Inserting \kw{inc}/\kw{dec} instructions \label{fig:compiler}}
+\end{figure}
+\subsection*{Examples}
+We demonstrate the behavior of the compiler on two application special cases.
+The value of $\beta_l$ is constant in these examples and left implicit in applications.
+\begin{enumerate}
+\item Consuming the same argument multiple times
+  \begin{align*}
+    \beta(\var{c}) &:= \own{}\ \own{}\ \\
+    \beta_l &:= [\var{y} \mapsto \own{}] \\
+    C(\kw{let}\ &\var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= C_{\textit{app}}(\var{y}\ \var{y}, \own{}\ \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ C(\kw{ret}\ \var{z})) \\
+             &= C_{\textit{app}}(\var{y}\ \var{y}, \own{}\ \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, C_{\textit{app}}(\var{y}, \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z})) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, \own{}^+_\var{y}(\{\var{z}\}, C_{\textit{app}}([], [], \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}))) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, \own{}^+_\var{y}(\{\var{z}\}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z})) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= \kw{inc}\ \var{y};\ \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}
+  \end{align*}
+  Because \var{y} is dead after the call, it needs to be incremented only once,
+  \emph{moving} its last token to \var{c} instead.
+  \item Borrowing and consuming the same argument
+  \begin{align*}
+    \beta(\var{c}) &:= \bor{}\ \own{}\ \\
+    \beta_l &:= [\var{y} \mapsto \own{}] \\
+    C(\kw{let}\ &\var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= C_{\textit{app}}(\var{y}\ \var{y}, \bor{}\ \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ C(\kw{ret}\ \var{z})) \\
+             &= C_{\textit{app}}(\var{y}\ \var{y}, \bor{}\ \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= C_{\textit{app}}(\var{y}, \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \own{}^-_\var{y}(\kw{ret}\ \var{z})) \\
+             &= C_{\textit{app}}(\var{y}, \own{}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{dec}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, \ C_{\textit{app}}([], [], \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{dec}\ \var{y};\ \kw{ret}\ \var{z})) \\
+             &= \own{}^+_\var{y}(\{\var{y}, \var{z}\}, \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{dec}\ \var{y};\ \kw{ret}\ \var{z}) \\
+             &= \kw{inc}\ \var{y};\ \kw{let}\ \var{z} = \var{c}\ \var{y}\ \var{y};\ \kw{dec}\ \var{y};\ \kw{ret}\ \var{z}
+  \end{align*}
+  Even though the owned parameter comes after the borrowed parameter, the presence of $y$ in the \kw{dec} instruction emitted when handling the first parameter makes sure we do not accidentally move ownership when handling the second parameter, but copy $y$ by emitting an \kw{inc} instruction.
+\end{enumerate}
+
+\subsection*{Preserving tail calls}
+A \emph{tail call} $\kw{let}\ r = c\ \many{x};\ \kw{ret}\ r$ is an
+application followed by a $\kw{ret}$ instruction. Recursive tail calls
+are implemented using \emph{goto}s in our compiler backend. Thus, it
+is highly desirable to preserve them as we transform \pureIR{} into
+\rcIR{}. However, the previous example shows that our function for inserting reference
+counting instructions may insert $\kw{dec}$ instructions after a constant application, and
+consequently, destroy tail calls. A $\kw{dec}$ instruction is inserted after a constant application
+$\kw{let}\ r = c\ \many{x}$ if $\beta(c)_i = \bor{}$ and $\beta_l(x_i) = \own{}$ for some
+$x_i \in \many{x}$. That is, function $c$ takes the $i$-th
+parameter as a borrowed reference, but the actual argument is owned. As an example,
+consider the following function in \pureIR{}.
+\begin{lstlisting}
+  f x = case x of
+    (let r = proj_1; ret r)
+    (let y_1 = ctor_1; let y_2 = ctor_1 y_1; let r = f y_2; ret r)
+\end{lstlisting}
+The compiler from \pureIR{} to \rcIR{}, infers $\beta(f) = \bor{}$, and produces
+\begin{lstlisting}
+  f x = case x of
+     (let r = proj_1 x; inc r; ret r)
+     (let y_1 = ctor_1; let y_2 ctor_1 y_1;
+      let r = f y_2; dec y_2; ret r)
+\end{lstlisting}
+which does not preserve the tail call $\kw{let}\ r = f\ y_2;\ \kw{ret}\ r$.
+We addressed this issue in our real implementation by refining our
+borrowing inference heuristic, marking $\beta(c)_i = \own{}$ whenever
+$c$ occurs in a tail call $\kw{let}\ r = c\ \many{x};\ \kw{ret}\ r$
+where $\beta_l(x_i) = \own{}$. This small modification guarantees that tail calls are
+preserved by our compiler, and the following \rcIR{} code is produced for $f$ instead
+\begin{lstlisting}
+   f x = case x of
+     (let r = proj_1 x; inc r; dec x; ret r)
+     (dec x; let y_1 = ctor_1; let y_2 = ctor_1 y_1;
+      let r = f y_2; ret r)
+\end{lstlisting}
+
+%% (Leo): this section reads like a curiosity, and we never encountered a situtation where this is an issue. We need space. :)
+%% \subsection*{Borrowed references and memory retention}
+%% The function $\textit{hasNone}$ in \cref{sec:examples}
+%% demonstrates that our borrowed inference heuristic may completely
+%% avoid RC instructions in generated code. However, it should be noted
+%% that omitting RC instructions may also have negative impact on performance and retain
+%% dead memory in some situations. For example, consider the
+%% code sequence $\kw{let}\ y = c\ x;\ \kw{let}\ z = \textit{hasNone}\ y$,
+%% where $c\ x$ returns a very long list, and $y$ is dead after this sequence.
+%% Our compiler adds a $\kw{dec}\ y$ instruction after the sequence,
+%% since our borrowed inference heuristic produces $\beta(\textit{hasNone}) = \bor{}$.
+%% Now, suppose also that the list does not contain any
+%% \emph{None} value, then the list is traversed twice: once by
+%% $\textit{hasNone}\ y$, and once more by $\kw{dec}\ y$. Moreover, for long
+%% lists, the second traversal causes a flurry of cache misses in modern hardware.
+%% In contrast, if we had $\beta(\textit{hasNone}) = \own{}$, then the code generated for
+%% $\textit{hasNone}$ would contain RC instructions as described in
+%% \cref{sec:examples}, but it would also deallocate the list as it
+%% traverses it, thus performing a single traversal and avoiding
+%% unnecessary memory retention.
+
+\section{Optimizing functional data structures for $\kw{reset}$/$\kw{reuse}$}
+\label{sec:reuse}
+
+\input{libdesign}
+
+\section{Runtime implementation}
+\label{sec:runtime}
+
+%% \subsection{Memory allocation}
+%% \input{alloc}
+
+\subsection{Values}
+
+\input{array}
+
+\subsection{Thread safety}
+
+\input{threadsafety}
+
+\section{Experimental evaluation}
+\label{sec:evaluation}
+
+\input{evaluation}
+
+\section{Related work}
+\label{sec:related}
+
+\input{related}
+
+\section{Conclusion}
+
+We have explored reference counting as a memory management technique
+in the context of an eager and pure functional programming
+language. Our preliminary experimental results are encouraging and
+show our approach is competitive with state-of-the-art compilers for
+functional languages and often outperform them. Our resurrection
+hypothesis suggests there are many opportunities for reusing memory
+and performing destructive updates in functional programs.
+We have also explored optimizations for reducing the number of reference counting updates,
+and proposed a simple and efficient technique for implementing thread safe reference counting.
+%% and suggested simple optimizations to existing data structures
+%% that leverage our new $\kw{reset}$ and $\kw{reuse}$ instructions.
+%% Applications in proof automation and metaprogramming were the primary motivation for
+%% our framework. In proof automation, we often have to process huge proof terms and apply
+%%transformations that benefit from the automatic memory reuse technique
+%%described here.  We believe our approach may be useful for general
+%%purpose programming too, but further investigation is required.
+
+We barely scratched the surface of the design space, and there are many
+possible optimizations and extensions to explore. We hope our \pureIR{} will be useful in the future
+as a target representation for other purely functional languages (e.g.,
+Coq, Idris, Agda, and Matita).
+We believe our approach can be extended to programming
+languages that support cyclic data structures because it is orthogonal
+to traditional cycle-handling techniques. Finally, we are working on a
+formal correctness proof of the compiler described in this paper,
+using a type system based on intuitionistic linear logic to model owned
+and borrowed references.
+
+%% Acknowledgments
+\begin{acks}
+  We are very grateful to
+  Thomas Ball,
+  Johannes Bechberger,
+  Christiano Braga,
+  Sebastian Graf,
+  Simon Peyton Jones,
+  Daan Leijen,
+  Tahina Ramananandro,
+  Nikhil Swamy,
+  Max Wagner
+  and the anonymous reviewers
+  for extensive comments, corrections and advice.
+                                        %% contents suppressed with 'anonymous'
+  %% Commands \grantsponsor{<sponsorID>}{<name>}{<url>} and
+  %% \grantnum[<url>]{<sponsorID>}{<number>} should be used to
+  %% acknowledge financial support and will be used by metadata
+  %% extraction tools.
+  %This material is based upon work supported by the
+  %\grantsponsor{GS100000001}{National Science
+  %  Foundation}{http://dx.doi.org/10.13039/100000001} under Grant
+  %No.~\grantnum{GS100000001}{nnnnnnn} and Grant
+  %No.~\grantnum{GS100000001}{mmmmmmm}.  Any opinions, findings, and
+  %conclusions or recommendations expressed in this material are those
+  %of the author and do not necessarily reflect the views of the
+  %National Science Foundation.
+\end{acks}
+
+
+%% Bibliography
+\bibliography{refcount}
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

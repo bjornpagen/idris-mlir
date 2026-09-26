@@ -1,0 +1,557 @@
+% LNCS appendix fragment. Include this file after \appendix with
+% \input{appendixC}. It uses amsmath and amssymb and is independent of an
+% algorithm package.
+
+\section{Canonicalization Algorithm and Rewrite Theory}
+\label{app:canon-rules}
+
+This appendix makes explicit the proposed canonicalizer and its abstract
+rewrite contract.  The Lean development proves finite-orbit normalization and
+the Boolean, list, finite-function, and relation equations identified below.
+Figure~\ref{alg:canon-g} and the Alloy/Java names are a refinement target for
+those abstract objects, not a proved implementation correspondence.  An arrow
+below denotes a proposed representative orientation unless the text marks the
+operation as structural cleanup.  Publication run \path{db9f89bf-0965-4d74-8080-d9191d5f1aec}
+records rule set \path{canonical-equivalences-v3-explicit-laws}.  This binds the
+measured configuration but does not prove that Java realizes this appendix's
+abstract rules or contracts.
+
+\subsection{Notation and Preconditions}
+
+Let $\mathcal G=(U,M,H)$ be a flexible-arity typed slotted e-graph.  The parent
+assignment $U$ maps each e-class identifier to an immediate parent invocation,
+with a root mapped to its identity invocation;
+$\operatorname{find}_\Gamma$ composes these links to return a leader invocation
+in caller context $\Gamma$.  The map
+$M(a)=(\tau_a,S_a,B_a,G_a)$ stores the result type, exposed typed slots,
+canonical shapes, and justified slot-symmetry group of e-class $a$, and $H$ is
+the shape collision index.  A typed e-node has the form
+\[
+  n=f_\theta(q_1,\ldots,q_r),
+  \qquad
+  \Sigma(f)=\forall\bar\alpha.(\kappa_1,\ldots,\kappa_r)\Rightarrow\tau,
+\]
+where $q_i\in\operatorname{Port}_\Gamma(\theta(\kappa_i))$.  The schemas
+$\texttt{Seq}$, $\texttt{Bag}$, and $\texttt{Set}$ respectively preserve order
+and multiplicity, quotient by permutation while preserving multiplicity, and
+quotient by both permutation and idempotence.  A first-class
+$\texttt{BindBlock}(\beta,\kappa)$ carries a complete descriptor $\beta$, a
+fresh occurrence-local bound context, and precisely the certified finite group
+$\operatorname{Aut}(\beta)$.  Fix a total structural order $\triangleleft$ over
+complete well-typed port and node keys, and a total order $\prec$ over completed
+typed shapes.  The latter compares the operator, type instantiation, atom, slot
+interface, and normalized ports.  Fix also the same total map order as in
+the main text,
+$\triangleleft_{\mathrm{map}}:=\prec_{\mathrm{ren}}$, for deterministic witness selection, and
+let $\triangleleft_{\mathrm{lex}}$ compare a shape--map pair first by
+$\prec$ and then by $\triangleleft_{\mathrm{map}}$.
+
+At the specification level, leader normalization may reduce support, so the
+proposed graph operation distinguishes the input context from the effective
+kernel context.  For a node $n$ with
+$\Gamma_0=\operatorname{slots}(n)$, its intended structural extraction is
+\begin{align*}
+\operatorname{leaderKernelTrace}_{\mathcal G}(n)
+  &=(K_{\mathcal G}(n),\iota_n,\xi_n),\\
+\Delta_n&=\operatorname{slots}(K_{\mathcal G}(n))\subseteq\Gamma_0,
+&\iota_n&:\Delta_n\hookrightarrow\Gamma_0.
+\end{align*}
+Here $K_{\mathcal G}(n)$ and $\xi_n$ denote the proposed kernel and trace.
+\leanref{TSG-APP-001}{TypedSlottedEGraphsPaper.ProfileRules.tsgApp001_kernelTraceReplayContract}
+The exact formal claim \textsc{app-001} uses an indexed trace interface.  For an
+indexed family $\mathsf{Term}:\mathbb N\to\mathsf{Type}$, an extractor returns
+an effective size $k$, a kernel in $\mathsf{Term}(k)$, and a structural trace
+with dependent endpoints
+$\langle n,\mathit{input}\rangle$ and $\langle k,\mathit{kernel}\rangle$.
+For any two trace interpreters, each supplying an equality for every trace
+label, replay proves equality of the corresponding endpoint
+denotations.  This theorem neither identifies those equalities with the
+paper's $\operatorname{EqCert}$ type nor proves that Java extraction emits the
+required trace; those are separate refinement obligations.
+
+For a finite typed context $\Delta$, $\operatorname{Can}(\Delta)$ is the
+context containing the same number of
+slots of each type, named from a fixed type-indexed alphabet.  The shape
+witness for $n$ is
+\[
+  \sigma_n\in\operatorname{TRen}(\operatorname{Can}(\Delta_n),\Delta_n),
+\]
+which maps canonical slots bijectively to the effective source support.  Its
+transport into the original ambient context is the typed embedding
+\[
+  \omega_n=\iota_n\circ\sigma_n
+  \in\operatorname{TEmb}(\operatorname{Can}(\Delta_n),\Gamma_0).
+\]
+The map $\omega_n$ is classified as a typed embedding; it is a renaming in the
+support-preserving case $\Delta_n=\Gamma_0$.  This separation retains the
+shape's exact slots, its effective support, and its original ambient support,
+including coordinates removed by find.  Binder-block automorphisms act on
+exactly the bound coordinates admitted by the complete
+descriptor: domain, quantifier, cardinality/multiplicity, disjointness class,
+dependency constraints, and type.  Each block occurrence is alpha-aligned with
+a fresh canonical variant of the descriptor's bound context; the descriptor
+group is transported to that occurrence context before it acts.  This local
+action is disjoint from the one global free-slot renaming.
+
+As the smallest strict-support case, suppose
+$U(a)=m*\ell$ with a proper embedding $m:S_\ell\hookrightarrow S_a$.
+Then $\operatorname{wrap}(\operatorname{id}_{S_a}*a)$ has input support $S_a$,
+whereas its leader kernel $\operatorname{wrap}(m*\ell)$ has support
+$m[S_\ell]$.  The construction below therefore uses
+$\operatorname{Can}(m[S_\ell])$ and keeps
+the inclusion into $S_a$ separately.  Its shape witness is the bijection onto
+the effective support, while its ambient transport is the proper embedding
+$\operatorname{Can}(m[S_\ell])\hookrightarrow S_a$.
+
+\subsection{The Graph-Relative Canonicalizer}
+\label{app:canon-g}
+
+\leanref{TSG-APP-002}{TypedSlottedEGraphsPaper.ProfileRules.tsgApp002_completeCanonicalRecords}
+Figure~\ref{alg:canon-g} gives the proposed graph-level pseudocode.  The exact
+formal claim \textsc{app-002} concerns an abstract structural record extending
+the extractor result with a shape and an effective-size renaming.  Its ambient
+transport is definitionally the inclusion composed with that renaming, and its
+collision key is definitionally the shape.  For any trace interpreter, replay
+adds only equality of the two endpoint denotations.  No completeness of a
+local orbit, graph insertion behavior, or $\operatorname{EqCert}$ construction
+is part of \textsc{app-002}.  The paper tuple
+\[
+  (K_{\mathcal G}(n),\operatorname{Shape}_{\mathcal G}(n),\sigma_n,
+   \iota_n,\omega_n,\xi_n)
+\]
+is the intended concrete realization of that record; establishing that the
+Java record realizes it remains an artifact-refinement task.
+
+\leanref{TSG-APP-003}{TypedSlottedEGraphsPaper.ProfileRules.tsgApp003_canonicalBlockOccurrenceContract}
+The exact formal block-occurrence claim \textsc{app-003} uses de Bruijn
+indices of one fixed finite size.  The canonical occurrence is the identity,
+the alignment is the inverse of the source occurrence, and the returned list
+is the descriptor's supplied automorphism list mapped by conjugation with that
+identity.  Consequently source occurrence followed by alignment is the
+identity occurrence.  Fresh-name choice, disjointness from a caller, leastness,
+and completeness of any richer paper descriptor are not conclusions of this
+claim; the corresponding steps in Figure~\ref{alg:canon-g} are refinement
+requirements.
+
+\input{figures/final_alg_vmcai_stage1}
+
+\paragraph{Exact formal contracts for the figure.}
+The algorithm rows are read through the following abstract claims, not as a
+verified execution of the displayed graph program.
+\leanref{TSG-ALG-005}{TypedSlottedEGraphsPaper.ProfileRules.tsgAlg005_leaderKernelTracePseudocodeContract}
+\textsc{alg-005} says that an abstract kernel extractor's returned finite
+inclusion is injective and that its trace replays to endpoint-denotation
+equality under a supplied interpreter.
+\leanref{TSG-ALG-006}{TypedSlottedEGraphsPaper.ClaimLedger.TSGALG006CompleteCanonPseudocodeContract}
+\textsc{alg-006} uses an extensionally complete nonempty finite candidate list:
+every enumerated candidate is admissible, every admissible candidate is
+enumerated, the selected candidate is present and least, the returned record
+contains exactly it, and the collision key projects only the returned shape.
+These are finite-presentation contracts, not a proof that the concrete
+$Q_{\mathcal G}$ enumerator has them.
+\leanref{TSG-ALG-007}{TypedSlottedEGraphsPaper.ProfileRules.tsgAlg007_replayKernelCertificatePseudocodeContract}
+\textsc{alg-007} says that a structural trace between two dependent sigma
+endpoints replays to equality under a supplied interpreter.
+\leanref{TSG-ALG-008}{TypedSlottedEGraphsPaper.ProfileRules.tsgAlg008_certifiedCanonWrapperPseudocodeContract}
+\textsc{alg-008} says that the certified wrapper preserves its input
+structural record and adds that replayed equality.
+\leanref{TSG-ALG-009}{TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract}
+Finally, \textsc{alg-009} proves constructor-by-constructor that the abstract
+recursive function realizes its independently defined \emph{untyped}
+$\operatorname{PortQuotient}$ relation: slots are mapped, invocation candidates
+are passed to the defined $\operatorname{leastByKey}$ function, sequence and bag lists are recursively
+mapped, set lists are deduplicated by key, unary binders recurse, and a block
+applies the same function to its supplied candidates.  It does not prove typed-schema
+admissibility, graph lookup, or completeness of the supplied invocation or
+block candidates.
+
+\leanref{TSG-APP-004}{TypedSlottedEGraphsPaper.ProfileRules.tsgApp004_canonLeaderPortContract}
+The exact finite-orbit claim \textsc{app-004} is correspondingly generic.  For
+any finite normalization presentation $P$, $P.\mathit{normal}(x)$ belongs to
+the supplied orbit of $x$ and is $P$-related to $x$, and
+\[
+  P.\mathit{normal}(x)=P.\mathit{normal}(y)
+  \quad\Longleftrightarrow\quad P.\mathit{relation}(x,y).
+\]
+This is the finite-presentation normal-form theorem used by the paper; identifying $P$ with the
+concrete graph-relative relation is an additional refinement obligation.
+
+\leanref{TSG-APP-005}{TypedSlottedEGraphsPaper.ClaimLedger.TSGAPP005CertifiedAbstractRebuildContract}
+The exact rebuild claim \textsc{app-005} is an abstract three-part contract.
+For a supplied finite-decreasing rebuild system, every initial state reaches
+some quiescent state.  A supplied interface-restriction certificate decomposes
+the old natural-number size as the retained size plus further removals plus
+one, so committing it strictly decreases the size.  Finally, pointwise port
+evidence at one shared head and type instantiation constructs the corresponding
+node-congruence witness.  Concrete collision buckets, transport of graph
+witnesses, pending-certificate behavior, and Java fixed-point scheduling are
+not conclusions of this theorem; they remain implementation obligations.
+
+\subsection{Ordered Application of Rules}
+\label{app:rule-order}
+
+\leanref{TSG-RULE-001}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule001_orderedRulePipeline}
+The formal object for \textsc{rule-001} is the displayed list of nine stage
+names: (1) parser cleanup; (2) alpha normalization; (3) beta reduction;
+(4) branch elimination; (5) first NNF; (6) phase-local prenexing; (7) guard
+elimination and NNF; (8) sibling and flat normalization; and (9) local
+saturation and rebuild.  Its only phase theorem is that the formal
+$\operatorname{normalizeWithinPhase}$ operation, presently the identity,
+preserves the stored phase index.  It does not establish that the Java stages
+execute in this order, that temporal children are normalized recursively, or
+that arbitrary quantifier motion cannot cross a phase.  Those are artifact
+conformance requirements.
+
+\subsection{Parser and Structural Normalization}
+
+\leanref{TSG-RULE-002}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule002_parserHeadNormalization}
+For \textsc{rule-002}, each finite parser-head constructor in
+Table~\ref{tab:opcode-aliases} maps to the shown canonical-head constructor;
+the enumerated operation-meaning label of the result equals the enumerated
+label of the source.  This is a datatype equation, not a denotational theorem
+about the Java parser or Alloy expressions.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Parser heads mapped to canonical internal heads.}
+\label{tab:opcode-aliases}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{ll@{\qquad}ll}
+\hline
+Source heads & Canonical head & Source heads & Canonical head\\
+\hline
+\texttt{BF/AND}, \texttt{LF/AND} & \texttt{BOOL/AND} &
+\texttt{BF/OR}, \texttt{LF/OR} & \texttt{BOOL/OR}\\
+\texttt{BF/IMPLIES} & \texttt{BOOL/IMPLIES} &
+\texttt{BF/IFF} & \texttt{BOOL/IFF}\\
+\texttt{UF/NOT} & \texttt{BOOL/NOT} &
+\texttt{BE/PLUS} & \texttt{REL/PLUS}\\
+\texttt{BE/INTERSECT} & \texttt{REL/INTERSECT} &
+\texttt{BE/JOIN} & \texttt{REL/JOIN}\\
+\texttt{BE/ARROW} & \texttt{REL/ARROW} &
+\texttt{BE/MUL} & \texttt{ARITH/MUL}\\
+\texttt{BE/IPLUS} & \texttt{ARITH/PLUS} &
+\texttt{LE/DISJOINT} & \texttt{LIST/DISJOINT}\\
+\hline
+\end{tabular}
+\end{table}
+
+\leanref{TSG-RULE-003}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule003_parserStructuralCleanup}
+Internal no-op and end markers are removed:
+\[
+  \operatorname{NOOP}(E)\longrightarrow E,
+  \qquad
+  \langle\mathrm{END}\rangle\longrightarrow\epsilon.
+\]
+The exact \textsc{rule-003} equations say that a singleton \textsc{noop} list
+unwraps, a singleton \textsc{end} list deletes, and a singleton abstract
+\textsc{incomplete} list deletes.  They contain no arity validator and no claim
+about Java parser rejection.  Lexical alpha-renaming and diagnostic-name
+retention are likewise implementation requirements, not conclusions of this
+rule.
+
+\leanref{TSG-RULE-004}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule004_captureAvoidingLetBeta}
+For intrinsically scoped de Bruijn terms, \textsc{rule-004} defines
+\[
+  \operatorname{let}\ x=E\mid P\longrightarrow P[E/x].
+\]
+Precisely, reducing the formal $\mathsf{letE}(E,P)$ returns
+$\mathsf{some}(\operatorname{substituteTop}(E,P))$, and lifted substitution
+fixes the newly bound coordinate $0$.  The index types enforce scoping; the
+theorem does not assert semantic preservation for a concrete Alloy AST or its
+Java substitution routine.
+
+\subsection{Branch Connectives and Boolean NNF}
+
+\leanref{TSG-RULE-005}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule005_branchConnectiveElimination}
+The third rule below applies to formula-valued conditionals:
+\begin{align*}
+ A\Rightarrow B
+   &\longrightarrow \neg A\lor B,\\
+ A\Leftrightarrow B
+   &\longrightarrow (\neg A\lor B)\land(\neg B\lor A),\\
+ \operatorname{ite}(C,A,B)
+   &\longrightarrow (C\land A)\lor(\neg C\land B).
+\end{align*}
+The same Boolean equations imply
+\begin{align*}
+ \neg(A\Rightarrow B)&\longrightarrow A\land\neg B,\\
+ \neg(A\Leftrightarrow B)&\longrightarrow
+   (A\land\neg B)\lor(B\land\neg A).
+\end{align*}
+These five \textsc{rule-005} equalities are proved only for the formal Boolean
+truth functions.  Classifying and rewriting formula-valued versus
+expression-valued Alloy conditionals is an artifact-refinement obligation.
+
+\leanref{TSG-RULE-006}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule006_booleanNegationNormalForm}
+The Boolean NNF rules are
+\begin{align*}
+ \neg\top&\longrightarrow\bot,&
+ \neg\bot&\longrightarrow\top,&
+ \neg\neg A&\longrightarrow A,\\
+ \neg\bigwedge_i A_i&\longrightarrow\bigvee_i\neg A_i,&
+ \neg\bigvee_i A_i&\longrightarrow\bigwedge_i\neg A_i.
+\end{align*}
+Here \textsc{rule-006} is exactly the two constant equations, double negation,
+and the two De Morgan equations for finite lists of Booleans.
+
+\leanref{TSG-RULE-007}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule007_involutiveAtomicNegationDuals}
+Atomic negation uses the following involutive duals:
+\[
+\begin{array}{c@{\quad\leftrightarrow\quad}c@{\qquad}c@{\quad\leftrightarrow\quad}c}
+ = & \ne & > & \le \\
+ \ge & < & \in & \notin \\
+ \multicolumn{4}{c}{\operatorname{some}R\quad\leftrightarrow\quad\operatorname{no}R}
+\end{array}
+\]
+The exact \textsc{rule-007} theorem is conditional: if the finite
+$\operatorname{atomicDual}$ function returns $o^\bot$ for $o$, it returns $o$
+for $o^\bot$, and normalizing the negation of $o$ returns the atom
+$o^\bot$.  Behavior of parser-specific negative comparison heads and
+unsupported operators is not part of this theorem; Java conformance to the
+table is checked separately.
+
+\subsection{Temporal Negation}
+
+\leanref{TSG-RULE-008}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule008_temporalNegationDuals}
+The supported temporal duals are
+\begin{align*}
+ \neg\operatorname{always}A
+   &\longrightarrow\operatorname{eventually}\neg A,\\
+ \neg\operatorname{eventually}A
+   &\longrightarrow\operatorname{always}\neg A,\\
+ \neg\operatorname{historically}A
+   &\longrightarrow\operatorname{once}\neg A,\\
+ \neg\operatorname{once}A
+   &\longrightarrow\operatorname{historically}\neg A,\\
+ \neg(A\ \mathsf{until}\ B)
+   &\longrightarrow(\neg A)\ \mathsf{releases}\ (\neg B),\\
+ \neg(A\ \mathsf{releases}\ B)
+   &\longrightarrow(\neg A)\ \mathsf{until}\ (\neg B),\\
+ \neg(A\ \mathsf{since}\ B)
+   &\longrightarrow(\neg A)\ \mathsf{triggered}\ (\neg B),\\
+ \neg(A\ \mathsf{triggered}\ B)
+   &\longrightarrow(\neg A)\ \mathsf{since}\ (\neg B).
+\end{align*}
+The exact \textsc{rule-008} theorem has the same conditional form: whenever
+$\operatorname{temporalDual}(o)=o^\bot$, the reverse lookup returns $o$ and
+normalization returns the dualized constructor $o^\bot$.  It does not prove a
+temporal semantics, phase separation, or Java handling of \textsf{before} and
+\textsf{after}.
+
+\subsection{Quantifier Rewrites and Prenexing}
+
+\leanref{TSG-RULE-009}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule009_quantifierNegation}
+Write $\mathcal Qx{:}D.P$ suggestively, but \textsc{rule-009} is formalized as
+evaluation of a quantifier over a finite list of Boolean matrix values.
+Negation follows exactly
+\begin{align*}
+ \neg(\forall x{:}D.P)&\longrightarrow\exists x{:}D.\neg P,\\
+ \neg(\exists x{:}D.P)&\longrightarrow\forall x{:}D.\neg P,\\
+ \neg(\mathsf{no}\ x{:}D.P)&\longrightarrow\exists x{:}D.P,\\
+ \neg(\mathsf{one}\ x{:}D.P)&\longrightarrow\mathsf{notone}\ x{:}D.P,\\
+ \neg(\mathsf{notone}\ x{:}D.P)&\longrightarrow\mathsf{one}\ x{:}D.P,\\
+ \neg(\mathsf{lone}\ x{:}D.P)&\longrightarrow\mathsf{notlone}\ x{:}D.P,\\
+ \neg(\mathsf{notlone}\ x{:}D.P)&\longrightarrow\mathsf{lone}\ x{:}D.P.
+\end{align*}
+The theorem is the corresponding Boolean-list equality for all seven formal
+quantifier constructors; it is not an Alloy evaluator correspondence theorem.
+
+\leanref{TSG-RULE-010}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule010_emptyAdmissibleBindings}
+For an empty domain, independently of $P$,
+\[
+\begin{array}{rcl@{\qquad}rcl}
+ \forall x{:}\varnothing.P&\longrightarrow&\top &
+ \exists x{:}\varnothing.P&\longrightarrow&\bot\\
+ \mathsf{no}\ x{:}\varnothing.P&\longrightarrow&\top &
+ \mathsf{one}\ x{:}\varnothing.P&\longrightarrow&\bot\\
+ \mathsf{lone}\ x{:}\varnothing.P&\longrightarrow&\top &
+ \mathsf{notone}\ x{:}\varnothing.P&\longrightarrow&\top\\
+ \mathsf{notlone}\ x{:}\varnothing.P&\longrightarrow&\bot.&&
+\end{array}
+\]
+For \textsc{rule-010}, ``empty'' means exactly that the formal admissible-value
+list is $[]$; the seven displayed values are then proved by evaluation.
+Determining emptiness from Alloy declaration syntax and multiplicity is outside
+this theorem and is a required frontend/Java check.
+
+\leanref{TSG-RULE-011}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule011_constantBodyQuantifiers}
+The carrier-independent constant-body rules are
+\[
+\begin{array}{rcl@{\qquad}rcl}
+ \forall x{:}D.\top&\longrightarrow&\top &
+ \exists x{:}D.\bot&\longrightarrow&\bot\\
+ \mathsf{no}\ x{:}D.\bot&\longrightarrow&\top &
+ \mathsf{one}\ x{:}D.\bot&\longrightarrow&\bot\\
+ \mathsf{lone}\ x{:}D.\bot&\longrightarrow&\top &
+ \mathsf{notone}\ x{:}D.\bot&\longrightarrow&\top\\
+ \mathsf{notlone}\ x{:}D.\bot&\longrightarrow&\bot.&&
+\end{array}
+\]
+These are exactly the seven \textsc{rule-011} equalities for a list of any
+length.  No value is asserted for existential true or universal false, whose
+Boolean-list values depend on whether that list is empty.
+
+\leanref{TSG-RULE-012}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding}
+The exact \textsc{rule-012} statement is four finite Boolean-list equations.
+For a carrier list $C$, predicates $p,d:C\to\mathbb B$, and Boolean $r$,
+\begin{align*}
+ (\exists_C p)\land r&=\exists_C(\lambda x.\,p(x)\land r),&
+ (\forall_C p)\lor r&=\forall_C(\lambda x.\,p(x)\lor r),\\
+ \exists_{\operatorname{filter}(d,C)}p
+   &=\exists_C(\lambda x.\,d(x)\land p(x)),&
+ \forall_{\operatorname{filter}(d,C)}p
+   &=\forall_C(\lambda x.\,\neg d(x)\lor p(x)).
+\end{align*}
+Its binding-tuple operation changes only the primitive carrier and preserves
+the quantifier, lower and upper multiplicities, disjointness class, and phase
+fields.  Fresh-variable conditions, general AST free-variable preservation,
+cardinality lowering, sums, and comprehensions are not conclusions of this
+claim.
+
+\leanref{TSG-RULE-013}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation}
+For \textsc{rule-013}, an accepted finite permutation is packaged with a proof
+that the supplied binder descriptor certifies it.  The theorem proves that it
+occurs in the descriptor's supplied automorphism list and that, for every
+environment coordinate $i$,
+\[
+  \mathit{env}\bigl(\pi^{-1}(\pi(i))\bigr)=\mathit{env}(i).
+\]
+It does not establish semantic preservation of a quantified Alloy body or
+preservation of additional descriptor metadata; those are separate refinement
+obligations.
+
+\subsection{Flexible-Arity Structural Laws}
+
+\leanref{TSG-RULE-014}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary}
+For \textsc{rule-014}, Table~\ref{tab:operator-laws} is exactly the finite
+$\operatorname{operatorLaw}$ lookup table.  Its three Boolean columns are
+policy flags, not semantic certificates.  In particular, the theorem proves
+the noninteger lookup equations; the integer row belongs to
+\textsc{rule-015}.  Neither theorem derives a source-level law merely from a
+flag.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\caption{Formal carrier assignments and policy flags.}
+\label{tab:operator-laws}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{0.25\linewidth}p{0.20\linewidth}p{0.22\linewidth}p{0.17\linewidth}}
+\hline
+Formal operator & Carrier & C/I flags & Flat flag\\
+\hline
+$\mathsf{boolAnd},\mathsf{boolOr}$ & $\mathsf{setPlus}$ & true/true & true\\
+$\mathsf{relationalUnion}$,\newline $\mathsf{relationalIntersection}$ & $\mathsf{setPlus}$ & true/true & true\\
+$\mathsf{integerAddition}$,\newline $\mathsf{integerMultiplication}$ & $\mathsf{bagPlus}$ & true/false & profile-dependent\\
+$\mathsf{relationalJoin}$,\newline $\mathsf{relationalProduct}$ & $\mathsf{fixedBinary}\allowbreak\mathsf{Positional}$ & false/false & false\\
+$\mathsf{equality},\mathsf{inequality}$,\newline $\mathsf{biconditional}$ & $\mathsf{fixedBinary}\allowbreak\mathsf{Commutative}$ & true/false & false\\
+$\mathsf{disjoint}(k)$ & $\mathsf{nonflatBag}$ & true/false & false\\
+$\mathsf{call}(g,k)$ & $\mathsf{positional}(k)$ & false/false & false\\
+$\mathsf{totalOrder}(k)$ & $\mathsf{positional}(k)$ & false/false & false\\
+\hline
+\end{tabular}
+\end{table}
+
+The disjoint, call, and total-order equations are quantified over their natural
+number arities (and, for calls, the callee identifier).  Whether the Java
+frontend enforces source arities and whether a policy flag is backed by the
+required endpoint certificates are separate artifact checks.  No additional
+role-sensitive-list or dependent-chain row is covered by \textsc{rule-014}.
+
+\leanref{TSG-RULE-015}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile}
+The exact \textsc{rule-015} model uses $\operatorname{Fin}(2^w)$.  Its addition
+and multiplication are proved associative and commutative; the modular profile
+has both flat flags set, and the overflow-forbidding profile has both cleared.
+\leanref{TSG-CE-003}{TypedSlottedEGraphsPaper.ProfileRules.tsgCe003_overflowReassociationCounterexample}
+Separately, the checked signed four-bit functions prove
+$\operatorname{checkedAdd4}(7,1)=\mathsf{none}$,
+$\operatorname{checkedAdd4}(1,-1)=\mathsf{some}(0)$, and hence the left
+association fails while the right returns $7$.  Connecting either model to an
+Alloy or Java integer mode is not part of these Lean results.
+
+In the abstract \textsc{alg-009} procedure, sequence and bag constructors map
+their child lists recursively, whereas a set constructor additionally applies
+the supplied key-deduplication function.  This statement is about lists in the
+formal quotient datatype; it does not prove multiset semantics, Java sorting,
+or graph-invocation equality.
+
+\subsection{Local Saturation Rules}
+
+\leanref{TSG-RULE-016}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule016_booleanLocalSaturation}
+The Boolean identities, annihilators, and complements are
+\begin{align*}
+ A\land A&\longrightarrow A,& A\lor A&\longrightarrow A,\\
+ A\land\top&\longrightarrow A,& A\lor\bot&\longrightarrow A,\\
+ A\land\bot&\longrightarrow\bot,& A\lor\top&\longrightarrow\top,\\
+ A\land\neg A&\longrightarrow\bot,&
+ A\lor\neg A&\longrightarrow\top.
+\end{align*}
+These eight \textsc{rule-016} identities are Boolean equations.  The associated
+formal smart constructor returns a constant on an empty input list, the child
+on a singleton, and a nonempty-port record otherwise; its stored-port arity can
+never be $0$.  No theorem here connects that datatype to a frontend
+$\texttt{Set}^+$ node or to an emitted unit certificate.
+
+\leanref{TSG-RULE-017}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule017_atomicComplementSaturation}
+For \textsc{rule-017}, an atomic literal consists only of an arbitrary atom and
+a positive/negative polarity.  Complement flips the polarity while retaining
+the same atom, and for any Boolean valuation
+\[
+  \ell\land\overline\ell=\bot,
+  \qquad
+  \ell\lor\overline\ell=\top.
+\]
+Recognizing concrete operator duals and equal canonical e-class invocations is
+an implementation premise, not a conclusion of this theorem.
+
+\leanref{TSG-RULE-018}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule018_relationalLocalSaturation}
+For \textsc{rule-018}, relations are abstract predicates
+$\alpha\to\mathsf{Prop}$.  Given a witness that $x$ is nonempty, the theorem
+proves pointwise
+\begin{align*}
+ x\in\mathsf{none}&\longrightarrow\bot,&
+ x\in\mathsf{univ}&\longrightarrow\top,\\
+ R+\mathsf{none}&\longrightarrow R,&
+ R\mathbin{\&}\mathsf{none}&\longrightarrow\mathsf{none},\\
+ R+R&\longrightarrow R,&
+ R\mathbin{\&}R&\longrightarrow R.
+\end{align*}
+and also that the empty predicate is a subset of itself.  This theorem contains
+no typed Alloy AST, multiplicity analysis, ACI-port inference, or Java rewrite
+claim.
+
+\leanref{TSG-RULE-019}{TypedSlottedEGraphsPaper.ProfileRules.tsgRule019_implicationLocalSaturation}
+Finally, \textsc{rule-019} proves the Boolean identities
+\begin{align*}
+ \bot\Rightarrow A&\longrightarrow\top,&
+ \top\Rightarrow A&\longrightarrow A,\\
+ A\Rightarrow\top&\longrightarrow\top,&
+ A\Rightarrow\bot&\longrightarrow\neg A,
+\end{align*}
+and the Boolean equality $A\Rightarrow B=\neg A\lor B$.  Stage placement and
+Java saturation behavior are outside this equality theorem.
+
+\subsection{Boundary and Implementation Correspondence}
+
+\leanref{TSG-SCOPE-001}{TypedSlottedEGraphsPaper.ProfileRules.tsgScope001_zeroCanonicalDistanceBoundary}
+The exact \textsc{scope-001} theorem is about an arbitrary complete finite
+normalization presentation $P$.  Define its discrete canonical distance to be
+$0$ when $P.\mathit{normal}(x)=P.\mathit{normal}(y)$ and $1$ otherwise.  Then
+\[
+  \operatorname{canonicalDistance}_P(x,y)=0
+  \quad\Longleftrightarrow\quad P.\mathit{relation}(x,y).
+\]
+This follows from the presentation's normal-form exactness.  It neither proves
+that the individual rules in this appendix generate one combined $P$, nor
+identifies this $0/1$ function with the dataset's AST edit distance, nor states
+a Java-refinement premise or conclusion.
+
+The remaining production statements are artifact-only obligations.  In
+particular, graph-relative typed-renaming enumeration, binder-group closure,
+the behavior of \texttt{SlotPermutationGroup}, the 720-permutation guard, and
+the 32-pass rewrite bound are not Lean conclusions.  The publication run gives
+in-process checked observations under its recorded rule set; it does not prove
+those correspondences and cannot be cited as realizing \textsc{scope-001} or
+the abstract algorithm contracts above.

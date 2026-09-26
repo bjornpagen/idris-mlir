@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+  "copied_source_manifest_sha256": "654693df418c084a0b014605b9fb85b259a88e81fe146884beb4f0cd8e403f80",
+  "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+  "paper_index_sha256": "dc10d182fd5e4249b8c67f92cb69b5057ca9a90f8dc82aa8e9ecd299c891fdcb",
+  "lean_toolchain_content": "leanprover/lean4:v4.33.0\n",
+  "lean_toolchain_sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b",
+  "lean_version": "Lean (version 4.33.0, x86_64-unknown-linux-gnu, commit d8b18978322de05a8f3dba51ef03cf5461676c17, Release)",
+  "lake_version": "Lake version 5.0.0-src+d8b1897 (Lean version 4.33.0)",
+  "dependency_count": 0,
+  "network_dependency_fetches": 0,
+  "compiled_olean_and_ilean_product_count": 38,
+  "normalized_product_set_sha256": "e33087b6bc9e40b3910b69f0de6461451ceb6f42b8ad34a4eefe991c274bfd90",
+  "product_normalization": "Replace the exact 51-byte absolute temporary build-root prefix in each compiled product with one equal-length canonical placeholder before hashing; paths, sizes, and all remaining bytes must agree.",
+  "normalized_product_mismatch_count": 0,
+  "warning_count": 15,
+  "sorted_warning_set_sha256": "e65a8df20e5a93389e1e2ea4373d4e620334eab333e25e0377794733a783081e",
+  "fatal_warning_classes_observed": [],
+  "forbidden_lean_construct_matches": [],
+  "axiom_union": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "commands": [
+    "lake clean",
+    "lake build",
+    "lake env lean PaperIndex.lean"
+  ],
+  "result": "PASS"
+}

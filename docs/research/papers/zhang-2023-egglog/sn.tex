@@ -1,0 +1,64 @@
+\section{Correctness of the \seminaive algorithm}\label{sec:sn-proof}
+
+In this section, we show the correctness of the \seminaive algorithm.
+
+\begin{theorem}
+    The \seminaive evaluation of an \egglog program
+    produces the same database as the \naive
+    evaluation.
+\end{theorem}
+\begin{proof}
+    We use $I^\SN_i=(\DB^\SN_i, \equiv^\SN_i)$ and $I^\N_i=(\DB^\N_i, \equiv^\N_i)$ 
+    to denote the instances 
+    produced by the \seminaive evaluation
+    and \naive evaluation.   
+    We prove $I^\SN_i=I^\N_i$ by induction. 
+    It is easy to see $I^\SN_i=I^\N_i$ for $i=0, 1$,
+    and we will prove that, for $i\geq 1$,
+    if $I^\SN_j=I^\N_j$ for $j\leq i$, $I^\SN_{i+1}=I^\N_{i+1}$ holds.
+
+    First, because $\Delta\DB{}_i = \DB{}^\SN_{i} - \DB{}^\SN_{i-1} = \DB{}^\N_{i} - \DB{}^\N_{i-1}$ by definition,
+    we have \begin{align}
+        \DB^\N_{i-1}&\supseteq \DB^\N_i - \Delta\DB_i,\\
+        T_P(I^\N_{i-1})&\supseteq T_P(I^\N_i - \Delta\DB_i)\text{\quad by monotonicity of $T_P$ w.r.t.\ $\subseteq$},\\
+        T_P(I^\N_{i-1})\cup T_P^{\SN}(I^\N_i, \Delta\DB_i)
+        &\supseteq T_P(I^\N_i - \Delta\DB_i)\cup T_P^{\SN}(I^\SN_i, \Delta\DB_i), \\
+        &\supseteq T_P(I^\N_i) \text{\quad by inspecting the definition of $T^\SN_P$.}\label{eqn:l1}
+    \end{align}
+
+    Second, it is straightforward to see that, for all instance $I$ and database $\DB$
+    \begin{align}
+        R^\infty (R^\infty(I)\cup \DB) = R^\infty (I\cup \DB) \label{eqn:l2}.
+    \end{align}
+
+    Combining these two, we get
+    \begin{align}
+        I_{i+1}^\SN &= R^\infty\left(I_i^{\SN} \cup T_P^{\SN} (I^\SN_i, \Delta\DB_i)\right),\\
+        &= R^\infty\left(
+            \underline{R^\infty\left(I^\N_{i-1}\cup T_P(I^\N_{i-1}) \right)}
+        \cup T_P^\SN (I^\SN_i, \Delta\DB_i)\right)\text{\quad by the ind. hypothesis and defn. of $I^N_i$,}\\
+        &= R^\infty\left(
+            \underline{I^\N_{i-1}\cup T_P(I^N_{i-1})}
+        \cup T_P^\SN (I^\SN_i, \Delta\DB_i)\right)\text{\quad by Eqn.~\ref{eqn:l2},}\\
+        &= R^\infty\left(I^\N_{i-1}\cup T_P(I^N_{i-1}) 
+        \cup T_P^\SN (I^\SN_i, \Delta\DB_i)
+        \underline{
+            \,\cup T_P(I^\N_i)
+        }\right)\text{\quad 
+        % since $T_P(I^\N_i)\subseteq T_P^\SN (I^\SN_i, \Delta\DB_i)$ (Eqn.~\ref{eqn:l1})
+        by Eqn.~\ref{eqn:l1},
+        }\\
+        &= R^\infty\left(I^\N_{i-1}\cup T_P(I^N_{i-1}) 
+        \cup T_P(I^\N_i)\right)\text{\quad 
+        since $T_P^\SN (I^\SN_i, \Delta\DB_i)$ is a subset of $T_P(I^\N_i)$,}\\
+        &=R^\infty\left(
+            \underline{
+                R^\infty\left(I^\N_{i-1}\cup T_P(I^N_{i-1})\right) 
+            }
+        \cup T_P(I^\N_i)\right)\text{\quad
+        by Eqn.~\ref{eqn:l2},}\\
+        &=R^\infty\left(\underline{I^\N_i}
+        \cup T_P(I^\N_i)\right)=I_{i+1}^\N.
+    \end{align}
+
+\end{proof}

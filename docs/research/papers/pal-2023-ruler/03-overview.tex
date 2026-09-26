@@ -1,0 +1,343 @@
+\section{\enumo by example}
+\label{sec:overview}
+\enumo is a DSL that provides
+ the operators needed to build a
+ theory explorer for \eqsat,
+ driven by \eqsat, \textit{\`a la carte}.
+Users define their own term enumeration strategies and
+customize how the resulting rules are processed
+and combined.
+
+To introduce the basics of using \enumo,
+ we will walk through a simple example
+ learning rules over the domain of rational arithmetic.
+ \autoref{sec:overview-basic}
+ recreates prior work on theory exploration \citep{ruler}
+ in a few lines of \enumo code.
+\autoref{sec:guided-enumeration}
+ goes beyond the capabilities of existing tools
+ by employing \enumo's workload construction operators
+ to guide term enumeration.
+\autoref{subsec:ffoverview}
+ demonstrates \enumo's ruleset manipulation primitives,
+ including a new way to learn rules
+ \emph{without} an interpreter.
+
+\subsection{\enumo basics: Learning rules for rational arithmetic}
+\label{sec:overview-basic}
+\label{subsec:basic}
+Consider the task of
+  learning rules for the domain of
+ rational arithmetic
+ (a grammar with operators \texttt{+, -, $\times$, /, abs, $\sim$})
+ for which we assume the user can provide a
+ concrete evaluator (a standard recursive
+ interpreter).
+As with any theory exploration tool,
+ the first step is to
+ enumerate terms from the domain.
+This is typically accomplished by giving a grammar
+ to the theory explorer, which then exhaustively enumerates
+ terms up to some depth.
+In \enumo, however, it is up to the user
+ to construct a \emph{workload} that enumerates terms
+ by composing various workload primitives and combinators.
+The simplest workload is a set of \sexps:
+\begin{lstlisting}[name=overview]
+  leaves = { a b c -1 0 1 }
+  grammar = {
+    EXPR                $\label{ln:bare-expr}$
+    (- EXPR)
+    (abs EXPR)
+    (+ EXPR EXPR)
+    (- EXPR EXPR)
+    (* EXPR EXPR)
+    (/ EXPR EXPR)
+  }
+\end{lstlisting}
+
+Above, the \C{leaves} workload is a set of six atomic \sexps
+ that represent the atoms of the domain:
+ symbols \C{a}, \C{b}, \C{c}, and constants \C{-1}, \C{0}, and \C{1}.
+The \C{grammar} workload is a set of
+  \sexps that represent the grammar of the domain.
+The \C{EXPR} symbol is intended as a placeholder
+ but has no special meaning to \enumo.
+By convention, we fully capitalize these placeholder
+  symbols to differentiate them from symbols
+  and operators in the domain.
+
+The \C{plug} operator allows the user to compose two workloads
+ $\W_1$ and $\W_2$ by replacing occurrences of a given symbol $x$
+ in $\W_1$ with \sexps from $\W_2$.
+Using \C{plug},
+ the user can construct a workload that exhaustively enumerates terms
+ up to a particular depth:
+
+\begin{lstlisting}[name=overview]
+  rationals_depth1 = grammar.plug("EXPR", leaves)           $\label{ln:plug1}$
+  rationals_depth2 = grammar.plug("EXPR", rationals_depth1) $\label{ln:plug2}$
+\end{lstlisting}
+
+Note that \C{$\W_1$.plug("x", $\W_2$)} yields
+ all possible combinations of replacing symbol \C{"x"} in $\W_1$ with an \sexp from $\W_2$
+ (see \autoref{sec:slide} for detailed semantics).
+Because the \C{grammar} on line \ref{ln:bare-expr} includes \C{EXPR},
+\C{grammar.plug("EXPR", W)} will include all \sexps in \C{W}.
+Lines \ref{ln:plug1} and \ref{ln:plug2}
+ will enumerate all terms up to depth 1 and 2, respectively.
+
+With a workload in hand
+ that represents enumerated terms from the domain,
+ we can proceed with writing an \enumo program to learn rules.
+Initially,
+ we will learn rules following
+ the conventional approach
+ of \citet{ruler} and \citet{sat19};
+ in later subsections, we will show a more advanced \enumo program.
+First, we learn rules of depth 1 (D1):
+
+\begin{lstlisting}[name=overview]
+  candidates1 = rationals_depth1
+                 .to_egraph()                       $\label{ln:to-egraph}$
+                 .find_candidates()                     $\label{ln:cvec-match}$
+  (valid1, _) = candidates1.partition(|c| c.is_valid()) $\label{ln:validate}$
+  rules1 = valid1.minimize([]) $\label{ln:minimize}$
+\end{lstlisting}
+
+Line $\ref{ln:to-egraph}$ converts the D1 workload to an \egraph
+ by evaluating the workload (according to the semantics in \autoref{sec:slide})
+ and adding the resulting \sexps to the \egraph.
+Unlike the untyped \sexps in the workload,
+ the \egraph is typed according to the domain $L$
+ (in this case, rational arithmetic).\footnote{
+  An exception occurs if \sexps cannot be parsed into the syntax for domain $L$.
+ }
+Once the \egraph is constructed,
+ we use \C{find\_candidates}
+ to generate rule candidates (line $\ref{ln:cvec-match}$).
+This method uses the \emph{characteristic vector} (\cvec) matching
+ approach from \citet{ruler},
+ evaluating the terms in the \egraph
+ with the user-provided interpreter on a sampling of constants.
+Terms that evaluate identically on all inputs
+ are likely to be \textit{equivalent}, and are thus candidates for rules.
+Candidates are not necessarily sound,
+ so we must validate them on line $\ref{ln:validate}$
+ using a user-provided verifier
+ (over the rationals, we use Z3~\citep{z3}).
+
+Finally, on line $\ref{ln:minimize}$,
+ we minimize the candidates
+ to eliminate redundant rules.
+The \C{minimize} operator in \enumo
+ is parameterized over a scheduling \C{Strategy}.
+With a \C{Strategy}, a user can control
+ how much redundancy is permissible in the ruleset,
+ measured via ``derivability'', as defined
+ in \autoref{subsec:derivability}.
+Minimize works as follows:
+rules from \C{valid1} are added one by one
+to a new, initially empty ruleset \C{rules1}. A given rule $r \in$ \C{valid1}
+is added to \C{rules1} if the rules currently in \C{rules1} \textit{cannot}
+derive $r$ within a given number of \eqsat iterations.
+
+At this point,
+ this small \enumo program has emulated the
+ behavior of \citet{ruler}'s \ruler tool
+ to learn D1 rules.
+We can now learn rules of depth 2 (D2)
+ by repeating the process:
+\pagebreak
+
+\begin{lstlisting}[name=overview]
+  candidates2 = rationals_depth2 # from line (*@\ref{ln:plug2}@*)
+                 .to_egraph()
+                 .compress(rules1) $\label{ln:compress}$
+                 .find_candidates()
+  rules2 = candidates2.minimize(rules1)
+  all_rules = rules2.union(rules1)
+\end{lstlisting}
+
+Again following \citet{ruler},
+ learning the D2 rules benefits from the D1 rules
+ in two ways.
+First,
+ on line $\ref{ln:compress}$,
+ we
+ compress the D2 \egraph
+ prior to finding candidates.
+This not only shrinks the \egraph
+ and makes finding candidates more efficient,
+ but also prevents learning candidates that are implied by the D1 rules.
+Similarly,
+ we pass the D1 rules to the \C{minimize} operator
+ to minimize candidates not only with respect to each other,
+ but also with respect to the D1 rules.
+ Finally,
+ we compose \C{rules2} and \C{rules1} into \C{all_rules}.
+
+\subsection{Guided enumeration to find ``deeper'' rules}
+\label{sec:guided-enumeration}
+
+Notice that we have just implemented the entire \ruler tool in about twenty
+  lines of \enumo.
+\enumo workload operators can easily express exhaustive term enumeration, and
+  the candidate generation and selection techniques used in \ruler are also
+  supported in \enumo.
+However, while \ruler can only perform a few iterations before getting stuck
+  due to the exponential growth of enumerated terms, \enumo programs can
+  express subsets of the entire term space, making it easy to scale beyond what
+  is possible with exhaustive enumeration.
+
+In the previous example (\autoref{sec:overview-basic}), we learned rules over
+the \C{rational} domain, which is complicated by rewrites involving division (/)
+that are only conditionally true---for example, the rule \C{(/ a a) \rewritesto\,1}
+holds only when \C{a} is nonzero. To address this problem, we implemented
+a version of the \C{rational} domain in \enumo that supports conditional statements.
+
+Suppose we want to find the rule
+  \C{(/ a a) \rewritesto\, (if a 1 (/ a a))},
+  which is a version of the rule
+  \C{(/ a a) \rewritesto\, 1} that inserts
+  a condition so that the term simplifies to 1
+  only when the denominator is nonzero.
+The right-hand side of this rule is a large term, so
+  exhaustively enumerating all terms from the domain up to its size will
+  result in an \egraph with over 3 million terms, far too many
+  to be feasible for rule inference.
+In \ruler, there is no simple mechanism by which a domain expert can
+  narrow the search space in order to learn deeper rules; however,
+  \enumo enables users to leverage their domain expertise to find better, deeper
+  rules than is possible with exhaustive term enumeration.
+
+Our key goal in this section is to learn conditional versions of unsound rules,
+  so let's first find the unsound rule candidates from \autoref{sec:overview-basic}:
+
+\begin{lstlisting}[name=guided]
+  # rule candidates over terms up to depth 2
+  all_candidates = candidates1.union(candidates2)
+  # partition rule candidates using domain-provided rule validator
+  (sound, unsound) = all_candidates.partition(|rule| rule.is_valid())
+\end{lstlisting}
+
+Now, we can construct a workload that adds a check for
+  division by zero:
+
+\pagebreak
+
+\begin{lstlisting}[name=guided]
+  guard_wkld = Workload.new()
+  guard_pattern = { (if GUARD THEN ELSE) } $\label{ln:guard-pat}$
+  for rule in unsound:
+    # domain-specific function that returns a workload consisting of terms that
+    # appear as the second argument to division
+    denominators = rule.denominators() $\label{ln:ext}$
+    # construct terms that match the unsound rule candidate, but with a check
+    # for division by zero
+    guard_wkld = guard_wkld.union(
+      guard_pattern
+        .plug("GUARD", denominators)
+        .plug("THEN", rule.rhs)
+        .plug("ELSE", rule.lhs)
+    )
+
+\end{lstlisting}
+
+Above, \C{guard_pattern} (line $\ref{ln:guard-pat}$) is a workload consisting of
+  a single \sexp, which will serve as a pattern for the workload we are
+  constructing.
+Note that because \enumo is an embedded DSL, it is possible to encode
+  domain-specific extensions simply by writing custom functions.
+For example, on line $\ref{ln:ext}$ above, we use a domain-specific function
+  to construct a workload.
+We loop over the unsound rules, incrementally building the workload
+  by using the \C{plug} operator to make a guarded version of each unsound rule.
+With this workload in hand, we are ready to learn rules:
+
+\begin{lstlisting}[name=guided]
+  candidates = guard_wkld.to_egraph().compress(rules2).find_candidates()
+  guard_rules = candidates.minimize(rules2)
+\end{lstlisting}
+
+This step closely mirrors the process of learning D2 rules in the
+  previous subsection: we convert the workload to an \egraph, compress
+  the \egraph using the rules we've already learned, and find candidates.
+Finally, we minimize the candidates again using the existing rules.
+The final ruleset contains the rules
+  \C{(/ a a) \rewritesto \xspace (if a 1 (/ a a))} and
+  \C{(/ 0 a) \rewritesto \xspace (if a 0 (/ 0 a))}, both of which are useful, sound
+  rewrite rules that avoid unsoundness when the denominator could be zero.
+Importantly, we find these rules without enumerating all depth-3
+  terms.
+
+\subsection{Learning refined rules with ruleset manipulation}
+\label{subsec:ffoverview}
+
+Now, let's consider an alternate approach to candidate generation.
+Suppose we want to learn rules for
+  transcendental functions (e.g., trigonometric operators).
+For the examples in \autoref{sec:overview-basic}
+and \autoref{sec:guided-enumeration}, we used cvec matching,
+  which requires the user to
+  implement an interpreter for the domain.
+For transcendental functions,
+  equality is undecidable~\citep{boehm}, so
+  cvec matching is not possible.
+However, these functions \textit{can} be represented
+  in terms of other functions
+  over rational and complex
+  domains\footnote{\url{https://en.wikipedia.org/wiki/Cis_(mathematics)}},
+  for which there exist various identities.
+For example,
+  the functions sine and cosine can
+  be represented mathematically by
+  $\sin(x) = \frac{\cis(x) - \cis(-x)}{2i}$ and
+  $\cos(x) = \frac{\cis(x) + \cis(-x)}{2}$
+  where $\cis(x)$ is $e^{ix}$.
+
+Leveraging the compositional nature of \enumo operators,
+  we can first synthesize rewrite rules
+  over rationals and then
+  use them to learn rules for
+  trigonometric functions without needing
+  to evaluate trigonometric terms directly.
+We begin with a set of rewrite rules over rationals
+  synthesized previously using an \enumo program.
+\pagebreak
+\begin{lstlisting}[name=trig]
+  initial_rules = Ruleset.from_file("initial.rules")
+\end{lstlisting}
+Next, we define \emph{exploratory} rules (\autoref{sec:lift})
+  that express the
+  trigonometric operators in terms of
+  the rational and complex operators.
+These rules are typically handwritten:
+\begin{lstlisting}[name=trig]
+  explore = [
+    "(sin a) ==> (/ (- (cis a) (cis (- a))) (* 2 I))",
+    "(cos a) ==> (/ (+ (cis a) (cis (- a))) 2)",
+    "(tan a) ==> (* I (/ (- (cis (- a)) (cis a)) (+ (cis (- a)) (cis a))))"
+  ]
+\end{lstlisting}
+Now, we construct a workload representing trigonometric terms:
+\begin{lstlisting}[name=trig]
+  consts = { 0 (/ PI 6) (/ PI 4) (/ PI 3) (/ PI 2) PI (* PI 2) }
+  wkld = { (OP VAL) }.plug("OP", { sin cos tan }).plug("VAL", consts)
+          .filter(Filter.Not(Filter.Contains("(tan (/ PI 2))")))
+\end{lstlisting}
+This workload represents terms that have
+  a single trigonometric operator applied
+  to a constant value; notice that we can easily filter out
+  \C{(tan (/ PI 2))}, which is undefined.
+Finally, we run the \ff algorithm on this workload to discover
+  new rules from our initial and exploratory rules.
+
+The \ff algorithm is explained in detail in \autoref{sec:lift}, but at a high level,
+it identifies candidates by running known rewrite
+  rules and considering merged \eclasses as rule candidates.
+By definition, all rules found using this algorithm are derivable from the
+  starting ruleset, but the rulesets generated can still be valuable in practice.
+In this case, \ff allows us to find rules over the trigonometric operators
+  directly, rather than needing to rewrite through large complex terms.
+

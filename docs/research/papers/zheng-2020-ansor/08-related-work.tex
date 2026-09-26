@@ -1,0 +1,34 @@
+
+\section{Related Work}
+\label{sec:related-work}
+
+
+\textbf{Automatic tensor program generation based on scheduling languages.}
+Halide \cite{ragan2013halide} introduces a scheduling language that can describe loop optimization primitives. This language is suitable for both manual optimization and automatic search. Halide has three versions of auto-scheduler based on different techniques \cite{mullapudi2016automatically,li2018differentiable,adams2019learning}. The latest one with beam search and learned cost model performs the best among them, which is also used in our evaluation.
+TVM \cite{chen2018tvm} utilizes a similar scheduling language and includes a template-guided search framework
+AutoTVM \cite{chen2018learning}.
+FlexTensor\cite{zheng2020flextensor} proposes general templates that can target a set of operators,
+but its templates are designed for single operators. It is hard to use these templates for optimizations involving multiple operators  (e.g., operator fusion).
+A concurrent work ProTuner \cite{haj2020protuner} uses Monte Carlo tree search to solve the inaccurate estimation problem in Halide auto-scheduler. ProTuner mainly targets image processing workloads, while \Ansor targets deep learning workloads and introduces new search space and other optimizations. 
+
+\textbf{Polyhedral compilation models.} The polyhedral compilation model \cite{bondhugula2008practical,verdoolaege2013polyhedral,verdoolaege2016presburger} formulates the optimization of programs as an integer linear programming (ILP) problem.
+It optimizes a program with affine loop transformation that minimizes the data reuse distance between dependent statements. 
+Tiramisu \cite{baghdadi2019tiramisu} and TensorComprehensions \cite{vasilache2018tensor} are two polyhedral compilers that also target the deep learning domain.
+Tiramisu provides a scheduling language similar to the Halide language, and it needs manual scheduling.
+TensorComprehensions can search for GPU code automatically,
+but it is not yet meant to be used for compute-bounded problems \cite{chen2018tvm}. It cannot outperform TVM on operators like conv2d and matmul \cite{chen2018tvm, tillet2019triton}. 
+This is because of the lack of certain optimizations \cite{vasilache2019next} and the inaccurate implicit cost model in the polyhedral formulation.
+
+\textbf{Graph-level optimization for deep learning.} Graph-level optimizations treat an operator in the computational graph as a basic unit and perform optimization at graph level without changing the internal implementations of operators.
+The common optimizations at graph level include layout optimizations \cite{liu2019optimizing}, operator fusion \cite{chen2018tvm, nvidia2017tensorrt, zheng2020fusionstitching}, constant folding ~\cite{roesch2019relay}, auto-batching ~\cite{looks2017deep}, automatic generation of graph substitution ~\cite{jia2019taso} and so forth. The graph-level optimizations are typically complementary to operator-level optimizations. Graph-level optimizations can also benefit from high-performance implementations of operators.
+For example, general operator fusion relies on the code generation ability of \Ansor. We leave the joint optimization of \Ansor and more graph-level optimization as future work.
+
+\textbf{Search-based compilation and auto-tuning.}
+Search based compilation and auto-tuning have already shown their effectiveness in domains other than deep learning.
+Stock \cite{schkufza2013stochastic} is a super-optimizer based on random search.
+Stock searches for loop-free hardware instruction sequences, while \Ansor generates tensor programs with nests of loops.
+OpenTuner \cite{ansel2014opentuner} is a general framework for program auto-tuning based on multi-armed bandit approaches.
+OpenTuner relies on user-specified search space, while \Ansor constructs the search space automatically.
+Traditional high-performance libraries such as ATLAS\cite{whaley1998automatically} and FFTW \cite{frigo1998fftw} also utilize auto-tuning.
+More recent works NeuroVectorizer~\cite{haj2020neurovectorizer} and AutoPhase~\cite{huang2019autophase,haj2020autophase} use deep reinforcement learning to automatically vectorize programs and optimize the compiler phase ordering.
+

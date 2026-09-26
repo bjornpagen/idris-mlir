@@ -1,0 +1,89 @@
+\section{Data and Training}
+
+\begin{table*}[ht!]
+  \small
+  \begin{center}
+\begin{tabular}{ |l|p{8cm}|C{1.5cm}|C{1cm}| }
+  \hline
+  \textbf{Benchmark suite} & \textbf{Description} & \textbf{\#Total Blocks} & \textbf{\#Unique Blocks}  \\
+  %\textbf{total BBs} & \textbf{timed BBs}  \\
+  \hline
+  Linux Shared Libraries & linux loaders, standard library and other utilities & 313846 & 103977\\
+  %& 19069 & 15021\\
+  \hline
+  \multirow{3}{*}{SPEC2006~\cite{SPEC06}}  & benchmark suite with compilers, chess engines, video compression and various simulation applications. Commonly used for benchmarking compilers & \multirow{3}{*}{247047} & \multirow{3}{*}{141051} \\
+  %254583 & 192818\\
+  \hline
+  SPEC2017~\cite{SPEC2017} & similar to SPEC2006, but with a larger variety  & 616899  & 234588\\
+  %& 648309 & 453998\\
+  \hline
+  NAS~\cite{NAS} & benchmarks with stencil computations (dense loops) & 3935 & 1813\\
+  %& 4332 & 2687\\
+  \hline
+  polybench-3.1~\cite{polybench} & polyhedral compilation test suite (dense loops) & 1900 & 859\\
+  %& 1915 & 1218\\
+  \hline
+  TSVC~\cite{tsvc} & suite for testing compiler auto-vectorization & 5129 & 2350\\
+  %& 5191 & 2893\\
+  \hline
+  cortexsuite~\cite{cortexsuite} & computer vision workloads including neural networks & 6582 & 3968\\
+  %& 6398 & 4975\\
+  \hline
+  \multirow{2}{*}{simd~\cite{simd}} & heavily hand vectorized image processing library (exposes lot of SSE2, AVX, AVX2 variants)  & \multirow{2}{*}{212544} & \multirow{2}{*}{25462}\\
+  \hline
+  \multirow{2}{*}{compilers/interpreters} & clang~\cite{llvm} and different versions of python (2.7,3.5) & \multirow{2}{*}{2746275}  & \multirow{2}{*}{924663}\\
+  \hline
+  end user applications & gimp filters, firefox, open-office, rhythmbox, etc. & 83555 & 35513 \\
+  \hline
+  \hline
+  Full Dataset & & 4237712 & 1416473 \\
+
+  \hline
+\end{tabular}
+  \end{center}
+  \vspace{-10pt}
+  \caption{Composition of the dataset for Haswell, showing the total number of basic blocks per benchmark as well as the unique number of blocks after de-duplicating repeated blocks on a per-benchmark basis. Note that the \#Unique Blocks on the full dataset is not equal to the sum of unique blocks per individual benchmark, as we de-duplicate across all benchmarks.}
+  \label{tbl:bench}
+\end{table*}
+
+
+We collected a dataset of basic blocks from well-known programs and benchmark suites, and timed them with a procedure that matches the assumptions of the baseline analytical models.
+We then train \tool{} using standard supervised learning techniques.
+\subsection{Dataset}
+\label{sec:dataset}
+
+Table~\ref{tbl:bench} summarizes the set of applications in our dataset.
+We designed the dataset to include a diverse set of applications with different performance characteristics
+while covering a wide range of x86-64 instructions.
+It consists of performance critical applications used for benchmarking compiler optimizations
+as well as end user applications used in day-to-day computing.
+
+To extract each application's basic blocks, we first compile each application using GCC 4.9.4 with the \texttt{-O3} optimization level targeting an Intel Haswell processor. 
+Next, we use Dynamorio~\cite{dynamorio}, a dynamic binary instrumentation tool, to dump the encoded bytes of the executed x86-64 basic blocks.
+We execute the benchmarks using the standard inputs provided by the benchmark suites.
+Next, we de-duplicate the dataset by removing basic blocks with same encoded byte patterns. This step is important to eliminate repeated occurrences of basic blocks created by code shared through common header files and by common compilation patterns.
+
+
+\subsection{Throughput Profiling}
+
+IACA and llvm-mca predict the steady-state throughput of a basic block, under the assumptions that all memory accesses result in L1 cache hits and that the execution environment is non-preemptive.
+To collect compatible throughput numbers, we profile the execution of a loop that executes each basic block in isolation 100 times (enough to reach the steady-state behavior; 100 iterations is also the default value used by llvm-mca).
+We measure throughput in terms of clock cycles using a script that we have developed that is similar to Agner Fog's timing script\footnote{https://www.agner.org/optimize/testp.zip}. Agner Fog's timing script is commonly used for validating individual instruction throughputs.
+Our timing script additionally ensures that almost all memory accesses have a L1 cache hit.
+Additionally, we measure L1 instruction and data cache misses and software context switches to detect and filter out invalid executions that do not conform to the assumptions made by IACA and llvm-mca in their predictions.
+
+Using this methodology, we collected valid throughput values for the Intel Ivy Bridge (Intel(R) Xeon(R) CPU E5-2695 v2), Haswell (Intel(R) Xeon(R) CPU E5-2680 v3) and Skylake (Intel(R) Xeon(R) W-2123 CPU) microarchitectures.
+Data collection takes approximately 4-5 days for each microarchitecture.
+Table~\ref{tbl:bench} shows the breakdown of basic block counts for each benchmark for Haswell microarchitecture in total as well as after de-duplicating repeated basic blocks on a per benchmark basis.
+The final Haswell dataset, which is de-duplicated across benchmarks, constitutes 1,416,473 unique basic blocks.
+
+\subsection{Training and Methodology}
+\label{sec:training}
+
+We implemented our neural network model in PyTorch (0.4.0a0+59bda9a).
+The learnable parameters in \tool{} include the token embeddings, the token LSTM and instruction LSTM parameters, and the affine coefficients in the final linear layer.
+For our loss function we use a normalized error metric, based on the L1 norm:
+$$\mathcal{L}(\texttt{pred}, \texttt{actual}) = \frac{|\texttt{pred} - \texttt{actual}|}{\texttt{actual}}$$
+We randomly assign 80\% of the collected blocks to the train set and 20\% to the test set.
+We use Asynchronous Stochastic Gradient Descent~\cite{SGD,hogwild} to train the model.
+Our full training regime is detailed in Appendix~\ref{app:hyperparams}.

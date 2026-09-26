@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "status": "CORRESPONDENCE_REVIEW_CLOSED_UNANIMOUS_PASS",
+  "maximum_review_rounds": 2,
+  "rounds_executed": 2,
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "rounds": [
+    {
+      "round": 1,
+      "snapshot_id": "134e916ecde752eee5e464dd171513e9e7ba92319300755f259bd2a8c20bc681",
+      "summary_path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/summary.json",
+      "summary_sha256": "00e28a7fcad81db127d0a7daf35932fe2a7b9bfeca1aef66f3c74a9062d01fcf",
+      "verdict": "FAIL",
+      "disposition": "ONE_BOUNDED_REPAIR_PERFORMED"
+    },
+    {
+      "round": 2,
+      "snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+      "snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+      "summary_path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-2/summary.json",
+      "summary_sha256": "4705ff60f9186e44610483b1a7b5763a857acaa0e6300f3fe3de62647fee9460",
+      "verdict": "PASS",
+      "unanimous": true,
+      "blocking_findings": []
+    }
+  ],
+  "current_snapshot_id": "1cde2549ab69cd53679935f4e3f82079b33d8c8c54dd49ee5a545b40ab745dd8",
+  "current_snapshot_manifest_sha256": "611a3e174f9109acef29707d72498d4e05fb7b08ccae3c0048cc432e54cd1b57",
+  "current_round_semantic_coverage": "146/146 ACTIVE mappings; 27/27 named environments; 19/19 proof sketches",
+  "current_round_mechanical_coverage": "146/146 compiler mappings; 83/83 axiom checks; 19/19 Lean source hashes",
+  "source_mutation_during_current_round": false,
+  "clean_build_gate": "PASS_TWO_ISOLATED_CLEAN_BUILDS",
+  "clean_build_summary": "formal/build-evidence/clean-build-summary.json",
+  "clean_build_summary_sha256": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d",
+  "pdf_qa_gate": "NOT_EXECUTED"
+}

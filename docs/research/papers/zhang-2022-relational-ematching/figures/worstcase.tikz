@@ -1,0 +1,30 @@
+\begin{tikzpicture}
+	\begin{pgfonlayer}{nodelayer}
+		\node [style=none] (0) at (0.5, 4) {};
+		\node [style=none] (1) at (-3.5, -1.5) {};
+		\node [style=none] (2) at (3, -2) {};
+		\node [style=none] (3) at (3.5, -1.5) {};
+		\node [style=none] (5) at (-3, -2) {};
+		\node [style=none] (8) at (-0.25, 4) {};
+		\node [style=none] (9) at (-2.5, 1.5) {$R$};
+		\node [style=none] (11) at (0, -2.5) {$S$};
+		\node [style=none] (12) at (2.5, 1.5) {$T$};
+		\node [style=none] (13) at (-0.25, 4.5) {$x_1$};
+		\node [style=none] (16) at (0.5, 4.5) {$x_2$};
+		\node [style=none] (19) at (-4, -2) {$y_2$};
+		\node [style=none] (20) at (-3.5, -2.5) {$y_1$};
+		\node [style=none] (21) at (3.5, -2.5) {$z_2$};
+		\node [style=none] (22) at (4, -2) {$z_1$};
+	\end{pgfonlayer}
+	\begin{pgfonlayer}{edgelayer}
+		\draw [style=dashed] (8.center) to (1.center);
+		\draw [style=dashed] (8.center) to (5.center);
+		\draw [style=dashed] (8.center) to (2.center);
+		\draw [style=dashed] (3.center) to (8.center);
+		\draw (5.center) to (0.center);
+		\draw (5.center) to (3.center);
+		\draw (5.center) to (2.center);
+		\draw (1.center) to (3.center);
+		\draw (0.center) to (3.center);
+	\end{pgfonlayer}
+\end{tikzpicture}

@@ -1,0 +1,132 @@
+\section{Related work}
+\label{sec:related}
+
+Several tools use \egraphs for rule inference~\citep{sat19, ruler}.
+\citet{sat19} use enumerative
+  synthesis to infer axioms for the CVC4 theorem prover.
+Ruler~\citep{ruler} outperformed \citet{sat19}
+  in various domains.
+  In this paper,
+  we show that we can outperform Ruler in terms of both
+  scalability and generality of domains (\autoref{sec:eval}).
+
+Similarly, theory exploration is a well-studied topic
+ focusing on eagerly synthesizing
+ lemmas that may be useful for
+ verification tasks.
+A recent tool in this space is
+  TheSy~\citep{cav21}, which performs 
+  inductive theory exploration using
+  \eqsat and symbolic values
+  to efficiently filter candidate conjectures.
+TheSy's key insight is to leverage congruence closure
+ to implement an induction prover within the
+ \eqsat framework.
+Other, similar tools for theory exploration
+ use random testing to find
+ potential candidates~\citep{hipspec, quickspec}.
+IsaCoSy~\citep{isacosy} synthesizes inductive
+  theorems for the Isabelle theorem prover~\citep{isabelle}.
+To keep the search space of terms tractable,
+  IsaCoSy selectively enumerates only terms that
+  are not reducible from existing rules.
+A similar technique is used by \citet{seplogic}
+  in lemma synthesis for proving
+  entailments with separation logic.
+We believe the abstractions provided by \enumo for
+  guided search and ruleset manipulation
+  can be used to scale lemma synthesis
+  in these tools.
+In future work, we would like to express the
+inductive prover from  TheSy
+ in \enumo.
+
+Many custom tools have been proposed
+  for synthesizing rewrite rules in
+  specific domains.
+\citet{queso} proposed a tool that
+  synthesizes rewrite rules for
+  quantum circuit optimization.
+\citet{taso19} developed a tool synthesizing
+  graph substitutions for deep neural networks.
+RuleSy~\citep{rulesy} uses a combination of
+synthesis and specification mining to find
+proof rules representing the mined
+specification.
+\citet{wetune} presented a tool for
+  discovering and verifying query rewrite rules.
+In contrast,
+  \enumo's DSL-based approach is
+  not specialized to any particular domain;
+  our evaluation in \autoref{sec:eval}
+  shows that \enumo works across diverse domains.
+Prior work has used machine learning to assist in
+  rewrite rule inference~\citep{oopsla22-logic, swapper};
+in particular, \citet{swapper} supports some
+  forms of conditional rules.
+More recently, large language models have shown promise
+  for synthesis tasks~\citep{hysynth, asap, shraddha};
+  in \autoref{sec:case-study-llm}, we show that \enumo's
+  operators make it easy to incorporate LLMs into
+  theory exploration, where they complement guided search.
+This paper shows that using \enumo's novel term enumeration
+  primitives, rule inference scales
+  to support grammars that have conditional
+  operators; however,
+  full support for conditional rule inference
+  is left for future work.
+
+Finally, several tools have focused on automatically inferring
+  peephole optimizations~\citep{bansal, alive, fraser, optgen}, and
+  instruction selection~\citep{buchwald}.
+Two major challenges with these optimizations
+  are the presence of side conditions
+  and their large grammars.
+This paper shows that
+  with \enumo's guided enumeration strategy,
+  it is possible to find rewrite rules with 
+  side conditions.
+  We also show that it is possible to
+  scale to
+  large grammars, like that of Halide~\citep{halide}.
+We will continue to explore
+  better support for more general conditional
+  rewrite rule inference,
+  and we are excited to use \enumo
+  to infer more optimizations for frameworks like LLVM.
+
+The \enumo DSL is designed to facilitate
+  efficient term enumeration given a grammar.
+Effective enumeration has been explored in many other contexts like
+  relational algebra, sorting algorithms, testing, and generating well-typed
+  lambda terms~\citep{alice, icfp16, feat, flajolet, welltyped}.
+In the most closely related work, \citet{feat}
+  propose \textit{Feat}, a Haskell library for composing enumerations.
+They use a lazy mechanism (\textit{functional enumeration})
+  to scale enumeration and leverage memoization to efficiently index into a stream
+  of enumerated terms.
+In a previous prototype of \enumo, we explored a similar mechanism,
+  but we found that in the context of rewrite rule inference,
+  enumeration time is never the bottleneck---working
+  with a large \egraph is.
+Therefore, in our final prototype, we use a simpler method for materializing
+  a workload into a concrete set of terms.
+A similarity between the \enumo DSL and
+  the Feat library is the idea of
+  composable workloads.
+\citet{feat} define a set of combinators that
+  allow them to compose smaller
+  enumerations effectively.
+As \autoref{sec:slide} showed,
+  \enumo workloads
+  can be composed using
+  a set of operators (\Plug, \Filter, \Union), some of which
+  are similar to Feat's (e.g., \textit{union}ing two workloads or enumerations).
+A key feature of \enumo is that it
+  only evaluates a workload when
+  converting it to an \egraph (as shown in \autoref{sec:slide})---this
+  allows \enumo to leverage a unique set of operators like
+  \C{plug} and \C{filter} to
+  optimize a workload before it is evaluated
+  and converted to an \egraph.
+

@@ -1,0 +1,68 @@
+\section{Introduction}
+
+The {\em throughput} of a sequence of instructions---the number processor clock cycles taken to execute the sequence when looped in steady state---determines how fast those instructions can process data.
+Accurately predicting the throughput of a basic block\footnote{In this work, we focus specifically on \emph{basic blocks}, sequences of instructions with no branches or jumps.} is an essential requirement in many systems, to be able to predict and optimize runtime performance.
+For instance, constraint--based register allocation and instruction scheduling~\cite{comb-inst-scheduling} relies on accurate throughput estimations, as do learning--based techniques like genetic algorithm based register allocation~\cite{ga-register-allocation} and reinforcement learning based instruction scheduling~\cite{rl-inst-scheduling}.
+
+The alternative -- measuring throughput on demand by executing the basic block -- is too expensive for most compilers and learning--based solutions.
+In practice, most systems employ analytical models to predict throughput.
+For instance, the LLVM compiler team~\cite{llvm} recently merged\footnote{ lists.llvm.org/pipermail/llvm-dev/2018-March/121490.html} a command-line tool, llvm-mca~\cite{llvm-mca}, that exposes a machine model for throughput estimation.
+Intel has also released a closed-source machine code analyzer, IACA~\cite{iaca}, which relies on internal knowledge of Intel's processor design.
+These models are typically an order of magnitude faster than measuring a basic block's throughput.
+However, manually writing an accurate and complete model is tedious, error-prone, and exceedingly difficult without knowledge of the exact mechanisms of the processor.
+
+In the hunt for {\em accuracy}, developers build complicated models which must make significant tradeoffs with the model's {\em portability} and {\em speed}.
+
+\paragraph{\bf Accuracy.}
+Modern x86-64 Complex Instruction Set Computer (CISC) processors contain many hardware optimizations that significantly complicate building accurate analytical models.
+In order to implement an instruction set \emph{architecture} (ISA) like x86-64, processors actually implement an underlying \emph{micro}architecture, a physical implementation of the ISA specification.
+Processors translate instructions from the ISA to instructions in the latent microarchitectural language (termed micro-ops), then execute those micro-ops.
+The micro-ops may undergo optimizations such as
+\textit{micro-op fusion}, in which micro-ops of different instructions may be combined together;
+\textit{out-of-order execution}, in which instructions can be executed in any semantics--preserving order;
+\textit{register renaming}, where false dependencies can be broken to enable more parallel execution;
+and many more vendor-specific optimizations.
+This makes the prediction problem highly complex and non-linear.
+
+\paragraph{\bf Portability.}
+While ISAs like x86-64 stay relatively stable, processor vendors release updated processor implementations with different microarchitectures every few years.
+For example, Intel released the Haswell and Skylake microarchitectures in 2013 and 2015 respectively for the x86-64 instruction set.
+Each microarchitecture of a processor family has its own quirks and intricacies.
+Manually writing a throughput estimator to support different microarchitectures requires rewriting instruction tables, resource utilization charts, and modeling microarchitectural optimizations, all of which are tedious and error-prone.
+This is complicated by the vast, incomplete, and incorrect documentation for many processors, where understanding of these behaviors has to be obtained by reverse-engineering the processor.
+Ideally, the throughput estimator should be able to automatically capture such intricacies with minimal human intervention.
+
+\paragraph{\bf Speed.} A throughput estimator also needs to be fast.
+Compilers need to search through many code blocks before emitting the fastest version of a given instruction sequence.
+Running the basic blocks to get the ground truth throughput requires sandboxing and many iterations of execution to arrive at a consistent steady-state throughput estimate, which is impractical for real-time systems.
+
+\subsection{\tool{}: A Data Driven Approach}
+
+In this paper we introduce {\it \tool{} (Instruction THroughput Estimator using MAchine Learning)}, which takes a novel data--driven approach to predicting throughput for a block of instructions, inspired by recent advances in Deep Neural Networks (DNNs).
+\tool{} models the throughput estimation problem as a regression task and leverages a DNN to learn to predict throughput by using a large corpus of labeled data, mapping assembly sequences to real valued throughputs.
+More concretely, \tool{} uses a a hierarchical multiscale RNN~\cite{hihi-hierarchical, chung-hierarchical, baraldi-hierarchical}, which generates an independent embedding for each instruction, then sequentially combines the instruction embeddings to predict throughput.
+
+We show that \tool{}'s learned model is significantly more accurate than the analytical models, dropping the mean absolute percent error by more than 50\% across all benchmarks, while still delivering fast estimation speeds.
+
+To generate high-quality predictions, \tool{} needs only training data and a specification of the ISA, including the specification of instructions and their explicit and implicit operands (for instance, the instruction \texttt{push rax} in x86-64 pushes the register \texttt{rax} on to the stack and also {\em implicitly} modifies the stack pointer register, \texttt{rsp}).
+Unlike analytical models, \tool{} learns any salient microarchitectural details that contribute to throughput on its own, without any explicit specification or modeling.
+
+In this paper, we present the following contributions:
+\setlist{nolistsep}
+\begin{itemize}[noitemsep]
+\item{\bf Data--Driven Throughput Estimation.}
+  We present \tool{}, the first system for data-driven basic block throughput estimation, using a hierarchical multiscale RNN.
+
+\item{\bf Evaluation:}
+  We demonstrate that \tool{} is more accurate than the state-of-the-art analytical throughput estimators, while still attaining fast estimation speeds.
+  We also show that \tool{}'s design is portable across multiple processor microarchitectures.
+
+\item{\bf DNN Architecture Exploration.}
+  We demonstrate that the proposed hierarchical multiscale RNN outperforms many other choices, including other neural network architectures specifically tailored to mimic the dependency patterns of instructions within a basic block.
+
+\item{\bf Open Source Implementation.}
+We have open-sourced our implementation of \tool{} at \url{https://github.com/psg-mit/Ithemal} in the hope that performance engineers and compiler designers can use and improve upon our approach.
+
+\end{itemize}
+
+{\noindent}{\tool} demonstrates that future systems can leverage data--driven techniques to either augment or fully replace manually developed throughput estimators.

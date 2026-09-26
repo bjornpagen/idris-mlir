@@ -1,0 +1,272 @@
+{
+  "schema_version": "2.0",
+  "entries": [
+    {
+      "edge_case_id": "EDGE-PROPER-PARENT-SUPPORT",
+      "description": "Leader finding through a proper parent embedding can contract support without proving interface restriction.",
+      "affected operators and profiles": [
+        "all typed invocations"
+      ],
+      "affected paper claims": [
+        "TSG-LEM-003",
+        "TSG-INV-004",
+        "TSG-DEF-010",
+        "TSG-THM-001"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.leaderizationContractsSupport",
+        "TypedSlottedEGraphsPaper.AtomicLedger.properEmbeddingDoesNotImplyIndependence",
+        "TypedSlottedEGraphsPaper.LocalCertifiedStep.interfaceRestriction",
+        "TypedSlottedEGraphsPaper.paperF27CertificatePreservingReachabilityAndFiniteUnfoldingSoundness"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/theory/TypedSlottedPortEGraph.java",
+        "src/is/fivefivefive/CanDis/theory/LeaderKernelExtractor.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The exact Lean declarations prove parent-path image containment, the proper-embedding nonimplication boundary, certified interface rekeying, and F27 preservation; the Java producer/refinement bridge remains OPEN.",
+      "closure_criticality": "PAPER_AND_ARTIFACT_THEOREM_CRITICAL",
+      "scope_justification": "Inside the main theorem's parent-edge and restriction scope.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-PARENT-NONINJECTIVITY",
+      "description": "Equality under a noninjective parent cannot establish child symmetry.",
+      "affected operators and profiles": [
+        "arbitrary noninjective source operators"
+      ],
+      "affected paper claims": [
+        "TSG-CE-001",
+        "TSG-DEF-023",
+        "TSG-THM-001"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.AtomicLedger.parentEqualityDoesNotImplyChildSymmetry"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/theory/TypedSlottedPortEGraph.java",
+        "src/is/fivefivefive/CanDis/theory/SymmetryCertificate.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The narrowed parent-equality nonimplication boundary is compiled as AtomicLedger.parentEqualityDoesNotImplyChildSymmetry; Java symmetry enforcement remains OPEN.",
+      "closure_criticality": "PAPER_AND_ARTIFACT_THEOREM_CRITICAL",
+      "scope_justification": "Justifies main-theorem obligation 5.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-QUOTIENT-BEFORE-MINIMUM",
+      "description": "Set/bag elements must be quotient-normalized before deduplication/aggregation and minimum selection.",
+      "affected operators and profiles": [
+        "Bag ports",
+        "Set ports",
+        "leader symmetry groups",
+        "binder-block automorphisms"
+      ],
+      "affected paper claims": [
+        "TSG-DEF-012",
+        "TSG-LEM-006",
+        "TSG-ALG-009"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgAlg009_canonLeaderPortPseudocodeContract",
+        "TypedSlottedEGraphsPaper.NormalizationBridge.AmbientQuotientPresentation.ambientQuotientNormalFormExactness"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/theory/ProductionGraphCanonicalizer.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The generic finite quotient-normal-form exactness theorem and the abstract PortQuotient constructor equations are compiled; correspondence to the concrete Java canonicalizer ordering remains OPEN.",
+      "closure_criticality": "PAPER_AND_ARTIFACT_THEOREM_CRITICAL",
+      "scope_justification": "Inside canonical-shape exactness.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-BINDER-DESCRIPTOR",
+      "description": "Same-typed bound coordinates are permutable only inside a complete descriptor-certified automorphism group.",
+      "affected operators and profiles": [
+        "BindBlock"
+      ],
+      "affected paper claims": [
+        "TSG-FND-006",
+        "TSG-DEF-008",
+        "TSG-FND-011",
+        "TSG-LEM-007",
+        "TSG-RULE-013"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.ClaimLedger.TSGFND006BinderDescriptorOccurrenceBundle",
+        "TypedSlottedEGraphsPaper.concreteTypedAlphaSemanticSoundness",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule013_descriptorCertifiedBlockPermutation"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/theory/BinderBlockDescriptor.java",
+        "src/is/fivefivefive/CanDis/theory/BinderAutomorphismCertificate.java",
+        "src/is/fivefivefive/CanDis/theory/TypedAlphaEquivalence.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The descriptor occurrence, admitted automorphism, concrete alpha/certificate, and RULE-013 declarations are compiled; Java descriptor-certificate correspondence remains OPEN.",
+      "closure_criticality": "PAPER_AND_ARTIFACT_THEOREM_CRITICAL",
+      "scope_justification": "Inside the formal binder semantics.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-EMPTY-BINDINGS",
+      "description": "An empty relation does not imply no admissible bindings for set/lone/exactly-zero declarations.",
+      "affected operators and profiles": [
+        "Alloy quantifiers",
+        "set/lone/exactly multiplicities"
+      ],
+      "affected paper claims": [
+        "TSG-RULE-010",
+        "TSG-RULE-012"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule010_emptyAdmissibleBindings",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule012_phaseLocalPrenexAndDomainGuarding"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/NormalForm.java",
+        "src/is/fivefivefive/CanDis/QuantiVar.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The narrow finite Boolean-list RULE-010/RULE-012 equations are Lean proved; bounded Java regressions do not establish complete parser/normalizer refinement.",
+      "closure_criticality": "EXPERIMENT_CRITICAL",
+      "scope_justification": "Inside the appendix rewrite theory and reported adapter path.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "PARTIALLY_REPAIRED"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-HETEROGENEOUS-JOIN",
+      "description": "Relational join/product chains with changing type instantiations are not flattened by homogeneous K^J ports.",
+      "affected operators and profiles": [
+        "relational join",
+        "relational product"
+      ],
+      "affected paper claims": [
+        "TSG-RULE-014"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule014_completeOperatorLawBoundary"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/core/EGraphNode.java",
+        "src/is/fivefivefive/CanDis/theory/TheoryAlloyAdapter.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "RULE-014 compiles the explicit nonflattening boundary; Java behavior is only bounded-tested and has no Lean refinement proof.",
+      "closure_criticality": "ARTIFACT_AND_EXPERIMENT_CRITICAL",
+      "scope_justification": "Explicitly inside the declared operator-law boundary.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "BOUNDED_TESTED"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-INTEGER-OVERFLOW-PROFILE",
+      "description": "Associativity depends on modular versus overflow-forbidding bounded-integer semantics.",
+      "affected operators and profiles": [
+        "integer addition",
+        "integer multiplication",
+        "modular profile",
+        "overflow-forbidding profile"
+      ],
+      "affected paper claims": [
+        "TSG-RULE-015",
+        "TSG-CE-003"
+      ],
+      "affected Lean declarations": [
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgRule015_modularIntegerACProfile",
+        "TypedSlottedEGraphsPaper.ProfileRules.tsgCe003_overflowReassociationCounterexample"
+      ],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/theory/TheoryAlloyAdapter.java",
+        "src/is/fivefivefive/CanDis/theory/ContainerLawCertificate.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "RULE-015 and CE-003 compile the modular equations and signed-four counterexample; concrete adapter-profile correspondence remains OPEN.",
+      "closure_criticality": "PAPER_AND_ARTIFACT_THEOREM_CRITICAL",
+      "scope_justification": "Inside law-certificate profile binding.",
+      "layer_assessments": {
+        "abstract_lean": "LEAN_PROVED_NARROW_FORMAL_CLAIM",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-RAW-SOURCE-REFINEMENT",
+      "description": "Raw Alloy parsing and normalization are not replayed by the theorem-facing certificate boundary.",
+      "affected operators and profiles": [
+        "entire Alloy frontend and normalizer"
+      ],
+      "affected paper claims": [
+        "TSG-RULE-001",
+        "TSG-RULE-002",
+        "TSG-SCOPE-001"
+      ],
+      "affected Lean declarations": [],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/NormalForm.java",
+        "src/is/fivefivefive/CanDis/AlloyRewriteSystem.java",
+        "src/is/fivefivefive/CanDis/theory/TheoryAlloyAdapter.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "Repository matrix classifies normalized-IR behavior separately and explicitly leaves raw refinement blocked.",
+      "closure_criticality": "EXPERIMENT_CRITICAL",
+      "scope_justification": "Outside the abstract theorem but inside any end-to-end interpretation of reported results.",
+      "layer_assessments": {
+        "abstract_lean": "OUT_OF_SCOPE",
+        "artifact_or_experiment": "OPEN"
+      }
+    },
+    {
+      "edge_case_id": "EDGE-BOUNDED-REWRITE-SATURATION",
+      "description": "The implementation's 32-pass rewrite guard is not the mathematical fixed point and must remain separate from finite administrative rebuild.",
+      "affected operators and profiles": [
+        "local rewrite saturation",
+        "administrative rebuild"
+      ],
+      "affected paper claims": [
+        "TSG-SCOPE-001"
+      ],
+      "affected Lean declarations": [],
+      "affected Java paths": [
+        "src/is/fivefivefive/CanDis/NormalForm.java",
+        "src/is/fivefivefive/CanDis/theory/TypedSlottedPortEGraph.java",
+        "src/is/fivefivefive/CanDis/theory/RebuildReport.java"
+      ],
+      "status": "LAYERED_SEE_ASSESSMENTS",
+      "evidence": "The appendix records the 32-pass engineering guard and excludes unrestricted saturation termination from the proposition.",
+      "closure_criticality": "ARTIFACT_AND_EXPERIMENT_CRITICAL",
+      "scope_justification": "The abstract theorem covers only a fixed finite batch with no node-adding rule.",
+      "layer_assessments": {
+        "abstract_lean": "OUT_OF_SCOPE_F18_IS_FINITE_ADMINISTRATIVE_REBUILD",
+        "artifact_or_experiment": "BOUNDED_TESTED"
+      }
+    }
+  ],
+  "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+  "summary": {
+    "abstract_rows_with_formal_claims": 7,
+    "abstract_formal_failures": 0,
+    "artifact_or_experiment_open_or_bounded": 9,
+    "interpretation": "Abstract Lean closure does not imply Java refinement; Java openness does not negate the proved narrow abstract facts."
+  },
+  "metadata_rebinding": {
+    "formal_registry_sha256": "ad9499ca333900f7bf815ff3a133c65382c5b265dd912351ce722fd7a8d43e3a",
+    "claim_changes": 0,
+    "status_changes": 0
+  }
+}

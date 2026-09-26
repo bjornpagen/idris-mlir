@@ -1,0 +1,184 @@
+\documentclass[acmsmall,screen,authorversion,nonacm]{acmart}
+\citestyle{acmauthoryear} 
+
+%%% The following is specific to POPL '22 and the paper
+%%% 'Relational E-matching'
+%%% by Yihong Zhang, Yisu Remy Wang, Max Willsey, and Zachary Tatlock.
+%%%
+\setcopyright{rightsretained}
+\acmPrice{}
+\acmDOI{10.1145/3498696}
+\acmYear{2022}
+\copyrightyear{2022}
+\acmSubmissionID{popl22main-p244-p}
+\acmJournal{PACMPL}
+\acmVolume{6}
+\acmNumber{POPL}
+\acmArticle{35}
+\acmMonth{1}
+
+\begin{CCSXML}
+<ccs2012>
+   <concept>
+       <concept_id>10003752.10003790.10003798</concept_id>
+       <concept_desc>Theory of computation~Equational logic and rewriting</concept_desc>
+       <concept_significance>500</concept_significance>
+       </concept>
+ </ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Theory of computation~Equational logic and rewriting}
+
+%% \startPage{1}
+
+\author{Yihong Zhang}
+\affiliation{
+  \institution{University of Washington}
+ \country{USA}
+}
+\email{yz489@cs.washington.edu}
+
+\author{Yisu Remy Wang}
+\affiliation{
+  \institution{University of Washington}
+ \country{USA}
+}
+\email{remywang@cs.washington.edu}
+
+\author{Max Willsey}
+\orcid{0000-0001-8066-4218}
+\affiliation{
+  \institution{University of Washington}
+ \country{USA}
+}
+\email{mwillsey@cs.washington.edu}
+
+\author{Zachary Tatlock}
+\affiliation{
+  \institution{University of Washington}
+  \country{USA}
+}
+\email{ztatlock@cs.washington.edu}
+
+% \usepackage{tikz}
+% \usetikzlibrary{scopes}
+% \usetikzlibrary{backgrounds}
+\usepackage[inline]{enumitem}
+% \usepackage{amssymb}
+% \usepackage{pifont}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikzit}
+\input{gj.tikzstyles}
+\usepackage{graphicx}
+\graphicspath{ {./figures/} }
+
+\usepackage{syntax}
+
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{listings}
+% \lstset{
+%   basicstyle=\ttfamily,
+% }
+\lstset{
+  columns=flexible,
+  mathescape=true,
+  keepspaces=true,
+  showstringspaces=false,
+  stringstyle=\slshape\color{green!40!black},
+  basicstyle=\ttfamily\small,
+  language=Python,
+  morekeywords={*, self},
+  commentstyle=\slshape\color{black!60},
+  tabsize=2,
+}
+
+\lstdefinelanguage{Rust}{
+  sensitive,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  moredelim=[s][{\itshape\color[rgb]{0,0,0.75}}]{\#[}{]},
+  morestring=[b]{"},
+  alsodigit={},
+  alsoother={},
+  alsoletter={!},
+  % keywords
+  otherkeywords={=>},
+  morekeywords={break, continue, else, for, if, in, loop, match, return, while},
+  morekeywords={as, const, let, move, mut, ref, static, unsafe},
+  morekeywords={dyn, enum, fn, impl, Self, self, struct, trait, type, use, where},
+  morekeywords={crate, extern, mod, pub, super},
+  morekeywords={abstract, alignof, become, box, do, final, macro,
+    offsetof, override, priv, proc, pure, sizeof, typeof, unsized, virtual, yield},
+  % traits
+  morekeywords=[2]{Send},
+  % types
+  morekeywords=[3]{bool, char, f32, f64, i8, i16, i32, i64, isize, str, u8, u16, u32, u64, unit, usize, i128, u128},
+}%
+
+\usepackage{hyperref}
+\def\algorithmautorefname{Algorithm}
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+
+\input{macros}
+
+\usepackage[capitalize,nameinlink]{cleveref}
+
+\def\drawplusplus#1#2#3{\hbox to 0pt{\hbox to #1{\hfill\vrule height #3 depth
+      0pt width #2\hfill\vrule height #3 depth 0pt width #2\hfill
+      }}\vbox to #3{\vfill\hrule height #2 depth 0pt width
+      #1 \vfill}}
+      %Poor man's typography
+\def\concat{\mathrel{\drawplusplus {12pt}{0.4pt}{5pt}}}
+      %It would be better to specify these in font-relative measures, but it
+      %probably doesn't scale anyway.
+
+\newcommand{\yz}[1]{\todo[inline,color=green]{\textsf{#1} \hfill \textsc{--Yihong}}}
+\newcommand{\zt}[1]{\todo[inline,color=cyan]{\textsf{#1} \hfill \textsc{--Zach}}}
+\newcommand{\mw}[1]{\todo[inline,color=orange]{\textsf{#1} \hfill \textsc{--Max}}}
+\newcommand{\rw}[1]{\todo[inline,color=yellow]{\textsf{#1} \hfill \textsc{--Remy}}}
+\newtheorem{theorem}{Theorem}
+% \newcommand{\cmark}{\ding{51}}%
+% \newcommand{\xmark}{\ding{55}}%
+
+\begin{document}
+
+\title{Relational E-matching}
+
+\begin{abstract}
+  \input{abstract}
+\end{abstract}
+
+\keywords{E-matching, Relational Join Algorithms}
+
+\maketitle
+
+\input{intro}
+\input{background}
+\input{algorithm}
+\input{optimizations}
+\input{eval}
+\input{discussion}
+% \input{relatedworks}
+\input{conclusion}
+
+\begin{acks}
+This work was supported by the Applications Driving Architectures (ADA)
+Research Center, a JUMP Center co-sponsored by SRC and DARPA. This material is based upon work supported by the National Science Foundation
+under Grant No. 1749570. Any opinions, findings, and conclusions or recommendations expressed in this
+material are those of the author(s) and do not necessarily reflect the views of
+the National Science Foundation.
+\end{acks}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{main}
+
+\end{document}
+\endinput

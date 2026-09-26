@@ -1,0 +1,448 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{28}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[\protect\citeauthoryear{Baker}{Baker}{1994}]%
+        {Baker:1994:MRC:185009.185016}
+\bibfield{author}{\bibinfo{person}{Henry~G. Baker}.}
+  \bibinfo{year}{1994}\natexlab{}.
+\newblock \showarticletitle{Minimizing Reference Count Updating with Deferred
+  and Anchored Pointers for Functional Data Structures}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{29},
+  \bibinfo{number}{9} (\bibinfo{date}{Sept.} \bibinfo{year}{1994}),
+  \bibinfo{pages}{38--43}.
+\newblock
+\showISSN{0362-1340}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/185009.185016}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Barth}{Barth}{1977}]%
+        {Barth:1977:SGC:359636.359713}
+\bibfield{author}{\bibinfo{person}{Jeffrey~M. Barth}.}
+  \bibinfo{year}{1977}\natexlab{}.
+\newblock \showarticletitle{Shifting Garbage Collection Overhead to Compile
+  Time}.
+\newblock \bibinfo{journal}{\emph{Commun. ACM}} \bibinfo{volume}{20},
+  \bibinfo{number}{7} (\bibinfo{date}{July} \bibinfo{year}{1977}),
+  \bibinfo{pages}{513--518}.
+\newblock
+\showISSN{0001-0782}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/359636.359713}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Bechberger}{Bechberger}{2016}]%
+        {bechberger16bachelorarbeit}
+\bibfield{author}{\bibinfo{person}{Johannes Bechberger}.}
+  \bibinfo{year}{2016}\natexlab{}.
+\newblock \bibinfo{title}{Besser Benchmarken}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://pp.ipd.kit.edu/publication.php?id=bechberger16bachelorarbeit}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{\url{https://github.com/parttimenerd/temci}.}
+
+
+\bibitem[\protect\citeauthoryear{Boehm}{Boehm}{2004}]%
+        {BoehmCostRC}
+\bibfield{author}{\bibinfo{person}{Hans-J. Boehm}.}
+  \bibinfo{year}{2004}\natexlab{}.
+\newblock \showarticletitle{The Space Cost of Lazy Reference Counting}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 31st ACM SIGPLAN-SIGACT
+  Symposium on Principles of Programming Languages}}
+  \emph{(\bibinfo{series}{POPL '04})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{210--219}.
+\newblock
+\showISBNx{1-58113-729-X}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/964001.964019}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Breitner}{Breitner}{2018}]%
+        {breitner2018promise}
+\bibfield{author}{\bibinfo{person}{Joachim Breitner}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{A promise checked is a promise kept: Inspection
+  Testing}.
+\newblock \bibinfo{journal}{\emph{arXiv preprint arXiv:1803.07130}}
+  (\bibinfo{year}{2018}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Choi, Shull, and Torrellas}{Choi
+  et~al\mbox{.}}{2018}]%
+        {biasedRC}
+\bibfield{author}{\bibinfo{person}{Jiho Choi}, \bibinfo{person}{Thomas Shull},
+  {and} \bibinfo{person}{Josep Torrellas}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Biased Reference Counting: Minimizing Atomic
+  Operations in Garbage Collection}. In \bibinfo{booktitle}{\emph{Proceedings
+  of the 27th International Conference on Parallel Architectures and
+  Compilation Techniques}} \emph{(\bibinfo{series}{PACT '18})}.
+  \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA}, Article
+  \bibinfo{articleno}{35}, \bibinfo{numpages}{12}~pages.
+\newblock
+\showISBNx{978-1-4503-5986-3}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3243176.3243195}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Collins}{Collins}{1960}]%
+        {classicRC}
+\bibfield{author}{\bibinfo{person}{George~E. Collins}.}
+  \bibinfo{year}{1960}\natexlab{}.
+\newblock \showarticletitle{A Method for Overlapping and Erasure of Lists}.
+\newblock \bibinfo{journal}{\emph{Commun. ACM}} \bibinfo{volume}{3},
+  \bibinfo{number}{12} (\bibinfo{date}{Dec.} \bibinfo{year}{1960}),
+  \bibinfo{pages}{655--657}.
+\newblock
+\showISSN{0001-0782}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/367487.367501}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Coquand and Huet}{Coquand and Huet}{1988}]%
+        {coquand:huet:88}
+\bibfield{author}{\bibinfo{person}{Thierry Coquand} {and}
+  \bibinfo{person}{G\'{e}rard Huet}.} \bibinfo{year}{1988}\natexlab{}.
+\newblock \showarticletitle{{The Calculus of Constructions}}.
+\newblock \bibinfo{journal}{\emph{Inform. and Comput.}} \bibinfo{volume}{76},
+  \bibinfo{number}{2-3} (\bibinfo{year}{1988}), \bibinfo{pages}{95--120}.
+\newblock
+\showISSN{0890-5401}
+
+
+\bibitem[\protect\citeauthoryear{Coquand and Paulin}{Coquand and
+  Paulin}{1990}]%
+        {coquand:paulin:mohring:90}
+\bibfield{author}{\bibinfo{person}{Thierry Coquand} {and}
+  \bibinfo{person}{Christine Paulin}.} \bibinfo{year}{1990}\natexlab{}.
+\newblock \showarticletitle{{Inductively Defined Types}}.
+\newblock In \bibinfo{booktitle}{\emph{{C{OLOG}-88 ({T}allinn, 1988)}}}.
+  \bibinfo{series}{{Lecture Notes in Comput. Sci.}},
+  Vol.~\bibinfo{volume}{417}. \bibinfo{publisher}{Springer},
+  \bibinfo{address}{Berlin}, \bibinfo{pages}{50--66}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{de~Moura, Kong, Avigad, van Doorn, and von
+  Raumer}{de~Moura et~al\mbox{.}}{2015}]%
+        {Lean}
+\bibfield{author}{\bibinfo{person}{Leonardo de Moura}, \bibinfo{person}{Soonho
+  Kong}, \bibinfo{person}{Jeremy Avigad}, \bibinfo{person}{Floris van Doorn},
+  {and} \bibinfo{person}{Jakob von Raumer}.} \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{The Lean Theorem Prover (System Description)}. In
+  \bibinfo{booktitle}{\emph{Automated Deduction - {CADE-25} - 25th
+  International Conference on Automated Deduction, 2015, Proceedings}}.
+  \bibinfo{pages}{378--388}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Ebner, Ullrich, Roesch, Avigad, and
+  de~Moura}{Ebner et~al\mbox{.}}{2017}]%
+        {ebner17meta}
+\bibfield{author}{\bibinfo{person}{Gabriel Ebner}, \bibinfo{person}{Sebastian
+  Ullrich}, \bibinfo{person}{Jared Roesch}, \bibinfo{person}{Jeremy Avigad},
+  {and} \bibinfo{person}{Leonardo de Moura}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{A Metaprogramming Framework for Formal
+  Verification}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{1}, \bibinfo{number}{ICFP} (\bibinfo{date}{Sept.}
+  \bibinfo{year}{2017}).
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3110278}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{F{\'e}rey and Shankar}{F{\'e}rey and
+  Shankar}{2016}]%
+        {Ferey:2016:CGU:2963372.2963387}
+\bibfield{author}{\bibinfo{person}{Gaspard F{\'e}rey} {and}
+  \bibinfo{person}{Natarajan Shankar}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Code Generation Using a Formal Model of Reference
+  Counting}. In \bibinfo{booktitle}{\emph{Proceedings of the 8th International
+  Symposium on NASA Formal Methods - Volume 9690}} \emph{(\bibinfo{series}{NFM
+  2016})}. \bibinfo{publisher}{Springer-Verlag New York, Inc.},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{150--165}.
+\newblock
+\showISBNx{978-3-319-40647-3}
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-319-40648-0_12}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Flanagan, Sabry, Duba, and Felleisen}{Flanagan
+  et~al\mbox{.}}{1993}]%
+        {Flanagan:1993:ECC:155090.155113}
+\bibfield{author}{\bibinfo{person}{Cormac Flanagan}, \bibinfo{person}{Amr
+  Sabry}, \bibinfo{person}{Bruce~F. Duba}, {and} \bibinfo{person}{Matthias
+  Felleisen}.} \bibinfo{year}{1993}\natexlab{}.
+\newblock \showarticletitle{The Essence of Compiling with Continuations}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the ACM SIGPLAN 1993 Conference on
+  Programming Language Design and Implementation}} \emph{(\bibinfo{series}{PLDI
+  '93})}. \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{237--247}.
+\newblock
+\showISBNx{0-89791-598-4}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/155090.155113}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Grelck and Trojahner}{Grelck and
+  Trojahner}{2004}]%
+        {sac-reuse}
+\bibfield{author}{\bibinfo{person}{Clemens Grelck} {and} \bibinfo{person}{Kai
+  Trojahner}.} \bibinfo{year}{2004}\natexlab{}.
+\newblock \showarticletitle{Implicit memory management for SAC}. In
+  \bibinfo{booktitle}{\emph{Implementation and Application of Functional
+  Languages, 16th International Workshop, IFL}}, Vol.~\bibinfo{volume}{4}.
+  \bibinfo{pages}{335--348}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Hallenberg, Elsman, and Tofte}{Hallenberg
+  et~al\mbox{.}}{2002}]%
+        {het02}
+\bibfield{author}{\bibinfo{person}{Niels Hallenberg}, \bibinfo{person}{Martin
+  Elsman}, {and} \bibinfo{person}{Mads Tofte}.}
+  \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Combining Region Inference and Garbage Collection}.
+  In \bibinfo{booktitle}{\emph{ACM SIGPLAN Conference on Programming Language
+  Design and Implementation (PLDI'02)}}. \bibinfo{publisher}{ACM Press}.
+\newblock
+\newblock
+\shownote{Berlin, Germany.}
+
+
+\bibitem[\protect\citeauthoryear{Hudak and Bloss}{Hudak and Bloss}{1985}]%
+        {Hudak:1985:AUP:318593.318660}
+\bibfield{author}{\bibinfo{person}{Paul Hudak} {and} \bibinfo{person}{Adrienne
+  Bloss}.} \bibinfo{year}{1985}\natexlab{}.
+\newblock \showarticletitle{The Aggregate Update Problem in Functional
+  Programming Systems}. In \bibinfo{booktitle}{\emph{Proceedings of the 12th
+  ACM SIGACT-SIGPLAN Symposium on Principles of Programming Languages}}
+  \emph{(\bibinfo{series}{POPL '85})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{300--314}.
+\newblock
+\showISBNx{0-89791-147-4}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/318593.318660}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Jim, Morrisett, Grossman, Hicks, Cheney, and
+  Wang}{Jim et~al\mbox{.}}{2002}]%
+        {jim2002cyclone}
+\bibfield{author}{\bibinfo{person}{Trevor Jim}, \bibinfo{person}{J~Gregory
+  Morrisett}, \bibinfo{person}{Dan Grossman}, \bibinfo{person}{Michael~W
+  Hicks}, \bibinfo{person}{James Cheney}, {and} \bibinfo{person}{Yanling
+  Wang}.} \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Cyclone: A Safe Dialect of C}. In
+  \bibinfo{booktitle}{\emph{USENIX Annual Technical Conference, General
+  Track}}. \bibinfo{pages}{275--288}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Jones and Lins}{Jones and Lins}{1996}]%
+        {GCbook}
+\bibfield{author}{\bibinfo{person}{Richard Jones} {and}
+  \bibinfo{person}{Rafael~D Lins}.} \bibinfo{year}{1996}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{Garbage Collection: Algorithms for
+  Automatic Dynamic Memory Management}}.
+\newblock \bibinfo{publisher}{Wiley}.
+\newblock
+\showISBNx{0471941484}
+
+
+\bibitem[\protect\citeauthoryear{Matsakis and Klock}{Matsakis and
+  Klock}{2014}]%
+        {Matsakis:2014:RL:2663171.2663188}
+\bibfield{author}{\bibinfo{person}{Nicholas~D. Matsakis} {and}
+  \bibinfo{person}{Felix~S. Klock, II}.} \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{The Rust Language}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 2014 ACM SIGAda Annual
+  Conference on High Integrity Language Technology}}
+  \emph{(\bibinfo{series}{HILT '14})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{103--104}.
+\newblock
+\showISBNx{978-1-4503-3217-0}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2663171.2663188}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Maurer, Downen, Ariola, and
+  Peyton~Jones}{Maurer et~al\mbox{.}}{2017}]%
+        {JoinPoints}
+\bibfield{author}{\bibinfo{person}{Luke Maurer}, \bibinfo{person}{Paul Downen},
+  \bibinfo{person}{Zena~M. Ariola}, {and} \bibinfo{person}{Simon
+  Peyton~Jones}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Compiling Without Continuations}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 38th ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} \emph{(\bibinfo{series}{PLDI
+  2017})}. \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{482--494}.
+\newblock
+\showISBNx{978-1-4503-4988-8}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3062341.3062380}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{McBeth}{McBeth}{1963}]%
+        {cyclesRC}
+\bibfield{author}{\bibinfo{person}{J.~Harold McBeth}.}
+  \bibinfo{year}{1963}\natexlab{}.
+\newblock \showarticletitle{Letters to the Editor: On the Reference Counter
+  Method}.
+\newblock \bibinfo{journal}{\emph{Commun. ACM}} \bibinfo{volume}{6},
+  \bibinfo{number}{9} (\bibinfo{date}{Sept.} \bibinfo{year}{1963}),
+  \bibinfo{pages}{575--}.
+\newblock
+\showISSN{0001-0782}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/367593.367649}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{McGraw, Skedzielewski, Allan, Grit, Oldehoeft,
+  Glauert, Dobes, and Hohensee}{McGraw et~al\mbox{.}}{1983}]%
+        {sisal}
+\bibfield{author}{\bibinfo{person}{James McGraw}, \bibinfo{person}{Stephen
+  Skedzielewski}, \bibinfo{person}{Stephen Allan}, \bibinfo{person}{D Grit},
+  \bibinfo{person}{R Oldehoeft}, \bibinfo{person}{J Glauert},
+  \bibinfo{person}{I Dobes}, {and} \bibinfo{person}{P Hohensee}.}
+  \bibinfo{year}{1983}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{SISAL: streams and iteration in a
+  single-assignment language. Language reference manual, Version 1}}.
+\newblock \bibinfo{type}{{T}echnical {R}eport}. \bibinfo{institution}{Lawrence
+  Livermore National Lab., CA (USA)}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Schling}{Schling}{2011}]%
+        {Boost}
+\bibfield{author}{\bibinfo{person}{Boris Schling}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{The Boost C++ Libraries}}.
+\newblock \bibinfo{publisher}{XML Press}.
+\newblock
+\showISBNx{0982219199, 9780982219195}
+
+
+\bibitem[\protect\citeauthoryear{Scholz}{Scholz}{1994}]%
+        {sac}
+\bibfield{author}{\bibinfo{person}{Sven-Bodo Scholz}.}
+  \bibinfo{year}{1994}\natexlab{}.
+\newblock \showarticletitle{Single Assignment C - Functional Programming Using
+  Imperative Style}. In \bibinfo{booktitle}{\emph{In John Glauert (Ed.):
+  Proceedings of the 6th International Workshop on the Implementation of
+  Functional Languages. University of East Anglia}}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Schulte}{Schulte}{1994}]%
+        {Schulte:1994}
+\bibfield{author}{\bibinfo{person}{Wolfram Schulte}.}
+  \bibinfo{year}{1994}\natexlab{}.
+\newblock \showarticletitle{Deriving Residual Reference Count Garbage
+  Collectors}. In \bibinfo{booktitle}{\emph{Proceedings of the 6th
+  International Symposium on Programming Language Implementation and Logic
+  Programming}} \emph{(\bibinfo{series}{PLILP '94})}.
+  \bibinfo{publisher}{Springer-Verlag}, \bibinfo{address}{London, UK},
+  \bibinfo{pages}{102--116}.
+\newblock
+\showISBNx{3-540-58402-1}
+
+
+\bibitem[\protect\citeauthoryear{Ungar, Grove, and Franke}{Ungar
+  et~al\mbox{.}}{2017}]%
+        {dynamic-atomicity}
+\bibfield{author}{\bibinfo{person}{David Ungar}, \bibinfo{person}{David Grove},
+  {and} \bibinfo{person}{Hubertus Franke}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Dynamic Atomicity: Optimizing Swift Memory
+  Management}. In \bibinfo{booktitle}{\emph{Proceedings of the 13th ACM SIGPLAN
+  International Symposium on on Dynamic Languages}} \emph{(\bibinfo{series}{DLS
+  2017})}. \bibinfo{publisher}{ACM}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{15--26}.
+\newblock
+\showISBNx{978-1-4503-5526-1}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3133841.3133843}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Weeks}{Weeks}{2006}]%
+        {Weeks:2006:WCM:1159876.1159877}
+\bibfield{author}{\bibinfo{person}{Stephen Weeks}.}
+  \bibinfo{year}{2006}\natexlab{}.
+\newblock \showarticletitle{Whole-program Compilation in MLton}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 2006 Workshop on ML}}
+  \emph{(\bibinfo{series}{ML '06})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{1--1}.
+\newblock
+\showISBNx{1-59593-483-9}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1159876.1159877}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Wilson}{Wilson}{1992}]%
+        {GCsurvey}
+\bibfield{author}{\bibinfo{person}{Paul~R. Wilson}.}
+  \bibinfo{year}{1992}\natexlab{}.
+\newblock \showarticletitle{Uniprocessor garbage collection techniques}. In
+  \bibinfo{booktitle}{\emph{Memory Management}},
+  \bibfield{editor}{\bibinfo{person}{Yves Bekkers} {and}
+  \bibinfo{person}{Jacques Cohen}} (Eds.). \bibinfo{publisher}{Springer Berlin
+  Heidelberg}, \bibinfo{address}{Berlin, Heidelberg}, \bibinfo{pages}{1--42}.
+\newblock
+\showISBNx{978-3-540-47315-2}
+
+
+\end{thebibliography}

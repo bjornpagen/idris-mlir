@@ -1,0 +1,343 @@
+\begin{thebibliography}{10}
+
+\bibitem{typestate_2009}
+J~Aldrich, J~Sunshine, D~Saini, and Z~Sparks.
+\newblock Typestate-oriented programming.
+\newblock In {\em Proceedings of the 24th {ACM} {SIGPLAN} conference companion
+  on {Object} oriented programming systems languages and applications}, pages
+  1015--1012, 2009.
+\newblock URL: \url{http://dl.acm.org/citation.cfm?id=1640073}.
+
+\bibitem{allais-cpp17}
+Guillaume Allais, James Chapman, Conor McBride, and James McKinna.
+\newblock {Type-and-Scope Safe Programs and their Proofs}.
+\newblock In {\em CPP}, pages 195--207, 2017.
+
+\bibitem{Atkey2009}
+Robert Atkey.
+\newblock {Parameterised notions of computation}.
+\newblock {\em Journal of Functional Programming}, 19(3-4):335, 2009.
+\newblock \href {http://dx.doi.org/10.1017/S095679680900728X}
+  {\path{doi:10.1017/S095679680900728X}}.
+
+\bibitem{qtt}
+Robert Atkey.
+\newblock The syntax and semantics of quantitative type theory.
+\newblock In {\em LICS 2018}, 2018.
+\newblock \href {http://dx.doi.org/10.1145/3209108.3209189}
+  {\path{doi:10.1145/3209108.3209189}}.
+
+\bibitem{augustsson_exercise_1999}
+L.~Augustsson and M.~Carlsson.
+\newblock An exercise in dependent types: {A} well-typed interpreter.
+\newblock In {\em In {Workshop} on {Dependent} {Types} in {Programming},
+  {Gothenburg}}. Citeseer, 1999.
+\newblock URL:
+  \url{http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.39.2895}.
+
+\bibitem{linhaskell}
+Jean-Philippe Bernardy, Mathieu Boespflug, Ryan~R. Newton, Simon Peyton~Jones,
+  and Arnaud Spiwack.
+\newblock Linear {Haskell}: Practical linearity in a higher-order polymorphic
+  language.
+\newblock {\em Proc. ACM Program. Lang.}, 2(POPL):5:1--5:29, December 2017.
+\newblock URL: \url{http://doi.acm.org/10.1145/3158093}, \href
+  {http://dx.doi.org/10.1145/3158093} {\path{doi:10.1145/3158093}}.
+
+\bibitem{Brady2005}
+Edwin Brady.
+\newblock {\em {Practical Implementation of a Dependently Typed Functional
+  Programming Language}}.
+\newblock PhD thesis, University of Durham, 2005.
+
+\bibitem{idris-jfp}
+Edwin Brady.
+\newblock Idris, a general-purpose dependently typed programming language:
+  Design and implementation.
+\newblock {\em Journal of Functional Programming}, 23:552--593, 9 2013.
+
+\bibitem{brady-tfp14}
+Edwin Brady.
+\newblock Resource-dependent algebraic effects.
+\newblock In Jurriaan Hage and Jay McCarthy, editors, {\em {Trends in
+  Functional Programming} ({TFP} '14)}, volume 8843 of {\em {LNCS}}. Springer,
+  2014.
+
+\bibitem{brady_tfp14}
+Edwin Brady.
+\newblock Resource-dependent algebraic effects.
+\newblock In Jurriaan Hage and Jay McCarthy, editors, {\em Trends in Functional
+  Programming - 15th International Symposium, {TFP} 2014, Soesterberg, The
+  Netherlands, May 26-28, 2014. Revised Selected Papers}, volume 8843 of {\em
+  Lecture Notes in Computer Science}, pages 18--33. Springer, 2014.
+\newblock URL: \url{https://doi.org/10.1007/978-3-319-14675-1\_2}, \href
+  {http://dx.doi.org/10.1007/978-3-319-14675-1\_2}
+  {\path{doi:10.1007/978-3-319-14675-1\_2}}.
+
+\bibitem{brady-lambda2017}
+Edwin Brady.
+\newblock Type-driven development of concurrent communicating systems.
+\newblock {\em Computer Science}, 18(3), 2017.
+
+\bibitem{brady_inductive_2003}
+Edwin Brady, Conor McBride, and James McKinna.
+\newblock Inductive families need not store their indices.
+\newblock In {\em Types for {Proofs} and {Programs} \{({TYPES} 2003)\}}, 2003.
+
+\bibitem{granulepopl}
+Pritam Choudhury, Harley Eades~III, Richard~A. Eisenberg, and Stephanie~C.
+  Weirich.
+\newblock A graded dependent type system with a usage-aware semantics (extended
+  version).
+\newblock In {\em {arXiv}:2011.04070 [cs]}, January 2021.
+\newblock arXiv: 2011.04070.
+\newblock URL: \url{http://arxiv.org/abs/2011.04070}.
+
+\bibitem{Danielsson2010}
+Nils~Anders Danielsson.
+\newblock {Total parser combinators}.
+\newblock In {\em International Conference on Functional Programming},
+  volume~45, page 285, sep 2010.
+\newblock URL: \url{http://dl.acm.org/citation.cfm?id=1932681.1863585}, \href
+  {http://dx.doi.org/10.1145/1932681.1863585}
+  {\path{doi:10.1145/1932681.1863585}}.
+
+\bibitem{janplaces2019}
+Jan de~Muijnck{-}Hughes, Edwin Brady, and Wim Vanderbauwhede.
+\newblock Value-dependent session design in a dependently typed language.
+\newblock In Francisco Martins and Dominic Orchard, editors, {\em Proceedings
+  Programming Language Approaches to Concurrency- and Communication-cEntric
+  Software, PLACES@ETAPS 2019, Prague, Czech Republic, 7th April 2019}, volume
+  291 of {\em {EPTCS}}, pages 47--59, 2019.
+\newblock URL: \url{https://doi.org/10.4204/EPTCS.291.5}, \href
+  {http://dx.doi.org/10.4204/EPTCS.291.5} {\path{doi:10.4204/EPTCS.291.5}}.
+
+\bibitem{cleanuniq}
+Edsko de~Vries, Rinus Plasmeijer, and David~M Abrahamson.
+\newblock {Uniqueness Typing Simplified}.
+\newblock In {\em Implementation and Application of Functional Languages},
+  pages 201----218, 2008.
+
+\bibitem{Ennals2004}
+Robert Ennals, Richard Sharp, and Alan Mycroft.
+\newblock {Linear Types for Packet Processing}.
+\newblock In {\em ESOP}, 2004.
+
+\bibitem{Fowler2019}
+Simon Fowler, Sam Lindley, J~Garrett Morris, and Sara Decova.
+\newblock {Exceptional Asynchronous Session Types: Session Types without
+  Tiers}.
+\newblock In {\em Principles of Programming Languages}, volume~3, 2019.
+
+\bibitem{Gaboardi2013}
+Marco Gaboardi, Andreas Haeberlen, Justin Hsu, Arjun Narayan, and Benjamin~C.
+  Pierce.
+\newblock {Linear dependent types for differential privacy}.
+\newblock In {\em Proceedings of the 40th annual ACM SIGPLAN-SIGACT symposium
+  on Principles of programming languages - POPL '13}, page 357, 2013.
+\newblock URL: \url{http://dl.acm.org/citation.cfm?doid=2429069.2429113}, \href
+  {http://dx.doi.org/10.1145/2429069.2429113}
+  {\path{doi:10.1145/2429069.2429113}}.
+
+\bibitem{gundrythesis}
+Adam Gundry.
+\newblock {\em Type {Inference}, {Haskell} and {Dependent} {Types}}.
+\newblock {PhD} {Thesis}, 2013.
+\newblock URL:
+  \url{https://personal.cis.strath.ac.uk/adam.gundry/thesis/thesis-2013-07-24.pdf}.
+
+\bibitem{Honda1993}
+Kohei Honda.
+\newblock Types for dyadic interaction.
+\newblock In {\em {CONCUR 19938 (International Conference on Concurrency
+  Theory)}}. Springer, 1993.
+
+\bibitem{Honda2008}
+Kohei Honda, Nobuko Yoshida, and Marco Carbone.
+\newblock {Multiparty asynchronous session types}.
+\newblock In {\em {POPL 2008}}, 2008.
+
+\bibitem{rustsession}
+Thomas Bracht~Laumann Jespersen, Philip Munksgaard, and Ken~Friis Larsen.
+\newblock {Session Types for Rust}.
+\newblock In {\em {WGP 2015 (Workshop on Generic Programming)}}. ACM, 2015.
+
+\bibitem{rustbelt}
+Ralf Jung, Jacques-Henri Jourdan, Robbert Krebbers, and Derek Dreyer.
+\newblock Rustbelt: Securing the foundations of the rust programming language.
+\newblock {\em Proc. ACM Program. Lang.}, 2(POPL), December 2017.
+\newblock URL: \url{https://doi.org/10.1145/3158154}, \href
+  {http://dx.doi.org/10.1145/3158154} {\path{doi:10.1145/3158154}}.
+
+\bibitem{kovacs-smalltt}
+Andr\'{a}s Kov\'{a}cs.
+\newblock Fast elaboration for dependent type theories, 2019.
+
+\bibitem{Krishnaswami-ldtp}
+Neelakantan~R Krishnaswami, Pierre Pradic, and Nick Benton.
+\newblock {Integrating Dependent and Linear Types}.
+\newblock In {\em Principles of Programming Languages}, 2015.
+
+\bibitem{McBride2011}
+Conor McBride.
+\newblock {Kleisli arrows of outrageous fortune}, 2011.
+
+\bibitem{McBride2014}
+Conor McBride.
+\newblock {How to Keep Your Neighbours in Order}.
+\newblock In {\em International Conference on Functional Programming}, 2014.
+
+\bibitem{nuttin}
+Conor McBride.
+\newblock I got plenty o' nuttin'.
+\newblock In {\em A List of Successes that Can Change the World}, 2016.
+
+\bibitem{millerunification}
+Dale Miller.
+\newblock Unification under a mixed prefix.
+\newblock {\em Journal of Symbolic Computation}, 1992.
+\newblock URL:
+  \url{http://www.sciencedirect.com/science/article/pii/074771719290011R}.
+
+\bibitem{mishralinger-erasure}
+Nathan Mishra{-}Linger and Tim Sheard.
+\newblock Erasure and polymorphism in pure type systems.
+\newblock In Roberto~M. Amadio, editor, {\em Foundations of Software Science
+  and Computational Structures, 11th International Conference, {FOSSACS} 2008,
+  Held as Part of the Joint European Conferences on Theory and Practice of
+  Software, {ETAPS} 2008, Budapest, Hungary, March 29 - April 6, 2008.
+  Proceedings}, volume 4962 of {\em Lecture Notes in Computer Science}, pages
+  350--364. Springer, 2008.
+\newblock URL: \url{https://doi.org/10.1007/978-3-540-78499-9\_25}, \href
+  {http://dx.doi.org/10.1007/978-3-540-78499-9\_25}
+  {\path{doi:10.1007/978-3-540-78499-9\_25}}.
+
+\bibitem{granuleesop}
+Benjamin Moon, Harley Eades~III, and Dominic Orchard.
+\newblock Graded {Modal} {Dependent} {Type} {Theory}.
+\newblock In {\em {ESOP} 2021}, October 2020.
+\newblock arXiv: 2010.13163.
+\newblock URL: \url{http://arxiv.org/abs/2010.13163}.
+
+\bibitem{Morris2016}
+J~Garrett Morris.
+\newblock {The Best of Both Worlds: Linear Functional Programming Without
+  Compromise}.
+\newblock In {\em Proceedings of the 21st ACM SIGPLAN International Conference
+  on Functional Programming - ICFP 2016}, pages 448--461, 2016.
+\newblock URL: \url{http://doi.acm.org/10.1145/2951913.2951925}, \href
+  {http://dx.doi.org/10.1145/2951913.2951925}
+  {\path{doi:10.1145/2951913.2951925}}.
+
+\bibitem{Ynot2008}
+Aleksander Nanevski, Greg Morrisett, Avraham Shinnar, Paul Govereau, and Lars
+  Birkedal.
+\newblock {Ynot: Dependent types for imperative programs}.
+\newblock In {\em International Conference on Functional Programming},
+  number~9, pages 229----240, 2008.
+\newblock URL:
+  \url{http://www.scopus.com/inward/record.url?eid=2-s2.0-67650032847&partnerID=40&md5=7a5be3083878399cebafda33b1affa6b},
+  \href {http://dx.doi.org/10.1145/1411204.1411237}
+  {\path{doi:10.1145/1411204.1411237}}.
+
+\bibitem{norell2007thesis}
+Ulf Norell.
+\newblock {\em {Towards a practical programming language based on dependent
+  type theory}}.
+\newblock PhD thesis, Chalmers University of Technology, 2007.
+\newblock URL:
+  \url{http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.65.7934&amp;rep=rep1&amp;type=pdf}.
+
+\bibitem{granule}
+Dominic Orchard, Vilem-Benjamin Liepelt, and Harley Eades~III.
+\newblock Quantitative program reasoning with graded modal types.
+\newblock {\em Proc. ACM Program. Lang.}, 3(ICFP), July 2019.
+\newblock URL: \url{https://doi.org/10.1145/3341714}, \href
+  {http://dx.doi.org/10.1145/3341714} {\path{doi:10.1145/3341714}}.
+
+\bibitem{awkward}
+Simon {Peyton Jones}.
+\newblock {Tackling the Awkward Squad: monadic input/output, concurrency,
+  exceptions, and foreign-language calls in Haskell}.
+\newblock In {\em Engineering theories of software construction, Marktoberdorf
+  Summer School}, pages 47----96, 2001.
+
+\bibitem{polikarpova_program_2016}
+Nadia Polikarpova, Ivan Kuraj, and Armando Solar-lezama.
+\newblock Program {Synthesis} from {Polymorphic} {Refinement} {Types}.
+\newblock {\em Pldi}, 2016.
+\newblock ISBN: 9781450342612.
+
+\bibitem{rle}
+A.~H. {Robinson} and C.~{Cherry}.
+\newblock Results of a prototype television bandwidth compression scheme.
+\newblock {\em Proceedings of the IEEE}, 55(3):356--364, 1967.
+\newblock \href {http://dx.doi.org/10.1109/PROC.1967.5493}
+  {\path{doi:10.1109/PROC.1967.5493}}.
+
+\bibitem{Shi2013}
+Rui Shi and Hongwei Xi.
+\newblock {A linear type system for multicore programming in ATS}.
+\newblock {\em Science of Computer Programming}, 78(8):1176--1192, 2013.
+\newblock \href {http://dx.doi.org/10.1016/j.scico.2012.09.005}
+  {\path{doi:10.1016/j.scico.2012.09.005}}.
+
+\bibitem{matusicfp}
+Matúš Tejiščák.
+\newblock A dependently typed calculus with pattern matching and erasure
+  inference.
+\newblock {\em Proceedings of the ACM on Programming Languages},
+  4(ICFP):91:1--91:29, August 2020.
+\newblock URL: \url{https://doi.org/10.1145/3408973}, \href
+  {http://dx.doi.org/10.1145/3408973} {\path{doi:10.1145/3408973}}.
+
+\bibitem{matus-draft}
+Matúš Tejiščák.
+\newblock {\em Erasure in Dependently Typed Programming}.
+\newblock PhD thesis, University of St Andrews, 2020.
+
+\bibitem{labelst}
+Peter Thiemann and Vasco~T. Vasconcelos.
+\newblock Label-dependent session types.
+\newblock {\em Proc. ACM Program. Lang.}, 4(POPL), December 2019.
+\newblock URL: \url{https://doi.org/10.1145/3371135}, \href
+  {http://dx.doi.org/10.1145/3371135} {\path{doi:10.1145/3371135}}.
+
+\bibitem{Tov2011a}
+Jesse~a. Tov and Riccardo Pucella.
+\newblock {Practical affine types}.
+\newblock In {\em Principles of Programming Languages}, pages 447----458, 2011.
+\newblock URL: \url{http://portal.acm.org/citation.cfm?doid=1925844.1926436},
+  \href {http://dx.doi.org/10.1145/1925844.1926436}
+  {\path{doi:10.1145/1925844.1926436}}.
+
+\bibitem{wadler-linear}
+Philip Wadler.
+\newblock {Linear types can change the world!}
+\newblock In M.~Broy and C.~Jones, editors, {\em IFIP TC 2 Working Conference
+  on Programming Concepts and Methods, Sea of Galilee, Israel}, pages 347--359.
+  North Holland, 1990.
+
+\bibitem{rolehaskell}
+Stephanie Weirich, Pritam Choudhury, Antoine Voizard, and Richard~A. Eisenberg.
+\newblock A role for dependent types in haskell.
+\newblock {\em {PACMPL}}, 3({ICFP}):101:1--101:29, 2019.
+\newblock URL: \url{https://doi.org/10.1145/3341705}, \href
+  {http://dx.doi.org/10.1145/3341705} {\path{doi:10.1145/3341705}}.
+
+\bibitem{dephaskell}
+Stephanie Weirich, Antoine Voizard, Pedro Henrique~Avezedo de~Amorim, and
+  Richard~A. Eisenberg.
+\newblock A specification for dependent types in haskell.
+\newblock {\em {PACMPL}}, 1({ICFP}):31:1--31:29, 2017.
+\newblock URL: \url{https://doi.org/10.1145/3110275}, \href
+  {http://dx.doi.org/10.1145/3110275} {\path{doi:10.1145/3110275}}.
+
+\bibitem{typestate_2014}
+Roger Wolff, Jonathan Aldrich, Ronald Garcia, Roger Wolff, and Jonathan
+  Aldrich.
+\newblock Foundations of {Typestate}-{Oriented} {Programming}.
+\newblock {\em Transactions on Programming Languages and Systems}, 36(4):1--44,
+  2014.
+
+\end{thebibliography}

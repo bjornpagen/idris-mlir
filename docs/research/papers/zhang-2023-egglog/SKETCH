@@ -1,0 +1,9 @@
+exists t. R(t1, ..., tk) -> t
+R(t1, ..., tk) -> t
+
+DB' = {A(...)-> for active A}
+DB' = { for active A}
+
+equiv = equiv union {
+    R(t1, ..., tk) = max for active A
+}

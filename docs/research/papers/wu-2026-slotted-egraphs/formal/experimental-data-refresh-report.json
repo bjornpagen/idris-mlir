@@ -1,0 +1,166 @@
+{
+  "schema_version": "2.0",
+  "report_kind": "REPAIRED_FAST_IR_MANIFEST_BOUND_DATA_REFRESH",
+  "generated_at_utc": "2026-08-30T00:23:46Z",
+  "status": "REPAIRED_FAST_IR_DATA_REFRESH_AND_INDEPENDENT_CORRESPONDENCE_REVIEW_PASSED",
+  "authorization_scope": {
+    "command": "/autonomous",
+    "scope": "Update only empirical values and provenance for the clean experiment run produced after repairing the Fast Rewrite IR comparator errors; preserve every other claim and the existing layout.",
+    "java_changes_authorized": false,
+    "experimental_result_changes_authorized": false,
+    "formal_or_lean_changes_authorized": false,
+    "layout_changes_authorized": false,
+    "publication_authorized": false
+  },
+  "repository_evidence": {
+    "repository": "AlexandervonWu/ACGN",
+    "publication_branch": "aislop",
+    "publication_head": "63f3b8c2931202e9b3582a8802c558725a67ac26",
+    "publication_run_id": "df4d8d4c-6265-4fe7-88d5-3aceee60398b",
+    "ablation_run_id": "f46b5647-7373-4cd7-ac3d-f8fd9b802db6",
+    "capability_run_id": "2a27663f-28d6-4f42-b841-5cc7a5d5a488",
+    "experiment_source_commit": "fbd9b1497a9036c55780da777f56581bc1c6bcec",
+    "experiment_source_dirty": false,
+    "dataset_sha256": "d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689",
+    "jar_sha256": "361b33ef56f6ccb1089a7a6fdda2a92bf621e501166c5a1c73330a0cc1686807",
+    "java_source_sha256": "0f566e6ba63266385075bafa989b1e535118dccadacef06a761bf3f8641043ca",
+    "rule_set": "canonical-equivalences-v3-explicit-laws",
+    "repair_metric": "certified-fast-rewrite-repair-distance-v12",
+    "worker_count": 16,
+    "heap_limit": "8g",
+    "seed": 55520260811,
+    "java_version": "17.0.20",
+    "interpretation": "The publication commit is the direct child of the Fast Rewrite IR repair and changes no Java; it publishes the clean rerun. Corpus, host, Java, seed, worker, heap, rule-set, schema, and repair-metric fields are unchanged from the preceding run."
+  },
+  "fast_ir_repairs": [
+    "Field atoms compare source spelling together with the retained exact owner-bearing Alloy relation type.",
+    "Inherited binders reused across temporal phases share one coherent alpha mapping; phase-local binders remain locally minimized."
+  ],
+  "source_graphs": {
+    "baseline_bundle_sha256": "eb879c7ebce49d6de422340f5d02e4ec57d850cbac1c96bc8148df58b8b58d04",
+    "pre_refresh_author_source_graph_sha256": "1e8c1cebd6f35f8747524a971f3999a2424f698eb7957bff6aad684b903e1964",
+    "post_refresh_author_source_graph_sha256": "29348d88fbad07dfeddca2abf880b0718a8ca2ba26d41ee82a08e8f60d94d7d1",
+    "aggregate_algorithm": "SHA-256 of canonical compact JSON with sorted object keys and source-list order preserved for current path/SHA-256 entries over the same 20 paths recorded in formal/formal-units.yaml.",
+    "changed_author_files": [
+      {
+        "path": "eval_compressed.tex",
+        "before_sha256": "713f645d2a2db987fe82f0b0b2c6103f6c2a9eacec8f934de0c8ec07461f3bfa",
+        "after_sha256": "c2c0523c07cc36f26d25ca2059880011e0304609c725aedf6a195189b87088da"
+      },
+      {
+        "path": "appendix_eval.tex",
+        "before_sha256": "b440c6e3107f162f2d0bd2b58cf79d125b77e426f8418be7d2da5a1a8e966e56",
+        "after_sha256": "0888b7aab69ff720add187681f9d19535667807c0213419d1c5ad32436a98845"
+      },
+      {
+        "path": "appendixC_vmcai_stage1.tex",
+        "before_sha256": "024f3df7d006825b94e6beb92005ce69fcaba1ababc25bbb3322342f11b0b77c",
+        "after_sha256": "5060a398edf85794a49534e92ab038efef1fba91d41878c0f6a1277718235547"
+      },
+      {
+        "path": "tables/table3_vmcai_stage1.tex",
+        "before_sha256": "30fe975672e221620f2cc2ac9f2d99e29bee3165ad4cce8ce20ec03037cbbbe7",
+        "after_sha256": "784b22e6196fbd29390abdd0bfc1184f81dde564d57888e0e1d8c73c1eebdecb"
+      },
+      {
+        "path": "tables/table6_ablation_vmcai_stage1.tex",
+        "before_sha256": "6746fe66eb506c22cb90c19e7781802754719a24e6a70015f8528ee31339869f",
+        "after_sha256": "9cd666b3f7f7a87a39a63a6cc760cd8d18bccb44d1ad897380f4459f82b14026"
+      }
+    ],
+    "author_file_line_counts_unchanged": true,
+    "author_diff_classification": "LITERAL_EMPIRICAL_VALUE_AND_PROVENANCE_SUBSTITUTIONS_ONLY"
+  },
+  "empirical_results": {
+    "eligible_pairs": 61598,
+    "correct_pairs": 19212,
+    "incorrect_pairs": 42386,
+    "fast_rewrite": {
+      "paired_mean_distance_exact": 13.943342,
+      "paired_mean_distance_paper": 13.943,
+      "nearest_truth_mean_exact": 11.451257,
+      "nearest_truth_mean_paper": 11.451,
+      "correct_paired_zeroes": 4074,
+      "incorrect_nearest_truth_zeroes": 0,
+      "wall_seconds": 23.860,
+      "engine_cpu_seconds": 73.605,
+      "max_rss_mib": 1840.508
+    },
+    "certificate_integrated": {
+      "paired_mean_distance_paper": 14.022,
+      "nearest_truth_mean_paper": 11.563,
+      "correct_paired_zeroes": 4088,
+      "incorrect_nearest_truth_zeroes": 0,
+      "wall_seconds": 2775.650,
+      "engine_cpu_seconds": 42224.753,
+      "max_rss_mib": 8912.141,
+      "peak_used_heap_mib": 7153.183
+    },
+    "all_arm_performance": [
+      {"arm": "Raw", "wall_seconds": 19.440, "engine_cpu_seconds": 4.335, "max_rss_mib": 1485.313},
+      {"arm": "Raw + De Bruijn", "wall_seconds": 19.440, "engine_cpu_seconds": 5.292, "max_rss_mib": 1491.105},
+      {"arm": "Java egglog", "wall_seconds": 19.010, "engine_cpu_seconds": 4.099, "max_rss_mib": 1608.297},
+      {"arm": "Java egglog + De Bruijn", "wall_seconds": 19.090, "engine_cpu_seconds": 5.010, "max_rss_mib": 1647.250},
+      {"arm": "Slotted", "wall_seconds": 19.300, "engine_cpu_seconds": 16.389, "max_rss_mib": 1772.973},
+      {"arm": "Fast Rewrite", "wall_seconds": 23.860, "engine_cpu_seconds": 73.605, "max_rss_mib": 1840.508},
+      {"arm": "Certificate-Integrated", "wall_seconds": 2775.650, "engine_cpu_seconds": 42224.753, "max_rss_mib": 8912.141}
+    ],
+    "certificate_to_fast_ratios": {
+      "full_corpus_wall": 116.331,
+      "full_corpus_engine_cpu": 573.666,
+      "full_corpus_rss": 4.842,
+      "targeted_wall": 87.680
+    },
+    "fast_nearest_reference_counts": {
+      "radius_1": 2056,
+      "radius_2": 5056,
+      "radius_5": 13496,
+      "radius_10": 25588
+    },
+    "unchanged_semantic_results": "Raw-AST and Certificate-Integrated semantic values, Certificate-Integrated zeroes, capability recognition counts, corpus counts, and the 14 Certificate-Integrated-only correct-pair zeroes are unchanged.",
+    "timing_qualification": "Each arm was measured once in a fresh process. The run-to-run timing changes are not causally attributed to the Fast Rewrite repair."
+  },
+  "evidence_hashes": {
+    "egraph_run_manifest_sha256": "66879e01b97ddcd5af7a6f5915071ce7eac51482b6d528771edcf3d34ee754f3",
+    "egraph_comparison_json_sha256": "ae9e051219a604441db34617b4341c825ff36cd4fe88cf1cead73666927e82f5",
+    "egraph_summary_sha256": "897206b6a3d691130b68a30e201ab77a8c7b5d7932fb22e1e7ed5c56649057bc",
+    "distance_summary_sha256": "0daca790df0998ee989118604918c39bdd280405924d752daa59b740cc7ad6cf",
+    "capability_manifest_sha256": "01f56690d91ed86eced9e0648dfc522598bf182f4b81d07fe94d830a9c61b381",
+    "capability_comparison_sha256": "1eb7d725b344a5831385d4427c7836adb1fc88d29212311ab1401f68d14fa32f",
+    "capability_summary_sha256": "032e7b828120c9262227c434357079e457657f4506ead4bcaed9913fbe19f169"
+  },
+  "chart": {
+    "path": "figures/raw_edit_repair_coverage_relabel.png",
+    "sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "repository_svg_sha256": "61830128829155d834dd1f54972a76d1a7c4d9fa55f9b8dfcf6d9d143aebbf78",
+    "dimensions_pixels": "976x612",
+    "byte_unchanged": true,
+    "reason": "The paper chart contains only raw-AST and Certificate-Integrated curves; both series are unchanged in the repaired run."
+  },
+  "formal_invariance": {
+    "status": "PASS_NO_FORMAL_STATEMENT_OR_LEAN_CHANGE",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "lean_source_and_config_graph_sha256": "424088773b7381cd60e7f4367e2e3939aae3b29874217fd34b24e5f8528fe61c",
+    "formal_claim_changes": 0,
+    "lean_source_changes": 0,
+    "normalization_contract_changes": 0
+  },
+  "independent_reviews": {
+    "repository_run_audit": "PASS",
+    "five_file_source_minimality_audit": "PASS",
+    "paper_data_correspondence_review": "PASS",
+    "stale_active_empirical_claim_count_after_metadata_regeneration": 0
+  },
+  "immutability": {
+    "java_changes": 0,
+    "experimental_result_changes": 0,
+    "lean_source_changes": 0,
+    "formal_claim_changes": 0,
+    "chart_raster_changes": 0,
+    "bibliography_changes": 0,
+    "layout_command_or_environment_changes": 0
+  },
+  "scope_boundary": "No Java refinement, parser refinement, whole-artifact correctness, experimental replay closure, or new assurance objective is claimed."
+}

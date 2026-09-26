@@ -1,0 +1,38 @@
+We present \egglog,
+ a fixpoint reasoning
+ system that unifies
+ Datalog and equality saturation (\eqsat).
+Like Datalog,
+ it supports efficient incremental execution,
+ cooperating analyses,
+ and lattice-based reasoning.
+Like \eqsat,
+ it supports term rewriting,
+ efficient congruence closure,
+ and extraction of optimized terms.
+% \egglog addresses practical limitations of Datalog and \eqsat.
+
+We identify two recent applications---%
+ a unification-based pointer analysis in Datalog
+ and an \eqsat-based floating-point term rewriter---%
+ that have been hampered
+ by features missing from Datalog but found in \eqsat
+ or vice-versa.
+%  by the lack of 
+%  compositional analyses and 
+%  efficient equivalence relations, 
+%  respectively.
+We evaluate \egglog by reimplementing
+ those projects in \egglog.
+The resulting systems in \egglog are 
+ faster, simpler, and fix bugs 
+ found in the original systems.
+
+% Datalog and equality saturation (\eqsat)
+%  are both popular fixpoint reasoning systems.
+% They each have strengths
+%  that have led to success in different communities:
+%  Datalog in program analysis 
+%  and equality saturation in program synthesis and optimization.
+% Researchers have developed
+%  many 

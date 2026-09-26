@@ -1,0 +1,256 @@
+\section{Session Types via QTT}
+
+\label{sec:sessions}
+
+To illustrate how we can use quantities on a more
+substantial example, let us consider how to use them to implement session
+types. Session types~\cite{Honda1993,Honda2008} give types to communication channels, allowing us to
+express exactly \emph{when} a message can be sent on a channel, ensuring that
+communication protocols are implemented completely and correctly. There has
+been extensive previous work on defining calculi for session types\footnote{A collection of implementations is available
+at \url{http://groups.inf.ed.ac.uk/abcd/session-implementations.html}}. In
+Idris 2, the combination of linear and dependent types means that we can
+implement session types directly:
+
+\begin{itemize}
+\item \textbf{Linearity} means that a channel can only be accessed once, 
+and once a message has been sent or received on a channel, the channel is
+in a new state.
+\item \textbf{Dependent Types} give us a way of describing protocols at the
+type level, where progress on a channel can change according to values sent
+on the channel.
+\end{itemize}
+
+A complete implementation of session types would be
+a paper in itself, so we limit ourselves to dyadic session types in concurrent
+communicating processes.  We assume that functions are \emph{total}, so
+processes will not terminate early and communication will always
+succeed. In a full library, dealing with \emph{distributed} as
+well as \emph{concurrent} processes, we would also need to consider failures
+such as timeouts and badly formed messages~\cite{Fowler2019}.
+
+The key idea is to parameterise channels by the actions which will be
+executed on the channel---that is, the messages which will be
+sent and received---and to use channels linearly. We declare a
+\texttt{Channel} type as follows:
+
+\begin{code}
+data Actions : Type where
+     Send : (a : Type) -> (a -> Actions) -> Actions
+     Recv : (a : Type) -> (a -> Actions) -> Actions
+     Close : Actions
+
+data Channel : Actions -> Type
+\end{code}
+
+Internally, \texttt{Channel} contains a message queue for bidirectional
+communication.
+Listing \ref{sessioniface} shows the types of functions for
+initiating sessions, and sending and receiving messages.
+In the type of \texttt{send}, we see that to send a value of type
+\texttt{ty} we must have a channel in the state \texttt{Send ty next},
+where \texttt{next} is a function that computes the rest of the protocol.
+The type of \texttt{recv} shows that we compute the rest of the protocol
+by inspecting the value received. We initiate concurrent sessions with
+\texttt{fork}, and will discuss the details of this shortly.
+
+\begin{code}[float=h,frame=single,caption={Initiating and executing
+concurrent sessions},label=sessioniface]
+send : (1 chan : Channel (Send ty next)) -> (val : ty) ->
+       L {use=1} (Channel (next val))
+recv : (1 chan : Channel (Recv ty next)) ->
+       L {use=1} (Res ty (\val => Channel (next val)))
+close : (1 chan : Channel Close) -> L ()
+fork : ((1 chan : Server p) -> L ()) -> L {use=1} (Client p)
+\end{code}
+
+First, let us see how to describe dyadic protocols such that a \emph{client}
+and \emph{server} are guaranteed to be synchronised. We describe protocols
+via a \emph{global} session type:
+
+\begin{code}
+data Protocol : Type -> Type where
+     Request : (a : Type) -> Protocol a
+     Respond : (a : Type) -> Protocol a
+     (>>=) : Protocol a -> (a -> Protocol b) -> Protocol b
+     Done : Protocol ()
+\end{code}
+
+A protocol involves a sequence of \texttt{Request}s from a client to
+a server, and \texttt{Response}s from the server back to the client.
+For example, we could define a protocol (Listing~\ref{utilsproto})
+in which a client sends a \texttt{Command} to either \texttt{Add} a pair of
+\texttt{Int}s or \texttt{Reverse} a \texttt{String}.
+
+\begin{code}[float=h,frame=single,caption={A global session type describing
+a protocol where a client can request either adding two \texttt{Int}s or
+reversing a \texttt{String}},label=utilsproto]
+data Command = Add | Reverse
+
+Utils : Protocol ()
+Utils = do cmd <- Request Command
+           case cmd of
+                Add => do Request (Int, Int)
+                          Respond Int
+                          Done
+                Reverse => do Request String
+                              Respond String
+                              Done
+\end{code}
+
+\texttt{Protocol} is a DSL for describing communication
+patterns. Embedding it in a dependently typed host language gives us
+dependent session types for free. We use the embedding to our advantage 
+in a small way, by having the protocol depend on \texttt{cmd}, the command
+sent by the client.
+%
+We can write functions to calculate the protocol for the client and the
+server: 
+
+\begin{code}
+AsClient, AsServer : Protocol a -> Actions
+\end{code}
+
+We omit the definitions, but each translates \texttt{Request} and
+\texttt{Response} directly to the appropriate \texttt{Send} or
+\texttt{Receive} action.
+We can see how \texttt{Utils} translates into a type for the client side by
+running \texttt{AsClient Utils}:
+
+\begin{code}
+Send Command (\res => (ClientK 
+    (case res of 
+          Add => Request (Int, Int) >>= \_ => 
+                 Respond Int >>= \_ Done
+          Reverse => Request String >>= \_ => 
+                     Respond String >>= \_ Done)
+\end{code}
+
+Most importantly, this shows us that the first client side operation must be
+to send a \texttt{Command}. The rest of the type is calculated from the
+command which is sent; \texttt{ClientK} is internal to \texttt{AsClient} and
+calculates the continuation of the type. Using these, we can
+define the type for \texttt{fork}.
+
+\begin{code}
+Client, Server : Protocol a -> Type
+Client p = Channel (AsClient p)
+Server p = Channel (AsServer p)
+
+fork : ((1 chan : Server p) -> L ()) -> L {use=1} (Client p)
+\end{code}
+
+The type of \texttt{fork} ensures that the client and the server are working
+to the same protocol, by calculating the channel type of each from the same
+global protocol. Since each channel is linear, both ends of the protocol
+must be run to completion.
+
+\begin{code}[float=h,frame=single,caption={An implementation of a server
+for the \texttt{Utils} protocol},label=utilserver]
+utilServer : (1 chan : Server Utils) -> L ()
+utilServer chan
+    = do cmd # chan <- recv chan
+         case cmd of
+              Add => do (x, y) # chan <- recv chan
+                        chan <- send chan (x + y)
+                        close chan
+              Reverse => do str # chan <- recv chan
+                            chan <- send chan (reverse str)
+                            close chan
+\end{code}
+
+Listing~\ref{utilserver} shows a complete implementation of a server for
+the \texttt{Utils} protocol. However, we do not typically write a complete
+implementation in one go. Idris 2's support for \emph{holes} means that it
+is more convenient to write the server incrementally, in a type-driven
+way. We begin with just a skeleton definition, and look at the hole for the
+right hand side:
+
+\begin{code}
+utilServer : (1 chan : Server Utils) -> L ()
+utilServer chan = ?utilServer_rhs
+
+ 1 chan : Channel (Recv Command (\res => ... ))
+-------------------------------------
+utilServer_rhs : L ()
+\end{code}
+
+Therefore, the first action on \texttt{chan} must be to receive a
+\texttt{Command}:
+
+\begin{code}
+utilServer : (1 chan : Server Utils) -> L ()
+utilServer chan
+    = do cmd # chan <- recv chan
+         ?utilServer_rhs
+
+   cmd : Command
+ 1 chan : Channel (ServerK (case cmd of ...) ...)
+------------------------------
+utilServer_rhs : L ()                                       
+\end{code}
+
+We elide the full details of the type of \texttt{chan} at this stage, but at
+the top level it suggests that we can make progress by a \texttt{case} split on
+\texttt{cmd}:
+
+\begin{code}
+utilServer : (1 chan : Server Utils) -> L ()
+utilServer chan
+    = do cmd # chan <- recv chan
+         case cmd of
+              Add => ?process_add
+              Reverse => ?process_reverse
+\end{code}
+
+We make essential use of dependent \texttt{case} here, in that both
+branches have a different type which is computed from the value of the
+scrutinee \texttt{cmd}, similarly to \FN{PrintfType} in
+Section~\ref{sec:printf}.
+Now, for each of the holes \texttt{process\_add} and \texttt{process\_reverse}
+we see more concretely how the protocol should proceed. e.g. for
+\texttt{process\_add}, we see we have to receive a pair of \texttt{Int}s, then
+send an \texttt{Int}:
+
+\begin{code}
+   1 chan : Channel (Recv (Int, Int) (\res => 
+                    (Send Int (\res => Close))))
+     cmd : Command
+  -------------------------------------
+  process_add : L () 
+\end{code}
+
+Developing the server in this way shows programming as a \emph{dialogue}
+with the type checker. Rather than trying to work out the complete program,
+with increasing frustration as the type checker rejects our attempts, we
+write the program step by step, and ask the type checker for more information
+on the variables in scope and the required result.
+
+\subsubsection*{Extension: Sending Channels over Channels}
+
+A useful extension is to allow a server to start up more
+worker processes to handle client requests. This would require sending the
+server's \TC{Channel} endpoint to the worker process. However, we cannot do
+this with \TC{send} as it stands, because the value sent must be of
+multiplicity $\omega$, and the \TC{Channel} is linear. One way to support
+this would be to refine \TC{Protocol} to allow flagging messages as linear,
+then add:
+
+\begin{code}
+send1 : (1 chan : Channel (Send1 ty next)) -> (1 val : ty) ->
+        L {use=1} (Channel (next val))
+\end{code}
+
+This takes advantage of QTT's ability to parameterise types by linear variables
+like \texttt{val} here. A worker protocol, using the \FN{Utils} protocol
+above, could then be described as follows, where a server forks a new 
+worker process and immediately sends it the communication \TC{Channel} for
+the client:
+
+\begin{code}
+MakeWorker : Protocol ()
+MakeWorker = do Request1 (Server Utils); Done
+\end{code}
+
+We leave full details of this implementation for future work. It is,
+nevertheless, a minor adaptation of the session types library.

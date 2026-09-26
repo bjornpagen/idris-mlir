@@ -1,0 +1,38 @@
+\section{Design Overview}
+\label{sec:overview}
+
+\Ansor is an automated tensor program generation framework.
+\autoref{fig:system-overview} shows the overall architecture of \Ansor. The input of \Ansor is a set of to be optimized DNNs.
+Ansor uses the operator fusion algorithm from Relay\cite{roesch2019relay} to convert DNNs from popular model formats (\textit{e.g.}, ONNX~\cite{bai2019onnx}, TensorFlow PB) to partitioned small subgraphs.
+\Ansor then generates tensor programs for these subgraphs.
+\Ansor has three major components: (1) a program sampler that constructs a large search space and samples diverse programs from it; (2) a performance tuner that fine-tunes the performance of sampled programs; (3) a task scheduler that allocates time resources for optimizing multiple subgraphs in the DNNs.
+
+\textbf{Program sampler.} One key challenge \Ansor has to address is generating a large search space for a given computational graph.
+To cover diverse tensor programs with various high-level structures and low-level details, \Ansor utilizes a hierarchical representation of the search space with two levels: \textit{sketch} and \textit{annotation}   (\autoref{sec:program-sampling}). 
+\Ansor defines the high-level structures of programs as sketches and leaves billions of low-level choices (\textit{e.g.}, tile size, parallel, unroll annotations) as annotations.
+This representation allows \Ansor to enumerate high-level structures flexibly and sample low-level details efficiently.
+\Ansor includes a program sampler that randomly samples programs from the space to provide comprehensive coverage of the search space. 
+
+\textbf{Performance tuner.} The performance of randomly sampled programs is not necessarily good. The next challenge is to fine-tune them.
+\Ansor employs evolutionary search and a learned cost model to perform fine-tuning iteratively (\autoref{sec:performance-fine-tuning}).
+At each iteration, \Ansor uses re-sampled new programs as well as good programs from previous iterations as the initial population to start the evolutionary search.
+Evolutionary search fine-tunes programs by mutation and crossover which perform out-of-order rewrite and address the limitation of sequential construction.
+Querying the learned cost model is orders of magnitude faster than actual measurement, so we can evaluate thousands of programs in seconds.
+
+\textbf{Task scheduler.} Using program sampling and performance fine-tuning allows \Ansor to find high-performance tensor programs for a computational graph.
+Intuitively, treating a whole DNN as a single computational graph and generating a full tensor program for it could potentially achieve the optimal performance. This, however, is inefficient because it has to deal with the unnecessary exponential explosion of the search space.
+Typically, the compiler partitions the large computational graph of a DNN into several small subgraphs~\cite{roesch2019relay, chen2018tvm}. This partition has a negligible effect on the performance thanks to the layer-by-layer construction nature of DNNs.
+This brings the final challenge of \Ansor: how to allocate time resources when generating programs for multiple subgraphs.
+The task scheduler  (\autoref{sec:task-scheduler}) in \Ansor uses a scheduling algorithm based on gradient descent to allocate resources to the subgraphs that are more likely to improve the end-to-end DNN performance.
+
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.9\columnwidth]{figures/overview.pdf}
+	\vskip -0.8em
+	\caption{System Overview.
+		The gray arrows show the flow of extracting subgraphs from deep learning models and generating optimized programs for them.
+		The green arrows mean the measurer returns profiling data to update the status of all components in the system.}
+	\postcap 
+	\label{fig:system-overview}
+\end{figure}

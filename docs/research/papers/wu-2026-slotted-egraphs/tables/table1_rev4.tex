@@ -1,0 +1,18 @@
+\begin{table}[H]
+\centering
+\caption{Mean student-side representation size on the paired corpus
+($n=61{,}598$). Counts are view-specific structural units, not bytes,
+pair-level ablation units, or directly comparable edit budgets.}
+\label{tab:compact}
+\small
+\begin{tabular}{@{}p{3.1cm}p{5.5cm}r@{}}
+\toprule
+View & Experimental role & Mean units\\
+\midrule
+Raw Alloy AST & source-level structural baseline & 26.787\\
+Certificate-Integrated repair observation & editable view used by the certified repair metric & 17.990\\
+Certificate-Integrated representative tree & deterministic finite tree used for representative TED & 33.199\\
+Fast Rewrite normal form & finite term emitted by the Fast Rewrite arm & 18.196\\
+\bottomrule
+\end{tabular}
+\end{table}

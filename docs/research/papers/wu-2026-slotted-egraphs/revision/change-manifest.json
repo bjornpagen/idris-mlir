@@ -1,0 +1,44 @@
+[
+  {
+    "file": "appendixC_vmcai_stage1.tex",
+    "sha256_before": "e6dc4140a7ab894dc8989aab6167988dd2f39123d712445fece2b4ab4578d73f",
+    "sha256_after": "41f46ead337bf15d2dd7b07c554a6942103c4ef755b0c4268a1748192f73aa69",
+    "reason": "E: replace the run identity in nonformal opening prose; all mapped formal spans unchanged"
+  },
+  {
+    "file": "appendix_closure_tables.tex",
+    "sha256_before": "8aa814fb993258cd3a58b5b96c44d0352e8ee4464754288a21dabacfacae1830",
+    "sha256_after": "ca97212953c0759dd8390be5e03a1a838a16fcde4a0d8f65f475fdaeae44000e",
+    "reason": "E: date the archived artifact-refinement matrix and distinguish newer bounded replays"
+  },
+  {
+    "file": "appendix_eval.tex",
+    "sha256_before": "6bde4ab16b61cc5fc31abf737c317189ca5016bbad5c5bfbd033dcd629b2081d",
+    "sha256_after": "7a6f4da2cbec10d806c3201f7b5aeb184d7bfee9d678ba1d4fff5ebe66d1cb2b",
+    "reason": "E: refresh corpus and separate validation provenance and results; clarify reference-pool membership"
+  },
+  {
+    "file": "eval_compressed.tex",
+    "sha256_before": "66f2dbb26d522650f036e8881de1ae2f0815d306152055867dd01df626328e3c",
+    "sha256_after": "f23ce06253235f9740f5f358d2d909fb674fb0c8e1ca495498bdbba228373d82",
+    "reason": "E: update performance, ratios, bounded validation and implementation explanation; U: move Alloy basics into Background"
+  },
+  {
+    "file": "figures/aci_canonicalization_distance.tex",
+    "sha256_before": "1940d71c43416dfcd18dc9fbbfc0ab248e7ea5e7d2e6a0d4e559998b6686a93f",
+    "sha256_after": "74f13a48481b2a8f99edc0536df88014050ced6390485715bd34f8860a281676",
+    "reason": "E: clarify that the nearest reference may be an oracle or a CORRECT student predicate"
+  },
+  {
+    "file": "prelims_compressed.tex",
+    "sha256_before": "01a6a5dc7e211c08fe293e04d1557acb06638e3895ad8945c5fcc0e5dc3699a0",
+    "sha256_after": "34d8cfaa1e8cbd9ee068f16b7abbd3a0a02049a422f81f7dc874d041faf8cb7d",
+    "reason": "U: explain e-graphs, algebraic laws, binding and Alloy for readers new to the area"
+  },
+  {
+    "file": "tables/table6_ablation_vmcai_stage1.tex",
+    "sha256_before": "9cd666b3f7f7a87a39a63a6cc760cd8d18bccb44d1ad897380f4459f82b14026",
+    "sha256_after": "b2ed38d242fb09e635dbe85055f8b68f36287cdfc6b20b08f2410f20ad0f5899",
+    "reason": "E: replace 21 timing and memory cells from the manifest-bound run"
+  }
+]

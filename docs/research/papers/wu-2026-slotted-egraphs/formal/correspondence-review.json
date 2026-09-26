@@ -1,0 +1,30 @@
+{
+  "schema_version": "2.0",
+  "process_id": "bounded-arxiv-correspondence-2026-09-02",
+  "status": "CORRESPONDENCE_CLOSED",
+  "maximum_review_rounds": 1,
+  "rounds_executed": 1,
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "rounds": [
+    {
+      "round": 1,
+      "snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+      "summary_path": "formal/correspondence-reviews/bounded-arxiv-correspondence-2026-09-02/round-1/summary.json",
+      "summary_sha256": "1c35c98641e9bd217b3b450e62b8501cd2de6d718c612d9f37942cc4f6843f9d",
+      "verdict": "PASS",
+      "disposition": "CORRESPONDENCE_CLOSED_STOP_BEFORE_BUILD_OR_PDF_QA"
+    }
+  ],
+  "current_snapshot_id": "8f7729dfd0f97230f30039b1a66553c65a2df0c9e7643bac47e084c2de3be203",
+  "current_snapshot_manifest_sha256": "308f47cc9ef4c5a1c81f002ac82908d9f98abf8c0f1cd5f657649beff3fae13c",
+  "current_round_semantic_coverage": "146/146 ACTIVE mappings; 27/27 named environments; 1/1 supplemental witness",
+  "current_round_mechanical_coverage": "146/146 source and type mappings; 83/83 axiom rows; 23/23 formal source/config hashes",
+  "independent_identifier_leak_passes": 2,
+  "source_mutation_during_current_round": false,
+  "unanimous_pass": true,
+  "blocking_findings": [],
+  "lean_build_gate": "NOT_EXECUTED_CURRENT_SNAPSHOT",
+  "latex_build_gate": "NOT_EXECUTED_BY_AUTHORIZATION",
+  "pdf_qa_gate": "NOT_EXECUTED_BY_AUTHORIZATION",
+  "permitted_public_label": "NO_FORMAL_CLOSURE_CLAIM"
+}

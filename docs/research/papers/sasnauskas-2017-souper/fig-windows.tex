@@ -1,0 +1,253 @@
+\newcommand{\myrule}{\vskip0.15in\hrule\vskip0.10in}
+
+\begin{figure*}
+
+{\small
+
+\begin{minipage}[t]{0.31\textwidth}
+
+\myrule
+
+{\begin{verbatim}
+%0:i16 = var
+%1:i16 = or %0, 5:i16
+%2:i16 = and %1, 4:i16
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+result 4:i16
+\end{verbatim}}
+
+This example, and others like it, motivated us to implement a new
+\emph{bit estimator} analysis in the Visual C++ compiler that identifies bits that are
+provably zero or one, making this optimization and many related ones
+easy to implement.
+
+\myrule
+
+{\begin{verbatim}
+%0:i32 = var
+%1:i32 = xor %0, 4294967295:i32
+%2:i32 = and %1, 8:i32
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%3:i32 = and 8:i32, %0
+%4:i32 = xor 8:i32, %3
+result %4
+\end{verbatim}}
+
+Instead of inverting the entire word and then isolating bit~3, we can
+first isolate the bit and then invert it.
+%
+The resulting code contains a 1-byte immediate value instead of a
+4-byte one.
+%
+(\tool{}'s cost function is not currently clever enough to capture
+this fact---it was a matter of luck that this optimization was
+synthesized.)
+
+\myrule{
+\begin{verbatim}
+%0:i8 = var
+%1:i8 = lshr %0, 3:i8
+%2:i1 = eq %1, 0:i8
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%3:i1 = ult %0, 8:i8
+result %3
+\end{verbatim}}
+
+A value shifted right 3 times can be zero only if it is smaller than $2^3 = 8$.
+
+\end{minipage}
+%
+\hspace{0.035\textwidth}
+%
+\begin{minipage}[t]{0.31\textwidth}
+\myrule
+{\begin{verbatim}
+%0:i64 = var
+%1:i64 = and %0, 31:i64
+%2:i64 = add %1, 1:i64
+%3:i1 = ult 32:i64, %2
+infer %3
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+result 0:i1
+\end{verbatim}}
+
+Adding 1 to a value in range $0..31$ cannot produce a result larger
+than 32. The bit estimator can be used to implement the family of
+optimizations suggested by this example.
+
+\myrule
+{\begin{verbatim}
+%0:i64 = var
+%1:i64 = mul %0, 2654435761:i64
+%2:i64 = and %1, 1:i64
+%3:i1 = ne %2, 0:i64
+infer %3
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%4:i1 = trunc %0
+result %4
+\end{verbatim}}
+
+Since multiplying two odd numbers always yields an odd number, the
+result can be odd only if \%0 is odd to begin with.
+
+\myrule
+{\begin{verbatim}
+%0:i32 = var
+%1:i64 = zext %0
+%2:i64 = udiv -1:i64, %1
+%3:i1 = ule 4:i64, %2
+infer %3
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+result 1:i1
+\end{verbatim}}
+
+Dividing the largest unsigned 64-bit number by an unsigned 32-bit
+number cannot produce a value that is smaller than $2^{32} - 1$.
+%
+We used the bit estimator to prove a lower bound on the value of \%2,
+making is possible to fold the comparison to true.
+
+\end{minipage}
+%
+\hspace{0.035\textwidth}
+%
+\begin{minipage}[t]{0.31\textwidth}
+
+\myrule
+{\begin{verbatim}
+%0:i32 = var
+%1:i1 = eq %0, 0:i32
+%2:i32 = select %1, 2:i32, 1:i32
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%3:i1 = ult %0, 1:i32
+%4:i32 = zext %3
+%5:i32 = shl 1:i32, %4
+result %5
+\end{verbatim}}
+
+\tool{} excels at replacing \texttt{select} instructions, which
+usually become CMOV instructions on x86/x86-64, with logical
+operations.
+
+\myrule
+{\begin{verbatim}
+%0:i1 = var
+%1:i8 = select %0, 1:i8, 0:i8
+%2:i1 = ne %1, 1:i8
+%3:i32 = select %2, 40:i32, 20:i32
+infer %3
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%4:i32 = zext %0
+%5:i32 = ashr 40:i32, %4
+result %5
+\end{verbatim}}
+
+Another \texttt{select} removal.
+
+\myrule
+{\begin{verbatim}
+%0:i32 = var
+%1:i32 = and %0, 131071:i32
+%2:i32 = mul %1, 65536:i32
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%3:i32 = shl %0, 16:i32
+result %3
+\end{verbatim}}
+
+\tool{} is good at removing useless instructions.
+
+\myrule
+{\begin{verbatim}
+%0:i64 = var
+%1:i64 = add %0, -10445360463872:i64
+%2:i64 = and %1, 4095:i64
+infer %2
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+%3:i64 = and 4095:i64, %0
+result %3
+\end{verbatim}}
+
+Another useless instruction removed.
+
+\end{minipage}
+
+}
+
+\vskip 0.3in
+
+\caption{Representative optimizations suggested by \tool{} for LHSs
+  extracted from the Windows kernel. We implemented generalized
+  versions of these, and others, in the Visual C++ compiler, adding a
+  total of 40 new optimizations.}
+\label{fig:windows}
+\end{figure*}
+
+
+
+\iffalse
+Useless instructions
+Instructions that don’t affect the results of the entire expression
+
+{\begin{verbatim}
+%0:i64 = var
+%1:i64 = and %0, -8:i64
+%2:i64 = lshr %1, 12:i64
+%3:i64 = add %1, 7:i64
+%4:i64 = lshr %3, 12:i64
+%5:i1 = eq %2, %4
+infer %5
+\end{verbatim}}
+$\Rightarrow$
+{\begin{verbatim}
+result 1:i1
+\end{verbatim}}
+
+The addition with 7 (marked in bold) is useless, since:
+
+None of the bits from \%2 after bit 3 are affected, since the and
+of \%1 with -8 resets the low 3 bits.
+
+The resulting value is shifted right by 12 bits, discarding the 3 bits just added.
+
+After the addition is removed, value numbering discovers that \%2
+and \%4 are equivalent, turning the entire expression into the result
+1. This pattern originated from the following code sequence found in
+the Windows Kernel, which is quite common when aligning/rounding up
+pointers and memory allocation size values.
+
+\begin{verbatim}
+StackBuffer = ALIGN_UP_POINTER_BY(StackBuffer, HV_CALL_ALIGNMENT);
+// If the stack buffer crosses a page, align it.
+if (((ULONG_PTR)StackBuffer >> PAGE_SHIFT) !=
+    (((ULONG_PTR)StackBuffer + ElementSize - 1) >> PAGE_SHIFT)) {
+  StackBuffer = PAGE_ALIGN((ULONG_PTR)StackBuffer + ElementSize - 1);
+}
+\end{verbatim}
+
+\fi
+

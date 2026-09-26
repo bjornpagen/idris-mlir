@@ -1,0 +1,173 @@
+{
+  "schema_version": "1.0",
+  "report_kind": "BOUNDED_PROVENANCE_IDENTIFIER_LAYOUT_REPAIR",
+  "generated_at_utc": "2026-08-29T06:19:30Z",
+  "status": "PROVENANCE_LAYOUT_REPAIR_BUILD_PASSED_FULL_PDF_QA_PENDING",
+  "authorization_scope": {
+    "command": "/autonomous",
+    "scope": "Repair only the four current provenance-identifier overflows, run one clean LaTeX build, verify exact values and the page boundary, then stop.",
+    "clean_latex_builds_authorized": 1,
+    "clean_latex_builds_executed": 1,
+    "affected_page_render_verification_authorized": true,
+    "full_all_page_pdf_qa_authorized": false,
+    "packaging_authorized": false,
+    "publication_authorized": false,
+    "lean_or_correspondence_work_authorized": false,
+    "java_or_experiment_work_authorized": false
+  },
+  "baseline": {
+    "empirical_data_refresh_report": "formal/experimental-data-refresh-report.json",
+    "empirical_data_refresh_report_sha256": "3f98d3696d651c38ed965fc148a3bfcfdbd196af6d10c4f7596c1d6553d8deac",
+    "pre_repair_author_source_graph_sha256": "285527fc185771fdc43be9b618669deef64bda55418d4654a3310042ab2b10b4",
+    "pre_repair_appendix_eval_sha256": "374e7c9f7af8f89faa501caf84cbae04535fdf47f6b6c3d627e76088ef92c062",
+    "pre_repair_pdf_sha256": "c43cd41480d125ee33ba44ec71ed348df008570dc0ce3c23916c508ddfd649b5",
+    "pre_repair_overfull_hboxes": 4,
+    "formal_source_config_sha256": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "formal_registry_sha256": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6"
+  },
+  "source_delta": {
+    "status": "PASS_EXACT_ONE_AUTHOR_SOURCE_FILE",
+    "aggregate_algorithm": "SHA-256 of canonical compact JSON with sorted object keys and source-list order preserved for the current path/SHA-256 entries over the same 20 paths recorded in formal/formal-units.yaml.",
+    "author_source_file_count": 20,
+    "changed_author_source_file_count": 1,
+    "changed_author_source_file": {
+      "path": "appendix_eval.tex",
+      "before_sha256": "374e7c9f7af8f89faa501caf84cbae04535fdf47f6b6c3d627e76088ef92c062",
+      "after_sha256": "b440c6e3107f162f2d0bd2b58cf79d125b77e426f8418be7d2da5a1a8e966e56",
+      "reason_code": "C",
+      "change": "Enable hexadecimal URL breakpoints only inside the provenance paragraph; retain every identifier as one contiguous source literal."
+    },
+    "post_repair_author_source_graph_sha256": "d468310e3cdc52fc8c6918e8d0673f833661bb1606d1c4d7f4357987c6bf7ce6",
+    "formal_statement_change_count": 0,
+    "empirical_value_change_count": 0,
+    "provenance_identifier_value_change_count": 0,
+    "notation_delta": "NONE"
+  },
+  "provenance_identifiers": [
+    {
+      "kind": "ACGN_PUBLICATION_HEAD",
+      "value": "3e85fe1d36a6a0119c5838a0aaea8b697807dec2",
+      "characters": 40,
+      "source_literal_contiguous": true,
+      "pdf_exact_value_present_after_whitespace_elision": true
+    },
+    {
+      "kind": "EXPERIMENT_SOURCE_COMMIT",
+      "value": "88363ea23728329948ccc9d5cdad690cc5787ca5",
+      "characters": 40,
+      "source_literal_contiguous": true,
+      "pdf_exact_value_present_after_whitespace_elision": true
+    },
+    {
+      "kind": "DATASET_SHA256",
+      "value": "d6741fbf4c4a9b3714d012d068f84cc918052f1f55211bf4d0443b990736a689",
+      "characters": 64,
+      "source_literal_contiguous": true,
+      "pdf_exact_value_present_after_whitespace_elision": true
+    },
+    {
+      "kind": "EXECUTABLE_JAR_SHA256",
+      "value": "7b308e3156fbb36dfeda4af52f8ec339132546a0fcabb24129227f41debbad71",
+      "characters": 64,
+      "source_literal_contiguous": true,
+      "pdf_exact_value_present_after_whitespace_elision": true
+    }
+  ],
+  "pdf_text_verification": {
+    "normalization": "Run pdftotext -layout, remove whitespace only, and require each exact identifier as a contiguous substring; no character folding, punctuation deletion, abbreviation, or prefix matching is permitted.",
+    "status": "PASS_ALL_FOUR_EXACT_VALUES",
+    "verified_suffixes": [
+      "7807dec2",
+      "c5787ca5",
+      "0736a689",
+      "debbad71"
+    ]
+  },
+  "clean_latex_build": {
+    "status": "PASS_ONE_CLEAN_IN_PLACE_BUILD_AFTER_LATEXMK_C",
+    "commands": [
+      "latexmk -C main_compressed.tex",
+      "latexmk -pdf -bibtex -interaction=nonstopmode -halt-on-error -file-line-error main_compressed.tex"
+    ],
+    "latexmk_version": "4.83",
+    "pdftex_version": "pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)",
+    "pdf_sha256": "d839e2798a9804f7726e9f3bb903c274f4d814823300cd22814d185027f45f6c",
+    "pdf_bytes": 641856,
+    "pdf_pages": 45,
+    "log_sha256": "f306ccc098b1a21c6393dba6f408138cd26170f6a9ff7ec33005848686790249",
+    "aux_sha256": "c892dbea8d14b922498eee5450594e2aa4f0df3b04d21c95da5f3b7d0cbb0dc7",
+    "bbl_sha256": "a94103baca08d23ab5db5386a7172938bbc7be491a4ddd0976d8827412ca0437",
+    "blg_sha256": "2df72fa2146295f2ba87f07b9464a532300a393532df57f4673dd773ee5e6095",
+    "fls_sha256": "92fb7e6864c38423bd95b86d1d7849b81f1e8ba309e5a375b8c3f7f4ad36072a",
+    "diagnostics": {
+      "latex_warnings": 0,
+      "package_warnings": 0,
+      "overfull_hboxes": 0,
+      "overfull_vboxes": 0,
+      "underfull_hboxes": 358,
+      "underfull_vboxes": 3,
+      "undefined_citations": 0,
+      "undefined_references": 0,
+      "multiply_defined_labels": 0,
+      "rerun_requests": 0
+    }
+  },
+  "page_boundary": {
+    "status": "PASS",
+    "main_text_pages": "1-17",
+    "main_text_page_count": 17,
+    "main_text_limit": 20,
+    "main_text_margin_pages": 3,
+    "references_pages": "18-19",
+    "references_start_page": 18,
+    "appendix_pages": "20-45",
+    "appendix_start_page": 20,
+    "evaluation_appendix_start_page": 30,
+    "aux_evidence": {
+      "end_main_text": 17,
+      "start_references": 18,
+      "start_appendix_A": 20,
+      "start_appendix_B": 30
+    }
+  },
+  "affected_page_render_check": {
+    "status": "PASS_PAGES_30_AND_31_ONLY",
+    "render_command": "pdftoppm -f 30 -l 31 -r 200 -png main_compressed.pdf tmp/pdfs/provenance",
+    "reviewed_pages": [30, 31],
+    "clipped_identifier_count": 0,
+    "margin_intrusion_count": 0,
+    "missing_identifier_suffix_count": 0,
+    "full_all_page_review": "NOT_EXECUTED"
+  },
+  "immutability": {
+    "status": "PASS",
+    "formal_source_config_sha256_after": "1ee980165520906477f21d527631463639833c3bd9f601854a8c74c5982d6299",
+    "formal_registry_sha256_after": "687f18cf2bc1c361441a4e6b0a99b0e9706904685835d91137403756f672219b",
+    "normalization_contract_sha256_after": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+    "correspondence_review_sha256_after": "841a624aa36f87b8a0f66b2cc8c277716292a2699afd65c06bd630b04b3d2332",
+    "clean_lean_build_summary_sha256_after": "1ae7b4bf23e493eed8a89cdd6cdec3d95b7092a6da52edaf58a0a7d5e019229d",
+    "experimental_data_refresh_report_sha256_after": "3f98d3696d651c38ed965fc148a3bfcfdbd196af6d10c4f7596c1d6553d8deac",
+    "chart_sha256_after": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "uploaded_replacement_chart_sha256": "c618301c1447ef10a463851500ef1785cf1eb890d614fb823f31d167704c7dc5",
+    "bibliography_sha256_after": "2cb748a87f85b229731723e8f6da6b99a038460aef43a79029a6b303c2ac2945",
+    "table7_sha256_after": "8d5fe9e27ee77d471ee849cf42a374b2a6f7ee8267f7473dca7aeb680862a926",
+    "uploaded_zip_sha256": "4dbba4c3d380b8aa07fbe6c9ba16fabfa654f1a70e6b03b384ed365f95c3061c",
+    "java_change_count": 0,
+    "experimental_result_change_count": 0,
+    "lean_source_change_count": 0,
+    "formal_claim_change_count": 0,
+    "chart_change_count": 0,
+    "bibliography_change_count": 0,
+    "capability_table_change_count": 0
+  },
+  "not_executed": {
+    "fresh_all_page_pdf_qa": "NOT_EXECUTED_REQUIRES_NEW_AUTHORIZATION",
+    "packaging": "NOT_EXECUTED",
+    "publication": "NOT_EXECUTED",
+    "lean_build": "NOT_EXECUTED_FORMAL_SOURCES_UNCHANGED",
+    "correspondence_review": "NOT_EXECUTED_FORMAL_STATEMENT_SURFACES_UNCHANGED",
+    "java_or_experiment_execution": "NOT_EXECUTED"
+  },
+  "conclusion": "PROVENANCE_LAYOUT_REPAIR_BUILD_PASSED_FULL_PDF_QA_PENDING"
+}

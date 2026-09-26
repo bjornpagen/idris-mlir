@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\caption{Distance summaries. Coordinates have different units and are
+reported descriptively; a dash means that the augmented nearest-truth run did
+not compute that diagnostic.}
+\label{tab:distance-summary}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Coordinate & Unit & Paired mean & Nearest-truth mean\\
+& & $n=61{,}598$ & $n=42{,}386$\\
+\midrule
+Levenshtein & characters & 39.261 & 28.055\\
+Raw tree edit & AST nodes & 22.841 & 15.988\\
+Certificate-Integrated repair & projection edits & 14.022 & 11.563\\
+Fast Rewrite & projection edits & 13.943 & 11.451\\
+Representative TED & finite-tree edits & 32.256 & ---\\
+\bottomrule
+\end{tabular}
+\end{table}

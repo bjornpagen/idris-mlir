@@ -1,0 +1,42 @@
+\section{Conclusion and Future Work}
+
+We presented \MLIR, a flexible and extensible infrastructure for compiler
+construction. This paper described \MLIR's concrete
+design, demonstrated its applicability to a range of
+important domains, and described a number of original research and engineering
+implications.
+
+Looking ahead, we are eager to see how established compiler communities
+(e.g.\ the Clang C and \Cpp compiler) as well domain experts can benefit from the
+introduction of higher level, language-specific IRs. We are also interested to
+see if \MLIR enables new approaches to teaching the art of compiler and IR
+design, and hope to see entirely new areas of research catalyzed or accelerated
+by this infrastructure.
+
+\paragraph{Future directions}
+
+There are multiple future directions being pursued for \MLIR.
+In the ML and HPC space, these include inferring efficient Op implementations from reference rank-polymorphic specifications with symbolic shapes. It also involves enabling a wider range of data structures (sparse, graphs) and program transformations, bringing together symbolic reasoning, such as automatic differentiation and algorithmic simplification, with more conventional data flow and control flow-based optimizations. Beyond ML and HPC, one may consider \MLIR's applicability to other related domains, such as secure compilation, safety-critical systems, data analytics and graph processing, relational query optimization, etc.
+
+Returning to the world of general-purpose languages, an obvious missing front-end
+is a C++ mid-level
+representation derived from Clang. Say, a ``CIL'' similar in spirit to Swift's SIL and Rust's MIR, that would facilitate the optimization of
+common C++ idioms that currently need to be reconstructed from lowered code (e.g.,
+treating \lstinline{std::vector} as an array rather than pointer manipulation). Supporting garbage-collected languages, higher-order and polymorphic type systems with type inference in \MLIR are open challenges as well.
+
+Exploring parallelism and concurrency constructs in LLVM has been difficult,
+primarily as the changes required are invasive and not easily layered (e.g.,
+injecting metadata and inspecting all passes to ensure metadata is propagated
+while losing optimization opportunities as the level of abstraction is too low).
+With \MLIR, parallel constructs
+can be first-class operations, using regions and parallel idiom-specific verification. This would support
+higher-level transformations before lowering to, e.g., LLVM where regular
+transformations can be performed on already lowered code.
+
+Beyond debugging and testing, textual form of IR is
+also useful for education. Additional tooling to show the interaction of
+optimizations in high-performance compilation could demystify compilers for new
+students. IR design is an integral part of developing a new compiler or
+optimization framework, but many undergraduate compiler curricula do not
+cover IR design. \MLIR provides opportunities for new approaches to such 
+lessons that could be explored.

@@ -1,0 +1,293 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2019
+
+% ready for submission
+% \usepackage{neurips_2019}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+     \usepackage[preprint,nonatbib]{neurips_2019}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2019}
+
+% to avoid loading the natbib package, add option nonatbib:
+%     \usepackage[nonatbib]{neurips_2019}
+
+     \bibliographystyle{abbrv}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{amsfonts}       % blackboard math symbols
+
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+
+
+\usepackage{booktabs}   %% For formal tables:
+                        %% http://ctan.org/pkg/booktabs
+\usepackage{subcaption} %% For complex figures with subfigures/subcaptions
+                        %% http://ctan.org/pkg/subcaption
+
+%% Custom packages
+\usepackage{amsmath}
+\usepackage{xspace}
+\usepackage{hyperref}
+\usepackage{color}
+\usepackage{graphics}
+\usepackage{paralist}
+\usepackage{listings}
+\usepackage{array}
+\usepackage{flushend}
+\usepackage{todonotes}
+\usepackage{xargs}
+
+%% Helper commands
+\newcommand{\secref}[1]{Section~\ref{sec:#1}}
+\newcommand{\lstref}[1]{Listing~\ref{lst:#1}}
+\newcommand{\algref}[1]{Algorithm~\ref{alg:#1}}
+\newcommand{\figref}[1]{Figure~\ref{fig:#1}}
+\newcommand{\tabref}[1]{Table~\ref{tab:#1}}
+\newcommand{\eqnref}[1]{(\ref{eqn:#1})}
+\newcommand{\secsref}[2]{Sections~\ref{sec:#1} and \ref{sec:#2}}
+\newcommand{\lstsref}[2]{Listings~\ref{lst:#1} and \ref{lst:#2}}
+\newcommand{\algsref}[2]{Algorithms~\ref{alg:#1} and~\ref{alg:#2}}
+\newcommand{\figsref}[2]{Figures~\ref{fig:#1} and~\ref{fig:#2}}
+\newcommand{\tabsref}[2]{Tables~\ref{tab:#1} and~\ref{tab:#2}}
+\newcommand{\eqnsref}[2]{(\ref{eqn:#1}--\ref{eqn:#2})}
+
+\newcommand{\maybebreak}{}
+%\newcommand{\maybebreak}{\clearpage}
+
+%% Custom definitions
+\newcommand{\MLIR}{MLIR\xspace}
+\newcommand{\ISL}{\textit{isl}\xspace}
+\newcommand{\Cpp}{C\texttt{++}\xspace}
+
+%% Colors
+\definecolor{red-dark}{rgb}{0.8,0,0}
+\definecolor{green-light}{rgb}{0.2,0.5,0.2}
+\definecolor{green-dark}{rgb}{0,0.3,0}
+\definecolor{blue-dark}{rgb}{0,0,.8}
+
+%% Implement draft mode
+\def\paperversiondraft{draft}
+%\def\paperversionfinal{final}
+
+\ifx\paperversion\paperversiondraft
+\else
+  \ifx\paperversion\paperversionfinal
+  \else
+    \errmessage{Configuration error: paperversion must be set to 'draft' or 'final'}
+  \fi
+\fi
+
+\ifx\paperversion\paperversiondraft
+  % Broaden margins to make room for todo notes
+  \paperwidth=\dimexpr \paperwidth + 6cm\relax
+  \oddsidemargin=\dimexpr\oddsidemargin + 3cm\relax
+  \evensidemargin=\dimexpr\evensidemargin + 3cm\relax
+  \marginparwidth=\dimexpr \marginparwidth + 3cm\relax
+  \setlength{\marginparwidth}{4cm}
+
+  % Notes
+  \newcommandx{\ac}[2][1=]{#1\todo[size=\scriptsize,linecolor=red,backgroundcolor=red!25,bordercolor=red,#1]{\textbf{Albert:} #2}}
+  \newcommandx{\az}[2][1=]{#1\todo[size=\scriptsize,linecolor=red,backgroundcolor=red!25,bordercolor=red,#1]{\textbf{Alex:} #2}}
+  \newcommandx{\am}[2][1=]{#1\todo[size=\scriptsize,linecolor=cyan,backgroundcolor=cyan!25,bordercolor=cyan,#1]{\textbf{Mehdi:} #2}}
+  \newcommandx{\jp}[2][1=]{#1\todo[size=\scriptsize,linecolor=blue,backgroundcolor=blue!25,bordercolor=blue,#1]{\textbf{Jacques:} #2}}
+  \newcommandx{\cl}[2][1=]{#1\todo[size=\scriptsize,linecolor=green,backgroundcolor=green!25,bordercolor=green,#1]{\textbf{Chris:} #2}}
+  \newcommandx{\ts}[2][1=]{#1\todo[size=\scriptsize,linecolor=yellow!25!black,backgroundcolor=yellow!25,bordercolor=yellow!25!black,#1]{\textbf{Tatiana:} #2}}
+  \newcommandx{\nv}[2][1=]{#1\todo[size=\scriptsize,linecolor=white,backgroundcolor=gray!25,bordercolor=blue,#1]{\textbf{Nicolas:} #2}}
+
+  % Collaboration commands
+  \newcommand{\TODO}[1]{{\color{red}\par\noindent\textbf{TODO:} #1\par}}
+\fi
+
+\ifx\paperversion\paperversionfinal
+  \newcommand{\ac}[2][1=]{}
+  \newcommand{\az}[2][1=]{}
+  \newcommand{\am}[2][1=]{}
+  \newcommand{\jp}[2][1=]{}
+  \newcommand{\cl}[2][1=]{}
+  \newcommand{\ts}[2][1=]{}
+  \newcommand{\nv}[2][1=]{}
+
+  \newcommand{\TODO}[1]{}
+\fi
+
+%% Listings definition
+%  basicstyle={\linespread{0.8}\fontfamily{lmvtt}\fontseries{lc}\selectfont\lst@ifdisplaystyle\small\fi},
+\lstset{
+  basicstyle={\linespread{0.8}\ttfamily\lst@ifdisplaystyle\footnotesize\fi},
+  keywordstyle={\bfseries\color{blue-dark}},
+  keywordstyle={[2]\color{blue}},
+  commentstyle={\fontseries{lc}\selectfont\color{green-light}},
+  stringstyle={\color{red-dark}},
+  columns=fullflexible,
+  captionpos=b,
+}
+\lstdefinelanguage{mlir}{ %% WIP
+  morekeywords={},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]{"}
+}
+\lstdefinelanguage{tablegen}{ %% WIP
+  morekeywords={def,class,let},
+  morekeywords=[2]{Op,Pattern},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]{"},
+}
+\lstdefinelanguage{ebnf}{
+  alsoletter={:=|},
+  morekeywords={::=,|},
+  morecomment=[l]{//},
+  morestring=[b]{`}
+}
+
+%% Title information
+%\title{\MLIR: Abstraction Building Compiler Toolkit}
+\title{\MLIR: A Compiler Infrastructure for the End of Moore's Law}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+\author{%
+  Chris Lattner
+  \thanks{With SiFive at the time of publication.} \\
+  % \thanks{Use footnote for providing further information
+  % about author (webpage, alternative address)---\emph{not} for acknowledging
+  %   funding agencies.} \\
+  Google \\
+  %\texttt{hippo@cs.cranberry-lemon.edu} \\
+  \And
+  Mehdi Amini \\
+  Google \\
+  \And
+  Uday Bondhugula \\
+  IISc \\
+  \And
+  Albert Cohen \\
+  Google \\
+  \And
+  Andy Davis \\
+  Google \\
+  \And
+  Jacques Pienaar \\
+  Google \\
+  \And
+  River Riddle \\
+  Google \\
+  \And
+  Tatiana Shpeisman \\
+  Google \\
+  \And
+  Nicolas Vasilache \\
+  Google \\
+  \And
+  Oleksandr Zinenko \\
+  Google \\
+  % examples of more authors
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \AND
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  This work presents \MLIR, a novel approach to building reusable and
+  extensible compiler infrastructure. \MLIR aims to address software
+  fragmentation, improve compilation for heterogeneous hardware,
+  significantly reduce the cost of building domain specific compilers,
+  and aid in connecting existing compilers together.
+
+  \MLIR facilitates the design and implementation of code generators,
+  translators and optimizers at different levels of abstraction and
+  also across application domains, hardware targets and execution
+  environments. The contribution of this work includes (1) discussion
+  of \MLIR as a research artifact, built for extension and evolution,
+  and identifying the challenges and opportunities posed by this novel
+  design point in design, semantics, optimization specification,
+  system, and engineering. (2) evaluation of \MLIR as a generalized
+  infrastructure that reduces the cost of building
+  compilers---describing diverse use-cases to show research and
+  educational opportunities for future programming languages,
+  compilers, execution environments, and computer architecture. The
+  paper also presents the rationale for \MLIR, its original design
+  principles, structures and semantics.
+\end{abstract}
+
+\input{intro.tex}
+\maybebreak
+\input{design.tex}
+\maybebreak
+\input{ir_design.tex}
+\maybebreak
+\input{infra.tex}
+\maybebreak
+\input{applications.tex}
+\maybebreak
+\input{implications.tex}
+\maybebreak
+\input{related.tex}
+\maybebreak
+\input{conclusion.tex}
+
+%% Acknowledgments
+%\begin{acks}                            %% acks environment is optional
+%                                        %% contents suppressed with 'anonymous'
+%  %% Commands \grantsponsor{<sponsorID>}{<name>}{<url>} and
+%  %% \grantnum[<url>]{<sponsorID>}{<number>} should be used to
+%  %% acknowledge financial support and will be used by metadata
+%  %% extraction tools.
+%  This material is based upon work supported by the
+%  \grantsponsor{GS100000001}{National Science
+%    Foundation}{http://dx.doi.org/10.13039/100000001} under Grant
+%  No.~\grantnum{GS100000001}{nnnnnnn} and Grant
+%  No.~\grantnum{GS100000001}{mmmmmmm}.  Any opinions, findings, and
+%  conclusions or recommendations expressed in this material are those
+%  of the author and do not necessarily reflect the views of the
+%  National Science Foundation.
+%\end{acks}
+
+%% Bibliography
+%\bibliography{references}
+\input{arxiv_version.bbl}
+
+%% Appendix
+%\appendix
+%\section{Appendix}
+%Text of appendix \ldots
+
+\end{document}

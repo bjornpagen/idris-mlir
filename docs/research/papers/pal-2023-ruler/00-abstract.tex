@@ -1,0 +1,45 @@
+Rewrite rules are critical in \eqsat,
+  an increasingly popular technique in
+  optimizing compilers, synthesizers, and verifiers.
+Unfortunately, developing high-quality rulesets
+  is difficult and error-prone.
+Recent work to automatically infer rewrite rules
+  does not scale to large terms or grammars.
+Users struggle to guide inference and
+  incrementally construct rulesets because
+  existing rule inference tools
+  are monolithic and opaque.
+As a result,
+  most \eqsat users still
+  manually develop and maintain rulesets.
+
+This paper proposes \enumo,
+  a new domain-specific language for
+  \textit{programmable theory exploration}.
+\enumo provides a small set of core operators that
+  enable users to strategically guide rule inference
+  and incrementally build rulesets.
+Short \enumo programs easily replicate
+  results from state-of-the-art tools like \Ruler, but
+  \enumo programs can also scale to infer
+  deeper rules from larger grammars
+  than prior approaches.
+\enumo's composable operators even facilitate
+  developing new strategies for ruleset inference.
+We introduce a new \textit{\ff} strategy
+  which does not require evaluating terms in the target language,
+  and thus supports domains that
+  were out of scope for prior work.
+\enumo is also easy to extend:
+  two new operators suffice to incorporate
+  large language models into rule inference,
+  where they complement guided search.
+
+We evaluate \enumo and \ff across a variety of domains.
+Compared to state-of-the-art techniques,
+  \enumo can synthesize better rulesets
+  over a diverse set of domains,
+  in some cases matching the effects of
+  manually developed rulesets in
+  systems driven by \eqsat.
+

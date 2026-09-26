@@ -1,0 +1,116 @@
+
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix2019_v3}
+
+\pagestyle{empty}
+
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{xspace}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{ifthen}
+\usepackage{subfig}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage[available, functional, reproduced]{usenixbadges}
+
+\newcommand{\Ansor}{Ansor\xspace}
+
+\hyphenation{Ansor TVM Halide TensorComprehensions TensorFlow PyTorch MXNet CuDNN MKL-DNN}
+
+\newcommand{\showcomments}{yes}
+
+\newcommand\todo[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{red} TODO: #1}}{\ignorespaces}
+}
+\newcommand\joey[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{cyan} (Joey: #1)}}{\ignorespaces}
+}
+\newcommand\lianmin[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Lianmin: #1}}{\ignorespaces}
+}
+\newcommand\danyang[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Danyang: #1}}{\ignorespaces}
+}
+\newcommand\ion[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Ion: #1}}{\ignorespaces}
+}
+\newcommand\ks[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Koushik: #1}}{\ignorespaces}
+}
+\newcommand\yida[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} [Yida: #1]}}{\ignorespaces}
+}
+\newcommand\cody[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} [Cody: #1]}}{\ignorespaces}
+}
+\newcommand\ameer[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Ameer: #1}}{\ignorespaces}
+}
+\newcommand\lsf[1]{
+    \ifthenelse{\equal{\showcomments}{yes}}{{\color{blue} Frank: #1}}{\ignorespaces}
+}
+
+\newcommand{\preeq}{\vskip -0.5em}
+\newcommand{\posteq}{\vskip -0.5em}
+
+\newcommand{\precap}{\vskip -1.0em}
+\newcommand{\postcap}{\vskip -1.2em}
+
+\newcommand{\postsec}{\vskip -0.8em}
+
+\def\Snospace~{\S{}}
+\renewcommand*\sectionautorefname{\Snospace}
+\def\sectionautorefname{\Snospace}
+\def\subsectionautorefname{\Snospace}
+\def\subsubsectionautorefname{\Snospace}
+\interfootnotelinepenalty=10000
+
+\newcommand{\autorefsuffix}[2]{\hyperref[#1]{\autoref*{#1}#2}}
+
+
+\begin{document}
+
+\date{}
+
+\title{ \Ansor: Generating High-Performance Tensor Programs for Deep Learning}
+
+
+\author{
+\rm{Lianmin Zheng $ ^1$,
+  Chengfan Jia $ ^2$,
+  Minmin Sun $ ^2$,
+ Zhao Wu $ ^2$,
+Cody Hao Yu $ ^3$} ,\\
+\rm{   Ameer Haj-Ali $ ^1$,
+  Yida Wang $ ^3$,
+  Jun Yang $ ^2$,
+  Danyang Zhuo $ ^{1,4}$ }, \\
+\rm{Koushik Sen $ ^1$,
+	  Joseph E. Gonzalez $ ^1$,
+  Ion Stoica $ ^1$}\\
+\\
+  {$ ^1$ UC Berkeley,\ $ ^2$Alibaba Group,\ $ ^3$Amazon Web Services, $ ^4$ Duke University}
+} %
+
+\maketitle
+\input{00-abstract}
+\input{01-introduction}
+\input{02-backgroud}
+\input{03-overview}
+\input{04-program-sampling}
+\input{05-program-fine-tuning}
+\input{06-task-scheduler}
+\input{07-evaluation}
+\input{08-related-work}
+\input{09-conclusion}
+\input{10-acknowledgement}
+
+\bibliographystyle{plain}
+\bibliography{ansor.bib}
+
+\appendix
+\input{11-appendix}
+
+\end{document}

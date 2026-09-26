@@ -1,0 +1,222 @@
+%% Journal information
+%% Supplied to authors by publisher for camera-ready submission;
+%% use defaults for review submission.
+\acmConference[IFL'19]{International Symposium on Implementation and Application of Functional Languages}{September 2019}{Singapore}
+\acmYear{2020}
+\copyrightyear{2020}
+\acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
+\startPage{1}
+
+%% Copyright information
+%% Supplied to authors (based on authors' rights management selection;
+%% see authors.acm.org) by publisher for camera-ready submission;
+%% use 'none' for review submission.
+\setcopyright{none}
+%\setcopyright{acmcopyright}
+%\setcopyright{acmlicensed}
+%\setcopyright{rightsretained}
+%\copyrightyear{2018}           %% If different from \acmYear
+
+%% Bibliography style
+\bibliographystyle{ACM-Reference-Format}
+%% Citation style
+%% Note: author/year citations are required for papers published as an
+%% issue of PACMPL.
+\citestyle{acmauthoryear}   %% For author/year citations
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Note: Authors migrating a paper from PACMPL format to traditional
+%% SIGPLAN proceedings format must update the '\documentclass' and
+%% topmatter commands above; see 'acmart-sigplanproc-template.tex'.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\usepackage{mathpartir} % \infer
+\usepackage{listings}
+
+\lstdefinelanguage{IR} {
+mathescape=true,
+texcl=false,
+morekeywords=[1] {
+let, ret, proj, case, of, pap, ctor, inc, dec, reset, reuse, in
+},
+literate=
+{→}{{\ensuremath{\rightarrow\,}}}1
+{->}{{\ensuremath{\rightarrow\,}}}1
+{_i}{{\ensuremath{_i}}}1
+{_1}{{\ensuremath{_1}}}1
+{_2}{{\ensuremath{_2}}}1
+{_3}{{\ensuremath{_3}}}1
+{_4}{{\ensuremath{_4}}}1
+{_5}{{\ensuremath{_5}}}1
+{₁}{{\ensuremath{_1}}}1
+{₂}{{\ensuremath{_2}}}1
+{₃}{{\ensuremath{_3}}}1
+{₄}{{\ensuremath{_4}}}1
+{₅}{{\ensuremath{_5}}}1
+{:}{{\ensuremath{\,}}:{\ensuremath{\,}}}1
+{;}{{\ensuremath{\,}};}1
+{collecto}{{\ensuremath{\textit{collect}_\own{}}}}1
+{₆}{{\ensuremath{_6}}}1,
+%%{collect_o}{{\ensuremath{\textit{collect}_\own{}}}}1,
+%% basicstyle=\small,
+identifierstyle={\rmfamily\itshape\color{black}},
+keywordstyle=[1]{\ttfamily\bfseries\color{black}},
+stringstyle=\ttfamily,
+columns=fullflexible
+}
+
+\lstset{language=IR}
+\usepackage{amsthm} % \newtheorem
+\usepackage{amssymb} % \twoheadrightarrow
+\usepackage[capitalise]{cleveref} % \cref
+\usepackage{hyperref} % \url
+
+\newtheorem{lem}{Lemma}
+\newtheorem{thm}{Theorem}
+\newtheorem{cor}{Corollary}
+\newtheorem{defn}{Definition}
+\DeclareMathOperator{\dom}{dom}
+\DeclareMathOperator{\ran}{ran}
+\DeclareMathOperator{\dec}{dec}
+\DeclareMathOperator{\inc}{inc}
+\DeclareMathOperator{\live}{live}
+\DeclareMathOperator{\vars}{vars}
+\DeclareMathOperator{\erase}{erase}
+\DeclareMathOperator{\FV}{FV}
+\DeclareMathOperator{\valof}{valof}
+\DeclareMathOperator{\reachable}{reachable}
+\newcommand\RC{_{\textit{RC}}}
+\newcommand\rcIR{\ensuremath{\lambda\RC}}
+\def\Reset#1{\kw{reset}\ #1}
+\def\Reuse_#1#2#3{\kw{reuse}\ #2\ \kw{in}\ \kw{ctor}_#1\ #3}
+\def\Inc#1;#2{\kw{inc}\ #1;\ #2}
+\def\Dec#1;#2{\kw{dec}\ #1;\ #2}
+
+\newcommand{\var}[1]{\texttt{#1}}
+\newcommand\abs[1]{\mid #1 \mid}
+
+\newcommand\pure{_{\textit{pure}}}
+\newcommand\pureIR{\ensuremath{\lambda\pure}}
+\newcommand\psem[3]{#1 \vdash #2 \Downarrow #3}
+\newcommand\ty[1]{\mathit{#1}}
+\newcommand\syncat[1]{&\in \ty{#1}}
+\newcommand\kw[1]{\texttt{\textbf{#1}}}
+\newcommand\many[1]{\overline{#1}}
+\newcommand\rcsem[5]{#1 \vdash \langle #2, #3 \rangle \Downarrow \langle #4, #5 \rangle}
+\newcommand\nullptr{\rule{0.5em}{0.5em}}
+
+\def\Pap#1#2{\kw{pap}\ #1\ #2}
+\def\Ctor_#1#2{\kw{ctor}_#1\ #2}
+\def\Proj_#1#2{\kw{proj}_#1\ #2}
+\def\Ret#1{\kw{ret}\ #1}
+\def\Let#1=#2;#3{\kw{let}\ #1 = #2;\ #3}
+\def\Case#1#2{\kw{case}\ #1\ \kw{of}\ #2}
+\def\Lambda#1.#2{\lambda\ #1.\ #2}
+
+\newcommand\own{\ensuremath{\mathbb{O}}}
+\newcommand\bor{\ensuremath{\mathbb{B}}}
+\newcommand\reset{\ensuremath{\mathbb{R}}}
+\newcommand\reuse{_{\textit{reuse}}}
+\newcommand\squote{\textnormal{\textquotesingle}}
+
+%% Title information
+\title{Counting Immutable Beans}
+\subtitle{Reference Counting Optimized for Purely Functional Programming}
+%\titlenote{with title note}             %% \titlenote is optional;
+%                                        %% can be repeated if necessary;
+%                                        %% contents suppressed with 'anonymous'
+%\subtitle{Subtitle}                     %% \subtitle is optional
+%\subtitlenote{with subtitle note}       %% \subtitlenote is optional;
+%                                        %% can be repeated if necessary;
+%                                        %% contents suppressed with 'anonymous'
+
+
+%% Author information
+%% Contents and number of authors suppressed with 'anonymous'.
+%% Each author should be introduced by \author, followed by
+%% \authornote (optional), \orcid (optional), \affiliation, and
+%% \email.
+%% An author may have multiple affiliations and/or emails; repeat the
+%% appropriate command.
+%% Many elements are not rendered, but should be provided for metadata
+%% extraction tools.
+
+%% Author with single affiliation.
+\author{Sebastian Ullrich}
+\affiliation{
+  %\position{Position1}
+  %\department{Department of Informatics}
+  \institution{Karlsruhe Institute of Technology}
+  %\streetaddress{Street1 Address1}
+  %\city{City1}
+  %\state{State1}
+  %\postcode{Post-Code1}
+  \country{Germany}
+}
+\email{sebastian.ullrich@kit.edu}
+
+%% Author with two affiliations and emails.
+\author{Leonardo de Moura}
+\affiliation{
+  % \position{Position2a}
+  % \department{Department2a}             %% \department is recommended
+  \institution{Microsoft Research}           %% \institution is required
+  % \streetaddress{Street2a Address2a}
+  % \city{City2a}
+  %\state{State2a}
+  %\postcode{Post-Code2a}
+  \country{USA}                   %% \country is recommended
+}
+\email{leonardo@microsoft.com}
+
+%% Abstract
+%% Note: \begin{abstract}...\end{abstract} environment must come
+%% before \maketitle command
+\begin{abstract}
+  Most functional languages rely on some kind of garbage collection
+  for automatic memory management. They usually eschew reference
+  counting in favor of a tracing garbage collector, which has less
+  bookkeeping overhead at runtime. On the other hand, having
+  an exact reference count of each value can enable
+  optimizations such as destructive updates. We explore these
+  optimization opportunities in the context of an eager, purely
+  functional programming language. We propose a new mechanism for efficiently reclaiming
+  memory used by nonshared values, reducing stress on the
+  global memory allocator. We describe an approach for
+  minimizing the number of reference counts updates using borrowed
+  references and a heuristic for automatically inferring borrow
+  annotations. We implemented all these techniques in a
+  new compiler for an eager and purely functional programming language
+  with support for multi-threading. Our preliminary experimental
+  results demonstrate our approach is competitive and often
+  outperforms state-of-the-art compilers.
+\end{abstract}
+
+
+%% 2012 ACM Computing Classification System (CSS) concepts
+%% Generate at 'http://dl.acm.org/ccs/ccs.cfm'.
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10011007.10011006.10011041.10011048</concept_id>
+<concept_desc>Software and its engineering~Runtime environments</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10011007.10010940.10010941.10010949.10010950.10010954</concept_id>
+<concept_desc>Software and its engineering~Garbage collection</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~Runtime environments}
+\ccsdesc[500]{Software and its engineering~Garbage collection}
+%% End of generated code
+
+
+%% Keywords
+%% comma separated list
+\keywords{purely functional programming, reference counting, Lean}  %% \keywords are mandatory in final camera-ready submission

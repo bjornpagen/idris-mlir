@@ -1,0 +1,420 @@
+\subsection{Extensibility offered by \enumo}
+\label{sec:case-study-llm}
+We have demonstrated that \enumo's core operators enable more
+  flexible and incremental rule inference strategies than prior work.
+In this section, we show how to customize and extend the \enumo DSL to
+  support entirely new techniques for rule synthesis.
+Given the increasing popularity of large language models (LLMs) for synthesis
+  tasks~\citep{hysynth,asap,shraddha,paper1,paper2,paper3,paper4},
+  we extend \enumo to support rule inference using LLMs.
+For \eqsat applications, rule soundness is paramount: even a single
+  unsound rule can propagate merges through the \egraph.
+As such, LLM-generated rulesets must be treated as untrusted and
+  should not be used directly without processing to eliminate unsound rules.
+Since \enumo already includes operators for processing untrusted rule candidates
+  (\C{minimize} and \C{is_valid}), we find it to be a natural fit for
+  working with untrusted LLM-generated rulesets.
+Concretely, we added two new operators to \enumo{}: \C{workload_from_llm} and
+  \C{ruleset_from_llm}.
+The input to each operator is a natural-language prompt string\footnote{
+  The prompts sent to the models are under \C{jfp/} at tag
+  \C{jfp2026} of the repository
+  (\url{https://github.com/uwplse/ruler/tree/jfp2026}).
+}
+  and the output is a \C{Workload} or \C{Ruleset}, respectively.
+We measure how easily LLMs can be incorporated into \enumo and how the
+  resulting operators compose with the existing ones.
+Comparing the results from different LLMs is beyond the scope of this work,
+  as is comparing LLM performance with different prompts for the same task.
+To reduce variance of LLM performance, we use several models\footnote{
+  Gemini 3.6 Flash, GPT 5.6 Luna, and Claude Sonnet 5}, querying
+  each model twice, and aggregating all of the responses together.
+These two extensions to \enumo required only 249 lines of Rust
+  code to implement\footnote{The LLM client module plus the two
+  operators' constructors and the workload's term filter, at the
+  tag cited above.}, including only minimal changes to existing
+  code.
+
+\subsubsection{Ruleset synthesis}
+In the first case study, we use LLMs for end-to-end ruleset synthesis
+  in three domains: Halide, Trigonometric, and Exponential.
+In each case, our prompt
+  explained the task of rule inference at a high level
+  and specified the valid values and operators in the domain
+  (the domain descriptions in \autoref{table:llmrulesets}).
+The prompt also included example rules and listed classes of rules to cover:
+  for example, commutativity, associativity, and distributivity for Halide;
+  angle-sum and double-angle identities for Trigonometric;
+  and product, quotient, and power laws for Exponential.
+Finally, it stressed that every rule must be sound wherever both sides
+  are defined and asked for plain text, one rule per line, with no commentary.
+We parse rules out of the LLM response, discarding any malformed
+  rules, and treat the resulting ruleset as \textit{untrusted rule candidates},
+  which we verify as explained below.
+Since we aggregate responses from several models and queries,
+  there are many redundant rules generated, which
+  we eliminate using \enumo's \C{minimize} operator.
+
+\paragraph*{Verifying LLM-generated rule candidates.}
+For Halide, we validate the LLM-generated rule candidates using
+  \enumo's \C{is_valid} operator,
+  which checks the rule by encoding it as an SMT query.
+Empirically, we find that unsound rules from LLMs are a genuine problem:
+  in the Halide domain, 36 of the 977 LLM-generated rule candidates were
+  found to be unsound.
+While this is a relatively small percentage of the rules, in \eqsat settings,
+  the presence of a single unsound rule can invalidate all of the
+  equalities represented in the \egraph.
+For Trigonometric and Exponential, validity
+  is undecidable in general~\citep{dreal},
+  so SMT-based validation does not apply.
+Instead, we reuse an existing \enumo operator, \C{can_derive},
+  to check soundness by derivability,
+  following the same intuition as our \ff algorithm (\autoref{sec:lift}).
+Specifically, we attempt to derive each
+  LLM-synthesized rule candidate using
+  the known rules for each domain: \C{R}\footnote{
+    While unsound rules were acceptable in \autoref{sec:lift} where we could ensure
+    that no undefined terms were represented in the \egraph, in this setting,
+    we exclude the 13 arithmetic rules involving division that are unsound at zero.
+  } \C{+ C + E} for Trigonometric and \C{RAT + EXP}
+  for Exponential (\autoref{sec:lift}).
+Assuming soundness of these trusted rules,
+  if a rule candidate can be derived
+  from them,
+  then the rule candidate is sound.
+If a rule candidate cannot be derived, it is filtered out,
+  even though it may be sound.
+
+\paragraph*{Eliminating redundant LLM-generated rules.}
+Once we have filtered out potentially unsound rule candidates,
+  we address the problem
+  of redundant rules.
+We use \enumo's \C{minimize} operator (\autoref{subsec:ruleset-sem}),
+  which reduces a ruleset with respect to a set of prior rules.
+For Halide, we consider three sets of prior rules: \C{None} (the empty ruleset),
+  \C{A5} (rules synthesized by exhaustively enumerating terms up to size 5),
+  and \C{ENUMO} (rules synthesized using a custom \enumo
+  program, \autoref{subsec:halideeval}).
+For Trigonometric, we use the arithmetic rules \C{R} without the
+  division rules (as in \autoref{table:herbie}) as prior rules for
+  minimization; for Exponential, the rational rules \C{RAT} alone.
+
+\begin{table}[t]
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{|l|l|l|l|c|l|}
+\hline
+Ruleset Name & Domain                         & Domain Description                                                                                                                                                                                 & Prompt Rules & \multicolumn{1}{l|}{Validation}                                                     & Prior Rules         \\ \hline
+LLM-1        & \multirow{6}{*}{Halide}        & \multirow{6}{*}{\begin{tabular}[c]{@{}l@{}}Values: integers\\ Unary Operators: -, !\\ Binary Operators: \C{<}, \C{<=}, ==, !=, \&\&, \C{||}, \^{}, +, -, *, min, max\\ Ternary Operators: select\end{tabular}} & -            & \multirow{6}{*}{SMT}                                                                & -                   \\
+LLM-2        &                                &                                                                                                                                                                                               & LLM-1        &                                                                                     & LLM-1               \\
+LLM-A5-1     &                                &                                                                                                                                                                                               & -            &                                                                                     & A5                  \\
+LLM-A5-2     &                                &                                                                                                                                                                                               & LLM-A5-1     &                                                                                     & A5 + LLM-A5-1       \\
+LLM-ENUMO-1  &                                &                                                                                                                                                                                               & -            &                                                                                     & ENUMO               \\
+LLM-ENUMO-2  &                                &                                                                                                                                                                                               & LLM-ENUMO-1  &                                                                                     & ENUMO + LLM-ENUMO-1 \\ \hline
+LLM-1        & \multirow{3}{*}{Trigonometric} & \multirow{3}{*}{\begin{tabular}[c]{@{}l@{}}Values: real numbers, PI\\ Unary operators: -, sin, cos, tan, sqr\\ Binary operators: +, -, *, /\\\end{tabular}}                                   & -            & \multirow{3}{*}{\begin{tabular}[c]{@{}c@{}}Derivability from\\ R + C + E\end{tabular}} & R                  \\
+LLM-2        &                                &                                                                                                                                                                                               & LLM-1        &                                                                                     & R + LLM-1          \\
+             &                                &                                                                                                                                                                                               &              &                                                                                     &                     \\ \hline
+LLM-1        & \multirow{3}{*}{Exponential}   & \multirow{3}{*}{\begin{tabular}[c]{@{}l@{}}Values: real numbers\\ Unary operators: -, exp, log, sqrt, cbrt\\ Binary operators: +, -, *, /, pow\\\end{tabular}}                                  & -            & \multirow{3}{*}{\begin{tabular}[c]{@{}c@{}}Derivability from\\ RAT + EXP\end{tabular}} & RAT                  \\
+LLM-2        &                                &                                                                                                                                                                                               & LLM-1        &                                                                                     & RAT + LLM-1          \\
+             &                                &                                                                                                                                                                                               &              &                                                                                     &                     \\ \hline
+\end{tabular}%
+}
+\caption{Description of how each ruleset is generated using LLMs.}
+\label{table:llmrulesets}
+\end{table}
+
+In this experiment, we use LLMs
+  in an iterative manner to
+  incrementally construct rulesets.
+After generating rules, we prompt
+  the LLMs again in order to find missing rules.
+The second prompt restates the domain, lists the rules already in the
+  ruleset (the prompt rules in \autoref{table:llmrulesets}),
+  and asks for sound rules missing from that list, excluding trivial
+  variants such as renamed variables or swapped arguments of
+  commutative operators.
+This results in a new set of rule candidates,
+  which we validate and minimize again
+  for each domain.
+For this second round of minimization,
+  the rules generated in the first round
+  are also included as prior rules.
+\autoref{table:llmrulesets} summarizes the rulesets generated for this case study.
+
+For each ruleset, we measured the
+  \lhsandrhs derivability compared to two baselines: \C{ENUMO},
+  the rules synthesized using \enumo programs as
+  outlined in \autoref{subsec:halideeval} and \autoref{subsec:eval-ff},
+  and \C{HALIDE} (for Halide) or \C{HERBIE} (for Exponential and Trigonometric).
+As in \autoref{table:herbie}, every deriving ruleset in the Trigonometric
+  and Exponential matrices is extended with \C{R} or \C{RAT}, respectively;
+  the LLM rulesets were minimized against these rules and are not
+  meaningful without them.
+For the Halide domain, we also compare to \C{A5} as a third baseline.
+The full results are shown in \autoref{table:llm1}.
+
+As expected, we find that LLMs are powerful tools for ruleset synthesis.
+Measured against the expert-written \C{HALIDE} and \C{HERBIE} baselines,
+  the best LLM-synthesized ruleset outperforms guided search in
+  the Halide and Exponential domains.
+However, in the Trigonometric domain, the LLM-synthesized ruleset underperforms
+  compared to \C{ENUMO}.
+In all domains, neither technique subsumes the other:
+  \C{ENUMO} rulesets contain
+  rules not derivable from the LLM rulesets, and vice versa,
+  indicating that they find substantively different rules.
+
+We also find that LLMs compose well with traditional rule inference techniques.
+For example, \C{LLM-A5-1} outperforms both \C{A5} and \C{LLM-1}
+  against the \C{ENUMO} baseline, suggesting that \textit{composing
+  traditional rule inference methods with LLMs can lead to
+  better rulesets than using either technique alone}.
+Further, re-prompting shows that the new operators compose with
+  themselves and with the rest of the pipeline: the minimized first-round
+  ruleset is embedded in the second prompt, and the second round's
+  candidates are validated and minimized against the first round's rules.
+
+\begin{table}[ht]
+    \centering
+
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{|lr|lllllllll}
+    \hline
+    Ruleset      & Synthesis Time (s)  & HALIDE       & A5           & ENUMO                             & LLM-1        & LLM-2       & LLM-A5-1    & LLM-A5-2    & LLM-ENUMO-1  & \multicolumn{1}{l|}{LLM-ENUMO-2} \\ \hline
+    A5           & 15.7\phantom{$^{+}$} & 45.1\% (10.6) & -             & 69.3\% (26.5)                     & 53.0\% (8.1)  & 53.8\% (8.0) & 4.4\% (4.5)  & 16.5\% (5.5) & 14.9\% (3.5) & \multicolumn{1}{l|}{23.8\% (4.4)} \\
+    ENUMO        & 49.2\phantom{$^{+}$} & 90.9\% (22.1) & 88.3\% (56.6) & -                                  & 74.5\% (32.6) & 74.9\% (34.6) & 44.4\% (15.5) & 48.5\% (18.7) & 17.9\% (21.2) & \multicolumn{1}{l|}{31.2\% (18.7)} \\ \cline{6-11}
+    LLM-1        & 1043.7\phantom{$^{+}$} & 93.5\% (5.6)  & 64.0\% (19.8) & \multicolumn{1}{l|}{65.0\% (38.7)} &               &              &              &              &               &                                  \\
+    LLM-2        & 326.8$^{+}$         & 94.3\% (4.7)  & 67.7\% (19.9) & \multicolumn{1}{l|}{68.7\% (39.5)} &               &              &              &              &               &                                  \\
+    LLM-A5-1     & 1043.5\phantom{$^{+}$} & 90.1\% (38.1) & -             & \multicolumn{1}{l|}{81.2\% (25.3)} &               &              &              &              &               &                                  \\
+    LLM-A5-2     & 586.2$^{+}$         & 89.4\% (36.5) & -             & \multicolumn{1}{l|}{81.3\% (17.2)} &               &              &              &              &               &                                  \\
+    LLM-ENUMO-1  & 1043.5\phantom{$^{+}$} & 91.2\% (24.6) & 91.5\% (11.8) & \multicolumn{1}{l|}{-}             &               &              &              &              &               &                                  \\
+    LLM-ENUMO-2  & 734.7$^{+}$         & 94.2\% (22.9) & 90.8\% (12.9) & \multicolumn{1}{l|}{-}             &               &              &              &              &               &                                  \\ \cline{1-5}
+    \end{tabular}%
+    }
+
+    \vspace{1em}
+
+    \begin{minipage}{0.45\textwidth}
+        \centering
+        \resizebox{\textwidth}{!}{%
+        \begin{tabular}{|lr|llll}
+        \hline
+        Ruleset     & Synthesis Time (s)  & HERBIE       & ENUMO                             & LLM-1        & \multicolumn{1}{l|}{LLM-2}        \\ \hline
+        ENUMO       & 4.6\phantom{$^{+}$} & 43.9\% (2.7) & -                                 & 89.3\% (1.0) & \multicolumn{1}{l|}{90.6\% (1.0)} \\ \cline{5-6}
+        LLM-1       & 516.0\phantom{$^{+}$} & 52.4\% (1.7) & \multicolumn{1}{l|}{65.0\% (0.5)} &              &                                   \\
+        LLM-2       & 399.3$^{+}$         & 53.7\% (1.5) & \multicolumn{1}{l|}{70.0\% (0.5)}  &              &                                   \\ \cline{1-4}
+        \end{tabular}%
+        }
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.45\textwidth}
+        \centering
+        \resizebox{\textwidth}{!}{%
+        \begin{tabular}{|lr|llll}
+        \hline
+        Ruleset  & Synthesis Time (s)  & HERBIE        & ENUMO                             & LLM-1        & \multicolumn{1}{l|}{LLM-2}        \\ \hline
+        ENUMO    & 692.4\phantom{$^{+}$} & 35.6\% (14.0) & -                                 & 72.7\% (1.4) & \multicolumn{1}{l|}{75.0\% (1.4)} \\ \cline{5-6}
+        LLM-1    & 464.3\phantom{$^{+}$} & 13.3\% (1.5)  & \multicolumn{1}{l|}{44.6\% (1.1)} &              &                                   \\
+        LLM-2    & 770.0$^{+}$         & 13.3\% (1.7)  & \multicolumn{1}{l|}{44.6\% (1.1)}  &              &                                   \\ \cline{1-4}
+        \end{tabular}%
+        }
+    \end{minipage}
+
+    \caption{Derivability matrices for our LLM rule synthesis case study.
+    Halide (Top), Exponential (Left), and Trigonometric (Right).
+    Derivability times in seconds are shown in parentheses.
+    Reprompted rulesets show only the second round synthesis times
+    (marked with $^{+}$) and do not include the first
+    round's synthesis time.
+    Cell values show the \lhsandrhs derivability results of using the
+    row ruleset to derive the column ruleset.
+    For Exponential and Trigonometric, the row ruleset is extended with
+    \C{RAT} or \C{R} before deriving, as in \autoref{table:herbie}.
+    A dash marks cells where the column ruleset is contained in the row ruleset,
+    so derivability holds by construction.
+    Derivability between LLM rulesets is not included because
+    the goal is not to compare LLM-synthesized rulesets against each other.
+    }
+    \label{table:llm1}
+\end{table}
+
+\subsubsection{Workload synthesis}
+\label{subsec:case-study-workload}
+The second case study explores the use of LLMs for term enumeration.
+Rather than prompting the model for complete rulesets, we prompt the model
+  to enumerate terms from the domain to make an \enumo workload.
+For this case study, we focus on the Halide domain.
+The prompt specifies the constants, variables, and operators that terms may use
+  and gives several example terms.
+It also explains that
+  rules will be inferred from pairs of equivalent terms in the workload,
+  so the terms should come in clusters that are likely to be equivalent,
+  vary in size and nesting depth, and should cover all of the operators and their combinations.
+The \enumo \C{workload_from_llm} operator then constructs an \enumo \C{Workload}
+  from the valid terms in the LLM response,
+  skipping any malformed s-expressions
+  or invalid terms.
+We also filter out any terms that use variables other than those specified
+  in order to keep the cvec size manageable\footnote{cvec length grows exponentially
+   with the number of variables in the \C{Workload}.}.
+
+For the Halide domain,
+  our prompt tells each model to generate at least 1000 terms.
+Across two queries per model, the responses contained
+  3407 (Gemini 3.6 Flash), 3195 (GPT 5.6 Luna), and 2111 (Claude Sonnet 5) terms,
+  which aggregated to 5952 unique terms, 5878 of them valid.
+In total, generating this workload took 973.3 seconds.
+
+To synthesize rules from the workload,
+  we follow the typical \enumo pipeline:
+  convert the workload to an \egraph,
+  compress the \egraph using prior rules,
+  find rule candidates using cvec matching, and
+  minimize the rule candidates
+  to eliminate redundant and unsound rules.
+The LLM-synthesized workload composes seamlessly into the
+rest of the rule inference pipeline, enabling entirely new
+strategies for rule inference without modifying any of \enumo's other operators.
+
+We consider four sets of prior rules:
+  \C{None}, \C{A5}, \C{ENUMO} as in
+  the first case study, and also
+  \C{LLM-2}, which is the LLM-generated ruleset from the
+  first case study for Halide.
+For each ruleset, we measured the \lhsandrhs derivability compared to
+  three baselines: \C{HALIDE}, \C{A5}, and \C{ENUMO}.
+The full results are shown in \autoref{table:llm2}.
+
+As in the first case study, we find that incorporating LLMs can lead to more
+  powerful rulesets than using either technique alone.
+Inferring rules directly from the LLM-generated workload yields 2181 rules,
+  but is quite slow (roughly 1.5 hours), with the majority of the time
+  spent minimizing nearly 200,000 rule candidates.
+Furthermore, the resulting ruleset is quite weak, deriving only 28.1\% of
+  the \C{HALIDE} baseline.
+However, it is fast and easy to use \enumo to generate a set of rules
+  by exhaustively enumerating terms up to size 5 (\C{A5}).
+If we use these rules as a starting point for rule inference using \C{LLM-W},
+  we drastically reduce the number of candidates under consideration to only 7195,
+  and minimization finishes in under a minute, resulting in 369 rules.
+Perhaps surprisingly, these rules are also much more powerful than
+  the directly-synthesized ruleset, deriving 69.7\% of \C{HALIDE}'s.
+This suggests a promising strategy for workload-driven rule inference:
+  use traditional techniques for small rules, where exhaustive and guided search
+  are fast and reliable, then use LLMs to sample terms that are harder to find using search.
+
+Notably, \C{LLM-W-LLM-2}, which was entirely synthesized by LLMs,
+  with no domain expert guidance,
+  outperforms \C{ENUMO} against the \C{HALIDE} baseline,
+  suggesting that incorporating LLMs into rule inference pipelines could
+  lower the barrier to producing high-quality rulesets.
+
+\begin{table}[h]
+\footnotesize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{|l|llllll|}
+\hline
+Ruleset     & \multicolumn{1}{l}{\# Prior Rules} & \multicolumn{1}{l}{\# New Rules} & \multicolumn{1}{r}{Rule Synthesis Time (s)} & HALIDE      & A5          & ENUMO        \\ \hline
+A5          & 0             & 480                         & 15.7\phantom{$^{+}$}         & 45.1\% (10.6) & -             & 69.3\% (26.5) \\
+ENUMO       & 0             & 840                         & 49.2\phantom{$^{+}$}         & 90.9\% (22.1) & 88.3\% (56.6) & -              \\
+LLM-2       & 0             & 370                         & 1370.4\phantom{$^{+}$}       & 94.3\% (4.7)  & 67.7\% (19.9) & 68.7\% (39.5)  \\
+LLM-W       & 0             & 2181                        & 5510.8$^{+}$                 & 28.1\% (3291.6)  & 35.8\% (2359.6)  & 25.4\% (6965.6)   \\
+LLM-W-A5    & 480           & 369                         & 49.1$^{+}$                   & 69.7\% (1006.6) & -             & 74.4\% (214.8)  \\
+LLM-W-ENUMO & 840           & 332                         & 74.9$^{+}$                   & 91.6\% (783.1) & 90.4\% (608.7) & -              \\
+LLM-W-LLM-2 & 370           & 200                         & 27.9$^{+}$                   & 93.1\% (40.9)  & 78.1\% (48.4) & 73.9\% (99.8) \\ \hline
+\end{tabular}%
+}
+\caption{
+  Derivability comparison between rulesets synthesized from an LLM-generated workload.
+  Cell values show the \lhsandrhs derivability results of using the
+    row ruleset to derive the column ruleset.
+  Each row ruleset consists of its prior rules together with the new rules
+    synthesized on top of them, and derivability is measured using both.
+  Derivability times in seconds are shown in parentheses.
+  Dashes indicate cells where the column ruleset is contained within the row ruleset,
+    and derivability is guaranteed by construction.
+  The time to synthesize \texttt{LLM-2} includes the LLM query time.
+  The synthesis times for the \texttt{LLM-W} rulesets (marked with $^{+}$) do not include the time to
+  generate the workload from the LLMs, which was 973.3s.}%
+\label{table:llm2}
+\end{table}
+
+ These two case studies show the extensibility of
+ \enumo as new rule inference techniques emerge.
+Adding support for LLMs to the \enumo implementation was straightforward,
+  requiring minimal changes to existing code.
+The new operators compose correctly with existing \enumo operators,
+  as shown in \autoref{subsec:case-study-workload}, where we use the
+  new \C{workload_from_llm} operator to construct a workload, leaving
+  the rest of the rule inference pipeline unchanged.
+The operators can also be composed with existing operators in novel ways,
+  as in the Trigonometric and Exponential case studies, where we
+  use \enumo's \C{can_derive} operator to determine validity of the LLM-generated
+  rule candidates.
+
+\paragraph*{Threats to validity.}
+Our claims concern the ease of extending \enumo and the composability of
+  the resulting operators, not the performance of LLMs relative to guided
+  search, which varied widely across domains (\autoref{table:llm1}).
+In these case studies, we did not attempt to
+  compare performance between LLM models,
+  nor did we rigorously explore how prompt
+  engineering impacts the resulting rulesets.
+Both are interesting directions of future work.
+Due to the nondeterministic nature of LLMs,
+  the specific rules and terms generated differ from run to run.
+
+\subsection{Ruleset manipulation with \enumo}
+\label{sec:case-study-bv}
+
+\begin{table}[h]
+\footnotesize
+\begin{tabular}{llll}
+Domain  & Generated Rules (Time)      & Valid BV4 Rules (Time)     & Validated $\rightarrow$ Generated \\ \cline{1-4}
+BV8     & 230 (32.78)                 &  230 (3.19)                & (100\%, 100\%) \\
+BV16    & 236 (85.50)                 &  224 (8.36)                & (97\%, 97\%) \\
+BV32    & 232 (191.74)                &  224 (10.81)               & (98\%, 99\%) \\
+BV64    & 250 (43.70)                 &  220 (16.97)               & (93\%, 93\%) \\
+BV128   & 190 (1784.14)               &  210 (38.68)               & (90\%, 91\%) \\
+\end{tabular}%
+\caption{
+  Comparison of rule synthesis for different widths of bitvectors.
+  Shown for each bitvector width are
+    (i) the number of rules generated from an
+    \enumo program (time in seconds) for that domain,
+    (ii) the number of \enumo-synthesized BV4 rules
+    that are valid in that domain (time in seconds), and
+    (iii) the percentage of the generated rules
+    that are derivable from the validated BV4 rules
+    ( \lhs and \lhsandrhs derivability, in that order).
+}%
+\label{table:bv}
+\end{table}
+
+In this section, we show a case study in leveraging \enumo's operators for
+  ruleset manipulation.
+Here, we are interested in synthesizing rewrite rules over 4-bit bitvectors
+  (BV4), and transforming those rules into a usable ruleset over
+  larger bitvectors.
+Synthesizing rules for small bitvectors is very fast because there are
+  relatively few possible values in the domain.
+Rules that work for small bitvectors are likely, but not guaranteed, to be
+  valid for large bitvectors as well.
+In this case study, we start by synthesizing BV4 rules using
+  the same \enumo program as described in \autoref{subsec:eval-enumo}.
+Then we use \enumo operators to translate the rules into the domain of larger
+  bitvectors (BV8, BV16, BV32, BV64, and BV128).
+Finally, we validate the rules in the new domain to find the subset of sound BV4
+  rules that are still sound for larger bitvectors.
+We compare these rules against rules that were synthesized directly in the
+  larger bitvector domains using the same \enumo program as we used to
+  synthesize BV4 rules.
+The results are shown in \autoref{table:bv}.
+Validating BV4 rules is much
+  faster than synthesizing rules from scratch
+  (38 seconds vs.\ 29 minutes for BV128)
+  and still yields good results.
+Across all bitvector sizes, the validated BV4 rules retained at least 90\% of
+  the proving power of the directly generated rules, and in the case of
+  8-bit bitvectors, the validated BV4 rules had equal proving power.
+

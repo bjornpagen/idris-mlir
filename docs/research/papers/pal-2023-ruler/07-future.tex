@@ -1,0 +1,49 @@
+\section{Discussion, limitations, and future work}
+\label{sec:lim}
+
+\Eqsat engines mitigate the effects of
+  rule ordering by non-destructively
+  applying all the rules in the ruleset
+  in each iteration of the algorithm.
+However, in practical applications
+  where saturation is unlikely,
+  the engine completes only a bounded number of iterations
+  before resource limits force termination.
+Deciding \textit{which}
+  rules to run \textit{when}
+  becomes critical---splitting
+  rules into batches can
+  drastically alter the results.
+Based on preliminary experiments,
+  we find that certain strategies
+  can dramatically improve the results of \eqsat tools.
+One such strategy is a
+  \textit{saturating scheduler}, which
+  iteratively
+  (1) applies saturating rules
+  (\T{is\_saturating} in \autoref{fig:ruleops})
+  until they reach saturation, then (2) applies
+  the other rules for a single
+  iteration; another is the use of
+  operators like \T{compress}.
+
+These observations call for a
+  more systematic investigation
+  of scheduling techniques than this paper provides, but we
+  are excited to further explore
+  rule scheduling in the context of \eqsat.
+We have also only partially explored conditional rule inference in \enumo.
+To use \enumo for inferring state-of-the-art
+ rules in more complex domains like LLVM IR,
+robust conditional rule inference as well as
+program analyses to satisfy side conditions will be necessary.
+
+While in this paper we used \enumo to synthesize rewrite
+rules for and by equality saturation, the DSL itself is
+generic and not restricted to applications in equality saturation.
+\enumo lays the groundwork for future applications in
+bounded model checking and sketch-guided synthesis.
+For example, \enumo could be useful in axiom synthesis tools such as
+  LAS~\citep{oopsla22-logic}, where the enumeration order has a large impact on the
+  quality of results.
+

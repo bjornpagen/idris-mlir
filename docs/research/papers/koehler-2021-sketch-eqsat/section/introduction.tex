@@ -1,0 +1,136 @@
+% Efficient/Naive Lambda Calculus Encoding 
+% Rewriting Guidance: None, sketch-guided, detailed rewriting 
+
+\begin{figure}[b]
+    \centering
+\begin{tikzpicture}[scale=1.5]
+    \tikzstyle{every node}=[font=\small\itshape, align=center]
+    %
+    \coordinate (origin)        at (0,0);
+    \coordinate (top-left)      at (0,2.25);
+    \coordinate (bottom-right)  at (5,0);
+    \coordinate (top-right)     at (4.75,2);
+    %
+    \draw [->, thick, color={rgb,255:red,125;green,125;blue,125},line width=1pt] (origin) -- (top-right);
+    \draw [->, thick] (origin) -- (top-left);
+    \draw [->, thick] (origin) -- (bottom-right);
+    %
+    \node[anchor=north east] at (top-left) {sketch-guided\\ equality saturation};
+    \node[anchor=east,yshift=-.5em] at ($(origin)!0.5!(top-left)$) {\normalfont{rewriting guidance}\\(\cref{sketching})};
+    \node[anchor=south east] at (origin) {equality saturation};
+    %
+    \node[anchor=north west] at (origin) {naive};
+    \node[anchor=north] at ($(origin)!0.5!(bottom-right)$) {$\lambda$~\normalfont{calculus encoding}\\(\cref{eqsat-bindings})};
+    \node[anchor=north east] at (bottom-right) {efficient};
+    %
+    \node[fill=white] at ($(origin)!0.5!(top-right)$) {\bfseries scaling to complex optimizations\\\bfseries of functional programs};
+\end{tikzpicture}
+\caption{This paper is about scaling equality saturation to complex optimizations of functional programs by combining an efficient $\lambda$ calculus encoding with sketch-guided equality saturation.}
+    \label{fig:overview}
+\end{figure}
+
+\section{Introduction}
+
+Term rewriting has been effective in optimizing compilers for decades \cite{dershowitz1993-rewrite-systems}.
+More recently, functional array languages like \Lift{}~\cite{lift-rewrite-2015} and \Rise{}~\cite{hagedorn2020-elevate} produce high-performance code for diverse hardware by using rewrite rules to define and explore optimization spaces.
+However, deciding when to apply each rewrite rule, the so-called \emph{phase ordering problem}, is hard and has a huge impact on the performance of the rewritten program.
+The challenge is that the global benefit of applying a rewrite rule depends on future rewrites.
+Maximizing local benefit in a greedy fashion is not sufficient in the absence of a convergence property, i.e. confluence and termination, as local optima may be far away from global optima.
+% \todo{and presumably most/many compiler rewrites don't have this convergence property?}
+
+Rewriting strategies \cite{visser1998-strategies} allow programmers to control when to apply each rewrite rule, step-by-step.
+Prior work on \Elevate{}~\cite{hagedorn2020-elevate} has shown that rewriting strategies can achieve \emph{complex optimizations} of \Rise{} programs in less than a second of compilation time.
+However, these complex optimizations emerge from thousands of rewrite steps making the rewriting strategies challenging to write, as the phase ordering problem is passed on to the programmer.
+
+% SPACE FOR AUTHOR NAMES
+\vspace{8em}
+
+Equality saturation \cite{tate2009-equality-saturation, willsey2021-egg} mitigates the phase ordering problem by exploring many possible ways to apply rewrite rules.
+Starting from an input program, equality saturation grows an equality graph (\emph{e-graph}) by applying all possible rewrites iteratively until reaching a fixed point (saturation), achieving a performance goal, or timing out.
+An e-graph efficiently represents a large set of equivalent programs, and is grown by repeatedly applying rewrite rules in a purely additive way.
+Instead of replacing the matched left-hand side of a rewrite rule by its right-hand side, the equality between the left-hand side and the right-hand side is recorded in the e-graph.
+After growing the e-graph, the best program found is extracted from it using a cost model, e.g. one that selects the fastest program.
+
+Unfortunately, equality saturation does not scale to complex optimizations such as the ones applied to \Rise{} with \Elevate{}, producing huge e-graphs that exceed the memory available in most machines.
+\textbf{To scale equality saturation to complex optimizations of functional programs}, this paper makes advances in two directions, as shown by the two axes in~\cref{fig:overview}.
+
+\textbf{Rewriting Guidance.}
+On each equality saturation iteration, the e-graph tends to grow larger as every possible rewrite rule is applied in a purely additive way. 
+The growth rate is extremely rapid for some combinations of useful rewrite rules, like associativity and commutativity.
+This makes exploring long rewrite sequences requiring many iterations unfeasible.
+One way to address this issue is to limit the number of rules applied \cite{wang2020-spores, willsey2021-egg}, but this risks not finding optimizations that require an omitted rule.
+An alternative is to use an external solver to speculatively add equivalences \cite{nandi2020-synthesizing-CAD}, but this requires the identification of sub-tasks that can benefit from being delegated.
+
+This paper proposes \emph{sketch-guided equality saturation} that factors complex optimizations into a sequence of smaller optimizations, each sufficiently simple to be found by equality saturation.
+The programmer guides rewriting by describing how a program
+should evolve during optimization, through a sequence of \emph{sketches}: program patterns that leave details unspecified.
+While sketches have previously been used as a starting point for program synthesis \cite{solar2008-synthesis-sketching},
+our work uses sketches in a novel way as checkpoints to guide program optimization.
+
+\textbf{Lambda Calculus Encoding.}
+As almost all programming languages use variables, and hence name binding, this paper explores practical ways of efficiently encoding languages with name bindings for the purposes of equality saturation.
+We focus on encoding the lambda calculus as it is the standard formalism for functional languages such as \Rise{}. Previously, equality saturation has used a naive lambda calculus encoding that is simple but inefficient \cite{willsey2021-egg}: the size of the e-graph quickly blows up.
+The inefficiency can be avoided by explicitly avoid name bindings in the rewritten language~\cite{smith2021-access-patterns}. 
+We show that lambda calculus name bindings can be managed by using De Bruijn indices to avoid overloading the e-graph with $\alpha$-equivalent terms, and that an approximate implementation of substitution avoids overloading the e-graph with intermediate substitution steps.
+
+\smallskip
+
+Our evaluation demonstrates that combining sketch-guided equality saturation with an efficient lambda calculus encoding enables complex optimizations of \Rise{} functional programs, that require tens of thousands of rewrite steps in term rewriting.
+We first evaluate the effectiveness of our lambda calculus encoding techniques for three rewrite goals. Thereafter, we show that sketch guiding enables seven complex optimizations of matrix multiplication to be applied.
+\Elevate{} rewriting strategies apply these complex  optimizations in less than a second with low memory consumption, but require ordering thousands of rewrite rules.
+Unguided equality saturation abstracts over rewrite ordering, but can only locate the simplest of the seven optimizations before the e-graph exceeds the available memory.
+Sketch-guided equality saturation applies all seven optimizations in seconds with low memory consumption, and only requires ordering up to three sketch guides.
+
+\smallskip
+
+To summarize, the main contributions of this paper are:
+\begin{itemize}
+  \item Proposing \emph{sketch-guided equality saturation}, a semi-automated process offering a novel, practical trade-off between rewriting strategies and equality saturation.
+  The programmer guides multiple equality saturations by specifying a sequence of sketches describing how the program should evolve during optimization (\cref{sketching}).
+  % Where rewriting strategies require fine-grained phase ordering (picking a sequence of rewrite rules), sketch-guided equality saturation only requires coarse-grained phase ordering (picking a sequence of sketches).
+  % Where equality saturation does not scale due to an explosion of the e-graph size, sketch-guided equality saturation is able to scale further by dividing the optimization problem into smaller equality saturation searches.
+  % as a new semi-automatic technique to perform complex optimizations that require long rewrite sequences, e.g. requiring more than \pwtcomment{how many rewrite steps? $10^{4}$?}, and cannot feasibly be discovered by equality saturation alone.
+  
+  % 
+  \item Exploring new techniques to efficiently encode a polymorphically typed lambda calculus such as \Rise{} for the purpose of equality saturation.
+  In particular, De Bruijn indices are used to avoid overloading the e-graph with $\alpha$-equivalent terms, and an approximate (\emph{extraction-based}) substitution is used to avoid overloading the e-graph with intermediate substitution steps (\cref{eqsat-bindings}).
+
+ %  \item A discussion of how to support efficient equality saturation for the lambda calculus, as well as \kles{}, an concrete implementation of equality saturation for \Rise{}: a data-parallel functional language.
+%  We demonstrate the efficiency of our implementation by optimizing a binomial filter application (\cref{eqsat-bindings}).
+  % Practical choices to efficiently support equality saturation for the lambda calculus. These choices are realized in .
+  % \kles{} broadens the applicability of equality saturation for languages with name bindings.
+  % via DeBruijn indices and extraction based substitution 
+  % This is a step towards scaling equality saturation to richer / more expressive languages.
+  
+  
+  % \todo{a new application of program sketches to equality saturation to provide a semi-automatic technique for performing complex optimisations. That is, optimisations requiring long rewrite sequences that cannot be feasibly discovered by eq sat alone.}
+
+  % Sketch-guided equality saturation broadens the applicability of equality saturation for long rewrite sequences.
+  % offering trade-offs between control and automation of compiler optimizations
+  % This is a step towards scaling equality saturation to more complex optimizations.
+  % \item We present a novel beam extraction algorithm, which extracts the N best programs from an e-graph according to a given cost model, such that they satisfy a given program sketch.
+  % , for multi-core processors 
+
+  %\item An experimental evaluation demonstrating that sketch-guided equality saturation enables complex optimizations of a \Rise{} matrix multiplication requiring significantly less effort than using manually orchestrated rewriting.
+  %While prior equality saturation is unable to apply the optimizations without running out of memory, sketch-guided equality saturation performs the optimization in seconds only requiring little manual guidance (\cref{evaluation}).
+
+  \item Two systematic evaluations of \Rise{} applications.
+  The effectiveness of our lambda calculus encoding is demonstrated by optimizing a binomial filter application (\cref{lambda-eval}).
+  Sketch-guided equality saturation is evaluated by exploring seven complex optimizations of a matrix multiplication application, including loop blocking, vectorization, and multi-threading.
+ These optimizations are infeasible with unguided equality saturation due to excessive runtime and memory consumption, but sketch-guided equality saturation performs the optimizations in seconds and with low memory consumption.
+  No more than three sketch guides need to be written for any of the seven optimizations (\cref{mm-eval}).
+  %are required to guide the search, i.e.\ significantly less effort than purely manual techniques. \todo{remove effort claim}
+  %The techniques are realized in the \kles{} implementation for the \Rise{} data-parallel functional language.
+
+  % \todo{
+% \emph{A systematic comparative evaluation of sketch guided equality saturation for complex optimisations.} The exemplar is the optimisation of a RISE matrix multiplication using blocking, <name the optimisations>, and uses a sequence of YYY sketches. We demonstrate that SGES enables complex optimizations like <name the optimisations> that are not feasible with eq sat alone, and completes within XXXs. Moreover, a comparison with ELEVATE show that SGES requires significantly less effort than programmer orchestrated rewriting.<explicitly state, and quantify the effort metric here> (Section 5).
+%   }
+  % \todo{Consider introducing an acronym SGES for "sketch guided equality saturation"}
+  % \todo{GC7 Currently the text of the abstract and introduction suggest that the only example you have is (a semi-realistic) matrix multiplication.
+
+  % Suggest that you also state that you use other examples: a binomial filter, a harris (edge detector), ...}
+
+  %Given a couple of sketches instead of a precise strategy, rewrite sequences are automatically discovered in seconds (\cref{evaluation}).
+  % We leverage the existing \Rise{} language, a typed lambda calculus, and re-discover optimizations that were found in previous work by tediously orchestrating rewrite rules.
+  % \todo{quantify}
+\end{itemize}

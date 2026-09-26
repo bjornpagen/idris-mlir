@@ -1,0 +1,61 @@
+\section{Introduction}
+
+E-graphs provide a compact representation of many equivalent expressions, enabling equality saturation to explore alternative rewrites without discarding earlier forms and to defer the selection of a preferred expression to an application-specific cost model~\cite{ogEgraphs1,egraphsOG,eqsat,eqsat-lmcs,egg}. %\Fix{Can we state some benefits / reasons why people would use e-graphs here? Basically provide some high level motivation for working on e-graphs at large before diving into limitations we address thereof.} Two
+Orthogonal extensions complicate those keys: algebraic operators benefit
+from sequence-, bag-, or set-valued children rather than explicit
+associativity, commutativity, and idempotency (ACI) saturation; open terms
+benefit from interfaces quotiented by consistent renaming.  Neither dimension
+alone covers the case where an algebraic container holds a typed invocation
+of an open e-class.
+
+We give a proof-carrying composition of the typed slots and quotient space over the aforementioned algebraic properties in equality saturation. %\Fix{Of what? is what I am left thinking. Maybe some transition lead in is needed or just a clarification}.  
+Each operator declares ports generated
+by \texttt{One}, $K^J$ for $K\in\{\Seq,\Bag,\Set\}$, unary binding, and
+binder blocks.  A child invocation $m*a$ embeds the exposed slots of e-class
+$a$ into its caller.  The carrier determines only the certified sibling
+quotient; a separate, operator- and path-specific certificate licenses
+recursive same-head flattening.  Equality-certified permutations act on
+exposed slots, while descriptor-certified automorphisms act locally inside a
+binder block.  Rebuilding normalizes these actions jointly with union-find
+leaders in the intended design without inferring child equality from parent
+equality.  The checked trace theorem instead consumes local obligation
+evidence and does not verify an operational rebuild implementation.
+
+The proposed construction is quotient-first.  Leader finding may contract
+support through a proper embedding, so canonicalization first extracts an
+exact-support leader kernel and retains a source-to-kernel certificate. Such process 
+%\Fix{Instead of `it' can we name the thing directly? It can be ambiguous so its good practice to avoid using it in academia writing to keep statements as clear as possible. }
+then minimizes local leader and binder orbits before aggregating bags or
+deduplicating sets, and only afterward minimizes the finite free-slot-renaming
+orbit.  The checked mathematical layer proves exactness for any supplied
+finite quotient presentation and validates supplied extraction and collision
+records; showing that the concrete procedure constructs those records is a
+separate refinement obligation.  A collision may create a parent edge only
+when the composed certificate inhabits that edge's exact directed type.
+
+We prove finite-unfolding soundness for abstract finite certified traces.
+Their nine-step labels are classified as local obligation addition, rekeying,
+composition, or removal, each carrying the needed typed endpoint evidence.
+Under these premises, two certified unfoldings whose parent paths reach one
+leader and whose caller maps align by a recorded symmetry word are equal in
+every supplied model. %\Fix{I think it would be helpful to have some transition into this sentence, like`` To note,'' or something but not required} 
+To note, the result does not establish concrete transition
+semantics, unrestricted ACI completeness, or refinement of the Java code.
+
+%\Fix{Transition framing for here, maybe something like} \Fix{To evaluate our e-graph representation on a concrete domain, }
+To evaluate our e-graph construction on a concrete formal dataset, we explore an Alloy case study with seven related pipeline arms on a
+frozen corpus and a targeted capability suite. The pipeline separates a targeted
+binder-permutation capability from whole-pipeline structural consolidation;
+the measurements are bounded implementation evidence, not a proof that
+the adapter realizes the abstract construction. In our controlled benchmark, the slot-aware configurations recognized all 5,500 constructed equivalences, including all 500 binder-block permutations, compared with 22 for the De Bruijn baselines. Across 61,598 AST-distinct Alloy predicate pairs, the Certificate-Integrated IR recognized 4,088 correct student–oracle equivalences versus 2,160 for the De Bruijn baselines, with no observed zero-distance matches among pairs labeled incorrect.
+%\Fix{I would add a sentence or two recapping the outcome of this with a key observation or two.}
+
+Our contributions are: (i) a typed flexible-arity port grammar for slotted
+invocations; (ii) a generic finite-orbit exactness theorem and certified
+effective-support record interfaces with explicit parent-versus-interface
+restriction; (iii) an abstract certificate-preserving trace contract and
+finite-unfolding soundness theorem; and
+(iv) a bounded Alloy study whose evidence boundary is stated separately from
+the mathematical result.  Full statements and proof details appear in
+Appendix~\ref{app:formal-details}. %the machine-checked correspondence is
+%tracked by the \texttt{\string\leanref} tags attached to every formal unit.

@@ -1,0 +1,78 @@
+% Macros used in the paper					% -*- latex -*-
+
+\makeatletter
+
+\newcommand{\ie}{\mbox{\emph{i.e.}}}
+\newcommand{\Ie}{\mbox{\emph{I.e.}}}
+\newcommand{\eg}{\mbox{\emph{e.g.}}}
+\newcommand{\Eg}{\mbox{\emph{E.g.}}}
+\newcommand{\etc}{\emph{etc.}}
+\newcommand{\nb}{\mbox{\emph{n.b.}}}
+\newcommand{\Nb}{\mbox{\emph{N.b.}}}
+
+\newcommand{\sequence}[1]{#1 \, \ldots \,}
+\newcommand{\llb}{\left\llbracket}
+\newcommand{\rrb}{\right\rrbracket}
+
+\let\oldl\l %Save the old \l on \oldl
+\newcommand{\cl}{\llap{$\lambda$\hskip-.65em}\phantom{ss}}
+%% JFP-friendly versions of \lambda-in-code macros
+\renewcommand{\l}[1]{\cl(#1)}
+%% Non-JFP versions of \lambda-in-code macros
+% \renewcommand{\l}[1]{\ \llap{$\lambda$\hskip-.5em}\ (#1)}
+
+%% What you frequently want when you say \tt:
+\def\ttt{\ttfamily\upshape\mdseries\catcode``=13}%\frenchspacing\@noligs
+
+%% Centered version of alltt environment
+\newenvironment{centertt}{%
+  \par\medskip
+  \centering
+  \varwidth{\linewidth}%
+  \alltt
+}{%
+  \endalltt
+  \endvarwidth
+  \vspace{-5pt}
+  \par
+}
+
+\newcommand{\itum}[1]{\item{\bf #1}\\*}
+
+% Works in math mode; all special chars remain special; cheaper than \cd.
+% Will not be correct size in super and subscripts, though.
+\newcommand{\ex}[1]{\mbox{\ttt{#1}}}
+
+\newenvironment{inset}
+ {\bgroup\parskip=1ex plus 1ex\begin{list}{}%
+        {\topsep=0pt\rightmargin\leftmargin}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\global\@ignoretrue}
+
+\newenvironment{tightinset}
+ {\bgroup\parskip=0pt\begin{list}{}%
+        {\topsep=0pt\rightmargin\leftmargin}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\ignorespaces}
+
+\newenvironment{leftinset}
+ {\bgroup\parskip=1ex plus 1ex\begin{list}{}%
+        {\topsep=0pt}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\global\@ignoretrue}
+
+% For typesetting interactive examples.
+\newcommand{\result}[1]{\textsl{#1}}
+
+% For multiletter vars in math mode:
+\renewcommand{\v}[1]{\ensuremath{\mathit{#1}}} % \frenchspacing?
+\newcommand{\vi}[2]{\ensuremath{\mathit{#1}_{#2}}}
+
+% Remora type constructors
+\newcommand{\tu}{\ensuremath{\rightarrow}}
+\newcommand{\ft}[2]{(\tu\ (#1) #2)}
+\newcommand{\faty}[2]{(\ensuremath{\forall} (#1) {#2})}
+\newcommand{\pity}[2]{(\ensuremath{\Pi} (#1) {#2})}
+\newcommand{\boxtype}[1]{\ensuremath{\Sigma} (#1)}
+
+\makeatother

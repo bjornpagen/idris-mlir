@@ -1,0 +1,91 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Term Rewriting}
+Term rewriting~\cite{rewritesystems} has been used widely to facilitate
+equational reasoning for program
+optimizations~\cite{DBLP:conf/scitools/BoyleHW96,
+  DBLP:journals/toplas/BrandHKO02, DBLP:conf/icfp/VisserBT98}. A term rewriting
+system applies a database of semantics preserving rewrites or axioms to an input
+expression to get a new expression, which may, according to some cost function,
+be more profitable compared to the input. Rewrites are typically symbolic and
+have a left hand side and a right hand side. To apply a rewrite to an
+expression, a rewrite system implements pattern matching---if the left hand side
+of a rewrite rule matches with the input expression, the system computes a
+substitution which is then applied to the right-hand side of the rewrite rule.
+Upon applying a rewrite rule, a rewrite system typically replaces the old
+expression by the new expression. This can lead to the \textit{phase ordering}
+problem--- it makes it impossible to apply a rewrite to the old expression in
+the future which could have led to a more optimal result.
+
+\paragraph{\Egraphs and E-matching}
+\Egraph were originally proposed several decades ago as an
+efficient data structure for maintaining congruence
+closure~\cite{nelson-oppen-78, kozen-stoc77, nelson}.
+\Egraphs continue to be a critical component in successful SMT
+solvers where they are used for combining satisfiability theories by sharing equality
+information~\cite{z3}.
+ A key difference between past implementations of \egraphs and
+  \egg's \egraph is our novel rebuilding algorithm that maintains
+  invariants only at certain critical points~(\autoref{sec:rebuild}).
+This makes \egg more efficient for the purpose of equality saturation.
+  \egg implements the pattern compilation strategy introduced by de Moura et al.~\cite{ematching}
+  that is used in state of the art theorem provers~\cite{z3}.
+Some provers~\cite{z3, simplify} propose optimizations like mod-time,
+pattern-element and inverted-path-index to find new terms and relevant patterns
+for matching, and avoid redundant matches. So far, we have found \egg to be
+faster than several prior \egraph implementations even without
+these optimizations. They are,
+however, compatible with \egg's design and could be explored in the future. Another
+key difference is \egg's powerful \eclass analysis abstraction and flexible
+interface. They empower the programmer to easily leverage \egraphs for problems
+involving complex semantic reasoning.
+
+\paragraph{Congruence Closure}
+Our rebuilding algorithm is similar to the congruence closure algorithm
+  presented by \citet{downey-cse}.
+The contribution of rebuilding is not \emph{how} it restores the \egraph invariants
+  but \emph{when};
+  it gives the client the ability to specialize invariant restoration to a
+  particular workload like equality saturation.
+Their algorithm also features a worklist of merges to be processed further,
+  but it is offline, i.e.,
+  the algorithm processes a given set of equalities and outputs the set of
+  equalities closed over congruence.
+Rebuilding is adapted to the online e-graph (and equality saturation) setting,
+  where rewrites frequently examine the current set of equalities and assert new ones.
+Rebuilding additionally propagates e-class analysis facts (\autoref{sec:analysis}).
+Despite these differences,
+  the core algorithms algorithms are similar enough that theoretical results on
+  offline performance characteristics \cite{downey-cse} apply to both.
+We do not provide theoretical analysis of rebuilding for the online setting;
+  it is likely highly workload dependent.
+
+\paragraph{Superoptimization and Equality Saturation}
+The Denali~\cite{denali} superoptimizer first demonstrated how to use \egraphs
+for optimized code generation as an alternative to hand-optimized machine code
+and prior exhaustive approaches~\cite{massalin}, both of which were less
+scalable. The inputs to Denali are programs in a C-like language from which it
+produces assembly programs. Denali supported three types of
+rewrites---arithmetic, architectural, and program-specific. After applying these
+rewrites till saturation, it used architectural description of the hardware to
+generate constraints that were solved using a SAT solver to output a
+near-optimal program. While Denali's approach was a significant improvement over
+prior work, it was intended to be used on straight line code only and therefore,
+did not apply to large real programs.
+
+Equality saturation~\cite{eqsat, eqsat-llvm} developed a compiler optimization
+phase that works for complex language constructs like loops and conditionals.
+The first equality saturation paper used an intermediate representation called
+Program Expression Graphs (PEGs) to encode loops and conditionals. PEGs have
+specialized nodes that can represent infinite sequences, which allows them to
+represent loops. It uses a global profitability heuristic for extraction which
+is implemented using a pseudo-boolean solver. Recently, \cite{yogo-pldi20} uses
+PEGs for code search.
+\egg can support PEGs as a user-defined language,
+and thus their technique could be ported.
+%PEGs could be implemented in \egg.
+
+%%% Local Variables:
+%%% TeX-master: "egg"
+%%% End:

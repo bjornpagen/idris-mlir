@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "process_id": "bounded-correspondence-repair-2026-08-29",
+  "review_round": 1,
+  "snapshot_id": "134e916ecde752eee5e464dd171513e9e7ba92319300755f259bd2a8c20bc681",
+  "normalization_contract_sha256": "9b4a84e6b492a65bed6c9446b1c3c9e255e21277caba9cc9d8c31d713c873bc6",
+  "required_roles": [
+    "PAPER_LEAN_SEMANTIC_CORRESPONDENCE",
+    "LEAN_METADATA_AND_CORRESPONDENCE_COHERENCE"
+  ],
+  "reviewer_records": {
+    "semantics": {
+      "path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/semantics.json",
+      "sha256": "8b31239e3f730a7fd6205cc77343c61ac9330d4f399d108bae9a9b10248eacd2",
+      "verdict": "PASS"
+    },
+    "lean_metadata": {
+      "path": "formal/correspondence-reviews/bounded-correspondence-repair-2026-08-29/round-1/lean-metadata.json",
+      "sha256": "c4da27a564fade16d5f9a9d85776d4e7ad89644a04a0c4c15f09624716c37f6a",
+      "verdict": "FAIL"
+    }
+  },
+  "unanimous_pass": false,
+  "round_verdict": "FAIL",
+  "bounded_disposition": "ONE_FINAL_REPAIR_AND_REVIEW_ROUND_REMAINS"
+}

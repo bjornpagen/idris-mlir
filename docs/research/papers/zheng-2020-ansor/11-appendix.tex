@@ -1,0 +1,162 @@
+\section{Gradient Approximation for the Task Scheduler}
+\label{sec:gradient-approximation}
+Now we show how to approximate the gradient for the objective function $f$. First, do the approximation $g_i(t) \approx g_i(t_i)$.
+This means we assume the best cost of task $i$ depends only on the resource units spent on it. This may not be true because all tasks share a cost model. Different resource allocations lead to different collections of training data, which then leads to different cost models.
+Here we make this approximation to continue derivation:
+
+\begin{align*}
+\frac{\partial f}{\partial t_i} &= \frac{\partial f}{\partial g_i} \frac{\partial g_i}{\partial t_i} \\
+&\approx \frac{\partial f}{\partial g_i} (\alpha \frac{g_i(t_i) - g_i(t_i - \Delta t)}{\Delta t}  
++ (1-\alpha)  \frac{g_i(t_i + \Delta t) - g_i(t_i)}{\Delta t} ) \\
+&\approx \frac{\partial f}{\partial g_i} (\alpha \frac{g_i(t_i) - g_i(t_i - \Delta t)}{\Delta t}  
++ (1-\alpha)  (g_i(t_i + 1) - g_i(t_i))) \\
+\end{align*}
+
+\noindent In this expression, $\Delta t$ is a small backward window size, $g_i(t_i)$ and $g_i(t_i - \Delta t)$ are known from the history allocations. But $g_i(t_i + 1)$ is unknown because we have not allocated $t_i + 1$ units of resource to this task. So we have to predict this value.
+The parameter $\alpha$ controls the weight to trust the prediction.
+We predict $g_i(t_i + 1)$ in two ways. First, we have an optimistic guess that if we spend extra $t_i$, we can decrease the latency of task $i$ to 0. This means $g_i(t_i + 1) \approx g_i(t_i) - \frac{g_i(t_i)}{t_i}$.
+Second, if subgraphs are structurally similar, their latency is also similar per floating point operation.
+Considering both factors, we have the following approximation:
+$$g_i(t_i + 1) \approx \min(g_i(t_i) - \frac{g_i(t_i)}{t_i}, \beta \frac{C_i}{\max_{k\in N(i)} {V_k}}) $$
+\noindent where $N(i)$ is the set of similar tasks of $i$, $C_i$ is the number of floating point operations in task $i$ and $V_k$ is the number of floating point operation per second we can achieve in task $k$. The parameter $\beta$ controls the weight to trust the prediction based on similarity.
+
+\section{The List of Extracted Features}
+\label{sec:extracted-features}
+We extract the following features for one innermost non-loop statement in the context of a full tensor program. The features include categorical features and numerical features. We use one-hot encoding to encode category features. The length of a feature vector including all the listed features for one statement is $164$. We use the same set of features for both CPU and GPU.
+
+\begin{itemize}
+    \itemsep-0.2em
+    \item \textbf{Numbers of float operations}. The numbers of addition, subtraction, division, modulo operation, comparison, intrinsic math function call (\textit{e.g,}. exp, sqrt) and other math function call respectively, with floating point operands.
+    \item \textbf{Number of integer operations.} Similar to the above one, but for operations with integer operands.
+    \item \textbf{Vectorization related features.} The length of the innermost vectorized loop. The type of vectorization position (InnerSpatial, MiddleSpatial, OuterSpatial, InnerReduce, MiddleReduce, OuterReduce, Mixed, None). The product of the lengths of all vectorized loops. The number of vectorized loops.
+    \item \textbf{Unrolling related features.} Similar to the vectorization related features, but for unrolling.
+    \item \textbf{Parallelization related features.} Similar to the vectorization related features, but for parallelization.
+    \item \textbf{GPU thread binding related features.} The lengths of blockIdx.x, blockIdx.y, blockIdx.z, threadIdx.x, threadIdx.y, threadIdx.z and virtual threads \cite{chen2018tvm}.
+    \item \textbf{Arithmetic intensity curve.} Arithmetic intensity is defined as  $\frac{\text{The number of floating point operations}}{\text{The number of bytes accessed}}$. We compute the arithmetic intensity for each loop level and draw a curve with linear interpolation. Then we sample 10 points from this curve.
+    \item \textbf{Buffer Access Feature.}
+    For each buffer this statement accesses, we extract features for it. While different statements can access different numbers of buffers, we perform feature extraction for at most five buffers. We pad zeros if a statement accesses less than five buffers and remove small buffers if a statement accesses more than five buffers.
+    \begin{itemize}
+        \item \textbf{Access type}. The type of access (read, write, read + write).
+        \item \textbf{Bytes}. The total number of bytes accessed by this statement.
+        \item \textbf{Unique bytes}. The total number of unique bytes accessed by this statement.
+        \item \textbf{Lines}. The total number of cache lines accessed by this statement.
+        \item \textbf{Unique lines}. The total number of unique cache lines accessed by this statement.
+        \item \textbf{Reuse type}. The type of data reuse (LoopMultipleRead, SerialMultipleRead, NoReuse).
+        \item \textbf{Reuse distance}.  The distance between data reuse in terms of number of for loop iterations and total accessed bytes.
+        \item \textbf{Reuse counter}. The number of happening of data reuse.
+        \item \textbf{Stride}.  The stride of access.
+        \item \textbf{Accessed bytes divided by reuse}. We compute the following values: 
+        $\frac{\text{Bytes}}{\text{Reuse counter}}$,
+        $\frac{\text{Unique bytes}}{\text{Reuse counter}}$,
+        $\frac{\text{Lines}}{\text{Reuse counter}}$,
+        $\frac{\text{Unique lines}}{\text{Reuse counter}}$.
+    \end{itemize}
+    
+    \item \textbf{Allocation related features}. The size of the allocated buffer for the output buffer of this statement. The number of allocations.
+    \item \textbf{Other features.} The number of outer loops. The product of the lengths of outer loops. The value of the ``auto\_unroll\_max\_step''' specified by the pragma in outer loops.
+\end{itemize}
+
+
+
+\section{Shape Configurations in the Evaluation}
+\label{sec:shape-eval}
+
+
+\begin{itemize}
+	\item C1D (1D Convolution). Format = (length, input channel, output channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (256, 64, 128, 3, 2, 1)
+		\item (128, 128, 256, 1, 2, 0)
+		\item (64, 256, 256, 5, 1, 2)
+		\item (32, 512, 512, 3, 1, 1)
+	\end{itemize}
+	
+	\item C2D (2D Convolution). Format = (height, width, input channel, output channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (224, 224, 3, 64, 7, 2, 3)
+		\item (56, 56, 64, 64, 1, 1, 0)
+		\item  (14, 14, 256, 256, 3, 1, 1)
+		\item (7, 7, 512, 512, 3, 1, 1)
+	\end{itemize}
+	
+	\item C3D (3D Convolution). Format = (depth, height, width, input channel, output channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (16, 224, 224, 3, 64, 7, 2, 3)
+		\item (16, 56, 56, 64, 64, 1, 1, 0)
+		\item  (16, 14, 14, 256, 256, 3, 1, 1)
+		\item (16, 7, 7, 512, 512, 3, 1, 1)
+	\end{itemize}
+	
+	\item GMM (Matrix Multiply). Format = (N, M, K)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (128, 128, 128)
+		\item (512, 32, 512)
+		\item (512, 512, 512)
+		\item (1024, 1024, 1024)
+	\end{itemize}
+	
+	\item GRD (Group Convolution). Format = (height, width, input channel, output channel, kernel size, stride, padding, groups)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (224, 224, 3, 64, 7, 2, 3, 4)
+		\item (56, 56, 64, 64, 1, 1, 0, 4)
+		\item  (14, 14, 256, 256, 3, 1, 1, 4)
+		\item (7, 7, 512, 512, 3, 1, 1, 4)
+	\end{itemize}
+	
+	\item DIL (Dilated Convolution). Format = (height, width, input channel, output channel, kernel size, stride, padding, dilation)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (224, 224, 3, 64, 7, 2, 3, 2)
+		\item (56, 56, 64, 64, 1, 1, 0, 2)
+		\item  (14, 14, 256, 256, 3, 1, 1, 2)
+		\item (7, 7, 512, 512, 3, 1, 1, 2)
+	\end{itemize}
+	
+	\item DEP (Depthwise Convolution). Format = (height, width, channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (112, 112, 32,  3, 1, 1)
+		\item (112, 112, 64,  3, 2, 1)
+		\item (14,  14, 512, 3, 2, 1)
+		\item (7,   7, 1024, 3, 1, 1)
+	\end{itemize}
+	
+	\item T2D (Transposed 2D Convolution). Format = (height, width, input channel, output channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (4, 4, 512, 256, 4, 2, 1)
+		\item (8, 8, 256, 128, 4, 2, 1)
+		\item (16, 16, 128, 64, 4, 2, 1)
+		\item (32, 32, 64, 3, 4, 2, 1)
+	\end{itemize}
+	
+	\item CAP (Capsule 2D Convolution). Format = (height, width, input channel, output channel, kernel size, stride, padding, capsule size)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (16, 16, 32, 32, 3, 2, 1, 4)
+		\item (8,  8, 32, 32, 3, 1, 1, 4)
+		\item (16, 16,  8, 16, 3, 2, 1, 4)
+		\item (8,  8, 16, 16, 3, 1, 1, 4)
+	\end{itemize}
+	
+	\item NRM (Matrix 2-Norm). Format = (N, M)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (256, 256)
+		\item (512, 512)
+		\item (1024, 1024)
+		\item (4096, 4096)
+	\end{itemize}
+	
+	\item ConvLayer (Convolution Layer). Format = (height, width, input channel, output channel, kernel size, stride, padding)
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (224, 224, 3, 64, 7, 2, 3)
+		\item (56, 56, 64, 64, 3, 2, 1)
+		\item  (28, 28, 128, 256, 1, 2, 0)
+		\item (7, 7, 512, 512, 3, 1, 1)
+	\end{itemize}
+	
+	\item TBS (Transposed + BatchMatmul + Softmax in the multi-head attention). Format = (sequence length, number of heads, hidden dimension))
+	\begin{itemize}[topsep=-0.1em, itemsep=-0.2em]
+		\item (128, 12, 64)
+		\item (128, 16, 64)
+		\item (64,  12, 128)
+		\item (128, 12, 128)
+	\end{itemize}
+\end{itemize}
+
