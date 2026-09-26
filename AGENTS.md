@@ -2,9 +2,11 @@
 
 Read README.md and docs/architecture.md before changing a compiler boundary.
 
-- The compiler is written in Idris. Do not add C++ or an MLIR dialect of our
-  own. Emit MLIR as text using upstream dialects and run it through the pinned
-  tools.
+- The compiler front and middle are Idris. Whether MLIR dialects and passes
+  of our own (C++) are worth it is an open research question
+  (docs/research/next-research-prompt.md). Do not add C++ until that research
+  recommends it and the user agrees. Until then, emit MLIR text in upstream
+  dialects and run it through the pinned tools.
 - The compiler consumes checked Idris TT and its definition context. Do not
   replace that input with CExp, and do not erase facts before the passes that
   use them.

@@ -33,9 +33,10 @@ erasure. None of that exists yet.
 - **Our IR → MLIR.** The compiler writes MLIR as text using upstream dialects
   only (`func`, `arith`, `cf`/`scf`, `memref`, `vector`, `llvm`), then the
   pinned tools lower it, as Idris's own backends hand Scheme and C to external
-  tools. We maintain no MLIR dialect and no C++. Idris-specific structure
-  (constructors, closures, laziness) will be lowered by our passes before
-  emission.
+  tools. Today there is no MLIR dialect of our own and no C++. That is a
+  default, not a principle: a dialect defined only in text (IRDL) is opaque
+  to MLIR's generic passes, so if optimization should happen in MLIR, it
+  needs C++. See the [research brief](research/next-research-prompt.md).
 
 ## Frontend
 

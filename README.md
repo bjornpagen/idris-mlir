@@ -53,6 +53,7 @@ Everything is installed under `.toolchain/`.
 - [Architecture](docs/architecture.md)
 - [Toolchain](docs/toolchain.md)
 - [Whole-program compilation: prior art and plan](docs/research/whole-program-compilation.md)
+- [Next research brief: optimizing from first principles](docs/research/next-research-prompt.md)
 - Research notes from before the rewrite: [compiler interfaces](docs/research/compiler-interfaces.md),
   [starting point and tests](docs/research/starting-point-and-tests.md),
   [MLIR and Mojo](docs/research/mlir-and-mojo.md)
