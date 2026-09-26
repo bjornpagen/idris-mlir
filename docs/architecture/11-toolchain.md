@@ -24,6 +24,12 @@
   - a host C/C++ compiler, to build the pinned GCC;
   - GCC's own prerequisites (GMP, MPFR, MPC), as its documentation requires.
 
+- **TC-LIB-1 (v1).** `dev.py build` builds and installs the `idris-mlir-io`
+  package with the pinned Idris into `.toolchain/`, where both `idris-mlir`
+  and stock `idris2` find it with `-p idris-mlir-io`. It is built with stock
+  Idris, and its TTC format matches, because `idris-mlir` is built from the
+  same pinned Idris.
+
 ## Bootstrap (`tools/dev.py`)
 
 - **TC-BOOT-1 (p0).** `dev.py` gains `bootstrap-gcc`, `bootstrap-cmake` and
@@ -103,6 +109,7 @@ Each deviation below has a `PINS.md` entry.
   ```text
   CMakeLists.txt  CMakePresets.json  PINS.md  toolchain.lock.json
   compiler/            Idris: frontend, middle end, emitter (idris-mlir)
+  lib/idris-mlir-io/   Idris: the trusted IdrisMLIR.IO module (PROF-IO-*)
   foreign/idr/         C++: idr dialect, passes, idris-mlir-opt, idris-mlir-cc
   src/  unsafe/        cpp-starter zones (empty at first)
   tests/tooling/       dev.py and repository rules

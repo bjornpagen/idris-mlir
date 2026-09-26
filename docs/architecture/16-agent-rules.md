@@ -20,7 +20,7 @@ bind every contributor, human or agent.
 
   | Package | Paths |
   | --- | --- |
-  | Frontend and middle end (Idris) | `compiler/`, `tests/compiler/`, `tests/profile/` |
+  | Frontend and middle end (Idris) | `compiler/`, `lib/idris-mlir-io/`, `tests/compiler/`, `tests/profile/` |
   | Dialect and passes (C++) | `foreign/idr/`, `tests/idr/` |
   | Toolchain and build | `tools/dev.py`, `CMakeLists.txt`, `CMakePresets.json`, `toolchain.lock.json`, `PINS.md`, `docs/cpp-profile.md`, `docs/toolchain.md`, `tests/tooling/`, `tests/mlir/` |
   | End to end | `tests/e2e/` |

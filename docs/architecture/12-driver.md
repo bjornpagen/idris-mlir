@@ -4,7 +4,7 @@
 
 | Executable | Language | Role |
 | --- | --- | --- |
-| `idris-mlir` | Idris | Stock Idris driver plus the `mlir` backend. Checks the program and writes `.core` and `.mlir`. |
+| `idris-mlir` | Idris | Stock Idris driver plus the `mlir` backend. Checks the program and writes `.core` and `.mlir`. For IO programs (`-o`) it also runs the rest of the chain. |
 | `idris-mlir-opt` | C++ | `mlir-opt` with the `idr` dialect and passes registered. For tests and debugging. |
 | `idris-mlir-cc` | C++ | Runs `OPT-PIPE-1` in process, from contract text to an object file. |
 
@@ -37,9 +37,10 @@
   On failure `OUTPUT` is not created, and any existing `OUTPUT` is left
   untouched.
 
-## Compiling a program (v0–v2)
+## Compiling a program
 
-- **DRV-FLOW-1 (v0).** A program compiles with exactly these three steps:
+- **DRV-FLOW-1 (v0).** A `main : Int` program compiles with exactly these three
+  steps:
 
   ```sh
   idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr   # → build/ttc/<v>/Prog.{core,mlir}
@@ -49,9 +50,23 @@
 
   `tools/dev.py compile Prog.idr -o Prog` runs the same steps, and the test
   harness uses that same implementation. There is only one copy of the chain.
-- **DRV-FLOW-2 (v3).** From v3, the Idris backend's whole-program callback
-  (`-o`) runs these steps itself, so that `idris-mlir -o prog Main.idr` alone
-  produces the executable.
+- **DRV-FLOW-2 (v1).** An IO program compiles with one command:
+
+  ```sh
+  idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr
+  ```
+
+  The whole-program callback writes `build/exec/prog.core` and
+  `build/exec/prog.mlir`, then runs `idris-mlir-cc` and the pinned `gcc`
+  itself, and leaves `build/exec/prog`. It finds both tools through the
+  toolchain paths recorded at build time, never through `PATH`. Any failure
+  in the chain is reported as an Idris error; a failure after `.mlir` exists
+  is an internal error (`DIAG-ICE-1`). `tools/dev.py compile` uses this path
+  for IO programs.
+- **DRV-DUMP-1 (v1).** The Idris codegen directive `--directive dump-core`
+  writes the Core after every middle-end pass, as `NN-PASS.core`.
+  `--directive dump-mlir` passes `--dump-after=all` to `idris-mlir-cc`.
+  Together they show a program at every stage, from TT to object code.
 - **DRV-DET-1 (v0).** The same inputs and toolchain produce byte-identical
   `.core`, `.mlir`, object files and executables.
   - Test: `tests/e2e/v0/determinism`

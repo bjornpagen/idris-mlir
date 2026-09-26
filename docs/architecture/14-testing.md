@@ -36,6 +36,30 @@ the reason, and never counted as passed.
   type-checking time, such as `tests/e2e/v0/tail-loop-deep`, instead has an
   `expected-exit` file and a comment deriving the value. Only
   resource-behaviour tests may use this form.
+- **TEST-IO-1 (v1).** An IO fixture is a directory with `Main.idr` (and any
+  other user modules), optionally `stdin`, and `expected-stdout` and
+  `expected-exit`. The harness asserts that:
+  - `DRV-FLOW-2` succeeds;
+  - running the program with that stdin produces exactly `expected-stdout`,
+    byte for byte, and the expected exit status;
+  - stderr is empty unless the fixture expects a crash.
+
+  Pure parts of IO fixtures also get `Refl` oracles where Idris can evaluate
+  them.
+- **TEST-DIFF-1 (v1).** Every IO fixture is also compiled with the stock Chez
+  backend:
+
+  ```sh
+  idris2 --no-prelude -p idris-mlir-io --cg chez -o prog Main.idr
+  ```
+
+  Both executables MUST produce identical stdout and exit status on the same
+  stdin. This is possible because `IdrisMLIR.IO`'s primitives carry `scheme:`
+  implementations with the same semantics (`PROF-IO-2`). Crash messages are
+  not compared (`SEM-DEV-1`).
+- **TEST-ELIM-1 (v1).** Each `ELIM-G-*` rule has Core-level tests: a small
+  program, its expected Core after `Simplify` (checked with `FileCheck` on
+  `--directive dump-core` output), and an e2e run.
 - **TEST-CRASH-1 (v0).** A crash fixture has an `expected-crash` file. The
   harness asserts exit status 1, empty stdout, and a stderr that contains
   the cause it names (`SEM-CRASH-1`).
@@ -71,8 +95,8 @@ the reason, and never counted as passed.
 
 - **TEST-HEAP-1 (v0).** For every end-to-end program, the undefined symbols
   of the object file (`llvm-nm --undefined-only`) are a subset of
-  `{write, _exit}` (`LOW-EXT-1`). There is no `malloc`, no runtime, and no
-  other libc call.
+  `{write, _exit}`, and from v1 `{write, read, _exit}` (`LOW-EXT-1`). There
+  is no `malloc`, no runtime, and no other libc call.
 - **TEST-DET-1 (v0).** Compiling a fixture twice gives byte-identical
   `.core`, `.mlir` and object files (`FE-DET-1`, `DRV-DET-1`).
 - **TEST-SEM-1 (v0).** Every `SEM-INT-*` rule has table-driven end-to-end

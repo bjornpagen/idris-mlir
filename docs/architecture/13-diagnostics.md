@@ -29,6 +29,24 @@ There are two kinds of error:
   source location. This was verified: an error with `EmptyFC` exits 0.
 - **DIAG-EXIT-1 (v0).** `idris-mlir --check` exits with status 1 on any user
   error and writes no artifact (`FE-ART-1`).
+- **DIAG-HEAP-1 (v1).** A `PROF-HEAP-*` error explains why the value survived.
+  It gives:
+  1. the source location of the construct that survived (a lambda, a
+     `Delay`, a string primitive);
+  2. the elimination that could not remove it, and why (for example "`k` is
+     passed a different function on each iteration" or "arity raising
+     blocked by `div` at Main.idr:12:9");
+  3. where the value is used, as a secondary location.
+
+  For example:
+
+  ```text
+  mlir backend: Main.main: unsupported (PROF-HEAP-3): string built at runtime
+    `prim__strCons c "!"` at Main.idr:9:9 cannot be evaluated at compile time
+    (`c` comes from getChar at Main.idr:8:3), and output fusion cannot apply:
+    the string is passed to Main.greet at Main.idr:9:3 instead of being
+    written directly by putStr
+  ```
 - **DIAG-ONE-1 (v0).** Compilation stops at the first user error. Reporting
   several errors at once is a later improvement.
 

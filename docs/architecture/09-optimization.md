@@ -31,8 +31,13 @@ Superoptimization, equality saturation and search are non-goals (D7).
 
 | Optimization | Source | Facts needed | Owner | Version |
 | --- | --- | --- | --- | --- |
-| Monomorphisation, instance specialization | Futhark `Monomorphise`, MLton, Lean `specialize` (`fixedInst`) | types, quantities, normalization | Idris middle end | v1 |
-| Defunctionalisation, higher-order specialization | Futhark `Defunctionalise`, Lean `fixedHO`, MLton `ClosureConvert` | static function identity, profile restrictions | Idris middle end | v2 |
+| Monomorphisation, instance specialization | Futhark `Monomorphise`, MLton, Lean `specialize` (`fixedInst`) | types, quantities, normalization | Idris middle end (`ELIM-MONO-*`) | v1 |
+| Defunctionalisation, higher-order specialization | Futhark `Defunctionalise`, Lean `fixedHO`, MLton `ClosureConvert` | static values | Idris middle end (`ELIM-G-3`, `ELIM-G-4`) | v1 |
+| Monad elimination (IO, State, Reader, …) | GHC's state hack, Lean's IO representation | known binds, static continuations, single-constructor wrappers | Idris middle end (`ELIM-G-2`, `ELIM-G-3`, `ELIM-G-5`) | v1 |
+| Laziness elimination | | known `Delay`/`Force` | Idris middle end (`ELIM-G-8`) | v1 |
+| Compile-time string evaluation | MLton constant folding | literal arguments | Idris middle end (`ELIM-G-6`); MLIR has no string values to fold | v1 |
+| Output fusion (`putStr (a ++ b)` becomes two writes) | | `SEM-IO-2` | Idris middle end (`ELIM-G-7`) | v1 |
+| IO effect ordering | | world chain | `!idr.world` tokens plus `IDR-EFF-2`, so upstream passes keep the order | v1 |
 | Erasure of quantity 0 | Idris QTT, Lean `lcErased` | quantities | recorded in Idris; removed by our C++ `idr-lower` (1:0) | v0 |
 | Forcing and detagging from indices | Brady, McBride, McKinna 2003 | index relationships in TT | Idris frontend | later |
 | Proved rewrites | Lean `@[csimp]` | equality proofs in TT | Idris middle end | reserved ([07](07-proved-rewrites.md)) |
@@ -60,6 +65,8 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Quantity 1 | `idr.quantity = "1"` | nothing in v0; kept for later memory work (never read as uniqueness, `GOAL-P5`) |
 | Constructors, tags, fields | `idr.data` / `idr.ctor` | folders, `idr-lower` |
 | Coverage | `IDR-MATCH-2` (last alternative as default) | the switch needs no default check |
+| World linearity | `!idr.world` values, `IDR-WORLD-1` | effect order, and 1:0 lowering |
+| Static strings | `idr.str.lit` | read-only data, deduplication |
 | Impossible branches | dropped by the frontend (`FE-TR-4`) | smaller switches |
 | Signedness | op choice (`IDR-IN-3`) | exact semantics |
 | Source position | MLIR locations (`IDR-LOC-1`) | diagnostics, debug info |

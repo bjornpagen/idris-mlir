@@ -30,10 +30,13 @@ this meaning. Every optimization, at every level, is bound by it.
     construction, or the `let` body.
   - Only the selected alternative of a match is evaluated.
 - **SEM-EVAL-2 (v0).** The order in which the arguments of one call are
-  evaluated is unspecified. In v0 the only observable effect of evaluation is
-  a crash (`SEM-CRASH-1`), and every crash has the same exit status, so the
-  order changes at most the message text. The implementation evaluates left
-  to right.
+  evaluated is unspecified.
+  - Pure evaluation has one observable effect: a crash (`SEM-CRASH-1`).
+    Every crash has the same exit status, so the order changes at most the
+    message text.
+  - IO effects are ordered by the world chain (`SEM-IO-1`), never by
+    argument order.
+  - The implementation evaluates left to right.
 - **SEM-EVAL-3 (v0).** Quantity-0 arguments, fields and `let` bindings are
   never evaluated at runtime.
 - **SEM-EVAL-4 (v0).** An evaluation that would crash MUST crash, even if its
@@ -98,6 +101,43 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-LIT-1 (v0).** An integer literal denotes the value that Idris stores
   in the elaborated TT constant for its type.
 
+## Characters (v1)
+
+- **SEM-CHAR-1 (v1).** A `Char` is a Unicode scalar value: `0..0xD7FF` or
+  `0xE000..0x10FFFF`. A character literal denotes its scalar value.
+- **SEM-CHAR-2 (v1).** `Char` comparisons compare scalar values. The result is
+  an `Int`, `1` or `0`.
+- **SEM-CHAR-3 (v1).** `prim__cast_CharT c` is `wrap_T` of `c`'s scalar value.
+  `prim__cast_TChar x` is `x` if `x` is a scalar value, and `0` (`'\0'`)
+  otherwise. This is `cast-char-boundedInt`, `cast-char-boundedUInt` and
+  `cast-int-char` in `support.ss`.
+
+## Strings (v1)
+
+- **SEM-STR-1 (v1).** A `String` is a finite sequence of Unicode scalar values.
+  A string literal denotes the sequence Idris stores in the elaborated TT
+  constant.
+- **SEM-STR-2 (v1).** A string primitive applied to literal arguments means
+  what Idris's evaluator computes for it (`src/Core/Primitives.idr`). In
+  particular:
+  - `prim__strAppend` concatenates;
+  - `prim__strCons c s` prepends `c`;
+  - `prim__cast_CharString c` is the one-character string;
+  - `prim__cast_TString n` is the decimal representation of `n`: an optional
+    `-` followed by digits with no leading zeros, as Chez's `number->string`
+    produces.
+
+  Compile-time evaluation (`ELIM-G-6`) MUST agree with the evaluator. Tests
+  check this with `Refl` proofs.
+
+## Laziness (v1)
+
+- **SEM-LAZY-1 (v1).** `Delay e` does not evaluate `e`. `Force` of a delayed
+  value evaluates `e` at that point. Whether a second `Force` evaluates `e`
+  again is unspecified: `e` is pure, so repeating it can change only running
+  time, since a crash or non-termination would already have happened at the
+  first `Force`.
+
 ## Data
 
 - **SEM-DATA-1 (v0).** A data value is a constructor applied to its field
@@ -115,11 +155,40 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-Q-2 (v0).** Quantity 1 has no runtime meaning in v0. In particular it
   does not imply that a value is unshared.
 
+## IO (v1)
+
+- **SEM-IO-1 (v1).** An IO action is a function of the world token
+  (`PrimIO a = (1 w : %World) -> IORes a`). Running `main` applies it to the
+  initial world exactly once. Effects happen in the order of the world
+  chain: an effect happens when the primitive that consumes its world is
+  evaluated. Idris's quantity checker makes the chain linear, so this order
+  is total.
+- **SEM-IO-2 (v1).** `putStr s` writes the UTF-8 encoding of `s` to standard
+  output. `putChar c` writes the UTF-8 encoding of `c`.
+  - This is our module's definition. The stock Prelude's `putChar` calls C
+    `putchar` and writes a single byte.
+- **SEM-IO-3 (v1).** `getChar` reads the next UTF-8 encoded scalar value from
+  standard input.
+  - At end of input it returns `'\0'`, as Chez's `blodwen-get-char` does.
+  - A malformed byte sequence yields U+FFFD for each maximal invalid
+    subsequence.
+- **SEM-IO-4 (v1).** Output is written in effect order. All output produced
+  before the process ends is written on every exit path: normal return,
+  `exit`, and crash. Pending output is written before the program blocks
+  reading standard input.
+- **SEM-IO-5 (v1).** `exit n` ends the process after writing pending output,
+  with status `n mod 256`.
+- **SEM-IO-6 (v1).** If standard output or standard input fails (for example
+  a closed pipe), the behaviour is unspecified in v1.
+
 ## Programs, crashes and resources
 
-- **SEM-PROG-1 (v0).** Running a program evaluates the root `main : Int`. If
-  it produces `v`, the process writes nothing to stdout or stderr and exits
+- **SEM-PROG-1 (v0).** Running a `main : Int` program evaluates `main`. If it
+  produces `v`, the process writes nothing to stdout or stderr and exits
   with status `v mod 256` (the low 8 bits of `v`).
+- **SEM-PROG-2 (v1).** Running a `main : IO ()` program runs `main`
+  (`SEM-IO-1`). If it returns, the process writes pending output and exits
+  with status 0.
 - **SEM-CRASH-1 (v0).** A crash ends the process. It writes a diagnostic to
   stderr, writes nothing to stdout, and exits with status 1. The diagnostic
   text is implementation-defined and SHOULD name the cause, for example
@@ -137,8 +206,9 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     (`blodwen-error-quit`);
   - division by zero raises a Scheme exception.
 
-  This compiler always follows `SEM-CRASH-1`. v0 programs have no output, so
-  only the stream and the text differ.
+  This compiler always follows `SEM-CRASH-1`. Differential tests
+  (`TEST-DIFF-1`) compare only the exit status and stdout written before the
+  crash, never the crash message.
 
 ## Excluded from v0
 
@@ -149,6 +219,6 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     LLVM treats as poison.
 
   A version that admits them MUST first specify them here.
-- **SEM-EXCL-2.** `Double`, `Char`, `Integer`, `String`, and their
-  primitives are excluded until a version specifies them here. That includes
-  NaN and infinity in casts: Chez's `exact-truncate` fails on them.
+- **SEM-EXCL-2.** `Double` and `Integer` and their primitives are excluded
+  until a version specifies them here. That includes NaN and infinity in
+  casts: Chez's `exact-truncate` fails on them.

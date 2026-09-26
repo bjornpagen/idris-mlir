@@ -30,8 +30,8 @@
   automatic superoptimization pays off little in general code (Souper made
   Clang 4.4% smaller but about 2% slower;
   [sasnauskas-2017-souper](../research/papers/sasnauskas-2017-souper)).
-- **Heap, GC, reference counting, runtime system (until reopened).** Up to and
-  including v4, compiled programs allocate no heap memory. Memory management is
+- **Heap, GC, reference counting, runtime system (until reopened).** Until the
+  memory design exists, compiled programs allocate no heap memory. Memory management is
   a later design discussion that starts from scratch
   ([15-roadmap](15-roadmap.md)).
 - **Separate compilation.** The compiler is whole-program.
@@ -54,17 +54,25 @@
   [09-optimization](09-optimization.md) assigns every optimization to a
   level.
 - **GOAL-P2. Remove abstraction before the core, then optimize first-order
-  code.** Following Futhark, the Idris middle end removes polymorphism and
-  higher-order functions (from the versions that admit them), so the `idr`
-  dialect is first-order and monomorphic. Lowering is a change of
-  representation (dialect conversion), not a place where decisions are made.
+  code.** Following MLton and Futhark, the Idris middle end removes
+  polymorphism, lambdas, laziness, monadic structure and string building
+  with a fixed list of whole-program eliminations
+  ([06-elimination](06-elimination.md)). So the `idr` dialect is first-order
+  and monomorphic. Lowering is a change of representation (dialect
+  conversion), not a place where decisions are made.
 - **GOAL-P3. Reject rather than guess.** Any construct, type, or missing fact
   that the current version cannot handle fails with an explicit `unsupported`
   error ([13-diagnostics](13-diagnostics.md)). Silent miscompilation is the
   worst possible outcome.
-- **GOAL-P4. Heap-free by construction.** Until the memory design exists, the
-  `idr` dialect has no allocating operation. Any program that passes its
-  verifier lowers to code with no heap allocation.
+- **GOAL-P4. Heap-free by guaranteed elimination.** Until the memory design
+  exists:
+  - A program is accepted only if no heap operation survives the guaranteed
+    eliminations (`PROF-HEAP-1`). The source may use lambdas, `Lazy`, monads
+    and string operations, as long as each is eliminated.
+  - The list of eliminations is fixed and deterministic, so acceptance is a
+    rule and does not depend on optimizer heuristics.
+  - The `idr` dialect has no allocating operation, so any program that passes
+    its verifier lowers to code with no heap allocation.
 - **GOAL-P5. Facts are not semantics.**
   - Erased does not mean constant.
   - Quantity 1 does not mean unique ownership: Idris's linearity promises
@@ -97,5 +105,9 @@ user's approval.
 | D8 | Proved rewrites (user-proved equalities used by the compiler) are a future feature. The design keeps them possible from day one, but no version has them yet and they will use no pragma. | [07-proved-rewrites](07-proved-rewrites.md) |
 | D9 | No pragmas in profile programs. | "Strict subset for now, no pragmas yet." |
 | D10 | LLVM/MLIR is rebuilt with the pinned GCC, so all C++ is built by one compiler. | cpp-starter treats the toolchain as part of the language. |
-| D11 | The v0–v2 entry point is a pure `main : Int`; the process exit status is its low 8 bits. IO arrives in v3. | Heap-free programs have no output channel before IO. |
+| D11 | v0's entry point is a pure `main : Int`, and the process exit status is its low 8 bits. From v1, `main : IO ()` is also an entry point, compiled through `-o`. | v0 brings up the pipeline without IO. v1 adds IO. |
 | D12 | The compiler reads checked TT (`treeCT`, signatures, quantities), never `CExp` or runtime case trees. | `CExp` and `treeRT` have already erased facts we need. |
+| D13 | v1 targets "hello world": an IO monad, static strings, and `Char`, heap-free. | Static strings live in read-only data. IO is world-passing code once its lambdas are eliminated. Neither needs a heap. |
+| D14 | Heap-freedom is decided after a fixed list of MLton-style eliminations in the Idris middle end: specialization on known functions, inlining of known higher-order and monadic code, arity raising, compile-time string evaluation, and output fusion. | Most apparent heap use in Idris code, such as closures, monadic binds, and `putStrLn`'s append, is statically eliminable in a whole program. |
+| D15 | The Prelude is deferred like GC. Its dependency modules are compiled first, one layer at a time and fully tested, before the stock Prelude is ever imported implicitly. | Grow from a verified base. |
+| D16 | IO comes from the stock `Builtin` and `PrimIO` modules plus our own small `IdrisMLIR.IO`. That module is the only place `%foreign` appears; user code stays pragma-free. | One small, audited escape point. |

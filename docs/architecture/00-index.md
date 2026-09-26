@@ -1,6 +1,6 @@
 # idris-mlir architecture specification
 
-Status: **draft 1, awaiting review.** Once the user approves it, it governs p0
+Status: **draft 2, awaiting review.** Once the user approves it, it governs p0
 and v0 (see [roadmap](15-roadmap.md)). Until then nothing in it may be
 implemented.
 
@@ -19,7 +19,7 @@ described the "no C++" state.
 | [03-semantics](03-semantics.md) | reference semantics of profile programs | **yes** |
 | [04-frontend](04-frontend.md) | what the compiler reads from Idris and how | |
 | [05-middle-ir](05-middle-ir.md) | the Idris-side IR (`Core`) and its pass order | |
-| [06-elimination](06-elimination.md) | erasure, monomorphisation, defunctionalisation, forcing | |
+| [06-elimination](06-elimination.md) | erasure, monomorphisation, the guaranteed eliminations (lambdas, monads, strings) | |
 | [07-proved-rewrites](07-proved-rewrites.md) | reserved: rewriting with user-proved equalities | |
 | [08-idr-dialect](08-idr-dialect.md) | the `idr` dialect: the Idris ↔ C++ boundary | **yes** |
 | [09-optimization](09-optimization.md) | which optimization runs where, and why | |
@@ -130,15 +130,15 @@ exist only on paper.
 
 ## Open questions
 
-These need a decision from the user before the version that needs them. They
-do not block p0 or v0.
+Settled in draft 2:
+- **Multiple modules.** `main : IO ()` programs compile through Idris's
+  whole-program callback (`-o`), which handles imports.
+- **IO surface.** Stock `Builtin` and `PrimIO` plus our own small module,
+  `IdrisMLIR.IO`, which is the only place `%foreign` is allowed.
+- **Prelude.** Deferred like GC. The Prelude's dependency modules come first,
+  one layer at a time, each fully tested
+  ([15-roadmap](15-roadmap.md)).
 
-1. **v1:** how a multi-module program reaches the compiler: the incremental
-   callback at the root module, or `-o` with a pure `main`.
-   See [04-frontend](04-frontend.md#multi-module-programs).
-2. **v3:** the profile's IO surface: which library functions, and how the
-   `%foreign` pragmas they need are admitted while user code stays pragma-free.
-3. **v4:** which Prelude definitions are trusted, given that the Prelude
-   itself uses pragmas and escape hatches.
-4. **Later:** the surface syntax of proved rewrites
+Still open, and blocking nothing before it is needed:
+1. **Later:** the surface syntax of proved rewrites
    ([07-proved-rewrites](07-proved-rewrites.md)).

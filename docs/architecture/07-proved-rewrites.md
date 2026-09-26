@@ -30,7 +30,8 @@ developer wrote and Idris checked.
 ## Rules that bind now
 
 - **RW-DAY1-1 (v0).** The middle end's pass order reserves the `Rewrite`
-  position, before monomorphisation and defunctionalisation (`CORE-PASS-1`).
+  position, before monomorphisation and the guaranteed eliminations
+  (`CORE-PASS-1`).
 - **RW-DAY1-2 (v0).** The compiler never discards compile-time-only
   definitions, or their bodies and types, before the middle end has run
   (`ELIM-ERASE-2`). A proof is quantity 0, and is still a fact the compiler
@@ -49,7 +50,7 @@ When this feature is adopted, the design MUST satisfy the following:
 - **RW-FUT-1.** No pragma. A rewrite is declared by an ordinary Idris
   definition whose type the compiler recognizes, for example a value of a
   small library type that holds the proof at quantity 0. The exact surface is
-  open question 4.
+  open question 1.
 - **RW-FUT-2.** Pointwise equality. Idris has no function extensionality, so a
   rule proves `(x : a) -> f x = g x`, and multi-argument functions curry. A
   precondition is expressed in the domain type, for example `Fin n` or a

@@ -20,10 +20,23 @@ profile violation that TT can show.
   Idris calls the callback after it has checked the module and before it
   writes the module's TTC. The callback compiles the whole program starting
   from the root.
-- **FE-ENTRY-3 (v0).** The whole-program callback (`compileExpr`, used by
-  `-o` and `--exec`) fails with an `unsupported` error until v3, because it
-  receives `unsafePerformIO main` and v0 has no IO.
+- **FE-ENTRY-3 (v0 only; replaced by FE-ENTRY-4).** The whole-program
+  callback (`compileExpr`, used by `-o`) fails with an `unsupported` error,
+  because it receives `unsafePerformIO main` and v0 has no IO.
   - Test: `tests/compiler` (the existing rejection test)
+- **FE-ENTRY-4 (v1).** IO programs compile through the whole-program callback:
+
+  ```sh
+  idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr
+  ```
+
+  - The callback receives the closed term `unsafePerformIO main` and the
+    `Defs` of every loaded module.
+  - The term MUST be exactly that application, with `main : IO ()` in the
+    main module; anything else is a `PROF-PROG-4` error. `main` is the root.
+  - The callback then runs the whole driver chain (`DRV-FLOW-2`).
+- **FE-ENTRY-5 (v1).** `--exec` is not supported and fails with an
+  `unsupported` error naming `FE-ENTRY-5`.
 
 ## What the frontend reads
 
@@ -33,7 +46,8 @@ profile violation that TT can show.
     `treeCT`, `DCon`, `TCon`, `Builtin`, `Hole`, `ExternDef`, `ForeignDef`),
     `multiplicity`, `totality`, `isEscapeHatch`, `flags`, `location`, and
     `fullname`;
-  - **the program's source file**, only to lex it for pragmas (`PROF-PRAG-1`).
+  - **the source file of each user module**, only to lex it for pragmas
+    (`PROF-PRAG-1`). User modules are those not listed in `PROF-LIB-1`.
 - **FE-IN-2 (v0).** The frontend MUST NOT read:
   - `treeRT`, `compexpr`, `namedcompexpr` or `schemeExpr`;
   - any `CExp`, `NamedCExp`, `Lifted`, `ANF` or `VM` form;
@@ -53,28 +67,35 @@ profile violation that TT can show.
     collapsibility analysis. v0 does not rely on that analysis
     ([06-elimination](06-elimination.md) may adopt it later, as a fact).
 
-## Stages (v0)
+## Stages
 
-The callback runs these stages in order and stops at the first error. Each
+Both callbacks run these stages in order and stop at the first error. Each
 error follows `DIAG-*`.
 
-1. **Pragmas (`PROF-PRAG-1`).** Lex the source with `Parser.Lexer.Source.lex`
-   and reject every `Pragma` token, at its bounds.
-2. **Program shape (`PROF-PROG-1`).** `imported` is empty. Each entry is an
-   error at the module. p0 verifies that `--no-prelude` records no implicit
-   entry. If the pinned Idris does record one, this rule is amended to name
-   it, rather than the check silently allowing it.
-3. **Root (`PROF-PROG-2`).**
-   - Resolve `NS <module> (UN (Basic "main"))`.
-   - Normalize its type; it must be the primitive type `Int`.
-   - Its definition must be a `PMDef` with zero arguments.
+1. **Pragmas (`PROF-PRAG-1`).** Lex each user module's source with
+   `Parser.Lexer.Source.lex` and reject every `Pragma` token, at its bounds.
+2. **Program shape.**
+   - For `main : Int` (`PROF-PROG-1`): `imported` is empty. Each entry is an
+     error at the module. p0 verifies that `--no-prelude` records no implicit
+     entry. If the pinned Idris does record one, this rule is amended to name
+     it, rather than the check silently allowing it.
+   - For `main : IO ()` (`PROF-PROG-4`): every imported module is a user
+     module or a trusted module.
+3. **Root.**
+   - For `main : Int` (`PROF-PROG-2`): resolve `NS <module> (UN (Basic "main"))`.
+     Its normalized type must be `Int`, and its definition a `PMDef` with
+     zero arguments.
+   - For IO programs, the root comes from `FE-ENTRY-4`.
 4. **Reachability (`FE-REACH-1`).**
-5. **Profile checks on TT:** `PROF-ESC-1`, `PROF-FN-1`, `PROF-FN-2`,
-   `PROF-FN-5`, `PROF-DATA-*`.
-6. **Translation to `Core` (`FE-TR-*`)**, which also checks `PROF-TYPE-2`,
-   `PROF-FN-3`, `PROF-FN-4`, `PROF-TERM-*` and `PROF-PRIM-*`.
-7. **The middle end and emission** ([05-middle-ir](05-middle-ir.md)).
-8. **Artifacts (`FE-ART-1`).**
+5. **Profile checks on TT:** `PROF-ESC-1`, `PROF-LIB-*`, `PROF-IO-3`,
+   `PROF-FN-1`, `PROF-FN-5`, `PROF-DATA-*` (and, in v0, `PROF-FN-2`).
+6. **Translation to full `Core` (`FE-TR-*`)**, which also checks
+   `PROF-TERM-*` and `PROF-PRIM-*` (and, in v0, `PROF-TYPE-2`, `PROF-FN-3`
+   and `PROF-FN-4`).
+7. **The middle end** (`Mono`, `Simplify`, `HeapCheck`) **and emission**
+   ([05-middle-ir](05-middle-ir.md)).
+8. **Artifacts (`FE-ART-1`)**, then, for IO programs, the rest of the driver
+   chain (`DRV-FLOW-2`).
 
 - **FE-REACH-1 (v0).** Reachability is a worklist from the root over every
   name referenced by a definition's `type` and `treeCT`, including names in
@@ -86,7 +107,7 @@ error follows `DIAG-*`.
   unchecked.
   - Test: `tests/profile/v0/reject/PROF-FN-5-partial.idr`
 
-## Translation to Core (v0)
+## Translation to Core
 
 - **FE-TR-1 (v0). Types.** The type of every runtime binder is normalized with
   Idris's normalizer (`Core.Normalise.normalise`) in its environment. The
@@ -95,7 +116,13 @@ error follows `DIAG-*`.
   - a type constructor (`Ref` to a `TCon`) with no arguments that satisfies
     `PROF-DATA-*`.
 
-  Anything else is a `PROF-TYPE-2` error at the binder's location.
+  From v1, the result may also be:
+  - `Char`, `String` or `%World`;
+  - a type constructor applied to its parameters;
+  - a function type or `Lazy`.
+
+  Anything else is a `PROF-TYPE-2` error (v0) or a `PROF-TYPE-4` error (v1)
+  at the binder's location.
 - **FE-TR-2 (v0). Quantities.** Each Pi binder's quantity maps to `Q0`, `Q1`
   or `QW`. The quantity is recorded on every parameter, every constructor
   field, and every `let` in `Core` (`CORE-INV-4`).
@@ -109,7 +136,13 @@ error follows `DIAG-*`.
   | `Ref` to an allowed `Builtin`, saturated | primitive |
   | `PrimVal` of a runtime type | literal (`SEM-LIT-1`) |
   | `Bind` with `Let` | `let` with its quantity |
-  | `Meta`, `TDelay`, `TForce`, `Bind` with `Lam` or `Pi`, `TType`, unsaturated `App`, anything else | `unsupported` error with the matching rule |
+  | `Bind` with `Lam` (v1) | `Lam` |
+  | unsaturated or over-saturated application (v1) | `App` and `Lam` (eta-expansion), with the call saturated where the arity is known |
+  | `TDelay` / `TForce` with reason `LLazy` (v1) | `Delay` / `Force` |
+  | `PrimVal` of `Char` or `String` (v1) | literal |
+  | `PrimVal WorldVal` (`%MkWorld`) (v1) | `World` (only through the root, `PROF-IO-3`) |
+  | `Ref` to a `PROF-IO-2` primitive (v1) | `IOPrim` |
+  | `Meta`, `TDelay`/`TForce` with reason `LInf`, `Bind` with `Pi`, `TType`, anything else | `unsupported` error with the matching rule |
 
   - Arguments in compile-time positions become the `Core` erased value,
     whatever their TT form.
@@ -119,13 +152,17 @@ error follows `DIAG-*`.
   | --- | --- |
   | `Case` on a variable | match on that variable |
   | `ConCase` | alternative with the constructor's tag, binding its fields (compile-time fields bind the erased value) |
-  | `ConstCase` on an integer constant | literal alternative |
+  | `ConstCase` on an integer or `Char` constant | literal alternative (a `ConstCase` on `String` is a `PROF-PRIM-4` error) |
   | `DefaultCase` | default alternative |
   | `DelayCase` | `PROF-TERM-2` error |
   | `STerm` | term |
   | `Unmatched` | `PROF-TERM-2` error |
   | `Impossible` | dropped, relying on `SEM-DATA-2` |
 
+- **FE-TR-5 (v1). Polymorphism.** Before `Mono`, the type of a runtime binder
+  may contain the definition's quantity-0 type parameters, which become
+  `TyVar`. The closedness check of `FE-TR-1` then runs after `Mono`
+  (`PROF-TYPE-4`).
 - **FE-LOC-1 (v0).** Every `Core` definition carries its `GlobalDef`
   location. Every `Core` term carries the `FC` of the TT node it came from,
   or else its definition's location. The MLIR emitted for it carries the same
@@ -137,10 +174,15 @@ error follows `DIAG-*`.
 
 ## Artifacts (v0)
 
-- **FE-ART-1 (v0).** On success, the callback writes `<Module>.core` (the
-  printed `Core`) and `<Module>.mlir` (the contract text) next to the
-  module's TTC, and returns the `.mlir` path to Idris as its object file. On
-  failure it writes neither and removes any stale copies.
+- **FE-ART-1 (v0).** On success, the frontend writes the printed `Core`
+  (`.core`) and the contract text (`.mlir`), and on failure writes neither
+  and removes any stale copies:
+  - **`main : Int`:** the incremental callback writes `<Module>.core` and
+    `<Module>.mlir` next to the module's TTC, and returns the `.mlir` path to
+    Idris as its object file.
+  - **IO programs:** the whole-program callback writes `<prog>.core` and
+    `<prog>.mlir` in Idris's output directory (`build/exec/` by default),
+    then continues with `DRV-FLOW-2`.
   - Test: every reject fixture asserts that neither file exists
     (`TEST-REJ-1`)
 
@@ -162,14 +204,11 @@ definitions have type `Erased` and no totality.
   definition, the frontend MUST fail with `unsupported`, naming the
   definition. It MUST NOT guess.
 
-## Multi-module programs
+## Imported modules (v1)
 
-This is open question 1, to be decided before v1. The two candidate
-mechanisms:
-- **The root's incremental callback.** Every user module is also checked with
-  `--inc mlir`. Non-root modules get only per-module profile checks and write
-  an empty marker, so that Idris keeps incremental mode on. The root compiles
-  the whole program from the loaded `Defs`. Risk: facts lost in TTC
-  (`FE-TTC-1`).
-- **The whole-program callback (`-o`).** Requires `main : IO ()`, which
-  conflicts with D11 until v3.
+- **FE-TTC-2 (v1).** Under `-o`, Idris loads modules from TTC, including the
+  trusted modules. So `FE-TTC-1` applies to every definition the program
+  reaches. v1's entry criterion (`RM-V1-1`) is an experiment confirming that
+  every definition admitted by `PROF-LIB-1`, and the definitions Idris
+  generates for ordinary user code, keep the facts the frontend needs.
+  Anything missing is rejected, never guessed.
