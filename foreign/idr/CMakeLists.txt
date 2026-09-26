@@ -14,21 +14,21 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/IdrOps.td)
 mlir_tablegen(include/idr/IdrDialect.h.inc -gen-dialect-decls -dialect=idr)
-mlir_tablegen(include/idr/IdrDialect.cpp.inc -gen-dialect-defs -dialect=idr)
+mlir_tablegen(include/idr/IdrDialect.cc.inc -gen-dialect-defs -dialect=idr)
 mlir_tablegen(include/idr/IdrTypes.h.inc -gen-typedef-decls -typedefs-dialect=idr)
-mlir_tablegen(include/idr/IdrTypes.cpp.inc -gen-typedef-defs -typedefs-dialect=idr)
+mlir_tablegen(include/idr/IdrTypes.cc.inc -gen-typedef-defs -typedefs-dialect=idr)
 mlir_tablegen(include/idr/IdrOps.h.inc -gen-op-decls)
-mlir_tablegen(include/idr/IdrOps.cpp.inc -gen-op-defs)
+mlir_tablegen(include/idr/IdrOps.cc.inc -gen-op-defs)
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Passes.td)
 mlir_tablegen(include/idr/Passes.h.inc -gen-pass-decls -name Idr)
 add_public_tablegen_target(idr_tablegen)
 
 add_library(idr_dialect STATIC
-	lib/IdrDialect.cpp
-	lib/CheckInput.cpp
-	lib/TailLoops.cpp
-	lib/Lower.cpp
-	lib/Registration.cpp
+	lib/IdrDialect.cc
+	lib/CheckInput.cc
+	lib/TailLoops.cc
+	lib/Lower.cc
+	lib/Registration.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
 
@@ -62,7 +62,7 @@ target_link_libraries(idr_dialect
 
 llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes)
 
-add_executable(idris-mlir-opt tools/idris-mlir-opt.cpp)
+add_executable(idris-mlir-opt tools/idris-mlir-opt.cc)
 target_link_libraries(idris-mlir-opt PRIVATE
 	idr_dialect
 	MLIROptLib
@@ -72,7 +72,7 @@ target_link_libraries(idris-mlir-opt PRIVATE
 	idris_mlir_language_profile
 )
 
-add_executable(idris-mlir-cc tools/idris-mlir-cc.cpp)
+add_executable(idris-mlir-cc tools/idris-mlir-cc.cc)
 target_link_libraries(idris-mlir-cc PRIVATE
 	idr_dialect
 	MLIRRegisterAllDialects

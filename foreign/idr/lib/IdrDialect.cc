@@ -11,13 +11,13 @@
 using namespace mlir;
 using namespace idr;
 
-#include "idr/IdrDialect.cpp.inc"
+#include "idr/IdrDialect.cc.inc"
 
 #define GET_TYPEDEF_CLASSES
-#include "idr/IdrTypes.cpp.inc"
+#include "idr/IdrTypes.cc.inc"
 
 #define GET_OP_CLASSES
-#include "idr/IdrOps.cpp.inc"
+#include "idr/IdrOps.cc.inc"
 
 namespace {
 
@@ -37,11 +37,11 @@ struct IdrInliner : DialectInlinerInterface {
 void IdrDialect::initialize() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "idr/IdrTypes.cpp.inc"
+#include "idr/IdrTypes.cc.inc"
       >();
   addOperations<
 #define GET_OP_LIST
-#include "idr/IdrOps.cpp.inc"
+#include "idr/IdrOps.cc.inc"
       >();
   addInterfaces<IdrInliner>();
 }

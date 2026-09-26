@@ -129,6 +129,9 @@ class Structure(unittest.TestCase):
         self.assertTrue(cpp)
         for path in cpp:
             self.assertEqual(path.relative_to(ROOT).parts[:2], ("foreign", "idr"), path)
+        # docs/cpp-profile.md: `.cc` is the only C++ source extension.
+        retired = [p for p in cpp if p.suffix in {".cpp", ".cppm"}]
+        self.assertEqual(retired, [])
         for zone in ("src", "unsafe"):
             self.assertEqual(sorted(p.name for p in (ROOT / zone).iterdir()), ["CMakeLists.txt"])
 
