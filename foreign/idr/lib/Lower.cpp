@@ -288,6 +288,19 @@ struct LowerErased : IdrPattern<idr::ErasedOp> {
   }
 };
 
+// LOW-TAIL-4: llvm.sideeffect, which LLVM keeps so that a loop that may not
+// terminate is never deleted.
+struct LowerMayLoop : IdrPattern<idr::MayLoopOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(idr::MayLoopOp op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    LLVM::CallIntrinsicOp::create(rewriter, op.getLoc(),
+                                  rewriter.getStringAttr("llvm.sideeffect"), ValueRange{});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Poison of an idr type (from idr-tail-loops) becomes poison of each component.
 struct LowerPoison : IdrPattern<ub::PoisonOp> {
   using IdrPattern::IdrPattern;
@@ -521,7 +534,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerStr,
+    patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerStr, LowerMayLoop,
                  LowerToChar, LowerDivision<idr::DivOp, true>,
                  LowerDivision<idr::ModOp, false>, LowerIO<idr::PutStrOp>,
                  LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>,

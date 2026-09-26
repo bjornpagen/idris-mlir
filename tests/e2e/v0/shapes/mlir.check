@@ -7,7 +7,7 @@
 // CHECK: func.func private @Prog.main() -> i64
 // CHECK: idr.con @Prog.Shape::@Prog.Rect
 // CHECK: %[[E:.*]] = idr.erased : !idr.erased
-// CHECK: func.call @Prog.keep(%[[E]], %{{.*}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":14:8)
+// CHECK: func.call @Prog.keep(%[[E]], %{{.*}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":19:8)
 // CHECK: func.func private @Prog.area(%{{.*}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64
 // CHECK: idr.tag
 // CHECK: scf.index_switch

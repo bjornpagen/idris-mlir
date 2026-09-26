@@ -1,4 +1,7 @@
-// RUN: idris-mlir-cc %s -o %t.o && cc %t.o -o %t && not %t; test $? -eq 42 || (%t; test $? -eq 42)
+// RUN: idris-mlir-cc %s -o %t.o
+// RUN: %cc %t.o -o %t
+// RUN: %status 42 %t
+// rule: DRV-FLOW-1, LOW-ENTRY-1
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
   idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
     idr.ctor @Circle tag 0 fields [i64] quantities ["w"] {idr.name = "Prog.Circle"}

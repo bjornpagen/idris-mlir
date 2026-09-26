@@ -139,6 +139,8 @@ struct Loop {
     Block *after = rewriter.createBlock(&loop.getAfter(), {}, forwarded,
                                         SmallVector<Location>(static_cast<unsigned>(n + 1), loc));
     rewriter.setInsertionPointToEnd(after);
+    // LOW-TAIL-4: recursion may not terminate; the loop must stay (SEM-EVAL-5).
+    idr::MayLoopOp::create(rewriter, loc);
     scf::YieldOp::create(rewriter, loc, after->getArguments().take_front(n));
     // Outer ops were recorded after the ops they contain; their uses are gone.
     for (Operation *op : llvm::reverse(dead))

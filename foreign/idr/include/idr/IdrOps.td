@@ -48,6 +48,7 @@ def Idr_WorldType : Idr_Type<"World", "world"> {
 
 def Idr_CrashResource : Resource<"::idr::CrashResource">;
 def Idr_IOResource : Resource<"::idr::IOResource">;
+def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
 
 class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, traits>;
@@ -138,6 +139,15 @@ def Idr_DivOp : Idr_DivisionOp<"div"> {
 }
 def Idr_ModOp : Idr_DivisionOp<"mod"> {
   let summary = "Idris mod: Euclidean when signed, crashes on zero";
+}
+
+// LOW-TAIL-4: created by idr-tail-loops, never in the input (IDR-IN-1).
+// MLIR deletes a region op without side effects even if it never finishes;
+// this op's effect keeps a loop that may not terminate (SEM-EVAL-5).
+def Idr_MayLoopOp : Idr_Op<"may_loop",
+    [MemoryEffects<[MemWrite<Idr_DivergenceResource>]>]> {
+  let summary = "marks one iteration of a loop that may not terminate";
+  let assemblyFormat = "attr-dict";
 }
 
 // IDR-CHAR-1

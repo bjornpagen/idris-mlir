@@ -22,6 +22,11 @@ struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
   llvm::StringRef getName() const final { return "idr.crash"; }
 };
 
+// The resource that a loop which may not terminate writes to (LOW-TAIL-4).
+struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource> {
+  llvm::StringRef getName() const final { return "idr.divergence"; }
+};
+
 // The resource that every IO op reads and writes (IDR-EFF-2).
 struct IOResource : mlir::SideEffects::Resource::Base<IOResource> {
   llvm::StringRef getName() const final { return "idr.io"; }

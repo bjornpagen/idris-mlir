@@ -30,6 +30,8 @@ bool isV1Op(Operation *op) {
 
 // IDR-IN-1
 bool allowedOp(Operation *op) {
+  if (isa<idr::MayLoopOp>(op))
+    return false;
   if (isa<idr::IdrDialect>(op->getDialect()))
     return true;
   return isa<ModuleOp, func::FuncOp, func::CallOp, func::ReturnOp,
@@ -107,6 +109,10 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
           !isa<idr::WorldType>(type.getInput(0)) || type.getNumResults() != 1)
         fail(root, "an io entry has type (!idr.world) -> T, from version 1");
     }
+
+    // LOW-ENTRY-1: idr-lower creates the C entry point @main.
+    if (Operation *reserved = module.lookupSymbol("main"))
+      fail(reserved, "the symbol @main is reserved for the C entry point (LOW-ENTRY-1)");
 
     module.walk([&](Operation *op) {
       if (!allowedOp(op))

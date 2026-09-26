@@ -802,7 +802,14 @@ mutual
                   deps => modify { pending $= insert key deps }
            else unsafe l key
         settle l
-        let newFn = MkFn key fn.idrisName (map (\(v, t) => MkParam v (quantityOf t) t) params)
+        -- CORE-INV-4: a runtime argument keeps the quantity of its parameter;
+        -- the atoms of a static value are unrestricted.
+        let argQs = concat (zipWith (\p, a => case a of
+                                        Dyn _ ErasedT => [Q0]
+                                        Dyn _ t => [p.quantity]
+                                        _ => map (quantityOf . snd) (flatten a)) fn.params args)
+        let qs = argQs ++ map (quantityOf . snd) (concatMap flattenElim es)
+        let newFn = MkFn key fn.idrisName (zipWith (\(v, t), q => MkParam v q t) params qs)
                          resTy body fn.loc fn.terminating
         modify { done $= (:< newFn) }
         pure key
