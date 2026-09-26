@@ -431,6 +431,10 @@ def doctor():
     stamp = read_stamp(LLVM_PREFIX)
     print("Local MLIR tools:", f"built at {stamp['llvm_revision']}" if stamp else "not built")
     for tool in LLVM_TOOLS if stamp else ():
+        if tool in ("not", "count"):   # test utilities without --version
+            present = (LLVM_PREFIX / "bin" / tool).is_file()
+            print(f"  {tool}: {'present' if present else 'MISSING'}")
+            continue
         output = run([LLVM_PREFIX / "bin" / tool, "--version"], capture=True).stdout
         ok = f"version {llvm['version']}" in output
         print(f"  {tool}: {'matches lock' if ok else 'VERSION MISMATCH'}")
