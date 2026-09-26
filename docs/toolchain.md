@@ -33,8 +33,10 @@ never uses an `idris2` found on `PATH`.
 checks the commit, builds `mlir-opt`, `mlir-translate`, `opt`, and `llc`
 (MLIR enabled, native target, assertions on), and copies them to
 `.toolchain/llvm/bin`. Clang is not built: the system `cc` only links the
-object file that `llc` produces. Expect a few hours and ~15 GB of disk. You
-can delete `.toolchain/llvm-build` afterwards.
+object file that `llc` produces. Some MLIR sources need ~5 GB of memory each
+to compile, so parallel compiles are capped at one per 7 GB of RAM. Expect a
+few hours and ~15 GB of disk. You can delete `.toolchain/llvm-build`
+afterwards.
 
 Distribution packages and apt.llvm.org builds track release branches, not the
 pinned commit, so the project does not use them.

@@ -118,6 +118,12 @@ def bootstrap_idris(scheme):
         {"idris2_revision": revision, "scheme": executable}, indent=2) + "\n")
 
 
+def compile_jobs():
+    """Parallel C++ compiles that fit in memory: some MLIR files need ~5 GB each."""
+    memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    return max(1, min(os.cpu_count() or 1, memory // (7 * 2**30)))
+
+
 def bootstrap_llvm():
     lock = llvm_lock()
     require("git", "cmake", "ninja", "c++")
@@ -137,6 +143,7 @@ def bootstrap_llvm():
          "-DLLVM_INCLUDE_TESTS=OFF",
          "-DLLVM_INCLUDE_EXAMPLES=OFF",
          "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+         f"-DLLVM_PARALLEL_COMPILE_JOBS={compile_jobs()}",
          "-DLLVM_PARALLEL_LINK_JOBS=1"])
     run(["cmake", "--build", LLVM_BUILD, "--target", *LLVM_TOOLS])
     (LLVM_PREFIX / "bin").mkdir(exist_ok=True)
