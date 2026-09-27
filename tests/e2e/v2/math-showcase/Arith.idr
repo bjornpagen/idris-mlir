@@ -1,11 +1,13 @@
 module Arith
 
 -- A small numeric prelude for the math showcase: arithmetic as a user
--- interface (FE-TR-6), with implementations for Double and Int. IO and `do`
--- come from the Prelude's own IO and Interfaces modules; the rest of the
--- Prelude is not imported, since its names would clash with these.
+-- interface (FE-TR-6), with implementations for Double and Int. IO comes from
+-- PrimIO, and putStr and `do` from the Prelude's own IO and Interfaces
+-- modules; the rest of the Prelude is not imported, since its names would
+-- clash with these.
 
 import public Builtin
+import public PrimIO
 import public Prelude.IO
 import public Prelude.Interfaces
 
@@ -27,6 +29,22 @@ public export
 not : Bool -> Bool
 not True = False
 not False = True
+
+||| Integer literals. Prelude.Num, which Prelude.Interfaces loads, turns on
+||| `%integerLit fromInteger` for every module after it, so the literals of
+||| these modules need a `fromInteger` in scope: this one, not the Prelude's
+||| `Num`, whose operators would clash with `Arith`'s.
+public export
+interface FromInteger a where
+  fromInteger : Integer -> a
+
+public export
+FromInteger Int where
+  fromInteger = prim__cast_IntegerInt
+
+public export
+FromInteger Double where
+  fromInteger = prim__cast_IntegerDouble
 
 public export
 truth : Int -> Bool

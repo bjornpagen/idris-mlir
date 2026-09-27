@@ -1,5 +1,7 @@
 module Counter
 
+import Prelude
+
 export
 count : Int -> Int
 count 0 = 0
