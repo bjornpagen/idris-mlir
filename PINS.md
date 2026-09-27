@@ -89,7 +89,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - symptom: the contract keeps every `func.func` private (IDR-FN-2) and names
   the root in the `idr.entry` module attribute, which `symbol-dce` and the
   inliner do not count as a use, so they deleted the root (found in p0)
-- sites: foreign/idr/lib/TailLoops.cc (`idr-entry`), foreign/idr/lib/Lower.cc
+- sites: foreign/idr/lib/Entry.cc (`idr-entry`), foreign/idr/lib/Lower.cc
 - workaround: the `idr-entry` pass makes the root public for the generic
   passes; `idr-lower` makes it private again when it creates the C entry
   point (OPT-PIPE-1)

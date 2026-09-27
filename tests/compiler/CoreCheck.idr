@@ -7,7 +7,7 @@
 ||| CORE-INV-10), and an unbound variable in full Core (CORE-INV-1).
 |||
 ||| rule: CORE-CHECK-1, CORE-INV-1, CORE-INV-2, CORE-INV-3, CORE-INV-5, CORE-INV-6
-||| rule: CORE-INV-7, CORE-INV-8, CORE-INV-9, DIAG-ICE-1
+||| rule: CORE-INV-7, CORE-INV-8, CORE-INV-9, CORE-INV-11, DIAG-ICE-1
 module Main
 
 import IdrisMLIR.Code
@@ -39,19 +39,19 @@ var = AVar . v
 lit : Integer -> Atom
 lit n = ALit (LInt IdrisInt n)
 
-let' : Nat -> VTy -> Op Code -> Code -> Code
-let' x t = Bind l (v x) QW t
+let' : Nat -> VTy -> Op -> Code Pure -> Code Pure
+let' x t = Let l [MkParam (v x) QW t]
 
-ret : Atom -> Code
-ret = Ret l
+ret : Atom -> Code Pure
+ret a = Ret l [a]
 
 param : Nat -> Quantity -> VTy -> Param
 param x = MkParam (v x)
 
-fn : String -> List Param -> VTy -> Code -> CFn
-fn n ps r b = MkCFn (MkFnId n) n ps r b l True Nothing
+fn : String -> List Param -> VTy -> Code Pure -> CFn Pure
+fn n ps r b = MkCFn (MkFnId n) n ps [r] b l True Nothing
 
-prog : List CData -> List CFn -> Target
+prog : List CData -> List (CFn Pure) -> Target Pure
 prog ds fs = MkTarget ds fs (MkFnId "main") IntEntry
 
 dataT : String -> List (String, List CField) -> CData
@@ -69,18 +69,18 @@ ioRes = dataT "IORes" [("MkIORes", [MkCField QW (DataT (MkDataId "Unit")), MkCFi
 shape : CData
 shape = dataT "Shape" [("Circle", [MkCField QW int]), ("Square", [MkCField QW int])]
 
-callF : Atom -> Code
+callF : Atom -> Code Pure
 callF a = let' 1 int (OCall (MkFnId "f") [a]) (ret (var 1))
 
 ||| main calls area on a circle; area's body is given.
-area : Code -> Target
+area : Code Pure -> Target Pure
 area body = prog [shape]
   [ fn "main" [] int (let' 1 (DataT (MkDataId "Shape")) (OCon (con "Shape" "Circle") [lit 2])
                        (let' 2 int (OCall (MkFnId "area") [var 1]) (ret (var 2))))
   , fn "area" [param 1 QW (DataT (MkDataId "Shape"))] int body ]
 
 ||| (name, program, expected rule or Nothing for a valid program)
-cases : List (String, Target, Maybe Rule)
+cases : List (String, Target Pure, Maybe Rule)
 cases =
   [ ("valid", prog [] [fn "main" [] int (ret (lit 1))], Nothing)
   , ("unbound variable", prog [] [fn "main" [] int (ret (var 7))], Just CoreInv1)
@@ -97,23 +97,27 @@ cases =
   , ("quantity-0 variable used", prog []
       [fn "main" [] int (callF AErased), fn "f" [param 2 Q0 ErasedT] int (ret (var 2))], Just CoreInv5)
   , ("duplicate alternatives", area
-      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
-                                  MkBranch (con "Shape" "Circle") [v 3] (ret (var 3))] (Just (ret (lit 0))))
-         (ret (var 4))), Just CoreInv6)
+      (Case l (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
+                       MkBranch (con "Shape" "Circle") [v 3] (ret (var 3))] (Just (ret (lit 0)))), Just CoreInv6)
   , ("match that does not cover", area
-      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2))] Nothing)
-         (ret (var 4))), Just CoreInv6)
+      (Case l (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2))] Nothing), Just CoreInv6)
   , ("impossible alternative", area
-      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
-                                  MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing)
-         (ret (var 4))), Nothing)
+      (Case l (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
+                       MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing), Nothing)
   , ("match whose alternatives are all impossible", area
-      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (Absurd l),
-                                  MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing)
-         (ret (var 4))), Just CoreInv6)
+      (Case l (var 1) [MkBranch (con "Shape" "Circle") [v 2] (Absurd l),
+                       MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing), Just CoreInv6)
+  , ("match continued at a join point", area
+      (Join l (MkJoinId 9) [param 4 QW int] (ret (var 4))
+         (Case l (var 1) [MkBranch (con "Shape" "Circle") [v 2] (Jump l (MkJoinId 9) [var 2]),
+                          MkBranch (con "Shape" "Square") [v 3] (Jump l (MkJoinId 9) [var 3])] Nothing)), Nothing)
+  , ("jump to a join point out of scope", area (Jump l (MkJoinId 9) [lit 1]), Just CoreInv1)
+  , ("jump with the wrong arity", area
+      (Join l (MkJoinId 9) [param 4 QW int] (ret (var 4)) (Jump l (MkJoinId 9) [])), Just CoreInv2)
+  , ("result of the wrong type", prog [] [fn "main" [] int (Ret l [ALit (LChar 65)])], Just CoreInv3)
   , ("literal of the wrong type", prog []
       [fn "main" [] int (let' 1 int (OPrim (IntOp Add IdrisInt) [lit 1, lit 2])
-                          (let' 2 int (OCaseLit (var 1) [(LChar 65, ret (lit 1))] (ret (lit 2))) (ret (var 2))))],
+                          (CaseLit l (var 1) [(LChar 65, ret (lit 1))] (ret (lit 2))))],
       Just CoreInv6)
   , ("field of data with several constructors", area
       (let' 4 int (OField (var 1) (con "Shape" "Circle") 0) (ret (var 4))), Just CoreInv6)
@@ -128,6 +132,21 @@ cases =
             (let' 3 (DataT (MkDataId "IORes")) (OIO PutChar [ALit (LChar 66), var 1] (MkDataId "IORes"))
                (ret (var 3))))]
       (MkFnId "main") IOEntry, Just CoreInv9)
+  , ("world used in every iteration of a loop", MkTarget [unit, ioRes]
+      [fn "main" [param 1 Q1 WorldT] (DataT (MkDataId "IORes"))
+         (Join l (MkJoinId 9) [param 4 QW int]
+            (let' 2 (DataT (MkDataId "IORes")) (OIO PutChar [ALit (LChar 65), var 1] (MkDataId "IORes"))
+               (Jump l (MkJoinId 9) [var 4]))
+            (Jump l (MkJoinId 9) [lit 0]))]
+      (MkFnId "main") IOEntry, Just CoreInv9)
+  , ("world carried by a loop", MkTarget [unit, ioRes]
+      [fn "main" [param 1 Q1 WorldT] (DataT (MkDataId "IORes"))
+         (Join l (MkJoinId 9) [param 4 Q1 WorldT]
+            (let' 2 (DataT (MkDataId "IORes")) (OIO PutChar [ALit (LChar 65), var 4] (MkDataId "IORes"))
+               (let' 3 WorldT (OField (var 2) (con "IORes" "MkIORes") 1)
+                  (Jump l (MkJoinId 9) [var 3])))
+            (Jump l (MkJoinId 9) [var 1]))]
+      (MkFnId "main") IOEntry, Nothing)
   ]
 
 ||| Full Core after Translate: references and arities.

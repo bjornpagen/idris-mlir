@@ -3,6 +3,7 @@
 
 #include "Lower/Patterns.h"
 
+#include "mlir/Dialect/ControlFlow/Transforms/StructuralTypeConversions.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 
@@ -90,9 +91,10 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
     target.addDynamicallyLegalOp<arith::SelectOp>(
         [&](arith::SelectOp op) { return converter.isLegal(op.getType()); });
+    // The blocks after the entry are converted with the branches to them.
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return converter.isSignatureLegal(op.getFunctionType()) &&
-             converter.isLegal(&op.getBody());
+             (op.getBody().empty() || converter.isLegal(op.getBody().front().getArgumentTypes()));
     });
     target.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
         [&](Operation *op) { return converter.isLegal(op); });
@@ -104,6 +106,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
+    cf::populateCFStructuralTypeConversionsAndLegality(converter, patterns, target);
     idr::lower::populatePatterns(patterns, converter, state);
 
     if (failed(applyPartialConversion(module, target, std::move(patterns))))

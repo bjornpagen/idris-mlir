@@ -58,9 +58,8 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
     - `Char` → `i32`, always holding a scalar value (v1)
   - `f64` for `Double` (v2);
   - `i1`, only as the result of `arith.cmpi` or `arith.cmpf` and the
-    condition of `scf.if`;
-  - `index`, only as the result of `idr.tag` and the operand of
-    `scf.index_switch`.
+    condition of `cf.cond_br`. *Revised in v3:* `index` is no longer
+    allowed; `idr.tag` returns `i64`.
 
 ## Data declarations
 
@@ -97,22 +96,20 @@ idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
 
 ## Operations
 
-All `idr` ops have MLIR locations (`IDR-LOC-1`). One more op,
-`idr.may_loop`, exists only inside the pipeline: `idr-tail-loops` creates it
-and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
+All `idr` ops have MLIR locations (`IDR-LOC-1`).
 
 | Op | Syntax (informative) | Traits and effects | Folds |
 | --- | --- | --- | --- |
 | `idr.erased` | `%e = idr.erased : !idr.erased` | `Pure`, `ConstantLike` | always, to a unit attribute (so CSE merges them) |
 | `idr.con` | `%v = idr.con @T::@C(%a, %b) : (i64, i64) -> !idr.data<@T>` | `Pure` | never |
-| `idr.tag` | `%t = idr.tag %v : !idr.data<@T>` (result `index`) | `Pure` | to `C`'s tag if `%v` comes from `idr.con @T::@C`; to `0` if `@T` has exactly one constructor |
+| `idr.tag` | `%t = idr.tag %v : !idr.data<@T>` (result `i64`) | `Pure` | to `C`'s tag if `%v` comes from `idr.con @T::@C`; to `0` if `@T` has exactly one constructor |
 | `idr.field` | `%x = idr.field %v[@C, 1] : !idr.data<@T> -> i64` | `Pure` | to operand `i` if `%v` comes from `idr.con @T::@C` |
 | `idr.div` | `%q = idr.div signed %a, %b : i64` | see `IDR-EFF-1` | see `IDR-DIV-2` |
 | `idr.mod` | `%r = idr.mod unsigned %a, %b : i8` | see `IDR-EFF-1` | see `IDR-DIV-2` |
 | `idr.to_char` (v1) | `%c = idr.to_char signed %x : i64` (result `i32`) | `Pure` | when `%x` is a constant (`SEM-CHAR-3`) |
 | `idr.to_int` (v2) | `%n = idr.to_int %x : i64` (operand `f64`) | see `IDR-EFF-1` | when `%x` is a finite constant (`SEM-DBL-4`) |
 | `idr.double_head` (v3) | `%c = idr.double_head %x` (result `i32`) | `Pure` | never |
-| `idr.crash` (v3) | `%v = idr.crash "unhandled input for f" : T` | a write on the crash resource | never |
+| `idr.crash` (v3) | `%v:2 = idr.crash "unhandled input for f" : T, U` | a write on the crash resource | never |
 | `idr.str.lit` (v1) | `%s = idr.str.lit "hello\n" : !idr.str` | `Pure`, `ConstantLike` | always, to its string attribute |
 | `idr.io.put_str` (v1) | `%w1 = idr.io.put_str %s, %w0` | `IDR-EFF-2` | never |
 | `idr.io.put_char` (v1) | `%w1 = idr.io.put_char %c, %w0` | `IDR-EFF-2` | never |
@@ -126,7 +123,7 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   There is one operand per field, of that field's type, including
   `!idr.erased` operands. The result type is `!idr.data<@T>`.
 - **IDR-TAG-1 (v0).** `idr.tag %v` returns the tag of `%v`'s constructor as an
-  `index`.
+  `i64` (*revised in v3*: it was an `index`, for `scf.index_switch`).
 - **IDR-FIELD-1 (v0).** `idr.field %v[@C, i]` returns field `i` of `%v`. Its
   result type is that field's type.
   - If `%v` was not built with `C`, the result is unspecified (like
@@ -168,8 +165,9 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   `-`, `+` (NaN and positive infinity), or a digit. It is `Pure`.
   - Test: `tests/idr/lower/double-head.mlir`
 - **IDR-CRASH-1 (v3).** `idr.crash` ends the program with its message
-  (`SEM-CRASH-2`). Its result, of any type, stands for the value of the
-  region it ends so that the region is well typed; it is never produced.
+  (`SEM-CRASH-2`). Its results, of any types, stand for the values that the
+  `func.return` after it returns, so that the block is well typed; they are
+  never produced.
   - Test: `tests/idr/lower/crash-op.mlir`, `tests/idr/check-input/reject-v3.mlir`
 - **IDR-STR-1 (v1).** `idr.str.lit` holds its string as a `StringAttr` of UTF-8
   bytes. Two literals with equal bytes are equal values.
@@ -191,10 +189,12 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   dialect's IO resource (`idr::IOResource`). So no upstream pass removes,
   duplicates, hoists or reorders them.
 - **IDR-WORLD-1 (v1).** Every `!idr.world` value is used at most once on each
-  control-flow path. Uses in different regions of the same `scf.if` or
-  `scf.index_switch` count as different paths. The world passes between
-  regions only as region results (`scf.yield`), function arguments and
-  function results.
+  control-flow path. A use is followed on its path by the rest of its block
+  and by every block reachable from there without passing the world's
+  definition, which defines a new world each time it is reached (a loop's
+  block argument). The world passes between blocks only as block arguments,
+  and between functions only as arguments and results. *Revised in v3* for
+  control flow in blocks.
   - Check: the `idr-check-input` verifier
   - Test: `tests/idr/verify/world-*.mlir`
 
@@ -206,16 +206,17 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   - `arith.constant` (integer and `index`), `arith.addi`, `arith.subi`,
     `arith.muli`, `arith.andi`, `arith.ori`, `arith.xori`, `arith.cmpi`,
     `arith.extsi`, `arith.extui`, `arith.trunci`;
-  - `scf.if`, `scf.index_switch`, `scf.yield`;
+  - `cf.br`, `cf.cond_br`, `cf.switch` (*revised in v3*: `scf.if`,
+    `scf.index_switch` and `scf.yield` are no longer allowed; control flow
+    is blocks, as first-order Core's join points are);
   - from v2: `arith.constant` of `f64`, `arith.addf`, `arith.subf`,
     `arith.mulf`, `arith.divf`, `arith.negf`, `arith.cmpf`, `arith.sitofp`,
     `arith.uitofp`, and `math.exp`, `math.log`, `math.powf`, `math.sin`,
     `math.cos`, `math.tan`, `math.asin`, `math.acos`, `math.atan`,
     `math.sqrt`, `math.floor`, `math.ceil`. An op on `f64` needs version 2.
   - Check: `idr-check-input`. Anything else is an internal error, because
-    the frontend broke the contract. `idr.may_loop` (`LOW-TAIL-4`) is created
-    by `idr-tail-loops` and is not allowed in the input, and no symbol may be
-    named `@main`, which `idr-lower` creates (`LOW-ENTRY-1`).
+    the frontend broke the contract. No symbol may be named `@main`, which
+    `idr-lower` creates (`LOW-ENTRY-1`).
   - Test: `tests/idr/check-input/reject-*.mlir`
 - **IDR-IN-2 (v0).** `arith` ops carry no overflow flags (`nsw`, `nuw`) and
   no `exact` flag. Wrapping is the semantics (`SEM-INT-2`). From v2, `arith`
@@ -249,7 +250,8 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   - one argument per Idris parameter, in Idris order, including erased
     parameters as `!idr.erased`;
   - on every argument, `idr.quantity = "0" | "1" | "w"`;
-  - exactly one result, of a runtime type;
+  - one or more results, of runtime types (*revised in v3*: exactly one
+    before; a function may return several atoms, `CORE-INV-11`);
   - from v2, possibly `no_inline`, on a loop breaker (`OPT-PIPE-3`).
 - **IDR-FN-2 (v0).** Symbol names are mangled from Idris full names:
   - characters outside `[A-Za-z0-9_.]`, including `$` itself, are written
@@ -266,18 +268,21 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 ## Matching
 
 - **IDR-MATCH-1 (v0).** A constructor match is `idr.tag` on the scrutinee,
-  then `scf.index_switch` on the tag, with one `case` per constructor
-  alternative. In an alternative, fields are read with `idr.field`; only the
-  fields the alternative uses need to be read.
+  then `cf.switch` on the tag, with one case block per constructor
+  alternative. In an alternative's block, fields are read with `idr.field`;
+  only the fields the alternative uses need to be read. A match with one
+  alternative that can be reached makes no switch: the alternative follows
+  in the same block. What follows a match is a block the alternatives
+  branch to, with the match's values as block arguments.
 - **IDR-MATCH-2 (v0).** Alternatives Idris proved impossible (`Absurd` in
   `Core`, `CORE-INV-6`) are left out. If `Core` has a default alternative
-  that is possible, it becomes the switch's default region. Otherwise the
+  that is possible, it becomes the switch's default block. Otherwise the
   remaining alternatives cover every constructor that can occur, and the
-  last one becomes the default region instead of a case. So no default
-  region is ever unreachable, and no poison or `unreachable` is needed. A
+  last one becomes the default block instead of a case. So no default
+  block is ever unreachable, and no poison or `unreachable` is needed. A
   literal match (`IDR-MATCH-3`) is treated the same way.
 - **IDR-MATCH-3 (v0).** An integer-literal match is a chain of `arith.cmpi eq`
-  and `scf.if`, in alternative order, ending in the default alternative.
+  and `cf.cond_br`, in alternative order, ending in the default alternative.
 - **IDR-MATCH-4 (v0).** `let` binds an SSA value. A quantity-0 `let` binds an
   `idr.erased` value.
 
@@ -321,21 +326,18 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main} {
   }
   func.func private @Prog.area(%s: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 {
     %t = idr.tag %s : !idr.data<@Prog.Shape>
-    %r = scf.index_switch %t -> i64
-    case 0 {
-      %x = idr.field %s[@Circle, 0] : !idr.data<@Prog.Shape> -> i64
-      %c3 = arith.constant 3 : i64
-      %xx = arith.muli %x, %x : i64
-      %a = arith.muli %c3, %xx : i64
-      scf.yield %a : i64
-    }
-    default {                                   // Rect: last alternative (IDR-MATCH-2)
-      %w = idr.field %s[@Rect, 0] : !idr.data<@Prog.Shape> -> i64
-      %h = idr.field %s[@Rect, 1] : !idr.data<@Prog.Shape> -> i64
-      %a = arith.muli %w, %h : i64
-      scf.yield %a : i64
-    }
-    return %r : i64
+    cf.switch %t : i64, [default: ^rect, 0: ^circle]  // Rect: last alternative (IDR-MATCH-2)
+  ^circle:
+    %x = idr.field %s[@Circle, 0] : !idr.data<@Prog.Shape> -> i64
+    %c3 = arith.constant 3 : i64
+    %xx = arith.muli %x, %x : i64
+    %a = arith.muli %c3, %xx : i64
+    return %a : i64
+  ^rect:
+    %w = idr.field %s[@Rect, 0] : !idr.data<@Prog.Shape> -> i64
+    %h = idr.field %s[@Rect, 1] : !idr.data<@Prog.Shape> -> i64
+    %b = arith.muli %w, %h : i64
+    return %b : i64
   }
   func.func private @Prog.keep(%w: !idr.erased {idr.quantity = "0"},
                                %v: i64 {idr.quantity = "w"}) -> i64 {
@@ -355,9 +357,8 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main} {
 
 After `inline` and `canonicalize`:
 1. `idr.tag` of the known `idr.con @Rect` folds to `1`.
-2. The switch on a constant keeps only its default region. That is
-   upstream's `RegionBranchOpInterface` canonicalization, confirmed by a p0
-   test.
+2. The switch on a constant branches straight to its block, by upstream's
+   `cf.switch` canonicalization.
 3. The `idr.field` ops fold to `%c6` and `%c7`.
 4. `main` becomes `return 42`.
 

@@ -4,6 +4,5 @@
 // CHECK-DAG: --idr-entry
 // CHECK-DAG: --idr-lower
 // CHECK-DAG: --idr-pipeline
-// CHECK-DAG: --idr-tail-loops
 // CHECK-DAG: --convert-to-llvm
 // CHECK-DAG: --inline

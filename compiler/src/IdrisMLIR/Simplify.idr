@@ -354,11 +354,11 @@ mutual
     alts' <- traverse (\(k, e) => (k,) <$> branch env e es) alts
     def' <- branch env def es
     t <- matchTy l (map (fst . snd) alts' ++ [fst def'])
-    Dyn t <$> bind l t (OCaseLit x (map (\(k, (_, c)) => (k, c)) alts') (snd def'))
+    Dyn t <$> emitCaseLit l t x (map (\(k, (_, c)) => (k, c)) alts') (snd def')
 
   ||| One alternative of a residual match, in its own block; its value must
   ||| exist at runtime.
-  branch : Vect n V -> Term n -> List (Elim Atom) -> M (Maybe VTy, Code)
+  branch : Vect n V -> Term n -> List (Elim Atom) -> M (Maybe VTy, Code Pure)
   branch env e es = block (locOf e) (evalK env e es >>= reify (locOf e))
 
   ||| A constructor match.
@@ -454,7 +454,7 @@ mutual
         if reifiable v then joinOrResidual alts' def' results else do
           tys <- traverse (\f => runtimeTy l f.type) con.fields
           for_ (zip [0 .. length ys] (zip ys tys)) $ \(i, y, t) =>
-            modify { lets $= (:< MkStmt l y (defaultQuantity t) t (OField x c i)) }
+            modify { lets $= (:< SLet l (MkParam y (defaultQuantity t) t) (OField x c i)) }
           replay p
           pure v
       _ => joinOrResidual alts' def' results
@@ -463,13 +463,13 @@ mutual
       reifiable (Dyn _ _) = True
       reifiable (SString _) = True
       reifiable _ = False
-      residual : Loc -> Either Code (Prefix, V) -> M (Maybe VTy, Code)
+      residual : Loc -> Either (Code Pure) (Prefix, V) -> M (Maybe VTy, Code Pure)
       residual bl (Left code) = pure (Nothing, code)
       residual bl (Right (p, v)) = block bl (replay p *> reify bl v)
-      arm : Either Code (Prefix, V) -> Arm Atom
+      arm : Either (Code Pure) (Prefix, V) -> Arm Atom
       arm (Left code) = Stops code
       arm (Right (p, v)) = maybe (Stops (Absurd l)) (Returns p) (asStr v)
-      value : Either Code (Prefix, V) -> Maybe V
+      value : Either (Code Pure) (Prefix, V) -> Maybe V
       value (Right (_, v)) = Just v
       value (Left _) = Nothing
       isString : V -> Bool
@@ -479,8 +479,8 @@ mutual
       needsJoin (SString s) = isNothing (strLit s)
       needsJoin _ = False
       -- G14: alternatives that build strings make a string join point.
-      joinOrResidual : List (ConId, List VarId, Loc, Either Code (Prefix, V)) ->
-                       Maybe (Loc, Either Code (Prefix, V)) -> List V -> M V
+      joinOrResidual : List (ConId, List VarId, Loc, Either (Code Pure) (Prefix, V)) ->
+                       Maybe (Loc, Either (Code Pure) (Prefix, V)) -> List V -> M V
       joinOrResidual alts' def' results =
         if any needsJoin results && all isString results
           then pure (SString (SCase (DataT d) x (map (\(c, ys, _, r) => MkJoin c ys (arm r)) alts')
@@ -489,7 +489,7 @@ mutual
             branches <- for alts' $ \(c, ys, bl, r) => map (MkBranch c ys) <$> residual bl r
             defs <- traverse (\(bl, r) => residual bl r) def'
             t <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
-            Dyn t <$> bind l t (OCase x (map snd branches) (map snd defs))
+            Dyn t <$> emitCase l t x (map snd branches) (map snd defs)
   matchCon env l v alts def es = fail ProfHeap1 l ("a match on " ++ showShape (shape v))
 
   ||| Applies eliminations to a value.
@@ -717,7 +717,7 @@ mutual
         let qs = the (List Quantity) (map (\(q, _) => q) (filter (\(_, f) => isNothing f) (zip qs0 fixed)))
         let spec = if trivial key then Nothing else Just ("specialization of " ++ showKey key)
         modify { done $= (:< MkCFn name fn.idrisName (zipWith3 MkParam params qs types)
-                                   t body fn.loc fn.terminating spec) }
+                                   [t] body fn.loc fn.terminating spec) }
         pure name
     where
       dynAtom : VarId -> VTy -> Atom
@@ -797,7 +797,7 @@ mutual
         neg <- bind loc (IntT IdrisInt) (OPrim (Compare CLt (SInt t)) [a, lit 0])
         (_, minus) <- block loc (pure (ALit (LChar 45), CharT))
         (_, plus) <- block loc (digitChar (powers t))
-        bind loc CharT (OCaseLit neg [(LInt IdrisInt 1, minus)] plus)
+        emitCaseLit loc CharT neg [(LInt IdrisInt 1, minus)] plus
       else fst <$> digitChar (powers t)
     pure digit
     where
@@ -823,7 +823,7 @@ mutual
           ch <- bind noLoc CharT (OPrim (Cast (SInt t) SChar) [c])
           pure (ch, CharT)
         (_, small) <- block noLoc (digitChar ps)
-        ch <- bind noLoc CharT (OCaseLit ge [(LInt IdrisInt 1, big)] small)
+        ch <- emitCaseLit noLoc CharT ge [(LInt IdrisInt 1, big)] small
         pure (ch, CharT)
 
   general : Loc -> PrimOp -> List V -> M V
@@ -879,11 +879,11 @@ mutual
       branches <- for js $ \(MkJoin c ys a) => map (MkBranch c ys) <$> writeArm a
       defs <- traverse writeArm d
       rt <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
-      Dyn rt <$> bind l rt (OCase x (map snd branches) (map snd defs))
+      Dyn rt <$> emitCase l rt x (map snd branches) (map snd defs)
     where
       write : IOOp -> Atom -> M V
       write op a = effect *> (Dyn (DataT res) <$> bind l (DataT res) (OIO op [a, w] res))
-      writeArm : Arm Atom -> M (Maybe VTy, Code)
+      writeArm : Arm Atom -> M (Maybe VTy, Code Pure)
       writeArm (Stops code) = pure (Nothing, code)
       writeArm (Returns p s) = block l (replay p *> (assert_total (putStr l res s w) >>= reify l))
       ||| The world inside an `IORes` value.
@@ -908,14 +908,14 @@ runtimeData d = do
 
 ||| The data instances a program uses: those its code and signatures
 ||| mention, and those their fields contain.
-usedDatas : SortedMap DataId Data -> List CFn -> SortedSet DataId
+usedDatas : SortedMap DataId Data -> List (CFn Pure) -> SortedSet DataId
 usedDatas datas fns = close (length (keys datas)) (fromList (concatMap mentioned fns))
   where
     ty : VTy -> List DataId
     ty (DataT d) = [d]
     ty _ = []
-    mentioned : CFn -> List DataId
-    mentioned f = ty f.result ++ concatMap (ty . (.type)) f.params ++ datasOf f.body
+    mentioned : CFn Pure -> List DataId
+    mentioned f = concatMap ty f.results ++ concatMap (ty . (.type)) f.params ++ datasOf f.body
     fieldsOf : DataId -> List DataId
     fieldsOf d = maybe [] (\dt => mapMaybe (dataOf . (.type)) (concatMap (.fields) dt.cons)) (lookup d datas)
     close : Nat -> SortedSet DataId -> SortedSet DataId
@@ -925,7 +925,7 @@ usedDatas datas fns = close (length (keys datas)) (fromList (concatMap mentioned
 
 ||| Runs the guaranteed eliminations from the root (CORE-PASS-1).
 export
-simplify : Source -> Either Diag Target
+simplify : Source -> Either Diag (Target Pure)
 simplify src = do
   let ix = MkSourceIndex (fromList [(f.id, f) | f <- src.fns])
                          (fromList [(d.id, d) | d <- src.datas])
@@ -941,7 +941,7 @@ simplify src = do
   case runStateT (initial ix) run of
     Left (Fail d) => Left d
     Left (Dead l) => Left (MkDiag CoreCheck1 "Simplify" l "the root cannot return")
-    Left (Crashed l _) => Left (MkDiag CoreCheck1 "Simplify" l "a crash outside any function")
+    Left (Crashed l _ _) => Left (MkDiag CoreCheck1 "Simplify" l "a crash outside any function")
     Left Abandoned => Left (MkDiag CoreCheck1 "Simplify" noLoc "a compile-time evaluation escaped")
     Right (st, _) => do
       let fns = st.done <>> []

@@ -173,7 +173,7 @@ LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // Folds to the tag of a known constructor, or 0 for a single-constructor type.
 OpFoldResult TagOp::fold(FoldAdaptor) {
   auto index = [&](uint64_t tag) {
-    return IntegerAttr::get(IndexType::get(getContext()), static_cast<int64_t>(tag));
+    return IntegerAttr::get(IntegerType::get(getContext(), 64), static_cast<int64_t>(tag));
   };
   if (auto con = getValue().getDefiningOp<ConOp>()) {
     auto type = cast<DataType>(con.getResult().getType());

@@ -2,7 +2,7 @@ module Main
 
 import IdrisMLIR.IO
 
--- rule: SEM-IO-3, IDR-EFF-2, LOW-IO-1
+-- rule: SEM-IO-3, IDR-EFF-2, LOW-IO-1, LOW-TAIL-3
 echo : IO ()
 echo = do
   c <- getChar

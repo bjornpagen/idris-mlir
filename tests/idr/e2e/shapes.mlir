@@ -9,21 +9,18 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind
   }
   func.func private @Prog.area(%s: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.name = "Prog.area"} {
     %t = idr.tag %s : !idr.data<@Prog.Shape>
-    %r = scf.index_switch %t -> i64
-    case 0 {
-      %x = idr.field %s[@Circle, 0] : !idr.data<@Prog.Shape> -> i64
-      %c3 = arith.constant 3 : i64
-      %xx = arith.muli %x, %x : i64
-      %a = arith.muli %c3, %xx : i64
-      scf.yield %a : i64
-    }
-    default {
-      %w = idr.field %s[@Rect, 0] : !idr.data<@Prog.Shape> -> i64
-      %h = idr.field %s[@Rect, 1] : !idr.data<@Prog.Shape> -> i64
-      %a = arith.muli %w, %h : i64
-      scf.yield %a : i64
-    }
-    return %r : i64
+    cf.switch %t : i64, [default: ^rect, 0: ^circle]
+  ^circle:
+    %x = idr.field %s[@Circle, 0] : !idr.data<@Prog.Shape> -> i64
+    %c3 = arith.constant 3 : i64
+    %xx = arith.muli %x, %x : i64
+    %a = arith.muli %c3, %xx : i64
+    return %a : i64
+  ^rect:
+    %w = idr.field %s[@Rect, 0] : !idr.data<@Prog.Shape> -> i64
+    %h = idr.field %s[@Rect, 1] : !idr.data<@Prog.Shape> -> i64
+    %b = arith.muli %w, %h : i64
+    return %b : i64
   }
   func.func private @Prog.keep(%w: !idr.erased {idr.quantity = "0"}, %v: i64 {idr.quantity = "w"}) -> i64 attributes {idr.name = "Prog.keep"} {
     return %v : i64

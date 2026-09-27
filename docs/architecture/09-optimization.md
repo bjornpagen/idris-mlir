@@ -42,7 +42,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Forcing and detagging from indices | Brady, McBride, McKinna 2003 | index relationships in TT | Idris frontend | later |
 | Proved rewrites | Lean `@[csimp]` | equality proofs in TT | Idris middle end | reserved ([07](07-proved-rewrites.md)) |
 | Inlining | everyone | call graph, bodies | upstream `inline`, enabled by `IDR-IF-1` | v0 |
-| Case-of-known-constructor, projection-of-constructor | Lean `simp`, GHC | constructor semantics | our folders (`idr.tag`, `idr.field`), run by upstream `canonicalize`; the known switch collapses by upstream `scf.index_switch` canonicalization | v0 |
+| Case-of-known-constructor, projection-of-constructor | Lean `simp`, GHC | constructor semantics | our folders (`idr.tag`, `idr.field`), run by upstream `canonicalize`; the known switch collapses by upstream `cf.switch` canonicalization | v0 |
 | Constant folding and propagation | Lean `ElimDeadBranches` (constants) | constants | upstream `canonicalize` and `sccp`, through our folders | v0 |
 | Constructor-set propagation (which constructors can reach a point) | Lean `ElimDeadBranches` abstract domain | constructor sets | our C++ analysis on MLIR's dataflow framework | later |
 | CSE | Lean `cse`, Futhark CSE | purity | upstream `cse`, enabled by `Pure` traits | v0 |
@@ -50,7 +50,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Sinking into branches | Lean `floatLetIn`, Futhark `Sink` | uses per region | upstream `control-flow-sink` | v2 |
 | Unboxing and flattening of data | Futhark `ReplaceRecords`, MLton `Flatten`, Lean `structProjCases` | layout from dialect types | our C++ `idr-lower` (1:N type conversion); upstream `sroa` works only on memory | v0 |
 | Enum as integer, single constructor without tag | upstream Idris (enum/newtype) | constructor shapes | our C++ `idr-lower` (`LOW-DATA-1`) | v0 |
-| Self tail call to loop | MLton `Contify`, Lean join points | tail position (structural) | our C++ `idr-tail-loops`; upstream has no such pass | v0 |
+| Self tail call to loop | MLton `Contify`, Lean join points | tail position (structural) | first-order Core: a recursive join point (`CORE-LOOP-1`) | v0 |
 | Other tail calls | | tail position, matching signatures | LLVM, best effort; guaranteed `musttail` later | later |
 | Exact integer semantics (Euclidean division, zero guards) | Idris Chez backend | the semantics | our C++ `idr-lower` | v0 |
 | Scalar peepholes, instruction selection, register allocation | | | LLVM `default<O2>` and codegen | v0 |
@@ -74,32 +74,30 @@ Superoptimization, equality saturation and search are non-goals (D7).
 
 ## Pipelines
 
-- **OPT-PIPE-1 (v0).** `idris-mlir-cc` runs exactly this pipeline. Steps 1–11
+- **OPT-PIPE-1 (v0).** `idris-mlir-cc` runs exactly this pipeline. Steps 1–10
   are also available in `idris-mlir-opt` as `--idr-pipeline` (`DRV-OPT-1`).
   1. `idr-check-input`: the contract (`IDR-*`)
   2. `idr-entry`: makes the root public until `idr-lower`, because
      `symbol-dce` and the inliner do not count the `idr.entry` attribute as
      a use (`PINS.md`: `idr-entry-public`)
   3. `inline`, with the default simplification pipeline (`canonicalize`)
-  4. `idr-tail-loops` (`LOW-TAIL-1`)
-  5. `sccp`
-  6. `canonicalize`
-  7. `cse`
-  8. `symbol-dce`
-  9. `idr-lower` ([10-lowering](10-lowering.md))
-  10. `canonicalize`, `cse`
-  11. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
-  12. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
+  4. `sccp`
+  5. `canonicalize`
+  6. `cse`
+  7. `symbol-dce`
+  8. `idr-lower` ([10-lowering](10-lowering.md))
+  9. `canonicalize`, `cse`
+  10. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
+  11. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
       object file for the host target (`LOW-TARGET-1`), laid out as
       `OPT-PIPE-4` says
   - Test: `tests/idr/pipeline/cc-steps.mlir`
-  - *Measured and left out:* upstream `control-flow-sink` after step 7
+  - *Measured and left out:* upstream `control-flow-sink` after step 6
     changed no benchmark in `bench/` beyond noise (v2); LLVM's own sinking
     already moves those operations.
-- **OPT-PIPE-2 (v0).** `idr-tail-loops` runs after `inline`. The inliner never
-  inlines a recursive function into itself, and many self tail calls exist
-  only after inlining: a `do` block's `>>` and a raised IO function become
-  one function whose last action calls it again.
+- **OPT-PIPE-2 (v0 only; withdrawn in v3).** loops are made in first-order Core
+  (`CORE-LOOP-1`), before MLIR; a self tail call that exists only after
+  MLIR inlines is left to LLVM (`LOW-TAIL-3`).
 - **OPT-PIPE-3 (v2).** The inliner uses upstream's default policy, on a call
   graph whose cycles are already cut. `Emit` marks *loop breakers*
   `no_inline`, as GHC does (Peyton Jones and Marlow, "Secrets of the
@@ -108,7 +106,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
   order that is not from a library module (`Builtin`, `PrimIO`,
   `IdrisMLIR.IO`), and repeats on the rest of the component. Everything else
   may be inlined, which cannot unroll a loop, and each breaker becomes self
-  recursive for `idr-tail-loops` (`OPT-PIPE-2`). Without it the inliner
+  recursive. Without it the inliner
   unrolled mutual recursion between an IO loop and its `>>` specialization
   until a 200-function program took over a minute and grew twentyfold.
   - Check: `Code.loopBreakers`

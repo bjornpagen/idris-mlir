@@ -26,7 +26,7 @@ add_public_tablegen_target(idr_tablegen)
 add_library(idr_dialect STATIC
 	lib/IdrDialect.cc
 	lib/CheckInput.cc
-	lib/TailLoops.cc
+	lib/Entry.cc
 	lib/Lower.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Runtime.cc

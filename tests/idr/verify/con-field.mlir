@@ -59,7 +59,7 @@ func.func @f(%v: !idr.data<@T>) -> i32 {
 idr.data @T {
   idr.ctor @A tag 0 fields [i64] quantities ["w"]
 }
-func.func @f(%v: !idr.data<@T>) -> index {
+func.func @f(%v: !idr.data<@T>) -> i64 {
   %t = idr.tag %v : !idr.data<@T>
-  return %t : index
+  return %t : i64
 }

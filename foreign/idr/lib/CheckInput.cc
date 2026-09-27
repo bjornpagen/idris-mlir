@@ -5,6 +5,7 @@
 #include "idr/Idr.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
@@ -19,8 +20,7 @@ bool allowedType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() &&
            llvm::is_contained({1u, 8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<IndexType, Float64Type, idr::DataType, idr::ErasedType, idr::StrType,
-             idr::WorldType>(type);
+  return isa<Float64Type, idr::DataType, idr::ErasedType, idr::StrType, idr::WorldType>(type);
 }
 
 bool isV1Op(Operation *op) {
@@ -40,15 +40,13 @@ bool isV2Op(Operation *op) {
 
 // IDR-IN-1
 bool allowedOp(Operation *op) {
-  if (isa<idr::MayLoopOp>(op))
-    return false;
   if (isa<idr::IdrDialect>(op->getDialect()))
     return true;
   return isa<ModuleOp, func::FuncOp, func::CallOp, func::ReturnOp,
              arith::ConstantOp, arith::AddIOp, arith::SubIOp, arith::MulIOp,
              arith::AndIOp, arith::OrIOp, arith::XOrIOp, arith::CmpIOp,
-             arith::ExtSIOp, arith::ExtUIOp, arith::TruncIOp, scf::IfOp,
-             scf::IndexSwitchOp, scf::YieldOp, arith::AddFOp, arith::SubFOp,
+             arith::ExtSIOp, arith::ExtUIOp, arith::TruncIOp, cf::BranchOp,
+             cf::CondBranchOp, cf::SwitchOp, arith::AddFOp, arith::SubFOp,
              arith::MulFOp, arith::DivFOp, arith::NegFOp, arith::CmpFOp,
              arith::SIToFPOp, arith::UIToFPOp, math::ExpOp, math::LogOp,
              math::PowFOp, math::SinOp, math::CosOp, math::TanOp, math::AsinOp,
@@ -65,30 +63,11 @@ bool hasArithFlags(Operation *op) {
   return op->hasAttr("isExact");
 }
 
-// The chain of (op, region) pairs from `op` up to (excluding) `stop`.
-SmallVector<std::pair<Operation *, Region *>> ancestry(Operation *op,
-                                                       Region *stop) {
-  SmallVector<std::pair<Operation *, Region *>> chain;
-  while (op && op->getParentRegion() != stop) {
-    chain.push_back({op->getParentOp(), op->getParentRegion()});
+// The block of `region` that holds `op`, directly or through nested ops.
+Block *blockIn(Operation *op, Region *region) {
+  while (op && op->getParentRegion() != region)
     op = op->getParentOp();
-  }
-  std::reverse(chain.begin(), chain.end());
-  return chain;
-}
-
-// IDR-WORLD-1: two uses of one world are fine only in different regions of the
-// same scf.if or scf.index_switch.
-bool exclusiveUses(Value world, Operation *a, Operation *b) {
-  Region *home = world.getParentRegion();
-  auto ca = ancestry(a, home), cb = ancestry(b, home);
-  for (size_t i = 0; i < ca.size() && i < cb.size(); ++i) {
-    if (ca[i].first != cb[i].first)
-      return false;
-    if (ca[i].second != cb[i].second)
-      return isa<scf::IfOp, scf::IndexSwitchOp>(ca[i].first);
-  }
-  return false;
+  return op ? op->getBlock() : nullptr;
 }
 
 struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
@@ -153,8 +132,8 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
       if (auto fn = dyn_cast<func::FuncOp>(op)) {
         if (!fn.isPrivate())
           fail(fn, "functions must be private (IDR-FN-2)");
-        if (fn.getNumResults() != 1)
-          fail(fn, "functions have exactly one result (IDR-FN-1)");
+        if (fn.getNumResults() == 0)
+          fail(fn, "functions have at least one result (IDR-FN-1)");
         for (unsigned i = 0; i < fn.getNumArguments(); ++i) {
           auto q = fn.getArgAttrOfType<StringAttr>(i, "idr.quantity");
           if (!q || !llvm::is_contained({"0", "1", "w"}, q.getValue()))
@@ -207,15 +186,37 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
       signalPassFailure();
   }
 
+  // IDR-WORLD-1: a world is used at most once on each path. A use is
+  // followed on its path by the rest of its block and by every block
+  // reachable from there without passing the world's definition, which
+  // defines a new world on each entry.
   template <typename Fail> void checkWorld(Value world, Fail &fail) {
-    SmallVector<Operation *> users;
-    for (OpOperand &use : world.getUses())
-      users.push_back(use.getOwner());
-    for (size_t i = 0; i < users.size(); ++i)
-      for (size_t j = i + 1; j < users.size(); ++j)
-        if (!exclusiveUses(world, users[i], users[j]))
-          return fail(users[j], "a world value is used twice on one path "
-                                "(IDR-WORLD-1)");
+    Region *home = world.getParentRegion();
+    Block *def = world.getParentBlock();
+    DenseMap<Block *, SmallVector<Operation *>> byBlock;
+    for (OpOperand &use : world.getUses()) {
+      Block *block = blockIn(use.getOwner(), home);
+      if (!block)
+        return fail(use.getOwner(), "a world value is used outside its region (IDR-WORLD-1)");
+      byBlock[block].push_back(blockIn(use.getOwner(), home) == use.getOwner()->getBlock()
+                                   ? use.getOwner()
+                                   : use.getOwner()->getParentOp());
+    }
+    for (auto &[block, users] : byBlock) {
+      llvm::SmallPtrSet<Operation *, 4> distinct(users.begin(), users.end());
+      if (distinct.size() > 1)
+        return fail(users.back(), "a world value is used twice on one path (IDR-WORLD-1)");
+      SmallVector<Block *> work(block->getSuccessors().begin(), block->getSuccessors().end());
+      llvm::SmallPtrSet<Block *, 16> seen;
+      while (!work.empty()) {
+        Block *next = work.pop_back_val();
+        if (next == def || !seen.insert(next).second)
+          continue;
+        if (byBlock.count(next))
+          return fail(byBlock[next].front(), "a world value is used twice on one path (IDR-WORLD-1)");
+        work.append(next->getSuccessors().begin(), next->getSuccessors().end());
+      }
+    }
   }
 };
 

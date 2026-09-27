@@ -11,7 +11,7 @@
 - **DRV-OPT-1 (p0).** `idris-mlir-opt` registers:
   - the upstream dialects and passes that `OPT-PIPE-1` uses;
   - the `idr` dialect;
-  - `idr-check-input`, `idr-tail-loops` and `idr-lower`;
+  - `idr-check-input`, `idr-entry` and `idr-lower`;
   - the pipeline `--idr-pipeline`, which runs steps 1–10 of `OPT-PIPE-1`.
 
   Otherwise it behaves like `mlir-opt`.

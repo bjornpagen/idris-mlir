@@ -80,8 +80,14 @@ module attributes {idr.version = 0 : i64, idr.entry = @r, idr.entry_kind = "int"
 // CHECK: idr contract violation: operation not allowed in the input
 module attributes {idr.version = 0 : i64, idr.entry = @r, idr.entry_kind = "int"} {
   func.func private @r() -> i64 attributes {idr.name = "r"} {
-    idr.may_loop
-    %c = arith.constant 0 : i64
+    %b = arith.constant true
+    %c = scf.if %b -> i64 {
+      %z = arith.constant 0 : i64
+      scf.yield %z : i64
+    } else {
+      %o = arith.constant 1 : i64
+      scf.yield %o : i64
+    }
     return %c : i64
   }
 }

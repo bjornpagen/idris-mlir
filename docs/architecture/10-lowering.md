@@ -2,38 +2,27 @@
 
 Lowering changes representation. It makes no decisions that need Idris
 facts: all of those are made before or recorded in the contract.
-- `idr-tail-loops` and `idr-lower` are our C++ passes.
-- Everything after them is upstream MLIR and LLVM.
+- `idr-lower` is our C++ lowering pass.
+- Everything after it is upstream MLIR and LLVM.
 
-## Self tail calls (`idr-tail-loops`)
+## Loops
 
-- **LOW-TAIL-1 (v0).** A `func.call @f` inside `func.func @f` is a *self tail
-  call* when its results are the function's results unchanged. That means
-  either:
-  - `func.return` returns exactly its results, immediately after the call;
-    or
-  - `scf.yield` yields exactly its results, immediately after the call, and
-    the enclosing `scf.if` or `scf.index_switch` is itself in tail position.
-    Tail position is: immediately followed by a `func.return` of its results,
-    or yielded in turn by an enclosing region in tail position.
-- **LOW-TAIL-2 (v0).** `idr-tail-loops` rewrites every function that contains
-  a self tail call into a loop (`scf.while`) that carries the arguments,
-  including `!idr.erased` ones. After the pass, no self tail call remains.
-  Other calls are unchanged.
-  - Check: a post-condition assertion in the pass
-  - Test: `tests/idr/tail-loops/*.mlir`; `tests/e2e/v0/tail-loop-deep`
-    runs 10^8 iterations with the stack limited to 1 MiB (`SEM-RES-2`)
-- **LOW-TAIL-3 (v0).** Mutual and non-self tail calls get no guarantee in v0.
-  LLVM may still optimize them.
-- **LOW-TAIL-4 (v0).** Every loop that `idr-tail-loops` creates contains
-  `idr.may_loop` in its body. MLIR removes a region op without side effects
-  whose results are unused, even if it never terminates; this was found in
-  v0, where an infinite self tail call was compiled to `ret poison`.
-  `idr.may_loop` writes a resource of its own, so no generic pass removes
-  or hoists it, and `idr-lower` turns it into a call to `llvm.sideeffect`,
-  which LLVM keeps for the same reason (`SEM-EVAL-5`). It is not allowed in
-  the input (`IDR-IN-1`).
-  - Test: `tests/idr/tail-loops/spin.mlir`, `tests/idr/pipeline/emit-llvm.mlir`
+Loops are syntax of first-order Core: a self tail call is a jump to a join
+point (`CORE-LOOP-1`), which `Emit` writes as a block its own body branches
+back to. There is no loop-making pass in MLIR.
+
+- **LOW-TAIL-1 (v0 only; withdrawn in v3).** self tail calls are recognised in
+  first-order Core (`CORE-LOOP-1`), not in MLIR.
+- **LOW-TAIL-2 (v0 only; withdrawn in v3).** `idr-tail-loops` is gone; the loop
+  exists before MLIR sees the program (`CORE-LOOP-1`).
+- **LOW-TAIL-3 (v0).** Mutual and non-self tail calls get no guarantee. LLVM
+  may still optimize them, and does when inlining makes them self calls.
+- **LOW-TAIL-4 (v0).** A loop is a cycle of blocks, which no MLIR pass
+  deletes, and the LLVM functions this pipeline makes never assert forward
+  progress (no `mustprogress`), so LLVM keeps a loop that may not terminate
+  (`SEM-EVAL-5`). *Revised in v3:* `idr.may_loop` and its `llvm.sideeffect`
+  are gone with the region loops they protected.
+  - Test: `tests/idr/pipeline/emit-llvm.mlir`
 
 ## Type conversion (`idr-lower`)
 
@@ -46,15 +35,19 @@ facts: all of those are made before or recorded in the contract.
 
 It applies upstream's structural conversions:
 - `func.func` signatures, `func.call` and `func.return`;
-- `scf.if`, `scf.while`, `scf.yield`.
+- `cf.br` and `cf.cond_br`, and the block arguments they pass;
+- `scf.if` and `scf.yield`, which its own division and cast lowering make.
 
-It also needs `scf.index_switch`. Upstream
-`populateSCFStructuralTypeConversionsAndLegality` in the pinned MLIR 23.1.2
-does cover it (`ConvertIndexSwitchOpTypes`; an earlier reading of the source
-missed it). So:
-- **LOW-SWITCH-1 (v0).** `idr-lower` converts `scf.index_switch` 1:N with the
-  upstream structural pattern, like `scf.if`.
-  - Test: `tests/idr/lower/data-layout.mlir`
+- **LOW-SWITCH-1 (v0).** *Revised in v3:* `cf.switch` is converted 1:N by a
+  pattern of our own. Upstream's structural conversion of `cf.switch` in the
+  pinned MLIR 23.1.2 converts one value to one value
+  (`SwitchOpConversion` takes an `OpAdaptor`), and an idr value becomes
+  several.
+  - Test: `tests/idr/lower/data-layout.mlir`, `tests/e2e/v3/prelude-lists`
+- **LOW-BLOCK-1 (v3).** A function's blocks after the entry are converted
+  with the branches to them: `func.func` is legal once its signature and
+  entry block are.
+  - Test: `tests/idr/lower/select.mlir`
 
 ### Data layout
 
@@ -79,15 +72,15 @@ missed it). So:
 - **LOW-DATA-2 (v0).** The ops lower as follows:
   - `idr.con @T::@C` gives the tag constant and the constructor's components
     in their slots. Slots the constructor does not use get `ub.poison`.
-  - `idr.tag` gives the tag slot, converted to `index`
-    (`arith.index_castui`), or the constant `0` when `n = 1`.
+  - `idr.tag` gives the tag slot, extended to `i64` (`arith.extui`), or the
+    constant `0` when `n = 1`.
   - `idr.field %v[@C, i]` gives the components of field `i` from `C`'s
     slots.
   - Test: `tests/idr/lower/data-*.mlir` (FileCheck against hand-computed
     layouts)
 - **LOW-ERASE-1 (v0).** `!idr.erased` values, parameters, arguments and fields
   disappear through the 1:0 conversion. `idr.erased` ops are removed.
-- **LOW-SEL-1 (v2).** Upstream `canonicalize` turns an `scf.if` that only
+- **LOW-SEL-1 (v2).** Upstream `canonicalize` turns a branch that only
   chooses between two values into `arith.select`, also for idr types. An
   `arith.select` of an idr type lowers to one `arith.select` per component.
   - Test: `tests/idr/lower/select.mlir`
@@ -208,8 +201,8 @@ missed it). So:
   `llvm.unreachable` of draft 2 is not emitted; `noreturn` gives LLVM the
   same fact.
 - **LOW-CRASH-2 (v3).** `idr.crash` lowers to `__idr_crash` with its message
-  and location, like `LOW-CRASH-1`, and its result to `ub.poison` of each
-  component.
+  and location, like `LOW-CRASH-1`, and each of its results to `ub.poison`
+  of each component.
   - Test: `tests/idr/lower/crash-op.mlir`
 - **LOW-EXT-1 (v0).** The only external symbols the object file may
   reference are `write` and `_exit`, from v1 also `read`, and from v2 the

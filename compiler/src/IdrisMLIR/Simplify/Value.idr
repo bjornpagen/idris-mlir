@@ -29,10 +29,22 @@ import Data.Vect
 -- Values
 ------------------------------------------------------------------------------
 
-||| Bindings of first-order code, in order: what a block emitted.
+||| One pending statement of the current block: a binding, or a match whose
+||| alternatives are blocks and whose value the rest of the block uses.
+public export
+data Stmt = SLet Loc Param Op
+          | SMatch Loc Param Atom (List (Branch (Code Pure))) (Maybe (Code Pure))
+          | SMatchLit Loc Param Atom (List (Lit, Code Pure)) (Code Pure)
+
+||| What the prefix of a raised function runs (PROF-HEAP-5): an operation or
+||| a crash.
+public export
+data Moved = MovedOp Op | MovedCrash
+
+||| Statements of first-order code, in order: what a block emitted.
 public export
 Prefix : Type
-Prefix = List (Loc, VarId, Quantity, VTy, Op Code)
+Prefix = List Stmt
 
 mutual
   ||| A string known at compile time up to runtime pieces (ELIM-G-6, ELIM-G-7):
@@ -58,7 +70,7 @@ mutual
   public export
   data Arm : Type -> Type where
     Returns : Prefix -> SStr a -> Arm a
-    Stops : Code -> Arm a
+    Stops : Code Pure -> Arm a
 
 mutual
   public export

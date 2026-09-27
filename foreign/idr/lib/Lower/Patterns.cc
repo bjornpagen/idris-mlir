@@ -10,8 +10,9 @@ namespace {
 
 template <typename OpT>
 struct IdrPattern : OpConversionPattern<OpT> {
-  IdrPattern(const TypeConverter &converter, MLIRContext *ctx, Context &s)
-      : OpConversionPattern<OpT>(converter, ctx), state(s) {}
+  IdrPattern(const TypeConverter &converter, MLIRContext *ctx, Context &s,
+             PatternBenefit benefit = 1)
+      : OpConversionPattern<OpT>(converter, ctx, benefit), state(s) {}
   Context &state;
 };
 
@@ -50,11 +51,13 @@ struct LowerTag : IdrPattern<idr::TagOp> {
     auto type = cast<idr::DataType>(op.getValue().getType());
     const Layout &layout = state.layouts.get(type.getName().getAttr());
     Value tag;
-    if (layout.tag)
-      tag = arith::IndexCastUIOp::create(rewriter, op.getLoc(), rewriter.getIndexType(),
-                                         adaptor.getValue().front());
+    auto i64 = rewriter.getI64Type();
+    if (!layout.tag)
+      tag = arith::ConstantOp::create(rewriter, op.getLoc(), rewriter.getI64IntegerAttr(0));
+    else if (layout.tag == i64)
+      tag = adaptor.getValue().front();
     else
-      tag = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+      tag = arith::ExtUIOp::create(rewriter, op.getLoc(), i64, adaptor.getValue().front());
     rewriter.replaceOp(op, tag);
     return success();
   }
@@ -86,20 +89,7 @@ struct LowerErased : IdrPattern<idr::ErasedOp> {
   }
 };
 
-// LOW-TAIL-4: llvm.sideeffect, which LLVM keeps so that a loop that may not
-// terminate is never deleted.
-struct LowerMayLoop : IdrPattern<idr::MayLoopOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::MayLoopOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    LLVM::CallIntrinsicOp::create(rewriter, op.getLoc(),
-                                  rewriter.getStringAttr("llvm.sideeffect"), ValueRange{});
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// Poison of an idr type (from idr-tail-loops) becomes poison of each component.
+// Poison of an idr type becomes poison of each component.
 struct LowerPoison : IdrPattern<ub::PoisonOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ub::PoisonOp op, OneToNOpAdaptor,
@@ -278,13 +268,17 @@ struct LowerCrash : IdrPattern<idr::CrashOp> {
   LogicalResult matchAndRewrite(idr::CrashOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     emitCrash(rewriter, op.getLoc(), state.runtime, op.getMessage());
-    SmallVector<Type> types;
-    if (failed(getTypeConverter()->convertType(op.getType(), types)))
-      return failure();
-    SmallVector<Value> poison;
-    for (Type type : types)
-      poison.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
-    rewriter.replaceOpWithMultiple(op, {poison});
+    SmallVector<SmallVector<Value>> results;
+    for (Type result : op.getResultTypes()) {
+      SmallVector<Type> types;
+      if (failed(getTypeConverter()->convertType(result, types)))
+        return failure();
+      SmallVector<Value> poison;
+      for (Type type : types)
+        poison.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
+      results.push_back(std::move(poison));
+    }
+    rewriter.replaceOpWithMultiple(op, results);
     return success();
   }
 };
@@ -334,11 +328,62 @@ struct LowerIO : IdrPattern<OpT> {
   }
 };
 
+// A switch whose operands have idr types: upstream's structural conversion
+// of cf.switch converts one value to one value, and idr values become
+// several (LOW-DATA-1).
+struct LowerSwitch : IdrPattern<cf::SwitchOp> {
+  using IdrPattern::IdrPattern;
+
+  FailureOr<Block *> converted(ConversionPatternRewriter &rewriter, Operation *op, Block *block,
+                               TypeRange expected) const {
+    if (block->getArgumentTypes() == expected)
+      return block;
+    auto conversion = getTypeConverter()->convertBlockSignature(block);
+    if (!conversion || TypeRange(conversion->getConvertedTypes()) != expected)
+      return rewriter.notifyMatchFailure(op, "cannot convert a successor's signature");
+    return rewriter.applySignatureConversion(block, *conversion, getTypeConverter());
+  }
+
+  LogicalResult matchAndRewrite(cf::SwitchOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    ArrayRef<ValueRange> operands = adaptor.getOperands();
+    auto flatten = [&](size_t from, size_t count) {
+      SmallVector<Value> out;
+      for (size_t i = from; i < from + count; ++i)
+        llvm::append_range(out, operands[i]);
+      return out;
+    };
+    if (!llvm::hasSingleElement(operands[0]))
+      return rewriter.notifyMatchFailure(op, "expected one flag value");
+    size_t next = 1;
+    SmallVector<Value> defaults = flatten(next, op.getDefaultOperands().size());
+    next += op.getDefaultOperands().size();
+    auto dflt = converted(rewriter, op, op.getDefaultDestination(), TypeRange(ValueRange(defaults)));
+    if (failed(dflt))
+      return failure();
+    SmallVector<SmallVector<Value>> cases;
+    SmallVector<Block *> blocks;
+    for (auto [block, count] : llvm::zip(op.getCaseDestinations(), op.getCaseOperandSegments())) {
+      cases.push_back(flatten(next, static_cast<size_t>(count)));
+      next += static_cast<size_t>(count);
+      auto dest = converted(rewriter, op, block, TypeRange(ValueRange(cases.back())));
+      if (failed(dest))
+        return failure();
+      blocks.push_back(*dest);
+    }
+    SmallVector<ValueRange> ranges(cases.begin(), cases.end());
+    rewriter.replaceOpWithNewOp<cf::SwitchOp>(op, operands[0].front(), *dflt, defaults,
+                                              op.getCaseValuesAttr(), blocks, ranges);
+    return success();
+  }
+};
+
 } // namespace
 
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
-  patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr, LowerMayLoop,
+  patterns.add<LowerSwitch>(converter, patterns.getContext(), state, PatternBenefit(2));
+  patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr,
                LowerToChar, LowerToInt, LowerDoubleHead, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
                LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
                LowerIO<idr::GetCharOp>, LowerIO<idr::GetByteOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),

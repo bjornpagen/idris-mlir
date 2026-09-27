@@ -14,6 +14,7 @@ import Libraries.Utils.Path
 
 import IdrisMLIR.Code
 import IdrisMLIR.Code.Check
+import IdrisMLIR.Code.Loops
 import IdrisMLIR.Emit
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
@@ -91,11 +92,14 @@ middle fc dir src = do
   let full = showSource src
   dump dir "01-translate" full
   checked fc "Translate" (checkSource src) full
-  Right target <- pure (simplify src)
+  Right simple <- pure (simplify src)
     | Left d => fromDiag d
+  dump dir "02-simplify" (showTarget simple)
+  checked fc "Simplify" (check simple) (showTarget simple)
+  let target = relaxTarget (loopify simple)
   let core = showTarget target
-  dump dir "02-simplify" core
-  checked fc "Simplify" (check target) core
+  dump dir "03-loops" core
+  checked fc "Loops" (check target) core
   Right mlir <- pure (emit target)
     | Left msg => do
         ignore (coreLift (fPutStrLn stderr core))

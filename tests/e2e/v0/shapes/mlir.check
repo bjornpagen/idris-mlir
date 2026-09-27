@@ -10,6 +10,6 @@
 // CHECK: "func.call"(%[[E]], %{{[0-9]+}}) <{callee = @Prog.keep}> : (!idr.erased, i64) -> i64 loc("Prog.idr":26:8)
 // CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "w"}], function_type = (!idr.data<@Prog.Shape>) -> i64, sym_name = "Prog.area", sym_visibility = "private"}>
 // CHECK: "idr.tag"
-// CHECK: "scf.index_switch"
+// CHECK: "cf.switch"
 // CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "0"}, {idr.quantity = "w"}], function_type = (!idr.erased, i64) -> i64, sym_name = "Prog.keep", sym_visibility = "private"}>
 // CHECK: }) {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"}

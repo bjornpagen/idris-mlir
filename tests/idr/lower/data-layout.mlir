@@ -5,10 +5,10 @@
 // CHECK-NOT: idr.
 // CHECK-LABEL: func.func private @f(
 // CHECK-SAME: %[[TAG:.*]]: i8, %[[B0:.*]]: i32, %[[P0:.*]]: i64, %[[P1:.*]]: i8) -> i64
-// CHECK: arith.index_castui %[[TAG]] : i8 to index
-// CHECK: scf.index_switch
+// CHECK: %[[T:.*]] = arith.extui %[[TAG]] : i8 to i64
+// CHECK: cf.switch %[[T]] : i64
 // CHECK: arith.extsi %[[B0]]
-// CHECK: scf.yield %[[P0]] : i64
+// CHECK: return %[[P0]] : i64
 // CHECK-LABEL: func.func private @Prog.main()
 // CHECK-DAG: %[[FIVE:.*]] = arith.constant 5 : i32
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i8
@@ -29,22 +29,18 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind
   }
   func.func private @f(%s: !idr.data<@S> {idr.quantity = "w"}) -> i64 attributes {idr.name = "f"} {
     %t = idr.tag %s : !idr.data<@S>
-    %r = scf.index_switch %t -> i64
-    case 1 {
-      %x = idr.field %s[@B, 0] : !idr.data<@S> -> i32
-      %y = arith.extsi %x : i32 to i64
-      scf.yield %y : i64
-    }
-    case 2 {
-      %p = idr.field %s[@C, 0] : !idr.data<@S> -> !idr.data<@P>
-      %z = idr.field %p[@MkP, 0] : !idr.data<@P> -> i64
-      scf.yield %z : i64
-    }
-    default {
-      %c = arith.constant 0 : i64
-      scf.yield %c : i64
-    }
-    return %r : i64
+    cf.switch %t : i64, [default: ^a, 1: ^b, 2: ^c]
+  ^b:
+    %x = idr.field %s[@B, 0] : !idr.data<@S> -> i32
+    %y = arith.extsi %x : i32 to i64
+    return %y : i64
+  ^c:
+    %p = idr.field %s[@C, 0] : !idr.data<@S> -> !idr.data<@P>
+    %z = idr.field %p[@MkP, 0] : !idr.data<@P> -> i64
+    return %z : i64
+  ^a:
+    %c = arith.constant 0 : i64
+    return %c : i64
   }
   func.func private @Prog.main() -> i64 attributes {idr.name = "main"} {
     %a = arith.constant 5 : i32

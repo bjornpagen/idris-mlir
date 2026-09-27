@@ -62,17 +62,27 @@ data Term : Nat -> Type where
   Unreachable : Term n
 data Alt n    = MkAlt ConId (fields : List Binder) (Term (length fields + n))
 
--- First-order Core: A-normal form with unique variables (MLton's SSA shape).
+-- First-order Core: A-normal form with join points (Maurer et al.,
+-- "Compiling without continuations", PLDI 2017; Lean's LCNF), indexed by
+-- its phase as LCNF is by its purity.
 data Atom     = AVar VarId | ALit Lit | AErased
-data Op r     = OPrim Prim (List Atom) | OCall FnId (List Atom)
+data Param    = MkParam VarId Quantity VTy
+data Op       = OPrim Prim (List Atom) | OCall FnId (List Atom)
               | OCon ConId (List Atom) | OField Atom ConId Nat
               | OIO IOOp (List Atom) DataId
-              | OCase Atom (List (Branch r)) (Maybe r)
-              | OCaseLit Atom (List (Lit, r)) r
 data Branch r = MkBranch ConId (List VarId) r
-data Code     = Bind VarId Quantity VTy (Op Code) Code
-              | Ret Atom
-              | Absurd                        -- a point Idris proved impossible
+data Phase    = Pure | Mem
+data Code : Phase -> Type where
+  Let     : List Param -> Op -> Code p -> Code p      -- binds an op's results
+  Join    : JoinId -> List Param -> (body : Code p) -> (rest : Code p) -> Code p
+  Jump    : JoinId -> List Atom -> Code p
+  Case    : Atom -> List (Branch (Code p)) -> Maybe (Code p) -> Code p
+  CaseLit : Atom -> List (Lit, Code p) -> Code p -> Code p
+  Ret     : List Atom -> Code p
+  Crash   : String -> Code p                          -- SEM-CRASH-2
+  Absurd  : Code p                                    -- Idris proved it unreachable
+  Mark    : VarId -> Code Mem -> Code Mem             -- the memory plan (v4)
+  Release : VarId -> Code Mem -> Code Mem
 ```
 
 - Every node carries its source location (`FE-LOC-1`).
@@ -88,10 +98,15 @@ data Code     = Bind VarId Quantity VTy (Op Code) Code
   label.
 - `let` has no type in full Core: TTC does not keep let types
   (`FE-TR-1`), and `Simplify` knows a value's type when it evaluates it.
-- `Op` is parameterised by what its branches hold, so `Code` has a base
-  functor, `CodeF r`, and every traversal of first-order Core (binders,
-  calls, data, uses, safety, printing, typing, emission) is a fold with an
-  algebra.
+- A match is a terminator. What follows a match is a join point: a block
+  with parameters that the match's alternatives jump to. A join point's
+  body may jump to it, which makes it a loop (`CORE-LOOP-1`). Join points
+  are MLIR's blocks with arguments, and `Emit` writes them as such.
+- `Let` and `Ret` hold several values: a function may return several atoms.
+- `Code` has a base functor, `CodeF p r`, and every traversal of
+  first-order Core (binders, join points, calls, data, uses, safety, the
+  contract version, printing, typing, emission) is a fold with an algebra,
+  or a paramorphism where the algebra needs a part as it was.
 
 ## Invariants of first-order Core
 
@@ -132,13 +147,22 @@ data Code     = Bind VarId Quantity VTy (Op Code) Code
   - runtime containment is acyclic.
 - **CORE-INV-8 (v0).** Every function in `fns` is reachable from `root`.
 - **CORE-INV-9 (v1).** Every `WorldT` variable is used at most once on each
-  control-flow path (`IDR-WORLD-1`). `%MkWorld` never appears: the root
+  control-flow path (`IDR-WORLD-1`). A jump continues in its join point's
+  body, so it counts that body's uses; a loop's body runs any number of
+  times, so a world from outside the loop may not be used in it. `%MkWorld` never appears: the root
   wrapper receives the world as its parameter, and raised IO functions
   (`ELIM-G-5`) receive and return it.
 - **CORE-INV-10 (v1).** Every `StrT` value is a string literal or a variable:
   `Prim` has no string operation (`PROF-HEAP-3`).
   - Check: review (by construction: string operations are `StrOp`, which
     `Code` cannot hold)
+
+- **CORE-INV-11 (v3).** Join points are declared once per function, and a
+  jump names a join point in scope (declared around it, or the loop it is
+  in) with one argument of the right type per parameter. A join point's body
+  sees the variables in scope where it is declared, never those of the code
+  that jumps to it, which is what makes it a dominating block in MLIR.
+  - Test: `tests/compiler` unit tests on hand-built invalid `Core`
 
 - **CORE-CHECK-1 (v0).** The pipeline runs `Term.Check` on full Core after
   `Translate` (references resolve; calls, constructors and alternatives
@@ -158,7 +182,8 @@ data Code     = Bind VarId Quantity VTy (Op Code) Code
   | 2 | `Rewrite` | reserved | proved rewrites ([07](07-proved-rewrites.md)); before specialization, so that replacements get specialized |
   | 3 | `Mono` | v1 | monomorphisation (`ELIM-MONO-*`) |
   | 4 | `Simplify` | v1 | the guaranteed eliminations (`ELIM-G-*`) and `PROF-HEAP-*`: full Core → first-order Core |
-  | 5 | `Emit` | v0 | first-order Core → `idr` contract text ([08](08-idr-dialect.md)) |
+  | 5 | `Code.Loops` | v3 | loops as recursive join points (`CORE-LOOP-1`) |
+  | 6 | `Emit` | v0 | first-order Core → `idr` contract text ([08](08-idr-dialect.md)) |
 
   `Mono` is fused into `Frontend.Translate`: instances are requested on
   demand while translating, keyed by their type arguments (`ELIM-MONO-1`),
@@ -168,6 +193,16 @@ data Code     = Bind VarId Quantity VTy (Op Code) Code
   which cannot hold what `PROF-HEAP-*` forbids, and reports each violation
   where it finds it, with its reason (`DIAG-HEAP-1`). Its last step checks
   `PROF-HEAP-5` on the finished program (`ELIM-G-5`).
+- **CORE-LOOP-1 (v3).** A function that calls itself in tail position, with
+  its results returned unchanged, becomes a join point that the function
+  enters once and that each such call jumps to. First, a join point whose
+  body returns exactly its parameters is the return itself, so a call
+  whose result a match passes straight out is a tail call. This is the
+  only place loops are made; `Code.Check` runs again after it.
+  - Check: `Code.Loops.loopify`
+  - Test: `tests/e2e/v0/tail-loop-deep` (10^8 iterations with the stack
+    limited to 1 MiB), `tests/profile/v0/accept/PROF-FN-6-tail-loop.idr`
+
 - **CORE-OPT-1 (v0).** The middle end performs only monomorphisation and the
   guaranteed eliminations. It MUST NOT add any other optimization:
   - first-order inlining, beyond the unfolding rules `ELIM-G-10` to

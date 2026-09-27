@@ -325,7 +325,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-RES-1 (v0).** Exhausting the stack ends the process abnormally. The
   exit status and any output are unspecified.
   - Check: review (the behaviour is unspecified)
-- **SEM-RES-2 (v0).** A self tail call (`LOW-TAIL-1`) uses constant stack.
+- **SEM-RES-2 (v0).** A self tail call (`CORE-LOOP-1`) uses constant stack.
   A function whose only recursion is self tail calls runs in stack space
   that does not grow with the number of iterations.
 

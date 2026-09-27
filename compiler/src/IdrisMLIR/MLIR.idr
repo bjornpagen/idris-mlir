@@ -20,14 +20,13 @@ import Data.String
 ------------------------------------------------------------------------------
 
 public export
-data MType = I Nat | Index | F64
+data MType = I Nat | F64
            | IdrData String | IdrErased | IdrStr | IdrWorld
            | FunctionT (List MType) (List MType)
 
 public export
 Eq MType where
   I a == I b = a == b
-  Index == Index = True
   F64 == F64 = True
   IdrData a == IdrData b = a == b
   IdrErased == IdrErased = True
@@ -45,6 +44,8 @@ data Attr = IntA Integer MType          -- 3 : i64
           | TypeA MType
           | ArrayA (List Attr)
           | I64ArrayA (List Integer)    -- array<i64: ...>
+          | I32ArrayA (List Integer)    -- array<i32: ...>
+          | DenseI64A (List Integer)    -- dense<[...]> : vector<Nxi64>
           | DictA (List (String, Attr))
           | UnitA                       -- a flag: present
 
@@ -61,6 +62,8 @@ mutual
     results : Maybe (String, Nat)
     name : String
     operands : List Value
+    ||| The blocks a terminator branches to, as `^bb3`.
+    successors : List String
     props : List (String, Attr)
     regions : List Region
     attrs : List (String, Attr)
@@ -68,18 +71,30 @@ mutual
     outputs : List MType
     loc : Loc
 
-  ||| A region of one block, with its arguments.
+  ||| A block: its label, its arguments and its operations.
   public export
-  record Region where
-    constructor MkRegion
+  record Block where
+    constructor MkBlock
+    label : String
     args : List (Value, MType)
     ops : List MOp
 
-||| An operation without regions or attributes.
+  ||| A region: its blocks, the entry block first.
+  public export
+  record Region where
+    constructor MkRegion
+    blocks : List Block
+
+||| A region of one block.
+export
+single : List (Value, MType) -> List MOp -> Region
+single as ops = MkRegion [MkBlock "^bb0" as ops]
+
+||| An operation without regions, successors or attributes.
 export
 simple : Maybe (String, Nat) -> String -> List Value -> List (String, Attr) ->
          List MType -> List MType -> Loc -> MOp
-simple rs n os ps is out l = MkMOp rs n os ps [] [] is out l
+simple rs n os ps is out l = MkMOp rs n os [] ps [] [] is out l
 
 ------------------------------------------------------------------------------
 -- Printing
@@ -120,7 +135,6 @@ mutual
   export
   showType : MType -> String
   showType (I w) = "i" ++ show w
-  showType Index = "index"
   showType F64 = "f64"
   showType (IdrData s) = "!idr.data<@" ++ s ++ ">"
   showType IdrErased = "!idr.erased"
@@ -168,6 +182,8 @@ mutual
   showAttr (TypeA t) = showType t
   showAttr (ArrayA as) = "[" ++ attrs as ++ "]"
   showAttr (I64ArrayA ns) = "array<i64" ++ (if null ns then "" else ": " ++ joinBy ", " (map show ns)) ++ ">"
+  showAttr (I32ArrayA ns) = "array<i32" ++ (if null ns then "" else ": " ++ joinBy ", " (map show ns)) ++ ">"
+  showAttr (DenseI64A ns) = "dense<[" ++ joinBy ", " (map show ns) ++ "]> : vector<" ++ show (length ns) ++ "xi64>"
   showAttr (DictA es) = "{" ++ entries es ++ "}"
   showAttr UnitA = "unit"
 
@@ -201,6 +217,7 @@ mutual
   showOp d op =
     indent d ++ maybe "" result op.results ++ quoted op.name ++
     "(" ++ joinBy ", " op.operands ++ ")" ++
+    (if null op.successors then "" else "[" ++ joinBy ", " op.successors ++ "]") ++
     (if null op.props then "" else " <" ++ showAttr (DictA op.props) ++ ">") ++
     (if null op.regions then "" else " (" ++ regions d op.regions ++ ")") ++
     (if null op.attrs then "" else " " ++ showAttr (DictA op.attrs)) ++
@@ -218,14 +235,20 @@ mutual
 
   covering
   region : Nat -> Region -> String
-  region d r =
-    "{\n" ++
-    -- A block without arguments needs its label only when it is empty.
-    (if null r.args then (if null r.ops then indent d ++ "^bb0:\n" else "")
-     else indent d ++ "^bb0(" ++ joinBy ", " (map (\(v, t) => v ++ ": " ++ showType t) r.args) ++ "):\n") ++
-    concatMap (\o => showOp (S d) o ++ "\n") r.ops ++ indent d ++ "}"
+  region d r = "{\n" ++ concat (zipWith (block d) (True :: map (const False) r.blocks) r.blocks) ++ indent d ++ "}"
+
+  ||| A block. The entry block needs its label only when it has arguments or
+  ||| is empty.
+  covering
+  block : Nat -> Bool -> Block -> String
+  block d entry b =
+    (if entry && null b.args && not (null b.ops) then ""
+     else indent d ++ b.label ++
+          (if null b.args then "" else "(" ++ joinBy ", " (map (\(v, t) => v ++ ": " ++ showType t) b.args) ++ ")") ++
+          ":\n") ++
+    concatMap (\o => showOp (S d) o ++ "\n") b.ops
 
 ||| A module: its body and attributes.
 export covering
 showModule : List (String, Attr) -> List MOp -> String
-showModule as ops = showOp 0 (MkMOp Nothing "builtin.module" [] [] [MkRegion [] ops] as [] [] noLoc) ++ "\n"
+showModule as ops = showOp 0 (MkMOp Nothing "builtin.module" [] [] [] [single [] ops] as [] [] noLoc) ++ "\n"

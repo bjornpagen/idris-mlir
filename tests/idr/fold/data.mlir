@@ -7,31 +7,28 @@ module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "int"
   }
   // CHECK-LABEL: func.func @known(
   // CHECK-SAME: %[[X:.*]]: i64)
-  // CHECK: %[[ONE:.*]] = arith.constant 1 : index
+  // CHECK: %[[ONE:.*]] = arith.constant 1 : i64
   // CHECK-NOT: idr.
   // CHECK: return %[[ONE]], %[[X]]
-  func.func @known(%x: i64) -> (index, i64) {
+  func.func @known(%x: i64) -> (i64, i64) {
     %s = idr.con @S::@B(%x) : (i64) -> !idr.data<@S>
     %t = idr.tag %s : !idr.data<@S>
     %f = idr.field %s[@B, 0] : !idr.data<@S> -> i64
-    return %t, %f : index, i64
+    return %t, %f : i64, i64
   }
   // CHECK-LABEL: func.func @switch(
-  // CHECK-NOT: scf.index_switch
+  // CHECK-NOT: cf.switch
   // CHECK: arith.constant 7 : i64
   func.func @switch() -> i64 {
     %s = idr.con @S::@A() : () -> !idr.data<@S>
     %t = idr.tag %s : !idr.data<@S>
-    %r = scf.index_switch %t -> i64
-    case 0 {
-      %a = arith.constant 7 : i64
-      scf.yield %a : i64
-    }
-    default {
-      %b = arith.constant 9 : i64
-      scf.yield %b : i64
-    }
-    return %r : i64
+    cf.switch %t : i64, [default: ^other, 0: ^a]
+  ^a:
+    %a = arith.constant 7 : i64
+    return %a : i64
+  ^other:
+    %b = arith.constant 9 : i64
+    return %b : i64
   }
   func.func private @r() -> i64 attributes {idr.name = "r"} {
     %c = arith.constant 0 : i64

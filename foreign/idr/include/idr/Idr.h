@@ -4,6 +4,7 @@
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -21,11 +22,6 @@ namespace idr {
 // The resource that a possible crash writes to (IDR-EFF-1).
 struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
   llvm::StringRef getName() const final { return "idr.crash"; }
-};
-
-// The resource that a loop which may not terminate writes to (LOW-TAIL-4).
-struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource> {
-  llvm::StringRef getName() const final { return "idr.divergence"; }
 };
 
 // The resource that every IO op reads and writes (IDR-EFF-2).

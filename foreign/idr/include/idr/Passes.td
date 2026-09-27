@@ -13,11 +13,6 @@ def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
   let summary = "Keep the root alive through generic passes: make it public until idr-lower";
 }
 
-def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
-  let summary = "Turn self tail calls into loops (LOW-TAIL-*)";
-  let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::ub::UBDialect"];
-}
-
 def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   let summary = "Lower idr to func, arith, math, scf, ub and llvm (LOW-*)";
   let dependentDialects = [

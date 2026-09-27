@@ -48,7 +48,6 @@ def Idr_WorldType : Idr_Type<"World", "world"> {
 
 def Idr_CrashResource : Resource<"::idr::CrashResource">;
 def Idr_IOResource : Resource<"::idr::IOResource">;
-def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
 
 class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, traits>;
@@ -103,7 +102,7 @@ def Idr_ConOp : Idr_Op<"con", [Pure,
 def Idr_TagOp : Idr_Op<"tag", [Pure]> {
   let summary = "the constructor tag of a data value (IDR-TAG-1)";
   let arguments = (ins Idr_DataType:$value);
-  let results = (outs Index:$result);
+  let results = (outs I64:$result);
   let assemblyFormat = "$value attr-dict `:` type($value)";
   let hasFolder = 1;
 }
@@ -141,15 +140,6 @@ def Idr_ModOp : Idr_DivisionOp<"mod"> {
   let summary = "Idris mod: Euclidean when signed, crashes on zero";
 }
 
-// LOW-TAIL-4: created by idr-tail-loops, never in the input (IDR-IN-1).
-// MLIR deletes a region op without side effects even if it never finishes;
-// this op's effect keeps a loop that may not terminate (SEM-EVAL-5).
-def Idr_MayLoopOp : Idr_Op<"may_loop",
-    [MemoryEffects<[MemWrite<Idr_DivergenceResource>]>]> {
-  let summary = "marks one iteration of a loop that may not terminate";
-  let assemblyFormat = "attr-dict";
-}
-
 // IDR-CHAR-1
 def Idr_ToCharOp : Idr_Op<"to_char", [Pure]> {
   let summary = "an integer as a Char: itself if a scalar value, else 0";
@@ -168,13 +158,13 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure]> {
 }
 
 // IDR-CRASH-1 (v3): a case the definition does not cover (SEM-CRASH-2).
-// Its result, of any type, stands for the value of the region it ends; it
-// is never produced.
+// Its results, of any types, stand for the values its block returns; they
+// are never produced.
 def Idr_CrashOp : Idr_Op<"crash", [MemoryEffects<[MemWrite<Idr_CrashResource>]>]> {
   let summary = "ends the program with a message naming the cause";
   let arguments = (ins StrAttr:$message);
-  let results = (outs AnyType:$result);
-  let assemblyFormat = "$message attr-dict `:` type($result)";
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = "$message attr-dict (`:` type($results)^)?";
 }
 
 // IDR-STR-1

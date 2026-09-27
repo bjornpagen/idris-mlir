@@ -29,6 +29,12 @@ record VarId where
   constructor MkVarId
   index : Nat
 
+||| A join point of first-order Core: unique within its function.
+public export
+record JoinId where
+  constructor MkJoinId
+  index : Nat
+
 ||| The program point of a lambda or `Delay` in full Core: the identity of a
 ||| closure, and of its specializations (ELIM-G-3).
 public export
@@ -51,6 +57,10 @@ export Show ConId where show c = c.name
 export Eq VarId where a == b = a.index == b.index
 export Ord VarId where compare a b = compare a.index b.index
 export Show VarId where show v = "%" ++ show v.index
+
+export Eq JoinId where a == b = a.index == b.index
+export Ord JoinId where compare a b = compare a.index b.index
+export Show JoinId where show j = "j" ++ show j.index
 
 export Eq Label where a == b = a.index == b.index
 export Ord Label where compare a b = compare a.index b.index

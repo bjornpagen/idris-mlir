@@ -12,6 +12,7 @@ modules = IdrisMLIR.Loc
         , IdrisMLIR.Term.Check
         , IdrisMLIR.Code
         , IdrisMLIR.Code.Check
+        , IdrisMLIR.Code.Loops
         , IdrisMLIR.Simplify.Value
         , IdrisMLIR.Simplify.Fold
         , IdrisMLIR.Simplify.Gen

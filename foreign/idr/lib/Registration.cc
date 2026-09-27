@@ -17,9 +17,6 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-check-input",
       "idr-entry",
       "inline",
-      // After inlining: specializations of monadic code often become self
-      // recursive only once their helpers are inlined (OPT-PIPE-2).
-      "idr-tail-loops",
       "sccp",
       "canonicalize",
       "cse",

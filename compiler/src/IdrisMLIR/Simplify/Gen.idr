@@ -74,16 +74,6 @@ showKey k = show k.fn ++ "(" ++ joinBy "; " (map showShape k.args) ++ ")" ++ sho
 -- State
 ------------------------------------------------------------------------------
 
-||| One pending binding of the current block.
-public export
-record Stmt where
-  constructor MkStmt
-  loc : Loc
-  var : VarId
-  quantity : Quantity
-  type : VTy
-  op : Op Code
-
 ||| The full-Core program, indexed.
 public export
 record SourceIndex where
@@ -101,9 +91,9 @@ record St where
   memo : SortedMap Key FnId       -- specializations, made or being made
   made : SortedMap FnId Nat       -- specializations per function (ELIM-G-3)
   stack : List Key                -- specializations being made, innermost first
-  done : SnocList CFn
+  done : SnocList (CFn Pure)
   raising : Maybe FnId            -- in the prefix of this raised function (ELIM-G-5)
-  moved : SnocList (FnId, Loc, Op ())   -- what those prefixes run (PROF-HEAP-5)
+  moved : SnocList (FnId, Loc, Moved)   -- what those prefixes run (PROF-HEAP-5)
   effects : Nat                   -- effects emitted so far, in evaluation order
   ||| Where each raised function runs, and whether an effect was emitted
   ||| between building its action and running it (PROF-HEAP-5).
@@ -121,7 +111,7 @@ record St where
 ||| Why evaluation stopped: a user error, a point Idris proved impossible, a
 ||| crash, or a compile-time evaluation given up (ELIM-G-16).
 public export
-data Stop = Fail Diag | Dead Loc | Crashed Loc St | Abandoned
+data Stop = Fail Diag | Dead Loc | Crashed Loc String St | Abandoned
 
 public export
 M : Type -> Type
@@ -169,82 +159,119 @@ freshVar = do
 -- Let-insertion
 ------------------------------------------------------------------------------
 
-||| Binds an operation in the current block and returns its variable. In the
-||| prefix of a raised function the operation is recorded: it moves from
+||| Records an operation of the prefix of a raised function: it moves from
 ||| where an action is built to where it runs (ELIM-G-5, PROF-HEAP-5).
-export
-bind : Loc -> VTy -> Op Code -> M Atom
-bind l t o = do
-  x <- freshVar
-  modify { lets $= (:< MkStmt l x (defaultQuantity t) t o) }
+remember : Loc -> Moved -> M ()
+remember l m = do
   st <- get
   case st.raising of
-    Just owner => put ({ moved $= (:< (owner, l, map (const ()) o)) } st)
+    Just owner => put ({ moved $= (:< (owner, l, m)) } st)
     Nothing => pure ()
+
+||| Binds an operation in the current block and returns its variable.
+export
+bind : Loc -> VTy -> Op -> M Atom
+bind l t o = do
+  x <- freshVar
+  modify { lets $= (:< SLet l (MkParam x (defaultQuantity t) t) o) }
+  remember l (MovedOp o)
   pure (AVar x)
 
-||| A crash (SEM-CRASH-2): bound with its cause, at quantity ω so that it is
-||| emitted, and then evaluation of the block stops.
+||| A match whose alternatives are finished blocks, and the variable that
+||| holds its value in the rest of the block.
+export
+emitCase : Loc -> VTy -> Atom -> List (Branch (Code Pure)) -> Maybe (Code Pure) -> M Atom
+emitCase l t x bs d = do
+  y <- freshVar
+  modify { lets $= (:< SMatch l (MkParam y (defaultQuantity t) t) x bs d) }
+  pure (AVar y)
+
+||| A literal match whose alternatives are finished blocks.
+export
+emitCaseLit : Loc -> VTy -> Atom -> List (Lit, Code Pure) -> Code Pure -> M Atom
+emitCaseLit l t x as d = do
+  y <- freshVar
+  modify { lets $= (:< SMatchLit l (MkParam y (defaultQuantity t) t) x as d) }
+  pure (AVar y)
+
+||| A crash (SEM-CRASH-2): evaluation of the block stops.
 export
 crash : Loc -> String -> M a
 crash l m = do
-  x <- freshVar
-  modify { lets $= (:< MkStmt l x QW ErasedT (OCrash m)) }
+  remember l MovedCrash
   st <- get
-  case st.raising of
-    Just owner => put ({ moved $= (:< (owner, l, OCrash m)) } st)
-    Nothing => pure ()
-  st <- get
-  lift (Left (Crashed l st))
+  lift (Left (Crashed l m st))
 
 ||| Counts an effect: an IO primitive, or a call that is passed the world.
 export
 effect : M ()
 effect = modify { effects $= S }
 
-close : List Stmt -> Code -> Code
-close [] c = c
-close (s :: ss) c = Bind s.loc s.var s.quantity s.type s.op (close ss c)
+freshJoin : M JoinId
+freshJoin = do
+  st <- get
+  put ({ next $= S } st)
+  pure (MkJoinId st.next)
+
+||| A match whose alternatives continue at a join point with its value.
+continued : Loc -> Param -> Code Pure -> Code Pure -> M (Code Pure)
+continued l p m rest = do
+  j <- freshJoin
+  pure (Join l j [p] rest (returnTo j m))
+
+||| Closes statements around the end of a block. A match followed by more
+||| statements continues at a join point that its alternatives jump to; a
+||| match at the end of a block whose value the block returns is the end of
+||| the block itself.
+close : List Stmt -> Code Pure -> M (Code Pure)
+close [] c = pure c
+close (SLet l p o :: ss) c = Let l [p] o <$> close ss c
+close [SMatch l p x bs d] (Ret r [AVar y]) =
+  if y == p.var then pure (Case l x bs d) else continued l p (Case l x bs d) (Ret r [AVar y])
+close [SMatchLit l p x as d] (Ret r [AVar y]) =
+  if y == p.var then pure (CaseLit l x as d) else continued l p (CaseLit l x as d) (Ret r [AVar y])
+close (SMatch l p x bs d :: ss) c = close ss c >>= continued l p (Case l x bs d)
+close (SMatchLit l p x as d :: ss) c = close ss c >>= continued l p (CaseLit l x as d)
 
 ||| Runs a computation in a fresh block: its code and the type of its result,
-||| or `Absurd` without a type if it cannot return. Everything it did is
-||| undone when it cannot: that code never runs.
+||| or code that cannot return, without a type. Everything it did is undone
+||| when it cannot return: that code never runs.
 export
-block : Loc -> M (Atom, VTy) -> M (Maybe VTy, Code)
+block : Loc -> M (Atom, VTy) -> M (Maybe VTy, Code Pure)
 block l act = do
   st <- get
   case runStateT ({ lets := [<] } st) act of
     Right (st', (a, t)) => do
       put ({ lets := st.lets } st')
-      pure (Just t, close (st'.lets <>> []) (Ret l a))
+      (Just t,) <$> close (st'.lets <>> []) (Ret l [a])
     Left (Dead at) => pure (Nothing, Absurd at)
     -- The code up to a crash runs; nothing after it does.
-    Left (Crashed at st') => do
+    Left (Crashed at m st') => do
       put ({ lets := st.lets } st')
-      pure (Nothing, close (st'.lets <>> []) (Absurd at))
+      (Nothing,) <$> close (st'.lets <>> []) (Crash at m)
     Left err => lift (Left err)
 
 ||| Runs a computation in a fresh block and returns its value with the
-||| bindings it made, or the code of a block that cannot return. The value is
-||| reified later, where it is used (ELIM-G-14).
+||| statements it made, or the code of a block that cannot return. The value
+||| is reified later, where it is used (ELIM-G-14).
 export
-blockV : Loc -> M a -> M (Either Code (Prefix, a))
+blockV : Loc -> M a -> M (Either (Code Pure) (List Stmt, a))
 blockV l act = do
   st <- get
   case runStateT ({ lets := [<] } st) act of
     Right (st', x) => do
       put ({ lets := st.lets } st')
-      pure (Right (map (\s => (s.loc, s.var, s.quantity, s.type, s.op)) (st'.lets <>> []), x))
+      pure (Right (st'.lets <>> [], x))
     Left (Dead at) => pure (Left (Absurd at))
-    Left (Crashed at st') => do
+    Left (Crashed at m st') => do
       put ({ lets := st.lets } st')
-      pure (Left (close (st'.lets <>> []) (Absurd at)))
+      Left <$> close (st'.lets <>> []) (Crash at m)
     Left err => lift (Left err)
 
-||| Emits bindings made by `blockV` into the current block.
+||| Emits statements made by `blockV` into the current block.
 export
-replay : Prefix -> M ()
-replay p = modify { lets $= (<>< map (\(l, x, q, t, o) => MkStmt l x q t o) p) }
+replay : List Stmt -> M ()
+replay p = modify { lets $= (<>< p) }
 
 ||| Runs a computation, or reports the user error that stopped it with the
 ||| state as it was (ELIM-G-17).
