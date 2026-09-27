@@ -1,0 +1,4 @@
+rule: FE-TR-6
+No dictionary exists at runtime: neither data type is emitted.
+CHECK-NOT: data Main.Mnd
+CHECK-NOT: data Main.Loud

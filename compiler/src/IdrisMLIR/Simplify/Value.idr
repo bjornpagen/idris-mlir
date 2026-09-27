@@ -50,8 +50,9 @@ mutual
     ||| A constructor of static data, with its fields.
     SCon : ConId -> List (SVal a) -> SVal a
     ||| A deferred call of a function whose result is static, with the
-    ||| eliminations applied to it so far (ELIM-G-5).
-    SCall : FnId -> List (SVal a) -> List (Elim a) -> SVal a
+    ||| eliminations applied to it so far (ELIM-G-5), and how many effects
+    ||| had been emitted when it was built (not part of its shape).
+    SCall : FnId -> Nat -> List (SVal a) -> List (Elim a) -> SVal a
     SString : SStr a -> SVal a
 
   ||| An elimination of a static value.
@@ -82,7 +83,7 @@ mutual
   traverseT g (SLam l caps b body) = (\cs => SLam l cs b body) <$> traverseVect g caps
   traverseT g (SDelay l caps body) = (\cs => SDelay l cs body) <$> traverseVect g caps
   traverseT g (SCon c fs) = SCon c <$> traverseList g fs
-  traverseT g (SCall f as es) = SCall f <$> traverseList g as <*> traverseElims g es
+  traverseT g (SCall f e as es) = SCall f e <$> traverseList g as <*> traverseElims g es
   traverseT g (SString s) = SString <$> traverseS g s
 
   traverseVect : Applicative f => (VTy -> a -> f b) -> Vect k (SVal a) -> f (Vect k (SVal b))
@@ -166,7 +167,7 @@ mutual
   cmpV (SLam l cs _ _) (SLam m ds _ _) = compare l m <+> cmpVect cs ds
   cmpV (SDelay l cs _) (SDelay m ds _) = compare l m <+> cmpVect cs ds
   cmpV (SCon c fs) (SCon d gs) = compare c d <+> cmpList fs gs
-  cmpV (SCall f as es) (SCall g bs ds) = compare f g <+> cmpList as bs <+> cmpElims es ds
+  cmpV (SCall f _ as es) (SCall g _ bs ds) = compare f g <+> cmpList as bs <+> cmpElims es ds
   cmpV (SString s) (SString t) = cmpS s t
   cmpV a b = compare (rank a) (rank b)
 
@@ -224,7 +225,7 @@ mutual
   showShape (SLam l cs _ _) = show l ++ "[" ++ showList (toList cs) ++ "]"
   showShape (SDelay l cs _) = "delay" ++ show l.index ++ "[" ++ showList (toList cs) ++ "]"
   showShape (SCon c fs) = show c ++ "(" ++ showList fs ++ ")"
-  showShape (SCall f as es) = show f ++ "(" ++ showList as ++ ")" ++ showElims es
+  showShape (SCall f _ as es) = show f ++ "(" ++ showList as ++ ")" ++ showElims es
   showShape (SString s) = showS s
 
   covering
@@ -250,7 +251,7 @@ mutual
   children (SLam _ cs _ _) = toList cs
   children (SDelay _ cs _) = toList cs
   children (SCon _ fs) = fs
-  children (SCall _ as es) = as ++ applied es
+  children (SCall _ _ as es) = as ++ applied es
   children _ = []
 
   applied : List (Elim ()) -> List (SVal ())
@@ -273,7 +274,7 @@ mutual
   couple (SLam l cs _ _) (SLam m ds _ _) = l == m && pairs (toList cs) (toList ds)
   couple (SDelay l cs _) (SDelay m ds _) = l == m && pairs (toList cs) (toList ds)
   couple (SCon c fs) (SCon d gs) = c == d && pairs fs gs
-  couple (SCall f as es) (SCall g bs ds) = f == g && pairs as bs && cmpElims es ds == EQ
+  couple (SCall f _ as es) (SCall g _ bs ds) = f == g && pairs as bs && cmpElims es ds == EQ
   couple (SString s) (SString t) = cmpS s t == EQ
   couple _ _ = False
 
@@ -291,7 +292,7 @@ mutual
   size (SLam _ cs _ _) = S (sizeVect cs)
   size (SDelay _ cs _) = S (sizeVect cs)
   size (SCon _ fs) = S (sizeList fs)
-  size (SCall _ as es) = S (sizeList as + sizeElims es)
+  size (SCall _ _ as es) = S (sizeList as + sizeElims es)
   size _ = 1
 
   sizeVect : Vect k (SVal a) -> Nat

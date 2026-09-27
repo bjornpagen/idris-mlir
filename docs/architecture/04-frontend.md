@@ -177,6 +177,32 @@ error follows `DIAG-*`.
   may contain the definition's quantity-0 type parameters, which become
   `TyVar`. The closedness check of `FE-TR-1` then runs after `Mono`
   (`PROF-TYPE-4`).
+- **FE-TR-6 (v2). Implementations are compile-time values.** An interface
+  is a single-constructor data type whose fields are the superclass
+  implementations and the methods; a method with type variables of its own
+  has a polymorphic type, which no `Core` type describes. Idris resolves
+  every constraint at compile time, so the frontend treats implementations
+  like type arguments:
+  - An argument in an auto-implicit position of runtime quantity, or an
+    argument that is a variable bound to an implementation (as Idris passes
+    constraints to case and with blocks), is a compile-time value: the
+    closed TT term as written, with the enclosing compile-time values
+    substituted and not normalised. It keys the instance (`ELIM-MONO-1`)
+    and is erased at runtime.
+  - An argument that depends on a runtime value is rejected: an
+    implementation chosen at runtime (`PROF-HEAP-1`).
+  - A match on an implementation selects its alternative during
+    translation. The implementation is reduced to its constructor by
+    unfolding definitions that are one right-hand side (every
+    implementation is), and by Idris's normaliser otherwise.
+  - A method applied to its type arguments is substituted with them before
+    it is translated, so it is translated at the types of each use.
+
+  No dictionary exists in `Core`; each method call is an ordinary call of a
+  monomorphic instance, which `ELIM-G-3` specializes like any other.
+  - Test: `tests/e2e/v2/interface-*`,
+    `tests/profile/v2/accept/FE-TR-6-named-implementations.idr`,
+    `tests/profile/v2/reject/PROF-HEAP-1-runtime-implementation.idr`
 - **FE-LOC-1 (v0).** Every `Core` definition carries its `GlobalDef`
   location. Every `Core` term carries the `FC` of the TT node it came from,
   or else its definition's location. The MLIR emitted for it carries the same

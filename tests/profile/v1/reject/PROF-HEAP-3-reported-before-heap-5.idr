@@ -23,5 +23,7 @@ partial
 main : IO ()
 main = do
   c <- getChar
-  report (prim__cast_CharInt c)
+  let action = report (prim__cast_CharInt c)
+  putStrLn "ready"
+  action
   putStrLn (unbox (MkBox (prim__strCons c "!")))

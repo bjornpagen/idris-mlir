@@ -91,8 +91,12 @@ record St where
   made : SortedMap FnId Nat       -- specializations per function (ELIM-G-3)
   stack : List Key                -- specializations being made, innermost first
   done : SnocList CFn
-  raising : Maybe Loc             -- in the prefix of a raised function (ELIM-G-5)
-  moved : SnocList (Loc, Op ())   -- what those prefixes run (PROF-HEAP-5)
+  raising : Maybe FnId            -- in the prefix of this raised function (ELIM-G-5)
+  moved : SnocList (FnId, Loc, Op ())   -- what those prefixes run (PROF-HEAP-5)
+  effects : Nat                   -- effects emitted so far, in evaluation order
+  ||| Where each raised function runs, and whether an effect was emitted
+  ||| between building its action and running it (PROF-HEAP-5).
+  runs : SnocList (FnId, Loc, Bool)
 
 ||| Why evaluation stopped: a user error, or a point Idris proved impossible.
 public export
@@ -104,7 +108,7 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<]
+initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<]
 
 export
 fail : Rule -> Loc -> String -> M a
@@ -136,9 +140,14 @@ bind l t o = do
   modify { lets $= (:< MkStmt l x (defaultQuantity t) t o) }
   st <- get
   case st.raising of
-    Just _ => put ({ moved $= (:< (l, map (const ()) o)) } st)
+    Just owner => put ({ moved $= (:< (owner, l, map (const ()) o)) } st)
     Nothing => pure ()
   pure (AVar x)
+
+||| Counts an effect: an IO primitive, or a call that is passed the world.
+export
+effect : M ()
+effect = modify { effects $= S }
 
 close : List Stmt -> Code -> Code
 close [] c = c
@@ -171,7 +180,7 @@ leavePrefix act = do
 
 ||| Runs a computation as the prefix of a raised function, or not.
 export
-withPrefix : Maybe Loc -> M a -> M a
+withPrefix : Maybe FnId -> M a -> M a
 withPrefix p act = do
   saved <- gets raising
   modify { raising := p }

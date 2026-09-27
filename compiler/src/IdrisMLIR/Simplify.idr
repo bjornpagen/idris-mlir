@@ -197,8 +197,8 @@ mutual
     vs <- traverse (\a => evalK env a []) args
     fn <- fnDef l f
     case value fn.result of
-      Nothing => pure (SCall f vs [])                                              -- G5
-      Just _ => call l f vs []
+      Nothing => pure (SCall f !(gets effects) vs [])                              -- G5
+      Just _ => call l Nothing f vs []
   eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
     dt <- dataDef l c.dataId
@@ -235,7 +235,7 @@ mutual
       evalK env' body es
     Nothing => maybe (fail CoreCheck1 l "no alternative for a known constructor") (\d => evalK env d es) def
   -- A static value of single-constructor data: its fields are projections (G5).
-  matchCon env l (SCall f as ms) alts def es = do
+  matchCon env l (SCall f e as ms) alts def es = do
     fn <- fnDef l f
     t <- elimTy l fn.result ms
     Just d <- pure (dataOf t)
@@ -249,7 +249,7 @@ mutual
           -- the erased value.
           fields <- for (zip [0 .. length con.fields] con.fields) $ \(i, fd) =>
             if fd.quantity == Q0 then pure (Dyn ErasedT AErased)
-            else consume l (SCall f as ms) [Proj con.id i]
+            else consume l (SCall f e as ms) [Proj con.id i]
           env' <- bindAlt l bs (take (length bs) fields) env
           evalK env' body es
         Nothing => maybe (fail CoreCheck1 l "no alternative") (\e => evalK env e es) def
@@ -280,25 +280,31 @@ mutual
   consume l (SDelay _ caps body) (ForceIt :: es) = leavePrefix (evalK caps body es)
   consume l (SCon c fs) (Proj _ i :: es) =
     maybe (fail CoreCheck1 l "a projection of a missing field") (\f => consume l f es) (getAt i fs)
-  consume l (SCall f as ms) es = do
+  consume l (SCall f e as ms) es = do
     fn <- fnDef l f
     t <- elimTy l fn.result (ms ++ es)
     case value t of
-      Nothing => pure (SCall f as (ms ++ es))
+      Nothing => pure (SCall f e as (ms ++ es))
       -- Running the deferred call is the action, not prefix code; the
       -- callee's own prefix is recorded where it is specialized.
-      Just _ => leavePrefix (call l f as (ms ++ es))
+      Just _ => leavePrefix (call l (Just e) f as (ms ++ es))
   consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))
 
   ||| A call of `f` with arguments and eliminations: a call of the
-  ||| specialization for their shapes (G3, G5).
-  call : Loc -> FnId -> List V -> List (Elim Atom) -> M V
-  call l f args0 es = do
+  ||| specialization for their shapes (G3, G5). A deferred call knows how
+  ||| many effects had happened when its action was built.
+  call : Loc -> Maybe Nat -> FnId -> List V -> List (Elim Atom) -> M V
+  call l built f args0 es = do
     fn <- fnDef l f
     let args = map literalStr args0
     t <- elimTy l fn.result es >>= runtimeTy l
     name <- specialize l fn (MkKey f (map shape args) (shapeElims es)) args es t
-    Dyn t <$> bind l t (OCall name (map snd (atoms args es)))
+    now <- gets effects
+    when (not (null es)) $
+      modify { runs $= (:< (name, l, maybe False (< now) built)) }
+    let as = atoms args es
+    when (any ((== WorldT) . fst) as) effect
+    Dyn t <$> bind l t (OCall name (map snd as))
 
   ||| The specialization of a function for a key, made on first use.
   specialize : Loc -> TFn -> Key -> List V -> List (Elim Atom) -> VTy -> M FnId
@@ -331,8 +337,11 @@ mutual
           | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
         -- G5: the body before the eliminations apply runs where the action
         -- is used.
-        (_, body) <- withPrefix (if null es then Nothing else Just l) $
+        -- Effects are counted within one function's code.
+        outer <- gets effects
+        (_, body) <- withPrefix (if null es then Nothing else Just name) $
                        block fn.loc (evalK env fn.body es' >>= reify fn.loc)
+        modify { effects := outer }
         modify { stack $= drop 1 }
         -- CORE-INV-4: a runtime argument keeps the quantity of its
         -- parameter; the atoms of a static value are unrestricted.
@@ -395,6 +404,7 @@ mutual
     Nothing => fail CoreCheck1 l "putStr of a value that is not a string"
   io l op res vs = do
     as <- traverse (reify l) vs
+    effect
     Dyn (DataT res) <$> bind l (DataT res) (OIO op (map fst as) res)
 
   ||| Writes a static string: literal and runtime pieces in order, threading
@@ -414,7 +424,7 @@ mutual
     (_, SLit lit) => write PutStr (ALit (LStr lit))
     where
       write : IOOp -> Atom -> M V
-      write op a = Dyn (DataT res) <$> bind l (DataT res) (OIO op [a, w] res)
+      write op a = effect *> (Dyn (DataT res) <$> bind l (DataT res) (OIO op [a, w] res))
       ||| The world inside an `IORes` value.
       nextWorld : V -> M Atom
       nextWorld (Dyn _ r) = do
@@ -466,13 +476,13 @@ simplify src = do
           t <- runtimeTy root.loc b.type
           x <- freshVar
           pure (dynVar x t)
-        call root.loc root.id ps []
+        call root.loc Nothing root.id ps []
   case runStateT (initial ix) run of
     Left (Fail d) => Left d
     Left (Dead l) => Left (MkDiag CoreCheck1 "Simplify" l "the root cannot return")
     Right (st, _) => do
       let fns = st.done <>> []
-      checkMoved fns (st.moved <>> [])
+      checkMoved fns (st.moved <>> []) (st.runs <>> [])
       let used = usedDatas ix.datas fns
       let Just datas = traverse runtimeData [d | d <- src.datas, contains d.id used]
         | Nothing => Left (MkDiag CoreCheck1 "Simplify" noLoc "static data at runtime")

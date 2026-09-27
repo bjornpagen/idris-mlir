@@ -5,7 +5,7 @@ tests/e2e/v0/<name>/ holds `Prog.idr`, a `main : Int` program, and one of:
   - `Oracle.idr`, with `check : Prog.main = <literal>` proved by `Refl`;
   - `expected-exit`, for results Idris cannot evaluate at type-checking time;
   - `expected-crash`, text the crash diagnostic must contain.
-tests/e2e/v1/<name>/ holds `Main.idr` (and other user modules), optionally
+tests/e2e/v1/<name>/ and tests/e2e/v2/<name>/ hold `Main.idr` (and other user modules), optionally
 `stdin`, `expected-stdout`, `expected-exit` (default 0), `expected-crash`,
 an `Oracle.idr` checked with the stock compiler, `core.check`: FileCheck
 directives run on the Core after Simplify, and `translate.check`: the same on
@@ -172,8 +172,9 @@ def cases(filter_text=""):
     found = []
     for fixture in sorted((HERE / "v0").glob("*/")):
         found.append((f"e2e/v0/{fixture.name}", v0_case(fixture)))
-    for fixture in sorted((HERE / "v1").glob("*/")):
-        found.append((f"e2e/v1/{fixture.name}", v1_case(fixture)))
+    for version in ("v1", "v2"):
+        for fixture in sorted((HERE / version).glob("*/")):
+            found.append((f"e2e/{version}/{fixture.name}", v1_case(fixture)))
     found.append(("e2e/v0/determinism", determinism_case(HERE / "v0/shapes", False)))
     found.append(("e2e/v1/determinism", determinism_case(HERE / "v1/hello", True)))
     found += sem.cases(v0_case)

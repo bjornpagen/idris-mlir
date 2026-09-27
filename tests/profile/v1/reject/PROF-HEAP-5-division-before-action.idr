@@ -1,8 +1,10 @@
--- expect: PROF-HEAP-5 line 9
+-- expect: PROF-HEAP-5 line 11
 -- message: arity raising is blocked by a division
 module Main
 
 -- rule: DIAG-HEAP-1
+-- The action `report d` is built, then "ready" is written, then the action
+-- runs. Raising `report` would move its division after that output.
 
 import IdrisMLIR.IO
 
@@ -14,4 +16,6 @@ partial
 main : IO ()
 main = do
   c <- getChar
-  report (prim__cast_CharInt c)
+  let action = report (prim__cast_CharInt c)
+  putStrLn "ready"
+  action

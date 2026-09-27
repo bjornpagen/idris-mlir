@@ -42,13 +42,17 @@ blocking fns (OIO op _ _) = "the IO operation " ++ show op
 blocking fns _ = "an operation"
 
 ||| Checks the operations moved into prefixes, in the order they were made.
+||| Moving is observable only if an effect happens between building an
+||| action and running it: a raised function none of whose actions is run
+||| after such an effect may move anything.
 export
-checkMoved : List CFn -> List (Loc, Op ()) -> Either Diag ()
-checkMoved fns moved = do
+checkMoved : List CFn -> List (FnId, Loc, Op ()) -> List (FnId, Loc, Bool) -> Either Diag ()
+checkMoved fns moved runs = do
   let safe = safeFns fns
   let byId = fromList [(f.id, f) | f <- fns]
-  for_ moved $ \(l, op) =>
-    unless (safeOp (`contains` safe) op) $
+  let delayed = fromList (map (\(f, _, _) => f) (filter (\(_, _, late) => late) runs))
+  for_ moved $ \(owner, l, op) =>
+    when (contains owner delayed && not (safeOp (`contains` safe) op)) $
       Left (MkDiag ProfHeap5 "Simplify" l
               ("arity raising is blocked by " ++ blocking byId op ++ ", which may crash or not " ++
                "terminate, and would move from where an IO action or function is built to " ++

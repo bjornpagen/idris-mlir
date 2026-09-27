@@ -51,7 +51,8 @@ record Pending where
   constructor MkPending
   name : Name
   inst : FnId
-  typeArgs : List ClosedTerm
+  ||| The compile-time arguments, by position (ELIM-MONO-1).
+  statics : List (Maybe ClosedTerm)
   ||| The instances that requested this one, innermost first, with the size
   ||| of their keys (ELIM-MONO-3).
   path : List (String, Nat)
@@ -80,10 +81,13 @@ record TS where
   moduleFC : FC
   current : List (String, Nat)        -- the path of the instance being translated
   perName : SortedMap String Nat      -- instances per definition (ELIM-MONO-3)
+  ||| Who owns each instance name: names are injective (ELIM-MONO-4), and
+  ||| a printed form that two instances share is told apart here.
+  owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty
+initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty empty
 
 ||| A fresh program point for a lambda or `Delay` (ELIM-G-3).
 label : {auto s : Ref TState TS} -> Core Label
@@ -137,14 +141,42 @@ fromLoc l = case l.origin of
 ------------------------------------------------------------------------------
 
 ||| What a TT variable stands for: a Core variable (with its type, when a
-||| match may need it), or a type argument's value.
+||| match may need it), a type argument's value, or an implementation's value.
+||| Types and implementations are compile-time values, closed TT terms: types
+||| are erased at runtime, and an implementation is used by translating it
+||| where it is needed (FE-TR-6).
 data VarInfo : Nat -> Type where
   Bound : Fin n -> Maybe Ty -> VarInfo n
   TypeValue : ClosedTerm -> VarInfo n
+  Static : ClosedTerm -> VarInfo n
 
 weakenInfo : (k : Nat) -> VarInfo n -> VarInfo (k + n)
 weakenInfo k (Bound i t) = Bound (shift k i) t
 weakenInfo k (TypeValue t) = TypeValue t
+weakenInfo k (Static t) = Static t
+
+||| Does the term mention `Erased` for the given reason?
+anyErasedAs : (WhyErased (TT vars) -> Bool) -> TT vars -> Bool
+anyErasedAs p tm = go tm
+  where
+    go : TT vs -> Bool
+    go (Erased _ w) = case w of
+      Placeholder => p Placeholder
+      Impossible => p Impossible
+      Dotted _ => False
+    go (Bind _ _ b sc) = go (binderType b) || binderVal b || go sc
+      where
+        binderVal : TTBinder (TT ws) -> Bool
+        binderVal (Let _ _ v _) = go v
+        binderVal (PLet _ _ v _) = go v
+        binderVal _ = False
+    go (App _ f a) = go f || go a
+    go (As _ _ a q) = go q
+    go (TDelayed _ _ t) = go t
+    go (TDelay _ _ t a) = go t || go a
+    go (TForce _ _ t) = go t
+    go (Meta _ _ _ args) = any go args
+    go _ = False
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
 anyErased : TT vars -> Bool
@@ -181,12 +213,84 @@ closeNormalise fc env tm = do
   where
     value : VarInfo n -> ClosedTerm
     value (TypeValue t) = t
+    value (Static t) = t
     value (Bound _ _) = Erased fc Placeholder
+
+||| A closed term in any scope.
+embedClosed : {vars : Scope} -> ClosedTerm -> TT vars
+embedClosed t = embed {outer = vars} t
+
+||| Beta-reduces a closed lambda with its arguments, by substitution.
+betaAll : ClosedTerm -> List ClosedTerm -> ClosedTerm
+betaAll (Bind _ _ (Lam _ _ _ _) sc) (v :: vs) = betaAll (subst v sc) vs
+betaAll tm vs = foldl (App EmptyFC) tm vs
+
+||| A term in scope as a closed term, with compile-time values substituted
+||| and not normalised, so that an implementation keeps its written form. A
+||| runtime variable becomes `Erased` with reason `Impossible`, which
+||| `runtimeDependent` detects.
+closeWritten : {vars : Scope} -> FC -> List (VarInfo n) -> TT vars -> ClosedTerm
+closeWritten fc env tm = betaAll (wrapLams fc tm) (reverse (map value env))
+  where
+    value : VarInfo n -> ClosedTerm
+    value (TypeValue t) = t
+    value (Static t) = t
+    value (Bound _ _) = Erased fc Impossible
+
+runtimeDependent : ClosedTerm -> Bool
+runtimeDependent = anyErasedAs (\w => case w of
+                                        Impossible => True
+                                        _ => False)
 
 normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
   normalise defs [] tm
+
+||| The constructor a compile-time value reduces to, with its arguments. An
+||| implementation is a definition with one right-hand side, so it is
+||| unfolded by substituting its arguments, keeping the rest as written;
+||| anything else goes to Idris's normaliser.
+whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
+whnf Z tm = pure Nothing
+whnf (S fuel) tm = case spineC tm [] of
+  (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
+  (Ref _ _ n, args) => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact n (gamma defs)
+      | Nothing => pure Nothing
+    case definition def of
+      PMDef _ pargs (STerm _ body) _ _ =>
+        if length args < length pargs then pure Nothing
+        else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
+                                (drop (length pargs) args))
+      _ => normalised
+  (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
+  (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
+  _ => normalised
+  where
+    spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
+    spineC (App _ f a) as = spineC f (a :: as)
+    spineC f as = (f, as)
+    normalised : Core (Maybe (Name, List ClosedTerm))
+    normalised = do
+      defs <- get Ctxt
+      tm' <- normalise defs [] tm
+      pure (case spineC tm' [] of
+              (Ref _ (DataCon _ _) n, args) => Just (n, args)
+              _ => Nothing)
+
+||| Which arguments of a constructor are erased, by position.
+erasedArgs : {auto c : Ref Ctxt Defs} -> Name -> Core (List Bool)
+erasedArgs n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure []
+  pure (go (type def))
+  where
+    go : TT vs -> List Bool
+    go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
+    go _ = []
 
 showTT : ClosedTerm -> String
 showTT = show
@@ -233,13 +337,39 @@ intTy Bits32Type = Just UInt32
 intTy Bits64Type = Just UInt64
 intTy _ = Nothing
 
+||| A full name, printed so that different names print differently: Idris's
+||| `show` prints only the display part of a `DN` and leaves out the index of
+||| a case or with block.
+nameKey : Name -> String
+nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
+nameKey (DN str n) = str ++ "{" ++ nameKey n ++ "}"
+nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
+nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
+nameKey n = show n
+
 ||| ELIM-MONO-4: the definition's full name and its arguments' normal forms.
-instanceName : {auto c : Ref Ctxt Defs} -> Name -> List ClosedTerm -> Core String
-instanceName n [] = show <$> toFullNames n
+||| The printed form is made unique by a suffix if a different instance
+||| already prints the same way.
+instanceName : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               Name -> List (Maybe ClosedTerm) -> Core String
 instanceName n args = do
   n' <- toFullNames n
-  args' <- traverse toFullNames args
-  pure (show n' ++ "[" ++ joinBy ", " (map showTT args') ++ "]")
+  args' <- traverse (\a => case a of
+                             Just t => Just <$> toFullNames t
+                             Nothing => pure Nothing) args
+  let shown = map showTT (catMaybes args')
+  let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
+  st <- get TState
+  let owners = fromMaybe [] (lookup printed st.owners)
+  case findIndex (\(m, as) => m == n' && as == args') owners of
+    Just i => pure (suffixed printed (finToNat i))
+    Nothing => do
+      put TState ({ owners $= insert printed (owners ++ [(n', args')]) } st)
+      pure (suffixed printed (length owners))
+  where
+    suffixed : String -> Nat -> String
+    suffixed p Z = p
+    suffixed p k = p ++ "'" ++ show k
 
 ||| Static data holds a function or `Lazy` value, directly or through other
 ||| static data (ELIM-G-2, ELIM-G-5).
@@ -286,7 +416,7 @@ mutual
   dataInstance fc owner tcon args = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
-    inst <- MkDataId <$> instanceName (fullname def) args
+    inst <- MkDataId <$> instanceName (fullname def) (map Just args)
     st <- get TState
     if isJust (lookup inst st.datas) then pure inst else do
       when (contains inst st.building) $
@@ -339,10 +469,10 @@ mutual
 ||| Requests a function instance and returns its name. Polymorphic recursion
 ||| would request ever larger instances of one definition (ELIM-MONO-3).
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> String -> Name -> List ClosedTerm -> Core FnId
-request fc owner n targs = do
-  inst <- MkFnId <$> instanceName n targs
-  base <- show <$> toFullNames n
+          FC -> String -> Name -> List (Maybe ClosedTerm) -> Core FnId
+request fc owner n statics = do
+  inst <- MkFnId <$> instanceName n statics
+  base <- nameKey <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
     let size = length inst.name
@@ -354,7 +484,7 @@ request fc owner n targs = do
       reject fc owner ProfPoly1 ("more than 64 instances of " ++ base)
     put TState ({ seen $= insert inst
                 , perName $= insert base (S count)
-                , queue $= (++ [MkPending n inst targs ((base, size) :: st.current)]) } st)
+                , queue $= (++ [MkPending n inst statics ((base, size) :: st.current)]) } st)
   pure inst
 
 ||| PROF-DATA-5: a type constructor with indices, found before its instance
@@ -371,40 +501,81 @@ indexedHead owner tm = case spine tm [] of
       _ => pure ()
   _ => pure ()
 
-||| Parameter classification after instantiation.
-data PKind = TypeParam ClosedTerm | ErasedParam | RuntimeParam Ty
+||| Parameter classification after instantiation. A type parameter and an
+||| implementation (an auto-implicit argument, such as an interface
+||| constraint) are compile-time values: they key the instance (ELIM-MONO-1)
+||| and are erased at runtime.
+data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ErasedParam | RuntimeParam Ty
 
-||| Walks a callee's type over its arguments: which are type parameters,
-||| which are erased, which are runtime (and their types).
+||| A compile-time value of an argument, computed on demand: normalised for a
+||| type, as written for an implementation. `dictionary` says the argument is
+||| an implementation known at compile time, whatever binds it: Idris passes
+||| an enclosing function's constraints to its case and with blocks as
+||| explicit arguments.
+record ArgValue where
+  constructor MkArgValue
+  normalised : Core ClosedTerm
+  written : Core ClosedTerm
+  dictionary : Bool
+
+known : ClosedTerm -> ArgValue
+known t = MkArgValue (pure t) (pure t) True
+
+||| The arguments of a call by position: `Nothing` for a runtime argument of
+||| an instance.
+ArgValues : Type
+ArgValues = List (Maybe ArgValue)
+
+nextStatic : ArgValues -> (Maybe ArgValue, ArgValues)
+nextStatic (v :: vs) = (v, vs)
+nextStatic [] = (Nothing, [])
+
+skip : ArgValues -> ArgValues
+skip = Data.List.drop 1
+
+isAuto : PiInfo t -> Bool
+isAuto AutoImplicit = True
+isAuto _ = False
+
+||| Walks a callee's type over its arguments: which are type parameters or
+||| implementations, which are erased, which are runtime (and their types).
 classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           FC -> String -> Nat -> ClosedTerm -> List (Maybe ClosedTerm) ->
+           FC -> String -> Nat -> ClosedTerm -> ArgValues ->
            Core (List (Quantity, PKind), ClosedTerm)
 classify fc owner Z ty _ = pure ([], ty)
-classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
+classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
   a' <- normaliseClosed a
-  let v = fromMaybe Nothing (head' vals)
-  let vals' = Data.List.drop 1 vals
   if isErased rig && isTypeLike a'
      then do
-       let Just val = v
-         | Nothing => reject fc owner ProfFn7 "a type argument that is not known statically"
+       let (Just v, vals') = nextStatic vals
+         | _ => reject fc owner ProfFn7 "a type argument that is not known statically"
+       val <- v.normalised
        (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
        pure ((Q0, TypeParam val) :: rest, res)
      else if isErased rig
        then do
-         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) vals'
+         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
          pure ((Q0, ErasedParam) :: rest, res)
+     else if isAuto pinfo || maybe False (.dictionary) (fst (nextStatic vals))
+       then do
+         let (Just v, vals') = nextStatic vals
+           | _ => reject fc owner ProfFn7 "an implementation that is not known statically"
+         val <- v.written
+         when (runtimeDependent val) $
+           reject fc owner ProfHeap1 ("an implementation chosen at runtime (FE-TR-6): " ++ showTT val)
+         (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
+         pure ((Q0, DictParam val) :: rest, res)
        else do
          indexedHead owner a'
          when (anyErased a') $
            reject fc owner ProfType4 "a parameter type that depends on another argument"
          t <- coreType fc owner ProfType4 a'
-         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) vals'
+         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
          pure ((quantity rig, RuntimeParam t) :: rest, res)
-classify fc owner (S k) ty _ = do
+classify fc owner (S k) ty vals = do
   ty' <- normaliseClosed ty
   case ty' of
-    Bind {} => classify fc owner (S k) ty' []
+    Bind {} => classify fc owner (S k) ty' vals
     _ => internal fc "more arguments than the type has binders (FE-TR-1)"
 
 ------------------------------------------------------------------------------
@@ -511,6 +682,7 @@ mutual
     case getAt idx env of
       Just (Bound i _) => pure (Var loc i)
       Just (TypeValue _) => pure (Erased loc)
+      Just (Static t) => term {vars} ctx env (embedClosed {vars} t)
       Nothing => internal (bestFC ctx fc) "a variable out of scope (FE-TR-3)"
   term ctx env (PrimVal fc c) = do
     loc <- toLoc (bestFC ctx fc)
@@ -585,8 +757,17 @@ mutual
           arg ((_, RuntimeParam _), a) = term ctx env a
           arg _ = pure (Erased loc)
 
-      typeArgValues : List (TT vars) -> Core (List (Maybe ClosedTerm))
-      typeArgValues = traverse (\a => Just <$> closeNormalise afc env a)
+      isImplementation : TT vars -> Bool
+      isImplementation (Local _ _ idx _) = case getAt idx env of
+        Just (Static _) => True
+        _ => False
+      isImplementation _ = False
+
+      argValue : TT vars -> Maybe ArgValue
+      argValue a = Just (MkArgValue (closeNormalise afc env a) (pure (closeWritten afc env a)) (isImplementation a))
+
+      argValues : List (TT vars) -> ArgValues
+      argValues = map argValue
 
       applyRest : Loc -> Term n -> List (TT vars) -> Core (Term n)
       applyRest loc f [] = pure f
@@ -599,32 +780,32 @@ mutual
         if null missing
            then applyRest loc (mk given) extra
            else do
-             when (any isTypeParam missing) $
-               reject afc ctx.owner ProfFn7 "a partially applied type parameter"
+             when (any isStatic missing) $
+               reject afc ctx.owner ProfFn7 "a partially applied type parameter or implementation"
              etaExpand afc loc (map kindTy missing) mk given
         where
-          isTypeParam : (Quantity, PKind) -> Bool
-          isTypeParam (_, TypeParam _) = True
-          isTypeParam _ = False
+          isStatic : (Quantity, PKind) -> Bool
+          isStatic (_, TypeParam _) = True
+          isStatic (_, DictParam _) = True
+          isStatic _ = False
           kindTy : (Quantity, PKind) -> (Quantity, Ty)
           kindTy (q, RuntimeParam t) = (q, t)
           kindTy (q, _) = (Q0, V ErasedT)
 
       call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term n)
       call fc loc name arity ty as = do
-        vals <- typeArgValues (take arity as)
-        (kinds, _) <- classify fc ctx.owner arity ty vals
-        let targs = mapMaybe (\k => case k of
-                                      (_, TypeParam t) => Just t
-                                      _ => Nothing) kinds
-        inst <- request fc ctx.owner name targs
+        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity as))
+        let statics = map (\k => case k of
+                                    (_, TypeParam t) => Just t
+                                    (_, DictParam t) => Just t
+                                    _ => Nothing) kinds
+        inst <- request fc ctx.owner name statics
         given <- arguments loc kinds (take arity as)
         finish loc kinds given (Call loc inst) (drop arity as)
 
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term n)
       constructor fc loc def arity as = do
-        vals <- typeArgValues (take arity as)
-        (kinds, resTy) <- classify fc ctx.owner arity (type def) vals
+        (kinds, resTy) <- classify fc ctx.owner arity (type def) (argValues (take arity as))
         Just inst <- dataOf <$> coreType fc ctx.owner ProfType4 !(normaliseClosed resTy)
           | Nothing => internal fc "a constructor of a type that is not data (FE-TR-3)"
         given <- arguments loc kinds (take arity as)
@@ -656,11 +837,24 @@ mutual
           | Nothing => internal fc "an IO primitive with an unexpected type (FE-TR-3)"
         given <- arguments loc kinds (take arity as)
         finish loc kinds given (\xs => Effect loc op xs res) (drop arity as)
-  application ctx env afc fn args = do
-    loc <- toLoc (bestFC ctx afc)
-    f <- term ctx env fn
-    applyAll loc f args
+  application ctx env afc fn args = case headStep fn args of
+    Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)
+    Nothing => do
+      loc <- toLoc (bestFC ctx afc)
+      f <- term ctx env fn
+      applyAll loc f args
     where
+      ||| An implementation applied to arguments is used as written; its type
+      ||| arguments are substituted, so its body is translated at the types of
+      ||| this use (FE-TR-6).
+      headStep : TT vars -> List (TT vars) -> Maybe (TT vars, List (TT vars))
+      headStep (Local _ _ idx _) as = case getAt idx env of
+        Just (Static t) => Just (embedClosed t, as)
+        _ => Nothing
+      headStep (Bind _ _ (Lam _ rig _ _) sc) (a :: as) =
+        if isErased rig then Just (subst a sc, as) else Nothing
+      headStep _ _ = Nothing
+
       applyAll : Loc -> Term n -> List (TT vars) -> Core (Term n)
       applyAll loc f [] = pure f
       applyAll loc f (a :: as) = applyAll loc (App loc f !(term ctx env a)) as
@@ -708,7 +902,35 @@ mutual
           let Just def = def
             | Nothing => reject ctx.fc ctx.owner ProfFn5 "a literal match without a default"
           pure (CaseLit loc i litAlts def)
+      -- A match on an implementation selects its alternative now (FE-TR-6).
+      Just (Static t) => staticCase ctx env t alts
       _ => internal ctx.fc "a match on a compile-time value (FE-TR-4)"
+
+  ||| A match on a compile-time value: the implementation is reduced to its
+  ||| constructor, and the alternative's variables stand for its arguments.
+  staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+               Ctx -> List (VarInfo n) -> ClosedTerm -> List (CaseAlt vars) -> Core (Term n)
+  staticCase ctx env t alts = do
+    Just (cn, cargs) <- whnf 64 t
+      | Nothing => reject ctx.fc ctx.owner ProfHeap1
+                     ("an implementation that does not reduce to its constructor: " ++ showTT t ++ " (FE-TR-6)")
+    cn <- toFullNames cn
+    erased <- erasedArgs cn
+    pick cn (zipWith info (erased ++ replicate (length cargs) False) cargs) alts
+    where
+      info : Bool -> ClosedTerm -> VarInfo n
+      info True v = TypeValue v
+      info False v = Static v
+      pick : Name -> List (VarInfo n) -> List (CaseAlt vars) -> Core (Term n)
+      pick cn infos (ConCase k _ args rhs :: rest) = do
+        k <- toFullNames k
+        if k /= cn then pick cn infos rest else do
+          when (length args /= length infos) $
+            internal ctx.fc ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
+          tree ctx (infos ++ env) rhs
+      pick cn infos (DefaultCase rhs :: _) = tree ctx env rhs
+      pick cn infos (_ :: rest) = pick cn infos rest
+      pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn ++ " (FE-TR-6)")
 
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
                     Ctx -> List (VarInfo n) -> DataId -> List (CaseAlt vars) ->
@@ -774,7 +996,7 @@ translateInstance p = do
   case isCovering (totality def) of
     MissingCases _ => reject fc owner ProfFn5 "a definition with missing cases"
     _ => pure ()
-  (kinds, resTy) <- classify fc owner (length args) (type def) (map Just p.typeArgs)
+  (kinds, resTy) <- classify fc owner (length args) (type def) (map (map known) p.statics)
   result <- coreType fc owner ProfType4 !(normaliseClosed resTy)
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
@@ -789,6 +1011,7 @@ translateInstance p = do
     binder _ = MkBinder Q0 (V ErasedT)
     info : Fin k -> (Quantity, PKind) -> VarInfo k
     info i (_, TypeParam t) = TypeValue t
+    info i (_, DictParam t) = Static t
     info i (_, RuntimeParam t) = Bound i (Just t)
     info i _ = Bound i (Just (V ErasedT))
 

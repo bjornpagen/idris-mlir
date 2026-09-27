@@ -27,7 +27,8 @@ acceptance is a rule, not optimizer luck.
 
 - **ELIM-MONO-1 (v1).** Instances are created on demand from the root. An
   instance is keyed by the definition and the normal forms of those
-  quantity-0 arguments that determine runtime types. Data types are
+  quantity-0 arguments that determine runtime types, and from v2 by the
+  implementations it is passed (`FE-TR-6`), by position. Data types are
   instantiated the same way, so `Pair Int Char` becomes its own monomorphic
   `Data`.
 - **ELIM-MONO-2 (v1).** Normalization after substitution uses Idris's
@@ -43,7 +44,10 @@ acceptance is a rule, not optimizer luck.
   definition.
 - **ELIM-MONO-4 (v1).** An instance is named `<name>[<arg>,…]`, with the
   arguments in their normal forms printed by Idris. This is deterministic
-  (`FE-DET-1`), and is mangled for MLIR by `IDR-FN-2`.
+  (`FE-DET-1`), and is mangled for MLIR by `IDR-FN-2`. Names are printed so
+  that different names differ (a `DN` shows its underlying name, a case
+  block its index), and two instances that still print alike are told
+  apart by a suffix `'k`: instance names are injective.
 
 ## The guaranteed eliminations (v1): `Simplify`
 
@@ -114,6 +118,11 @@ is static.
     is reported as `PROF-HEAP-5`. This is what keeps raising within
     `SEM-EVAL-4` and `SEM-EVAL-5`: moving a crash from build time to run time
     could otherwise reorder it relative to output.
+  - Moving is observable only when an effect (an IO primitive, or a call
+    passed the world) happens between building an action and running it.
+    So the rule applies to a raised function only if one of its actions is
+    run after such an effect; an action run as soon as it is built, as in
+    a `do` block, may move any code.
   - `Simplify` raises optimistically and records each operation it moves.
     Once every copy is made, it computes which functions satisfy the rule,
     as a greatest fixpoint (recursion between copies is why it must be the

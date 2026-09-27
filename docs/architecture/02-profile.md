@@ -234,6 +234,13 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   functions returning functions, and polymorphic functions are allowed,
   subject to `PROF-HEAP-*` and `PROF-POLY-1`.
   - Test: `tests/profile/v1/accept/PROF-FN-7-{compose,twice,map-pair,state}.idr`
+- **PROF-IFACE-1 (v2).** User-defined interfaces are allowed: superclasses,
+  default methods, named implementations, constrained implementations, and
+  methods with type variables of their own (higher-kinded interfaces such
+  as a user `Monad`). `do` works over any user monad whose `>>=` and `>>`
+  are in scope. Every implementation is resolved at compile time
+  (`FE-TR-6`); one chosen by a runtime value is rejected (`PROF-HEAP-1`).
+  - Test: `tests/e2e/v2/interface-*`
 - **PROF-POLY-1 (v1).** Polymorphic recursion is rejected (`ELIM-MONO-3`).
   - Test: `tests/profile/v1/reject/PROF-POLY-1-nested.idr`
 
@@ -323,9 +330,12 @@ construct, and says which elimination did not apply and why
   or smaller arguments, such as the `>>` of a `do` block, are not growth. A
   cap on copies per definition backs this up.
 - **PROF-HEAP-5 (v1).** Arity raising (`ELIM-G-5`) moves code only if that
-  code cannot crash and cannot fail to terminate. A function that returns an
-  action or function after such code cannot be raised, and its result
-  survives as a function value; the error names the blocking operation.
+  code cannot crash and cannot fail to terminate, or if no effect happens
+  between building the action and running it. A function that returns an
+  action or function after such code, and whose action is run after an
+  effect, cannot be raised, and its result survives as a function value;
+  the error names the blocking operation.
+  - Test: `tests/profile/v1/accept/PROF-HEAP-5-division-run-at-once.idr`
   It is decided once specialization is finished, so any other user error
   found while specializing is reported instead (`DIAG-ONE-1`).
   - Check: `Simplify`; `PROF-HEAP-5` on the finished program
