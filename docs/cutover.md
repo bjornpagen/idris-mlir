@@ -884,3 +884,191 @@ Stop point 2 reports the deleted and added line counts.
 | the deletions are done; the line counts are in the merge message | section 5, from `git diff --stat` |
 | the spec matches the code | stop point 4; `make check` (TEST-SPEC-1) |
 | the "who owns what" note | stop point 4 |
+
+## 10. The contract (normative for the implementation)
+
+This section is what the Idris side (`Emit`) and the C++ side implement
+independently. It becomes [08](architecture/08-idr-dialect.md) at stop
+point 4. The decisions of section 7 are adopted as recommended.
+
+### 10.1 Module and functions
+
+```mlir
+module attributes {idr.program} {
+  idr.data @Main.Shape { ... }                 // declarations first
+  func.func @Main.main(%w: !idr.world {idr.quantity = "1"})
+      -> !idr.data<@PrimIO.IORes$91$Builtin.Unit$93$> attributes {idr.total} { ... }
+  func.func private @Main.area(...) -> f64 attributes {idr.total} { ... }
+}
+```
+
+- The module carries the unit attribute `idr.program`; the dialect's
+  attribute verifier checks module-level rules there: exactly one public
+  `func.func` (the root), acyclic containment through unboxed sums
+  (`IDR-DATA-4`), and that every `idr.data` and `func.func` symbol resolves.
+- The root is the only public function. Its type is `() -> i64` (a
+  `main : Int` program) or `(!idr.world) -> (...)` (an IO program). There is
+  no `idr.version`, `idr.entry` or `idr.entry_kind`.
+- Every other `func.func` is private. Every argument carries
+  `idr.quantity = "0" | "1" | "w"` (`"0"` exactly on `!idr.erased`).
+  A function Idris reports terminating carries the unit attribute
+  `idr.total`. A loop breaker (`OPT-PIPE-3`) carries `no_inline`.
+  `idr-effects` adds `idr.effect = "pure" | "effectful"` and the unit
+  attribute `idr.may_crash`; `Emit` never writes them.
+- A function's body is one block; control flow is regions. A lambda or a
+  `Delay` becomes a private `func.func` whose leading parameters are its
+  captures, then its own parameters (none for a `Delay`).
+- Emit writes every op in its custom (pretty) syntax, and upstream ops in
+  theirs: `arith.cmpi slt, %a, %b : i64`, never generic-form predicates.
+- Every op has a location. Definitions are `NameLoc`s around the
+  `FileLineColLoc` (`IDR-DATA-5`). Code from a library module (the
+  registry's *Report at caller* column) is wrapped in
+  `loc(fused<"library">[...])`, so diagnostics can report at the user's
+  caller.
+
+### 10.2 Types
+
+| type | meaning |
+| --- | --- |
+| `i8`, `i16`, `i32`, `i64` | the fixed-width integers (`Char` is `i32`) |
+| `f64` | `Double` |
+| `i1` | only results of comparisons and conditions of `idr.match_lit` on them |
+| `!idr.data<@T>` | a value of the unboxed sum `@T` |
+| `!idr.box<@T>` | a value of the boxed (recursive) type `@T` |
+| `!idr.fn<(A...) -> (R...)>` | a closure; `Lazy a` and `Inf a` are `!idr.fn<() -> (a)>` |
+| `!idr.str` | a string (UTF-8) |
+| `!idr.big` | an `Integer`, or a `Nat`-like type (non-negative) |
+| `!idr.world` | the IO world token |
+| `!idr.erased` | a quantity-0 value |
+
+### 10.3 Data declarations
+
+```mlir
+idr.data @Main.Shape {
+  idr.ctor @Circle tag 0 (f64) {quantities = ["w"]}
+  idr.ctor @Rect tag 1 (f64, f64) {quantities = ["w", "w"]}
+}
+idr.data @Prelude.Basics.List$91$Int$93$ box {
+  idr.ctor @Nil tag 0 () {quantities = []}
+  idr.ctor @$58$$58$ tag 1 (i64, !idr.box<@Prelude.Basics.List$91$Int$93$>) {quantities = ["w", "w"]}
+}
+```
+
+- `box` marks a boxed declaration; values of it have type `!idr.box<@T>`,
+  values of the others `!idr.data<@T>`. The verifier rejects the wrong one.
+- A recursive type is boxed. A `Nat`-like type (Idris's `ZERO`/`SUCC`
+  flags) has no declaration: it is `!idr.big`.
+
+### 10.4 Constant attributes
+
+| attribute | value |
+| --- | --- |
+| `#idr.con<@T::@C, [f1, f2]>` | a constructor of a sum or box, fields as attributes, nested |
+| `#idr.closure<@f, [c1, c2]>` | a closure of `@f` with its captures |
+| `#idr.big<"-123">` | an integer of any size, in decimal |
+| `#idr.erased` | the erased value |
+| `"bytes"` (`StringAttr`) | a string, UTF-8 |
+| `IntegerAttr`, `FloatAttr` | scalars |
+
+### 10.5 Ops
+
+Values and constants:
+- `%v = idr.constant #idr.con<...> : !idr.data<@T>` materializes any
+  attribute above (`ConstantLike`); `Emit` uses it for strings, bigs and
+  erased values, and `arith.constant` for integers and doubles.
+- `%v = idr.con @T::@C(%a, %b) : (i64, f64) -> !idr.data<@T>` (or
+  `-> !idr.box<@T>`, which allocates).
+- `%x = idr.field %v[@C, 1] : !idr.data<@T> -> f64`
+- `%t = idr.tag %v : !idr.data<@T>` (result `i64`)
+
+Matches:
+
+```mlir
+%r:2 = idr.match %v : !idr.data<@Main.Shape> -> (f64, !idr.world) {
+case @Circle(%r: f64) {
+  ...
+  idr.yield %a, %w1 : f64, !idr.world
+}
+case @Rect(%w: f64, %h: f64) {
+  ...
+}
+default {
+  ...
+}
+}
+%s = idr.match_lit %n : i64 -> (i64) {
+case 0 { idr.yield %c1 : i64 }
+case 1 { ... }
+default { ... }
+}
+```
+
+- `idr.match` has one region per reachable constructor, whose block
+  arguments are that constructor's fields, and an optional default with
+  no arguments. Constructors Idris proved impossible are left out, and no
+  default is invented for them.
+- `idr.match_lit` keys are integers, characters (`i32`), strings or bigs,
+  all distinct, and a default is required.
+- A region ends in `idr.yield` or in `ub.unreachable` (after `idr.crash`).
+
+Closures:
+- `%c = idr.closure @f(%x, %y) : (i64, i64) -> !idr.fn<(i64) -> (i64)>`
+- `%r = idr.apply %c(%a) : !idr.fn<(i64) -> (i64)>`
+
+Crashes: `idr.crash "unhandled input for Main.f"` then `ub.unreachable`.
+
+Scalars (unchanged): `idr.div`, `idr.mod`, `idr.to_char`, `idr.to_int`,
+`idr.double_head`; new `%c = idr.int_head signed %x : i64` (the first
+character of the decimal text).
+
+Strings (`!idr.str`):
+- `idr.str.append %a, %b`
+- `idr.str.cons %c, %s`
+- `idr.str.from_char %c`
+- `idr.str.show signed %x : i64`, `idr.str.show unsigned %x : i8`,
+  `idr.str.show %x : f64`
+- `%n = idr.str.length %s` (i64)
+- `%c = idr.str.index %s, %i` (i32, crashes out of range)
+- `idr.str.head %s`, `idr.str.tail %s` (crash on `""`)
+- `idr.str.substr %s, %start, %len`
+- `idr.str.reverse %s`
+- `%b = idr.str.cmp lt %a, %b` (`eq`, `lt`, `lte`, `gt`, `gte`; result `i1`)
+- `%n = idr.str.to_int signed %s : i64`, `%d = idr.str.to_double %s`
+
+Bigs (`!idr.big`):
+- `idr.big.add`, `sub`, `mul`, `div`, `mod`, `and`, `or`, `xor` (`div` and
+  `mod` crash on zero)
+- `idr.big.neg %a`
+- `%b = idr.big.cmp lt %a, %b` (result `i1`)
+- `idr.big.from_int signed %x : i64`, `%x = idr.big.to_int %b : i32` (wraps)
+- `idr.big.from_double %d` (crashes on a non-finite value),
+  `idr.big.to_double %b`
+- `idr.big.show %b`, `idr.big.from_str %s`
+
+`Nat`-like values: `Z` is `idr.constant #idr.big<"0">`, `S x` is
+`idr.big.add %x, %one`, and a match on one is an `idr.match_lit` with
+`case #idr.big<"0">` and a default that computes the predecessor with
+`idr.big.sub`.
+
+IO, unchanged: `idr.io.put_str`, `put_char`, `put_int`, `put_double`,
+`get_char`, `get_byte`, `exit`.
+
+Internal to the pipeline, never written by `Emit`: `idr.may_loop`.
+
+### 10.6 Primitive mapping (`IDR-IN-3`)
+
+As today for integers, characters and doubles: `arith` and `math` ops with
+no flags, `idr.div`/`idr.mod`/`idr.to_char`/`idr.to_int`; comparisons as
+`arith.cmpi`/`arith.cmpf` then `arith.extui` to `i64`. `String` primitives
+map to `idr.str.*`, `Integer` primitives to `idr.big.*`, and casts between
+`Integer` and the other types to `idr.big.from_*`/`to_*`. A string
+comparison primitive is `idr.str.cmp` then `arith.extui`.
+
+### 10.7 Division of labour
+
+| component | owner | paths |
+| --- | --- | --- |
+| `Types`, `Term`, `Translate`, `Emit`, `Main` | Idris | `compiler/` |
+| types, attributes, ops, interfaces, folders, verifiers, canonicalizations, `idr-effects` | dialect | `foreign/idr/include`, `foreign/idr/lib/Dialect`, `tests/idr/{verify,fold,canon,effects,world}` |
+| `idr-specialize`, `idr-defunctionalize`, `idr-tail-loops`, `idr-check-profile`, the simplify driver | passes | `foreign/idr/lib/Passes`, `tests/idr/{specialize,defunc,loops,profile,pipeline}` |
+| `idr-lower`, `idr-eval` and the JIT, `idris-mlir-cc`, the C runtime and Ryu | lowering | `foreign/idr/lib/Lower`, `foreign/idr/lib/Eval`, `foreign/idr/tools`, `runtime/`, `tests/idr/{lower,eval,e2e}` |
