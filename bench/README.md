@@ -3,9 +3,9 @@
 `python3 bench/run.py` builds each program four ways and runs it on the same
 input:
 
-- **this compiler**: `bench/<name>/Main.idr` with `bench/lib/Arith.idr`, a
-  small numeric prelude written as a user interface (the profile has no
-  Prelude);
+- **this compiler**: `bench/<name>/Main.idr`, ordinary Idris against the
+  stock Prelude (`import Prelude`: `Num`, `Ord`, `if`, `cast`, `printLn`),
+  with `IdrisMLIR.IO` only for reading the input;
 - **Idris Chez**: the same Idris source through the stock Chez backend;
 - **MLton**: `bench/sml/<name>.sml`, the same algorithm in Standard ML,
   compiled with `-default-type int64` because Idris's `Int` has 64 bits;
@@ -23,11 +23,15 @@ GCC as pinned), best of 3, seconds:
 
 | benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.348 | 5.957 | 1.330 | 0.351 | 3.83x |
-| mandelbrot | 2000 | 0.360 | 5.234 | 0.513 | 0.383 | 1.43x |
-| fib | 38 | 0.140 | 3.409 | 0.293 | 0.069 | 2.10x |
-| tak | 18 | 0.120 | 1.291 | 0.169 | 0.105 | 1.41x |
-| collatz | 3000000 | 0.461 | 21.158 | 1.962 | 0.598 | 4.26x |
+| nbody | 5000000 | 0.349 | 5.790 | 1.343 | 0.341 | 3.85x |
+| mandelbrot | 2000 | 0.361 | 5.188 | 0.516 | 0.364 | 1.43x |
+| fib | 38 | 0.135 | 3.545 | 0.290 | 0.067 | 2.15x |
+| tak | 18 | 0.116 | 1.291 | 0.174 | 0.104 | 1.50x |
+| collatz | 3000000 | 0.456 | 20.765 | 1.928 | 0.597 | 4.23x |
+
+The Prelude costs nothing: its interfaces, `Integer` literals and `show`
+internals are all resolved at compile time, and these times equal those of
+the same programs written against a hand-made numeric module.
 
 ## Caveats
 

@@ -3,9 +3,8 @@ module Main
 -- The n-body benchmark of the Computer Language Benchmarks Game: five
 -- bodies, immutable records, one function per pair interaction.
 
-import Arith
-
-%default partial
+import Prelude
+import IdrisMLIR.IO
 
 record Body where
   constructor MkBody
@@ -24,9 +23,6 @@ record System where
   b2 : Body
   b3 : Body
   b4 : Body
-
-pi : Double
-pi = 3.141592653589793
 
 solarMass : Double
 solarMass = 4.0 * pi * pi
@@ -111,6 +107,14 @@ energy (MkSystem a b c d e) =
 run : Int -> System -> System
 run 0 s = s
 run n s = run (n - 1) (advance 0.01 s)
+
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
 
 main : IO ()
 main = do

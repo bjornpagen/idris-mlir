@@ -1,11 +1,7 @@
 module Main
 
--- Counts the points of an n x n grid over [-1.5, 0.5] x [-1, 1] that stay
--- bounded for 50 iterations of z^2 + c.
-
-import Arith
-
-%default partial
+import Prelude
+import IdrisMLIR.IO
 
 escapes : Double -> Double -> Bool
 escapes cr ci = go 0.0 0.0 0
@@ -21,15 +17,23 @@ escapes cr ci = go 0.0 0.0 0
 row : Int -> Double -> Int -> Int -> Int
 row n ci x acc =
   if x >= n then acc
-  else let cr = 2.0 * toDouble x / toDouble n - 1.5
+  else let cr = 2.0 * cast x / cast n - 1.5
        in row n ci (x + 1) (if escapes cr ci then acc else acc + 1)
 
 grid : Int -> Int -> Int -> Int
 grid n y acc =
   if y >= n then acc
-  else grid n (y + 1) (row n (2.0 * toDouble y / toDouble n - 1.0) 0 acc)
+  else grid n (y + 1) (row n (2.0 * cast y / cast n - 1.0) 0 acc)
+
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
 
 main : IO ()
 main = do
   n <- readInt
-  printInt (grid n 0 0)
+  printLn (grid n 0 0)
