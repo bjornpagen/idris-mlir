@@ -2,7 +2,7 @@
 
 The roadmap's v3 admits the Prelude's dependencies layer by layer. This note
 records what compiling real Prelude code showed, what is implemented, and
-what remains before `VERSION = v3`. Every claim was checked by compiling a
+what remains. Every claim was checked by compiling a
 program with this compiler and, where it ran, diffing its output with the
 stock Chez backend.
 
@@ -80,9 +80,12 @@ benchmarks in `bench/` did not change.
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
 
-## Exit criteria for `VERSION = v3`
+## Exit criteria for `VERSION = v3`: met
 
-- Every v3 rule tested (`TEST-SPEC-1` with `VERSION = v3`).
-- A Prelude-using version of the math showcase and the benchmarks, diffed
-  against Chez, with benchmark times no worse than the `IdrisMLIR`-only
-  versions.
+- Every v3 rule is tested (`TEST-SPEC-1` with `VERSION = v3`).
+- `tests/e2e/v3/prelude-math` is the math showcase against the Prelude
+  (complex numbers through `Num`, `Neg`, `Fractional` and `Show`,
+  Mandelbrot, Newton basins), diffed against Chez; the benchmarks import
+  only the Prelude and are no slower (`bench/README.md`).
+
+What remains is item 7 above, and everything that needs a heap.

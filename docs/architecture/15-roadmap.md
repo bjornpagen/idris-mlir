@@ -2,14 +2,25 @@
 
 ## Status
 
-p0, v0, v1 and v2 are implemented (`docs/architecture/VERSION` is `v2`),
-and the first layer of v3 is in place: `Integer` at compile time
-(`SEM-BIG-1`), recursive data at compile time (`SEM-REC-1`), missing cases
-that crash (`SEM-CRASH-2`), static control decided during specialization
-(`ELIM-G-12`, `ELIM-G-13`), string join points (`ELIM-G-14`), and the stock
-Prelude imported explicitly by IO programs (`PROF-PROG-4`,
-`tests/e2e/v3/prelude`). What remains before
-`VERSION = v3` is in `docs/research/v3-entry.md`.
+p0, v0, v1, v2 and v3 are implemented (`docs/architecture/VERSION` is
+`v3`). What v3 found, and what it leaves for later, is in
+`docs/research/v3-entry.md`.
+v3 differs from its plan below as follows, each recorded in the rule it
+changes:
+- The Prelude was admitted whole rather than module by module: what the
+  heap-free profile cannot express is rejected where it is used, with its
+  rule, so admitting a module no longer promises that all of it compiles.
+- `SEM-BIG-1`, `SEM-REC-1`, `SEM-REC-2` (new): `Integer`, recursive data
+  and codata exist at compile time only, and recursive data is built
+  strictly where it is written.
+- `ELIM-G-12` to `ELIM-G-16` (new): calls on known arguments, library
+  `%inline`, string join points, what is known about runtime strings, and
+  complete compile-time evaluation within a budget.
+- `SEM-CRASH-2` (new): missing cases crash, as the reference does.
+- `SEM-IO-7`, `IDR-IO-2` (new): the Prelude's `getChar` reads bytes.
+- `DIAG-LOC-1`: errors inside library code are reported at the user's code.
+- `OPT-PIPE-4` (new): 64-byte code alignment, after a benchmark's speed
+  depended on unrelated code.
 v2 differs from its plan below as follows, each recorded in the rule it
 changes:
 - `FE-TR-6` (new): implementations are compile-time values resolved during
@@ -158,19 +169,24 @@ Exit criteria, met:
 - `TEST-HEAP-1` holds everywhere, with the libm functions of `LOW-EXT-1`;
 - `bench/` runs, and its outputs agree across all four compilers.
 
-## v3 onward: the Prelude's dependencies, layer by layer
+## v3: the Prelude, as far as the heap-free profile allows
 
-The Prelude is deferred like GC (D15). Its modules are admitted bottom-up,
-each imported explicitly, and each only once it is fully covered by the test
-suite:
-- first the non-recursive parts of `Prelude.Basics`, `Prelude.Types`,
-  `Prelude.Ops` and `Prelude.Interfaces` (`Bool`, `Maybe`, `Either`, and
-  `Num`/`Eq`/`Ord` at machine types);
-- then the rest, as far as the heap-free profile allows.
+Scope:
+- the stock Prelude imported explicitly by IO programs (`PROF-PROG-4`);
+- `Integer`, `Nat`, lists and streams as compile-time values;
+- the Prelude's IO, including `getChar` (contract v3: `idr.crash`,
+  `idr.double_head`, `idr.io.get_byte`).
 
-Each layer is a profile version with its own rules and exit criteria. The
-stock Prelude imported implicitly is not a goal until memory management
-exists.
+Exit criteria, met:
+- `TEST-SPEC-1` passes with `VERSION = v3`;
+- every suite passes, including the differential suite against Chez;
+- the math showcase written against the Prelude
+  (`tests/e2e/v3/prelude-math`) matches Chez;
+- the benchmarks import nothing but the Prelude, and are no slower than
+  before.
+
+The stock Prelude imported implicitly (without `--no-prelude`), and `main :
+Int` programs with the Prelude (`PROF-PROG-1`), wait for the memory design.
 
 ## After the memory design (to be designed, not planned)
 

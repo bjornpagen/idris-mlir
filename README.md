@@ -10,7 +10,7 @@ Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminati
 ```
 
 The specification is [docs/architecture/](docs/architecture/00-index.md)
-(normative). p0, v0, v1 and v2 are implemented; see its
+(normative). p0, v0, v1, v2 and v3 are implemented; see its
 [roadmap](docs/architecture/15-roadmap.md) for the status and the deviations.
 
 ## What compiles today
@@ -34,13 +34,18 @@ with an `unsupported (<RULE>)` error at the source location.
   shortest round-trip printing; libm functions. See
   [the math showcase](tests/e2e/v2/math-showcase) for what that allows.
 
-- **v3 (in progress):** `import Prelude` in IO programs: `Num`, `Eq`,
-  `Ord`, `Bool`, `if`, `Maybe`, pairs, `cast`, and `show`, with `Integer`,
-  `Nat` and lists evaluated at compile time. See
+- **v3:** the stock Prelude, imported explicitly by IO programs and used
+  the ordinary way: `Num`, `Neg`, `Fractional`, `Integral`, `Eq`, `Ord`,
+  `Show` (on `Int`, `Double`, `Bool`, `Maybe`, pairs and user types),
+  `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
+  ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
+  `traverse_`). `Integer`, `Nat`, lists and streams exist at compile time
+  only; a call whose arguments are all known is evaluated there. See
+  [complex numbers through the Prelude](tests/e2e/v3/prelude-math) and
   [the v3 note](docs/research/v3-entry.md) for what is still missing.
 
 On the heap-free programs it can compile, the output is faster than MLton's
-on every benchmark in [bench/](bench/README.md), by 1.4x to 4.3x, and within
+on every benchmark in [bench/](bench/README.md), by 1.4x to 4.1x, and within
 reach of gcc -O2.
 
 ```sh
@@ -49,7 +54,9 @@ idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr   # IO
 python3 tools/dev.py compile Prog.idr -o prog                     # either
 ```
 
-The Prelude is not supported yet: its modules come later, layer by layer.
+The Prelude is imported explicitly (`--no-prelude` plus `import Prelude`);
+a program that needs a heap (a list whose length is known only at runtime,
+a string built at runtime and kept) is rejected with the rule it breaks.
 
 ## Setup
 
