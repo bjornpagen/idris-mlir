@@ -67,3 +67,10 @@ the same programs written against a hand-made numeric module.
   now matches clang 18 at `-O2` on the C version (0.109 s); it was 14%
   slower while it evaluated curried arguments right to left, which made
   LLVM loop on the other call (`SEM-EVAL-2`).
+
+## Allocation shapes
+
+`foreign/idr/bench/alloc/` benchmarks the heap traffic the planned runtime
+will produce (it is C++, which lives only under `foreign/idr`). It chose
+the allocator (`docs/plan.md` section 5.6); its README has the commands
+and the results.
