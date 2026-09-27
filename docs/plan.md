@@ -1678,11 +1678,15 @@ and the memory gate is first: the rest rests on it.
 
 The first milestones split into streams that agents can run at once. The
 rules for every stream:
-- **no agent pushes to `main`** (decided). Each stream works on its own
-  branch, `stream/<letter>`;
+- **every agent pushes straight to `main`** (decided), and only with
+  every suite green:
+  - it rebases on the latest `main` first, and reruns the suites after the
+    rebase;
+  - `main` never goes red;
 - a stream touches only the files it owns, and follows AGENTS.md;
-- it ends at its milestone's stop points and merges to `main` only after
-  the user's review, in dependency order. `main` stays green;
+- a stream starts only once what it needs first is on `main`, which keeps
+  the dependency order;
+- it stops at its milestone's stop points for the user's review;
 - no stream moves the Idris pin or edits `third_party/` (decision 12);
 - one heavy build per container: 4 cores and 15 GB do not fit an LLVM
   build and a Lean build at once.
