@@ -26,6 +26,14 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
       discarded (`main : IO ()`, after arity raising).
   - Check: `idr-check-input`
   - Test: `tests/idr/check-input/*.mlir`
+- **IDR-MOD-2 (v1).** `Emit` writes the input in MLIR's generic operation
+  form (`"dialect.op"(operands) <{properties}> (regions) {attributes} :
+  (types) -> types loc(...)`), which MLIR parses for every dialect. The
+  custom syntax in this document is informative: it is how
+  `idris-mlir-opt` prints the same operations. Every operation, attribute
+  and type is as this document specifies, in either form.
+  - Test: `tests/e2e/v0/shapes/mlir.check`, and every e2e fixture (the C++
+    side parses what `Emit` writes)
 
 ## Types
 
@@ -217,11 +225,13 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   then `scf.index_switch` on the tag, with one `case` per constructor
   alternative. In an alternative, fields are read with `idr.field`; only the
   fields the alternative uses need to be read.
-- **IDR-MATCH-2 (v0).** If `Core` has a default alternative, it becomes the
-  switch's default region. Otherwise the alternatives cover every
-  constructor, and the last one becomes the default region instead of a case.
-  So no default region is ever unreachable, and no poison or `unreachable`
-  is needed.
+- **IDR-MATCH-2 (v0).** Alternatives Idris proved impossible (`Absurd` in
+  `Core`, `CORE-INV-6`) are left out. If `Core` has a default alternative
+  that is possible, it becomes the switch's default region. Otherwise the
+  remaining alternatives cover every constructor that can occur, and the
+  last one becomes the default region instead of a case. So no default
+  region is ever unreachable, and no poison or `unreachable` is needed. A
+  literal match (`IDR-MATCH-3`) is treated the same way.
 - **IDR-MATCH-3 (v0).** An integer-literal match is a chain of `arith.cmpi eq`
   and `scf.if`, in alternative order, ending in the default alternative.
 - **IDR-MATCH-4 (v0).** `let` binds an SSA value. A quantity-0 `let` binds an

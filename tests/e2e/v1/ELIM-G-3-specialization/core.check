@@ -1,6 +1,9 @@
 rule: ELIM-G-3
-One copy of applyTwice per static function argument.
-CHECK-DAG: Main.applyTwice{\0[];_:Int} (%{{[0-9]+}} : w Int) : Int =
-CHECK-DAG: Main.applyTwice{\1[];_:Int} (%{{[0-9]+}} : w Int) : Int =
+One copy of applyTwice per static function argument; the static argument's
+closure is the key, compared by label.
+CHECK-DAG: -- specialization of Main.applyTwice(lam{{[0-9]+}}[]; _:Int)
+CHECK-DAG: -- specialization of Main.applyTwice(lam{{[0-9]+}}[]; _:Int)
+CHECK-DAG: Main.applyTwice#1 (%{{[0-9]+}} : w Int) : Int =
+CHECK-DAG: Main.applyTwice#2 (%{{[0-9]+}} : w Int) : Int =
 CHECK-DAG: add_Int(1:Int, %{{[0-9]+}})
 CHECK-DAG: mul_Int(2:Int, %{{[0-9]+}})

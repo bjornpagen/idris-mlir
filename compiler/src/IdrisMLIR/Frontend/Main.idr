@@ -12,11 +12,14 @@ import Idris.Driver
 import Idris.Syntax
 import Libraries.Utils.Path
 
-import IdrisMLIR.Core
-import IdrisMLIR.Core.Check
+import IdrisMLIR.Code
+import IdrisMLIR.Code.Check
 import IdrisMLIR.Emit
-import IdrisMLIR.HeapCheck
+import IdrisMLIR.Loc
+import IdrisMLIR.Rule
 import IdrisMLIR.Simplify
+import IdrisMLIR.Term
+import IdrisMLIR.Term.Check
 import IdrisMLIR.Frontend.Paths
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Translate
@@ -36,10 +39,6 @@ import System.File
 ||| DIAG-FMT-1 for errors found after translation.
 fromDiag : {auto s : Ref TState TS} -> Diag -> Core a
 fromDiag d = reject (fromLoc d.loc) (if d.loc.file == "" then d.owner else d.loc.file) d.rule d.message
-
-||| DIAG-ICE-1
-internal : FC -> String -> Core a
-internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg))
 
 write : String -> String -> Core ()
 write path text = do
@@ -73,37 +72,35 @@ dumpDir base = do
       if ok then pure (Right ()) else createDir d
 
 ||| Writes the Core after a pass when dumping.
-dump : Maybe String -> String -> Program -> Core ()
+dump : Maybe String -> String -> String -> Core ()
 dump Nothing _ _ = pure ()
-dump (Just dir) name prog = write (dir </> name ++ ".core") (showProgram prog)
+dump (Just dir) name text = write (dir </> name ++ ".core") text
 
-||| Core.Check (CORE-CHECK-1): a failure is an internal error, with the Core
-||| on stderr for the report (DIAG-ICE-1).
-checked : FC -> String -> (Program -> Either String ()) -> Program -> Core ()
-checked fc pass check prog = case check prog of
-  Right () => pure ()
-  Left msg => do
-    ignore (coreLift (fPutStrLn stderr (showProgram prog)))
-    internal fc ("Core.Check after " ++ pass ++ ": " ++ msg)
+||| CORE-CHECK-1: a failure is an internal error, with the Core on stderr for
+||| the report (DIAG-ICE-1).
+checked : FC -> String -> Either (Rule, String) () -> String -> Core ()
+checked fc pass (Right ()) _ = pure ()
+checked fc pass (Left (rule, msg)) core = do
+  ignore (coreLift (fPutStrLn stderr core))
+  internal fc ("Core.Check after " ++ pass ++ ": " ++ show rule ++ ": " ++ msg)
 
-||| Simplify, HeapCheck and Emit (CORE-PASS-1); returns the printed Core and
-||| the contract text.
-middle : {auto s : Ref TState TS} -> FC -> Maybe String -> Program -> Core (String, String)
-middle fc dir prog = do
-  dump dir "01-translate" prog
-  checked fc "Translate" checkFull prog
-  Right simple <- pure (simplify prog)
+||| Simplify and Emit, with the checks between them (CORE-PASS-1); returns
+||| the printed first-order Core and the contract text.
+middle : {auto s : Ref TState TS} -> FC -> Maybe String -> Source -> Core (String, String)
+middle fc dir src = do
+  let full = showSource src
+  dump dir "01-translate" full
+  checked fc "Translate" (checkSource src) full
+  Right target <- pure (simplify src)
     | Left d => fromDiag d
-  dump dir "02-simplify" simple
-  Right heapFree <- pure (heapCheck simple)
-    | Left d => fromDiag d
-  dump dir "03-heapcheck" heapFree
-  checked fc "HeapCheck" checkFirstOrder heapFree
-  Right mlir <- pure (emit heapFree)
+  let core = showTarget target
+  dump dir "02-simplify" core
+  checked fc "Simplify" (check target) core
+  Right mlir <- pure (emit target)
     | Left msg => do
-        ignore (coreLift (fPutStrLn stderr (showProgram heapFree)))
+        ignore (coreLift (fPutStrLn stderr core))
         internal fc msg
-  pure (showProgram heapFree, mlir)
+  pure (core, mlir)
 
 ------------------------------------------------------------------------------
 -- main : Int programs (FE-ENTRY-2)
@@ -131,16 +128,16 @@ compileModule c _ source = do
     [] => pure ()
     ((m, _, _) :: _) => do
       at <- map snd . head' <$> imports ident source
-      reject (fromMaybe fc at) (show ident) "PROF-PROG-1"
+      reject (fromMaybe fc at) (show ident) ProfProg1
              ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
   -- PROF-PROG-2
   let main = NS (miAsNamespace ident) (UN (Basic "main"))
   Just def <- lookupCtxtExact main (gamma defs)
-    | Nothing => reject fc (show ident) "PROF-PROG-2" "the module does not define main"
+    | Nothing => reject fc (show ident) ProfProg2 "the module does not define main"
   ty <- normalise defs Env.Nil (type def)
   case ty of
     PrimVal _ (PrT IntType) => pure ()
-    _ => reject (location def) (show main) "PROF-PROG-2" "main must have type Int"
+    _ => reject (location def) (show main) ProfProg2 "main must have type Int"
   checkReachable fc [main]
   prog <- translateIntProgram main
   (dir, _) <- dumpDir (corePath `dropExt` ".core")
@@ -160,7 +157,7 @@ rootName tm = case go tm [] of
       _ => Nothing
     _ => Nothing
   where
-    go : Term vs -> List (Term vs) -> (Term vs, List (Term vs))
+    go : Core.TT.Term.Term vs -> List (Core.TT.Term.Term vs) -> (Core.TT.Term.Term vs, List (Core.TT.Term.Term vs))
     go (App _ f a) acc = go f (a :: acc)
     go f acc = (f, acc)
 
@@ -187,7 +184,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
   main <- toFullNames main
   s <- newRef TState (initState fc)
   unless (show !(toFullNames perform) == "PrimIO.unsafePerformIO") $
-    reject fc "main" "FE-ENTRY-4" "the root is not unsafePerformIO main"
+    reject fc "main" FeEntry4 "the root is not unsafePerformIO main"
   -- PROF-PROG-4, PROF-PRAG-1: every module is trusted or a user module with source.
   let mainIdent = case !(toFullNames main) of
                     NS ns _ => nsAsModuleIdent ns
@@ -205,12 +202,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
       is <- imports m p
       for_ is $ \(target, at) =>
         unless (trustedModule (reverse (forget (split (== '.') target))) || elem target userNames) $
-          reject at (show m) "PROF-PROG-4"
+          reject at (show m) ProfProg4
                  ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
     Nothing => pure ()
   for_ sources $ \(m, path) => case path of
     Just p => checkPragmas m p
-    Nothing => reject fc "main" "PROF-PROG-4"
+    Nothing => reject fc "main" ProfProg4
                  ("loads " ++ show m ++ ", which is neither a user module nor a trusted module")
   checkReachable fc [main]
   prog <- translateIOProgram fc main

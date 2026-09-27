@@ -1,6 +1,8 @@
 rule: ELIM-G-5, CORE-INV-9
 countdown returns IO (); raised, it takes the world and returns IORes.
-CHECK: Main.countdown{_:Int.PrimIO.MkIO#0@(_:%World)} (%{{[0-9]+}} : w Int) (%{{[0-9]+}} : 1 %World) : PrimIO.IORes[Builtin.Unit] =
+CHECK: -- specialization of Main.countdown(_:Int) .PrimIO.MkIO#0 @(_:%World)
+CHECK-NEXT: Main.countdown#[[C:[0-9]+]] (%{{[0-9]+}} : w Int) (%{{[0-9]+}} : 1 %World) : PrimIO.IORes[Builtin.Unit] =
 CHECK-NEXT: case %{{[0-9]+}} of
-CHECK: Main.main{.PrimIO.MkIO#0@(_:%World)} (%{{[0-9]+}} : 1 %World)
-CHECK-NEXT: Main.countdown{_:Int.PrimIO.MkIO#0@(_:%World)}(3:Int, %{{[0-9]+}})
+CHECK: -- specialization of Main.main() .PrimIO.MkIO#0 @(_:%World)
+CHECK-NEXT: Main.main#{{[0-9]+}} (%{{[0-9]+}} : 1 %World)
+CHECK-NEXT: Main.countdown#[[C]](3:Int, %{{[0-9]+}})

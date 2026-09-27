@@ -14,6 +14,7 @@ import Libraries.Text.Lexer.Tokenizer
 import Parser.Lexer.Source
 
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Rule
 
 import Data.List
 import Data.Maybe
@@ -111,7 +112,7 @@ checkPragmas ident path = do
     | Left err => throw (FileErr path err)
   case lex text of
     Left (_, l, col, _) =>
-      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) "PROF-PRAG-1"
+      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) ProfPrag1
              "the source could not be lexed"
     Right (_, toks) => traverse_ check toks
   where
@@ -124,10 +125,10 @@ checkPragmas ident path = do
     escape n = elem n (the (List String) ["prim__believe_me", "prim__crash", "believe_me", "idris_crash"])
     check : WithBounds Token -> Core ()
     check tok = case tok.val of
-      Pragma p => reject (at tok) (show ident) "PROF-PRAG-1" ("the pragma %" ++ p)
-      HoleIdent h => reject (at tok) (show ident) "PROF-ESC-1" ("the hole ?" ++ h)
-      Ident n => when (escape n) $ reject (at tok) (show ident) "PROF-ESC-1" ("the escape hatch " ++ n)
-      DotSepIdent _ n => when (escape n) $ reject (at tok) (show ident) "PROF-ESC-1" ("the escape hatch " ++ n)
+      Pragma p => reject (at tok) (show ident) ProfPrag1 ("the pragma %" ++ p)
+      HoleIdent h => reject (at tok) (show ident) ProfEsc1 ("the hole ?" ++ h)
+      Ident n => when (escape n) $ reject (at tok) (show ident) ProfEsc1 ("the escape hatch " ++ n)
+      DotSepIdent _ n => when (escape n) $ reject (at tok) (show ident) ProfEsc1 ("the escape hatch " ++ n)
       _ => pure ()
 
 ||| PROF-PRAG-1 over every user module of the program.
@@ -208,29 +209,29 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
                       [] => key
         -- PROF-ESC-1
         when (isEscapeHatch def) $
-          reject (userFC here) owner "PROF-ESC-1" ("the escape hatch " ++ key ++ via here)
+          reject (userFC here) owner ProfEsc1 ("the escape hatch " ++ key ++ via here)
         case definition def of
           Builtin {} => case key of
-            "prim__believe_me" => reject (userFC here) owner "PROF-ESC-1" ("believe_me" ++ via here)
-            "prim__crash" => reject (userFC here) owner "PROF-ESC-1" ("idris_crash" ++ via here)
+            "prim__believe_me" => reject (userFC here) owner ProfEsc1 ("believe_me" ++ via here)
+            "prim__crash" => reject (userFC here) owner ProfEsc1 ("idris_crash" ++ via here)
             _ => pure ()
-          Hole {} => reject (userFC here) owner "PROF-ESC-1" ("the hole " ++ key ++ via here)
-          ExternDef _ => reject (userFC here) owner "PROF-ESC-1" ("%extern " ++ key ++ via here)
+          Hole {} => reject (userFC here) owner ProfEsc1 ("the hole " ++ key ++ via here)
+          ExternDef _ => reject (userFC here) owner ProfEsc1 ("%extern " ++ key ++ via here)
           ForeignDef _ _ =>
             unless (ns == ["IO", "IdrisMLIR"]) $
-              reject (userFC here) owner "PROF-ESC-1" ("%foreign " ++ key ++ via here)
+              reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
           _ => pure ()
         -- PROF-LIB-1
         when (trusted && ns /= ["IO", "IdrisMLIR"] && not (admitted (enclosing full))) $
-          reject (userFC here) owner "PROF-LIB-1" (key ++ " is not admitted from its trusted module" ++ via here)
+          reject (userFC here) owner ProfLib1 (key ++ " is not admitted from its trusted module" ++ via here)
         -- PROF-IO-3
         unless trusted $ do
           refs <- traverse (\r => show <$> toFullNames r) (refsOf def)
           case find (`elem` rootOnly) refs of
-            Just r => reject (location def) key "PROF-IO-3" ("uses " ++ r)
+            Just r => reject (location def) key ProfIO3 ("uses " ++ r)
             Nothing => pure ()
           case definition def of
             PMDef _ _ tree _ _ =>
-              when (treeMentionsWorld tree) $ reject (location def) key "PROF-IO-3" "uses %MkWorld"
+              when (treeMentionsWorld tree) $ reject (location def) key ProfIO3 "uses %MkWorld"
             _ => pure ()
         go (insert key seen) (rest ++ map (\r => (r, here)) (refsOf def))

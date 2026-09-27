@@ -96,7 +96,7 @@ error follows `DIAG-*`.
 6. **Translation to full `Core` (`FE-TR-*`)**, which also checks
    `PROF-TERM-*` and `PROF-PRIM-*` (and, in v0, `PROF-TYPE-2`, `PROF-FN-3`
    and `PROF-FN-4`).
-7. **The middle end** (`Mono`, `Simplify`, `HeapCheck`) **and emission**
+7. **The middle end** (`Mono`, `Simplify`) **and emission**
    ([05-middle-ir](05-middle-ir.md)).
 8. **Artifacts (`FE-ART-1`)**, then, for IO programs, the rest of the driver
    chain (`DRV-FLOW-2`).
@@ -129,10 +129,9 @@ error follows `DIAG-*`.
   at the binder's location.
 
   TTC does not store the types of `let` binders (`Core.TTC` writes only the
-  value), so under `-o` a runtime `let` has type `Erased` in TT. Its `Core`
-  type is then inferred from its translated value once every instance is
-  translated (`Frontend.Translate.letTypes`); a value whose type cannot be
-  inferred is an internal error.
+  value), so under `-o` a runtime `let` has type `Erased` in TT. Full `Core`
+  therefore has no let types (`05-middle-ir`): `Simplify` knows the type of
+  a let-bound value when it evaluates it.
 - **FE-TR-2 (v0). Quantities.** Each Pi binder's quantity maps to `Q0`, `Q1`
   or `QW`. The quantity is recorded on every parameter, every constructor
   field, and every `let` in `Core` (`CORE-INV-4`).
@@ -146,12 +145,12 @@ error follows `DIAG-*`.
   | `Ref` to an allowed `Builtin`, saturated | primitive |
   | `PrimVal` of a runtime type | literal (`SEM-LIT-1`) |
   | `Bind` with `Let` | `let` with its quantity |
-  | `Bind` with `Lam` (v1) | `Lam` |
+  | `Bind` with `Lam` (v1) | `Lam`, closure-converted: a fresh label, its captured variables, and its body closed over them |
   | unsaturated or over-saturated application (v1) | `App` and `Lam` (eta-expansion), with the call saturated where the arity is known |
-  | `TDelay` / `TForce` with reason `LLazy` (v1) | `Delay` / `Force` |
+  | `TDelay` / `TForce` with reason `LLazy` (v1) | `Delay` (closure-converted like `Lam`) / `Force` |
   | `PrimVal` of `Char` or `String` (v1) | literal |
-  | `PrimVal WorldVal` (`%MkWorld`) (v1) | `World` (only through the root, `PROF-IO-3`) |
-  | `Ref` to a `PROF-IO-2` primitive (v1) | `IOPrim` |
+  | `PrimVal WorldVal` (`%MkWorld`) (v1) | `PROF-IO-3` error: the root is written without it (`FE-ENTRY-4`) |
+  | `Ref` to a `PROF-IO-2` primitive (v1) | IO primitive (`Effect`) |
   | `Meta`, `TDelay`/`TForce` with reason `LInf`, `Bind` with `Pi`, `TType`, anything else | `unsupported` error with the matching rule |
 
   - Arguments in compile-time positions become the `Core` erased value,
@@ -167,7 +166,12 @@ error follows `DIAG-*`.
   | `DelayCase` | `PROF-TERM-2` error |
   | `STerm` | term |
   | `Unmatched` | `PROF-TERM-2` error |
-  | `Impossible` | dropped, relying on `SEM-DATA-2` |
+  | `Impossible` | `Unreachable` (`SEM-DATA-2`) |
+
+  A constructor match without a default that leaves out constructors gets
+  an `Unreachable` alternative for each of them: the definition is covering
+  (`PROF-FN-5`), so Idris proved them impossible. Every constructor match is
+  therefore exhaustive (`CORE-INV-6`).
 
 - **FE-TR-5 (v1). Polymorphism.** Before `Mono`, the type of a runtime binder
   may contain the definition's quantity-0 type parameters, which become

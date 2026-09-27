@@ -57,7 +57,7 @@ There are two kinds of error:
 ## Internal errors
 
 - **DIAG-ICE-1 (v0).** These are internal errors:
-  - a `Core.Check` failure;
+  - a failure of the checks of `Core` (`CORE-CHECK-1`);
   - a contract violation found by `idr-check-input` or a verifier;
   - any pass failure in `idris-mlir-cc`;
   - any failure of the upstream tools on our output.

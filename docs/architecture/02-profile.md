@@ -298,9 +298,11 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
 ## Heap freedom (v1)
 
-These are checked on `Core` after the guaranteed eliminations
-([06-elimination](06-elimination.md)). Each error points at the source
-construct that survived, and says which elimination did not apply and why
+These are checked by the guaranteed eliminations
+([06-elimination](06-elimination.md)), which produce first-order `Core`: a
+value these rules forbid has no representation there, so `Simplify` reports
+it where it would have to exist at runtime. Each error points at that source
+construct, and says which elimination did not apply and why
 (`DIAG-HEAP-1`).
 
 - **PROF-HEAP-1 (v1).** No value of function type remains in a runtime
@@ -324,7 +326,8 @@ construct that survived, and says which elimination did not apply and why
   code cannot crash and cannot fail to terminate. A function that returns an
   action or function after such code cannot be raised, and its result
   survives as a function value; the error names the blocking operation.
-  - Check: `Core.HeapCheck`, after `Simplify`
+  - Check: `Simplify`; `PROF-HEAP-5` on the finished program
+    (`Simplify.Safety`)
   - Test: `tests/profile/v1/reject/PROF-HEAP-{1..5}-*.idr`, and every v1
     accept fixture (the check passes). A function value survives only when
     a runtime choice selects it and the choice outlives the match (as a

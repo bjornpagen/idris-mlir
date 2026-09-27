@@ -57,7 +57,7 @@ Exit criteria:
 
 Scope: profile v0 ([02](02-profile.md)), semantics v0, and contract v0:
 - **Idris side:** `Frontend.Profile`, `Frontend.Main`, `Frontend.Translate`,
-  `Core`, `Core.Check`, `Emit`.
+  `Core` (`Term`, `Code`) and its checks, `Emit`.
 - **C++ side:**
   - the `idr` v0 ops with their verifiers, folders and effects;
   - `idr-check-input`, `idr-tail-loops`, `idr-lower`;
@@ -87,8 +87,8 @@ later relies on, so it has three internal stop points.
   The results update 02 and 04 before implementation.
 
 **v1a: polymorphism and eliminations on pure code.**
-- `Mono`, `Simplify` (`ELIM-G-1` to `ELIM-G-6`, `ELIM-G-8`, `ELIM-G-9`), and
-  `HeapCheck`.
+- `Mono` and `Simplify` (`ELIM-G-1` to `ELIM-G-6`, `ELIM-G-8`, `ELIM-G-9`,
+  and `PROF-HEAP-*`).
 - Fixtures: `compose`, `twice`, a `Pair`/`Maybe`-like user type, a
   `State`-style monad written with plain functions, and each `PROF-HEAP-*`
   rejection.

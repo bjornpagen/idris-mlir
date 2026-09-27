@@ -1,6 +1,10 @@
 ||| Checked TT to full Core (docs/architecture/04-frontend.md). Reads compile-time
 ||| case trees (`treeCT`) and types; monomorphises on demand (ELIM-MONO-*), with
 ||| Idris's own normalizer doing all type-level computation.
+|||
+||| Scopes carry over from TT: a TT term in scope `vars` becomes a `Term n`,
+||| with an environment saying what each TT variable stands for. A TT index
+||| is a position in that environment; type arguments have no Core variable.
 module IdrisMLIR.Frontend.Translate
 
 import Core.Case.CaseTree
@@ -14,15 +18,29 @@ import Core.Termination
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 
-import IdrisMLIR.Core
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
+import IdrisMLIR.Rule
+import IdrisMLIR.Term
+import IdrisMLIR.Types
 
+import Data.Fin
+import Data.Fin.Split
 import Data.List
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
+import Data.Vect
 
 %default covering
+
+||| Idris's terms and binders; `Term` and `Binder` are Core's own.
+TT : Scope -> Type
+TT = Core.TT.Term.Term
+
+TTBinder : Type -> Type
+TTBinder = Core.TT.Binder.Binder
 
 ------------------------------------------------------------------------------
 -- State
@@ -32,7 +50,7 @@ import Data.String
 record Pending where
   constructor MkPending
   name : Name
-  instName : String
+  inst : FnId
   typeArgs : List ClosedTerm
   ||| The instances that requested this one, innermost first, with the size
   ||| of their keys (ELIM-MONO-3).
@@ -42,7 +60,7 @@ record Pending where
 record ConInfo where
   constructor MkConInfo
   params : List ClosedTerm   -- the data instance's type arguments
-  core : Con
+  con : Con
 
 export
 data TState : Type where
@@ -50,14 +68,14 @@ data TState : Type where
 export
 record TS where
   constructor MkTS
-  nextVar : Nat
-  datas : SortedMap String Data
-  dataOrder : SnocList String
-  building : SortedSet String
-  cons : SortedMap String ConInfo     -- key: instance ++ "::" ++ constructor
-  fns : SortedMap String Fn
-  fnOrder : SnocList String
-  seen : SortedSet String
+  nextLabel : Nat
+  datas : SortedMap DataId Data
+  dataOrder : SnocList DataId
+  building : SortedSet DataId
+  cons : SortedMap ConId ConInfo
+  fns : SortedMap FnId TFn
+  fnOrder : SnocList FnId
+  seen : SortedSet FnId
   queue : List Pending
   moduleFC : FC
   current : List (String, Nat)        -- the path of the instance being translated
@@ -67,11 +85,12 @@ export
 initState : FC -> TS
 initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty
 
-fresh : {auto s : Ref TState TS} -> Core Var
-fresh = do
+||| A fresh program point for a lambda or `Delay` (ELIM-G-3).
+label : {auto s : Ref TState TS} -> Core Label
+label = do
   st <- get TState
-  put TState ({ nextVar $= S } st)
-  pure st.nextVar
+  put TState ({ nextLabel $= S } st)
+  pure (MkLabel st.nextLabel)
 
 ------------------------------------------------------------------------------
 -- Errors and locations
@@ -83,11 +102,16 @@ isEmptyFC _ = False
 
 ||| DIAG-FMT-1, DIAG-LOC-1: never an empty location.
 export
-reject : {auto s : Ref TState TS} -> FC -> String -> String -> String -> Core a
+reject : {auto s : Ref TState TS} -> FC -> String -> Rule -> String -> Core a
 reject fc owner rule what = do
   st <- get TState
   let fc' = if isEmptyFC fc then st.moduleFC else fc
-  throw (GenericMsg fc' ("mlir backend: " ++ owner ++ ": unsupported (" ++ rule ++ "): " ++ what))
+  throw (GenericMsg fc' ("mlir backend: " ++ owner ++ ": unsupported (" ++ show rule ++ "): " ++ what))
+
+||| DIAG-ICE-1
+export
+internal : FC -> String -> Core a
+internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg))
 
 ||| An Idris location as a Core location, with the source file resolved.
 export
@@ -112,15 +136,22 @@ fromLoc l = case l.origin of
 -- Terms as closed values
 ------------------------------------------------------------------------------
 
-||| What a TT variable stands for during translation.
-data VarInfo = Bound Var Ty | TypeValue ClosedTerm
+||| What a TT variable stands for: a Core variable (with its type, when a
+||| match may need it), or a type argument's value.
+data VarInfo : Nat -> Type where
+  Bound : Fin n -> Maybe Ty -> VarInfo n
+  TypeValue : ClosedTerm -> VarInfo n
+
+weakenInfo : (k : Nat) -> VarInfo n -> VarInfo (k + n)
+weakenInfo k (Bound i t) = Bound (shift k i) t
+weakenInfo k (TypeValue t) = TypeValue t
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
-anyErased : Term vars -> Bool
+anyErased : TT vars -> Bool
 anyErased (Erased _ _) = True
 anyErased (Bind _ _ b sc) = anyErased (binderType b) || binderVal b || anyErased sc
   where
-    binderVal : Binder (Term vs) -> Bool
+    binderVal : TTBinder (TT vs) -> Bool
     binderVal (Let _ _ v _) = anyErased v
     binderVal (PLet _ _ v _) = anyErased v
     binderVal _ = False
@@ -134,7 +165,7 @@ anyErased _ = False
 
 ||| Abstracts every variable in scope with a lambda, giving a closed term whose
 ||| outermost lambda binds the last variable of `vars`.
-wrapLams : {vars : Scope} -> FC -> Term vars -> ClosedTerm
+wrapLams : {vars : Scope} -> FC -> TT vars -> ClosedTerm
 wrapLams {vars = []} fc tm = tm
 wrapLams {vars = x :: rest} fc tm =
   wrapLams {vars = rest} fc (Bind fc x (Lam fc top Explicit (Erased fc Placeholder)) tm)
@@ -142,14 +173,13 @@ wrapLams {vars = x :: rest} fc tm =
 ||| The closed normal form of a term in scope, with type variables replaced by
 ||| their known values and every other variable by `Erased`.
 closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
-                 FC -> List VarInfo -> Term vars -> Core ClosedTerm
+                 FC -> List (VarInfo n) -> TT vars -> Core ClosedTerm
 closeNormalise fc env tm = do
-  let values = map value env
-  let closed = foldl (App fc) (wrapLams fc tm) (reverse values)
+  let closed = foldl (App fc) (wrapLams fc tm) (reverse (map value env))
   defs <- get Ctxt
   normalise defs [] closed
   where
-    value : VarInfo -> ClosedTerm
+    value : VarInfo n -> ClosedTerm
     value (TypeValue t) = t
     value (Bound _ _) = Erased fc Placeholder
 
@@ -158,10 +188,10 @@ normaliseClosed tm = do
   defs <- get Ctxt
   normalise defs [] tm
 
-showTerm : ClosedTerm -> String
-showTerm = show
+showTT : ClosedTerm -> String
+showTT = show
 
-spine : Term vars -> List (Term vars) -> (Term vars, List (Term vars))
+spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
 spine (App _ fn arg) args = spine fn (arg :: args)
 spine fn args = (fn, args)
 
@@ -170,7 +200,7 @@ isTypeLike : ClosedTerm -> Bool
 isTypeLike (TType _ _) = True
 isTypeLike (Bind _ _ (Pi _ _ _ _) sc) = typeLikeScope sc
   where
-    typeLikeScope : Term vs -> Bool
+    typeLikeScope : TT vs -> Bool
     typeLikeScope (TType _ _) = True
     typeLikeScope (Bind _ _ (Pi _ _ _ _) s) = typeLikeScope s
     typeLikeScope _ = False
@@ -184,7 +214,7 @@ lookupDef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 lookupDef fc owner n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => reject fc owner "FE-TTC-1" ("missing definition " ++ show n)
+    | Nothing => reject fc owner FeTtc1 ("missing definition " ++ show n)
   pure def
 
 ------------------------------------------------------------------------------
@@ -209,59 +239,71 @@ instanceName n [] = show <$> toFullNames n
 instanceName n args = do
   n' <- toFullNames n
   args' <- traverse toFullNames args
-  pure (show n' ++ "[" ++ joinBy ", " (map showTerm args') ++ "]")
+  pure (show n' ++ "[" ++ joinBy ", " (map showTT args') ++ "]")
+
+||| Static data holds a function or `Lazy` value, directly or through other
+||| static data (ELIM-G-2, ELIM-G-5).
+isStatic : Ty -> Bool
+isStatic (V _) = False
+isStatic _ = True
 
 mutual
-  ||| The Core type of a closed, normalised type (FE-TR-1, PROF-TYPE-4).
+  ||| The Core type of a closed, normalised type (FE-TR-1). A type that has
+  ||| no runtime representation is reported under `rule`: PROF-TYPE-4, or
+  ||| PROF-DATA-2 for a constructor field.
   export
   coreType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> ClosedTerm -> Core Ty
-  coreType fc owner (PrimVal _ (PrT t)) = case intTy t of
-    Just it => pure (IntT it)
+             FC -> String -> Rule -> ClosedTerm -> Core Ty
+  coreType fc owner rule (PrimVal _ (PrT t)) = case intTy t of
+    Just it => pure (V (IntT it))
     Nothing => case t of
-      CharType => pure CharT
-      StringType => pure StrT
-      WorldType => pure WorldT
-      _ => reject fc owner "PROF-TYPE-4" (show t ++ " in a runtime position")
-  coreType fc owner (Bind bfc x (Pi _ rig _ a) sc) = do
-    at <- if isErased rig then pure ErasedT else coreType fc owner a
+      CharType => pure (V CharT)
+      StringType => pure (V StrT)
+      WorldType => pure (V WorldT)
+      _ => reject fc owner rule (show t ++ " in a runtime position")
+  coreType fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
+    at <- if isErased rig then pure (V ErasedT) else coreType fc owner rule a
     let rest = subst (Erased bfc Placeholder) sc
     when (anyErased rest && not (isErased rig)) $
-      reject fc owner "PROF-TYPE-4" "a function type that depends on its argument"
-    rt <- coreType fc owner !(normaliseClosed rest)
+      reject fc owner rule "a function type that depends on its argument"
+    rt <- coreType fc owner rule !(normaliseClosed rest)
     pure (FunT (quantity rig) at rt)
-  coreType fc owner (TDelayed _ LLazy t) = LazyT <$> coreType fc owner t
-  coreType fc owner (TDelayed _ _ _) = reject fc owner "PROF-TYPE-4" "Inf (codata) in a runtime position"
-  coreType fc owner tm = case spine tm [] of
-    (Ref rfc (TyCon _) n, args) => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
-    (TType _ _, _) => reject fc owner "PROF-TYPE-4" "Type in a runtime position"
-    (Erased _ _, _) => reject fc owner "PROF-TYPE-4" "a type that depends on a runtime or erased value"
-    _ => reject fc owner "PROF-TYPE-4" ("unsupported runtime type " ++ showTerm tm)
+  coreType fc owner rule (TDelayed _ LLazy t) = LazyT <$> coreType fc owner rule t
+  coreType fc owner rule (TDelayed _ _ _) = reject fc owner rule "Inf (codata) in a runtime position"
+  coreType fc owner rule tm = case spine tm [] of
+    (Ref rfc (TyCon _) n, args) => do
+      d <- dataInstance fc owner n !(traverse normaliseClosed args)
+      st <- get TState
+      pure (if maybe False (.static) (lookup d st.datas) then StaticT d else V (DataT d))
+    (TType _ _, _) => reject fc owner rule "Type in a runtime position"
+    (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
+    _ => reject fc owner rule ("unsupported runtime type " ++ showTT tm)
 
   ||| Registers a monomorphic data instance (PROF-DATA-*, ELIM-MONO-1).
   export
   dataInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 FC -> String -> Name -> List ClosedTerm -> Core String
+                 FC -> String -> Name -> List ClosedTerm -> Core DataId
   dataInstance fc owner tcon args = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
-    inst <- instanceName (fullname def) args
+    inst <- MkDataId <$> instanceName (fullname def) args
     st <- get TState
     if isJust (lookup inst st.datas) then pure inst else do
       when (contains inst st.building) $
-        reject fc owner "PROF-DATA-3" ("recursive data type " ++ tname ++ " at runtime")
+        reject fc owner ProfData3 ("recursive data type " ++ tname ++ " at runtime")
       TCon arity params _ _ _ datacons _ <- pure (definition def)
-        | _ => reject fc owner "PROF-TYPE-4" (tname ++ " is not a data type")
+        | _ => reject fc owner ProfType4 (tname ++ " is not a data type")
       let Just datacons = datacons
-        | Nothing => reject fc owner "PROF-DATA-5" (tname ++ " has no known constructors")
+        | Nothing => reject fc owner ProfData5 (tname ++ " has no known constructors")
       when (any (\i => not (elem i params)) [0 .. minus arity 1] && arity > 0) $
-        reject (location def) tname "PROF-DATA-5" "a data type with indices at runtime"
+        reject (location def) tname ProfData5 "a data type with indices at runtime"
       put TState ({ building $= insert inst } st)
       loc <- toLoc (location def)
       conList <- traverse (constructor inst args) datacons
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
+      let static = any (any (isStatic . (.type)) . (.fields)) sorted
       update TState { building $= delete inst
-                    , datas $= insert inst (MkData inst tname sorted loc)
+                    , datas $= insert inst (MkData inst tname sorted loc static)
                     , dataOrder $= (:< inst) }
       pure inst
     where
@@ -269,55 +311,47 @@ mutual
       walk : String -> FC -> List ClosedTerm -> ClosedTerm -> Core (List Field)
       walk cname dfc (p :: ps) (Bind _ _ (Pi {}) sc) = walk cname dfc ps (subst p sc)
       walk cname dfc [] (Bind bfc _ (Pi _ rig _ a) sc) = do
-        t <- if isErased rig then pure ErasedT else do
+        t <- if isErased rig then pure (V ErasedT) else do
                a' <- normaliseClosed a
                when (anyErased a') $
-                 reject dfc cname "PROF-DATA-2" "a field type that depends on another field"
-               -- PROF-DATA-2: a field of a type that is not a runtime type.
-               catch (coreType dfc cname a') $ \err => case err of
-                 GenericMsg _ msg =>
-                   if isInfixOf "(PROF-TYPE-4)" msg
-                      then reject dfc cname "PROF-DATA-2" ("a field of type " ++ showTerm a' ++
-                                                           ", which is not a runtime type")
-                      else throw err
-                 _ => throw err
+                 reject dfc cname ProfData2 "a field type that depends on another field"
+               coreType dfc cname ProfData2 a'
         rest <- walk cname dfc [] (subst (Erased bfc Placeholder) sc)
         pure (MkField (quantity rig) t :: rest)
       walk _ _ _ _ = pure []
 
-      constructor : String -> List ClosedTerm -> Name -> Core Con
+      constructor : DataId -> List ClosedTerm -> Name -> Core Con
       constructor inst targs dcon = do
         def <- lookupDef fc owner dcon
         let cname = show (fullname def)
         DCon tag arity _ <- pure (definition def)
-          | _ => reject fc owner "FE-TTC-1" (cname ++ " is not a constructor")
+          | _ => reject fc owner FeTtc1 (cname ++ " is not a constructor")
         loc <- toLoc (location def)
         fields <- walk cname (location def) targs (type def)
-        let con = MkCon cname cname (cast tag) fields loc
-        update TState { cons $= insert (inst ++ "::" ++ cname) (MkConInfo targs con) }
+        let con = MkCon (MkConId inst cname) (cast tag) fields loc
+        update TState { cons $= insert con.id (MkConInfo targs con) }
         pure con
 
 ------------------------------------------------------------------------------
 -- Function instances
 ------------------------------------------------------------------------------
 
-||| Requests a function instance and returns its name.
 ||| Requests a function instance and returns its name. Polymorphic recursion
 ||| would request ever larger instances of one definition (ELIM-MONO-3).
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> String -> Name -> List ClosedTerm -> Core String
+          FC -> String -> Name -> List ClosedTerm -> Core FnId
 request fc owner n targs = do
-  inst <- instanceName n targs
+  inst <- MkFnId <$> instanceName n targs
   base <- show <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
-    let size = length inst
+    let size = length inst.name
     when (any (\(b, k) => b == base && k < size) st.current) $
-      reject fc owner "PROF-POLY-1"
-             ("polymorphic recursion: " ++ base ++ " calls itself at a larger type (" ++ inst ++ ")")
+      reject fc owner ProfPoly1
+             ("polymorphic recursion: " ++ base ++ " calls itself at a larger type (" ++ inst.name ++ ")")
     let count = fromMaybe 0 (lookup base st.perName)
     when (count >= 64) $
-      reject fc owner "PROF-POLY-1" ("more than 64 instances of " ++ base)
+      reject fc owner ProfPoly1 ("more than 64 instances of " ++ base)
     put TState ({ seen $= insert inst
                 , perName $= insert base (S count)
                 , queue $= (++ [MkPending n inst targs ((base, size) :: st.current)]) } st)
@@ -333,7 +367,7 @@ indexedHead owner tm = case spine tm [] of
     case definition def of
       TCon arity params _ _ _ _ _ =>
         when (arity > 0 && any (\i => not (elem i params)) [0 .. minus arity 1]) $
-          reject (location def) (show (fullname def)) "PROF-DATA-5" "a data type with indices at runtime"
+          reject (location def) (show (fullname def)) ProfData5 "a data type with indices at runtime"
       _ => pure ()
   _ => pure ()
 
@@ -349,11 +383,11 @@ classify fc owner Z ty _ = pure ([], ty)
 classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
   a' <- normaliseClosed a
   let v = fromMaybe Nothing (head' vals)
-  let vals' = drop 1 vals
+  let vals' = Data.List.drop 1 vals
   if isErased rig && isTypeLike a'
      then do
        let Just val = v
-         | Nothing => reject fc owner "PROF-FN-7" "a type argument that is not known statically"
+         | Nothing => reject fc owner ProfFn7 "a type argument that is not known statically"
        (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
        pure ((Q0, TypeParam val) :: rest, res)
      else if isErased rig
@@ -363,65 +397,68 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
        else do
          indexedHead owner a'
          when (anyErased a') $
-           reject fc owner "PROF-TYPE-4" "a parameter type that depends on another argument"
-         t <- coreType fc owner a'
+           reject fc owner ProfType4 "a parameter type that depends on another argument"
+         t <- coreType fc owner ProfType4 a'
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) vals'
          pure ((quantity rig, RuntimeParam t) :: rest, res)
 classify fc owner (S k) ty _ = do
   ty' <- normaliseClosed ty
   case ty' of
     Bind {} => classify fc owner (S k) ty' []
-    _ => reject fc owner "FE-TR-1" "more arguments than the type has binders"
+    _ => internal fc "more arguments than the type has binders (FE-TR-1)"
 
 ------------------------------------------------------------------------------
 -- Primitives
 ------------------------------------------------------------------------------
 
+||| The IO primitives of `IdrisMLIR.IO` (PROF-IO-2), by their full names.
 ioPrim : Name -> Maybe IOOp
-ioPrim n = case show n of
-  "IdrisMLIR.IO.prim__idrPutStr" => Just PutStr
-  "IdrisMLIR.IO.prim__idrPutChar" => Just PutChar
-  "IdrisMLIR.IO.prim__idrGetChar" => Just GetChar
-  "IdrisMLIR.IO.prim__idrExit" => Just Exit
+ioPrim (NS ns (UN (Basic n))) =
+  if unsafeUnfoldNamespace ns /= ["IO", "IdrisMLIR"] then Nothing
+  else Data.List.lookup n [ ("prim__idrPutStr", PutStr), ("prim__idrPutChar", PutChar)
+                , ("prim__idrGetChar", GetChar), ("prim__idrExit", Exit) ]
+ioPrim _ = Nothing
+
+scalar : PrimType -> Maybe Scalar
+scalar CharType = Just SChar
+scalar t = SInt <$> intTy t
+
+arith : PrimFn k -> Maybe (ArithOp, PrimType)
+arith (Add t) = Just (Add, t)
+arith (Sub t) = Just (Sub, t)
+arith (Mul t) = Just (Mul, t)
+arith (Div t) = Just (Div, t)
+arith (Mod t) = Just (Mod, t)
+arith (BAnd t) = Just (And, t)
+arith (BOr t) = Just (Or, t)
+arith (BXOr t) = Just (Xor, t)
+arith _ = Nothing
+
+comparison : PrimFn k -> Maybe (Cmp, PrimType)
+comparison (LT t) = Just (CLt, t)
+comparison (LTE t) = Just (CLte, t)
+comparison (EQ t) = Just (CEq, t)
+comparison (GTE t) = Just (CGte, t)
+comparison (GT t) = Just (CGt, t)
+comparison _ = Nothing
+
+primOp : PrimFn k -> Maybe PrimOp
+primOp p = case (arith p, comparison p, p) of
+  (Just (op, t), _, _) => Run . IntOp op <$> intTy t
+  (_, Just (op, StringType), _) => Just (Str (StrCompare op))
+  (_, Just (op, t), _) => Run . Compare op <$> scalar t
+  (_, _, Cast StringType to) => Str . FromStr <$> scalar to
+  (_, _, Cast from StringType) => Str . ToStr <$> scalar from
+  (_, _, Cast from to) => Run <$> (Cast <$> scalar from <*> scalar to)
+  (_, _, StrLength) => Just (Str Length)
+  (_, _, StrHead) => Just (Str Head)
+  (_, _, StrTail) => Just (Str Tail)
+  (_, _, StrIndex) => Just (Str Index)
+  (_, _, StrCons) => Just (Str Cons)
+  (_, _, StrAppend) => Just (Str Append)
+  (_, _, StrReverse) => Just (Str Reverse)
+  (_, _, StrSubstr) => Just (Str Substr)
   _ => Nothing
-
-scalarTy : PrimType -> Maybe Ty
-scalarTy CharType = Just CharT
-scalarTy t = IntT <$> intTy t
-
-primOp : PrimFn arity -> Maybe PrimOp
-primOp (Add t) = Add <$> intTy t
-primOp (Sub t) = Sub <$> intTy t
-primOp (Mul t) = Mul <$> intTy t
-primOp (Div t) = Div <$> intTy t
-primOp (Mod t) = Mod <$> intTy t
-primOp (BAnd t) = And <$> intTy t
-primOp (BOr t) = Or <$> intTy t
-primOp (BXOr t) = Xor <$> intTy t
-primOp (LT StringType) = Just (StrCompare "lt")
-primOp (LTE StringType) = Just (StrCompare "lte")
-primOp (EQ StringType) = Just (StrCompare "eq")
-primOp (GTE StringType) = Just (StrCompare "gte")
-primOp (GT StringType) = Just (StrCompare "gt")
-primOp (LT t) = Lt <$> scalarTy t
-primOp (LTE t) = Lte <$> scalarTy t
-primOp (EQ t) = Eq <$> scalarTy t
-primOp (GTE t) = Gte <$> scalarTy t
-primOp (GT t) = Gt <$> scalarTy t
-primOp (Cast from to) = [| Cast (castTy from) (castTy to) |]
-  where
-    castTy : PrimType -> Maybe Ty
-    castTy StringType = Just StrT
-    castTy t = scalarTy t
-primOp StrLength = Just StrLength
-primOp StrHead = Just StrHead
-primOp StrTail = Just StrTail
-primOp StrIndex = Just StrIndex
-primOp StrCons = Just StrCons
-primOp StrAppend = Just StrAppend
-primOp StrReverse = Just StrReverse
-primOp StrSubstr = Just StrSubstr
-primOp _ = Nothing
 
 ------------------------------------------------------------------------------
 -- Terms (FE-TR-3)
@@ -449,123 +486,131 @@ constantLit _ = Nothing
 bestFC : Ctx -> FC -> FC
 bestFC ctx fc = if isEmptyFC fc then ctx.fc else fc
 
-||| Eta-expands a known head applied to too few arguments: `\x.. => head(args ++ xs)`.
-etaExpand : {auto s : Ref TState TS} -> Loc -> List (Quantity, Ty) ->
-            (List Expr -> Expr) -> List Expr -> Core Expr
-etaExpand loc missing mk args = do
-  vars <- traverse (\_ => fresh) missing
-  let body = mk (args ++ zipWith (\v, (q, _) => if q == Q0 then EErased loc else EVar loc v) vars missing)
-  pure (foldr (\(v, (q, t)), b => ELam loc v q (if q == Q0 then ErasedT else t) b) body (zip vars missing))
+||| A closure-converted lambda (`Term.lam`).
+closure : {auto s : Ref TState TS} -> {n : Nat} -> FC -> Loc -> Binder -> Term (S n) -> Core (Term n)
+closure fc loc b body = do
+  lbl <- label
+  maybe (internal fc "a lambda body that is not well scoped") pure (lam loc lbl b body)
+
+||| Eta-expands a known head applied to too few arguments:
+||| `\x.. => head(args ++ xs)`.
+etaExpand : {auto s : Ref TState TS} -> {n : Nat} -> FC -> Loc -> List (Quantity, Ty) ->
+            ({m : Nat} -> List (Term m) -> Term m) -> List (Term n) -> Core (Term n)
+etaExpand fc loc [] mk given = pure (mk given)
+etaExpand fc loc ((q, t) :: rest) mk given = do
+  let x = if q == Q0 then Erased loc else Var loc FZ
+  body <- etaExpand fc loc rest mk (map weaken given ++ [x])
+  closure fc loc (MkBinder q (if q == Q0 then V ErasedT else t)) body
 
 mutual
   export
-  term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-         Ctx -> List VarInfo -> Term vars -> Core Expr
+  term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+         Ctx -> List (VarInfo n) -> TT vars -> Core (Term n)
   term ctx env (Local fc _ idx _) = do
     loc <- toLoc (bestFC ctx fc)
     case getAt idx env of
-      Just (Bound v _) => pure (EVar loc v)
-      Just (TypeValue _) => pure (EErased loc)
-      Nothing => reject (bestFC ctx fc) ctx.owner "FE-TR-3" "variable out of scope"
+      Just (Bound i _) => pure (Var loc i)
+      Just (TypeValue _) => pure (Erased loc)
+      Nothing => internal (bestFC ctx fc) "a variable out of scope (FE-TR-3)"
   term ctx env (PrimVal fc c) = do
     loc <- toLoc (bestFC ctx fc)
     case constantLit c of
-      Just l => pure (ELit loc l)
+      Just l => pure (Literal loc l)
       Nothing => case c of
-        WorldVal => pure (EWorld loc)
-        PrT _ => pure (EErased loc)
-        _ => reject (bestFC ctx fc) ctx.owner "PROF-TYPE-4" ("constant " ++ show c)
-  term ctx env (TType fc _) = EErased <$> toLoc (bestFC ctx fc)
-  term ctx env (Erased fc _) = EErased <$> toLoc (bestFC ctx fc)
-  term ctx env (Bind fc _ (Pi {}) _) = EErased <$> toLoc (bestFC ctx fc)
+        WorldVal => reject (bestFC ctx fc) ctx.owner ProfIO3 "%MkWorld"
+        PrT _ => pure (Erased loc)
+        _ => reject (bestFC ctx fc) ctx.owner ProfType4 ("constant " ++ show c)
+  term ctx env (TType fc _) = Erased <$> toLoc (bestFC ctx fc)
+  term ctx env (Erased fc _) = Erased <$> toLoc (bestFC ctx fc)
+  term ctx env (Bind fc _ (Pi {}) _) = Erased <$> toLoc (bestFC ctx fc)
   term ctx env (Bind fc x (Let lfc rig val ty) sc) = do
+    -- TTC does not keep the types of lets (Core.TTC, `Let` binders), and
+    -- nothing needs them: `Simplify` knows a value's type when it has it.
     loc <- toLoc (bestFC ctx fc)
-    v <- fresh
+    let env' = Bound FZ Nothing :: map (weakenInfo 1) env
     if isErased rig
-       then ELet loc v Q0 ErasedT (EErased loc) <$> term ctx (Bound v ErasedT :: env) sc
-       else do
-         -- TTC does not keep the types of lets (Core.TTC, `Let` binders):
-         -- `letTypes` infers them from the values after translation.
-         ty' <- closeNormalise fc env ty
-         t <- case ty' of
-                Erased _ _ => pure ErasedT
-                _ => coreType (bestFC ctx fc) ctx.owner ty'
-         val' <- term ctx env val
-         ELet loc v (quantity rig) t val' <$> term ctx (Bound v t :: env) sc
+       then Let loc Q0 (Erased loc) <$> term ctx env' sc
+       else Let loc (quantity rig) <$> term ctx env val <*> term ctx env' sc
   term ctx env (Bind fc x (Lam lfc rig _ ty) sc) = do
     loc <- toLoc (bestFC ctx fc)
-    v <- fresh
-    if isErased rig
-       then ELam loc v Q0 ErasedT <$> term ctx (Bound v ErasedT :: env) sc
-       else do
-         t <- coreType (bestFC ctx fc) ctx.owner !(closeNormalise fc env ty)
-         ELam loc v (quantity rig) t <$> term ctx (Bound v t :: env) sc
-  term ctx env (TDelay fc LLazy _ arg) = EDelay <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TForce fc LLazy arg) = EForce <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TDelay fc LUnknown _ arg) = EDelay <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TForce fc LUnknown arg) = EForce <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TDelay fc _ _ _) = reject (bestFC ctx fc) ctx.owner "PROF-TYPE-4" "Inf (codata)"
-  term ctx env (TForce fc _ _) = reject (bestFC ctx fc) ctx.owner "PROF-TYPE-4" "Inf (codata)"
-  term ctx env (TDelayed fc _ _) = EErased <$> toLoc (bestFC ctx fc)
-  term ctx env (Meta fc n _ _) = reject (bestFC ctx fc) ctx.owner "PROF-TERM-2" ("hole or metavariable " ++ show n)
+    t <- if isErased rig then pure (V ErasedT)
+         else coreType (bestFC ctx fc) ctx.owner ProfType4 !(closeNormalise fc env ty)
+    body <- term ctx (Bound FZ (Just t) :: map (weakenInfo 1) env) sc
+    closure fc loc (MkBinder (quantity rig) t) body
+  term ctx env (TDelay fc LLazy _ arg) = suspend ctx env fc arg
+  term ctx env (TDelay fc LUnknown _ arg) = suspend ctx env fc arg
+  term ctx env (TForce fc LLazy arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
+  term ctx env (TForce fc LUnknown arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
+  term ctx env (TDelay fc _ _ _) = reject (bestFC ctx fc) ctx.owner ProfType4 "Inf (codata)"
+  term ctx env (TForce fc _ _) = reject (bestFC ctx fc) ctx.owner ProfType4 "Inf (codata)"
+  term ctx env (TDelayed fc _ _) = Erased <$> toLoc (bestFC ctx fc)
+  term ctx env (Meta fc n _ _) = reject (bestFC ctx fc) ctx.owner ProfTerm2 ("hole or metavariable " ++ show n)
   term ctx env (As fc _ _ pat) = term ctx env pat
   term ctx env tm@(App fc _ _) = let (fn, args) = spine tm [] in application ctx env fc fn args
   term ctx env tm@(Ref fc _ _) = application ctx env fc tm []
-  term ctx env (Bind fc _ _ _) = reject (bestFC ctx fc) ctx.owner "FE-TR-3" "binder in a runtime position"
+  term ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a binder in a runtime position (FE-TR-3)"
 
-  application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                Ctx -> List VarInfo -> FC -> Term vars -> List (Term vars) -> Core Expr
-  application ctx env afc (Ref rfc nt n) args = do
+  suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+            Ctx -> List (VarInfo n) -> FC -> TT vars -> Core (Term n)
+  suspend ctx env fc arg = do
+    loc <- toLoc (bestFC ctx fc)
+    body <- term ctx env arg
+    lbl <- label
+    maybe (internal fc "a delayed term that is not well scoped") pure (delay loc lbl body)
+
+  application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+                Ctx -> List (VarInfo n) -> FC -> TT vars -> List (TT vars) -> Core (Term n)
+  application ctx env afc (Ref rfc nt name) args = do
     let fc = bestFC ctx rfc
     loc <- toLoc fc
-    def <- lookupDef fc ctx.owner n
-    let name = fullname def
+    def <- lookupDef fc ctx.owner name
+    let full = fullname def
     case definition def of
-      PMDef _ params _ _ _ => call fc loc name (length params) (type def) args
+      PMDef _ params _ _ _ => call fc loc full (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
-      TCon {} => pure (EErased loc)
-      Builtin {arity} op => primitive fc loc name arity op args
-      ForeignDef arity _ => case ioPrim name of
+      TCon {} => pure (Erased loc)
+      Builtin {arity} op => primitive fc loc full arity op args
+      ForeignDef arity _ => case ioPrim full of
         Just op => ioCall fc loc arity op (type def) args
-        Nothing => reject fc ctx.owner "PROF-ESC-1" ("foreign function " ++ show name)
-      ExternDef _ => reject fc ctx.owner "PROF-ESC-1" ("extern function " ++ show name)
-      Hole {} => reject fc ctx.owner "PROF-TERM-2" ("hole " ++ show name)
-      _ => reject fc ctx.owner "FE-TR-3" ("reference to " ++ show name)
+        Nothing => reject fc ctx.owner ProfEsc1 ("foreign function " ++ show full)
+      ExternDef _ => reject fc ctx.owner ProfEsc1 ("extern function " ++ show full)
+      Hole {} => reject fc ctx.owner ProfTerm2 ("hole " ++ show full)
+      _ => internal fc ("a reference to " ++ show full ++ " (FE-TR-3)")
     where
       -- Arguments: values of type parameters, erased ones, runtime ones.
-      arguments : FC -> Loc -> List (Quantity, PKind) -> List (Term vars) -> Core (List Expr)
-      arguments fc loc kinds as = traverse arg (zip kinds as)
+      arguments : Loc -> List (Quantity, PKind) -> List (TT vars) -> Core (List (Term n))
+      arguments loc kinds as = traverse arg (zip kinds as)
         where
-          arg : ((Quantity, PKind), Term vars) -> Core Expr
+          arg : ((Quantity, PKind), TT vars) -> Core (Term n)
           arg ((_, RuntimeParam _), a) = term ctx env a
-          arg _ = pure (EErased loc)
+          arg _ = pure (Erased loc)
 
-      typeArgValues : List (Term vars) -> Core (List (Maybe ClosedTerm))
+      typeArgValues : List (TT vars) -> Core (List (Maybe ClosedTerm))
       typeArgValues = traverse (\a => Just <$> closeNormalise afc env a)
 
-      applyRest : Loc -> Expr -> List (Term vars) -> Core Expr
+      applyRest : Loc -> Term n -> List (TT vars) -> Core (Term n)
       applyRest loc f [] = pure f
-      applyRest loc f (a :: as) = applyRest loc (EApp loc f !(term ctx env a)) as
+      applyRest loc f (a :: as) = applyRest loc (App loc f !(term ctx env a)) as
 
-      finish : Loc -> List (Quantity, PKind) -> List Expr -> (List Expr -> Expr) ->
-               List (Term vars) -> Core Expr
+      finish : Loc -> List (Quantity, PKind) -> List (Term n) ->
+               ({m : Nat} -> List (Term m) -> Term m) -> List (TT vars) -> Core (Term n)
       finish loc kinds given mk extra = do
         let missing = drop (length given) kinds
         if null missing
            then applyRest loc (mk given) extra
            else do
              when (any isTypeParam missing) $
-               reject afc ctx.owner "PROF-FN-7" "a partially applied type parameter"
-             etaExpand loc (map kindTy missing) mk given
+               reject afc ctx.owner ProfFn7 "a partially applied type parameter"
+             etaExpand afc loc (map kindTy missing) mk given
         where
           isTypeParam : (Quantity, PKind) -> Bool
           isTypeParam (_, TypeParam _) = True
           isTypeParam _ = False
           kindTy : (Quantity, PKind) -> (Quantity, Ty)
           kindTy (q, RuntimeParam t) = (q, t)
-          kindTy (q, _) = (Q0, ErasedT)
+          kindTy (q, _) = (Q0, V ErasedT)
 
-      call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (Term vars) -> Core Expr
+      call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term n)
       call fc loc name arity ty as = do
         vals <- typeArgValues (take arity as)
         (kinds, _) <- classify fc ctx.owner arity ty vals
@@ -573,141 +618,135 @@ mutual
                                       (_, TypeParam t) => Just t
                                       _ => Nothing) kinds
         inst <- request fc ctx.owner name targs
-        given <- arguments fc loc kinds (take arity as)
-        finish loc kinds given (ECall loc inst) (drop arity as)
+        given <- arguments loc kinds (take arity as)
+        finish loc kinds given (Call loc inst) (drop arity as)
 
-      constructor : FC -> Loc -> GlobalDef -> Nat -> List (Term vars) -> Core Expr
+      constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term n)
       constructor fc loc def arity as = do
         vals <- typeArgValues (take arity as)
         (kinds, resTy) <- classify fc ctx.owner arity (type def) vals
-        DataT inst <- coreType fc ctx.owner !(normaliseClosed resTy)
-          | _ => reject fc ctx.owner "FE-TR-3" "constructor of a non-data type"
-        given <- arguments fc loc kinds (take arity as)
+        Just inst <- dataOf <$> coreType fc ctx.owner ProfType4 !(normaliseClosed resTy)
+          | Nothing => internal fc "a constructor of a type that is not data (FE-TR-3)"
+        given <- arguments loc kinds (take arity as)
         -- The data type's parameters come first and are not fields; a type
         -- argument after them is an erased field.
         st <- get TState
-        let cname = show (fullname def)
-        let nparams = maybe 0 (length . (.params)) (lookup (inst ++ "::" ++ cname) st.cons)
-        finish loc (drop nparams kinds) (drop nparams given)
-               (ECon loc inst cname) (drop arity as)
+        let cid = MkConId inst (show (fullname def))
+        let nparams = maybe 0 (length . (.params)) (lookup cid st.cons)
+        finish loc (drop nparams kinds) (drop nparams given) (ConApp loc cid) (drop arity as)
 
-      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (Term vars) -> Core Expr
+      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (TT vars) -> Core (Term n)
       primitive fc loc name arity op as = case op of
-        BelieveMe => reject fc ctx.owner "PROF-ESC-1" "believe_me"
-        Crash => reject fc ctx.owner "PROF-ESC-1" "idris_crash"
-        Neg _ => reject fc ctx.owner "PROF-PRIM-2" "negate (SEM-EXCL-1)"
-        ShiftL _ => reject fc ctx.owner "PROF-PRIM-2" "shift left (SEM-EXCL-1)"
-        ShiftR _ => reject fc ctx.owner "PROF-PRIM-2" "shift right (SEM-EXCL-1)"
+        BelieveMe => reject fc ctx.owner ProfEsc1 "believe_me"
+        Crash => reject fc ctx.owner ProfEsc1 "idris_crash"
+        Neg _ => reject fc ctx.owner ProfPrim2 "negate (SEM-EXCL-1)"
+        ShiftL _ => reject fc ctx.owner ProfPrim2 "shift left (SEM-EXCL-1)"
+        ShiftR _ => reject fc ctx.owner ProfPrim2 "shift right (SEM-EXCL-1)"
         _ => case primOp op of
-          Nothing => reject fc ctx.owner "PROF-PRIM-2" ("primitive " ++ show name)
+          Nothing => reject fc ctx.owner ProfPrim2 ("primitive " ++ show name)
           Just p => do
             args' <- traverse (term ctx env) (take arity as)
-            let kinds = replicate arity (QW, RuntimeParam (argTy p))
-            finish loc kinds args' (EPrim loc p) (drop arity as)
-        where
-          argTy : PrimOp -> Ty
-          argTy (Add t) = IntT t
-          argTy (Sub t) = IntT t
-          argTy (Mul t) = IntT t
-          argTy (Div t) = IntT t
-          argTy (Mod t) = IntT t
-          argTy (And t) = IntT t
-          argTy (Or t) = IntT t
-          argTy (Xor t) = IntT t
-          argTy (Lt t) = t
-          argTy (Lte t) = t
-          argTy (Eq t) = t
-          argTy (Gte t) = t
-          argTy (Gt t) = t
-          argTy (Cast f _) = f
-          argTy _ = StrT
+            let kinds = map (\t => (QW, RuntimeParam (V t))) (opArgs p)
+            finish loc kinds args' (PrimApp loc p) (drop arity as)
 
-      ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (Term vars) -> Core Expr
+      ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term n)
       ioCall fc loc arity op ty as = do
         (kinds, resTy) <- classify fc ctx.owner arity ty []
-        DataT res <- coreType fc ctx.owner !(normaliseClosed resTy)
-          | _ => reject fc ctx.owner "FE-TR-3" "IO primitive with an unexpected type"
-        given <- arguments fc loc kinds (take arity as)
-        finish loc kinds given (\xs => EIO loc op xs res) (drop arity as)
+        Just res <- dataOf <$> coreType fc ctx.owner ProfType4 !(normaliseClosed resTy)
+          | Nothing => internal fc "an IO primitive with an unexpected type (FE-TR-3)"
+        given <- arguments loc kinds (take arity as)
+        finish loc kinds given (\xs => Effect loc op xs res) (drop arity as)
   application ctx env afc fn args = do
     loc <- toLoc (bestFC ctx afc)
     f <- term ctx env fn
     applyAll loc f args
     where
-      applyAll : Loc -> Expr -> List (Term vars) -> Core Expr
+      applyAll : Loc -> Term n -> List (TT vars) -> Core (Term n)
       applyAll loc f [] = pure f
-      applyAll loc f (a :: as) = applyAll loc (EApp loc f !(term ctx env a)) as
+      applyAll loc f (a :: as) = applyAll loc (App loc f !(term ctx env a)) as
 
 ------------------------------------------------------------------------------
 -- Case trees (FE-TR-4)
 ------------------------------------------------------------------------------
 
+||| The variables a constructor alternative binds for its fields, in the
+||| alternative's scope: the first field innermost.
+fieldInfos : {n : Nat} -> (bs : List Binder) -> List (VarInfo (length bs + n))
+fieldInfos bs = zipWith (\i, b => Bound (weakenN n i) (Just b.type)) (Data.Fin.List.allFins (length bs)) bs
+
+toBinder : Field -> Binder
+toBinder f = MkBinder f.quantity f.type
+
 mutual
-  tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-         Ctx -> List VarInfo -> CaseTree vars -> Core Expr
+  tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+         Ctx -> List (VarInfo n) -> CaseTree vars -> Core (Term n)
   tree ctx env (STerm _ tm) = term ctx env tm
   tree ctx env (Unmatched msg) =
-    reject ctx.fc ctx.owner "PROF-TERM-2" ("a partial match (" ++ msg ++ ")")
-  tree ctx env Impossible = reject ctx.fc ctx.owner "FE-TR-4" "an impossible case in a runtime position"
+    reject ctx.fc ctx.owner ProfTerm2 ("a partial match (" ++ msg ++ ")")
+  -- FE-TR-4, SEM-DATA-2: Idris proved it cannot be reached.
+  tree ctx env Impossible = Unreachable <$> toLoc ctx.fc
   tree ctx env (Case idx _ scTy alts) = do
     loc <- toLoc ctx.fc
     case getAt idx env of
-      Just (Bound v (DataT inst)) => do
-        (conAlts, def) <- conAlternatives ctx env inst alts
-        pure (EMatchCon loc v conAlts def)
-      Just (Bound v WorldT) => case alts of
+      Just (Bound i (Just (V WorldT))) => case alts of
         [ConstCase WorldVal rhs] => tree ctx env rhs
-        _ => reject ctx.fc ctx.owner "FE-TR-4" "an unexpected match on the world"
-      Just (Bound v t) => do
-        (litAlts, def) <- litAlternatives ctx env t alts
-        let Just def = def
-          | Nothing => reject ctx.fc ctx.owner "PROF-FN-5" "a literal match without a default"
-        pure (EMatchLit loc v litAlts def)
-      _ => reject ctx.fc ctx.owner "FE-TR-4" "a match on a compile-time value"
+        _ => internal ctx.fc "an unexpected match on the world (FE-TR-4)"
+      Just (Bound i (Just t)) => case dataOf t of
+        Just inst => do
+          (conAlts, def) <- conAlternatives ctx env inst alts
+          st <- get TState
+          -- Constructors the tree leaves out are impossible: the definition
+          -- is covering (PROF-FN-5), so they become `Unreachable`.
+          let missing = case (def, lookup inst st.datas) of
+                          (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
+                          _ => []
+          let absurd = map (\c => MkAlt c.id (map toBinder c.fields) (Unreachable loc)) missing
+          pure (Case loc i (conAlts ++ absurd) def)
+        Nothing => do
+          (litAlts, def) <- litAlternatives ctx env alts
+          let Just def = def
+            | Nothing => reject ctx.fc ctx.owner ProfFn5 "a literal match without a default"
+          pure (CaseLit loc i litAlts def)
+      _ => internal ctx.fc "a match on a compile-time value (FE-TR-4)"
 
-  conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> List VarInfo -> String -> List (CaseAlt vars) ->
-                    Core (List ConAlt, Maybe Expr)
+  conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+                    Ctx -> List (VarInfo n) -> DataId -> List (CaseAlt vars) ->
+                    Core (List (Alt n), Maybe (Term n))
   conAlternatives ctx env inst [] = pure ([], Nothing)
-  conAlternatives ctx env inst (ConCase n _ args Impossible :: rest) =
-    conAlternatives ctx env inst rest
-  conAlternatives ctx env inst (ConCase n _ args rhs :: rest) = do
-    def <- lookupDef ctx.fc ctx.owner n
-    let cname = show (fullname def)
+  conAlternatives ctx env inst (ConCase cn _ args rhs :: rest) = do
+    def <- lookupDef ctx.fc ctx.owner cn
+    let cid = MkConId inst (show (fullname def))
     st <- get TState
-    let Just info = lookup (inst ++ "::" ++ cname) st.cons
-      | Nothing => reject ctx.fc ctx.owner "FE-TR-4" ("unknown constructor " ++ cname ++ " of " ++ inst)
-    let nparams = length info.params
-    fieldVars <- traverse (\_ => fresh) info.core.fields
-    let paramInfo = map TypeValue info.params
-    let fieldInfo = zipWith (\v, f => Bound v f.type) fieldVars info.core.fields
-    let bound = paramInfo ++ fieldInfo
-    when (length bound /= length args) $
-      reject ctx.fc ctx.owner "FE-TTC-1" ("constructor " ++ cname ++ " binds an unexpected number of arguments")
-    body <- tree ctx (bound ++ env) rhs
+    let Just info = lookup cid st.cons
+      | Nothing => internal ctx.fc ("unknown constructor " ++ cid.name ++ " of " ++ inst.name)
+    let bs = map toBinder info.con.fields
+    let bound = map TypeValue info.params ++ fieldInfos {n} bs ++ map (weakenInfo (length bs)) env
+    when (length info.params + length bs /= length args) $
+      reject ctx.fc ctx.owner FeTtc1 ("constructor " ++ cid.name ++ " binds an unexpected number of arguments")
+    body <- tree ctx bound rhs
     (alts, def') <- conAlternatives ctx env inst rest
-    pure (MkConAlt cname fieldVars body :: alts, def')
+    pure (MkAlt cid bs body :: alts, def')
   conAlternatives ctx env inst (DefaultCase rhs :: _) = pure ([], Just !(tree ctx env rhs))
   conAlternatives ctx env inst (DelayCase {} :: _) =
-    reject ctx.fc ctx.owner "PROF-TERM-2" "a match on a lazy value"
+    reject ctx.fc ctx.owner ProfTerm2 "a match on a lazy value"
   conAlternatives ctx env inst (ConstCase {} :: _) =
-    reject ctx.fc ctx.owner "FE-TR-4" "a constant alternative in a constructor match"
+    internal ctx.fc "a constant alternative in a constructor match (FE-TR-4)"
 
-  litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> List VarInfo -> Ty -> List (CaseAlt vars) ->
-                    Core (List (Lit, Expr), Maybe Expr)
-  litAlternatives ctx env t [] = pure ([], Nothing)
-  litAlternatives ctx env t (ConstCase c rhs :: rest) = do
+  litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
+                    Ctx -> List (VarInfo n) -> List (CaseAlt vars) ->
+                    Core (List (Lit, Term n), Maybe (Term n))
+  litAlternatives ctx env [] = pure ([], Nothing)
+  litAlternatives ctx env (ConstCase c rhs :: rest) = do
     Just lit <- pure (constantLit c)
-      | Nothing => reject ctx.fc ctx.owner "PROF-PRIM-4" ("a match on " ++ show c)
+      | Nothing => reject ctx.fc ctx.owner ProfPrim4 ("a match on " ++ show c)
     case lit of
-      LStr _ => reject ctx.fc ctx.owner "PROF-PRIM-4" "a match on a string"
+      LStr _ => reject ctx.fc ctx.owner ProfPrim4 "a match on a string"
       _ => pure ()
     body <- tree ctx env rhs
-    (alts, def) <- litAlternatives ctx env t rest
+    (alts, def) <- litAlternatives ctx env rest
     pure ((lit, body) :: alts, def)
-  litAlternatives ctx env t (DefaultCase rhs :: _) = pure ([], Just !(tree ctx env rhs))
-  litAlternatives ctx env t _ = reject ctx.fc ctx.owner "FE-TR-4" "an unexpected alternative"
+  litAlternatives ctx env (DefaultCase rhs :: _) = pure ([], Just !(tree ctx env rhs))
+  litAlternatives ctx env _ = internal ctx.fc "an unexpected alternative (FE-TR-4)"
 
 ------------------------------------------------------------------------------
 -- Function instances and programs
@@ -727,31 +766,30 @@ translateInstance p = do
   let owner = show (fullname def)
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
-    | _ => reject fc owner "PROF-FN-1" "not a pattern-matching definition"
+    | _ => reject fc owner ProfFn1 "not a pattern-matching definition"
   -- PROF-FN-5: the definition's own patterns are covering. Calls to partial
   -- functions are allowed: dividing by zero is a defined crash (SEM-INT-4),
   -- and a callee with missing cases is rejected on its own.
   case isCovering (totality def) of
-    MissingCases _ => reject fc owner "PROF-FN-5" "a definition with missing cases"
+    MissingCases _ => reject fc owner ProfFn5 "a definition with missing cases"
     _ => pure ()
   (kinds, resTy) <- classify fc owner (length args) (type def) (map Just p.typeArgs)
-  result <- coreType fc owner !(normaliseClosed resTy)
-  vars <- traverse (\_ => fresh) kinds
-  let params = zipWith param vars kinds
-  let env = zipWith info vars kinds
+  result <- coreType fc owner ProfType4 !(normaliseClosed resTy)
+  -- Parameter i is variable i, as in the case tree's scope.
+  let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
   body <- tree (MkCtx owner fc) env treeCT
   loc <- toLoc fc
   tot <- isTotal fc p.name
-  update TState { fns $= insert p.instName (MkFn p.instName owner params result body loc tot)
-                , fnOrder $= (:< p.instName) }
+  update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot)
+                , fnOrder $= (:< p.inst) }
   where
-    param : Var -> (Quantity, PKind) -> Param
-    param v (q, RuntimeParam t) = MkParam v q t
-    param v _ = MkParam v Q0 ErasedT
-    info : Var -> (Quantity, PKind) -> VarInfo
-    info v (_, TypeParam t) = TypeValue t
-    info v (_, RuntimeParam t) = Bound v t
-    info v _ = Bound v ErasedT
+    binder : (Quantity, PKind) -> Binder
+    binder (q, RuntimeParam t) = MkBinder q t
+    binder _ = MkBinder Q0 (V ErasedT)
+    info : Fin k -> (Quantity, PKind) -> VarInfo k
+    info i (_, TypeParam t) = TypeValue t
+    info i (_, RuntimeParam t) = Bound i (Just t)
+    info i _ = Bound i (Just (V ErasedT))
 
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
@@ -763,53 +801,16 @@ drain = do
       translateInstance p
       drain
 
-||| The types of runtime lets that TTC did not keep (marked `ErasedT` at a
-||| runtime quantity, which no runtime let has otherwise), from their values.
-letTypes : Program -> Fn -> Maybe Fn
-letTypes prog fn = do
-  body <- go (map (\p => (p.var, p.type)) fn.params) fn.body
-  pure ({ body := body } fn)
-  where
-    go : List (Var, Ty) -> Expr -> Maybe Expr
-    go env (ELet l x q t v b) = do
-      v' <- go env v
-      t' <- if q /= Q0 && t == ErasedT then typeOf prog env v' else Just t
-      ELet l x q t' v' <$> go ((x, t') :: env) b
-    go env (EMatchCon l x alts d) = do
-      alts' <- traverse alt alts
-      EMatchCon l x alts' <$> traverse (go env) d
-      where
-        alt : ConAlt -> Maybe ConAlt
-        alt (MkConAlt c xs e) = do
-          DataT dn <- lookup x env
-            | _ => Nothing
-          con <- lookupCon dn c prog
-          MkConAlt c xs <$> go (zip xs (map (.type) con.fields) ++ env) e
-    go env (EMatchLit l x alts d) =
-      EMatchLit l x <$> traverse (\(k, e) => (k,) <$> go env e) alts <*> go env d
-    go env (ELam l x q t b) = ELam l x q t <$> go ((x, t) :: env) b
-    go env (EApp l f a) = EApp l <$> go env f <*> go env a
-    go env (EDelay l e) = EDelay l <$> go env e
-    go env (EForce l e) = EForce l <$> go env e
-    go env (EPrim l op as) = EPrim l op <$> traverse (go env) as
-    go env (EIO l op as r) = (\as' => EIO l op as' r) <$> traverse (go env) as
-    go env (ECall l f as) = ECall l f <$> traverse (go env) as
-    go env (ECon l d c as) = ECon l d c <$> traverse (go env) as
-    go env e = Just e
-
-assemble : {auto s : Ref TState TS} -> String -> EntryKind -> Core Program
+assemble : {auto s : Ref TState TS} -> FnId -> EntryKind -> Core Source
 assemble root entry = do
   st <- get TState
   let datas = mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> [])
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
-  let prog = MkProgram datas fns root entry 0
-  case the (Maybe (List Fn)) (traverse (letTypes prog) fns) of
-    Just fns' => pure ({ fns := fns' } prog)
-    Nothing => throw (GenericMsg EmptyFC "mlir backend: internal error: the type of a let could not be inferred")
+  pure (MkSource datas fns root entry)
 
 ||| A `main : Int` program (FE-ENTRY-2): the root is `main` itself.
 export
-translateIntProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Program
+translateIntProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Source
 translateIntProgram main = do
   root <- request EmptyFC (show main) main []
   drain
@@ -822,41 +823,37 @@ translateIntProgram main = do
 ||| So `%MkWorld` never appears (PROF-IO-3).
 export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                     FC -> Name -> Core Program
+                     FC -> Name -> Core Source
 translateIOProgram fc main = do
   inst <- request fc (show main) main []
   drain
   st <- get TState
   let owner = show main
+  let notIO = reject fc owner ProfProg4 "main must have type IO ()"
   let Just mainFn = lookup inst st.fns
-    | Nothing => reject fc owner "FE-ENTRY-4" "main was not translated"
-  let DataT ioInst = mainFn.result
-    | _ => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let Just ioData = lookup ioInst st.datas
-    | Nothing => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let [mkIO] = ioData.cons
-    | _ => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let [MkField _ (FunT _ WorldT (DataT resInst))] = mkIO.fields
-    | _ => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let Just resData = lookup resInst st.datas
-    | Nothing => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let [mkRes] = resData.cons
-    | _ => reject fc owner "PROF-PROG-4" "main must have type IO ()"
-  let [MkField _ resTy, MkField _ WorldT] = mkRes.fields
-    | _ => reject fc owner "PROF-PROG-4" "main must have type IO ()"
+    | Nothing => internal fc "main was not translated (FE-ENTRY-4)"
+  let Just ioInst = dataOf mainFn.result
+    | Nothing => notIO
+  let Just [mkIO] = (.cons) <$> lookup ioInst st.datas
+    | _ => notIO
+  let [MkField _ (FunT _ (V WorldT) (V (DataT resInst)))] = mkIO.fields
+    | _ => notIO
+  let Just [mkRes] = (.cons) <$> lookup resInst st.datas
+    | _ => notIO
+  let [MkField qx resTy, MkField qw (V WorldT)] = mkRes.fields
+    | _ => notIO
   loc <- toLoc (location !(lookupDef fc owner main))
-  w <- fresh
-  m <- fresh
-  f <- fresh
-  r <- fresh
-  x <- fresh
-  w2 <- fresh
-  let body = ELet loc m QW (DataT ioInst) (ECall loc inst [])
-               (EMatchCon loc m
-                 [MkConAlt mkIO.name [f]
-                    (ELet loc r QW (DataT resInst) (EApp loc (EVar loc f) (EVar loc w))
-                       (EMatchCon loc r [MkConAlt mkRes.name [x, w2] (EVar loc x)] Nothing))]
-                 Nothing)
-  let rootName = "$idris-mlir.root"
-  prog <- assemble rootName IOEntry
-  pure ({ fns $= (++ [MkFn rootName rootName [MkParam w Q1 WorldT] resTy body loc True]) } prog)
+  -- w is variable 0; each binder below adds one innermost variable.
+  let body : Term 1
+      body = Let loc QW (Call loc inst [])                                   -- m
+               (Case loc 0
+                  [MkAlt mkIO.id [MkBinder QW (FunT Q1 (V WorldT) (V (DataT resInst)))]  -- f
+                     (Let loc QW (App loc (Var loc 0) (Var loc 2))           -- r = f w
+                        (Case loc 0
+                           [MkAlt mkRes.id [MkBinder qx resTy, MkBinder qw (V WorldT)]  -- x, w'
+                              (Var loc 0)]
+                           Nothing))]
+                  Nothing)
+  let rootId = MkFnId "$idris-mlir.root"
+  src <- assemble rootId IOEntry
+  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True]) } src)

@@ -1,102 +1,163 @@
-||| CORE-CHECK-1: Core.Check on hand-built invalid Core. Each case names the
-||| invariant it breaks; the check must reject it with that invariant.
+||| CORE-CHECK-1: the checks of Core on hand-built invalid Core. Each case
+||| names the invariant it breaks; the check must reject it with that
+||| invariant.
+|||
+||| Some invalid Core cannot be built at all: a lambda, a function or `Lazy`
+||| type, or a string operation in first-order Core (CORE-INV-2, CORE-INV-3,
+||| CORE-INV-10), and an unbound variable in full Core (CORE-INV-1).
 |||
 ||| rule: CORE-CHECK-1, CORE-INV-1, CORE-INV-2, CORE-INV-3, CORE-INV-5, CORE-INV-6
-||| rule: CORE-INV-7, CORE-INV-8, CORE-INV-9, CORE-INV-10, DIAG-ICE-1
+||| rule: CORE-INV-7, CORE-INV-8, CORE-INV-9, DIAG-ICE-1
 module Main
 
-import IdrisMLIR.Core
-import IdrisMLIR.Core.Check
+import IdrisMLIR.Code
+import IdrisMLIR.Code.Check
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
+import IdrisMLIR.Rule
+import IdrisMLIR.Term
+import IdrisMLIR.Term.Check
+import IdrisMLIR.Types
 
 import Data.List
 import Data.String
+import Data.Vect
 import System
 
 l : Loc
 l = noLoc
 
-int : Ty
+int : VTy
 int = IntT IdrisInt
 
-lit : Integer -> Expr
-lit n = ELit l (LInt IdrisInt n)
+v : Nat -> VarId
+v = MkVarId
 
-fn : String -> List Param -> Ty -> Expr -> Fn
-fn n ps r b = MkFn n n ps r b l True
+var : Nat -> Atom
+var = AVar . v
 
-prog : List Data -> List Fn -> Program
-prog ds fs = MkProgram ds fs "main" IntEntry 0
+lit : Integer -> Atom
+lit n = ALit (LInt IdrisInt n)
 
-unit : Data
-unit = MkData "Builtin.Unit" "Builtin.Unit" [MkCon "Builtin.MkUnit" "Builtin.MkUnit" 0 [] l] l
+let' : Nat -> VTy -> Op Code -> Code -> Code
+let' x t = Bind l (v x) QW t
 
-ioRes : Data
-ioRes = MkData "IORes" "IORes" [MkCon "MkIORes" "MkIORes" 0 [MkField QW (DataT "Builtin.Unit"), MkField Q1 WorldT] l] l
+ret : Atom -> Code
+ret = Ret l
 
-shape : Data
-shape = MkData "Shape" "Shape"
-          [ MkCon "Circle" "Circle" 0 [MkField QW int] l
-          , MkCon "Square" "Square" 1 [MkField QW int] l ] l
+param : Nat -> Quantity -> VTy -> Param
+param x = MkParam (v x)
 
-||| (name, program, expected rule or "" for a valid program)
-cases : List (String, Program, String)
+fn : String -> List Param -> VTy -> Code -> CFn
+fn n ps r b = MkCFn (MkFnId n) n ps r b l True Nothing
+
+prog : List CData -> List CFn -> Target
+prog ds fs = MkTarget ds fs (MkFnId "main") IntEntry
+
+dataT : String -> List (String, List CField) -> CData
+dataT n cs = MkCData (MkDataId n) n (zipWith (\i, (c, fs) => MkCCon (MkConId (MkDataId n) c) i fs l) [0 .. length cs] cs) l
+
+con : String -> String -> ConId
+con d c = MkConId (MkDataId d) c
+
+unit : CData
+unit = dataT "Unit" [("MkUnit", [])]
+
+ioRes : CData
+ioRes = dataT "IORes" [("MkIORes", [MkCField QW (DataT (MkDataId "Unit")), MkCField Q1 WorldT])]
+
+shape : CData
+shape = dataT "Shape" [("Circle", [MkCField QW int]), ("Square", [MkCField QW int])]
+
+callF : Atom -> Code
+callF a = let' 1 int (OCall (MkFnId "f") [a]) (ret (var 1))
+
+||| main calls area on a circle; area's body is given.
+area : Code -> Target
+area body = prog [shape]
+  [ fn "main" [] int (let' 1 (DataT (MkDataId "Shape")) (OCon (con "Shape" "Circle") [lit 2])
+                       (let' 2 int (OCall (MkFnId "area") [var 1]) (ret (var 2))))
+  , fn "area" [param 1 QW (DataT (MkDataId "Shape"))] int body ]
+
+||| (name, program, expected rule or Nothing for a valid program)
+cases : List (String, Target, Maybe Rule)
 cases =
-  [ ("valid", prog [] [fn "main" [] int (lit 1)], "")
-  , ("unbound variable", prog [] [fn "main" [] int (EVar l 7)], "CORE-INV-1")
+  [ ("valid", prog [] [fn "main" [] int (ret (lit 1))], Nothing)
+  , ("unbound variable", prog [] [fn "main" [] int (ret (var 7))], Just CoreInv1)
   , ("variable bound twice", prog []
-      [fn "main" [] int (ELet l 1 QW int (lit 1) (ELet l 1 QW int (lit 2) (EVar l 1)))], "CORE-INV-1")
-  , ("lambda survives", prog [] [fn "main" [] int (EApp l (ELam l 1 QW int (EVar l 1)) (lit 3))], "CORE-INV-2")
+      [fn "main" [] int (let' 1 int (OPrim (IntOp Add IdrisInt) [lit 1, lit 2])
+                          (let' 1 int (OPrim (IntOp Add IdrisInt) [lit 1, lit 2]) (ret (var 1))))], Just CoreInv1)
   , ("call with the wrong arity", prog []
-      [fn "main" [] int (ECall l "f" []), fn "f" [MkParam 1 QW int] int (EVar l 1)], "CORE-INV-2")
-  , ("function type", prog []
-      [fn "main" [] int (ELet l 1 QW (FunT QW int int) (lit 1) (lit 2))], "CORE-INV-3")
+      [fn "main" [] int (let' 1 int (OCall (MkFnId "f") []) (ret (var 1))),
+       fn "f" [param 2 QW int] int (ret (var 2))], Just CoreInv2)
   , ("quantity-0 argument not erased", prog []
-      [fn "main" [] int (ECall l "f" [lit 1]), fn "f" [MkParam 1 Q0 ErasedT] int (lit 2)], "CORE-INV-3")
+      [fn "main" [] int (callF (lit 1)), fn "f" [param 2 Q0 ErasedT] int (ret (lit 2))], Just CoreInv3)
   , ("ill-typed call", prog []
-      [fn "main" [] int (ECall l "f" [ELit l (LChar 65)]), fn "f" [MkParam 1 QW int] int (EVar l 1)], "CORE-INV-3")
+      [fn "main" [] int (callF (ALit (LChar 65))), fn "f" [param 2 QW int] int (ret (var 2))], Just CoreInv3)
   , ("quantity-0 variable used", prog []
-      [fn "main" [] int (ECall l "f" [EErased l]), fn "f" [MkParam 1 Q0 ErasedT] int (EVar l 1)], "CORE-INV-5")
-  , ("duplicate alternatives", prog [shape]
-      [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
-       fn "area" [MkParam 1 QW (DataT "Shape")] int
-         (EMatchCon l 1 [MkConAlt "Circle" [2] (EVar l 2), MkConAlt "Circle" [3] (EVar l 3)] (Just (lit 0)))], "CORE-INV-6")
-  , ("match without alternatives", prog [shape]
-      [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
-       fn "area" [MkParam 1 QW (DataT "Shape")] int (EMatchCon l 1 [] Nothing)], "CORE-INV-6")
-  , ("impossible alternative dropped", prog [shape]
-      [fn "main" [] int (ECall l "area" [ECon l "Shape" "Circle" [lit 2]]),
-       fn "area" [MkParam 1 QW (DataT "Shape")] int
-         (EMatchCon l 1 [MkConAlt "Circle" [2] (EVar l 2)] Nothing)], "")
+      [fn "main" [] int (callF AErased), fn "f" [param 2 Q0 ErasedT] int (ret (var 2))], Just CoreInv5)
+  , ("duplicate alternatives", area
+      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
+                                  MkBranch (con "Shape" "Circle") [v 3] (ret (var 3))] (Just (ret (lit 0))))
+         (ret (var 4))), Just CoreInv6)
+  , ("match that does not cover", area
+      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2))] Nothing)
+         (ret (var 4))), Just CoreInv6)
+  , ("impossible alternative", area
+      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (ret (var 2)),
+                                  MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing)
+         (ret (var 4))), Nothing)
+  , ("match whose alternatives are all impossible", area
+      (let' 4 int (OCase (var 1) [MkBranch (con "Shape" "Circle") [v 2] (Absurd l),
+                                  MkBranch (con "Shape" "Square") [v 3] (Absurd l)] Nothing)
+         (ret (var 4))), Just CoreInv6)
   , ("literal of the wrong type", prog []
-      [fn "main" [] int (ELet l 1 QW int (lit 1) (EMatchLit l 1 [(LChar 65, lit 1)] (lit 2)))], "CORE-INV-6")
-  , ("tags not 0..n-1", prog [MkData "T" "T" [MkCon "A" "A" 1 [] l] l]
-      [fn "main" [] int (ELet l 1 QW (DataT "T") (ECon l "T" "A" []) (lit 0))], "CORE-INV-7")
-  , ("recursive data", prog [MkData "L" "L" [MkCon "Nil" "Nil" 0 [] l, MkCon "Cons" "Cons" 1 [MkField QW (DataT "L")] l] l]
-      [fn "main" [] int (lit 0)], "CORE-INV-7")
-  , ("unreachable function", prog [] [fn "main" [] int (lit 1), fn "dead" [] int (lit 2)], "CORE-INV-8")
-  , ("world used twice", MkProgram [unit, ioRes]
-      [fn "main" [MkParam 1 Q1 WorldT] (DataT "IORes")
-         (ELet l 2 QW (DataT "IORes") (EIO l PutChar [ELit l (LChar 65), EVar l 1] "IORes")
-            (EIO l PutChar [ELit l (LChar 66), EVar l 1] "IORes"))]
-      "main" IOEntry 1, "CORE-INV-9")
-  , ("string operation", prog []
-      [fn "main" [] int (EPrim l StrLength [ELit l (LStr "abc")])], "CORE-INV-10")
+      [fn "main" [] int (let' 1 int (OPrim (IntOp Add IdrisInt) [lit 1, lit 2])
+                          (let' 2 int (OCaseLit (var 1) [(LChar 65, ret (lit 1))] (ret (lit 2))) (ret (var 2))))],
+      Just CoreInv6)
+  , ("field of data with several constructors", area
+      (let' 4 int (OField (var 1) (con "Shape" "Circle") 0) (ret (var 4))), Just CoreInv6)
+  , ("tags not 0..n-1", prog [MkCData (MkDataId "T") "T" [MkCCon (con "T" "A") 1 [] l] l]
+      [fn "main" [] int (let' 1 (DataT (MkDataId "T")) (OCon (con "T" "A") []) (ret (lit 0)))], Just CoreInv7)
+  , ("recursive data", prog [dataT "L" [("Nil", []), ("Cons", [MkCField QW (DataT (MkDataId "L"))])]]
+      [fn "main" [] int (ret (lit 0))], Just CoreInv7)
+  , ("unreachable function", prog [] [fn "main" [] int (ret (lit 1)), fn "dead" [] int (ret (lit 2))], Just CoreInv8)
+  , ("world used twice", MkTarget [unit, ioRes]
+      [fn "main" [param 1 Q1 WorldT] (DataT (MkDataId "IORes"))
+         (let' 2 (DataT (MkDataId "IORes")) (OIO PutChar [ALit (LChar 65), var 1] (MkDataId "IORes"))
+            (let' 3 (DataT (MkDataId "IORes")) (OIO PutChar [ALit (LChar 66), var 1] (MkDataId "IORes"))
+               (ret (var 3))))]
+      (MkFnId "main") IOEntry, Just CoreInv9)
   ]
+
+||| Full Core after Translate: references and arities.
+fullCases : List (String, Source, Maybe Rule)
+fullCases =
+  [ ("full Core: valid", source [tfn "main" [] (Literal l (LInt IdrisInt 1))], Nothing)
+  , ("full Core: call with the wrong arity",
+      source [tfn "main" [] (Call l (MkFnId "main") [Literal l (LInt IdrisInt 1)])], Just CoreInv2)
+  , ("full Core: unknown function", source [tfn "main" [] (Call l (MkFnId "g") [])], Just CoreInv2)
+  ]
+  where
+    tfn : String -> Vect 0 Binder -> Term 0 -> TFn
+    tfn n ps b = MkTFn (MkFnId n) n 0 ps (V int) b l True
+    source : List TFn -> Source
+    source fs = MkSource [] fs (MkFnId "main") IntEntry
+
+report : String -> Either (Rule, String) () -> Maybe Rule -> IO Bool
+report name got rule = do
+  let ok = case (got, rule) of
+             (Right (), Nothing) => True
+             (Left (r, _), Just r') => show r == show r'
+             _ => False
+  let what = the String (case got of
+                           Right () => "accepted"
+                           Left (r, m) => show r ++ ": " ++ m)
+  putStrLn ((if ok then "ok   " else "FAIL ") ++ name ++ ": " ++ what)
+  pure ok
 
 main : IO ()
 main = do
-  results <- for cases $ \(name, p, rule) => do
-    let got = checkFirstOrder p
-    let ok = case (got, rule) of
-               (Right (), "") => True
-               (Left msg, r) => r /= "" && isPrefixOf r msg
-               _ => False
-    putStrLn ((if ok then "ok   " else "FAIL ") ++ name ++ ": " ++ either id (const "accepted") got)
-    pure ok
-  -- The full-Core subset accepts lambdas but still needs closed terms.
-  let fullOk = case (checkFull (prog [] [fn "main" [] int (EApp l (ELam l 1 QW int (EVar l 1)) (lit 3))]),
-                     checkFull (prog [] [fn "main" [] int (ELam l 1 QW int (EVar l 2))])) of
-                 (Right (), Left msg) => isPrefixOf "CORE-INV-1" msg
-                 _ => False
-  putStrLn ((if fullOk then "ok   " else "FAIL ") ++ "full Core subset")
-  if all id results && fullOk then exitSuccess else exitFailure
+  first <- for cases $ \(name, p, rule) => report name (check p) rule
+  full <- for fullCases $ \(name, s, rule) => report name (checkSource s) rule
+  if all id (first ++ full) then exitSuccess else exitFailure

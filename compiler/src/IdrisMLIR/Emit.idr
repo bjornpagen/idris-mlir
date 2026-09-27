@@ -1,19 +1,28 @@
-||| First-order Core to `idr` contract text (docs/architecture/08-idr-dialect.md).
-||| The only module that knows MLIR syntax.
+||| First-order Core to the `idr` contract (docs/architecture/08-idr-dialect.md).
+|||
+||| A body is emitted by a fold: the algebra turns each layer of `Code` into
+||| an emitter, a function from the values of the variables in scope to the
+||| operations it appends and the value it produces. The operations are
+||| `MLIR.MOp`s; `MLIR` prints them.
 module IdrisMLIR.Emit
 
-import IdrisMLIR.Core
+import IdrisMLIR.Code
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
+import IdrisMLIR.MLIR
+import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
 import Data.Maybe
 import Data.SnocList
+import Data.SortedMap
 import Data.String
 
 %default covering
 
 ------------------------------------------------------------------------------
--- Names, types, locations
+-- Names and types
 ------------------------------------------------------------------------------
 
 ||| IDR-FN-2: injective mangling into an MLIR bare identifier.
@@ -28,401 +37,338 @@ symbol s = case unpack s of
                   then singleton c
                   else "$" ++ show (ord c) ++ "$"
 
-quoted : String -> String
-quoted s = "\"" ++ concatMap esc (unpack s) ++ "\""
-  where
-    hex : Int -> String
-    hex n = let digits = unpack "0123456789ABCDEF" in
-            pack [ fromMaybe '0' (getAt (cast (n `div` 16)) digits)
-                 , fromMaybe '0' (getAt (cast (n `mod` 16)) digits) ]
-    esc : Char -> String
-    esc '"' = "\\\""
-    esc '\\' = "\\\\"
-    esc c = if ord c < 32 || ord c == 127 then "\\" ++ hex (ord c) else singleton c
+mtype : VTy -> MType
+mtype (IntT t) = I (width t)
+mtype CharT = I 32
+mtype StrT = IdrStr
+mtype WorldT = IdrWorld
+mtype ErasedT = IdrErased
+mtype (DataT d) = IdrData (symbol d.name)
 
-||| UTF-8 encoding of a string, as the bytes of an MLIR string attribute.
-utf8 : String -> String
-utf8 s = "\"" ++ concatMap enc (unpack s) ++ "\""
-  where
-    hex : Int -> String
-    hex n = let digits = unpack "0123456789ABCDEF" in
-            pack [ fromMaybe '0' (getAt (cast (n `div` 16)) digits)
-                 , fromMaybe '0' (getAt (cast (n `mod` 16)) digits) ]
-    byte : Int -> String
-    byte b = if b >= 32 && b < 127 && b /= 34 && b /= 92
-                then singleton (chr b) else "\\" ++ hex b
-    enc : Char -> String
-    enc c =
-      let n = ord c in
-      if n < 0x80 then byte n
-      else if n < 0x800 then byte (0xC0 + n `div` 64) ++ byte (0x80 + n `mod` 64)
-      else if n < 0x10000 then byte (0xE0 + n `div` 4096) ++ byte (0x80 + (n `div` 64) `mod` 64)
-                                 ++ byte (0x80 + n `mod` 64)
-      else byte (0xF0 + n `div` 262144) ++ byte (0x80 + (n `div` 4096) `mod` 64)
-           ++ byte (0x80 + (n `div` 64) `mod` 64) ++ byte (0x80 + n `mod` 64)
-
-intType : IntTy -> String
-intType t = "i" ++ show (width t)
-
-export
-mlirType : Ty -> Either String String
-mlirType (IntT t) = Right (intType t)
-mlirType CharT = Right "i32"
-mlirType StrT = Right "!idr.str"
-mlirType WorldT = Right "!idr.world"
-mlirType ErasedT = Right "!idr.erased"
-mlirType (DataT n) = Right ("!idr.data<@" ++ symbol n ++ ">")
-mlirType t = Left ("a value of type " ++ show t ++ " reached emission")
-
-||| IDR-LOC-1: 1-based line and column.
-location : Loc -> String
-location l = if l.file == "" then "loc(unknown)"
-             else "loc(" ++ quoted l.file ++ ":" ++ show (l.startLine + 1) ++ ":" ++
-                  show (l.startCol + 1) ++ ")"
-
-------------------------------------------------------------------------------
--- The emitter
-------------------------------------------------------------------------------
-
-record St where
-  constructor MkSt
-  next : Nat
-  out : SnocList String
-  depth : Nat
-
-Emit : Type -> Type
-Emit = StateT St (Either String)
-
-line : String -> Emit ()
-line s = do
-  st <- get
-  put ({ out := st.out :< (replicate (2 * st.depth) ' ' ++ s) } st)
-
-||| A line one level deeper than the current one (a region terminator).
-innerLine : String -> Emit ()
-innerLine s = do
-  st <- get
-  put ({ out := st.out :< (replicate (2 * S st.depth) ' ' ++ s) } st)
-
-fresh : Emit String
-fresh = do
-  st <- get
-  put ({ next := S st.next } st)
-  pure ("%" ++ show st.next)
-
-lift' : Either String a -> Emit a
-lift' = lift
-
-||| Runs an emitter into a separate buffer, one level deeper, and returns the lines.
-nested : Emit a -> Emit (a, List String)
-nested act = do
-  st <- get
-  put ({ out := [<], depth := S st.depth } st)
-  x <- act
-  inner <- get
-  put ({ out := st.out, depth := st.depth, next := inner.next } st)
-  pure (x, inner.out <>> [])
-
-emitLines : List String -> Emit ()
-emitLines ls = modify { out $= (<>< ls) }
-
-Env : Type
-Env = List (Var, (String, Ty))
-
-types : Env -> List (Var, Ty)
-types = map (\(x, (_, t)) => (x, t))
-
-constant : Loc -> String -> Ty -> Emit String
-constant l value ty = do
-  r <- fresh
-  t <- lift' (mlirType ty)
-  line (r ++ " = arith.constant " ++ value ++ " : " ++ t ++ " " ++ location l)
-  pure r
-
-||| Two's complement bit pattern of `n` in `w` bits, printed signed.
+||| Two's complement bit pattern of `n` in `w` bits, read as signed.
 twos : Nat -> Integer -> Integer
-twos w n = let m = pow 2 (cast w)
+twos w n = let m = pow w
                r = n `mod` m
                r' = if r < 0 then r + m else r
            in if r' >= m `div` 2 then r' - m else r'
   where
-    pow : Integer -> Integer -> Integer
-    pow b e = if e <= 0 then 1 else b * pow b (e - 1)
+    pow : Nat -> Integer
+    pow Z = 1
+    pow (S k) = 2 * pow k
 
-cmpPredicate : String -> Ty -> String
-cmpPredicate op (IntT t) = if op == "eq" then "eq" else (if signed t then "s" else "u") ++ op
-cmpPredicate op _ = if op == "eq" then "eq" else "u" ++ op
+------------------------------------------------------------------------------
+-- The emission monad
+------------------------------------------------------------------------------
 
-||| IDR-MATCH-2: without a default, the last alternative is the default region.
-splitDefault : Loc -> Maybe Expr -> List ConAlt ->
-               (List (Either ConAlt Expr), Either ConAlt Expr)
-splitDefault l (Just e) alts = (map Left alts, Right e)
-splitDefault l Nothing alts = case reverse alts of
-  (lastAlt :: rest) => (map Left (reverse rest), Left lastAlt)
-  [] => ([], Right (EErased l))
+record ES where
+  constructor MkES
+  next : Nat
+  ops : SnocList MOp
 
-mutual
-  expr : Program -> Env -> Expr -> Emit (String, Ty)
-  expr prog env (EVar l x) = case lookup x env of
-    Just vt => pure vt
-    Nothing => lift' (Left ("unbound variable %" ++ show x))
-  expr prog env (ELit l (LInt t n)) = pure (!(constant l (show (twos (width t) n)) (IntT t)), IntT t)
-  expr prog env (ELit l (LChar c)) = pure (!(constant l (show c) CharT), CharT)
-  expr prog env (ELit l (LStr s)) = do
-    r <- fresh
-    line (r ++ " = idr.str.lit " ++ utf8 s ++ " : !idr.str " ++ location l)
-    pure (r, StrT)
-  expr prog env (EErased l) = do
-    r <- fresh
-    line (r ++ " = idr.erased : !idr.erased " ++ location l)
-    pure (r, ErasedT)
-  expr prog env (EWorld l) = lift' (Left "%MkWorld reached emission")
-  expr prog env (EPrim l op args) = do
-    vs <- traverse (expr prog env) args
-    prim l op vs
-  expr prog env (EIO l op args res) = do
-    vs <- traverse (expr prog env) args
-    io l op vs res
-  expr prog env (ECall l f args) = do
-    fn <- maybe (lift' (Left ("unknown function " ++ f))) pure (lookupFn f prog)
-    vs <- traverse (expr prog env) args
-    argTys <- lift' (traverse (mlirType . snd) vs)
-    res <- lift' (mlirType fn.result)
-    r <- fresh
-    line (r ++ " = func.call @" ++ symbol f ++ "(" ++ joinBy ", " (map fst vs) ++ ") : (" ++
-          joinBy ", " argTys ++ ") -> " ++ res ++ " " ++ location l)
-    pure (r, fn.result)
-  expr prog env (ECon l d c args) = do
-    vs <- traverse (expr prog env) args
-    argTys <- lift' (traverse (mlirType . snd) vs)
-    res <- lift' (mlirType (DataT d))
-    r <- fresh
-    line (r ++ " = idr.con @" ++ symbol d ++ "::@" ++ symbol c ++ "(" ++
-          joinBy ", " (map fst vs) ++ ") : (" ++ joinBy ", " argTys ++ ") -> " ++ res ++
-          " " ++ location l)
-    pure (r, DataT d)
-  expr prog env (ELet l x q t val body) = do
-    (v, vt) <- expr prog env val
-    expr prog ((x, (v, vt)) :: env) body
-  expr prog env (EMatchCon l x alts def) = do
-    (scrut, DataT d) <- maybe (lift' (Left "unbound scrutinee")) pure (lookup x env)
-      | _ => lift' (Left "constructor match on a non-data value")
-    dt <- maybe (lift' (Left ("unknown data " ++ d))) pure (lookupData d prog)
-    Just resTy <- pure (typeOf prog (types env) (EMatchCon l x alts def))
-      | Nothing => lift' (Left "cannot type a match")
-    res <- lift' (mlirType resTy)
-    tag <- fresh
-    line (tag ++ " = idr.tag " ++ scrut ++ " : !idr.data<@" ++ symbol d ++ "> " ++ location l)
-    let (cases, deflt) = splitDefault l def alts
-    caseRegions <- traverse (region prog env scrut dt) cases
-    defRegion <- region prog env scrut dt deflt
-    r <- fresh
-    line (r ++ " = scf.index_switch " ++ tag ++ " -> " ++ res)
-    for_ caseRegions $ \(tagNo, body) => do
-      line ("case " ++ show tagNo ++ " {")
-      emitLines body
-      line "}"
-    line "default {"
-    emitLines (snd defRegion)
-    line ("} " ++ location l)
-    pure (r, resTy)
-  expr prog env (EMatchLit l x alts def) = do
-    (scrut, st) <- maybe (lift' (Left "unbound scrutinee")) pure (lookup x env)
-    Just resTy <- pure (typeOf prog (types env) def)
-      | Nothing => lift' (Left "cannot type a match")
-    res <- lift' (mlirType resTy)
-    chain scrut st res resTy alts
-    where
-      chain : String -> Ty -> String -> Ty -> List (Lit, Expr) -> Emit (String, Ty)
-      chain scrut st res resTy [] = expr prog env def
-      chain scrut st res resTy ((lit, body) :: rest) = do
-        (k, _) <- expr prog env (ELit l lit)
-        t <- lift' (mlirType st)
-        c <- fresh
-        line (c ++ " = arith.cmpi eq, " ++ scrut ++ ", " ++ k ++ " : " ++ t ++ " " ++ location l)
-        ((thenV, _), thenLines) <- nested (expr prog env body)
-        ((elseV, _), elseLines) <- nested (chain scrut st res resTy rest)
-        r <- fresh
-        line (r ++ " = scf.if " ++ c ++ " -> (" ++ res ++ ") {")
-        emitLines thenLines
-        innerLine ("scf.yield " ++ thenV ++ " : " ++ res)
-        line "} else {"
-        emitLines elseLines
-        innerLine ("scf.yield " ++ elseV ++ " : " ++ res)
-        line ("} " ++ location l)
-        pure (r, resTy)
-  expr prog env e = lift' (Left "a higher-order construct reached emission")
+E : Type -> Type
+E = StateT ES (Either String)
 
-  ||| One region of a constructor switch: binds the fields, yields the body.
-  region : Program -> Env -> String -> Data -> Either ConAlt Expr -> Emit (Nat, List String)
-  region prog env scrut dt (Right e) = do
-    ((v, t), body) <- nested $ do
-      (v, t) <- expr prog env e
-      res <- lift' (mlirType t)
-      line ("scf.yield " ++ v ++ " : " ++ res)
-      pure (v, t)
-    pure (0, body)
-  region prog env scrut dt (Left (MkConAlt c xs e)) = do
-    con <- maybe (lift' (Left ("unknown constructor " ++ c))) pure (find (\k => k.name == c) dt.cons)
-    (_, body) <- nested $ do
-      bound <- traverse (field con) (zip [0 .. length xs] (zip xs con.fields))
-      (v, t) <- expr prog (bound ++ env) e
-      res <- lift' (mlirType t)
-      line ("scf.yield " ++ v ++ " : " ++ res)
-    pure (con.tag, body)
-    where
-      field : Con -> (Nat, (Var, Field)) -> Emit (Var, (String, Ty))
-      field con (i, (x, f)) = do
-        r <- fresh
-        t <- lift' (mlirType f.type)
-        line (r ++ " = idr.field " ++ scrut ++ "[@" ++ symbol con.name ++ ", " ++ show i ++
-              "] : !idr.data<@" ++ symbol dt.name ++ "> -> " ++ t ++ " " ++ location con.loc)
-        pure (x, (r, f.type))
+||| A value with its type.
+TV : Type
+TV = (Value, MType)
 
-  prim : Loc -> PrimOp -> List (String, Ty) -> Emit (String, Ty)
-  prim l op vs = do
-    let loc = location l
-    r <- fresh
-    case (op, vs) of
-      (Add t, [(a, _), (b, _)]) => arith r "addi" a b (intType t) loc (IntT t)
-      (Sub t, [(a, _), (b, _)]) => arith r "subi" a b (intType t) loc (IntT t)
-      (Mul t, [(a, _), (b, _)]) => arith r "muli" a b (intType t) loc (IntT t)
-      (And t, [(a, _), (b, _)]) => arith r "andi" a b (intType t) loc (IntT t)
-      (Or t, [(a, _), (b, _)]) => arith r "ori" a b (intType t) loc (IntT t)
-      (Xor t, [(a, _), (b, _)]) => arith r "xori" a b (intType t) loc (IntT t)
-      (Div t, [(a, _), (b, _)]) => division r "div" t a b loc
-      (Mod t, [(a, _), (b, _)]) => division r "mod" t a b loc
-      (Lt t, [(a, _), (b, _)]) => compare r "lt" t a b loc
-      (Lte t, [(a, _), (b, _)]) => compare r "le" t a b loc
-      (Eq t, [(a, _), (b, _)]) => compare r "eq" t a b loc
-      (Gte t, [(a, _), (b, _)]) => compare r "ge" t a b loc
-      (Gt t, [(a, _), (b, _)]) => compare r "gt" t a b loc
-      (Cast from to, [(a, _)]) => cast r from to a loc
-      _ => lift' (Left ("primitive " ++ show op ++ " reached emission"))
-    where
-      arith : String -> String -> String -> String -> String -> String -> Ty -> Emit (String, Ty)
-      arith r name a b t loc ty = do
-        line (r ++ " = arith." ++ name ++ " " ++ a ++ ", " ++ b ++ " : " ++ t ++ " " ++ loc)
-        pure (r, ty)
-      division : String -> String -> IntTy -> String -> String -> String -> Emit (String, Ty)
-      division r name t a b loc = do
-        line (r ++ " = idr." ++ name ++ (if signed t then " signed " else " ") ++ a ++ ", " ++
-              b ++ " : " ++ intType t ++ " " ++ loc)
-        pure (r, IntT t)
-      compare : String -> String -> Ty -> String -> String -> String -> Emit (String, Ty)
-      compare r pred t a b loc = do
-        ty <- lift' (mlirType t)
-        line (r ++ " = arith.cmpi " ++ cmpPredicate pred t ++ ", " ++ a ++ ", " ++ b ++ " : " ++
-              ty ++ " " ++ loc)
-        w <- fresh
-        line (w ++ " = arith.extui " ++ r ++ " : i1 to i64 " ++ loc)
-        pure (w, IntT IdrisInt)
-      -- SEM-INT-7, SEM-CHAR-3
-      cast : String -> Ty -> Ty -> String -> String -> Emit (String, Ty)
-      cast r (IntT f) (IntT t) a loc =
-        if width f == width t then pure (a, IntT t)
-        else if width f > width t
-          then do line (r ++ " = arith.trunci " ++ a ++ " : " ++ intType f ++ " to " ++ intType t ++ " " ++ loc)
-                  pure (r, IntT t)
-          else do line (r ++ " = arith." ++ (if signed f then "extsi " else "extui ") ++ a ++ " : " ++
-                        intType f ++ " to " ++ intType t ++ " " ++ loc)
-                  pure (r, IntT t)
-      cast r CharT (IntT t) a loc =
-        if width t == 32 then pure (a, IntT t)
-        else if width t < 32
-          then do line (r ++ " = arith.trunci " ++ a ++ " : i32 to " ++ intType t ++ " " ++ loc)
-                  pure (r, IntT t)
-          else do line (r ++ " = arith.extui " ++ a ++ " : i32 to " ++ intType t ++ " " ++ loc)
-                  pure (r, IntT t)
-      cast r (IntT f) CharT a loc = do
-        line (r ++ " = idr.to_char" ++ (if signed f then " signed " else " ") ++ a ++ " : " ++
-              intType f ++ " " ++ loc)
-        pure (r, CharT)
-      cast r f t a loc = lift' (Left ("cast from " ++ show f ++ " to " ++ show t ++ " reached emission"))
+Env : Type
+Env = SortedMap VarId TV
 
-  io : Loc -> IOOp -> List (String, Ty) -> String -> Emit (String, Ty)
-  io l op vs res = do
-    let loc = location l
-    w <- fresh
-    value <- case (op, vs) of
-      (PutStr, [(s, _), (w0, _)]) => do
-        line (w ++ " = idr.io.put_str " ++ s ++ ", " ++ w0 ++ " " ++ loc)
-        unit
-      (PutChar, [(c, _), (w0, _)]) => do
-        line (w ++ " = idr.io.put_char " ++ c ++ ", " ++ w0 ++ " " ++ loc)
-        unit
-      (PutInt t, [(n, _), (w0, _)]) => do
-        line (w ++ " = idr.io.put_int" ++ (if signed t then " signed " else " ") ++ n ++ ", " ++
-              w0 ++ " : " ++ intType t ++ " " ++ loc)
-        unit
-      (Exit, [(n, _), (w0, _)]) => do
-        line (w ++ " = idr.io.exit " ++ n ++ ", " ++ w0 ++ " " ++ loc)
-        unit
-      (GetChar, [(w0, _)]) => do
-        c <- fresh
-        line (c ++ ", " ++ w ++ " = idr.io.get_char " ++ w0 ++ " " ++ loc)
-        pure (c, "i32")
-      _ => lift' (Left ("IO primitive " ++ show op ++ " with wrong arguments"))
-    r <- fresh
-    let resT = "!idr.data<@" ++ symbol res ++ ">"
-    line (r ++ " = idr.con @" ++ symbol res ++ "::@" ++ symbol "PrimIO.MkIORes" ++ "(" ++
-          fst value ++ ", " ++ w ++ ") : (" ++ snd value ++ ", !idr.world) -> " ++ resT ++ " " ++ loc)
-    pure (r, DataT res)
-    where
-      unit : Emit (String, String)
-      unit = do
-        u <- fresh
-        let ut = "!idr.data<@" ++ symbol "Builtin.Unit" ++ ">"
-        line (u ++ " = idr.con @" ++ symbol "Builtin.Unit" ++ "::@" ++ symbol "Builtin.MkUnit" ++
-              "() : () -> " ++ ut ++ " " ++ location l)
-        pure (u, ut)
+internal : String -> E a
+internal msg = lift (Left msg)
+
+fresh : E String
+fresh = do
+  st <- get
+  put ({ next $= S } st)
+  pure ("%" ++ show st.next)
+
+push : MOp -> E ()
+push o = modify { ops $= (:< o) }
+
+||| Runs an emitter into a separate list of operations.
+nested : E a -> E (a, List MOp)
+nested act = do
+  saved <- gets ops
+  modify { ops := [<] }
+  x <- act
+  inner <- gets ops
+  modify { ops := saved }
+  pure (x, inner <>> [])
+
+||| An operation with one result.
+op1 : Loc -> String -> List TV -> List (String, Attr) -> MType -> E TV
+op1 l n args ps t = do
+  r <- fresh
+  push (simple (Just (r, 1)) n (map fst args) ps (map snd args) [t] l)
+  pure (r, t)
+
+||| An operation without results.
+op0 : Loc -> String -> List TV -> E ()
+op0 l n args = push (simple Nothing n (map fst args) [] (map snd args) [] l)
+
+||| A region of one block that ends by yielding the emitter's value.
+yielding : Loc -> E TV -> E Region
+yielding l act = do
+  (_, ops) <- nested (act >>= \v => op0 l "scf.yield" [v])
+  pure (MkRegion [] ops)
+
+------------------------------------------------------------------------------
+-- Atoms and primitives (IDR-IN-3)
+------------------------------------------------------------------------------
+
+constant : Loc -> Integer -> Nat -> E TV
+constant l n w = op1 l "arith.constant" [] [("value", IntA (twos w n) (I w))] (I w)
+
+atom : Loc -> Env -> Atom -> E TV
+atom l env (AVar x) = maybe (internal ("unbound variable " ++ show x)) pure (lookup x env)
+atom l env (ALit (LInt t n)) = constant l n (width t)
+atom l env (ALit (LChar c)) = constant l c 32
+atom l env (ALit (LStr s)) = op1 l "idr.str.lit" [] [("value", BytesA s)] IdrStr
+atom l env AErased = op1 l "idr.erased" [] [] IdrErased
+
+signedness : Bool -> List (String, Attr)
+signedness s = if s then [("is_signed", UnitA)] else []
+
+||| The `arith.cmpi` predicate (eq 0, slt 2, sle 3, sgt 4, sge 5, ult 6, ...).
+predicate : Cmp -> Bool -> Integer
+predicate CEq _ = 0
+predicate CLt s = if s then 2 else 6
+predicate CLte s = if s then 3 else 7
+predicate CGt s = if s then 4 else 8
+predicate CGte s = if s then 5 else 9
+
+prim : Loc -> Prim -> List TV -> E TV
+prim l (IntOp op t) [a, b] = case op of
+  Add => arith "arith.addi"
+  Sub => arith "arith.subi"
+  Mul => arith "arith.muli"
+  And => arith "arith.andi"
+  Or => arith "arith.ori"
+  Xor => arith "arith.xori"
+  Div => op1 l "idr.div" [a, b] (signedness (signed t)) (I (width t))
+  Mod => op1 l "idr.mod" [a, b] (signedness (signed t)) (I (width t))
+  where
+    arith : String -> E TV
+    arith n = op1 l n [a, b] [] (I (width t))
+prim l (Compare c s) [a, b] = do
+  let sgn = case s of
+              SInt t => signed t
+              SChar => False
+  r <- op1 l "arith.cmpi" [a, b] [("predicate", IntA (predicate c sgn) (I 64))] (I 1)
+  op1 l "arith.extui" [r] [] (I 64)
+-- SEM-INT-7, SEM-CHAR-3
+prim l (Cast from to) [a] = case (from, to) of
+  (SInt f, SInt t) => resize (width f) (signed f) (width t)
+  (SChar, SInt t) => resize 32 False (width t)
+  (SInt f, SChar) => op1 l "idr.to_char" [a] (signedness (signed f)) (I 32)
+  (SChar, SChar) => pure a
+  where
+    resize : Nat -> Bool -> Nat -> E TV
+    resize f s t = if f == t then pure a
+                   else if f > t then op1 l "arith.trunci" [a] [] (I t)
+                   else op1 l (if s then "arith.extsi" else "arith.extui") [a] [] (I t)
+prim l p _ = internal ("primitive " ++ show p ++ " with the wrong arguments")
+
+------------------------------------------------------------------------------
+-- Operations
+------------------------------------------------------------------------------
+
+||| The emitter of a body; `Nothing` when it cannot return.
+Emitter : Type
+Emitter = Maybe (Env -> E TV)
+
+lookupData : Index -> DataId -> E CData
+lookupData ix d = maybe (internal ("unknown data " ++ show d)) pure (lookup d ix.datas)
+
+single : Index -> DataId -> E CCon
+single ix d = do
+  dt <- lookupData ix d
+  case dt.cons of
+    [c] => pure c
+    _ => internal (show d ++ " does not have exactly one constructor")
+
+con : Loc -> ConId -> List TV -> E TV
+con l c vs = op1 l "idr.con" vs [("ctor", SymA [symbol c.dataId.name, symbol c.name])] (IdrData (symbol c.dataId.name))
+
+||| An IO primitive, and the `IORes` value of its result and next world.
+io : Index -> Loc -> IOOp -> List TV -> DataId -> E TV
+io ix l op vs res = do
+  mk <- single ix res
+  (val, w) <- case (op, vs) of
+    (PutStr, [s, w0]) => unitWith mk (op1 l "idr.io.put_str" [s, w0] [] IdrWorld)
+    (PutChar, [c, w0]) => unitWith mk (op1 l "idr.io.put_char" [c, w0] [] IdrWorld)
+    (PutInt t, [n, w0]) => unitWith mk (op1 l "idr.io.put_int" [n, w0] (signedness (signed t)) IdrWorld)
+    (Exit, [n, w0]) => unitWith mk (op1 l "idr.io.exit" [n, w0] [] IdrWorld)
+    (GetChar, [w0]) => do
+      r <- fresh
+      push (simple (Just (r, 2)) "idr.io.get_char" [fst w0] [] [snd w0] [I 32, IdrWorld] l)
+      pure ((r ++ "#0", I 32), (r ++ "#1", IdrWorld))
+    _ => internal ("io." ++ show op ++ " with the wrong arguments")
+  con l mk.id [val, w]
+  where
+    ||| The unit value of an IO result, built after the operation.
+    unitWith : CCon -> E TV -> E (TV, TV)
+    unitWith mk act = do
+      w <- act
+      case map (.type) mk.fields of
+        [DataT u, _] => do
+          unit <- single ix u
+          v <- con l unit.id []
+          pure (v, w)
+        _ => internal (show res ++ " does not hold a unit value")
+
+indexed : List a -> List (Nat, a)
+indexed = go 0
+  where
+    go : Nat -> List a -> List (Nat, a)
+    go _ [] = []
+    go i (x :: xs) = (i, x) :: go (S i) xs
+
+||| IDR-MATCH-2: the default region is the match's default, or else its last
+||| alternative that can return. Alternatives that cannot are left out.
+operation : Index -> Loc -> VTy -> Op Emitter -> Env -> E TV
+operation ix l t (OPrim p as) env = traverse (atom l env) as >>= prim l p
+operation ix l t (OCall f as) env = do
+  vs <- traverse (atom l env) as
+  op1 l "func.call" vs [("callee", SymA [symbol f.name])] (mtype t)
+operation ix l t (OCon c as) env = traverse (atom l env) as >>= con l c
+operation ix l t (OField a c i) env = do
+  v <- atom l env a
+  op1 l "idr.field" [v] [("ctor", SymA [symbol c.name]), ("index", IntA (cast i) (I 64))] (mtype t)
+operation ix l t (OIO op as res) env = do
+  vs <- traverse (atom l env) as
+  io ix l op vs res
+operation ix l t (OCase x bs def) env = do
+  scrut <- atom l env x
+  let live = mapMaybe (\b => map (MkBranch b.con b.fields) b.body) bs
+  (cases, deflt) <- case (join def, reverse live) of
+    (Just e, _) => pure (live, yielding l (e env))
+    (Nothing, b :: rest) => pure (reverse rest, alternative scrut b)
+    (Nothing, []) => internal "a match that cannot return"
+  tag <- op1 l "idr.tag" [scrut] [] Index
+  tags <- traverse (\b => (.tag) <$> conOf b.con) cases
+  dr <- deflt
+  crs <- traverse (alternative scrut) cases
+  r <- fresh
+  push (MkMOp (Just (r, 1)) "scf.index_switch" [fst tag] [("cases", I64ArrayA (map cast tags))]
+              (dr :: crs) [] [Index] [mtype t] l)
+  pure (r, mtype t)
+  where
+    conOf : ConId -> E CCon
+    conOf c = maybe (internal ("unknown constructor " ++ show c)) pure (lookup c ix.cons)
+    ||| An alternative: reads the fields it binds, then yields its value.
+    alternative : TV -> Branch (Env -> E TV) -> E Region
+    alternative scrut b = do
+      c <- conOf b.con
+      yielding l $ do
+        fs <- for (zip b.fields (indexed c.fields)) $ \(y, (i, f)) =>
+          if f.type == ErasedT then pure Nothing
+          else Just . (y,) <$> op1 c.loc "idr.field" [scrut]
+                                   [("ctor", SymA [symbol c.id.name]), ("index", IntA (cast i) (I 64))]
+                                   (mtype f.type)
+        b.body (foldl (\m, (y, v) => insert y v m) env (catMaybes fs))
+-- IDR-MATCH-3: a chain of comparisons, in alternative order.
+operation ix l t (OCaseLit x as def) env = do
+  scrut <- atom l env x
+  let live = mapMaybe (\(k, e) => (k,) <$> e) as
+  case (def, reverse live) of
+    (Just e, _) => chain scrut live e
+    (Nothing, (_, e) :: rest) => chain scrut (reverse rest) e
+    (Nothing, []) => internal "a match that cannot return"
+  where
+    chain : TV -> List (Lit, Env -> E TV) -> (Env -> E TV) -> E TV
+    chain scrut [] final = final env
+    chain scrut ((k, e) :: rest) final = do
+      kv <- atom l env (ALit k)
+      c <- op1 l "arith.cmpi" [scrut, kv] [("predicate", IntA 0 (I 64))] (I 1)
+      thenR <- yielding l (e env)
+      elseR <- yielding l (chain scrut rest final)
+      r <- fresh
+      push (MkMOp (Just (r, 1)) "scf.if" [fst c] [] [thenR, elseR] [] [I 1] [mtype t] l)
+      pure (r, mtype t)
+
+||| The algebra: one layer of `Code` to its emitter.
+body : Index -> CodeF Emitter -> Emitter
+body ix (BindF l x q t o k) = Just $ \env => do
+  -- IDR-MATCH-4: a quantity-0 binding is the erased value.
+  v <- if q == Q0 then atom l env AErased else operation ix l t o env
+  case k of
+    Just rest => rest (insert x v env)
+    Nothing => internal "code after a binding cannot return"
+body ix (RetF l a) = Just (\env => atom l env a)
+body ix (AbsurdF _) = Nothing
 
 ------------------------------------------------------------------------------
 -- Declarations
 ------------------------------------------------------------------------------
 
-dataDecl : Data -> Either String (List String)
-dataDecl d = do
-  cons <- traverse con d.cons
-  pure (["  idr.data @" ++ symbol d.name ++ " attributes {idr.name = " ++ quoted d.idrisName ++ "} {"]
-        ++ cons ++ ["  } " ++ location d.loc])
+dataDecl : CData -> MOp
+dataDecl d =
+  MkMOp Nothing "idr.data" [] [("sym_name", StrA (symbol d.id.name))]
+        [MkRegion [] (map ctor d.cons)] [("idr.name", StrA d.idrisName)] [] [] d.loc
   where
-    con : Con -> Either String String
-    con c = do
-      tys <- traverse (mlirType . (.type)) c.fields
-      pure ("    idr.ctor @" ++ symbol c.name ++ " tag " ++ show c.tag ++ " fields [" ++
-            joinBy ", " tys ++ "] quantities [" ++
-            joinBy ", " (map (quoted . show . (.quantity)) c.fields) ++ "] {idr.name = " ++
-            quoted c.idrisName ++ "} " ++ location c.loc)
+    ctor : CCon -> MOp
+    ctor c = MkMOp Nothing "idr.ctor" []
+               [ ("field_types", ArrayA (map (TypeA . mtype . (.type)) c.fields))
+               , ("quantities", ArrayA (map (StrA . show . (.quantity)) c.fields))
+               , ("sym_name", StrA (symbol c.id.name))
+               , ("tag", IntA (cast c.tag) (I 64)) ]
+               [] [("idr.name", StrA c.id.name)] [] [] c.loc
 
-function : Program -> Fn -> Emit ()
-function prog fn = do
-  params <- lift' (traverse param fn.params)
-  res <- lift' (mlirType fn.result)
-  line ("func.func private @" ++ symbol fn.name ++ "(" ++ joinBy ", " (map fst params) ++ ") -> " ++
-        res ++ " attributes {idr.name = " ++ quoted fn.idrisName ++ "} {")
-  modify { depth := 2 }
-  (v, _) <- expr prog (map snd params) fn.body
-  line ("return " ++ v ++ " : " ++ res ++ " " ++ location fn.loc)
-  modify { depth := 1 }
-  line ("} " ++ location fn.loc)
-  where
-    param : Param -> Either String (String, (Var, (String, Ty)))
-    param p = do
-      t <- mlirType p.type
-      let name = "%a" ++ show p.var
-      pure (name ++ ": " ++ t ++ " {idr.quantity = " ++ quoted (show p.quantity) ++ "}",
-            (p.var, (name, p.type)))
+||| A value of a type, for a body that cannot return: it is never used.
+inhabitant : Index -> Loc -> Nat -> VTy -> E (Maybe TV)
+inhabitant ix l fuel (IntT t) = Just <$> constant l 0 (width t)
+inhabitant ix l fuel CharT = Just <$> constant l 0 32
+inhabitant ix l fuel StrT = Just <$> op1 l "idr.str.lit" [] [("value", BytesA "")] IdrStr
+inhabitant ix l fuel ErasedT = Just <$> op1 l "idr.erased" [] [] IdrErased
+inhabitant ix l fuel WorldT = pure Nothing
+inhabitant ix l Z (DataT d) = pure Nothing
+inhabitant ix l (S fuel) (DataT d) = do
+  dt <- lookupData ix d
+  case dt.cons of
+    (c :: _) => do
+      fs <- traverse (inhabitant ix l fuel . (.type)) c.fields
+      maybe (pure Nothing) (map Just . con l c.id) (sequence fs)
+    [] => pure Nothing
+
+function : Index -> CFn -> E MOp
+function ix fn = do
+  let params = map (\p => ("%a" ++ show p.var.index, p)) fn.params
+  let env = fromList (map (\(n, p) => (p.var, (n, mtype p.type))) params)
+  let res = mtype fn.result
+  (_, ops) <- nested $ do
+    v <- case cata (body ix) fn.body of
+      Just e => e env
+      -- Nothing reaches this body: return any value of the type, or call
+      -- the function itself when there is none (the call never runs).
+      Nothing => do
+        dflt <- inhabitant ix fn.loc (length (keys ix.datas) + 1) fn.result
+        case dflt of
+          Just v => pure v
+          Nothing => op1 fn.loc "func.call" (map (\(n, p) => (n, mtype p.type)) params)
+                         [("callee", SymA [symbol fn.id.name])] res
+    op0 fn.loc "func.return" [v]
+  let argAttrs = if null params then []
+                 else [("arg_attrs", ArrayA (map (\(_, p) => DictA [("idr.quantity", StrA (show p.quantity))]) params))]
+  pure (MkMOp Nothing "func.func" []
+              (argAttrs ++ [ ("function_type", TypeA (FunctionT (map (mtype . (.type)) fn.params) [res]))
+                           , ("sym_name", StrA (symbol fn.id.name))
+                           , ("sym_visibility", StrA "private") ])
+              [MkRegion (map (\(n, p) => (n, mtype p.type)) params) ops]
+              [("idr.name", StrA fn.idrisName)] [] [] fn.loc)
 
 ||| The contract text of a first-order program.
 export
-emit : Program -> Either String String
-emit prog = do
-  datas <- traverse dataDecl prog.datas
-  let kind = case prog.entry of
+emit : Target -> Either String String
+emit t = do
+  let ix = index t
+  (st, fns) <- runStateT (MkES 0 [<]) (traverse (function ix) t.fns)
+  let kind = case t.entry of
                IntEntry => "int"
                IOEntry => "io"
-  let header = "module attributes {idr.version = " ++ show prog.version ++ " : i64, idr.entry = @" ++
-               symbol prog.root ++ ", idr.entry_kind = " ++ quoted kind ++ "} {"
-  (st, _) <- runStateT (MkSt 0 [<] 1) (traverse_ (function prog) prog.fns)
-  pure (unlines ([header] ++ concat datas ++ (st.out <>> []) ++ ["}"]))
+  pure (showModule [ ("idr.version", IntA (cast (version t)) (I 64))
+                   , ("idr.entry", SymA [symbol t.root.name])
+                   , ("idr.entry_kind", StrA kind) ]
+                   (map dataDecl t.datas ++ fns))

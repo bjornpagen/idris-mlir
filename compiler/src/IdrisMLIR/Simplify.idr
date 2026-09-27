@@ -1,17 +1,30 @@
-||| The guaranteed eliminations (docs/architecture/06-elimination.md, ELIM-G-*).
+||| The guaranteed eliminations (docs/architecture/06-elimination.md, ELIM-G-*):
+||| full Core to first-order Core.
 |||
-||| An online specializer over full Core. Values whose type is not first order
-||| (functions, `Lazy`, data holding them such as `IO`) are *static*: they exist
-||| only at compile time as `SVal`s. Every use of a static value is resolved
-||| here, by beta reduction (G1), known-constructor selection (G2),
-||| specialization on static arguments (G3), static lets (G4), arity raising
-||| (G5, calls whose result is static are specialized together with the
-||| eliminations applied to them), compile-time primitives (G6), output fusion
-||| (G7) and Force of Delay (G8). Residual code is first order, in A-normal
-||| form, and keeps the evaluation order of the input (SEM-EVAL-*).
+||| A two-level evaluator. `eval` is Futhark's judgment `E ⊢ e ⇝ ⟨e′, sv⟩`
+||| (Hovgaard et al. TFP 2018) written in Kovács's `Gen` monad: it returns
+||| the static value of a term and emits the residual first-order code of its
+||| runtime parts. Values of a type that is not a value type (functions,
+||| `Lazy`, static data such as `IO`) exist only here, as `SVal`s. Every use
+||| of one is resolved by beta reduction (G1), known-constructor selection
+||| (G2), specialization on static arguments (G3), static lets (G4), arity
+||| raising (G5: a call whose result is static is specialized together with
+||| the eliminations applied to it), compile-time primitives (G6), output
+||| fusion (G7) and Force of Delay (G8). `reify` turns a value that must
+||| exist at runtime into an atom, or reports why it cannot (PROF-HEAP-*).
+||| Residual code keeps the evaluation order of the input (SEM-EVAL-*).
 module IdrisMLIR.Simplify
 
-import IdrisMLIR.Core
+import IdrisMLIR.Code
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
+import IdrisMLIR.Rule
+import IdrisMLIR.Simplify.Fold
+import IdrisMLIR.Simplify.Gen
+import IdrisMLIR.Simplify.Safety
+import IdrisMLIR.Simplify.Value
+import IdrisMLIR.Term
+import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
@@ -20,974 +33,443 @@ import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
+import Data.Vect
 
 %default covering
 
-------------------------------------------------------------------------------
--- Static values
-------------------------------------------------------------------------------
-
-||| A string known at compile time up to runtime characters and numbers.
-data SStr = SLit String | SVarStr Expr | SAppend SStr SStr | SConsChar Expr SStr
-          | SShowInt IntTy Expr | SChar Expr
-
-mutual
-  data SVal : Type where
-    ||| A first-order runtime value: an atom (variable, literal or erased).
-    Dyn : Expr -> Ty -> SVal
-    SLam : Env -> Var -> Quantity -> Ty -> Expr -> SVal
-    SDelay : Env -> Expr -> SVal
-    SCon : String -> String -> List SVal -> SVal
-    ||| A deferred call of a function whose result is static, with the
-    ||| eliminations applied to it so far (G5).
-    SCall : String -> List SVal -> List Elim -> SVal
-    SString : SStr -> SVal
-
-  data Elim = EApply SVal | EProj String Nat | EForceIt
-
-  Env : Type
-  Env = List (Var, SVal)
+V : Type
+V = SVal Atom
 
 ------------------------------------------------------------------------------
--- State
+-- The program
 ------------------------------------------------------------------------------
 
-data Binding = BLet Var Quantity Ty Expr
-             | BUnpack Var String (List Var)   -- scrutinee, constructor, fields
-
-record St where
-  constructor MkSt
-  prog : Program
-  next : Nat
-  scopes : List (SnocList Binding)
-  memo : SortedMap String String
-  counts : SortedMap String Nat
-  done : SnocList Fn
-  staticData : SortedSet String
-  safe : SortedSet String      -- functions and specializations that cannot crash or loop
-  active : SortedSet String    -- specializations being built
-  stack : List (String, String, List SVal)  -- their function, key and static arguments
-  pending : SortedMap String (List String)  -- safe if these callees are (recursion)
-  assumed : SortedSet String   -- specializations relied on as safe before that was known
-  inPrefix : Maybe Loc          -- inside the prefix of a raised function (G5)
-
-M : Type -> Type
-M = StateT St (Either Diag)
-
-fail : String -> Loc -> String -> M a
-fail rule l msg = lift (Left (diag rule "Simplify" l msg))
-
-freshVar : M Var
-freshVar = do
+fnDef : Loc -> FnId -> M TFn
+fnDef l f = do
   st <- get
-  put ({ next $= S } st)
-  pure st.next
+  maybe (fail CoreCheck1 l ("unknown function " ++ show f)) pure (lookup f st.src.fns)
 
-||| Emits a residual binding in the current scope. In the prefix of a raised
-||| function, only code that cannot crash or loop may run (PROF-HEAP-5).
-emit : Binding -> M ()
-emit b = do
+dataDef : Loc -> DataId -> M Data
+dataDef l d = do
   st <- get
-  case (st.inPrefix, b) of
-    (Just at, BLet _ _ _ e) => do
-      let (ok, relied) = safeExpr st e
-      unless ok $
-        fail "PROF-HEAP-5" (locOf e)
-             ("arity raising is blocked by " ++ blocking e ++ ", which may crash or not " ++
-              "terminate, and would move from where an IO action or function is built to " ++
-              "where it runs (DIAG-HEAP-1)")
-      modify { assumed $= union (fromList relied) }
-    _ => pure ()
+  maybe (fail CoreCheck1 l ("unknown data " ++ show d)) pure (lookup d st.src.datas)
+
+conDef : Loc -> ConId -> M Con
+conDef l c = do
   st <- get
-  case st.scopes of
-    (s :: ss) => put ({ scopes := (s :< b) :: ss } st)
-    [] => put ({ scopes := [[<b]] } st)
+  maybe (fail CoreCheck1 l ("unknown constructor " ++ show c)) pure (lookup c st.src.cons)
+
+||| Does static data hold a function, not only `Lazy` values? It decides
+||| between PROF-HEAP-1 and PROF-HEAP-2.
+holdsFunction : SourceIndex -> DataId -> Bool
+holdsFunction src d = go (length (keys src.datas)) d
   where
-    ||| DIAG-HEAP-1: the operation that blocks arity raising.
-    blocking : Expr -> String
-    blocking (EPrim _ (Div _) _) = "a division"
-    blocking (EPrim _ (Mod _) _) = "a modulus"
-    blocking (ECall _ f _) = "a call to " ++ fst (break (== '{') f)
-    blocking (EIO _ op _ _) = "the IO operation " ++ show op
-    blocking _ = "an operation"
-    ||| Branches of matches were checked as they were emitted.
-    safeExpr : St -> Expr -> (Bool, List String)
-    safeExpr st (EPrim _ (Div _) [_, ELit _ (LInt _ n)]) = (n /= 0, [])
-    safeExpr st (EPrim _ (Mod _) [_, ELit _ (LInt _ n)]) = (n /= 0, [])
-    safeExpr st (EPrim _ (Div _) _) = (False, [])
-    safeExpr st (EPrim _ (Mod _) _) = (False, [])
-    safeExpr st (ECall _ f _) =
-      if contains f st.safe then (True, [])
-      else if contains f st.active || isJust (lookup f st.pending) then (True, [f])
-      else (False, [])
-    safeExpr st (EIO {}) = (False, [])
-    safeExpr st _ = (True, [])
-
-||| Runs `act` in a fresh scope and wraps its bindings around the result.
-scoped : M Expr -> M Expr
-scoped act = do
-  modify { scopes $= ([<] ::) }
-  e <- act
-  st <- get
-  case st.scopes of
-    (s :: ss) => do
-      put ({ scopes := ss } st)
-      pure (wrap (s <>> []) e)
-    [] => pure e
-  where
-    wrap : List Binding -> Expr -> Expr
-    wrap [] e = e
-    wrap (BLet x q t v :: bs) e = ELet (locOf v) x q t v (wrap bs e)
-    wrap (BUnpack x c xs :: bs) e = EMatchCon (locOf e) x [MkConAlt c xs (wrap bs e)] Nothing
-
-||| Like `scoped`, for an atom with its type.
-scopedTyped : M (Expr, Ty) -> M (Expr, Ty)
-scopedTyped act = do
-  tyCell <- pure ()
-  modify { scopes $= ([<] ::) }
-  (e, t) <- act
-  st <- get
-  case st.scopes of
-    (s :: ss) => do
-      put ({ scopes := ss } st)
-      pure (wrapAll (s <>> []) e, t)
-    [] => pure (e, t)
-  where
-    wrapAll : List Binding -> Expr -> Expr
-    wrapAll [] e = e
-    wrapAll (BLet x q ty v :: bs) e = ELet (locOf v) x q ty v (wrapAll bs e)
-    wrapAll (BUnpack x c xs :: bs) e = EMatchCon (locOf e) x [MkConAlt c xs (wrapAll bs e)] Nothing
-
-||| A variable of a runtime type; an erased one is the value `Erased`, so it
-||| only ever reaches quantity-0 positions as `Erased` (CORE-INV-3).
-dynVar : Loc -> Var -> Ty -> SVal
-dynVar l x ErasedT = Dyn (EErased l) ErasedT
-dynVar l x t = Dyn (EVar l x) t
-
-bindDyn : Loc -> Ty -> Expr -> M SVal
-bindDyn l t e = do
-  x <- freshVar
-  emit (BLet x QW t e)
-  pure (Dyn (EVar l x) t)
-
-------------------------------------------------------------------------------
--- Types
-------------------------------------------------------------------------------
-
-isStaticTy : St -> Ty -> Bool
-isStaticTy st (FunT {}) = True
-isStaticTy st (LazyT _) = True
-isStaticTy st (DataT d) = contains d st.staticData
-isStaticTy st _ = False
-
-||| Does a static data instance hold a function (not only `Lazy` values)?
-holdsFunction : St -> String -> Bool
-holdsFunction st d = go [d] d
-  where
-    go : List String -> String -> Bool
-    go seen n = case lookupData n st.prog of
+    go : Nat -> DataId -> Bool
+    go Z _ = False
+    go (S k) n = case lookup n src.datas of
       Just dt => any (\f => case f.type of
                                FunT {} => True
-                               DataT m => not (elem m seen) && go (m :: seen) m
+                               StaticT m => go k m
                                _ => False) (concatMap (.fields) dt.cons)
       Nothing => False
 
-||| Data instances that hold static values, directly or through other data.
-staticDatas : Program -> SortedSet String
-staticDatas prog = go (fromList [d.name | d <- prog.datas, any (direct . (.type)) (fields d)])
-  where
-    fields : Data -> List Field
-    fields d = concatMap (.fields) d.cons
-    direct : Ty -> Bool
-    direct (FunT {}) = True
-    direct (LazyT _) = True
-    direct _ = False
-    go : SortedSet String -> SortedSet String
-    go s = let s' = foldl (\acc, d => if any (holds acc . (.type)) (fields d) then insert d.name acc else acc) s prog.datas
-           in if Prelude.toList s' == Prelude.toList s then s else go s'
-      where
-        holds : SortedSet String -> Ty -> Bool
-        holds acc (DataT n) = contains n acc
-        holds acc _ = False
+||| The type of a value after eliminations.
+elimTy : Loc -> Ty -> List (Elim a) -> M Ty
+elimTy l t [] = pure t
+elimTy l (FunT _ _ r) (Apply _ :: es) = elimTy l r es
+elimTy l (LazyT t) (ForceIt :: es) = elimTy l t es
+elimTy l t (Proj c i :: es) = case dataOf t of
+  Just _ => do
+    con <- conDef l c
+    maybe (fail CoreCheck1 l "a projection of a missing field") (\f => elimTy l f.type es) (getAt i con.fields)
+  Nothing => fail CoreCheck1 l ("a projection from a value of type " ++ show t)
+elimTy l t _ = fail CoreCheck1 l ("cannot eliminate a value of type " ++ show t)
 
-||| Code that cannot crash, given which callees cannot crash or loop: no
-||| possibly-crashing primitive and no IO.
-safeCode : (String -> Bool) -> Expr -> Bool
-safeCode s (EPrim _ (Div _) [a, ELit _ (LInt _ n)]) = n /= 0 && safeCode s a
-safeCode s (EPrim _ (Mod _) [a, ELit _ (LInt _ n)]) = n /= 0 && safeCode s a
-safeCode s (EPrim _ (Div _) _) = False
-safeCode s (EPrim _ (Mod _) _) = False
-safeCode s (EPrim _ _ as) = all (safeCode s) as
-safeCode s (EIO {}) = False
-safeCode s (ECall _ f as) = s f && all (safeCode s) as
-safeCode s (ECon _ _ _ as) = all (safeCode s) as
-safeCode s (ELet _ _ _ _ v b) = safeCode s v && safeCode s b
-safeCode s (EMatchCon _ _ alts d) = all (\(MkConAlt _ _ e) => safeCode s e) alts && maybe True (safeCode s) d
-safeCode s (EMatchLit _ _ alts d) = all (safeCode s . snd) alts && safeCode s d
-safeCode s (ELam _ _ _ _ b) = safeCode s b
-safeCode s (EApp _ f a) = safeCode s f && safeCode s a
-safeCode s (EDelay _ e) = safeCode s e
-safeCode s (EForce _ e) = safeCode s e
-safeCode s _ = True
-
-||| Calls in residual code.
-callees : Expr -> List String
-callees (ECall _ f as) = f :: concatMap callees as
-callees (EPrim _ _ as) = concatMap callees as
-callees (EIO _ _ as _) = concatMap callees as
-callees (ECon _ _ _ as) = concatMap callees as
-callees (ELet _ _ _ _ v b) = callees v ++ callees b
-callees (EMatchCon _ _ alts d) = concatMap (\(MkConAlt _ _ e) => callees e) alts ++ maybe [] callees d
-callees (EMatchLit _ _ alts d) = concatMap (callees . snd) alts ++ callees d
-callees _ = []
-
-||| Functions that cannot crash and terminate: total, no possibly-crashing
-||| primitive, no IO, only safe callees (ELIM-G-5).
-safeFns : Program -> SortedSet String
-safeFns prog = go (fromList [f.name | f <- prog.fns, f.terminating])
-  where
-    go : SortedSet String -> SortedSet String
-    go s = let s' = fromList [f.name | f <- prog.fns, contains f.name s, safeCode (`contains` s) f.body]
-           in if Prelude.toList s' == Prelude.toList s then s else go s'
+||| The value type of a result that must exist at runtime.
+runtimeTy : Loc -> Ty -> M VTy
+runtimeTy l t = maybe (fail CoreCheck1 l ("a runtime value of type " ++ show t)) pure (value t)
 
 ------------------------------------------------------------------------------
--- Shapes and flattening (G3)
+-- Strings (ELIM-G-6, ELIM-G-7)
 ------------------------------------------------------------------------------
 
-||| A polynomial hash, for compact keys of expressions.
-fnv : String -> Integer
-fnv s = foldl (\h, c => (h * 131 + cast (ord c)) `mod` 2305843009213693951) 7 (unpack s)
-
-strShape : SStr -> String
-strShape (SLit s) = show s
-strShape (SVarStr _) = "_"
-strShape (SAppend a b) = "(" ++ strShape a ++ "++" ++ strShape b ++ ")"
-strShape (SConsChar _ s) = "(c:" ++ strShape s ++ ")"
-strShape (SShowInt t _) = "show_" ++ show t
-strShape (SChar _) = "chr"
-
-strAtoms : SStr -> List (Expr, Ty)
-strAtoms (SVarStr e) = [(e, StrT)]
-strAtoms (SAppend a b) = strAtoms a ++ strAtoms b
-strAtoms (SConsChar c s) = (c, CharT) :: strAtoms s
-strAtoms (SShowInt t n) = [(n, IntT t)]
-strAtoms (SChar c) = [(c, CharT)]
-strAtoms (SLit _) = []
-
-strRebuild : SStr -> List Expr -> (SStr, List Expr)
-strRebuild (SVarStr _) (e :: es) = (SVarStr e, es)
-strRebuild (SAppend a b) es = let (a', es1) = strRebuild a es
-                                  (b', es2) = strRebuild b es1
-                              in (SAppend a' b', es2)
-strRebuild (SConsChar _ s) (c :: es) = let (s', es') = strRebuild s es in (SConsChar c s', es')
-strRebuild (SShowInt t _) (n :: es) = (SShowInt t n, es)
-strRebuild (SChar _) (c :: es) = (SChar c, es)
-strRebuild s es = (s, es)
-
-mutual
-  ||| The static structure of a value; the key of a specialization.
-  shape : SVal -> String
-  shape (Dyn _ t) = "_:" ++ show t
-  shape (SLam env x _ _ _) = "\\" ++ show x ++ "[" ++ joinBy "," (map (\(y, v) => show y ++ "=" ++ shape v) env) ++ "]"
-  shape (SDelay env e) = "delay" ++ show (fnv (showExpr 0 e)) ++
-                         "[" ++ joinBy "," (map (\(x, v) => show x ++ "=" ++ shape v) env) ++ "]"
-  shape (SCon d c fs) = c ++ "(" ++ joinBy "," (map shape fs) ++ ")"
-  shape (SCall f as es) = f ++ "(" ++ joinBy "," (map shape as) ++ ")" ++ concatMap elimShape es
-  shape (SString s) = "str" ++ strShape s
-
-  elimShape : Elim -> String
-  elimShape (EApply a) = "@(" ++ shape a ++ ")"
-  elimShape (EProj c i) = "." ++ c ++ "#" ++ show i
-  elimShape EForceIt = "!"
-
-mutual
-  ||| The runtime atoms inside a static value, in a fixed order.
-  flatten : SVal -> List (Expr, Ty)
-  flatten (Dyn e t) = [(e, t)]
-  flatten (SLam env _ _ _ _) = concatMap (flatten . snd) env
-  flatten (SDelay env _) = concatMap (flatten . snd) env
-  flatten (SCon _ _ fs) = concatMap flatten fs
-  flatten (SCall _ as es) = concatMap flatten as ++ concatMap flattenElim es
-  flatten (SString s) = strAtoms s
-
-  flattenElim : Elim -> List (Expr, Ty)
-  flattenElim (EApply a) = flatten a
-  flattenElim _ = []
-
-mutual
-  ||| Rebuilds a static value with its atoms replaced, in `flatten` order.
-  rebuild : SVal -> List Expr -> (SVal, List Expr)
-  rebuild (Dyn _ t) (e :: es) = (Dyn e t, es)
-  rebuild (Dyn e t) [] = (Dyn e t, [])
-  rebuild (SLam env x q t b) es = let (env', es') = rebuildEnv env es in (SLam env' x q t b, es')
-  rebuild (SDelay env b) es = let (env', es') = rebuildEnv env es in (SDelay env' b, es')
-  rebuild (SCon d c fs) es = let (fs', es') = rebuildList fs es in (SCon d c fs', es')
-  rebuild (SCall f as ms) es =
-    let (as', es1) = rebuildList as es
-        (ms', es2) = rebuildElims ms es1
-    in (SCall f as' ms', es2)
-  rebuild (SString s) es = let (s', es') = strRebuild s es in (SString s', es')
-
-  rebuildList : List SVal -> List Expr -> (List SVal, List Expr)
-  rebuildList [] es = ([], es)
-  rebuildList (v :: vs) es = let (v', es1) = rebuild v es
-                                 (vs', es2) = rebuildList vs es1
-                             in (v' :: vs', es2)
-
-  rebuildEnv : Env -> List Expr -> (Env, List Expr)
-  rebuildEnv [] es = ([], es)
-  rebuildEnv ((x, v) :: rest) es = let (v', es1) = rebuild v es
-                                       (rest', es2) = rebuildEnv rest es1
-                                   in ((x, v') :: rest', es2)
-
-  rebuildElims : List Elim -> List Expr -> (List Elim, List Expr)
-  rebuildElims [] es = ([], es)
-  rebuildElims (EApply a :: ms) es = let (a', es1) = rebuild a es
-                                         (ms', es2) = rebuildElims ms es1
-                                     in (EApply a' :: ms', es2)
-  rebuildElims (m :: ms) es = let (ms', es') = rebuildElims ms es in (m :: ms', es')
-
-------------------------------------------------------------------------------
--- Growth of static arguments (PROF-HEAP-4)
-------------------------------------------------------------------------------
-
-mutual
-  ||| Homeomorphic embedding: `a` embeds in `b` when `b` is `a` with more
-  ||| structure around or inside it. A recursive function whose static
-  ||| arguments embed the ones it received, and differ, grows them without
-  ||| bound, so specializing it would not terminate.
-  embeds : SVal -> SVal -> Bool
-  embeds a b = couple a b || any (embeds a) (children b)
-
-  couple : SVal -> SVal -> Bool
-  couple (Dyn _ t) (Dyn _ t') = t == t'
-  couple (SLam env x _ _ b) (SLam env' x' _ _ b') =
-    x == x' && fnv (showExpr 0 b) == fnv (showExpr 0 b') && envEmbeds env env'
-  couple (SDelay env e) (SDelay env' e') =
-    fnv (showExpr 0 e) == fnv (showExpr 0 e') && envEmbeds env env'
-  couple (SCon _ c fs) (SCon _ c' fs') = c == c' && pairs fs fs'
-  couple (SCall f as es) (SCall f' as' es') =
-    f == f' && pairs as as' && map elimShape es == map elimShape es'
-  couple (SString s) (SString s') = strShape s == strShape s'
-  couple _ _ = False
-
-  pairs : List SVal -> List SVal -> Bool
-  pairs [] [] = True
-  pairs (a :: as) (b :: bs) = embeds a b && pairs as bs
-  pairs _ _ = False
-
-  envEmbeds : Env -> Env -> Bool
-  envEmbeds env env' = map fst env == map fst env' && pairs (map snd env) (map snd env')
-
-  children : SVal -> List SVal
-  children (SLam env _ _ _ _) = map snd env
-  children (SDelay env _) = map snd env
-  children (SCon _ _ fs) = fs
-  children (SCall _ as es) = as ++ concatMap elimVals es
-    where
-      elimVals : Elim -> List SVal
-      elimVals (EApply v) = [v]
-      elimVals _ = []
-  children _ = []
-
-------------------------------------------------------------------------------
--- Free variables (closures capture only what they use)
-------------------------------------------------------------------------------
-
-mutual
-  freeVars : Expr -> SortedSet Var
-  freeVars (EVar _ x) = singleton x
-  freeVars (EPrim _ _ as) = unions (map freeVars as)
-  freeVars (EIO _ _ as _) = unions (map freeVars as)
-  freeVars (ECall _ _ as) = unions (map freeVars as)
-  freeVars (EPartial _ _ as) = unions (map freeVars as)
-  freeVars (ECon _ _ _ as) = unions (map freeVars as)
-  freeVars (ELet _ x _ _ v b) = union (freeVars v) (delete x (freeVars b))
-  freeVars (EMatchCon _ x alts d) =
-    insert x (unions (maybe empty freeVars d :: map altVars alts))
-  freeVars (EMatchLit _ x alts d) = insert x (unions (freeVars d :: map (freeVars . snd) alts))
-  freeVars (ELam _ x _ _ b) = delete x (freeVars b)
-  freeVars (EApp _ f a) = union (freeVars f) (freeVars a)
-  freeVars (EDelay _ e) = freeVars e
-  freeVars (EForce _ e) = freeVars e
-  freeVars _ = empty
-
-  altVars : ConAlt -> SortedSet Var
-  altVars (MkConAlt _ xs e) = foldr delete (freeVars e) xs
-
-  unions : List (SortedSet Var) -> SortedSet Var
-  unions = foldl union empty
-
-capture : Env -> SortedSet Var -> Env
-capture env fvs = sortBy (\a, b => compare (fst a) (fst b))
-                    (nubBy (\a, b => fst a == fst b) (filter (\(x, _) => contains x fvs) env))
-
-------------------------------------------------------------------------------
--- Compile-time primitives (G6)
-------------------------------------------------------------------------------
-
-pow2 : Nat -> Integer
-pow2 Z = 1
-pow2 (S k) = 2 * pow2 k
-
-wrap : IntTy -> Integer -> Integer
-wrap t n =
-  let m = pow2 (width t)
-      r = n `mod` m
-      r' = if r < 0 then r + m else r
-  in if signed t && r' >= m `div` 2 then r' - m else r'
-
-||| Euclidean division and remainder (SEM-INT-3), b /= 0.
-euclid : Integer -> Integer -> (Integer, Integer)
-euclid a b =
-  let q = if (a < 0) == (b < 0) then abs a `div` abs b else negate (abs a `div` abs b)
-      r = a - b * q
-  in if r < 0 then (if b > 0 then (q - 1, r + b) else (q + 1, r - b)) else (q, r)
-
-isScalar : Integer -> Bool
-isScalar c = (c >= 0 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0x10FFFF)
-
-cmpLit : String -> Integer -> Integer -> Lit
-cmpLit op a b = LInt IdrisInt (if res then 1 else 0)
-  where
-    res : Bool
-    res = case op of
-      "lt" => a < b
-      "lte" => a <= b
-      "eq" => a == b
-      "gte" => a >= b
-      _ => a > b
-
-litInt : Lit -> Maybe Integer
-litInt (LInt _ n) = Just n
-litInt (LChar c) = Just c
-litInt _ = Nothing
-
-||| A primitive on literal arguments, when it cannot crash.
-foldPrim : PrimOp -> List Lit -> Maybe Lit
-foldPrim (Add t) [LInt _ a, LInt _ b] = Just (LInt t (wrap t (a + b)))
-foldPrim (Sub t) [LInt _ a, LInt _ b] = Just (LInt t (wrap t (a - b)))
-foldPrim (Mul t) [LInt _ a, LInt _ b] = Just (LInt t (wrap t (a * b)))
-foldPrim (Div t) [LInt _ a, LInt _ b] =
-  if b == 0 then Nothing
-  else if signed t then Just (LInt t (wrap t (fst (euclid a b)))) else Just (LInt t (a `div` b))
-foldPrim (Mod t) [LInt _ a, LInt _ b] =
-  if b == 0 then Nothing
-  else if signed t then Just (LInt t (wrap t (snd (euclid a b)))) else Just (LInt t (a `mod` b))
-foldPrim (Lt _) [x, y] = cmpLit "lt" <$> litInt x <*> litInt y
-foldPrim (Lte _) [x, y] = cmpLit "lte" <$> litInt x <*> litInt y
-foldPrim (Eq _) [x, y] = cmpLit "eq" <$> litInt x <*> litInt y
-foldPrim (Gte _) [x, y] = cmpLit "gte" <$> litInt x <*> litInt y
-foldPrim (Gt _) [x, y] = cmpLit "gt" <$> litInt x <*> litInt y
-foldPrim (Cast _ (IntT t)) [x] = LInt t . wrap t <$> litInt x
-foldPrim (Cast _ CharT) [x] = (\n => LChar (if isScalar n then n else 0)) <$> litInt x
-foldPrim (Cast CharT StrT) [LChar c] = Just (LStr (singleton (chr (cast c))))
-foldPrim (Cast (IntT _) StrT) [LInt _ n] = Just (LStr (show n))
-foldPrim StrAppend [LStr a, LStr b] = Just (LStr (a ++ b))
-foldPrim StrCons [LChar c, LStr s] = Just (LStr (strCons (chr (cast c)) s))
-foldPrim StrLength [LStr s] = Just (LInt IdrisInt (cast (length s)))
-foldPrim StrReverse [LStr s] = Just (LStr (reverse s))
-foldPrim (StrCompare op) [LStr a, LStr b] =
-  Just (LInt IdrisInt (if cmp op a b then 1 else 0))
-  where
-    cmp : String -> String -> String -> Bool
-    cmp "lt" x y = x < y
-    cmp "lte" x y = x <= y
-    cmp "eq" x y = x == y
-    cmp "gte" x y = x >= y
-    cmp _ x y = x > y
-foldPrim (And t) [LInt _ a, LInt _ b] = Nothing   -- left to MLIR
-foldPrim _ _ = Nothing
-
-------------------------------------------------------------------------------
--- The specializer
-------------------------------------------------------------------------------
-
-atomLit : SVal -> Maybe Lit
-atomLit (Dyn (ELit _ l) _) = Just l
-atomLit _ = Nothing
-
-||| A string value as a static string description.
-asStr : SVal -> Maybe SStr
+||| A string value as a static string.
+asStr : V -> Maybe (SStr Atom)
 asStr (SString s) = Just s
-asStr (Dyn (ELit _ (LStr s)) _) = Just (SLit s)
-asStr (Dyn e StrT) = Just (SVarStr e)
+asStr (Dyn StrT (ALit (LStr s))) = Just (SLit s)
+asStr (Dyn StrT a) = Just (SRun a)
 asStr _ = Nothing
 
-||| A fully literal static string.
-strLit : SStr -> Maybe String
+||| A static string that is fully known.
+strLit : SStr Atom -> Maybe String
 strLit (SLit s) = Just s
-strLit (SAppend a b) = [| strLit a ++ strLit b |]
-strLit (SConsChar (ELit _ (LChar c)) s) = strCons (chr (cast c)) <$> strLit s
-strLit (SChar (ELit _ (LChar c))) = Just (singleton (chr (cast c)))
-strLit (SShowInt _ (ELit _ (LInt _ n))) = Just (show n)
+strLit (SAppend a b) = (++) <$> strLit a <*> strLit b
+strLit (SCons (ALit (LChar c)) s) = strCons (chr (cast c)) <$> strLit s
+strLit (SChr (ALit (LChar c))) = Just (singleton (chr (cast c)))
+strLit (SShow _ (ALit (LInt _ n))) = Just (show n)
 strLit _ = Nothing
 
-||| A string that must exist at runtime: only literals and runtime string
-||| values (which are literals passed around) qualify (PROF-HEAP-3).
-materializeStr : Loc -> SStr -> M SVal
-materializeStr l (SVarStr e) = pure (Dyn e StrT)
-materializeStr l s = case strLit s of
-  Just lit => pure (Dyn (ELit l (LStr lit)) StrT)
-  Nothing => fail "PROF-HEAP-3" l
+------------------------------------------------------------------------------
+-- Reification (Futhark's residualization, Kovács's `down`)
+------------------------------------------------------------------------------
+
+||| A value that must exist at runtime, as an atom (PROF-HEAP-1..3).
+reify : Loc -> V -> M (Atom, VTy)
+reify l (Dyn t a) = pure (a, t)
+reify l (SString (SRun a)) = pure (a, StrT)
+reify l (SString s) = case strLit s of
+  Just lit => pure (ALit (LStr lit), StrT)
+  -- Only literals and strings passed around exist at runtime.
+  Nothing => fail ProfHeap3 l
                ("a string is built at runtime here and is not written directly by putStr, " ++
                 "so it would need the heap")
+reify l (SDelay {}) = fail ProfHeap2 l "a Lazy value would exist at runtime here"
+reify l v = fail ProfHeap1 l
+              ("a function or IO action would exist at runtime here (" ++ showShape (shape v) ++
+               "); it must be applied, run or passed to a known function")
 
-||| A value that must exist at runtime (PROF-HEAP-1, PROF-HEAP-2).
-toDyn : Loc -> SVal -> M (Expr, Ty)
-toDyn l (Dyn e t) = pure (e, t)
-toDyn l (SString s) = do
-  Dyn e t <- materializeStr l s
-    | _ => fail "PROF-HEAP-3" l "a string"
-  pure (e, t)
-toDyn l (SDelay _ _) = fail "PROF-HEAP-2" l "a Lazy value would exist at runtime here"
-toDyn l v = fail "PROF-HEAP-1" l
-              ("a function or IO action would exist at runtime here (" ++ shape v ++ "); " ++
-               "it must be applied, run or passed to a known function")
+||| A variable or field of a runtime type; an erased one is the value
+||| `Erased`, so it only ever reaches quantity-0 positions (CORE-INV-3).
+dynVar : VarId -> VTy -> V
+dynVar x ErasedT = Dyn ErasedT AErased
+dynVar x t = Dyn t (AVar x)
 
-fnOf : Loc -> String -> M Fn
-fnOf l f = do
-  st <- get
-  maybe (fail "CORE-CHECK-1" l ("unknown function " ++ f)) pure (lookupFn f st.prog)
+||| A literal string argument is static, so that string primitives on it fold
+||| (ELIM-G-6): `putStrLn "hi"` writes one literal, "hi\n".
+literalStr : V -> V
+literalStr (SString s) = maybe (SString s) (SString . SLit) (strLit s)
+literalStr (Dyn StrT (ALit (LStr lit))) = SString (SLit lit)
+literalStr v = v
 
-conFieldTypes : Loc -> String -> String -> M (List Ty)
-conFieldTypes l d c = do
-  st <- get
-  case lookupCon d c st.prog of
-    Just con => pure (map (.type) con.fields)
-    Nothing => fail "CORE-CHECK-1" l ("unknown constructor " ++ c ++ " of " ++ d)
+||| Extends an environment with the fields of an alternative, the first field
+||| innermost.
+extend : (fs : List b) -> List V -> Vect n V -> Maybe (Vect (length fs + n) V)
+extend [] [] env = Just env
+extend (_ :: fs) (v :: vs) env = (v ::) <$> extend fs vs env
+extend _ _ _ = Nothing
 
-||| The type of a value after eliminations.
-elimTy : Loc -> Ty -> List Elim -> M Ty
-elimTy l t [] = pure t
-elimTy l (FunT _ _ r) (EApply _ :: es) = elimTy l r es
-elimTy l (LazyT t) (EForceIt :: es) = elimTy l t es
-elimTy l (DataT d) (EProj c i :: es) = do
-  tys <- conFieldTypes l d c
-  maybe (fail "CORE-CHECK-1" l "bad projection") (\t => elimTy l t es) (getAt i tys)
-elimTy l t _ = fail "CORE-CHECK-1" l ("cannot eliminate a value of type " ++ show t)
+bindAlt : Loc -> (fs : List b) -> List V -> Vect n V -> M (Vect (length fs + n) V)
+bindAlt l fs vs env =
+  maybe (fail CoreCheck1 l "an alternative binds the wrong number of fields") pure (extend fs vs env)
+
+||| The type of a match from its alternatives: absurd if none can return.
+matchTy : Loc -> List (Maybe VTy) -> M VTy
+matchTy l ts = case catMaybes ts of
+  (t :: _) => pure t
+  [] => dead l
+
+------------------------------------------------------------------------------
+-- The evaluator
+------------------------------------------------------------------------------
 
 mutual
-  ||| Evaluates an expression and applies the eliminations to its value.
-  evalK : Env -> Expr -> List Elim -> M SVal
+  ||| Evaluates a term and applies eliminations to its value.
+  evalK : Vect n V -> Term n -> List (Elim Atom) -> M V
   -- G1: the lambda's body is the action it describes, not prefix code.
-  evalK env (ELam _ x q t b) (EApply a :: es) = leavePrefix (evalK ((x, a) :: env) b es)
-  evalK env (ELam l x q t b) [] = pure (SLam (capture env (delete x (freeVars b))) x q t b)
-  evalK env (EDelay _ e) (EForceIt :: es) = leavePrefix (evalK env e es)          -- G8
-  evalK env (EDelay l e) [] = pure (SDelay (capture env (freeVars e)) e)
-  evalK env (EApp l f a) es = do
+  evalK env (Lam _ _ caps _ body) (Apply a :: es) =
+    leavePrefix (evalK (a :: map (`index` env) caps) body es)
+  evalK env (Lam _ lbl caps b body) [] = pure (SLam lbl (map (`index` env) caps) b body)
+  evalK env (Suspend _ _ caps body) (ForceIt :: es) =                              -- G8
+    leavePrefix (evalK (map (`index` env) caps) body es)
+  evalK env (Suspend _ lbl caps body) [] = pure (SDelay lbl (map (`index` env) caps) body)
+  evalK env (App _ f a) es = do
     a' <- evalK env a []
-    evalK env f (EApply a' :: es)
-  evalK env (EForce l e) es = evalK env e (EForceIt :: es)
-  evalK env (ELet l x q t v b) es = do                                               -- G4
-    v' <- if q == Q0 then pure (Dyn (EErased l) ErasedT) else evalK env v []
-    evalK ((x, v') :: env) b es
-  evalK env (EMatchCon l x alts def) es = do
-    scrut <- lookupVar l env x
-    matchCon env l scrut alts def es
-  evalK env (EMatchLit l x alts def) es = do
-    scrut <- lookupVar l env x
-    case atomLit scrut of
-      Just lit => case find (\(k, _) => sameLit k lit) alts of
-                    Just (_, e) => evalK env e es
-                    Nothing => evalK env def es
-      Nothing => do
-        (se, st) <- toDyn l scrut
-        sv <- atomVar l se st
-        alts' <- traverse (\(k, e) => (k,) <$> branch env e es) alts
-        def' <- branch env def es
-        resTy <- branchType l (map (snd . snd) alts' ++ [snd def'])
-        bindDyn l resTy (EMatchLit l sv (map (\(k, (e, _)) => (k, e)) alts') (fst def'))
+    evalK env f (Apply a' :: es)
+  evalK env (Resume _ e) es = evalK env e (ForceIt :: es)
+  evalK env (Let l q v b) es = do                                                  -- G4
+    v' <- if q == Q0 then pure (Dyn ErasedT AErased) else evalK env v []
+    evalK (v' :: env) b es
+  evalK env (Case l x alts def) es = matchCon env l (index x env) alts def es
+  evalK env (CaseLit l x alts def) es = matchLit env l (index x env) alts def es
+  evalK env (Unreachable l) es = dead l
   evalK env e es = do
     v <- eval env e
     consume (locOf e) v es
 
-  ||| Evaluates an expression that is not an elimination context.
-  eval : Env -> Expr -> M SVal
-  eval env (EVar l x) = lookupVar l env x
-  eval env (ELit l lit) = pure (Dyn (ELit l lit) (litTy lit))
-  eval env (EErased l) = pure (Dyn (EErased l) ErasedT)
-  eval env (EWorld l) = fail "PROF-IO-3" l "%MkWorld outside the root"
-  eval env (EPrim l op args) = do
+  ||| Evaluates a term that is not an elimination context.
+  eval : Vect n V -> Term n -> M V
+  eval env (Var _ i) = pure (index i env)
+  eval env (Literal _ lit) = pure (Dyn (litTy lit) (ALit lit))
+  eval env (Erased _) = pure (Dyn ErasedT AErased)
+  eval env (PrimApp l op args) = traverse (\a => evalK env a []) args >>= prim l op
+  eval env (Effect l op args res) = traverse (\a => evalK env a []) args >>= io l op res
+  eval env (Call l f args) = do
     vs <- traverse (\a => evalK env a []) args
-    prim l op vs
-  eval env (EIO l op args res) = do
+    fn <- fnDef l f
+    case value fn.result of
+      Nothing => pure (SCall f vs [])                                              -- G5
+      Just _ => call l f vs []
+  eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
-    io l op vs res
-  eval env (ECall l f args) = do
-    vs <- traverse (\a => evalK env a []) args
-    fn <- fnOf l f
-    st <- get
-    if isStaticTy st fn.result
-       then pure (SCall f vs [])                                                  -- G5
-       else call l f vs []
-  eval env (ECon l d c args) = do
-    vs <- traverse (\a => evalK env a []) args
-    st <- get
-    if contains d st.staticData
-       then pure (SCon d c vs)
+    dt <- dataDef l c.dataId
+    if dt.static
+       then pure (SCon c vs)
        else do
-         atoms <- traverse (toDyn l) vs
-         bindDyn l (DataT d) (ECon l d c (map fst atoms))
-  eval env (EPartial l f args) = fail "CORE-CHECK-1" l "partial applications are eta-expanded"
+         as <- traverse (reify l) vs
+         Dyn (DataT c.dataId) <$> bind l (DataT c.dataId) (OCon c (map fst as))
   eval env e = evalK env e []
 
-  lookupVar : Loc -> Env -> Var -> M SVal
-  lookupVar l env x = maybe (fail "CORE-CHECK-1" l ("unbound variable %" ++ show x)) pure (lookup x env)
+  ||| A literal match: selected at compile time on a literal, otherwise
+  ||| residual, each alternative in its own block.
+  matchLit : Vect n V -> Loc -> V -> List (Lit, Term n) -> Term n -> List (Elim Atom) -> M V
+  matchLit env l (Dyn _ (ALit lit)) alts def es =
+    evalK env (maybe def snd (find ((== lit) . fst) alts)) es
+  matchLit env l scrut alts def es = do
+    (x, _) <- reify l scrut
+    alts' <- traverse (\(k, e) => (k,) <$> branch env e es) alts
+    def' <- branch env def es
+    t <- matchTy l (map (fst . snd) alts' ++ [fst def'])
+    Dyn t <$> bind l t (OCaseLit x (map (\(k, (_, c)) => (k, c)) alts') (snd def'))
 
-  sameLit : Lit -> Lit -> Bool
-  sameLit (LInt _ a) (LInt _ b) = a == b
-  sameLit (LChar a) (LChar b) = a == b
-  sameLit (LStr a) (LStr b) = a == b
-  sameLit _ _ = False
+  ||| One alternative of a residual match, in its own block; its value must
+  ||| exist at runtime.
+  branch : Vect n V -> Term n -> List (Elim Atom) -> M (Maybe VTy, Code)
+  branch env e es = block (locOf e) (evalK env e es >>= reify (locOf e))
 
-  atomVar : Loc -> Expr -> Ty -> M Var
-  atomVar l (EVar _ x) t = pure x
-  atomVar l e t = do
-    x <- freshVar
-    emit (BLet x QW t e)
-    pure x
-
-  ||| One branch of a residual match, in its own scope; its value must be
-  ||| first order.
-  branch : Env -> Expr -> List Elim -> M (Expr, Ty)
-  branch env e es = scopedTyped $ do
-    v <- evalK env e es
-    toDyn (locOf e) v
-
-  branchType : Loc -> List Ty -> M Ty
-  branchType l [] = fail "CORE-CHECK-1" l "a match without alternatives"
-  branchType l (t :: _) = pure t
-
-  matchCon : Env -> Loc -> SVal -> List ConAlt -> Maybe Expr -> List Elim -> M SVal
-  matchCon env l (SCon d c fs) alts def es = case find (\(MkConAlt k _ _) => k == c) alts of  -- G2
-    Just (MkConAlt _ xs e) => evalK (zip xs fs ++ env) e es
-    Nothing => maybe (fail "CORE-CHECK-1" l "no alternative for a known constructor")
-                     (\d => evalK env d es) def
-  matchCon env l v@(SCall f as ms) alts def es = do
-    -- A static single-constructor value: its fields are projections (G5).
-    st <- get
-    fn <- fnOf l f
-    DataT d <- elimTy l fn.result ms
-      | _ => fail "PROF-HEAP-1" l "a match on a static value that is not data"
-    case lookupData d st.prog of
-      Just dt => case dt.cons of
-        [con] => case find (\(MkConAlt k _ _) => k == con.name) alts of
-          Just (MkConAlt _ xs e) =>
-            let fields = map (\i => SCall f as (ms ++ [EProj con.name i])) [0 .. length xs `minus` 1]
-            in evalK (zip xs (take (length xs) fields) ++ env) e es
-          Nothing => maybe (fail "CORE-CHECK-1" l "no alternative") (\dd => evalK env dd es) def
-        _ => fail (if holdsFunction st d then "PROF-HEAP-1" else "PROF-HEAP-2") l
-               ("a value of type " ++ dt.idrisName ++ " holds a function or Lazy value, and which " ++
-                "constructor it has would be chosen at runtime, so it would need the heap")
-      Nothing => fail "CORE-CHECK-1" l ("unknown data " ++ d)
-  matchCon env l (Dyn (EVar _ x) (DataT d)) alts def es = do
-    st <- get
-    tys <- traverse (\(MkConAlt c _ _) => conFieldTypes l d c) alts
-    alts' <- traverse (altBranch st) (zip alts tys)
+  ||| A constructor match.
+  matchCon : Vect n V -> Loc -> V -> List (Alt n) -> Maybe (Term n) -> List (Elim Atom) -> M V
+  -- G2: a known constructor selects its alternative.
+  matchCon env l (SCon c fs) alts def es = case find (\(MkAlt k _ _) => k == c) alts of
+    Just (MkAlt _ bs body) => do
+      env' <- bindAlt l bs fs env
+      evalK env' body es
+    Nothing => maybe (fail CoreCheck1 l "no alternative for a known constructor") (\d => evalK env d es) def
+  -- A static value of single-constructor data: its fields are projections (G5).
+  matchCon env l (SCall f as ms) alts def es = do
+    fn <- fnDef l f
+    t <- elimTy l fn.result ms
+    Just d <- pure (dataOf t)
+      | Nothing => fail ProfHeap1 l "a match on a static value that is not data"
+    dt <- dataDef l d
+    case dt.cons of
+      [con] => case find (\(MkAlt k _ _) => k == con.id) alts of
+        Just (MkAlt _ bs body) => do
+          let fields = map (\i => SCall f as (ms ++ [Proj con.id i])) (take (length bs) [0 .. length bs])
+          env' <- bindAlt l bs fields env
+          evalK env' body es
+        Nothing => maybe (fail CoreCheck1 l "no alternative") (\e => evalK env e es) def
+      _ => do
+        st <- get
+        fail (if holdsFunction st.src d then ProfHeap1 else ProfHeap2) l
+             ("a value of type " ++ dt.idrisName ++ " holds a function or Lazy value, and which " ++
+              "constructor it has would be chosen at runtime, so it would need the heap")
+  -- A runtime match: residual, with fresh binders in each alternative, since
+  -- one alternative may be residualized more than once (CORE-INV-1).
+  matchCon env l (Dyn (DataT d) x@(AVar _)) alts def es = do
+    alts' <- for alts $ \(MkAlt c bs body) => do
+      con <- conDef l c
+      tys <- traverse (\f => runtimeTy l f.type) con.fields
+      ys <- traverse (const freshVar) tys
+      env' <- bindAlt l bs (zipWith dynVar ys tys) env
+      (t, code) <- block (locOf body) (evalK env' body es >>= reify (locOf body))
+      pure (t, MkBranch c ys code)
     def' <- traverse (\e => branch env e es) def
-    resTy <- branchType l (map snd alts' ++ maybe [] (pure . snd) def')
-    bindDyn l resTy (EMatchCon l x (map fst alts') (map fst def'))
-    where
-      altBranch : St -> (ConAlt, List Ty) -> M (ConAlt, Ty)
-      -- Fresh binders: the same alternative may be residualized more than
-      -- once in one function (CORE-INV-1).
-      altBranch st (MkConAlt c xs e, tys) = do
-        ys <- traverse (\_ => freshVar) xs
-        (body, t) <- branch (zipWith3 (\x, y, t => (x, dynVar l y t)) xs ys tys ++ env) e es
-        pure (MkConAlt c ys body, t)
-  matchCon env l v alts def es = fail "PROF-HEAP-1" l ("a match on " ++ shape v)
+    t <- matchTy l (map fst alts' ++ maybe [] (pure . fst) def')
+    Dyn t <$> bind l t (OCase x (map snd alts') (map snd def'))
+  matchCon env l v alts def es = fail ProfHeap1 l ("a match on " ++ showShape (shape v))
 
   ||| Applies eliminations to a value.
-  consume : Loc -> SVal -> List Elim -> M SVal
+  consume : Loc -> V -> List (Elim Atom) -> M V
   consume l v [] = pure v
-  consume l (SLam env x q t b) (EApply a :: es) = leavePrefix (evalK ((x, a) :: env) b es)
-  consume l (SDelay env e) (EForceIt :: es) = leavePrefix (evalK env e es)
-  consume l (SCon d c fs) (EProj c' i :: es) = case getAt i fs of
-    Just f => consume l f es
-    Nothing => fail "CORE-CHECK-1" l "bad projection"
+  consume l (SLam _ caps _ body) (Apply a :: es) = leavePrefix (evalK (a :: caps) body es)
+  consume l (SDelay _ caps body) (ForceIt :: es) = leavePrefix (evalK caps body es)
+  consume l (SCon c fs) (Proj _ i :: es) =
+    maybe (fail CoreCheck1 l "a projection of a missing field") (\f => consume l f es) (getAt i fs)
   consume l (SCall f as ms) es = do
-    fn <- fnOf l f
-    st <- get
+    fn <- fnDef l f
     t <- elimTy l fn.result (ms ++ es)
-    if isStaticTy st t
-       then pure (SCall f as (ms ++ es))
-       -- Running the deferred call is the action, not prefix code; the
-       -- callee's own prefix is checked where it is specialized.
-       else leavePrefix (call l f as (ms ++ es))
-  consume l v es = fail "PROF-HEAP-1" l ("cannot apply or project " ++ shape v)
+    case value t of
+      Nothing => pure (SCall f as (ms ++ es))
+      -- Running the deferred call is the action, not prefix code; the
+      -- callee's own prefix is recorded where it is specialized.
+      Just _ => leavePrefix (call l f as (ms ++ es))
+  consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))
 
-  ||| Consuming a static value runs the action it describes: not a prefix.
-  leavePrefix : M a -> M a
-  leavePrefix act = do
-    saved <- map inPrefix get
-    modify { inPrefix := Nothing }
-    x <- act
-    modify { inPrefix := saved }
-    pure x
-
-  ||| A call to `f` with (possibly static) arguments and eliminations: a call
-  ||| to the specialization for their shape (G3, G5).
-  call : Loc -> String -> List SVal -> List Elim -> M SVal
+  ||| A call of `f` with arguments and eliminations: a call of the
+  ||| specialization for their shapes (G3, G5).
+  call : Loc -> FnId -> List V -> List (Elim Atom) -> M V
   call l f args0 es = do
-    fn <- fnOf l f
-    -- A fully literal string is runtime static data, not a static value.
+    fn <- fnDef l f
     let args = map literalStr args0
-    resTy <- elimTy l fn.result es
-    let atoms = concatMap flatten args ++ concatMap flattenElim es
-    let allDyn = all isDyn args && null es
-    let key = if allDyn then f else f ++ "{" ++ joinBy ";" (map shape args) ++ concatMap elimShape es ++ "}"
-    name <- specialize l fn key args es resTy
-    bindDyn l resTy (ECall l name (map fst atoms))
-    where
-      isDyn : SVal -> Bool
-      isDyn (Dyn _ _) = True
-      isDyn _ = False
-      -- A string known at compile time is a static argument, so that string
-      -- primitives on it fold (ELIM-G-6): `putStrLn "hi"` writes one
-      -- literal, "hi\n".
-      literalStr : SVal -> SVal
-      literalStr (SString s) = maybe (SString s) (\lit => SString (SLit lit)) (strLit s)
-      literalStr (Dyn (ELit _ (LStr lit)) _) = SString (SLit lit)
-      literalStr v = v
+    t <- elimTy l fn.result es >>= runtimeTy l
+    name <- specialize l fn (MkKey f (map shape args) (shapeElims es)) args es t
+    Dyn t <$> bind l t (OCall name (map snd (atoms args es)))
 
-  specialize : Loc -> Fn -> String -> List SVal -> List Elim -> Ty -> M String
-  specialize l fn key args es resTy = do
+  ||| The specialization of a function for a key, made on first use.
+  specialize : Loc -> TFn -> Key -> List V -> List (Elim Atom) -> VTy -> M FnId
+  specialize l fn key args es t = do
     st <- get
     case lookup key st.memo of
-      Just n => pure n
+      Just name => pure name
       Nothing => do
-        -- PROF-HEAP-4: while `f` is being specialized, `f` is needed again
-        -- with static arguments (functions, actions, Lazy values) that embed
-        -- the ones it received and differ from them: they grow with each
-        -- recursive call, and specialization would not terminate. The counts
-        -- are a backstop.
-        let now = args ++ map elimVal es
-        when (any (\(g, k, old) => g == fn.name && k /= key && pairs old now) st.stack) $
-          fail "PROF-HEAP-4" l
+        -- PROF-HEAP-4: while `f` is specialized, `f` is needed again with
+        -- static arguments (functions, actions, Lazy values) that embed the
+        -- ones it received and differ from them. They grow with each
+        -- recursive call, so specialization would not terminate. The count
+        -- and size limits are a backstop.
+        when (any (\k => k.fn == key.fn && k /= key && grows k key) st.stack) $
+          fail ProfHeap4 l
                (fn.idrisName ++ " passes itself a function, IO action or Lazy value that " ++
                 "grows with each call, so it cannot be specialized away")
-        let count = fromMaybe 0 (lookup fn.name st.counts)
-        when (count >= 256 || length key > 4096) $
-          fail "PROF-HEAP-4" l
+        let n = fromMaybe 0 (lookup fn.id st.made)
+        when (n >= 256 || sum (map size key.args) > 4096) $
+          fail ProfHeap4 l
                ("specializing " ++ fn.idrisName ++ " does not terminate: a recursive function " ++
                 "passes itself a different function or IO action on each call")
-        put ({ memo $= insert key key, counts $= insert fn.name (S count), active $= insert key
-             , stack $= ((fn.name, key, now) ::) } st)
-        let atoms = concatMap flatten args ++ concatMap flattenElim es
-        params <- traverse (\(_, t) => (, t) <$> freshVar) atoms
-        let pexprs = map (\(v, t) => if t == ErasedT then EErased l else EVar l v) params
-        let (args', rest) = rebuildList args pexprs
-        let (es', _) = rebuildElims es rest
-        let env = zip (map (.var) fn.params) args'
-        saved <- map inPrefix get
-        -- G5: the body before the eliminations apply runs where the action is used.
-        modify { inPrefix := if null es then Nothing else Just l }
-        body <- scoped $ do
-          v <- evalK env fn.body es'
-          (a, _) <- toDyn fn.loc v
-          pure a
-        modify { inPrefix := saved }
-        -- A specialization is safe when its function terminates and its code
-        -- cannot crash. Recursion makes that conditional on specializations
-        -- not finished yet; `settle` decides once they are.
-        modify { active $= delete key, stack $= drop 1 }
-        st' <- get
-        let unknown = \g => contains g st'.active || isJust (lookup g st'.pending)
-        let isSafe = fn.terminating &&
-                     safeCode (\g => g == key || contains g st'.safe || unknown g) body
-        if isSafe
-           then case nub (filter (\g => g /= key && unknown g) (callees body)) of
-                  [] => modify { safe $= insert key }
-                  deps => modify { pending $= insert key deps }
-           else unsafe l key
-        settle l
-        -- CORE-INV-4: a runtime argument keeps the quantity of its parameter;
-        -- the atoms of a static value are unrestricted.
-        let argQs = concat (zipWith (\p, a => case a of
-                                        Dyn _ ErasedT => [Q0]
-                                        Dyn _ t => [p.quantity]
-                                        _ => map (quantityOf . snd) (flatten a)) fn.params args)
-        let qs = argQs ++ map (quantityOf . snd) (concatMap flattenElim es)
-        let newFn = MkFn key fn.idrisName (zipWith (\(v, t), q => MkParam v q t) params qs)
-                         resTy body fn.loc fn.terminating
-        modify { done $= (:< newFn) }
-        pure key
+        let name = if trivial key then fn.id else MkFnId (fn.id.name ++ "#" ++ show (S n))
+        put ({ memo $= insert key name, made $= insert fn.id (S n), stack $= (key ::) } st)
+        -- Parameters: the atoms of the arguments and eliminations.
+        let types = map fst (atoms args es)
+        params <- traverse (const freshVar) types
+        let (args', es') = refill (zipWith dynAtom params types) AErased args es
+        Just env <- pure (toVect fn.arity args')
+          | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
+        -- G5: the body before the eliminations apply runs where the action
+        -- is used.
+        (_, body) <- withPrefix (if null es then Nothing else Just l) $
+                       block fn.loc (evalK env fn.body es' >>= reify fn.loc)
+        modify { stack $= drop 1 }
+        -- CORE-INV-4: a runtime argument keeps the quantity of its
+        -- parameter; the atoms of a static value are unrestricted.
+        let qs = concat (zipWith quantities (toList fn.params) args) ++
+                 map (defaultQuantity . fst) (atoms [] es)
+        let spec = if trivial key then Nothing else Just ("specialization of " ++ showKey key)
+        modify { done $= (:< MkCFn name fn.idrisName (zipWith3 MkParam params qs types)
+                                   t body fn.loc fn.terminating spec) }
+        pure name
     where
-      elimVal : Elim -> SVal
-      elimVal (EApply v) = v
-      elimVal (EProj c i) = Dyn (EErased l) (DataT (c ++ "#" ++ show i))
-      elimVal EForceIt = Dyn (EErased l) ErasedT
-      quantityOf : Ty -> Quantity
-      quantityOf ErasedT = Q0
-      quantityOf WorldT = Q1
-      quantityOf _ = QW
-
-  ||| A specialization that may crash or loop; fatal if it was relied on.
-  unsafe : Loc -> String -> M ()
-  unsafe l key = do
-    st <- get
-    when (contains key st.assumed) $
-      fail "PROF-HEAP-5" l
-           ("arity raising is blocked: " ++ key ++ " may crash or not terminate, and a " ++
-            "call to it would move from where an IO action or function is built to where it runs")
-
-  ||| Decides pending specializations: unsafe if a callee is unsafe; safe once
-  ||| no callee is unsafe and none can still reach one being built.
-  settle : Loc -> M ()
-  settle l = do
-    st <- get
-    let entries = SortedMap.toList st.pending
-    let isBad = \g => not (contains g st.safe || contains g st.active || isJust (lookup g st.pending))
-    case find (\(_, deps) => any isBad deps) entries of
-      Just (k, _) => do
-        modify { pending $= delete k }
-        unsafe l k
-        settle l
-      Nothing => do
-        let blocked = reach (fromList [k | (k, deps) <- entries, any (`contains` st.active) deps]) entries
-        let free = [k | (k, _) <- entries, not (contains k blocked)]
-        modify { pending $= \p => foldl (\m, k => delete k m) p free
-               , safe $= union (fromList free) }
-    where
-      reach : SortedSet String -> List (String, List String) -> SortedSet String
-      reach s es = let s' = union s (fromList [k | (k, deps) <- es, any (`contains` s) deps])
-                   in if Prelude.toList s' == Prelude.toList s then s else reach s' es
+      dynAtom : VarId -> VTy -> Atom
+      dynAtom x ErasedT = AErased
+      dynAtom x _ = AVar x
+      grows : Key -> Key -> Bool
+      applied : Elim () -> Maybe (SVal ())
+      applied (Apply v) = Just v
+      applied _ = Nothing
+      grows old new = pairs old.args new.args &&
+                      pairs (mapMaybe applied old.elims) (mapMaybe applied new.elims) &&
+                      length old.elims == length new.elims
+      quantities : Binder -> V -> List Quantity
+      quantities b (Dyn ErasedT _) = [Q0]
+      quantities b (Dyn _ _) = [b.quantity]
+      quantities b v = map (defaultQuantity . fst) (atoms [v] [])
 
   ||| Primitives: compile-time evaluation (G6) and deferred strings (G7).
-  prim : Loc -> PrimOp -> List SVal -> M SVal
-  prim l op vs = case (op, map asStr vs) of
-    (StrAppend, [Just a, Just b]) => pure (SString (SAppend a b))
-    (StrCons, [_, Just s]) => do
-      (c, _) <- firstAtom vs
-      pure (SString (SConsChar c s))
-    (Cast CharT StrT, _) => do
-      (c, _) <- firstAtom vs
-      pure (SString (SChar c))
-    (Cast (IntT t) StrT, _) => do
-      (n, _) <- firstAtom vs
-      pure (SString (SShowInt t n))
-    _ => do
-      atoms <- traverse (toDyn l) vs
-      case traverse atomLit (map (uncurry Dyn) atoms) of
-        Just lits => case foldPrim op lits of
-          Just lit => pure (Dyn (ELit l lit) (litTy lit))
-          Nothing => residual atoms
-        Nothing => residual atoms
+  prim : Loc -> PrimOp -> List V -> M V
+  prim l op vs = case (op, vs, map asStr vs) of
+    (Str Append, _, [Just s, Just t]) => pure (SString (SAppend s t))
+    (Str Cons, [c, _], [_, Just t]) => (\(a, _) => SString (SCons a t)) <$> reify l c
+    (Str (ToStr SChar), [c], _) => (\(a, _) => SString (SChr a)) <$> reify l c
+    (Str (ToStr (SInt t)), [n], _) => (\(a, _) => SString (SShow t a)) <$> reify l n
+    _ => general l op vs
+
+  general : Loc -> PrimOp -> List V -> M V
+  general l op vs = do
+    as <- traverse (reify l) vs
+    case (traverse literal (map fst as), op) of
+      (Just lits, Run p) => maybe (residual p as) (pure . lit) (foldPrim p lits)
+      (Just lits, Str s) => maybe (runtimeString s) (pure . lit) (foldStr s lits)
+      (Nothing, Run p) => residual p as
+      (Nothing, Str s) => runtimeString s
     where
-      firstAtom : List SVal -> M (Expr, Ty)
-      firstAtom (v :: _) = toDyn l v
-      firstAtom [] = fail "CORE-CHECK-1" l "a primitive without arguments"
-      residual : List (Expr, Ty) -> M SVal
-      residual atoms =
-        if isStringOp op
-           then fail "PROF-PRIM-4" l ("the string operation " ++ show op ++ " is not supported at runtime")
-           else bindDyn l (primResult op) (EPrim l op (map fst atoms))
+      literal : Atom -> Maybe Lit
+      literal (ALit x) = Just x
+      literal _ = Nothing
+      lit : Lit -> V
+      lit x = Dyn (litTy x) (ALit x)
+      residual : Prim -> List (Atom, VTy) -> M V
+      residual p as = Dyn (primResult p) <$> bind l (primResult p) (OPrim p (map fst as))
+      runtimeString : StrOp -> M V
+      runtimeString s = fail ProfPrim4 l ("the string operation " ++ show s ++ " is not supported at runtime")
 
   ||| IO primitives, with output fusion for putStr (G7).
-  io : Loc -> IOOp -> List SVal -> String -> M SVal
-  io l PutStr [s, w] res = case asStr s of
+  io : Loc -> IOOp -> DataId -> List V -> M V
+  io l PutStr res [s, w] = case asStr s of
     Just str => do
-      (wExpr, _) <- toDyn l w
-      putStr l str wExpr res
-    Nothing => fail "CORE-CHECK-1" l "putStr of a non-string"
-  io l op vs res = do
-    atoms <- traverse (toDyn l) vs
-    bindDyn l (DataT res) (EIO l op (map fst atoms) res)
+      (w', _) <- reify l w
+      putStr l res str w'
+    Nothing => fail CoreCheck1 l "putStr of a value that is not a string"
+  io l op res vs = do
+    as <- traverse (reify l) vs
+    Dyn (DataT res) <$> bind l (DataT res) (OIO op (map fst as) res)
 
-  ||| Writes a static string: literal pieces and runtime pieces in order,
-  ||| threading the world (G7). Returns the final `IORes` value.
-  putStr : Loc -> SStr -> Expr -> String -> M SVal
-  putStr l s w res = case strLit s of
-    Just lit => bindDyn l (DataT res) (EIO l PutStr [ELit l (LStr lit), w] res)
-    Nothing => case s of
-      SVarStr e => bindDyn l (DataT res) (EIO l PutStr [e, w] res)
-      SChar c => bindDyn l (DataT res) (EIO l PutChar [c, w] res)
-      SShowInt t n => bindDyn l (DataT res) (EIO l (PutInt t) [n, w] res)
-      SConsChar c rest => do
-        r <- bindDyn l (DataT res) (EIO l PutChar [c, w] res)
-        w' <- nextWorld r
-        putStr l rest w' res
-      SAppend a b => do
-        r <- putStr l a w res
-        w' <- nextWorld r
-        putStr l b w' res
-      SLit lit => bindDyn l (DataT res) (EIO l PutStr [ELit l (LStr lit), w] res)
+  ||| Writes a static string: literal and runtime pieces in order, threading
+  ||| the world (G7). Returns the last `IORes` value.
+  putStr : Loc -> DataId -> SStr Atom -> Atom -> M V
+  putStr l res s w = case (strLit s, s) of
+    (Just lit, _) => write PutStr (ALit (LStr lit))
+    (_, SRun a) => write PutStr a
+    (_, SChr c) => write PutChar c
+    (_, SShow t n) => write (PutInt t) n
+    (_, SCons c rest) => do
+      r <- write PutChar c
+      putStr l res rest !(nextWorld r)
+    (_, SAppend a b) => do
+      r <- putStr l res a w
+      putStr l res b !(nextWorld r)
+    (_, SLit lit) => write PutStr (ALit (LStr lit))
     where
-      nextWorld : SVal -> M Expr
-      nextWorld (Dyn (EVar _ r) _) = do
-        u <- freshVar
-        w' <- freshVar
-        emit (BUnpack r "PrimIO.MkIORes" [u, w'])
-        pure (EVar l w')
-      nextWorld _ = fail "CORE-CHECK-1" l "an IO result that is not a variable"
+      write : IOOp -> Atom -> M V
+      write op a = Dyn (DataT res) <$> bind l (DataT res) (OIO op [a, w] res)
+      ||| The world inside an `IORes` value.
+      nextWorld : V -> M Atom
+      nextWorld (Dyn _ r) = do
+        dt <- dataDef l res
+        [mk] <- pure dt.cons
+          | _ => fail CoreCheck1 l (show res ++ " is not an IO result")
+        bind l WorldT (OField r mk.id 1)
+      nextWorld _ = fail CoreCheck1 l "an IO result that is not a runtime value"
 
 ------------------------------------------------------------------------------
 -- Entry
 ------------------------------------------------------------------------------
 
-maxVar : Program -> Nat
-maxVar prog = foldl max 0 (concatMap fnVars prog.fns) + 1
-  where
-    exprVars : Expr -> List Nat
-    exprVars e = Prelude.toList (freeVarsAll e)
-      where
-        freeVarsAll : Expr -> SortedSet Var
-        freeVarsAll (ELet _ x _ _ v b) = insert x (union (freeVarsAll v) (freeVarsAll b))
-        freeVarsAll (ELam _ x _ _ b) = insert x (freeVarsAll b)
-        freeVarsAll (EMatchCon _ x alts d) =
-          insert x (foldl union (maybe empty freeVarsAll d)
-                          (map (\(MkConAlt _ xs e) => union (fromList xs) (freeVarsAll e)) alts))
-        freeVarsAll (EMatchLit _ x alts d) = insert x (foldl union (freeVarsAll d) (map (freeVarsAll . snd) alts))
-        freeVarsAll (EPrim _ _ as) = foldl union empty (map freeVarsAll as)
-        freeVarsAll (EIO _ _ as _) = foldl union empty (map freeVarsAll as)
-        freeVarsAll (ECall _ _ as) = foldl union empty (map freeVarsAll as)
-        freeVarsAll (ECon _ _ _ as) = foldl union empty (map freeVarsAll as)
-        freeVarsAll (EApp _ f a) = union (freeVarsAll f) (freeVarsAll a)
-        freeVarsAll (EDelay _ e) = freeVarsAll e
-        freeVarsAll (EForce _ e) = freeVarsAll e
-        freeVarsAll (EVar _ x) = singleton x
-        freeVarsAll _ = empty
-    fnVars : Fn -> List Nat
-    fnVars f = map (.var) f.params ++ exprVars f.body
+||| A data instance of full Core at runtime.
+runtimeData : Data -> Maybe CData
+runtimeData d = do
+  cons <- traverse (\c => (\fs => MkCCon c.id c.tag fs c.loc) <$>
+                            traverse (\f => MkCField f.quantity <$> value f.type) c.fields) d.cons
+  pure (MkCData d.id d.idrisName cons d.loc)
 
-||| Runs the guaranteed eliminations from the root (CORE-PASS-1, step 4).
-export
-simplify : Program -> Either Diag Program
-simplify prog = do
-  let st0 = MkSt prog (maxVar prog) [] empty empty [<] (staticDatas prog) (safeFns prog) empty [] empty empty Nothing
-  root <- maybe (Left (diag "CORE-CHECK-1" "Simplify" noLoc "no root")) Right (lookupFn prog.root prog)
-  let rootArgs = map (\p => dynVar root.loc p.var p.type) root.params
-  (st, body) <- runStateT st0 $ scoped $ do
-    v <- evalK (zip (map (.var) root.params) rootArgs) root.body []
-    (a, _) <- toDyn root.loc v
-    pure a
-  let root' = { body := body } root
-  let fns = root' :: (st.done <>> [])
-  let used = usedDatas fns
-  pure ({ fns := fns
-        , datas := filter (\d => contains d.name used && not (contains d.name st.staticData)) prog.datas
-        } prog)
+||| The data instances a program uses: those its code and signatures
+||| mention, and those their fields contain.
+usedDatas : SortedMap DataId Data -> List CFn -> SortedSet DataId
+usedDatas datas fns = close (length (keys datas)) (fromList (concatMap mentioned fns))
   where
-    tyDatas : Ty -> List String
-    tyDatas (DataT d) = [d]
-    tyDatas _ = []
-    exprDatas : Expr -> List String
-    exprDatas (ECon _ d _ as) = d :: concatMap exprDatas as
-    exprDatas (EIO _ _ as r) = r :: "Builtin.Unit" :: concatMap exprDatas as
-    exprDatas (ELet _ _ _ t v b) = tyDatas t ++ exprDatas v ++ exprDatas b
-    exprDatas (EMatchCon _ _ alts d) = concatMap (\(MkConAlt _ _ e) => exprDatas e) alts ++ maybe [] exprDatas d
-    exprDatas (EMatchLit _ _ alts d) = concatMap (exprDatas . snd) alts ++ exprDatas d
-    exprDatas (EPrim _ _ as) = concatMap exprDatas as
-    exprDatas (ECall _ _ as) = concatMap exprDatas as
-    exprDatas _ = []
-    fnDatas : Fn -> List String
-    fnDatas f = tyDatas f.result ++ concatMap (tyDatas . (.type)) f.params ++ exprDatas f.body
-    closeData : SortedSet String -> SortedSet String
-    closeData s = let s' = foldl (\acc, d => if contains d.name acc
-                                               then foldl (\a, n => insert n a) acc
-                                                      (concatMap (\c => concatMap (tyDatas . (.type)) c.fields) d.cons)
-                                               else acc) s prog.datas
-                  in if Prelude.toList s' == Prelude.toList s then s else closeData s'
-    usedDatas : List Fn -> SortedSet String
-    usedDatas fns = closeData (fromList (concatMap fnDatas fns))
+    ty : VTy -> List DataId
+    ty (DataT d) = [d]
+    ty _ = []
+    mentioned : CFn -> List DataId
+    mentioned f = ty f.result ++ concatMap (ty . (.type)) f.params ++ datasOf f.body
+    fieldsOf : DataId -> List DataId
+    fieldsOf d = maybe [] (\dt => mapMaybe (dataOf . (.type)) (concatMap (.fields) dt.cons)) (lookup d datas)
+    close : Nat -> SortedSet DataId -> SortedSet DataId
+    close Z s = s
+    close (S k) s = let s' = union s (fromList (concatMap fieldsOf (Prelude.toList s))) in
+                    if length (Prelude.toList s') == length (Prelude.toList s) then s else close k s'
+
+||| Runs the guaranteed eliminations from the root (CORE-PASS-1).
+export
+simplify : Source -> Either Diag Target
+simplify src = do
+  let ix = MkSourceIndex (fromList [(f.id, f) | f <- src.fns])
+                         (fromList [(d.id, d) | d <- src.datas])
+                         (fromList [(c.id, c) | d <- src.datas, c <- d.cons])
+  let Just root = lookup src.root ix.fns
+    | Nothing => Left (MkDiag CoreCheck1 "Simplify" noLoc "the root is missing")
+  let run = do
+        ps <- for (toList root.params) $ \b => do
+          t <- runtimeTy root.loc b.type
+          x <- freshVar
+          pure (dynVar x t)
+        call root.loc root.id ps []
+  case runStateT (initial ix) run of
+    Left (Fail d) => Left d
+    Left (Dead l) => Left (MkDiag CoreCheck1 "Simplify" l "the root cannot return")
+    Right (st, _) => do
+      let fns = st.done <>> []
+      checkMoved fns (st.moved <>> [])
+      let used = usedDatas ix.datas fns
+      let Just datas = traverse runtimeData [d | d <- src.datas, contains d.id used]
+        | Nothing => Left (MkDiag CoreCheck1 "Simplify" noLoc "static data at runtime")
+      pure (MkTarget datas (filter ((== src.root) . (.id)) fns ++ filter ((/= src.root) . (.id)) fns)
+                     src.root src.entry)

@@ -28,6 +28,9 @@ add_library(idr_dialect STATIC
 	lib/CheckInput.cc
 	lib/TailLoops.cc
 	lib/Lower.cc
+	lib/Lower/Layout.cc
+	lib/Lower/Runtime.cc
+	lib/Lower/Patterns.cc
 	lib/Registration.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
@@ -40,6 +43,7 @@ target_include_directories(idr_dialect SYSTEM PUBLIC
 	${MLIR_INCLUDE_DIRS}
 )
 target_include_directories(idr_dialect PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
 target_compile_definitions(idr_dialect PUBLIC ${IDR_LLVM_DEFINITIONS})
 target_link_libraries(idr_dialect

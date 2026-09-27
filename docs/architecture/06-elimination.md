@@ -47,20 +47,29 @@ acceptance is a rule, not optimizer luck.
 
 ## The guaranteed eliminations (v1): `Simplify`
 
-`Simplify` runs after `Mono`. It applies the rules below until none applies.
-Each rule preserves the semantics of [03](03-semantics.md); the reason is
-stated with each rule.
+`Simplify` runs after `Mono`. It is an evaluator with two levels: it
+evaluates full `Core` to a *static value* and emits first-order `Core` for
+the runtime parts (Futhark's defunctionalisation judgment, written in
+Kovács's code-generation monad). The rules below are what it does to each
+construct. Each rule preserves the semantics of [03](03-semantics.md); the
+reason is stated with each rule.
 
 **Static values.** A *static value* is a value whose shape is known at
 compile time. Following Futhark, it is one of:
-- a lambda;
-- a known function applied to fewer arguments than its arity;
-- a `Delay`;
-- a constructor application with a static value in some field;
-- a variable bound to any of these.
+- a closure: a lambda or a `Delay`, identified by its label
+  ([05](05-middle-ir.md)), with the values it captured;
+- a constructor of static data (data holding a function or `Lazy` value,
+  such as `IO`), with its fields;
+- a deferred call of a function whose result is static, with the
+  eliminations applied to it so far (`ELIM-G-5`);
+- a string known up to runtime characters, strings and numbers
+  (`ELIM-G-6`, `ELIM-G-7`);
+- a runtime value: an atom of first-order `Core`.
 
-The captured variables of a static value are ordinary runtime values. Only
-the shape is static.
+A known function applied to fewer arguments than its arity is a closure,
+since the frontend eta-expands it. The runtime values inside a static value
+are its *atoms*. Only its *shape*, the static value with its atoms left out,
+is static.
 
 - **ELIM-G-1 (v1). Beta.** `(\x => b) a` becomes `let x = a in b`. The `let` is
   strict, so `a` is still evaluated first (`SEM-EVAL-1`).
@@ -70,15 +79,17 @@ the shape is static.
   removes `MkIO`, `MkIORes`, `MkPair` and records of functions.
 - **ELIM-G-3 (v1). Specialization on static arguments.** A call `f a₁ … aₙ`
   in which some argument is a static value becomes a call to a specialized
-  copy `f{σ}`:
-  - `σ` records each static argument's shape;
-  - the captured variables become extra parameters;
-  - inside `f{σ}`, the static argument is known, so `ELIM-G-1` and
+  copy of `f` for the shapes `σ` of its arguments:
+  - the atoms of the arguments, in order, become its parameters;
+  - inside the copy, the static arguments are known, so `ELIM-G-1` and
     `ELIM-G-2` apply.
 
-  Copies are memoized by `(f, σ)`. This is Futhark's defunctionalisation by
-  static values and Lean's `fixedHO` specialization. It never introduces a
-  branch or a closure.
+  Copies are memoized by `(f, σ)`, and shapes are compared structurally:
+  two closures are the same when their labels and captured shapes are. The
+  `k`-th copy of `f` is named `f#k`; a call whose arguments are all runtime
+  values calls `f` itself. This is Futhark's defunctionalisation by static
+  values and Lean's `fixedHO` specialization. It never introduces a branch
+  or a closure.
 - **ELIM-G-4 (v1). Static let.** `let k = v in body`, where `v` is a static
   value, substitutes `v` into `body` and removes the binding. Copying a
   static value copies only its shape; its captured variables are already
@@ -103,6 +114,10 @@ the shape is static.
     is reported as `PROF-HEAP-5`. This is what keeps raising within
     `SEM-EVAL-4` and `SEM-EVAL-5`: moving a crash from build time to run time
     could otherwise reorder it relative to output.
+  - `Simplify` raises optimistically and records each operation it moves.
+    Once every copy is made, it computes which functions satisfy the rule,
+    as a greatest fixpoint (recursion between copies is why it must be the
+    greatest), and checks the recorded operations against it.
 - **ELIM-G-6 (v1). Compile-time evaluation of primitives.** A primitive applied
   to literal arguments becomes a literal (`SEM-INT-*`, `SEM-CHAR-*`,
   `SEM-STR-2`). The exception is a primitive that would crash, such as `div`
@@ -145,9 +160,13 @@ the shape is static.
   (first-order inlining, CSE, dead code, general constant folding) is MLIR's
   job (`CORE-OPT-1`).
 
-After `Simplify`, `Core.HeapCheck` enforces `PROF-HEAP-*`. Each rejection
-names the construct that survived, and the rule that could not remove it,
-with the reason (`DIAG-HEAP-1`).
+`Simplify` enforces `PROF-HEAP-*` as it goes: a static value that would
+have to exist at runtime (as a runtime argument, field, result or match
+scrutinee) has no first-order representation, and is reported there. Each
+rejection names the construct that survived, and the rule that could not
+remove it, with the reason (`DIAG-HEAP-1`). A point Idris proved impossible
+(`Unreachable`) makes the code that reaches it `Absurd` in first-order
+`Core`.
 
 ## Withdrawn
 

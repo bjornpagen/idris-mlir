@@ -64,9 +64,10 @@
   is an internal error (`DIAG-ICE-1`). `tools/dev.py compile` uses this path
   for IO programs.
 - **DRV-DUMP-1 (v1).** The Idris codegen directive `--directive dump-core`
-  writes the Core after every middle-end pass, as `NN-PASS.core`, into the
-  directory `<output>.dump/` next to the program (`build/exec/prog.dump/`)
-  or the module's TTC. `--directive dump-mlir` passes `--dump-after=all` and
+  writes the Core after every middle-end pass, as `NN-PASS.core`
+  (`01-translate.core`, full Core; `02-simplify.core`, first-order Core),
+  into the directory `<output>.dump/` next to the program
+  (`build/exec/prog.dump/`) or the module's TTC. `--directive dump-mlir` passes `--dump-after=all` and
   that directory to `idris-mlir-cc`.
   Together they show a program at every stage, from TT to object code.
 - **DRV-DET-1 (v0).** The same inputs and toolchain produce byte-identical

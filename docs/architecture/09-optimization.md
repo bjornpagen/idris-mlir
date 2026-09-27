@@ -64,10 +64,10 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Quantity 0 | `!idr.erased` type, `idr.quantity = "0"` | `idr-lower` (1:0), CSE of `idr.erased` |
 | Quantity 1 | `idr.quantity = "1"` | nothing in v0; kept for later memory work (never read as uniqueness, `GOAL-P5`) |
 | Constructors, tags, fields | `idr.data` / `idr.ctor` | folders, `idr-lower` |
-| Coverage | `IDR-MATCH-2` (last alternative as default) | the switch needs no default check |
+| Coverage | `IDR-MATCH-2` (the last possible alternative as default) | the switch needs no default check |
 | World linearity | `!idr.world` values, `IDR-WORLD-1` | effect order, and 1:0 lowering |
 | Static strings | `idr.str.lit` | read-only data, deduplication |
-| Impossible branches | dropped by the frontend (`FE-TR-4`) | smaller switches |
+| Impossible branches | `Unreachable` in `Core` (`FE-TR-4`), left out by `Emit` | smaller switches |
 | Signedness | op choice (`IDR-IN-3`) | exact semantics |
 | Source position | MLIR locations (`IDR-LOC-1`) | diagnostics, debug info |
 | Totality | not carried in v0 | later: removing unused total calls, and `willreturn` once `SEM-EVAL-5` allows it |
