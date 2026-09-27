@@ -131,6 +131,15 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   also carries a `scheme:` implementation with the same semantics, so every
   IO program also runs on the stock Chez backend for differential testing
   (`TEST-DIFF-1`).
+- **PROF-IO-4 (v3).** The Prelude's output primitives `prim__putStr` and
+  `prim__putChar` (`Prelude.IO`) are the same `idr.io.put_str` and
+  `idr.io.put_char` as `IdrisMLIR.IO`'s, so the Prelude's `putStr`,
+  `putStrLn`, `putChar`, `print` and `printLn` work through its `HasIO IO`.
+  Their meaning is `SEM-IO-2`. The Prelude's `getChar` (C `getchar`, which
+  ends input differently from `SEM-IO-3`) and its other `%foreign`
+  primitives stay rejected (`PROF-ESC-1`).
+  - Check: `Frontend.Translate.ioPrim`, `Frontend.Profile.checkReachable`
+  - Test: `tests/e2e/v3/prelude-io`
 - **PROF-IO-3 (v1).** User modules do not use `unsafePerformIO`,
   `unsafeCreateWorld`, `unsafeDestroyWorld` or `%MkWorld`. These are reachable
   only through the root term `unsafePerformIO main` that Idris builds for `-o`.

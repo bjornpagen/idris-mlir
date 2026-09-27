@@ -597,12 +597,14 @@ classify fc owner (S k) ty vals = do
 -- Primitives
 ------------------------------------------------------------------------------
 
-||| The IO primitives of `IdrisMLIR.IO` (PROF-IO-2), by their full names.
+||| The IO primitives of `IdrisMLIR.IO` (PROF-IO-2), and from v3 the
+||| Prelude's output primitives (PROF-IO-4), by their full names.
 ioPrim : Name -> Maybe IOOp
-ioPrim (NS ns (UN (Basic n))) =
-  if unsafeUnfoldNamespace ns /= ["IO", "IdrisMLIR"] then Nothing
-  else Data.List.lookup n [ ("prim__idrPutStr", PutStr), ("prim__idrPutChar", PutChar)
-                , ("prim__idrGetChar", GetChar), ("prim__idrExit", Exit) ]
+ioPrim (NS ns (UN (Basic n))) = case unsafeUnfoldNamespace ns of
+  ["IO", "IdrisMLIR"] => Data.List.lookup n [ ("prim__idrPutStr", PutStr), ("prim__idrPutChar", PutChar)
+                                            , ("prim__idrGetChar", GetChar), ("prim__idrExit", Exit) ]
+  ["IO", "Prelude"] => Data.List.lookup n [("prim__putStr", PutStr), ("prim__putChar", PutChar)]
+  _ => Nothing
 ioPrim _ = Nothing
 
 scalar : PrimType -> Maybe Scalar

@@ -41,13 +41,12 @@ benchmarks in `bench/` did not change.
    to print `Just (-5)`, which is `strHead` of a number shown at runtime.
    A rule for the first character of a shown integer (`-` exactly when it
    is negative) would close it.
-2. **The Prelude's own IO.** `printLn` and `putStrLn` from `Prelude.IO`
-   reach `%foreign prim__putStr` and are rejected. `IdrisMLIR.IO` must be
-   imported instead, and Idris then picks its functions. Mapping the
-   Prelude's four primitives (`prim__putStr`, `prim__putChar`,
-   `prim__getChar`, `prim__getStr` is out) to the `idr.io` ops, as
-   `IdrisMLIR.IO`'s are, would make the Prelude's `HasIO` path work and
-   `IdrisMLIR.IO` unnecessary.
+2. **The Prelude's own IO**: output done (`PROF-IO-4`): its
+   `prim__putStr` and `prim__putChar` are the `idr.io` output ops, so
+   `putStrLn`, `print` and `printLn` work (`tests/e2e/v3/prelude-io`).
+   Input is not: the Prelude's `getChar` is C `getchar`, whose end of input
+   differs from `SEM-IO-3`, so programs that read still import
+   `IdrisMLIR.IO`.
 3. **`Foldable` over a list literal with a runtime element**
    (`sum [1, 2, n]`): rejected as an implementation chosen at runtime
    (`FE-TR-6`) inside `foldMap`. Not yet traced; likely the written form of
@@ -67,8 +66,9 @@ benchmarks in `bench/` did not change.
 
 ## Exit criteria for `VERSION = v3`
 
-- Items 1 (`show (Just n)`) and 2 above, so that `show` of any
-  first-order Prelude value and the Prelude's own IO functions work.
+- Item 1 (`show (Just n)`) and input through the Prelude, so that `show`
+  of any first-order Prelude value and the Prelude's own IO functions
+  work.
 - Every v3 rule tested (`TEST-SPEC-1` with `VERSION = v3`).
 - A Prelude-using version of the math showcase and the benchmarks, diffed
   against Chez, with benchmark times no worse than the `IdrisMLIR`-only
