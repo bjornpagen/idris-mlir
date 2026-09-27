@@ -76,13 +76,14 @@ benchmarks in `bench/` did not change.
    One constructor is not a choice, so that match now reads the fields in
    place (`ELIM-G-2`), and the function stays a compile-time value
    (`tests/e2e/v3/prelude-traverse`).
-7. **`Show` on composite values**: tuples of three or more work (the
+7. **`Show` on composite values**: done. Tuples of three or more work (the
    implementation for the inner pair was a solved metavariable left in the
    elaborated term; it is now filled in, `FE-TR-6`), and so do lists
-   (`SEM-REC-2`, `tests/e2e/v3/prelude-show`). A list inside a pair, or a
-   pair inside a list, is still rejected (`FE-TR-6`): the `where` function
-   that shows a list receives its `Show` implementation as an explicit
-   argument that is not recognized as one on that path. Not yet traced.
+   (`SEM-REC-2`) and any nesting of them (`tests/e2e/v3/prelude-show`). The
+   `where` function that shows a list receives its `Show` implementation as
+   an explicit argument; a parameter is now an implementation when its type
+   is an interface (Idris declares an interface's record with unique
+   search), not only when its argument is one visibly.
 8. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
@@ -95,4 +96,4 @@ benchmarks in `bench/` did not change.
   Mandelbrot, Newton basins), diffed against Chez; the benchmarks import
   only the Prelude and are no slower (`bench/README.md`).
 
-What remains is items 7 and 8 above, and everything that needs a heap.
+What remains is item 8 above, and everything that needs a heap.

@@ -586,6 +586,21 @@ isAuto : PiInfo t -> Bool
 isAuto AutoImplicit = True
 isAuto _ = False
 
+||| Is a type an interface, whatever binds a value of it? Idris declares an
+||| interface's record with unique search (`uniqueAuto`), and passes a
+||| function's constraints to its `where` functions and its case and with
+||| blocks as explicit arguments (FE-TR-6).
+interfaceType : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
+interfaceType ty = case spine ty [] of
+  (Ref _ (TyCon _) n, _) => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact n (gamma defs)
+      | Nothing => pure False
+    case definition def of
+      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
+      _ => pure False
+  _ => pure False
+
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are runtime (and their types).
 classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -605,7 +620,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
        then do
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
          pure ((Q0, ErasedParam) :: rest, res)
-     else if isAuto pinfo || maybe False (.dictionary) (fst (nextStatic vals))
+     else if isAuto pinfo || maybe False (.dictionary) (fst (nextStatic vals)) || !(interfaceType a')
        then do
          let (Just v, vals') = nextStatic vals
            | _ => reject fc owner ProfFn7 "an implementation that is not known statically"

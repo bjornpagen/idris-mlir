@@ -183,15 +183,20 @@ error follows `DIAG-*`.
   has a polymorphic type, which no `Core` type describes. Idris resolves
   every constraint at compile time, so the frontend treats implementations
   like type arguments:
-  - An argument in an auto-implicit position of runtime quantity, or an
-    argument that is a variable bound to an implementation (as Idris passes
-    constraints to case and with blocks), is a compile-time value: the
+  - An argument in an auto-implicit position of runtime quantity, an
+    argument that is a variable bound to an implementation, or an argument
+    whose parameter's type is an interface (as Idris passes constraints to
+    `where` functions and case and with blocks, explicitly; an interface's
+    record is declared with unique search) is a compile-time value: the
     closed TT term as written, with the enclosing compile-time values
     substituted and not normalised, except that its outer `let`s are
     substituted: Idris elaborates a record update to a `let` of the record,
     and an implementation resolved inside it is written under that `let`
-    without using it. It keys the instance (`ELIM-MONO-1`) and is erased at
-    runtime.
+    without using it. Solved metavariables left in it are filled in (from
+    v3: the implementation for the inner pair of a triple). A lambda over
+    an implementation (a dictionary's polymorphic method field,
+    `\@{m} => ...`) takes it as written, like a type. It keys the instance
+    (`ELIM-MONO-1`) and is erased at runtime.
     - Test: `tests/e2e/v2/nbody` (record updates that use `negate` and `*`)
   - An argument that depends on a runtime value is rejected: an
     implementation chosen at runtime (`PROF-HEAP-1`).
