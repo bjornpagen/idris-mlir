@@ -1,7 +1,7 @@
 # idris-mlir architecture specification
 
-Status: **approved (draft 2).** It governs p0, v0 and v1 (see
-[roadmap](15-roadmap.md)).
+Status: **approved (draft 2).** It governs p0 to v3 (see
+[roadmap](15-roadmap.md)). What comes next is [the plan](../plan.md).
 
 This directory is the normative specification of idris-mlir: a whole-program
 compiler for a versioned, strict subset of Idris 2 (the *profile*). It lowers
@@ -27,7 +27,7 @@ described the "no C++" state.
 | [12-driver](12-driver.md) | executables, command lines, artifacts | |
 | [13-diagnostics](13-diagnostics.md) | errors, codes, source locations | |
 | [14-testing](14-testing.md) | oracles, suites, conformance | |
-| [15-roadmap](15-roadmap.md) | p0, v0–v4: scope and exit criteria | |
+| [15-roadmap](15-roadmap.md) | what is done, and how it differed from its plan | |
 | [16-agent-rules](16-agent-rules.md) | how implementation work is divided and constrained | |
 
 Read 01, 02, 03 and 08 before any other document. They define what is
@@ -99,8 +99,8 @@ exist only on paper.
   rule identifiers. Adding a rule to a contract document is a contract
   change.
 - A new profile version is a contract change to 02 (and usually 03 and 08).
-  It is released only when its exit criteria in [15-roadmap](15-roadmap.md)
-  are met.
+  It is released only when its milestone's exit criteria in
+  [the plan](../plan.md) are met.
 
 ## Glossary
 
@@ -134,9 +134,8 @@ Settled in draft 2:
   whole-program callback (`-o`), which handles imports.
 - **IO surface.** Stock `Builtin` and `PrimIO` plus our own small module,
   `IdrisMLIR.IO`, which is the only place `%foreign` is allowed.
-- **Prelude.** Deferred like GC. The Prelude's dependency modules come first,
-  one layer at a time, each fully tested
-  ([15-roadmap](15-roadmap.md)).
+- **Prelude.** Imported explicitly by IO programs since v3
+  (`PROF-PROG-4`); implicit import waits for the heap ([the plan](../plan.md)).
 
 Still open, and blocking nothing before it is needed:
 1. **Later:** the surface syntax of proved rewrites

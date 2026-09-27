@@ -1,6 +1,8 @@
 # Working on idris-mlir
 
 The normative spec is [docs/architecture/](docs/architecture/00-index.md).
+What comes next is [docs/plan.md](docs/plan.md), the only plan; keep it
+current instead of writing new plan documents.
 - Before changing a compiler boundary, read 00, 01, 02, 03 and 08.
 - Before any implementation work, read 16-agent-rules.md.
 

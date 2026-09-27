@@ -16,9 +16,9 @@
 ||| between CPS and SSA), and `Emit` writes them as such.
 |||
 ||| `Code` is indexed by its phase, as Lean's LCNF is by its purity: `Pure`
-||| is what `Simplify` produces, and `Mem` adds the region operations of the
-||| memory plan (docs/research/refactor-and-memory.md). One type, one set of
-||| traversals, and region operations cannot occur in pure code.
+||| is what `Simplify` produces, and `Mem` adds the memory operations
+||| (docs/plan.md, section 4). One type, one set of traversals, and memory
+||| operations cannot occur in pure code.
 |||
 ||| Types are `VTy`, value types only, so a function, a `Lazy` value or static
 ||| data cannot occur here (PROF-HEAP-1, PROF-HEAP-2); string primitives are

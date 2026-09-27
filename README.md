@@ -45,7 +45,7 @@ with an `unsupported (<RULE>)` error at the source location.
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),
   [complex numbers through the Prelude](tests/e2e/v3/prelude-math) and
-  [the v3 note](docs/research/v3-entry.md) for what is still missing.
+  [the plan](docs/plan.md) for what is still missing.
 
 On the heap-free programs it can compile, the output is faster than MLton's
 on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
@@ -90,11 +90,8 @@ Everything is installed under `.toolchain/`.
 
 - [Architecture spec](docs/architecture/00-index.md) (normative)
 - [Toolchain](docs/toolchain.md)
-- [Whole-program compilation: prior art and plan](docs/research/whole-program-compilation.md)
-- [Next research brief: optimizing from first principles](docs/research/next-research-prompt.md)
-- Research notes from before the rewrite: [compiler interfaces](docs/research/compiler-interfaces.md),
-  [starting point and tests](docs/research/starting-point-and-tests.md),
-  [MLIR and Mojo](docs/research/mlir-and-mojo.md)
+- [The plan](docs/plan.md): the only plan; what comes next and why
+- [Research library](docs/research/): vendored papers and source snapshots
 
 ## License
 

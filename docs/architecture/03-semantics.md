@@ -137,8 +137,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 
 ## Doubles (v2)
 
-`Double` follows IEEE 754 binary64, as the Chez backend computes it
-(`docs/research/v2-entry.md` records the probes).
+`Double` follows IEEE 754 binary64, as the Chez backend computes it.
 
 - **SEM-DBL-1 (v2).** A `Double` is an IEEE 754 binary64 value, including
   `-0.0`, the infinities and NaN. A literal denotes the double Idris stores

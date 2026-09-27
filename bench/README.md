@@ -51,7 +51,7 @@ the same programs written against a hand-made numeric module.
 - All four print the same n-body energies to the last digit, so the
   floating-point work is the same.
 - `ack` computes `ack 3 n`. With `m` a literal, call-pattern
-  specialization (`ELIM-G-18`) makes four copies of `ack` with `m` fixed,
+  specialization (`ELIM-G-19`) makes copies of `ack` with `m` fixed,
   and LLVM turns three of them into closed forms, so almost nothing is left
   to run; gcc gets part of the way with its own constant cloning. This
   measures the specialization, not recursion.
