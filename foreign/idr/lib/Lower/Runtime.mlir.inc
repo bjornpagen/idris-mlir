@@ -216,6 +216,23 @@ module {
     return
   }
 
+  // LOW-IO-4: one byte from stdin, as the Prelude's getChar reads it with C
+  // getchar on the reference backend: its value, or 255 at end of input
+  // (SEM-IO-7).
+  func.func private @__idr_get_byte() -> i32 {
+    %c0 = arith.constant 0 : i32
+    %c255 = arith.constant 255 : i32
+    %b = func.call @__idr_peek() : () -> i32
+    %eof = arith.cmpi slt, %b, %c0 : i32
+    %r = scf.if %eof -> i32 {
+      scf.yield %c255 : i32
+    } else {
+      func.call @__idr_advance() : () -> ()
+      scf.yield %b : i32
+    }
+    return %r : i32
+  }
+
   // One UTF-8 encoded scalar value from stdin (SEM-IO-3): '\0' at end of
   // input, U+FFFD for each maximal invalid subsequence.
   func.func private @__idr_get_char() -> i32 {

@@ -133,11 +133,11 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   (`TEST-DIFF-1`).
 - **PROF-IO-4 (v3).** The Prelude's output primitives `prim__putStr` and
   `prim__putChar` (`Prelude.IO`) are the same `idr.io.put_str` and
-  `idr.io.put_char` as `IdrisMLIR.IO`'s, so the Prelude's `putStr`,
-  `putStrLn`, `putChar`, `print` and `printLn` work through its `HasIO IO`.
-  Their meaning is `SEM-IO-2`. The Prelude's `getChar` (C `getchar`, which
-  ends input differently from `SEM-IO-3`) and its other `%foreign`
-  primitives stay rejected (`PROF-ESC-1`).
+  `idr.io.put_char` as `IdrisMLIR.IO`'s, and its `prim__getChar` is
+  `idr.io.get_byte`, so the Prelude's `putStr`, `putStrLn`, `putChar`,
+  `print`, `printLn` and `getChar` work through its `HasIO IO`. Their
+  meaning is `SEM-IO-2` and `SEM-IO-7`. Its other `%foreign` primitives
+  (`getLine`, files, time) stay rejected (`PROF-ESC-1`).
   - Check: `Frontend.Translate.ioPrim`, `Frontend.Profile.checkReachable`
   - Test: `tests/e2e/v3/prelude-io`
 - **PROF-IO-3 (v1).** User modules do not use `unsafePerformIO`,

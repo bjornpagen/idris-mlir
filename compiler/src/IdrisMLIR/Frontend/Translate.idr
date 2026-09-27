@@ -603,7 +603,8 @@ ioPrim : Name -> Maybe IOOp
 ioPrim (NS ns (UN (Basic n))) = case unsafeUnfoldNamespace ns of
   ["IO", "IdrisMLIR"] => Data.List.lookup n [ ("prim__idrPutStr", PutStr), ("prim__idrPutChar", PutChar)
                                             , ("prim__idrGetChar", GetChar), ("prim__idrExit", Exit) ]
-  ["IO", "Prelude"] => Data.List.lookup n [("prim__putStr", PutStr), ("prim__putChar", PutChar)]
+  ["IO", "Prelude"] => Data.List.lookup n [ ("prim__putStr", PutStr), ("prim__putChar", PutChar)
+                                          , ("prim__getChar", GetByte) ]
   _ => Nothing
 ioPrim _ = Nothing
 
@@ -808,7 +809,9 @@ mutual
       ForeignDef arity _ => case ioPrim full of
         Just op => ioCall fc loc arity op (type def) args
         Nothing => reject fc ctx.owner ProfEsc1 ("foreign function " ++ show full)
-      ExternDef _ => reject fc ctx.owner ProfEsc1 ("extern function " ++ show full)
+      ExternDef arity => case ioPrim full of
+        Just op => ioCall fc loc arity op (type def) args
+        Nothing => reject fc ctx.owner ProfEsc1 ("extern function " ++ show full)
       Hole {} => reject fc ctx.owner ProfTerm2 ("hole " ++ show full)
       _ => internal fc ("a reference to " ++ show full ++ " (FE-TR-3)")
     where

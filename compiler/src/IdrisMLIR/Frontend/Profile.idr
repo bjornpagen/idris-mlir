@@ -228,10 +228,13 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             "prim__crash" => reject (userFC here) owner ProfEsc1 ("idris_crash" ++ via here)
             _ => pure ()
           Hole {} => reject (userFC here) owner ProfEsc1 ("the hole " ++ key ++ via here)
-          ExternDef _ => reject (userFC here) owner ProfEsc1 ("%extern " ++ key ++ via here)
+          ExternDef _ =>
+            unless (key == "Prelude.IO.prim__getChar") $
+              reject (userFC here) owner ProfEsc1 ("%extern " ++ key ++ via here)
           ForeignDef _ _ =>
             unless (ns == ["IO", "IdrisMLIR"] ||
-                    elem key (the (List String) ["Prelude.IO.prim__putStr", "Prelude.IO.prim__putChar"])) $
+                    elem key (the (List String) ["Prelude.IO.prim__putStr", "Prelude.IO.prim__putChar",
+                                                 "Prelude.IO.prim__getChar"])) $
               reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
           _ => pure ()
         -- PROF-LIB-1

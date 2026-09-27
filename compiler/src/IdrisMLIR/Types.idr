@@ -396,12 +396,14 @@ opArgs (Big b) = bigArgs b
 
 public export
 data IOOp = PutStr | PutChar | GetChar | Exit | PutInt IntTy | PutDouble
+          | GetByte   -- the Prelude's getChar: one byte (SEM-IO-7)
 
 export
 Show IOOp where
   show PutStr = "putStr"
   show PutChar = "putChar"
   show GetChar = "getChar"
+  show GetByte = "getByte"
   show Exit = "exit"
   show (PutInt t) = "putInt_" ++ show t
   show PutDouble = "putDouble"
@@ -414,6 +416,7 @@ ioArgs PutStr = [StrT]
 ioArgs PutChar = [CharT]
 ioArgs (PutInt t) = [IntT t]
 ioArgs GetChar = []
+ioArgs GetByte = []
 ioArgs Exit = [IntT IdrisInt]
 ioArgs PutDouble = [DoubleT]
 

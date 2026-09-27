@@ -444,6 +444,7 @@ needsV3 = cata alg
     alg : CodeF Bool -> Bool
     alg (BindF _ _ _ _ (OCrash _) _) = True
     alg (BindF _ _ _ _ (OPrim DoubleHead _) _) = True
+    alg (BindF _ _ _ _ (OIO GetByte _ _) _) = True
     alg (BindF _ _ _ _ op k) = or (map delay (toList op)) || k
     alg _ = False
 

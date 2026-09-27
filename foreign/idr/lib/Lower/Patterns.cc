@@ -316,8 +316,10 @@ struct LowerIO : IdrPattern<OpT> {
     } else if constexpr (std::is_same_v<OpT, idr::PutDoubleOp>) {
       if (failed(call("__idr_put_double", {}, adaptor.getValue())))
         return failure();
-    } else if constexpr (std::is_same_v<OpT, idr::GetCharOp>) {
-      auto got = call("__idr_get_char", rewriter.getI32Type(), {});
+    } else if constexpr (std::is_same_v<OpT, idr::GetCharOp> ||
+                         std::is_same_v<OpT, idr::GetByteOp>) {
+      auto got = call(std::is_same_v<OpT, idr::GetCharOp> ? "__idr_get_char" : "__idr_get_byte",
+                      rewriter.getI32Type(), {});
       if (failed(got))
         return failure();
       rewriter.replaceOpWithMultiple(op, {ValueRange{got->getResult(0)}, ValueRange{}});
@@ -339,7 +341,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr, LowerMayLoop,
                LowerToChar, LowerToInt, LowerDoubleHead, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
                LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
-               LowerIO<idr::GetCharOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
+               LowerIO<idr::GetCharOp>, LowerIO<idr::GetByteOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
                                                               state);
 }
 

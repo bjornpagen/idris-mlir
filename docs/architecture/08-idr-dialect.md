@@ -119,6 +119,7 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 | `idr.io.put_int` (v1) | `%w1 = idr.io.put_int signed %n, %w0 : i64` | `IDR-EFF-2` | never |
 | `idr.io.put_double` (v2) | `%w1 = idr.io.put_double %x, %w0` | `IDR-EFF-2` | never |
 | `idr.io.get_char` (v1) | `%c, %w1 = idr.io.get_char %w0` | `IDR-EFF-2` | never |
+| `idr.io.get_byte` (v3) | `%c, %w1 = idr.io.get_byte %w0` | `IDR-EFF-2` | never |
 | `idr.io.exit` (v1) | `%w1 = idr.io.exit %code, %w0` | `IDR-EFF-2` | never |
 
 - **IDR-CON-1 (v0).** `idr.con @T::@C(operands)` builds constructor `C` of `T`.
@@ -182,6 +183,10 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
     fusion (`ELIM-G-7`).
 
   Each op consumes one world and produces the next.
+- **IDR-IO-2 (v3).** `%c, %w1 = idr.io.get_byte %w0` is the Prelude's
+  `getChar` (`SEM-IO-7`): one byte as an `i32`, or `255` at the end of
+  input. It is an `idr.io` op (`IDR-EFF-2`).
+  - Test: `tests/idr/lower/get-byte.mlir`, `tests/e2e/v3/prelude-input`
 - **IDR-EFF-2 (v1).** Every `idr.io` op has read and write effects on the
   dialect's IO resource (`idr::IOResource`). So no upstream pass removes,
   duplicates, hoists or reorders them.

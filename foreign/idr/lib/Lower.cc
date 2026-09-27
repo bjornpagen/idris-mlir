@@ -61,6 +61,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         need(put.getIsSigned() ? "__idr_put_int_s" : "__idr_put_int_u");
       else if (isa<idr::GetCharOp>(op))
         need("__idr_get_char");
+      else if (isa<idr::GetByteOp>(op))
+        need("__idr_get_byte");
       else if (isa<idr::ExitOp>(op))
         need("__idr_exit");
     });

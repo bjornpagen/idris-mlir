@@ -264,6 +264,12 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 
 ## Programs, crashes and resources
 
+- **SEM-IO-7 (v3).** The Prelude's `getChar` reads one byte of standard
+  input and returns it as a character (`0` to `255`), and at the end of
+  input returns character `255`: the reference backend implements it with
+  C `getchar`. It does not decode UTF-8, unlike `IdrisMLIR.IO`'s `getChar`
+  (`SEM-IO-3`). Both read the same buffered input.
+  - Test: `tests/e2e/v3/prelude-input`
 - **SEM-PROG-1 (v0).** Running a `main : Int` program evaluates `main`. If it
   produces `v`, the process writes nothing to stdout or stderr and exits
   with status `v mod 256` (the low 8 bits of `v`).

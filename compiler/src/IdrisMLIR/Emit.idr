@@ -262,6 +262,10 @@ io ix l op vs res = do
       r <- fresh
       push (simple (Just (r, 2)) "idr.io.get_char" [fst w0] [] [snd w0] [I 32, IdrWorld] l)
       pure ((r ++ "#0", I 32), (r ++ "#1", IdrWorld))
+    (GetByte, [w0]) => do
+      r <- fresh
+      push (simple (Just (r, 2)) "idr.io.get_byte" [fst w0] [] [snd w0] [I 32, IdrWorld] l)
+      pure ((r ++ "#0", I 32), (r ++ "#1", IdrWorld))
     _ => internal ("io." ++ show op ++ " with the wrong arguments")
   con l mk.id [val, w]
   where

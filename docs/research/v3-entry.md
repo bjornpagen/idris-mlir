@@ -41,12 +41,12 @@ benchmarks in `bench/` did not change.
    starts with `-`, and the first character of an integer shown at runtime
    is computed, and for a `Double` the printer's helper gives it
    (`idr.double_head`).
-2. **The Prelude's own IO**: output done (`PROF-IO-4`): its
-   `prim__putStr` and `prim__putChar` are the `idr.io` output ops, so
-   `putStrLn`, `print` and `printLn` work (`tests/e2e/v3/prelude-io`).
-   Input is not: the Prelude's `getChar` is C `getchar`, whose end of input
-   differs from `SEM-IO-3`, so programs that read still import
-   `IdrisMLIR.IO`.
+2. **The Prelude's own IO**: done (`PROF-IO-4`, `SEM-IO-7`). Its
+   `prim__putStr` and `prim__putChar` are the `idr.io` output ops, and its
+   `prim__getChar` is a new `idr.io.get_byte`, because the reference reads
+   it with C `getchar`: bytes, not UTF-8 scalars, and 255 at the end of
+   input. A program can now use the Prelude alone
+   (`tests/e2e/v3/prelude-io`, `tests/e2e/v3/prelude-input`).
 3. **`Foldable` over a list literal with a runtime element**
    (`sum [1, 2, n]`): rejected as an implementation chosen at runtime
    (`FE-TR-6`) inside `foldMap`. Not yet traced; likely the written form of
@@ -66,7 +66,6 @@ benchmarks in `bench/` did not change.
 
 ## Exit criteria for `VERSION = v3`
 
-- Input through the Prelude, so that the Prelude's own IO functions work.
 - Every v3 rule tested (`TEST-SPEC-1` with `VERSION = v3`).
 - A Prelude-using version of the math showcase and the benchmarks, diffed
   against Chez, with benchmark times no worse than the `IdrisMLIR`-only
