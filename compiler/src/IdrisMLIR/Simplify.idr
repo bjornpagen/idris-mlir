@@ -199,6 +199,7 @@ mutual
     fn <- fnDef l f
     case value fn.result of
       Nothing => pure (SCall f !(gets effects) vs [])                              -- G5
+      Just StrT => unfold l fn vs []                                               -- G10
       Just _ => call l Nothing f vs []
   eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
@@ -284,12 +285,30 @@ mutual
   consume l (SCall f e as ms) es = do
     fn <- fnDef l f
     t <- elimTy l fn.result (ms ++ es)
+    now <- gets effects
     case value t of
       Nothing => pure (SCall f e as (ms ++ es))
+      -- G10, when no effect separates building the call from running it.
+      Just StrT => if e == now then leavePrefix (unfold l fn as (ms ++ es))
+                   else leavePrefix (call l (Just e) f as (ms ++ es))
       -- Running the deferred call is the action, not prefix code; the
       -- callee's own prefix is recorded where it is specialized.
       Just _ => leavePrefix (call l (Just e) f as (ms ++ es))
   consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))
+
+  ||| G10: a function that returns a String is evaluated where it is called,
+  ||| so that the string it builds can still be folded or fused into output.
+  ||| A call of a function that is already being unfolded is specialized.
+  unfold : Loc -> TFn -> List V -> List (Elim Atom) -> M V
+  unfold l fn vs es = do
+    st <- get
+    if elem fn.id st.unfolding then call l Nothing fn.id vs es else do
+      Just env <- pure (toVect fn.arity vs)
+        | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
+      put ({ unfolding $= (fn.id ::) } st)
+      v <- evalK env fn.body es
+      modify { unfolding $= drop 1 }
+      pure v
 
   ||| A call of `f` with arguments and eliminations: a call of the
   ||| specialization for their shapes (G3, G5). A deferred call knows how

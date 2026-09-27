@@ -155,13 +155,27 @@ is static.
 - **ELIM-G-9 (v1). Dead static values.** A static value that is never used is
   removed. Building a static value has no effect.
 
+- **ELIM-G-10 (v2). Unfolding string functions.** A call of a function
+  whose result is a `String` is evaluated where it is called, with the
+  arguments' values, instead of being specialized (`ELIM-G-3`). A string
+  can exist at runtime only as a literal or a value passed along
+  (`PROF-HEAP-3`), so a string such a function builds must reach
+  `ELIM-G-6` or `ELIM-G-7` at the call site. A call of a function that is
+  already being unfolded is specialized instead, which bounds the rule. A
+  deferred call (`ELIM-G-5`) is unfolded only if no effect happened between
+  building it and applying it; otherwise it is specialized and
+  `PROF-HEAP-5` applies.
+  - *Why this is exact:* evaluation is strict (`SEM-EVAL-1`), so evaluating
+    a body with the values of the arguments is the call.
+  - Test: `tests/e2e/v2/string-functions`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
   - `ELIM-G-3` by memoization;
   - `ELIM-G-4` by the number of uses;
   - `ELIM-G-5` at one application per function;
-  - `ELIM-G-7` case 5 by the number of alternatives.
+  - `ELIM-G-7` case 5 by the number of alternatives;
+  - `ELIM-G-10` by the call graph: no function is unfolded inside itself.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is

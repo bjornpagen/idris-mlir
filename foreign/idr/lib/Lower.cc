@@ -81,6 +81,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
                            cf::ControlFlowDialect>();
     target.addDynamicallyLegalOp<ub::PoisonOp>(
         [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
+    target.addDynamicallyLegalOp<arith::SelectOp>(
+        [&](arith::SelectOp op) { return converter.isLegal(op.getType()); });
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return converter.isSignatureLegal(op.getFunctionType()) &&
              converter.isLegal(&op.getBody());

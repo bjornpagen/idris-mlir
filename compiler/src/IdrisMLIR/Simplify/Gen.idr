@@ -97,6 +97,7 @@ record St where
   ||| Where each raised function runs, and whether an effect was emitted
   ||| between building its action and running it (PROF-HEAP-5).
   runs : SnocList (FnId, Loc, Bool)
+  unfolding : List FnId           -- String functions being unfolded (ELIM-G-10)
 
 ||| Why evaluation stopped: a user error, or a point Idris proved impossible.
 public export
@@ -108,7 +109,7 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<]
+initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] []
 
 export
 fail : Rule -> Loc -> String -> M a

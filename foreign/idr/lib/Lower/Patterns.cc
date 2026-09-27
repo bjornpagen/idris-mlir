@@ -115,6 +115,21 @@ struct LowerPoison : IdrPattern<ub::PoisonOp> {
   }
 };
 
+// A select of an idr value (canonicalize makes one from an scf.if) selects
+// each of its components.
+struct LowerSelect : IdrPattern<arith::SelectOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(arith::SelectOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Value cond = adaptor.getCondition().front();
+    SmallVector<Value> out;
+    for (auto [a, b] : llvm::zip_equal(adaptor.getTrueValue(), adaptor.getFalseValue()))
+      out.push_back(arith::SelectOp::create(rewriter, op.getLoc(), cond, a, b));
+    rewriter.replaceOpWithMultiple(op, {out});
+    return success();
+  }
+};
+
 struct LowerStr : IdrPattern<idr::StrLitOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(idr::StrLitOp op, OneToNOpAdaptor,
@@ -292,7 +307,7 @@ struct LowerIO : IdrPattern<OpT> {
 
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
-  patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerStr, LowerMayLoop,
+  patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr, LowerMayLoop,
                LowerToChar, LowerToInt, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
                LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
                LowerIO<idr::GetCharOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),

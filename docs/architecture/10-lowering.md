@@ -87,6 +87,10 @@ missed it). So:
     layouts)
 - **LOW-ERASE-1 (v0).** `!idr.erased` values, parameters, arguments and fields
   disappear through the 1:0 conversion. `idr.erased` ops are removed.
+- **LOW-SEL-1 (v2).** Upstream `canonicalize` turns an `scf.if` that only
+  chooses between two values into `arith.select`, also for idr types. An
+  `arith.select` of an idr type lowers to one `arith.select` per component.
+  - Test: `tests/idr/lower/select.mlir`
 - **LOW-DATA-3 (v0).** `idr-lower` erases all `idr.data` ops. After it, no
   `idr` op or type remains.
   - Check: conversion legality (the `idr` dialect is illegal)
