@@ -177,7 +177,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 
   `prim__cast_StringDouble` is Chez's `string->number`; like every string
   primitive it is evaluated at compile time (`PROF-PRIM-4`).
-  - Test: `tests/e2e/v2/double-basics`, `tests/tooling/test_dev.py` (the
+  - Test: `tests/e2e/v2/double-basics`, `tests/spec/ryu-tables` (the
     printer's tables), and 176,000 fuzzed values in
     `tests/e2e/v2/double-print-fuzz`
 

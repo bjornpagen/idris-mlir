@@ -150,10 +150,10 @@ It applies upstream's structural conversions:
   buffer. The digits come from Ryu (Adams, PLDI 2018), in its general form,
   with one change: an exact tie rounds up, as the reference does. Its two
   tables of 128-bit powers of five are static constants that
-  `tools/gen_ryu_tables.py` computes with exact integers; `dev.py check`
-  verifies that the checked-in tables match.
+  `tools/GenRyuTables.idr` computes with exact integers (`make ryu-tables`);
+  `make check` verifies that the checked-in tables match.
   - Test: `tests/e2e/v2/double-print-fuzz` (45,000 values against Chez,
-    including decimal ties), `tests/tooling/test_dev.py`
+    including decimal ties), `tests/spec/ryu-tables`
 - **LOW-DBL-3 (v2).** The `arith` float ops and the `math` ops pass through
   `idr-lower` unchanged, and `convert-to-llvm` turns them into LLVM
   instructions and intrinsics. LLVM's back end turns the intrinsics that
@@ -183,7 +183,8 @@ It applies upstream's structural conversions:
     - Upstream `arith.floordivsi` is floor division, not Euclidean, and is
       not used.
   - **Unsigned.** Use `arith.divui` and `arith.remui` after the zero check.
-  - Test: `tests/e2e/sem.py` (the edge-case tables, with `Refl` oracles);
+  - Test: `tests/e2e/v0/SEM-INT-*` (the edge-case tables of `tests/Sem.idr`,
+    with `Refl` oracles);
     `tests/e2e/v0/crash-*` (crashes); `tests/idr/lower/crash.mlir`
 
 ### Crashes

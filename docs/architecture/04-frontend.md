@@ -60,12 +60,12 @@ profile violation that TT can show.
   - `getCompileData` or `getIncCompileData`.
 
   These have already erased facts, or were built for other backends.
-  - Check: review, plus a tooling test that greps `compiler/src` for these
-    names
-  - Test: `tests/tooling/test_dev.py`
+  - Check: review, plus a test that greps `compiler/src` for these names
+    and the modules that define them
+  - Test: `tests/spec/FE-IN-2-no-erased-inputs`
 - **FE-IN-3 (v0).** Only modules named `IdrisMLIR.Frontend.*` import
   upstream Idris compiler modules.
-  - Check and test: the existing import-boundary tooling test
+  - Check and test: `tests/spec/FE-IN-3-frontend-imports`
 - **FE-IN-4 (v0).** Idris's `eraseArgs` and `safeErase` fields are not used
   to decide runtime positions. A position is compile-time exactly when its
   binder in the callee's or constructor's type has quantity 0.

@@ -1513,7 +1513,10 @@ faster or stricter, but never different.
 2. After the representation lands (`Origin`, `Shown`, `NameLoc`) and the
    registry module and its validation exist, with every current hook
    migrated but the old sites not yet deleted. Both paths agree, shown by
-   test.
+   test. **Passed** in the cutover wave: the compilers before and after
+   the registry produced identical `.core` and `.mlir` files and errors on
+   all 238 e2e and profile fixtures, except that `idr.name` attributes
+   became NameLocs with the same names in the same order.
 3. After the old sites are deleted and the enforcement tests are green.
 
 **The census (step 0)**, at `33647cf`. Every place the compiler keys
@@ -2017,7 +2020,7 @@ Where the plan meets each inheritance:
     - **Leaning:** build from source where the network allows it, and say
       plainly which comparisons are missing when it does not.
 
-## Appendix A: evidence for the memory decision## Appendix A: evidence for the memory decision
+## Appendix A: evidence for the memory decision
 
 Counting Immutable Beans (Ullrich and de Moura, IFL 2019), wall time
 normalized to Lean (i7-3770):

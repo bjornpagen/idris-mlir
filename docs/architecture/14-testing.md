@@ -6,18 +6,25 @@ the reason, and never counted as passed.
 
 ## Commands
 
-- **TEST-CMD-1 (p0).** `tools/dev.py` runs every suite:
+- **TEST-CMD-1 (p0).** `make` runs every suite (`make` alone lists the
+  commands):
 
   | Command | Runs | When |
   | --- | --- | --- |
-  | `check` | `tests/tooling` (repository rules, `TEST-SPEC-1`) | always |
-  | `build` | the Idris compiler and the C++ `dev` preset | after any code change |
-  | `test` | `tests/compiler`, `tests/profile`, `tests/e2e` | after compiler changes |
-  | `test-idr` | `tests/idr` via `lit` and `FileCheck` | after C++ or contract changes |
-  | `test-mlir-tools` | `tests/mlir` | after changing upstream MLIR usage |
+  | `make check` | `tests/spec` (repository rules, `TEST-SPEC-1`) | always |
+  | `make build` | the C++ `dev` preset and the Idris compiler | after any code change |
+  | `make test` | `tests/compiler`, `tests/profile`, `tests/e2e`, `tests/determinism`, `tests/registry`, `tests/toolchain` | after compiler changes |
+  | `make test-idr` | `tests/idr`, with `FileCheck` | after C++ or contract changes |
+  | `make test-mlir-tools` | `tests/mlir` | after changing upstream MLIR usage |
 
-  Each command ends with a summary line of passed, failed and skipped
-  tests. It exits non-zero if any test failed.
+  The suites are golden tests on Idris's own `Test.Golden`, run by
+  `tests/Main.idr`. A test is a directory with a POSIX-sh `run` script and
+  an `expected` file; `run` prints the exit status of what it runs and the
+  artifacts that must exist, so every test checks both. Each command ends
+  with the number of tests that passed and the list of those that failed,
+  and exits non-zero if any test failed. A command whose pinned toolchain is
+  missing or stale refuses to run and names the bootstrap step to run
+  (`TC-PIN-2`); nothing is skipped silently.
 
 ## Oracles
 
@@ -88,11 +95,13 @@ the reason, and never counted as passed.
 ## C++ and contract tests
 
 - **TEST-IDR-1 (v0).** Every `idr` op, verifier, folder, effect rule and
-  pass, and every conversion pattern, has `lit` tests in `tests/idr/`. They
-  run hand-written `.mlir` through `idris-mlir-opt` and check the result with
-  `FileCheck`, without involving Idris. They run on lit's internal shell
-  (the external shell is deprecated in LLVM 23); `%status N cmd` checks an
-  exact exit status.
+  pass, and every conversion pattern, has tests in `tests/idr/`. They run
+  hand-written `.mlir` through `idris-mlir-opt` and check the result with
+  `FileCheck`, without involving Idris. Each `.mlir` file keeps its
+  `// RUN:` lines, which the `lit` function of `tests/testutils.sh` runs as
+  lit's internal shell did, without lit or Python: `%s` is the file, `%t` a
+  path in the work directory, and `%status N cmd` checks an exact exit
+  status.
 - **TEST-EMIT-1 (v0).** The Idris side's output is checked against the
   contract with `FileCheck` on the `.mlir` of selected fixtures (erased
   arguments present, quantity attributes, locations, switch shape), and by
@@ -115,8 +124,8 @@ the reason, and never counted as passed.
 
 ## Spec conformance
 
-- **TEST-SPEC-1 (p0).** A tooling test parses every rule identifier in
-  `docs/architecture/`. A rule starts with a bold `**<ID>`, then an optional
+- **TEST-SPEC-1 (p0).** `make check` (`tests/Spec.idr`) parses every rule
+  identifier in `docs/architecture/`. A rule starts with a bold `**<ID>`, then an optional
   ` (<version>)`, then a period. It asserts that:
   1. every rule whose version has been implemented is referenced by at least
      one test file, through the identifier in its file name or a

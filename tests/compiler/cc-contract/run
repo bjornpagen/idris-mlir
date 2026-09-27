@@ -5,7 +5,7 @@
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cat > "$work/bad.mlir" <<'MLIR'
 module attributes {idr.version = 0 : i64, idr.entry = @main, idr.entry_kind = "int"} {
-  func.func private @main() -> i64 attributes {idr.name = "main"} {
+  func.func private @main() -> i64 {
     %0 = llvm.mlir.constant(1 : i64) : i64
     return %0 : i64
   }

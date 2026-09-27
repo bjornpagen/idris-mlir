@@ -22,7 +22,8 @@ bind every contributor, human or agent.
   | --- | --- |
   | Frontend and middle end (Idris) | `compiler/`, `tests/compiler/`, `tests/profile/` |
   | Dialect and passes (C++) | `foreign/idr/`, `tests/idr/` |
-  | Toolchain and build | `tools/dev.py`, `CMakeLists.txt`, `CMakePresets.json`, `toolchain.lock.json`, `PINS.md`, `docs/cpp-profile.md`, `docs/toolchain.md`, `tests/tooling/`, `tests/mlir/` |
+  | Runtime (C++) | `runtime/` |
+  | Toolchain and build | `Makefile`, `tools/`, `CMakeLists.txt`, `CMakePresets.json`, `toolchain.lock.json`, `.gitmodules`, `PINS.md`, `docs/cpp-profile.md`, `docs/toolchain.md`, the test runner (`tests/*.idr`, `tests/tests.ipkg`, `tests/testutils.sh`), `tests/spec/`, `tests/toolchain/`, `tests/mlir/` |
   | End to end | `tests/e2e/` |
   | Spec | `docs/architecture/` (lead only) |
 
@@ -59,10 +60,12 @@ bind every contributor, human or agent.
 
 ## Checks and commits
 
-- **AG-CHECK-1.** Before handing work back, run `dev.py check` always, plus
+- **AG-CHECK-1.** Before handing work back, run `make check` always, plus
   the suites for what changed ([14-testing](14-testing.md#commands)).
   Report every failure and every skip, with the reason.
 - **AG-COMMIT-1.** Each commit message names the rule identifiers it
   implements or changes. Commits stay within one package.
-- **AG-COMMIT-2.** Only the lead merges and pushes to `main`. Packages are
-  developed on their own branches or worktrees.
+- **AG-COMMIT-2.** Every agent pushes its own work straight to `main`, and
+  only with every required suite green: it rebases on the latest `main`
+  first and reruns the suites after the rebase, so `main` never goes red
+  ([the plan](../plan.md), section 10.1).
