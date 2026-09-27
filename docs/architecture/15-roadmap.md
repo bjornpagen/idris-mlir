@@ -2,7 +2,13 @@
 
 ## Status
 
-p0, v0, v1 and v2 are implemented (`docs/architecture/VERSION` is `v2`).
+p0, v0, v1 and v2 are implemented (`docs/architecture/VERSION` is `v2`),
+and the first layer of v3 is in place: `Integer` at compile time
+(`SEM-BIG-1`), recursive data at compile time (`SEM-REC-1`), missing cases
+that crash (`SEM-CRASH-2`), static control decided during specialization
+(`ELIM-G-12`, `ELIM-G-13`), and the stock Prelude imported explicitly by IO
+programs (`PROF-PROG-4`, `tests/e2e/v3/prelude`). What remains before
+`VERSION = v3` is in `docs/research/v3-entry.md`.
 v2 differs from its plan below as follows, each recorded in the rule it
 changes:
 - `FE-TR-6` (new): implementations are compile-time values resolved during

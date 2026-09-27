@@ -338,13 +338,15 @@ def compile_int(source, output):
     return steps
 
 
-def compile_io(source, name, directives=()):
+def compile_io(source, name, directives=(), packages=()):
     """DRV-FLOW-2: one command; the program lands in build/exec/<name> next to
     the source. Returns the completed process."""
     source = Path(source).resolve()
     compiler, _ = built_tools()
     args = [compiler, "--no-banner", "--no-color", "--no-prelude", "-p", "idris-mlir-io",
             "--cg", "mlir"]
+    for package in packages:
+        args += ["-p", package]
     for directive in directives:
         args += ["--directive", directive]
     return subprocess.run([*args, "-o", name, source.name], cwd=source.parent,

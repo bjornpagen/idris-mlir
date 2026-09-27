@@ -1,8 +1,9 @@
--- expect: PROF-PROG-4 line 5
+-- expect: PROF-PROG-4 line 6
+-- packages: base
 module Main
 
 import IdrisMLIR.IO
-import Prelude
+import Data.List
 
 main : IO ()
 main = putStrLn "hi"

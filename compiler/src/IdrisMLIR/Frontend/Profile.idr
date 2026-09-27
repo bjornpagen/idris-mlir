@@ -29,10 +29,16 @@ import System.File
 -- Modules
 ------------------------------------------------------------------------------
 
-||| The trusted modules (PROF-PROG-4).
+||| The trusted modules (PROF-PROG-4): from v3 also the Prelude's modules.
+||| Namespaces are stored innermost first.
 export
 trustedModule : List String -> Bool
-trustedModule ns = ns == ["Builtin"] || ns == ["PrimIO"] || ns == ["IO", "IdrisMLIR"]
+trustedModule ns = ns == ["Builtin"] || ns == ["PrimIO"] || ns == ["IO", "IdrisMLIR"] || prelude ns
+  where
+    prelude : List String -> Bool
+    prelude ns = case reverse ns of
+                   ("Prelude" :: _) => True
+                   _ => False
 
 namespaceOf : Name -> List String
 namespaceOf (NS ns _) = unsafeUnfoldNamespace ns
@@ -58,8 +64,10 @@ allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar",
                    "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString", "Builtin.defaultString",
                    "Builtin.FromDouble", "Builtin.fromDouble", "Builtin.MkFromDouble", "Builtin.defaultDouble"]
 
+||| From v3 every definition of the Prelude is admitted; each is still
+||| subject to every other rule where it is reached.
 admitted : String -> Bool
-admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes
+admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes || isPrefixOf "Prelude." n
 
 ||| PROF-IO-3: reachable only through the root.
 rootOnly : List String
@@ -238,4 +246,7 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             PMDef _ _ tree _ _ =>
               when (treeMentionsWorld tree) $ reject (location def) key ProfIO3 "uses %MkWorld"
             _ => pure ()
-        go (insert key seen) (rest ++ map (\r => (r, here)) (refsOf def))
+        -- PROF-ESC-1: a library's own assert_total is trusted.
+        refs <- traverse toFullNames (refsOf def)
+        let refs' = if trusted then filter (\r => show r /= "Builtin.assert_total") refs else refs
+        go (insert key seen) (rest ++ map (\r => (r, here)) refs')

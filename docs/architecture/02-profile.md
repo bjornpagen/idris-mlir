@@ -65,11 +65,15 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
   (`FE-ENTRY-4`). The root is `main`. Its modules may import only:
   - its other modules (*user modules*), each subject to every rule here;
   - the *trusted modules*: `Builtin` and `PrimIO` from the pinned Idris
-    `prelude` package, and `IdrisMLIR.IO`, which ships with this compiler
-    (`PROF-IO-*`).
+    `prelude` package, `IdrisMLIR.IO`, which ships with this compiler
+    (`PROF-IO-*`), and from v3 the Prelude's own modules (`Prelude`,
+    `Prelude.Basics`, `Prelude.Num` and so on), imported explicitly with
+    `import Prelude` (the driver still passes `--no-prelude`).
+
+  Modules of other packages (`base`, `contrib`) are rejected.
   - Check: `Frontend.Main.compileIO`, at the offending `import`
-  - Test: `tests/profile/v1/reject/PROF-PROG-4-{prelude,prelude-types}.idr`,
-    `tests/profile/v1/accept/PROF-PROG-4-two-modules/`
+  - Test: `tests/profile/v3/reject/PROF-PROG-4-base.idr`,
+    `tests/profile/v1/accept/PROF-PROG-4-two-modules/`, `tests/e2e/v3/prelude`
 
 *Note:* conformance fixtures state expected results as Idris proofs, or, for
 IO programs, as expected output ([14-testing](14-testing.md)).
@@ -84,6 +88,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` and, from v2, `FromDouble` (`fromChar`, `fromString`, `fromDouble`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, `defaultDouble`, which elaborate character, string and `Double` literals in polymorphic positions |
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
   | `IdrisMLIR.IO` | every definition (`PROF-IO-1`) |
+  | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists and `Nat` are compile-time data (`SEM-REC-1`), its `Integer` literals compile-time integers (`SEM-BIG-1`), its `%foreign` IO primitives rejected (`PROF-ESC-1`) |
 
   - Check: `Frontend.Profile.checkReachable`
   - Test: `tests/profile/v1/reject/PROF-LIB-1-sym.idr` (`believe_me` is an
@@ -385,6 +390,10 @@ construct, and says which elimination did not apply and why
   - a definition marked as an escape hatch (`isEscapeHatch`);
   - a hole;
   - an `%extern` or `%foreign` definition other than those in `PROF-IO-2`.
+
+  From v3, `assert_total` reached from a library module's own definitions is
+  trusted: the library's author asserted it, and it changes no value. It
+  stays rejected in user modules.
   - Check: `Frontend.Profile.checkReachable` on TT, and the source scan of
     `PROF-PRAG-1`, which also rejects hole identifiers and the names
     `prim__believe_me`, `prim__crash`, `believe_me` and `idris_crash` in user

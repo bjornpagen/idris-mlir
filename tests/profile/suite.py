@@ -19,7 +19,7 @@ import re
 from harness import (artifacts, dev, reported_line, run, text, workdir)
 
 HERE = Path(__file__).resolve().parent
-HEADER = re.compile(r"^--\s*(expect|message|exit|stdout):\s*(.*)$")
+HEADER = re.compile(r"^--\s*(expect|message|exit|stdout|packages):\s*(.*)$")
 
 
 def header(source):
@@ -45,7 +45,8 @@ def prepare(fixture):
 def compile_fixture(work, main):
     """Returns (succeeded, output, executable or None)."""
     if dev.is_io_program(main):
-        result = dev.compile_io(main, "Main")
+        packages = header(main).get("packages", "").split()
+        result = dev.compile_io(main, "Main", packages=packages)
         exe = work / "build/exec/Main"
         return result.returncode == 0, text(result), exe, result.returncode
     steps = dev.compile_int(main, work / "build/exec/Main")
