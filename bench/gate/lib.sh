@@ -7,6 +7,11 @@
 #   SNMALLOC_SRC  snmalloc's src/ (default third_party/snmalloc/src)
 #   CXX           the C++ compiler for the runtime prototype (default: the
 #                 pinned LLVM's clang++ if there is one, else the pinned g++)
+#   GATE_LTO      1: the program and the runtime prototype become one LTO
+#                 module, as idris-mlir-cc joins the runtime's bitcode
+#                 (plan 5.7, TC-LINK-1), for x86_64-unknown-linux-musl as a
+#                 static PIE; needs the stage-2 clang, or stage 1's with the
+#                 sysroot (tools/bootstrap.sh stage1 musl runtimes)
 
 ROOT=$(cd "$GATE/../.." && pwd)
 TC=$ROOT/.toolchain
@@ -34,6 +39,15 @@ fi
 # CPU from milestone 1 on (plan 5.7).
 TRIPLE=x86_64-unknown-linux-gnu
 CPU=x86-64-v3
+
+# GATE_LTO=1: the clang that compiles the runtime to bitcode and links the
+# program with it, and the musl target of the plan's executables.
+GATE_LTO=${GATE_LTO:-0}
+if [ "$GATE_LTO" = 1 ]; then
+  if [ -x "$TC/llvm-musl/bin/clang++" ]; then LTO_CXX=$TC/llvm-musl/bin/clang++
+  else LTO_CXX=$TC/stage1/bin/clang++; fi
+  TRIPLE=x86_64-unknown-linux-musl
+fi
 
 # The input of each program: the papers' sizes for the suite (Perceus's for
 # rbtree, rbtree-ck, deriv, nqueens and cfold; Lean's for qsort and
@@ -207,10 +221,21 @@ measure_best() {
 build_runtime() {
   variant=$1; shift
   obj=$OUT/rt/runtime-$variant.o
+  [ "$GATE_LTO" = 1 ] && obj=$OUT/rt/runtime-$variant-lto.o
   src=$ROOT/foreign/idr/bench/gate/runtime.cc
   fresh "$obj" "$src" "$ROOT/foreign/idr/bench/gate/runtime.h" && { echo "$obj"; return 0; }
   have_snmalloc || { say "snmalloc not found at $SNMALLOC_SRC (third_party/snmalloc)"; return 1; }
   mkdir -p "$OUT/rt"
+  if [ "$GATE_LTO" = 1 ]; then
+    # The runtime as bitcode, which the link joins with the program.
+    "$LTO_CXX" --target=$TRIPLE -std=c++20 -O2 -DNDEBUG -march=$CPU -mcx16 -pthread \
+      -fno-exceptions -fno-rtti -flto=full \
+      -DSNMALLOC_USE_WAIT_ON_ADDRESS=1 -DSNMALLOC_MIN_ALLOC_STEP_SIZE=8 "$@" \
+      -I "$SNMALLOC_SRC" -c "$src" -o "$obj" > "$obj.log" 2>&1 ||
+      { say "the runtime prototype failed to compile: $obj.log"; return 1; }
+    echo "$obj"
+    return 0
+  fi
   # snmalloc with size classes in 8-byte steps (plan 5.6).
   "$CXX" -std=c++20 -O2 -DNDEBUG -march=$CPU -mcx16 -pthread -fno-exceptions -fno-rtti \
     -DSNMALLOC_USE_WAIT_ON_ADDRESS=1 -DSNMALLOC_MIN_ALLOC_STEP_SIZE=8 "$@" \
@@ -227,6 +252,7 @@ runtime_defines() {
     flush) echo "-DIDR_GATE_FLUSH" ;;
     home) echo "-DIDR_GATE_HOME" ;;
     flush-home) echo "-DIDR_GATE_FLUSH -DIDR_GATE_HOME" ;;
+    malloc) echo "-DIDR_GATE_MALLOC" ;;
     *) say "gate: unknown runtime variant $1"; return 1 ;;
   esac
 }
@@ -248,7 +274,17 @@ lower() {
     "$work/module.mlir" -o "$work/llvm.mlir" &&
   "$LLVM_BIN/mlir-translate" --mlir-to-llvmir "$work/llvm.mlir" -o "$work/module.ll" &&
   "$LLVM_BIN/opt" -mtriple=$TRIPLE -mcpu=$CPU -internalize-public-api-list=idr_main \
-    -passes='internalize,default<O3>' "$work/module.ll" -o "$work/module.bc" &&
+    -passes='internalize,default<O3>' "$work/module.ll" -o "$work/module.bc" || {
+    say "lowering $* failed"; return 1; }
+  if [ "$GATE_LTO" = 1 ]; then
+    # One module: lld's full LTO joins the program with the runtime's
+    # bitcode, internalizes all but the process entry and runs O3, as
+    # idris-mlir-cc does (TC-LINK-1); a static PIE on musl (TC-LINK-2).
+    "$LTO_CXX" --target=$TRIPLE -flto=full -O3 -march=$CPU -pthread \
+      -Wl,--lto-O3 -Wl,-mllvm,--align-all-functions=6 -Wl,-mllvm,--align-all-nofallthru-blocks=6 \
+      "$work/module.bc" "$rt" -o "$exe" || { say "lowering $* failed"; return 1; }
+    return 0
+  fi
   "$LLVM_BIN/llc" -O3 -mtriple=$TRIPLE -mcpu=$CPU -relocation-model=pic -filetype=obj \
     --align-all-functions=6 --align-all-nofallthru-blocks=6 "$work/module.bc" -o "$work/module.o" &&
   "$CXX" -pthread "$work/module.o" "$rt" -o "$exe" ||
@@ -279,6 +315,7 @@ build_lowered() {
   set --
   for f in $files; do set -- "$@" "$GATE/lowered/$f"; done
   exe=$OUT/lowered/$name-$variant
+  [ "$GATE_LTO" = 1 ] && exe=$exe-lto
   mkdir -p "$OUT/lowered"
   fresh "$exe" "$@" "$GATE/lowered/prelude.mlir" "$ROOT/foreign/idr/bench/gate/runtime.cc" \
     "$ROOT/foreign/idr/bench/gate/runtime.h" && { echo "$exe"; return 0; }

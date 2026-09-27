@@ -79,16 +79,28 @@ inline bool is_cell(const void *v) { return v != nullptr && ((uintptr_t)v & 1) =
 
 inline void **fields(IdrCell *c) { return reinterpret_cast<void **>(c + 1); }
 
+#ifdef IDR_GATE_MALLOC
+// Analysis only: libc's allocator, for valgrind, which cannot reserve
+// snmalloc's pagemap. Never timed.
+template <size_t S> inline void *raw_alloc() { return malloc(S); }
+template <size_t S> inline void raw_free(void *p) { free(p); }
+inline void raw_free_any(void *p) { free(p); }
+#else
+template <size_t S> inline void *raw_alloc() { return snmalloc::alloc<S>(); }
+template <size_t S> inline void raw_free(void *p) { snmalloc::dealloc<S>(p); }
+inline void raw_free_any(void *p) { snmalloc::dealloc(p); }
+#endif
+
 template <size_t S> inline void *alloc_cell() {
   STAT(cells, 1);
   DIRTY();
-  return snmalloc::alloc<S>();
+  return raw_alloc<S>();
 }
 
 template <size_t S> inline void free_sized(void *p) {
   STAT(frees, 1);
   DIRTY();
-  snmalloc::dealloc<S>(p);
+  raw_free<S>(p);
 }
 
 inline void free_words(IdrCell *c, unsigned nwords) {
@@ -100,7 +112,7 @@ inline void free_words(IdrCell *c, unsigned nwords) {
   case 6: free_sized<48>(c); break;
   case 7: free_sized<56>(c); break;
   case 8: free_sized<64>(c); break;
-  default: STAT(frees, 1); DIRTY(); snmalloc::dealloc(c); break;
+  default: STAT(frees, 1); DIRTY(); raw_free_any(c); break;
   }
 }
 
