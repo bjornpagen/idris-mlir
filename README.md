@@ -45,8 +45,10 @@ with an `unsupported (<RULE>)` error at the source location.
   [the v3 note](docs/research/v3-entry.md) for what is still missing.
 
 On the heap-free programs it can compile, the output is faster than MLton's
-on every benchmark in [bench/](bench/README.md), by 1.4x to 4.1x, and within
-reach of gcc -O2.
+on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
+4.2x (and 65x where call-pattern specialization removes most of the work),
+and within reach of gcc -O2. On deep non-tail recursion with no constant
+argument (`ackdyn`), MLton is 2.4x faster.
 
 ```sh
 idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int

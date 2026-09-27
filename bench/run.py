@@ -35,6 +35,9 @@ BENCHMARKS = {
     "fib": "38",
     "tak": "18",
     "collatz": "3000000",
+    "ack": "10",
+    "ackdyn": "10",
+    "harmonic": "200000000",
 }
 
 

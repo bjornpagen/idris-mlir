@@ -269,6 +269,18 @@ is static.
   a literal is still one specialization; only code that could not be
   compiled otherwise is specialized per literal.
   - Test: `tests/e2e/v3/prelude-user-types` (`printLn 'x'` twice)
+- **ELIM-G-18 (v3). Call-pattern specialization on literals.** A call of a
+  function that returns a runtime value, with a literal argument in a
+  position its body matches on directly (`ack 0 n = ...`), is specialized
+  on that literal, at most four times per function; further calls use the
+  ordinary specialization. This is GHC's call-pattern specialization
+  (Peyton Jones, "Call-pattern specialisation for Haskell programs", ICFP
+  2007) for literals, and the constant cloning gcc does for `ack` (its
+  interprocedural constant propagation). An action is not specialized so:
+  an IO loop that counts down from a literal stays one loop (`ELIM-G-5`).
+  In `ack 3 n` the four specializations fix `m`, and LLVM finds closed
+  forms for three of them.
+  - Test: `tests/e2e/v3/call-pattern`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
@@ -280,6 +292,7 @@ is static.
     inside itself; with a string join point (`ELIM-G-14`), at most 64 times;
   - `ELIM-G-16` by its budget of unfoldings; an attempt that exceeds it is
     undone;
+  - `ELIM-G-18` by four specializations per function;
   - values of recursive data (`SEM-REC-2`) and `Integer`s by 10000 nested
     calls, and the run of an action whose result holds a function (an
     `IORes` of a function) by 64: neither can cross a specialization.

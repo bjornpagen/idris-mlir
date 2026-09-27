@@ -23,11 +23,14 @@ GCC as pinned), best of 5, seconds:
 
 | benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.333 | 5.756 | 1.347 | 0.338 | 4.04x |
-| mandelbrot | 2000 | 0.359 | 5.128 | 0.516 | 0.368 | 1.44x |
-| fib | 38 | 0.110 | 3.431 | 0.287 | 0.065 | 2.60x |
-| tak | 18 | 0.116 | 1.290 | 0.170 | 0.105 | 1.46x |
-| collatz | 3000000 | 0.473 | 21.135 | 1.934 | 0.590 | 4.09x |
+| nbody | 5000000 | 0.338 | 5.909 | 1.340 | 0.341 | 3.97x |
+| mandelbrot | 2000 | 0.358 | 5.195 | 0.518 | 0.366 | 1.45x |
+| fib | 38 | 0.109 | 3.426 | 0.286 | 0.065 | 2.64x |
+| tak | 18 | 0.117 | 1.303 | 0.175 | 0.105 | 1.49x |
+| collatz | 3000000 | 0.466 | 21.007 | 1.972 | 0.596 | 4.23x |
+| ack | 10 | 0.001 | 1.067 | 0.090 | 0.039 | 64.51x |
+| ackdyn | 10 | 0.212 | 1.026 | 0.088 | 0.038 | 0.42x |
+| harmonic | 200000000 | 0.254 | 6.412 | 0.649 | 0.247 | 2.56x |
 
 The Prelude costs nothing: its interfaces, `Integer` literals and `show`
 internals are all resolved at compile time, and these times equal those of
@@ -47,7 +50,18 @@ the same programs written against a hand-made numeric module.
   array in place, as C programs do.
 - All four print the same n-body energies to the last digit, so the
   floating-point work is the same.
-- `fib` is the one case where gcc is clearly faster, by 1.7x. LLVM turns
+- `ack` computes `ack 3 n`. With `m` a literal, call-pattern
+  specialization (`ELIM-G-18`) makes four copies of `ack` with `m` fixed,
+  and LLVM turns three of them into closed forms, so almost nothing is left
+  to run; gcc gets part of the way with its own constant cloning. This
+  measures the specialization, not recursion.
+- `ackdyn` is the same computation with `m` read from the input, so no
+  specialization applies. It measures deep, non-tail recursion, and MLton
+  is 2.4x faster: LLVM's code here matches clang's on the C version
+  (0.16 s), and gcc is faster still by inlining `ack` into itself. Doing
+  that by hand in the Idris source helped `ack` (0.13 s) and hurt `fib`,
+  so it is not done.
+- `fib` is one of the cases where gcc is clearly faster, by 1.7x. LLVM turns
   one of the two recursive calls into a loop with an accumulator; gcc also
   inlines the function into itself, which LLVM does not do. This compiler
   now matches clang 18 at `-O2` on the C version (0.109 s); it was 14%

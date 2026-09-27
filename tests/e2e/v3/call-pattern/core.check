@@ -1,0 +1,8 @@
+rule: ELIM-G-18
+ack is specialized for each literal m; count, an action, is not.
+CHECK-DAG: -- specialization of Main.ack(_:Int; _:Int) at 0:Int, _
+CHECK-DAG: -- specialization of Main.ack(_:Int; _:Int) at 1:Int, _
+CHECK-DAG: -- specialization of Main.ack(_:Int; _:Int) at 2:Int, _
+CHECK-DAG: -- specialization of Main.ack(_:Int; _:Int) at 3:Int, _
+CHECK-DAG: -- specialization of Main.count(_:Int) .PrimIO.MkIO#0 @(_:%World)
+CHECK-NOT: Main.count(_:Int) .PrimIO.MkIO#0 @(_:%World) at

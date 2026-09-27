@@ -621,20 +621,51 @@ mutual
                         ", which calls itself, so it would need the heap (ELIM-G-14)")
     t <- elimTy l fn.result es >>= runtimeTy l
     let generic = MkKey f (map shape args) (shapeElims es) []
-    let lits = map (literalAtom . snd) (atoms args es)
-    -- ELIM-G-17: a specialization that cannot be built for any value of
-    -- its atoms is built for the literals among them, if there are any.
-    (name, isLiteral) <- if all isNothing lits then (, False) <$> specialize l fn generic args es t else do
-      Right name <- attempt (specialize l fn generic args es t)
-        | Left _ => (, True) <$> specialize l fn ({ lits := lits } generic) args es t
-      pure (name, False)
+    let every = the (List (VTy, Atom)) (atoms args es)
+    let lits = map (literalAtom . snd) every
+    -- ELIM-G-18: a literal argument that the function matches on picks a
+    -- specialization of its own (call-pattern specialization), within a
+    -- budget per function.
+    pattern0 <- callPattern fn args
+    let pattern = if null pattern0 then [] else pattern0 ++ replicate (minus (length every) (length pattern0)) Nothing
+    (name, fixed) <- if not (all isNothing pattern)
+      then (, pattern) <$> specialize l fn ({ lits := pattern } generic) args es t
+      -- ELIM-G-17: a specialization that cannot be built for any value of
+      -- its atoms is built for the literals among them, if there are any.
+      else if all isNothing lits then (, the (List (Maybe Lit)) []) <$> specialize l fn generic args es t else do
+        Right name <- attempt (specialize l fn generic args es t)
+          | Left _ => (, lits) <$> specialize l fn ({ lits := lits } generic) args es t
+        pure (name, the (List (Maybe Lit)) [])
     now <- gets effects
     when (not (null es)) $
       modify { runs $= (:< (name, l, maybe False (< now) built)) }
-    let as = the (List (VTy, Atom)) (if isLiteral then filter (isNothing . literalAtom . snd) (atoms args es)
-                                     else atoms args es)
+    let as = the (List (VTy, Atom))
+               (if null fixed then every else map fst (filter (\(_, f) => isNothing f) (zip every fixed)))
     when (any ((== WorldT) . fst) as) effect
     Dyn t <$> bind l t (OCall name (map snd as))
+
+  ||| The literals to specialize a call on (ELIM-G-18), by atom: a literal
+  ||| argument in a position the body matches on, of a function that returns
+  ||| a runtime value, while it has made fewer than four such
+  ||| specializations; otherwise none.
+  callPattern : TFn -> List V -> M (List (Maybe Lit))
+  callPattern fn args = do
+    let matched = matchedParams fn.arity fn.body
+    let perArg = zipWith pin [0 .. length args] args
+    let pattern = concat perArg
+    st <- get
+    let made = fromMaybe 0 (lookup fn.id st.patterns)
+    -- Only a function that computes a value: an action (an IO loop that
+    -- counts down from a literal) stays one loop (ELIM-G-5).
+    if all isNothing pattern || made >= 4 || isNothing (value fn.result) then pure [] else do
+      let key = MkKey fn.id (map shape args) [] pattern
+      when (isNothing (lookup key st.memo)) $
+        modify { patterns $= insert fn.id (S made) }
+      pure pattern
+    where
+      pin : Nat -> V -> List (Maybe Lit)
+      pin i (Dyn _ (ALit lit)) = [if contains i (matchedParams fn.arity fn.body) then Just lit else Nothing]
+      pin i v = map (const Nothing) (atoms [v] [])
 
   ||| The specialization of a function for a key, made on first use.
   specialize : Loc -> TFn -> Key -> List V -> List (Elim Atom) -> VTy -> M FnId
@@ -648,7 +679,9 @@ mutual
         -- ones it received and differ from them. They grow with each
         -- recursive call, so specialization would not terminate. The count
         -- and size limits are a backstop.
-        when (any (\k => k.fn == key.fn && k /= key && grows k key) st.stack) $
+        -- A key that differs only in its literals (ELIM-G-17, ELIM-G-18) does
+        -- not grow; the budget of literal specializations bounds it.
+        when (any (\k => k.fn == key.fn && k /= key && grows k key && not (sameShape k key)) st.stack) $
           fail ProfHeap4 l
                (fn.idrisName ++ " passes itself a function, IO action or Lazy value that " ++
                 "grows with each call, so it cannot be specialized away")
@@ -661,12 +694,12 @@ mutual
         put ({ memo $= insert key name, made $= insert fn.id (S n), stack $= (key ::) } st)
         -- Parameters: the atoms of the arguments and eliminations, but for
         -- the literals a literal key fixes (ELIM-G-17).
-        let all = the (List (VTy, Atom)) (atoms args es)
-        let fixed = the (List (Maybe Lit)) (if null key.lits then map (const Nothing) all else key.lits)
-        let free = the (List ((VTy, Atom), Maybe Lit)) (filter (\(_, f) => isNothing f) (zip all fixed))
+        let every = the (List (VTy, Atom)) (atoms args es)
+        let fixed = the (List (Maybe Lit)) (if null key.lits then map (const Nothing) every else key.lits)
+        let free = the (List ((VTy, Atom), Maybe Lit)) (filter (\(_, f) => isNothing f) (zip every fixed))
         let types = map (\((t, _), _) => t) free
         params <- traverse (const freshVar) types
-        let (args', es') = refill (supply (zipWith dynAtom params types) (zip all fixed)) AErased args es
+        let (args', es') = refill (supply (zipWith dynAtom params types) (zip every fixed)) AErased args es
         Just env <- pure (toVect fn.arity args')
           | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
         -- G5: the body before the eliminations apply runs where the action
@@ -696,6 +729,8 @@ mutual
       supply ps ((_, Just lit) :: rest) = ALit lit :: supply ps rest
       supply (p :: ps) ((_, Nothing) :: rest) = p :: supply ps rest
       supply [] ((_, Nothing) :: rest) = AErased :: supply [] rest
+      sameShape : Key -> Key -> Bool
+      sameShape a b = MkKey a.fn a.args a.elims [] == MkKey b.fn b.args b.elims []
       grows : Key -> Key -> Bool
       applied : Elim () -> Maybe (SVal ())
       applied (Apply v) = Just v

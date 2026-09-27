@@ -115,6 +115,8 @@ record St where
   ||| The innermost location in the user's code that evaluation is under: a
   ||| diagnostic inside library code is reported there (DIAG-LOC-1).
   site : Maybe Loc
+  ||| Call-pattern specializations made per function (ELIM-G-18).
+  patterns : SortedMap FnId Nat
 
 ||| Why evaluation stopped: a user error, a point Idris proved impossible, a
 ||| crash, or a compile-time evaluation given up (ELIM-G-16).
@@ -127,7 +129,7 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing Nothing
+initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing Nothing empty
 
 export
 fail : Rule -> Loc -> String -> M a

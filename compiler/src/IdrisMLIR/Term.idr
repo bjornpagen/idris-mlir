@@ -208,6 +208,29 @@ mutual
   litsFree [] = empty
   litsFree ((_, t) :: rest) = union (freeIndices t) (litsFree rest)
 
+||| The parameters a body matches on literals directly (ELIM-G-18): the
+||| indices, among `arity` parameters, that a `CaseLit` scrutinizes outside
+||| any closure.
+export covering
+matchedParams : (arity : Nat) -> Term n -> SortedSet Nat
+matchedParams arity = go 0
+  where
+    param : Nat -> Nat -> Maybe Nat
+    param d x = if x >= d && minus x d < arity then Just (minus x d) else Nothing
+    go : Nat -> Term m -> SortedSet Nat
+    goAlts : Nat -> List (Alt m) -> SortedSet Nat
+    goAlts d [] = empty
+    goAlts d (MkAlt _ fs b :: rest) = union (go (d + length fs) b) (goAlts d rest)
+    goLits : Nat -> List (Lit, Term m) -> SortedSet Nat
+    goLits d [] = empty
+    goLits d ((_, t) :: rest) = union (go d t) (goLits d rest)
+    go d (Let _ _ v b) = union (go d v) (go (S d) b)
+    go d (Case _ _ alts def) = union (goAlts d alts) (maybe empty (go d) def)
+    go d (CaseLit _ x alts def) =
+      let here = maybe empty singleton (param d (finToNat x)) in
+      union here (union (goLits d alts) (go d def))
+    go d _ = empty
+
 ||| The position of an element in a vector.
 position : Eq a => Vect k a -> a -> Maybe (Fin k)
 position [] _ = Nothing
