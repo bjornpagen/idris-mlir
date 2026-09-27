@@ -2057,9 +2057,8 @@ Perceus (Reinking et al., PLDI 2021), Figure 9:
 
 ## Appendix B: sources
 
-- **Papers**, in `docs/research/papers/` and
-  `docs/research/sources/oa-papers/`, to be merged into
-  `docs/research/library/` (section 9):
+- **Papers**, in `docs/research/library/papers/`, indexed by topic in
+  `docs/research/library/INDEX.md` (section 9):
   - Counting Immutable Beans;
   - Perceus;
   - FP²;

@@ -115,7 +115,7 @@ Everything is installed under `.toolchain/`.
 - [Architecture spec](docs/architecture/00-index.md) (normative)
 - [Toolchain](docs/toolchain.md)
 - [The plan](docs/plan.md): the only plan; what comes next and why
-- [Research library](docs/research/): vendored papers and source snapshots
+- [Research library](docs/research/library/): vendored papers and source snapshots
 
 ## License
 

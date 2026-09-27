@@ -79,12 +79,12 @@ the cross-cutting STG and eval/apply papers).
 
 | Unresolved | Threads | Status / reason |
 | --- | --- | --- |
-| Garbage Collection Handbook | D | book; no OA. Pointer only (`gc-handbook.md` was planned and not written). |
-| Boehm GC; "precise tracing GC" | D | tech report / project pages; no single canonical paper selected. Pointers only (`boehm-gc.md` planned, not written). |
-| Destination-passing style | D | no specific canonical reference selected. |
+| Garbage Collection Handbook (`book-gc-handbook`) | D | book (paid); no OA. Pointer only (`gc-handbook.md` was planned and not written). |
+| Boehm GC; "precise tracing GC" (`boehm-gc`, `precise-tracing-gc`) | D | tech report / project pages; no single canonical paper selected. Pointers only (`boehm-gc.md` planned, not written). |
+| Destination-passing style (`destination-passing-style`) | D | no specific canonical reference selected. |
 | Koka effect types (additional papers) | D | only Leijen POPL 2017 resolved (stored above); other Koka material is docs/code (`code-koka`, not collected). |
-| Linear IO in QTT | cross-cutting, D | literature probe at collection time; not run. |
-| Algebraic effects and handlers | cross-cutting, D | literature probe at collection time; not run. |
+| Linear IO in QTT (`linear-io-qtt`) | cross-cutting, D | literature probe at collection time; not run. |
+| Algebraic effects and handlers (`algebraic-effects-handlers`) | cross-cutting, D | literature probe at collection time; not run. |
 
 **Also:** `hovgaard-2018-defunctionalisation` and `danvy-2001-defunctionalization`
 (Specialization) for closure representation; `brady-2021-idris2-qtt` (Types and
@@ -144,10 +144,10 @@ inlining (cross-cutting).
 
 | Unresolved | Threads | Status / reason |
 | --- | --- | --- |
-| Warm fusion; shortcut fusion | C | no specific canonical paper selected in the plan; confirm the intended references. |
-| Futamura, "Partial evaluation of computation process" (1971) | C | classic journal article with no DOI or OA copy located. |
-| Christiansen PhD thesis | C | no stable OA URL located. |
-| Jones, Gomard, Sestoft, *Partial Evaluation and Automatic Program Generation* (book) | C | free author-hosted PDF; store as pointer or fetch the PDF (`pe-book.md` planned, not written). |
+| Warm fusion; shortcut fusion (`warm-fusion`, `shortcut-fusion`) | C | no specific canonical paper selected in the plan; confirm the intended references. |
+| Futamura, "Partial evaluation of computation process" (1971) (`futamura-projections`) | C | classic journal article with no DOI or OA copy located. |
+| Christiansen PhD thesis (`christiansen-thesis`) | C | no stable OA URL located. |
+| Jones, Gomard, Sestoft, *Partial Evaluation and Automatic Program Generation* (book) (`book-pe-jones-gomard-sestoft`) | C | free author-hosted PDF; store as pointer or fetch the PDF (`pe-book.md` planned, not written). |
 
 **Also:** `leijen-2017-koka-effects` (Memory); `chen-2018-tvm` and
 `ragankelley-2013-halide` (Arrays and scheduling) for schedule-driven code generation.
@@ -287,8 +287,8 @@ Tinygrad and first-order dataflow optimizers (A) and arrays and kernels with sha
 
 | Unresolved | Threads | Status / reason |
 | --- | --- | --- |
-| Henriksen PhD thesis | G | no OA URL located (likely `futhark-lang.org` or DIKU). |
-| SaC | G | no specific canonical reference selected. |
+| Henriksen PhD thesis (`henriksen-thesis`) | G | no OA URL located (likely `futhark-lang.org` or DIKU). |
+| SaC (`sac-language`) | G | no specific canonical reference selected. |
 | Dex papers and index sets (`dex-papers`) | G | specific references to identify; literature probe not run. |
 | Halide (PLDI/SIGGRAPH 2012) (`halide-2012`) | G | reference to confirm; literature probe not run. |
 
@@ -368,12 +368,12 @@ termination, and value representation.
 
 | Unresolved | Threads | Status / reason |
 | --- | --- | --- |
-| Brady PhD thesis (2013) | E | hosted at `research-repository.st-andrews.ac.uk`, unreachable (000, then 503). |
-| Tejiščák, *Erasure in Dependently Typed Programming* (thesis, 2020) | E | St Andrews repository unreachable. |
-| Wadler, efficient compilation of pattern matching (1987) | E | no DOI confirmed; likely in proceedings that are not indexed. |
-| Abel, "foetus" termination checker | E | technical report, no DOI; the author's `/foetus/` path returned 404 (`foetus.md` pointer planned, not written). |
+| Brady PhD thesis (2013) (`brady-2013-thesis`) | E | hosted at `research-repository.st-andrews.ac.uk`, unreachable (000, then 503). |
+| Tejiščák, *Erasure in Dependently Typed Programming* (thesis, 2020) (`teiiscak-2020-erasure-thesis`) | E | St Andrews repository unreachable. |
+| Wadler, efficient compilation of pattern matching (1987) (`wadler-1987-pattern-matching`) | E | no DOI confirmed; likely in proceedings that are not indexed. |
+| Abel, "foetus" termination checker (`abel-foetus`) | E | technical report, no DOI; the author's `/foetus/` path returned 404 (`foetus.md` pointer planned, not written). |
 | GHC unarisation documentation (`docs-ghc-unarisation`) | E | no `commentary/compiler/unarisation` page exists (HTTP 404); nearest material in `docs/ghc/`. |
-| GMP manual; *Modern Computer Arithmetic* (book); Idris `Integer`/`String` | cross-cutting | docs and books; store as documentation or pointers (planned, not collected). |
+| GMP manual; *Modern Computer Arithmetic* (book); Idris `Integer`/`String` (`pointers-gmp-manual`, `pointers-modern-computer-arithmetic`, `code-idris-integer-string`) | cross-cutting, E | docs and books; store as documentation or pointers (planned, not collected). |
 
 **Also:** `bernardy-2018-linear-haskell`, `marshall-2022-linearity-uniqueness`,
 `marshall-2024-fractional-uniqueness`, `wadler-1990-linear-types` (Memory);

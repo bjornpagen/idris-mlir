@@ -29,7 +29,7 @@
   code come from whole-program elimination (MLton, Futhark, Lean LCNF), while
   automatic superoptimization pays off little in general code (Souper made
   Clang 4.4% smaller but about 2% slower;
-  [sasnauskas-2017-souper](../research/papers/sasnauskas-2017-souper)).
+  [sasnauskas-2017-souper](../research/library/papers/sasnauskas-2017-souper)).
 - **Heap, GC, reference counting, runtime system (until reopened).** Until the
   memory design exists, compiled programs allocate no heap memory. Memory management is
   a later design discussion that starts from scratch
@@ -78,8 +78,8 @@
   - Quantity 1 does not mean unique ownership: Idris's linearity promises
     only that an argument is not shared in the future, not that it was
     unshared in the past
-    ([brady-2021-idris2-qtt](../research/papers/brady-2021-idris2-qtt),
-    [marshall-2022-linearity-uniqueness](../research/papers/marshall-2022-linearity-uniqueness)).
+    ([brady-2021-idris2-qtt](../research/library/papers/brady-2021-idris2-qtt),
+    [marshall-2022-linearity-uniqueness](../research/library/papers/marshall-2022-linearity-uniqueness)).
   - An indexed vector does not imply contiguous storage.
   - A fact MUST NOT be used beyond what it proves.
 - **GOAL-P6. Two languages, one contract.**
