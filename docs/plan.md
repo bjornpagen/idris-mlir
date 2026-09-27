@@ -77,15 +77,29 @@ Settled, and the rest of the plan builds on them:
 4. **Concurrency is thread-per-core** (section 7). The execution algebras
    are Idris's own libraries: `fork`, `System.Concurrency` and
    `System.Future`.
-5. **Executables are fully static on musl** (section 5). The kernel's
-   syscalls are their only interface. musl and GMP are vendored as pinned
-   git submodules, and the toolchain itself (GCC's target, LLVM/MLIR and our
-   C++ tools, `idr-jit` included) is built on musl, so compile time and
-   runtime share one libc.
+5. **Everything but the operating system's interface is linked statically**
+   (section 5), as Go does.
+   - **Linux:** the interface is the kernel's syscalls, so executables are
+     fully static on musl. musl and GMP are vendored as pinned git
+     submodules, and the toolchain itself (GCC's target, LLVM/MLIR and our
+     C++ tools, `idr-jit` included) is built on musl, so compile time and
+     runtime share one libc.
+   - **macOS** (a later target): the interface is `libSystem`, since Apple
+     does not keep the syscall interface stable, so executables link
+     `libSystem` dynamically and everything else statically.
 6. **Compile-time evaluation is one JIT path** (section 6). It runs the
    compiler's own pipeline and the program's own runtime, and has no
    features of its own.
-7. **The repository has no Python** (section 9). Tests are Idris golden
+7. **Semantics are upstream Idris's.** A compiled program means what the
+   Idris language and its libraries say it means.
+   - The Chez backend is a test oracle, not the definition.
+   - What Idris leaves to the implementation stays ours to choose:
+     - the exact results of `exp`, `sin` and the other math functions
+       (whatever libm the platform uses);
+     - scheduling fairness and timing;
+     - stack depth (as long as recursion the reference runs, runs).
+   - Differential tests against Chez therefore compare everything but those.
+8. **The repository has no Python** (section 9). Tests are Idris golden
    tests, as in Idris 2 itself, and the vendored research library is kept
    and reorganized.
 
@@ -262,17 +276,19 @@ If the gate fails, the memory decision is reopened with the numbers.
 
 ## 5. Runtime and linking
 
-### 5.1 Fully static executables
+### 5.1 Static except the OS interface
 
-There is no `ld.so` and no shared library; the kernel's syscalls are the
-only interface, as with Go on Linux. `TEST-HEAP-1` (only `write`, `read`,
+On Linux there is no `ld.so` and no shared library; the kernel's syscalls
+are the only interface, as with Go. (On macOS the interface is `libSystem`,
+section 5.5.) `TEST-HEAP-1` (only `write`, `read`,
 `_exit` and libm) becomes a check that every executable has no `INTERP` and
 no `DYNAMIC` section. Executables are static-PIE (musl's `rcrt1.o`), so
 they keep address-space randomization.
 
 ### 5.2 The C library: musl
 
-Chosen over LLVM's libc, from both sources:
+Chosen over LLVM's libc, from both sources. A libc is a Linux-only choice:
+on macOS the C library is `libSystem`, whichever we pick here.
 
 | | musl 1.2.6 (clone of a GitHub mirror) | LLVM libc (the pinned `llvm-project/libc`) |
 | --- | --- | --- |
@@ -288,15 +304,12 @@ on the program's own libc (section 6), so its process (LLVM, MLIR, our
 C++) must be built on that libc. With musl the whole toolchain can be; with
 LLVM's libc it cannot.
 
+**Math is not a criterion.** The results of the math functions are
+implementation-defined (decision 7). musl's are deterministic across x86-64
+machines (plain C on SSE), which is all the JIT needs: compile time and
+runtime run the same code.
+
 **What musl costs:**
-- **Trigonometry is not correctly rounded.** `sin` and the inverse
-  functions can differ from glibc's (the reference Chez runs on glibc) in
-  the last place. `SEM-DEV-2` already allows `libm` differences.
-  - Results are deterministic across x86-64 machines: musl's math is plain
-    C on SSE.
-  - The toolchain step measures how often our math e2e tests differ from
-    Chez. If it matters, the answer is a correctly rounded libm linked in
-    place of musl's, which is a separate decision.
 - **`memcpy` is a simple `rep movsq`**, slower than glibc's vector copies
   on large blocks. Our generated code copies little, and a measured
   problem would be met by a better `memcpy` in the runtime.
@@ -350,6 +363,28 @@ The runtime is C, compiled by the musl GCC into one static archive in
 
 **The allocator:** vendored mimalloc (per-thread heaps and remote frees are
 what section 4.3 needs), or our own size classes (section 12).
+
+### 5.5 Platforms
+
+The runtime is written against a narrow OS layer, so that macOS is a port
+of that layer and not a redesign:
+
+| Need | Linux (first) | macOS (later) |
+| --- | --- | --- |
+| The OS interface | syscalls, through static musl | `libSystem`, linked dynamically |
+| Executable | static-PIE ELF | Mach-O, PIE |
+| Readiness | `epoll`; `eventfd` for wake-ups; the timer heap's deadline as the timeout | `kqueue`; `EVFILT_USER` for wake-ups; `EVFILT_TIMER` or the same deadline |
+| Files and DNS | the blocking pool, then `io_uring` | the blocking pool |
+| Threads | `clone` or musl's pthreads; `sched_setaffinity` pins them | pthreads; no hard affinity (affinity tags are hints), so "per core" means one scheduler per CPU, unpinned |
+| Per-thread data (the stack limit, the core's scheduler) | static TLS | thread-local variables (TLV) |
+| JIT memory | `mmap` read-write, then read-execute | `MAP_JIT`, toggled with `pthread_jit_write_protect_np` on Apple silicon |
+| Toolchain | the musl GCC; LLVM/MLIR static on musl | Apple's SDK and linker; LLVM/MLIR on `libSystem` |
+| Bignums | GMP, static | GMP, static |
+
+- **The one-libc rule still holds on macOS:** `idr-jit` and the executables
+  both use `libSystem`.
+- **What macOS loses:** hard pinning of threads to cores, and `io_uring`.
+  Thread-per-core becomes one scheduler per CPU that the OS may move.
 
 ## 6. Compile-time evaluation: one JIT path
 
@@ -412,8 +447,9 @@ own pipeline and the program's own runtime, run at compile time.
     (`FE-DET-1`).
 - **Results are cached** per configuration for the compilation.
 - **Cross-compilation** (later) cannot run target code on the host.
-  - Integer semantics are fixed-width, and doubles agree if the libm is
-    correctly rounded.
+  - Integer semantics are fixed-width. Math function results are
+    implementation-defined, so a host libm is acceptable there, but
+    compile time and runtime would no longer run the same code.
   - Until cross-compilation exists, host is target.
 
 It lands in two steps:
@@ -469,8 +505,9 @@ loops reach code generation.
   that: the Prelude's `map` on lists is not tail-recursive, so mapping over
   a million-element list recurses a million deep.
 - musl gives a thread 128 KiB of stack by default.
-- A task stack must hold what the reference holds, or the program crashes
-  where Chez would not.
+- Stack depth is implementation-defined (decision 7), but recursion that
+  upstream Idris runs must run: a program must not crash on a depth the
+  reference handles.
 
 The candidates:
 
@@ -526,6 +563,8 @@ Consequences:
   through borrowed references cost no count traffic.
 
 ### 7.5 The kernel interface
+
+This is Linux; macOS maps each item to `kqueue` and pthreads (section 5.5).
 
 - Threads are created with `clone` (or the libc's `pthread`) and pinned
   with `sched_setaffinity`.
@@ -647,7 +686,7 @@ Each milestone requires:
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
 | 1 | **Cleanup** (section 9) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
-| 3 | **Static toolchain on musl** (section 5) | musl and GMP pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the math e2e tests measured against Chez |
+| 3 | **Static toolchain on musl** (section 5) | musl and GMP pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
 | 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; reference counting on `Code Mem` (section 4.2); runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
@@ -657,6 +696,7 @@ Each milestone requires:
 | 9 | **C2: thread-per-core** | a pinned scheduler per core; `SO_REUSEPORT`; move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
 | 10 | **C3: parallel futures** | stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
 | 11 | **C4: `io_uring`** | behind the same scheduler, if C2's numbers call for it |
+| 12 | **macOS** (section 5.5) | the OS layer on `libSystem` and `kqueue`; Mach-O output; `idr-jit` with `MAP_JIT`; every suite green on macOS (arm64 and x86-64) |
 
 - **Anywhere after 0:** SOP returns (8.1), the facts algebra (8.3) and the
   frontend split (8.4).
@@ -670,6 +710,9 @@ in its milestone:
   `System.Future` and `Network.Socket`; withdraw the heap rejections as
   their values gain representations.
 - **03:**
+  - the results of the math functions are implementation-defined
+    (replacing "what `libm` returns"), and semantics are upstream Idris's,
+    with Chez as a test oracle only;
   - `Integer` and `Nat` at runtime;
   - strings built at runtime;
   - the one-world rule for `unsafePerformIO`;
@@ -694,7 +737,7 @@ reverse it.
 | Thread-per-core, IO tasks pinned (7) | core-local data; no migration; almost all counts non-atomic | no automatic balancing of IO tasks across cores; a long computation in a task blocks its core | real servers need IO-task migration for load balance |
 | Idris's libraries as the concurrency API (7.2) | no language design; programs run on Chez too | no "fork on core k" (a runtime policy stands in) | a program cannot be written without placement control |
 | Segmented stacks with our own check (7.3) | unbounded recursion like the reference; unbounded tasks; no pointer maps | a check per function entry; a system-stack switch per C call; the hot-split case | C0 shows the check is not within noise, or hot splits are common |
-| musl (5.2) | a complete, mature Linux libc on which the whole toolchain, the JIT included, can be static | not-correctly-rounded trigonometry; a simple `memcpy`; one more GCC build | math differences break real programs' output against the reference, and a correctly rounded libm cannot be linked in its place |
+| musl on Linux, `libSystem` on macOS (5.2, 5.5) | a complete, mature Linux libc on which the whole toolchain, the JIT included, can be static; the same OS-layer shape on macOS | a simple `memcpy`; one more GCC build; two OS layers to maintain | a supported platform offers no static libc and no stable dynamic one (not the case for Linux or macOS) |
 | GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
 | One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
 | UTF-8 strings with scalar counts (3) | output without transcoding; compact storage; O(1) for ASCII | breadcrumbs for indexing non-ASCII strings | programs index non-ASCII strings heavily enough that UTF-32 wins |
@@ -718,8 +761,6 @@ reverse it.
    needs them?
 5. **Joining two literal strings:** data layout (kept in `Simplify`) or a
    primitive for the server?
-6. **Trigonometry:** musl's, or a correctly rounded libm linked in its
-   place, decided by the toolchain step's measurement against Chez.
 
 ## Appendix A: evidence for the memory decision
 
