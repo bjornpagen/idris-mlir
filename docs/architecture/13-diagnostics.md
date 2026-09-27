@@ -35,8 +35,8 @@ There are two kinds of error:
   From v3, an error found inside library code that specialization unfolded
   (the Prelude, `Builtin`, `PrimIO`, `IdrisMLIR.IO`) is reported at the
   innermost user definition that reached it, and names the library
-  location in parentheses: `Main:13:1: ... (in PrimIO:43:23)`.
-  - Test: `tests/profile/v3/reject/PROF-HEAP-1-applicative-io.idr`
+  location in parentheses: `Main:11:1: ... (in Prelude.Cast:83:1)`.
+  - Test: `tests/profile/v3/reject/PROF-TYPE-4-prelude-integer.idr`
 - **DIAG-EXIT-1 (v0).** `idris-mlir --check` exits with status 1 on any user
   error and writes no artifact (`FE-ART-1`).
 - **DIAG-HEAP-1 (v1).** A `PROF-HEAP-*` error explains why the value survived.

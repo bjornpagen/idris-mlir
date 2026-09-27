@@ -431,16 +431,24 @@ mutual
       pure (c, ys, locOf body, r)
     def' <- traverse (\e => (locOf e,) <$> blockV (locOf e) (evalK env e es)) def
     let results = mapMaybe (\(_, _, _, r) => value r) alts' ++ maybe [] (toList . value . snd) def'
-    -- G14: alternatives that build strings make a string join point.
-    if any needsJoin results && all isString results
-      then pure (SString (SCase (DataT d) x (map (\(c, ys, _, r) => MkJoin c ys (arm r)) alts')
-                                             (map (arm . snd) def')))
-      else do
-        branches <- for alts' $ \(c, ys, bl, r) => map (MkBranch c ys) <$> residual bl r
-        defs <- traverse (\(bl, r) => residual bl r) def'
-        t <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
-        Dyn t <$> bind l t (OCase x (map snd branches) (map snd defs))
+    -- A single constructor is not a choice: when its alternative yields a
+    -- static value (an `IORes` of a function), its fields are read and the
+    -- value is used where the match is, not returned from a residual match.
+    dt <- dataDef l d
+    case (alts', def', dt.cons) of
+      ([(c, ys, _, Right (p, v))], Nothing, [con]) =>
+        if reifiable v then joinOrResidual alts' def' results else do
+          tys <- traverse (\f => runtimeTy l f.type) con.fields
+          for_ (zip [0 .. length ys] (zip ys tys)) $ \(i, y, t) =>
+            modify { lets $= (:< MkStmt l y (defaultQuantity t) t (OField x c i)) }
+          replay p
+          pure v
+      _ => joinOrResidual alts' def' results
     where
+      reifiable : V -> Bool
+      reifiable (Dyn _ _) = True
+      reifiable (SString _) = True
+      reifiable _ = False
       residual : Loc -> Either Code (Prefix, V) -> M (Maybe VTy, Code)
       residual bl (Left code) = pure (Nothing, code)
       residual bl (Right (p, v)) = block bl (replay p *> reify bl v)
@@ -456,6 +464,18 @@ mutual
       needsJoin (SString (SRun _)) = False
       needsJoin (SString s) = isNothing (strLit s)
       needsJoin _ = False
+      -- G14: alternatives that build strings make a string join point.
+      joinOrResidual : List (ConId, List VarId, Loc, Either Code (Prefix, V)) ->
+                       Maybe (Loc, Either Code (Prefix, V)) -> List V -> M V
+      joinOrResidual alts' def' results =
+        if any needsJoin results && all isString results
+          then pure (SString (SCase (DataT d) x (map (\(c, ys, _, r) => MkJoin c ys (arm r)) alts')
+                                                 (map (arm . snd) def')))
+          else do
+            branches <- for alts' $ \(c, ys, bl, r) => map (MkBranch c ys) <$> residual bl r
+            defs <- traverse (\(bl, r) => residual bl r) def'
+            t <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
+            Dyn t <$> bind l t (OCase x (map snd branches) (map snd defs))
   matchCon env l v alts def es = fail ProfHeap1 l ("a match on " ++ showShape (shape v))
 
   ||| Applies eliminations to a value.

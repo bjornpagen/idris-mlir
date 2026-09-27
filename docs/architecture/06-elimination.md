@@ -85,7 +85,12 @@ is static.
   removes `MkIO`, `MkIORes`, `MkPair` and records of functions. From v3 a
   constructor of runtime data whose fields are all known stays a known
   value too (`True`, `Nothing`, an enumeration), and is built only where it
-  must exist at runtime.
+  must exist at runtime. A match on a runtime value of a type with one
+  constructor is not a choice either: when its alternative yields a static
+  value (an `IORes` holding a function, as the Prelude's `(*>)` for IO
+  makes), the fields are read in place and the value is used where the
+  match is, instead of being returned from a residual match.
+  - Test: `tests/e2e/v3/prelude-traverse`
 - **ELIM-G-3 (v1). Specialization on static arguments.** A call `f a₁ … aₙ`
   in which some argument is a static value becomes a call to a specialized
   copy of `f` for the shapes `σ` of its arguments:
