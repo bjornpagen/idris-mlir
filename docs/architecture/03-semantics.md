@@ -195,6 +195,21 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   - Test: `tests/profile/v3/accept/SEM-BIG-1-static-integers.idr`,
     `tests/profile/v1/reject/PROF-TYPE-4-integer.idr`
 
+## Recursive data (v3)
+
+- **SEM-REC-1 (v3).** A recursive data type (one whose values can contain
+  values of the same type, directly or through other types) exists at
+  compile time only, as `Integer` does (`SEM-BIG-1`): its values are built
+  and taken apart during specialization, and a function over it is
+  specialized for each value it receives. A value whose constructor would be
+  chosen at runtime is rejected (`PROF-DATA-3`). This is how the Prelude's
+  `Nat` (in `Prec`, which `show` takes) and small static lists work before
+  there is a heap.
+  - Check: `Frontend.Translate.dataInstance` (a recursive occurrence makes
+    the type static), `Simplify` (`staticReason`)
+  - Test: `tests/profile/v3/accept/SEM-REC-1-static-list.idr`,
+    `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
+
 ## Laziness (v1)
 
 - **SEM-LAZY-1 (v1).** `Delay e` does not evaluate `e`. `Force` of a delayed
@@ -259,6 +274,11 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   stderr, writes nothing to stdout, and exits with status 1. The diagnostic
   text is implementation-defined and SHOULD name the cause, for example
   `division by zero`.
+- **SEM-CRASH-2 (v3).** Applying a function to an argument that none of its
+  clauses matches crashes (`SEM-CRASH-1`), with a message naming the
+  function. This is the reference's "Unhandled input" error; like the other
+  crashes, Chez writes it differently (`SEM-DEV-1`).
+  - Test: `tests/e2e/v3/missing-case`
 - **SEM-RES-1 (v0).** Exhausting the stack ends the process abnormally. The
   exit status and any output are unspecified.
   - Check: review (the behaviour is unspecified)

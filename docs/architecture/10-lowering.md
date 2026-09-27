@@ -197,6 +197,10 @@ missed it). So:
   sits inside an `scf.if` branch, which needs a terminator, so the
   `llvm.unreachable` of draft 2 is not emitted; `noreturn` gives LLVM the
   same fact.
+- **LOW-CRASH-2 (v3).** `idr.crash` lowers to `__idr_crash` with its message
+  and location, like `LOW-CRASH-1`, and its result to `ub.poison` of each
+  component.
+  - Test: `tests/idr/lower/crash-op.mlir`
 - **LOW-EXT-1 (v0).** The only external symbols the object file may
   reference are `write` and `_exit`, from v1 also `read`, and from v2 the
   `libm` functions `exp`, `log`, `pow`, `sin`, `cos`, `tan`, `asin`,

@@ -187,9 +187,12 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-DATA-3 (v0).** Runtime data types are not recursive. In the graph
   with an edge T → U whenever a constructor of T has a runtime field of type
   U, after instantiation, no cycle is reachable from a runtime data type.
-  Quantity-0 fields add no edges.
-  - Check: `Frontend.Translate.dataInstance`; dialect verifier `IDR-DATA-4`
-  - Test: `tests/profile/v0/reject/PROF-DATA-3-{list,mutual}.idr`
+  Quantity-0 fields add no edges. From v3 a recursive data type is a
+  compile-time type (`SEM-REC-1`), and this rule rejects a value of one
+  whose constructor would be chosen at runtime.
+  - Check: `Frontend.Translate.dataInstance`, `Simplify`; dialect verifier
+    `IDR-DATA-4`
+  - Test: `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
 - **PROF-DATA-4 (v0).** Data types with zero constructors are allowed. Their
   values cannot exist at runtime.
   - Test: `tests/profile/v0/accept/PROF-DATA-4-void.idr`
@@ -221,14 +224,16 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-FN-4 (v0 only; replaced by PROF-FN-7).** No lambda in a runtime
   position.
   - Test: superseded in v1
-- **PROF-FN-5 (v0).** Every runtime-reachable function's own patterns cover
-  every case: Idris's coverage check reports no missing cases. Calls to
-  partial functions are allowed. Idris treats `prim__div_T` and
-  `prim__mod_T` as partial, so a function that divides must be declared
-  `partial`; dividing by zero is a defined crash (`SEM-INT-4`), and a callee
-  with missing cases is rejected on its own. Termination is not required.
+- **PROF-FN-5 (v0).** Before v3, every runtime-reachable function's own
+  patterns cover every case: Idris's coverage check reports no missing
+  cases. From v3 a function with missing cases is allowed, and a missing
+  case crashes (`SEM-CRASH-2`); the Prelude's `div` and `mod` are written
+  that way. Idris treats `prim__div_T` and `prim__mod_T` as partial, so a
+  function that divides must be declared `partial` (or the module sets
+  `%default partial`); dividing by zero is a defined crash (`SEM-INT-4`).
+  Termination is not required.
   - Check: `Frontend.Translate.translateInstance`
-  - Test: `tests/profile/v0/reject/PROF-FN-5-partial.idr`,
+  - Test: `tests/e2e/v3/missing-case`,
     `tests/profile/v0/accept/PROF-FN-5-{nonterminating,division}.idr`
 - **PROF-FN-6 (v0).** Recursion, including mutual recursion, is allowed.
   - Test: `tests/profile/v0/accept/PROF-FN-6-{fib,mutual,tail-loop}.idr`
@@ -319,7 +324,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   Each occurrence must be removed by compile-time evaluation or output fusion
   (`ELIM-G-6`, `ELIM-G-7`). A surviving string-building primitive is a
   `PROF-HEAP-3` error. Any other surviving string primitive (`strLength`,
-  `strIndex`, string comparison, and so on) is rejected with this rule.
+  `strIndex`, string comparison, and so on) is rejected with this rule, and
+  from v3 so is a match on a string that is not known at compile time; a
+  match on a known string is decided during specialization.
   - Test: `tests/profile/v1/reject/PROF-PRIM-4-runtime-length.idr`
 
 ## Heap freedom (v1)

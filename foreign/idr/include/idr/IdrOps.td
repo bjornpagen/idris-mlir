@@ -159,6 +159,16 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure]> {
   let hasFolder = 1;
 }
 
+// IDR-CRASH-1 (v3): a case the definition does not cover (SEM-CRASH-2).
+// Its result, of any type, stands for the value of the region it ends; it
+// is never produced.
+def Idr_CrashOp : Idr_Op<"crash", [MemoryEffects<[MemWrite<Idr_CrashResource>]>]> {
+  let summary = "ends the program with a message naming the cause";
+  let arguments = (ins StrAttr:$message);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$message attr-dict `:` type($result)";
+}
+
 // IDR-STR-1
 def Idr_StrLitOp : Idr_Op<"str.lit", [Pure, ConstantLike]> {
   let summary = "a static string literal (UTF-8 bytes)";

@@ -17,7 +17,7 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
 - **IDR-MOD-1 (v0).** The input is one `builtin.module` with these
   attributes:
   - `idr.version = N : i64`: the contract version, which equals the profile
-    version whose features the module uses (0, 1 or 2). The C++ side
+    version whose features the module uses (0, 1, 2 or 3). The C++ side
     rejects versions it does not implement.
   - `idr.entry = @<root>`: the symbol of the root function.
   - `idr.entry_kind = "int" | "io"`:
@@ -111,6 +111,7 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 | `idr.mod` | `%r = idr.mod unsigned %a, %b : i8` | see `IDR-EFF-1` | see `IDR-DIV-2` |
 | `idr.to_char` (v1) | `%c = idr.to_char signed %x : i64` (result `i32`) | `Pure` | when `%x` is a constant (`SEM-CHAR-3`) |
 | `idr.to_int` (v2) | `%n = idr.to_int %x : i64` (operand `f64`) | see `IDR-EFF-1` | when `%x` is a finite constant (`SEM-DBL-4`) |
+| `idr.crash` (v3) | `%v = idr.crash "unhandled input for f" : T` | a write on the crash resource | never |
 | `idr.str.lit` (v1) | `%s = idr.str.lit "hello\n" : !idr.str` | `Pure`, `ConstantLike` | always, to its string attribute |
 | `idr.io.put_str` (v1) | `%w1 = idr.io.put_str %s, %w0` | `IDR-EFF-2` | never |
 | `idr.io.put_char` (v1) | `%w1 = idr.io.put_char %c, %w0` | `IDR-EFF-2` | never |
@@ -160,6 +161,10 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   `prim__cast_DoubleString` would (`SEM-DBL-5`). It is the target of output
   fusion for `Double` (`ELIM-G-7`).
   - Test: `tests/idr/lower/double.mlir`
+- **IDR-CRASH-1 (v3).** `idr.crash` ends the program with its message
+  (`SEM-CRASH-2`). Its result, of any type, stands for the value of the
+  region it ends so that the region is well typed; it is never produced.
+  - Test: `tests/idr/lower/crash-op.mlir`, `tests/idr/check-input/reject-v3.mlir`
 - **IDR-STR-1 (v1).** `idr.str.lit` holds its string as a `StringAttr` of UTF-8
   bytes. Two literals with equal bytes are equal values.
 - **IDR-IO-1 (v1).** The `idr.io` ops implement the `IdrisMLIR.IO` primitives

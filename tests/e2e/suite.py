@@ -130,7 +130,7 @@ def v1_case(fixture):
             assert ran.returncode == 1, f"a crash exits 1, got {ran.returncode}"
             assert crash.encode() in ran.stderr, f"stderr {ran.stderr!r} lacks {crash!r}"
         assert_heap_free(work / "build/exec/prog.o",
-                         V2_SYMBOLS if fixture.parent.name == "v2" else V1_SYMBOLS)
+                         V2_SYMBOLS if fixture.parent.name in ("v2", "v3") else V1_SYMBOLS)
         if (fixture / "core.check").is_file():
             filecheck(fixture / "core.check", work / "build/exec/prog.dump/02-simplify.core")
         if (fixture / "translate.check").is_file():
@@ -144,7 +144,13 @@ def v1_case(fixture):
                      "--cg", "chez", "-o", "prog", "Main.idr"], chez, env=dev.idris_env())
         assert built.returncode == 0, f"stock Chez build failed:\n{text(built)}"
         reference = run([chez / "build/exec/prog"], chez, stdin=stdin)
-        if reference.stdout != ran.stdout:
+        theirs = reference.stdout
+        if crash is not None and theirs.startswith(ran.stdout):
+            # SEM-DEV-1: Chez writes some crash messages to stdout.
+            rest = theirs[len(ran.stdout):]
+            if rest == b"" or rest.startswith(b"ERROR: "):
+                theirs = ran.stdout
+        if theirs != ran.stdout:
             ours, theirs = ran.stdout.splitlines(), reference.stdout.splitlines()
             first = next((i for i, (a, b) in enumerate(zip(ours, theirs)) if a != b),
                          min(len(ours), len(theirs)))
@@ -185,7 +191,7 @@ def cases(filter_text=""):
     found = []
     for fixture in sorted((HERE / "v0").glob("*/")):
         found.append((f"e2e/v0/{fixture.name}", v0_case(fixture)))
-    for version in ("v1", "v2"):
+    for version in ("v1", "v2", "v3"):
         for fixture in sorted((HERE / version).glob("*/")):
             found.append((f"e2e/{version}/{fixture.name}", v1_case(fixture)))
     found.append(("e2e/v0/determinism", determinism_case(HERE / "v0/shapes", False)))

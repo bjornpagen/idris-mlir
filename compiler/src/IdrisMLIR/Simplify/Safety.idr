@@ -39,6 +39,7 @@ blocking fns (OPrim (IntOp Div _) _) = "a division"
 blocking fns (OPrim (IntOp Mod _) _) = "a modulus"
 blocking fns (OCall f _) = "a call to " ++ maybe (show f) (.idrisName) (lookup f fns)
 blocking fns (OIO op _ _) = "the IO operation " ++ show op
+blocking fns (OCrash _) = "a missing case"
 blocking fns _ = "an operation"
 
 ||| Checks the operations moved into prefixes, in the order they were made.

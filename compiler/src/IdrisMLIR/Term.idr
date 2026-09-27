@@ -69,6 +69,8 @@ mutual
     Resume : Loc -> Term n -> Term n
     ||| A branch Idris proved impossible (`FE-TR-4`, `SEM-DATA-2`).
     Unreachable : Loc -> Term n
+    ||| A case the definition does not cover: a crash (`SEM-CRASH-2`).
+    Crash : Loc -> String -> Term n
 
   ||| A constructor alternative binds the constructor's fields (not its
   ||| parameters), the first field at index 0.
@@ -93,6 +95,7 @@ locOf (App l _ _) = l
 locOf (Suspend l _ _ _) = l
 locOf (Resume l _) = l
 locOf (Unreachable l) = l
+locOf (Crash l _) = l
 
 ------------------------------------------------------------------------------
 -- Renaming
@@ -132,6 +135,7 @@ mutual
   rename r (Suspend l lbl caps body) = (\caps' => Suspend l lbl caps' body) <$> traverse r caps
   rename r (Resume l e) = Resume l <$> rename r e
   rename r (Unreachable l) = pure (Unreachable l)
+  rename r (Crash l m) = pure (Crash l m)
 
   renameAll : Applicative f => (Fin n -> f (Fin m)) -> List (Term n) -> f (List (Term m))
   renameAll r [] = pure []
@@ -187,6 +191,7 @@ mutual
   freeIndices (Suspend _ _ caps _) = fromList (map finToNat (toList caps))
   freeIndices (Resume _ e) = freeIndices e
   freeIndices (Unreachable _) = empty
+  freeIndices (Crash _ _) = empty
 
   covering
   unionsOf : List (Term n) -> SortedSet Nat
@@ -324,6 +329,7 @@ mutual
     "delay " ++ show lbl ++ "[" ++ joinBy ", " (map var (toList caps)) ++ "] (" ++ showTerm d body ++ ")"
   showTerm d (Resume _ e) = "force (" ++ showTerm d e ++ ")"
   showTerm _ (Unreachable _) = "unreachable"
+  showTerm _ (Crash _ m) = "crash " ++ show m
 
   covering
   args : Nat -> List (Term n) -> String

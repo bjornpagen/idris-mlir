@@ -1,7 +1,7 @@
 // RUN: not idris-mlir-opt %s -split-input-file --idr-check-input 2>&1 | FileCheck %s
 // rule: IDR-MOD-1
 
-// CHECK: idr contract violation: idr.version must be 0, 1 or 2
+// CHECK: idr contract violation: idr.version must be 0, 1, 2 or 3
 module attributes {idr.version = 7 : i64, idr.entry = @r, idr.entry_kind = "int"} {
 }
 

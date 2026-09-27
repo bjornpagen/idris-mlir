@@ -117,6 +117,7 @@ op ix sc t (OField a c i) = do
     | Nothing => fail CoreInv3 (show c ++ " has no field " ++ show i)
   require (f.quantity /= Q0) CoreInv5 ("an erased field of " ++ show c ++ " read at runtime")
   require (f.type == t) CoreInv3 ("field " ++ show i ++ " of " ++ show c ++ " bound at type " ++ show t)
+op ix sc t (OCrash _) = require (t == ErasedT) CoreInv3 ("a crash bound at type " ++ show t)
 op ix sc t (OIO o as r) = do
   require (DataT r == t) CoreInv3 ("io." ++ show o ++ " bound at type " ++ show t)
   Just dt <- pure (lookup r ix.datas)

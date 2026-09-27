@@ -260,6 +260,24 @@ struct LowerToInt : IdrPattern<idr::ToIntOp> {
   }
 };
 
+// LOW-CRASH-2: a missing case calls the crash helper; the code after it is
+// unreachable.
+struct LowerCrash : IdrPattern<idr::CrashOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(idr::CrashOp op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    emitCrash(rewriter, op.getLoc(), state.runtime, op.getMessage());
+    SmallVector<Type> types;
+    if (failed(getTypeConverter()->convertType(op.getType(), types)))
+      return failure();
+    SmallVector<Value> poison;
+    for (Type type : types)
+      poison.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
+    rewriter.replaceOpWithMultiple(op, {poison});
+    return success();
+  }
+};
+
 // LOW-IO-2: each IO op calls a helper; the world vanishes (LOW-IO-3).
 template <typename OpT>
 struct LowerIO : IdrPattern<OpT> {
@@ -308,7 +326,7 @@ struct LowerIO : IdrPattern<OpT> {
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr, LowerMayLoop,
-               LowerToChar, LowerToInt, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
+               LowerToChar, LowerToInt, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
                LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
                LowerIO<idr::GetCharOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
                                                               state);

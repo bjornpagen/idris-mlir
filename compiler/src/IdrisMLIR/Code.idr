@@ -68,6 +68,8 @@ data Op r
   | OIO IOOp (List Atom) DataId
   | OCase Atom (List (Branch r)) (Maybe r)
   | OCaseLit Atom (List (Lit, r)) r
+  -- a crash with its cause (SEM-CRASH-2); what follows it is `Absurd`
+  | OCrash String
 
 ||| A function body: a sequence of bindings ending in a result, or in a point
 ||| that cannot be reached (an alternative Idris proved impossible).
@@ -95,6 +97,7 @@ Functor Op where
   map f (OIO op as r) = OIO op as r
   map f (OCase x bs d) = OCase x (map (map f) bs) (map f d)
   map f (OCaseLit x as d) = OCaseLit x (map (map f) as) (f d)
+  map f (OCrash m) = OCrash m
 
 export
 Foldable Op where
@@ -113,6 +116,7 @@ Traversable Op where
     OCase x <$> traverse (\b => (\e => { body := e } b) <$> f b.body) bs <*> traverse f d
   traverse f (OCaseLit x as d) =
     OCaseLit x <$> traverse (\(k, e) => (k,) <$> f e) as <*> f d
+  traverse f (OCrash m) = pure (OCrash m)
 
 export
 Functor CodeF where
@@ -136,6 +140,7 @@ mutual
   cataOp alg (OIO op as r) = OIO op as r
   cataOp alg (OCase x bs d) = OCase x (cataBranches alg bs) (cataMaybe alg d)
   cataOp alg (OCaseLit x as d) = OCaseLit x (cataLits alg as) (cata alg d)
+  cataOp alg (OCrash m) = OCrash m
 
   cataBranches : (CodeF a -> a) -> List (Branch Code) -> List (Branch a)
   cataBranches alg [] = []
@@ -163,6 +168,7 @@ operands (OField a _ _) = [a]
 operands (OIO _ as _) = as
 operands (OCase x _ _) = [x]
 operands (OCaseLit x _ _) = [x]
+operands (OCrash _) = []
 
 ||| The variables an operation binds in its branches.
 export
@@ -246,6 +252,7 @@ safeOp s (OPrim (IntOp Mod _) [_, ALit (LInt _ n)]) = n /= 0
 safeOp s (OPrim (IntOp Div _) _) = False
 safeOp s (OPrim (IntOp Mod _) _) = False
 safeOp s (OIO {}) = False
+safeOp s (OCrash _) = False
 safeOp s (OCall f _) = s f
 safeOp s _ = True
 
@@ -429,11 +436,22 @@ needsV2 = cata alg
     alg (RetF _ a) = lit a
     alg (AbsurdF _) = False
 
+||| Does a body crash where Idris found a missing case (contract version 3)?
+export
+needsV3 : Code -> Bool
+needsV3 = cata alg
+  where
+    alg : CodeF Bool -> Bool
+    alg (BindF _ _ _ _ (OCrash _) _) = True
+    alg (BindF _ _ _ _ op k) = or (map delay (toList op)) || k
+    alg _ = False
+
 ||| The contract version a program needs (IDR-MOD-1).
 export
 version : Target -> Nat
 version t =
-  if any fnV2 t.fns || any dataV2 t.datas then 2
+  if any (needsV3 . (.body)) t.fns then 3
+  else if any fnV2 t.fns || any dataV2 t.datas then 2
   else if isIO t.entry || any fnV1 t.fns || any dataV1 t.datas then 1
   else 0
   where
@@ -468,6 +486,7 @@ showOp d (OCall f as) = show f ++ args as
 showOp d (OCon c as) = show c.dataId ++ "::" ++ show c ++ args as
 showOp d (OField a c i) = show a ++ "." ++ show c ++ "#" ++ show i
 showOp d (OIO op as _) = "io." ++ show op ++ args as
+showOp d (OCrash m) = "crash " ++ show m
 showOp d (OCase x bs def) =
   "case " ++ show x ++ " of" ++
   concatMap (\b => "\n" ++ indent (S d) ++ show b.con ++ "(" ++ joinBy ", " (map show b.fields) ++

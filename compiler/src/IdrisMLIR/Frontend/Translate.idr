@@ -414,7 +414,9 @@ mutual
     (Ref rfc (TyCon _) n, args) => do
       d <- dataInstance fc owner n !(traverse normaliseClosed args)
       st <- get TState
-      pure (if maybe False (.static) (lookup d st.datas) then StaticT d else V (DataT d))
+      -- A data type that is being registered is recursive: static (SEM-REC-1).
+      pure (if maybe False (.static) (lookup d st.datas) || contains d st.building
+               then StaticT d else V (DataT d))
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => reject fc owner rule ("unsupported runtime type " ++ showTT tm)
@@ -428,9 +430,8 @@ mutual
     let tname = show (fullname def)
     inst <- MkDataId <$> instanceName (fullname def) (map Just args)
     st <- get TState
-    if isJust (lookup inst st.datas) then pure inst else do
-      when (contains inst st.building) $
-        reject fc owner ProfData3 ("recursive data type " ++ tname ++ " at runtime")
+    -- SEM-REC-1: a recursive occurrence is a compile-time value.
+    if isJust (lookup inst st.datas) || contains inst st.building then pure inst else do
       TCon arity params _ _ _ datacons _ <- pure (definition def)
         | _ => reject fc owner ProfType4 (tname ++ " is not a data type")
       let Just datacons = datacons
@@ -692,6 +693,7 @@ record Ctx where
   constructor MkCtx
   owner : String
   fc : FC
+  complete : Bool     -- Idris found no missing case (PROF-FN-5)
 
 constantLit : Constant -> Maybe Lit
 constantLit (I x) = Just (LInt IdrisInt (cast x))
@@ -937,8 +939,11 @@ mutual
   tree ctx env (STerm _ tm) = term ctx env tm
   -- FE-TR-4, SEM-DATA-2: Idris proved it cannot be reached. An `Unmatched`
   -- leaf of a covering definition (PROF-FN-5) is one too: a definition whose
-  -- clauses are all impossible has only that leaf.
-  tree ctx env (Unmatched msg) = Unreachable <$> toLoc ctx.fc
+  -- clauses are all impossible has only that leaf. In a definition with
+  -- missing cases it is one of them, and crashes (SEM-CRASH-2).
+  tree ctx env (Unmatched msg) =
+    if ctx.complete then Unreachable <$> toLoc ctx.fc
+    else (\l => Crash l ("unhandled input for " ++ ctx.owner)) <$> toLoc ctx.fc
   tree ctx env Impossible = Unreachable <$> toLoc ctx.fc
   tree ctx env (Case idx _ scTy alts) = do
     loc <- toLoc ctx.fc
@@ -955,11 +960,16 @@ mutual
           let missing = case (def, lookup inst st.datas) of
                           (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
                           _ => []
-          let absurd = map (\c => MkAlt c.id (map toBinder c.fields) (Unreachable loc)) missing
+          -- Missing constructors are impossible in a covering definition,
+          -- and crash otherwise (SEM-CRASH-2).
+          let absurd = map (\c => MkAlt c.id (map toBinder c.fields)
+                                   (if ctx.complete then Unreachable loc
+                                    else Crash loc ("unhandled input for " ++ ctx.owner))) missing
           pure (Case loc i (conAlts ++ absurd) def)
         Nothing => do
           (litAlts, def) <- litAlternatives ctx env alts
-          let Just def = def
+          let Just def = def <|> (if ctx.complete then Nothing
+                                  else Just (Crash loc ("unhandled input for " ++ ctx.owner)))
             | Nothing => reject ctx.fc ctx.owner ProfFn5 "a literal match without a default"
           pure (CaseLit loc i litAlts def)
       -- A match on an implementation selects its alternative now (FE-TR-6).
@@ -1023,7 +1033,6 @@ mutual
     Just lit <- pure (constantLit c)
       | Nothing => reject ctx.fc ctx.owner ProfPrim4 ("a match on " ++ show c)
     case lit of
-      LStr _ => reject ctx.fc ctx.owner ProfPrim4 "a match on a string"
       LDouble _ => reject ctx.fc ctx.owner ProfPrim2 "a match on a Double literal (SEM-DBL-1)"
       _ => pure ()
     body <- tree ctx env rhs
@@ -1058,17 +1067,15 @@ translateInstance p = do
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
     | _ => reject fc owner ProfFn1 "not a pattern-matching definition"
-  -- PROF-FN-5: the definition's own patterns are covering. Calls to partial
-  -- functions are allowed: dividing by zero is a defined crash (SEM-INT-4),
-  -- and a callee with missing cases is rejected on its own.
-  case isCovering (totality def) of
-    MissingCases _ => reject fc owner ProfFn5 "a definition with missing cases"
-    _ => pure ()
+  -- PROF-FN-5: a missing case crashes (SEM-CRASH-2).
+  let complete = case isCovering (totality def) of
+                   MissingCases _ => False
+                   _ => True
   (kinds, resTy) <- classify fc owner (length args) (type def) (map (map known) p.statics)
   result <- coreType fc owner ProfType4 !(normaliseClosed resTy)
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
-  body <- tree (MkCtx owner fc) env treeCT
+  body <- tree (MkCtx owner fc complete) env treeCT
   loc <- toLoc fc
   tot <- isTotal fc p.name
   update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot

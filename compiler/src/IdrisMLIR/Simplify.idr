@@ -59,19 +59,28 @@ conDef l c = do
   st <- get
   maybe (fail CoreCheck1 l ("unknown constructor " ++ show c)) pure (lookup c st.src.cons)
 
-||| Does static data hold a function, not only `Lazy` values? It decides
-||| between PROF-HEAP-1 and PROF-HEAP-2.
-holdsFunction : SourceIndex -> DataId -> Bool
-holdsFunction src d = go (length (keys src.datas)) d
+||| Why data is static, as the rule that a runtime choice of its constructor
+||| breaks and what the data holds: a function (PROF-HEAP-1), a `Lazy` value
+||| (PROF-HEAP-2), itself (SEM-REC-1) or an Integer (SEM-BIG-1), in that
+||| order of precedence.
+staticReason : SourceIndex -> DataId -> (Rule, String)
+staticReason src d =
+  case sortBy (\a, b => compare (fst a) (fst b)) (go (length (keys src.datas)) [d] d) of
+    ((_, r) :: _) => r
+    [] => (ProfHeap1, "a function")
   where
-    go : Nat -> DataId -> Bool
-    go Z _ = False
-    go (S k) n = case lookup n src.datas of
-      Just dt => any (\f => case f.type of
-                               FunT {} => True
-                               StaticT m => go k m
-                               _ => False) (concatMap (.fields) dt.cons)
-      Nothing => False
+    reasons : Nat -> List DataId -> Ty -> List (Nat, (Rule, String))
+    go : Nat -> List DataId -> DataId -> List (Nat, (Rule, String))
+    go Z _ _ = []
+    go (S k) seen n = case lookup n src.datas of
+      Just dt => concatMap (reasons k seen . (.type)) (concatMap (.fields) dt.cons)
+      Nothing => []
+    reasons k seen (FunT {}) = [(0, (ProfHeap1, "a function"))]
+    reasons k seen (LazyT _) = [(1, (ProfHeap2, "a Lazy value"))]
+    reasons k seen (StaticT m) =
+      if elem m seen then [(2, (ProfData3, "a value of its own type"))] else go k (m :: seen) m
+    reasons k seen BigT = [(3, (ProfType4, "an Integer"))]
+    reasons k seen (V _) = []
 
 ||| The type of a value after eliminations.
 elimTy : Loc -> Ty -> List (Elim a) -> M Ty
@@ -89,6 +98,10 @@ elimTy l t _ = fail CoreCheck1 l ("cannot eliminate a value of type " ++ show t)
 runtimeTy : Loc -> Ty -> M VTy
 runtimeTy l BigT = fail ProfType4 l "an Integer would exist at runtime here (SEM-BIG-1)"
 runtimeTy l t = maybe (fail CoreCheck1 l ("a runtime value of type " ++ show t)) pure (value t)
+
+isStr : Lit -> Bool
+isStr (LStr _) = True
+isStr _ = False
 
 ||| The value of a literal; an Integer is static (SEM-BIG-1).
 litVal : Lit -> V
@@ -193,6 +206,7 @@ mutual
   evalK env (Case l x alts def) es = matchCon env l (index x env) alts def es
   evalK env (CaseLit l x alts def) es = matchLit env l (index x env) alts def es
   evalK env (Unreachable l) es = dead l
+  evalK env (Crash l m) es = crash l m
   evalK env e es = do
     v <- eval env e
     consume (locOf e) v es
@@ -230,7 +244,12 @@ mutual
     evalK env (maybe def snd (find ((== lit) . fst) alts)) es
   matchLit env l (SBig n) alts def es =
     evalK env (maybe def snd (find ((== LBig n) . fst) alts)) es
+  -- PROF-PRIM-4: a match on a string is decided at compile time.
+  matchLit env l (SString s) alts def es = case strLit s of
+    Just str => evalK env (maybe def snd (find ((== LStr str) . fst) alts)) es
+    Nothing => fail ProfPrim4 l "a match on a string built at runtime"
   matchLit env l scrut alts def es = do
+    when (any (isStr . fst) alts) $ fail ProfPrim4 l "a match on a string at runtime"
     (x, _) <- reify l scrut
     alts' <- traverse (\(k, e) => (k,) <$> branch env e es) alts
     def' <- branch env def es
@@ -271,8 +290,9 @@ mutual
         Nothing => maybe (fail CoreCheck1 l "no alternative") (\e => evalK env e es) def
       _ => do
         st <- get
-        fail (if holdsFunction st.src d then ProfHeap1 else ProfHeap2) l
-             ("a value of type " ++ dt.idrisName ++ " holds a function or Lazy value, and which " ++
+        let (rule, what) = staticReason st.src d
+        fail rule l
+             ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and which " ++
               "constructor it has would be chosen at runtime, so it would need the heap")
   -- A runtime match: residual, with fresh binders in each alternative, since
   -- one alternative may be residualized more than once (CORE-INV-1).
@@ -537,6 +557,7 @@ simplify src = do
   case runStateT (initial ix) run of
     Left (Fail d) => Left d
     Left (Dead l) => Left (MkDiag CoreCheck1 "Simplify" l "the root cannot return")
+    Left (Crashed l _) => Left (MkDiag CoreCheck1 "Simplify" l "a crash outside any function")
     Right (st, _) => do
       let fns = st.done <>> []
       checkMoved fns (st.moved <>> []) (st.runs <>> [])

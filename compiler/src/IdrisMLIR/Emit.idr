@@ -66,6 +66,7 @@ record ES where
   constructor MkES
   next : Nat
   ops : SnocList MOp
+  expected : List MType   -- the result types of the enclosing regions
 
 E : Type -> Type
 E = StateT ES (Either String)
@@ -88,6 +89,14 @@ fresh = do
 
 push : MOp -> E ()
 push o = modify { ops $= (:< o) }
+
+||| Runs an emitter inside a region whose result has type `t`.
+expecting : MType -> E a -> E a
+expecting t act = do
+  modify { expected $= (t ::) }
+  x <- act
+  modify { expected $= drop 1 }
+  pure x
 
 ||| Runs an emitter into a separate list of operations.
 nested : E a -> E (a, List MOp)
@@ -284,6 +293,7 @@ operation ix l t (OCon c as) env = traverse (atom l env) as >>= con l c
 operation ix l t (OField a c i) env = do
   v <- atom l env a
   op1 l "idr.field" [v] [("ctor", SymA [symbol c.name]), ("index", IntA (cast i) (I 64))] (mtype t)
+operation ix l t (OCrash _) env = internal "a crash is emitted by its block"
 operation ix l t (OIO op as res) env = do
   vs <- traverse (atom l env) as
   io ix l op vs res
@@ -338,9 +348,14 @@ operation ix l t (OCaseLit x as def) env = do
 
 ||| The algebra: one layer of `Code` to its emitter.
 body : Index -> CodeF Emitter -> Emitter
+-- SEM-CRASH-2: a crash ends its region, with a value of the region's type.
+body ix (BindF l x q t (OCrash m) k) = Just $ \env => do
+  (r :: _) <- gets expected
+    | [] => internal "a crash outside a region"
+  op1 l "idr.crash" [] [("message", StrA m)] r
 body ix (BindF l x q t o k) = Just $ \env => do
   -- IDR-MATCH-4: a quantity-0 binding is the erased value.
-  v <- if q == Q0 then atom l env AErased else operation ix l t o env
+  v <- if q == Q0 then atom l env AErased else expecting (mtype t) (operation ix l t o env)
   case k of
     Just rest => rest (insert x v env)
     Nothing => internal "code after a binding cannot return"
@@ -386,7 +401,7 @@ function ix breakers fn = do
   let params = map (\p => ("%a" ++ show p.var.index, p)) fn.params
   let env = fromList (map (\(n, p) => (p.var, (n, mtype p.type))) params)
   let res = mtype fn.result
-  (_, ops) <- nested $ do
+  (_, ops) <- nested $ expecting res $ do
     v <- case cata (body ix) fn.body of
       Just e => e env
       -- Nothing reaches this body: return any value of the type, or call
@@ -413,7 +428,7 @@ export
 emit : Target -> Either String String
 emit t = do
   let ix = index t
-  (st, fns) <- runStateT (MkES 0 [<]) (traverse (function ix (loopBreakers t.fns)) t.fns)
+  (st, fns) <- runStateT (MkES 0 [<] []) (traverse (function ix (loopBreakers t.fns)) t.fns)
   let kind = case t.entry of
                IntEntry => "int"
                IOEntry => "io"

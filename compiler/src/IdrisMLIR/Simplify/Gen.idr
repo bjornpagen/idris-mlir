@@ -101,7 +101,7 @@ record St where
 
 ||| Why evaluation stopped: a user error, or a point Idris proved impossible.
 public export
-data Stop = Fail Diag | Dead Loc
+data Stop = Fail Diag | Dead Loc | Crashed Loc St
 
 public export
 M : Type -> Type
@@ -145,6 +145,20 @@ bind l t o = do
     Nothing => pure ()
   pure (AVar x)
 
+||| A crash (SEM-CRASH-2): bound with its cause, at quantity ω so that it is
+||| emitted, and then evaluation of the block stops.
+export
+crash : Loc -> String -> M a
+crash l m = do
+  x <- freshVar
+  modify { lets $= (:< MkStmt l x QW ErasedT (OCrash m)) }
+  st <- get
+  case st.raising of
+    Just owner => put ({ moved $= (:< (owner, l, OCrash m)) } st)
+    Nothing => pure ()
+  st <- get
+  lift (Left (Crashed l st))
+
 ||| Counts an effect: an IO primitive, or a call that is passed the world.
 export
 effect : M ()
@@ -166,6 +180,10 @@ block l act = do
       put ({ lets := st.lets } st')
       pure (Just t, close (st'.lets <>> []) (Ret l a))
     Left (Dead at) => pure (Nothing, Absurd at)
+    -- The code up to a crash runs; nothing after it does.
+    Left (Crashed at st') => do
+      put ({ lets := st.lets } st')
+      pure (Nothing, close (st'.lets <>> []) (Absurd at))
     Left err => lift (Left err)
 
 ||| Consuming a static value runs the action it describes: its code is not

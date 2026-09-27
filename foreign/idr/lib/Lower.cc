@@ -46,6 +46,9 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
           need("__idr_crash");
         }
         need("__idr_f64_to_i64");
+      } else if (auto crash = dyn_cast<idr::CrashOp>(op)) {
+        runtime.declareString(idr::lower::crashMessage(op->getLoc(), crash.getMessage()));
+        need("__idr_crash");
       } else if (isa<idr::PutDoubleOp>(op))
         need("__idr_put_double");
       else if (isa<idr::PutStrOp>(op))
