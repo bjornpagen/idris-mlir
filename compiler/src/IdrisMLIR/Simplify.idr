@@ -299,7 +299,9 @@ mutual
       -- An Integer is computed at compile time (SEM-BIG-1).
       -- So is a value of recursive data (SEM-REC-1), strictly, as Idris
       -- builds it: its constructors are known where it is used.
-      Nothing => if fn.result == BigT || !(chooses l fn.result)
+      -- A call that is passed the world and returns a static result has
+      -- run: it is unfolded where it is, in order.
+      Nothing => if fn.result == BigT || !(chooses l fn.result) || !(staticRun l fn.result)
                    then known fn vs [] (unfold l fn vs [])                       -- G16
                    else pure (SCall f !(gets effects) vs [])                     -- G5
       Just StrT => unfold l fn vs []                                               -- G10
@@ -361,7 +363,16 @@ mutual
       | Nothing => fail ProfHeap1 l "a match on a static value that is not data"
     dt <- dataDef l d
     case dt.cons of
-      [con] => case find (\(MkAlt k _ _) => k == con.id) alts of
+      -- A result that carries the world (an `IORes` of a function) is one
+      -- run of the action: it is evaluated once, not once per field.
+      [con] => if any ((== V WorldT) . (.type)) con.fields && count (== f) !(gets unfolding) == 0
+        then do
+          v <- once (the Nat 64) fn as ms
+          case v of
+            SCon _ _ => matchCon env l v alts def es
+            _ => fail ProfHeap1 l ("an IO action whose result holds a function would run more " ++
+                                   "than once here (" ++ showShape (shape v) ++ ")")
+        else case find (\(MkAlt k _ _) => k == con.id) alts of
         Just (MkAlt _ bs body) => do
           -- A field of a value type is read here, where the value is first
           -- used; a static field stays a projection. An erased field is
@@ -386,6 +397,17 @@ mutual
                  ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and which " ++
                   "constructor it has would be chosen at runtime, so it would need the heap")
     where
+      -- An action's run, unfolded until it is a constructor; a function
+      -- already being unfolded is not entered again.
+      once : Nat -> TFn -> List V -> List (Elim Atom) -> M V
+      once Z fn as ms = pure (SCall fn.id e as ms)
+      once (S k) fn as ms = do
+        v <- leavePrefix (unfold l fn as ms)
+        case v of
+          SCall g e' as' ms' => if count (== g) !(gets unfolding) > 0 then pure v else do
+            gn <- fnDef l g
+            once k gn as' ms'
+          _ => pure v
       -- The deferred call is evaluated until it is a constructor: a method
       -- may unfold to a call of its implementation.
       force : Nat -> TFn -> List V -> List (Elim Atom) -> M V
@@ -449,7 +471,8 @@ mutual
     now <- gets effects
     case value t of
       -- An Integer is computed at compile time (SEM-BIG-1).
-      Nothing => if t == BigT || !(chooses l t) then leavePrefix (unfold l fn as (ms ++ es))
+      Nothing => if t == BigT || !(chooses l t) || !(staticRun l t)
+                   then leavePrefix (unfold l fn as (ms ++ es))
                  else pure (SCall f e as (ms ++ es))
       -- Running the deferred call is the action, not prefix code; the
       -- callee's own prefix is recorded where it is specialized. G10 and
@@ -496,6 +519,17 @@ mutual
     Just d => (\dt => length dt.cons > 1) <$> dataDef l d
     Nothing => pure False
 
+  ||| Is a type the result of running an action whose value is static (an
+  ||| `IORes` of a function, as `(*>)` for IO makes)? Such a result cannot
+  ||| cross a specialization, so its function is re-entered a bounded number
+  ||| of times, as for a string join point (ELIM-G-14).
+  staticRun : Loc -> Ty -> M Bool
+  staticRun l t = case dataOf t of
+    Just d => do
+      dt <- dataDef l d
+      pure (dt.static && any (any ((== V WorldT) . (.type)) . (.fields)) dt.cons)
+    Nothing => pure False
+
   ||| G16 for a call whose result has no runtime representation: kept only
   ||| when it evaluates to a known constructor (a `Nat` built from a literal).
   knownData : TFn -> List V -> List (Elim Atom) -> M V -> M V
@@ -518,8 +552,9 @@ mutual
     -- call that carries one may re-enter a function a bounded number of times.
     t <- elimTy l fn.result es
     isData <- chooses l t
+    carries <- staticRun l t
     let bound = the Nat (if t == BigT || isData then 10000
-                         else if any joinIn (vs ++ applied es) then 64 else 1)
+                         else if any joinIn (vs ++ applied es) || carries then 64 else 1)
     if count (== fn.id) st.unfolding >= bound then call l Nothing fn.id vs es else do
       Just env <- pure (toVect fn.arity vs)
         | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")

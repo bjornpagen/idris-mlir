@@ -258,7 +258,10 @@ is static.
   - `ELIM-G-10` to `ELIM-G-13` by the call graph: no function is unfolded
     inside itself; with a string join point (`ELIM-G-14`), at most 64 times;
   - `ELIM-G-16` by its budget of unfoldings; an attempt that exceeds it is
-    undone.
+    undone;
+  - values of recursive data (`SEM-REC-2`) and `Integer`s by 10000 nested
+    calls, and the run of an action whose result holds a function (an
+    `IORes` of a function) by 64: neither can cross a specialization.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is

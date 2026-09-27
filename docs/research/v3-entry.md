@@ -65,10 +65,16 @@ benchmarks in `bench/` did not change.
    arguments are all known is evaluated completely at compile time within a
    budget of 20000 unfoldings, and the attempt is undone if it would leave
    code behind (`tests/e2e/v3/compile-time-evaluation`).
-6. **`for_` and `traverse_` over a list in `IO`** are rejected by the
-   Core checker after `Simplify` (`CORE-INV-9`, a world used twice): the
-   `Applicative IO` path through `(*>)` duplicates a world somewhere. The
-   checker catches it, so nothing is miscompiled; not yet traced.
+6. **`(*>)`, `for_` and `traverse_` in `IO`** are rejected (`PROF-HEAP-1`,
+   `tests/profile/v3/reject/PROF-HEAP-1-applicative-io.idr`). The Prelude's
+   `(*>)` for IO is the Applicative default, `map (const id) a <*> b`:
+   running `a` yields an `IORes` holding a function. Two defects on this
+   path are fixed: such a result was read field by field, which ran the
+   action twice (caught by the Core checker as a world used twice,
+   `CORE-INV-9`), and it was deferred past the effects that followed it.
+   It is now run once and unfolded in place, re-entering a function at
+   most 64 times, as a string join point does. One specialization still
+   returns it, and it is rejected there. `do` and `>>` work.
 7. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
