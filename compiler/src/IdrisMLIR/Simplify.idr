@@ -99,6 +99,15 @@ runtimeTy : Loc -> Ty -> M VTy
 runtimeTy l BigT = fail ProfType4 l "an Integer would exist at runtime here (SEM-BIG-1)"
 runtimeTy l t = maybe (fail CoreCheck1 l ("a runtime value of type " ++ show t)) pure (value t)
 
+||| Is a static string known not to be empty (ELIM-G-15)?
+nonEmpty : SStr a -> Bool
+nonEmpty (SLit s) = s /= ""
+nonEmpty (SShow _ _) = True
+nonEmpty (SChr _) = True
+nonEmpty (SCons _ _) = True
+nonEmpty (SAppend a b) = nonEmpty a || nonEmpty b
+nonEmpty _ = False
+
 isStr : Lit -> Bool
 isStr (LStr _) = True
 isStr _ = False
@@ -307,7 +316,10 @@ mutual
   -- PROF-PRIM-4: a match on a string is decided at compile time.
   matchLit env l (SString s) alts def es = case strLit s of
     Just str => evalK env (maybe def snd (find ((== LStr str) . fst) alts)) es
-    Nothing => fail ProfPrim4 l "a match on a string built at runtime"
+    -- G15: a string that is known not to be empty is not "".
+    Nothing => if all ((== LStr "") . fst) alts && nonEmpty s
+                  then evalK env def es
+                  else fail ProfPrim4 l "a match on a string built at runtime"
   matchLit env l scrut alts def es = do
     when (any (isStr . fst) alts) $ fail ProfPrim4 l "a match on a string at runtime"
     (x, _) <- reify l scrut
@@ -526,6 +538,10 @@ mutual
     (Str (ToStr SChar), [c], _) => (\(a, _) => SString (SChr a)) <$> reify l c
     (Str (ToStr (SInt t)), [n], _) => (\(a, _) => SString (SShow (IntT t) a)) <$> reify l n
     (Str (ToStr SDouble), [n], _) => (\(a, _) => SString (SShow DoubleT a)) <$> reify l n
+    -- G15: the first character of a string whose first piece is known.
+    (Str Head, [_], [Just s]) => case strLit s of
+      Just _ => general l op vs
+      Nothing => maybe (general l op vs) (map (Dyn CharT)) (headOf s)
     (Big b, _, _) => big b
     _ => general l op vs
     where
@@ -541,6 +557,60 @@ mutual
                            (pure . litVal) (foldBig b lits)
         Nothing => fail ProfType4 l ("an Integer computed from a runtime value (" ++ show b ++
                                      "), which would exist at runtime (SEM-BIG-1)")
+
+  ||| The first character of a static string, when its first piece gives it
+  ||| (ELIM-G-15): a literal or runtime character, or the sign or leading
+  ||| digit of an integer shown at runtime.
+  headOf : SStr Atom -> Maybe (M Atom)
+  headOf (SLit s) = case unpack s of
+    (c :: _) => Just (pure (ALit (LChar (cast (ord c)))))
+    [] => Nothing
+  headOf (SCons c _) = Just (pure c)
+  headOf (SChr c) = Just (pure c)
+  headOf (SShow (IntT t) a) = Just (leadingChar t a)
+  headOf (SAppend (SLit "") b) = headOf b
+  headOf (SAppend a _) = headOf a
+  headOf _ = Nothing
+
+  ||| `-` for a negative number, else its leading decimal digit, found by
+  ||| comparing with the powers of ten that fit the type.
+  leadingChar : IntTy -> Atom -> M Atom
+  leadingChar t a = do
+    let loc = noLoc
+    let lit = \n => ALit (LInt t n)
+    digit <- if signed t
+      then do
+        neg <- bind loc (IntT IdrisInt) (OPrim (Compare CLt (SInt t)) [a, lit 0])
+        (_, minus) <- block loc (pure (ALit (LChar 45), CharT))
+        (_, plus) <- block loc (digitChar (powers t))
+        bind loc CharT (OCaseLit neg [(LInt IdrisInt 1, minus)] plus)
+      else fst <$> digitChar (powers t)
+    pure digit
+    where
+      raise : Integer -> Nat -> Integer
+      raise b Z = 1
+      raise b (S k) = b * raise b k
+      powers : IntTy -> List Integer
+      powers t = reverse (takeWhile (<= maxOf) [raise 10 k | k <- [1 .. 19]])
+        where
+          maxOf : Integer
+          maxOf = if signed t then raise 2 (minus (width t) 1) - 1 else raise 2 (width t) - 1
+      -- The digit is a divided by the largest power of ten not above it.
+      digitChar : List Integer -> M (Atom, VTy)
+      digitChar [] = do
+        c <- bind noLoc (IntT t) (OPrim (IntOp Add t) [a, ALit (LInt t 48)])
+        ch <- bind noLoc CharT (OPrim (Cast (SInt t) SChar) [c])
+        pure (ch, CharT)
+      digitChar (p :: ps) = do
+        ge <- bind noLoc (IntT IdrisInt) (OPrim (Compare CGte (SInt t)) [a, ALit (LInt t p)])
+        (_, big) <- block noLoc $ do
+          d <- bind noLoc (IntT t) (OPrim (IntOp Div t) [a, ALit (LInt t p)])
+          c <- bind noLoc (IntT t) (OPrim (IntOp Add t) [d, ALit (LInt t 48)])
+          ch <- bind noLoc CharT (OPrim (Cast (SInt t) SChar) [c])
+          pure (ch, CharT)
+        (_, small) <- block noLoc (digitChar ps)
+        ch <- bind noLoc CharT (OCaseLit ge [(LInt IdrisInt 1, big)] small)
+        pure (ch, CharT)
 
   general : Loc -> PrimOp -> List V -> M V
   general l op vs = do

@@ -36,11 +36,13 @@ benchmarks in `bench/` did not change.
    `show (n, m)`): done, as string join points (`ELIM-G-14`). A residual
    match whose alternatives yield strings is itself a static string that
    keeps each alternative's code; `putStr` of it writes the match with the
-   output at the end of each alternative. What is left is `show (Just n)`:
-   the Prelude checks at runtime whether the shown number starts with `-`
-   to print `Just (-5)`, which is `strHead` of a number shown at runtime.
-   A rule for the first character of a shown integer (`-` exactly when it
-   is negative) would close it.
+   output at the end of each alternative. `show (Just n)` for integers is
+   done too (`ELIM-G-15`): the Prelude parenthesizes a shown number that
+   starts with `-`, and the first character of an integer shown at runtime
+   is computed. What is left is the same for a `Double` (`show (Just 2.5)`):
+   its first printed character depends on the shortest digits, so it needs
+   the printer's help at runtime (a helper that returns the first character
+   of `__idr_put_double`'s output).
 2. **The Prelude's own IO**: output done (`PROF-IO-4`): its
    `prim__putStr` and `prim__putChar` are the `idr.io` output ops, so
    `putStrLn`, `print` and `printLn` work (`tests/e2e/v3/prelude-io`).
@@ -66,9 +68,9 @@ benchmarks in `bench/` did not change.
 
 ## Exit criteria for `VERSION = v3`
 
-- Item 1 (`show (Just n)`) and input through the Prelude, so that `show`
-  of any first-order Prelude value and the Prelude's own IO functions
-  work.
+- `show` of a `Double` inside a constructor, and input through the
+  Prelude, so that `show` of any first-order Prelude value and the
+  Prelude's own IO functions work.
 - Every v3 rule tested (`TEST-SPEC-1` with `VERSION = v3`).
 - A Prelude-using version of the math showcase and the benchmarks, diffed
   against Chez, with benchmark times no worse than the `IdrisMLIR`-only

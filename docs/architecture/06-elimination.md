@@ -215,6 +215,22 @@ is static.
   - *Why this is exact:* writing the string of the chosen alternative after
     that alternative's code is what writing the match's value does.
   - Test: `tests/e2e/v3/prelude`
+- **ELIM-G-15 (v3). What is known about a string built at runtime.** Two
+  facts are used when a string has runtime pieces:
+  - it is not `""` when one of its pieces is known not to be empty (a shown
+    number, a character, a non-empty literal), which decides a match whose
+    only literal alternative is `""`;
+  - its first character is known when its first piece gives it: a literal's
+    or a runtime character, or for an integer shown at runtime its sign or
+    leading digit, which straight-line code computes by comparing with the
+    powers of ten that fit the type.
+
+  The Prelude's `show` for constructors uses both, to put `-5` in
+  parentheses (`Just (-5)`). For a `Double` shown at runtime the first
+  character depends on the shortest digits (the double nearest `1e23`
+  prints as `1e23`), so it is not known and `strHead` of it is rejected
+  (`PROF-PRIM-4`).
+  - Test: `tests/e2e/v3/show-values`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
