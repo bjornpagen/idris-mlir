@@ -138,7 +138,7 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
         fail(op, "operation needs idr.version 1");
       if (contract < 2 && isV2Op(op))
         fail(op, "operation needs idr.version 2");
-      if (contract < 3 && isa<idr::CrashOp>(op))
+      if (contract < 3 && isa<idr::CrashOp, idr::DoubleHeadOp>(op))
         fail(op, "operation needs idr.version 3");
       if (hasArithFlags(op))
         fail(op, "arith flags are not allowed");

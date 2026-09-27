@@ -260,6 +260,17 @@ struct LowerToInt : IdrPattern<idr::ToIntOp> {
   }
 };
 
+// LOW-DBL-4: the first character comes from the printer's helper.
+struct LowerDoubleHead : IdrPattern<idr::DoubleHeadOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(idr::DoubleHeadOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<func::CallOp>(op, "__idr_double_head", rewriter.getI32Type(),
+                                              adaptor.getValue());
+    return success();
+  }
+};
+
 // LOW-CRASH-2: a missing case calls the crash helper; the code after it is
 // unreachable.
 struct LowerCrash : IdrPattern<idr::CrashOp> {
@@ -326,7 +337,7 @@ struct LowerIO : IdrPattern<OpT> {
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr, LowerMayLoop,
-               LowerToChar, LowerToInt, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
+               LowerToChar, LowerToInt, LowerDoubleHead, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
                LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
                LowerIO<idr::GetCharOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
                                                               state);

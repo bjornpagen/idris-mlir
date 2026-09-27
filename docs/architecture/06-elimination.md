@@ -228,8 +228,8 @@ is static.
   The Prelude's `show` for constructors uses both, to put `-5` in
   parentheses (`Just (-5)`). For a `Double` shown at runtime the first
   character depends on the shortest digits (the double nearest `1e23`
-  prints as `1e23`), so it is not known and `strHead` of it is rejected
-  (`PROF-PRIM-4`).
+  prints as `1e23`), so it comes from the printer itself
+  (`idr.double_head`, `LOW-DBL-4`).
   - Test: `tests/e2e/v3/show-values`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.

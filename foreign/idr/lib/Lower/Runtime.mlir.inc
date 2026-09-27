@@ -810,6 +810,60 @@ module {
     return
   }
 
+  // LOW-DBL-4: the first character that __idr_put_double writes for %x.
+  func.func private @__idr_double_head(%x: f64) -> i32 {
+    %c0 = arith.constant 0 : i64
+    %c1 = arith.constant 1 : i64
+    %c10 = arith.constant 10 : i64
+    %c48 = arith.constant 48 : i64
+    %c52 = arith.constant 52 : i64
+    %c2047 = arith.constant 2047 : i64
+    %mantMask = arith.constant 4503599627370495 : i64
+    %absMask = arith.constant 9223372036854775807 : i64
+    %plus = arith.constant 43 : i32
+    %minus = arith.constant 45 : i32
+    %zero = arith.constant 48 : i32
+    %bits = arith.bitcast %x : f64 to i64
+    %neg = arith.cmpi slt, %bits, %c0 : i64
+    %iexp0 = arith.shrui %bits, %c52 : i64
+    %iexp = arith.andi %iexp0, %c2047 : i64
+    %mant = arith.andi %bits, %mantMask : i64
+    %abs = arith.andi %bits, %absMask : i64
+    %special = arith.cmpi eq, %iexp, %c2047 : i64
+    %r = scf.if %special -> (i32) {
+      // "+nan.0", "+inf.0", "-inf.0"
+      %nan = arith.cmpi ne, %mant, %c0 : i64
+      %sign = arith.select %neg, %minus, %plus : i32
+      %c = arith.select %nan, %plus, %sign : i32
+      scf.yield %c : i32
+    } else {
+      %r2 = scf.if %neg -> (i32) {
+        scf.yield %minus : i32
+      } else {
+        %isZero = arith.cmpi eq, %abs, %c0 : i64
+        %r3 = scf.if %isZero -> (i32) {
+          scf.yield %zero : i32
+        } else {
+          %d:2 = func.call @__idr_ryu_d2d(%mant, %iexp) : (i64, i64) -> (i64, i64)
+          %lead = scf.while (%v = %d#0) : (i64) -> (i64) {
+            %more = arith.cmpi uge, %v, %c10 : i64
+            scf.condition(%more) %v : i64
+          } do {
+          ^bb0(%v: i64):
+            %v1 = arith.divui %v, %c10 : i64
+            scf.yield %v1 : i64
+          }
+          %ch64 = arith.addi %lead, %c48 : i64
+          %ch = arith.trunci %ch64 : i64 to i32
+          scf.yield %ch : i32
+        }
+        scf.yield %r3 : i32
+      }
+      scf.yield %r2 : i32
+    }
+    return %r : i32
+  }
+
   // LOW-DBL-1: a Double as an integer of 64 bits: truncated toward zero and
   // wrapped (SEM-DBL-4). The caller has ruled out NaN and the infinities.
   func.func private @__idr_f64_to_i64(%x: f64) -> i64 {

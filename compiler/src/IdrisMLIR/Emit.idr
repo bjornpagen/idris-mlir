@@ -199,6 +199,7 @@ prim l (FloatOp op) [a, b] = op1 l name [a, b] [] F64
       FDiv => "arith.divf"
 prim l Negate [a] = op1 l "arith.negf" [a] [] F64
 prim l (Math f) as = op1 l (mathOp f) as [] F64
+prim l DoubleHead [a] = op1 l "idr.double_head" [a] [] (I 32)
 prim l (Compare c SDouble) [a, b] = do
   r <- op1 l "arith.cmpf" [a, b] [("predicate", IntA (fpredicate c) (I 64))] (I 1)
   op1 l "arith.extui" [r] [] (I 64)

@@ -130,6 +130,9 @@ foldPrim (Cast SDouble (SInt t)) [LDouble d] =
   if finite d then Just (LInt t (wrap t (cast d))) else Nothing
 foldPrim (Cast (SInt _) SDouble) [LInt _ n] = Just (LDouble (fromInteger n))
 foldPrim (Cast _ (SInt t)) [x] = LInt t . wrap t <$> number x
+foldPrim DoubleHead [LDouble d] = case unpack (prim__cast_DoubleString d) of
+  (c :: _) => Just (LChar (cast (ord c)))
+  [] => Nothing
 foldPrim (Cast _ SChar) [x] = (\n => LChar (if isScalar n then n else 0)) <$> number x
 foldPrim _ _ = Nothing
 

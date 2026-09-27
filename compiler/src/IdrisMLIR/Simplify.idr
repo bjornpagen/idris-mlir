@@ -568,6 +568,7 @@ mutual
   headOf (SCons c _) = Just (pure c)
   headOf (SChr c) = Just (pure c)
   headOf (SShow (IntT t) a) = Just (leadingChar t a)
+  headOf (SShow DoubleT a) = Just (bind noLoc CharT (OPrim DoubleHead [a]))
   headOf (SAppend (SLit "") b) = headOf b
   headOf (SAppend a _) = headOf a
   headOf _ = Nothing

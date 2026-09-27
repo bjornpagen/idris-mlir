@@ -223,6 +223,7 @@ data Scalar = SInt IntTy | SChar | SDouble
 public export
 data Prim = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
           | Compare Cmp Scalar | Cast Scalar Scalar
+          | DoubleHead   -- the first character of a Double as shown (ELIM-G-15)
 
 ||| Integer primitives: evaluated at compile time, never run (SEM-BIG-1).
 public export
@@ -294,6 +295,7 @@ Show Prim where
   show (Math f) = show f ++ "_Double"
   show (Compare op s) = show op ++ "_" ++ show s
   show (Cast a b) = "cast_" ++ show a ++ show b
+  show DoubleHead = "head_showDouble"
 
 export
 Show StrOp where
@@ -341,6 +343,7 @@ primArgs (Math Pow) = [DoubleT, DoubleT]
 primArgs (Math _) = [DoubleT]
 primArgs (Compare _ s) = [scalarTy s, scalarTy s]
 primArgs (Cast a _) = [scalarTy a]
+primArgs DoubleHead = [DoubleT]
 
 public export
 primResult : Prim -> VTy
@@ -350,6 +353,7 @@ primResult Negate = DoubleT
 primResult (Math _) = DoubleT
 primResult (Compare _ _) = IntT IdrisInt
 primResult (Cast _ b) = scalarTy b
+primResult DoubleHead = CharT
 
 public export
 strArgs : StrOp -> List VTy

@@ -159,6 +159,14 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure]> {
   let hasFolder = 1;
 }
 
+// IDR-DBL-3 (v3): the first character of prim__cast_DoubleString (ELIM-G-15).
+def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure]> {
+  let summary = "the first character of a Double as the reference prints it";
+  let arguments = (ins F64:$value);
+  let results = (outs I32:$result);
+  let assemblyFormat = "$value attr-dict";
+}
+
 // IDR-CRASH-1 (v3): a case the definition does not cover (SEM-CRASH-2).
 // Its result, of any type, stands for the value of the region it ends; it
 // is never produced.

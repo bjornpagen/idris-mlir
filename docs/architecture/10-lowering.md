@@ -165,6 +165,12 @@ missed it). So:
   LLVM does not contract `a * b + c` into a fused multiply-add without them.
   - Test: `tests/e2e/v2/double-basics`
 
+- **LOW-DBL-4 (v3).** `idr.double_head` calls the helper
+  `__idr_double_head`, which decides the sign and the special values as
+  `__idr_put_double` does and otherwise returns the leading digit of the
+  Ryu digits: the same text's first character, without writing it.
+  - Test: `tests/e2e/v3/show-values`, `tests/idr/lower/double-head.mlir`
+
 ### Division and modulus
 
 - **LOW-DIV-1 (v0).** `idr.div` and `idr.mod` lower to `arith` and `scf`,
