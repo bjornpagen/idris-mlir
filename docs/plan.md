@@ -9,6 +9,28 @@ specification stays in [architecture/](architecture/00-index.md), and its
 Every step below ends at a stop point where the user reviews it, and no
 step ends on a promise to fix something later (AGENTS.md, 16).
 
+**The bet: high-level code with guaranteed costs.**
+- **What this is not.** It is not "Rust, less annoying". People choose Rust
+  for control: explicit layout, no hidden allocation, local reasoning about
+  cost. Nor is it a better Lean backend for Idris, which would be a fine
+  compiler with no reason to exist.
+- **What this is.** Unmodified Idris 2, compiled through MLIR, where the
+  costs the types promise are guaranteed or the program is rejected with a
+  named rule:
+  - in-place reuse of quantity-1 values (`MEM-LIN-1`);
+  - no allocation where a function is required not to allocate
+    (`MEM-ALLOC-1`);
+  - no bounds check where `Fin n` proves the index
+    (`ELIM-FIN-1`).
+
+  Lean cannot promise these. Koka's `fip` promises no allocation only
+  when the arguments turn out unshared at runtime (section 4.2). Rust gets
+  the first only through its borrow checker.
+- **What decides whether the project lives** is the memory gate (section
+  4.4): does heap-heavy Idris beat MLton and come near Koka and Lean, and
+  do the guarantees hold on real code? It runs first (section 10). Most
+  of the rest of this plan is conditional on it.
+
 ## 1. Where we are
 
 **Implemented:** profile versions p0 to v3 (`docs/architecture/VERSION`
@@ -135,6 +157,29 @@ Settled, and the rest of the plan builds on them:
       compile a program than silently miss what its types promise.
     - It is what Lean cannot offer (README), and the reason this compiler
       exists. Lean's passes remain the best effort everywhere else.
+    - **Where the guarantees are demanded.** No syntax can be added, so:
+      - `MEM-LIN-1` is on by default for every quantity-1 binder in user
+        modules, and best effort in the libraries. Writing `1` in your own
+        code becomes a cost annotation you can read.
+      - `MEM-ALLOC-1` is demanded per function; how a program names those
+        functions is an open question for the user (section 12.7).
+      - `ELIM-FIN-1` applies wherever its condition holds.
+11. **The profile is the language: design by subtraction.** Choosing what
+    to reject is where this project's taste shows. The `PROF-*` rules are
+    treated as seriously as syntax. Each one has:
+    - a rationale;
+    - a rejection test;
+    - an error a person can act on: the rule, the location, what to write
+      instead.
+12. **The Idris pin moves rarely.** The frontend is coupled to TT's shape,
+    so every bump is a frontend migration. A bump is its own milestone,
+    with the whole suite and the differential tests, never a side effect
+    of other work (AGENTS.md).
+13. **Compile time has a hard budget from now on** (section 8.2). Rust's
+    biggest complaint is compile time, and whole-program supercompilation
+    with full LTO could be worse. Every e2e fixture compiles in under a
+    second, and the suite fails when one does not, apart from a listed
+    set of exceptions that shrinks to empty by M2.
 
 ## 3. Representations
 
@@ -337,18 +382,51 @@ program, so it can prove the property and promise it.
       both in place and on shared data must exist twice. Compiling a
       copying version automatically would bring back the silent cliff, so
       the compiler does not.
-  - **Otherwise, rejection.** When either half fails, compilation fails
-    with `MEM-LIN-1`. The error names the binder, the call that may pass a
-    shared value, and the reason:
+  - **Values born under a linear continuation are unique by
+    construction.** Idris's linear-CPS idiom introduces a value only under
+    a linear binder, as in `newArray : (size : Int) -> (1 _ : (1 _ : arr t)
+    -> a) -> a` (`Data.Linear.Array`), so the value can never be shared.
+    - After specialization the continuation is a known function.
+    - The value it receives is freshly built, so the caller half holds with
+      no special case.
+  - **Otherwise, rejection, at the call.** When either half fails,
+    compilation fails with `MEM-LIN-1` at the call site that breaks the
+    chain, for example `MEM-LIN-1: the argument at Main.idr:42 may be
+    shared`. The error names the binder, that call, and the reason:
     - the value is used again after the call;
     - it was read from a shared field;
     - it went through `assert_linear` or `believe_me` (`%unsafe` in
       `Builtin.idr`).
-  - **Where it applies.** Quantity 1 is rare in the stock libraries: 27
-    binders in the Prelude and 38 in base, mostly worlds, which are not
-    boxed (*code*). So a program asks for the guarantee by writing `1`,
-    and the libraries rarely trigger it by accident. The census of section
-    12.2 checks the rest.
+  - **Where it applies:**
+    - every quantity-1 binder of a boxed type in a user module (decision
+      10);
+    - in the libraries, best effort only: a library binder never raises
+      `MEM-LIN-1`. Quantity 1 is rare there anyway: 27 binders in the
+      Prelude and 38 in base, mostly worlds, which are not boxed (*code*).
+  - **The promise, kept narrow so that it stays a guarantee.** For a
+    value proved unique:
+    - no `idr.dup` is ever emitted on it, and the verifier enforces this
+      (`IDR-OWN-*`);
+    - when it is matched and a constructor of the same size is built on
+      that path, the cell is reused, or the program is rejected. There is
+      never a silent allocation and free;
+    - it is never copied. Arrays write in place already. A unique left
+      side of `strAppend` is extended in place, growing its buffer
+      geometrically, so the append is amortized O(length of the right
+      side);
+    - quantity-0 values emit no code, as today.
+- **`MEM-ALLOC-1`: guaranteed absence of allocation.**
+  - **The condition.** A function the program requires not to allocate
+    (decision 10; how it is named is an open question, section 12.7).
+  - **The promise.** Neither it nor anything it calls allocates on any
+    path. This is the `allocates` fact of section 8.3, joined over the call
+    graph after specialization.
+  - **Otherwise, rejection** with `MEM-ALLOC-1`, naming the path from the
+    function to the allocation.
+  - This keeps today's strongest property once M1 adds a heap. Today every
+    program is heap-free or rejected; afterwards, any function can still be
+    held to that, which Rust cannot state cleanly.
+  - A report of every function's `allocates` fact is always available.
 - **`ELIM-FIN-1`: guaranteed bounds-check elision.**
   - **The condition.** An array access whose index has type `Fin n`, into
     an array whose type is indexed by the same `n`, where the whole program
@@ -541,6 +619,9 @@ over the `idr` dialect, in Lean's order:
 
 ### 4.4 The gate: a prototype before the compiler work
 
+It runs first, before any other milestone (section 10): the plan rests on
+it.
+
 1. **The benchmark suite, in Idris.** Port Lean's and Koka's allocation
    benchmarks (`rbtree`, `rbtree-ck`, `deriv`, `nqueens`, `cfold`,
    `binarytrees`, `qsort`, `unionfind`) into `bench/`, next to SML and C
@@ -558,6 +639,22 @@ over the `idr` dialect, in Lean's order:
      program is no slower than Go's version.
    - The allocator is already chosen, from `foreign/idr/bench/alloc` (section 5.6).
      These programs measure the whole runtime on it.
+
+4. **The guarantee, on a linear red-black tree.** `insert` written with
+   quantity-1 binders, in three forms:
+   - hand-lowered as the compiler will emit it under `MEM-LIN-1`: static
+     reuse, no count test, no `dup`;
+   - Lean-style dynamic reuse, with the count test;
+   - the same Idris source in Koka and Lean, with one call site changed to
+     keep a second reference.
+   - **Pass:**
+     - the guaranteed form is at least as fast as the dynamic one;
+     - the broken call site shows the cliff in Koka and Lean, a measured
+       slowdown with no diagnostic.
+
+   In the compiler, M1's exit criteria then require that this program
+   compiles with zero `dup`s and full reuse, and that the broken call site
+   is rejected with `MEM-LIN-1`.
 
 If the gate fails, the memory decision is reopened with the numbers.
 
@@ -1073,6 +1170,31 @@ and Lean's tasks, not Go's migrating goroutines on a shared heap.
   - each core serves its connections as tasks;
   - heavy computation goes to futures.
 
+### 7.1a The reference program
+
+One ordinary concurrent Idris program is kept in the repository as the
+end-to-end target, runnable on Chez today and compiled here once C3 lands.
+- **Its shape:**
+  - read-only configuration built at startup and shared by every
+    worker;
+  - one worker per processor (`getNProcessors`), each accepting on one
+    shared listening socket and keeping its own state;
+  - heavy pure work sent to `System.Future`.
+- **Chez runs it as a differential oracle:** same output, with timing and
+  fairness implementation-defined, and Chez built with threads.
+- **What it checks on our side:**
+  - the configuration is marked shared once and read without count
+    traffic;
+  - no hot state lives in a shared `IORef`;
+  - a worker blocked on `accept` or `recv` does not stall its core
+    (section 12.1, the C support library);
+  - a spinning task is preempted (section 7.3).
+- **One shared listener, not one per core.** `Network.Socket` exposes no
+  socket options: neither it nor the C support library calls
+  `setsockopt`, so there is no `SO_REUSEPORT` (*code*). The per-core
+  listener of C2 is therefore a runtime policy under the shared one, not
+  something the program asks for.
+
 ### 7.2 The execution algebras are Idris's
 
 | Library | Runtime |
@@ -1210,7 +1332,13 @@ returns that shape's atoms, and the caller rebuilds the value (CPR; Lean's
 - The driver's own cost per call (configurations, the path walk, state
   copies at each unfolding) should also be measured and cut: hash-consed
   configurations, and memoized embedding checks.
-- **Target:** every e2e fixture compiles in under a second.
+- **Budget, enforced now** (decision 13):
+  - `test` times each e2e fixture's compilation, and fails when one takes
+    more than a second, unless the fixture is on a list naming the
+    milestone that fixes it;
+  - the list starts with today's offenders, `printLn 'x'` among them;
+  - it is empty by M2;
+  - the full LTO of section 5.7 is inside the budget, not outside it.
 
 ### 8.3 One algebra of facts
 
@@ -1218,8 +1346,17 @@ returns that shape's atoms, and the caller rebuilds the value (CPR; Lean's
 record of facts per function, computed once and joined over the call graph:
 - `features`: the contract version is its maximum;
 - `effectful`;
-- `allocates`;
-- `terminating`.
+- `allocates`: `MEM-ALLOC-1` and the `allocates` report read it;
+- `terminating`;
+- `unique`: per quantity-1 binder, whether every caller passes a unique
+  value (`MEM-LIN-1`).
+
+Every fact records its source (section 9.1):
+- a quantity;
+- a flag Idris computed (`isEscapeHatch`, `ZERO`/`SUCC`);
+- a registry hook.
+
+The rules consume facts whatever their source.
 
 ### 8.4 The frontend
 
@@ -1384,10 +1521,12 @@ faster or stricter, but never different.
   `stricter` hook a registry entry plus a handler, and nothing more.
 
 **Stop points** (AGENTS.md; no step ends on a promise):
-1. After the census (below). **Reached; awaiting review.**
-2. After the registry module and its validation exist, with every current
-   hook migrated but the old sites not yet deleted. Both paths agree,
-   shown by test.
+1. After the census (below). **Passed.** The seven review questions (Q1–Q7,
+   cited in the table) are answered by the representation below.
+2. After the representation lands (`Origin`, `Shown`, `NameLoc`) and the
+   registry module and its validation exist, with every current hook
+   migrated but the old sites not yet deleted. Both paths agree, shown by
+   test.
 3. After the old sites are deleted and the enforcement tests are green.
 
 **The census (step 0)**, at `33647cf`. Every place the compiler keys
@@ -1448,10 +1587,15 @@ behaviour on an Idris name or shape:
 - **The same names appear in two places:** C3 and C4, and C5 and P7.
 - **P5 duplicates a flag Idris already sets.**
 
-**Representation first.** The registry is built as types, not as lists
-of strings, and the code is churned as far as that takes it. Each answer
-below follows from the representation, and each is a proposal awaiting
-review.
+**Representation first (decided).** The registry is built as types, not
+as lists of strings, and the code is churned as far as that takes it. The
+answers to Q1–Q7 follow from the representation.
+- **Order within the milestone:**
+  1. `idris-mlir-io` is deleted (Q5);
+  2. the representation changes land: `Origin` in `Loc`, `Shown` names,
+     `NameLoc` in MLIR. These change the dialect contract (`IDR-DATA-5`)
+     and many dump tests, but no program's behaviour;
+  3. the registry is built on them.
 - **`Key`: how the compiler names library knowledge.** A closed sum:
   - `Def QName`: an Idris definition;
   - `Foreign Spec`: a `%foreign` spec, such as `C:idris2_putStr` (Q2);
@@ -1510,34 +1654,63 @@ review.
 - **Order** (Q5): `idris-mlir-io` is deleted first, so its names are never
   registered.
 
-## 10. Milestones## 10. Milestones
+## 10. Milestones
 
 Each milestone requires:
 - all suites green;
 - no benchmark regression beyond noise;
+- the compile-time budget (section 8.2);
 - its own exit criteria, below.
+
+The numbers are names, not order. **The rows are in execution order**,
+and the memory gate is first: the rest rests on it.
 
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
+| 2 | **Memory gate** (section 4.4) | the four experiments pass, or the decision is reopened with the numbers; nothing below 1b starts before this passes |
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
 | 1b | **The registry** (section 9.1) | the three stop points of 9.1 passed; the suite agrees test for test; `bench/` and e2e compile times unchanged beyond noise; the enforcement tests green; `NN-registry.md` written |
-| 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
 | 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
-| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
+| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced in user modules, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected at the breaking call; the gate's linear red-black tree compiles with zero `dup`s and full reuse, and its broken call site is rejected; `MEM-ALLOC-1` enforced where demanded, with the `allocates` report; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
 | 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; `ELIM-FIN-1` enforced, with tests that find no bounds test at guaranteed sites and tests that are rejected; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
 | 8 | **C0: stacks** (section 7.3) | the segment check in `idr-lower` and the system-stack switch, measured: the benchmark table within noise, and the hot-split case bounded; a million-deep non-tail recursion runs |
 | 8a | **Debugging and profiling** (12.5) | crash backtraces with source locations; DWARF from MLIR locations; `perf` and `gdb` through segments and system-stack switches |
 | 8b | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
-| 9 | **C2: thread-per-core** | a pinned scheduler per core; `SO_REUSEPORT`; move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
-| 10 | **C3: parallel futures** | stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
+| 9 | **C2: thread-per-core** | a pinned scheduler per core; per-core listeners (`SO_REUSEPORT`) as a runtime policy under the program's one listening socket (7.1a); move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
+| 10 | **C3: parallel futures** | the reference program (7.1a) compiles and matches Chez; stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
 | 11 | **C4: `io_uring`** | behind the same scheduler, if C2's numbers call for it |
 | 12 | **macOS** (section 5.5) | the OS layer on `libSystem` and `kqueue`; Mach-O output; `idr-jit` with `MAP_JIT`; every suite green on macOS (arm64 and x86-64) |
 
 - **Anywhere after 0:** SOP returns (8.1), the facts algebra (8.3) and the
   frontend split (8.4).
+
+### 10.1 Work streams for parallel agents
+
+The first milestones split into streams that agents can run at once. The
+rules for every stream:
+- one branch per stream, `stream/<letter>`;
+- a stream touches only the files it owns, and follows AGENTS.md;
+- it ends at its milestone's stop points and merges to `main` only after
+  the user's review, in dependency order. `main` stays green;
+- no stream moves the Idris pin or edits `third_party/` (decision 12);
+- one heavy build per container: 4 cores and 15 GB do not fit an LLVM
+  build and a Lean build at once.
+
+| Stream | Milestone | Owns | Needs first | Stop points |
+| --- | --- | --- | --- | --- |
+| **G**: the memory gate | 2 | `bench/gate/` (Idris, SML, C, Koka and Lean sources; hand-lowered `.mlir`); the runtime prototype under `foreign/idr/bench/gate/` | K for the comparisons | (1) the suite and its Chez baseline; (2) experiments 1–3; (3) experiment 4 |
+| **K**: comparison toolchains | 2 | Koka and Lean built from source under `.toolchain/` (a `tools/dev.py` target) | nothing | both run the gate suite |
+| **D**: delete `idris-mlir-io` | 1 | `lib/idris-mlir-io/`, the 72 tests that import it, `DRV-FLOW-2` | nothing | tests moved to the Prelude, suite equal |
+| **O**: optimization from day one | 1 | `foreign/idr/tools/idris-mlir-cc.cc` | nothing | O3, `x86-64-v3` and internalization, each measured on `bench/` |
+| **L**: the research library | 1 | `docs/research/` | nothing | `git mv` only; `INDEX.md` |
+| **P**: no Python | 1 | `tools/`, the test harness, `bench/run.py` | D | the golden runner agrees test for test |
+| **R**: the registry | 1b | `compiler/src/`, `Emit`'s names (`NameLoc`), `foreign/idr` (`IDR-DATA-5`), `docs/architecture/` | D; P if merged, otherwise its tests are written in today's harness and P moves them | the three of 9.1 |
+| **T**: the LLVM-only toolchain | 3 | `tools/` (after P), CMake, `.gitmodules`, `runtime/` | P; the gate passed (section 12.7) | 5.2's bootstrap measured; then the rest of 3 |
+
+After these: M1 (the heap) needs G passed, R merged and T's runtime.
 - **After M1:** frames and regions (`alloca` and loop regions for values
   that provably do not escape), as optimizations.
 
@@ -1581,6 +1754,8 @@ reverse it.
 | Runtime representations for everything (3) | every profile program compiles; compile-time evaluation becomes optional | a runtime, a heap, and code for boxed values where specialization used to remove them | never: without it the profile stays heap-free |
 | Quantities as guarantees (decision 10, 4.2) | performance the types promise cannot silently degrade: a linear update is in place or the program does not compile; the one thing Lean does not offer | programs that pass a possibly shared value to a quantity-1 parameter are rejected; a whole-program uniqueness analysis to build and to explain in its errors | its rejections land often on code people reasonably write |
 | Ownership in the `idr` dialect, verified (4.2) | the guarantees are checked by the IR after every pass, not trusted from the frontend; uniqueness at calls is plain type matching; leaks and double frees are verifier errors | a larger dialect and verifier; generic MLIR passes are not linearity-aware, so some of their rewrites must be kept away from owned values; verification time after every pass | the verifier's cost dominates compile time, or keeping generic passes linear costs more optimization than it saves |
+| Guarantees on by default in user modules, best effort in libraries (decision 10) | a `1` in your own code is a readable cost annotation; the libraries never cause a `MEM-LIN-1` | a quantity-1 binder written for protocol reasons, not speed, is held to the guarantee too | such binders turn out common in real user code |
+| The memory gate first (4.4, 10) | the one experiment the plan rests on runs before the work that assumes it | cleanup, the registry and the toolchain wait for it or run beside it | nothing: if the gate fails, the rest is moot |
 | Reference counting (4) | the best measured speed on functional code; peak memory close to live data; in-place reuse; no stack scanning, so tasks, the JIT and `epoll` stay simple | counts in the code (removed by borrowing, reuse and QTT, not by the model); atomic counts on data shared across cores; cycles through mutable cells | the gate fails: slower than MLton, or atomics dominate a thread-per-core workload |
 | Heaps per core, move-or-mark (4.3) | messages built for sending cross cores with no atomics | a walk over each crossing value; remote frees | the walk costs more than copying (Erlang) on real messages |
 | Thread-per-core, IO tasks pinned (7) | core-local data; no migration; almost all counts non-atomic | no automatic balancing of IO tasks across cores; a long computation in a task blocks its core | real servers need IO-task migration for load balance |
@@ -1605,6 +1780,20 @@ what is not, and what settles it. "Leaning" is a recommendation, not a
 decision.
 
 ### 12.1 Semantics and the libraries
+
+**Idris as a foundation.** Compiling unmodified Idris means inheriting
+libraries written for a Chez backend, and a small, slow-moving upstream.
+Where the plan meets each inheritance:
+- **Unary `Nat`:** represented as `Big` (section 3), from Idris's own
+  constructor flags.
+- **Call-by-name `Lazy`:** kept, because it is upstream's semantics. Its
+  cost is the compiler's to remove, never by memoizing.
+- **`believe_me` casts:** item 1 below.
+- **The stdio-based C support library:** item 2 below.
+- **Upstream's pace:** decision 12.
+- **Things we would change in the language:** we will hit them, and we
+  have committed not to. The profile (decision 11) is the only lever: it
+  rejects what we cannot support well.
 
 1. **`believe_me` under non-uniform representations.**
    - **Known:** the libraries use it 31 times:
@@ -1709,16 +1898,10 @@ decision.
       duplicates into branches.
     - **Settles it:** the census below, then M1's tests. Every rejection
       must name a call and a reason a person can act on.
-12. **Quantity 1 in the libraries.**
-    - **Known:** 27 binders in the Prelude, 38 in base, 16 in contrib, 15
-      in linear, and 13 in network, mostly worlds (*code*).
-    - **Unknown:** whether any library function takes a boxed value at
-      quantity 1 and is called with a shared one. The guarantee would then
-      reject programs that only call that library.
-    - **Settles it:** a census of those binders and their call sites in the
-      libraries.
-    - **Leaning:** the guarantee holds for library code too. A library
-      site that breaks it is reported upstream, not exempted.
+12. **Quantity 1 in the libraries.** Settled by decision 10: library
+    binders are best effort and never raise `MEM-LIN-1`.
+    - The census of their quantity-1 binders still matters for
+      performance, since reuse there is dynamic. It is measured in M1.
 
 13. **Generic MLIR passes and linear values.**
     - **Known:** MLIR has no linear values, and its passes may duplicate
@@ -1842,7 +2025,34 @@ decision.
     - **Leaning:** build from source where the network allows it, and say
       plainly which comparisons are missing when it does not.
 
-## Appendix A: evidence for the memory decision
+### 12.7 Questions for the user
+
+Only the questions this plan cannot settle from evidence; each has a
+recommendation.
+
+31. **How does a program demand `MEM-ALLOC-1`?** No syntax can be added,
+    and user modules may not use pragmas (`PROF-PRAG-1`). The options:
+    - a compiler flag listing functions or module patterns, such as
+      `--no-alloc Server.handle,Codec.*`;
+    - every function of listed modules;
+    - a documentation-comment convention (`||| @no-alloc`), which Idris
+      keeps with the definition but which is text, not a type.
+    - **Recommendation:** the flag, plus the always-on `allocates` report.
+      It adds nothing to the language and is explicit per build.
+32. **Does the toolchain stream (T) wait for the gate?** The gate decides
+    whether the heap design lives; the toolchain (LLVM-only, musl, full
+    LTO) serves M1 either way, but costs a two-stage LLVM build and
+    review time.
+    - **Recommendation:** wait. Review bandwidth, not machine time, is the
+      scarce resource, and the gate may change what the runtime needs.
+33. **How do streams merge?** Each stream on its own branch, merged to
+    `main` after review at its stop points (section 10.1), or every agent
+    pushing to `main` behind green suites.
+    - **Recommendation:** branches, reviewed at stop points. Streams D, P
+      and R touch the same tests, and review is where their order is
+      enforced.
+
+## Appendix A: evidence for the memory decision## Appendix A: evidence for the memory decision
 
 Counting Immutable Beans (Ullrich and de Moura, IFL 2019), wall time
 normalized to Lean (i7-3770):

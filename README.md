@@ -1,8 +1,12 @@
 # idris-mlir
 
 An experimental whole-program compiler from a strict, versioned subset of
-Idris 2 to native code through MLIR. The goal is to turn what Idris's type
-system establishes into less runtime work.
+unmodified Idris 2 to native code through MLIR. The goal is high-level code
+with guaranteed costs. Where the types promise something (in-place reuse of
+linear values, no allocation, no bounds check), the compiler either
+delivers it or rejects the program with a named rule. It is not a Rust
+replacement for explicit layout and control, and not merely a faster Idris
+backend.
 
 ```text
 Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminations
