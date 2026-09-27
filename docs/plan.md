@@ -181,7 +181,7 @@ at `a4eae0a`). In short:
   - Idris data is immutable and strict;
   - laziness is call-by-name in the reference backend, so there are no memo
     cells;
-  - how to treat them is open (section 11).
+  - how to treat them is open (section 12).
 
 ### 4.2 The compiler side
 
@@ -377,7 +377,7 @@ own pipeline and the program's own runtime, run at compile time.
   output fusion (G7).
 - A string's static structure: `Append` trees of pieces.
 - Whether joining two literal pieces is data layout or a primitive for the
-  server is open (section 11).
+  server is open (section 12).
 
 **The server**, `idr-jit`, a C++ tool in `foreign/idr/tools`:
 - **One libc.** It is a static musl executable like the programs, with the
