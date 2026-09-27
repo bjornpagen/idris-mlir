@@ -84,7 +84,13 @@ benchmarks in `bench/` did not change.
    an explicit argument; a parameter is now an implementation when its type
    is an interface (Idris declares an interface's record with unique
    search), not only when its argument is one visibly.
-8. **`main : Int` programs cannot import the Prelude**: they are compiled
+8. **User types with the Prelude's interfaces, and showing characters and
+   strings**: done (`tests/e2e/v3/prelude-user-types`). String primitives
+   on literals fold (`ELIM-G-6`), and a specialization that cannot be built
+   for a runtime value is built for the literal it was given
+   (`ELIM-G-17`): the Prelude's `show` for `Char` compares the character's
+   code as an `Integer`, which exists only at compile time.
+9. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
 
@@ -96,4 +102,4 @@ benchmarks in `bench/` did not change.
   Mandelbrot, Newton basins), diffed against Chez; the benchmarks import
   only the Prelude and are no slower (`bench/README.md`).
 
-What remains is item 8 above, and everything that needs a heap.
+What remains is item 9 above, and everything that needs a heap.

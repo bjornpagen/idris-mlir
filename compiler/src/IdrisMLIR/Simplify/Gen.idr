@@ -15,6 +15,7 @@ import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
+import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
 
@@ -26,25 +27,34 @@ import Data.SortedMap
 
 ||| The key of a specialization (ELIM-G-3): the function, and the shapes of
 ||| its arguments and of the eliminations applied to its result (ELIM-G-5).
+||| `lits` is empty, or, for a specialization on literal values (ELIM-G-17),
+||| the literal of each atom, in order.
 public export
 record Key where
   constructor MkKey
   fn : FnId
   args : List (SVal ())
   elims : List (Elim ())
+  lits : List (Maybe Lit)
+
+-- Literals are ordered by how they print, which tells them apart.
+litKey : Maybe Lit -> String
+litKey = maybe "_" show
 
 export
 Eq Key where
-  a == b = a.fn == b.fn && a.args == b.args && cmpElims a.elims b.elims == EQ
+  a == b = a.fn == b.fn && a.args == b.args && cmpElims a.elims b.elims == EQ &&
+           map litKey a.lits == map litKey b.lits
 
 export
 Ord Key where
-  compare a b = compare a.fn b.fn <+> compare a.args b.args <+> cmpElims a.elims b.elims
+  compare a b = compare a.fn b.fn <+> compare a.args b.args <+> cmpElims a.elims b.elims <+>
+                compare (map litKey a.lits) (map litKey b.lits)
 
 ||| A key with no static argument and no elimination: the function itself.
 export
 trivial : Key -> Bool
-trivial k = all isDyn k.args && null k.elims
+trivial k = all isDyn k.args && null k.elims && all isNothing k.lits
   where
     isDyn : SVal () -> Bool
     isDyn (Dyn _ _) = True
@@ -52,7 +62,8 @@ trivial k = all isDyn k.args && null k.elims
 
 export covering
 showKey : Key -> String
-showKey k = show k.fn ++ "(" ++ joinBy "; " (map showShape k.args) ++ ")" ++ showElims k.elims
+showKey k = show k.fn ++ "(" ++ joinBy "; " (map showShape k.args) ++ ")" ++ showElims k.elims ++
+            (if all isNothing k.lits then "" else " at " ++ joinBy ", " (map litKey k.lits))
   where
     joinBy : String -> List String -> String
     joinBy sep [] = ""
@@ -232,6 +243,17 @@ blockV l act = do
 export
 replay : Prefix -> M ()
 replay p = modify { lets $= (<>< map (\(l, x, q, t, o) => MkStmt l x q t o) p) }
+
+||| Runs a computation, or reports the user error that stopped it with the
+||| state as it was (ELIM-G-17).
+export
+attempt : M a -> M (Either Diag a)
+attempt act = do
+  st <- get
+  case runStateT st act of
+    Right (st', x) => put st' $> Right x
+    Left (Fail d) => pure (Left d)
+    Left other => lift (Left other)
 
 ||| Evaluates a computation at compile time (ELIM-G-16): its result, if it
 ||| finishes within `n` unfoldings with a result that satisfies `ok` and

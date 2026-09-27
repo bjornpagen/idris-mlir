@@ -148,4 +148,15 @@ foldStr (ToStr SChar) [LChar c] = Just (LStr (singleton (chr (cast c))))
 foldStr (ToStr (SInt _)) [LInt _ n] = Just (LStr (show n))
 foldStr (ToStr SDouble) [LDouble d] = Just (LStr (prim__cast_DoubleString d))
 foldStr (FromStr SDouble) [LStr s] = Just (LDouble (prim__cast_StringDouble s))
+-- The compiler runs on the reference backend, so its own primitives give
+-- the reference's results; an empty string or an index out of range is left
+-- for runtime, where it fails as the reference does.
+foldStr Head [LStr s] = if s == "" then Nothing else Just (LChar (cast (ord (assert_total (prim__strHead s)))))
+foldStr Tail [LStr s] = if s == "" then Nothing else Just (LStr (assert_total (prim__strTail s)))
+foldStr Index [LStr s, LInt _ i] =
+  if i >= 0 && i < cast (length s)
+     then Just (LChar (cast (ord (assert_total (prim__strIndex s (cast i))))))
+     else Nothing
+foldStr Substr [LInt _ start, LInt _ len, LStr s] =
+  Just (LStr (prim__strSubstr (cast start) (cast len) s))
 foldStr _ _ = Nothing

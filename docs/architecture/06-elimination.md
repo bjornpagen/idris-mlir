@@ -143,7 +143,13 @@ is static.
   by 0, which is left in place to crash at runtime. This turns
   `putStrLn "hello"` into one literal, `"hello\n"`: a string known at
   compile time is a static argument, so a function that receives it is
-  specialized on its value (`ELIM-G-3`).
+  specialized on its value (`ELIM-G-3`). From v3 this covers `strHead`,
+  `strTail`, `strIndex` and `strSubstr` on literals too (the Prelude's
+  `show` for `Char` and `String`, `unpack`, `length`), computed with the
+  reference's own primitives, since the compiler runs on it; an empty
+  string or an index out of range is left to fail at runtime as the
+  reference does.
+  - Test: `tests/e2e/v3/prelude-user-types`
 - **ELIM-G-7 (v1). Output fusion.** When the argument of the `putStr`
   primitive (`prim__idrPutStr`) is not a literal, the call is rewritten by
   the first matching case, applied repeatedly:
@@ -253,6 +259,16 @@ is static.
   - *Why this is exact:* the attempt runs the same evaluator, and is kept
     only when its result depends on nothing at runtime.
   - Test: `tests/e2e/v3/compile-time-evaluation`
+- **ELIM-G-17 (v3). Specialization on literals.** A specialization is keyed
+  by the shapes of its arguments, and their atoms, literals included, become
+  its parameters (`ELIM-G-3`). When that specialization cannot be built
+  (its body would need a value that cannot exist at runtime, such as an
+  `Integer` made from a `Char` in the Prelude's `show` for characters), and
+  some atoms are literals, it is built again with those literals fixed, and
+  keyed by them too. The first attempt is undone. A loop whose argument is
+  a literal is still one specialization; only code that could not be
+  compiled otherwise is specialized per literal.
+  - Test: `tests/e2e/v3/prelude-user-types` (`printLn 'x'` twice)
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:

@@ -232,6 +232,11 @@ dynVar : VarId -> VTy -> V
 dynVar x ErasedT = Dyn ErasedT AErased
 dynVar x t = Dyn t (AVar x)
 
+||| The literal an atom is, if it is one (ELIM-G-17).
+literalAtom : Atom -> Maybe Lit
+literalAtom (ALit lit) = Just lit
+literalAtom _ = Nothing
+
 ||| A literal string argument is static, so that string primitives on it fold
 ||| (ELIM-G-6): `putStrLn "hi"` writes one literal, "hi\n".
 literalStr : V -> V
@@ -304,7 +309,7 @@ mutual
       Nothing => if fn.result == BigT || !(chooses l fn.result) || !(staticRun l fn.result)
                    then known fn vs [] (unfold l fn vs [])                       -- G16
                    else pure (SCall f !(gets effects) vs [])                     -- G5
-      Just StrT => unfold l fn vs []                                               -- G10
+      Just StrT => known fn vs [] (unfold l fn vs [])                              -- G16, G10
       Just _ => known fn vs [] $                                                    -- G16
                 if fn.block || fn.inline || interesting vs || any joinIn vs          -- G11-G14
                    then unfold l fn vs []
@@ -606,11 +611,19 @@ mutual
       fail ProfHeap3 l ("a string built in a runtime branch is passed to " ++ fn.idrisName ++
                         ", which calls itself, so it would need the heap (ELIM-G-14)")
     t <- elimTy l fn.result es >>= runtimeTy l
-    name <- specialize l fn (MkKey f (map shape args) (shapeElims es)) args es t
+    let generic = MkKey f (map shape args) (shapeElims es) []
+    let lits = map (literalAtom . snd) (atoms args es)
+    -- ELIM-G-17: a specialization that cannot be built for any value of
+    -- its atoms is built for the literals among them, if there are any.
+    (name, isLiteral) <- if all isNothing lits then (, False) <$> specialize l fn generic args es t else do
+      Right name <- attempt (specialize l fn generic args es t)
+        | Left _ => (, True) <$> specialize l fn ({ lits := lits } generic) args es t
+      pure (name, False)
     now <- gets effects
     when (not (null es)) $
       modify { runs $= (:< (name, l, maybe False (< now) built)) }
-    let as = atoms args es
+    let as = the (List (VTy, Atom)) (if isLiteral then filter (isNothing . literalAtom . snd) (atoms args es)
+                                     else atoms args es)
     when (any ((== WorldT) . fst) as) effect
     Dyn t <$> bind l t (OCall name (map snd as))
 
@@ -637,10 +650,14 @@ mutual
                 "passes itself a different function or IO action on each call")
         let name = if trivial key then fn.id else MkFnId (fn.id.name ++ "#" ++ show (S n))
         put ({ memo $= insert key name, made $= insert fn.id (S n), stack $= (key ::) } st)
-        -- Parameters: the atoms of the arguments and eliminations.
-        let types = map fst (atoms args es)
+        -- Parameters: the atoms of the arguments and eliminations, but for
+        -- the literals a literal key fixes (ELIM-G-17).
+        let all = the (List (VTy, Atom)) (atoms args es)
+        let fixed = the (List (Maybe Lit)) (if null key.lits then map (const Nothing) all else key.lits)
+        let free = the (List ((VTy, Atom), Maybe Lit)) (filter (\(_, f) => isNothing f) (zip all fixed))
+        let types = map (\((t, _), _) => t) free
         params <- traverse (const freshVar) types
-        let (args', es') = refill (zipWith dynAtom params types) AErased args es
+        let (args', es') = refill (supply (zipWith dynAtom params types) (zip all fixed)) AErased args es
         Just env <- pure (toVect fn.arity args')
           | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
         -- G5: the body before the eliminations apply runs where the action
@@ -653,8 +670,9 @@ mutual
         modify { stack $= drop 1 }
         -- CORE-INV-4: a runtime argument keeps the quantity of its
         -- parameter; the atoms of a static value are unrestricted.
-        let qs = concat (zipWith quantities (toList fn.params) args) ++
-                 map (defaultQuantity . fst) (atoms [] es)
+        let qs0 = concat (zipWith quantities (toList fn.params) args) ++
+                  map (defaultQuantity . fst) (atoms [] es)
+        let qs = the (List Quantity) (map (\(q, _) => q) (filter (\(_, f) => isNothing f) (zip qs0 fixed)))
         let spec = if trivial key then Nothing else Just ("specialization of " ++ showKey key)
         modify { done $= (:< MkCFn name fn.idrisName (zipWith3 MkParam params qs types)
                                    t body fn.loc fn.terminating spec) }
@@ -663,6 +681,12 @@ mutual
       dynAtom : VarId -> VTy -> Atom
       dynAtom x ErasedT = AErased
       dynAtom x _ = AVar x
+      -- The atoms in order: a fixed literal, or the next parameter.
+      supply : List Atom -> List ((VTy, Atom), Maybe Lit) -> List Atom
+      supply ps [] = []
+      supply ps ((_, Just lit) :: rest) = ALit lit :: supply ps rest
+      supply (p :: ps) ((_, Nothing) :: rest) = p :: supply ps rest
+      supply [] ((_, Nothing) :: rest) = AErased :: supply [] rest
       grows : Key -> Key -> Bool
       applied : Elim () -> Maybe (SVal ())
       applied (Apply v) = Just v
