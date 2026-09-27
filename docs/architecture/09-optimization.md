@@ -92,6 +92,9 @@ Superoptimization, equality saturation and search are non-goals (D7).
   12. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
       object file for the host target (`LOW-TARGET-1`)
   - Test: `tests/idr/pipeline/cc-steps.mlir`
+  - *Measured and left out:* upstream `control-flow-sink` after step 7
+    changed no benchmark in `bench/` beyond noise (v2); LLVM's own sinking
+    already moves those operations.
 - **OPT-PIPE-2 (v0).** `idr-tail-loops` runs after `inline`. The inliner never
   inlines a recursive function into itself, and many self tail calls exist
   only after inlining: a `do` block's `>>` and a raised IO function become

@@ -1,6 +1,6 @@
 module Main
 
--- rule: FE-TR-6, ELIM-G-2, ELIM-G-3
+-- rule: PROF-IFACE-1, FE-TR-6, ELIM-G-2, ELIM-G-3
 -- A higher-kinded interface with polymorphic methods, a subclass with a
 -- default method, and `do` over the user's monad: every dictionary is
 -- resolved at compile time.

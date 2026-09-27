@@ -1,6 +1,6 @@
 module Main
 
--- rule: SEM-DBL-1, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, LOW-DBL-1, LOW-DBL-2
+-- rule: SEM-DBL-1, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, LOW-DBL-1, LOW-DBL-2, LOW-DBL-3, PROF-PRIM-5
 -- Double arithmetic, libm functions, casts and printing on a value read at
 -- run time, so that nothing folds; the stock Chez backend is the oracle.
 

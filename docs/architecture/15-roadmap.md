@@ -2,8 +2,26 @@
 
 ## Status
 
-p0, v0 and v1 are implemented (`docs/architecture/VERSION` is `v1`), with
-these differences from draft 2, each recorded in the rule it changes:
+p0, v0, v1 and v2 are implemented (`docs/architecture/VERSION` is `v2`).
+v2 differs from its plan below as follows, each recorded in the rule it
+changes:
+- `FE-TR-6` (new): implementations are compile-time values resolved during
+  translation, not dictionaries eliminated later: a polymorphic method body
+  cannot be translated before its type variables are known
+  (`docs/research/v2-entry.md`).
+- `ELIM-G-10`, `ELIM-G-11` (new): functions that return strings, and Idris's
+  case and with blocks, are unfolded where they are called.
+- `OPT-PIPE-3`: loop breakers are marked `no_inline`, after the inliner
+  unrolled mutual recursion; `control-flow-sink` was measured and left out.
+- `PROF-HEAP-5`: moving a prefix is rejected only when an effect happens
+  between building and running the action.
+- `PROF-PRAG-1` allows `%default`; `PROF-LIB-1` admits `FromDouble`.
+- `SEM-DBL-5`: exact decimal ties round up, as Chez does, where Ryu rounds
+  to even; found by differential fuzzing.
+- `SEM-DEV-2` (new): LLVM may fold or replace libm calls.
+- `LOW-SEL-1` (new): selects of idr values.
+
+p0, v0 and v1 differ from draft 2 as follows:
 - `PROF-FN-5` (contract): only missing cases are rejected; a function that
   divides is declared `partial`.
 - `LOW-TAIL-4` (new): loops made from recursion carry `idr.may_loop`, after
@@ -124,7 +142,14 @@ Scope:
   `ELIM-G-2` and `ELIM-G-3`;
 - `do` over any user monad through a user-defined `Monad` interface;
 - `Double`, specified in 03 first;
-- `control-flow-sink` in the pipeline.
+- `control-flow-sink` in the pipeline (measured, no effect, left out:
+  `OPT-PIPE-1`).
+
+Exit criteria, met:
+- `TEST-SPEC-1` passes with `VERSION = v2`;
+- every suite passes, including the differential suite against Chez;
+- `TEST-HEAP-1` holds everywhere, with the libm functions of `LOW-EXT-1`;
+- `bench/` runs, and its outputs agree across all four compilers.
 
 ## v3 onward: the Prelude's dependencies, layer by layer
 

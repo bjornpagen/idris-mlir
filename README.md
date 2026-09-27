@@ -10,7 +10,7 @@ Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminati
 ```
 
 The specification is [docs/architecture/](docs/architecture/00-index.md)
-(normative). p0, v0 and v1 are implemented; see its
+(normative). p0, v0, v1 and v2 are implemented; see its
 [roadmap](docs/architecture/15-roadmap.md) for the status and the deviations.
 
 ## What compiles today
@@ -28,6 +28,15 @@ with an `unsupported (<RULE>)` error at the source location.
   `exit`, `Char`, static strings, lambdas, higher-order and polymorphic
   functions, and user monads written with plain functions. The executable
   references only `write`, `read` and `_exit`.
+- **v2:** user-defined interfaces (superclasses, defaults, named and
+  constrained implementations, higher-kinded ones such as a user `Monad`
+  with `do`), resolved at compile time; `Double` with Chez's semantics and
+  shortest round-trip printing; libm functions. See
+  [the math showcase](tests/e2e/v2/math-showcase) for what that allows.
+
+On the heap-free programs it can compile, the output is faster than MLton's
+on every benchmark in [bench/](bench/README.md), by 1.4x to 4.3x, and within
+reach of gcc -O2.
 
 ```sh
 idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int

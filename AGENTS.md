@@ -6,7 +6,7 @@ The normative spec is [docs/architecture/](docs/architecture/00-index.md).
 
 - The compiler front and middle end are Idris. The `idr` MLIR dialect and its
   passes are C++ in `foreign/idr/`, following bjornpagen/cpp-starter as
-  adopted in docs/architecture/11-toolchain.md. p0, v0 and v1 are
+  adopted in docs/architecture/11-toolchain.md. p0, v0, v1 and v2 are
   implemented (docs/architecture/15-roadmap.md); `PINS.md` records every
   deliberate deviation from that C++ profile.
 - The compiler consumes checked Idris TT and its definition context. Do not
