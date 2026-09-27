@@ -18,7 +18,8 @@ bench/gate/run.sh                     # all four experiments
 bench/gate/run.sh suite lowered       # or some of them: suite, lowered, threads, linear
 ```
 
-A `make gate` target runs `bench/gate/run.sh`.
+For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
+`bench` is `bench/run.sh $(ARGS)`.
 
 - **Measurement.** Every program is timed `RUNS` times (default 5). The best
   wall-clock time is kept, and the largest peak RSS of the runs, measured
@@ -151,13 +152,14 @@ program.
   Pointer fields come first. A nullary constructor is the immediate
   `tag << 1 | 1`. The header is one 64-bit store.
 - **Counts.** `idr.dup` and `idr.drop` are inlined fast paths: plain
-  arithmetic while `0 < count < INT32_MAX`, no call for a persistent cell
-  (count 0), and a call into the runtime for shared (negative, atomic)
-  counts, for the count that sticks at `INT32_MAX`, and for freeing.
-  ([lowered/prelude.mlir](lowered/prelude.mlir) holds them, as
-  `Lower/Runtime.mlir.inc` holds today's helpers.)
-- **Borrowing.** `check`, `count`, `d` and the folds borrow their argument
-  and count nothing.
+  arithmetic while the count is positive and below `INT32_MAX` (above 1 for
+  a drop), nothing for a persistent cell (count 0), and a call into the
+  runtime for shared (negative, atomic) counts, for the count that sticks
+  at `INT32_MAX`, and for freeing. ([lowered/prelude.mlir](lowered/prelude.mlir)
+  holds them, as `Lower/Runtime.mlir.inc` holds today's helpers.)
+- **Borrowing.** `check`, `count`, `d`, `lookup` and the folds borrow their
+  argument, so walking it counts nothing; `d` duplicates a subterm only
+  where it passes it to a function that owns its argument.
 - **Reset and reuse with hot and cold paths.** The sources bind at quantity
   omega, so reuse is Lean's best effort: a reset tests the count. At 1, the
   cell becomes a token and its fields move to locals. Otherwise the fields
