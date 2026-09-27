@@ -2027,30 +2027,25 @@ Where the plan meets each inheritance:
 
 ### 12.7 Questions for the user
 
-Only the questions this plan cannot settle from evidence; each has a
-recommendation.
-
-31. **How does a program demand `MEM-ALLOC-1`?** No syntax can be added,
-    and user modules may not use pragmas (`PROF-PRAG-1`). The options:
-    - a compiler flag listing functions or module patterns, such as
-      `--no-alloc Server.handle,Codec.*`;
-    - every function of listed modules;
-    - a documentation-comment convention (`||| @no-alloc`), which Idris
-      keeps with the definition but which is text, not a type.
-    - **Recommendation:** the flag, plus the always-on `allocates` report.
-      It adds nothing to the language and is explicit per build.
-32. **Does the toolchain stream (T) wait for the gate?** The gate decides
-    whether the heap design lives; the toolchain (LLVM-only, musl, full
-    LTO) serves M1 either way, but costs a two-stage LLVM build and
-    review time.
-    - **Recommendation:** wait. Review bandwidth, not machine time, is the
-      scarce resource, and the gate may change what the runtime needs.
-33. **How do streams merge?** Each stream on its own branch, merged to
-    `main` after review at its stop points (section 10.1), or every agent
-    pushing to `main` behind green suites.
-    - **Recommendation:** branches, reviewed at stop points. Streams D, P
-      and R touch the same tests, and review is where their order is
-      enforced.
+31. **How do you mark a function that must never allocate memory?** Idris
+    gives us no way to add a keyword or annotation of our own.
+    - **Recommendation:** name those functions on the command line, as in
+      `--no-alloc Server.handle`, and have the compiler always print a
+      list of which functions allocate. The other options are to mark
+      whole files, or a special comment above the function.
+32. **Should the toolchain rebuild wait until the memory experiment
+    passes?** The rebuild drops GCC and makes everything static and fully
+    link-time optimized. It is a lot of work, and useful whatever the
+    experiment says, but the experiment might change what the runtime
+    needs.
+    - **Recommendation:** wait. Your time to review the work is the
+      bottleneck, not the machine's.
+33. **How should the parallel agents deliver their work?** Either each one
+    works on its own branch and you review it before it goes into `main`,
+    or each pushes straight to `main` as long as the tests pass.
+    - **Recommendation:** own branches, reviewed by you. Three of the
+      streams edit the same tests and must land in a fixed order, and
+      review is where that order is kept.
 
 ## Appendix A: evidence for the memory decision## Appendix A: evidence for the memory decision
 
