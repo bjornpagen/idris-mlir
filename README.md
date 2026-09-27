@@ -9,6 +9,26 @@ Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminati
   → idr dialect (C++) → upstream MLIR → LLVM → object → pinned gcc links
 ```
 
+## Why not Lean 4
+
+Lean 4 is dependently typed, compiles through precise reference counting
+with borrowing and in-place reuse, and ships a production compiler. Our
+memory plan ports its passes ([plan](docs/plan.md), section 4.2). What Lean
+cannot promise is *when* reuse happens. It tests the count at runtime, so one
+extra reference anywhere silently turns an in-place update into a copy.
+Koka's fully in-place functions check a function's body statically, but
+still decide at runtime whether a call's argument is shared (FP², ICFP 2023).
+Idris 2's quantitative type theory states linearity in the types, and this
+compiler sees the whole program, so it can prove both halves: the callee
+uses the value once, and every caller passes an unshared one. The plan is
+to promise the result. A quantity-1 value that is matched and rebuilt at
+the same size will be updated in place with no runtime test, or the program
+will not compile, with a named rule (`MEM-LIN-1`). The promise will be
+carried as ownership types in the `idr` MLIR dialect, and MLIR's verifier
+will check it again after every pass instead of trusting the frontend.
+None of this is implemented yet: today's programs are heap-free (below).
+That promise, more than dependent types alone, is why this compiler exists.
+
 The specification is [docs/architecture/](docs/architecture/00-index.md)
 (normative). p0, v0, v1, v2 and v3 are implemented; see its
 [roadmap](docs/architecture/15-roadmap.md) for the status and the deviations.

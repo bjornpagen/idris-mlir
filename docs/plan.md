@@ -69,7 +69,10 @@ Settled, and the rest of the plan builds on them:
    compile-time evaluation is an optimization, never a requirement.
 3. **Memory is reference counting, Lean's way** (section 4):
    - precise counts;
-   - borrowing and in-place reuse;
+   - borrowing and in-place reuse, guaranteed where quantities promise it
+     (decision 10);
+   - ownership as types and ops in the `idr` dialect, checked by its
+     verifier after every pass;
    - a heap per core;
    - move-or-mark where values cross cores.
 
@@ -112,6 +115,18 @@ Settled, and the rest of the plan builds on them:
    - Optimization is as aggressive as semantics allow, and never beyond:
      no fast-math, no FP contraction, and no assumption the types do not
      prove.
+10. **Quantities are performance guarantees, not hints** (section 4.2).
+    - A boxed value bound at quantity 1, matched, and rebuilt at the same
+      size on that path is updated in place, with no runtime test. If the
+      compiler cannot prove that, compilation fails with a named rule
+      (`MEM-LIN-1`).
+    - An index typed `Fin n` into an array whose type fixes its length at
+      `n` is not bounds-checked. If the compiler cannot prove that,
+      compilation fails (`ELIM-FIN-1`).
+    - This is the stance of the heap-free rejections: we would rather not
+      compile a program than silently miss what its types promise.
+    - It is what Lean cannot offer (README), and the reason this compiler
+      exists. Lean's passes remain the best effort everywhere else.
 
 ## 3. Representations
 
@@ -267,23 +282,214 @@ at `a4eae0a`). In short:
 
 ### 4.2 The compiler side
 
-Lean's impure pipeline (its `LCNF` passes, which are A-normal form with join
-points like ours), ported to `Code Mem`, in Lean's order:
+Two layers: guarantees where the types promise something (decision 10),
+and Lean's passes as the best effort everywhere else.
+
+**Quantities are guarantees.** In Lean, reuse happens when a runtime test
+finds a cell unshared. One more reference anywhere, and an in-place update
+silently becomes a copy: a performance cliff nothing in the program shows.
+Idris states linearity in its types, and this compiler sees the whole
+program, so it can prove the property and promise it.
+
+- **`MEM-LIN-1`: guaranteed in-place reuse.**
+  - **The condition.** A function binds a value of a `Box` type at
+    quantity 1 and matches it against a constructor. On that path, after
+    the value's last use, it builds a constructor whose cell has the same
+    size.
+  - **The promise.** The new value is written into the old cell:
+    - no allocation and no free;
+    - no count is tested or changed;
+    - fields that do not change are not stored again.
+  - **Why it can be proved.** It takes two halves: linearity constrains
+    the future, uniqueness the past (Marshall, Vollmer and Orchard,
+    "Linearity and uniqueness: an entente cordiale", ESOP 2022, in the
+    library).
+    - **Linearity (the callee).** Idris's checker proves that the function
+      uses the value exactly once, so it cannot duplicate it.
+    - **Uniqueness (the callers).** Idris lets a shared value be passed to
+      a quantity-1 parameter. With `f : (1 x : T) -> T`, the definition
+      `g y = (f y, y)` typechecks on the pinned Idris (checked). So a linear
+      binder alone does not imply a unique cell (AGENTS.md).
+    - The whole-program analysis supplies this half. It proves that every
+      call passes a value with count 1: one built there, a quantity-1
+      binder itself, or a variable whose other uses are all dead at the
+      call. A value read out of a shared structure never qualifies.
+    - Brady makes the same two-part argument for linear arrays (ECOOP
+      2021, section 5): linear use, plus a construction that only a linear
+      continuation receives.
+    - **Koka's `fip` stops at the callee half.** Koka's fully in-place
+      functions (FP², ICFP 2023, in the library) check the function body
+      statically. For calls, the authors write that "deciding which calls
+      to fip functions can be safely executed using destructive updates
+      requires further information about how arguments are shared at call
+      sites". Koka decides that at runtime, and falls back to allocating
+      when an argument is shared.
+    - We decide the caller half statically, as Clean's uniqueness types
+      do. The paper names the cost, and it is ours too: a function wanted
+      both in place and on shared data must exist twice. Compiling a
+      copying version automatically would bring back the silent cliff, so
+      the compiler does not.
+  - **Otherwise, rejection.** When either half fails, compilation fails
+    with `MEM-LIN-1`. The error names the binder, the call that may pass a
+    shared value, and the reason:
+    - the value is used again after the call;
+    - it was read from a shared field;
+    - it went through `assert_linear` or `believe_me` (`%unsafe` in
+      `Builtin.idr`).
+  - **Where it applies.** Quantity 1 is rare in the stock libraries: 27
+    binders in the Prelude and 38 in base, mostly worlds, which are not
+    boxed (*code*). So a program asks for the guarantee by writing `1`,
+    and the libraries rarely trigger it by accident. The census of section
+    12.2 checks the rest.
+- **`ELIM-FIN-1`: guaranteed bounds-check elision.**
+  - **The condition.** An array access whose index has type `Fin n`, into
+    an array whose type is indexed by the same `n`, where the whole program
+    establishes the invariant: every construction of that array type
+    allocates exactly `n` elements.
+  - **The promise.** No bounds test is emitted. This is not "LLVM may drop
+    it given a range".
+  - **Otherwise, rejection** with `ELIM-FIN-1`, naming the access and the
+    construction that breaks the invariant.
+  - **Scope.** The stock arrays (`IOArray`, `Data.Linear.Array`) index by
+    `Int` and check in the library, so the guarantee applies where a
+    program's own types tie an index to a length. Erased does not mean
+    constant: `n` is erased at runtime and known only as the relation the
+    types state. Indexing a `Vect` by `Fin n` needs no check to begin
+    with: it is a walk that the types make total.
+- **Soundness.** No memory safety rests on an unproved quantity.
+  - A guaranteed reuse happens only with both halves proved, and a failed
+    proof rejects the program.
+  - Everywhere else, liveness decides every count.
+- **Checked on the output.** The tests of each rule inspect the emitted
+  code: no allocation, no count operation and no bounds test at the
+  guaranteed sites, and a rejection where the proof fails.
+
+**Ownership lives in the `idr` dialect, and its verifier checks it.** The
+guarantees above must be checked by the IR, not trusted from the frontend.
+That is what MLIR offers over emitting C, as Lean and Koka do.
+- **What exists elsewhere** (*code* unless marked):
+  - **Lean** inserts its counts into λRC and compiles that to C. Its IR
+    checker (`src/Lean/Compiler/IR/Checker.lean`) checks only that `inc`,
+    `dec`, `reset` and `reuse` name bound variables of object type.
+    Nothing checks that counts balance, that a value is consumed once, or
+    that a reuse fits.
+  - **"Lambda the Ultimate SSA"** (Bhat and Grosser, CGO 2022, in the
+    library) put Lean into MLIR as the `lp` dialect:
+    - one erased type, `!lp.t`, for every boxed value;
+    - `lp.inc` and `lp.dec` as ops;
+    - reset and reuse commented out of the paper;
+    - no ownership in the types and no verifier for it.
+  - **Mojo** puts ownership in its language: argument conventions `read`,
+    `mut` (with argument exclusivity enforced), `var` with the `^`
+    transfer sigil, `out` and `deinit`, and compiler-created *origins* for
+    references (`Mojo/docs/site/manual/values/ownership.mdx` and
+    `lifetimes.mdx` in `modular/modular` at `ce67c4b`).
+    - A `var` parameter silently copies when the caller omits `^`, unless
+      the type is not `Copyable`, in which case the copy is a compile
+      error. That is the pattern of our guarantee: a hidden copy becomes a
+      compile error.
+    - That Mojo's checker runs on its own MLIR dialects is Modular's
+      public account, not verified here. The lesson stands either way:
+      ownership belongs in the IR, not bolted on after lowering.
+  - **MLIR itself** has no linear or affine values. SSA values may be used
+    any number of times, and generic passes duplicate, merge and delete
+    uses freely.
+    - The closest mechanisms are these (`docs/` in the pinned tree):
+      - the builtin `token` type, which may not be forwarded
+        (`LangRef.md`, "Token Type");
+      - the transform dialect's consumed handles, checked by
+        `transform-dialect-check-uses`;
+      - ownership-based buffer deallocation, whose ownership is a
+        runtime `i1` per buffer.
+    - None of them is a static, verified ownership discipline for values.
+- **Quantities become ownership modes in the types.** Quantity 0 is already
+  `!idr.erased`. A boxed value's type records how it is held:
+
+  | Mode | Meaning | From |
+  | --- | --- | --- |
+  | `unique` | holds the only reference: count 1, not shared | quantity 1, where `MEM-LIN-1` proved it; `idr.con`; `idr.reuse` |
+  | `owned` | holds one count; may be shared | quantity ω |
+  | `borrowed` | holds no count; valid while its owner lives | borrow inference |
+
+  Because the mode is part of the type, uniqueness at a call is ordinary
+  type matching. `func.call` already rejects an operand whose type
+  differs from the callee's parameter ("operand type mismatch",
+  `FuncOps.cpp`). The whole-program property is thereby checked one call
+  at a time.
+- **Counting operations are ops:**
+  - `idr.dup` takes an owned or borrowed value to an owned one. A unique
+    value cannot be duplicated; `idr.share` gives up uniqueness first,
+    explicitly.
+  - `idr.drop` consumes an owned or unique value.
+  - `idr.borrow` lends a value for a scope.
+  - `idr.reset` takes a unique cell to a reuse token `!idr.cell<N>` of its
+    size, with no runtime test.
+  - `idr.reset.dyn` is the best-effort form: it tests the count at
+    runtime, as Lean's reset does.
+  - `idr.reuse` builds a constructor into a token of exactly its size.
+  - Allocation (`idr.box`) carries a `MemAlloc` effect, so CSE never merges
+    two cells.
+- **The verifier enforces the rules** (`IDR-OWN-*`, written into 08 in M1):
+  - **Consumed once.** A unique or owned value is consumed exactly once on
+    every path: dropped, reset, passed to an owned or unique parameter,
+    returned, or stored into a field. This extends today's check that a
+    world is used at most once on each path (`IDR-WORLD-1`). Leaks and
+    double frees become verifier errors.
+  - **Borrows end in time.** No use of a borrowed value may follow, on any
+    path, the consumption of its owner.
+  - **Uniqueness has a source.** A unique value comes only from `idr.con`,
+    `idr.reuse`, a unique parameter or block argument, or a quantity-1
+    field of a consumed unique cell. Storing into a quantity-1 field needs
+    a unique value. Nothing turns a shared value into a unique one
+    statically.
+  - **Tokens fit.** `idr.reuse` takes a token of exactly its constructor's
+    size, so a guaranteed reuse cannot allocate.
+  - **Quantities hold.** A quantity-1 parameter (`idr.quantity`) is used
+    exactly once. Idris checked this on TT; the verifier checks it again
+    after every transformation.
+- **Checked after every pass.** Function-level rules hook into the
+  dialect's attribute verifiers (`verifyOperationAttribute` on functions
+  that carry `idr.name`, and `verifyRegionArgAttribute` for
+  `idr.quantity`). MLIR's `PassManager` runs the verifier after every pass
+  by default (`verifyPasses(true)`, `lib/Pass/Pass.cpp`). So every
+  transformation, ours and MLIR's (inlining, SCCP, canonicalization, CSE),
+  is checked, not just the frontend's output.
+  - A generic pass that breaks a rule is a compiler bug, and fails as an
+    internal error with the rule. An example is canonicalization turning an
+    `scf.if` over owned values into an `arith.select`, which consumes both.
+  - A user program that cannot satisfy a guarantee is a `MEM-LIN-1`
+    rejection at its source location, before any pass runs.
+- **Where the work happens:**
+  - **Idris** supplies what only it knows:
+    - quantities on parameters, block arguments and constructor fields;
+    - the uniqueness inference behind `MEM-LIN-1`, which becomes `unique`
+      in the emitted types, or a rejection.
+  - **C++ passes** over the dialect do the operational work: Lean's passes
+    below, on MLIR's `Liveness`, `CallGraph` and dataflow framework, after
+    the generic value-level passes.
+  - **The verifier** checks the result of both.
+- **The contract changes.** Today `idr` is heap-free and every value is
+  plain SSA (`IDR-TY-*`). M1 adds the modes, the ops and `IDR-OWN-*` to
+  08. The rejection `MEM-LIN-1` joins the user-facing rules of 02.
+
+**Lean's passes, the best effort.** Lean's impure pipeline (its `LCNF`
+passes, which are A-normal form with join points like ours), as C++ passes
+over the `idr` dialect, in Lean's order:
 
 1. **Counting follows `Rep`.** Only `Box`, `Str`, `Big` above the small
    range, `Arr`, and escaped closures carry a count. Scalars and SOP
    values never do, so today's benchmarks pay nothing.
 2. **`insertResetReuse`.** A cell that dies before a same-size constructor
    is built is reused for it (Beans' `R`/`D`/`S`, with join points).
+   Where `MEM-LIN-1` holds, the reuse carries no runtime test; elsewhere
+   it tests the count, as in Lean.
 3. **`inferBorrow`.** Parameters are owned or borrowed, by a dataflow over
    the call graph.
    - Ownership is forced for: reset targets, values stored into
      constructors, and tail-call arguments, so no `dec` ever follows a
      tail call.
-   - QTT seeds it: a quantity-1 parameter never needs a `dup` in its
-     callee, and a quantity-0 one is never counted.
-   - Soundness never depends on quantities. Liveness decides every count,
-     and quantities only choose where inference starts.
+   - QTT seeds it: a quantity-1 parameter is owned, and proved unique
+     where `MEM-LIN-1` applies; a quantity-0 one is never counted.
 4. **`explicitRc`.** `inc`/`dec` from liveness, with derived borrows (a
    projection of a borrowed value is borrowed). The result is garbage
    free: the heap holds only live data (Perceus, Theorem 4).
@@ -1083,10 +1289,10 @@ Each milestone requires:
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
 | 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
-| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; reference counting on `Code Mem` (section 4.2); runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
+| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
-| 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
+| 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; `ELIM-FIN-1` enforced, with tests that find no bounds test at guaranteed sites and tests that are rejected; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
 | 8 | **C0: stacks** (section 7.3) | the segment check in `idr-lower` and the system-stack switch, measured: the benchmark table within noise, and the hot-split case bounded; a million-deep non-tail recursion runs |
 | 8a | **Debugging and profiling** (12.5) | crash backtraces with source locations; DWARF from MLIR locations; `perf` and `gdb` through segments and system-stack switches |
 | 8b | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
@@ -1102,7 +1308,8 @@ Each milestone requires:
 
 **Contract changes these need**, each written into the architecture docs
 in its milestone:
-- **02:** admit the Prelude, base, contrib and linear modules that become
+- **02:** the guarantees `MEM-LIN-1` and `ELIM-FIN-1` and their
+  rejections; admit the Prelude, base, contrib and linear modules that become
   compilable, `prim__getStr`, the array externs, `System.Concurrency`,
   `System.Future` and `Network.Socket`; withdraw the heap rejections as
   their values gain representations.
@@ -1117,7 +1324,12 @@ in its milestone:
   - bounds traps on arrays;
   - the grammar of `cast` from `String` to `Double` and to the fixed-width
     integers (section 3).
-- **08:** the `idr.box`, `idr.str.*`, `idr.big.*`, `idr.array.*` and
+- **05:** `Code Mem`'s `Mark` and `Release` give way to the dialect's
+  counting ops (section 4.2). `Code` keeps quantities on binders and
+  fields, for emission as ownership modes.
+- **08:** the ownership modes, the counting ops (`idr.dup`, `idr.drop`,
+  `idr.borrow`, `idr.share`, `idr.reset`, `idr.reset.dyn`, `idr.reuse`) and
+  the `IDR-OWN-*` verifier rules; the `idr.box`, `idr.str.*`, `idr.big.*`, `idr.array.*` and
   `idr.io.get_line` ops and the count operations, with their memory
   effects.
 - **10:** the `Rep` layouts and struct-of-arrays; the runtime calls.
@@ -1132,6 +1344,8 @@ reverse it.
 | Decision | Buys | Costs | Reversed if |
 | --- | --- | --- | --- |
 | Runtime representations for everything (3) | every profile program compiles; compile-time evaluation becomes optional | a runtime, a heap, and code for boxed values where specialization used to remove them | never: without it the profile stays heap-free |
+| Quantities as guarantees (decision 10, 4.2) | performance the types promise cannot silently degrade: a linear update is in place or the program does not compile; the one thing Lean does not offer | programs that pass a possibly shared value to a quantity-1 parameter are rejected; a whole-program uniqueness analysis to build and to explain in its errors | its rejections land often on code people reasonably write |
+| Ownership in the `idr` dialect, verified (4.2) | the guarantees are checked by the IR after every pass, not trusted from the frontend; uniqueness at calls is plain type matching; leaks and double frees are verifier errors | a larger dialect and verifier; generic MLIR passes are not linearity-aware, so some of their rewrites must be kept away from owned values; verification time after every pass | the verifier's cost dominates compile time, or keeping generic passes linear costs more optimization than it saves |
 | Reference counting (4) | the best measured speed on functional code; peak memory close to live data; in-place reuse; no stack scanning, so tasks, the JIT and `epoll` stay simple | counts in the code (removed by borrowing, reuse and QTT, not by the model); atomic counts on data shared across cores; cycles through mutable cells | the gate fails: slower than MLton, or atomics dominate a thread-per-core workload |
 | Heaps per core, move-or-mark (4.3) | messages built for sending cross cores with no atomics | a walk over each crossing value; remote frees | the walk costs more than copying (Erlang) on real messages |
 | Thread-per-core, IO tasks pinned (7) | core-local data; no migration; almost all counts non-atomic | no automatic balancing of IO tasks across cores; a long computation in a task blocks its core | real servers need IO-task migration for load balance |
@@ -1251,9 +1465,42 @@ decision.
     - **Settles it:** a threshold on the size of static data the driver
       builds as code.
 
+11. **How precise the uniqueness analysis must be** (`MEM-LIN-1`).
+    - **Known:** its cases are values built at the call, quantity-1
+      binders, variables whose other uses are dead, and fields of a unique
+      value that is consumed.
+    - **Unknown:** closures that capture a linear value, values that cross
+      cores (count 1 after a move is still unique), and code the driver
+      duplicates into branches.
+    - **Settles it:** the census below, then M1's tests. Every rejection
+      must name a call and a reason a person can act on.
+12. **Quantity 1 in the libraries.**
+    - **Known:** 27 binders in the Prelude, 38 in base, 16 in contrib, 15
+      in linear, and 13 in network, mostly worlds (*code*).
+    - **Unknown:** whether any library function takes a boxed value at
+      quantity 1 and is called with a shared one. The guarantee would then
+      reject programs that only call that library.
+    - **Settles it:** a census of those binders and their call sites in the
+      libraries.
+    - **Leaning:** the guarantee holds for library code too. A library
+      site that breaks it is reported upstream, not exempted.
+
+13. **Generic MLIR passes and linear values.**
+    - **Known:** MLIR has no linear values, and its passes may duplicate
+      or merge uses. With owned values in the IR:
+      - allocation must carry an effect, so CSE cannot merge cells;
+      - canonicalization's `scf.if` to `arith.select` rewrite consumes both
+        operands, which the verifier rejects.
+    - **Unknown:** which upstream patterns fire on owned values in
+      practice, and whether running them before counts are explicit (as
+      Lean does) avoids all of them.
+    - **Settles it:** M1 runs the full pipeline with the verifier after
+      every pass on the whole suite. Each violation is fixed by ordering or
+      by an op's traits, never by relaxing the verifier.
+
 ### 12.3 The driver and compile time
 
-11. **Does supercompilation scale?**
+14. **Does supercompilation scale?**
     - **Known:** Mitchell's supercompiler (Haskell, 2010, *read*) was
       measured on programs of at most 148 lines, compiling in under four
       seconds; his earlier version took up to five minutes. Whether
@@ -1266,37 +1513,37 @@ decision.
         against base and contrib;
       - hash-consed configurations and incremental embedding checks;
       - the target of section 8.2.
-12. **Code size.** Choices, specializations and literal unfolding can each
+15. **Code size.** Choices, specializations and literal unfolding can each
     grow code. The whistle bounds them, but no budget is set on the result.
     - **Settles it:** a code-size column in `bench/` and in the compile-time
       benchmark, with a per-function limit if growth appears.
-13. **What goes to the JIT.** Every primitive fold becomes a request,
+16. **What goes to the JIT.** Every primitive fold becomes a request,
     thousands per compilation.
     - **Unknown:** whether a pipe round trip per fold is small next to the
       driver's own cost.
     - **Settles it:** measure. Batch the folds of one step if needed.
 
-14. **Joining two literal strings:** data layout (kept in `Simplify`), or a
+17. **Joining two literal strings:** data layout (kept in `Simplify`), or a
     primitive fold for the server? Leaning: data layout, since it is the
     same concatenation a linker performs on literal pools.
 
 ### 12.4 Concurrency
 
-15. **Placing work on cores.**
+18. **Placing work on cores.**
     - **Leaning:** a runtime policy: tasks forked by `main` spread over
       cores, and nested forks stay local.
     - **The alternative:** a few runtime externs through Idris's FFI.
-16. **Signals.** A thread-per-core runtime needs one owner for signals:
+19. **Signals.** A thread-per-core runtime needs one owner for signals:
     - `SIGPIPE` ignored, with `MSG_NOSIGNAL` on sends;
     - `SIGINT` and `SIGTERM` delivered through a `signalfd` on one core;
     - Idris's `System.Signal` implemented on top.
-17. **`io_uring` versus the blocking pool.** Glommio and monoio use
+20. **`io_uring` versus the blocking pool.** Glommio and monoio use
     `io_uring`; tokio uses `epoll` with a blocking pool. C2's measurements
     decide.
 
 ### 12.5 Toolchain and platform
 
-18. **LLVM on musl.** LLVM raises its threads' stacks to 8 MiB only on
+21. **LLVM on musl.** LLVM raises its threads' stacks to 8 MiB only on
     Apple and AIX; elsewhere it takes the libc default, and musl's is
     128 KiB (`lib/Support/Threading.cpp`, *code*).
     - MLIR's multithreaded pass manager could overflow on it.
@@ -1304,7 +1551,7 @@ decision.
       its thread default, or run MLIR single-threaded.
     - **Settles it:** the toolchain milestone's test suite on the musl
       build.
-19. **GMP's licence reaches every user's binary.** A statically linked GMP
+22. **GMP's licence reaches every user's binary.** A statically linked GMP
     obliges whoever distributes a program to let its users relink it
     against another GMP.
     - This concerns every program that uses `Integer` at runtime, not just
@@ -1313,35 +1560,35 @@ decision.
       compile.
     - **The alternative:** a permissively licensed bignum, slower on large
       numbers.
-20. **Provenance of mirrors.** musl and GMP come from GitHub mirrors,
+23. **Provenance of mirrors.** musl and GMP come from GitHub mirrors,
     because their official hosts are unreachable here. Each pin should be
     checked once against the official release's signature from a machine
     that can reach it.
-21. **Debugging and profiling** (milestone 8a, new in this pass).
+24. **Debugging and profiling** (milestone 8a, new in this pass).
     - Crash backtraces, DWARF from MLIR locations, and `perf` through
       segmented stacks and system-stack switches.
     - Segments break the unwinder's assumption of one contiguous stack,
       unless each segment's first frame records the link to the previous
       one, as Go does for its stacks.
     - **Settles it:** milestone 8a, after C0.
-22. **macOS JIT.** `fork` per call and `MAP_JIT` under the hardened
+25. **macOS JIT.** `fork` per call and `MAP_JIT` under the hardened
     runtime. Checked when macOS starts (milestone 12).
-23. **Full LTO's compile time and memory** (section 5.7).
+26. **Full LTO's compile time and memory** (section 5.7).
     - **Unknown:**
       - how long O3 over program plus runtime takes per compile;
       - whether full-LTO links of LLVM and MLIR fit in 15 GB.
     - **Settles it:** milestone 3 measures both, with and without
       internalizing first.
-24. **Frame pointers.**
+27. **Frame pointers.**
     - Omitting them frees a register.
     - Keeping them makes `perf` and crash backtraces cheap and reliable
       across our stack segments. Go keeps them for its tracer.
     - **Settles it:** milestone 8a measures the cost on `bench/`.
     - **Leaning:** keep them, if the cost is within noise.
-25. **The `x86-64-v3` default** leaves out x86-64 CPUs from before 2013.
+28. **The `x86-64-v3` default** leaves out x86-64 CPUs from before 2013.
     - **Leaning:** keep it for executables, with `--cpu=x86-64` a flag
       away.
-26. **Number casts in types.** The typechecker reduces `cast` on a literal
+29. **Number casts in types.** The typechecker reduces `cast` on a literal
     string through its host (section 3). For a string outside our grammar,
     such as `"1d3"`, a type could compute 1000.0 while the runtime gives 0.
     - This is the same class of question as `strLength` (section 3):
@@ -1352,7 +1599,7 @@ decision.
 
 ### 12.6 Evidence we cannot produce here yet
 
-27. **The comparisons need toolchains we have not installed:** Koka and
+30. **The comparisons need toolchains we have not installed:** Koka and
     Lean for the memory gate; Go and Rust (monoio or Glommio, hyper,
     tokio) and Seastar for C2; MPL for C3.
     - GitHub clones work in this container; release downloads and package
