@@ -36,6 +36,10 @@ add_library(idr_dialect STATIC
 	lib/Registration.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
+# PIN(clang-overlength-strings): the LLVM-dialect helpers are one raw string
+# literal longer than the 65 536 characters C++ promises, which clang's
+# -Wpedantic reports — see PINS.md
+set_source_files_properties(lib/Lower/Runtime.cc PROPERTIES COMPILE_OPTIONS -Wno-overlength-strings)
 
 # Generated code is included as system headers so the project's warnings
 # apply to our code, not to TableGen's output.
@@ -67,7 +71,9 @@ target_link_libraries(idr_dialect
 		idris_mlir_language_profile
 )
 
-llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes)
+# idris-mlir-cc also links the runtime's bitcode into the program (Linker,
+# BitReader, Object) and internalizes it (IPO); TC-LINK-1.
+llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo)
 
 add_executable(idris-mlir-opt tools/idris-mlir-opt.cc)
 target_link_libraries(idris-mlir-opt PRIVATE
@@ -91,6 +97,12 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	${IDR_LLVM_CODEGEN_LIBS}
 	idris_mlir_language_profile
 )
+# TC-LINK-1: the runtime archive whose bitcode joins every program, checked
+# (TC-RT-2) before idris-mlir-cc is built. --runtime overrides the path.
+target_compile_definitions(idris-mlir-cc PRIVATE
+	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
+)
+add_dependencies(idris-mlir-cc idris_rt_check)
 
 # The MLIR API is not module-aware: these targets never import std.
 foreach(target idr_dialect idris-mlir-opt idris-mlir-cc)

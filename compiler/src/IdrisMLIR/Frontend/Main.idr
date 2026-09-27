@@ -242,9 +242,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
   -- DRV-FLOW-2: the rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
   run fc ([idrisMlirCc, mlirPath, "-o", objPath] ++ dumps)
-  -- LOW-EXT-1: libm, for the Double functions the reference backend also takes
-  -- from it.
-  run fc [pinnedCc, objPath, "-o", base, "-lm"]
+  -- TC-LINK-2: lld links the program's one object (TC-LINK-1) into a
+  -- static-PIE executable on musl, whose libc.a also holds the libm functions
+  -- of LOW-EXT-1, with GMP as a native archive. The pinned clang's
+  -- configuration file supplies the sysroot, compiler-rt and libunwind.
+  run fc [pinnedCc, "--target=x86_64-unknown-linux-musl", "-fuse-ld=lld", "-static-pie",
+          "-Wl,--gc-sections", "-Wl,--icf=all", objPath, "-o", base, "-lgmp"]
   pure (Just base)
 
 ||| The stock driver does not fail `-o` on a backend error, so the backend
