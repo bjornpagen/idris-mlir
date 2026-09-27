@@ -40,7 +40,7 @@ PINS := $(ROOT)/tools/verify-pins.sh
 
 # Every command runs the pinned Idris, and no package path inherited from
 # another installation (TC-PIN-2). CHEZ is the Chez Scheme it was built with.
-unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
+unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
 export IDRIS2_PREFIX := $(IDRIS_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
