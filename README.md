@@ -3,7 +3,7 @@
 An experimental whole-program compiler from a strict, versioned subset of
 unmodified Idris 2 to native code through MLIR. The goal is high-level code
 with guaranteed costs. Where the types promise something (in-place reuse of
-linear values, no allocation, no bounds check), the compiler either
+linear values, no bounds check), the compiler either
 delivers it or rejects the program with a named rule. It is not a Rust
 replacement for explicit layout and control, and not merely a faster Idris
 backend.

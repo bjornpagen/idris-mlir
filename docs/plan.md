@@ -18,14 +18,15 @@ step ends on a promise to fix something later (AGENTS.md, 16).
   costs the types promise are guaranteed or the program is rejected with a
   named rule:
   - in-place reuse of quantity-1 values (`MEM-LIN-1`);
-  - no allocation where a function is required not to allocate
-    (`MEM-ALLOC-1`);
-  - no bounds check where `Fin n` proves the index
-    (`ELIM-FIN-1`).
+  - no bounds check where `Fin n` proves the index (`ELIM-FIN-1`).
 
-  Lean cannot promise these. Koka's `fip` promises no allocation only
-  when the arguments turn out unshared at runtime (section 4.2). Rust gets
-  the first only through its borrow checker.
+  Both are keyed on what the program already says in stock Idris
+  (quantities and types). Nothing asks the programmer for an annotation
+  Idris does not have.
+  - Lean cannot promise either.
+  - Koka's `fip` promises in-place reuse only when the arguments turn out
+    unshared at runtime (section 4.2).
+  - Rust gets the first only through its borrow checker.
 - **What decides whether the project lives** is the memory gate (section
   4.4): does heap-heavy Idris beat MLton and come near Koka and Lean, and
   do the guarantees hold on real code? It runs first (section 10). Most
@@ -161,8 +162,6 @@ Settled, and the rest of the plan builds on them:
       - `MEM-LIN-1` is on by default for every quantity-1 binder in user
         modules, and best effort in the libraries. Writing `1` in your own
         code becomes a cost annotation you can read.
-      - `MEM-ALLOC-1` is demanded per function; how a program names those
-        functions is an open question for the user (section 12.7).
       - `ELIM-FIN-1` applies wherever its condition holds.
 11. **The profile is the language: design by subtraction.** Choosing what
     to reject is where this project's taste shows. The `PROF-*` rules are
@@ -415,18 +414,6 @@ program, so it can prove the property and promise it.
       geometrically, so the append is amortized O(length of the right
       side);
     - quantity-0 values emit no code, as today.
-- **`MEM-ALLOC-1`: guaranteed absence of allocation.**
-  - **The condition.** A function the program requires not to allocate
-    (decision 10; how it is named is an open question, section 12.7).
-  - **The promise.** Neither it nor anything it calls allocates on any
-    path. This is the `allocates` fact of section 8.3, joined over the call
-    graph after specialization.
-  - **Otherwise, rejection** with `MEM-ALLOC-1`, naming the path from the
-    function to the allocation.
-  - This keeps today's strongest property once M1 adds a heap. Today every
-    program is heap-free or rejected; afterwards, any function can still be
-    held to that, which Rust cannot state cleanly.
-  - A report of every function's `allocates` fact is always available.
 - **`ELIM-FIN-1`: guaranteed bounds-check elision.**
   - **The condition.** An array access whose index has type `Fin n`, into
     an array whose type is indexed by the same `n`, where the whole program
@@ -1346,7 +1333,7 @@ returns that shape's atoms, and the caller rebuilds the value (CPR; Lean's
 record of facts per function, computed once and joined over the call graph:
 - `features`: the contract version is its maximum;
 - `effectful`;
-- `allocates`: `MEM-ALLOC-1` and the `allocates` report read it;
+- `allocates`;
 - `terminating`;
 - `unique`: per quantity-1 binder, whether every caller passes a unique
   value (`MEM-LIN-1`).
@@ -1668,11 +1655,11 @@ and the memory gate is first: the rest rests on it.
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
-| 2 | **Memory gate** (section 4.4) | the four experiments pass, or the decision is reopened with the numbers; nothing below 1b starts before this passes |
+| 2 | **Memory gate** (section 4.4) | the four experiments pass, or the decision is reopened with the numbers; M1 and the milestones after it do not start before this passes |
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
 | 1b | **The registry** (section 9.1) | the three stop points of 9.1 passed; the suite agrees test for test; `bench/` and e2e compile times unchanged beyond noise; the enforcement tests green; `NN-registry.md` written |
-| 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
-| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced in user modules, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected at the breaking call; the gate's linear red-black tree compiles with zero `dup`s and full reuse, and its broken call site is rejected; `MEM-ALLOC-1` enforced where demanded, with the `allocates` report; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
+| 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5; starts now, beside the gate) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
+| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced in user modules, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected at the breaking call; the gate's linear red-black tree compiles with zero `dup`s and full reuse, and its broken call site is rejected; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
 | 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; `ELIM-FIN-1` enforced, with tests that find no bounds test at guaranteed sites and tests that are rejected; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
@@ -1691,7 +1678,8 @@ and the memory gate is first: the rest rests on it.
 
 The first milestones split into streams that agents can run at once. The
 rules for every stream:
-- one branch per stream, `stream/<letter>`;
+- **no agent pushes to `main`** (decided). Each stream works on its own
+  branch, `stream/<letter>`;
 - a stream touches only the files it owns, and follows AGENTS.md;
 - it ends at its milestone's stop points and merges to `main` only after
   the user's review, in dependency order. `main` stays green;
@@ -1706,9 +1694,9 @@ rules for every stream:
 | **D**: delete `idris-mlir-io` | 1 | `lib/idris-mlir-io/`, the 72 tests that import it, `DRV-FLOW-2` | nothing | tests moved to the Prelude, suite equal |
 | **O**: optimization from day one | 1 | `foreign/idr/tools/idris-mlir-cc.cc` | nothing | O3, `x86-64-v3` and internalization, each measured on `bench/` |
 | **L**: the research library | 1 | `docs/research/` | nothing | `git mv` only; `INDEX.md` |
-| **P**: no Python | 1 | `tools/`, the test harness, `bench/run.py` | D | the golden runner agrees test for test |
+| **P**: no Python | 1 | `tools/`, the test harness, `bench/run.py` | D, and T's bootstrap (P ports the tooling T leaves) | the golden runner agrees test for test |
 | **R**: the registry | 1b | `compiler/src/`, `Emit`'s names (`NameLoc`), `foreign/idr` (`IDR-DATA-5`), `docs/architecture/` | D; P if merged, otherwise its tests are written in today's harness and P moves them | the three of 9.1 |
-| **T**: the LLVM-only toolchain | 3 | `tools/` (after P), CMake, `.gitmodules`, `runtime/` | P; the gate passed (section 12.7) | 5.2's bootstrap measured; then the rest of 3 |
+| **T**: the LLVM-only toolchain | 3 | `tools/dev.py`'s bootstrap, CMake, `.gitmodules`, `runtime/` | nothing: it starts now (decided) | 5.2's bootstrap measured; then the rest of 3 |
 
 After these: M1 (the heap) needs G passed, R merged and T's runtime.
 - **After M1:** frames and regions (`alloca` and loop regions for values
@@ -2024,28 +2012,6 @@ Where the plan meets each inheritance:
       servers are untested.
     - **Leaning:** build from source where the network allows it, and say
       plainly which comparisons are missing when it does not.
-
-### 12.7 Questions for the user
-
-31. **How do you mark a function that must never allocate memory?** Idris
-    gives us no way to add a keyword or annotation of our own.
-    - **Recommendation:** name those functions on the command line, as in
-      `--no-alloc Server.handle`, and have the compiler always print a
-      list of which functions allocate. The other options are to mark
-      whole files, or a special comment above the function.
-32. **Should the toolchain rebuild wait until the memory experiment
-    passes?** The rebuild drops GCC and makes everything static and fully
-    link-time optimized. It is a lot of work, and useful whatever the
-    experiment says, but the experiment might change what the runtime
-    needs.
-    - **Recommendation:** wait. Your time to review the work is the
-      bottleneck, not the machine's.
-33. **How should the parallel agents deliver their work?** Either each one
-    works on its own branch and you review it before it goes into `main`,
-    or each pushes straight to `main` as long as the tests pass.
-    - **Recommendation:** own branches, reviewed by you. Three of the
-      streams edit the same tests and must land in a fixed order, and
-      review is where that order is kept.
 
 ## Appendix A: evidence for the memory decision## Appendix A: evidence for the memory decision
 
