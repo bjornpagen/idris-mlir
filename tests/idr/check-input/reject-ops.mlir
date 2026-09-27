@@ -69,7 +69,7 @@ module attributes {idr.version = 0 : i64, idr.entry = @r, idr.entry_kind = "int"
 // CHECK: idr contract violation: result type not allowed
 module attributes {idr.version = 0 : i64, idr.entry = @r, idr.entry_kind = "int"} {
   func.func private @r() -> i64 attributes {idr.name = "r"} {
-    %f = arith.constant 1.0 : f64
+    %f = arith.constant 1.0 : f32
     %c = arith.constant 0 : i64
     return %c : i64
   }

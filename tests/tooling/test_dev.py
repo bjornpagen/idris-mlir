@@ -84,5 +84,13 @@ class ToolingTests(unittest.TestCase):
                 self.assertNotIn(imported.split(".")[0], roots, f"{path} imports {imported}")
 
 
+class GeneratedTablesTests(unittest.TestCase):
+    # rule: LOW-DBL-2
+    def test_ryu_tables_match_their_generator(self):
+        result = subprocess.run([sys.executable, str(ROOT / "tools/gen_ryu_tables.py"), "--check"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

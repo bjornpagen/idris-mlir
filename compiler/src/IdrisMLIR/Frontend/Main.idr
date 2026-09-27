@@ -218,7 +218,9 @@ compileIO c _ tmpDir outputDir tm outfile = do
   -- DRV-FLOW-2: the rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
   run fc ([idrisMlirCc, mlirPath, "-o", objPath] ++ dumps)
-  run fc [pinnedCc, objPath, "-o", base]
+  -- LOW-EXT-1: libm, for the Double functions the reference backend also takes
+  -- from it.
+  run fc [pinnedCc, objPath, "-o", base, "-lm"]
   pure (Just base)
 
 ||| The stock driver does not fail `-o` on a backend error, so the backend

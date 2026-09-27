@@ -20,7 +20,7 @@ import Data.String
 ------------------------------------------------------------------------------
 
 public export
-data MType = I Nat | Index
+data MType = I Nat | Index | F64
            | IdrData String | IdrErased | IdrStr | IdrWorld
            | FunctionT (List MType) (List MType)
 
@@ -28,6 +28,7 @@ public export
 Eq MType where
   I a == I b = a == b
   Index == Index = True
+  F64 == F64 = True
   IdrData a == IdrData b = a == b
   IdrErased == IdrErased = True
   IdrStr == IdrStr = True
@@ -37,6 +38,7 @@ Eq MType where
 
 public export
 data Attr = IntA Integer MType          -- 3 : i64
+          | FloatA Double               -- 1.5 : f64, exactly
           | StrA String                 -- a string, escaped
           | BytesA String               -- a string as UTF-8 bytes
           | SymA (List String)          -- @a::@b
@@ -119,6 +121,7 @@ mutual
   showType : MType -> String
   showType (I w) = "i" ++ show w
   showType Index = "index"
+  showType F64 = "f64"
   showType (IdrData s) = "!idr.data<@" ++ s ++ ">"
   showType IdrErased = "!idr.erased"
   showType IdrStr = "!idr.str"
@@ -135,9 +138,30 @@ mutual
   results [t] = showType t
   results ts = "(" ++ types ts ++ ")"
 
+||| An exact MLIR float literal: the shortest decimal that reads back as the
+||| same double (the compiler runs on Chez Scheme, whose `number->string`
+||| prints that), with a point as MLIR requires, and hexadecimal bits for
+||| NaN and the infinities.
+export
+floatLiteral : Double -> String
+floatLiteral d =
+  if d /= d then "0x7FF8000000000000"
+  else if d > 1.7976931348623157e308 then "0x7FF0000000000000"
+  else if d < -1.7976931348623157e308 then "0xFFF0000000000000"
+  else decimal (prim__cast_DoubleString d)
+  where
+    -- Chez marks subnormals with a precision suffix, `5e-324|1`.
+    decimal : String -> String
+    decimal s =
+      let s' = fst (break (== '|') s)
+          (mant, ex) = break (== 'e') s'
+          mant' = if any (== '.') (unpack mant) then mant else mant ++ ".0"
+      in mant' ++ ex
+
 mutual
   showAttr : Attr -> String
   showAttr (IntA n t) = show n ++ " : " ++ showType t
+  showAttr (FloatA d) = floatLiteral d ++ " : f64"
   showAttr (StrA s) = quoted s
   showAttr (BytesA s) = utf8 s
   showAttr (SymA ss) = joinBy "::" (map ("@" ++) ss)

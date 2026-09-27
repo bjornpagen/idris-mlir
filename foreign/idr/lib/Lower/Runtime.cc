@@ -97,6 +97,11 @@ bool divisorKnownNonZero(Value divisor) {
   return matchPattern(divisor, m_ConstantInt(&known)) && !known.isZero();
 }
 
+bool knownFinite(Value value) {
+  FloatAttr constant;
+  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
+}
+
 // Calls @__idr_crash with a message naming the cause and the Idris location.
 void emitCrash(OpBuilder &b, Location loc, const Runtime &runtime, StringRef cause) {
   auto [ptr, len] = runtime.string(b, loc, crashMessage(loc, cause));

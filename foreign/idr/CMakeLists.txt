@@ -59,6 +59,7 @@ target_link_libraries(idr_dialect
 		MLIRSCFTransforms
 		MLIRUBDialect
 		MLIRLLVMDialect
+		MLIRMathDialect
 		MLIRControlFlowDialect
 	PRIVATE
 		idris_mlir_language_profile

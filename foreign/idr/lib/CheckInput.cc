@@ -19,13 +19,23 @@ bool allowedType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() &&
            llvm::is_contained({1u, 8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<IndexType, idr::DataType, idr::ErasedType, idr::StrType,
+  return isa<IndexType, Float64Type, idr::DataType, idr::ErasedType, idr::StrType,
              idr::WorldType>(type);
 }
 
 bool isV1Op(Operation *op) {
   return isa<idr::ToCharOp, idr::StrLitOp, idr::PutStrOp, idr::PutCharOp,
              idr::PutIntOp, idr::GetCharOp, idr::ExitOp>(op);
+}
+
+// IDR-DBL-*: Double values, operations and printing.
+bool isV2Op(Operation *op) {
+  if (isa<idr::ToIntOp, idr::PutDoubleOp>(op) ||
+      isa<math::MathDialect>(op->getDialect()))
+    return true;
+  auto isF64 = [](Type type) { return isa<Float64Type>(type); };
+  return llvm::any_of(op->getOperandTypes(), isF64) ||
+         llvm::any_of(op->getResultTypes(), isF64);
 }
 
 // IDR-IN-1
@@ -38,13 +48,20 @@ bool allowedOp(Operation *op) {
              arith::ConstantOp, arith::AddIOp, arith::SubIOp, arith::MulIOp,
              arith::AndIOp, arith::OrIOp, arith::XOrIOp, arith::CmpIOp,
              arith::ExtSIOp, arith::ExtUIOp, arith::TruncIOp, scf::IfOp,
-             scf::IndexSwitchOp, scf::YieldOp>(op);
+             scf::IndexSwitchOp, scf::YieldOp, arith::AddFOp, arith::SubFOp,
+             arith::MulFOp, arith::DivFOp, arith::NegFOp, arith::CmpFOp,
+             arith::SIToFPOp, arith::UIToFPOp, math::ExpOp, math::LogOp,
+             math::PowFOp, math::SinOp, math::CosOp, math::TanOp, math::AsinOp,
+             math::AcosOp, math::AtanOp, math::SqrtOp, math::FloorOp,
+             math::CeilOp>(op);
 }
 
-// IDR-IN-2: arith carries no overflow or exact flags.
+// IDR-IN-2: arith and math carry no overflow, exact or fast-math flags.
 bool hasArithFlags(Operation *op) {
   if (auto flags = op->getAttrOfType<arith::IntegerOverflowFlagsAttr>("overflowFlags"))
     return flags.getValue() != arith::IntegerOverflowFlags::none;
+  if (auto flags = op->getAttrOfType<arith::FastMathFlagsAttr>("fastmath"))
+    return flags.getValue() != arith::FastMathFlags::none;
   return op->hasAttr("isExact");
 }
 
@@ -85,8 +102,8 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
 
     // IDR-MOD-1
     auto version = module->getAttrOfType<IntegerAttr>("idr.version");
-    if (!version || version.getInt() < 0 || version.getInt() > 1) {
-      fail(module, "idr.version must be 0 or 1");
+    if (!version || version.getInt() < 0 || version.getInt() > 2) {
+      fail(module, "idr.version must be 0, 1 or 2");
       return signalPassFailure();
     }
     int64_t contract = version.getInt();
@@ -119,6 +136,8 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
         return fail(op, "operation not allowed in the input");
       if (contract < 1 && isV1Op(op))
         fail(op, "operation needs idr.version 1");
+      if (contract < 2 && isV2Op(op))
+        fail(op, "operation needs idr.version 2");
       if (hasArithFlags(op))
         fail(op, "arith flags are not allowed");
       for (Type type : op->getResultTypes())

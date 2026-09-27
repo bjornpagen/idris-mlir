@@ -17,8 +17,8 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
 - **IDR-MOD-1 (v0).** The input is one `builtin.module` with these
   attributes:
   - `idr.version = N : i64`: the contract version, which equals the profile
-    version whose features the module uses (0 or 1). The C++ side rejects
-    versions it does not implement.
+    version whose features the module uses (0, 1 or 2). The C++ side
+    rejects versions it does not implement.
   - `idr.entry = @<root>`: the symbol of the root function.
   - `idr.entry_kind = "int" | "io"`:
     - an `int` root takes no arguments and returns `i64` (`main : Int`);
@@ -56,7 +56,9 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
     - `Int32`/`Bits32` → `i32`
     - `Int`/`Int64`/`Bits64` → `i64`
     - `Char` → `i32`, always holding a scalar value (v1)
-  - `i1`, only as the result of `arith.cmpi` and the condition of `scf.if`;
+  - `f64` for `Double` (v2);
+  - `i1`, only as the result of `arith.cmpi` or `arith.cmpf` and the
+    condition of `scf.if`;
   - `index`, only as the result of `idr.tag` and the operand of
     `scf.index_switch`.
 
@@ -107,10 +109,12 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 | `idr.div` | `%q = idr.div signed %a, %b : i64` | see `IDR-EFF-1` | see `IDR-DIV-2` |
 | `idr.mod` | `%r = idr.mod unsigned %a, %b : i8` | see `IDR-EFF-1` | see `IDR-DIV-2` |
 | `idr.to_char` (v1) | `%c = idr.to_char signed %x : i64` (result `i32`) | `Pure` | when `%x` is a constant (`SEM-CHAR-3`) |
+| `idr.to_int` (v2) | `%n = idr.to_int %x : i64` (operand `f64`) | see `IDR-EFF-1` | when `%x` is a finite constant (`SEM-DBL-4`) |
 | `idr.str.lit` (v1) | `%s = idr.str.lit "hello\n" : !idr.str` | `Pure`, `ConstantLike` | always, to its string attribute |
 | `idr.io.put_str` (v1) | `%w1 = idr.io.put_str %s, %w0` | `IDR-EFF-2` | never |
 | `idr.io.put_char` (v1) | `%w1 = idr.io.put_char %c, %w0` | `IDR-EFF-2` | never |
 | `idr.io.put_int` (v1) | `%w1 = idr.io.put_int signed %n, %w0 : i64` | `IDR-EFF-2` | never |
+| `idr.io.put_double` (v2) | `%w1 = idr.io.put_double %x, %w0` | `IDR-EFF-2` | never |
 | `idr.io.get_char` (v1) | `%c, %w1 = idr.io.get_char %w0` | `IDR-EFF-2` | never |
 | `idr.io.exit` (v1) | `%w1 = idr.io.exit %code, %w0` | `IDR-EFF-2` | never |
 
@@ -137,6 +141,8 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   implement `ConditionallySpeculatable` the same way.
   - This is what makes upstream DCE, CSE and code motion respect
     `SEM-EVAL-4`.
+  - From v2 the same holds for `idr.to_int`, with "a finite constant
+    operand" in place of "a divisor other than zero".
   - Test: `tests/idr/effects/div-*.mlir`, checking that a dead division by
     an unknown divisor survives `canonicalize` and `remove-dead-values`, and
     that a dead division by 7 does not.
@@ -144,6 +150,15 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
 - **IDR-CHAR-1 (v1).** `idr.to_char` implements `prim__cast_TChar`: the
   integer's value if it is a scalar value, and `0` otherwise. The keyword
   says how to read the operand's bits (`signed` or `unsigned`).
+- **IDR-DBL-1 (v2).** `idr.to_int` implements `prim__cast_DoubleT`: it
+  truncates toward zero and wraps to the width of its result, and crashes
+  when the operand is NaN or infinite (`SEM-DBL-4`). The same op serves
+  signed and unsigned `T`, because wrapping does not depend on signedness.
+  - Test: `tests/idr/fold/to-int.mlir`, `tests/idr/check-input/reject-v2.mlir`
+- **IDR-DBL-2 (v2).** `idr.io.put_double` writes its operand as
+  `prim__cast_DoubleString` would (`SEM-DBL-5`). It is the target of output
+  fusion for `Double` (`ELIM-G-7`).
+  - Test: `tests/idr/lower/double.mlir`
 - **IDR-STR-1 (v1).** `idr.str.lit` holds its string as a `StringAttr` of UTF-8
   bytes. Two literals with equal bytes are equal values.
 - **IDR-IO-1 (v1).** The `idr.io` ops implement the `IdrisMLIR.IO` primitives
@@ -175,14 +190,20 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   - `arith.constant` (integer and `index`), `arith.addi`, `arith.subi`,
     `arith.muli`, `arith.andi`, `arith.ori`, `arith.xori`, `arith.cmpi`,
     `arith.extsi`, `arith.extui`, `arith.trunci`;
-  - `scf.if`, `scf.index_switch`, `scf.yield`.
+  - `scf.if`, `scf.index_switch`, `scf.yield`;
+  - from v2: `arith.constant` of `f64`, `arith.addf`, `arith.subf`,
+    `arith.mulf`, `arith.divf`, `arith.negf`, `arith.cmpf`, `arith.sitofp`,
+    `arith.uitofp`, and `math.exp`, `math.log`, `math.powf`, `math.sin`,
+    `math.cos`, `math.tan`, `math.asin`, `math.acos`, `math.atan`,
+    `math.sqrt`, `math.floor`, `math.ceil`. An op on `f64` needs version 2.
   - Check: `idr-check-input`. Anything else is an internal error, because
     the frontend broke the contract. `idr.may_loop` (`LOW-TAIL-4`) is created
     by `idr-tail-loops` and is not allowed in the input, and no symbol may be
     named `@main`, which `idr-lower` creates (`LOW-ENTRY-1`).
   - Test: `tests/idr/check-input/reject-*.mlir`
 - **IDR-IN-2 (v0).** `arith` ops carry no overflow flags (`nsw`, `nuw`) and
-  no `exact` flag. Wrapping is the semantics (`SEM-INT-2`).
+  no `exact` flag. Wrapping is the semantics (`SEM-INT-2`). From v2, `arith`
+  and `math` ops carry no fast-math flags (`SEM-DBL-2`).
 - **IDR-IN-3 (v0).** The primitives map as follows:
 
   | Primitive | Contract |
@@ -198,6 +219,12 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   | cast `Char` → `T` (v1) | `arith.extui` or `arith.trunci` from `i32` |
   | cast `T` → `Char` (v1) | `idr.to_char` |
   | string literal (v1) | `idr.str.lit` |
+  | `Double` literal (v2) | `arith.constant` of `f64`, written in Chez's shortest decimal, or as the hexadecimal bit pattern for NaN and the infinities |
+  | `Double` `add` … `div`, `negate` (v2) | `arith.addf`, `subf`, `mulf`, `divf`, `negf` |
+  | `Double` `lt` … `gt` (v2) | `arith.cmpf` with `olt`/`ole`/`oeq`/`oge`/`ogt`, then `arith.extui` to `i64` (`SEM-DBL-2`) |
+  | `Double` functions (v2) | `math.exp`, `log`, `powf`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sqrt`, `floor`, `ceil` |
+  | cast `T` → `Double` (v2) | `arith.sitofp` if `T` is signed, `arith.uitofp` if it is unsigned |
+  | cast `Double` → `T` (v2) | `idr.to_int` |
   | `%World` values (v1) | function arguments and results of type `!idr.world` |
 
 ## Functions

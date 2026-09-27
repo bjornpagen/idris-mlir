@@ -168,6 +168,18 @@ def Idr_StrLitOp : Idr_Op<"str.lit", [Pure, ConstantLike]> {
   let hasFolder = 1;
 }
 
+// IDR-DBL-1: truncates toward zero and wraps to the result width; crashes on
+// NaN and the infinities (IDR-EFF-1).
+def Idr_ToIntOp : Idr_Op<"to_int", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>]> {
+  let summary = "a Double as an integer, truncated and wrapped";
+  let arguments = (ins F64:$value);
+  let results = (outs AnySignlessInteger:$result);
+  let assemblyFormat = "$value attr-dict `:` type($result)";
+  let hasFolder = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // IO (IDR-IO-1, IDR-EFF-2)
 //===----------------------------------------------------------------------===//
@@ -195,6 +207,13 @@ def Idr_PutIntOp : Idr_IOOp<"io.put_int"> {
   let assemblyFormat = [{
     (`signed` $is_signed^)? $value `,` $world attr-dict `:` type($value)
   }];
+}
+
+// IDR-DBL-2
+def Idr_PutDoubleOp : Idr_IOOp<"io.put_double"> {
+  let arguments = (ins F64:$value, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = "$value `,` $world attr-dict";
 }
 
 def Idr_GetCharOp : Idr_IOOp<"io.get_char"> {

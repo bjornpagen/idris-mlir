@@ -133,6 +133,34 @@ missed it). So:
   Effect order is kept because each `idr.io` op has IO-resource effects
   (`IDR-EFF-2`), and lowering emits the calls in the same order.
 
+### Doubles (v2)
+
+- **LOW-DBL-1 (v2).** `idr.to_int` lowers to a `math.isfinite` check that
+  branches to a crash ("cast of a non-finite Double", `LOW-CRASH-1`) unless
+  the operand is a finite constant, then a call of the helper
+  `__idr_f64_to_i64`, then `arith.trunci` to the result width. The helper
+  takes the value apart into sign, exponent and mantissa and shifts, so the
+  64-bit result is the truncated value modulo 2^64 for every finite double
+  (`arith.fptosi` is poison out of range). Wrapping to a narrower width is
+  truncation (`SEM-DBL-4`).
+  - Test: `tests/idr/lower/double.mlir`, `tests/e2e/v2/double-*`
+- **LOW-DBL-2 (v2).** `idr.io.put_double` calls the helper
+  `__idr_put_double`, which writes the text of `SEM-DBL-5` through a stack
+  buffer. The digits come from Ryu (Adams, PLDI 2018), in its general form,
+  with one change: an exact tie rounds up, as the reference does. Its two
+  tables of 128-bit powers of five are static constants that
+  `tools/gen_ryu_tables.py` computes with exact integers; `dev.py check`
+  verifies that the checked-in tables match.
+  - Test: `tests/e2e/v2/double-print-fuzz` (45,000 values against Chez,
+    including decimal ties), `tests/tooling/test_dev.py`
+- **LOW-DBL-3 (v2).** The `arith` float ops and the `math` ops pass through
+  `idr-lower` unchanged, and `convert-to-llvm` turns them into LLVM
+  instructions and intrinsics. LLVM's back end turns the intrinsics that
+  have no instruction on the target into calls of the `libm` functions of
+  the same name (`SEM-DBL-3`, `SEM-DEV-2`). Nothing sets fast-math flags, and
+  LLVM does not contract `a * b + c` into a fused multiply-add without them.
+  - Test: `tests/e2e/v2/double-basics`
+
 ### Division and modulus
 
 - **LOW-DIV-1 (v0).** `idr.div` and `idr.mod` lower to `arith` and `scf`,
@@ -166,8 +194,12 @@ missed it). So:
   `llvm.unreachable` of draft 2 is not emitted; `noreturn` gives LLVM the
   same fact.
 - **LOW-EXT-1 (v0).** The only external symbols the object file may
-  reference are `write` and `_exit`, and from v1 also `read`. The toolchain's `crt` files provide the
-  process entry.
+  reference are `write` and `_exit`, from v1 also `read`, and from v2 the
+  `libm` functions `exp`, `log`, `pow`, `sin`, `cos`, `tan`, `asin`,
+  `acos`, `atan`, `sqrt`, `floor`, `ceil`, and `exp2` and `ldexp`, which
+  LLVM substitutes for some calls of `pow` (`SEM-DEV-2`). None of them
+  allocates. The driver links `libm` (`-lm`). The toolchain's `crt` files
+  provide the process entry.
   - Test: every e2e fixture checks the object's undefined symbols
     (`TEST-HEAP-1`)
 

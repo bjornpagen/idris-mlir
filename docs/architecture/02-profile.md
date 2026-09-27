@@ -159,18 +159,19 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-TYPE-4 (v1).** After monomorphisation, the type of every runtime
   position normalizes to a closed type built from:
   - the v0 integer types, `Char`, `String` and `%World`;
+  - `Double`, from v2;
   - profile data types, instantiated;
   - function types and `Lazy`, which must then be eliminated
     (`PROF-HEAP-1`, `PROF-HEAP-2`).
 
   Still excluded at runtime:
-  - `Integer`, `Double`;
+  - `Integer`, and `Double` before v2;
   - `Type`;
   - `Inf` (codata);
   - types that depend on runtime values.
   - Check: `Frontend.Translate.coreType`, on each instance (monomorphisation
     happens during translation, `CORE-PASS-1`)
-  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,double,inf,dependent}.idr`
+  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,inf,dependent}.idr`
 
 ## Data types
 
@@ -284,11 +285,15 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/sem.py` (`TEST-SEM-1`)
 - **PROF-PRIM-2 (v0).** In every version, these primitives are rejected:
   - `prim__negate_T`, `prim__shl_T`, `prim__shr_T` (`SEM-EXCL-1`);
-  - everything on `Integer` or `Double`;
+  - everything on `Integer`;
+  - casts between `Char` and `Double`, and a match on a `Double` literal
+    (`SEM-EXCL-2`);
   - `prim__believe_me` and `prim__crash`, which `PROF-ESC-1` reports first.
 
-  In v0 only, primitives on `Char` and `String` are also rejected.
-  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl,integer,double}.idr`
+  In v0 only, primitives on `Char` and `String` are also rejected, and in v0
+  and v1 everything on `Double`.
+  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl,integer,double}.idr`,
+    `tests/profile/v2/reject/PROF-PRIM-2-double-*.idr`
 - **PROF-PRIM-3 (v1).** The `Char` primitives are allowed:
   - `prim__lt_Char`, `prim__lte_Char`, `prim__eq_Char`, `prim__gte_Char`,
     `prim__gt_Char`;
@@ -296,6 +301,17 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
   Their meaning is `SEM-CHAR-*`.
   - Test: `tests/e2e/v1/chars`
+- **PROF-PRIM-5 (v2).** The `Double` primitives are allowed:
+  - `prim__add_Double`, `sub`, `mul`, `div`, `prim__negate_Double`;
+  - `prim__lt_Double`, `lte`, `eq`, `gte`, `gt`;
+  - `prim__doubleExp`, `Log`, `Pow`, `Sin`, `Cos`, `Tan`, `ASin`, `ACos`,
+    `ATan`, `Sqrt`, `Floor`, `Ceiling`;
+  - `prim__cast_TDouble` and `prim__cast_DoubleT` for the integer types `T`;
+  - `prim__cast_DoubleString` and `prim__cast_StringDouble`, as string
+    primitives (`PROF-PRIM-4`).
+
+  Their meaning is `SEM-DBL-*`.
+  - Test: `tests/e2e/v2/double-basics`
 - **PROF-PRIM-4 (v1).** Every `String` primitive may appear in the source.
   Each occurrence must be removed by compile-time evaluation or output fusion
   (`ELIM-G-6`, `ELIM-G-7`). A surviving string-building primitive is a

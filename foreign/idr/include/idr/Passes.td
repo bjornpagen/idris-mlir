@@ -19,11 +19,12 @@ def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
 }
 
 def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
-  let summary = "Lower idr to func, arith, scf, ub and llvm (LOW-*)";
+  let summary = "Lower idr to func, arith, math, scf, ub and llvm (LOW-*)";
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
     "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
-    "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect"
+    "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect",
+    "::mlir::math::MathDialect"
   ];
 }
 

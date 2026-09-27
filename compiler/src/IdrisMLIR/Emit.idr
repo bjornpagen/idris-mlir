@@ -44,6 +44,7 @@ mtype StrT = IdrStr
 mtype WorldT = IdrWorld
 mtype ErasedT = IdrErased
 mtype (DataT d) = IdrData (symbol d.name)
+mtype DoubleT = F64
 
 ||| Two's complement bit pattern of `n` in `w` bits, read as signed.
 twos : Nat -> Integer -> Integer
@@ -126,10 +127,35 @@ atom l env (AVar x) = maybe (internal ("unbound variable " ++ show x)) pure (loo
 atom l env (ALit (LInt t n)) = constant l n (width t)
 atom l env (ALit (LChar c)) = constant l c 32
 atom l env (ALit (LStr s)) = op1 l "idr.str.lit" [] [("value", BytesA s)] IdrStr
+atom l env (ALit (LDouble d)) = op1 l "arith.constant" [] [("value", FloatA d)] F64
 atom l env AErased = op1 l "idr.erased" [] [] IdrErased
 
 signedness : Bool -> List (String, Attr)
 signedness s = if s then [("is_signed", UnitA)] else []
+
+||| The `arith.cmpf` predicate: ordered, so false when an operand is NaN
+||| (oeq 1, ogt 2, oge 3, olt 4, ole 5; SEM-DBL-2).
+fpredicate : Cmp -> Integer
+fpredicate CEq = 1
+fpredicate CGt = 2
+fpredicate CGte = 3
+fpredicate CLt = 4
+fpredicate CLte = 5
+
+||| The `math` op of a C library function or exact operation (SEM-DBL-3).
+mathOp : MathFn -> String
+mathOp Exp = "math.exp"
+mathOp Log = "math.log"
+mathOp Pow = "math.powf"
+mathOp Sin = "math.sin"
+mathOp Cos = "math.cos"
+mathOp Tan = "math.tan"
+mathOp ASin = "math.asin"
+mathOp ACos = "math.acos"
+mathOp ATan = "math.atan"
+mathOp Sqrt = "math.sqrt"
+mathOp Floor = "math.floor"
+mathOp Ceiling = "math.ceil"
 
 ||| The `arith.cmpi` predicate (eq 0, slt 2, sle 3, sgt 4, sge 5, ult 6, ...).
 predicate : Cmp -> Bool -> Integer
@@ -152,10 +178,23 @@ prim l (IntOp op t) [a, b] = case op of
   where
     arith : String -> E TV
     arith n = op1 l n [a, b] [] (I (width t))
+prim l (FloatOp op) [a, b] = op1 l name [a, b] [] F64
+  where
+    name : String
+    name = case op of
+      FAdd => "arith.addf"
+      FSub => "arith.subf"
+      FMul => "arith.mulf"
+      FDiv => "arith.divf"
+prim l Negate [a] = op1 l "arith.negf" [a] [] F64
+prim l (Math f) as = op1 l (mathOp f) as [] F64
+prim l (Compare c SDouble) [a, b] = do
+  r <- op1 l "arith.cmpf" [a, b] [("predicate", IntA (fpredicate c) (I 64))] (I 1)
+  op1 l "arith.extui" [r] [] (I 64)
 prim l (Compare c s) [a, b] = do
   let sgn = case s of
               SInt t => signed t
-              SChar => False
+              _ => False
   r <- op1 l "arith.cmpi" [a, b] [("predicate", IntA (predicate c sgn) (I 64))] (I 1)
   op1 l "arith.extui" [r] [] (I 64)
 -- SEM-INT-7, SEM-CHAR-3
@@ -164,6 +203,11 @@ prim l (Cast from to) [a] = case (from, to) of
   (SChar, SInt t) => resize 32 False (width t)
   (SInt f, SChar) => op1 l "idr.to_char" [a] (signedness (signed f)) (I 32)
   (SChar, SChar) => pure a
+  -- SEM-DBL-4
+  (SInt f, SDouble) => op1 l (if signed f then "arith.sitofp" else "arith.uitofp") [a] [] F64
+  (SDouble, SInt t) => op1 l "idr.to_int" [a] [] (I (width t))
+  (SDouble, SDouble) => pure a
+  _ => internal ("cast " ++ show from ++ " to " ++ show to)
   where
     resize : Nat -> Bool -> Nat -> E TV
     resize f s t = if f == t then pure a
@@ -201,6 +245,7 @@ io ix l op vs res = do
     (PutChar, [c, w0]) => unitWith mk (op1 l "idr.io.put_char" [c, w0] [] IdrWorld)
     (PutInt t, [n, w0]) => unitWith mk (op1 l "idr.io.put_int" [n, w0] (signedness (signed t)) IdrWorld)
     (Exit, [n, w0]) => unitWith mk (op1 l "idr.io.exit" [n, w0] [] IdrWorld)
+    (PutDouble, [d, w0]) => unitWith mk (op1 l "idr.io.put_double" [d, w0] [] IdrWorld)
     (GetChar, [w0]) => do
       r <- fresh
       push (simple (Just (r, 2)) "idr.io.get_char" [fst w0] [] [snd w0] [I 32, IdrWorld] l)
@@ -323,6 +368,7 @@ inhabitant ix l fuel (IntT t) = Just <$> constant l 0 (width t)
 inhabitant ix l fuel CharT = Just <$> constant l 0 32
 inhabitant ix l fuel StrT = Just <$> op1 l "idr.str.lit" [] [("value", BytesA "")] IdrStr
 inhabitant ix l fuel ErasedT = Just <$> op1 l "idr.erased" [] [] IdrErased
+inhabitant ix l fuel DoubleT = Just <$> op1 l "arith.constant" [] [("value", FloatA 0.0)] F64
 inhabitant ix l fuel WorldT = pure Nothing
 inhabitant ix l Z (DataT d) = pure Nothing
 inhabitant ix l (S fuel) (DataT d) = do

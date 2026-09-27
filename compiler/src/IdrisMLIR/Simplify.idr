@@ -107,6 +107,7 @@ strLit (SAppend a b) = (++) <$> strLit a <*> strLit b
 strLit (SCons (ALit (LChar c)) s) = strCons (chr (cast c)) <$> strLit s
 strLit (SChr (ALit (LChar c))) = Just (singleton (chr (cast c)))
 strLit (SShow _ (ALit (LInt _ n))) = Just (show n)
+strLit (SShow _ (ALit (LDouble d))) = Just (prim__cast_DoubleString d)
 strLit _ = Nothing
 
 ------------------------------------------------------------------------------
@@ -373,7 +374,8 @@ mutual
     (Str Append, _, [Just s, Just t]) => pure (SString (SAppend s t))
     (Str Cons, [c, _], [_, Just t]) => (\(a, _) => SString (SCons a t)) <$> reify l c
     (Str (ToStr SChar), [c], _) => (\(a, _) => SString (SChr a)) <$> reify l c
-    (Str (ToStr (SInt t)), [n], _) => (\(a, _) => SString (SShow t a)) <$> reify l n
+    (Str (ToStr (SInt t)), [n], _) => (\(a, _) => SString (SShow (IntT t) a)) <$> reify l n
+    (Str (ToStr SDouble), [n], _) => (\(a, _) => SString (SShow DoubleT a)) <$> reify l n
     _ => general l op vs
 
   general : Loc -> PrimOp -> List V -> M V
@@ -414,7 +416,8 @@ mutual
     (Just lit, _) => write PutStr (ALit (LStr lit))
     (_, SRun a) => write PutStr a
     (_, SChr c) => write PutChar c
-    (_, SShow t n) => write (PutInt t) n
+    (_, SShow (IntT t) n) => write (PutInt t) n
+    (_, SShow _ n) => write PutDouble n
     (_, SCons c rest) => do
       r <- write PutChar c
       putStr l res rest !(nextWorld r)

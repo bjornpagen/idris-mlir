@@ -87,7 +87,7 @@ signed _ = True
 
 ||| Value types: what exists at runtime (Kovács's `ValTy`).
 public export
-data VTy = IntT IntTy | CharT | StrT | WorldT | ErasedT | DataT DataId
+data VTy = IntT IntTy | CharT | StrT | WorldT | ErasedT | DataT DataId | DoubleT
 
 ||| Types: value types, and the compile-time-only types that `Simplify`
 ||| eliminates (Kovács's computation types, and data holding them).
@@ -101,6 +101,7 @@ vrank StrT = 2
 vrank WorldT = 3
 vrank ErasedT = 4
 vrank (DataT _) = 5
+vrank DoubleT = 6
 
 export
 Eq VTy where
@@ -130,6 +131,7 @@ Show VTy where
   show WorldT = "%World"
   show ErasedT = "Erased"
   show (DataT d) = show d
+  show DoubleT = "Double"
 
 export
 Show Ty where
@@ -163,13 +165,14 @@ defaultQuantity _ = QW
 ------------------------------------------------------------------------------
 
 public export
-data Lit = LInt IntTy Integer | LChar Integer | LStr String
+data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double
 
 export
 Eq Lit where
   LInt s a == LInt t b = s == t && a == b
   LChar a == LChar b = a == b
   LStr a == LStr b = a == b
+  LDouble a == LDouble b = a == b
   _ == _ = False
 
 export
@@ -177,12 +180,14 @@ Show Lit where
   show (LInt t n) = show n ++ ":" ++ show t
   show (LChar c) = "chr " ++ show c
   show (LStr s) = show s
+  show (LDouble d) = prim__cast_DoubleString d ++ ":Double"
 
 public export
 litTy : Lit -> VTy
 litTy (LInt t _) = IntT t
 litTy (LChar _) = CharT
 litTy (LStr _) = StrT
+litTy (LDouble _) = DoubleT
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -194,13 +199,22 @@ data ArithOp = Add | Sub | Mul | Div | Mod | And | Or | Xor
 public export
 data Cmp = CLt | CLte | CEq | CGte | CGt
 
+||| Double arithmetic (SEM-DBL-2).
+public export
+data FArith = FAdd | FSub | FMul | FDiv
+
+||| The C library's functions on doubles, and the exact ones (SEM-DBL-3).
+public export
+data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Floor | Ceiling
+
 ||| Operand types of comparisons and casts at runtime.
 public export
-data Scalar = SInt IntTy | SChar
+data Scalar = SInt IntTy | SChar | SDouble
 
 ||| Primitives that run at runtime, in first-order Core.
 public export
-data Prim = IntOp ArithOp IntTy | Compare Cmp Scalar | Cast Scalar Scalar
+data Prim = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
+          | Compare Cmp Scalar | Cast Scalar Scalar
 
 ||| String primitives: evaluated at compile time or fused into output
 ||| (ELIM-G-6, ELIM-G-7), never run (PROF-HEAP-3, PROF-PRIM-4).
@@ -235,10 +249,36 @@ export
 Show Scalar where
   show (SInt t) = show t
   show SChar = "Char"
+  show SDouble = "Double"
+
+export
+Show FArith where
+  show FAdd = "add"
+  show FSub = "sub"
+  show FMul = "mul"
+  show FDiv = "div"
+
+export
+Show MathFn where
+  show Exp = "exp"
+  show Log = "log"
+  show Pow = "pow"
+  show Sin = "sin"
+  show Cos = "cos"
+  show Tan = "tan"
+  show ASin = "asin"
+  show ACos = "acos"
+  show ATan = "atan"
+  show Sqrt = "sqrt"
+  show Floor = "floor"
+  show Ceiling = "ceiling"
 
 export
 Show Prim where
   show (IntOp op t) = show op ++ "_" ++ show t
+  show (FloatOp op) = show op ++ "_Double"
+  show Negate = "neg_Double"
+  show (Math f) = show f ++ "_Double"
   show (Compare op s) = show op ++ "_" ++ show s
   show (Cast a b) = "cast_" ++ show a ++ show b
 
@@ -265,17 +305,25 @@ public export
 scalarTy : Scalar -> VTy
 scalarTy (SInt t) = IntT t
 scalarTy SChar = CharT
+scalarTy SDouble = DoubleT
 
 ||| The operand types of a runtime primitive.
 public export
 primArgs : Prim -> List VTy
 primArgs (IntOp _ t) = [IntT t, IntT t]
+primArgs (FloatOp _) = [DoubleT, DoubleT]
+primArgs Negate = [DoubleT]
+primArgs (Math Pow) = [DoubleT, DoubleT]
+primArgs (Math _) = [DoubleT]
 primArgs (Compare _ s) = [scalarTy s, scalarTy s]
 primArgs (Cast a _) = [scalarTy a]
 
 public export
 primResult : Prim -> VTy
 primResult (IntOp _ t) = IntT t
+primResult (FloatOp _) = DoubleT
+primResult Negate = DoubleT
+primResult (Math _) = DoubleT
 primResult (Compare _ _) = IntT IdrisInt
 primResult (Cast _ b) = scalarTy b
 
@@ -308,7 +356,7 @@ opArgs (Str s) = strArgs s
 ------------------------------------------------------------------------------
 
 public export
-data IOOp = PutStr | PutChar | GetChar | Exit | PutInt IntTy
+data IOOp = PutStr | PutChar | GetChar | Exit | PutInt IntTy | PutDouble
 
 export
 Show IOOp where
@@ -317,6 +365,7 @@ Show IOOp where
   show GetChar = "getChar"
   show Exit = "exit"
   show (PutInt t) = "putInt_" ++ show t
+  show PutDouble = "putDouble"
 
 ||| The runtime operands of an IO primitive before the world, and whether its
 ||| result value is a character (otherwise it is `()`).
@@ -327,6 +376,7 @@ ioArgs PutChar = [CharT]
 ioArgs (PutInt t) = [IntT t]
 ioArgs GetChar = []
 ioArgs Exit = [IntT IdrisInt]
+ioArgs PutDouble = [DoubleT]
 
 public export
 data EntryKind = IntEntry | IOEntry

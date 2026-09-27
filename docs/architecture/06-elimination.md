@@ -141,7 +141,8 @@ is static.
      chain;
   2. `putStr (strCons c s)` becomes `putChar c`, then `putStr s`;
   3. `putStr (cast_CharString c)` becomes `putChar c`;
-  4. `putStr (cast_TString n)` becomes `idr.io.put_int n`;
+  4. `putStr (cast_TString n)` becomes `idr.io.put_int n`, and from v2
+     `putStr (cast_DoubleString x)` becomes `idr.io.put_double x`;
   5. `putStr (case x of alts)` becomes `case x of alts'`, with the `putStr`
      moved into each alternative.
 

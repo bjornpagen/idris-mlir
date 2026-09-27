@@ -388,6 +388,7 @@ mutual
     Just it => pure (V (IntT it))
     Nothing => case t of
       CharType => pure (V CharT)
+      DoubleType => pure (V DoubleT)
       StringType => pure (V StrT)
       WorldType => pure (V WorldT)
       _ => reject fc owner rule (show t ++ " in a runtime position")
@@ -592,7 +593,36 @@ ioPrim _ = Nothing
 
 scalar : PrimType -> Maybe Scalar
 scalar CharType = Just SChar
+scalar DoubleType = Just SDouble
 scalar t = SInt <$> intTy t
+
+||| Double arithmetic and the C library's functions (SEM-DBL-2, SEM-DBL-3).
+double : PrimFn k -> Maybe Prim
+double (Add DoubleType) = Just (FloatOp FAdd)
+double (Sub DoubleType) = Just (FloatOp FSub)
+double (Mul DoubleType) = Just (FloatOp FMul)
+double (Div DoubleType) = Just (FloatOp FDiv)
+double (Neg DoubleType) = Just Negate
+double DoubleExp = Just (Math Exp)
+double DoubleLog = Just (Math Log)
+double DoublePow = Just (Math Pow)
+double DoubleSin = Just (Math Sin)
+double DoubleCos = Just (Math Cos)
+double DoubleTan = Just (Math Tan)
+double DoubleASin = Just (Math ASin)
+double DoubleACos = Just (Math ACos)
+double DoubleATan = Just (Math ATan)
+double DoubleSqrt = Just (Math Sqrt)
+double DoubleFloor = Just (Math Floor)
+double DoubleCeiling = Just (Math Ceiling)
+double _ = Nothing
+
+||| A cast between types that exist at runtime; `Char` and `Double` are not
+||| cast to each other (PROF-PRIM-2).
+runtimeCast : Scalar -> Scalar -> Maybe Prim
+runtimeCast SChar SDouble = Nothing
+runtimeCast SDouble SChar = Nothing
+runtimeCast a b = Just (Cast a b)
 
 arith : PrimFn k -> Maybe (ArithOp, PrimType)
 arith (Add t) = Just (Add, t)
@@ -614,21 +644,22 @@ comparison (GT t) = Just (CGt, t)
 comparison _ = Nothing
 
 primOp : PrimFn k -> Maybe PrimOp
-primOp p = case (arith p, comparison p, p) of
-  (Just (op, t), _, _) => Run . IntOp op <$> intTy t
-  (_, Just (op, StringType), _) => Just (Str (StrCompare op))
-  (_, Just (op, t), _) => Run . Compare op <$> scalar t
-  (_, _, Cast StringType to) => Str . FromStr <$> scalar to
-  (_, _, Cast from StringType) => Str . ToStr <$> scalar from
-  (_, _, Cast from to) => Run <$> (Cast <$> scalar from <*> scalar to)
-  (_, _, StrLength) => Just (Str Length)
-  (_, _, StrHead) => Just (Str Head)
-  (_, _, StrTail) => Just (Str Tail)
-  (_, _, StrIndex) => Just (Str Index)
-  (_, _, StrCons) => Just (Str Cons)
-  (_, _, StrAppend) => Just (Str Append)
-  (_, _, StrReverse) => Just (Str Reverse)
-  (_, _, StrSubstr) => Just (Str Substr)
+primOp p = case (double p, arith p, comparison p, p) of
+  (Just d, _, _, _) => Just (Run d)
+  (_, Just (op, t), _, _) => Run . IntOp op <$> intTy t
+  (_, _, Just (op, StringType), _) => Just (Str (StrCompare op))
+  (_, _, Just (op, t), _) => Run . Compare op <$> scalar t
+  (_, _, _, Cast StringType to) => Str . FromStr <$> scalar to
+  (_, _, _, Cast from StringType) => Str . ToStr <$> scalar from
+  (_, _, _, Cast from to) => Run <$> (join (runtimeCast <$> scalar from <*> scalar to))
+  (_, _, _, StrLength) => Just (Str Length)
+  (_, _, _, StrHead) => Just (Str Head)
+  (_, _, _, StrTail) => Just (Str Tail)
+  (_, _, _, StrIndex) => Just (Str Index)
+  (_, _, _, StrCons) => Just (Str Cons)
+  (_, _, _, StrAppend) => Just (Str Append)
+  (_, _, _, StrReverse) => Just (Str Reverse)
+  (_, _, _, StrSubstr) => Just (Str Substr)
   _ => Nothing
 
 ------------------------------------------------------------------------------
@@ -652,6 +683,7 @@ constantLit (B32 x) = Just (LInt UInt32 (cast x))
 constantLit (B64 x) = Just (LInt UInt64 (cast x))
 constantLit (Ch x) = Just (LChar (cast (ord x)))
 constantLit (Str x) = Just (LStr x)
+constantLit (Db x) = Just (LDouble x)
 constantLit _ = Nothing
 
 bestFC : Ctx -> FC -> FC
@@ -820,15 +852,19 @@ mutual
       primitive fc loc name arity op as = case op of
         BelieveMe => reject fc ctx.owner ProfEsc1 "believe_me"
         Crash => reject fc ctx.owner ProfEsc1 "idris_crash"
+        Neg DoubleType => supported
         Neg _ => reject fc ctx.owner ProfPrim2 "negate (SEM-EXCL-1)"
         ShiftL _ => reject fc ctx.owner ProfPrim2 "shift left (SEM-EXCL-1)"
         ShiftR _ => reject fc ctx.owner ProfPrim2 "shift right (SEM-EXCL-1)"
-        _ => case primOp op of
-          Nothing => reject fc ctx.owner ProfPrim2 ("primitive " ++ show name)
-          Just p => do
-            args' <- traverse (term ctx env) (take arity as)
-            let kinds = map (\t => (QW, RuntimeParam (V t))) (opArgs p)
-            finish loc kinds args' (PrimApp loc p) (drop arity as)
+        _ => supported
+        where
+          supported : Core (Term n)
+          supported = case primOp op of
+            Nothing => reject fc ctx.owner ProfPrim2 ("primitive " ++ show name)
+            Just p => do
+              args' <- traverse (term ctx env) (take arity as)
+              let kinds = map (\t => (QW, RuntimeParam (V t))) (opArgs p)
+              finish loc kinds args' (PrimApp loc p) (drop arity as)
 
       ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term n)
       ioCall fc loc arity op ty as = do
@@ -964,6 +1000,7 @@ mutual
       | Nothing => reject ctx.fc ctx.owner ProfPrim4 ("a match on " ++ show c)
     case lit of
       LStr _ => reject ctx.fc ctx.owner ProfPrim4 "a match on a string"
+      LDouble _ => reject ctx.fc ctx.owner ProfPrim2 "a match on a Double literal (SEM-DBL-1)"
       _ => pure ()
     body <- tree ctx env rhs
     (alts, def) <- litAlternatives ctx env rest

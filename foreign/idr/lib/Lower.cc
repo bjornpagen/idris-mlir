@@ -39,7 +39,16 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
       else if (isa<idr::DivOp, idr::ModOp>(op) && !idr::lower::divisorKnownNonZero(op->getOperand(1))) {
         runtime.declareString(idr::lower::crashMessage(op->getLoc(), "division by zero"));
         need("__idr_crash");
-      } else if (isa<idr::PutStrOp>(op))
+      } else if (auto cast = dyn_cast<idr::ToIntOp>(op)) {
+        if (!idr::lower::knownFinite(cast.getValue())) {
+          runtime.declareString(
+              idr::lower::crashMessage(op->getLoc(), "cast of a non-finite Double"));
+          need("__idr_crash");
+        }
+        need("__idr_f64_to_i64");
+      } else if (isa<idr::PutDoubleOp>(op))
+        need("__idr_put_double");
+      else if (isa<idr::PutStrOp>(op))
         need("__idr_put_bytes");
       else if (isa<idr::PutCharOp>(op))
         need("__idr_put_char");
@@ -68,7 +77,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<idr::IdrDialect>();
-    target.addLegalDialect<arith::ArithDialect, LLVM::LLVMDialect, cf::ControlFlowDialect>();
+    target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
+                           cf::ControlFlowDialect>();
     target.addDynamicallyLegalOp<ub::PoisonOp>(
         [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {

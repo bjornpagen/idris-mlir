@@ -131,6 +131,53 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   Compile-time evaluation (`ELIM-G-6`) MUST agree with the evaluator. Tests
   check this with `Refl` proofs.
 
+## Doubles (v2)
+
+`Double` follows IEEE 754 binary64, as the Chez backend computes it
+(`docs/research/v2-entry.md` records the probes).
+
+- **SEM-DBL-1 (v2).** A `Double` is an IEEE 754 binary64 value, including
+  `-0.0`, the infinities and NaN. A literal denotes the double Idris stores
+  in the elaborated TT constant. A match on a `Double` literal is excluded
+  (`PROF-PRIM-2`); compare with `prim__eq_Double` instead.
+  - Test: `tests/profile/v2/reject/PROF-PRIM-2-double-match.idr`
+- **SEM-DBL-2 (v2).** `prim__add_Double`, `sub`, `mul`, `div` and
+  `prim__negate_Double` are the IEEE operations, rounded to nearest, ties to
+  even. No operation is contracted, reassociated or otherwise relaxed. The
+  comparisons `lt`, `lte`, `eq`, `gte`, `gt` are false when an operand is
+  NaN, and `0.0` equals `-0.0`; the result is an `Int`, `1` or `0`.
+  - Test: `tests/e2e/v2/double-basics`
+- **SEM-DBL-3 (v2).** `prim__doubleExp`, `Log`, `Pow`, `Sin`, `Cos`, `Tan`,
+  `ASin`, `ACos` and `ATan` return what the platform's C library (`libm`)
+  returns: the reference backend calls the same functions (`flexp` and so on
+  import them). `prim__doubleSqrt`, `Floor` and `Ceiling` are the exact IEEE
+  operations. See `SEM-DEV-2`.
+  - Test: `tests/e2e/v2/double-basics`
+- **SEM-DBL-4 (v2).** `prim__cast_TDouble n` is the double nearest to `n`,
+  ties to even. `prim__cast_DoubleT x` truncates `x` toward zero and then
+  wraps it (`wrap_T`); if `x` is NaN or infinite it crashes with "cast of a
+  non-finite Double" (Chez raises an exception; `SEM-DEV-1` applies). This
+  is `exact-truncate` in `Common.idr`. Casts between `Char` and `Double` are
+  excluded (`PROF-PRIM-2`).
+  - Test: `tests/e2e/v2/double-basics`, `tests/e2e/v2/double-cast-nan`
+- **SEM-DBL-5 (v2).** `prim__cast_DoubleString x` is Chez's `number->string`:
+  - the shortest decimal digits that read back as `x`, the closest to `x`
+    when there are several, and the larger when two are equally close (the
+    free-format algorithm of Burger and Dybvig, where Ryu rounds to even);
+  - positional notation exactly when `1e-3 ≤ |x| < 1e10`, with at least one
+    digit after the point (`100.0`, `0.001`);
+  - otherwise `d[.ddd]e[-]x`, with a point only when there is more than one
+    digit (`1e22`, `1.5e-7`);
+  - `-0.0`, `+nan.0`, `+inf.0`, `-inf.0`;
+  - a subnormal ends with `|p`, where `p` is the number of significant bits
+    (`5e-324|1`).
+
+  `prim__cast_StringDouble` is Chez's `string->number`; like every string
+  primitive it is evaluated at compile time (`PROF-PRIM-4`).
+  - Test: `tests/e2e/v2/double-basics`, `tests/tooling/test_dev.py` (the
+    printer's tables), and 176,000 fuzzed values in
+    `tests/e2e/v2/double-print-fuzz`
+
 ## Laziness (v1)
 
 - **SEM-LAZY-1 (v1).** `Delay e` does not evaluate `e`. `Force` of a delayed
@@ -212,6 +259,14 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   This compiler always follows `SEM-CRASH-1`. Differential tests
   (`TEST-DIFF-1`) compare only the exit status and stdout written before the
   crash, never the crash message.
+- **SEM-DEV-2 (v2).** LLVM treats the `libm` functions as known functions.
+  It may evaluate them at compile time with the compiler's own `libm`, or
+  replace a call with an equivalent that is exact (`pow(x, 2.0)` with
+  `x * x`). The result then differs from the reference only where `libm`
+  itself is not correctly rounded, by at most one unit in the last place.
+  `Simplify` folds these functions with the Idris compiler's own `Double`
+  operations, which run on the same `libm` as the reference.
+  - Check: review (a statement about LLVM and the platform)
 
 ## Excluded from v0
 
@@ -222,6 +277,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     LLVM treats as poison.
 
   A version that admits them MUST first specify them here.
-- **SEM-EXCL-2.** `Double` and `Integer` and their primitives are excluded
-  until a version specifies them here. That includes NaN and infinity in
-  casts: Chez's `exact-truncate` fails on them.
+- **SEM-EXCL-2.** `Integer` and its primitives are excluded until a version
+  specifies them here. `Double` is specified by `SEM-DBL-*` from v2; its
+  other primitives (casts to and from `Char`, matching on literals) stay
+  excluded.

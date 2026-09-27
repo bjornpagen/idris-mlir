@@ -291,3 +291,33 @@ OpFoldResult ToCharOp::fold(FoldAdaptor adaptor) {
   bool scalar = code <= 0xD7FF || (code >= 0xE000 && code <= 0x10FFFF);
   return IntegerAttr::get(getType(), scalar ? static_cast<int64_t>(code) : 0);
 }
+
+//===----------------------------------------------------------------------===//
+// Doubles (IDR-DBL-1)
+//===----------------------------------------------------------------------===//
+
+static bool knownFinite(Value value) {
+  FloatAttr constant;
+  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
+}
+
+OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
+  auto value = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
+  if (!value || !value.getValue().isFinite())
+    return {};
+  // Truncated exactly, then wrapped: 1100 bits hold any finite double.
+  APSInt whole(1100, /*isUnsigned=*/false);
+  bool exact = false;
+  value.getValue().convertToInteger(whole, APFloat::rmTowardZero, &exact);
+  return IntegerAttr::get(getType(), whole.trunc(getType().getIntOrFloatBitWidth()));
+}
+
+void ToIntOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  if (!knownFinite(getValue()))
+    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+}
+
+Speculation::Speculatability ToIntOp::getSpeculatability() {
+  return knownFinite(getValue()) ? Speculation::Speculatable : Speculation::NotSpeculatable;
+}

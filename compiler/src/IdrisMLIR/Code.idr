@@ -353,13 +353,40 @@ index t = MkIndex (fromList [(f.id, f) | f <- t.fns])
                   (fromList [(d.id, d) | d <- t.datas])
                   (fromList [(c.id, c) | d <- t.datas, c <- d.cons])
 
+||| Does a body use `Double` (contract version 2)?
+export
+needsV2 : Code -> Bool
+needsV2 = cata alg
+  where
+    lit : Atom -> Bool
+    lit (ALit (LDouble _)) = True
+    lit _ = False
+    here : Op r -> Bool
+    here (OPrim (FloatOp _) _) = True
+    here (OPrim Negate _) = True
+    here (OPrim (Math _) _) = True
+    here (OPrim (Compare _ SDouble) _) = True
+    here (OPrim (Cast SDouble _) _) = True
+    here (OPrim (Cast _ SDouble) _) = True
+    here (OIO PutDouble _ _) = True
+    here op = any lit (operands op)
+    alg : CodeF Bool -> Bool
+    alg (BindF _ _ _ t op k) = t == DoubleT || here op || or (map delay (toList op)) || k
+    alg (RetF _ a) = lit a
+    alg (AbsurdF _) = False
+
 ||| The contract version a program needs (IDR-MOD-1).
 export
 version : Target -> Nat
 version t =
-  if isIO t.entry || any fnV1 t.fns || any dataV1 t.datas
-     then 1 else 0
+  if any fnV2 t.fns || any dataV2 t.datas then 2
+  else if isIO t.entry || any fnV1 t.fns || any dataV1 t.datas then 1
+  else 0
   where
+    dataV2 : CData -> Bool
+    dataV2 d = any (\c => any (\f => f.type == DoubleT) c.fields) d.cons
+    fnV2 : CFn -> Bool
+    fnV2 f = f.result == DoubleT || any ((== DoubleT) . (.type)) f.params || needsV2 f.body
     isIO : EntryKind -> Bool
     isIO IOEntry = True
     isIO IntEntry = False

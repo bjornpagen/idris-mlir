@@ -333,7 +333,8 @@ def compile_int(source, output):
     steps.append(subprocess.run([cc, found[0], "-o", obj], capture_output=True, text=True))
     if steps[-1].returncode != 0:
         return steps
-    steps.append(subprocess.run([pinned_cc(), obj, "-o", output], capture_output=True, text=True))
+    steps.append(subprocess.run([pinned_cc(), obj, "-o", output, "-lm"],
+                                capture_output=True, text=True))
     return steps
 
 

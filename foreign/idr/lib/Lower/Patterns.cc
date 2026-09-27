@@ -218,6 +218,33 @@ struct LowerToChar : IdrPattern<idr::ToCharOp> {
   }
 };
 
+// LOW-DBL-1: crash unless finite, then truncate and wrap in 64 bits, then to
+// the result width.
+struct LowerToInt : IdrPattern<idr::ToIntOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(idr::ToIntOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value x = adaptor.getValue();
+    if (!knownFinite(op.getValue())) {
+      Value finite = math::IsFiniteOp::create(rewriter, loc, x);
+      Value bad = arith::XOrIOp::create(
+          rewriter, loc, finite, arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true)));
+      auto check = scf::IfOp::create(rewriter, loc, bad, /*withElse=*/false);
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(check.thenBlock());
+      emitCrash(rewriter, loc, state.runtime, "cast of a non-finite Double");
+    }
+    auto i64 = rewriter.getI64Type();
+    Value wide = func::CallOp::create(rewriter, loc, "__idr_f64_to_i64", i64, x).getResult(0);
+    if (op.getType() == i64)
+      rewriter.replaceOp(op, wide);
+    else
+      rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, op.getType(), wide);
+    return success();
+  }
+};
+
 // LOW-IO-2: each IO op calls a helper; the world vanishes (LOW-IO-3).
 template <typename OpT>
 struct LowerIO : IdrPattern<OpT> {
@@ -242,6 +269,9 @@ struct LowerIO : IdrPattern<OpT> {
                            : Value(arith::ExtUIOp::create(rewriter, loc, i64, v));
       if (failed(call(op.getIsSigned() ? "__idr_put_int_s" : "__idr_put_int_u", {}, v)))
         return failure();
+    } else if constexpr (std::is_same_v<OpT, idr::PutDoubleOp>) {
+      if (failed(call("__idr_put_double", {}, adaptor.getValue())))
+        return failure();
     } else if constexpr (std::is_same_v<OpT, idr::GetCharOp>) {
       auto got = call("__idr_get_char", rewriter.getI32Type(), {});
       if (failed(got))
@@ -263,8 +293,8 @@ struct LowerIO : IdrPattern<OpT> {
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerStr, LowerMayLoop,
-               LowerToChar, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
-               LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>,
+               LowerToChar, LowerToInt, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
+               LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
                LowerIO<idr::GetCharOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
                                                               state);
 }

@@ -39,6 +39,9 @@ std::string crashMessage(mlir::Location loc, llvm::StringRef cause);
 // Whether a divisor is a constant other than zero (IDR-EFF-1).
 bool divisorKnownNonZero(mlir::Value divisor);
 
+// Whether a Double is a finite constant (IDR-EFF-1).
+bool knownFinite(mlir::Value value);
+
 // Calls @__idr_crash with a message naming the cause and the Idris location.
 void emitCrash(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
                llvm::StringRef cause);
