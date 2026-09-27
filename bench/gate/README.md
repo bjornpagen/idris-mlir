@@ -7,8 +7,17 @@ heap per core, and move-or-mark where values cross cores. They run before
 every other milestone (plan section 10); if the gate fails, the memory
 decision is reopened with the numbers.
 
-Nothing here has been timed yet: the tables below are empty until a run
-fills them in.
+**First run** (2026-09-27, on 4 cores of an Intel Xeon at 2.80 GHz with
+15 GB; best of 5): **the gate fails**, on 3 of its 20 criteria, all in
+experiment 2. `rbtree` is 1.59x Koka where the limit is 1.2x, and
+`binarytrees` is slower than MLton and 1.32x Lean. Experiments 3 and 4 pass
+every criterion. In this run the runtime prototype was compiled separately,
+by GCC, and linked as a native object, so every allocation and every free
+is a call into it; the plan's driver instead joins the runtime's bitcode
+into the program as one LTO module (plan section 5.7, `TC-LINK-1`). With
+no clang in the toolchain yet, that could not be measured; experiment 2 is
+rerun that way once the pinned clang exists, before the memory decision is
+reopened (plan section 4.4).
 
 ## Running it
 
@@ -131,14 +140,14 @@ Results (best of 5, seconds, peak RSS in MiB):
 
 | benchmark | input | Idris Chez | MLton | C | Koka | Lean | outputs |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| rbtree | 4200000 | | | | | | |
-| rbtree-ck | 4200000 | | | | | | |
-| deriv | 10 | | | | | | |
-| nqueens | 13 | | | | | | |
-| cfold | 20 | | | | | | |
-| binarytrees | 21 | | | | | | |
-| qsort | 400 | | | | | | |
-| unionfind | 3000000 | | | | | | |
+| rbtree | 4200000 | 2.755 s, 538.8 MiB | 6.121 s, 1262.5 MiB | 1.845 s, 193.7 MiB | 1.103 s, 133.0 MiB | 2.560 s, 200.8 MiB | agree |
+| rbtree-ck | 4200000 | 9.356 s, 2599.9 MiB | 6.649 s, 3825.2 MiB | 3.528 s, 1372.8 MiB | 2.107 s, 1151.1 MiB | 5.540 s, 1382.8 MiB | agree |
+| deriv | 10 | 3.721 s, 801.3 MiB | 1.053 s, 527.6 MiB | 2.878 s, 1297.5 MiB | 1.068 s, 457.1 MiB | 1.549 s, 552.8 MiB | agree |
+| nqueens | 13 | 14.083 s, 136.1 MiB | 1.109 s, 209.8 MiB | 1.263 s, 125.3 MiB | 1.004 s, 99.0 MiB | 2.282 s, 132.8 MiB | agree |
+| cfold | 20 | 0.703 s, 226.7 MiB | 0.462 s, 342.7 MiB | 0.419 s, 129.4 MiB | 0.255 s, 157.0 MiB | 0.324 s, 166.8 MiB | agree |
+| binarytrees | 21 | 45.000 s, 334.8 MiB | 7.571 s, 773.9 MiB | 17.522 s, 257.4 MiB | 12.675 s, 227.0 MiB | 7.181 s, 164.7 MiB | agree |
+| qsort | 400 | 13.500 s, 48.3 MiB | 1.628 s, 1.6 MiB | 1.431 s, 1.5 MiB | 27.746 s, 7.0 MiB | 2.209 s, 8.7 MiB | agree |
+| unionfind | 3000000 | 2.521 s, 168.1 MiB | 0.331 s, 164.5 MiB | 0.146 s, 47.3 MiB | 2.187 s, 97.0 MiB | 2.003 s, 124.7 MiB | agree |
 
 ## Experiment 2: hand-lowered code
 
@@ -215,9 +224,9 @@ symbol but `idr_main`, then O3, for `x86-64-v3`) and `llc` (O3, PIC,
 
 | program | input | prototype | MLton | Lean | Koka | MLton / prototype | prototype / best of Lean, Koka | live | verdict |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| rbtree | 4200000 | | | | | | | | |
-| deriv | 10 | | | | | | | | |
-| binarytrees | 21 | | | | | | | | |
+| rbtree | 4200000 | 1.653 s, 165.2 MiB | 5.724 s, 1262.6 MiB | 2.344 s | 1.042 s | 3.46x | 1.59 | 0 | **FAIL**: 1.59x Koka, over 1.2x |
+| deriv | 10 | 1.014 s, 429.2 MiB | 1.036 s, 527.5 MiB | 1.083 s | 0.930 s | 1.02x | 1.09 | 0 | pass |
+| binarytrees | 21 | 9.852 s, 210.2 MiB | 7.593 s, 773.8 MiB | 7.436 s | 12.382 s | 0.77x | 1.32 | 0 | **FAIL**: slower than MLton; 1.32x Lean |
 
 ## Experiment 3: threads
 
@@ -255,16 +264,16 @@ share the trees of experiment 2 (`bintree.mlir`, `rbmap.mlir`).
 
 | program | input | prototype | Go | Go / prototype | atomic-rc | marked | moved | verdict |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| ptrees | 21 | | | | | | | |
-| shmap | 1000000 1000000 | | | | | | | |
-| pipe | 20000 10 | | | | | | | |
+| ptrees | 21 | 3.062 s, 292.2 MiB | 11.612 s, 485.0 MiB | 3.79x | 0 | 0 | 0 | pass |
+| shmap | 1000000 1000000 | 0.730 s, 42.7 MiB | 2.557 s, 89.2 MiB | 3.50x | 1000396 | 1000000 | 0 | pass |
+| pipe | 20000 10 | 0.879 s, 12.3 MiB | 1.586 s, 16.6 MiB | 1.80x | 0 | 0 | 81880000 | pass |
 
 | pipeline variant | time, peak RSS |
 | --- | ---: |
-| plain | |
-| flush | |
-| home | |
-| flush-home | |
+| plain | 0.728 s, 11.7 MiB |
+| flush | 0.829 s, 11.4 MiB |
+| home | 0.782 s, 10.1 MiB |
+| flush-home | 1.109 s, 10.1 MiB |
 
 ## Experiment 4: the linear red-black tree
 
@@ -309,11 +318,11 @@ insert (full reuse) and free every cell.
 
 | version | unique | shared | shared / unique | verdict |
 | --- | ---: | ---: | ---: | --- |
-| Idris Chez (baseline) | | | | |
-| prototype, static reuse | | rejected by `MEM-LIN-1` in M1 | | |
-| prototype, dynamic reuse | | | | |
-| Koka | | | | |
-| Lean | | | | |
+| Idris Chez (baseline) | 2.536 s, 529.1 MiB | 2.610 s, 529.0 MiB | 1.03 | |
+| prototype, static reuse | 1.238 s, 165.3 MiB | rejected by `MEM-LIN-1` in M1 | | pass: no slower than dynamic |
+| prototype, dynamic reuse | 1.492 s, 165.2 MiB | | | |
+| Koka | 1.026 s, 165.0 MiB | 2.975 s, 165.1 MiB | 2.90 | pass: a silent cliff |
+| Lean | 2.287 s, 200.7 MiB | 3.404 s, 200.8 MiB | 1.49 | pass: a silent cliff |
 
 In the compiler, M1's exit criteria then require that `linrb` compiles with
 zero dups and full reuse, and that `linrb-shared` is rejected with

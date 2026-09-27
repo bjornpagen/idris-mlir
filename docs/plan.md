@@ -71,6 +71,18 @@ closures have no runtime representation. So:
   - a list whose length depends on input is rejected (`PROF-DATA-3`);
   - so is a runtime `Integer` (`PROF-TYPE-4`).
 
+**The memory gate** (section 4.4, `bench/gate/`) ran once, on 2026-09-27:
+it fails 3 of its 20 criteria, all in experiment 2. The hand-lowered
+`rbtree` is 1.59x Koka (the limit is 1.2x), and `binarytrees` is slower
+than MLton and 1.32x Lean; `deriv` passes. Threads (experiment 3) and the
+linear tree (experiment 4) pass everything: 1.8x to 3.8x faster than Go
+with atomics only on the shared map, static reuse 17% faster than dynamic,
+and a silent cliff of 2.90x in Koka and 1.49x in Lean. The prototype's
+runtime was a separately compiled GCC object, so each allocation and free
+was a call; experiment 2 is rerun with the runtime's bitcode joined into
+the program (section 5.7) once the bootstrap has built clang. If it still
+fails, the memory decision is reopened with those numbers.
+
 **Also open from v3:**
 - **n-body over `Vect 3 Double`** returns a static value from a runtime
   loop (section 8.1).
