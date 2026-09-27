@@ -10,7 +10,7 @@ backend.
 
 ```text
 Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminations
-  → idr dialect (C++) → upstream MLIR → LLVM → object → pinned gcc links
+  → idr dialect (C++) → upstream MLIR → LLVM → object → lld links a static-PIE executable on musl
 ```
 
 ## Why not Lean 4

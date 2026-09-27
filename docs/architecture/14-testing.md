@@ -111,8 +111,9 @@ the reason, and never counted as passed.
 
 - **TEST-HEAP-1 (v0).** For every end-to-end program, the undefined symbols
   of the object file (`llvm-nm --undefined-only`) are a subset of
-  `{write, _exit}`, and from v1 `{write, read, _exit}` (`LOW-EXT-1`). There
-  is no `malloc`, no runtime, and no other libc call.
+  `{write, _exit}`, and from v1 `{write, read, _exit}`, and from v2 the
+  `libm` functions of `LOW-EXT-1`. There is no `malloc` and no other libc
+  call: no runtime code is reached (`TC-LINK-1` joins only what is).
 - **TEST-DET-1 (v0).** Compiling a fixture twice gives byte-identical
   `.core`, `.mlir` and object files (`FE-DET-1`, `DRV-DET-1`).
 - **TEST-SEM-1 (v0).** Every `SEM-INT-*` rule has table-driven end-to-end

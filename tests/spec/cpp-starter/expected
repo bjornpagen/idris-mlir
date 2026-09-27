@@ -5,6 +5,8 @@ preset asan-ubsan
 preset lint
 CMakeLists.txt: set(CMAKE_CXX_STANDARD 26)
 CMakeLists.txt: -fno-exceptions -fno-rtti
-CMakeLists.txt: -freflection
 CMakeLists.txt: -Werror
 CMakeLists.txt: idris_mlir_language_profile
+CMakeLists.txt: PIN(clang-no-reflection)
+CMakeLists.txt: PIN(clang-libcxx)
+CMakeLists.txt: no -freflection

@@ -8,8 +8,8 @@
 # A program whose `main` has type IO goes through DRV-FLOW-2: one idris-mlir
 # command, which leaves the program in build/exec/<name of OUTPUT> next to
 # SOURCE, with the packages and directives given. Any other goes through
-# DRV-FLOW-1: `idris-mlir --check`, idris-mlir-cc and the pinned gcc, which
-# leave OUTPUT and OUTPUT's object file. --int and --io choose the flow
+# DRV-FLOW-1: `idris-mlir --check`, idris-mlir-cc and the pinned clang,
+# which leave OUTPUT and OUTPUT's object file. --int and --io choose the flow
 # instead of the type of `main`.
 #
 # Each step runs in SOURCE's directory and its output passes through. The
@@ -66,7 +66,7 @@ fi
 cd "$directory" || exit 1
 
 if [ "$flow" = io ]; then
-  # DRV-FLOW-2: idris-mlir runs idris-mlir-cc and the pinned gcc itself.
+  # DRV-FLOW-2: idris-mlir runs idris-mlir-cc and the pinned clang itself.
   name=${output##*/}
   "$idris_mlir" --no-banner --no-color --no-prelude --cg mlir $options -o "$name" "$file"
   status=$?
@@ -109,7 +109,10 @@ mkdir -p "$(dirname "$output")" || exit 1
 "$idris_mlir_cc" "$mlir" -o "$object"
 status=$?
 [ "$status" -eq 0 ] || failed "$status"
-"$pinned_cc" "$object" -o "$output" -lm
+# TC-LINK-2: the link of DRV-FLOW-2 (Frontend/Main.idr): a static-PIE
+# executable on musl, by lld, with GMP; musl's libc.a holds libm.
+"$pinned_cc" --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
+  -Wl,--gc-sections -Wl,--icf=all "$object" -o "$output" -lgmp
 status=$?
 [ "$status" -eq 0 ] || failed "$status"
 echo "$output"

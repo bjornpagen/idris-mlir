@@ -1,7 +1,7 @@
 #!/bin/sh
 # rule: TC-BOOT-1, TEST-CMD-1
 # The Makefile has every command, tools/bootstrap.sh builds the toolchain,
-# and doctor reports the pinned GCC, CMake and Ninja.
+# and doctor reports the pinned CMake, Ninja, LLVM and sysroot.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 for target in bootstrap doctor verify-pins check build test test-idr test-mlir-tools compile bench; do
   if grep -q "^$target:" "$root/Makefile"; then say "make $target"; else say "make $target: missing"; fi
@@ -12,7 +12,7 @@ else
   say "tools/bootstrap.sh: missing or not executable"
 fi
 "$root/tools/doctor.sh" > "$work/doctor" 2>&1
-for tool in gcc cmake ninja; do
+for tool in cmake ninja llvm sysroot; do
   if grep -q "^Pinned $tool: " "$work/doctor"; then
     say "doctor reports the pinned $tool"
   else

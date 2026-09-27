@@ -104,7 +104,7 @@ user's approval.
 | D7 | No superoptimization. | See the non-goals above. |
 | D8 | Proved rewrites (user-proved equalities used by the compiler) are a future feature. The design keeps them possible from day one, but no version has them yet and they will use no pragma. | [07-proved-rewrites](07-proved-rewrites.md) |
 | D9 | No pragmas in profile programs. | "Strict subset for now, no pragmas yet." |
-| D10 | LLVM/MLIR is rebuilt with the pinned GCC, so all C++ is built by one compiler. | cpp-starter treats the toolchain as part of the language. |
+| D10 | LLVM/MLIR is built from source in two stages, and its stage-2 clang builds all our C++, the runtime and every program: one compiler, one LLVM ([plan](../plan.md), section 5.2). | cpp-starter treats the toolchain as part of the language. |
 | D11 | v0's entry point is a pure `main : Int`, and the process exit status is its low 8 bits. From v1, `main : IO ()` is also an entry point, compiled through `-o`. | v0 brings up the pipeline without IO. v1 adds IO. |
 | D12 | The compiler reads checked TT (`treeCT`, signatures, quantities), never `CExp` or runtime case trees. | `CExp` and `treeRT` have already erased facts we need. |
 | D13 | v1 targets "hello world": an IO monad, static strings, and `Char`, heap-free. | Static strings live in read-only data. IO is world-passing code once its lambdas are eliminated. Neither needs a heap. |

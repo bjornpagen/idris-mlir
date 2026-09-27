@@ -1,18 +1,19 @@
 #!/bin/sh
-# rule: TC-ZONE-1, TC-ZONE-2
-# All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr, with .cc
-# its only source extension; src/ and unsafe/ hold their CMakeLists.txt
-# alone.
+# rule: TC-ZONE-1, TC-ZONE-2, TC-ZONE-3
+# All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr or, for the
+# runtime, runtime/, with .cc its only source extension; src/ and unsafe/
+# hold their CMakeLists.txt alone.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name docs \) -prune \
    -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.td' -o -name '*.inc' \) \
    -print) | sed 's|^\./||' | sort > "$work/cpp"
 if [ -s "$work/cpp" ]; then say "C++: found"; else say "C++: none found"; fi
-if grep -v '^foreign/idr/' "$work/cpp" > "$work/outside"; then
-  say "C++ outside foreign/idr:"
+if grep -q '^runtime/' "$work/cpp"; then say "C++: the runtime under runtime/"; else say "C++: no runtime under runtime/"; fi
+if grep -v -e '^foreign/idr/' -e '^runtime/' "$work/cpp" > "$work/outside"; then
+  say "C++ outside foreign/idr and runtime:"
   cat "$work/outside"
 else
-  say "C++: all under foreign/idr"
+  say "C++: all under foreign/idr and runtime"
 fi
 if grep '\.cpp$' "$work/cpp" > "$work/retired"; then
   say "C++ sources named .cpp:"

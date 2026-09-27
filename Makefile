@@ -31,8 +31,6 @@ IDRIS2 := $(call toolchain,idris2)
 CMAKE := $(call toolchain,cmake)
 PINNED_CC := $(call toolchain,pinned_cc)
 IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
-# The tools/verify-pins.sh check of PINNED_CC's stamp.
-CC_PIN := gcc
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
@@ -80,10 +78,10 @@ env:
 
 # TC-CPP-2: the presets are the only interface for building C++.
 build:
-	@$(PINS) cmake llvm
+	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset dev
 	cd $(ROOT) && $(CMAKE) --build --preset dev
-	@$(PINS) idris $(CC_PIN)
+	@$(PINS) idris
 	@$(MAKE) --no-print-directory paths
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
 
@@ -113,22 +111,22 @@ check: runner gen-ryu-tables
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite check $(GOLDEN)
 
 test: runner
-	@$(PINS) built llvm $(CC_PIN)
+	@$(PINS) built llvm sysroot
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test $(GOLDEN)
 
 test-idr: runner
-	@$(PINS) built llvm test-tools $(CC_PIN)
+	@$(PINS) built llvm test-tools sysroot
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-idr $(GOLDEN)
 
 test-mlir-tools: runner
-	@$(PINS) llvm $(CC_PIN)
+	@$(PINS) llvm sysroot
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-mlir-tools $(GOLDEN)
 
 compile:
 	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Prog.idr OUT=prog' >&2; exit 2; }
-	@$(PINS) built idris $(CC_PIN)
+	@$(PINS) built idris sysroot
 	@$(ROOT)/tools/compile.sh '$(abspath $(SRC))' '$(abspath $(OUT))'
 
 bench:
-	@$(PINS) built idris $(CC_PIN)
+	@$(PINS) built idris sysroot
 	$(ROOT)/bench/run.sh $(ARGS)

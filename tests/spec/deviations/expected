@@ -1,7 +1,12 @@
 CMakeLists.txt: the gate accepts x86_64
-CMakeLists.txt: PIN(lint-graph-unbuilt)
+CMakeLists.txt: PIN(platform-gate-x86_64)
+CMakePresets.json: lint with the stage-2 clang-tidy
 CMakeLists.txt: no stdexec
 PINS.md: platform-gate-x86_64
-PINS.md: lint-graph-unbuilt
 PINS.md: no-stdexec
 PINS.md: llvm-cxx17-headers
+PINS.md: clang-libcxx
+PINS.md: clang-no-reflection
+PINS.md: no-sanitizer-runtimes
+PINS.md: musl-thread-stacks
+PINS.md: stage2-thinlto

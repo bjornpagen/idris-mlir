@@ -9,8 +9,10 @@
 #   source      the Idris checkout is the staged gitlink, without modifications
 #   revision    the same, printing the revision
 #   idris       the local Idris 2 was built from that checkout
-#   llvm        the local LLVM/MLIR was built at the lock's revision
-#   gcc, cmake, ninja
+#   llvm        the stage-2 LLVM/MLIR and clang were built at the lock's revision
+#   sysroot     musl, the LLVM runtimes and GMP were built into the sysroot at
+#               the lock's revisions
+#   cmake, ninja
 #               the pinned tool's stamp names the lock's revision
 #   built       the tools `make build` makes exist
 #   test-tools  the pinned LLVM has FileCheck, not and count
@@ -85,7 +87,19 @@ check() {
       [ "$(stamp_field "$prefix" llvm_revision)" = "$(lock_field llvm revision)" ] ||
         fail "Local LLVM tools are stale; rerun tools/bootstrap.sh llvm"
       ;;
-    gcc | cmake | ninja)
+    sysroot)
+      # The stamps of the steps that fill it (tools/bootstrap.sh), each at
+      # the lock's revision of what it built.
+      for part in musl:musl runtimes:llvm gmp:gmp; do
+        step=${part%%:*}
+        stamp=$sysroot/provenance/$step.json
+        [ -f "$stamp" ] || fail "The sysroot has no $step; run: tools/bootstrap.sh $step"
+        got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
+        [ "$got" = "$(lock_field "${part#*:}" revision)" ] ||
+          fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
+      done
+      ;;
+    cmake | ninja)
       want=$(lock_field "$1" revision)
       { [ -n "$want" ] && [ "$(stamp_field "$toolchain/$1" revision)" = "$want" ]; } ||
         fail "Pinned $1 missing or stale; run: tools/bootstrap.sh $1"

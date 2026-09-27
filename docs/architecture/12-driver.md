@@ -18,13 +18,19 @@
 - **DRV-CC-1 (p0).** The command line is:
 
   ```sh
-  idris-mlir-cc INPUT.mlir -o OUTPUT [--emit=obj|asm|llvm|mlir] [--dump-after=PASS|all] [--dump-dir=DIR]
+  idris-mlir-cc INPUT.mlir -o OUTPUT [--emit=obj|asm|llvm|mlir] [--cpu=CPU]
+                [--runtime=ARCHIVE] [--dump-after=PASS|all] [--dump-dir=DIR]
   ```
 
   - `--emit=obj` (the default) writes an ELF object file;
   - `asm` writes the same code as assembly text (v3);
   - `llvm` writes LLVM IR after optimization;
   - `mlir` writes the LLVM dialect.
+  - `--cpu` chooses the target CPU (`LOW-TARGET-1`; `x86-64-v3` by
+    default).
+  - `--runtime` names the runtime archive whose bitcode joins the program
+    (`TC-LINK-1`); by default the one `make build` made, and `''` links
+    none.
   - `--dump-after` writes the module after the named pass (or after every
     pass) into the dump directory as `NN-PASS.mlir`. This is how each stage's
     IR is inspected.
@@ -46,11 +52,13 @@
   ```sh
   idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr   # → build/ttc/<v>/Prog.{core,mlir}
   idris-mlir-cc build/ttc/<v>/Prog.mlir -o build/exec/Prog.o
-  <pinned gcc> build/exec/Prog.o -o build/exec/Prog
+  <pinned clang> -fuse-ld=lld -static-pie -Wl,--gc-sections -Wl,--icf=all \
+    build/exec/Prog.o -o build/exec/Prog -lgmp
   ```
 
-  `tools/dev.py compile Prog.idr -o Prog` runs the same steps, and the test
-  harness uses that same implementation. There is only one copy of the chain.
+  The link is `TC-LINK-2`'s. `tools/compile.sh` (`make compile SRC=Prog.idr
+  OUT=Prog`) runs the same steps, and the test harness uses that same
+  implementation. There is only one copy of the chain.
 - **DRV-FLOW-2 (v1).** An IO program compiles with one command:
 
   ```sh
@@ -58,12 +66,12 @@
   ```
 
   The whole-program callback writes `build/exec/prog.core` and
-  `build/exec/prog.mlir`, then runs `idris-mlir-cc` and the pinned `gcc`
-  itself, and leaves `build/exec/prog`. It finds both tools through the
-  toolchain paths recorded at build time, never through `PATH`. Any failure
-  in the chain is reported as an Idris error; a failure after `.mlir` exists
-  is an internal error (`DIAG-ICE-1`). `tools/dev.py compile` uses this path
-  for IO programs.
+  `build/exec/prog.mlir`, then runs `idris-mlir-cc` and the pinned `clang`
+  itself, with `DRV-FLOW-1`'s link, and leaves `build/exec/prog`. It finds
+  both tools through the toolchain paths recorded at build time, never
+  through `PATH`. Any failure in the chain is reported as an Idris error; a
+  failure after `.mlir` exists is an internal error (`DIAG-ICE-1`).
+  `tools/compile.sh` uses this path for IO programs.
 - **DRV-DUMP-1 (v1).** The Idris codegen directive `--directive dump-core`
   writes the Core after every middle-end pass, as `NN-PASS.core`
   (`01-translate.core`, full Core; `02-simplify.core`, first-order Core),

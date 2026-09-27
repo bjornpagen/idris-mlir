@@ -7,10 +7,15 @@ toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 # Idris 2 and its libraries, built from third_party/Idris2.
 idris_prefix=$toolchain/idris2
 idris2=$idris_prefix/bin/idris2
-# LLVM/MLIR: mlir-opt, opt, llc, llvm-nm, FileCheck, not, count.
-llvm_bin=$toolchain/llvm/bin
-# The C compiler that links programs (DRV-FLOW-1, DRV-FLOW-2, the benchmarks).
-pinned_cc=$toolchain/gcc/bin/gcc
+# The stage-2 LLVM/MLIR (TC-BOOT-2): clang, lld, mlir-opt, mlir-translate,
+# opt, llc, llvm-nm, FileCheck, not, count.
+llvm_bin=$toolchain/llvm-musl/bin
+# The C compiler that links programs (DRV-FLOW-1, DRV-FLOW-2, the
+# benchmarks): the stage-2 clang, whose configuration file names the sysroot,
+# compiler-rt, libunwind, lld and static-PIE output (TC-BOOT-5).
+pinned_cc=$llvm_bin/clang
+# musl, the LLVM runtimes and GMP, which programs link against (TC-BOOT-4).
+sysroot=$toolchain/sysroot
 cmake=$toolchain/cmake/bin/cmake
 # What `make build` makes.
 idris_mlir_cc=$root/build/dev/foreign/idr/idris-mlir-cc

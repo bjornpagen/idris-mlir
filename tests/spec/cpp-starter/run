@@ -1,6 +1,7 @@
 #!/bin/sh
 # rule: TC-CPP-1
-# C++ follows bjornpagen/cpp-starter at bdb6838: its presets and its flags.
+# C++ follows bjornpagen/cpp-starter at bdb6838: its presets and its flags,
+# with clang and libc++ in place of GCC (TC-DEV-6).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 if grep -q bdb6838 "$root/docs/cpp-profile.md"; then
   say "docs/cpp-profile.md: cpp-starter at bdb6838"
@@ -12,7 +13,14 @@ sed -n '/"configurePresets"/,/"buildPresets"/p' "$root/CMakePresets.json" |
 for preset in dev release asan-ubsan lint; do
   if grep -qx "$preset" "$work/presets"; then say "preset $preset"; else say "preset $preset: missing"; fi
 done
-for flag in 'set(CMAKE_CXX_STANDARD 26)' '-fno-exceptions -fno-rtti' '-freflection' '-Werror' \
-            'idris_mlir_language_profile'; do
+for flag in 'set(CMAKE_CXX_STANDARD 26)' '-fno-exceptions -fno-rtti' '-Werror' \
+            'idris_mlir_language_profile' 'PIN(clang-no-reflection)' 'PIN(clang-libcxx)'; do
   if grep -qF -- "$flag" "$root/CMakeLists.txt"; then say "CMakeLists.txt: $flag"; else say "CMakeLists.txt: no $flag"; fi
 done
+# TC-DEV-6: the pinned clang's reflection is a stub, so the profile leaves
+# cpp-starter's -freflection out.
+if grep -v 'PIN(clang-no-reflection)' "$root/CMakeLists.txt" | grep -qF -- '-freflection'; then
+  say "CMakeLists.txt: -freflection"
+else
+  say "CMakeLists.txt: no -freflection"
+fi

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), by MLton (bench/sml) and by
-# gcc -O2 (bench/c), on the same input. Prints a Markdown table of the best
+# the pinned clang -O2 (bench/c; static PIE on musl, as our programs), on the
+# same input. Prints a Markdown table of the best
 # of several wall-clock times, and checks that the outputs agree.
 #
 #     bench/run.sh [--runs N] [name ...]
@@ -14,7 +15,7 @@
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 bench=$root/bench
-labels='this compiler|Idris Chez|MLton|gcc -O2'
+labels='this compiler|Idris Chez|MLton|clang -O2'
 
 # The input of each benchmark: large enough that start-up does not matter.
 input() {
@@ -91,8 +92,8 @@ build() {
       "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
         > "$work/build.log" 2>&1 && cmd=$work/$name-mlton
       ;;
-    'gcc -O2')
-      "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
+    'clang -O2')
+      "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac
@@ -182,7 +183,7 @@ done
 cpus=$(getconf _NPROCESSORS_ONLN 2> /dev/null || nproc 2> /dev/null || echo 1)
 echo "Best of $runs runs, wall-clock seconds; $(uname -m), $cpus CPUs. Outputs agree."
 echo
-echo "| benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |"
+echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | vs MLton |"
 echo "| --- | --- | ---: | ---: | ---: | ---: | ---: |"
 awk -F'|' '
   function cell(t) { return t == "" ? "n/a" : sprintf("%.3f", t / 1e9) }

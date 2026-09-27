@@ -5,8 +5,11 @@ toolchain.lock.json
 Makefile
 compiler/idris-mlir.ipkg
 foreign/idr/CMakeLists.txt
+runtime/CMakeLists.txt
+runtime/idris_rt.h
 src/CMakeLists.txt
 unsafe/CMakeLists.txt
+tools/bootstrap.sh
 tests/Main.idr
 tests/tests.ipkg
 tests/testutils.sh

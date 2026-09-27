@@ -126,8 +126,8 @@ gone.
   code, because it adapts vendored header libraries and exports a C ABI
   (`PINS.md`: `runtime-quarantine`). Its sources are `.cc`, its header
   `idris_rt.h`, its link check C.
-  - *planned* (m3): `tests/spec/zones` accepts C++ under `runtime/` and
-    nowhere else outside `foreign/idr/`
+  - Test: `tests/spec/zones` (C++ under `runtime/` and nowhere else outside
+    `foreign/idr/`)
 
 ### Deviations from cpp-starter
 

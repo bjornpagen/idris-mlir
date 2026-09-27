@@ -1,5 +1,6 @@
 C++: found
-C++: all under foreign/idr
+C++: the runtime under runtime/
+C++: all under foreign/idr and runtime
 C++ sources: .cc only
 src/: CMakeLists.txt alone
 unsafe/: CMakeLists.txt alone

@@ -88,8 +88,10 @@ Superoptimization, equality saturation and search are non-goals (D7).
   8. `idr-lower` ([10-lowering](10-lowering.md))
   9. `canonicalize`, `cse`
   10. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
-  11. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
-      object file for the host target (`LOW-TARGET-1`), laid out as
+  11. Translate to LLVM IR; join the bitcode of the runtime archive, only
+      what the program reaches (`TC-LINK-1`); internalize every symbol but
+      `main`; run LLVM's `default<O3>` pipeline without FP contraction; then
+      emit one object file for the target CPU (`LOW-TARGET-1`), laid out as
       `OPT-PIPE-4` says
   - Test: `tests/idr/pipeline/cc-steps.mlir`
   - *Measured and left out:* upstream `control-flow-sink` after step 6

@@ -210,8 +210,11 @@ It applies upstream's structural conversions:
   `libm` functions `exp`, `log`, `pow`, `sin`, `cos`, `tan`, `asin`,
   `acos`, `atan`, `sqrt`, `floor`, `ceil`, and `exp2` and `ldexp`, which
   LLVM substitutes for some calls of `pow` (`SEM-DEV-2`). None of them
-  allocates. The driver links `libm` (`-lm`). The toolchain's `crt` files
-  provide the process entry.
+  allocates. The executable is linked statically against musl, whose
+  `libc.a` holds these `libm` functions too, and musl's `rcrt1.o` provides
+  the process entry (`TC-LINK-2`). The runtime archive's code joins the
+  object only where the program reaches it (`TC-LINK-1`); until the lowering
+  calls the runtime, none does.
   - Test: every e2e fixture checks the object's undefined symbols
     (`TEST-HEAP-1`)
 
@@ -232,12 +235,18 @@ It applies upstream's structural conversions:
   `arith`, `scf`, `cf`, `ub` and `llvm` ops. Upstream `convert-scf-to-cf`,
   `convert-to-llvm` and `reconcile-unrealized-casts` take it to the LLVM
   dialect. No other lowering pass is ours.
-- **LOW-TARGET-1 (v0).** The LLVM module is compiled in process for the host
-  target triple:
-  - the generic CPU for that triple (no `-march=native`), so objects are
-    reproducible;
-  - position-independent code;
-  - optimization level O2.
+- **LOW-TARGET-1 (v0).** The LLVM module is compiled in process for
+  `x86_64-unknown-linux-musl` ([the plan](../plan.md), section 5.7):
+  - the CPU `x86-64-v3` (AVX2, BMI2, FMA; every x86-64 CPU since Haswell and
+    Zen) unless `idris-mlir-cc --cpu` names another: `native` (the machine
+    that compiles), `x86-64` (the baseline), or any x86-64 CPU LLVM knows;
+    a name it does not know is a usage error. Objects are reproducible for a
+    given `--cpu` other than `native`;
+  - position-independent code, for a static-PIE executable (`TC-LINK-2`);
+  - optimization level O3, with no fast-math flags and no FP contraction:
+    `+` and `*` stay separate IEEE operations, never fused;
+  - one section per function and per datum, so the link keeps only what is
+    reached.
 - **LOW-ATTR-1 (v0).** No LLVM function attribute or metadata that asserts
   termination or forward progress is added (`SEM-EVAL-5`).
 - **LOW-CC-1 (v0).** All functions use the C calling convention. Internal

@@ -9,6 +9,7 @@ make test-mlir-tools
 make compile
 make bench
 tools/bootstrap.sh
-doctor reports the pinned gcc
 doctor reports the pinned cmake
 doctor reports the pinned ninja
+doctor reports the pinned llvm
+doctor reports the pinned sysroot
