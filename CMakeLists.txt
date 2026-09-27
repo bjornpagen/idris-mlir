@@ -168,7 +168,10 @@ if(IDRIS_MLIR_LINUX)
 	)
 endif()
 
-# The runtime (TC-RT-1), then the quarantine code that faces MLIR
-# (TC-ZONE-1), which records where the runtime's archive is.
+# The cpp-starter zones (TC-ZONE-2), the runtime (TC-RT-1, TC-ZONE-3), then
+# the quarantine code that faces MLIR (TC-ZONE-1), which records where the
+# runtime's archive is.
+add_subdirectory(src)
+add_subdirectory(unsafe)
 add_subdirectory(runtime)
 add_subdirectory(foreign/idr)
