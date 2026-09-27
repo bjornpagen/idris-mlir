@@ -320,56 +320,6 @@ struct LowerCall : IdrPattern<OpT> {
   }
 };
 
-// A switch whose operands have idr types: upstream's structural conversion
-// of cf.switch converts one value to one value, and idr values become
-// several (LOW-DATA-1).
-struct LowerSwitch : IdrPattern<cf::SwitchOp> {
-  using IdrPattern::IdrPattern;
-
-  FailureOr<Block *> converted(ConversionPatternRewriter &rewriter, Operation *op, Block *block,
-                               TypeRange expected) const {
-    if (block->getArgumentTypes() == expected)
-      return block;
-    auto conversion = getTypeConverter()->convertBlockSignature(block);
-    if (!conversion || TypeRange(conversion->getConvertedTypes()) != expected)
-      return rewriter.notifyMatchFailure(op, "cannot convert a successor's signature");
-    return rewriter.applySignatureConversion(block, *conversion, getTypeConverter());
-  }
-
-  LogicalResult matchAndRewrite(cf::SwitchOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    ArrayRef<ValueRange> operands = adaptor.getOperands();
-    auto flatten = [&](size_t from, size_t count) {
-      SmallVector<Value> out;
-      for (size_t i = from; i < from + count; ++i)
-        llvm::append_range(out, operands[i]);
-      return out;
-    };
-    if (!llvm::hasSingleElement(operands[0]))
-      return rewriter.notifyMatchFailure(op, "expected one flag value");
-    size_t next = 1;
-    SmallVector<Value> defaults = flatten(next, op.getDefaultOperands().size());
-    next += op.getDefaultOperands().size();
-    auto dflt = converted(rewriter, op, op.getDefaultDestination(), TypeRange(ValueRange(defaults)));
-    if (failed(dflt))
-      return failure();
-    SmallVector<SmallVector<Value>> cases;
-    SmallVector<Block *> blocks;
-    for (auto [block, count] : llvm::zip(op.getCaseDestinations(), op.getCaseOperandSegments())) {
-      cases.push_back(flatten(next, static_cast<size_t>(count)));
-      next += static_cast<size_t>(count);
-      auto dest = converted(rewriter, op, block, TypeRange(ValueRange(cases.back())));
-      if (failed(dest))
-        return failure();
-      blocks.push_back(*dest);
-    }
-    SmallVector<ValueRange> ranges(cases.begin(), cases.end());
-    rewriter.replaceOpWithNewOp<cf::SwitchOp>(op, operands[0].front(), *dflt, defaults,
-                                              op.getCaseValuesAttr(), blocks, ranges);
-    return success();
-  }
-};
-
 } // namespace
 
 template <typename... Ops>
@@ -379,7 +329,6 @@ void addCalls(RewritePatternSet &patterns, const TypeConverter &converter, Conte
 
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
-  patterns.add<LowerSwitch>(converter, patterns.getContext(), state, PatternBenefit(2));
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr,
                LowerToChar, LowerToInt, LowerCrash, LowerDivision<idr::DivOp>,
                LowerDivision<idr::ModOp>>(converter, patterns.getContext(), state);

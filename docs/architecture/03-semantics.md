@@ -183,20 +183,10 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 
 ## Integers (v3)
 
-- **SEM-BIG-1 (v3).** An `Integer` exists only at compile time. Its
-  primitives (`add` … `xor`, `negate`, comparisons, casts to and from the
-  other types, and to and from `String`) are evaluated during
-  specialization with Idris's own `Integer` primitives, which are the
-  reference's (`SEM-REF-1`), and a function whose result is an `Integer` is
-  evaluated where it is called, recursion included, up to a depth of
-  10,000. An `Integer` that would exist at runtime is rejected
-  (`PROF-TYPE-4`): one computed from a runtime value, or passed where a
-  runtime value goes. A cast to a fixed-width type wraps (`SEM-INT-7`).
-  This is what lets integer literals of the Prelude's `Num`, which are
-  `fromInteger` of an `Integer`, become machine constants.
-  - Check: `Simplify` (`SBig` values, `foldBig`)
-  - Test: `tests/profile/v3/accept/SEM-BIG-1-static-integers.idr`,
-    `tests/profile/v1/reject/PROF-TYPE-4-integer.idr`
+- **SEM-BIG-1.** *Withdrawn at the cutover:* an `Integer` is a runtime
+  value (`!idr.big`). Compile-time evaluation runs the program's own code
+  (`idr-eval`); a runtime big is rejected by the heap-free profile
+  (`PROF-TYPE-4`) because it may allocate.
 
 ## Recursive data (v3)
 

@@ -14,7 +14,6 @@
 #                          upstream MLIR usage
 #   make compile SRC=Prog.idr OUT=prog
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
-#   make ryu-tables        regenerate the Double printer's tables (LOW-DBL-2)
 #
 # The test commands run tests/Main.idr, a golden runner on Test.Golden. They
 # take only='NAME...' and except='NAME...' (substrings of test paths such as
@@ -34,7 +33,6 @@ IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
-GEN_RYU_TABLES := $(ROOT)/tools/build/exec/gen-ryu-tables
 RUNTIME := $(ROOT)/foreign/idr/lib/Lower/Runtime.mlir.inc
 PINS := $(ROOT)/tools/verify-pins.sh
 
@@ -56,7 +54,7 @@ INTERACTIVE ?=
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
 
 .PHONY: help bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \
-        runner gen-ryu-tables ryu-tables compile bench
+        runner compile bench
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -100,14 +98,7 @@ runner:
 	@$(PINS) idris
 	cd $(ROOT)/tests && $(IDRIS2) --build tests.ipkg
 
-gen-ryu-tables:
-	@$(PINS) idris
-	cd $(ROOT)/tools && $(IDRIS2) --build gen-ryu-tables.ipkg
-
-ryu-tables: gen-ryu-tables
-	$(GEN_RYU_TABLES) $(RUNTIME)
-
-check: runner gen-ryu-tables
+check: runner
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite check $(GOLDEN)
 
 test: runner

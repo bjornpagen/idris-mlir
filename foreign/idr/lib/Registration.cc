@@ -14,8 +14,6 @@ void idr::registerIdr(DialectRegistry &registry) {
 // OPT-PIPE-1, steps 1-11. Step 11 (LLVM) happens in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
-      "idr-check-input",
-      "idr-entry",
       "inline",
       "sccp",
       "canonicalize",

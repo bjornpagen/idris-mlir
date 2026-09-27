@@ -1,6 +1,0 @@
-rule: ELIM-G-9
-The unused lambda and the unused action leave no code.
-CHECK-NOT: never run
-CHECK: io.putStr("only this\n",
-CHECK-NOT: never run
-CHECK-NOT: add_Int

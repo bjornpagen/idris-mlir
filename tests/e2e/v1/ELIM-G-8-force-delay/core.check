@@ -1,7 +1,0 @@
-rule: ELIM-G-8, ELIM-G-19
-Both Lazy arguments are forced where they are known: choose is unfolded at
-its call, and what remains is a match whose alternatives are the literals.
-CHECK: 0:Int => jump j{{[0-9]+}}(1:Int)
-CHECK-NEXT: _ => jump j{{[0-9]+}}(2:Int)
-CHECK-NOT: delay
-CHECK-NOT: Main.choose

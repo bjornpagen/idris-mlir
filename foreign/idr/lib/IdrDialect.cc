@@ -95,28 +95,6 @@ std::optional<StringRef> divisionCrashCause(Value divisor) {
 #define GET_OP_CLASSES
 #include "idr/IdrOps.cc.inc"
 
-// The version an op's `Since` trait names, or 0 without one.
-template <typename Op> static constexpr int sinceOf() {
-  if constexpr (requires { Op::since; })
-    return Op::since;
-  else
-    return 0;
-}
-
-// Folds over ODS's own list of every idr op, so no op can be left out.
-template <typename... Ops> static int sinceOfAny(Operation *op) {
-  int since = 0;
-  (void)((isa<Ops>(op) ? (since = sinceOf<Ops>(), true) : false) || ...);
-  return since;
-}
-
-int idr::sinceVersion(Operation *op) {
-  return sinceOfAny<
-#define GET_OP_LIST
-#include "idr/IdrOps.cc.inc"
-      >(op);
-}
-
 namespace {
 
 // IDR-IF-1: every idr op may be inlined anywhere.

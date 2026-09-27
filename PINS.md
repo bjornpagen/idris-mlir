@@ -75,17 +75,6 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   passes without changes
 - upstream: none
 
-## idr-entry-public
-
-- symptom: the contract keeps every `func.func` private (IDR-FN-2) and names
-  the root in the `idr.entry` module attribute, which `symbol-dce` and the
-  inliner do not count as a use, so they deleted the root (found in p0)
-- sites: foreign/idr/lib/Entry.cc (`idr-entry`), foreign/idr/lib/Lower.cc
-- workaround: the `idr-entry` pass makes the root public for the generic
-  passes; `idr-lower` makes it private again when it creates the C entry
-  point (OPT-PIPE-1)
-- retire: never; it follows from the contract
-- upstream: none
 
 ## darwin-inert-mitigations
 
@@ -213,16 +202,6 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - retire: never; deliberate
 - upstream: none
 
-## clang-overlength-strings
-
-- symptom: `Lower/Runtime.mlir.inc` is one raw string literal of more than
-  65 536 characters, which clang's `-Wpedantic` reports
-  (`-Woverlength-strings`) and `-Werror` makes an error
-- sites: foreign/idr/CMakeLists.txt — `lib/Lower/Runtime.cc` only
-- workaround: `-Wno-overlength-strings` for that file
-- retire: when the helpers move into the runtime (docs/plan.md section 5.4)
-  and the literal shrinks below the limit
-- upstream: none
 
 ## linux-uapi-from-host
 

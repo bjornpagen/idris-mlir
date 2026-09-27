@@ -1082,76 +1082,12 @@ changes in milestone 1:
 The runtime's bitcode, `lld` and stage-2 LTO come with milestone 3, the
 first milestone that has a runtime to link.
 
-## 6. Compile-time evaluation: one JIT path
+## 6. Compile-time evaluation: `idr-eval`
 
-**The rule: the server has no features of its own.** It is the compiler's
-own pipeline and the program's own runtime, run at compile time.
-- A computation can be evaluated at compile time only if the compiler can
-  already compile it for runtime.
-- The server gets `Integer` in the same step as executables do, and not
-  before.
-- What the compiler cannot compile yet is never evaluated early.
-
-**What goes.**
-- `Simplify/Fold.idr`, the Idris copy of every primitive's semantics:
-  - Chez's `number->string` standing in for our Ryu printer;
-  - Chez's bignums standing in for GMP.
-- Driving a call because all its arguments are known.
-- The count of unfoldings in a row without code that bounds that today.
-- `SEM-BIG-1` (Integer at compile time only).
-- `Nat` as a chain of `S` at compile time.
-
-**What stays, because it is specialization, not evaluation.**
-- Beta (G1), known constructor (G2), specialization (G3), static let (G4),
-  arity raising (G5) and force of delay (G8).
-- The driver's unfolding on static structure (G19), choices (G20) and
-  output fusion (G7).
-- A string's static structure: `Append` trees of pieces.
-- Whether joining two literal pieces is data layout or a primitive for the
-  server is open (section 12).
-
-**The server**, `idr-jit`, a C++ tool in `foreign/idr/tools`:
-- **One libc.** It is a static musl executable like the programs, with the
-  runtime archive linked into it.
-  - JIT'd code calls only runtime entry points, and they are bound to the
-    server's own copies through an absolute-symbol table generated at
-    build time.
-  - Loading a second copy of the runtime or of libc into the process would
-    duplicate the allocator, `errno` and stdio state.
-- **Start-up.** The compiler starts it once per compilation (Idris's
-  `popen2`). It creates an ORC `LLJIT` with no compile threads (it forks,
-  and a process with threads must not), and compiles one entry point per
-  primitive.
-- **Requests.**
-  - `prim op args`: a call, no code generation, about 10–30 µs a round
-    trip.
-  - `define module`: the MLIR of closed specializations, lowered by our own
-    pipeline at `-O1`, about 5–50 ms.
-  - `call f args`: runs a defined function, in a forked child
-    (copy-on-write pages, about 100 µs).
-- **Values on the wire.** Scalars, bytes, GMP limbs, and constructor trees
-  are encoded compactly. Functions and worlds never cross: a closed call of
-  function type is deferred anyway (G5), and a call that takes the world is
-  not closed.
-- **Crashes and divergence are values.**
-  - A runtime crash, running out of fuel, or exceeding a memory cap returns
-    `stuck`, and the call stays in the residual program, where it crashes or
-    runs as written.
-  - Fuel is deterministic, not a timeout: in JIT mode, `idr-lower` counts at
-    function entries and loop back-edges, and the runtime counts allocated
-    bytes. The same input therefore gives the same output everywhere
-    (`FE-DET-1`).
-- **Results are cached** per configuration for the compilation.
-- **Cross-compilation** (later) cannot run target code on the host.
-  - Integer semantics are fixed-width. Math function results are
-    implementation-defined, so a host libm is acceptable there, but
-    compile time and runtime would no longer run the same code.
-  - Until cross-compilation exists, host is target.
-
-It lands in two steps:
-- **M1:** primitives, and closed calls with scalar, string and data
-  results. `Fold.idr` keeps only `Integer`.
-- **M2:** `Integer` on GMP; `Fold.idr` and `SEM-BIG-1` are deleted.
+Rewritten by the cutover: compile-time evaluation is the `idr-eval` pass
+inside `idris-mlir-cc`, running the program's own lowered code through ORC
+in process (docs/cutover.md, section 6.4). The server design (a process, a
+wire protocol, `popen`, fork per call, fuel) is deleted.
 
 ## 7. Concurrency
 

@@ -27,8 +27,6 @@ add_public_tablegen_target(idr_tablegen)
 
 add_library(idr_dialect STATIC
 	lib/IdrDialect.cc
-	lib/CheckInput.cc
-	lib/Entry.cc
 	lib/Lower.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Runtime.cc
@@ -36,11 +34,6 @@ add_library(idr_dialect STATIC
 	lib/Registration.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
-# PIN(clang-overlength-strings): the LLVM-dialect helpers are one raw string
-# literal longer than the 65 536 characters C++ promises, which clang's
-# -Wpedantic reports — see PINS.md
-set_source_files_properties(lib/Lower/Runtime.cc PROPERTIES COMPILE_OPTIONS -Wno-overlength-strings)
-
 # Generated code is included as system headers so the project's warnings
 # apply to our code, not to TableGen's output.
 target_include_directories(idr_dialect SYSTEM PUBLIC

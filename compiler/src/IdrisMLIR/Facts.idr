@@ -31,11 +31,6 @@ record Fact where
 public export
 record Facts where
   constructor MkFacts
-  ||| It terminates: Idris's checker reports it total, or the compiler wrote
-  ||| it (ELIM-G-5, PROF-HEAP-5).
+  ||| It terminates: Idris's checker reports it terminating
+  ||| (`Core.Termination.checkTotal`).
   terminating : Fact
-  ||| It is an Idris case or with block, part of its parent (ELIM-G-19).
-  block : Fact
-  ||| It is unfolded as its author's hint: `%inline` in a library whose
-  ||| hints the registry's library table honours (ELIM-G-19).
-  inline : Fact

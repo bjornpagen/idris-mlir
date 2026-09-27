@@ -56,13 +56,6 @@ class Idr_Op<string mnemonic, list<Trait> traits = []>
 // What an op declares once, for every pass to derive from (Idr.h)
 //===----------------------------------------------------------------------===//
 
-// IDR-MOD-1: the first contract version that admits the op; idr-check-input
-// rejects it below that version. Ops without it are admitted from version 0.
-class Idr_Since<int version>
-    : ParamNativeOpTrait<"Since", !cast<string>(version)> {
-  let cppNamespace = "::idr";
-}
-
 // LOW-IO-2: the op lowers to a call of this runtime helper.
 def Idr_RuntimeCallOpInterface : OpInterface<"RuntimeCallOpInterface"> {
   let cppNamespace = "::idr";
@@ -197,7 +190,7 @@ def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
 }
 
 // IDR-CHAR-1
-def Idr_ToCharOp : Idr_Op<"to_char", [Pure, Idr_Since<1>]> {
+def Idr_ToCharOp : Idr_Op<"to_char", [Pure]> {
   let summary = "an integer as a Char: itself if a scalar value, else 0";
   let arguments = (ins UnitAttr:$is_signed, AnySignlessInteger:$value);
   let results = (outs I32:$result);
@@ -206,7 +199,7 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure, Idr_Since<1>]> {
 }
 
 // IDR-DBL-3 (v3): the first character of prim__cast_DoubleString (ELIM-G-15).
-def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_Since<3>,
+def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure,
     Idr_Helper<"__idr_double_head">]> {
   let summary = "the first character of a Double as the reference prints it";
   let arguments = (ins F64:$value);
@@ -217,7 +210,7 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_Since<3>,
 // IDR-CRASH-1 (v3): a case the definition does not cover (SEM-CRASH-2).
 // Its results, of any types, stand for the values its block returns; they
 // are never produced.
-def Idr_CrashOp : Idr_Op<"crash", !listconcat([Idr_Since<3>], Idr_MayCrash)> {
+def Idr_CrashOp : Idr_Op<"crash", !listconcat([], Idr_MayCrash)> {
   let summary = "ends the program with a message naming the cause";
   let arguments = (ins StrAttr:$message);
   let results = (outs Variadic<AnyType>:$results);
@@ -225,7 +218,7 @@ def Idr_CrashOp : Idr_Op<"crash", !listconcat([Idr_Since<3>], Idr_MayCrash)> {
 }
 
 // IDR-STR-1
-def Idr_StrLitOp : Idr_Op<"str.lit", [Pure, ConstantLike, Idr_Since<1>]> {
+def Idr_StrLitOp : Idr_Op<"str.lit", [Pure, ConstantLike]> {
   let summary = "a static string literal (UTF-8 bytes)";
   let arguments = (ins StrAttr:$value);
   let results = (outs Idr_StrType:$result);
@@ -235,8 +228,7 @@ def Idr_StrLitOp : Idr_Op<"str.lit", [Pure, ConstantLike, Idr_Since<1>]> {
 
 // IDR-DBL-1: truncates toward zero and wraps to the result width; crashes on
 // NaN and the infinities (IDR-EFF-1).
-def Idr_ToIntOp : Idr_Op<"to_int", !listconcat([Idr_Since<2>,
-    Idr_Helper<"__idr_f64_to_i64">], Idr_MayCrash)> {
+def Idr_ToIntOp : Idr_Op<"to_int", !listconcat([Idr_Helper<"__idr_f64_to_i64">], Idr_MayCrash)> {
   let summary = "a Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
   let results = (outs AnySignlessInteger:$result);
@@ -250,8 +242,7 @@ def Idr_ToIntOp : Idr_Op<"to_int", !listconcat([Idr_Since<2>,
 
 // Each IO op lowers to exactly a call of its helper (LOW-IO-2).
 class Idr_IOOp<string mnemonic, int since, list<Trait> traits> : Idr_Op<mnemonic,
-    !listconcat(traits, [Idr_Since<since>,
-                         MemoryEffects<[MemRead<Idr_IOResource>,
+    !listconcat(traits, [MemoryEffects<[MemRead<Idr_IOResource>,
                                         MemWrite<Idr_IOResource>]>])>;
 
 def Idr_PutStrOp : Idr_IOOp<"io.put_str", 1, [Idr_Helper<"__idr_put_bytes">]> {

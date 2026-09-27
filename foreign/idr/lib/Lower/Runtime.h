@@ -16,12 +16,6 @@ class Runtime {
 public:
   explicit Runtime(mlir::ModuleOp m) : module(m) {}
 
-  // Copies helper `name` and everything it references into the module.
-  mlir::LogicalResult require(llvm::StringRef name);
-
-  // A helper already required.
-  mlir::func::FuncOp helper(llvm::StringRef name) const;
-
   // Declares the static data for `bytes` (LOW-STR-1). Called before the
   // conversion starts, so patterns only reference existing globals.
   void declareString(llvm::StringRef bytes);
@@ -32,7 +26,6 @@ public:
 
 private:
   mlir::ModuleOp module;
-  mlir::OwningOpRef<mlir::ModuleOp> helpers;
   llvm::StringMap<std::string> strings;
 };
 

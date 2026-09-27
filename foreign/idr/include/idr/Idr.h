@@ -36,15 +36,6 @@ struct IOResource : mlir::SideEffects::Resource::Base<IOResource> {
 // The traits below carry what IdrOps.td declares about an op, so that each
 // fact is written once, next to the op, and every pass derives from it.
 
-// IDR-MOD-1: the first contract version that admits the op (`Idr_Since`).
-template <int Version> struct Since {
-  template <typename ConcreteType>
-  class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
-  public:
-    static constexpr int since = Version;
-  };
-};
-
 // A string usable as a template argument.
 template <std::size_t N> struct Name {
   char chars[N];
@@ -125,8 +116,5 @@ void registerIdrPipeline();
 // The pipeline steps of OPT-PIPE-1 (1-10), as textual pass pipelines, in order.
 llvm::ArrayRef<llvm::StringRef> pipelineSteps();
 
-// The first contract version that admits `op` (IDR-MOD-1): its `Since` trait,
-// or 0. Every idr op is covered, because the list is ODS's own.
-int sinceVersion(mlir::Operation *op);
 
 } // namespace idr

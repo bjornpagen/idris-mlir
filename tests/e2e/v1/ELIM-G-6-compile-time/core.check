@@ -1,4 +1,0 @@
-rule: ELIM-G-6, SEM-STR-2
-CHECK-NOT: strAppend
-CHECK: io.putStr("42x\n",
-CHECK-NOT: strAppend

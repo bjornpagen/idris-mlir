@@ -2,51 +2,9 @@
 
 #include "Lower/Runtime.h"
 
-#include "mlir/Parser/Parser.h"
-
 using namespace mlir;
 
 namespace idr::lower {
-
-namespace {
-
-constexpr const char *runtimeSource =
-#include "Runtime.mlir.inc"
-    ;
-
-} // namespace
-
-LogicalResult Runtime::require(StringRef name) {
-  if (!helpers) {
-    helpers = parseSourceString<ModuleOp>(runtimeSource, module.getContext());
-    if (!helpers)
-      return module.emitError("internal error: idr runtime helpers do not parse");
-  }
-  SmallVector<StringRef> work{name};
-  while (!work.empty()) {
-    StringRef next = work.pop_back_val();
-    if (module.lookupSymbol(next))
-      continue;
-    Operation *op = helpers->lookupSymbol(next);
-    if (!op)
-      return module.emitError("internal error: missing idr helper ") << next;
-    OpBuilder b(module.getBodyRegion());
-    b.setInsertionPointToEnd(module.getBody());
-    b.clone(*op);
-    op->walk([&](Operation *inner) {
-      for (NamedAttribute attr : inner->getAttrs())
-        attr.getValue().walk([&](FlatSymbolRefAttr ref) {
-          work.push_back(ref.getValue());
-        });
-    });
-  }
-  return success();
-}
-
-func::FuncOp Runtime::helper(StringRef name) const {
-  ModuleOp handle = module;
-  return handle.lookupSymbol<func::FuncOp>(name);
-}
 
 void Runtime::declareString(StringRef bytes) {
   if (bytes.empty() || strings.count(bytes))

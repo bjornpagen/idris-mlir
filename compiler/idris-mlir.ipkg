@@ -16,17 +16,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry
         , IdrisMLIR.Facts
         , IdrisMLIR.Term
-        , IdrisMLIR.Term.Check
-        , IdrisMLIR.Code
-        , IdrisMLIR.Code.Check
-        , IdrisMLIR.Code.Loops
-        , IdrisMLIR.Simplify.Value
-        , IdrisMLIR.Simplify.Fold
-        , IdrisMLIR.Simplify.Gen
-        , IdrisMLIR.Simplify.Safety
-        , IdrisMLIR.Simplify
         , IdrisMLIR.MLIR
-        , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Paths
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate
