@@ -67,11 +67,20 @@ measure() {
 }
 
 # build and lowered run in a command substitution, so they leave the reason
-# for a failure in this file, which why reads.
+# for a failure in this file, which failure reads.
 WHYFILE=$OUT/.why
-why() { WHY=$(cat "$WHYFILE" 2>/dev/null || true); }
+# failure EXP WHAT: the verdict when WHAT could not be measured: n/a for a
+# missing toolchain, FAIL for a failed build or run.
+failure() {
+  r=$(cat "$WHYFILE" 2>/dev/null || true)
+  case $r in
+    no\ *) verdict "$1" "$2" n/a "$r" ;;
+    "") verdict "$1" "$2" FAIL "${WHY:-failed}" ;;
+    *) verdict "$1" "$2" FAIL "$r" ;;
+  esac
+}
 
-# build LANG DIR NAME: prints the executable, or returns 1 (reason: why).
+# build LANG DIR NAME: prints the executable, or returns 1 (reason: failure).
 build() {
   lang=$1; dir=$2; name=$3
   : > "$WHYFILE"
@@ -86,7 +95,7 @@ build() {
 }
 
 # lowered NAME VARIANT: prints the executable of a lowered program, or
-# returns 1 (reason: why).
+# returns 1 (reason: failure).
 lowered() {
   : > "$WHYFILE"
   have_llvm || { echo "no pinned MLIR/LLVM tools in .toolchain/llvm" > "$WHYFILE"; return 1; }
@@ -132,7 +141,7 @@ exp_suite() {
         fi
       else
         row="$row n/a |"
-        verdict suite "$name in $lang" n/a "$WHY"
+        failure suite "$name in $lang"
       fi
     done
     echo "$row $agree |" >> "$md"
@@ -165,7 +174,7 @@ exp_lowered() {
         verdict lowered "$name: the prototype prints the reference output" FAIL "$O differs from $ref"
       if sexe=$(lowered "$name" stats); then live=$(stat_field "$(stats "$sexe" "$input")" live); fi
     else
-      verdict lowered "$name on the prototype" n/a "$WHY"
+      failure lowered "$name on the prototype"
     fi
     for lang in mlton lean koka; do
       if exe=$(build "$lang" "$dir" "$name") && measure lowered "$name" "$lang" "$exe" "$input"; then
@@ -173,13 +182,12 @@ exp_lowered() {
         [ -z "$ref" ] || same "$ref" "$O" ||
           verdict lowered "$name: $lang prints the reference output" FAIL "$O differs from $ref"
       else
-        verdict lowered "$name in $lang" n/a "$WHY"
+        failure lowered "$name in $lang"
       fi
     done
     best=""
     [ -n "$tl" ] && best=$tl
     [ -n "$tk" ] && { [ -z "$best" ] || lt "$tk" "$best"; } && best=$tk
-    col() { [ -n "$1" ] && cell "$1" "$2" || printf 'n/a'; }
     vs_m=n/a; vs_b=n/a
     [ -n "$tp" ] && [ -n "$tm" ] && vs_m="$(ratio "$tm" "$tp")x"
     [ -n "$tp" ] && [ -n "$best" ] && vs_b="$(ratio "$tp" "$best")"
@@ -224,7 +232,7 @@ exp_threads() {
     if exe=$(build go "$GATE/threads/$name" "$name") && measure threads "$name" go "$exe" "$input"; then
       tg=$T; kg=$K; ref=$O
     else
-      verdict threads "$name in Go" n/a "$WHY"
+      failure threads "$name in Go"
     fi
     atom=n/a; marked=n/a; moved=n/a
     if exe=$(lowered "$name" plain) && measure threads "$name" prototype "$exe" "$input"; then
@@ -238,7 +246,7 @@ exp_threads() {
           verdict threads "$name: the prototype frees every cell" FAIL "$s"
       fi
     else
-      verdict threads "$name on the prototype" n/a "$WHY"
+      failure threads "$name on the prototype"
     fi
     vs=n/a
     [ -n "$tp" ] && [ -n "$tg" ] && vs="$(ratio "$tg" "$tp")x"
@@ -309,7 +317,7 @@ exp_linear() {
       echo "| Idris Chez (baseline) | $(cell "$tu" "$ku") | $(cell "$T" "$K") | $(ratio "$T" "$tu") |" >> "$md"
     fi
   else
-    verdict linear "linrb on Chez" n/a "$WHY"
+    failure linear "linrb on Chez"
   fi
   # The prototype: static reuse (MEM-LIN-1) against dynamic reuse.
   ts=""; td=""
@@ -329,7 +337,7 @@ exp_linear() {
         fi
       fi
     else
-      verdict linear "linrb-$v on the prototype" n/a "$WHY"
+      failure linear "linrb-$v on the prototype"
     fi
   done
   if [ -n "$ts" ] && [ -n "$td" ]; then
@@ -360,10 +368,10 @@ exp_linear() {
           verdict linear "$lang: a silent cliff, slowdown of at least ${CLIFF}x" FAIL "only ${slow}x"
         fi
       else
-        verdict linear "linrb-shared in $lang" n/a "$WHY"
+        failure linear "linrb-shared in $lang"
       fi
     else
-      verdict linear "linrb in $lang" n/a "$WHY"
+      failure linear "linrb in $lang"
     fi
   done
   cat "$md"
