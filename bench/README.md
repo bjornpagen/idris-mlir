@@ -23,11 +23,11 @@ GCC as pinned), best of 5, seconds:
 
 | benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.349 | 5.782 | 1.353 | 0.350 | 3.87x |
-| mandelbrot | 2000 | 0.359 | 5.344 | 0.513 | 0.365 | 1.43x |
-| fib | 38 | 0.126 | 3.337 | 0.289 | 0.066 | 2.29x |
-| tak | 18 | 0.115 | 1.308 | 0.169 | 0.102 | 1.47x |
-| collatz | 3000000 | 0.471 | 20.826 | 1.950 | 0.593 | 4.14x |
+| nbody | 5000000 | 0.333 | 5.756 | 1.347 | 0.338 | 4.04x |
+| mandelbrot | 2000 | 0.359 | 5.128 | 0.516 | 0.368 | 1.44x |
+| fib | 38 | 0.110 | 3.431 | 0.287 | 0.065 | 2.60x |
+| tak | 18 | 0.116 | 1.290 | 0.170 | 0.105 | 1.46x |
+| collatz | 3000000 | 0.473 | 21.135 | 1.934 | 0.590 | 4.09x |
 
 The Prelude costs nothing: its interfaces, `Integer` literals and `show`
 internals are all resolved at compile time, and these times equal those of
@@ -47,6 +47,9 @@ the same programs written against a hand-made numeric module.
   array in place, as C programs do.
 - All four print the same n-body energies to the last digit, so the
   floating-point work is the same.
-- `fib` is the one case where gcc is clearly faster, by 2x. LLVM already
-  turns one of the two recursive calls into a loop with an accumulator;
-  gcc also inlines the function into itself, which LLVM does not do.
+- `fib` is the one case where gcc is clearly faster, by 1.7x. LLVM turns
+  one of the two recursive calls into a loop with an accumulator; gcc also
+  inlines the function into itself, which LLVM does not do. This compiler
+  now matches clang 18 at `-O2` on the C version (0.109 s); it was 14%
+  slower while it evaluated curried arguments right to left, which made
+  LLVM loop on the other call (`SEM-EVAL-2`).

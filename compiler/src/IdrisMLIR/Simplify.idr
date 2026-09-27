@@ -275,9 +275,18 @@ mutual
   evalK env (Suspend _ _ caps body) (ForceIt :: es) =                              -- G8
     leavePrefix (evalK (map (`index` env) caps) body es)
   evalK env (Suspend _ lbl caps body) [] = pure (SDelay lbl (map (`index` env) caps) body)
-  evalK env (App _ f a) es = do
-    a' <- evalK env a []
-    evalK env f (Apply a' :: es)
+  -- Arguments are evaluated left to right, as written, across a curried
+  -- application too: `f (g x) (h y)` computes `g x` first (SEM-EVAL-2).
+  -- This is also the order LLVM's tail recursion elimination expects: in
+  -- `fib (n - 1) + fib (n - 2)` it loops on the second call.
+  evalK env t@(App _ _ _) es = do
+    let (h, as) = spine t []
+    vs <- traverse (\a => evalK env a []) as
+    evalK env h (map Apply vs ++ es)
+    where
+      spine : Term n -> List (Term n) -> (Term n, List (Term n))
+      spine (App _ f a) acc = spine f (a :: acc)
+      spine f acc = (f, acc)
   evalK env (Resume _ e) es = evalK env e (ForceIt :: es)
   evalK env (Let l q v b) es = do                                                  -- G4
     v' <- if q == Q0 then pure (Dyn ErasedT AErased) else evalK env v []

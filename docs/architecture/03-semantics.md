@@ -37,7 +37,11 @@ this meaning. Every optimization, at every level, is bound by it.
     message text.
   - IO effects are ordered by the world chain (`SEM-IO-1`), never by
     argument order.
-  - The implementation evaluates left to right.
+  - The implementation evaluates left to right, the arguments of a curried
+    application included (from v3; before, they went right to left, which
+    cost `fib` 14% because LLVM's tail recursion elimination then looped
+    on the other call).
+  - Test: `bench/` (`fib`); `tests/e2e/v3/compile-time-evaluation`
 - **SEM-EVAL-3 (v0).** Quantity-0 arguments, fields and `let` bindings are
   never evaluated at runtime.
 - **SEM-EVAL-4 (v0).** An evaluation that would crash MUST crash, even if its
