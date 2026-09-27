@@ -84,10 +84,13 @@ record TS where
   ||| Who owns each instance name: names are injective (ELIM-MONO-4), and
   ||| a printed form that two instances share is told apart here.
   owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))
+  ||| The instances of each definition by their arguments, up to the names
+  ||| of binders: `(x : a) -> b` and `a -> b` are one type (ELIM-MONO-4).
+  named : SortedMap String (List (List (Maybe ClosedTerm), String))
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty empty
+initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty empty empty
 
 ||| A fresh program point for a lambda or `Delay` (ELIM-G-3).
 label : {auto s : Ref TState TS} -> Core Label
@@ -367,12 +370,15 @@ instanceName n args = do
   let shown = map showTT (catMaybes args')
   let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
   st <- get TState
-  let owners = fromMaybe [] (lookup printed st.owners)
-  case findIndex (\(m, as) => m == n' && as == args') owners of
-    Just i => pure (suffixed printed (finToNat i))
+  let same = fromMaybe [] (lookup (nameKey n') st.named)
+  case find ((== args') . fst) same of
+    Just (_, name) => pure name
     Nothing => do
-      put TState ({ owners $= insert printed (owners ++ [(n', args')]) } st)
-      pure (suffixed printed (length owners))
+      let owners = fromMaybe [] (lookup printed st.owners)
+      let name = suffixed printed (length owners)
+      put TState ({ owners $= insert printed (owners ++ [(n', args')])
+                  , named $= insert (nameKey n') ((args', name) :: same) } st)
+      pure name
   where
     suffixed : String -> Nat -> String
     suffixed p Z = p
@@ -408,8 +414,9 @@ mutual
       reject fc owner rule "a function type that depends on its argument"
     rt <- coreType fc owner rule !(normaliseClosed rest)
     pure (FunT (quantity rig) at rt)
-  coreType fc owner rule (TDelayed _ LLazy t) = LazyT <$> coreType fc owner rule t
-  coreType fc owner rule (TDelayed _ _ _) = reject fc owner rule "Inf (codata) in a runtime position"
+  -- SEM-REC-2: `Inf` is a suspension like `Lazy`; codata built from it is
+  -- recursive, so it is a compile-time value (SEM-REC-1).
+  coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
   coreType fc owner rule tm = case spine tm [] of
     (Ref rfc (TyCon _) n, args) => do
       d <- dataInstance fc owner n !(traverse normaliseClosed args)
@@ -773,12 +780,8 @@ mutual
          else coreType (bestFC ctx fc) ctx.owner ProfType4 !(closeNormalise fc env ty)
     body <- term ctx (Bound FZ (Just t) :: map (weakenInfo 1) env) sc
     closure fc loc (MkBinder (quantity rig) t) body
-  term ctx env (TDelay fc LLazy _ arg) = suspend ctx env fc arg
-  term ctx env (TDelay fc LUnknown _ arg) = suspend ctx env fc arg
-  term ctx env (TForce fc LLazy arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TForce fc LUnknown arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
-  term ctx env (TDelay fc _ _ _) = reject (bestFC ctx fc) ctx.owner ProfType4 "Inf (codata)"
-  term ctx env (TForce fc _ _) = reject (bestFC ctx fc) ctx.owner ProfType4 "Inf (codata)"
+  term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
+  term ctx env (TForce fc _ arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
   term ctx env (TDelayed fc _ _) = Erased <$> toLoc (bestFC ctx fc)
   term ctx env (Meta fc n _ _) = reject (bestFC ctx fc) ctx.owner ProfTerm2 ("hole or metavariable " ++ show n)
   term ctx env (As fc _ _ pat) = term ctx env pat
@@ -918,13 +921,23 @@ mutual
       ||| An implementation applied to arguments is used as written; its type
       ||| arguments are substituted, so its body is translated at the types of
       ||| this use (FE-TR-6).
+      staticArg : TT vars -> Bool
+      staticArg (Local _ _ idx _) = case getAt idx env of
+        Just (Static _) => True
+        _ => False
+      staticArg _ = False
+
       headStep : TT vars -> List (TT vars) -> Maybe (TT vars, List (TT vars))
       headStep (Local _ _ idx _) as = case getAt idx env of
         Just (Static t) => Just (embedClosed t, as)
         _ => Nothing
-      headStep (Bind _ _ (Lam _ rig _ _) sc) (a :: as) =
-        if isErased rig then Just (subst a sc, as) else Nothing
+      -- A lambda over an implementation (`\@{m} => ...`, as a dictionary's
+      -- polymorphic method field is written) takes it as written, like a
+      -- type: it is a compile-time value (FE-TR-6).
+      headStep (Bind _ _ (Lam _ rig pinfo _) sc) (a :: as) =
+        if isErased rig || isAuto pinfo || staticArg a then Just (subst a sc, as) else Nothing
       headStep _ _ = Nothing
+
 
       applyAll : Loc -> Term n -> List (TT vars) -> Core (Term n)
       applyAll loc f [] = pure f

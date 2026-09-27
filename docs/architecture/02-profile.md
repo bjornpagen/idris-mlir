@@ -182,11 +182,12 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `Integer`, which from v3 exists at compile time only (`SEM-BIG-1`), and
     `Double` before v2;
   - `Type`;
-  - `Inf` (codata);
+  - `Inf` (codata) before v3, which from v3 is a suspension like `Lazy`
+    (`SEM-REC-2`);
   - types that depend on runtime values.
   - Check: `Frontend.Translate.coreType`, on each instance (monomorphisation
     happens during translation, `CORE-PASS-1`)
-  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,inf,dependent}.idr`
+  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,dependent}.idr`
 
 ## Data types
 
@@ -280,7 +281,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `let` bindings;
   - pattern matching as compiled by Idris into case trees.
 
-  From v1 also: lambdas, `Delay` and `Force` (other than `Inf`), and
+  From v1 also: lambdas, `Delay` and `Force` (of `Inf` too from v3), and
   `%MkWorld`.
 - **PROF-TERM-2 (v0).** In every version, these forms are forbidden in runtime
   positions:

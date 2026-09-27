@@ -47,7 +47,9 @@ acceptance is a rule, not optimizer luck.
   (`FE-DET-1`), and is mangled for MLIR by `IDR-FN-2`. Names are printed so
   that different names differ (a `DN` shows its underlying name, a case
   block its index), and two instances that still print alike are told
-  apart by a suffix `'k`: instance names are injective.
+  apart by a suffix `'k`: instance names are injective. Arguments equal up
+  to the names of their binders (`(x : a) -> b` and `a -> b`) name one
+  instance: the first printed form is kept.
 
 ## The guaranteed eliminations (v1): `Simplify`
 
@@ -191,7 +193,8 @@ is static.
   `d >= PrefixMinus && firstCharIs (== '-') str`, and only deciding the
   test at compile time keeps the string match in `firstCharIs` out of the
   program. A call of a function that is already being unfolded is
-  specialized instead, so recursion stops at the first repeated call.
+  specialized instead, so recursion stops at the first repeated call,
+  unless the call can be evaluated completely (`ELIM-G-16`).
   - Test: `tests/e2e/v3/static-evaluation`,
     `tests/e2e/v1/ELIM-G-2-known-constructor`
 - **ELIM-G-13 (v3). Library `%inline`.** A call of a definition that a
@@ -231,6 +234,20 @@ is static.
   prints as `1e23`), so it comes from the printer itself
   (`idr.double_head`, `LOW-DBL-4`).
   - Test: `tests/e2e/v3/show-values`
+- **ELIM-G-16 (v3). Evaluation of known calls.** A call whose arguments
+  are all known (as in `ELIM-G-12`) is first evaluated at compile time,
+  recursion included, with a budget of 20000 unfoldings. If it finishes with
+  a known value and leaves no code, effect or specialization behind, the
+  call is that value (`fib 15` is `610`). Otherwise everything the attempt
+  did is undone and the call is unfolded or specialized as before
+  (`ELIM-G-12`). A crash, a residual match or a runtime operation inside
+  the attempt gives it up the same way. This is the compile-time half of a
+  two-level evaluator: a program with no runtime input is a constant, and
+  a library's recursion over known values (`Nat` in `power`, Euclid's
+  algorithm on `Integer`) costs nothing at runtime.
+  - *Why this is exact:* the attempt runs the same evaluator, and is kept
+    only when its result depends on nothing at runtime.
+  - Test: `tests/e2e/v3/compile-time-evaluation`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
@@ -239,14 +256,16 @@ is static.
   - `ELIM-G-5` at one application per function;
   - `ELIM-G-7` case 5 by the number of alternatives;
   - `ELIM-G-10` to `ELIM-G-13` by the call graph: no function is unfolded
-    inside itself; with a string join point (`ELIM-G-14`), at most 64 times.
+    inside itself; with a string join point (`ELIM-G-14`), at most 64 times;
+  - `ELIM-G-16` by its budget of unfoldings; an attempt that exceeds it is
+    undone.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is
   reported as `PROF-HEAP-4`. A cap on copies per definition backs this up.
 - **ELIM-G-SCOPE (v1).** `Simplify` applies only these rules. Everything else
   (CSE, dead code, general constant folding, and first-order inlining
-  beyond `ELIM-G-10` to `ELIM-G-13`) is MLIR's job (`CORE-OPT-1`).
+  beyond `ELIM-G-10` to `ELIM-G-13` and `ELIM-G-16`) is MLIR's job (`CORE-OPT-1`).
 
 `Simplify` enforces `PROF-HEAP-*` as it goes: a static value that would
 have to exist at runtime (as a runtime argument, field, result or match

@@ -14,9 +14,9 @@ public export
 linearId : (1 x : Int) -> Int
 linearId x = x
 
--- A recursive function's result is known only at runtime once it recurses
--- (ELIM-G-12 unfolds a call with constant arguments once), so clamp and
--- linearId are residual functions with their erased and linear parameters.
+-- A loop longer than compile-time evaluation runs (ELIM-G-16): its result
+-- is known only at runtime, so clamp and linearId are residual functions
+-- with their erased and linear parameters.
 public export
 countdown : Int -> Int
 countdown 0 = 7
@@ -24,4 +24,4 @@ countdown n = countdown (prim__sub_Int n 1)
 
 public export
 main : Int
-main = linearId (clamp (countdown 3) 9 Ok)
+main = linearId (clamp (countdown 100000) 9 Ok)

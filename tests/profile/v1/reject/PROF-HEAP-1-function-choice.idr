@@ -1,4 +1,4 @@
--- expect: PROF-HEAP-1 line 19
+-- expect: PROF-HEAP-1 line 12
 module Main
 
 import IdrisMLIR.IO

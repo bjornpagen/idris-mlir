@@ -1,0 +1,3 @@
+// rule: ELIM-G-16
+// fib 15 is folded; the call of fib that remains has a runtime argument.
+// CHECK: value = 610 : i64

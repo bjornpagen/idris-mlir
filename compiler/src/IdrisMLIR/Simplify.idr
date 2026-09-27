@@ -207,13 +207,21 @@ reify l (SBig _) = fail ProfType4 l "an Integer would exist at runtime here (SEM
 -- G2: a known constructor of runtime data is built where it must exist.
 reify l v@(SCon c fs) = do
   dt <- dataDef l c.dataId
-  if dt.static
-     then fail ProfHeap1 l ("a function or IO action would exist at runtime here (" ++
-                            showShape (shape v) ++ "); it must be applied, run or passed to a known function")
-     else do
-       as <- assert_total (traverse (reify l) fs)
-       x <- bind l (DataT c.dataId) (OCon c (map fst as))
-       pure (x, DataT c.dataId)
+  case (dt.static, dt.cons) of
+    (False, _) => do
+      as <- assert_total (traverse (reify l) fs)
+      x <- bind l (DataT c.dataId) (OCon c (map fst as))
+      pure (x, DataT c.dataId)
+    (True, [_]) => fail ProfHeap1 l ("a function or IO action would exist at runtime here (" ++
+                                     showShape (shape v) ++ "); it must be applied, run or passed " ++
+                                     "to a known function")
+    -- Which constructor a value of static data has is chosen at runtime.
+    (True, _) => do
+      st <- get
+      let (rule, what) = staticReason st.src c.dataId
+      fail rule l ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and it would " ++
+                   "exist at runtime here, where which constructor it has is chosen, so it " ++
+                   "would need the heap")
 reify l v = fail ProfHeap1 l
               ("a function or IO action would exist at runtime here (" ++ showShape (shape v) ++
                "); it must be applied, run or passed to a known function")
@@ -289,10 +297,14 @@ mutual
     fn <- fnDef l f
     case value fn.result of
       -- An Integer is computed at compile time (SEM-BIG-1).
-      Nothing => if fn.result == BigT then unfold l fn vs []
-                 else pure (SCall f !(gets effects) vs [])                         -- G5
+      -- So is a value of recursive data (SEM-REC-1), strictly, as Idris
+      -- builds it: its constructors are known where it is used.
+      Nothing => if fn.result == BigT || !(chooses l fn.result)
+                   then known fn vs [] (unfold l fn vs [])                       -- G16
+                   else pure (SCall f !(gets effects) vs [])                     -- G5
       Just StrT => unfold l fn vs []                                               -- G10
-      Just _ => if fn.block || fn.inline || interesting vs || any joinIn vs          -- G11-G14
+      Just _ => known fn vs [] $                                                    -- G16
+                if fn.block || fn.inline || interesting vs || any joinIn vs          -- G11-G14
                    then unfold l fn vs []
                 else call l Nothing f vs []
   eval env (ConApp l c args) = do
@@ -360,12 +372,31 @@ mutual
           env' <- bindAlt l bs (take (length bs) fields) env
           evalK env' body es
         Nothing => maybe (fail CoreCheck1 l "no alternative") (\e => evalK env e es) def
+      -- G16: a known value built by a call is evaluated to its constructor;
+      -- otherwise the call is unfolded here, where its constructor is
+      -- needed (a list whose elements are computed at runtime).
       _ => do
-        st <- get
-        let (rule, what) = staticReason st.src d
-        fail rule l
-             ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and which " ++
-              "constructor it has would be chosen at runtime, so it would need the heap")
+        v <- force (the Nat 1000) fn as ms
+        case v of
+          SCon _ _ => matchCon env l v alts def es
+          _ => do
+            st <- get
+            let (rule, what) = staticReason st.src d
+            fail rule l
+                 ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and which " ++
+                  "constructor it has would be chosen at runtime, so it would need the heap")
+    where
+      -- The deferred call is evaluated until it is a constructor: a method
+      -- may unfold to a call of its implementation.
+      force : Nat -> TFn -> List V -> List (Elim Atom) -> M V
+      force Z fn as ms = pure (SCall fn.id e as ms)
+      force (S k) fn as ms = do
+        v <- knownData fn as ms (leavePrefix (unfold l fn as ms))
+        case v of
+          SCall g e' as' ms' => do
+            gn <- fnDef l g
+            force k gn as' ms'
+          _ => pure v
   -- A runtime match: residual, with fresh binders in each alternative, since
   -- one alternative may be residualized more than once (CORE-INV-1).
   matchCon env l (Dyn (DataT d) x@(AVar _)) alts def es = do
@@ -417,12 +448,15 @@ mutual
     t <- elimTy l fn.result (ms ++ es)
     now <- gets effects
     case value t of
-      Nothing => pure (SCall f e as (ms ++ es))
+      -- An Integer is computed at compile time (SEM-BIG-1).
+      Nothing => if t == BigT || !(chooses l t) then leavePrefix (unfold l fn as (ms ++ es))
+                 else pure (SCall f e as (ms ++ es))
       -- Running the deferred call is the action, not prefix code; the
       -- callee's own prefix is recorded where it is specialized. G10 and
       -- G11 unfold it instead when no effect separates building the call
       -- from running it.
-      Just r => if (r == StrT || fn.block || fn.inline || interesting (as ++ applied (ms ++ es))
+      Just r => (if e == now then known fn as (ms ++ es) else id) $               -- G16
+                if (r == StrT || fn.block || fn.inline || interesting (as ++ applied (ms ++ es))
                     || any joinIn (as ++ applied (ms ++ es))) && e == now
                    then leavePrefix (unfold l fn as (ms ++ es))
                    else leavePrefix (call l (Just e) f as (ms ++ es))
@@ -436,11 +470,55 @@ mutual
   unfold : Loc -> TFn -> List V -> List (Elim Atom) -> M V
   unfold l fn vs es = do
     st <- get
-    -- An Integer function is evaluated at compile time, recursion included,
-    -- up to a bound (SEM-BIG-1); anything else unfolds once.
+    case st.fuel of
+      Just Z => abandon
+      Just (S k) => do
+        Just env <- pure (toVect fn.arity vs)
+          | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
+        put ({ fuel := Just k } st)
+        evalK env fn.body es
+      Nothing => unfoldOnce l fn vs es
+
+  ||| G16: a call whose arguments are all known is evaluated at compile time,
+  ||| recursion included, when it finishes within a bound and leaves no code
+  ||| behind: its value is then known. Otherwise it is unfolded or
+  ||| specialized as usual.
+  known : TFn -> List V -> List (Elim Atom) -> M V -> M V
+  known fn vs es otherwise =
+    if not (constants (vs ++ applied es)) then otherwise
+    else if isJust !(gets fuel) then unfold fn.loc fn vs es
+    else maybe otherwise pure !(evaluate 20000 constant (unfold fn.loc fn vs es))
+
+  ||| Is a type data whose constructor is a choice? A value of a single
+  ||| constructor type (an IO action) is used through its fields instead.
+  chooses : Loc -> Ty -> M Bool
+  chooses l t = case dataOf t of
+    Just d => (\dt => length dt.cons > 1) <$> dataDef l d
+    Nothing => pure False
+
+  ||| G16 for a call whose result has no runtime representation: kept only
+  ||| when it evaluates to a known constructor (a `Nat` built from a literal).
+  knownData : TFn -> List V -> List (Elim Atom) -> M V -> M V
+  knownData fn vs es otherwise =
+    if not (constants (vs ++ applied es)) then otherwise
+    else if isJust !(gets fuel) then unfold fn.loc fn vs es
+    else maybe otherwise pure !(evaluate 20000 conValue (unfold fn.loc fn vs es))
+    where
+      conValue : V -> Bool
+      conValue v@(SCon _ _) = constant v
+      conValue _ = False
+
+  unfoldOnce : Loc -> TFn -> List V -> List (Elim Atom) -> M V
+  unfoldOnce l fn vs es = do
+    st <- get
+    -- An Integer or a value of recursive data is built at compile time,
+    -- recursion included, up to a bound (SEM-BIG-1, SEM-REC-1); anything
+    -- else unfolds once.
     -- A string join point cannot cross a specialization (ELIM-G-14), so a
     -- call that carries one may re-enter a function a bounded number of times.
-    let bound = the Nat (if fn.result == BigT then 10000
+    t <- elimTy l fn.result es
+    isData <- chooses l t
+    let bound = the Nat (if t == BigT || isData then 10000
                          else if any joinIn (vs ++ applied es) then 64 else 1)
     if count (== fn.id) st.unfolding >= bound then call l Nothing fn.id vs es else do
       Just env <- pure (toVect fn.arity vs)
@@ -455,6 +533,7 @@ mutual
   ||| many effects had happened when its action was built.
   call : Loc -> Maybe Nat -> FnId -> List V -> List (Elim Atom) -> M V
   call l built f args0 es = do
+    when (isJust !(gets fuel)) abandon
     fn <- fnDef l f
     let args = map literalStr args0
     when (any joinIn (args ++ applied es)) $
@@ -729,6 +808,7 @@ simplify src = do
     Left (Fail d) => Left d
     Left (Dead l) => Left (MkDiag CoreCheck1 "Simplify" l "the root cannot return")
     Left (Crashed l _) => Left (MkDiag CoreCheck1 "Simplify" l "a crash outside any function")
+    Left Abandoned => Left (MkDiag CoreCheck1 "Simplify" noLoc "a compile-time evaluation escaped")
     Right (st, _) => do
       let fns = st.done <>> []
       checkMoved fns (st.moved <>> []) (st.runs <>> [])

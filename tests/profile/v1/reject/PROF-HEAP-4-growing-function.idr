@@ -9,4 +9,6 @@ iter f 0 x = f x
 iter f n x = iter (\y => f (f y)) (prim__sub_Int n 1) x
 
 main : IO ()
-main = putStrLn (prim__cast_IntString (iter (prim__add_Int 1) 3 0))
+main = do
+  c <- getChar
+  putStrLn (prim__cast_IntString (iter (prim__add_Int 1) (prim__cast_CharInt c) 0))

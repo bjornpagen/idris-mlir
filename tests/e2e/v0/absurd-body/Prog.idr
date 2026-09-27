@@ -18,13 +18,13 @@ get : T -> Int
 get (A k) = k
 get (B n) = never n
 
--- Known only at runtime once it recurses (ELIM-G-12 unfolds a call with
--- constant arguments once), so the code below is not folded away.
+-- A loop longer than compile-time evaluation runs (ELIM-G-16), so its
+-- result is known only at runtime and the code below is not folded away.
 public export
 countdown : Int -> Int
-countdown 0 = 0
-countdown n = prim__add_Int 1 (countdown (prim__sub_Int n 1))
+countdown 0 = 5
+countdown n = countdown (prim__sub_Int n 1)
 
 public export
 main : Int
-main = get (A (countdown 5))
+main = get (A (countdown 100000))

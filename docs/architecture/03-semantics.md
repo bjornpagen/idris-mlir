@@ -209,6 +209,18 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     the type static), `Simplify` (`staticReason`)
   - Test: `tests/profile/v3/accept/SEM-REC-1-static-list.idr`,
     `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
+- **SEM-REC-2 (v3).** A value of recursive data is built where it is
+  written, strictly, as Idris builds it: a call that returns one is
+  evaluated there, recursion included, up to 10000 nested calls, so its
+  constructors are known where it is taken apart. Its fields may hold
+  runtime values (`map (* n) [1 .. 10]` is ten runtime products). `Inf` is
+  a suspension like `Lazy`, so codata (the Prelude's `Stream`, from which
+  its ranges are built) is a compile-time value that is only unfolded as
+  far as it is forced.
+  - Check: `Frontend.Translate.coreType` (`Inf`), `Simplify.eval`
+    (`chooses`)
+  - Test: `tests/profile/v3/accept/SEM-REC-2-streams.idr`,
+    `tests/e2e/v3/prelude-lists`
 
 ## Laziness (v1)
 

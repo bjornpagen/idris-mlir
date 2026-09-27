@@ -98,10 +98,14 @@ record St where
   ||| between building its action and running it (PROF-HEAP-5).
   runs : SnocList (FnId, Loc, Bool)
   unfolding : List FnId           -- String functions being unfolded (ELIM-G-10)
+  ||| While a call is evaluated at compile time (ELIM-G-16): the unfoldings
+  ||| it may still make.
+  fuel : Maybe Nat
 
-||| Why evaluation stopped: a user error, or a point Idris proved impossible.
+||| Why evaluation stopped: a user error, a point Idris proved impossible, a
+||| crash, or a compile-time evaluation given up (ELIM-G-16).
 public export
-data Stop = Fail Diag | Dead Loc | Crashed Loc St
+data Stop = Fail Diag | Dead Loc | Crashed Loc St | Abandoned
 
 public export
 M : Type -> Type
@@ -109,7 +113,7 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] []
+initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing
 
 export
 fail : Rule -> Loc -> String -> M a
@@ -207,6 +211,33 @@ blockV l act = do
 export
 replay : Prefix -> M ()
 replay p = modify { lets $= (<>< map (\(l, x, q, t, o) => MkStmt l x q t o) p) }
+
+||| Evaluates a computation at compile time (ELIM-G-16): its result, if it
+||| finishes within `n` unfoldings with a result that satisfies `ok` and
+||| leaves no code, effect or specialization behind; otherwise nothing, and
+||| the state is as it was.
+export
+evaluate : Nat -> (a -> Bool) -> M a -> M (Maybe a)
+evaluate n ok act = do
+  st <- get
+  case runStateT ({ lets := [<], fuel := Just n } st) act of
+      Right (st', x) =>
+        if ok x && null st'.lets && st'.effects == st.effects && length st'.done == length st.done
+           && size st'.memo == size st.memo && length st'.moved == length st.moved
+          then do
+            put ({ lets := st.lets, fuel := Nothing } st')
+            pure (Just x)
+          else pure Nothing
+      Left _ => pure Nothing
+  where
+    size : SortedMap Key FnId -> Nat
+    size = length . SortedMap.toList
+
+||| Gives up a compile-time evaluation (ELIM-G-16): it ran out of fuel or
+||| would leave code behind.
+export
+abandon : M a
+abandon = lift (Left Abandoned)
 
 ||| Consuming a static value runs the action it describes: its code is not
 ||| part of the prefix it was built in.

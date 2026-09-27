@@ -48,19 +48,28 @@ benchmarks in `bench/` did not change.
    input. A program can now use the Prelude alone
    (`tests/e2e/v3/prelude-io`, `tests/e2e/v3/prelude-input`).
 3. **`Foldable` over a list literal with a runtime element**
-   (`sum [1, 2, n]`): rejected as an implementation chosen at runtime
-   (`FE-TR-6`) inside `foldMap`. Not yet traced; likely the written form of
-   a `Monoid` dictionary built under a `let`, like the record-update case
-   `zeta` fixed.
+   (`sum [1, 2, n]`): done. `sum = concat @{Additive}` passes a named
+   implementation, and the `Foldable List` dictionary's `foldMap` field is a
+   lambda over its `Monoid` (`\@{m} => ...`); translation now substitutes a
+   lambda over an implementation like one over a type (`FE-TR-6`). Two
+   instances of one type up to binder names (`IO ((x : ()) -> ())` and
+   `IO (() -> ())`) were also told apart, so a constructor of one did not
+   match the other; instance names are now alpha-invariant (`ELIM-MONO-4`).
+   Lists are built strictly where they are written (`SEM-REC-2`), with
+   runtime elements, and `Inf` codata is a compile-time value, so ranges
+   work (`tests/e2e/v3/prelude-lists`).
 4. **Diagnostics inside unfolded library code** point at the library's
    line (`Prelude.Types:181`), not the user's call. `Simplify` should keep
    the nearest user location while it unfolds library definitions.
-5. **Recursion over known values** is evaluated one level
-   (`ELIM-G-12` stops at the first repeated call). A bounded, complete
-   compile-time evaluation for recursive functions on known arguments
-   (with a fuel limit and fallback to specialization) would make constant
-   programs constant.
-6. **`main : Int` programs cannot import the Prelude**: they are compiled
+5. **Recursion over known values**: done (`ELIM-G-16`). A call whose
+   arguments are all known is evaluated completely at compile time within a
+   budget of 20000 unfoldings, and the attempt is undone if it would leave
+   code behind (`tests/e2e/v3/compile-time-evaluation`).
+6. **`for_` and `traverse_` over a list in `IO`** are rejected by the
+   Core checker after `Simplify` (`CORE-INV-9`, a world used twice): the
+   `Applicative IO` path through `(*>)` duplicates a world somewhere. The
+   checker catches it, so nothing is miscompiled; not yet traced.
+7. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
 
