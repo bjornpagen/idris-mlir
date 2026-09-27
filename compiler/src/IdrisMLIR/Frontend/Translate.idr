@@ -247,6 +247,33 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value (Static t) = t
     value (Bound _ _) = Erased fc Impossible
 
+||| Does a term mention a metavariable? Idris can leave a solved one in an
+||| elaborated term (the implementation for the inner pair of a triple).
+hasMeta : TT vars -> Bool
+hasMeta (Meta {}) = True
+hasMeta (Bind _ _ b sc) = hasMeta (binderType b) || binderVal b || hasMeta sc
+  where
+    binderVal : TTBinder (TT vars) -> Bool
+    binderVal (Let _ _ v _) = hasMeta v
+    binderVal (PLet _ _ v _) = hasMeta v
+    binderVal _ = False
+hasMeta (App _ f a) = hasMeta f || hasMeta a
+hasMeta (As _ _ a p) = hasMeta p
+hasMeta (TDelayed _ _ t) = hasMeta t
+hasMeta (TDelay _ _ t a) = hasMeta t || hasMeta a
+hasMeta (TForce _ _ t) = hasMeta t
+hasMeta _ = False
+
+||| A written form with the solutions of its metavariables filled in, and
+||| nothing else evaluated (FE-TR-6).
+solved : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+solved tm =
+  if hasMeta tm
+     then do
+       defs <- get Ctxt
+       normaliseHoles defs [] tm
+     else pure tm
+
 runtimeDependent : ClosedTerm -> Bool
 runtimeDependent = anyErasedAs (\w => case w of
                                         Impossible => True
@@ -833,7 +860,7 @@ mutual
       isImplementation _ = False
 
       argValue : TT vars -> Maybe ArgValue
-      argValue a = Just (MkArgValue (closeNormalise afc env a) (pure (closeWritten afc env a)) (isImplementation a))
+      argValue a = Just (MkArgValue (closeNormalise afc env a) (solved (closeWritten afc env a)) (isImplementation a))
 
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue

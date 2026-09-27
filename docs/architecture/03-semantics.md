@@ -216,7 +216,10 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   runtime values (`map (* n) [1 .. 10]` is ten runtime products). `Inf` is
   a suspension like `Lazy`, so codata (the Prelude's `Stream`, from which
   its ranges are built) is a compile-time value that is only unfolded as
-  far as it is forced.
+  far as it is forced. A call that receives a known constructor of
+  recursive data is unfolded, re-entering its function up to the same
+  bound: recursion on the value follows it and ends where it ends (the
+  Prelude's `show` for lists).
   - Check: `Frontend.Translate.coreType` (`Inf`), `Simplify.eval`
     (`chooses`)
   - Test: `tests/profile/v3/accept/SEM-REC-2-streams.idr`,

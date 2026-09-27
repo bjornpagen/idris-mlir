@@ -539,6 +539,14 @@ mutual
     Just d => (\dt => length dt.cons > 1) <$> dataDef l d
     Nothing => pure False
 
+  ||| Is one of the values a known constructor of recursive data?
+  recursiveArg : Loc -> List V -> M Bool
+  recursiveArg l [] = pure False
+  recursiveArg l (SCon c _ :: vs) = do
+    dt <- dataDef l c.dataId
+    if dt.static && length dt.cons > 1 then pure True else recursiveArg l vs
+  recursiveArg l (_ :: vs) = recursiveArg l vs
+
   ||| Is a type the result of running an action whose value is static (an
   ||| `IORes` of a function, as `(*>)` for IO makes)? Such a result cannot
   ||| cross a specialization, so its function is re-entered a bounded number
@@ -573,7 +581,10 @@ mutual
     t <- elimTy l fn.result es
     isData <- chooses l t
     carries <- staticRun l t
-    let bound = the Nat (if t == BigT || isData then 10000
+    -- Recursion on a value of recursive data (a list being shown) follows
+    -- it, and ends where it ends (SEM-REC-2).
+    structural <- recursiveArg l (vs ++ applied es)
+    let bound = the Nat (if t == BigT || isData || structural then 10000
                          else if any joinIn (vs ++ applied es) || carries then 64 else 1)
     if count (== fn.id) st.unfolding >= bound then call l Nothing fn.id vs es else do
       Just env <- pure (toVect fn.arity vs)
