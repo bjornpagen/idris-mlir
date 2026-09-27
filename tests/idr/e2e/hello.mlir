@@ -5,7 +5,7 @@
 // rule: LOW-IO-2, SEM-IO-2, SEM-IO-3
 // CHECK: hello x é
 module attributes {idr.version = 1 : i64, idr.entry = @Prog.main, idr.entry_kind = "io"} {
-  func.func private @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> i64 attributes {idr.name = "main"} {
+  func.func private @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> i64 {
     %s = idr.str.lit "hello " : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_char %w1

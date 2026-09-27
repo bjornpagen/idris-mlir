@@ -12,6 +12,7 @@ module Main
 
 import IdrisMLIR.Code
 import IdrisMLIR.Code.Check
+import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
@@ -48,14 +49,18 @@ ret a = Ret l [a]
 param : Nat -> Quantity -> VTy -> Param
 param x = MkParam (v x)
 
+||| A terminating function that is neither a block nor inlined.
+facts : Facts
+facts = MkFacts (MkFact True FromIdris) (MkFact False FromIdris) (MkFact False FromRegistry)
+
 fn : String -> List Param -> VTy -> Code Pure -> CFn Pure
-fn n ps r b = MkCFn (MkFnId n) n ps [r] b l True Nothing
+fn n ps r b = MkCFn (MkFnId n) (shown n) ps [r] b l facts Nothing
 
 prog : List CData -> List (CFn Pure) -> Target Pure
 prog ds fs = MkTarget ds fs (MkFnId "main") IntEntry
 
 dataT : String -> List (String, List CField) -> CData
-dataT n cs = MkCData (MkDataId n) n (zipWith (\i, (c, fs) => MkCCon (MkConId (MkDataId n) c) i fs l) [0 .. length cs] cs) l
+dataT n cs = MkCData (MkDataId n) (shown n) (zipWith (\i, (c, fs) => MkCCon (MkConId (MkDataId n) c) i fs l) [0 .. length cs] cs) l
 
 con : String -> String -> ConId
 con d c = MkConId (MkDataId d) c
@@ -121,7 +126,7 @@ cases =
       Just CoreInv6)
   , ("field of data with several constructors", area
       (let' 4 int (OField (var 1) (con "Shape" "Circle") 0) (ret (var 4))), Just CoreInv6)
-  , ("tags not 0..n-1", prog [MkCData (MkDataId "T") "T" [MkCCon (con "T" "A") 1 [] l] l]
+  , ("tags not 0..n-1", prog [MkCData (MkDataId "T") (shown "T") [MkCCon (con "T" "A") 1 [] l] l]
       [fn "main" [] int (let' 1 (DataT (MkDataId "T")) (OCon (con "T" "A") []) (ret (lit 0)))], Just CoreInv7)
   , ("recursive data", prog [dataT "L" [("Nil", []), ("Cons", [MkCField QW (DataT (MkDataId "L"))])]]
       [fn "main" [] int (ret (lit 0))], Just CoreInv7)
@@ -159,7 +164,7 @@ fullCases =
   ]
   where
     tfn : String -> Vect 0 Binder -> Term 0 -> TFn
-    tfn n ps b = MkTFn (MkFnId n) n 0 ps (V int) b l True False False
+    tfn n ps b = MkTFn (MkFnId n) (shown n) 0 ps (V int) b l facts
     source : List TFn -> Source
     source fs = MkSource [] fs (MkFnId "main") IntEntry
 

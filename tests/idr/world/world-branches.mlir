@@ -3,7 +3,7 @@
 // One use in each branch of a match is one use on each path.
 // CHECK: cf.cond_br
 module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "io"} {
-  func.func private @r(%w: !idr.world {idr.quantity = "1"}) -> i64 attributes {idr.name = "r"} {
+  func.func private @r(%w: !idr.world {idr.quantity = "1"}) -> i64 {
     %c = arith.constant 65 : i32
     %b = arith.constant true
     %z = arith.constant 0 : i64

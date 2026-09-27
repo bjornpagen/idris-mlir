@@ -123,21 +123,28 @@ mutual
   conformsAll _ _ = False
 
 mutual
-  ||| The one printer of shapes, expected and found alike (HOOK-SHAPE-1), in
-  ||| Idris's notation with every quantity written.
-  export
-  showShape : Shape -> String
-  showShape (Pi q a b) = "(" ++ show q ++ " _ : " ++ showShape a ++ ") -> " ++ showShape b
-  showShape (Head k []) = show k
-  showShape (Head k as) = show k ++ concatMap (\a => " " ++ argument a) as
-  showShape (Prim p) = show p
-  showShape TypeOfTypes = "Type"
-  showShape Hole = "_"
+  ||| A shape, in parentheses when it is an argument and needs them.
+  showAt : (argument : Bool) -> Shape -> String
+  showAt arg (Pi q a b) = parens arg ("(" ++ show q ++ " _ : " ++ showAt False a ++ ") -> " ++ showAt False b)
+  showAt arg (Head k []) = show k
+  showAt arg (Head k as@(_ :: _)) = parens arg (show k ++ showArguments as)
+  showAt arg (Prim p) = show p
+  showAt arg TypeOfTypes = "Type"
+  showAt arg Hole = "_"
 
-  argument : Shape -> String
-  argument s@(Pi {}) = "(" ++ showShape s ++ ")"
-  argument s@(Head _ (_ :: _)) = "(" ++ showShape s ++ ")"
-  argument s = showShape s
+  showArguments : List Shape -> String
+  showArguments [] = ""
+  showArguments (a :: as) = " " ++ showAt True a ++ showArguments as
+
+  parens : Bool -> String -> String
+  parens True s = "(" ++ s ++ ")"
+  parens False s = s
+
+||| The one printer of shapes, expected and found alike (HOOK-SHAPE-1), in
+||| Idris's notation with every quantity written.
+export
+showShape : Shape -> String
+showShape = showAt False
 
 ------------------------------------------------------------------------------
 -- Hooks

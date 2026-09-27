@@ -27,7 +27,7 @@ module attributes {idr.version = 0 : i64, idr.entry = @r, idr.entry_kind = "int"
     %z = idr.div signed %c2, %c0 : i64
     return %a, %b, %c, %d, %e, %z : i64, i64, i64, i64, i8, i64
   }
-  func.func private @r() -> i64 attributes {idr.name = "r"} {
+  func.func private @r() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }

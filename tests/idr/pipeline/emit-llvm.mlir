@@ -8,12 +8,12 @@
 // CHECK-NEXT: br label %[[L]]
 // CHECK-NOT: mustprogress
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
-  func.func private @Prog.spin(%n: i64 {idr.quantity = "w"}) -> i64 attributes {idr.name = "spin"} {
+  func.func private @Prog.spin(%n: i64 {idr.quantity = "w"}) -> i64 {
     cf.br ^loop(%n : i64)
   ^loop(%m: i64):
     cf.br ^loop(%m : i64)
   }
-  func.func private @Prog.main() -> i64 attributes {idr.name = "main"} {
+  func.func private @Prog.main() -> i64 {
     %c = arith.constant 1 : i64
     %r = func.call @Prog.spin(%c) : (i64) -> i64
     return %r : i64

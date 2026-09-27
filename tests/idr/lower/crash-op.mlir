@@ -9,7 +9,7 @@
 // CHECK: ub.poison : !llvm.ptr
 // CHECK: ub.poison : i64
 module attributes {idr.version = 3 : i64, idr.entry = @Main.main, idr.entry_kind = "int"} {
-  func.func private @Main.name(%n: i64 {idr.quantity = "w"}) -> !idr.str attributes {idr.name = "name"} {
+  func.func private @Main.name(%n: i64 {idr.quantity = "w"}) -> !idr.str {
     %one = arith.constant 1 : i64
     %b = arith.cmpi eq, %n, %one : i64
     cf.cond_br %b, ^one, ^other
@@ -20,7 +20,7 @@ module attributes {idr.version = 3 : i64, idr.entry = @Main.main, idr.entry_kind
     %c = idr.crash "unhandled input for Main.name" : !idr.str loc("Main.idr":3:1)
     return %c : !idr.str
   }
-  func.func private @Main.main() -> i64 attributes {idr.name = "main"} {
+  func.func private @Main.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

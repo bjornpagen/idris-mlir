@@ -1,14 +1,14 @@
 ||| The facts about a function (docs/plan.md, section 8.3), as far as that
-||| record exists today. Each fact records what it rests on: an analysis or
+||| record exists today. Each fact records its provenance: an analysis or
 ||| flag of Idris's own, or the registry. Rules consume facts whatever their
-||| source; the source says why one holds.
+||| provenance; the provenance says why one holds.
 module IdrisMLIR.Facts
 
 %default total
 
 ||| What a fact rests on.
 public export
-data Source
+data Provenance
   = ||| Idris itself: its totality checker, its flags, the structure of its
     ||| names.
     FromIdris
@@ -17,7 +17,7 @@ data Source
     FromRegistry
 
 export
-Show Source where
+Show Provenance where
   show FromIdris = "Idris"
   show FromRegistry = "the registry"
 
@@ -25,7 +25,7 @@ public export
 record Fact where
   constructor MkFact
   holds : Bool
-  source : Source
+  provenance : Provenance
 
 ||| The facts about one function.
 public export

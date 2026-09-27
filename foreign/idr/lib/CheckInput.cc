@@ -126,9 +126,6 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
             fail(fn, "every argument needs idr.quantity (IDR-FN-1)");
         }
       }
-      if (isa<idr::DataOp, idr::CtorOp, func::FuncOp>(op) &&
-          !op->hasAttr("idr.name"))
-        fail(op, "missing idr.name (IDR-DATA-5)");
       // IDR-WORLD-1
       for (Value result : op->getResults())
         if (isa<idr::WorldType>(result.getType()))

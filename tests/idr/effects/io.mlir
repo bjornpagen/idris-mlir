@@ -15,7 +15,7 @@ module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "io"}
     %y, %w4 = idr.io.get_char %w3
     return %w4 : !idr.world
   }
-  func.func private @r(%w: !idr.world {idr.quantity = "1"}) -> i64 attributes {idr.name = "r"} {
+  func.func private @r(%w: !idr.world {idr.quantity = "1"}) -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

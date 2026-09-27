@@ -23,7 +23,10 @@ import IdrisMLIR.Term
 import IdrisMLIR.Term.Check
 import IdrisMLIR.Frontend.Paths
 import IdrisMLIR.Frontend.Profile
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Registry
+import IdrisMLIR.Registry.Libraries
 
 import Data.List
 import Data.List1
@@ -49,6 +52,21 @@ write path text = do
 
 remove : String -> Core ()
 remove path = ignore (coreLift (removeFile path))
+
+||| HOOK-SHAPE-1: the registry's entries against the loaded context, once,
+||| before anything uses them (docs/architecture/17-registry.md).
+validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core ()
+validated fc = case !validate of
+  Valid => pure ()
+  Wrong at owner msg => reject at owner HookShape1 msg
+  NoSuchEntry name => internal fc ("the directive break-shape=" ++ name ++ " names no entry of the registry")
+
+||| FE-ENTRY-4: is a definition the head of the term Idris hands an IO
+||| backend?
+programRoot : List Hook -> Bool
+programRoot [] = False
+programRoot (ProgramRoot :: _) = True
+programRoot (_ :: hs) = programRoot hs
 
 ------------------------------------------------------------------------------
 -- The middle end (CORE-PASS-1)
@@ -125,6 +143,7 @@ compileModule c _ source = do
   remove corePath
   remove mlirPath
   s <- newRef TState (initState fc)
+  validated fc
   checkPragmas ident source
   defs <- get Ctxt
   -- PROF-PROG-1
@@ -134,8 +153,8 @@ compileModule c _ source = do
       at <- map snd . head' <$> imports ident source
       reject (fromMaybe fc at) (show ident) ProfProg1
              ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
-  -- PROF-PROG-2
-  let main = NS (miAsNamespace ident) (UN (Basic "main"))
+  -- PROF-PROG-2: Idris's entry convention, from the registry.
+  let main = toName (intEntry (modulePath ident))
   Just def <- lookupCtxtExact main (gamma defs)
     | Nothing => reject fc (show ident) ProfProg2 "the module does not define main"
   ty <- normalise defs Env.Nil (type def)
@@ -187,14 +206,15 @@ compileIO c _ tmpDir outputDir tm outfile = do
   let fc = location mainDef
   main <- toFullNames main
   s <- newRef TState (initState fc)
-  unless (show !(toFullNames perform) == "PrimIO.unsafePerformIO") $
+  validated fc
+  unless (programRoot (hooksOf !(toFullNames perform))) $
     reject fc "main" FeEntry4 "the root is not unsafePerformIO main"
   -- PROF-PROG-4, PROF-PRAG-1: every module is trusted or a user module with source.
   let mainIdent = case !(toFullNames main) of
                     NS ns _ => nsAsModuleIdent ns
-                    _ => nsAsModuleIdent (mkNamespace "Main")
+                    _ => moduleIdent mainModule
   let mods = mainIdent :: map (\(_, (m, _, _)) => m) defs.allImported
-  let user = filter (\m => not (trustedModule (unsafeUnfoldModuleIdent m) || null (unsafeUnfoldModuleIdent m))) mods
+  let user = filter (\m => not (covers Trusted (originOf m) || null (unsafeUnfoldModuleIdent m))) mods
   sources <- for user $ \m => do
     path <- catch (Just <$> nsToSource fc m) (\_ => pure Nothing)
     pure (m, path)
@@ -205,7 +225,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
     Just p => do
       is <- imports m p
       for_ is $ \(target, at) =>
-        unless (trustedModule (reverse (forget (split (== '.') target))) || elem target userNames) $
+        unless (covers Trusted (moduleOrigin (forget (split (== '.') target))) || elem target userNames) $
           reject at (show m) ProfProg4
                  ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
     Nothing => pure ()

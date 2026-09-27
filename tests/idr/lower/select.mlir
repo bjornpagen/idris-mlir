@@ -7,7 +7,7 @@
 // CHECK: arith.select %{{.*}}, %{{.*}}, %{{.*}} : i64
 // CHECK-NOT: !idr.str
 module attributes {idr.version = 1 : i64, idr.entry = @Prog.main, idr.entry_kind = "io"} {
-  func.func private @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> i64 attributes {idr.name = "main"} {
+  func.func private @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> i64 {
     %c, %w1 = idr.io.get_char %w
     %z = arith.constant 48 : i32
     %b = arith.cmpi ult, %c, %z : i32

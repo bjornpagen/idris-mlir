@@ -1,9 +1,9 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-TAG-1, IDR-FIELD-1, IDR-IF-1
 module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "int"} {
-  idr.data @S attributes {idr.name = "S"} {
-    idr.ctor @A tag 0 fields [] quantities [] {idr.name = "A"}
-    idr.ctor @B tag 1 fields [i64] quantities ["w"] {idr.name = "B"}
+  idr.data @S {
+    idr.ctor @A tag 0 fields [] quantities []
+    idr.ctor @B tag 1 fields [i64] quantities ["w"]
   }
   // CHECK-LABEL: func.func @known(
   // CHECK-SAME: %[[X:.*]]: i64)
@@ -30,7 +30,7 @@ module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "int"
     %b = arith.constant 9 : i64
     return %b : i64
   }
-  func.func private @r() -> i64 attributes {idr.name = "r"} {
+  func.func private @r() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }

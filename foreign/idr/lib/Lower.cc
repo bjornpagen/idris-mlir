@@ -117,7 +117,6 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     func::ReturnOp::create(b, loc, status);
     // The idr attributes have served their purpose; LLVM lowering would warn.
     module.walk([](func::FuncOp fn) {
-      fn->removeAttr("idr.name");
       for (unsigned i = 0; i < fn.getNumArguments(); ++i)
         fn.removeArgAttr(i, "idr.quantity");
     });

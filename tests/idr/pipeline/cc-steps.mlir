@@ -11,7 +11,7 @@
 // CHECK-NEXT: 07-symbol-dce.mlir
 // CHECK-NEXT: 08-idr-lower.mlir
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
-  func.func private @Prog.main() -> i64 attributes {idr.name = "main"} {
+  func.func private @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64
   }

@@ -15,7 +15,7 @@
 // CHECK: call @Prog.r()
 // CHECK: call @__idr_flush()
 module attributes {idr.version = 1 : i64, idr.entry = @Prog.r, idr.entry_kind = "io"} {
-  func.func private @Prog.r(%w: !idr.world {idr.quantity = "1"}) -> i64 attributes {idr.name = "r"} {
+  func.func private @Prog.r(%w: !idr.world {idr.quantity = "1"}) -> i64 {
     %s = idr.str.lit "h\C3\A9llo\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_char %w1

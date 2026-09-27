@@ -125,8 +125,8 @@ data Validation
 ||| The test hook: `--directive break-shape=<key>` breaks that entry's shape.
 breakDirective : String -> Maybe String
 breakDirective d =
-  let prefix = "break-shape=" in
-  if isPrefixOf prefix d then Just (substr (length prefix) (length d) d) else Nothing
+  let flag = "break-shape=" in
+  if isPrefixOf flag d then Just (substr (length flag) (length d) d) else Nothing
 
 ||| HOOK-SHAPE-1: every entry, resolved against the loaded context once per
 ||| compilation, before anything uses the registry. An entry whose module the

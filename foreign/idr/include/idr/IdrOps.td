@@ -295,7 +295,7 @@ def Idr_GetCharOp : Idr_IOOp<"io.get_char", 1, [Idr_Helper<"__idr_get_char">]> {
   let assemblyFormat = "$world attr-dict";
 }
 
-// IDR-IO-2 (v3): the Prelude's getChar, one byte (SEM-IO-7).
+// IDR-IO-2 (v3): one byte of input, or 255 at its end (SEM-IO-7).
 def Idr_GetByteOp : Idr_IOOp<"io.get_byte", 3, [Idr_Helper<"__idr_get_byte">]> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs I32:$ch, Idr_WorldType:$next);

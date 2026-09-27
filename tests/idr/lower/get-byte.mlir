@@ -6,7 +6,7 @@
 // CHECK: arith.constant 255 : i32
 // CHECK: call @__idr_peek()
 module attributes {idr.version = 3 : i64, idr.entry = @Main.main, idr.entry_kind = "io"} {
-  func.func private @Main.main(%w: !idr.world {idr.quantity = "1"}) -> i32 attributes {idr.name = "main"} {
+  func.func private @Main.main(%w: !idr.world {idr.quantity = "1"}) -> i32 {
     %c, %w1 = idr.io.get_byte %w
     return %c : i32
   }

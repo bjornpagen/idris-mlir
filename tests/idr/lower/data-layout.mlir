@@ -19,15 +19,15 @@
 // CHECK: call @Prog.main()
 // CHECK: arith.trunci
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
-  idr.data @P attributes {idr.name = "P"} {
-    idr.ctor @MkP tag 0 fields [i64, i8] quantities ["w", "w"] {idr.name = "MkP"}
+  idr.data @P {
+    idr.ctor @MkP tag 0 fields [i64, i8] quantities ["w", "w"]
   }
-  idr.data @S attributes {idr.name = "S"} {
-    idr.ctor @A tag 0 fields [] quantities [] {idr.name = "A"}
-    idr.ctor @B tag 1 fields [i32, !idr.erased] quantities ["w", "0"] {idr.name = "B"}
-    idr.ctor @C tag 2 fields [!idr.data<@P>] quantities ["1"] {idr.name = "C"}
+  idr.data @S {
+    idr.ctor @A tag 0 fields [] quantities []
+    idr.ctor @B tag 1 fields [i32, !idr.erased] quantities ["w", "0"]
+    idr.ctor @C tag 2 fields [!idr.data<@P>] quantities ["1"]
   }
-  func.func private @f(%s: !idr.data<@S> {idr.quantity = "w"}) -> i64 attributes {idr.name = "f"} {
+  func.func private @f(%s: !idr.data<@S> {idr.quantity = "w"}) -> i64 {
     %t = idr.tag %s : !idr.data<@S>
     cf.switch %t : i64, [default: ^a, 1: ^b, 2: ^c]
   ^b:
@@ -42,7 +42,7 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind
     %c = arith.constant 0 : i64
     return %c : i64
   }
-  func.func private @Prog.main() -> i64 attributes {idr.name = "main"} {
+  func.func private @Prog.main() -> i64 {
     %a = arith.constant 5 : i32
     %e = idr.erased : !idr.erased
     %s = idr.con @S::@B(%a, %e) : (i32, !idr.erased) -> !idr.data<@S>

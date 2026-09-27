@@ -3,11 +3,11 @@
 // RUN: %status 42 %t
 // rule: DRV-FLOW-1, LOW-ENTRY-1
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
-  idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
-    idr.ctor @Circle tag 0 fields [i64] quantities ["w"] {idr.name = "Prog.Circle"}
-    idr.ctor @Rect tag 1 fields [i64, i64] quantities ["w", "w"] {idr.name = "Prog.Rect"}
+  idr.data @Prog.Shape {
+    idr.ctor @Circle tag 0 fields [i64] quantities ["w"]
+    idr.ctor @Rect tag 1 fields [i64, i64] quantities ["w", "w"]
   }
-  func.func private @Prog.area(%s: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.name = "Prog.area"} {
+  func.func private @Prog.area(%s: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 {
     %t = idr.tag %s : !idr.data<@Prog.Shape>
     cf.switch %t : i64, [default: ^rect, 0: ^circle]
   ^circle:
@@ -22,10 +22,10 @@ module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind
     %b = arith.muli %w, %h : i64
     return %b : i64
   }
-  func.func private @Prog.keep(%w: !idr.erased {idr.quantity = "0"}, %v: i64 {idr.quantity = "w"}) -> i64 attributes {idr.name = "Prog.keep"} {
+  func.func private @Prog.keep(%w: !idr.erased {idr.quantity = "0"}, %v: i64 {idr.quantity = "w"}) -> i64 {
     return %v : i64
   }
-  func.func private @Prog.main() -> i64 attributes {idr.name = "Prog.main"} {
+  func.func private @Prog.main() -> i64 {
     %e = idr.erased : !idr.erased
     %c6 = arith.constant 6 : i64
     %c7 = arith.constant 7 : i64

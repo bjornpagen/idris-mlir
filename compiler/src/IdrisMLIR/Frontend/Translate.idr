@@ -876,6 +876,7 @@ identityOnLast (IdentityOnLastArgument :: _) = True
 identityOnLast (_ :: hs) = identityOnLast hs
 
 ||| PROF-IO-4: the IO operation a definition's calls are.
+export
 ioCallOf : List Hook -> Maybe IOOp
 ioCallOf [] = Nothing
 ioCallOf (IOCall op :: _) = Just op

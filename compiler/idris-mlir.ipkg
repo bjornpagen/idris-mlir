@@ -4,10 +4,17 @@ brief = "Compiler from checked Idris 2 TT to MLIR"
 
 depends = idris2, network
 sourcedir = "src"
-modules = IdrisMLIR.Loc
+modules = IdrisMLIR.Registry.Name
+        , IdrisMLIR.Registry.Libraries
+        , IdrisMLIR.Loc
         , IdrisMLIR.Rule
         , IdrisMLIR.Ids
         , IdrisMLIR.Types
+        , IdrisMLIR.Registry.Entry
+        , IdrisMLIR.Registry.Primitives
+        , IdrisMLIR.Registry.Recognized
+        , IdrisMLIR.Registry
+        , IdrisMLIR.Facts
         , IdrisMLIR.Term
         , IdrisMLIR.Term.Check
         , IdrisMLIR.Code
@@ -21,6 +28,7 @@ modules = IdrisMLIR.Loc
         , IdrisMLIR.MLIR
         , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Paths
+        , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate
         , IdrisMLIR.Frontend.Profile
 main = IdrisMLIR.Frontend.Main

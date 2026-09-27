@@ -15,7 +15,7 @@
 // CHECK-DAG: llvm.mlir.global internal constant @__idr_ryu_pow5_split(
 // CHECK-DAG: llvm.mlir.global internal constant @__idr_ryu_pow5_inv_split(
 module attributes {idr.version = 2 : i64, idr.entry = @Main.main, idr.entry_kind = "io"} {
-  func.func private @Main.main(%w: !idr.world {idr.quantity = "1"}) -> i32 attributes {idr.name = "main"} {
+  func.func private @Main.main(%w: !idr.world {idr.quantity = "1"}) -> i32 {
     %c = arith.constant 7 : i64
     %d = arith.sitofp %c : i64 to f64
     %x = arith.divf %d, %d : f64

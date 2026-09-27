@@ -22,6 +22,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
+import IdrisMLIR.Types
 
 import Data.List
 import Data.Maybe
@@ -107,18 +108,21 @@ checkPragmas ident path = do
     at : WithBounds Token -> FC
     at tok = let b = tok.bounds in
              MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
-    ||| PROF-ESC-1 in the source: Idris reduces `prim__believe_me` applied to
-    ||| a value during elaboration, so it can vanish from TT.
-    escape : String -> Bool
-    escape n = elem n (the (List String) ["prim__believe_me", "prim__crash", "believe_me", "idris_crash"])
+    ||| PROF-ESC-1 in the source: a spelling the registry forbids. Idris
+    ||| reduces `prim__believe_me` applied to a value during elaboration, so
+    ||| it can vanish from TT.
+    spelled : WithBounds Token -> String -> Core ()
+    spelled tok n = case forbiddenBy (hooks (Spelling n)) of
+      Just rule => reject (at tok) (show ident) rule ("the escape hatch " ++ n)
+      Nothing => pure ()
     check : WithBounds Token -> Core ()
     check tok = case tok.val of
       -- %default only sets the totality Idris requires.
       Pragma "default" => pure ()
       Pragma p => reject (at tok) (show ident) ProfPrag1 ("the pragma %" ++ p)
       HoleIdent h => reject (at tok) (show ident) ProfEsc1 ("the hole ?" ++ h)
-      Ident n => when (escape n) $ reject (at tok) (show ident) ProfEsc1 ("the escape hatch " ++ n)
-      DotSepIdent _ n => when (escape n) $ reject (at tok) (show ident) ProfEsc1 ("the escape hatch " ++ n)
+      Ident n => spelled tok n
+      DotSepIdent _ n => spelled tok n
       _ => pure ()
 
 ||| PROF-PRAG-1 over every user module of the program.
@@ -126,7 +130,7 @@ export
 checkUserModules : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    List ModuleIdent -> Core ()
 checkUserModules mods = for_ mods $ \ident =>
-  unless (trustedModule (unsafeUnfoldModuleIdent ident)) $ do
+  unless (covers Trusted (originOf ident)) $ do
     path <- nsToSource EmptyFC ident
     checkPragmas ident path
 
@@ -190,8 +194,9 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
       let full = fullname def
       let key = show full
       if contains key seen then go seen rest else do
-        let ns = namespaceOf full
-        let trusted = trustedModule ns
+        -- Where the definition comes from, as the registry classifies it.
+        origin <- (.origin) <$> toLoc (location def)
+        let trusted = covers Trusted origin
         -- Primitives have no location; errors name the user definition.
         let here = if trusted || isNothing (isNonEmptyFC (location def)) then path else (full, location def) :: path
         let owner = case here of
@@ -201,34 +206,32 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
         when (isEscapeHatch def) $
           reject (userFC here) owner ProfEsc1 ("the escape hatch " ++ key ++ via here)
         case definition def of
-          Builtin {} => case key of
-            "prim__believe_me" => reject (userFC here) owner ProfEsc1 ("believe_me" ++ via here)
-            "prim__crash" => reject (userFC here) owner ProfEsc1 ("idris_crash" ++ via here)
-            _ => pure ()
+          Builtin BelieveMe => reject (userFC here) owner ProfEsc1 ("believe_me" ++ via here)
+          Builtin Crash => reject (userFC here) owner ProfEsc1 ("idris_crash" ++ via here)
           Hole {} => reject (userFC here) owner ProfEsc1 ("the hole " ++ key ++ via here)
+          -- Only the IO primitives the registry lists may be reached: an
+          -- `%extern` one by its name, a `%foreign` one by its spec.
           ExternDef _ =>
-            unless (key == "Prelude.IO.prim__getChar") $
+            unless (isJust (ioCallOf (hooksOf full))) $
               reject (userFC here) owner ProfEsc1 ("%extern " ++ key ++ via here)
-          ForeignDef _ _ =>
-            unless (ns == ["IO", "IdrisMLIR"] ||
-                    elem key (the (List String) ["Prelude.IO.prim__putStr", "Prelude.IO.prim__putChar",
-                                                 "Prelude.IO.prim__getChar"])) $
-              reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
+          ForeignDef _ specs => case foreignHookOf full specs of
+            Just (Right _) => pure ()
+            Just (Left wrong) => reject (userFC here) key HookShape1 wrong
+            Nothing => reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
           _ => pure ()
         -- PROF-LIB-1
-        when (trusted && ns /= ["IO", "IdrisMLIR"] && not (admitted (enclosing full))) $
+        when (trusted && not (admits origin (qname (enclosing full)))) $
           reject (userFC here) owner ProfLib1 (key ++ " is not admitted from its trusted module" ++ via here)
+        refs <- traverse toFullNames (refsOf def)
         -- PROF-IO-3
         unless trusted $ do
-          refs <- traverse (\r => show <$> toFullNames r) (refsOf def)
-          case find (`elem` rootOnly) refs of
-            Just r => reject (location def) key ProfIO3 ("uses " ++ r)
+          case firstForbidden refs of
+            Just (r, rule) => reject (location def) key rule ("uses " ++ show r)
             Nothing => pure ()
           case definition def of
             PMDef _ _ tree _ _ =>
               when (treeMentionsWorld tree) $ reject (location def) key ProfIO3 "uses %MkWorld"
             _ => pure ()
-        -- PROF-ESC-1: a library's own assert_total is trusted.
-        refs <- traverse toFullNames (refsOf def)
-        let refs' = if trusted then filter (\r => show r /= "Builtin.assert_total") refs else refs
+        -- PROF-ESC-1: a library's own totality assertions are trusted.
+        let refs' = if trusted then filter (not . assertion . qname) refs else refs
         go (insert key seen) (rest ++ map (\r => (r, here)) refs')
