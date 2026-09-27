@@ -291,8 +291,10 @@ need_disk() {
 # that a failed run with the same inputs left is kept.
 build_dir() {
   build=$builds/$step
+  resumed=no
   if [ "${1-}" = resume ] && [ -f "$build/.inputs" ] && [ "$(cat "$build/.inputs")" = "$step_inputs" ]; then
     say "    resuming in $build"
+    resumed=yes
   else
     rm -rf "$build"
     mkdir -p "$build"
@@ -683,9 +685,9 @@ step_stage1() {
   begin stage1 "clang and lld $llvm_tag, with the host's C++ compiler" || return 0
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
-  need_disk 8 "the stage-1 build"
   clone_pinned llvm "$llvm_source"
   build_dir resume
+  if [ "$resumed" = no ]; then need_disk 8 "the stage-1 build"; fi
   eval "set -- $(args_stage1 | quote_lines)"
   sample_memory
   run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
@@ -798,9 +800,9 @@ step_stage2() {
   need git python3
   # TC-BOOT-6: objects that carry bitcode and native code, then one copy of
   # the libraries installed; measured, the stamp says how much it took.
-  need_disk 13 "the stage-2 build and install"
   clone_pinned llvm "$llvm_source"
   build_dir resume
+  if [ "$resumed" = no ]; then need_disk 13 "the stage-2 build and install"; fi
   eval "set -- $(args_stage2 | quote_lines)"
   sample_memory
   run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
