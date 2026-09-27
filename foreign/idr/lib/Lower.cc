@@ -34,38 +34,17 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // Static data and helpers are added before the conversion starts.
     bool ok = true;
     auto need = [&](StringRef name) { ok &= succeeded(runtime.require(name)); };
+    // What each op needs follows from what it declares (IdrOps.td).
     module.walk([&](Operation *op) {
       if (auto lit = dyn_cast<idr::StrLitOp>(op))
         runtime.declareString(lit.getValue());
-      else if (isa<idr::DivOp, idr::ModOp>(op) && !idr::lower::divisorKnownNonZero(op->getOperand(1))) {
-        runtime.declareString(idr::lower::crashMessage(op->getLoc(), "division by zero"));
-        need("__idr_crash");
-      } else if (auto cast = dyn_cast<idr::ToIntOp>(op)) {
-        if (!idr::lower::knownFinite(cast.getValue())) {
-          runtime.declareString(
-              idr::lower::crashMessage(op->getLoc(), "cast of a non-finite Double"));
+      if (auto call = dyn_cast<idr::RuntimeCallOpInterface>(op))
+        need(call.getHelper());
+      if (auto mayCrash = dyn_cast<idr::MayCrashOpInterface>(op))
+        if (auto cause = mayCrash.getCrashCause()) {
+          runtime.declareString(idr::lower::crashMessage(op->getLoc(), *cause));
           need("__idr_crash");
         }
-        need("__idr_f64_to_i64");
-      } else if (auto crash = dyn_cast<idr::CrashOp>(op)) {
-        runtime.declareString(idr::lower::crashMessage(op->getLoc(), crash.getMessage()));
-        need("__idr_crash");
-      } else if (isa<idr::DoubleHeadOp>(op))
-        need("__idr_double_head");
-      else if (isa<idr::PutDoubleOp>(op))
-        need("__idr_put_double");
-      else if (isa<idr::PutStrOp>(op))
-        need("__idr_put_bytes");
-      else if (isa<idr::PutCharOp>(op))
-        need("__idr_put_char");
-      else if (auto put = dyn_cast<idr::PutIntOp>(op))
-        need(put.getIsSigned() ? "__idr_put_int_s" : "__idr_put_int_u");
-      else if (isa<idr::GetCharOp>(op))
-        need("__idr_get_char");
-      else if (isa<idr::GetByteOp>(op))
-        need("__idr_get_byte");
-      else if (isa<idr::ExitOp>(op))
-        need("__idr_exit");
     });
     if (kind.getValue() == "io")
       need("__idr_flush");

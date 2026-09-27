@@ -130,8 +130,17 @@ struct LowerStr : IdrPattern<idr::StrLitOp> {
   }
 };
 
+// Emits a crash reporting `cause` where `condition` holds at runtime.
+void crashIf(ConversionPatternRewriter &rewriter, Location loc, const Runtime &runtime,
+             Value condition, StringRef cause) {
+  auto check = scf::IfOp::create(rewriter, loc, condition, /*withElse=*/false);
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(check.thenBlock());
+  emitCrash(rewriter, loc, runtime, cause);
+}
+
 // LOW-DIV-1
-template <typename OpT, bool Quotient>
+template <typename OpT>
 struct LowerDivision : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
@@ -145,14 +154,11 @@ struct LowerDivision : IdrPattern<OpT> {
     };
     Value zero = constant(APInt::getZero(width));
     Value one = constant(APInt(width, 1));
-    bool nonZero = divisorKnownNonZero(op.getRhs());
-    if (!nonZero) {
-      Value isZero = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero);
-      auto check = scf::IfOp::create(rewriter, loc, isZero, /*withElse=*/false);
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(check.thenBlock());
-      emitCrash(rewriter, loc, this->state.runtime, "division by zero");
-    }
+    auto cause = op.getCrashCause();
+    bool nonZero = !cause;
+    if (cause)
+      crashIf(rewriter, loc, this->state.runtime,
+              arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero), *cause);
     Value result;
     if (!op.getIsSigned()) {
       Value safe = nonZero ? b : arith::SelectOp::create(
@@ -160,8 +166,8 @@ struct LowerDivision : IdrPattern<OpT> {
                                      arith::CmpIOp::create(rewriter, loc,
                                                            arith::CmpIPredicate::eq, b, zero),
                                      one, b);
-      result = Quotient ? Value(arith::DivUIOp::create(rewriter, loc, a, safe))
-                        : Value(arith::RemUIOp::create(rewriter, loc, a, safe));
+      result = OpT::quotient ? Value(arith::DivUIOp::create(rewriter, loc, a, safe))
+                             : Value(arith::RemUIOp::create(rewriter, loc, a, safe));
     } else {
       // MIN / -1 and division by zero (already crashed) use divisor 1, which
       // gives MIN and 0: exactly the wrapped Euclidean results (SEM-INT-3).
@@ -177,7 +183,7 @@ struct LowerDivision : IdrPattern<OpT> {
       Value r = arith::RemSIOp::create(rewriter, loc, a, d);
       Value negative = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::slt, r, zero);
       Value positive = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sgt, d, zero);
-      if (Quotient) {
+      if constexpr (OpT::quotient) {
         Value down = arith::SubIOp::create(rewriter, loc, q, one);
         Value up = arith::AddIOp::create(rewriter, loc, q, one);
         Value adjusted = arith::SelectOp::create(rewriter, loc, positive, down, up);
@@ -231,32 +237,18 @@ struct LowerToInt : IdrPattern<idr::ToIntOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value x = adaptor.getValue();
-    if (!knownFinite(op.getValue())) {
+    if (auto cause = op.getCrashCause()) {
       Value finite = math::IsFiniteOp::create(rewriter, loc, x);
       Value bad = arith::XOrIOp::create(
           rewriter, loc, finite, arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true)));
-      auto check = scf::IfOp::create(rewriter, loc, bad, /*withElse=*/false);
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(check.thenBlock());
-      emitCrash(rewriter, loc, state.runtime, "cast of a non-finite Double");
+      crashIf(rewriter, loc, state.runtime, bad, *cause);
     }
     auto i64 = rewriter.getI64Type();
-    Value wide = func::CallOp::create(rewriter, loc, "__idr_f64_to_i64", i64, x).getResult(0);
+    Value wide = func::CallOp::create(rewriter, loc, op.getHelper(), i64, x).getResult(0);
     if (op.getType() == i64)
       rewriter.replaceOp(op, wide);
     else
       rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, op.getType(), wide);
-    return success();
-  }
-};
-
-// LOW-DBL-4: the first character comes from the printer's helper.
-struct LowerDoubleHead : IdrPattern<idr::DoubleHeadOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::DoubleHeadOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<func::CallOp>(op, "__idr_double_head", rewriter.getI32Type(),
-                                              adaptor.getValue());
     return success();
   }
 };
@@ -267,7 +259,7 @@ struct LowerCrash : IdrPattern<idr::CrashOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(idr::CrashOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    emitCrash(rewriter, op.getLoc(), state.runtime, op.getMessage());
+    emitCrash(rewriter, op.getLoc(), state.runtime, *op.getCrashCause());
     SmallVector<SmallVector<Value>> results;
     for (Type result : op.getResultTypes()) {
       SmallVector<Type> types;
@@ -283,47 +275,47 @@ struct LowerCrash : IdrPattern<idr::CrashOp> {
   }
 };
 
-// LOW-IO-2: each IO op calls a helper; the world vanishes (LOW-IO-3).
+// LOW-IO-2, LOW-DBL-4: an op that is exactly a call of its runtime helper.
+// Its operands and results become their components (the world has none,
+// LOW-IO-3), and an integer narrower than the helper's parameter is extended
+// as the op's signedness says.
 template <typename OpT>
-struct LowerIO : IdrPattern<OpT> {
+struct LowerCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    auto call = [&](StringRef name, TypeRange results, ValueRange args) -> FailureOr<func::CallOp> {
-      return func::CallOp::create(rewriter, loc, name, results, args);
-    };
-    if constexpr (std::is_same_v<OpT, idr::PutStrOp>) {
-      if (failed(call("__idr_put_bytes", {}, adaptor.getStr())))
-        return failure();
-    } else if constexpr (std::is_same_v<OpT, idr::PutCharOp>) {
-      if (failed(call("__idr_put_char", {}, adaptor.getCh())))
-        return failure();
-    } else if constexpr (std::is_same_v<OpT, idr::PutIntOp>) {
-      Value v = adaptor.getValue().front();
-      auto i64 = rewriter.getI64Type();
-      if (v.getType() != i64)
-        v = op.getIsSigned() ? Value(arith::ExtSIOp::create(rewriter, loc, i64, v))
-                           : Value(arith::ExtUIOp::create(rewriter, loc, i64, v));
-      if (failed(call(op.getIsSigned() ? "__idr_put_int_s" : "__idr_put_int_u", {}, v)))
-        return failure();
-    } else if constexpr (std::is_same_v<OpT, idr::PutDoubleOp>) {
-      if (failed(call("__idr_put_double", {}, adaptor.getValue())))
-        return failure();
-    } else if constexpr (std::is_same_v<OpT, idr::GetCharOp> ||
-                         std::is_same_v<OpT, idr::GetByteOp>) {
-      auto got = call(std::is_same_v<OpT, idr::GetCharOp> ? "__idr_get_char" : "__idr_get_byte",
-                      rewriter.getI32Type(), {});
-      if (failed(got))
-        return failure();
-      rewriter.replaceOpWithMultiple(op, {ValueRange{got->getResult(0)}, ValueRange{}});
-      return success();
-    } else {
-      static_assert(std::is_same_v<OpT, idr::ExitOp>);
-      if (failed(call("__idr_exit", {}, adaptor.getCode())))
-        return failure();
+    func::FuncOp helper = this->state.runtime.helper(op.getHelper());
+    if (!helper)
+      return rewriter.notifyMatchFailure(op, "the helper was not required");
+    SmallVector<Value> args;
+    for (ValueRange operand : adaptor.getOperands())
+      llvm::append_range(args, operand);
+    TypeRange params = helper.getFunctionType().getInputs();
+    if (args.size() != params.size())
+      return rewriter.notifyMatchFailure(op, "arguments do not match the helper");
+    for (auto [arg, param] : llvm::zip_equal(args, params)) {
+      if (arg.getType() == param)
+        continue;
+      bool isSigned = false;
+      if constexpr (requires { op.getIsSigned(); })
+        isSigned = op.getIsSigned();
+      arg = isSigned ? Value(arith::ExtSIOp::create(rewriter, loc, param, arg))
+                     : Value(arith::ExtUIOp::create(rewriter, loc, param, arg));
     }
-    rewriter.replaceOpWithMultiple(op, {ValueRange{}});
+    auto call = func::CallOp::create(rewriter, loc, helper, args);
+    SmallVector<ValueRange> results;
+    size_t next = 0;
+    for (Type type : op->getResultTypes()) {
+      SmallVector<Type> parts;
+      if (failed(this->getTypeConverter()->convertType(type, parts)))
+        return failure();
+      results.push_back(call.getResults().slice(next, parts.size()));
+      next += parts.size();
+    }
+    if (next != call.getNumResults())
+      return rewriter.notifyMatchFailure(op, "results do not match the helper");
+    rewriter.replaceOpWithMultiple(op, results);
     return success();
   }
 };
@@ -380,14 +372,19 @@ struct LowerSwitch : IdrPattern<cf::SwitchOp> {
 
 } // namespace
 
+template <typename... Ops>
+void addCalls(RewritePatternSet &patterns, const TypeConverter &converter, Context &state) {
+  patterns.add<LowerCall<Ops>...>(converter, patterns.getContext(), state);
+}
+
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Context &state) {
   patterns.add<LowerSwitch>(converter, patterns.getContext(), state, PatternBenefit(2));
   patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr,
-               LowerToChar, LowerToInt, LowerDoubleHead, LowerCrash, LowerDivision<idr::DivOp, true>, LowerDivision<idr::ModOp, false>,
-               LowerIO<idr::PutStrOp>, LowerIO<idr::PutCharOp>, LowerIO<idr::PutIntOp>, LowerIO<idr::PutDoubleOp>,
-               LowerIO<idr::GetCharOp>, LowerIO<idr::GetByteOp>, LowerIO<idr::ExitOp>>(converter, patterns.getContext(),
-                                                              state);
+               LowerToChar, LowerToInt, LowerCrash, LowerDivision<idr::DivOp>,
+               LowerDivision<idr::ModOp>>(converter, patterns.getContext(), state);
+  addCalls<idr::PutStrOp, idr::PutCharOp, idr::PutIntOp, idr::PutDoubleOp, idr::GetCharOp,
+           idr::GetByteOp, idr::ExitOp, idr::DoubleHeadOp>(patterns, converter, state);
 }
 
 } // namespace idr::lower

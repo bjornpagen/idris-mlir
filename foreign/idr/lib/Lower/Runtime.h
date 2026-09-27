@@ -19,6 +19,9 @@ public:
   // Copies helper `name` and everything it references into the module.
   mlir::LogicalResult require(llvm::StringRef name);
 
+  // A helper already required.
+  mlir::func::FuncOp helper(llvm::StringRef name) const;
+
   // Declares the static data for `bytes` (LOW-STR-1). Called before the
   // conversion starts, so patterns only reference existing globals.
   void declareString(llvm::StringRef bytes);
@@ -35,12 +38,6 @@ private:
 
 // The message of a crash: its cause and the Idris location.
 std::string crashMessage(mlir::Location loc, llvm::StringRef cause);
-
-// Whether a divisor is a constant other than zero (IDR-EFF-1).
-bool divisorKnownNonZero(mlir::Value divisor);
-
-// Whether a Double is a finite constant (IDR-EFF-1).
-bool knownFinite(mlir::Value value);
 
 // Calls @__idr_crash with a message naming the cause and the Idris location.
 void emitCrash(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,

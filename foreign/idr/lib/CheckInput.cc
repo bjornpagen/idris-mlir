@@ -7,6 +7,8 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include <algorithm>
+
 using namespace mlir;
 
 namespace idr {
@@ -16,26 +18,14 @@ namespace idr {
 
 namespace {
 
-bool allowedType(Type type) {
-  if (auto integer = dyn_cast<IntegerType>(type))
-    return integer.isSignless() &&
-           llvm::is_contained({1u, 8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<Float64Type, idr::DataType, idr::ErasedType, idr::StrType, idr::WorldType>(type);
-}
-
-bool isV1Op(Operation *op) {
-  return isa<idr::ToCharOp, idr::StrLitOp, idr::PutStrOp, idr::PutCharOp,
-             idr::PutIntOp, idr::GetCharOp, idr::ExitOp>(op);
-}
-
-// IDR-DBL-*: Double values, operations and printing.
-bool isV2Op(Operation *op) {
-  if (isa<idr::ToIntOp, idr::PutDoubleOp>(op) ||
-      isa<math::MathDialect>(op->getDialect()))
-    return true;
+// IDR-MOD-1: the first version that admits `op`. An idr op names it in
+// IdrOps.td (`Idr_Since`); Doubles and math arrived in version 2 (IDR-DBL-*).
+int requiredVersion(Operation *op) {
   auto isF64 = [](Type type) { return isa<Float64Type>(type); };
-  return llvm::any_of(op->getOperandTypes(), isF64) ||
-         llvm::any_of(op->getResultTypes(), isF64);
+  bool usesDouble = isa<math::MathDialect>(op->getDialect()) ||
+                    llvm::any_of(op->getOperandTypes(), isF64) ||
+                    llvm::any_of(op->getResultTypes(), isF64);
+  return std::max(idr::sinceVersion(op), usesDouble ? 2 : 0);
 }
 
 // IDR-IN-1
@@ -113,21 +103,17 @@ struct CheckInput : idr::impl::IdrCheckInputBase<CheckInput> {
     module.walk([&](Operation *op) {
       if (!allowedOp(op))
         return fail(op, "operation not allowed in the input");
-      if (contract < 1 && isV1Op(op))
-        fail(op, "operation needs idr.version 1");
-      if (contract < 2 && isV2Op(op))
-        fail(op, "operation needs idr.version 2");
-      if (contract < 3 && isa<idr::CrashOp, idr::DoubleHeadOp, idr::GetByteOp>(op))
-        fail(op, "operation needs idr.version 3");
+      if (int required = requiredVersion(op); contract < required)
+        fail(op, "operation needs idr.version " + Twine(required));
       if (hasArithFlags(op))
         fail(op, "arith flags are not allowed");
       for (Type type : op->getResultTypes())
-        if (!allowedType(type))
+        if (!idr::isValueType(type))
           fail(op, "result type not allowed");
       for (Region &region : op->getRegions())
         for (Block &block : region)
           for (BlockArgument arg : block.getArguments())
-            if (!allowedType(arg.getType()))
+            if (!idr::isValueType(arg.getType()))
               fail(op, "argument type not allowed");
       if (auto fn = dyn_cast<func::FuncOp>(op)) {
         if (!fn.isPrivate())

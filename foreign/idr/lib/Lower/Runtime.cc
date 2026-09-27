@@ -2,7 +2,6 @@
 
 #include "Lower/Runtime.h"
 
-#include "mlir/IR/Matchers.h"
 #include "mlir/Parser/Parser.h"
 
 using namespace mlir;
@@ -42,6 +41,11 @@ LogicalResult Runtime::require(StringRef name) {
     });
   }
   return success();
+}
+
+func::FuncOp Runtime::helper(StringRef name) const {
+  ModuleOp handle = module;
+  return handle.lookupSymbol<func::FuncOp>(name);
 }
 
 void Runtime::declareString(StringRef bytes) {
@@ -90,16 +94,6 @@ std::string describe(Location loc) {
 std::string crashMessage(Location loc, StringRef cause) {
   std::string where = describe(loc);
   return ("idris-mlir: " + cause + (where.empty() ? "" : " at " + where) + "\n").str();
-}
-
-bool divisorKnownNonZero(Value divisor) {
-  APInt known;
-  return matchPattern(divisor, m_ConstantInt(&known)) && !known.isZero();
-}
-
-bool knownFinite(Value value) {
-  FloatAttr constant;
-  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
 }
 
 // Calls @__idr_crash with a message naming the cause and the Idris location.

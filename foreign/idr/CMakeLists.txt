@@ -19,6 +19,8 @@ mlir_tablegen(include/idr/IdrTypes.h.inc -gen-typedef-decls -typedefs-dialect=id
 mlir_tablegen(include/idr/IdrTypes.cc.inc -gen-typedef-defs -typedefs-dialect=idr)
 mlir_tablegen(include/idr/IdrOps.h.inc -gen-op-decls)
 mlir_tablegen(include/idr/IdrOps.cc.inc -gen-op-defs)
+mlir_tablegen(include/idr/IdrInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(include/idr/IdrInterfaces.cc.inc -gen-op-interface-defs)
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Passes.td)
 mlir_tablegen(include/idr/Passes.h.inc -gen-pass-decls -name Idr)
 add_public_tablegen_target(idr_tablegen)

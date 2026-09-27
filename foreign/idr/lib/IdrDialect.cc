@@ -5,19 +5,117 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+#include <concepts>
 
 using namespace mlir;
 using namespace idr;
 
+//===----------------------------------------------------------------------===//
+// Facts that rule out a crash (IDR-EFF-1)
+//===----------------------------------------------------------------------===//
+
+bool idr::knownNonZero(Value value) {
+  APInt known;
+  return matchPattern(value, m_ConstantInt(&known)) && !known.isZero();
+}
+
+bool idr::knownFinite(Value value) {
+  FloatAttr constant;
+  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
+}
+
+//===----------------------------------------------------------------------===//
+// Division (IDR-DIV-*), shared by idr.div and idr.mod through IdrOps.td
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// Euclidean quotient and remainder (SEM-INT-3) on the mathematical values of
+// `a` and `b` in `width` bits; the quotient wraps.
+std::pair<APInt, APInt> idrisDivMod(const APInt &a, const APInt &b, bool isSigned) {
+  if (!isSigned)
+    return {a.udiv(b), a.urem(b)};
+  if (a.isMinSignedValue() && b.isAllOnes())
+    return {a, APInt::getZero(a.getBitWidth())};
+  APInt q = a.sdiv(b), r = a.srem(b);
+  if (r.isNegative()) {
+    if (b.isStrictlyPositive()) {
+      q -= 1;
+      r += b;
+    } else {
+      q += 1;
+      r -= b;
+    }
+  }
+  return {q, r};
+}
+
+template <typename Division>
+concept DivisionOp = requires(Division op) {
+  { Division::quotient } -> std::convertible_to<bool>;
+  op.getLhs();
+  op.getRhs();
+  op.getIsSigned();
+};
+
+template <DivisionOp Division>
+OpFoldResult foldDivision(Division op, typename Division::FoldAdaptor adaptor) {
+  auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
+  if (!rhs || rhs.getValue().isZero())
+    return {};
+  if (rhs.getValue().isOne())
+    return Division::quotient ? OpFoldResult(op.getLhs())
+                              : OpFoldResult(IntegerAttr::get(op.getType(), 0));
+  auto lhs = dyn_cast_or_null<IntegerAttr>(adaptor.getLhs());
+  if (!lhs)
+    return {};
+  auto [q, r] = idrisDivMod(lhs.getValue(), rhs.getValue(), op.getIsSigned());
+  return IntegerAttr::get(op.getType(), Division::quotient ? q : r);
+}
+
+std::optional<StringRef> divisionCrashCause(Value divisor) {
+  if (knownNonZero(divisor))
+    return std::nullopt;
+  return StringRef("division by zero");
+}
+
+} // namespace
+
 #include "idr/IdrDialect.cc.inc"
+
+#include "idr/IdrInterfaces.cc.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "idr/IdrTypes.cc.inc"
 
 #define GET_OP_CLASSES
 #include "idr/IdrOps.cc.inc"
+
+// The version an op's `Since` trait names, or 0 without one.
+template <typename Op> static constexpr int sinceOf() {
+  if constexpr (requires { Op::since; })
+    return Op::since;
+  else
+    return 0;
+}
+
+// Folds over ODS's own list of every idr op, so no op can be left out.
+template <typename... Ops> static int sinceOfAny(Operation *op) {
+  int since = 0;
+  (void)((isa<Ops>(op) ? (since = sinceOf<Ops>(), true) : false) || ...);
+  return since;
+}
+
+int idr::sinceVersion(Operation *op) {
+  return sinceOfAny<
+#define GET_OP_LIST
+#include "idr/IdrOps.cc.inc"
+      >(op);
+}
 
 namespace {
 
@@ -83,12 +181,15 @@ SmallVector<CtorOp> DataOp::getCtors() {
 // Data declarations
 //===----------------------------------------------------------------------===//
 
-static bool isFieldType(Type type) {
+bool idr::isValueType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() &&
-           llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
+           llvm::is_contained({1u, 8u, 16u, 32u, 64u}, integer.getWidth());
   return isa<Float64Type, DataType, ErasedType, StrType, WorldType>(type);
 }
+
+// A field holds any value but a flag.
+bool idr::isFieldType(Type type) { return isValueType(type) && !type.isInteger(1); }
 
 // IDR-DATA-1, IDR-DATA-2
 LogicalResult DataOp::verify() {
@@ -195,88 +296,6 @@ OpFoldResult FieldOp::fold(FoldAdaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// Division (IDR-DIV-*, IDR-EFF-1)
-//===----------------------------------------------------------------------===//
-
-// Euclidean quotient and remainder (SEM-INT-3) on the mathematical values of
-// `a` and `b` in `width` bits; the quotient wraps.
-static std::pair<APInt, APInt> idrisDivMod(const APInt &a, const APInt &b,
-                                           bool isSigned) {
-  if (!isSigned)
-    return {a.udiv(b), a.urem(b)};
-  if (a.isMinSignedValue() && b.isAllOnes())
-    return {a, APInt::getZero(a.getBitWidth())};
-  APInt q = a.sdiv(b), r = a.srem(b);
-  if (r.isNegative()) {
-    if (b.isStrictlyPositive()) {
-      q -= 1;
-      r += b;
-    } else {
-      q += 1;
-      r -= b;
-    }
-  }
-  return {q, r};
-}
-
-template <typename OpT>
-static OpFoldResult foldDivision(OpT op, Attribute lhsAttr, Attribute rhsAttr,
-                                 bool quotient) {
-  auto rhs = dyn_cast_or_null<IntegerAttr>(rhsAttr);
-  if (!rhs || rhs.getValue().isZero())
-    return {};
-  if (rhs.getValue().isOne())
-    return quotient ? OpFoldResult(op.getLhs())
-                    : OpFoldResult(IntegerAttr::get(op.getType(), 0));
-  auto lhs = dyn_cast_or_null<IntegerAttr>(lhsAttr);
-  if (!lhs)
-    return {};
-  auto [q, r] = idrisDivMod(lhs.getValue(), rhs.getValue(), op.getIsSigned());
-  return IntegerAttr::get(op.getType(), quotient ? q : r);
-}
-
-OpFoldResult DivOp::fold(FoldAdaptor adaptor) {
-  return foldDivision(*this, adaptor.getLhs(), adaptor.getRhs(), true);
-}
-
-OpFoldResult ModOp::fold(FoldAdaptor adaptor) {
-  return foldDivision(*this, adaptor.getLhs(), adaptor.getRhs(), false);
-}
-
-static bool divisorKnownNonZero(Value divisor) {
-  APInt value;
-  return matchPattern(divisor, m_ConstantInt(&value)) && !value.isZero();
-}
-
-template <typename OpT>
-static void divisionEffects(
-    OpT op,
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (!divisorKnownNonZero(op.getRhs()))
-    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
-}
-
-void DivOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  divisionEffects(*this, effects);
-}
-
-void ModOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  divisionEffects(*this, effects);
-}
-
-Speculation::Speculatability DivOp::getSpeculatability() {
-  return divisorKnownNonZero(getRhs()) ? Speculation::Speculatable
-                                       : Speculation::NotSpeculatable;
-}
-
-Speculation::Speculatability ModOp::getSpeculatability() {
-  return divisorKnownNonZero(getRhs()) ? Speculation::Speculatable
-                                       : Speculation::NotSpeculatable;
-}
-
-//===----------------------------------------------------------------------===//
 // Characters (IDR-CHAR-1)
 //===----------------------------------------------------------------------===//
 
@@ -296,11 +315,6 @@ OpFoldResult ToCharOp::fold(FoldAdaptor adaptor) {
 // Doubles (IDR-DBL-1)
 //===----------------------------------------------------------------------===//
 
-static bool knownFinite(Value value) {
-  FloatAttr constant;
-  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
-}
-
 OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
   auto value = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
   if (!value || !value.getValue().isFinite())
@@ -312,12 +326,14 @@ OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
   return IntegerAttr::get(getType(), whole.trunc(getType().getIntOrFloatBitWidth()));
 }
 
-void ToIntOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (!knownFinite(getValue()))
-    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+std::optional<StringRef> ToIntOp::getCrashCause() {
+  if (knownFinite(getValue()))
+    return std::nullopt;
+  return StringRef("cast of a non-finite Double");
 }
 
-Speculation::Speculatability ToIntOp::getSpeculatability() {
-  return knownFinite(getValue()) ? Speculation::Speculatable : Speculation::NotSpeculatable;
-}
+//===----------------------------------------------------------------------===//
+// Crashes (IDR-CRASH-1)
+//===----------------------------------------------------------------------===//
+
+std::optional<StringRef> CrashOp::getCrashCause() { return getMessage(); }
