@@ -225,12 +225,19 @@ betaAll : ClosedTerm -> List ClosedTerm -> ClosedTerm
 betaAll (Bind _ _ (Lam _ _ _ _) sc) (v :: vs) = betaAll (subst v sc) vs
 betaAll tm vs = foldl (App EmptyFC) tm vs
 
+||| Substitutes the outer `let`s of a closed term. Idris elaborates a record
+||| update to a `let` of the record around its fields, so an implementation
+||| resolved inside it is written under a `let` it does not use.
+zeta : ClosedTerm -> ClosedTerm
+zeta (Bind _ _ (Let _ _ v _) sc) = zeta (subst v sc)
+zeta tm = tm
+
 ||| A term in scope as a closed term, with compile-time values substituted
 ||| and not normalised, so that an implementation keeps its written form. A
 ||| runtime variable becomes `Erased` with reason `Impossible`, which
 ||| `runtimeDependent` detects.
 closeWritten : {vars : Scope} -> FC -> List (VarInfo n) -> TT vars -> ClosedTerm
-closeWritten fc env tm = betaAll (wrapLams fc tm) (reverse (map value env))
+closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)))
   where
     value : VarInfo n -> ClosedTerm
     value (TypeValue t) = t

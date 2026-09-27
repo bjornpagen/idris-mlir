@@ -187,8 +187,12 @@ error follows `DIAG-*`.
     argument that is a variable bound to an implementation (as Idris passes
     constraints to case and with blocks), is a compile-time value: the
     closed TT term as written, with the enclosing compile-time values
-    substituted and not normalised. It keys the instance (`ELIM-MONO-1`)
-    and is erased at runtime.
+    substituted and not normalised, except that its outer `let`s are
+    substituted: Idris elaborates a record update to a `let` of the record,
+    and an implementation resolved inside it is written under that `let`
+    without using it. It keys the instance (`ELIM-MONO-1`) and is erased at
+    runtime.
+    - Test: `tests/e2e/v2/nbody` (record updates that use `negate` and `*`)
   - An argument that depends on a runtime value is rejected: an
     implementation chosen at runtime (`PROF-HEAP-1`).
   - A match on an implementation selects its alternative during
