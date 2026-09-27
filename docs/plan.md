@@ -80,8 +80,8 @@ Settled, and the rest of the plan builds on them:
 5. **Everything but the operating system's interface is linked statically**
    (section 5), as Go does.
    - **Linux:** the interface is the kernel's syscalls, so executables are
-     fully static on musl. musl and GMP are vendored as pinned git
-     submodules, and the toolchain itself (GCC's target, LLVM/MLIR and our
+     fully static on musl. musl, GMP, simdutf and the allocator (mimalloc)
+     are vendored as pinned git submodules, and the toolchain itself (GCC's target, LLVM/MLIR and our
      C++ tools, `idr-jit` included) is built on musl, so compile time and
      runtime share one libc.
    - **macOS** (a later target): the interface is `libSystem`, since Apple
@@ -260,8 +260,9 @@ points like ours), ported to `Code Mem`, in Lean's order:
   - negative: shared, atomic;
   - zero: persistent, never counted;
   - a count that overflows sticks, and its object is never freed.
-- **A heap per core**: size classes and free lists with no locks. A remote
-  free goes to the owner's queue, which the owner drains.
+- **A heap per core**: the vendored allocator's heap for the core's thread
+  (section 5.6). It has size classes and free lists with no locks. A remote
+  free goes onto a list owned by the allocating core, which drains it.
 - **Freeing is iterative**, through an intrusive list of dying objects
   (Lean's `lean_del_core`). It uses no stack, and a large free can be
   spread over time.
@@ -298,6 +299,9 @@ points like ours), ported to `Code Mem`, in Lean's order:
    - a pipeline passing trees between cores.
    - **Pass:** atomics appear only on genuinely shared data, and each
      program is no slower than Go's version.
+   - Each program runs twice: on mimalloc and on snmalloc. The pipeline
+     makes a remote free of every node, which is where the two differ
+     (section 5.6).
 
 If the gate fails, the memory decision is reopened with the numbers.
 
@@ -340,8 +344,9 @@ runtime run the same code.
 - **`memcpy` is a simple `rep movsq`**, slower than glibc's vector copies
   on large blocks. Our generated code copies little, and a measured
   problem would be met by a better `memcpy` in the runtime.
-- **Its `malloc` (mallocng) is slow.** We use our own allocator
-  (section 4.3); musl's only serves musl itself.
+- **Its `malloc` (mallocng) is slow.** The runtime allocates through
+  mimalloc (section 5.6), so musl's `malloc` serves only musl and C
+  libraries, unless mimalloc replaces it too (section 12.2).
 
 **The toolchain becomes musl-based.**
 - `bootstrap` builds musl, then a GCC that targets `x86_64-linux-musl`
@@ -388,8 +393,7 @@ The runtime is C, compiled by the musl GCC into one static archive in
 - the crash, output and number-printing paths that are LLVM-dialect
   helpers today (`Lower/Runtime.mlir.inc`, which shrinks accordingly).
 
-**The allocator:** vendored mimalloc (per-thread heaps and remote frees are
-what section 4.3 needs), or our own size classes (section 12).
+The allocator underneath is vendored, not written (section 5.6).
 
 ### 5.5 Platforms
 
@@ -407,11 +411,120 @@ of that layer and not a redesign:
 | JIT memory | `mmap` read-write, then read-execute | `MAP_JIT`, toggled with `pthread_jit_write_protect_np` on Apple silicon |
 | Toolchain | the musl GCC; LLVM/MLIR static on musl | Apple's SDK and linker; LLVM/MLIR on `libSystem` |
 | Bignums | GMP, static | GMP, static |
+| Allocator | mimalloc, static | mimalloc, static |
 
 - **The one-libc rule still holds on macOS:** `idr-jit` and the executables
   both use `libSystem`.
 - **What macOS loses:** hard pinning of threads to cores, and `io_uring`.
   Thread-per-core becomes one scheduler per CPU that the OS may move.
+
+### 5.6 The allocator: vendored mimalloc
+
+We vendor an allocator; we do not write one. Lean took the same path:
+- In 2019 its runtime had its own small-object allocator (Counting
+  Immutable Beans, `alloc.tex`, *read*).
+- At `e21c2cf` that allocator is gone. Lean allocates through mimalloc v3,
+  which is on by default (`USE_MIMALLOC`).
+- The runtime's allocation entry point is compiled in one translation unit
+  with mimalloc's `static.c`, so the fast path inlines into it
+  (`src/runtime/mimalloc.cpp`, *code*).
+- Lean also links mimalloc ahead of its runtime, so it replaces `malloc` in
+  Lean's own executable.
+
+Koka vendors mimalloc as a submodule of `kklib`, on by default
+(`KK_MIMALLOC`, *code*).
+
+**What section 4.3 asks of the allocator:**
+- a fast path with no atomics, for sizes known at compile time;
+- remote frees that take no lock and do not slow the owner. After
+  move-or-mark, a moved structure's nodes still belong to the sender's
+  pages, so the receiver frees each of them remotely. A shared object is
+  freed by whichever core drops the last count;
+- a build in C with the musl GCC: static, without libstdc++;
+- Linux now, macOS later;
+- control over when memory goes back to the kernel;
+- safety in the JIT server, which is single-threaded and forks per call;
+- a way to run on our segmented stacks (below).
+
+**The candidates** (clones read for this plan, *code* unless marked):
+
+| | mimalloc 3.5.3 | snmalloc | rpmalloc | jemalloc | tcmalloc |
+| --- | --- | --- | --- | --- | --- |
+| Language, size | C, ~26k lines | C++ header-only, ~22k | C, ~4.4k | C, ~61k | C++, ~59k, plus abseil |
+| Licence | MIT | MIT | Unlicense or MIT | BSD-2 | Apache 2.0 |
+| Static on musl without libstdc++ | yes (`MI_LIBC_MUSL`) | needs a C++ compiler; builds with `-nostdlib++` and its own STL subset (`SNMALLOC_USE_SELF_VENDORED_STL`) | yes | yes | no: needs abseil and libstdc++ |
+| Remote free | one atomic push per block onto the page's thread-free list; the owner collects it when it next allocates from that page | queued per owning allocator and sent in batches: "1000s of remote deallocations with a single atomic" (README) | an atomic push onto the page's deferred list | goes into the freeing thread's cache, then back to the owning bin under the bin's lock (`bin.c`) | per-CPU caches through `rseq` (Linux only) |
+| Heaps as values | first-class heaps, usable from any thread in v3; `mi_heap_destroy` frees a whole heap at once; a thread's `theap` can be cached and passed to the fast path | one allocator per thread | optional (`RPMALLOC_FIRST_CLASS_HEAPS`) | arenas, explicit caches | none |
+| Size known at compile time | `mi_malloc_small`, `mi_free_small`, `mi_free_csize`, added for "run-time systems and compilers (like Koka, Lean …)" (README) | sized free | none | `sdallocx` | sized free |
+| Returning memory | purges after a delay (1 s by default in v3) and never splits huge pages | decommits | configurable | decay-based purging, the most tunable | background release |
+| macOS | yes | yes | yes | yes | Linux first |
+| Functional runtimes using it | Lean, Koka | none found | none found | none found | none found |
+
+**The choice is mimalloc:**
+- Lean and Koka use it, with our object sizes and our pattern of frees, and
+  it has fast paths added for exactly that use.
+- It is C in one translation unit, built with the rest of `runtime/`. As in
+  Lean, the runtime caches the core's `theap` in its own per-core structure
+  and calls `mi_theap_malloc_small` with it, so the fast path reads none of
+  mimalloc's thread-local variables.
+- Our header needs no size field. The constructor gives the size at compile
+  time, so a drop calls `mi_free_csize` with a constant.
+- GMP's memory functions (`mp_set_memory_functions`) point at it, as
+  Lean's `mpz.cpp` does.
+
+**Where snmalloc could win: remote frees.** In mimalloc, each block freed
+from another core costs one atomic operation. snmalloc sends them in
+batches, and its paper (ISMM 2019, *read*) shows it best on
+producer-consumer workloads. It does not compare against mimalloc. The
+gate's pipeline program (section 4.4, experiment 3) runs on both.
+- **Switch rule:** switch to snmalloc if it is clearly faster on the
+  pipeline and no slower on the other two programs.
+- **The switch stays local.** The runtime reaches the allocator through a
+  handful of functions (allocate, free with a known size, free with an
+  unknown size, and the per-core heap).
+- **What snmalloc costs:** C++ in the runtime archive, built with
+  `-nostdlib++`.
+
+**The rest were not chosen:**
+- **rpmalloc** is small and fast, but no functional runtime uses it, and it
+  has no API for sizes known at compile time.
+- **jemalloc** returns remote frees through bins that take a lock, and it
+  is the largest C option.
+- **tcmalloc** needs abseil and libstdc++, and its per-CPU caches rely on
+  Linux's `rseq`.
+
+**What our design adds around it:**
+- **Stacks.** Allocation runs on a task's segment (section 7.3). Switching
+  to the system stack on every allocation would cost too much, so each
+  segment keeps a reserve above the prologue's limit for mimalloc's deepest
+  path. That path takes a fresh page, a purge or an `mmap`.
+  - The reserve is measured with GCC's `-fstack-usage` and checked in CI.
+  - Only allocation, freeing and the count helpers may use the reserve
+    without a check (Go's `nosplit` functions and their guard).
+  - Every other C call switches stacks.
+- **A heap per thread is a heap per core.** Each scheduler is one pinned
+  thread, and all tasks on a core share its heap, as section 4.3 wants.
+  - A stolen future allocates from the thief core's heap.
+  - Threads in the blocking pool get their own heaps. They allocate
+    rarely.
+- **Freeing stays ours.** The iterative to-do list runs through object
+  headers, as in Lean, and mimalloc sees only the final free. Persistent
+  static objects (count 0) never reach it.
+- **TLS on static musl.** The static build uses `-ftls-model=local-dynamic`
+  (mimalloc issue #644). In a static-PIE executable the linker relaxes this
+  to local-exec, and the cached `theap` avoids TLS on the fast path anyway.
+- **No environment dependence.** mimalloc reads `MIMALLOC_*` variables at
+  start-up. It is built with `MI_NO_GETENV`, so that the runtime sets its
+  options (`mi_option_set`) and a program's allocation behaviour does not
+  depend on its environment.
+- **Hardening only in the debug runtime.** `MI_SECURE` costs about 10% on
+  average (README), so it is off in release builds. The debug runtime used
+  by the test suites enables `MI_SECURE=4` and `MI_DEBUG`, which catch
+  double frees and invalid frees. Those are what a counting bug in the
+  passes of section 4.2 looks like.
+- **The JIT.** The server is single-threaded, so a forked child inherits a
+  consistent heap. No other thread can hold an allocator lock at the
+  `fork`. The child exits with `_exit` and frees nothing.
 
 ## 6. Compile-time evaluation: one JIT path
 
@@ -557,6 +670,9 @@ The candidates:
 - **C code has no prologue.** Calls into the runtime, GMP and musl
   therefore switch to a per-core system stack of fixed, ample size, as Go
   does for C calls.
+  - The exception is allocation, freeing and the count helpers, which are
+    too frequent to switch. They run in a measured reserve at the top of
+    each segment (section 5.6).
 - **Tail recursion modulo cons** (Leijen and Lorenzen, *literature*) turns
   `map`, `filter` and `append` into loops that fill a hole in the last
   cell. This removes most deep recursion before stacks are involved, and
@@ -720,7 +836,7 @@ Each milestone requires:
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
 | 1 | **Cleanup** (section 9) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
-| 3 | **Static toolchain on musl** (section 5) | musl, GMP and simdutf pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
+| 3 | **Static toolchain on musl** (section 5) | musl, GMP, simdutf and mimalloc pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
 | 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; reference counting on `Code Mem` (section 4.2); runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
@@ -773,6 +889,7 @@ reverse it.
 | Idris's libraries as the concurrency API (7.2) | no language design; programs run on Chez too | no "fork on core k" (a runtime policy stands in) | a program cannot be written without placement control |
 | Segmented stacks with our own check (7.3) | unbounded recursion like the reference; unbounded tasks; no pointer maps | a check per function entry; a system-stack switch per C call; the hot-split case | C0 shows the check is not within noise, or hot splits are common |
 | musl on Linux, `libSystem` on macOS (5.2, 5.5) | a complete, mature Linux libc on which the whole toolchain, the JIT included, can be static; the same OS-layer shape on macOS | a simple `memcpy`; one more GCC build; two OS layers to maintain | a supported platform offers no static libc and no stable dynamic one (not the case for Linux or macOS) |
+| Vendored mimalloc (5.6) | Lean's and Koka's allocator; fast paths for sizes known at compile time; C in one translation unit, static; first-class heaps; no allocator of our own to write or debug | one atomic operation per remote free; a stack reserve in every segment for its slow path; a dependency to pin and follow | snmalloc is clearly faster on the gate's pipeline and no slower elsewhere, or remote frees dominate a real workload |
 | GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
 | One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
 | UTF-8 strings with scalar counts, via simdutf (3) | upstream's encoding at every boundary; output without transcoding; compact storage; O(1) for ASCII; SIMD validation and counting | breadcrumbs for indexing non-ASCII strings; a C++ dependency built without libstdc++, through an API marked experimental | programs index non-ASCII strings heavily enough that UTF-32 wins, or simdutf's C API breaks and a small C validator replaces it |
@@ -853,9 +970,24 @@ decision.
      counts anyway.
    - **Settles it:** experiment 3 of the gate, with and without a handshake
      at steal time.
-8. **The allocator:** mimalloc (vendored) or our own size classes; and when
-   freed memory goes back to the kernel (`madvise`), trading resident
-   memory against speed.
+8. **The allocator's open parameters.** Section 5.6 chooses mimalloc.
+   - **Unknown:**
+     - whether snmalloc's batched remote frees beat mimalloc on the
+       pipeline;
+     - how large a reserve mimalloc's slow path needs on a segment;
+     - the purge delay, which trades resident memory against speed;
+     - whether mimalloc should also replace `malloc` for musl, GMP and the
+       C support library in executables (Lean does so in its own
+       executable), and in our tools, LLVM included.
+   - **Settles it:**
+     - gate experiment 3, on both allocators;
+     - `-fstack-usage` over mimalloc's sources;
+     - the allocation suite, measuring peak resident memory at two purge
+       delays;
+     - for replacing `malloc`: a build of `idr-jit` with and without the
+       replacement. musl supports the replacement: its `WHATSNEW` says
+       "replacement of malloc is now allowed/supported", and allocations
+       inside musl that must stay musl's call `__libc_malloc` (*code*).
 9. **Strings in loops.** `s ++ x` in a loop is quadratic unless the append
    extends a unique `s` in place (Lean's `String.append`). Small strings
    could live inline in the value instead of on the heap (Swift). Measured
@@ -1030,6 +1162,18 @@ Perceus (Reinking et al., PLDI 2021), Figure 9:
     (`src/Core/Primitives.idr`, `src/Compiler/Scheme/Common.idr`,
     `src/Compiler/RefC/RefC.idr`, `support/refc/stringOps.h`,
     `src/Compiler/ES/Codegen.idr`);
+  - the allocators, cloned from GitHub:
+    - mimalloc 3.5.3 (`include/mimalloc.h`, `readme.md`, `src/free.c`,
+      `src/page.c`, `CMakeLists.txt`);
+    - snmalloc (`README.md`, `snmalloc.pdf`: Liétar et al., "snmalloc:
+      a message passing allocator", ISMM 2019);
+    - rpmalloc (`rpmalloc/rpmalloc.c`);
+    - jemalloc (`src/tcache.c`, `src/bin.c`);
+    - tcmalloc (`README.md`, `CMakeLists.txt`);
+  - how Lean and Koka use mimalloc: Lean's `src/runtime/mimalloc.cpp`,
+    `alloc.cpp`, `object.cpp` and `mpz.cpp`, and `USE_MIMALLOC` in
+    `src/CMakeLists.txt`; Koka's `kklib/CMakeLists.txt` (`KK_MIMALLOC`) and
+    `.gitmodules`;
   - LLVM libc and LLVM in the pinned `llvm-project` (`libc/docs`,
     `libc/config/linux/x86_64/entrypoints.txt`,
     `llvm/include/llvm/ADT/DynamicAPInt.h`,
