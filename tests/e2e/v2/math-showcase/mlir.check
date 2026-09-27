@@ -1,0 +1,5 @@
+// rule: OPT-PIPE-3, ELIM-G-11
+// The two IO loops that print the Mandelbrot set are the loop breakers;
+// once case blocks are unfolded, nothing else is on a cycle of two or more.
+// CHECK-DAG: sym_name = "Main.mandelRow$35$1", sym_visibility = "private", no_inline
+// CHECK-DAG: sym_name = "Main.mandel$35$1", sym_visibility = "private", no_inline

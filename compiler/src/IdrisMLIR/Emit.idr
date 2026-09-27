@@ -17,6 +17,7 @@ import Data.List
 import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
+import Data.SortedSet
 import Data.String
 
 %default covering
@@ -379,8 +380,8 @@ inhabitant ix l (S fuel) (DataT d) = do
       maybe (pure Nothing) (map Just . con l c.id) (sequence fs)
     [] => pure Nothing
 
-function : Index -> CFn -> E MOp
-function ix fn = do
+function : Index -> SortedSet FnId -> CFn -> E MOp
+function ix breakers fn = do
   let params = map (\p => ("%a" ++ show p.var.index, p)) fn.params
   let env = fromList (map (\(n, p) => (p.var, (n, mtype p.type))) params)
   let res = mtype fn.result
@@ -401,7 +402,8 @@ function ix fn = do
   pure (MkMOp Nothing "func.func" []
               (argAttrs ++ [ ("function_type", TypeA (FunctionT (map (mtype . (.type)) fn.params) [res]))
                            , ("sym_name", StrA (symbol fn.id.name))
-                           , ("sym_visibility", StrA "private") ])
+                           , ("sym_visibility", StrA "private") ]
+               ++ (if contains fn.id breakers then [("no_inline", UnitA)] else []))
               [MkRegion (map (\(n, p) => (n, mtype p.type)) params) ops]
               [("idr.name", StrA fn.idrisName)] [] [] fn.loc)
 
@@ -410,7 +412,7 @@ export
 emit : Target -> Either String String
 emit t = do
   let ix = index t
-  (st, fns) <- runStateT (MkES 0 [<]) (traverse (function ix) t.fns)
+  (st, fns) <- runStateT (MkES 0 [<]) (traverse (function ix (loopBreakers t.fns)) t.fns)
   let kind = case t.entry of
                IntEntry => "int"
                IOEntry => "io"

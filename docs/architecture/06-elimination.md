@@ -168,6 +168,15 @@ is static.
   - *Why this is exact:* evaluation is strict (`SEM-EVAL-1`), so evaluating
     a body with the values of the arguments is the call.
   - Test: `tests/e2e/v2/string-functions`
+- **ELIM-G-11 (v2). Unfolding case blocks.** A call of an Idris case or
+  with block is evaluated where it is called, like `ELIM-G-10`. Idris lifts
+  each `case` and `with` into a function of its own, so a loop written as
+  one function with an `if` becomes two or three mutually recursive
+  functions. Unfolding the blocks makes the written function the only one
+  on the cycle again, and directly self recursive. A block that is already
+  being unfolded is specialized instead.
+  - *Why this is exact:* as for `ELIM-G-10`.
+  - Test: `tests/e2e/v2/math-showcase`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:

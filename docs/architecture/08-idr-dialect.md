@@ -85,7 +85,8 @@ idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
   - `quantities` has one entry per field (`"0"`, `"1"` or `"w"`). The entry
     is `"0"` exactly when the field type is `!idr.erased`.
 - **IDR-DATA-3 (v0).** Field types are `i8`–`i64`, `!idr.data<@U>` or
-  `!idr.erased`, and from v1 also `!idr.str` and `!idr.world`.
+  `!idr.erased`, from v1 also `!idr.str` and `!idr.world`, and from v2
+  `f64`.
 - **IDR-DATA-4 (v0).** Runtime containment is acyclic. In the graph with an
   edge T → U whenever a field of T has type `!idr.data<@U>`, there is no
   cycle. This makes the heap-free property structural (`GOAL-P4`).
@@ -233,7 +234,8 @@ and `idr-lower` removes it (`LOW-TAIL-4`). It is never part of the input.
   - one argument per Idris parameter, in Idris order, including erased
     parameters as `!idr.erased`;
   - on every argument, `idr.quantity = "0" | "1" | "w"`;
-  - exactly one result, of a runtime type.
+  - exactly one result, of a runtime type;
+  - from v2, possibly `no_inline`, on a loop breaker (`OPT-PIPE-3`).
 - **IDR-FN-2 (v0).** Symbol names are mangled from Idris full names:
   - characters outside `[A-Za-z0-9_.]`, including `$` itself, are written
     `$<decimal code point>$`, so the mapping is injective;

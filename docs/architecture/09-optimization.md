@@ -96,8 +96,19 @@ Superoptimization, equality saturation and search are non-goals (D7).
   inlines a recursive function into itself, and many self tail calls exist
   only after inlining: a `do` block's `>>` and a raised IO function become
   one function whose last action calls it again.
-- **OPT-PIPE-3 (v0).** The inliner uses upstream's default policy. Code-size
-  limits are a later tuning decision and need their own rule.
+- **OPT-PIPE-3 (v2).** The inliner uses upstream's default policy, on a call
+  graph whose cycles are already cut. `Emit` marks *loop breakers*
+  `no_inline`, as GHC does (Peyton Jones and Marlow, "Secrets of the
+  Glasgow Haskell Compiler inliner", JFP 2002): in every strongly connected
+  component of two or more functions it picks one, the first in program
+  order that is not from a library module (`Builtin`, `PrimIO`,
+  `IdrisMLIR.IO`), and repeats on the rest of the component. Everything else
+  may be inlined, which cannot unroll a loop, and each breaker becomes self
+  recursive for `idr-tail-loops` (`OPT-PIPE-2`). Without it the inliner
+  unrolled mutual recursion between an IO loop and its `>>` specialization
+  until a 200-function program took over a minute and grew twentyfold.
+  - Check: `Code.loopBreakers`
+  - Test: `tests/e2e/v2/math-showcase/mlir.check`
 - **OPT-IDEM-1 (v0).** Running the pipeline's steps 3–8 a second time on
   their own output changes nothing. A difference means a missing
   canonicalization and is recorded as an issue, not a failure.

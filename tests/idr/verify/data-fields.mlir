@@ -2,8 +2,8 @@
 // rule: IDR-DATA-3, IDR-TY-3
 
 idr.data @T {
-  // expected-error @+1 {{has a field of unsupported type 'f64'}}
-  idr.ctor @A tag 0 fields [f64] quantities ["w"]
+  // expected-error @+1 {{has a field of unsupported type 'f32'}}
+  idr.ctor @A tag 0 fields [f32] quantities ["w"]
 }
 
 // -----

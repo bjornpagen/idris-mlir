@@ -275,6 +275,7 @@ record TFn where
   body : Term arity
   loc : Loc
   terminating : Bool   -- Idris's checker reports it total (ELIM-G-5)
+  block : Bool         -- an Idris case or with block: part of its parent (ELIM-G-11)
 
 ||| A whole program in full Core.
 public export

@@ -81,7 +81,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
   | Module | Admitted definitions |
   | --- | --- |
-  | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` (`fromChar`, `fromString`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, which elaborate character and string literals in polymorphic positions |
+  | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` and, from v2, `FromDouble` (`fromChar`, `fromString`, `fromDouble`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, `defaultDouble`, which elaborate character, string and `Double` literals in polymorphic positions |
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
   | `IdrisMLIR.IO` | every definition (`PROF-IO-1`) |
 
@@ -385,17 +385,22 @@ construct, and says which elimination did not apply and why
 ## Pragmas
 
 - **PROF-PRAG-1 (v0).** User modules contain no pragma. Every `%`-directive is
-  forbidden, including `%default`. Fixity declarations (`infixl` and so on)
-  are declarations, not pragmas, and are allowed.
+  forbidden, except `%default` from v2. Fixity declarations (`infixl` and so
+  on) are declarations, not pragmas, and are allowed.
   - Check: `Frontend.Profile.checkPragmas`. It lexes each user module's
     source with Idris's own lexer (`Parser.Lexer.Source`) and rejects every
-    `Pragma` token at its position, including in unreachable code.
-  - Test: `tests/profile/v0/reject/PROF-PRAG-1-{default,inline,transform,unreachable}.idr`
+    other `Pragma` token at its position, including in unreachable code.
+  - Test: `tests/profile/v0/reject/PROF-PRAG-1-{inline,transform,unreachable}.idr`,
+    `tests/profile/v2/{accept/PROF-PRAG-1-default,reject/PROF-PRAG-1-default-with-inline}.idr`
 
   *Rationale:* pragmas change elaboration or code generation in ways the
   profile does not specify. Some leave traces in TT (`%inline`, `%transform`,
-  `%spec`, `%foreign`); others leave none (`%default`, `%logging`). Lexing
-  catches them all.
+  `%spec`, `%foreign`); others leave none (`%logging`). Lexing catches them
+  all. `%default` changes only the totality Idris demands of a definition,
+  not the totality it finds, which is all the compiler reads
+  (`PROF-HEAP-5`); without it, every numeric program would mark each
+  function that divides `partial`, because the division primitives are
+  partial in `Builtin`.
 
 ## Later versions (informative until adopted)
 

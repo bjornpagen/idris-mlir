@@ -353,6 +353,60 @@ index t = MkIndex (fromList [(f.id, f) | f <- t.fns])
                   (fromList [(d.id, d) | d <- t.datas])
                   (fromList [(c.id, c) | d <- t.datas, c <- d.cons])
 
+||| OPT-PIPE-3: the loop breakers of a program, as in GHC ("Secrets of the
+||| Glasgow Haskell Compiler inliner", Peyton Jones and Marlow): enough
+||| functions that every recursive cycle through two or more functions
+||| contains one. Inlining everything else cannot unroll a loop, and each
+||| breaker becomes self recursive once the rest of its cycle is inlined.
+||| In each cycle, the breaker is the first function in program order that
+||| is not from a library module, or the first function if all are.
+export
+loopBreakers : List CFn -> SortedSet FnId
+loopBreakers fns =
+  -- `let`, not `where`: a `where` binding is recomputed at each use.
+  let edges = the (SortedMap FnId (List FnId)) (fromList [(f.id, nub (calls f.body)) | f <- fns])
+      library = the (SortedSet FnId) (fromList [f.id | f <- fns, isLibrary f.idrisName])
+  in fromList (within edges library (length fns) (map (.id) fns))
+  where
+    isLibrary : String -> Bool
+    isLibrary n = any (`isPrefixOf` n) ["Builtin.", "PrimIO.", "IdrisMLIR.IO."]
+    -- The functions reachable from `f` in one or more calls inside `set`.
+    reach : SortedMap FnId (List FnId) -> SortedSet FnId -> FnId -> SortedSet FnId
+    reach edges set f = walk (length fns) empty (next f)
+      where
+        next : FnId -> List FnId
+        next g = filter (`contains` set) (fromMaybe [] (lookup g edges))
+        walk : Nat -> SortedSet FnId -> List FnId -> SortedSet FnId
+        walk Z seen _ = seen
+        walk _ seen [] = seen
+        walk (S k) seen (g :: gs) =
+          if contains g seen then walk (S k) seen gs
+          else walk k (insert g seen) (next g ++ gs)
+    split : (FnId -> FnId -> Bool) -> Nat -> List FnId -> List (List FnId)
+    split r Z _ = []
+    split r _ [] = []
+    split r (S k) (f :: rest) =
+      let (same, other) = partition (\g => r f g && r g f) rest
+      in (f :: same) :: split r k other
+    -- The strongly connected components of the call graph on `ns`, each in
+    -- program order.
+    components : SortedMap FnId (List FnId) -> List FnId -> List (List FnId)
+    components edges ns =
+      let set = fromList ns
+          reaches = the (SortedMap FnId (SortedSet FnId)) (fromList [(f, reach edges set f) | f <- ns])
+      in split (\a, b => maybe False (contains b) (lookup a reaches)) (length ns) ns
+    -- The breakers among `ns`: in each component of two or more functions,
+    -- one breaker, then the breakers of the rest of that component.
+    within : SortedMap FnId (List FnId) -> SortedSet FnId -> Nat -> List FnId -> List FnId
+    within edges library Z _ = []
+    within edges library (S k) ns = concatMap cut (components edges ns)
+      where
+        cut : List FnId -> List FnId
+        cut [_] = []
+        cut c = case find (not . (`contains` library)) c <|> head' c of
+          Just b => b :: within edges library k (delete b c)
+          Nothing => []
+
 ||| Does a body use `Double` (contract version 2)?
 export
 needsV2 : Code -> Bool

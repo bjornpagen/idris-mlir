@@ -200,7 +200,7 @@ mutual
     case value fn.result of
       Nothing => pure (SCall f !(gets effects) vs [])                              -- G5
       Just StrT => unfold l fn vs []                                               -- G10
-      Just _ => call l Nothing f vs []
+      Just _ => if fn.block then unfold l fn vs [] else call l Nothing f vs []     -- G11
   eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
     dt <- dataDef l c.dataId
@@ -288,16 +288,19 @@ mutual
     now <- gets effects
     case value t of
       Nothing => pure (SCall f e as (ms ++ es))
-      -- G10, when no effect separates building the call from running it.
-      Just StrT => if e == now then leavePrefix (unfold l fn as (ms ++ es))
-                   else leavePrefix (call l (Just e) f as (ms ++ es))
       -- Running the deferred call is the action, not prefix code; the
-      -- callee's own prefix is recorded where it is specialized.
-      Just _ => leavePrefix (call l (Just e) f as (ms ++ es))
+      -- callee's own prefix is recorded where it is specialized. G10 and
+      -- G11 unfold it instead when no effect separates building the call
+      -- from running it.
+      Just r => if (r == StrT || fn.block) && e == now
+                   then leavePrefix (unfold l fn as (ms ++ es))
+                   else leavePrefix (call l (Just e) f as (ms ++ es))
   consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))
 
   ||| G10: a function that returns a String is evaluated where it is called,
   ||| so that the string it builds can still be folded or fused into output.
+  ||| G11: so is an Idris case or with block, which is part of its parent's
+  ||| body; the parent is then the only function on a recursive cycle.
   ||| A call of a function that is already being unfolded is specialized.
   unfold : Loc -> TFn -> List V -> List (Elim Atom) -> M V
   unfold l fn vs es = do

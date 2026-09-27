@@ -50,11 +50,13 @@ allowed =
   , "PrimIO.unsafeCreateWorld", "PrimIO.unsafeDestroyWorld" ]
 
 ||| PROF-LIB-1: literal elaboration goes through these interfaces of `Builtin`
-||| (`%charLit fromChar`, `%stringLit fromString`), with their Char and String
-||| implementations; the dictionaries are eliminated like any static record.
+||| (`%charLit fromChar`, `%stringLit fromString`, `%doubleLit fromDouble`),
+||| with their Char, String and Double implementations; the dictionaries are
+||| eliminated like any static record.
 allowedPrefixes : List String
 allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar", "Builtin.defaultChar",
-                   "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString", "Builtin.defaultString"]
+                   "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString", "Builtin.defaultString",
+                   "Builtin.FromDouble", "Builtin.fromDouble", "Builtin.MkFromDouble", "Builtin.defaultDouble"]
 
 admitted : String -> Bool
 admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes
@@ -125,6 +127,8 @@ checkPragmas ident path = do
     escape n = elem n (the (List String) ["prim__believe_me", "prim__crash", "believe_me", "idris_crash"])
     check : WithBounds Token -> Core ()
     check tok = case tok.val of
+      -- %default only sets the totality Idris requires.
+      Pragma "default" => pure ()
       Pragma p => reject (at tok) (show ident) ProfPrag1 ("the pragma %" ++ p)
       HoleIdent h => reject (at tok) (show ident) ProfEsc1 ("the hole ?" ++ h)
       Ident n => when (escape n) $ reject (at tok) (show ident) ProfEsc1 ("the escape hatch " ++ n)

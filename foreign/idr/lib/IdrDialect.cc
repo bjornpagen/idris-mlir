@@ -87,7 +87,7 @@ static bool isFieldType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() &&
            llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<DataType, ErasedType, StrType, WorldType>(type);
+  return isa<Float64Type, DataType, ErasedType, StrType, WorldType>(type);
 }
 
 // IDR-DATA-1, IDR-DATA-2

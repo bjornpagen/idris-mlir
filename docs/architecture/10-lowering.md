@@ -60,7 +60,7 @@ missed it). So:
 
 - **LOW-DATA-1 (v0).** `layout(T)` for `idr.data @T` with constructors
   `C_0 … C_{n-1}` is computed as follows:
-  1. **Components of a field.** An integer field is one component. A
+  1. **Components of a field.** An integer or `f64` field is one component. A
      `!idr.str` field is two (pointer and length). An `!idr.erased` or
      `!idr.world` field has none. An `!idr.data<@U>` field contributes the
      components of `layout(U)`, recursively (flattening). Recursion is

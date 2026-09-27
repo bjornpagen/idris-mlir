@@ -1019,6 +1019,13 @@ isTotal fc n = do
           IsTerminating => True
           _ => False)
 
+||| A case or with block that Idris made from part of a definition.
+isBlock : Name -> Bool
+isBlock (NS _ n) = isBlock n
+isBlock (CaseBlock _ _) = True
+isBlock (WithBlock _ _) = True
+isBlock _ = False
+
 ||| Translates one function instance (FE-TR-*).
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
@@ -1040,7 +1047,8 @@ translateInstance p = do
   body <- tree (MkCtx owner fc) env treeCT
   loc <- toLoc fc
   tot <- isTotal fc p.name
-  update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot)
+  update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot
+                                              (isBlock p.name))
                 , fnOrder $= (:< p.inst) }
   where
     binder : (Quantity, PKind) -> Binder
@@ -1117,4 +1125,4 @@ translateIOProgram fc main = do
                   Nothing)
   let rootId = MkFnId "$idris-mlir.root"
   src <- assemble rootId IOEntry
-  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True]) } src)
+  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True False]) } src)
