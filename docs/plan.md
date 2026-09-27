@@ -565,12 +565,19 @@ The candidates:
   (target: within noise) and the hot-split case, against fixed
   reservations. Only then build it.
 
-**Scheduling is cooperative.**
+**Scheduling is cooperative, with preemption at function entries.**
 - A task runs until it suspends on IO, a channel, a lock, a timer or an
   `await`. Long pure work belongs in futures.
-- The stack prologue gives a free preemption point. A flag checked on its
-  slow path (set by a timer to force the limit check to fail) adds
-  fairness later without signals.
+- **Cooperation alone is not enough.** A task that spin-waits on an
+  `IORef` which another forked task sets finishes under the reference's
+  preemptive threads and hangs forever on one cooperative core. That is a
+  legitimate Idris program.
+- **The stack prologue gives preemption for free.** A timer sets the task's
+  segment limit to a value above any stack pointer, so the next function
+  entry takes the slow path and yields. This is Go's `stackPreempt`
+  (`runtime/stack.go`, *code*).
+- Loops are join points and contain no call, so `idr-lower` puts the same
+  check on loop back-edges.
 
 **Semantics.**
 - The reference's `fork` starts an OS thread; ours starts a task. Only
@@ -719,7 +726,8 @@ Each milestone requires:
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
 | 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
 | 8 | **C0: stacks** (section 7.3) | the segment check in `idr-lower` and the system-stack switch, measured: the benchmark table within noise, and the hot-split case bounded; a million-deep non-tail recursion runs |
-| 8a | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
+| 8a | **Debugging and profiling** (12.5) | crash backtraces with source locations; DWARF from MLIR locations; `perf` and `gdb` through segments and system-stack switches |
+| 8b | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
 | 9 | **C2: thread-per-core** | a pinned scheduler per core; `SO_REUSEPORT`; move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
 | 10 | **C3: parallel futures** | stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
 | 11 | **C4: `io_uring`** | behind the same scheduler, if C2's numbers call for it |
@@ -768,26 +776,182 @@ reverse it.
 | GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
 | One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
 | UTF-8 strings with scalar counts, via simdutf (3) | upstream's encoding at every boundary; output without transcoding; compact storage; O(1) for ASCII; SIMD validation and counting | breadcrumbs for indexing non-ASCII strings; a C++ dependency built without libstdc++, through an API marked experimental | programs index non-ASCII strings heavily enough that UTF-32 wins, or simdutf's C API breaks and a small C validator replaces it |
+| `believe_me` is the identity only between equal `Rep`s (12.1) | library casts keep their meaning where representations agree; everything else is a named rejection, never a miscompile | a library cast between differing `Rep`s that a program needs is rejected | the census finds such a cast on a common path |
+| Idris's C support library, behind one IO layer (12.1) | base's IO without rewriting it; defined ordering of output | wrapping or replacing its blocking calls | its `FILE*` model cannot be made to share descriptors safely with the scheduler |
 | No Python; golden tests in Idris (9) | one language in the repository; Idris's own test tooling | rewriting about 1 900 lines of harness | nothing foreseeable |
 
-## 12. Open questions
+## 12. What we still need to understand
 
-1. **Cycles through `IORef`/`IOArray`:**
-   - leak (Lean, Koka and Swift do);
-   - reject statically: a mutable cell whose content type can reach a
-     mutable cell; or
-   - collect only among mutable cells?
+The final pass over the plan and the sources. Each item says what is known,
+what is not, and what settles it. "Leaning" is a recommendation, not a
+decision.
 
-   A census of the libraries and benchmark programs informs it.
-2. **The allocator:** vendored mimalloc, or our own size classes?
-3. **Placing work on cores.** Idris has no "fork on core k". Recommended: a
-   runtime policy where `main`'s forks spread over cores and nested forks
-   stay local. The alternative is a few runtime externs through Idris's
-   FFI.
-4. **Scheduling:** cooperative, with back-edge checks only if fairness
-   needs them?
-5. **Joining two literal strings:** data layout (kept in `Simplify`) or a
-   primitive for the server?
+### 12.1 Semantics and the libraries
+
+1. **`believe_me` under non-uniform representations.**
+   - **Known:** the libraries use it 31 times:
+     - `prelude` 6, `base` 21, `contrib` 3, `linear` 1;
+     - most sites cast proofs (erased), casts between `PrimIO` types, or
+       views over primitives;
+     - one is load-bearing: the Prelude's `prim__integerToNat i` is
+       `believe_me i`, which relies on `Nat` and `Integer` having the same
+       runtime form.
+   - **Unknown:** whether any reachable site casts between types whose
+     `Rep`s differ.
+   - **Settles it:** a rule that a `believe_me` is the identity when both
+     sides have the same `Rep`, is erased when both are erased, and is
+     otherwise rejected with a named rule; then a census of every site
+     reachable from the test programs.
+   - **Leaning:** that rule; `Nat` and `Integer` must share `Big` exactly
+     (section 3).
+2. **Idris's C support library.**
+   - **Known:** `base` has 145 `%foreign` declarations and `network` 41.
+     Most name `libidris2_support`: about 1 500 lines of BSD-3 C built on
+     stdio `FILE*`, covering files, directories, environment, clock,
+     buffers, signals and sockets.
+   - **Unknown:** whether to link it (built on musl) or to reimplement what
+     programs use.
+   - **Two hazards if linked:**
+     - its reads and `accept` block the core;
+     - output through stdio buffers can be reordered against our own direct
+       writes to the same descriptor.
+   - **Leaning:** link it for the non-blocking functions; route every
+     descriptor operation (stdout included) through one runtime IO layer,
+     so ordering is defined and blocking calls go to the scheduler or the
+     blocking pool.
+3. **Invalid UTF-8 at input.** Chez decodes console input with its
+   transcoder, whose R6RS default replaces invalid sequences
+   (*literature*). We replace with U+FFFD (section 3).
+   - **Unknown:** whether Idris's Chez setup changes that mode.
+   - **Settles it:** a differential test with invalid bytes on stdin.
+4. **Progress under cooperative scheduling.** Settled above (7.3):
+   preemption at function entries and loop back-edges.
+
+### 12.2 Memory
+
+5. **Cycles through `IORef`, `IOArray` and `Buffer`.**
+   - **Known:** these are the only sources (section 4.1). Lean, Koka and
+     Swift leak them.
+   - **Unknown:** how often real Idris code builds them.
+   - **Settles it:** a census, then one of: leak; reject statically (a
+     mutable cell whose content type can reach a mutable cell); or trial
+     deletion restricted to mutable cells.
+   - **Leaning:** reject statically. It is conservative, has no runtime
+     cost, and names the rule.
+6. **Pauses from freeing large structures.**
+   - **Known:** freeing is proportional to what dies, not to the heap, and
+     Lean's to-do list makes it iterative.
+   - **Unknown:** the latency this adds to a server request that drops a
+     large structure.
+   - **Leaning:** bound the work per scheduler turn, and continue freeing
+     at the next yield.
+7. **Marking futures' captures.**
+   - **Known:** Lean marks a task's closure shared when the task is
+     spawned. Marking at the moment of a steal would race with the owner
+     core, which may still be changing those counts non-atomically.
+   - **The cost:** captures of futures that are never stolen pay atomic
+     counts anyway.
+   - **Settles it:** experiment 3 of the gate, with and without a handshake
+     at steal time.
+8. **The allocator:** mimalloc (vendored) or our own size classes; and when
+   freed memory goes back to the kernel (`madvise`), trading resident
+   memory against speed.
+9. **Strings in loops.** `s ++ x` in a loop is quadratic unless the append
+   extends a unique `s` in place (Lean's `String.append`). Small strings
+   could live inline in the value instead of on the heap (Swift). Measured
+   on the string benchmarks of M1.
+10. **Constant data.**
+    - **Known:** with a heap, a large constant list (`[1 .. 10000]`) should
+      be one static object in `.rodata`, not code that builds it. Lean
+      extracts closed terms (`extractClosed`, `SimpleGroundExpr`, *code*).
+    - **Settles it:** a threshold on the size of static data the driver
+      builds as code.
+
+### 12.3 The driver and compile time
+
+11. **Does supercompilation scale?**
+    - **Known:** Mitchell's supercompiler (Haskell, 2010, *read*) was
+      measured on programs of at most 148 lines, compiling in under four
+      seconds; his earlier version took up to five minutes. Whether
+      supercompilation scales to large programs is the technique's known
+      open problem.
+    - Our driver runs over the Prelude and base with every program.
+      Today's fixtures compile in seconds, and `printLn 'x'` in 5.7 s.
+    - **Settles it:**
+      - a compile-time benchmark on the largest programs we can write
+        against base and contrib;
+      - hash-consed configurations and incremental embedding checks;
+      - the target of section 8.2.
+12. **Code size.** Choices, specializations and literal unfolding can each
+    grow code. The whistle bounds them, but no budget is set on the result.
+    - **Settles it:** a code-size column in `bench/` and in the compile-time
+      benchmark, with a per-function limit if growth appears.
+13. **What goes to the JIT.** Every primitive fold becomes a request,
+    thousands per compilation.
+    - **Unknown:** whether a pipe round trip per fold is small next to the
+      driver's own cost.
+    - **Settles it:** measure. Batch the folds of one step if needed.
+
+14. **Joining two literal strings:** data layout (kept in `Simplify`), or a
+    primitive fold for the server? Leaning: data layout, since it is the
+    same concatenation a linker performs on literal pools.
+
+### 12.4 Concurrency
+
+15. **Placing work on cores.**
+    - **Leaning:** a runtime policy: tasks forked by `main` spread over
+      cores, and nested forks stay local.
+    - **The alternative:** a few runtime externs through Idris's FFI.
+16. **Signals.** A thread-per-core runtime needs one owner for signals:
+    - `SIGPIPE` ignored, with `MSG_NOSIGNAL` on sends;
+    - `SIGINT` and `SIGTERM` delivered through a `signalfd` on one core;
+    - Idris's `System.Signal` implemented on top.
+17. **`io_uring` versus the blocking pool.** Glommio and monoio use
+    `io_uring`; tokio uses `epoll` with a blocking pool. C2's measurements
+    decide.
+
+### 12.5 Toolchain and platform
+
+18. **LLVM on musl.** LLVM raises its threads' stacks to 8 MiB only on
+    Apple and AIX; elsewhere it takes the libc default, and musl's is
+    128 KiB (`lib/Support/Threading.cpp`, *code*).
+    - MLIR's multithreaded pass manager could overflow on it.
+    - Our tools must link with `-Wl,-z,stack-size=…`, which musl reads as
+      its thread default, or run MLIR single-threaded.
+    - **Settles it:** the toolchain milestone's test suite on the musl
+      build.
+19. **GMP's licence reaches every user's binary.** A statically linked GMP
+    obliges whoever distributes a program to let its users relink it
+    against another GMP.
+    - This concerns every program that uses `Integer` at runtime, not just
+      us.
+    - **Unknown:** whether that is acceptable for the programs you want to
+      compile.
+    - **The alternative:** a permissively licensed bignum, slower on large
+      numbers.
+20. **Provenance of mirrors.** musl and GMP come from GitHub mirrors,
+    because their official hosts are unreachable here. Each pin should be
+    checked once against the official release's signature from a machine
+    that can reach it.
+21. **Debugging and profiling** (milestone 8a, new in this pass).
+    - Crash backtraces, DWARF from MLIR locations, and `perf` through
+      segmented stacks and system-stack switches.
+    - Segments break the unwinder's assumption of one contiguous stack,
+      unless each segment's first frame records the link to the previous
+      one, as Go does for its stacks.
+    - **Settles it:** milestone 8a, after C0.
+22. **macOS JIT.** `fork` per call and `MAP_JIT` under the hardened
+    runtime. Checked when macOS starts (milestone 12).
+
+### 12.6 Evidence we cannot produce here yet
+
+23. **The comparisons need toolchains we have not installed:** Koka and
+    Lean for the memory gate; Go and Rust (monoio or Glommio, hyper,
+    tokio) and Seastar for C2; MPL for C3.
+    - GitHub clones work in this container; release downloads and package
+      servers are untested.
+    - **Leaning:** build from source where the network allows it, and say
+      plainly which comparisons are missing when it does not.
 
 ## Appendix A: evidence for the memory decision
 
@@ -855,6 +1019,13 @@ Perceus (Reinking et al., PLDI 2021), Figure 9:
   - musl 1.2.6 (`src/internal/pthread_impl.h`, `src/math`, `src/linux`,
     `crt/rcrt1.c`) from `github.com/kraj/musl`;
   - simdutf at `152a5fe` (`include/simdutf_c.h`, `README.md`);
+  - Go's `runtime/stack.go` (`stackPreempt`), LLVM's
+    `lib/Support/Threading.cpp` (thread stack sizes);
+  - Idris 2's C support library (`support/c/`) and the `%foreign` and
+    `believe_me` sites in `libs/`;
+  - Mitchell, "Rethinking supercompilation" (ICFP 2010), and Brady,
+    "Idris 2: Quantitative Type Theory in practice" (ECOOP 2021), from the
+    research library;
   - Idris 2's string primitives in every backend
     (`src/Core/Primitives.idr`, `src/Compiler/Scheme/Common.idr`,
     `src/Compiler/RefC/RefC.idr`, `support/refc/stringOps.h`,
