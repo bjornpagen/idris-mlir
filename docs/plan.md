@@ -1448,44 +1448,69 @@ behaviour on an Idris name or shape:
 - **The same names appear in two places:** C3 and C4, and C5 and P7.
 - **P5 duplicates a flag Idris already sets.**
 
-**Questions for review:**
-- **Q1. Where does module-level policy go?** The trusted modules (P1–P4,
-  P6, P8) and the library sets (M1–M3) name modules and definitions, but
-  they are not hooks on a definition's lowering.
-  - **Leaning:** the registry module holds them as a third kind of data,
-    *module sets*, each with its rule IDs. The `stricter` admission lists
-    become entries of table 2. Every name then lives in the registry,
-    without stretching `faster`/`stricter` to cover module membership.
-- **Q2. What keys a category-1 `%foreign` entry?** Either the Idris name
-  (`Prelude.IO.prim__putStr`) or its foreign spec
-  (`C:idris2_putStr, libidris2_support`).
-  - **Leaning:** the spec is the backend contract, since any library
-    declaring it means the same function. The Idris name and type are then
-    the shape that is validated.
-- **Q3. How are shapes compared?** By alpha-equivalence on checked TT, or
-  by a fingerprint of the printed normal form.
-  - **Leaning:** structural comparison. It is exact, and there are few
-    entries.
-- **Q4. Do the opaque `idr.name` attributes stay?**
-  - **Leaning:** yes, as debug data like locations. The enforcement test
-    checks that no C++ compares one.
-- **Q5. Registry first, or `idris-mlir-io` deleted first?** C3, C4, P1,
-  M1, M2 and M3 all carry `IdrisMLIR.IO`.
-  - **Leaning:** delete the package first (section 9), so it is never
-    registered.
-- **Q6. Source spellings (P7).** These are unqualified identifiers in user
-  source, checked before TT exists.
-  - **Leaning:** a `stricter` entry that records a source spelling.
-- **Q7. `MEM-LIN-1` keys on quantities, not on a name.** As specified, it
-  is a rule of the compiler, not a registry hook.
-  - The registry becomes its home only if entries may be keyed on a
-    shape with no name.
-  - `ELIM-FIN-1` does recognize a named type, `Data.Fin.Fin`, and so is a
-    table-2 entry.
-  - **Leaning:** keep the two kinds of rule apart. The guarantees stay
-    rules of the compiler; named recognitions stay registry entries.
+**Representation first.** The registry is built as types, not as lists
+of strings, and the code is churned as far as that takes it. Each answer
+below follows from the representation, and each is a proposal awaiting
+review.
+- **`Key`: how the compiler names library knowledge.** A closed sum:
+  - `Def QName`: an Idris definition;
+  - `Foreign Spec`: a `%foreign` spec, such as `C:idris2_putStr` (Q2);
+  - `Spelling String`: a source spelling, checked before TT exists (Q6).
 
-## 10. Milestones
+  Idris's builtins are already the closed type `PrimFn` and need no key.
+  `QName` values are written only inside `IdrisMLIR.Registry`.
+- **`Hook`: what the compiler does.** A closed sum with one constructor
+  per behaviour, for example `IOCall IOOp`, `IdentityOnLastArgument`,
+  `ProgramRoot` and `Forbidden Rule`.
+  - `kind : Hook -> Kind` is a total function, so a hook cannot be
+    mislabelled `faster` or `stricter`.
+  - Passes pattern-match on `Hook`, and Idris's coverage checker makes
+    "every pass handles the hooks it can meet" structural.
+- **`Origin`: where code comes from** (Q1). Today `Loc.origin` is
+  `FromModule (List String)`, and four functions reparse it as strings.
+  - It becomes a classification computed once, by the registry, when
+    TT is translated: `User`, `Library Lib` (with `Lib` one of
+    `Builtin`, `PrimIO`, `Prelude`, `Base Area`, `Contrib`, `Linear`,
+    `Network`), or `Generated`.
+  - Every node of every IR already carries a `Loc`, so the origin flows
+    through all of them, and no pass outside the registry reads a
+    namespace.
+  - M1–M3, P1 and P4 become one table in the registry: purpose ×
+    library. Today's disagreement becomes visible cells, and unifying the
+    lists later means editing cells.
+- **`Shown`: Idris names that can be printed but not compared.**
+  - `idrisName : String` on functions and data becomes a type with `Show`
+    and no `Eq`, so the middle end can report names but cannot key on
+    them.
+  - M2's comparison becomes an `Origin` test. The type system enforces
+    the boundary; the grep test is the backstop.
+- **In MLIR, Idris names become locations** (Q4). The `idr.name`
+  attributes become `NameLoc`s (`loc("Prog.Shape"(...))`).
+  - Names are then debug information, which MLIR passes preserve and
+    diagnostics print.
+  - The dialect has no name-bearing attribute at all, and C++ cannot
+    compare what it never receives as data.
+  - `IDR-DATA-5` is rewritten to match.
+- **`Shape`: what an entry expects** (Q3). A small algebra:
+  - `Pi Quantity Shape Shape`, `Head Key (List Shape)`, `Prim PrimType`,
+    `TypeOfTypes`, and `Hole` for an implicit argument the hook does not
+    depend on.
+  - It is matched structurally against the normalised checked type.
+  - Arity, quantities and heads are exact.
+  - One printer shows expected and found in `HOOK-SHAPE-1`.
+  - A fingerprint is rejected: it cannot explain a mismatch.
+- **Facts: hooks feed the algebra of section 8.3** (Q7).
+  - A registry hook, an Idris flag (`isEscapeHatch`, `ZERO`/`SUCC`) and a
+    quantity are three sources of facts, each fact tagged with its
+    provenance.
+  - Rules consume facts whatever their source. `MEM-LIN-1` is a rule over
+    quantity facts, not a registry entry.
+  - `ELIM-FIN-1` consumes a registry fact (this type is `Data.Fin.Fin`)
+    and quantity facts.
+- **Order** (Q5): `idris-mlir-io` is deleted first, so its names are never
+  registered.
+
+## 10. Milestones## 10. Milestones
 
 Each milestone requires:
 - all suites green;
