@@ -46,7 +46,7 @@ atomTy sc (AVar x) = case lookup x sc of
   Nothing => fail CoreInv1 ("unbound variable " ++ show x)
   Just (Q0, _) => fail CoreInv5 ("quantity-0 variable " ++ show x ++ " used at runtime")
   Just (_, t) => Right t
-atomTy _ (ALit l) = Right (litTy l)
+atomTy _ (ALit l) = maybe (fail CoreInv2 "an Integer literal at runtime") Right (value (litTy l))
 atomTy _ AErased = Right ErasedT
 
 ||| An argument in a position of the given quantity and type (CORE-INV-3).

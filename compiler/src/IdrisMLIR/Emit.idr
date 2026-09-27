@@ -129,6 +129,7 @@ atom l env (ALit (LInt t n)) = constant l n (width t)
 atom l env (ALit (LChar c)) = constant l c 32
 atom l env (ALit (LStr s)) = op1 l "idr.str.lit" [] [("value", BytesA s)] IdrStr
 atom l env (ALit (LDouble d)) = op1 l "arith.constant" [] [("value", FloatA d)] F64
+atom l env (ALit (LBig _)) = internal "an Integer literal at runtime (SEM-BIG-1)"
 atom l env AErased = op1 l "idr.erased" [] [] IdrErased
 
 signedness : Bool -> List (String, Attr)

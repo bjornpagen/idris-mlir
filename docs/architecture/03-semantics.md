@@ -178,6 +178,23 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     printer's tables), and 176,000 fuzzed values in
     `tests/e2e/v2/double-print-fuzz`
 
+## Integers (v3)
+
+- **SEM-BIG-1 (v3).** An `Integer` exists only at compile time. Its
+  primitives (`add` … `xor`, `negate`, comparisons, casts to and from the
+  other types, and to and from `String`) are evaluated during
+  specialization with Idris's own `Integer` primitives, which are the
+  reference's (`SEM-REF-1`), and a function whose result is an `Integer` is
+  evaluated where it is called, recursion included, up to a depth of
+  10,000. An `Integer` that would exist at runtime is rejected
+  (`PROF-TYPE-4`): one computed from a runtime value, or passed where a
+  runtime value goes. A cast to a fixed-width type wraps (`SEM-INT-7`).
+  This is what lets integer literals of the Prelude's `Num`, which are
+  `fromInteger` of an `Integer`, become machine constants.
+  - Check: `Simplify` (`SBig` values, `foldBig`)
+  - Test: `tests/profile/v3/accept/SEM-BIG-1-static-integers.idr`,
+    `tests/profile/v1/reject/PROF-TYPE-4-integer.idr`
+
 ## Laziness (v1)
 
 - **SEM-LAZY-1 (v1).** `Delay e` does not evaluate `e`. `Force` of a delayed
@@ -277,7 +294,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     LLVM treats as poison.
 
   A version that admits them MUST first specify them here.
-- **SEM-EXCL-2.** `Integer` and its primitives are excluded until a version
-  specifies them here. `Double` is specified by `SEM-DBL-*` from v2; its
-  other primitives (casts to and from `Char`, matching on literals) stay
-  excluded.
+- **SEM-EXCL-2.** `Integer` at runtime is excluded until the memory design
+  gives it a representation; at compile time it is `SEM-BIG-1` (v3).
+  `Double` is specified by `SEM-DBL-*` from v2; its other primitives (casts
+  to and from `Char`, matching on literals) stay excluded.

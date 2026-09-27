@@ -74,6 +74,34 @@ doubles = traverse (\l => case l of
                              LDouble d => Just d
                              _ => Nothing)
 
+||| An Integer primitive on literals, computed with Idris's own Integer
+||| primitives, which are the reference's by construction (SEM-BIG-1).
+||| Nothing when it would crash or has no result.
+export
+foldBig : BigOp -> List Lit -> Maybe Lit
+foldBig (BigArith op) [LBig a, LBig b] = LBig <$> case op of
+  Add => Just (a + b)
+  Sub => Just (a - b)
+  Mul => Just (a * b)
+  -- The divisor is not zero, so the primitives are total here.
+  Div => if b == 0 then Nothing else Just (assert_total (prim__div_Integer a b))
+  Mod => if b == 0 then Nothing else Just (assert_total (prim__mod_Integer a b))
+  And => Just (prim__and_Integer a b)
+  Or => Just (prim__or_Integer a b)
+  Xor => Just (prim__xor_Integer a b)
+foldBig BigNegate [LBig a] = Just (LBig (negate a))
+foldBig (BigCompare op) [LBig a, LBig b] = Just (bool (holds op a b))
+foldBig (ToBig (SInt _)) [LInt _ n] = Just (LBig n)
+foldBig (ToBig SChar) [LChar c] = Just (LBig c)
+foldBig (ToBig SDouble) [LDouble d] =
+  if finite d then Just (LBig (prim__cast_DoubleInteger d)) else Nothing
+foldBig (FromBig (SInt t)) [LBig n] = Just (LInt t (wrap t n))
+foldBig (FromBig SChar) [LBig n] = Just (LChar (if isScalar n then n else 0))
+foldBig (FromBig SDouble) [LBig n] = Just (LDouble (prim__cast_IntegerDouble n))
+foldBig BigShow [LBig n] = Just (LStr (show n))
+foldBig BigRead [LStr s] = Just (LBig (prim__cast_StringInteger s))
+foldBig _ _ = Nothing
+
 ||| A runtime primitive on literals, when it cannot crash. Bitwise operations
 ||| are left to MLIR.
 export

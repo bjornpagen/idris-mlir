@@ -398,6 +398,8 @@ mutual
       DoubleType => pure (V DoubleT)
       StringType => pure (V StrT)
       WorldType => pure (V WorldT)
+      -- SEM-BIG-1: an Integer exists only at compile time.
+      IntegerType => pure BigT
       _ => reject fc owner rule (show t ++ " in a runtime position")
   coreType fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
     at <- if isErased rig then pure (V ErasedT) else coreType fc owner rule a
@@ -650,23 +652,36 @@ comparison (GTE t) = Just (CGte, t)
 comparison (GT t) = Just (CGt, t)
 comparison _ = Nothing
 
+||| Integer primitives, evaluated at compile time (SEM-BIG-1).
+integer : PrimFn k -> Maybe BigOp
+integer (Neg IntegerType) = Just BigNegate
+integer (Cast IntegerType StringType) = Just BigShow
+integer (Cast StringType IntegerType) = Just BigRead
+integer (Cast IntegerType to) = FromBig <$> scalar to
+integer (Cast from IntegerType) = ToBig <$> scalar from
+integer p = case (arith p, comparison p) of
+  (Just (op, IntegerType), _) => Just (BigArith op)
+  (_, Just (op, IntegerType)) => Just (BigCompare op)
+  _ => Nothing
+
 primOp : PrimFn k -> Maybe PrimOp
-primOp p = case (double p, arith p, comparison p, p) of
-  (Just d, _, _, _) => Just (Run d)
-  (_, Just (op, t), _, _) => Run . IntOp op <$> intTy t
-  (_, _, Just (op, StringType), _) => Just (Str (StrCompare op))
-  (_, _, Just (op, t), _) => Run . Compare op <$> scalar t
-  (_, _, _, Cast StringType to) => Str . FromStr <$> scalar to
-  (_, _, _, Cast from StringType) => Str . ToStr <$> scalar from
-  (_, _, _, Cast from to) => Run <$> (join (runtimeCast <$> scalar from <*> scalar to))
-  (_, _, _, StrLength) => Just (Str Length)
-  (_, _, _, StrHead) => Just (Str Head)
-  (_, _, _, StrTail) => Just (Str Tail)
-  (_, _, _, StrIndex) => Just (Str Index)
-  (_, _, _, StrCons) => Just (Str Cons)
-  (_, _, _, StrAppend) => Just (Str Append)
-  (_, _, _, StrReverse) => Just (Str Reverse)
-  (_, _, _, StrSubstr) => Just (Str Substr)
+primOp p = case (integer p, double p, arith p, comparison p, p) of
+  (Just b, _, _, _, _) => Just (Big b)
+  (_, Just d, _, _, _) => Just (Run d)
+  (_, _, Just (op, t), _, _) => Run . IntOp op <$> intTy t
+  (_, _, _, Just (op, StringType), _) => Just (Str (StrCompare op))
+  (_, _, _, Just (op, t), _) => Run . Compare op <$> scalar t
+  (_, _, _, _, Cast StringType to) => Str . FromStr <$> scalar to
+  (_, _, _, _, Cast from StringType) => Str . ToStr <$> scalar from
+  (_, _, _, _, Cast from to) => Run <$> (join (runtimeCast <$> scalar from <*> scalar to))
+  (_, _, _, _, StrLength) => Just (Str Length)
+  (_, _, _, _, StrHead) => Just (Str Head)
+  (_, _, _, _, StrTail) => Just (Str Tail)
+  (_, _, _, _, StrIndex) => Just (Str Index)
+  (_, _, _, _, StrCons) => Just (Str Cons)
+  (_, _, _, _, StrAppend) => Just (Str Append)
+  (_, _, _, _, StrReverse) => Just (Str Reverse)
+  (_, _, _, _, StrSubstr) => Just (Str Substr)
   _ => Nothing
 
 ------------------------------------------------------------------------------
@@ -691,6 +706,7 @@ constantLit (B64 x) = Just (LInt UInt64 (cast x))
 constantLit (Ch x) = Just (LChar (cast (ord x)))
 constantLit (Str x) = Just (LStr x)
 constantLit (Db x) = Just (LDouble x)
+constantLit (BI x) = Just (LBig x)
 constantLit _ = Nothing
 
 bestFC : Ctx -> FC -> FC
@@ -860,6 +876,7 @@ mutual
         BelieveMe => reject fc ctx.owner ProfEsc1 "believe_me"
         Crash => reject fc ctx.owner ProfEsc1 "idris_crash"
         Neg DoubleType => supported
+        Neg IntegerType => supported
         Neg _ => reject fc ctx.owner ProfPrim2 "negate (SEM-EXCL-1)"
         ShiftL _ => reject fc ctx.owner ProfPrim2 "shift left (SEM-EXCL-1)"
         ShiftR _ => reject fc ctx.owner ProfPrim2 "shift right (SEM-EXCL-1)"
@@ -870,7 +887,7 @@ mutual
             Nothing => reject fc ctx.owner ProfPrim2 ("primitive " ++ show name)
             Just p => do
               args' <- traverse (term ctx env) (take arity as)
-              let kinds = map (\t => (QW, RuntimeParam (V t))) (opArgs p)
+              let kinds = map (\t => (QW, RuntimeParam t)) (opArgs p)
               finish loc kinds args' (PrimApp loc p) (drop arity as)
 
       ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term n)

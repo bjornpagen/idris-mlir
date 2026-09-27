@@ -3,8 +3,14 @@ module Main
 
 import IdrisMLIR.IO
 
-count : Integer -> Int
-count _ = 3
+-- rule: SEM-BIG-1
+-- An Integer computed from a value known only at runtime would have to
+-- exist at runtime.
+count : Int -> Integer
+count n = prim__cast_IntInteger n
 
+partial
 main : IO ()
-main = putStrLn (prim__cast_IntString (count 5))
+main = do
+  c <- getChar
+  putStrLn (prim__cast_IntegerString (count (prim__cast_CharInt c)))

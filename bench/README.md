@@ -43,5 +43,6 @@ GCC as pinned), best of 3, seconds:
   array in place, as C programs do.
 - All four print the same n-body energies to the last digit, so the
   floating-point work is the same.
-- `fib` is the one case where gcc is clearly faster, by 2x. Why is not yet
-  analysed.
+- `fib` is the one case where gcc is clearly faster, by 2x. LLVM already
+  turns one of the two recursive calls into a loop with an accumulator;
+  gcc also inlines the function into itself, which LLVM does not do.

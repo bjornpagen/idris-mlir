@@ -54,6 +54,8 @@ mutual
     ||| had been emitted when it was built (not part of its shape).
     SCall : FnId -> Nat -> List (SVal a) -> List (Elim a) -> SVal a
     SString : SStr a -> SVal a
+    ||| An Integer: known at compile time, as every Integer is (SEM-BIG-1).
+    SBig : Integer -> SVal a
 
   ||| An elimination of a static value.
   public export
@@ -85,6 +87,7 @@ mutual
   traverseT g (SCon c fs) = SCon c <$> traverseList g fs
   traverseT g (SCall f e as es) = SCall f e <$> traverseList g as <*> traverseElims g es
   traverseT g (SString s) = SString <$> traverseS g s
+  traverseT g (SBig n) = pure (SBig n)
 
   traverseVect : Applicative f => (VTy -> a -> f b) -> Vect k (SVal a) -> f (Vect k (SVal b))
   traverseVect g [] = pure []
@@ -158,6 +161,7 @@ rank (SDelay {}) = 2
 rank (SCon _ _) = 3
 rank (SCall {}) = 4
 rank (SString _) = 5
+rank (SBig _) = 6
 
 mutual
   ||| Closures compare by label: a label is one program point, so it fixes
@@ -169,6 +173,7 @@ mutual
   cmpV (SCon c fs) (SCon d gs) = compare c d <+> cmpList fs gs
   cmpV (SCall f _ as es) (SCall g _ bs ds) = compare f g <+> cmpList as bs <+> cmpElims es ds
   cmpV (SString s) (SString t) = cmpS s t
+  cmpV (SBig m) (SBig n) = compare m n
   cmpV a b = compare (rank a) (rank b)
 
   cmpVect : Ord a => Vect k (SVal a) -> Vect j (SVal a) -> Ordering
@@ -227,6 +232,7 @@ mutual
   showShape (SCon c fs) = show c ++ "(" ++ showList fs ++ ")"
   showShape (SCall f _ as es) = show f ++ "(" ++ showList as ++ ")" ++ showElims es
   showShape (SString s) = showS s
+  showShape (SBig n) = show n
 
   covering
   showList : List (SVal ()) -> String
@@ -276,6 +282,8 @@ mutual
   couple (SCon c fs) (SCon d gs) = c == d && pairs fs gs
   couple (SCall f _ as es) (SCall g _ bs ds) = f == g && pairs as bs && cmpElims es ds == EQ
   couple (SString s) (SString t) = cmpS s t == EQ
+  -- Integers differ by value alone: a recursion that changes one grows.
+  couple (SBig _) (SBig _) = True
   couple _ _ = False
 
   ||| Pointwise embedding of argument lists of the same length.

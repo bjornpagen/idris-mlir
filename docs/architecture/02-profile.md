@@ -165,7 +165,8 @@ IO programs, as expected output ([14-testing](14-testing.md)).
     (`PROF-HEAP-1`, `PROF-HEAP-2`).
 
   Still excluded at runtime:
-  - `Integer`, and `Double` before v2;
+  - `Integer`, which from v3 exists at compile time only (`SEM-BIG-1`), and
+    `Double` before v2;
   - `Type`;
   - `Inf` (codata);
   - types that depend on runtime values.
@@ -181,7 +182,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: superseded in v1
 - **PROF-DATA-2 (v0).** Every constructor field in a runtime position has a
   runtime type of the current version. Quantity-0 fields may have any type.
-  - Test: `tests/profile/v0/reject/PROF-DATA-2-integer-field.idr`,
+  - Test: `tests/profile/v0/reject/PROF-DATA-2-type-field.idr`,
     `tests/profile/v0/accept/PROF-DATA-2-erased-field.idr`
 - **PROF-DATA-3 (v0).** Runtime data types are not recursive. In the graph
   with an edge T → U whenever a constructor of T has a runtime field of type
@@ -285,14 +286,16 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/sem.py` (`TEST-SEM-1`)
 - **PROF-PRIM-2 (v0).** In every version, these primitives are rejected:
   - `prim__negate_T`, `prim__shl_T`, `prim__shr_T` (`SEM-EXCL-1`);
-  - everything on `Integer`;
+  - everything on `Integer` before v3; from v3, `Integer` primitives are
+    evaluated at compile time (`SEM-BIG-1`), and an `Integer` at runtime is
+    a `PROF-TYPE-4` error;
   - casts between `Char` and `Double`, and a match on a `Double` literal
     (`SEM-EXCL-2`);
   - `prim__believe_me` and `prim__crash`, which `PROF-ESC-1` reports first.
 
   In v0 only, primitives on `Char` and `String` are also rejected, and in v0
   and v1 everything on `Double`.
-  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl,integer,double}.idr`,
+  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl}.idr`,
     `tests/profile/v2/reject/PROF-PRIM-2-double-*.idr`
 - **PROF-PRIM-3 (v1).** The `Char` primitives are allowed:
   - `prim__lt_Char`, `prim__lte_Char`, `prim__eq_Char`, `prim__gte_Char`,

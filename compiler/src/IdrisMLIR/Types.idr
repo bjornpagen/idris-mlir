@@ -91,8 +91,10 @@ data VTy = IntT IntTy | CharT | StrT | WorldT | ErasedT | DataT DataId | DoubleT
 
 ||| Types: value types, and the compile-time-only types that `Simplify`
 ||| eliminates (Kovács's computation types, and data holding them).
+||| `BigT` is `Integer`, whose values exist only at compile time
+||| (SEM-BIG-1).
 public export
-data Ty = V VTy | FunT Quantity Ty Ty | LazyT Ty | StaticT DataId
+data Ty = V VTy | FunT Quantity Ty Ty | LazyT Ty | StaticT DataId | BigT
 
 vrank : VTy -> Nat
 vrank (IntT _) = 0
@@ -121,6 +123,7 @@ Eq Ty where
   FunT q a r == FunT q' a' r' = q == q' && a == a' && r == r'
   LazyT a == LazyT b = a == b
   StaticT a == StaticT b = a == b
+  BigT == BigT = True
   _ == _ = False
 
 export
@@ -139,6 +142,7 @@ Show Ty where
   show (FunT q a r) = "((" ++ show q ++ " _ : " ++ show a ++ ") -> " ++ show r ++ ")"
   show (LazyT a) = "Lazy (" ++ show a ++ ")"
   show (StaticT d) = show d
+  show BigT = "Integer"
 
 ||| A type that exists at runtime.
 public export
@@ -166,6 +170,7 @@ defaultQuantity _ = QW
 
 public export
 data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double
+         | LBig Integer    -- an Integer: in Term only, never at runtime (SEM-BIG-1)
 
 export
 Eq Lit where
@@ -173,6 +178,7 @@ Eq Lit where
   LChar a == LChar b = a == b
   LStr a == LStr b = a == b
   LDouble a == LDouble b = a == b
+  LBig a == LBig b = a == b
   _ == _ = False
 
 export
@@ -181,13 +187,15 @@ Show Lit where
   show (LChar c) = "chr " ++ show c
   show (LStr s) = show s
   show (LDouble d) = prim__cast_DoubleString d ++ ":Double"
+  show (LBig n) = show n ++ ":Integer"
 
 public export
-litTy : Lit -> VTy
-litTy (LInt t _) = IntT t
-litTy (LChar _) = CharT
-litTy (LStr _) = StrT
-litTy (LDouble _) = DoubleT
+litTy : Lit -> Ty
+litTy (LInt t _) = V (IntT t)
+litTy (LChar _) = V CharT
+litTy (LStr _) = V StrT
+litTy (LDouble _) = V DoubleT
+litTy (LBig _) = BigT
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -216,6 +224,11 @@ public export
 data Prim = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
           | Compare Cmp Scalar | Cast Scalar Scalar
 
+||| Integer primitives: evaluated at compile time, never run (SEM-BIG-1).
+public export
+data BigOp = BigArith ArithOp | BigNegate | BigCompare Cmp
+           | ToBig Scalar | FromBig Scalar | BigShow | BigRead
+
 ||| String primitives: evaluated at compile time or fused into output
 ||| (ELIM-G-6, ELIM-G-7), never run (PROF-HEAP-3, PROF-PRIM-4).
 public export
@@ -224,7 +237,7 @@ data StrOp = Append | Cons | Length | Head | Tail | Index | Reverse | Substr
 
 ||| The primitives of full Core.
 public export
-data PrimOp = Run Prim | Str StrOp
+data PrimOp = Run Prim | Str StrOp | Big BigOp
 
 export
 Show ArithOp where
@@ -297,9 +310,20 @@ Show StrOp where
   show (FromStr s) = "cast_String" ++ show s
 
 export
+Show BigOp where
+  show (BigArith op) = show op ++ "_Integer"
+  show BigNegate = "negate_Integer"
+  show (BigCompare op) = show op ++ "_Integer"
+  show (ToBig s) = "cast_" ++ show s ++ "Integer"
+  show (FromBig s) = "cast_Integer" ++ show s
+  show BigShow = "cast_IntegerString"
+  show BigRead = "cast_StringInteger"
+
+export
 Show PrimOp where
   show (Run p) = show p
   show (Str s) = show s
+  show (Big b) = show b
 
 public export
 scalarTy : Scalar -> VTy
@@ -347,9 +371,20 @@ strResult (FromStr s) = scalarTy s
 strResult _ = StrT
 
 public export
-opArgs : PrimOp -> List VTy
-opArgs (Run p) = primArgs p
-opArgs (Str s) = strArgs s
+bigArgs : BigOp -> List Ty
+bigArgs (BigArith _) = [BigT, BigT]
+bigArgs BigNegate = [BigT]
+bigArgs (BigCompare _) = [BigT, BigT]
+bigArgs (ToBig s) = [V (scalarTy s)]
+bigArgs (FromBig _) = [BigT]
+bigArgs BigShow = [BigT]
+bigArgs BigRead = [V StrT]
+
+public export
+opArgs : PrimOp -> List Ty
+opArgs (Run p) = map V (primArgs p)
+opArgs (Str s) = map V (strArgs s)
+opArgs (Big b) = bigArgs b
 
 ------------------------------------------------------------------------------
 -- IO

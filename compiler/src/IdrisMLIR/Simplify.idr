@@ -87,7 +87,16 @@ elimTy l t _ = fail CoreCheck1 l ("cannot eliminate a value of type " ++ show t)
 
 ||| The value type of a result that must exist at runtime.
 runtimeTy : Loc -> Ty -> M VTy
+runtimeTy l BigT = fail ProfType4 l "an Integer would exist at runtime here (SEM-BIG-1)"
 runtimeTy l t = maybe (fail CoreCheck1 l ("a runtime value of type " ++ show t)) pure (value t)
+
+||| The value of a literal; an Integer is static (SEM-BIG-1).
+litVal : Lit -> V
+litVal (LInt t n) = Dyn (IntT t) (ALit (LInt t n))
+litVal (LChar c) = Dyn CharT (ALit (LChar c))
+litVal (LStr s) = Dyn StrT (ALit (LStr s))
+litVal (LDouble d) = Dyn DoubleT (ALit (LDouble d))
+litVal (LBig n) = SBig n
 
 ------------------------------------------------------------------------------
 -- Strings (ELIM-G-6, ELIM-G-7)
@@ -125,6 +134,7 @@ reify l (SString s) = case strLit s of
                ("a string is built at runtime here and is not written directly by putStr, " ++
                 "so it would need the heap")
 reify l (SDelay {}) = fail ProfHeap2 l "a Lazy value would exist at runtime here"
+reify l (SBig _) = fail ProfType4 l "an Integer would exist at runtime here (SEM-BIG-1)"
 reify l v = fail ProfHeap1 l
               ("a function or IO action would exist at runtime here (" ++ showShape (shape v) ++
                "); it must be applied, run or passed to a known function")
@@ -190,7 +200,7 @@ mutual
   ||| Evaluates a term that is not an elimination context.
   eval : Vect n V -> Term n -> M V
   eval env (Var _ i) = pure (index i env)
-  eval env (Literal _ lit) = pure (Dyn (litTy lit) (ALit lit))
+  eval env (Literal _ lit) = pure (litVal lit)
   eval env (Erased _) = pure (Dyn ErasedT AErased)
   eval env (PrimApp l op args) = traverse (\a => evalK env a []) args >>= prim l op
   eval env (Effect l op args res) = traverse (\a => evalK env a []) args >>= io l op res
@@ -198,7 +208,9 @@ mutual
     vs <- traverse (\a => evalK env a []) args
     fn <- fnDef l f
     case value fn.result of
-      Nothing => pure (SCall f !(gets effects) vs [])                              -- G5
+      -- An Integer is computed at compile time (SEM-BIG-1).
+      Nothing => if fn.result == BigT then unfold l fn vs []
+                 else pure (SCall f !(gets effects) vs [])                         -- G5
       Just StrT => unfold l fn vs []                                               -- G10
       Just _ => if fn.block then unfold l fn vs [] else call l Nothing f vs []     -- G11
   eval env (ConApp l c args) = do
@@ -216,6 +228,8 @@ mutual
   matchLit : Vect n V -> Loc -> V -> List (Lit, Term n) -> Term n -> List (Elim Atom) -> M V
   matchLit env l (Dyn _ (ALit lit)) alts def es =
     evalK env (maybe def snd (find ((== lit) . fst) alts)) es
+  matchLit env l (SBig n) alts def es =
+    evalK env (maybe def snd (find ((== LBig n) . fst) alts)) es
   matchLit env l scrut alts def es = do
     (x, _) <- reify l scrut
     alts' <- traverse (\(k, e) => (k,) <$> branch env e es) alts
@@ -305,7 +319,10 @@ mutual
   unfold : Loc -> TFn -> List V -> List (Elim Atom) -> M V
   unfold l fn vs es = do
     st <- get
-    if elem fn.id st.unfolding then call l Nothing fn.id vs es else do
+    -- An Integer function is evaluated at compile time, recursion included,
+    -- up to a bound (SEM-BIG-1); anything else unfolds once.
+    let bound = the Nat (if fn.result == BigT then 10000 else 1)
+    if count (== fn.id) st.unfolding >= bound then call l Nothing fn.id vs es else do
       Just env <- pure (toVect fn.arity vs)
         | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
       put ({ unfolding $= (fn.id ::) } st)
@@ -398,7 +415,21 @@ mutual
     (Str (ToStr SChar), [c], _) => (\(a, _) => SString (SChr a)) <$> reify l c
     (Str (ToStr (SInt t)), [n], _) => (\(a, _) => SString (SShow (IntT t) a)) <$> reify l n
     (Str (ToStr SDouble), [n], _) => (\(a, _) => SString (SShow DoubleT a)) <$> reify l n
+    (Big b, _, _) => big b
     _ => general l op vs
+    where
+      known : V -> Maybe Lit
+      known (SBig n) = Just (LBig n)
+      known (Dyn _ (ALit x)) = Just x
+      known v = LStr <$> (asStr v >>= strLit)
+      -- SEM-BIG-1: every Integer operation is evaluated here.
+      big : BigOp -> M V
+      big b = case the (Maybe (List Lit)) (traverse known vs) of
+        Just lits => maybe (fail ProfType4 l ("the Integer operation " ++ show b ++ " has no " ++
+                                               "value at compile time here (SEM-BIG-1)"))
+                           (pure . litVal) (foldBig b lits)
+        Nothing => fail ProfType4 l ("an Integer computed from a runtime value (" ++ show b ++
+                                     "), which would exist at runtime (SEM-BIG-1)")
 
   general : Loc -> PrimOp -> List V -> M V
   general l op vs = do
@@ -408,12 +439,13 @@ mutual
       (Just lits, Str s) => maybe (runtimeString s) (pure . lit) (foldStr s lits)
       (Nothing, Run p) => residual p as
       (Nothing, Str s) => runtimeString s
+      (_, Big b) => fail CoreCheck1 l ("the Integer operation " ++ show b ++ " reached runtime")
     where
       literal : Atom -> Maybe Lit
       literal (ALit x) = Just x
       literal _ = Nothing
       lit : Lit -> V
-      lit x = Dyn (litTy x) (ALit x)
+      lit = litVal
       residual : Prim -> List (Atom, VTy) -> M V
       residual p as = Dyn (primResult p) <$> bind l (primResult p) (OPrim p (map fst as))
       runtimeString : StrOp -> M V
