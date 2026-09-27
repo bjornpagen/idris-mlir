@@ -141,9 +141,21 @@ backend implements, so we add no library and no API.
   MLIR nor LLVM reorders a load across a store to the same array.
 - **Arrays do not alias across allocation sites.** Arrays from different
   `prim__newArray` calls get distinct alias scopes.
-- **Strings are sequences of Unicode scalar values** (`SEM-STR-1`).
-  `strLength` counts scalars and `strIndex` indexes by scalar, as Chez does.
-  The layout trades these against output, which is UTF-8 (`SEM-IO-2`):
+- **Strings are UTF-8, and their operations count scalar values.**
+  - Upstream Idris is UTF-8 at every boundary: source files, IO and C
+    strings. We store UTF-8 only, with no UTF-16 or UTF-32 anywhere.
+  - Idris's own typechecker defines what the string primitives mean: it
+    reduces `strLength s` to `length s` over its own strings, which count
+    characters (`src/Core/Primitives.idr`). The Chez backend agrees
+    (`string-length`).
+  - So `strLength` counts scalars and `strIndex` indexes by scalar
+    (`SEM-STR-1`). A runtime length must equal the length a proof computed
+    in a type.
+  - Two upstream backends deviate: RefC counts bytes
+    (`stringLength` is `strlen`, and its `Char` is a byte) and JavaScript
+    counts UTF-16 code units. Those are their bugs, not the semantics.
+  - The layout trades scalar indexing against UTF-8 output
+    (`SEM-IO-2`):
 
   | Layout | Output | `strLength` | `strIndex` | Memory |
   | --- | --- | --- | --- | --- |
@@ -151,6 +163,21 @@ backend implements, so we add no library and no API.
   | UTF-8 alone | as is | O(n) | O(n); the Prelude's `unpack` loops over `strIndex`, so O(n²) | 1–4 bytes |
   | **UTF-8, scalar count, ASCII flag** (chosen) | as is | O(1) | O(1) when ASCII; otherwise through breadcrumbs, a byte offset every 64 scalars built on first index (Swift's scheme, *literature*) | 1–4 bytes, +1/16 for indexed non-ASCII strings |
 
+- **simdutf does the byte work**: a git submodule, dual Apache 2.0/MIT,
+  built with `SIMDUTF_NO_LIBCXX` so the static runtime needs no libstdc++,
+  and called through its C API. It selects AVX2, AVX-512 or NEON at first
+  use. It provides:
+  - validation of every byte sequence that becomes a `String` (`getLine`,
+    files, sockets): invalid sequences become U+FFFD, since a `String` holds
+    only scalar values;
+  - `count_utf8` for the scalar count;
+  - `validate_ascii` for the ASCII flag;
+  - UTF-8↔UTF-32 conversion for `fastPack`, `fastUnpack` and building
+    breadcrumbs.
+
+  Its C API and its build without libstdc++ are both marked experimental
+  upstream, so the pin is to a release, and our string tests exercise
+  every function we call.
 - **Strings are immutable.** When the left string of `strAppend` is unique
   and has room, the append can extend it in place (Lean's `String.append`).
 - **One world.**
@@ -356,7 +383,7 @@ The runtime is C, compiled by the musl GCC into one static archive in
 `runtime/`. It contains:
 - the allocator and counts (section 4.3);
 - bignums over GMP;
-- strings (section 3);
+- strings (section 3), with simdutf;
 - the scheduler, stacks, `epoll`, timers and the blocking pool (section 7);
 - the crash, output and number-printing paths that are LLVM-dialect
   helpers today (`Lower/Runtime.mlir.inc`, which shrinks accordingly).
@@ -686,7 +713,7 @@ Each milestone requires:
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
 | 1 | **Cleanup** (section 9) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
-| 3 | **Static toolchain on musl** (section 5) | musl and GMP pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
+| 3 | **Static toolchain on musl** (section 5) | musl, GMP and simdutf pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
 | 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; reference counting on `Code Mem` (section 4.2); runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
@@ -740,7 +767,7 @@ reverse it.
 | musl on Linux, `libSystem` on macOS (5.2, 5.5) | a complete, mature Linux libc on which the whole toolchain, the JIT included, can be static; the same OS-layer shape on macOS | a simple `memcpy`; one more GCC build; two OS layers to maintain | a supported platform offers no static libc and no stable dynamic one (not the case for Linux or macOS) |
 | GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
 | One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
-| UTF-8 strings with scalar counts (3) | output without transcoding; compact storage; O(1) for ASCII | breadcrumbs for indexing non-ASCII strings | programs index non-ASCII strings heavily enough that UTF-32 wins |
+| UTF-8 strings with scalar counts, via simdutf (3) | upstream's encoding at every boundary; output without transcoding; compact storage; O(1) for ASCII; SIMD validation and counting | breadcrumbs for indexing non-ASCII strings; a C++ dependency built without libstdc++, through an API marked experimental | programs index non-ASCII strings heavily enough that UTF-32 wins, or simdutf's C API breaks and a small C validator replaces it |
 | No Python; golden tests in Idris (9) | one language in the repository; Idris's own test tooling | rewriting about 1 900 lines of harness | nothing foreseeable |
 
 ## 12. Open questions
@@ -827,6 +854,11 @@ Perceus (Reinking et al., PLDI 2021), Figure 9:
     `src/Core/CompileExpr.idr`);
   - musl 1.2.6 (`src/internal/pthread_impl.h`, `src/math`, `src/linux`,
     `crt/rcrt1.c`) from `github.com/kraj/musl`;
+  - simdutf at `152a5fe` (`include/simdutf_c.h`, `README.md`);
+  - Idris 2's string primitives in every backend
+    (`src/Core/Primitives.idr`, `src/Compiler/Scheme/Common.idr`,
+    `src/Compiler/RefC/RefC.idr`, `support/refc/stringOps.h`,
+    `src/Compiler/ES/Codegen.idr`);
   - LLVM libc and LLVM in the pinned `llvm-project` (`libc/docs`,
     `libc/config/linux/x86_64/entrypoints.txt`,
     `llvm/include/llvm/ADT/DynamicAPInt.h`,
