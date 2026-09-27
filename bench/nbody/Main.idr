@@ -4,7 +4,6 @@ module Main
 -- bodies, immutable records, one function per pair interaction.
 
 import Prelude
-import IdrisMLIR.IO
 
 record Body where
   constructor MkBody

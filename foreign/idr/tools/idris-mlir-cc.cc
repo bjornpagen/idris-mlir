@@ -32,13 +32,15 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 
+#include <vector>
+
 namespace cl = llvm::cl;
 
 namespace {
 
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
 cl::opt<std::string> outputPath("o", cl::desc("Output file"), cl::Required);
-cl::opt<std::string> emitKind("emit", cl::desc("obj (default), llvm or mlir"),
+cl::opt<std::string> emitKind("emit", cl::desc("obj (default), asm, llvm or mlir"),
                               cl::init("obj"));
 cl::opt<std::string> dumpAfter("dump-after",
                                cl::desc("Dump the module after this step, or 'all'"),
@@ -171,15 +173,16 @@ int run() {
            })
                ? ok
                : failure;
-  if (emitKind != "obj") {
-    llvm::errs() << "idris-mlir-cc: --emit must be obj, llvm or mlir\n";
+  if (emitKind != "obj" && emitKind != "asm") {
+    llvm::errs() << "idris-mlir-cc: --emit must be obj, asm, llvm or mlir\n";
     return usage;
   }
+  auto fileType = emitKind == "asm" ? llvm::CodeGenFileType::AssemblyFile
+                                    : llvm::CodeGenFileType::ObjectFile;
   return writeOutput([&](llvm::raw_ostream &os) {
            auto *pwrite = static_cast<llvm::raw_pwrite_stream *>(&os);
            llvm::legacy::PassManager codegen;
-           if (machine->addPassesToEmitFile(codegen, *pwrite, nullptr,
-                                            llvm::CodeGenFileType::ObjectFile)) {
+           if (machine->addPassesToEmitFile(codegen, *pwrite, nullptr, fileType)) {
              llvm::errs() << "idris-mlir-cc: the target cannot emit object files\n";
              return false;
            }
@@ -194,8 +197,15 @@ int run() {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM init(argc, argv);
-  if (!cl::ParseCommandLineOptions(argc, argv, "idris-mlir-cc: idr to object code\n",
-                                   &llvm::errs()))
+  // OPT-PIPE-4: functions and blocks not reached by fallthrough start on a
+  // 64-byte line. The padding is never executed, and the hot code of a
+  // program no longer moves when unrelated code changes size. Given first,
+  // so the command line can override them.
+  std::vector<const char *> args(argv, argv + argc);
+  args.insert(args.begin() + 1,
+              {"--align-all-functions=6", "--align-all-nofallthru-blocks=6"});
+  if (!cl::ParseCommandLineOptions(static_cast<int>(args.size()), args.data(),
+                                   "idris-mlir-cc: idr to object code\n", &llvm::errs()))
     return usage;
   return run();
 }

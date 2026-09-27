@@ -3,7 +3,6 @@ module Main
 -- Doubly recursive Fibonacci: calls and returns, no loops.
 
 import Prelude
-import IdrisMLIR.IO
 
 
 fib : Int -> Int

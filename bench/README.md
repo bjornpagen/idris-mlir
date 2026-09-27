@@ -4,8 +4,8 @@
 input:
 
 - **this compiler**: `bench/<name>/Main.idr`, ordinary Idris against the
-  stock Prelude (`import Prelude`: `Num`, `Ord`, `if`, `cast`, `printLn`),
-  with `IdrisMLIR.IO` only for reading the input;
+  stock Prelude alone (`import Prelude`: `Num`, `Ord`, `if`, `cast`,
+  `getChar`, `printLn`);
 - **Idris Chez**: the same Idris source through the stock Chez backend;
 - **MLton**: `bench/sml/<name>.sml`, the same algorithm in Standard ML,
   compiled with `-default-type int64` because Idris's `Int` has 64 bits;
@@ -19,15 +19,15 @@ wall-clock runs. MLton comes from the Debian package unpacked into
 ## Results
 
 On the development container (x86-64, 4 CPUs; LLVM 23.1.2, MLton 20210117,
-GCC as pinned), best of 3, seconds:
+GCC as pinned), best of 5, seconds:
 
 | benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.349 | 5.790 | 1.343 | 0.341 | 3.85x |
-| mandelbrot | 2000 | 0.361 | 5.188 | 0.516 | 0.364 | 1.43x |
-| fib | 38 | 0.135 | 3.545 | 0.290 | 0.067 | 2.15x |
-| tak | 18 | 0.116 | 1.291 | 0.174 | 0.104 | 1.50x |
-| collatz | 3000000 | 0.456 | 20.765 | 1.928 | 0.597 | 4.23x |
+| nbody | 5000000 | 0.349 | 5.782 | 1.353 | 0.350 | 3.87x |
+| mandelbrot | 2000 | 0.359 | 5.344 | 0.513 | 0.365 | 1.43x |
+| fib | 38 | 0.126 | 3.337 | 0.289 | 0.066 | 2.29x |
+| tak | 18 | 0.115 | 1.308 | 0.169 | 0.102 | 1.47x |
+| collatz | 3000000 | 0.471 | 20.826 | 1.950 | 0.593 | 4.14x |
 
 The Prelude costs nothing: its interfaces, `Integer` literals and `show`
 internals are all resolved at compile time, and these times equal those of

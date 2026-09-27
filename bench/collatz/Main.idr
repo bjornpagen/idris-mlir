@@ -3,7 +3,6 @@ module Main
 -- The longest Collatz sequence starting below n: integer division in loops.
 
 import Prelude
-import IdrisMLIR.IO
 
 
 steps : Int -> Int -> Int

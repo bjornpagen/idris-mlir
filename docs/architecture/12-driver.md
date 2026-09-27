@@ -18,10 +18,11 @@
 - **DRV-CC-1 (p0).** The command line is:
 
   ```sh
-  idris-mlir-cc INPUT.mlir -o OUTPUT [--emit=obj|llvm|mlir] [--dump-after=PASS|all] [--dump-dir=DIR]
+  idris-mlir-cc INPUT.mlir -o OUTPUT [--emit=obj|asm|llvm|mlir] [--dump-after=PASS|all] [--dump-dir=DIR]
   ```
 
   - `--emit=obj` (the default) writes an ELF object file;
+  - `asm` writes the same code as assembly text (v3);
   - `llvm` writes LLVM IR after optimization;
   - `mlir` writes the LLVM dialect.
   - `--dump-after` writes the module after the named pass (or after every

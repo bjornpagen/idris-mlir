@@ -3,7 +3,6 @@ module Main
 -- Takeuchi's function, a classic of the Gabriel benchmarks, iterated.
 
 import Prelude
-import IdrisMLIR.IO
 
 
 tak : Int -> Int -> Int -> Int

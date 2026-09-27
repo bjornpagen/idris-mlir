@@ -90,7 +90,8 @@ Superoptimization, equality saturation and search are non-goals (D7).
   10. `canonicalize`, `cse`
   11. `convert-scf-to-cf`, `convert-to-llvm`, `reconcile-unrealized-casts`
   12. Translate to LLVM IR, run LLVM's `default<O2>` pipeline, then emit an
-      object file for the host target (`LOW-TARGET-1`)
+      object file for the host target (`LOW-TARGET-1`), laid out as
+      `OPT-PIPE-4` says
   - Test: `tests/idr/pipeline/cc-steps.mlir`
   - *Measured and left out:* upstream `control-flow-sink` after step 7
     changed no benchmark in `bench/` beyond noise (v2); LLVM's own sinking
@@ -112,6 +113,15 @@ Superoptimization, equality saturation and search are non-goals (D7).
   until a 200-function program took over a minute and grew twentyfold.
   - Check: `Code.loopBreakers`
   - Test: `tests/e2e/v2/math-showcase/mlir.check`
+- **OPT-PIPE-4 (v3).** Code generation aligns every function, and every
+  block that is not reached by falling through, to 64 bytes
+  (`--align-all-functions=6 --align-all-nofallthru-blocks=6`, which the
+  command line can override). The padding is never executed. Without it a
+  hot loop's speed depended on where unrelated code put it: `tak` ran 10%
+  slower when only the code that reads its input changed, with identical
+  machine code for `tak` at a different address. With it, no benchmark in
+  `bench/` is slower and `fib` is 9% faster.
+  - Test: `tests/idr/pipeline/layout.mlir`
 - **OPT-IDEM-1 (v0).** Running the pipeline's steps 3–8 a second time on
   their own output changes nothing. A difference means a missing
   canonicalization and is recorded as an issue, not a failure.

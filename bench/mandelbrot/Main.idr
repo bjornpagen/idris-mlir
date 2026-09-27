@@ -1,7 +1,6 @@
 module Main
 
 import Prelude
-import IdrisMLIR.IO
 
 escapes : Double -> Double -> Bool
 escapes cr ci = go 0.0 0.0 0
