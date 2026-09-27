@@ -31,6 +31,12 @@ There are two kinds of error:
   TTC keeps no term locations, only each definition's `location`. So for IO
   programs, which Idris loads from TTC under `-o`, errors point at the
   enclosing definition or case block, not at the term itself.
+
+  From v3, an error found inside library code that specialization unfolded
+  (the Prelude, `Builtin`, `PrimIO`, `IdrisMLIR.IO`) is reported at the
+  innermost user definition that reached it, and names the library
+  location in parentheses: `Main:13:1: ... (in PrimIO:43:23)`.
+  - Test: `tests/profile/v3/reject/PROF-HEAP-1-applicative-io.idr`
 - **DIAG-EXIT-1 (v0).** `idris-mlir --check` exits with status 1 on any user
   error and writes no artifact (`FE-ART-1`).
 - **DIAG-HEAP-1 (v1).** A `PROF-HEAP-*` error explains why the value survived.

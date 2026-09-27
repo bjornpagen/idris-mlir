@@ -101,6 +101,9 @@ record St where
   ||| While a call is evaluated at compile time (ELIM-G-16): the unfoldings
   ||| it may still make.
   fuel : Maybe Nat
+  ||| The innermost location in the user's code that evaluation is under: a
+  ||| diagnostic inside library code is reported there (DIAG-LOC-1).
+  site : Maybe Loc
 
 ||| Why evaluation stopped: a user error, a point Idris proved impossible, a
 ||| crash, or a compile-time evaluation given up (ELIM-G-16).
@@ -113,11 +116,29 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing
+initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing Nothing
 
 export
 fail : Rule -> Loc -> String -> M a
-fail r l msg = lift (Left (Fail (MkDiag r "Simplify" l msg)))
+fail r l msg = do
+  site <- gets site
+  case site of
+    Just s => if inLibrary l
+                then lift (Left (Fail (MkDiag r "Simplify" s (msg ++ " (in " ++ show l ++ ")"))))
+                else lift (Left (Fail (MkDiag r "Simplify" l msg)))
+    Nothing => lift (Left (Fail (MkDiag r "Simplify" l msg)))
+
+||| Runs a computation under a location: if it is in the user's code, it is
+||| where library code reached from here reports (DIAG-LOC-1).
+export
+atSite : Loc -> M a -> M a
+atSite l act =
+  if inLibrary l || not (known l) then act else do
+    saved <- gets site
+    modify { site := Just l }
+    x <- act
+    modify { site := saved }
+    pure x
 
 ||| Reached a point that cannot be reached (FE-TR-4, SEM-DATA-2).
 export

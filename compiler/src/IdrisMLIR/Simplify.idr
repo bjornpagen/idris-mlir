@@ -491,7 +491,7 @@ mutual
   ||| body; the parent is then the only function on a recursive cycle.
   ||| A call of a function that is already being unfolded is specialized.
   unfold : Loc -> TFn -> List V -> List (Elim Atom) -> M V
-  unfold l fn vs es = do
+  unfold l fn vs es = atSite l $ do
     st <- get
     case st.fuel of
       Just Z => abandon
@@ -567,7 +567,7 @@ mutual
   ||| specialization for their shapes (G3, G5). A deferred call knows how
   ||| many effects had happened when its action was built.
   call : Loc -> Maybe Nat -> FnId -> List V -> List (Elim Atom) -> M V
-  call l built f args0 es = do
+  call l built f args0 es = atSite l $ do
     when (isJust !(gets fuel)) abandon
     fn <- fnDef l f
     let args = map literalStr args0

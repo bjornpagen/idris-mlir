@@ -58,9 +58,9 @@ benchmarks in `bench/` did not change.
    Lists are built strictly where they are written (`SEM-REC-2`), with
    runtime elements, and `Inf` codata is a compile-time value, so ranges
    work (`tests/e2e/v3/prelude-lists`).
-4. **Diagnostics inside unfolded library code** point at the library's
-   line (`Prelude.Types:181`), not the user's call. `Simplify` should keep
-   the nearest user location while it unfolds library definitions.
+4. **Diagnostics inside unfolded library code**: done (`DIAG-LOC-1`). An
+   error inside the Prelude is reported at the innermost user definition
+   that reached it, with the library location in parentheses.
 5. **Recursion over known values**: done (`ELIM-G-16`). A call whose
    arguments are all known is evaluated completely at compile time within a
    budget of 20000 unfoldings, and the attempt is undone if it would leave
