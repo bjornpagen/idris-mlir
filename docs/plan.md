@@ -77,9 +77,11 @@ Settled, and the rest of the plan builds on them:
 4. **Concurrency is thread-per-core** (section 7). The execution algebras
    are Idris's own libraries: `fork`, `System.Concurrency` and
    `System.Future`.
-5. **Executables are fully static** (section 5). The kernel's syscalls are
-   their only interface. GMP is vendored as a git submodule, and the C
-   library is LLVM's (musl if it falls short).
+5. **Executables are fully static on musl** (section 5). The kernel's
+   syscalls are their only interface. musl and GMP are vendored as pinned
+   git submodules, and the toolchain itself (GCC's target, LLVM/MLIR and our
+   C++ tools, `idr-jit` included) is built on musl, so compile time and
+   runtime share one libc.
 6. **Compile-time evaluation is one JIT path** (section 6). It runs the
    compiler's own pipeline and the program's own runtime, and has no
    features of its own.
@@ -96,8 +98,8 @@ computed:
 | --- | --- | --- |
 | `Int`, `Bits*`, `Int*`, `Double`, `Char` | `Scalar` | a register; as today |
 | `Integer` | `Big` | a 63-bit integer tagged in an `i64`, or a pointer to a GMP integer when it overflows (Lean's scalar `Nat`/`Int`, GHC's `IS`/`IP`) |
-| `Nat`-like (`ZERO`/`SUCC`: `Nat`, `Fin`, …) | `Big`, non-negative | Idris's own `%builtin Natural`; `S`, `Z` and matches become arithmetic |
-| `String` | `Str` | an immutable counted byte buffer, or a literal in `.rodata` |
+| `Nat`-like (`Nat`, `Fin`, …) | `Big`, non-negative | Idris marks such types by constructor flags (`ZERO`/`SUCC`, `Core/CompileExpr.idr`), which its own backends use to represent them as integers; `S`, `Z` and matches become arithmetic |
+| `String` | `Str` | UTF-8 bytes with their length in scalars and an ASCII flag, counted, or a literal in `.rodata` (see below) |
 | `UNIT`, erased, `%World` | none | nothing |
 | enumerations | `Sop` of empty products | a tag |
 | non-recursive data, records | `Sop` | unboxed into registers and fields; slots shared by type (`LOW-DATA-1`) |
@@ -125,6 +127,16 @@ backend implements, so we add no library and no API.
   MLIR nor LLVM reorders a load across a store to the same array.
 - **Arrays do not alias across allocation sites.** Arrays from different
   `prim__newArray` calls get distinct alias scopes.
+- **Strings are sequences of Unicode scalar values** (`SEM-STR-1`).
+  `strLength` counts scalars and `strIndex` indexes by scalar, as Chez does.
+  The layout trades these against output, which is UTF-8 (`SEM-IO-2`):
+
+  | Layout | Output | `strLength` | `strIndex` | Memory |
+  | --- | --- | --- | --- | --- |
+  | UTF-32 | transcode | O(1) | O(1) | 4 bytes per scalar |
+  | UTF-8 alone | as is | O(n) | O(n); the Prelude's `unpack` loops over `strIndex`, so O(n²) | 1–4 bytes |
+  | **UTF-8, scalar count, ASCII flag** (chosen) | as is | O(1) | O(1) when ASCII; otherwise through breadcrumbs, a byte offset every 64 scalars built on first index (Swift's scheme, *literature*) | 1–4 bytes, +1/16 for indexed non-ASCII strings |
+
 - **Strings are immutable.** When the left string of `strAppend` is unique
   and has room, the append can extend it in place (Lean's `String.append`).
 - **One world.**
@@ -149,8 +161,8 @@ at `a4eae0a`). In short:
     - Lean beats MLton 3.25× on red-black tree updates;
     - MLton matches Lean or beats it only where sharing or arrays of
       unboxed integers dominate;
-    - collectors spend 21–90% of their time in GC, against Lean's 3–28%
-      freeing.
+    - MLton spends 21–37% of its time in GC and OCaml up to 90%, against
+      Lean's 3–28% freeing.
   - Koka (Perceus, PLDI 2021) is fastest on all five allocation benchmarks
     against OCaml, GHC, Swift and Java, within 10% of C++ `std::map`, with
     the lowest peak memory.
@@ -188,6 +200,8 @@ points like ours), ported to `Code Mem`, in Lean's order:
      tail call.
    - QTT seeds it: a quantity-1 parameter never needs a `dup` in its
      callee, and a quantity-0 one is never counted.
+   - Soundness never depends on quantities. Liveness decides every count,
+     and quantities only choose where inference starts.
 4. **`explicitRc`.** `inc`/`dec` from liveness, with derived borrows (a
    projection of a borrowed value is borrowed). The result is garbage
    free: the heap holds only live data (Perceus, Theorem 4).
@@ -220,6 +234,12 @@ points like ours), ported to `Code Mem`, in Lean's order:
 
   Sending on the same core costs nothing.
 
+  This is as sound as the counts themselves. A count of 1 means the
+  reference being sent is the only one. Anything the sender still uses
+  after the send (including a field it projected) was counted separately by
+  the same liveness that makes single-threaded code correct, so it has a
+  count of 2 or more and is marked, not moved.
+
 ### 4.4 The gate: a prototype before the compiler work
 
 1. **The benchmark suite, in Idris.** Port Lean's and Koka's allocation
@@ -242,39 +262,94 @@ If the gate fails, the memory decision is reopened with the numbers.
 
 ## 5. Runtime and linking
 
-- **Fully static executables.** No `ld.so`, no shared libraries; the
-  kernel's syscalls are the only interface, as with Go on Linux.
-  `TEST-HEAP-1` (only `write`, `read`, `_exit` and libm) becomes a check
-  that each executable has no `INTERP` and no `DYNAMIC` section.
-- **The C library.**
-  - First choice: LLVM's own libc (`llvm-project/libc`), built in
-    full-build mode from the LLVM tree we already pin.
-    - It is no new dependency.
-    - Its math functions aim to be correctly rounded, which would make
-      `SEM-DBL` results exact and independent of the platform (today
-      `SEM-DEV-2` allows `libm`'s differences).
-    - Its build runs a header generator in Python, which LLVM's own build
-      already requires.
-  - Fallback: musl as a submodule, static. It is mature, but its `libm` is
-    not correctly rounded.
-  - The first experiment of the toolchain step decides between them: does
-    GMP link and pass its tests against LLVM's libc?
-- **GMP** is a git submodule under `third_party/gmp`, pinned like Idris and
-  LLVM, from a GitHub mirror, since gmplib.org is unreachable here.
-  - It is built with `--disable-shared`, with its memory functions pointed
-    at our allocator.
-  - GMP is LGPL: a static executable must be relinkable, which shipping our
-    object files satisfies. `PINS.md` and the licence notes record this.
-- **The runtime** is C, compiled by the pinned GCC into one static archive
-  in `runtime/`. It contains:
-  - the allocator and counts;
-  - bignums over GMP;
-  - strings;
-  - the scheduler, `epoll` and timers (section 7);
-  - the crash, output and number-printing paths that are LLVM-dialect
-    helpers today (`Lower/Runtime.mlir.inc`, which shrinks accordingly).
-- **The allocator**: vendored mimalloc (per-thread heaps and remote frees
-  are what section 4.3 needs), or our own size classes (section 11).
+### 5.1 Fully static executables
+
+There is no `ld.so` and no shared library; the kernel's syscalls are the
+only interface, as with Go on Linux. `TEST-HEAP-1` (only `write`, `read`,
+`_exit` and libm) becomes a check that every executable has no `INTERP` and
+no `DYNAMIC` section. Executables are static-PIE (musl's `rcrt1.o`), so
+they keep address-space randomization.
+
+### 5.2 The C library: musl
+
+Chosen over LLVM's libc, from both sources:
+
+| | musl 1.2.6 (clone of a GitHub mirror) | LLVM libc (the pinned `llvm-project/libc`) |
+| --- | --- | --- |
+| Status on Linux | mature: Alpine; the static Linux targets of Rust and Zig | its own docs, `full_host_build.md`: "missing many critical functions needed to build non-trivial applications … we recommend sticking with your system libc" |
+| What our runtime needs | all present: `clone`, `epoll`, `eventfd`, `timerfd`, `sched_setaffinity`, pthreads, sockets, `getaddrinfo` | `epoll`, sockets and pthreads present; no `eventfd`, `timerfd`, `clone` or `getaddrinfo` wrappers |
+| C++ on top | GCC targets `x86_64-linux-musl`, and libstdc++ and LLVM build on it | libstdc++ does not support it; it is built with Clang, and we build with GCC |
+| DNS when static | works (reads `/etc/resolv.conf`; no NSS) | no `getaddrinfo` |
+| Math (double) | `exp`, `log`, `pow`: ARM's optimized routines, the code glibc uses; `sin`, `cos`, `tan`, `asin`, `acos`, `atan`: FreeBSD's msun, not correctly rounded | correctly rounded in every rounding mode for `exp`, `log`, `sin`, `cos`, `tan`, `asin`, `acos`; `pow` and `atan` within 1 ULP (`docs/headers/math/index.rst`) |
+| Licence | MIT | Apache 2.0 with LLVM exception |
+
+The C++ row decides it. The JIT server must run the program's own runtime
+on the program's own libc (section 6), so its process (LLVM, MLIR, our
+C++) must be built on that libc. With musl the whole toolchain can be; with
+LLVM's libc it cannot.
+
+**What musl costs:**
+- **Trigonometry is not correctly rounded.** `sin` and the inverse
+  functions can differ from glibc's (the reference Chez runs on glibc) in
+  the last place. `SEM-DEV-2` already allows `libm` differences.
+  - Results are deterministic across x86-64 machines: musl's math is plain
+    C on SSE.
+  - The toolchain step measures how often our math e2e tests differ from
+    Chez. If it matters, the answer is a correctly rounded libm linked in
+    place of musl's, which is a separate decision.
+- **`memcpy` is a simple `rep movsq`**, slower than glibc's vector copies
+  on large blocks. Our generated code copies little, and a measured
+  problem would be met by a better `memcpy` in the runtime.
+- **Its `malloc` (mallocng) is slow.** We use our own allocator
+  (section 4.3); musl's only serves musl itself.
+
+**The toolchain becomes musl-based.**
+- `bootstrap` builds musl, then a GCC that targets `x86_64-linux-musl`
+  (GCC supports it upstream; `musl-cross-make` is the reference recipe).
+- LLVM/MLIR and our C++ tools are rebuilt with it, static.
+- The Idris compiler itself still runs on Chez, on the host's libc: it is a
+  host program and never links into an executable.
+- **Cost:** one more GCC build in the bootstrap, and an LLVM rebuild.
+
+**The pin.** musl's official repository (`git.musl-libc.org`) is
+unreachable from this environment; `github.com/kraj/musl` mirrors it and
+is reachable. The submodule is pinned to a release tag by commit, and the
+tag's hash is checked against the official release tarball's signature
+where that can be fetched.
+
+### 5.3 Bignums: GMP
+
+- **GMP** is a git submodule under `third_party/gmp` from a GitHub mirror
+  (gmplib.org, and its Mercurial repository, are unreachable here), pinned
+  to a release. It is built with `--disable-shared` against musl, with its
+  memory functions pointed at our allocator.
+- **Nothing in LLVM replaces it.**
+  - `APInt` has a fixed width, and its multiply and divide are schoolbook.
+  - `DynamicAPInt` is arbitrary-precision with a 64-bit fast path, but it
+    is a C++ compiler-internal class built on `APInt`, and it would bring
+    libstdc++ into every executable.
+  - LLVM libc's `BigInt` has a width fixed at compile time; it serves its
+    printf and math internals.
+- **mini-gmp** (GMP's one-file subset) is quadratic, and Lean's own `mpn`
+  fallback is a C++ reimplementation. GMP has assembly kernels for x86-64
+  and asymptotically fast multiplication.
+- **Licence.** GMP is LGPL v3 (or GPL v2). A static executable must be
+  relinkable against another GMP; shipping our object files satisfies
+  that. `PINS.md` and the licence notes say so.
+
+### 5.4 The runtime
+
+The runtime is C, compiled by the musl GCC into one static archive in
+`runtime/`. It contains:
+- the allocator and counts (section 4.3);
+- bignums over GMP;
+- strings (section 3);
+- the scheduler, stacks, `epoll`, timers and the blocking pool (section 7);
+- the crash, output and number-printing paths that are LLVM-dialect
+  helpers today (`Lower/Runtime.mlir.inc`, which shrinks accordingly).
+
+**The allocator:** vendored mimalloc (per-thread heaps and remote frees are
+what section 4.3 needs), or our own size classes (section 12).
 
 ## 6. Compile-time evaluation: one JIT path
 
@@ -305,10 +380,17 @@ own pipeline and the program's own runtime, run at compile time.
   server is open (section 11).
 
 **The server**, `idr-jit`, a C++ tool in `foreign/idr/tools`:
+- **One libc.** It is a static musl executable like the programs, with the
+  runtime archive linked into it.
+  - JIT'd code calls only runtime entry points, and they are bound to the
+    server's own copies through an absolute-symbol table generated at
+    build time.
+  - Loading a second copy of the runtime or of libc into the process would
+    duplicate the allocator, `errno` and stdio state.
 - **Start-up.** The compiler starts it once per compilation (Idris's
-  `popen2`). It creates an ORC `LLJIT`, loads the runtime archive (the same
-  objects executables link, through a static-library generator), and
-  compiles one entry point per primitive.
+  `popen2`). It creates an ORC `LLJIT` with no compile threads (it forks,
+  and a process with threads must not), and compiles one entry point per
+  primitive.
 - **Requests.**
   - `prim op args`: a call, no code generation, about 10–30 µs a round
     trip.
@@ -365,30 +447,70 @@ and Lean's tasks, not Go's migrating goroutines on a shared heap.
 | linear `System.Concurrency.Session`: session-typed channels | on `Channel` |
 | network `Network.Socket` | blocking calls register with the core's `epoll` and suspend the task |
 
+**The primitives are the libraries' own externs.** `System.Concurrency`
+and `System.Future` declare theirs for Chez only
+(`%foreign "scheme:blodwen-make-mutex"`, `"scheme:blodwen-make-future"`,
+and so on), `Prelude.IO` declares `fork` for Chez and RefC, and
+`Network.Socket` names the C support functions `idrnet_*`. Our backend
+implements those names in the runtime, as it implements the `prim__`
+externs today. The profile admits these modules, and not `%foreign` in
+general.
+
 **What the compiler contributes.** An execution algebra built from these
 (a monad of futures, a free monad of tasks, a pipeline, a parallel
 `traverse`) is a static value. `Simplify` specializes its interpreter away,
 as it does for IO and state monads today, so only spawns, awaits, sends and
 loops reach code generation.
 
-### 7.3 Tasks
+### 7.3 Tasks and their stacks
 
-- **Stackful, on fixed, lazily committed stacks.**
-  - Each task gets 256 KiB of address space by default, with a guard page.
-    Only touched pages cost memory.
-  - A context switch saves the callee-saved registers and the stack
-    pointer, in a few instructions of assembly.
-  - Growable stacks would need pointer maps for every frame, which nothing
-    else needs under reference counting.
-  - Stackless state machines (Rust's `async`) remain possible later,
-    without changing any library, if 8 KiB per task proves too much.
-- **Cooperative scheduling.** A task runs until it suspends on IO, a
-  channel, a lock, a timer or an `await`. Long pure work belongs in
-  futures. A check at loop back-edges can add fairness later without
-  signals.
-- **Semantics.** The reference's `fork` starts an OS thread; ours starts a
-  task. Only fairness and timing differ, which Idris does not specify.
-  `03` states it.
+**Deep recursion is the constraint.**
+- Chez's stacks are segmented and never overflow. Functional code relies on
+  that: the Prelude's `map` on lists is not tail-recursive, so mapping over
+  a million-element list recurses a million deep.
+- musl gives a thread 128 KiB of stack by default.
+- A task stack must hold what the reference holds, or the program crashes
+  where Chez would not.
+
+The candidates:
+
+| Stacks | Deep recursion | Tasks | Cost |
+| --- | --- | --- | --- |
+| Fixed reservation per task with a guard page | up to the reservation (e.g. 64 MiB, committed only when touched) | each stack plus its guard is two kernel mappings, and `vm.max_map_count` defaults to 65 530: about 32 000 tasks | simplest |
+| Growable by copying (Go) | unbounded | unbounded | moving frames needs a pointer map of every frame; nothing else in our design needs one |
+| LLVM's split stacks | unbounded | unbounded | its prologue reads the limit from `fs:0x70`, glibc's reserved slot; in musl's `struct pthread` that offset is the `result` field, so it cannot be used |
+| **Segmented, checked by our own prologue** (chosen) | unbounded, like Chez | unbounded; segments come from pooled mappings, with no guard pages | a compare and a rarely taken branch per function entry |
+
+**How the chosen design works:**
+- **The prologue.** `idr-lower` emits it on every Idris function: compare
+  the stack pointer with the current segment's limit, kept in a slot of our
+  own per-thread data, not the TCB.
+- **The slow path** links a new segment and continues there. Frames never
+  move, so no pointer maps are needed.
+- **Hot splitting** (a call in a loop at a segment boundary, the problem
+  that made Rust and Go drop segmented stacks) is damped: each task keeps
+  one spare segment instead of freeing it at once.
+- **C code has no prologue.** Calls into the runtime, GMP and musl
+  therefore switch to a per-core system stack of fixed, ample size, as Go
+  does for C calls.
+- **Tail recursion modulo cons** (Leijen and Lorenzen, *literature*) turns
+  `map`, `filter` and `append` into loops that fill a hole in the last
+  cell. This removes most deep recursion before stacks are involved, and
+  it combines with reuse, since the cell is written once.
+- **Experiment first (C0).** Measure the prologue on the benchmark table
+  (target: within noise) and the hot-split case, against fixed
+  reservations. Only then build it.
+
+**Scheduling is cooperative.**
+- A task runs until it suspends on IO, a channel, a lock, a timer or an
+  `await`. Long pure work belongs in futures.
+- The stack prologue gives a free preemption point. A flag checked on its
+  slow path (set by a timer to force the limit check to fail) adds
+  fairness later without signals.
+
+**Semantics.**
+- The reference's `fork` starts an OS thread; ours starts a task. Only
+  fairness and timing differ, which Idris does not specify. `03` states it.
 
 ### 7.4 Memory across cores
 
@@ -410,6 +532,10 @@ Consequences:
 - Each core has an edge-triggered `epoll`, an `eventfd` for wake-ups from
   other cores, and the timer heap's next deadline as the `epoll_wait`
   timeout.
+- **`epoll` cannot wait on regular files** (they are always ready), and
+  `getaddrinfo` blocks. Both go to a small pool of blocking threads that
+  completes a task's request and wakes its core (tokio's
+  `spawn_blocking`), until `io_uring` replaces the pool for files.
 - `io_uring` later, behind the same scheduler.
 
 ## 8. Compiler work not tied to memory
@@ -521,12 +647,13 @@ Each milestone requires:
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
 | 1 | **Cleanup** (section 9) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
-| 3 | **Static toolchain** (section 5) | libc chosen by experiment; GMP and the libc pinned as submodules; a `runtime/` archive; every executable static (no `INTERP`, no `DYNAMIC`) |
+| 3 | **Static toolchain on musl** (section 5) | musl and GMP pinned as submodules; a GCC targeting `x86_64-linux-musl`; LLVM/MLIR and our C++ tools rebuilt static on it; a `runtime/` archive; every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the math e2e tests measured against Chez |
 | 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; reference counting on `Code Mem` (section 4.2); runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
 | 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
 | 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
 | 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
-| 8 | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
+| 8 | **C0: stacks** (section 7.3) | the segment check in `idr-lower` and the system-stack switch, measured: the benchmark table within noise, and the hot-split case bounded; a million-deep non-tail recursion runs |
+| 8a | **C1: tasks on one core** | `fork`, `threadWait`, `System.Concurrency` task-aware, `Network.Socket` over `epoll`, timers; an echo server and an HTTP plaintext server under load |
 | 9 | **C2: thread-per-core** | a pinned scheduler per core; `SO_REUSEPORT`; move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
 | 10 | **C3: parallel futures** | stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
 | 11 | **C4: `io_uring`** | behind the same scheduler, if C2's numbers call for it |
@@ -554,7 +681,26 @@ in its milestone:
 - **10:** the `Rep` layouts and struct-of-arrays; the runtime calls.
 - **11:** the static toolchain, GMP, the libc, `runtime/`.
 
-## 11. Open questions
+## 11. Tradeoffs
+
+For each decision: what it buys, what it costs, and what evidence would
+reverse it.
+
+| Decision | Buys | Costs | Reversed if |
+| --- | --- | --- | --- |
+| Runtime representations for everything (3) | every profile program compiles; compile-time evaluation becomes optional | a runtime, a heap, and code for boxed values where specialization used to remove them | never: without it the profile stays heap-free |
+| Reference counting (4) | the best measured speed on functional code; peak memory close to live data; in-place reuse; no stack scanning, so tasks, the JIT and `epoll` stay simple | counts in the code (removed by borrowing, reuse and QTT, not by the model); atomic counts on data shared across cores; cycles through mutable cells | the gate fails: slower than MLton, or atomics dominate a thread-per-core workload |
+| Heaps per core, move-or-mark (4.3) | messages built for sending cross cores with no atomics | a walk over each crossing value; remote frees | the walk costs more than copying (Erlang) on real messages |
+| Thread-per-core, IO tasks pinned (7) | core-local data; no migration; almost all counts non-atomic | no automatic balancing of IO tasks across cores; a long computation in a task blocks its core | real servers need IO-task migration for load balance |
+| Idris's libraries as the concurrency API (7.2) | no language design; programs run on Chez too | no "fork on core k" (a runtime policy stands in) | a program cannot be written without placement control |
+| Segmented stacks with our own check (7.3) | unbounded recursion like the reference; unbounded tasks; no pointer maps | a check per function entry; a system-stack switch per C call; the hot-split case | C0 shows the check is not within noise, or hot splits are common |
+| musl (5.2) | a complete, mature Linux libc on which the whole toolchain, the JIT included, can be static | not-correctly-rounded trigonometry; a simple `memcpy`; one more GCC build | math differences break real programs' output against the reference, and a correctly rounded libm cannot be linked in its place |
+| GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
+| One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
+| UTF-8 strings with scalar counts (3) | output without transcoding; compact storage; O(1) for ASCII | breadcrumbs for indexing non-ASCII strings | programs index non-ASCII strings heavily enough that UTF-32 wins |
+| No Python; golden tests in Idris (9) | one language in the repository; Idris's own test tooling | rewriting about 1 900 lines of harness | nothing foreseeable |
+
+## 12. Open questions
 
 1. **Cycles through `IORef`/`IOArray`:**
    - leak (Lean, Koka and Swift do);
@@ -570,10 +716,10 @@ in its milestone:
    FFI.
 4. **Scheduling:** cooperative, with back-edge checks only if fairness
    needs them?
-5. **Stack reservation per task:** 256 KiB by default, set by a flag?
-6. **Joining two literal strings:** data layout (kept in `Simplify`) or a
+5. **Joining two literal strings:** data layout (kept in `Simplify`) or a
    primitive for the server?
-7. **The libc:** LLVM's or musl, decided by the toolchain experiment.
+6. **Trigonometry:** musl's, or a correctly rounded libm linked in its
+   place, decided by the toolchain step's measurement against Chez.
 
 ## Appendix A: evidence for the memory decision
 
@@ -636,4 +782,11 @@ Perceus (Reinking et al., PLDI 2021), Figure 9:
   - Go (`src/runtime`);
   - OCaml (`runtime`);
   - Erlang/OTP (`erts/emulator/beam`);
-  - Idris 2 at the pinned revision (`libs/`, `src/Compiler/Scheme`).
+  - Idris 2 at the pinned revision (`libs/`, `src/Compiler/Scheme`,
+    `src/Core/CompileExpr.idr`);
+  - musl 1.2.6 (`src/internal/pthread_impl.h`, `src/math`, `src/linux`,
+    `crt/rcrt1.c`) from `github.com/kraj/musl`;
+  - LLVM libc and LLVM in the pinned `llvm-project` (`libc/docs`,
+    `libc/config/linux/x86_64/entrypoints.txt`,
+    `llvm/include/llvm/ADT/DynamicAPInt.h`,
+    `llvm/lib/Target/X86/X86FrameLowering.cpp`).
