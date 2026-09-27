@@ -104,8 +104,9 @@ Superoptimization, equality saturation and search are non-goals (D7).
   Glasgow Haskell Compiler inliner", JFP 2002): in every strongly connected
   component of two or more functions it picks one, the first in program
   order that is not from a library module (`Builtin` or `PrimIO`; the
-  Prelude's modules are not counted here), and repeats on the rest of the
-  component. Everything else may be inlined, which cannot unroll a loop,
+  Prelude's modules are not counted here: the *Break last* column of the
+  library table, [17-registry](17-registry.md)), and repeats on the rest of
+  the component. Everything else may be inlined, which cannot unroll a loop,
   and each breaker becomes self recursive. Without it the inliner
   unrolled mutual recursion between an IO loop and its `>>` specialization
   until a 200-function program took over a minute and grew twentyfold.

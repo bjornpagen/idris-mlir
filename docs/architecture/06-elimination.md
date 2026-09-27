@@ -202,7 +202,9 @@ is static.
   - **Drive.** A call is unfolded, evaluated where it is called with the
     values of its arguments, when it carries static information:
     - it is an Idris case or with block, or a library definition marked
-      `%inline`;
+      `%inline` (the *Inline hints* column of the library table,
+      [17-registry](17-registry.md): `Builtin`, `PrimIO` and the Prelude);
+      each is a fact of the function, with its provenance;
     - its result is a `String`, which must reach `ELIM-G-6` or `ELIM-G-7`
       where it is used;
     - an argument has static structure (a closure, a constructor, a

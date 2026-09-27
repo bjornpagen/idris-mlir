@@ -1,0 +1,12 @@
+// rule: FE-TR-7
+// The hook fires: full Core calls neither `Builtin.rewrite__impl` nor
+// `Builtin.replace`, and each function returns the box it was given.
+// CHECK-NOT: Builtin.{{replace|rewrite__impl}}
+// CHECK: Main.commuted (0 Erased) (0 Erased) (w Main.Box
+// CHECK-NEXT: let 0 = erased
+// CHECK-NEXT: let 0 = erased
+// CHECK-NEXT: #4
+// CHECK-NOT: Builtin.{{replace|rewrite__impl}}
+// CHECK: Main.padded (0 Erased) (w Main.Box
+// CHECK-NEXT: #1
+// CHECK-NOT: Builtin.{{replace|rewrite__impl}}

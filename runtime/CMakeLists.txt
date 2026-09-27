@@ -1,0 +1,116 @@
+# The runtime (TC-RT-1, TC-RT-2; docs/plan.md sections 5.4 and 5.6): C++ with
+# no exceptions, no RTTI and no C++ library at link time, built into one
+# archive of fat LTO objects. Their bitcode joins every program's LTO module
+# in idris-mlir-cc (TC-LINK-1); their native code is for idr-jit.
+# It includes the vendored libraries' headers, so like foreign/idr it is
+# quarantine code.
+# PIN(runtime-quarantine), PIN(runtime-cx16) — see PINS.md
+
+set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
+foreach(file
+		snmalloc/src/snmalloc/snmalloc.h
+		simdutf/src/simdutf.cpp
+		fast_float/include/fast_float/fast_float.h)
+	if(NOT EXISTS "${IDRIS_MLIR_THIRD_PARTY}/${file}")
+		message(FATAL_ERROR "third_party/${file} is missing; run: git submodule update --init")
+	endif()
+endforeach()
+
+# The runtime's profile, in every configuration:
+# - optimized, since optnone bitcode would stay unoptimized in programs;
+# - the x86-64 baseline plus CMPXCHG16B, which snmalloc requires: idris-mlir-cc
+#   raises every runtime function to the program's CPU (TC-LINK-1);
+# - fat LTO objects: bitcode for programs, native code for idr-jit;
+# - no FP contraction (docs/plan.md section 5.7).
+add_library(idris_mlir_runtime_profile INTERFACE)
+target_compile_options(idris_mlir_runtime_profile INTERFACE
+	-O3
+	-march=x86-64
+	-mcx16
+	-flto=full
+	-ffat-lto-objects
+	-ffp-contract=off
+	-ffunction-sections
+	-fdata-sections
+)
+target_compile_definitions(idris_mlir_runtime_profile INTERFACE NDEBUG)
+
+# simdutf builds without the C++ library (docs/plan.md section 3), with the
+# encodings the runtime uses: UTF-8, UTF-32 and ASCII.
+set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
+	SIMDUTF_NO_LIBCXX=1
+	SIMDUTF_FEATURE_UTF16=0
+	SIMDUTF_FEATURE_LATIN1=0
+	SIMDUTF_FEATURE_BASE64=0
+	SIMDUTF_FEATURE_DETECT_ENCODING=0
+)
+
+# Vendored code: compiled as upstream writes it, outside our warning set and
+# the lint graph.
+add_library(idris_rt_simdutf OBJECT "${IDRIS_MLIR_THIRD_PARTY}/simdutf/src/simdutf.cpp")
+target_include_directories(idris_rt_simdutf SYSTEM PRIVATE
+	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
+	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/src"
+)
+target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
+target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)
+
+add_library(idris_rt STATIC
+	alloc.cc
+	gmp.cc
+	numbers.cc
+	strings.cc
+	$<TARGET_OBJECTS:idris_rt_simdutf>
+)
+target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(idris_rt SYSTEM PRIVATE
+	"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
+	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
+	"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
+)
+target_compile_definitions(idris_rt PRIVATE
+	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
+	# snmalloc (docs/plan.md section 5.6): size classes that step by 8 bytes;
+	# thread teardown through pthread keys, not the C++ runtime; its own small
+	# STL; and what the musl sysroot provides.
+	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
+	SNMALLOC_USE_PTHREAD_DESTRUCTORS
+	SNMALLOC_USE_SELF_VENDORED_STL
+	SNMALLOC_PLATFORM_HAS_GETENTROPY
+	SNMALLOC_HAS_LINUX_RANDOM_H
+	SNMALLOC_HAS_LINUX_FUTEX_H
+	SNMALLOC_USE_WAIT_ON_ADDRESS=1
+)
+target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
+
+foreach(target idris_rt_simdutf idris_rt)
+	set_target_properties(${target} PROPERTIES
+		CXX_MODULE_STD OFF
+		CXX_SCAN_FOR_MODULES OFF
+	)
+endforeach()
+set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
+set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+# idris-mlir-cc reads the runtime's bitcode from here (TC-LINK-1).
+set(IDRIS_MLIR_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt.a" PARENT_SCOPE)
+
+# TC-RT-2, the link check. Every member of the archive is linked into one
+# static-PIE executable with no C++ library and no unwinder, so a reference
+# to the C++ runtime is an undefined symbol and fails the link. The archive
+# check then refuses weak references to it, which a link accepts, and static
+# constructors, which idris-mlir-cc refuses.
+add_executable(idris_rt_link_check link_check.c)
+target_link_libraries(idris_rt_link_check PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,idris_rt>" gmp)
+target_link_options(idris_rt_link_check PRIVATE -static-pie --unwindlib=none)
+
+add_custom_command(
+	OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.checked"
+	COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/check-archive.sh"
+		"${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:idris_rt>"
+		"${CMAKE_CURRENT_BINARY_DIR}/idris_rt.checked"
+	DEPENDS idris_rt idris_rt_link_check "${CMAKE_CURRENT_SOURCE_DIR}/check-archive.sh"
+	COMMENT "Checking the runtime for C++ runtime references and static constructors (TC-RT-2)"
+	VERBATIM
+)
+add_custom_target(idris_rt_check ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.checked")

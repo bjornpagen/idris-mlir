@@ -56,7 +56,8 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
 - **PROF-PROG-2 (v0).** In a `main : Int` program, the module defines
   `main : Int` with no arguments, and `main` is the root. The program is
   compiled with `--inc mlir --check` (`FE-ENTRY-2`).
-  - Check: `Frontend.Main.compileModule`
+  - Check: `Frontend.Main.compileModule`, with Idris's entry convention
+    from the registry (category 1 of [17-registry](17-registry.md))
   - Test: `tests/profile/v0/reject/PROF-PROG-2-{missing,args}.idr`
 - **PROF-PROG-3 (v0).** Definitions that are not reachable are neither
   checked nor compiled. They remain subject to `PROF-PRAG-1`.
@@ -72,7 +73,9 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
     of its own (`PROF-IO-1`).
 
   Modules of other packages (`base`, `contrib`) are rejected.
-  - Check: `Frontend.Main.compileIO`, at the offending `import`
+  - Check: `Frontend.Main.compileIO`, at the offending `import`; which
+    modules are trusted is the library table's (*Trusted*,
+    [17-registry](17-registry.md))
   - Test: `tests/profile/v3/reject/PROF-PROG-4-base.idr`,
     `tests/profile/v1/accept/PROF-PROG-4-two-modules/`, `tests/e2e/v3/prelude`
 
@@ -92,21 +95,27 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   | `Builtin` (v3) | also every other definition but its escape hatches `believe_me`, `idris_crash` and `assert_linear`: the proof combinators `sym`, `trans`, `replace`, `rewrite__impl`, `DPair` |
   | the base library (v3) | see `PROF-LIB-3` |
 
-  - Check: `Frontend.Profile.checkReachable`
+  - Check: `Frontend.Profile.checkReachable`, with the library table of
+    [17-registry](17-registry.md) (*Trusted*, *Admitted*, and what `PrimIO`
+    admits). `Builtin`'s escape hatches are rejected on Idris's flag
+    (`PROF-ESC-1`) before admission is asked.
   - Test: `tests/profile/v3/accept/PROF-LIB-1-equality-proofs.idr`
 - **PROF-LIB-3 (v3).** The modules of the base library under `Data`,
   `Control`, `Decidable` and `Syntax` are trusted like the Prelude, when the
   program is built with `-p base`: every definition is admitted, subject
   where it is reached to every other rule. `System.*` (the FFI, files,
   processes, clocks) is not trusted.
-  - Check: `Frontend.Profile.trustedModule`
+  - Check: the library table of [17-registry](17-registry.md) (*Trusted*,
+    base's areas), which recognizes them by namespace
   - Test: `tests/e2e/v3/vect`, `tests/profile/v3/reject/PROF-PROG-4-base.idr`
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%default` and other elaboration
   flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-19`). It
-  honours `%foreign` and `%extern` only for the Prelude's IO primitives,
-  which it recognizes by full name (`PROF-IO-4`); the `%foreign` strings
-  themselves are never read.
+  honours `%foreign` and `%extern` only for the IO primitives the registry
+  lists (`PROF-IO-4`): a `%foreign` definition by the spec it declares for
+  backends (`C:idris2_putStr`), whose Idris name and type are validated
+  (`HOOK-SHAPE-1`), and an `%extern` one by its name
+  ([17-registry](17-registry.md)).
 
 ## IO (v1)
 
@@ -131,7 +140,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   (`TEST-DIFF-1`); `SEM-IO-2` says where the two backends' output agrees.
   The Prelude's other `%foreign` primitives (`getLine`, files, time) stay
   rejected (`PROF-ESC-1`).
-  - Check: `Frontend.Translate.ioPrim`, `Frontend.Profile.checkReachable`
+  - Check: the registry's `IOCall` entries of category 1
+    ([17-registry](17-registry.md)), handled by
+    `Frontend.Translate.application` and `Frontend.Profile.checkReachable`
   - Test: `tests/e2e/v3/prelude-io`,
     `tests/profile/v1/accept/PROF-LIB-2-io-library.idr`
 - **PROF-IO-3 (v1).** User modules do not use `unsafePerformIO`,
@@ -139,7 +150,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   only through the root term `unsafePerformIO main` that Idris builds for `-o`.
   So effects happen only in the single world chain that starts at `main`
   (`SEM-IO-1`).
-  - Check: `Frontend.Profile.checkReachable`
+  - Check: `Frontend.Profile.checkReachable`, on the three definitions the
+    registry forbids under this rule (category 2 of
+    [17-registry](17-registry.md))
   - Test: `tests/profile/v1/reject/PROF-IO-3-unsafe-perform.idr`. The other
     names cannot be written in a user module: `unsafeCreateWorld` and
     `unsafeDestroyWorld` are private to `PrimIO`, and `%MkWorld` is a pragma
@@ -405,10 +418,14 @@ construct, and says which elimination did not apply and why
   trusted: the library's author asserted it, and it changes no value. It
   stays rejected in user modules.
   - Check: `Frontend.Profile.checkReachable` on TT, and the source scan of
-    `PROF-PRAG-1`, which also rejects hole identifiers and the names
+    `PROF-PRAG-1`, which also rejects hole identifiers and the spellings
     `prim__believe_me`, `prim__crash`, `believe_me` and `idris_crash` in user
     modules. The scan is needed because Idris evaluates `prim__believe_me`
     applied to a constructor during elaboration, so it can vanish from TT.
+    The spellings, the IO primitives that may be reached, and the trusted
+    totality assertion are the registry's entries and policy
+    ([17-registry](17-registry.md)); escape hatches are read from Idris's
+    flag.
   - Test: `tests/profile/v0/reject/PROF-ESC-1-{believe-me,crash,believe-me-in-proof,hole-in-proof}.idr`
 
   *Rationale:* the compiler trusts Idris's type checker for data layout and

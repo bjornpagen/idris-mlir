@@ -41,7 +41,7 @@ data Lit      = LInt IntTy Integer | LChar Integer | LStr String
 data Prim     = IntOp ArithOp IntTy | Compare Cmp Scalar | Cast Scalar Scalar
 data StrOp    = Append | Cons | Length | ... | ToStr Scalar | FromStr Scalar
 data PrimOp   = Run Prim | Str StrOp        -- string operations: compile time only
-data IOOp     = PutStr | PutChar | GetChar | Exit | PutInt IntTy
+data IOOp     = PutStr | PutChar | PutInt IntTy | PutDouble | GetByte
 
 -- Full Core: well scoped, with de Bruijn indices (like Idris's `Term vars`).
 data Term : Nat -> Type where
@@ -85,10 +85,15 @@ data Code : Phase -> Type where
   Release : VarId -> Code Mem -> Code Mem
 ```
 
-- Every node carries its source location (`FE-LOC-1`).
+- Every node carries its source location (`FE-LOC-1`), and every location
+  the origin the registry gave its module ([17-registry](17-registry.md)),
+  so no pass reads a namespace.
 - `FnId`, `DataId`, `ConId`, `VarId` and `Label` are distinct types. A
   `FnId` is an Idris full name, an instance name (`ELIM-MONO-4`) or a
-  specialization name (`ELIM-G-3`).
+  specialization name (`ELIM-G-3`). The Idris name of a function or data
+  type is `Shown`: it can be printed, not compared.
+- A function carries its facts (whether it terminates, is a case or with
+  block, is inlined as its author's hint), each with its provenance.
 - In full Core, a function's body is in scope of its arity, and parameter
   `i` is variable `i`, as in Idris's case trees. An alternative binds its
   constructor's fields, the first field innermost.

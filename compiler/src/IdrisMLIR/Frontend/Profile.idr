@@ -125,15 +125,6 @@ checkPragmas ident path = do
       DotSepIdent _ n => spelled tok n
       _ => pure ()
 
-||| PROF-PRAG-1 over every user module of the program.
-export
-checkUserModules : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   List ModuleIdent -> Core ()
-checkUserModules mods = for_ mods $ \ident =>
-  unless (covers Trusted (originOf ident)) $ do
-    path <- nsToSource EmptyFC ident
-    checkPragmas ident path
-
 ------------------------------------------------------------------------------
 -- Reachability (FE-REACH-1) and escape hatches (PROF-ESC-1)
 ------------------------------------------------------------------------------

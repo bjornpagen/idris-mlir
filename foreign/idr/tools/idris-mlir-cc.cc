@@ -1,5 +1,6 @@
-// idris-mlir-cc: runs OPT-PIPE-1 in process, from idr contract text to an
-// object file (DRV-CC-1, DRV-CC-2, LOW-TARGET-1).
+// idris-mlir-cc: runs OPT-PIPE-1 in process, from idr contract text to one
+// object file that holds the whole program (DRV-CC-1, DRV-CC-2, LOW-TARGET-1,
+// TC-LINK-1).
 
 #include "idr/Idr.h"
 
@@ -14,15 +15,25 @@
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Linker/Linker.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Object/Archive.h"
+#include "llvm/Object/IRObjectFile.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
@@ -31,7 +42,10 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
+#include "llvm/Transforms/IPO/Internalize.h"
 
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace cl = llvm::cl;
@@ -47,9 +61,26 @@ cl::opt<std::string> dumpAfter("dump-after",
                                cl::init(""));
 cl::opt<std::string> dumpDir("dump-dir", cl::desc("Directory for --dump-after files"),
                              cl::init("."));
+// LOW-TARGET-1: x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since
+// Haswell (2013) and AMD's Zen. `native` is the machine that compiles,
+// `x86-64` the baseline.
+cl::opt<std::string> targetCpu("cpu",
+                               cl::desc("Target CPU: x86-64-v3 (default), native, x86-64, "
+                                        "or any x86-64 CPU name LLVM knows"),
+                               cl::init("x86-64-v3"));
+// TC-LINK-1: the runtime's archive of fat LTO objects, recorded at build time.
+// Its bitcode joins the program's module; an empty path links no runtime.
+cl::opt<std::string> runtimeArchive("runtime",
+                                    cl::desc("Runtime archive of fat LTO objects whose bitcode "
+                                             "joins the program ('' for none)"),
+                                    cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
 
 // Exit statuses (DRV-CC-2).
 constexpr int ok = 0, failure = 1, usage = 2;
+
+// TC-LINK-1: executables are static-PIE on musl, so code is compiled for the
+// musl triple, the one the runtime's bitcode carries.
+constexpr llvm::StringLiteral targetTriple = "x86_64-unknown-linux-musl";
 
 std::string stepName(llvm::StringRef step) {
   std::string name = step.split(',').first.str();
@@ -86,6 +117,167 @@ template <typename Write> bool writeOutput(Write write) {
   return true;
 }
 
+// LOW-TARGET-1: the CPU and extra features for --cpu. A name LLVM does not
+// know is a usage error: LLVM itself would only warn and fall back to a
+// generic CPU.
+struct Cpu {
+  std::string name;
+  std::string features;
+};
+
+std::optional<Cpu> selectCpu(const llvm::Target &target, const llvm::Triple &triple) {
+  Cpu cpu{targetCpu, ""};
+  if (cpu.name == "native") {
+    cpu.name = llvm::sys::getHostCPUName().str();
+    std::vector<std::string> features;
+    for (const auto &feature : llvm::sys::getHostCPUFeatures())
+      features.push_back((feature.getValue() ? "+" : "-") + feature.getKey().str());
+    llvm::sort(features);
+    cpu.features = llvm::join(features, ",");
+  }
+  std::unique_ptr<llvm::MCSubtargetInfo> subtarget(
+      target.createMCSubtargetInfo(triple, cpu.name, cpu.features));
+  if (!subtarget || !subtarget->isCPUStringValid(cpu.name)) {
+    llvm::errs() << "idris-mlir-cc: unsupported --cpu=" << targetCpu << ": " << cpu.name
+                 << " is not an x86-64 CPU that LLVM knows (use native, x86-64, "
+                    "x86-64-v2, x86-64-v3, x86-64-v4 or an LLVM CPU name)\n";
+    return std::nullopt;
+  }
+  return cpu;
+}
+
+struct Member {
+  std::string name;
+  llvm::MemoryBufferRef bitcode;
+};
+
+// TC-RT-1: every member of the runtime archive is a fat LTO object; this is
+// the bitcode half of each.
+bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
+  auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
+  if (!archive) {
+    llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": "
+                 << llvm::toString(archive.takeError()) << "\n";
+    return false;
+  }
+  llvm::Error error = llvm::Error::success();
+  for (const llvm::object::Archive::Child &child : (*archive)->children(error)) {
+    auto name = child.getName();
+    auto buffer = child.getMemoryBufferRef();
+    if (!name || !buffer) {
+      llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": unreadable member\n";
+      llvm::consumeError(name.takeError());
+      llvm::consumeError(buffer.takeError());
+      llvm::consumeError(std::move(error));
+      return false;
+    }
+    auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
+    if (!bitcode) {
+      llvm::errs() << "idris-mlir-cc: runtime member " << *name
+                   << " carries no bitcode; the runtime must be built of fat LTO objects "
+                      "(TC-RT-1): "
+                   << llvm::toString(bitcode.takeError()) << "\n";
+      llvm::consumeError(std::move(error));
+      return false;
+    }
+    members.push_back({name->str(), *bitcode});
+  }
+  if (error) {
+    llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": "
+                 << llvm::toString(std::move(error)) << "\n";
+    return false;
+  }
+  return true;
+}
+
+// TC-RT-1: the runtime is constant-initialized, and its `used` markers exist
+// for separate compilation only. LinkOnlyNeeded always links appending
+// globals, so constructors would run in every program, and `used` would keep
+// dead runtime code (and its libc calls) in every executable: constructors are
+// rejected, `used` markers dropped.
+bool prepareMember(llvm::Module &member, llvm::StringRef name) {
+  for (llvm::StringRef array : {"llvm.global_ctors", "llvm.global_dtors"})
+    if (member.getNamedGlobal(array)) {
+      llvm::errs() << "idris-mlir-cc: runtime member " << name
+                   << " has static constructors or destructors; the runtime must be "
+                      "constant-initialized (TC-RT-1)\n";
+      return false;
+    }
+  for (llvm::StringRef array : {"llvm.used", "llvm.compiler.used"})
+    if (llvm::GlobalVariable *global = member.getNamedGlobal(array))
+      global->eraseFromParent();
+  for (const llvm::GlobalVariable &global : member.globals())
+    if (global.hasAppendingLinkage()) {
+      llvm::errs() << "idris-mlir-cc: unsupported (TC-RT-1): runtime member " << name
+                   << " defines the appending global " << global.getName() << "\n";
+      return false;
+    }
+  return true;
+}
+
+// TC-LINK-1: the program and the runtime become one module. The members are
+// first joined into one runtime module, where a symbol two members define is
+// an error, and that module is linked once with LinkOnlyNeeded: only what the
+// program reaches joins it, and each file-local global is copied at most
+// once, so no runtime state is ever split in two.
+bool linkRuntime(llvm::Module &program) {
+  if (runtimeArchive.empty())
+    return true;
+  auto archiveBuffer = llvm::MemoryBuffer::getFile(runtimeArchive, /*IsText=*/false,
+                                                   /*RequiresNullTerminator=*/false);
+  if (!archiveBuffer) {
+    llvm::errs() << "idris-mlir-cc: cannot read runtime " << runtimeArchive << ": "
+                 << archiveBuffer.getError().message() << "\n";
+    return false;
+  }
+  std::vector<Member> members;
+  if (!readMembers(**archiveBuffer, members))
+    return false;
+  auto runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", program.getContext());
+  runtime->setTargetTriple(program.getTargetTriple());
+  runtime->setDataLayout(program.getDataLayout());
+  llvm::Linker runtimeLinker(*runtime);
+  for (const Member &member : members) {
+    auto module = llvm::parseBitcodeFile(member.bitcode, program.getContext());
+    if (!module) {
+      llvm::errs() << "idris-mlir-cc: runtime member " << member.name << ": "
+                   << llvm::toString(module.takeError()) << "\n";
+      return false;
+    }
+    if (!prepareMember(**module, member.name))
+      return false;
+    if (runtimeLinker.linkInModule(std::move(*module))) {
+      llvm::errs() << "idris-mlir-cc: runtime member " << member.name
+                   << " does not link with the members before it\n";
+      return false;
+    }
+  }
+  if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded)) {
+    llvm::errs() << "idris-mlir-cc: internal error: linking the runtime into the program failed\n";
+    return false;
+  }
+  return true;
+}
+
+// TC-LINK-1: runtime code was compiled for the x86-64 baseline, plus the
+// features a function asks for itself (a simdutf kernel's AVX2, say). It takes
+// the program's CPU and keeps every feature it asked for, so it inlines into
+// program code and no function loses an instruction it relies on.
+void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
+  std::string cpuFeatures = machine.getTargetFeatureString().str();
+  for (llvm::Function &function : module) {
+    if (function.isDeclaration() || !function.hasFnAttribute("target-cpu"))
+      continue;
+    std::string features = function.getFnAttribute("target-features").getValueAsString().str();
+    if (!cpuFeatures.empty())
+      features = features.empty() ? cpuFeatures : cpuFeatures + "," + features;
+    function.addFnAttr("target-cpu", machine.getTargetCPU());
+    function.removeFnAttr("tune-cpu");
+    if (!features.empty())
+      function.addFnAttr("target-features", features);
+  }
+}
+
 int run() {
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
@@ -96,6 +288,23 @@ int run() {
   mlir::registerLLVMDialectTranslation(registry);
   idr::registerIdr(registry);
   mlir::MLIRContext context(registry);
+
+  if (emitKind != "obj" && emitKind != "asm" && emitKind != "llvm" && emitKind != "mlir") {
+    llvm::errs() << "idris-mlir-cc: --emit must be obj, asm, llvm or mlir\n";
+    return usage;
+  }
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  llvm::Triple triple(targetTriple);
+  std::string error;
+  const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
+  if (!target) {
+    llvm::errs() << "idris-mlir-cc: " << error << "\n";
+    return failure;
+  }
+  std::optional<Cpu> cpu = selectCpu(*target, triple);
+  if (!cpu)
+    return usage;
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
@@ -128,20 +337,22 @@ int run() {
                ? ok
                : failure;
 
-  // Step 11: LLVM IR, LLVM's O2 pipeline, object code for the host.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::Triple triple(llvm::sys::getDefaultTargetTriple());
-  std::string error;
-  const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
-  if (!target) {
-    llvm::errs() << "idris-mlir-cc: " << error << "\n";
+  // Step 11: LLVM IR, joined with the runtime into one module; every symbol
+  // but main internalized; LLVM's O3 pipeline; object code for the CPU.
+  // LOW-TARGET-1, OPT-PIPE-1: no fast-math and no FP contraction anywhere
+  // (docs/plan.md section 5.7): `+` and `*` are IEEE operations, never fused.
+  llvm::TargetOptions options;
+  options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
+  options.FunctionSections = true;
+  options.DataSections = true;
+  std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
+      triple, cpu->name, cpu->features, options, llvm::Reloc::PIC_, std::nullopt,
+      llvm::CodeGenOptLevel::Aggressive));
+  if (!machine) {
+    llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
+                 << "\n";
     return failure;
   }
-  llvm::TargetOptions options;
-  std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, "generic", "", options, llvm::Reloc::PIC_, std::nullopt,
-      llvm::CodeGenOptLevel::Default));
 
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
@@ -151,6 +362,17 @@ int run() {
   }
   llvmModule->setTargetTriple(triple);
   llvmModule->setDataLayout(machine->createDataLayout());
+  // TC-LINK-2: the executable is static-PIE.
+  llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
+  llvmModule->setPIELevel(llvm::PIELevel::Large);
+
+  if (!linkRuntime(*llvmModule))
+    return failure;
+  retarget(*llvmModule, *machine);
+  // OPT-PIPE-1: the program is whole, so nothing but the process entry is
+  // visible outside it; O3 then removes what main does not reach.
+  llvm::internalizeModule(*llvmModule,
+                          [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
 
   llvm::LoopAnalysisManager lam;
   llvm::FunctionAnalysisManager fam;
@@ -163,7 +385,7 @@ int run() {
   builder.registerLoopAnalyses(lam);
   builder.crossRegisterProxies(lam, fam, cgam, mam);
   llvm::ModulePassManager passes =
-      builder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+      builder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
   passes.run(*llvmModule, mam);
 
   if (emitKind == "llvm")
@@ -173,10 +395,6 @@ int run() {
            })
                ? ok
                : failure;
-  if (emitKind != "obj" && emitKind != "asm") {
-    llvm::errs() << "idris-mlir-cc: --emit must be obj, asm, llvm or mlir\n";
-    return usage;
-  }
   auto fileType = emitKind == "asm" ? llvm::CodeGenFileType::AssemblyFile
                                     : llvm::CodeGenFileType::ObjectFile;
   return writeOutput([&](llvm::raw_ostream &os) {

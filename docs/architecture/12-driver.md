@@ -71,6 +71,9 @@
   (`build/exec/prog.dump/`) or the module's TTC. `--directive dump-mlir` passes `--dump-after=all` and
   that directory to `idris-mlir-cc`.
   Together they show a program at every stage, from TT to object code.
+  One more directive exists for tests only: `--directive break-shape=<key>`
+  breaks a registry entry's shape (`HOOK-SHAPE-1`,
+  [17-registry](17-registry.md)).
 - **DRV-DET-1 (v0).** The same inputs and toolchain produce byte-identical
   `.core`, `.mlir`, object files and executables.
   - Test: `tests/e2e/v0/determinism`

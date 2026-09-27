@@ -1,0 +1,8 @@
+#!/bin/sh
+# rule: FE-TR-7
+# A positive test of the registry's IdentityOnLastArgument hook
+# (docs/architecture/17-registry.md): `replace` and `rewrite__impl` are the
+# value they move. translate.check finds neither called in full Core, and
+# the program prints what the Chez backend prints.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+e2e_io .

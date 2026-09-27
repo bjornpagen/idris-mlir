@@ -27,7 +27,7 @@
 extern "C" {
 #endif
 
-enum { IDR_KIND_CTOR = 0 };
+enum { IDR_KIND_CTOR = 0, IDR_KIND_STR = 1 };
 
 typedef struct IdrCell {
   int32_t rc;
@@ -71,6 +71,11 @@ void idr_free_cell(IdrCell *cell);
 // marks shared each cell with a higher count, with everything it reaches.
 void idr_send(void *value);
 
+// Strings are cells of kind IDR_KIND_STR with no pointer fields: the header,
+// the length in bytes, then the UTF-8 bytes. The gate's only strings are
+// literals, persistent in read-only data. Equality of two strings:
+int32_t idr_str_eq(const void *a, const void *b);
+
 // Input and output.
 int64_t idr_read_int(void);
 void idr_put_int(int64_t value);
@@ -99,14 +104,20 @@ void idr_chan_send(void *chan, void *value);
 // Waits for the next value.
 void *idr_chan_recv(void *chan);
 
+// Sending dead roots home (plan 5.6): `home` is a channel of 256 entries
+// from a consumer back to its producer.
+void *idr_home_new(void);
 // A consumer drops a value that another core built. By default it drops it
 // here, and every cell goes back to its owner as a remote free; built with
-// IDR_GATE_HOME, it sends the dead root home through `home`, a channel back
-// to the producer, which drops it locally (plan 5.6, "send a dead root
-// home").
+// IDR_GATE_HOME, it sends the dead root home, and the producer drops it
+// locally.
 void idr_drop_foreign(void *home, void *value);
-// The producer's end of a turn: drops the dead roots waiting in `home`.
+// The producer's turn: drops the dead roots waiting in `home`. It must run
+// before every send, so that `home` never fills.
 void idr_producer_turn(void *home);
+// The producer's end: with IDR_GATE_HOME, waits until all `sent` roots have
+// come home and drops them.
+void idr_producer_finish(void *home, int64_t sent);
 // The end of a scheduler turn: with IDR_GATE_FLUSH, sends the allocator's
 // batched remote frees now (snmalloc's flush) instead of when its cache
 // fills (plan 5.6, 12.2 item 8).

@@ -64,11 +64,11 @@ interfaces, so that upstream MLIR passes can optimize it (D2).
 ## Data declarations
 
 ```mlir
-idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
+idr.data @Prog.Shape {
   idr.ctor @Circle tag 0 (i64) {quantities = ["w"]}
   idr.ctor @Rect tag 1 (i64, i64) {quantities = ["w", "w"]}
   idr.ctor @Proven tag 2 (!idr.erased, i64) {quantities = ["0", "1"]}
-}
+} loc("Prog.Shape"("Prog.idr":6:1))
 ```
 
 - **IDR-DATA-1 (v0).** `idr.data` declares a symbol and is a symbol table.
@@ -91,8 +91,17 @@ idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
   cycle. This makes the heap-free property structural (`GOAL-P4`).
   - Check: the verifiers of `idr.data` and the module (`idr-check-input`)
   - Test: `tests/idr/verify/data-*.mlir`, including a rejected cycle
-- **IDR-DATA-5 (v0).** Every `idr.data`, `idr.ctor` and `func.func` carries
-  `idr.name`: the Idris full name, for diagnostics.
+- **IDR-DATA-5 (v0).** Every `idr.data`, `idr.ctor` and `func.func` is
+  located by a `NameLoc` holding its Idris full name around its source
+  location (`IDR-LOC-1`): `loc("Prog.Shape"("Prog.idr":6:1))`, or
+  `loc("Builtin.Unit")` where Idris has no source for the module. *Revised
+  after v3*, when the name was an `idr.name` attribute: names are debug
+  information, which MLIR passes keep and diagnostics print. No attribute
+  holds a name, so the C++ side never receives one as data and cannot
+  compare it ([17-registry](17-registry.md)); `idr-check-input` does not
+  read locations.
+  - Check: `Emit.dataDecl` and `Emit.function`, by construction
+  - Test: `tests/e2e/v0/shapes/mlir.check`
 
 ## Operations
 
@@ -296,8 +305,9 @@ All `idr` ops have MLIR locations (`IDR-LOC-1`).
 
 - **IDR-LOC-1 (v0).** Every op carries a `FileLineColLoc`: the Idris source
   file path as given to Idris, and the line and column of the `FC` start
-  plus one, since Idris counts from 0 and MLIR from 1. Diagnostics from the
-  C++ side therefore point at Idris source.
+  plus one, since Idris counts from 0 and MLIR from 1. A declaration of
+  `IDR-DATA-5` carries it inside its `NameLoc`. Diagnostics from the C++
+  side therefore point at Idris source.
   - Test: `tests/e2e/v0/locations` (FileCheck on `.mlir` with `--mlir-print-debuginfo`)
 
 ## Interfaces
@@ -326,7 +336,7 @@ main = keep 99 (area (Rect 6 7))
 
 ```mlir
 module attributes {idr.version = 0 : i64, idr.entry = @Prog.main} {
-  idr.data @Prog.Shape attributes {idr.name = "Prog.Shape"} {
+  idr.data @Prog.Shape {
     idr.ctor @Circle tag 0 (i64) {quantities = ["w"]}
     idr.ctor @Rect tag 1 (i64, i64) {quantities = ["w", "w"]}
   }
@@ -394,10 +404,10 @@ and the world have no runtime representation.
 
 ```mlir
 module attributes {idr.version = 1 : i64, idr.entry = @Main.main, idr.entry_kind = "io"} {
-  idr.data @Builtin.Unit attributes {idr.name = "Builtin.Unit"} {
+  idr.data @Builtin.Unit {
     idr.ctor @MkUnit tag 0 () {quantities = []}
   }
-  idr.data @PrimIO.IORes$91$Builtin.Unit$93$ attributes {idr.name = "PrimIO.IORes[Builtin.Unit]"} {
+  idr.data @PrimIO.IORes$91$Builtin.Unit$93$ {
     idr.ctor @MkIORes tag 0 (!idr.data<@Builtin.Unit>, !idr.world) {quantities = ["w", "1"]}
   }
   func.func private @Main.greet(%n: i64 {idr.quantity = "w"},

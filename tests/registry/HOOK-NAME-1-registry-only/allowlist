@@ -1,0 +1,5 @@
+# Lines outside the registry that may name an Idris definition, one per line:
+#
+#     path: text the line holds -- why it is allowed
+#
+# Empty: every name the compiler knows is in compiler/src/IdrisMLIR/Registry*.

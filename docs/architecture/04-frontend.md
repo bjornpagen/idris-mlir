@@ -34,6 +34,9 @@ profile violation that TT can show.
     `Defs` of every loaded module.
   - The term MUST be exactly that application, with `main : IO ()` in the
     main module; anything else is a `PROF-PROG-4` error. `main` is the root.
+    The registry knows `unsafePerformIO` as the program root
+    (`ProgramRoot`, [17-registry](17-registry.md)), and the frontend writes
+    the root as world-passing code.
   - The callback then runs the whole driver chain (`DRV-FLOW-2`).
 - **FE-ENTRY-5 (v1).** `--exec` is not supported and fails with an
   `unsupported` error naming `FE-ENTRY-5`.
@@ -150,7 +153,7 @@ error follows `DIAG-*`.
   | `TDelay` / `TForce` with reason `LLazy` (v1) | `Delay` (closure-converted like `Lam`) / `Force` |
   | `PrimVal` of `Char` or `String` (v1) | literal |
   | `PrimVal WorldVal` (`%MkWorld`) (v1) | `PROF-IO-3` error: the root is written without it (`FE-ENTRY-4`) |
-  | `Ref` to an IO primitive of `PROF-IO-4` (v1) | IO primitive (`Effect`) |
+  | `Ref` to an IO primitive of `PROF-IO-4`, a registry entry with an `IOCall` hook ([17](17-registry.md)) (v1) | IO primitive (`Effect`) |
   | `Meta`, `TDelay`/`TForce` with reason `LInf`, `Bind` with `Pi`, `TType`, anything else | `unsupported` error with the matching rule |
 
   - Arguments in compile-time positions become the `Core` erased value,
@@ -183,9 +186,10 @@ error follows `DIAG-*`.
   alternative, with its fields erased, and one with more alternatives is
   rejected (`PROF-FN-5`). `replace` and `rewrite__impl`, which `rewrite`
   elaborates to, are the identity on their one runtime argument and are
-  translated as it. A quantity-0 variable inside an implementation
-  (`Foldable (Vect n)`) is not a runtime value.
-  - Test: `tests/e2e/v3/vect`
+  translated as it: the registry's `IdentityOnLastArgument` entries
+  ([17-registry](17-registry.md)). A quantity-0 variable inside an
+  implementation (`Foldable (Vect n)`) is not a runtime value.
+  - Test: `tests/e2e/v3/vect`, `tests/registry/FE-TR-7-identity-hook`
 - **FE-TR-6 (v2). Implementations are compile-time values.** An interface
   is a single-constructor data type whose fields are the superclass
   implementations and the methods; a method with type variables of its own

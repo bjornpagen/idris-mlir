@@ -1312,9 +1312,12 @@ translateInstance p = do
   loc <- toLoc fc
   tot <- isTotal fc p.name
   -- ELIM-G-19: Idris also marks small user definitions `Inline` on its own;
-  -- the library table says whose `%inline` is an author's hint.
-  let facts = MkFacts (MkFact tot FromIdris) (MkFact (isBlock p.name) FromIdris)
-                      (MkFact (any (== Inline) (flags def) && covers InlineHints loc.origin) FromRegistry)
+  -- where it set the flag, the library table says whether it is an
+  -- author's hint.
+  let hinted = if any (== Inline) (flags def)
+                 then MkFact (covers InlineHints loc.origin) FromRegistry
+                 else MkFact False FromIdris
+  let facts = MkFacts (MkFact tot FromIdris) (MkFact (isBlock p.name) FromIdris) hinted
   update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds) (map binder (fromList kinds))
                                               result body loc facts)
                 , fnOrder $= (:< p.inst) }

@@ -125,7 +125,11 @@ mutual
 mutual
   ||| A shape, in parentheses when it is an argument and needs them.
   showAt : (argument : Bool) -> Shape -> String
-  showAt arg (Pi q a b) = parens arg ("(" ++ show q ++ " _ : " ++ showAt False a ++ ") -> " ++ showAt False b)
+  showAt arg (Pi q a b) = parens arg ("(" ++ quantity q ++ "_ : " ++ showAt False a ++ ") -> " ++ showAt False b)
+    where
+      quantity : Quantity -> String
+      quantity QW = ""
+      quantity q = show q ++ " "
   showAt arg (Head k []) = show k
   showAt arg (Head k as@(_ :: _)) = parens arg (show k ++ showArguments as)
   showAt arg (Prim p) = show p
@@ -141,7 +145,8 @@ mutual
   parens False s = s
 
 ||| The one printer of shapes, expected and found alike (HOOK-SHAPE-1), in
-||| Idris's notation with every quantity written.
+||| Idris's notation with every binder written: `(0 _ : Type) -> (_ :
+||| PrimIO.IO _) -> _`.
 export
 showShape : Shape -> String
 showShape = showAt False

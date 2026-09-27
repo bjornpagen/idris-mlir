@@ -1,0 +1,74 @@
+#!/bin/sh
+# rule: HOOK-NAME-1
+# The compiler names Idris definitions only in its registry
+# (docs/architecture/17-registry.md): outside compiler/src/IdrisMLIR/Registry.idr
+# and compiler/src/IdrisMLIR/Registry/, no string literal in compiler/src or in
+# the dialect's sources under foreign/idr is a qualified Idris name or a
+# namespace the registry classifies, and no Idris name is built from a
+# literal. `allowlist` lists the lines allowed anyway, one per line as
+# `path: text -- reason`; it is empty.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+allowlist=$here/allowlist
+cd "$root" || exit 1
+
+# A qualified name: a capitalized namespace, a dot and the rest, with no
+# space ("Prelude.IO.prim__putStr", or the prefix "Builtin.").
+qualified="\"[A-Z][A-Za-z0-9_']*\\.[^\" ]*\""
+# A namespace the registry classifies, alone ("Prelude").
+namespaces='"(Builtin|PrimIO|Prelude|Data|Control|Decidable|Syntax|Main)"'
+# An Idris name built from a literal (`UN (Basic "main")`).
+built='Basic "[^"]'
+
+idris_sources() {
+  find compiler/src -name '*.idr' ! -path '*/build/*' \
+    ! -path 'compiler/src/IdrisMLIR/Registry/*' ! -path 'compiler/src/IdrisMLIR/Registry.idr' | sort
+}
+# The dialect's own sources; bench/ holds prototypes that are not the compiler.
+dialect_sources() {
+  find foreign/idr -type f \( -name '*.cc' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) \
+    ! -path 'foreign/idr/bench/*' | sort
+}
+
+: > "$work/found"
+for f in $(idris_sources); do
+  grep -nE "$qualified|$namespaces|$built" "$f" | sed "s|^|$f:|" >> "$work/found"
+done
+for f in $(dialect_sources); do
+  grep -nE "$qualified" "$f" | grep -v '^[0-9]*:#include' | sed "s|^|$f:|" >> "$work/found"
+done
+
+# The allowlist's entries, blank lines and comments aside; each needs a
+# path, a text and a reason.
+grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
+while IFS= read -r entry; do
+  case $entry in
+    *': '*' -- '?*) ;;
+    *) say "allowlist entry without a path, a text and a reason: $entry" ;;
+  esac
+done < "$work/allowed"
+
+# A line found is allowed when an entry names its path and a text it holds.
+allowed=0
+: > "$work/left"
+while IFS= read -r hit; do
+  keep=yes
+  while IFS= read -r entry; do
+    path=${entry%%: *}
+    rest=${entry#*: }
+    text=${rest% -- *}
+    case $hit in "$path:"*"$text"*) keep=no ;; esac
+  done < "$work/allowed"
+  if [ $keep = yes ]; then printf '%s\n' "$hit" >> "$work/left"; else allowed=$((allowed + 1)); fi
+done < "$work/found"
+
+# The patterns must find the registry's own names, or they would find none.
+inside=$(find compiler/src/IdrisMLIR/Registry compiler/src/IdrisMLIR/Registry.idr -name '*.idr' |
+  xargs grep -hE "$qualified|$namespaces" | wc -l | tr -d ' ')
+if [ "$inside" -gt 0 ]; then
+  say "the patterns find the registry's names: yes"
+else
+  say "the patterns find the registry's names: no"
+fi
+sed 's/^/outside the registry: /' "$work/left"
+say "names outside the registry: $(wc -l < "$work/left" | tr -d ' ')"
+say "lines allowed with a reason: $allowed"

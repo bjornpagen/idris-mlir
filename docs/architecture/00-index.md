@@ -29,6 +29,7 @@ described the "no C++" state.
 | [14-testing](14-testing.md) | oracles, suites, conformance | |
 | [15-roadmap](15-roadmap.md) | what is done, and how it differed from its plan | |
 | [16-agent-rules](16-agent-rules.md) | how implementation work is divided and constrained | |
+| [17-registry](17-registry.md) | the registry: every library definition the compiler knows, and what it does with each | |
 
 Read 01, 02, 03 and 08 before any other document. They define what is
 compiled, what it means, and the one interface between the two
@@ -65,6 +66,7 @@ Every normative rule has a stable identifier `<DOC>-<AREA>-<n>`, for example
 | `TEST` | 14 |
 | `RM` | 15 |
 | `AG` | 16 |
+| `HOOK` | 17 |
 
 Identifiers are never reused or renumbered. A withdrawn rule keeps its
 identifier, marked *withdrawn*, with the reason.

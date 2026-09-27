@@ -1,0 +1,7 @@
+Builtin.replace broken: exit 1
+Builtin.replace broken: HOOK-SHAPE-1 shows the entry, the shape expected and the shape found
+artifacts: none
+C:idris2_putStr broken: exit 1
+C:idris2_putStr broken: HOOK-SHAPE-1 shows the entry, the shape expected and the shape found
+artifacts: none
+unbroken: exit 0

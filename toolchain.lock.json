@@ -1,17 +1,11 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "llvm": {
     "repository": "https://github.com/llvm/llvm-project.git",
     "revision": "85ac560262434c9ccfc0c183ec22d4138ed647fb",
     "tag": "llvmorg-23.1.2",
-    "version": "23.1.2"
-  },
-  "gcc": {
-    "repository": "https://github.com/gcc-mirror/gcc.git",
-    "revision": "78d4ac73dd391005b895a6148cd9831e28e1208b",
-    "tag": "releases/gcc-16.2.0",
-    "version": "16.2.0",
-    "accept": "16"
+    "version": "23.1.2",
+    "accept": "23"
   },
   "cmake": {
     "repository": "https://github.com/Kitware/CMake.git",
@@ -26,5 +20,45 @@
     "tag": "v1.13.2",
     "version": "1.13.2",
     "accept": "1.13"
+  },
+  "musl": {
+    "path": "third_party/musl",
+    "repository": "https://github.com/kraj/musl.git",
+    "revision": "9fa28ece75d8a2191de7c5bb53bed224c5947417",
+    "tag": "v1.2.6",
+    "version": "1.2.6",
+    "release": "https://musl.libc.org/releases/musl-1.2.6.tar.gz",
+    "release_sha256": "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a"
+  },
+  "gmp": {
+    "path": "third_party/gmp",
+    "repository": "https://github.com/arthenica/gmp.git",
+    "revision": "1ef03152c0041ed837532012de171a55d44f50ef",
+    "tree": "26258caa28e84bd93f3e28ade39a2b24d07bb444",
+    "tag": "v6.3.0",
+    "version": "6.3.0",
+    "release": "https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz",
+    "release_sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+  },
+  "simdutf": {
+    "path": "third_party/simdutf",
+    "repository": "https://github.com/simdutf/simdutf.git",
+    "revision": "dc3f7a8fa291f2ce793c7b0ddd458f4e67542f14",
+    "tag": "v9.2.1",
+    "version": "9.2.1"
+  },
+  "fast_float": {
+    "path": "third_party/fast_float",
+    "repository": "https://github.com/fastfloat/fast_float.git",
+    "revision": "9498cc361e081f46c85c936a0677e271c1930a45",
+    "describe": "v8.3.0-16-g9498cc3",
+    "version": "8.3.0-16"
+  },
+  "snmalloc": {
+    "path": "third_party/snmalloc",
+    "repository": "https://github.com/microsoft/snmalloc.git",
+    "revision": "e9f7b2ebd11fcadd5913c95d90770902e8126646",
+    "describe": "0.7.5-15-ge9f7b2e",
+    "version": "0.7.5-15"
   }
 }

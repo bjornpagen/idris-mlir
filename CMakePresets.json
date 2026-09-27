@@ -9,54 +9,51 @@
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja",
-        "MLIR_DIR": "${sourceDir}/.toolchain/llvm/lib/cmake/mlir"
-      }
-    },
-    {
-      "name": "gcc",
-      "hidden": true,
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "${sourceDir}/.toolchain/gcc/bin/gcc",
-        "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/gcc/bin/g++"
+        "CMAKE_C_COMPILER": "${sourceDir}/.toolchain/llvm-musl/bin/clang",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/llvm-musl/bin/clang++",
+        "CMAKE_C_COMPILER_TARGET": "x86_64-unknown-linux-musl",
+        "CMAKE_CXX_COMPILER_TARGET": "x86_64-unknown-linux-musl",
+        "CMAKE_LINKER_TYPE": "LLD",
+        "CMAKE_AR": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-ar",
+        "CMAKE_RANLIB": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-ranlib",
+        "CMAKE_NM": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-nm",
+        "CMAKE_READELF": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-readelf",
+        "CMAKE_OBJDUMP": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-objdump",
+        "MLIR_DIR": "${sourceDir}/.toolchain/llvm-musl/lib/cmake/mlir"
       }
     },
     {
       "name": "dev",
       "displayName": "Debug development build",
-      "inherits": "gcc",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
       "name": "release",
-      "displayName": "Optimized production build",
-      "inherits": "gcc",
+      "displayName": "Optimized production build, one LTO domain with LLVM and MLIR",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
       "name": "asan-ubsan",
-      "displayName": "AddressSanitizer + UndefinedBehaviorSanitizer",
-      "inherits": "gcc",
+      "displayName": "AddressSanitizer + UndefinedBehaviorSanitizer (unavailable on static musl; see PINS.md)",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all",
-        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "IDRIS_MLIR_RUNTIME_SANITIZERS": "ON"
       }
     },
     {
       "name": "lint",
-      "displayName": "Clang lint graph (needs clang from the pinned LLVM; see PINS.md)",
+      "displayName": "Debug build checked by the pinned clang-tidy",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/llvm/bin/clang++",
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm/bin/clang-tidy",
-        "IDRIS_MLIR_LINT_GRAPH": "ON"
+        "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm-musl/bin/clang-tidy;--warnings-as-errors=*"
       }
     }
   ],

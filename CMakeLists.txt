@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 4.0)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/toolchain.lock.json" IDRIS_MLIR_LOCK)
 string(JSON IDRIS_MLIR_NINJA_SERIES GET "${IDRIS_MLIR_LOCK}" ninja accept)
 string(JSON IDRIS_MLIR_CMAKE_SERIES GET "${IDRIS_MLIR_LOCK}" cmake accept)
-string(JSON IDRIS_MLIR_GCC_SERIES GET "${IDRIS_MLIR_LOCK}" gcc accept)
+string(JSON IDRIS_MLIR_LLVM_SERIES GET "${IDRIS_MLIR_LOCK}" llvm accept)
 
 if(NOT CMAKE_GENERATOR STREQUAL "Ninja")
 	message(FATAL_ERROR "Ninja is the only supported generator (got ${CMAKE_GENERATOR})")
@@ -50,26 +50,29 @@ else()
 	message(FATAL_ERROR "the machine boundary is Linux and Darwin (got ${CMAKE_SYSTEM_NAME})")
 endif()
 
-option(IDRIS_MLIR_LINT_GRAPH
-	"Configure the reflection-free Clang lint graph instead of the GCC production graph"
-	OFF
-)
 option(IDRIS_MLIR_RUNTIME_SANITIZERS
 	"Use runtime ASan+UBSan instead of trap-mode UBSan (the asan-ubsan preset)"
 	OFF
 )
 
-if(IDRIS_MLIR_LINT_GRAPH)
-	# PIN(lint-graph-unbuilt): the pinned LLVM is built without clang — see PINS.md
-	message(FATAL_ERROR "the lint graph needs clang and clang-tidy from the pinned LLVM, which this toolchain does not build yet (PINS.md: lint-graph-unbuilt)")
+if(IDRIS_MLIR_RUNTIME_SANITIZERS)
+	# PIN(no-sanitizer-runtimes): static musl has no sanitizer runtimes — see PINS.md
+	message(FATAL_ERROR "runtime sanitizers need compiler-rt's sanitizer runtimes, which the static musl toolchain does not have (PINS.md: no-sanitizer-runtimes)")
 endif()
 
-if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-	message(FATAL_ERROR "production builds require the pinned GCC toolchain (got ${CMAKE_CXX_COMPILER_ID})")
-endif()
-if(NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^${IDRIS_MLIR_GCC_SERIES}\\."
-		OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.1)
-	message(FATAL_ERROR "production builds require GCC ${IDRIS_MLIR_GCC_SERIES}.x, at least 16.1 (got ${CMAKE_CXX_COMPILER_VERSION})")
+# TC-DEV-6: the production compiler is the stage-2 clang of the pinned
+# llvm-project, with libc++, for x86_64-unknown-linux-musl (tools/bootstrap.sh).
+# PIN(clang-libcxx) — see PINS.md
+foreach(lang C CXX)
+	if(NOT CMAKE_${lang}_COMPILER_ID STREQUAL "Clang")
+		message(FATAL_ERROR "production builds require the pinned clang (got ${CMAKE_${lang}_COMPILER_ID} for ${lang}); build it with tools/bootstrap.sh stage2")
+	endif()
+	if(NOT CMAKE_${lang}_COMPILER_VERSION MATCHES "^${IDRIS_MLIR_LLVM_SERIES}\\.")
+		message(FATAL_ERROR "production builds require clang ${IDRIS_MLIR_LLVM_SERIES}.x (got ${CMAKE_${lang}_COMPILER_VERSION} for ${lang})")
+	endif()
+endforeach()
+if(IDRIS_MLIR_LINUX AND NOT CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-musl$")
+	message(FATAL_ERROR "Linux builds target musl through the pinned sysroot (TC-LINK-2); configure with a preset (got target '${CMAKE_CXX_COMPILER_TARGET}')")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)
@@ -79,42 +82,26 @@ set(CMAKE_CXX_MODULE_STD ON)
 
 # Module-ABI flags must be global: CMake's synthesized import-std targets see
 # only CMAKE_CXX_FLAGS, and the std module BMI must match every importer.
-string(APPEND CMAKE_CXX_FLAGS " -fno-exceptions -fno-rtti -D_GLIBCXX_ASSERTIONS")
+# PIN(clang-no-reflection): no -freflection — see PINS.md
+string(APPEND CMAKE_CXX_FLAGS " -fno-exceptions -fno-rtti -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 
-# IPO probe must precede -freflection: the probe TU is not compiled as C++26.
-include(CheckIPOSupported)
-check_ipo_supported(LANGUAGES CXX)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-string(APPEND CMAKE_CXX_FLAGS " -freflection")
-
-# Binaries built with the pinned GCC find its libstdc++.
-get_filename_component(IDRIS_MLIR_GCC_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
-set(CMAKE_BUILD_RPATH "${IDRIS_MLIR_GCC_BIN}/../lib64")
-
-add_library(idris_mlir_language_profile INTERFACE)
-
-if(NOT IDRIS_MLIR_RUNTIME_SANITIZERS)
-	target_compile_options(idris_mlir_language_profile INTERFACE
-		-fsanitize=undefined
-		-fsanitize-trap=all
-		"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections>"
-	)
-	target_link_options(idris_mlir_language_profile INTERFACE
-		-fsanitize=undefined
-		-fsanitize-trap=all
-		"$<$<AND:$<CONFIG:Release>,$<BOOL:${IDRIS_MLIR_LINUX}>>:LINKER:--gc-sections>"
-	)
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles([=[
+#include <version>
+#ifndef _LIBCPP_VERSION
+#error the C++ library is not libc++
+#endif
+int main() { return 0; }
+]=] IDRIS_MLIR_HAS_LIBCXX)
+if(NOT IDRIS_MLIR_HAS_LIBCXX)
+	message(FATAL_ERROR "production builds require libc++ from the pinned sysroot (TC-DEV-6)")
 endif()
 
-target_compile_options(idris_mlir_language_profile INTERFACE
-	-ftrivial-auto-var-init=zero
-	-fstack-protector-strong
-	-fzero-call-used-regs=used-gpr
-	-fstack-clash-protection
-	-fno-delete-null-pointer-checks
-	-fno-strict-aliasing
-	-fstrict-flex-arrays=3
-	-fzero-init-padding-bits=all
+# Warnings are errors, for every target with our own C++ (the runtime too).
+# PIN(clang-libcxx): the GCC-only diagnostics of cpp-starter's profile have
+# no clang spelling and are left out — see PINS.md
+add_library(idris_mlir_warnings INTERFACE)
+target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror
 	-Wall
 	-Wextra
@@ -130,40 +117,58 @@ target_compile_options(idris_mlir_language_profile INTERFACE
 	-Wformat=2
 	-Werror=format-security
 	-Wimplicit-fallthrough
-	-Wuseless-cast
-	-Wduplicated-branches
-	-Wduplicated-cond
-	-Wlogical-op
-	-Wtrampolines
-	-Wbidi-chars=any
 )
 
-# PIN(darwin-inert-mitigations): FORTIFY and branch protection are Linux-only — see PINS.md
+# The language profile of our tools. No FP contraction anywhere (docs/plan.md
+# section 5.7). TC-DEV-8: the Release build is one LTO domain with LLVM and
+# MLIR, whose libraries carry bitcode next to native code (fat LTO objects).
+# PIN(stage2-thinlto): our code is full LTO, LLVM's own bitcode ThinLTO — see
+# PINS.md
+add_library(idris_mlir_language_profile INTERFACE)
+target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
+
+target_compile_options(idris_mlir_language_profile INTERFACE
+	-fsanitize=undefined
+	-fsanitize-trap=all
+	-ftrivial-auto-var-init=zero
+	-fstack-protector-strong
+	-fzero-call-used-regs=used-gpr
+	-fstack-clash-protection
+	-fno-delete-null-pointer-checks
+	-fno-strict-aliasing
+	-fstrict-flex-arrays=3
+	-ffp-contract=off
+	"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections;-flto=full>"
+)
+target_link_options(idris_mlir_language_profile INTERFACE
+	-fsanitize=undefined
+	-fsanitize-trap=all
+	"$<$<CONFIG:Release>:-flto=full;-Wl,--fat-lto-objects;-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache;-Wl,--thinlto-cache-policy=cache_size_bytes=2g>"
+	"$<$<AND:$<CONFIG:Release>,$<BOOL:${IDRIS_MLIR_LINUX}>>:LINKER:--gc-sections>"
+)
+
+# PIN(darwin-inert-mitigations): FORTIFY is inert on musl and Darwin, and branch
+# protection is Linux-only — see PINS.md
 if(IDRIS_MLIR_LINUX)
 	# PIN(platform-gate-x86_64): x86_64 uses CET where arm64 uses PAC/BTI
 	target_compile_options(idris_mlir_language_profile INTERFACE
 		-fPIE
 		"$<IF:$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>,-fcf-protection=full,-mbranch-protection=standard>"
 	)
+	# TC-LINK-2: static-PIE on musl. PIN(musl-thread-stacks): LLVM takes the
+	# libc's default thread stack, which musl reads from PT_GNU_STACK — see
+	# PINS.md
 	target_link_options(idris_mlir_language_profile INTERFACE
-		-pie
+		-static-pie
 		LINKER:-z,relro
 		LINKER:-z,now
 		LINKER:-z,noexecstack
 		LINKER:-z,nodlopen
-		LINKER:--as-needed
-		LINKER:--no-copy-dt-needed-entries
+		LINKER:-z,stack-size=8388608
 	)
-	if(NOT IDRIS_MLIR_RUNTIME_SANITIZERS)
-		target_compile_options(idris_mlir_language_profile INTERFACE
-			-U_FORTIFY_SOURCE
-			-D_FORTIFY_SOURCE=3
-		)
-	endif()
 endif()
 
-# Dialect code (named modules only; empty until code exists that does not
-# touch the MLIR API) and quarantine code (TC-ZONE-*).
-add_subdirectory(src)
-add_subdirectory(unsafe)
+# The runtime (TC-RT-1), then the quarantine code that faces MLIR
+# (TC-ZONE-1), which records where the runtime's archive is.
+add_subdirectory(runtime)
 add_subdirectory(foreign/idr)

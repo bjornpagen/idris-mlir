@@ -1,3 +1,18 @@
 [submodule "third_party/Idris2"]
 	path = third_party/Idris2
 	url = https://github.com/idris-lang/Idris2.git
+[submodule "third_party/musl"]
+	path = third_party/musl
+	url = https://github.com/kraj/musl.git
+[submodule "third_party/gmp"]
+	path = third_party/gmp
+	url = https://github.com/arthenica/gmp.git
+[submodule "third_party/simdutf"]
+	path = third_party/simdutf
+	url = https://github.com/simdutf/simdutf.git
+[submodule "third_party/fast_float"]
+	path = third_party/fast_float
+	url = https://github.com/fastfloat/fast_float.git
+[submodule "third_party/snmalloc"]
+	path = third_party/snmalloc
+	url = https://github.com/microsoft/snmalloc.git
