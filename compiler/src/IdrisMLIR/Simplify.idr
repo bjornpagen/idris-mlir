@@ -132,6 +132,35 @@ strLit (SShow _ (ALit (LInt _ n))) = Just (show n)
 strLit (SShow _ (ALit (LDouble d))) = Just (prim__cast_DoubleString d)
 strLit _ = Nothing
 
+||| A value known entirely at compile time: no runtime variable occurs in it,
+||| directly or in what it captures (ELIM-G-12). Literals, Integers, known
+||| strings, and constructors, closures and deferred calls over known values.
+constant : V -> Bool
+constant v = all known (atoms [v] [])
+  where
+    known : (VTy, Atom) -> Bool
+    known (_, AVar _) = False
+    known _ = True
+
+constants : List V -> Bool
+constants = all constant
+
+||| Arguments worth unfolding a call for (ELIM-G-12): all known, or one a
+||| known constructor, which the callee's match can then decide (GHC's
+||| "interesting" constructor arguments).
+interesting : List V -> Bool
+interesting vs = constants vs || any isCon vs
+  where
+    isCon : V -> Bool
+    isCon (SCon _ _) = True
+    isCon _ = False
+
+||| The values an elimination sequence applies.
+applied : List (Elim Atom) -> List V
+applied [] = []
+applied (Apply v :: es) = v :: applied es
+applied (_ :: es) = applied es
+
 ------------------------------------------------------------------------------
 -- Reification (Futhark's residualization, Kovács's `down`)
 ------------------------------------------------------------------------------
@@ -148,6 +177,16 @@ reify l (SString s) = case strLit s of
                 "so it would need the heap")
 reify l (SDelay {}) = fail ProfHeap2 l "a Lazy value would exist at runtime here"
 reify l (SBig _) = fail ProfType4 l "an Integer would exist at runtime here (SEM-BIG-1)"
+-- G2: a known constructor of runtime data is built where it must exist.
+reify l v@(SCon c fs) = do
+  dt <- dataDef l c.dataId
+  if dt.static
+     then fail ProfHeap1 l ("a function or IO action would exist at runtime here (" ++
+                            showShape (shape v) ++ "); it must be applied, run or passed to a known function")
+     else do
+       as <- assert_total (traverse (reify l) fs)
+       x <- bind l (DataT c.dataId) (OCon c (map fst as))
+       pure (x, DataT c.dataId)
 reify l v = fail ProfHeap1 l
               ("a function or IO action would exist at runtime here (" ++ showShape (shape v) ++
                "); it must be applied, run or passed to a known function")
@@ -226,11 +265,13 @@ mutual
       Nothing => if fn.result == BigT then unfold l fn vs []
                  else pure (SCall f !(gets effects) vs [])                         -- G5
       Just StrT => unfold l fn vs []                                               -- G10
-      Just _ => if fn.block then unfold l fn vs [] else call l Nothing f vs []     -- G11
+      Just _ => if fn.block || fn.inline || interesting vs then unfold l fn vs [] -- G11-G13
+                else call l Nothing f vs []
   eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
     dt <- dataDef l c.dataId
-    if dt.static
+    -- G2: a constructor of constants stays known until it must exist.
+    if dt.static || constants vs
        then pure (SCon c vs)
        else do
          as <- traverse (reify l) vs
@@ -326,7 +367,7 @@ mutual
       -- callee's own prefix is recorded where it is specialized. G10 and
       -- G11 unfold it instead when no effect separates building the call
       -- from running it.
-      Just r => if (r == StrT || fn.block) && e == now
+      Just r => if (r == StrT || fn.block || fn.inline || interesting (as ++ applied (ms ++ es))) && e == now
                    then leavePrefix (unfold l fn as (ms ++ es))
                    else leavePrefix (call l (Just e) f as (ms ++ es))
   consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))

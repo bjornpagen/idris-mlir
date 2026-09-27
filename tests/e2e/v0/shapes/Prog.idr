@@ -14,6 +14,13 @@ public export
 keep : (0 witness : Int) -> Int -> Int
 keep witness v = v
 
+-- Known only at runtime once it recurses (ELIM-G-12 unfolds a call with
+-- constant arguments once), so the code below is not folded away.
+public export
+countdown : Int -> Int
+countdown 0 = 0
+countdown n = prim__add_Int 1 (countdown (prim__sub_Int n 1))
+
 public export
 main : Int
-main = keep 99 (area (Rect 6 7))
+main = keep 99 (area (Rect (countdown 6) 7))

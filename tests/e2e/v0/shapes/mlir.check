@@ -7,7 +7,7 @@
 // CHECK: "func.func"() <{function_type = () -> i64, sym_name = "Prog.main", sym_visibility = "private"}>
 // CHECK: "idr.con"(%{{[0-9]+}}, %{{[0-9]+}}) <{ctor = @Prog.Shape::@Prog.Rect}>
 // CHECK: %[[E:[0-9]+]] = "idr.erased"() : () -> !idr.erased
-// CHECK: "func.call"(%[[E]], %{{[0-9]+}}) <{callee = @Prog.keep}> : (!idr.erased, i64) -> i64 loc("Prog.idr":19:8)
+// CHECK: "func.call"(%[[E]], %{{[0-9]+}}) <{callee = @Prog.keep}> : (!idr.erased, i64) -> i64 loc("Prog.idr":26:8)
 // CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "w"}], function_type = (!idr.data<@Prog.Shape>) -> i64, sym_name = "Prog.area", sym_visibility = "private"}>
 // CHECK: "idr.tag"
 // CHECK: "scf.index_switch"

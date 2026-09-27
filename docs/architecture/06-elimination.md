@@ -80,7 +80,10 @@ is static.
 - **ELIM-G-2 (v1). Known constructor.** A match on a value built by a known
   constructor (directly, or through a `let`) becomes the selected
   alternative, with its fields bound to the constructor's arguments. This
-  removes `MkIO`, `MkIORes`, `MkPair` and records of functions.
+  removes `MkIO`, `MkIORes`, `MkPair` and records of functions. From v3 a
+  constructor of runtime data whose fields are all known stays a known
+  value too (`True`, `Nothing`, an enumeration), and is built only where it
+  must exist at runtime.
 - **ELIM-G-3 (v1). Specialization on static arguments.** A call `f a₁ … aₙ`
   in which some argument is a static value becomes a call to a specialized
   copy of `f` for the shapes `σ` of its arguments:
@@ -177,6 +180,26 @@ is static.
   being unfolded is specialized instead.
   - *Why this is exact:* as for `ELIM-G-10`.
   - Test: `tests/e2e/v2/math-showcase`
+- **ELIM-G-12 (v3). Unfolding on known arguments.** A call whose arguments
+  are all known (no runtime variable occurs in them, so literals, `Integer`s,
+  known strings, and constructors, closures and deferred calls over known
+  values), or one of whose arguments is a known constructor, is evaluated
+  where it is called, like `ELIM-G-10`. This is online partial evaluation:
+  static control is decided before code is generated. It is a guaranteed
+  elimination, not an optimization, because the branch it removes may hold
+  code that cannot exist at runtime: the Prelude's `show` for numbers tests
+  `d >= PrefixMinus && firstCharIs (== '-') str`, and only deciding the
+  test at compile time keeps the string match in `firstCharIs` out of the
+  program. A call of a function that is already being unfolded is
+  specialized instead, so recursion stops at the first repeated call.
+  - Test: `tests/e2e/v3/static-evaluation`,
+    `tests/e2e/v1/ELIM-G-2-known-constructor`
+- **ELIM-G-13 (v3). Library `%inline`.** A call of a definition that a
+  library module (`Builtin`, `PrimIO`, the Prelude, `IdrisMLIR.IO`) marks
+  `%inline` is unfolded like `ELIM-G-10`. The author's hint is honored;
+  semantics do not change. Idris also marks small user definitions `Inline`
+  on its own; those are not unfolded.
+  - Check: `Frontend.Translate.translateInstance` (`TFn.inline`)
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
@@ -184,14 +207,15 @@ is static.
   - `ELIM-G-4` by the number of uses;
   - `ELIM-G-5` at one application per function;
   - `ELIM-G-7` case 5 by the number of alternatives;
-  - `ELIM-G-10` by the call graph: no function is unfolded inside itself.
+  - `ELIM-G-10` to `ELIM-G-13` by the call graph: no function is unfolded
+    inside itself.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is
   reported as `PROF-HEAP-4`. A cap on copies per definition backs this up.
 - **ELIM-G-SCOPE (v1).** `Simplify` applies only these rules. Everything else
-  (first-order inlining, CSE, dead code, general constant folding) is MLIR's
-  job (`CORE-OPT-1`).
+  (CSE, dead code, general constant folding, and first-order inlining
+  beyond `ELIM-G-10` to `ELIM-G-13`) is MLIR's job (`CORE-OPT-1`).
 
 `Simplify` enforces `PROF-HEAP-*` as it goes: a static value that would
 have to exist at runtime (as a runtime argument, field, result or match

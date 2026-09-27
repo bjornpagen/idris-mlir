@@ -140,7 +140,7 @@ fullCases =
   ]
   where
     tfn : String -> Vect 0 Binder -> Term 0 -> TFn
-    tfn n ps b = MkTFn (MkFnId n) n 0 ps (V int) b l True False
+    tfn n ps b = MkTFn (MkFnId n) n 0 ps (V int) b l True False False
     source : List TFn -> Source
     source fs = MkSource [] fs (MkFnId "main") IntEntry
 

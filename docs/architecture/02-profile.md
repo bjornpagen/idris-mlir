@@ -89,8 +89,8 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/profile/v1/reject/PROF-LIB-1-sym.idr` (`believe_me` is an
     escape hatch, so `PROF-ESC-1` reports it first)
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
-  effects are not: the compiler ignores `%inline`, `%default` and other
-  elaboration flags. It honours `%foreign` only for the four primitives of
+  effects are not: the compiler ignores `%default` and other elaboration
+  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-13`). It honours `%foreign` only for the four primitives of
   `IdrisMLIR.IO`, which it recognizes by full name (`PROF-IO-2`); the
   `%foreign` strings themselves are never read.
 
@@ -249,6 +249,11 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   (`FE-TR-6`); one chosen by a runtime value is rejected (`PROF-HEAP-1`).
   - Test: `tests/e2e/v2/interface-*`
 - **PROF-POLY-1 (v1).** Polymorphic recursion is rejected (`ELIM-MONO-3`).
+  It is detected when an instance being translated requests an instance of
+  the same definition whose static arguments embed its own and are larger
+  (from v3; before, any larger instance counted, which also caught a method
+  that calls the same method of another implementation, as `compare` on
+  the Prelude's `Prec` calls `compare` on `Nat`).
   - Test: `tests/profile/v1/reject/PROF-POLY-1-nested.idr`
 
 ## Terms

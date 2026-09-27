@@ -7,3 +7,7 @@ CHECK-DAG: Main.applyTwice#1 (%{{[0-9]+}} : w Int) : Int =
 CHECK-DAG: Main.applyTwice#2 (%{{[0-9]+}} : w Int) : Int =
 CHECK-DAG: add_Int(1:Int, %{{[0-9]+}})
 CHECK-DAG: mul_Int(2:Int, %{{[0-9]+}})
+rule: CORE-OPT-1
+First-order calls with runtime arguments stay calls; MLIR inlines them.
+CHECK-DAG: = Main.applyTwice#1(%{{[0-9]+}})
+CHECK-DAG: = Main.applyTwice#2(%{{[0-9]+}})

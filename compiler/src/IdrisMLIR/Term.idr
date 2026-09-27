@@ -281,6 +281,7 @@ record TFn where
   loc : Loc
   terminating : Bool   -- Idris's checker reports it total (ELIM-G-5)
   block : Bool         -- an Idris case or with block: part of its parent (ELIM-G-11)
+  inline : Bool        -- marked %inline in a trusted module (ELIM-G-13)
 
 ||| A whole program in full Core.
 public export

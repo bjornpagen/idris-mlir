@@ -1,0 +1,6 @@
+rule: ELIM-G-12
+Nothing of the precedence test remains at runtime: main writes the number.
+CHECK-NOT: Main.atLeast
+CHECK-NOT: Main.firstIs
+CHECK-NOT: Main.parens
+CHECK: io.putInt

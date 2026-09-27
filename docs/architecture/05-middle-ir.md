@@ -170,7 +170,8 @@ data Code     = Bind VarId Quantity VTy (Op Code) Code
   `PROF-HEAP-5` on the finished program (`ELIM-G-5`).
 - **CORE-OPT-1 (v0).** The middle end performs only monomorphisation and the
   guaranteed eliminations. It MUST NOT add any other optimization:
-  - first-order inlining;
+  - first-order inlining, beyond the unfolding rules `ELIM-G-10` to
+    `ELIM-G-13`, which decide static control before code exists (v3);
   - CSE;
   - dead-code elimination of first-order code;
   - constant folding beyond `ELIM-G-6`;

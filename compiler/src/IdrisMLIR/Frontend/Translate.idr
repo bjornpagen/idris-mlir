@@ -55,7 +55,7 @@ record Pending where
   statics : List (Maybe ClosedTerm)
   ||| The instances that requested this one, innermost first, with the size
   ||| of their keys (ELIM-MONO-3).
-  path : List (String, Nat)
+  path : List (String, String)
 
 ||| What a constructor instance needs for case trees.
 record ConInfo where
@@ -79,7 +79,7 @@ record TS where
   seen : SortedSet FnId
   queue : List Pending
   moduleFC : FC
-  current : List (String, Nat)        -- the path of the instance being translated
+  current : List (String, String)     -- the path of the instance being translated
   perName : SortedMap String Nat      -- instances per definition (ELIM-MONO-3)
   ||| Who owns each instance name: names are injective (ELIM-MONO-4), and
   ||| a printed form that two instances share is told apart here.
@@ -486,8 +486,12 @@ request fc owner n statics = do
   base <- nameKey <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
-    let size = length inst.name
-    when (any (\(b, k) => b == base && k < size) st.current) $
+    -- Growth is a homeomorphic embedding of the static arguments (here, of
+    -- their text): the new instance's contain the old one's and are larger.
+    -- Another implementation of the same method is not growth.
+    let args = snd (break (== '[') inst.name)
+    let strip = \s => pack (filter (\c => c /= '[' && c /= ']') (unpack s))
+    when (any (\(b, old) => b == base && length old < length args && isInfixOf (strip old) args) st.current) $
       reject fc owner ProfPoly1
              ("polymorphic recursion: " ++ base ++ " calls itself at a larger type (" ++ inst.name ++ ")")
     let count = fromMaybe 0 (lookup base st.perName)
@@ -495,7 +499,7 @@ request fc owner n statics = do
       reject fc owner ProfPoly1 ("more than 64 instances of " ++ base)
     put TState ({ seen $= insert inst
                 , perName $= insert base (S count)
-                , queue $= (++ [MkPending n inst statics ((base, size) :: st.current)]) } st)
+                , queue $= (++ [MkPending n inst statics ((base, args) :: st.current)]) } st)
   pure inst
 
 ||| PROF-DATA-5: a type constructor with indices, found before its instance
@@ -1052,6 +1056,11 @@ isTotal fc n = do
           IsTerminating => True
           _ => False)
 
+||| A definition of a library module, whose `%inline` is its author's hint
+||| (ELIM-G-13). Idris also marks small user definitions `Inline` on its own.
+library : String -> Bool
+library n = any (`isPrefixOf` n) (the (List String) ["Builtin.", "PrimIO.", "Prelude.", "IdrisMLIR.IO."])
+
 ||| A case or with block that Idris made from part of a definition.
 isBlock : Name -> Bool
 isBlock (NS _ n) = isBlock n
@@ -1079,7 +1088,7 @@ translateInstance p = do
   loc <- toLoc fc
   tot <- isTotal fc p.name
   update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot
-                                              (isBlock p.name))
+                                              (isBlock p.name) (any (== Inline) (flags def) && library owner))
                 , fnOrder $= (:< p.inst) }
   where
     binder : (Quantity, PKind) -> Binder
@@ -1156,4 +1165,4 @@ translateIOProgram fc main = do
                   Nothing)
   let rootId = MkFnId "$idris-mlir.root"
   src <- assemble rootId IOEntry
-  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True False]) } src)
+  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True False False]) } src)
