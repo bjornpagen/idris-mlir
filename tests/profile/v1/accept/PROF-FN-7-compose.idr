@@ -1,7 +1,7 @@
 -- stdout: 41\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 compose : (b -> c) -> (a -> b) -> a -> c
 compose g f x = g (f x)

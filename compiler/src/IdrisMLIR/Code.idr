@@ -26,8 +26,10 @@
 ||| traversal is a fold with an algebra over the base functor `CodeF`.
 module IdrisMLIR.Code
 
+import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Types
 
 import Data.List
@@ -523,21 +525,22 @@ public export
 record CData where
   constructor MkCData
   id : DataId
-  idrisName : String
+  idrisName : Shown
   cons : List CCon
   loc : Loc
 
-||| A function of first-order Core: an instance, or a specialization of one.
+||| A function of first-order Core: an instance, or a specialization of one,
+||| which has its instance's facts.
 public export
 record CFn (p : Phase) where
   constructor MkCFn
   id : FnId
-  idrisName : String
+  idrisName : Shown
   params : List Param
   results : List VTy
   body : Code p
   loc : Loc
-  terminating : Bool
+  facts : Facts
   ||| For a specialization, the instance and the static arguments it was
   ||| made for, printed in dumps (ELIM-G-3).
   specializes : Maybe String
@@ -589,17 +592,16 @@ version t = foldl max (entryLevel t.entry) (map fnLevel t.fns ++ map dataLevel t
 ||| contains one. Inlining everything else cannot unroll a loop, and each
 ||| breaker becomes self recursive once the rest of its cycle is inlined.
 ||| In each cycle, the breaker is the first function in program order that
-||| is not from a library module, or the first function if all are.
+||| is not from a library the library table breaks last, or the first
+||| function if all are.
 export
 loopBreakers : List (CFn p) -> SortedSet FnId
 loopBreakers fns =
   -- `let`, not `where`: a `where` binding is recomputed at each use.
   let edges = the (SortedMap FnId (List FnId)) (fromList [(f.id, nub (calls f.body)) | f <- fns])
-      library = the (SortedSet FnId) (fromList [f.id | f <- fns, isLibrary f.idrisName])
+      library = the (SortedSet FnId) (fromList [f.id | f <- fns, covers BreakLast f.loc.origin])
   in fromList (within edges library (length fns) (map (.id) fns))
   where
-    isLibrary : String -> Bool
-    isLibrary n = any (`isPrefixOf` n) ["Builtin.", "PrimIO.", "IdrisMLIR.IO."]
     -- The functions reachable from `f` in one or more calls inside `set`.
     reach : SortedMap FnId (List FnId) -> SortedSet FnId -> FnId -> SortedSet FnId
     reach edges set f = walk (length fns) empty (next f)

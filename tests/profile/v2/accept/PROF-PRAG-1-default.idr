@@ -5,7 +5,7 @@ module Main
 -- rule: PROF-PRAG-1
 -- %default only changes which totality Idris requires.
 
-import IdrisMLIR.IO
+import Prelude
 
 %default partial
 

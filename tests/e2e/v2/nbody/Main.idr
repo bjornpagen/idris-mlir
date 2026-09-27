@@ -118,5 +118,5 @@ main : IO ()
 main = do
   n <- readInt
   let s = offset initial
-  printLn (energy s)
-  printLn (energy (run n s))
+  printDouble (energy s)
+  printDouble (energy (run n s))

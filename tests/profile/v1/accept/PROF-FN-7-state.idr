@@ -1,7 +1,7 @@
 -- stdout: count 1000\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 State : Type -> Type -> Type
 State s a = s -> Pair a s

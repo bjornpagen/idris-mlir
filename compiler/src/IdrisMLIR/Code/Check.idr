@@ -79,7 +79,6 @@ fieldsOf c = map (\f => (f.quantity, f.type)) c.fields
 
 ||| The value an IO primitive returns in its `IORes`.
 ioValue : Index p -> IOOp -> VTy -> Bool
-ioValue ix GetChar t = t == CharT
 ioValue ix GetByte t = t == CharT
 ioValue ix _ (DataT d) = case lookup d ix.datas of
   Just dt => case dt.cons of

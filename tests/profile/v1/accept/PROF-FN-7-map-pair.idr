@@ -1,7 +1,7 @@
 -- stdout: 3 8\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 mapPair : (a -> b) -> Pair a a -> Pair b b
 mapPair f (MkPair x y) = MkPair (f x) (f y)

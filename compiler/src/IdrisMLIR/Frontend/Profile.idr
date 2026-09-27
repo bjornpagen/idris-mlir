@@ -1,6 +1,9 @@
 ||| Profile rules checked on checked TT and on the source (docs/architecture/02-profile.md):
 ||| pragmas (PROF-PRAG-1), escape hatches (PROF-ESC-1), trusted modules
-||| (PROF-LIB-1, PROF-IO-3). The rest is checked during translation.
+||| (PROF-LIB-1, PROF-IO-3). The rest is checked during translation. Which
+||| modules are trusted, what they admit and which definitions are escape
+||| hatches the user may not use is the registry's knowledge
+||| (docs/architecture/17-registry.md); this module asks it.
 module IdrisMLIR.Frontend.Profile
 
 import Core.Case.CaseTree
@@ -13,7 +16,11 @@ import Libraries.Text.Bounded
 import Libraries.Text.Lexer.Tokenizer
 import Parser.Lexer.Source
 
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Loc
+import IdrisMLIR.Registry
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
 
 import Data.List
@@ -26,81 +33,34 @@ import System.File
 %default covering
 
 ------------------------------------------------------------------------------
--- Modules
+-- Hooks and definitions
 ------------------------------------------------------------------------------
 
-||| PROF-LIB-3: the namespaces of the base library that are trusted: pure
-||| code, with each definition still subject to every other rule where it
-||| is reached. `System.*` (FFI, files, processes) is not.
-baseNamespaces : List String
-baseNamespaces = ["Data", "Control", "Decidable", "Syntax"]
+||| The rule under which the registry forbids a definition or spelling in the
+||| user's code, if it does.
+forbiddenBy : List Hook -> Maybe Rule
+forbiddenBy [] = Nothing
+forbiddenBy (Forbidden rule :: _) = Just rule
+forbiddenBy (_ :: hs) = forbiddenBy hs
 
-||| The trusted modules (PROF-PROG-4): from v3 also the Prelude's modules.
-||| Namespaces are stored innermost first.
-export
-trustedModule : List String -> Bool
-trustedModule ns = ns == ["Builtin"] || ns == ["PrimIO"] || ns == ["IO", "IdrisMLIR"] || prelude ns || base ns
-  where
-    -- PROF-LIB-3: the pure namespaces of the base library.
-    base : List String -> Bool
-    base ns = case reverse ns of
-                (top :: _) => elem top baseNamespaces
-                _ => False
-    prelude : List String -> Bool
-    prelude ns = case reverse ns of
-                   ("Prelude" :: _) => True
-                   _ => False
-
-namespaceOf : Name -> List String
-namespaceOf (NS ns _) = unsafeUnfoldNamespace ns
-namespaceOf _ = []
-
-||| PROF-LIB-1: the admitted definitions of `Builtin` and `PrimIO`.
-allowed : List String
-allowed =
-  [ "Builtin.Unit", "Builtin.MkUnit", "Builtin.Pair", "Builtin.MkPair", "Builtin.fst"
-  , "Builtin.snd", "Builtin.Equal", "Builtin.Refl", "Builtin.Void", "Builtin.id"
-  , "Builtin.the", "Builtin.delay", "Builtin.force"
-  , "PrimIO.IORes", "PrimIO.MkIORes", "PrimIO.PrimIO", "PrimIO.IO", "PrimIO.MkIO"
-  , "PrimIO.prim__io_pure", "PrimIO.io_pure", "PrimIO.prim__io_bind", "PrimIO.io_bind"
-  , "PrimIO.fromPrim", "PrimIO.toPrim", "PrimIO.unsafePerformIO"
-  , "PrimIO.unsafeCreateWorld", "PrimIO.unsafeDestroyWorld" ]
-
-||| The escape hatches of `Builtin`, which no admitted code may reach
-||| (PROF-ESC-1).
-builtinEscapes : List String
-builtinEscapes = ["Builtin.believe_me", "Builtin.idris_crash", "Builtin.assert_linear"]
-
-||| PROF-LIB-1: literal elaboration goes through these interfaces of `Builtin`
-||| (`%charLit fromChar`, `%stringLit fromString`, `%doubleLit fromDouble`),
-||| with their Char, String and Double implementations; the dictionaries are
-||| eliminated like any static record.
-allowedPrefixes : List String
-allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar", "Builtin.defaultChar",
-                   "Builtin.FromString", "Builtin.fromString", "Builtin.MkFromString", "Builtin.defaultString",
-                   "Builtin.FromDouble", "Builtin.fromDouble", "Builtin.MkFromDouble", "Builtin.defaultDouble"]
-
-||| From v3 every definition of the Prelude is admitted; each is still
-||| subject to every other rule where it is reached.
-admitted : String -> Bool
-admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes || isPrefixOf "Prelude." n
-              || any (\b => isPrefixOf (b ++ ".") n) baseNamespaces
-              || (isPrefixOf "Builtin." n && not (elem n builtinEscapes))
-
-||| PROF-IO-3: reachable only through the root.
-rootOnly : List String
-rootOnly = ["PrimIO.unsafePerformIO", "PrimIO.unsafeCreateWorld", "PrimIO.unsafeDestroyWorld"]
+||| The first of the definitions a user definition refers to that the
+||| registry forbids in the user's code, with its rule (PROF-IO-3).
+firstForbidden : List Name -> Maybe (Name, Rule)
+firstForbidden [] = Nothing
+firstForbidden (r :: rs) = case forbiddenBy (hooksOf r) of
+  Just rule => Just (r, rule)
+  Nothing => firstForbidden rs
 
 ||| Idris-generated auxiliary definitions belong to their enclosing definition.
-enclosing : Name -> String
-enclosing (NS ns (CaseBlock outer _)) = show (NS ns (UN (Basic (strip outer))))
+enclosing : Name -> Name
+enclosing (NS ns (CaseBlock outer _)) = NS ns (UN (Basic (strip outer)))
   where
     strip : String -> String
     strip s = if isPrefixOf "case block in " s then strip (assert_smaller s (substr 14 (length s) s))
               else if isPrefixOf "with block in " s then strip (assert_smaller s (substr 14 (length s) s))
               else s
-enclosing (NS ns (WithBlock outer _)) = show (NS ns (UN (Basic outer)))
-enclosing n = show n
+enclosing (NS ns (WithBlock outer _)) = NS ns (UN (Basic outer))
+enclosing n = n
 
 ------------------------------------------------------------------------------
 -- Imports (PROF-PROG-1, PROF-PROG-4)

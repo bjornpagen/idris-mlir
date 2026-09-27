@@ -394,30 +394,28 @@ opArgs (Big b) = bigArgs b
 -- IO
 ------------------------------------------------------------------------------
 
+||| The IO operations: the primitives the registry lists (`IOCall`), and
+||| the targets of output fusion (`PutInt`, `PutDouble`, ELIM-G-7).
 public export
-data IOOp = PutStr | PutChar | GetChar | Exit | PutInt IntTy | PutDouble
-          | GetByte   -- the Prelude's getChar: one byte (SEM-IO-7)
+data IOOp = PutStr | PutChar | PutInt IntTy | PutDouble
+          | GetByte   -- one byte of input (SEM-IO-7)
 
 export
 Show IOOp where
   show PutStr = "putStr"
   show PutChar = "putChar"
-  show GetChar = "getChar"
   show GetByte = "getByte"
-  show Exit = "exit"
   show (PutInt t) = "putInt_" ++ show t
   show PutDouble = "putDouble"
 
-||| The runtime operands of an IO primitive before the world, and whether its
-||| result value is a character (otherwise it is `()`).
+||| The runtime operands of an IO primitive before the world; its result
+||| value is a character for `GetByte`, and `()` otherwise.
 public export
 ioArgs : IOOp -> List VTy
 ioArgs PutStr = [StrT]
 ioArgs PutChar = [CharT]
 ioArgs (PutInt t) = [IntT t]
-ioArgs GetChar = []
 ioArgs GetByte = []
-ioArgs Exit = [IntT IdrisInt]
 ioArgs PutDouble = [DoubleT]
 
 public export

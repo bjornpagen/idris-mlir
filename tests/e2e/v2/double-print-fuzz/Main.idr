@@ -7,7 +7,7 @@ module Main
 -- count comes from stdin so that nothing folds.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 u : Int -> Bits64
 u = prim__cast_IntBits64

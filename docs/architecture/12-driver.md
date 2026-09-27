@@ -54,7 +54,7 @@
 - **DRV-FLOW-2 (v1).** An IO program compiles with one command:
 
   ```sh
-  idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr
+  idris-mlir --no-prelude --cg mlir -o prog Main.idr
   ```
 
   The whole-program callback writes `build/exec/prog.core` and

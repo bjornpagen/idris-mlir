@@ -151,8 +151,8 @@ is static.
   reference does.
   - Test: `tests/e2e/v3/prelude-user-types`
 - **ELIM-G-7 (v1). Output fusion.** When the argument of the `putStr`
-  primitive (`prim__idrPutStr`) is not a literal, the call is rewritten by
-  the first matching case, applied repeatedly:
+  primitive (the Prelude's `prim__putStr`) is not a literal, the call is
+  rewritten by the first matching case, applied repeatedly:
   1. `putStr (a ++ b)` becomes `putStr a`, then `putStr b`, in the world
      chain;
   2. `putStr (strCons c s)` becomes `putChar c`, then `putStr s`;

@@ -282,19 +282,33 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   is total.
 - **SEM-IO-2 (v1).** `putStr s` writes the UTF-8 encoding of `s` to standard
   output. `putChar c` writes the UTF-8 encoding of `c`.
-  - This is our module's definition. The stock Prelude's `putChar` calls C
-    `putchar` and writes a single byte.
-- **SEM-IO-3 (v1).** `getChar` reads the next UTF-8 encoded scalar value from
-  standard input.
+  - These are the Prelude's (`PROF-IO-4`). The reference writes `putStr`'s
+    string as UTF-8 too, but implements `putChar` with C `putchar`, which
+    writes one byte: the two agree on ASCII characters only. Differential
+    tests (`TEST-DIFF-1`) put no other character with `putChar`.
+- **SEM-IO-3 (v1).** `idr.io.get_char` reads the next UTF-8 encoded scalar
+  value from standard input.
   - At end of input it returns `'\0'`, as Chez's `blodwen-get-char` does.
   - A malformed byte sequence yields U+FFFD for each maximal invalid
     subsequence.
+
+  It was the `getChar` of the module `PROF-IO-1` withdrew, and no profile
+  program reaches it since: the Prelude's `getChar` reads bytes
+  (`SEM-IO-7`). It lost its end-to-end tests: `tests/idr/e2e/hello.mlir`
+  runs it on valid input, and nothing tests malformed input.
 - **SEM-IO-4 (v1).** Output is written in effect order. All output produced
   before the process ends is written on every exit path: normal return,
   `exit`, and crash. Pending output is written before the program blocks
   reading standard input.
-- **SEM-IO-5 (v1).** `exit n` ends the process after writing pending output,
-  with status `n mod 256`.
+- **SEM-IO-5 (v1).** `idr.io.exit n` ends the process after writing pending
+  output, with status `n mod 256`.
+  - It was the `exit` of the module `PROF-IO-1` withdrew, and no profile
+    program reaches it since: no trusted module exits. Base's
+    `System.exitWith` is outside the profile (`PROF-LIB-3`) and goes
+    through `believe_me` and a `%foreign` it rejects (`PROF-ESC-1`).
+  - Test: it lost its end-to-end test; `tests/idr/lower/io.mlir` checks its
+    lowering, not the exit status. *planned*: an end-to-end test once
+    base's `exitWith` enters the profile.
 - **SEM-IO-6 (v1).** If standard output or standard input fails (for example
   a closed pipe), the behaviour is unspecified in v1.
   - Check: review (the behaviour is unspecified)
@@ -304,8 +318,8 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-IO-7 (v3).** The Prelude's `getChar` reads one byte of standard
   input and returns it as a character (`0` to `255`), and at the end of
   input returns character `255`: the reference backend implements it with
-  C `getchar`. It does not decode UTF-8, unlike `IdrisMLIR.IO`'s `getChar`
-  (`SEM-IO-3`). Both read the same buffered input.
+  C `getchar`. It does not decode UTF-8, as `idr.io.get_char` does
+  (`SEM-IO-3`); the two read the same buffered input (`LOW-IO-4`).
   - Test: `tests/e2e/v3/prelude-input`
 - **SEM-PROG-1 (v0).** Running a `main : Int` program evaluates `main`. If it
   produces `v`, the process writes nothing to stdout or stderr and exits

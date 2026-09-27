@@ -6,7 +6,7 @@ module Main
 -- Integers are evaluated at compile time: recursion, arithmetic beyond 64
 -- bits, casts that wrap, and data with Integer fields.
 
-import IdrisMLIR.IO
+import Prelude
 
 fact : Integer -> Integer
 fact 0 = 1

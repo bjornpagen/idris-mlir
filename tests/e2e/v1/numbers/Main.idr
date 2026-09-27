@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- rule: SEM-STR-2
 main : IO ()

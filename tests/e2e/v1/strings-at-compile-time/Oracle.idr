@@ -1,6 +1,6 @@
 module Oracle
 
-import IdrisMLIR.IO
+import Prelude
 import Main
 
 check : Main.greeting = "hello, w"

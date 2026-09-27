@@ -21,6 +21,7 @@
 module IdrisMLIR.Simplify
 
 import IdrisMLIR.Code
+import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
@@ -106,7 +107,7 @@ runtimeTy l (StaticT d) = do
   st <- get
   dt <- dataDef l d
   let (rule, what) = staticReason st.src d
-  fail rule l ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and it would exist at " ++
+  fail rule l ("a value of type " ++ show dt.idrisName ++ " holds " ++ what ++ ", and it would exist at " ++
                "runtime here, the result of a call that cannot be unfolded further, so it would need the heap")
 runtimeTy l t = maybe (fail ProfHeap4 l ("a function or IO action would be the result of a call " ++
                                          "that cannot be unfolded further (" ++ show t ++ ")")) pure (value t)
@@ -508,7 +509,7 @@ mutual
   drives fn vs es rt =
     let args = vs ++ applied es
         matched = matchedParams fn.arity fn.body
-    in if fn.block || fn.inline || rt == StrT || any structured args || all constant args
+    in if fn.facts.block.holds || fn.facts.inline.holds || rt == StrT || any structured args || all constant args
          then Just Carries
          else if any (\(i, v) => contains i matched && literalAtom v) (zip [0 .. length vs] vs)
            then Just Matches
@@ -568,7 +569,7 @@ mutual
   ||| no generalization can stand for them at runtime.
   grows : Loc -> TFn -> Config -> M a
   grows l fn c = fail ProfHeap4 l
-    (fn.idrisName ++ " passes itself a function, IO action, Lazy value or other static value " ++
+    (show fn.idrisName ++ " passes itself a function, IO action, Lazy value or other static value " ++
      "that grows with each call (" ++ showConfig c ++ "), so it cannot be specialized away")
 
   ||| A residual call: the specialization for the call's shapes (G3, G5), or
@@ -624,7 +625,7 @@ mutual
         let qs = atParams every qs0
         let spec = if trivial key then Nothing else Just ("specialization of " ++ showConfig key)
         modify { done $= (:< MkCFn name fn.idrisName (zipWith3 MkParam params qs free)
-                                   [t] body fn.loc fn.terminating spec) }
+                                   [t] body fn.loc fn.facts spec) }
         pure name
     where
       dynAtom : VarId -> VTy -> Atom
@@ -668,7 +669,7 @@ mutual
       (True, _) => do
         st <- get
         let (rule, what) = staticReason st.src c.dataId
-        fail rule l ("a value of type " ++ dt.idrisName ++ " holds " ++ what ++ ", and it would " ++
+        fail rule l ("a value of type " ++ show dt.idrisName ++ " holds " ++ what ++ ", and it would " ++
                      "exist at runtime here, where which constructor it has is chosen, so it " ++
                      "would need the heap")
   reify l v = if isString v

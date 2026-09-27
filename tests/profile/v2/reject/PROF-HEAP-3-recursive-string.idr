@@ -2,7 +2,7 @@
 -- rule: ELIM-G-19
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- A string function is unfolded where it is called (ELIM-G-19), but its
 -- recursive call is specialized, and the string that call returns is built

@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- rule: SEM-LAZY-1, ELIM-G-8
 partial

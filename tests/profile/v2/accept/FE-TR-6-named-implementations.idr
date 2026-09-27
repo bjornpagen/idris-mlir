@@ -5,7 +5,7 @@ module Main
 -- rule: FE-TR-6
 -- Named implementations chosen statically in each branch.
 
-import IdrisMLIR.IO
+import Prelude
 
 interface Semi a where
   op : a -> a -> a

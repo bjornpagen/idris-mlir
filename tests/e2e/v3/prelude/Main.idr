@@ -7,7 +7,6 @@ module Main
 -- evaluated at compile time; the program's own work runs at runtime.
 
 import Prelude
-import IdrisMLIR.IO
 
 square : Int -> Int
 square x = x * x

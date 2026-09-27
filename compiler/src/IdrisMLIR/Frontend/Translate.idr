@@ -18,8 +18,12 @@ import Core.Termination
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 
+import IdrisMLIR.Facts
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Registry
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -124,24 +128,30 @@ export
 internal : FC -> String -> Core a
 internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg))
 
-||| An Idris location as a Core location, with the source file resolved.
+||| An Idris location as a Core location, with the source file resolved and
+||| the origin the registry gives its module. A package file is in no module.
 export
 toLoc : {auto c : Ref Ctxt Defs} -> FC -> Core Loc
 toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
   file <- catch (nsToSource fc ident) (\_ => pure "")
-  pure (MkLoc (FromModule (unsafeUnfoldModuleIdent ident)) file sl sc el ec)
-toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc (FromPackage file) file sl sc el ec)
+  pure (MkLoc (originOf ident) (shown (show ident)) file sl sc el ec)
+toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
 toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
   toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
 toLoc _ = pure noLoc
 
-||| A Core location as an Idris location, for errors raised after translation.
+||| A Core location as an Idris location, for errors raised after
+||| translation: the module is the one Idris named.
 export
 fromLoc : Loc -> FC
 fromLoc l = case l.origin of
-  FromModule ident => MkFC (PhysicalIdrSrc (unsafeFoldModuleIdent ident)) (l.startLine, l.startCol) (l.endLine, l.endCol)
-  FromPackage file => MkFC (PhysicalPkgSrc file) (l.startLine, l.startCol) (l.endLine, l.endCol)
-  Nowhere => EmptyFC
+  Generated => if l.file == "" then EmptyFC else MkFC (PhysicalPkgSrc l.file) start end
+  _ => MkFC (PhysicalIdrSrc (nsAsModuleIdent (mkNamespace (show l.place)))) start end
+  where
+    start : FilePos
+    start = (l.startLine, l.startCol)
+    end : FilePos
+    end = (l.endLine, l.endCol)
 
 ------------------------------------------------------------------------------
 -- Terms as closed values
@@ -354,9 +364,6 @@ isTypeLike (Bind _ _ (Pi _ _ _ _) sc) = typeLikeScope sc
     typeLikeScope (Bind _ _ (Pi _ _ _ _) s) = typeLikeScope s
     typeLikeScope _ = False
 isTypeLike _ = False
-
-quantity : RigCount -> Quantity
-quantity rig = if isErased rig then Q0 else if isLinear rig then Q1 else QW
 
 lookupDef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             FC -> String -> Name -> Core GlobalDef
@@ -604,7 +611,7 @@ mutual
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
       let static = any (any (isStatic . (.type)) . (.fields)) sorted
       update TState { building $= delete inst
-                    , datas $= insert inst (MkData inst tname sorted loc static)
+                    , datas $= insert inst (MkData inst (shown tname) sorted loc static)
                     , dataOrder $= (:< inst) }
       pure inst
     where
@@ -774,17 +781,6 @@ classify fc owner (S k) ty vals = do
 -- Primitives
 ------------------------------------------------------------------------------
 
-||| The IO primitives of `IdrisMLIR.IO` (PROF-IO-2), and from v3 the
-||| Prelude's output primitives (PROF-IO-4), by their full names.
-ioPrim : Name -> Maybe IOOp
-ioPrim (NS ns (UN (Basic n))) = case unsafeUnfoldNamespace ns of
-  ["IO", "IdrisMLIR"] => Data.List.lookup n [ ("prim__idrPutStr", PutStr), ("prim__idrPutChar", PutChar)
-                                            , ("prim__idrGetChar", GetChar), ("prim__idrExit", Exit) ]
-  ["IO", "Prelude"] => Data.List.lookup n [ ("prim__putStr", PutStr), ("prim__putChar", PutChar)
-                                          , ("prim__getChar", GetByte) ]
-  _ => Nothing
-ioPrim _ = Nothing
-
 scalar : PrimType -> Maybe Scalar
 scalar CharType = Just SChar
 scalar DoubleType = Just SDouble
@@ -868,6 +864,22 @@ primOp p = case (integer p, double p, arith p, comparison p, p) of
   (_, _, _, _, StrReverse) => Just (Str Reverse)
   (_, _, _, _, StrSubstr) => Just (Str Substr)
   _ => Nothing
+
+------------------------------------------------------------------------------
+-- Hooks (docs/architecture/17-registry.md)
+------------------------------------------------------------------------------
+
+||| FE-TR-7: is a definition the identity on its last argument?
+identityOnLast : List Hook -> Bool
+identityOnLast [] = False
+identityOnLast (IdentityOnLastArgument :: _) = True
+identityOnLast (_ :: hs) = identityOnLast hs
+
+||| PROF-IO-4: the IO operation a definition's calls are.
+ioCallOf : List Hook -> Maybe IOOp
+ioCallOf [] = Nothing
+ioCallOf (IOCall op :: _) = Just op
+ioCallOf (_ :: hs) = ioCallOf hs
 
 ------------------------------------------------------------------------------
 -- Terms (FE-TR-3)
@@ -975,11 +987,11 @@ mutual
     def <- lookupDef fc ctx.owner name
     let full = fullname def
     case definition def of
-      -- `replace` and `rewrite__impl` (what `rewrite` elaborates to) are the
-      -- identity on their one runtime argument, the last; the rest are
-      -- proofs and types (FE-TR-7).
+      -- FE-TR-7: a hook for the identity on the one runtime argument, the
+      -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
+      -- to); the rest are proofs and types.
       PMDef _ params _ _ _ =>
-        if any (== show full) (the (List String) ["Builtin.replace", "Builtin.rewrite__impl"]) && length args >= length params
+        if identityOnLast (hooksOf full) && length args >= length params
            then do
              let (now, rest) = splitAt (length params) args
              v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
@@ -988,10 +1000,13 @@ mutual
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
-      ForeignDef arity _ => case ioPrim full of
-        Just op => ioCall fc loc arity op (type def) args
-        Nothing => reject fc ctx.owner ProfEsc1 ("foreign function " ++ show full)
-      ExternDef arity => case ioPrim full of
+      -- PROF-IO-4: an IO primitive the registry lists, a `%foreign` one by
+      -- its spec and an `%extern` one by its name.
+      ForeignDef arity specs => case foreignHookOf full specs of
+        Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
+        Just (Left wrong) => reject fc (show full) HookShape1 wrong
+        _ => reject fc ctx.owner ProfEsc1 ("foreign function " ++ show full)
+      ExternDef arity => case ioCallOf (hooksOf full) of
         Just op => ioCall fc loc arity op (type def) args
         Nothing => reject fc ctx.owner ProfEsc1 ("extern function " ++ show full)
       Hole {} => reject fc ctx.owner ProfTerm2 ("hole " ++ show full)
@@ -1269,11 +1284,6 @@ isTotal fc n = do
           IsTerminating => True
           _ => False)
 
-||| A definition of a library module, whose `%inline` is its author's hint
-||| (ELIM-G-19). Idris also marks small user definitions `Inline` on its own.
-library : String -> Bool
-library n = any (`isPrefixOf` n) (the (List String) ["Builtin.", "PrimIO.", "Prelude.", "IdrisMLIR.IO."])
-
 ||| A case or with block that Idris made from part of a definition.
 isBlock : Name -> Bool
 isBlock (NS _ n) = isBlock n
@@ -1300,8 +1310,12 @@ translateInstance p = do
   body <- tree (MkCtx owner fc complete) env treeCT
   loc <- toLoc fc
   tot <- isTotal fc p.name
-  update TState { fns $= insert p.inst (MkTFn p.inst owner (length kinds) (map binder (fromList kinds)) result body loc tot
-                                              (isBlock p.name) (any (== Inline) (flags def) && library owner))
+  -- ELIM-G-19: Idris also marks small user definitions `Inline` on its own;
+  -- the library table says whose `%inline` is an author's hint.
+  let facts = MkFacts (MkFact tot FromIdris) (MkFact (isBlock p.name) FromIdris)
+                      (MkFact (any (== Inline) (flags def) && covers InlineHints loc.origin) FromRegistry)
+  update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds) (map binder (fromList kinds))
+                                              result body loc facts)
                 , fnOrder $= (:< p.inst) }
   where
     binder : (Quantity, PKind) -> Binder
@@ -1378,4 +1392,6 @@ translateIOProgram fc main = do
                   Nothing)
   let rootId = MkFnId "$idris-mlir.root"
   src <- assemble rootId IOEntry
-  pure ({ fns $= (++ [MkTFn rootId rootId.name 1 [MkBinder Q1 (V WorldT)] resTy body loc True False False]) } src)
+  -- The root is the `ProgramRoot` hook's code: its facts are the registry's.
+  let facts = MkFacts (MkFact True FromRegistry) (MkFact False FromRegistry) (MkFact False FromRegistry)
+  pure ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [MkBinder Q1 (V WorldT)] resTy body loc facts]) } src)

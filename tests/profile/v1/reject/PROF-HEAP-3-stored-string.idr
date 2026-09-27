@@ -2,7 +2,7 @@
 -- message: a string is built at runtime here and is not written directly by putStr
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 data Box : Type where
   MkBox : String -> Box

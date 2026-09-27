@@ -49,7 +49,7 @@ data Term : Nat -> Type where
   Literal     : Lit -> Term n
   Erased      : Term n
   PrimApp     : PrimOp -> List (Term n) -> Term n
-  Effect      : IOOp -> List (Term n) -> DataId -> Term n   -- IdrisMLIR.IO primitives
+  Effect      : IOOp -> List (Term n) -> DataId -> Term n   -- IO primitives (PROF-IO-4)
   Call        : FnId -> List (Term n) -> Term n              -- saturated
   ConApp      : ConId -> List (Term n) -> Term n             -- saturated, fields only
   Let         : Quantity -> Term n -> Term (S n) -> Term n

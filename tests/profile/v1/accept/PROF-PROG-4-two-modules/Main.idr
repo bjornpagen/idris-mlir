@@ -1,7 +1,7 @@
 -- stdout: hello from Greet\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 import Greet
 
 main : IO ()

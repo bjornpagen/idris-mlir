@@ -2,7 +2,7 @@
 -- rule: SEM-DBL-1
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 isHalf : Double -> Int
 isHalf 0.5 = 1

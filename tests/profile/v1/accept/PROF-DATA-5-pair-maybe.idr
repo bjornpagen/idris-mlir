@@ -1,7 +1,7 @@
 -- stdout: 7\nx\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- rule: ELIM-MONO-1, ELIM-MONO-2, ELIM-MONO-4, FE-TR-5
 data Opt a = None | Some a

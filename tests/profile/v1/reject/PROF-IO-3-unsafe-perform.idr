@@ -1,7 +1,7 @@
 -- expect: PROF-IO-3 line 6
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 n : Int
 n = unsafePerformIO (pure 5)

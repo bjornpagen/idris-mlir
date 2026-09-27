@@ -1,7 +1,7 @@
 -- expect: PROF-HEAP-2 line 13
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- Which Lazy value is inside is chosen by a recursion on a runtime value,
 -- and each level suspends a computation on the one below: it would need the

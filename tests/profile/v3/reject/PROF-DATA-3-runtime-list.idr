@@ -6,7 +6,7 @@ module Main
 -- length depends on a runtime value would need the heap. (A choice among
 -- lists of known shapes needs nothing: ELIM-G-20.)
 
-import IdrisMLIR.IO
+import Prelude
 
 data L : Type where
   Nil : L

@@ -7,7 +7,7 @@ module Main
 -- admitted; only its escape hatches are not. Equal's `x` is a value
 -- parameter, which does not tell instances apart.
 
-import IdrisMLIR.IO
+import Prelude
 
 main : IO ()
 main = case sym (Refl {x = 'a'}) of

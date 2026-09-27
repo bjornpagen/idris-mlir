@@ -47,11 +47,11 @@ with an `unsupported (<RULE>)` error at the source location.
 - **v0:** a single `--no-prelude` module with `main : Int` (the exit status):
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
-- **v1:** `main : IO ()` programs over several modules with the
-  `idris-mlir-io` package: `do`, `putStr`/`putStrLn`/`putChar`/`getChar`/
-  `exit`, `Char`, static strings, lambdas, higher-order and polymorphic
-  functions, and user monads written with plain functions. The executable
-  references only `write`, `read` and `_exit`.
+- **v1:** `main : IO ()` programs over several modules: `do`,
+  `putStr`/`putStrLn`/`putChar`/`getChar` (today the Prelude's), `Char`,
+  static strings, lambdas, higher-order and polymorphic functions, and user
+  monads written with plain functions. The executable references only
+  `write`, `read` and `_exit`.
 - **v2:** user-defined interfaces (superclasses, defaults, named and
   constrained implementations, higher-kinded ones such as a user `Monad`
   with `do`), resolved at compile time; `Double` with Chez's semantics and
@@ -79,7 +79,7 @@ argument (`ackdyn`), MLton is 2.4x faster.
 
 ```sh
 idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int
-idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr   # IO
+idris-mlir --no-prelude --cg mlir -o prog Main.idr                # IO
 python3 tools/dev.py compile Prog.idr -o prog                     # either
 ```
 
@@ -102,7 +102,7 @@ python3 tools/dev.py bootstrap-gcc              # slow: pinned GCC 16
 python3 tools/dev.py bootstrap-cmake
 python3 tools/dev.py bootstrap-ninja
 python3 tools/dev.py bootstrap-llvm             # slow: pinned LLVM/MLIR
-python3 tools/dev.py build                      # C++ dev preset, compiler, IO package
+python3 tools/dev.py build                      # C++ dev preset, compiler
 python3 tools/dev.py test                       # profile, e2e (incl. Chez diff)
 python3 tools/dev.py test-idr                   # the idr dialect (lit)
 python3 tools/dev.py test-mlir-tools

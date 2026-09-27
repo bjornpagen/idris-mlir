@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 choose : Int -> Lazy Int -> Lazy Int -> Int
 choose 0 a b = a

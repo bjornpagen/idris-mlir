@@ -15,6 +15,7 @@
 ||| captured values, and renaming never enters a closure body.
 module IdrisMLIR.Term
 
+import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Types
@@ -286,7 +287,7 @@ public export
 record Data where
   constructor MkData
   id : DataId
-  idrisName : String
+  idrisName : Shown
   cons : List Con
   loc : Loc
   static : Bool
@@ -296,15 +297,13 @@ public export
 record TFn where
   constructor MkTFn
   id : FnId
-  idrisName : String
+  idrisName : Shown
   arity : Nat
   params : Vect arity Binder
   result : Ty
   body : Term arity
   loc : Loc
-  terminating : Bool   -- Idris's checker reports it total (ELIM-G-5)
-  block : Bool         -- an Idris case or with block: part of its parent (ELIM-G-19)
-  inline : Bool        -- marked %inline in a trusted module (ELIM-G-19)
+  facts : Facts
 
 ||| A whole program in full Core.
 public export

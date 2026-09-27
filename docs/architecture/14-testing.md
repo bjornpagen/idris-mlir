@@ -52,13 +52,14 @@ the reason, and never counted as passed.
   backend:
 
   ```sh
-  idris2 --no-prelude -p idris-mlir-io --cg chez -o prog Main.idr
+  idris2 --no-prelude --cg chez -o prog Main.idr
   ```
 
   Both executables MUST produce identical stdout and exit status on the same
-  stdin. This is possible because `IdrisMLIR.IO`'s primitives carry `scheme:`
-  implementations with the same semantics (`PROF-IO-2`). Crash messages are
-  not compared (`SEM-DEV-1`).
+  stdin. This is possible because programs do their IO through the Prelude,
+  which the Chez backend implements (`PROF-IO-4`); fixtures put only ASCII
+  characters with `putChar`, where the two agree (`SEM-IO-2`). Crash
+  messages are not compared (`SEM-DEV-1`).
 - **TEST-ELIM-1 (v1).** Each `ELIM-G-*` rule has Core-level tests: a small
   program, its expected Core after `Simplify` (checked with `FileCheck` on
   `--directive dump-core` output, `prog.dump/02-simplify.core`), and an e2e

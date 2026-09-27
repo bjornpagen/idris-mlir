@@ -1,0 +1,11 @@
+package runtests
+version = 0.1.0
+brief = "The golden test runner of idris-mlir (docs/plan.md section 9)"
+
+depends = contrib, test
+sourcedir = "."
+modules = Lock
+        , Sem
+        , Spec
+main = Main
+executable = runtests

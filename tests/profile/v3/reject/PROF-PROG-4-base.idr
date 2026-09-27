@@ -2,7 +2,7 @@
 -- packages: base
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 import System.File
 
 main : IO ()

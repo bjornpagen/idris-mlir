@@ -3,7 +3,7 @@ module Main
 
 -- rule: ELIM-MONO-3
 
-import IdrisMLIR.IO
+import Prelude
 
 depth : Int -> a -> Int
 depth 0 _ = 0

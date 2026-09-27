@@ -10,7 +10,7 @@ import IdrisMLIR.Loc
 public export
 data Rule
   = ProfProg1 | ProfProg2 | ProfProg4
-  | ProfLib1 | ProfIO3
+  | ProfLib1 | ProfIO3 | ProfIO4
   | ProfType4
   | ProfData2 | ProfData3 | ProfData5
   | ProfFn1 | ProfFn5 | ProfFn7
@@ -18,7 +18,8 @@ data Rule
   | ProfPrim2 | ProfPrim4
   | ProfHeap1 | ProfHeap2 | ProfHeap3 | ProfHeap4 | ProfHeap5
   | ProfEsc1 | ProfPrag1
-  | FeEntry4 | FeEntry5 | FeTtc1 | FeTr3 | FeTr4
+  | FeEntry4 | FeEntry5 | FeTtc1 | FeTr3 | FeTr4 | FeTr7
+  | HookShape1
   | CoreCheck1
   | CoreInv1 | CoreInv2 | CoreInv3 | CoreInv5 | CoreInv6 | CoreInv7 | CoreInv8 | CoreInv9
 
@@ -29,6 +30,7 @@ Show Rule where
   show ProfProg4 = "PROF-PROG-4"
   show ProfLib1 = "PROF-LIB-1"
   show ProfIO3 = "PROF-IO-3"
+  show ProfIO4 = "PROF-IO-4"
   show ProfType4 = "PROF-TYPE-4"
   show ProfData2 = "PROF-DATA-2"
   show ProfData3 = "PROF-DATA-3"
@@ -52,6 +54,8 @@ Show Rule where
   show FeTtc1 = "FE-TTC-1"
   show FeTr3 = "FE-TR-3"
   show FeTr4 = "FE-TR-4"
+  show FeTr7 = "FE-TR-7"
+  show HookShape1 = "HOOK-SHAPE-1"
   show CoreCheck1 = "CORE-CHECK-1"
   show CoreInv1 = "CORE-INV-1"
   show CoreInv2 = "CORE-INV-2"

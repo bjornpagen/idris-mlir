@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 -- rule: FE-TTC-2 (every module is loaded from TTC under -o)
 import Greeting
 import Counter

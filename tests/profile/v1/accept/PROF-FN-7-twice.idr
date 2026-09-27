@@ -1,7 +1,7 @@
 -- stdout: 45\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 twice : (a -> a) -> a -> a
 twice f x = f (f x)

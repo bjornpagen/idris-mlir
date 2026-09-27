@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- countdown returns an action; raised, it takes the world and loops. The
 -- count comes from stdin, so the loop is not unrolled (ELIM-G-19).

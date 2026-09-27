@@ -132,8 +132,10 @@ exist only on paper.
 Settled in draft 2:
 - **Multiple modules.** `main : IO ()` programs compile through Idris's
   whole-program callback (`-o`), which handles imports.
-- **IO surface.** Stock `Builtin` and `PrimIO` plus our own small module,
-  `IdrisMLIR.IO`, which is the only place `%foreign` is allowed.
+- **IO surface.** Stock `Builtin` and `PrimIO` plus a small module of our
+  own, which was the only place `%foreign` was allowed. Since the cleanup
+  after v3 it is the Prelude's IO (`PROF-IO-4`), and the compiler ships no
+  Idris module (`PROF-IO-1`).
 - **Prelude.** Imported explicitly by IO programs since v3
   (`PROF-PROG-4`); implicit import waits for the heap ([the plan](../plan.md)).
 

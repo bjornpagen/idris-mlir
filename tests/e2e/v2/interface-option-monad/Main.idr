@@ -2,28 +2,29 @@ module Main
 
 -- rule: PROF-IFACE-1, FE-TR-6, ELIM-G-2, ELIM-G-3
 -- A Functor/Applicative/Monad hierarchy over a user option type; `do` in
--- `calc` uses the user's `>>=`, and `main`'s uses IO's.
+-- `calc` uses the user's `>>=` (the Prelude's would need a `Monad Opt`),
+-- and `main`'s uses the Prelude's, for IO.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 data Opt a = None | Some a
 
 interface Fun f where
   fmap : (a -> b) -> f a -> f b
 
-interface Fun f => App f where
+interface Fun f => Apl f where
   pure' : a -> f a
   ap : f (a -> b) -> f a -> f b
 
-interface App m => Mon m where
+interface Apl m => Mon m where
   bind : m a -> (a -> m b) -> m b
 
 Fun Opt where
   fmap f None = None
   fmap f (Some x) = Some (f x)
 
-App Opt where
+Apl Opt where
   pure' = Some
   ap (Some f) (Some x) = Some (f x)
   ap _ _ = None

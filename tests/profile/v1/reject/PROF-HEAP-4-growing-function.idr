@@ -2,7 +2,7 @@
 -- message: Main.iter passes itself a function, IO action, Lazy value or other static value that grows
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 iter : (Int -> Int) -> Int -> Int -> Int
 iter f 0 x = f x

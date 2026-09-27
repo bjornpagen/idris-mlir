@@ -1,7 +1,7 @@
 -- expect: PROF-TYPE-4 line 13
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 Box : Int -> Type
 Box 0 = Int

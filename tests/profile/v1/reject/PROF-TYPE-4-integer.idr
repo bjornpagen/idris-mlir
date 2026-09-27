@@ -1,7 +1,7 @@
 -- expect: PROF-TYPE-4 line 9
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- rule: SEM-BIG-1
 -- An Integer computed from a value known only at runtime would have to

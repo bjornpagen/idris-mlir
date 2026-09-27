@@ -33,6 +33,18 @@ not end on a promise to fix something later.
 
 ## History
 
+The cleanup after v3 ([the plan](../plan.md), section 9) differed from
+v3's rules as follows:
+- `PROF-IO-1`, `PROF-IO-2` (withdrawn): the `idris-mlir-io` package and
+  its module `IdrisMLIR.IO` are removed. Programs and tests do their IO
+  through the Prelude (`PROF-IO-4`), and `DRV-FLOW-2` no longer passes
+  `-p idris-mlir-io`.
+- `SEM-IO-3`, `SEM-IO-5`: no profile program reaches `idr.io.get_char` or
+  `idr.io.exit` any more. Their end-to-end fixtures (`echo-invalid-utf8`,
+  `exit-status`) are retired, and only dialect tests remain.
+- `SEM-IO-2`: the Prelude's `putChar` writes UTF-8 where the reference
+  writes one byte, so fixtures now put only ASCII with it.
+
 The driver rewrite after v3 differed from v3's rules as follows:
 - `ELIM-G-19`, `ELIM-G-20` (new) replace `ELIM-G-10` to `ELIM-G-14`,
   `ELIM-G-16` and `ELIM-G-18`: one driver decides every call, and a match

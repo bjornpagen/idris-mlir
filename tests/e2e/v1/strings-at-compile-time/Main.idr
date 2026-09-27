@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- rule: SEM-STR-1, ELIM-G-6
 public export

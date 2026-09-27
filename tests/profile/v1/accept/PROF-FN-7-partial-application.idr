@@ -1,7 +1,7 @@
 -- stdout: 12\n
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 apply : (Int -> Int) -> Int -> Int
 apply f x = f x

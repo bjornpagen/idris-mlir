@@ -1,0 +1,7 @@
+package gen-ryu-tables
+version = 0.1.0
+brief = "The Ryu power-of-5 tables of the Double printer (LOW-DBL-2); run by make ryu-tables"
+
+sourcedir = "."
+main = GenRyuTables
+executable = gen-ryu-tables

@@ -3,10 +3,10 @@ module Main
 
 -- rule: SEM-REC-1
 -- The Prelude's lists are recursive: a list whose length is known only at
--- runtime would need the heap.
+-- runtime would need the heap. The program uses nothing but the Prelude,
+-- its IO included.
 
 import Prelude
-import IdrisMLIR.IO
 
 build : Int -> List Int
 build 0 = []

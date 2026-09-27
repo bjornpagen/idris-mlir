@@ -2,17 +2,20 @@
 ||| does not import the Idris compiler (FE-IN-3).
 module IdrisMLIR.Loc
 
-%default total
+import IdrisMLIR.Ids
+import IdrisMLIR.Registry.Libraries
 
-||| Where a source file came from, so the frontend can rebuild Idris's `FC`.
-public export
-data Origin = FromModule (List String) | FromPackage String | Nowhere
+%default total
 
 ||| A source span, 0-based as in Idris.
 public export
 record Loc where
   constructor MkLoc
+  ||| Where the code comes from, as the registry classified its module.
   origin : Origin
+  ||| The module, as Idris names it: printed, and given back to Idris for
+  ||| its error locations, but never compared (`origin` is what code tests).
+  place : Shown
   file : String
   startLine : Int
   startCol : Int
@@ -21,44 +24,24 @@ record Loc where
 
 export
 noLoc : Loc
-noLoc = MkLoc Nowhere "" 0 0 0 0
+noLoc = MkLoc Generated (shown "") "" 0 0 0 0
 
 ||| `file:line:column`, 1-based, for messages; a library module whose
 ||| source is not installed is named by its module.
 export
 Show Loc where
-  show l = where_ ++ ":" ++ show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
-    where
-      dotted : List String -> String
-      dotted [] = ""
-      dotted [x] = x
-      dotted (x :: xs) = x ++ "." ++ dotted xs
-      where_ : String
-      where_ = case (l.file, l.origin) of
-        ("", FromModule ns) => dotted (reverse ns)
-        (f, _) => f
+  show l = (if l.file == "" then show l.place else l.file) ++ ":" ++
+           show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
 
-||| Is a location in one of the libraries the compiler trusts (the Prelude,
-||| `Builtin`, `PrimIO`, `IdrisMLIR.IO`)? A diagnostic there is reported at
-||| the user's code that reached it (DIAG-LOC-1).
+||| Is a location in a library whose diagnostics are reported at the user's
+||| code that reached it (DIAG-LOC-1)?
 export
 inLibrary : Loc -> Bool
-inLibrary l = case l.origin of
-  FromModule ns => any trusted [dotted ns, dotted (reverse ns)]
-  FromPackage _ => True
-  Nowhere => False
-  where
-    dotted : List String -> String
-    dotted [] = ""
-    dotted [x] = x
-    dotted (x :: xs) = x ++ "." ++ dotted xs
-    trusted : String -> Bool
-    trusted m = any (\t => m == t || substr 0 (length t + 1) m == t ++ ".")
-                    ["Builtin", "PrimIO", "Prelude", "IdrisMLIR.IO"]
+inLibrary l = covers ReportAtCaller l.origin
 
 ||| Is a location known at all?
 export
 known : Loc -> Bool
 known l = case l.origin of
-  Nowhere => False
+  Generated => False
   _ => True

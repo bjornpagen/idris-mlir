@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 State : Type -> Type -> Type
 State s a = s -> Pair a s

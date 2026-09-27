@@ -4,7 +4,7 @@ module Main
 -- Casting NaN to Int crashes, after the output written so far.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 partial
 main : IO ()

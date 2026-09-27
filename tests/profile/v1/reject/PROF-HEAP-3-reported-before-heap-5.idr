@@ -7,7 +7,7 @@ module Main
 -- specialization is finished, so the PROF-HEAP-3 error found during it is
 -- the one reported.
 
-import IdrisMLIR.IO
+import Prelude
 
 partial
 report : Int -> IO ()

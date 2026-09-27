@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- A recursive function passed a function: the whistle stops unfolding at
 -- the recursive call, and the loop is specialized on the closure.

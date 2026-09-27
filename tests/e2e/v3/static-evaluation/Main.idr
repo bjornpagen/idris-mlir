@@ -5,27 +5,26 @@ module Main
 -- and constructors of known values stay known: the conditions below are
 -- decided at compile time, so the string match in `firstIs`, which could
 -- not run at runtime, is never reached. This is the shape of the Prelude's
--- `show` for numbers.
+-- `show` for numbers: `Level` is its `Prec` cut down to `Open` and
+-- `PrefixMinus`, here `Low` and `High`, and `both` is its `&&`.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
-data Bool = False | True
+data Level = Low | High
 
-data Prec = Open | PrefixMinus
+rank : Level -> Integer
+rank Low = 0
+rank High = 5
 
-rank : Prec -> Integer
-rank Open = 0
-rank PrefixMinus = 5
-
-atLeast : Prec -> Prec -> Bool
+atLeast : Level -> Level -> Bool
 atLeast a b = case prim__lte_Integer (rank b) (rank a) of
   0 => False
   _ => True
 
-and : Bool -> Lazy Bool -> Bool
-and True b = b
-and False _ = False
+both : Bool -> Lazy Bool -> Bool
+both True b = b
+both False _ = False
 
 partial
 firstIs : Char -> String -> Bool
@@ -39,8 +38,8 @@ parens False s = s
 parens True s = prim__strAppend "(" (prim__strAppend s ")")
 
 partial
-showNum : Prec -> Int -> String
-showNum d n = let s = prim__cast_IntString n in parens (and (atLeast d PrefixMinus) (firstIs '-' s)) s
+showNum : Level -> Int -> String
+showNum d n = let s = prim__cast_IntString n in parens (both (atLeast d High) (firstIs '-' s)) s
 
 partial
 main : IO ()
@@ -48,4 +47,4 @@ main = do
   c <- getChar
   d <- getChar
   let n = prim__sub_Int 48 (prim__cast_CharInt d)
-  putStrLn (showNum Open n)
+  putStrLn (showNum Low n)

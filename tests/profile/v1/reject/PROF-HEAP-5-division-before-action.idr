@@ -6,7 +6,7 @@ module Main
 -- The action `report d` is built, then "ready" is written, then the action
 -- runs. Raising `report` would move its division after that output.
 
-import IdrisMLIR.IO
+import Prelude
 
 partial
 report : Int -> IO ()

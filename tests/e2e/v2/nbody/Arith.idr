@@ -1,10 +1,13 @@
 module Arith
 
 -- A small numeric prelude: arithmetic as a user
--- interface (FE-TR-6), with implementations for Double and Int.
+-- interface (FE-TR-6), with implementations for Double and Int. IO and `do`
+-- come from the Prelude's own IO and Interfaces modules; the rest of the
+-- Prelude is not imported, since its names would clash with these.
 
 import public Builtin
-import public IdrisMLIR.IO
+import public Prelude.IO
+import public Prelude.Interfaces
 
 %default partial
 
@@ -151,8 +154,8 @@ showInt : Int -> String
 showInt = prim__cast_IntString
 
 public export
-printLn : Double -> IO ()
-printLn x = putStrLn (show x)
+printDouble : Double -> IO ()
+printDouble x = putStrLn (show x)
 
 public export
 printInt : Int -> IO ()
@@ -163,7 +166,7 @@ label : String -> Double -> IO ()
 label s x = do
   putStr s
   putStr ": "
-  printLn x
+  printDouble x
 
 ||| A non-negative decimal number from stdin, up to the first other character.
 public export

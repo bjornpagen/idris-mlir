@@ -4,7 +4,7 @@ module Main
 -- A dictionary with a superclass and a field of a value type: the field is
 -- read where the dictionary is matched, and no dictionary survives.
 
-import IdrisMLIR.IO
+import Prelude
 
 interface Semi a where
   op : a -> a -> a

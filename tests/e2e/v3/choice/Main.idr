@@ -6,7 +6,7 @@ module Main
 -- A function, a Lazy value, a string and a list chosen at runtime are each
 -- used through their tag, without the heap.
 
-import IdrisMLIR.IO
+import Prelude
 
 data Op : Type where
   Inc : (Int -> Int) -> Op

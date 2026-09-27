@@ -5,7 +5,7 @@ module Main
 -- run time, so that nothing folds; the stock Chez backend is the oracle.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 line : Double -> IO ()
 line d = putStrLn (prim__cast_DoubleString d)

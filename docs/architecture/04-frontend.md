@@ -27,7 +27,7 @@ profile violation that TT can show.
 - **FE-ENTRY-4 (v1).** IO programs compile through the whole-program callback:
 
   ```sh
-  idris-mlir --no-prelude -p idris-mlir-io --cg mlir -o prog Main.idr
+  idris-mlir --no-prelude --cg mlir -o prog Main.idr
   ```
 
   - The callback receives the closed term `unsafePerformIO main` and the
@@ -150,7 +150,7 @@ error follows `DIAG-*`.
   | `TDelay` / `TForce` with reason `LLazy` (v1) | `Delay` (closure-converted like `Lam`) / `Force` |
   | `PrimVal` of `Char` or `String` (v1) | literal |
   | `PrimVal WorldVal` (`%MkWorld`) (v1) | `PROF-IO-3` error: the root is written without it (`FE-ENTRY-4`) |
-  | `Ref` to a `PROF-IO-2` primitive (v1) | IO primitive (`Effect`) |
+  | `Ref` to an IO primitive of `PROF-IO-4` (v1) | IO primitive (`Effect`) |
   | `Meta`, `TDelay`/`TForce` with reason `LInf`, `Bind` with `Pi`, `TType`, anything else | `unsupported` error with the matching rule |
 
   - Arguments in compile-time positions become the `Core` erased value,

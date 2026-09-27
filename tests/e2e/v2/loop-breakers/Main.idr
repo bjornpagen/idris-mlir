@@ -5,7 +5,7 @@ module Main
 -- component: the first is its loop breaker, which the inliner leaves alone,
 -- so the other is inlined into it and it becomes self recursive.
 
-import IdrisMLIR.IO
+import Prelude
 
 mutual
   even : Int -> Int

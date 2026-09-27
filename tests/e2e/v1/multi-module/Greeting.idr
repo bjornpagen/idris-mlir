@@ -1,6 +1,6 @@
 module Greeting
 
-import IdrisMLIR.IO
+import Prelude
 
 export
 greet : String -> IO ()

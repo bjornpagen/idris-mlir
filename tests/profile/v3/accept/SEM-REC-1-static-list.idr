@@ -6,7 +6,7 @@ module Main
 -- Recursive data built and consumed at compile time: a list and mutually
 -- recursive types. Nothing of them exists at runtime.
 
-import IdrisMLIR.IO
+import Prelude
 
 data L : Type where
   Nil : L

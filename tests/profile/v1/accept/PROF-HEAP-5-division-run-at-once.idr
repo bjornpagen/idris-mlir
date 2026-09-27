@@ -6,7 +6,7 @@ module Main
 -- `report` divides by a runtime value, but its action runs as soon as it is
 -- built, with no effect in between, so raising it is not observable.
 
-import IdrisMLIR.IO
+import Prelude
 
 partial
 report : Int -> IO ()

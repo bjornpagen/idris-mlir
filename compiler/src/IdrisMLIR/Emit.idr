@@ -139,7 +139,7 @@ op1 l n args ps t = do
 
 ||| A terminator branching to blocks.
 branch : Loc -> String -> List TV -> List String -> List (String, Attr) -> E ()
-branch l n args succs ps = terminate (MkMOp Nothing n (map fst args) succs ps [] [] (map snd args) [] l)
+branch l n args succs ps = terminate (MkMOp Nothing n (map fst args) succs ps [] [] (map snd args) [] (At l))
 
 ------------------------------------------------------------------------------
 -- Atoms and primitives (IDR-IN-3)
@@ -269,9 +269,7 @@ io ix l op vs res = do
     (PutStr, [s, w0]) => unitWith mk (op1 l "idr.io.put_str" [s, w0] [] IdrWorld)
     (PutChar, [c, w0]) => unitWith mk (op1 l "idr.io.put_char" [c, w0] [] IdrWorld)
     (PutInt t, [n, w0]) => unitWith mk (op1 l "idr.io.put_int" [n, w0] (signedness (signed t)) IdrWorld)
-    (Exit, [n, w0]) => unitWith mk (op1 l "idr.io.exit" [n, w0] [] IdrWorld)
     (PutDouble, [d, w0]) => unitWith mk (op1 l "idr.io.put_double" [d, w0] [] IdrWorld)
-    (GetChar, [w0]) => pair <$> opN l "idr.io.get_char" [w0] [] [I 32, IdrWorld]
     (GetByte, [w0]) => pair <$> opN l "idr.io.get_byte" [w0] [] [I 32, IdrWorld]
     _ => internal ("io." ++ show op ++ " with the wrong arguments")
   con l mk.id [val, w]
@@ -441,10 +439,11 @@ body ix (ReleaseF l x k) = k
 -- Declarations
 ------------------------------------------------------------------------------
 
+||| IDR-DATA-5: a declaration is located by its Idris name.
 dataDecl : CData -> MOp
 dataDecl d =
   MkMOp Nothing "idr.data" [] [] [("sym_name", StrA (symbol d.id.name))]
-        [single [] (map ctor d.cons)] [("idr.name", StrA d.idrisName)] [] [] d.loc
+        [single [] (map ctor d.cons)] [] [] [] (Named d.idrisName d.loc)
   where
     ctor : CCon -> MOp
     ctor c = MkMOp Nothing "idr.ctor" [] []
@@ -452,7 +451,7 @@ dataDecl d =
                , ("quantities", ArrayA (map (StrA . show . (.quantity)) c.fields))
                , ("sym_name", StrA (symbol c.id.name))
                , ("tag", IntA (cast c.tag) (I 64)) ]
-               [] [("idr.name", StrA c.id.name)] [] [] c.loc
+               [] [] [] [] (Named (shown c.id.name) c.loc)
 
 ||| A value of a type, for a body that cannot be reached: it is never used.
 inhabitant : Index p -> Loc -> Nat -> VTy -> E (Maybe TV)
@@ -496,7 +495,7 @@ function ix breakers fn = do
                            , ("sym_visibility", StrA "private") ]
                ++ (if contains fn.id breakers then [("no_inline", UnitA)] else []))
               [MkRegion (blocks <>> [])]
-              [("idr.name", StrA fn.idrisName)] [] [] fn.loc)
+              [] [] [] (Named fn.idrisName fn.loc))
 
 ||| The contract text of a first-order program.
 export

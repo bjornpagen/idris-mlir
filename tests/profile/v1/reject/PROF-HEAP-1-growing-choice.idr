@@ -1,7 +1,7 @@
 -- expect: PROF-HEAP-1 line 14
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- Which function is inside is chosen by a recursion on a runtime value, and
 -- each level builds a larger function from the one below: no finite choice

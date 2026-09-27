@@ -1,6 +1,6 @@
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- (\x => x * 3) 7 becomes a let; no lambda survives.
 main : IO ()

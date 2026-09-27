@@ -10,6 +10,7 @@
 module IdrisMLIR.Simplify.Safety
 
 import IdrisMLIR.Code
+import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
@@ -25,7 +26,7 @@ import Data.SortedSet
 ||| The functions that terminate and cannot crash or act.
 export
 safeFns : List (CFn Pure) -> SortedSet FnId
-safeFns fns = go (length fns) (fromList [f.id | f <- fns, f.terminating])
+safeFns fns = go (length fns) (fromList [f.id | f <- fns, f.facts.terminating.holds])
   where
     step : SortedSet FnId -> SortedSet FnId
     step s = fromList [f.id | f <- fns, contains f.id s, safeCode (`contains` s) f.body]
@@ -38,7 +39,7 @@ safeFns fns = go (length fns) (fromList [f.id | f <- fns, f.terminating])
 blocking : SortedMap FnId (CFn Pure) -> Moved -> String
 blocking fns (MovedOp (OPrim (IntOp Div _) _)) = "a division"
 blocking fns (MovedOp (OPrim (IntOp Mod _) _)) = "a modulus"
-blocking fns (MovedOp (OCall f _)) = "a call to " ++ maybe (show f) (.idrisName) (lookup f fns)
+blocking fns (MovedOp (OCall f _)) = "a call to " ++ maybe (show f) (show . (.idrisName)) (lookup f fns)
 blocking fns (MovedOp (OIO op _ _)) = "the IO operation " ++ show op
 blocking fns MovedCrash = "a missing case"
 blocking fns _ = "an operation"

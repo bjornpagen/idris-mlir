@@ -5,7 +5,7 @@ module Main
 -- called, so their strings are still written straight to the output.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 showD : Double -> String
 showD = prim__cast_DoubleString

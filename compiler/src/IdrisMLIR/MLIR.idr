@@ -7,6 +7,7 @@
 ||| is MLIR's generic syntax, which every dialect parses.
 module IdrisMLIR.MLIR
 
+import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 
 import Data.List
@@ -14,6 +15,13 @@ import Data.Maybe
 import Data.String
 
 %default total
+
+||| An operation's location: a source span (IDR-LOC-1), or an Idris name at
+||| one, MLIR's `NameLoc` (IDR-DATA-5). Names reach MLIR only this way: as
+||| debug information, which passes keep and diagnostics print, and never
+||| as data a pass could compare.
+public export
+data Location = At Loc | Named Shown Loc
 
 ------------------------------------------------------------------------------
 -- Types and attributes
@@ -69,7 +77,7 @@ mutual
     attrs : List (String, Attr)
     inputs : List MType
     outputs : List MType
-    loc : Loc
+    loc : Location
 
   ||| A block: its label, its arguments and its operations.
   public export
@@ -94,7 +102,7 @@ single as ops = MkRegion [MkBlock "^bb0" as ops]
 export
 simple : Maybe (String, Nat) -> String -> List Value -> List (String, Attr) ->
          List MType -> List MType -> Loc -> MOp
-simple rs n os ps is out l = MkMOp rs n os [] ps [] [] is out l
+simple rs n os ps is out l = MkMOp rs n os [] ps [] [] is out (At l)
 
 ------------------------------------------------------------------------------
 -- Printing
@@ -202,10 +210,15 @@ mutual
   entry (k, a) = k ++ " = " ++ showAttr a
 
 ||| IDR-LOC-1: the file and the 1-based line and column of the start.
-location : Loc -> String
-location l = if l.file == "" then "loc(unknown)"
-             else "loc(" ++ quoted l.file ++ ":" ++ show (l.startLine + 1) ++ ":" ++
-                  show (l.startCol + 1) ++ ")"
+span : Loc -> String
+span l = if l.file == "" then "unknown"
+         else quoted l.file ++ ":" ++ show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
+
+||| A location; a `NameLoc` (IDR-DATA-5) is the name around the span, or the
+||| name alone when the span is unknown.
+location : Location -> String
+location (At l) = "loc(" ++ span l ++ ")"
+location (Named n l) = "loc(" ++ quoted (show n) ++ (if l.file == "" then "" else "(" ++ span l ++ ")") ++ ")"
 
 indent : Nat -> String
 indent d = replicate (2 * d) ' '
@@ -251,4 +264,4 @@ mutual
 ||| A module: its body and attributes.
 export covering
 showModule : List (String, Attr) -> List MOp -> String
-showModule as ops = showOp 0 (MkMOp Nothing "builtin.module" [] [] [] [single [] ops] as [] [] noLoc) ++ "\n"
+showModule as ops = showOp 0 (MkMOp Nothing "builtin.module" [] [] [] [single [] ops] as [] [] (At noLoc)) ++ "\n"

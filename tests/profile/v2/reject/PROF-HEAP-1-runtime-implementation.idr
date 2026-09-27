@@ -4,7 +4,7 @@ module Main
 
 -- rule: FE-TR-6
 
-import IdrisMLIR.IO
+import Prelude
 
 interface Semi a where
   op : a -> a -> a

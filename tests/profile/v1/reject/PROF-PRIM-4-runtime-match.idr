@@ -1,7 +1,7 @@
 -- expect: PROF-PRIM-4 line 12
 module Main
 
-import IdrisMLIR.IO
+import Prelude
 
 -- A string built from a runtime number is only ever written: matching on
 -- it would compare its bytes at runtime. (A match on a string chosen among

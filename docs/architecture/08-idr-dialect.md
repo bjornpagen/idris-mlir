@@ -171,11 +171,13 @@ All `idr` ops have MLIR locations (`IDR-LOC-1`).
   - Test: `tests/idr/lower/crash-op.mlir`, `tests/idr/check-input/reject-v3.mlir`
 - **IDR-STR-1 (v1).** `idr.str.lit` holds its string as a `StringAttr` of UTF-8
   bytes. Two literals with equal bytes are equal values.
-- **IDR-IO-1 (v1).** The `idr.io` ops implement the `IdrisMLIR.IO` primitives
-  (`PROF-IO-2`), and `SEM-IO-*` fixes their meaning:
-  - `put_str`, `put_char` and `get_char` are `putStr`, `putChar` and
-    `getChar`;
-  - `exit` is `exit`, and its `%w1` is never produced at runtime;
+- **IDR-IO-1 (v1).** The `idr.io` ops implement the IO primitives
+  (`PROF-IO-4`), and `SEM-IO-*` fixes their meaning:
+  - `put_str` and `put_char` are the Prelude's `prim__putStr` and
+    `prim__putChar`;
+  - `get_char` and `exit` are `SEM-IO-3` and `SEM-IO-5`. No source
+    primitive has produced them since `PROF-IO-1` was withdrawn, and they
+    stay in the dialect; `exit`'s `%w1` is never produced at runtime;
   - `put_int` writes the decimal representation of its operand
     (`SEM-STR-2`), as `signed` or `unsigned`. It is the target of output
     fusion (`ELIM-G-7`).
@@ -370,7 +372,7 @@ After `inline` and `canonicalize`:
 
 ```idris
 module Main
-import IdrisMLIR.IO
+import Prelude
 
 greet : Int -> IO ()
 greet n = putStrLn ("n = " ++ prim__cast_IntString n)

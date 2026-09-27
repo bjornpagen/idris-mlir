@@ -65,10 +65,11 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
   (`FE-ENTRY-4`). The root is `main`. Its modules may import only:
   - its other modules (*user modules*), each subject to every rule here;
   - the *trusted modules*: `Builtin` and `PrimIO` from the pinned Idris
-    `prelude` package, `IdrisMLIR.IO`, which ships with this compiler
-    (`PROF-IO-*`), and from v3 the Prelude's own modules (`Prelude`,
+    `prelude` package, and from v3 the Prelude's own modules (`Prelude`,
     `Prelude.Basics`, `Prelude.Num` and so on), imported explicitly with
-    `import Prelude` (the driver still passes `--no-prelude`).
+    `import Prelude` (the driver still passes `--no-prelude`). A program's
+    IO is the Prelude's (`PROF-IO-4`): this compiler ships no Idris module
+    of its own (`PROF-IO-1`).
 
   Modules of other packages (`base`, `contrib`) are rejected.
   - Check: `Frontend.Main.compileIO`, at the offending `import`
@@ -87,8 +88,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   | --- | --- |
   | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` and, from v2, `FromDouble` (`fromChar`, `fromString`, `fromDouble`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, `defaultDouble`, which elaborate character, string and `Double` literals in polymorphic positions |
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
-  | `IdrisMLIR.IO` | every definition (`PROF-IO-1`) |
-  | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists and `Nat` are compile-time data (`SEM-REC-1`), its `Integer` literals compile-time integers (`SEM-BIG-1`), its `%foreign` IO primitives rejected (`PROF-ESC-1`) |
+  | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists and `Nat` are compile-time data (`SEM-REC-1`), its `Integer` literals compile-time integers (`SEM-BIG-1`), its `%foreign` primitives other than the IO primitives of `PROF-IO-4` rejected (`PROF-ESC-1`) |
   | `Builtin` (v3) | also every other definition but its escape hatches `believe_me`, `idris_crash` and `assert_linear`: the proof combinators `sym`, `trans`, `replace`, `rewrite__impl`, `DPair` |
   | the base library (v3) | see `PROF-LIB-3` |
 
@@ -103,51 +103,37 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/v3/vect`, `tests/profile/v3/reject/PROF-PROG-4-base.idr`
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%default` and other elaboration
-  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-19`). It honours `%foreign` only for the four primitives of
-  `IdrisMLIR.IO`, which it recognizes by full name (`PROF-IO-2`); the
-  `%foreign` strings themselves are never read.
+  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-19`). It
+  honours `%foreign` and `%extern` only for the Prelude's IO primitives,
+  which it recognizes by full name (`PROF-IO-4`); the `%foreign` strings
+  themselves are never read.
 
-## The `IdrisMLIR.IO` module (v1)
+## IO (v1)
 
-- **PROF-IO-1 (v1).** `IdrisMLIR.IO` lives in `lib/idris-mlir-io/`. It
-  imports `Builtin` and `PrimIO` publicly and exports exactly:
-
-  ```idris
-  export infixl 1 >>=, >>
-  pure     : a -> IO a
-  (>>=)    : IO a -> (a -> IO b) -> IO b
-  (>>)     : IO () -> Lazy (IO b) -> IO b
-  putStr   : String -> IO ()
-  putStrLn : String -> IO ()        -- putStr (s ++ "\n")
-  putChar  : Char -> IO ()
-  getChar  : IO Char
-  exit     : Int -> IO ()
-  ```
-
-  `do` notation desugars to `>>=` and `>>` by name, so it works with no
-  interface. `>>` takes `Lazy` for the same reason the stock Prelude does:
-  without it, a recursive action would be built eagerly and never stop. The
-  semantics are `SEM-IO-*`.
-- **PROF-IO-2 (v1).** The module's primitives are four `%foreign`
-  definitions:
-  - `prim__idrPutStr : String -> PrimIO ()`
-  - `prim__idrPutChar : Char -> PrimIO ()`
-  - `prim__idrGetChar : PrimIO Char`
-  - `prim__idrExit : Int -> PrimIO ()`
-
-  The compiler maps them to `idr.io.*` ops ([08](08-idr-dialect.md)). Each
-  also carries a `scheme:` implementation with the same semantics, so every
-  IO program also runs on the stock Chez backend for differential testing
-  (`TEST-DIFF-1`).
-- **PROF-IO-4 (v3).** The Prelude's output primitives `prim__putStr` and
-  `prim__putChar` (`Prelude.IO`) are the same `idr.io.put_str` and
-  `idr.io.put_char` as `IdrisMLIR.IO`'s, and its `prim__getChar` is
-  `idr.io.get_byte`, so the Prelude's `putStr`, `putStrLn`, `putChar`,
-  `print`, `printLn` and `getChar` work through its `HasIO IO`. Their
-  meaning is `SEM-IO-2` and `SEM-IO-7`. Its other `%foreign` primitives
-  (`getLine`, files, time) stay rejected (`PROF-ESC-1`).
+- **PROF-IO-1.** *Withdrawn after v3:* this compiler's own IO module,
+  `IdrisMLIR.IO` (the package `idris-mlir-io`), is removed: programs use
+  Idris's own libraries ([the plan](../plan.md), decision 1), and its
+  programs moved to the Prelude's IO (`PROF-IO-4`). A program that still
+  imports it no longer compiles, a deliberate exception to `PROF-GEN-4`.
+  Its `exit` and its UTF-8 `getChar` have no counterpart in the trusted
+  modules (`SEM-IO-5`, `SEM-IO-3`).
+- **PROF-IO-2.** *Withdrawn after v3:* the module's four `%foreign`
+  primitives went with it (`PROF-IO-1`). The IO primitives the compiler
+  maps to `idr.io` ops are the Prelude's (`PROF-IO-4`).
+- **PROF-IO-4 (v3).** A program's IO is the Prelude's. Its primitives in
+  `Prelude.IO` map to `idr.io` ops ([08](08-idr-dialect.md)):
+  `prim__putStr` and `prim__putChar` are `idr.io.put_str` and
+  `idr.io.put_char`, and `prim__getChar` is `idr.io.get_byte`. So the
+  Prelude's `putStr`, `putStrLn`, `putChar`, `print`, `printLn` and
+  `getChar` work through its `HasIO IO`, and `do` through its `Monad IO`.
+  Their meaning is `SEM-IO-2` and `SEM-IO-7`. The stock Chez backend runs
+  the same program, so every IO fixture is also a differential test
+  (`TEST-DIFF-1`); `SEM-IO-2` says where the two backends' output agrees.
+  The Prelude's other `%foreign` primitives (`getLine`, files, time) stay
+  rejected (`PROF-ESC-1`).
   - Check: `Frontend.Translate.ioPrim`, `Frontend.Profile.checkReachable`
-  - Test: `tests/e2e/v3/prelude-io`
+  - Test: `tests/e2e/v3/prelude-io`,
+    `tests/profile/v1/accept/PROF-LIB-2-io-library.idr`
 - **PROF-IO-3 (v1).** User modules do not use `unsafePerformIO`,
   `unsafeCreateWorld`, `unsafeDestroyWorld` or `%MkWorld`. These are reachable
   only through the root term `unsafePerformIO main` that Idris builds for `-o`.
@@ -412,7 +398,8 @@ construct, and says which elimination did not apply and why
   - `prim__believe_me` or `prim__crash`;
   - a definition marked as an escape hatch (`isEscapeHatch`);
   - a hole;
-  - an `%extern` or `%foreign` definition other than those in `PROF-IO-2`.
+  - an `%extern` or `%foreign` definition other than the Prelude's IO
+    primitives of `PROF-IO-4`.
 
   From v3, `assert_total` reached from a library module's own definitions is
   trusted: the library's author asserted it, and it changes no value. It

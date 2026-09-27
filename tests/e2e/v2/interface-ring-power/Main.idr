@@ -5,7 +5,7 @@ module Main
 -- implementation for 2x2 matrices: Fibonacci numbers from matrix powers.
 
 import Builtin
-import IdrisMLIR.IO
+import Prelude
 
 interface Ring a where
   zero : a

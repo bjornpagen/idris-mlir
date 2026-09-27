@@ -42,6 +42,21 @@ record Label where
   constructor MkLabel
   index : Nat
 
+||| An Idris name as it is printed: what the compiler reports, never what it
+||| compares. It has `Show` and no `Eq`, so code outside the registry can
+||| name a definition in a message but cannot key behaviour on it
+||| (docs/architecture/17-registry.md).
+export
+data Shown = MkShown String
+
+export
+shown : String -> Shown
+shown = MkShown
+
+export
+Show Shown where
+  show (MkShown s) = s
+
 export Eq FnId where a == b = a.name == b.name
 export Ord FnId where compare a b = compare a.name b.name
 export Show FnId where show = (.name)
