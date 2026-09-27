@@ -95,7 +95,18 @@ benchmarks in `bench/` did not change.
    its indices at compile time only. Not yet: `transpose`, which takes its
    length at runtime quantity (`{n : _}`), so an implementation that
    mentions it is rejected as chosen at runtime.
-10. **`main : Int` programs cannot import the Prelude**: they are compiled
+10. **A static value as the result of runtime control flow.** n-body
+    written with `Vect 3 Double` positions compiles up to its main loop,
+    `run : Int -> System -> System`, whose result is a system of vectors:
+    compile-time data returned from a runtime recursion, rejected
+    (`PROF-DATA-3`). Every iteration returns the same shape (five bodies of
+    three-element spines) with different doubles, so the result could be
+    returned as its atoms and rebuilt at the call, as GHC returns a
+    constructed product result unboxed. The recursive call needs the
+    result's shape before the body that decides it has been evaluated, so
+    this needs a fixpoint on shapes. It would make vector code over `Vect`
+    compile to scalars, as the record version does.
+11. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
 
@@ -107,4 +118,4 @@ benchmarks in `bench/` did not change.
   Mandelbrot, Newton basins), diffed against Chez; the benchmarks import
   only the Prelude and are no slower (`bench/README.md`).
 
-What remains is items 9 (in part) and 10 above, and everything that needs a heap.
+What remains is items 9 (in part), 10 and 11 above, and everything that needs a heap.
