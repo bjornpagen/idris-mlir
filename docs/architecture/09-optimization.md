@@ -47,7 +47,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Constructor-set propagation (which constructors can reach a point) | Lean `ElimDeadBranches` abstract domain | constructor sets | our C++ analysis on MLIR's dataflow framework | later |
 | CSE | Lean `cse`, Futhark CSE | purity | upstream `cse`, enabled by `Pure` traits | v0 |
 | Dead code, dead functions, unused parameters | Lean `elimDead`, `reduceArity`; Futhark `removeDeadFunctions` | uses, purity | upstream `canonicalize`, `symbol-dce`, `remove-dead-values` | v0 |
-| Sinking into branches | Lean `floatLetIn`, Futhark `Sink` | uses per region | upstream `control-flow-sink` | v1 |
+| Sinking into branches | Lean `floatLetIn`, Futhark `Sink` | uses per region | upstream `control-flow-sink` | v2 |
 | Unboxing and flattening of data | Futhark `ReplaceRecords`, MLton `Flatten`, Lean `structProjCases` | layout from dialect types | our C++ `idr-lower` (1:N type conversion); upstream `sroa` works only on memory | v0 |
 | Enum as integer, single constructor without tag | upstream Idris (enum/newtype) | constructor shapes | our C++ `idr-lower` (`LOW-DATA-1`) | v0 |
 | Self tail call to loop | MLton `Contify`, Lean join points | tail position (structural) | our C++ `idr-tail-loops`; upstream has no such pass | v0 |

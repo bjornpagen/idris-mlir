@@ -681,9 +681,10 @@ mutual
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> {n : Nat} ->
          Ctx -> List (VarInfo n) -> CaseTree vars -> Core (Term n)
   tree ctx env (STerm _ tm) = term ctx env tm
-  tree ctx env (Unmatched msg) =
-    reject ctx.fc ctx.owner ProfTerm2 ("a partial match (" ++ msg ++ ")")
-  -- FE-TR-4, SEM-DATA-2: Idris proved it cannot be reached.
+  -- FE-TR-4, SEM-DATA-2: Idris proved it cannot be reached. An `Unmatched`
+  -- leaf of a covering definition (PROF-FN-5) is one too: a definition whose
+  -- clauses are all impossible has only that leaf.
+  tree ctx env (Unmatched msg) = Unreachable <$> toLoc ctx.fc
   tree ctx env Impossible = Unreachable <$> toLoc ctx.fc
   tree ctx env (Case idx _ scTy alts) = do
     loc <- toLoc ctx.fc

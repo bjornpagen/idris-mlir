@@ -52,7 +52,10 @@ There are two kinds of error:
     written directly by putStr
   ```
 - **DIAG-ONE-1 (v0).** Compilation stops at the first user error. Reporting
-  several errors at once is a later improvement.
+  several errors at once is a later improvement. "First" is in pass order,
+  and within `Simplify` in evaluation order; `PROF-HEAP-5` is decided after
+  specialization, so it comes last.
+  - Test: `tests/profile/v1/reject/PROF-HEAP-3-reported-before-heap-5.idr`
 
 ## Internal errors
 

@@ -244,8 +244,13 @@ mutual
     case dt.cons of
       [con] => case find (\(MkAlt k _ _) => k == con.id) alts of
         Just (MkAlt _ bs body) => do
-          let fields = map (\i => SCall f as (ms ++ [Proj con.id i])) (take (length bs) [0 .. length bs])
-          env' <- bindAlt l bs fields env
+          -- A field of a value type is read here, where the value is first
+          -- used; a static field stays a projection. An erased field is
+          -- the erased value.
+          fields <- for (zip [0 .. length con.fields] con.fields) $ \(i, fd) =>
+            if fd.quantity == Q0 then pure (Dyn ErasedT AErased)
+            else consume l (SCall f as ms) [Proj con.id i]
+          env' <- bindAlt l bs (take (length bs) fields) env
           evalK env' body es
         Nothing => maybe (fail CoreCheck1 l "no alternative") (\e => evalK env e es) def
       _ => do

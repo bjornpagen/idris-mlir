@@ -1,0 +1,4 @@
+rule: ELIM-G-2, ELIM-G-3
+No dictionary constructor is built at runtime.
+CHECK-NOT: ::Main.Mon
+CHECK-NOT: ::Main.Semi

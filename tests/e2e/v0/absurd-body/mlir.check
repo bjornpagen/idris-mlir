@@ -1,0 +1,6 @@
+// rule: IDR-MATCH-2, CORE-INV-6
+// A body that cannot return still returns a value of its type; it never runs.
+// CHECK: sym_name = "Prog.never"
+// CHECK-NEXT: ^bb0
+// CHECK-NEXT: "arith.constant"() <{value = 0 : i64}>
+// CHECK-NEXT: "func.return"

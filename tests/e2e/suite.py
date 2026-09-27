@@ -7,8 +7,9 @@ tests/e2e/v0/<name>/ holds `Prog.idr`, a `main : Int` program, and one of:
   - `expected-crash`, text the crash diagnostic must contain.
 tests/e2e/v1/<name>/ holds `Main.idr` (and other user modules), optionally
 `stdin`, `expected-stdout`, `expected-exit` (default 0), `expected-crash`,
-an `Oracle.idr` checked with the stock compiler, and `core.check`: FileCheck
-directives run on the Core after Simplify.
+an `Oracle.idr` checked with the stock compiler, `core.check`: FileCheck
+directives run on the Core after Simplify, and `translate.check`: the same on
+the full Core after Translate.
 Either may hold `mlir.check`: FileCheck directives on the emitted contract.
 """
 
@@ -105,7 +106,8 @@ def v1_case(fixture):
             check_oracle(fixture, ("-p", "idris-mlir-io"))
         work = workdir("e2e")
         copy_fixture(fixture, work)
-        directives = ["dump-core"] if (fixture / "core.check").is_file() else []
+        dumped = (fixture / "core.check").is_file() or (fixture / "translate.check").is_file()
+        directives = ["dump-core"] if dumped else []
         result = dev.compile_io(work / "Main.idr", "prog", directives)
         assert result.returncode == 0, f"DRV-FLOW-2 failed:\n{text(result)}"
         exe = work / "build/exec/prog"
@@ -122,6 +124,8 @@ def v1_case(fixture):
         assert_heap_free(work / "build/exec/prog.o", V1_SYMBOLS)
         if (fixture / "core.check").is_file():
             filecheck(fixture / "core.check", work / "build/exec/prog.dump/02-simplify.core")
+        if (fixture / "translate.check").is_file():
+            filecheck(fixture / "translate.check", work / "build/exec/prog.dump/01-translate.core")
         if (fixture / "mlir.check").is_file():
             filecheck(fixture / "mlir.check", work / "build/exec/prog.mlir")
         # The stock Chez backend on the same program and input.

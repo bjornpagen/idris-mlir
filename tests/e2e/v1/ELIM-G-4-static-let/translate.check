@@ -1,0 +1,6 @@
+rule: CORE-DUMP-1, FE-TR-1, FE-TR-3
+In full Core the lambda is closure-converted (a label, no captures, a closed
+body) and the let has no type.
+CHECK: Main.main : PrimIO.IO[Builtin.Unit] =
+CHECK-NEXT: let w = \lam{{[0-9]+}}[](w Int) => add_Int(#0, 100:Int)
+CHECK-NEXT: IdrisMLIR.IO.putStrLn(cast_IntString((#0 (#0 1:Int))))

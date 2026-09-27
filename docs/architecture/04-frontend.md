@@ -165,7 +165,7 @@ error follows `DIAG-*`.
   | `DefaultCase` | default alternative |
   | `DelayCase` | `PROF-TERM-2` error |
   | `STerm` | term |
-  | `Unmatched` | `PROF-TERM-2` error |
+  | `Unmatched` | `Unreachable`: the definition is covering (`PROF-FN-5`), so Idris proved no input reaches it. A definition whose clauses are all `impossible` is one such leaf. |
   | `Impossible` | `Unreachable` (`SEM-DATA-2`) |
 
   A constructor match without a default that leaves out constructors gets

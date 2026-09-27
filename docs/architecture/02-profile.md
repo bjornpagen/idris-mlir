@@ -252,14 +252,14 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-TERM-2 (v0).** In every version, these forms are forbidden in runtime
   positions:
   - `Type`;
-  - metavariables and holes;
-  - `Unmatched` case-tree leaves.
+  - metavariables and holes.
 
   In v0 only, `Delay`, `Force`, `%World` and IO are also forbidden.
+  An `Unmatched` case-tree leaf is not forbidden: the definition is covering
+  (`PROF-FN-5`), so no input reaches it (`FE-TR-4`).
   - Check: `Frontend.Translate`
-  - Test: review. Holes are reported by `PROF-ESC-1`, `Unmatched` leaves by
-    `PROF-FN-5`, and `Type` in a runtime position by `PROF-TYPE-4`, before
-    this check can see them.
+  - Test: review. Holes are reported by `PROF-ESC-1`, and `Type` in a
+    runtime position by `PROF-TYPE-4`, before this check can see them.
 
 ## Primitives
 
@@ -326,6 +326,8 @@ construct, and says which elimination did not apply and why
   code cannot crash and cannot fail to terminate. A function that returns an
   action or function after such code cannot be raised, and its result
   survives as a function value; the error names the blocking operation.
+  It is decided once specialization is finished, so any other user error
+  found while specializing is reported instead (`DIAG-ONE-1`).
   - Check: `Simplify`; `PROF-HEAP-5` on the finished program
     (`Simplify.Safety`)
   - Test: `tests/profile/v1/reject/PROF-HEAP-{1..5}-*.idr`, and every v1
