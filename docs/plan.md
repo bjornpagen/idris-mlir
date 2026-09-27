@@ -65,6 +65,14 @@ Settled, and the rest of the plan builds on them:
      linear and network.
    - The compiler implements their primitives.
    - Our `idris-mlir-io` package is removed (section 9).
+   - **No language features in the compiler.** Features are Idris
+     libraries. The compiler has privileged knowledge of a fixed,
+     registered set of them, which it may make faster or stricter, but
+     never different (section 9.1).
+     - Removing a hook may change speed or add a rejection. It never
+       changes a program's result, and the Chez oracle is the check.
+     - The compiler knows library definitions only through the registry;
+       nothing else in the codebase names an Idris definition.
 2. **Every value gets a runtime representation** (section 3). After that,
    compile-time evaluation is an optimization, never a requirement.
 3. **Memory is reference counting, Lean's way** (section 4):
@@ -1276,6 +1284,207 @@ and after must agree test for test.
 - **`docs/architecture`**: one file per compiler boundary. Rules that no
   test can check become prose.
 
+### 9.1 One registry for privileged knowledge
+
+A cleanliness refactor: every place the compiler treats a named Idris
+definition specially moves into one registry. No behaviour changes and
+nothing new is added.
+
+**The principle** (written into `docs/architecture/NN-registry.md`, at
+the next free number, verbatim or close to it): no language features in
+the compiler. Features are Idris libraries, and the compiler has
+privileged knowledge of a fixed, registered set of them, which it may make
+faster or stricter, but never different.
+- Removing any hook may change speed or add a rejection. It never changes a
+  program's result, and the Chez oracle is the check.
+- The compiler knows library definitions only through the registry.
+  Nothing else in the codebase names an Idris definition.
+
+**The categories.** The registry has exactly these, as separate tables:
+1. **Primitives**: Idris's own backend contract. That is the `prim__*`
+   operations and the `%foreign` names the libraries declare for backends.
+   The compiler must implement these; this is not privileged knowledge,
+   Idris requires it.
+2. **Recognized definitions**: ordinary library definitions the compiler
+   treats specially, for example:
+   - data types represented as integers;
+   - linear array APIs;
+   - interface methods with a known lowering.
+
+   This is the privileged-knowledge table.
+3. **Not hooks: representation facts Idris computes itself**, such as the
+   `ZERO`/`SUCC` constructor flags. They are read from Idris's metadata,
+   never registered by name. Name-based detection of something Idris
+   already flags is switched to the flag.
+
+**The design.**
+- **One module owns it**, `IdrisMLIR.Registry` (one file per category).
+  Nothing outside it contains a qualified-name string literal or builds a
+  qualified name for comparison.
+- **Each entry is data, not code:**
+  - the fully qualified name;
+  - the expected shape: the checked TT type compared structurally (or a
+    stable fingerprint of it), plus arity and quantities where relevant;
+  - its kind: `faster` (another lowering, the same meaning) or `stricter`
+    (adds a rejection). No other kinds exist;
+  - the rule IDs it implements;
+  - a reference to its handler, which lives with the pass that uses it,
+    not in the registry.
+- **A typed lookup**, such as `recognize : Name -> Maybe Hook`. Passes
+  match on the returned hook value, never on names.
+- **Validation at the start of every compilation.**
+  - Every entry is resolved against the loaded context, once per
+    compilation.
+  - A missing name or a shape mismatch is a hard error, `HOOK-SHAPE-1`,
+    naming the entry, the expected shape and the shape found.
+  - There is never a silent fallback to the generic path; that would be a
+    hidden performance cliff.
+  - An entry whose module the program does not import is not an error.
+    Only a definition that is present but wrong is.
+- **The C++ boundary.**
+  - Idris names end at the frontend. The `idr` dialect and every C++ pass
+    see ops, types and attributes, never Idris qualified names.
+  - C++ that knows an Idris name has that knowledge moved into the
+    registry, and `Emit` produces a dedicated op or attribute instead.
+  - The extern symbols the runtime implements stay in one C++ table
+    (today the `Idr_Helper` traits of `IdrOps.td`), mirrored by category
+    1, with a test that the two agree.
+
+**Enforcement.**
+- **No names outside the registry.** A golden test fails if a
+  qualified-name string literal appears outside the registry module. It
+  greps `compiler/src` and `foreign/idr`, with an allowlist that should be
+  empty or nearly so, and a comment on each allowed line saying why.
+- **Every recognized definition has:**
+  - a positive test showing the hook fires (a dump and FileCheck on the op,
+    or on the absence of the generic path);
+  - a differential test against Chez with identical output;
+  - for a `stricter` entry, a rejection test showing its rule ID.
+- **A test that breaks one entry's expected shape** and checks for
+  `HOOK-SHAPE-1`.
+
+**The spec.**
+- `docs/architecture/NN-registry.md` holds:
+  - the principle;
+  - the two tables, as the normative list of entries;
+  - the `faster` and `stricter` kinds;
+  - the validation rule;
+  - the C++ boundary.
+- Every rule ID touched references its entry. Rules that cannot be tested
+  become prose, as elsewhere.
+
+**Acceptance.**
+- The full suite agrees before and after, test for test.
+- `bench/` shows no change beyond noise.
+- Compile times of the e2e fixtures do not regress beyond noise:
+  validation must be cheap, and each entry is resolved once per
+  compilation.
+- No new features. In particular, the QTT reuse guarantee (`MEM-LIN-1`) is
+  not implemented here. This refactor should make each future `faster` or
+  `stricter` hook a registry entry plus a handler, and nothing more.
+
+**Stop points** (AGENTS.md; no step ends on a promise):
+1. After the census (below). **Reached; awaiting review.**
+2. After the registry module and its validation exist, with every current
+   hook migrated but the old sites not yet deleted. Both paths agree,
+   shown by test.
+3. After the old sites are deleted and the enforcement tests are green.
+
+**The census (step 0)**, at `33647cf`. Every place the compiler keys
+behaviour on an Idris name or shape:
+
+| # | Site | Names | What the compiler does | Rules | Category |
+| --- | --- | --- | --- | --- | --- |
+| C1 | `Frontend/Main.idr:138` | `<module>.main` | the entry of a `main : Int` program | PROF-PROG-2 | 1: Idris's entry convention |
+| C2 | `Frontend/Main.idr:190` | `PrimIO.unsafePerformIO` | the root Idris hands an IO backend must be `unsafePerformIO main` | FE-ENTRY-4 | 1 |
+| C3 | `Frontend/Translate.idr:780-784` (`ioPrim`) | `Prelude.IO.prim__putStr`, `prim__putChar`, `prim__getChar`; `IdrisMLIR.IO.prim__idrPutStr`, `prim__idrPutChar`, `prim__idrGetChar`, `prim__idrExit` | `%foreign`/`%extern` definitions become `idr.io.*` ops | PROF-IO-2, PROF-IO-4, LOW-IO-* | 1; the `IdrisMLIR.IO` ones go with the package |
+| C4 | `Frontend/Profile.idr:249-256` | the same Prelude names, and namespace `IdrisMLIR.IO` | which `%extern`/`%foreign` definitions may be reached | PROF-ESC-1 | 1: duplicates C3, to be derived from it |
+| C5 | `Frontend/Profile.idr:244-247` | builtins `prim__believe_me`, `prim__crash` | rejected where reached | PROF-ESC-1 | 1, `stricter` |
+| C6 | `Frontend/Translate.idr:786-870` (`primitive`, `double`, `integer`, strings) | Idris's `PrimFn` constructors, not names | primitive operations become `Prim`s | SEM-*, LOW-* | 1, already structural; the table lists coverage only |
+| R1 | `Frontend/Translate.idr:982` | `Builtin.replace`, `Builtin.rewrite__impl` | compiled as the identity on the last runtime argument | FE-TR-7 | 2, `faster` |
+| P1 | `Frontend/Profile.idr:35-52` (`trustedModule`) | namespaces `Builtin`, `PrimIO`, `IdrisMLIR.IO`, `Prelude.*`; base's `Data`, `Control`, `Decidable`, `Syntax` | which modules are trusted | PROF-PROG-4, PROF-LIB-3, PROF-PRAG-1 | profile policy (Q1) |
+| P2 | `Frontend/Profile.idr:59-67` (`allowed`) | 27 definitions of `Builtin` and `PrimIO` | admitted from trusted modules | PROF-LIB-1 | profile policy, `stricter` (Q1) |
+| P3 | `Frontend/Profile.idr:78-81` | the `FromChar`, `FromString`, `FromDouble` interfaces of `Builtin` | admitted, for literal elaboration | PROF-LIB-1 | profile policy (Q1) |
+| P4 | `Frontend/Profile.idr:86-88` (`admitted`) | `Prelude.*`, base namespaces, `Builtin.*` | admission by prefix | PROF-LIB-1 | profile policy (Q1) |
+| P5 | `Frontend/Profile.idr:72` (`builtinEscapes`) | `Builtin.believe_me`, `idris_crash`, `assert_linear` | excluded from admission | PROF-ESC-1 | 3: all three are `%unsafe` (`Builtin.idr:192,197,204`), which Idris records as `isEscapeHatch`, already checked at `Profile.idr:241`; switch to the flag |
+| P6 | `Frontend/Profile.idr:92` (`rootOnly`) | `PrimIO.unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` | reachable only through the root | PROF-IO-3 | `stricter` (Q1) |
+| P7 | `Frontend/Profile.idr:153` | source identifiers `prim__believe_me`, `prim__crash`, `believe_me`, `idris_crash` | rejected in user source, because elaboration can erase them from TT | PROF-ESC-1 | `stricter`, unqualified source spellings (Q6) |
+| P8 | `Frontend/Profile.idr:273` | `Builtin.assert_total` | not followed in trusted code | PROF-ESC-1 | profile policy (Q1) |
+| M1 | `Frontend/Translate.idr:1275` (`library`) | prefixes `Builtin.`, `PrimIO.`, `Prelude.`, `IdrisMLIR.IO.` | `%inline` is honoured as the author's hint | ELIM-G-19 | module set (Q1) |
+| M2 | `Code.idr:602` (`isLibrary`) | prefixes `Builtin.`, `PrimIO.`, `IdrisMLIR.IO.`, but not `Prelude.` | library functions are not chosen as loop breakers | OPT-PIPE-3 | module set (Q1) |
+| M3 | `Loc.idr:57` (`inLibrary`) | `Builtin`, `PrimIO`, `Prelude`, `IdrisMLIR.IO`, and any package | diagnostics in library code report at the user's call site | DIAG-LOC-1 | module set (Q1) |
+
+**Not hooks:**
+- **The compiler's own names:** `nameKey` and the `MN "idris-mlir-binder"`
+  markers (`Translate.idr:388-443`), and `enclosing`, which reads the
+  structure of Idris's case and with blocks (`Profile.idr:95-103`).
+- **Host primitives used to fold at compile time:** `Simplify/Fold.idr`
+  (87-161), `Types.idr:189`, `MLIR.idr:165` and `Simplify.idr:181` call the
+  compiler's own `prim__*`. The JIT plan deletes them (section 6).
+- **Idris structure read structurally** (category 3 already):
+  - `PrimType` (`IntegerType`, `StringType`, `WorldType`);
+  - `TDelay`, `TForce` and `TDelayed` (`Lazy`, `Inf`);
+  - `WorldVal`;
+  - `isEscapeHatch`.
+
+  `Nat` is compile-time only today, and nothing detects it by name.
+  Interfaces are resolved structurally by the driver.
+- **C++:** no behaviour keys on an Idris name.
+  - The only mention is a comment (`IdrOps.td:208`).
+  - Idris names reach MLIR only as the opaque `idr.name` attribute
+    (`Emit.idr:447,455,499`), for diagnostics. C++ checks that it is
+    present (`CheckInput.cc`) and removes it (`Lower.cc`); it never
+    compares it (Q4).
+
+**Findings:**
+- **Four lists answer "is this library code?", and they disagree:**
+  - M2 leaves out the Prelude;
+  - only P1 includes base's namespaces;
+  - M3 counts any package.
+
+  The refactor keeps each exactly as it is (unifying them would change
+  speed, diagnostics or rejections) and names the disagreement in the
+  registry for a later decision.
+- **The same names appear in two places:** C3 and C4, and C5 and P7.
+- **P5 duplicates a flag Idris already sets.**
+
+**Questions for review:**
+- **Q1. Where does module-level policy go?** The trusted modules (P1–P4,
+  P6, P8) and the library sets (M1–M3) name modules and definitions, but
+  they are not hooks on a definition's lowering.
+  - **Leaning:** the registry module holds them as a third kind of data,
+    *module sets*, each with its rule IDs. The `stricter` admission lists
+    become entries of table 2. Every name then lives in the registry,
+    without stretching `faster`/`stricter` to cover module membership.
+- **Q2. What keys a category-1 `%foreign` entry?** Either the Idris name
+  (`Prelude.IO.prim__putStr`) or its foreign spec
+  (`C:idris2_putStr, libidris2_support`).
+  - **Leaning:** the spec is the backend contract, since any library
+    declaring it means the same function. The Idris name and type are then
+    the shape that is validated.
+- **Q3. How are shapes compared?** By alpha-equivalence on checked TT, or
+  by a fingerprint of the printed normal form.
+  - **Leaning:** structural comparison. It is exact, and there are few
+    entries.
+- **Q4. Do the opaque `idr.name` attributes stay?**
+  - **Leaning:** yes, as debug data like locations. The enforcement test
+    checks that no C++ compares one.
+- **Q5. Registry first, or `idris-mlir-io` deleted first?** C3, C4, P1,
+  M1, M2 and M3 all carry `IdrisMLIR.IO`.
+  - **Leaning:** delete the package first (section 9), so it is never
+    registered.
+- **Q6. Source spellings (P7).** These are unqualified identifiers in user
+  source, checked before TT exists.
+  - **Leaning:** a `stricter` entry that records a source spelling.
+- **Q7. `MEM-LIN-1` keys on quantities, not on a name.** As specified, it
+  is a rule of the compiler, not a registry hook.
+  - The registry becomes its home only if entries may be keyed on a
+    shape with no name.
+  - `ELIM-FIN-1` does recognize a named type, `Data.Fin.Fin`, and so is a
+    table-2 entry.
+  - **Leaning:** keep the two kinds of rule apart. The guarantees stay
+    rules of the compiler; named recognitions stay registry entries.
+
 ## 10. Milestones
 
 Each milestone requires:
@@ -1287,6 +1496,7 @@ Each milestone requires:
 | --- | --- | --- |
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
+| 1b | **The registry** (section 9.1) | the three stop points of 9.1 passed; the suite agrees test for test; `bench/` and e2e compile times unchanged beyond noise; the enforcement tests green; `NN-registry.md` written |
 | 2 | **Memory gate** (section 4.4) | the three experiments pass, or the decision is reopened with the numbers |
 | 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
 | 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
