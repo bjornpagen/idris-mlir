@@ -14,11 +14,11 @@
 //   header, l, r, key, then color (Red 0, Black 1) and value as bytes at
 //   offsets 32 and 33.
 //
-// insLeft, insRight, balance1 and balance2 are inlined into ins (each has
-// one call site), so their constructors reuse the cells ins matched: every
-// insert allocates only the new leaf. The rebuilt `Node Red l k v r` of
-// insLeft and insRight is its own cell with nothing stored. count consumes
-// the tree, freeing each cell once its fields are read.
+// balance1 and balance2 are inlined into ins (one call site each), so their
+// constructors reuse the cells ins matched: every insert allocates only the
+// new leaf. The `Node Red l k v r` that the red tests rebuild is its own
+// cell, with nothing stored. count consumes the tree, freeing each cell
+// once its fields are read.
 
 // ---- cells -------------------------------------------------------------------
 
@@ -81,7 +81,7 @@ func.func private @is_red(%t: !llvm.ptr) -> i1 {
 
 // ---- the program ---------------------------------------------------------------
 
-// ins kx vx t, with insLeft, insRight, balance1 and balance2 inlined.
+// ins kx vx t, with balance1 and balance2 inlined.
 // Masks of @reuse: 1 color, 2 l, 4 key, 8 val, 16 r.
 func.func private @ins(%kx: i64, %vx: i8, %t: !llvm.ptr) -> !llvm.ptr {
   %red = arith.constant 0 : i8
@@ -143,7 +143,7 @@ func.func private @ins(%kx: i64, %vx: i8, %t: !llvm.ptr) -> !llvm.ptr {
   %r4 = func.call @reuse(%tok, %black, %a, %kx, %vx, %b, %cV) : (!llvm.ptr, i8, !llvm.ptr, i64, i8, !llvm.ptr, i32) -> !llvm.ptr
   return %r4 : !llvm.ptr
 
-// insLeft kx vx a ky vy b; tok holds Black _ ky vy b.
+// Black, kx < ky: the red test on a; tok holds Black _ ky vy b.
 ^left:
   %ared = func.call @is_red(%a) : (!llvm.ptr) -> i1
   cf.cond_br %ared, ^left_red, ^left_plain
@@ -210,7 +210,7 @@ func.func private @ins(%kx: i64, %vx: i8, %t: !llvm.ptr) -> !llvm.ptr {
   %R3 = func.call @reuse(%tok, %black, %A3, %ky, %vy, %b, %cL) : (!llvm.ptr, i8, !llvm.ptr, i64, i8, !llvm.ptr, i32) -> !llvm.ptr
   return %R3 : !llvm.ptr
 
-// insRight kx vx a ky vy b; tok holds Black a ky vy _.
+// Black, kx > ky: the red test on b; tok holds Black a ky vy _.
 ^right:
   %bred = func.call @is_red(%b) : (!llvm.ptr) -> i1
   cf.cond_br %bred, ^right_red, ^right_plain

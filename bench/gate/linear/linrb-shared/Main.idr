@@ -35,27 +35,23 @@ balance2 t kv vv (Node _ l ky vy r) =
   Node Black t kv vv (Node Red l ky vy r)
 balance2 t kv vv Leaf = Node Black t kv vv Leaf
 
-mutual
-  ins : Int -> Bool -> (1 t : Tree) -> Tree
-  ins kx vx Leaf = Node Red Leaf kx vx Leaf
-  ins kx vx (Node Red a ky vy b) =
-    if kx < ky then Node Red (ins kx vx a) ky vy b
-    else if kx == ky then Node Red a kx vx b
-    else Node Red a ky vy (ins kx vx b)
-  ins kx vx (Node Black a ky vy b) =
-    if kx < ky then insLeft kx vx a ky vy b
-    else if kx == ky then Node Black a kx vx b
-    else insRight kx vx a ky vy b
-
-  -- The black node a ky vy b, inserting into a: balance when a is red.
-  insLeft : Int -> Bool -> (1 a : Tree) -> Int -> Bool -> (1 b : Tree) -> Tree
-  insLeft kx vx (Node Red l k v r) ky vy b = balance1 ky vy b (ins kx vx (Node Red l k v r))
-  insLeft kx vx a ky vy b = Node Black (ins kx vx a) ky vy b
-
-  -- The black node a ky vy b, inserting into b: balance when b is red.
-  insRight : Int -> Bool -> (1 a : Tree) -> Int -> Bool -> (1 b : Tree) -> Tree
-  insRight kx vx a ky vy (Node Red l k v r) = balance2 a ky vy (ins kx vx (Node Red l k v r))
-  insRight kx vx a ky vy b = Node Black a ky vy (ins kx vx b)
+-- The isRed tests of Lean's ins are matches on the child, which rebuild
+-- the node they matched: free for a unique cell.
+ins : Int -> Bool -> (1 t : Tree) -> Tree
+ins kx vx Leaf = Node Red Leaf kx vx Leaf
+ins kx vx (Node Red a ky vy b) =
+  if kx < ky then Node Red (ins kx vx a) ky vy b
+  else if kx == ky then Node Red a kx vx b
+  else Node Red a ky vy (ins kx vx b)
+ins kx vx (Node Black a ky vy b) =
+  if kx < ky
+    then case a of
+           Node Red l k v r => balance1 ky vy b (ins kx vx (Node Red l k v r))
+           a' => Node Black (ins kx vx a') ky vy b
+  else if kx == ky then Node Black a kx vx b
+  else case b of
+         Node Red l k v r => balance2 a ky vy (ins kx vx (Node Red l k v r))
+         b' => Node Black a ky vy (ins kx vx b')
 
 setBlack : (1 t : Tree) -> Tree
 setBlack (Node _ l k v r) = Node Black l k v r

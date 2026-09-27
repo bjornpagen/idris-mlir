@@ -1,5 +1,5 @@
 // The linear red-black tree of Main.idr here (docs/plan.md 4.4, experiment
-// 4), in Koka: the same functions, with Koka's reuse deciding at runtime
+// 4), in Koka: the same program, with Koka's reuse deciding at runtime
 // whether a matched cell is unique. linrb-shared.kk differs at one call
 // site.
 import std/os/readline
@@ -32,6 +32,8 @@ fun balance2(t : tree, kv : int, vv : bool, n : tree) : tree
       -> Node(Black, t, kv, vv, Node(Red, l, ky, vy, r))
     Leaf -> Node(Black, t, kv, vv, Leaf)
 
+// The isRed tests of Lean's ins are matches on the child, which rebuild
+// the node they matched: free for a unique cell.
 fun ins(kx : int, vx : bool, t : tree) : div tree
   match t
     Leaf -> Node(Red, Leaf, kx, vx, Leaf)
@@ -39,22 +41,16 @@ fun ins(kx : int, vx : bool, t : tree) : div tree
       -> if kx < ky then Node(Red, ins(kx, vx, a), ky, vy, b)
          elif kx == ky then Node(Red, a, kx, vx, b)
          else Node(Red, a, ky, vy, ins(kx, vx, b))
-    Node(Black, a, ky, vy, b)
-      -> if kx < ky then ins-left(kx, vx, a, ky, vy, b)
-         elif kx == ky then Node(Black, a, kx, vx, b)
-         else ins-right(kx, vx, a, ky, vy, b)
-
-// The black node a ky vy b, inserting into a: balance when a is red.
-fun ins-left(kx : int, vx : bool, a : tree, ky : int, vy : bool, b : tree) : div tree
-  match a
-    Node(Red, l, k, v, r) -> balance1(ky, vy, b, ins(kx, vx, Node(Red, l, k, v, r)))
-    _ -> Node(Black, ins(kx, vx, a), ky, vy, b)
-
-// The black node a ky vy b, inserting into b: balance when b is red.
-fun ins-right(kx : int, vx : bool, a : tree, ky : int, vy : bool, b : tree) : div tree
-  match b
-    Node(Red, l, k, v, r) -> balance2(a, ky, vy, ins(kx, vx, Node(Red, l, k, v, r)))
-    _ -> Node(Black, a, ky, vy, ins(kx, vx, b))
+    Node(Black, a, ky, vy, b) ->
+      if kx < ky then
+        match a
+          Node(Red, l, k, v, r) -> balance1(ky, vy, b, ins(kx, vx, Node(Red, l, k, v, r)))
+          _ -> Node(Black, ins(kx, vx, a), ky, vy, b)
+      elif kx == ky then Node(Black, a, kx, vx, b)
+      else
+        match b
+          Node(Red, l, k, v, r) -> balance2(a, ky, vy, ins(kx, vx, Node(Red, l, k, v, r)))
+          _ -> Node(Black, a, ky, vy, ins(kx, vx, b))
 
 fun set-black(t : tree) : tree
   match t

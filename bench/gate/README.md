@@ -39,7 +39,8 @@ For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
   something was missing (a toolchain), so the gate is incomplete.
 - **Environment:**
   - `GATE_OUT`: where builds and results go;
-  - `RUNS`: runs per measurement;
+  - `RUNS`: runs per measurement; `CHEZ_RUNS` for the Chez baseline alone,
+    whose runs are the longest;
   - `GATE_SMALL=1`: small inputs, to check the scripts and the outputs in
     minutes (its times mean nothing);
   - `SNMALLOC_SRC`: snmalloc's `src/` (default `third_party/snmalloc/src`);
@@ -52,7 +53,7 @@ For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
 
 | | Version | From | Notes |
 | --- | --- | --- | --- |
-| Idris 2, Chez backend | the pinned revision | `.toolchain/idris2` (`tools/dev.py`) | the baseline |
+| Idris 2, Chez backend | the pinned revision | `.toolchain/idris2` (`make bootstrap`) | the baseline |
 | MLton | 20210117 | `.toolchain/mlton` (the Debian package) | `-default-type int64`, as `bench/` |
 | C | the pinned GCC | `.toolchain/gcc` | `-O2`, as `bench/` |
 | Koka | 3.2.9 | GitHub release, `toolchains.sh` | `-O2 --stack=128M`, as the Perceus benchmarks; C by the system `gcc` (the release's libraries are gcc's), `-march=haswell` |
@@ -68,9 +69,9 @@ For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
 - Lean's release unpacks to 3.3 GB, 2.9 GB of it compiled libraries that
   only `import Lean`, `Std` or `Lake` need; the script leaves those out
   (1.4 GB remain).
-- Lean and Koka are release binaries, not built from source as stream K of
-  plan 10.1 planned: the release servers were reachable, the build would
-  not have fitted beside the LLVM bootstrap.
+- Lean and Koka are the official release binaries, pinned by version and
+  checksum, rather than builds from source as plan 10.1's stream K
+  planned.
 
 ## Experiment 1: the suite
 
@@ -197,6 +198,13 @@ symbol but `idr_main`, then O3, for `x86-64-v3`) and `llc` (O3, PIC,
   allocators are called the same way.
 - The stats build's `live` (cells allocated minus freed) must be 0 at exit:
   the hand-lowered counts free everything, which the runner checks.
+- **Lean 4.34.1 reuses less than the Beans paper describes.** In the C it
+  emits for `rbtree` (Lean's own `rbmap.lean`), `ins` tests uniqueness 15
+  times, but on most branches it frees the reset cell (`lean_del_object`)
+  and allocates a new one instead of updating it in place: each rebuilt
+  node costs a free, an allocation and the stores of all its fields, where
+  an update in place costs only the changed stores. The criterion takes
+  the better of Lean and Koka, so this does not make it easier.
 
 **Pass** (plan 4.4), for each of the three programs:
 
@@ -261,9 +269,9 @@ share the trees of experiment 2 (`bintree.mlir`, `rbmap.mlir`).
 ## Experiment 4: the linear red-black tree
 
 [linear/linrb/Main.idr](linear/linrb/Main.idr) inserts with every tree bound
-at quantity 1. Its isRed tests are matches that rebuild the node they
-matched, which a unique cell makes free. It is an Idris program that
-typechecks and runs on Chez.
+at quantity 1. The algorithm is Lean's `rbmap`; its `isRed` tests are
+matches inside `ins` that rebuild the node they matched, which a unique
+cell makes free. It is an Idris program that typechecks and runs on Chez.
 
 - **Static reuse:** `lowered/linrb-static.mlir` + `linrb.mlir`, as the
   compiler will emit it under `MEM-LIN-1`: a reset is the cell itself (no
@@ -272,12 +280,21 @@ typechecks and runs on Chez.
 - **Dynamic reuse:** `lowered/linrb-dynamic.mlir` + `linrb.mlir`, Lean's
   best effort: the same program, with a count test at every reset.
 - **The cliff:** `linrb.kk` and `linrb.lean` are the same program in Koka
-  and Lean. [linear/linrb-shared/](linear/linrb-shared/) changes one call
-  site: the build loop keeps the tree it passes to insert for one more step
-  (`mkMap n1 (insert n1 v t) t`). Idris accepts that (a shared value may
-  be passed to a quantity-1 parameter); `MEM-LIN-1` must reject it in M1.
-  Koka and Lean compile it without a word, and every insert copies its
+  and Lean (with `balance1` and `balance2` `@[inline]` in Lean, as in its
+  `rbmap.lean`). [linear/linrb-shared/](linear/linrb-shared/) changes one
+  call site: the build loop keeps the tree it passes to insert for one more
+  step (`mkMap n1 (insert n1 v t) t`). Idris accepts that (a shared value
+  may be passed to a quantity-1 parameter); `MEM-LIN-1` must reject it in
+  M1. Koka and Lean compile it without a word, and every insert copies its
   path.
+- **Lean reuses less to begin with.** In the C that Lean 4.34.1 emits for
+  `ins`, the red-node branches free the cell they reset
+  (`lean_del_object`) and allocate a new one, even when the tree is
+  unique. So Lean copies part of each path in the unique version too, which
+  narrows the cliff this experiment can show in Lean. An earlier form of
+  the program, with the red tests in separate mutually recursive functions,
+  reused even less in Lean (they are not inlined), and was dropped for
+  this one in every language.
 
 **Pass** (plan 4.4):
 

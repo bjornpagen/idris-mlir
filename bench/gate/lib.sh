@@ -104,7 +104,8 @@ have_go() { [ -x "$GOROOT_DIR/bin/go" ]; }
 have_llvm() { [ -x "$LLVM_BIN/mlir-opt" ] && [ -x "$LLVM_BIN/mlir-translate" ] && [ -x "$LLVM_BIN/opt" ] && [ -x "$LLVM_BIN/llc" ]; }
 have_snmalloc() { [ -f "$SNMALLOC_SRC/snmalloc/snmalloc.h" ]; }
 
-# Runs the Idris compiler of .toolchain/idris2 as tools/dev.py does.
+# Runs the Idris compiler of .toolchain/idris2 as the Makefile does: no
+# inherited package paths, and the Chez Scheme it was built with.
 idris() {
   scheme=$(sed -n 's/.*"scheme": *"\([^"]*\)".*/\1/p' "$TC/idris2/provenance.json")
   env -u IDRIS2_PATH -u IDRIS2_PACKAGE_PATH -u IDRIS2_INC_CGS -u IDRIS2_DATA \

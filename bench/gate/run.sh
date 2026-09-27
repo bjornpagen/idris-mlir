@@ -12,8 +12,9 @@
 #   linear   experiment 4: the linear red-black tree, static against
 #            dynamic reuse, and the silent cliff in Koka and Lean
 #
-# Every program is timed RUNS times (default 5); the best time and the
-# largest peak RSS are kept. Every output must equal the reference output
+# Every program is timed RUNS times (default 5; CHEZ_RUNS for the Chez
+# baseline, whose runs are the longest); the best time and the largest peak
+# RSS are kept. Every output must equal the reference output
 # (Chez's, or C's or Go's where there is no Idris version). Results go to
 # $GATE_OUT/results (default build/gate/results): one Markdown table per
 # experiment, the raw numbers in results.tsv, and verdicts in verdicts.txt.
@@ -60,7 +61,10 @@ measure() {
   exp=$1; name=$2; lang=$3; exe=$4; input=$5
   tag=$exp-$name-$lang
   T=""; K=""; O=""; WHY=""
-  line=$(measure_best "$exe" "$input" "$tag") || { WHY="the run failed (see $OUT/out/$tag.err)"; return 1; }
+  runs=$RUNS
+  [ "$lang" = chez ] && runs=${CHEZ_RUNS:-$RUNS}
+  line=$(RUNS=$runs; measure_best "$exe" "$input" "$tag") ||
+    { WHY="the run failed (see $OUT/out/$tag.err)"; return 1; }
   set -- $line
   T=$1; K=$2; O=$OUT/out/$tag.out
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$exp" "$name" "$lang" "$input" "$T" "$K" >> "$TSV"
@@ -157,7 +161,7 @@ exp_lowered() {
     echo "Experiment 2: best of $RUNS, wall-clock seconds and peak RSS; live is the"
     echo "prototype's cells left at exit (its stats build)."
     echo
-    echo "| program | input | prototype | MLton | Lean | Koka | vs MLton | vs best of Lean, Koka | live |"
+    echo "| program | input | prototype | MLton | Lean | Koka | MLton / prototype | prototype / best of Lean, Koka | live |"
     echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
   } > "$md"
   for name in rbtree deriv binarytrees; do
@@ -191,7 +195,7 @@ exp_lowered() {
     vs_m=n/a; vs_b=n/a
     [ -n "$tp" ] && [ -n "$tm" ] && vs_m="$(ratio "$tm" "$tp")x"
     [ -n "$tp" ] && [ -n "$best" ] && vs_b="$(ratio "$tp" "$best")"
-    echo "| $name | $input | $(col "$tp" "$kp") | $(col "$tm" "$km") | $([ -n "$tl" ] && printf '%.3f s' "$tl" || printf n/a) | $([ -n "$tk" ] && printf '%.3f s' "$tk" || printf n/a) | $vs_m | $vs_b | $live |" >> "$md"
+    echo "| $name | $input | $(col "$tp" "$kp") | $(col "$tm" "$km") | $(secs "$tl") | $(secs "$tk") | $vs_m | $vs_b | $live |" >> "$md"
     # The pass criteria of plan 4.4.
     if [ -n "$tp" ] && [ -n "$tm" ]; then
       if lt "$tp" "$tm"; then verdict lowered "$name faster than MLton" pass "$tp s < $tm s"
@@ -223,7 +227,7 @@ exp_threads() {
     echo "come from one run of the prototype's stats build: atomic read-modify-writes"
     echo "on counts, cells marked shared, cells moved."
     echo
-    echo "| program | input | prototype | Go | vs Go | atomic-rc | marked | moved |"
+    echo "| program | input | prototype | Go | Go / prototype | atomic-rc | marked | moved |"
     echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
   } > "$md"
   for name in ptrees shmap pipe; do
@@ -250,7 +254,7 @@ exp_threads() {
     fi
     vs=n/a
     [ -n "$tp" ] && [ -n "$tg" ] && vs="$(ratio "$tg" "$tp")x"
-    echo "| $name | $input | $([ -n "$tp" ] && cell "$tp" "$kp" || printf n/a) | $([ -n "$tg" ] && cell "$tg" "$kg" || printf n/a) | $vs | $atom | $marked | $moved |" >> "$md"
+    echo "| $name | $input | $(col "$tp" "$kp") | $(col "$tg" "$kg") | $vs | $atom | $marked | $moved |" >> "$md"
     # Atomics only on genuinely shared data (plan 4.4): nothing is shared in
     # ptrees and pipe; in shmap exactly the map's n cells are.
     if [ "$atom" != n/a ]; then
@@ -306,7 +310,7 @@ exp_linear() {
     echo "\"shared\" is the program with the one call site that keeps a second"
     echo "reference (bench/gate/linear/linrb-shared)."
     echo
-    echo "| version | unique | shared | slowdown |"
+    echo "| version | unique | shared | shared / unique |"
     echo "| --- | ---: | ---: | ---: |"
   } > "$md"
   ref=""
