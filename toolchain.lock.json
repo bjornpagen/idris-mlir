@@ -60,5 +60,12 @@
     "revision": "e9f7b2ebd11fcadd5913c95d90770902e8126646",
     "describe": "0.7.5-15-ge9f7b2e",
     "version": "0.7.5-15"
+  },
+  "ryu": {
+    "path": "third_party/ryu",
+    "repository": "https://github.com/ulfjack/ryu.git",
+    "revision": "4c0618b0e44f7ef027ebae05d2cc7812048f7c8f",
+    "describe": "v2.0-108-g4c0618b",
+    "version": "2.0-108"
   }
 }
