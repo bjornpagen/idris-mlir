@@ -14,7 +14,7 @@ public export
 keep : (0 witness : Int) -> Int -> Int
 keep witness v = v
 
--- A loop longer than compile-time evaluation runs (ELIM-G-16), so its
+-- A loop longer than compile-time evaluation runs (ELIM-G-19), so its
 -- result is known only at runtime and the code below is not folded away.
 public export
 countdown : Int -> Int

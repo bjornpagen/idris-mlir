@@ -1,10 +1,10 @@
 -- expect: PROF-HEAP-3 line 10
--- rule: ELIM-G-10
+-- rule: ELIM-G-19
 module Main
 
 import IdrisMLIR.IO
 
--- A string function is unfolded where it is called (ELIM-G-10), but its
+-- A string function is unfolded where it is called (ELIM-G-19), but its
 -- recursive call is specialized, and the string that call returns is built
 -- at runtime: it would need the heap.
 digits : Int -> String

@@ -1,9 +1,10 @@
--- expect: PROF-DATA-3 line 18
+-- expect: PROF-DATA-3 line 19
 module Main
 
 -- rule: SEM-REC-1
--- A list is recursive data: it exists at compile time only, and one chosen
--- by a runtime value would need the heap.
+-- A list is recursive data: it exists at compile time only, and one whose
+-- length depends on a runtime value would need the heap. (A choice among
+-- lists of known shapes needs nothing: ELIM-G-20.)
 
 import IdrisMLIR.IO
 
@@ -15,12 +16,11 @@ len : L -> Int
 len Nil = 0
 len (Cons _ xs) = prim__add_Int 1 (len xs)
 
-pick : Int -> L
-pick 0 = Nil
-pick _ = Cons 1 Nil
+build : Int -> L
+build 0 = Nil
+build n = Cons n (build (prim__sub_Int n 1))
 
-partial
 main : IO ()
 main = do
   c <- getChar
-  putStrLn (prim__cast_IntString (len (pick (prim__cast_CharInt c))))
+  putStrLn (prim__cast_IntString (len (build (prim__cast_CharInt c))))

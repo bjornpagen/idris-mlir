@@ -42,7 +42,7 @@ bool isV2Op(Operation *op) {
 bool allowedOp(Operation *op) {
   if (isa<idr::IdrDialect>(op->getDialect()))
     return true;
-  return isa<ModuleOp, func::FuncOp, func::CallOp, func::ReturnOp,
+  return isa<ModuleOp, func::FuncOp, func::CallOp, func::ReturnOp, ub::PoisonOp,
              arith::ConstantOp, arith::AddIOp, arith::SubIOp, arith::MulIOp,
              arith::AndIOp, arith::OrIOp, arith::XOrIOp, arith::CmpIOp,
              arith::ExtSIOp, arith::ExtUIOp, arith::TruncIOp, cf::BranchOp,

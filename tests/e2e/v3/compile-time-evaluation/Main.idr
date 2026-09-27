@@ -1,6 +1,6 @@
 module Main
 
--- rule: ELIM-G-16, SEM-BIG-1, ELIM-G-12
+-- rule: ELIM-G-19, SEM-BIG-1
 -- A call whose arguments are all known is evaluated at compile time,
 -- recursion included, within a budget: `fib 15` is the constant 610, and
 -- Euclid's algorithm runs on Integer, which has no runtime representation,

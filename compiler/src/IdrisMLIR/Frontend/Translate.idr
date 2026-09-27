@@ -1270,7 +1270,7 @@ isTotal fc n = do
           _ => False)
 
 ||| A definition of a library module, whose `%inline` is its author's hint
-||| (ELIM-G-13). Idris also marks small user definitions `Inline` on its own.
+||| (ELIM-G-19). Idris also marks small user definitions `Inline` on its own.
 library : String -> Bool
 library n = any (`isPrefixOf` n) (the (List String) ["Builtin.", "PrimIO.", "Prelude.", "IdrisMLIR.IO."])
 

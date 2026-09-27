@@ -1,4 +1,4 @@
-rule: ELIM-G-12
+rule: ELIM-G-19
 Nothing of the precedence test remains at runtime: main writes the number.
 CHECK-NOT: Main.atLeast
 CHECK-NOT: Main.firstIs

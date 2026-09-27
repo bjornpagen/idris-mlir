@@ -62,10 +62,10 @@ mutual
     CaseLit : Loc -> Fin n -> List (Lit, Term n) -> Term n -> Term n
     ||| A closure: its label, the captured variables, and a body closed over
     ||| the captures (index 0 is the parameter).
-    Lam : Loc -> Label -> (caps : Vect k (Fin n)) -> Binder -> Term (S k) -> Term n
+    Lam : {k : Nat} -> Loc -> Label -> (caps : Vect k (Fin n)) -> Binder -> Term (S k) -> Term n
     App : Loc -> Term n -> Term n -> Term n
     ||| A suspended computation, closure-converted like a lambda.
-    Suspend : Loc -> Label -> (caps : Vect k (Fin n)) -> Term k -> Term n
+    Suspend : {k : Nat} -> Loc -> Label -> (caps : Vect k (Fin n)) -> Term k -> Term n
     Resume : Loc -> Term n -> Term n
     ||| A branch Idris proved impossible (`FE-TR-4`, `SEM-DATA-2`).
     Unreachable : Loc -> Term n
@@ -208,7 +208,7 @@ mutual
   litsFree [] = empty
   litsFree ((_, t) :: rest) = union (freeIndices t) (litsFree rest)
 
-||| The parameters a body matches on literals directly (ELIM-G-18): the
+||| The parameters a body matches on literals directly (ELIM-G-19): the
 ||| indices, among `arity` parameters, that a `CaseLit` scrutinizes outside
 ||| any closure.
 export covering
@@ -303,8 +303,8 @@ record TFn where
   body : Term arity
   loc : Loc
   terminating : Bool   -- Idris's checker reports it total (ELIM-G-5)
-  block : Bool         -- an Idris case or with block: part of its parent (ELIM-G-11)
-  inline : Bool        -- marked %inline in a trusted module (ELIM-G-13)
+  block : Bool         -- an Idris case or with block: part of its parent (ELIM-G-19)
+  inline : Bool        -- marked %inline in a trusted module (ELIM-G-19)
 
 ||| A whole program in full Core.
 public export

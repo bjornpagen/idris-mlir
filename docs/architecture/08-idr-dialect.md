@@ -209,6 +209,10 @@ All `idr` ops have MLIR locations (`IDR-LOC-1`).
   - `cf.br`, `cf.cond_br`, `cf.switch` (*revised in v3*: `scf.if`,
     `scf.index_switch` and `scf.yield` are no longer allowed; control flow
     is blocks, as first-order Core's join points are);
+  - from v3: `ub.poison` of a runtime type, for an atom that an alternative
+    passes to a join point on behalf of another alternative of a choice
+    (`ELIM-G-20`). It is never used: every use of a choice dispatches on its
+    tag first.
   - from v2: `arith.constant` of `f64`, `arith.addf`, `arith.subf`,
     `arith.mulf`, `arith.divf`, `arith.negf`, `arith.cmpf`, `arith.sitofp`,
     `arith.uitofp`, and `math.exp`, `math.log`, `math.powf`, `math.sin`,

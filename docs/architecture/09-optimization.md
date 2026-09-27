@@ -110,7 +110,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
   unrolled mutual recursion between an IO loop and its `>>` specialization
   until a 200-function program took over a minute and grew twentyfold.
   - Check: `Code.loopBreakers`
-  - Test: `tests/e2e/v2/math-showcase/mlir.check`
+  - Test: `tests/e2e/v2/loop-breakers/mlir.check`
 - **OPT-PIPE-4 (v3).** Code generation aligns every function, and every
   block that is not reached by falling through, to 64 bytes
   (`--align-all-functions=6 --align-all-nofallthru-blocks=6`, which the

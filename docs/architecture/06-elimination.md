@@ -171,64 +171,6 @@ is static.
 - **ELIM-G-9 (v1). Dead static values.** A static value that is never used is
   removed. Building a static value has no effect.
 
-- **ELIM-G-10 (v2). Unfolding string functions.** A call of a function
-  whose result is a `String` is evaluated where it is called, with the
-  arguments' values, instead of being specialized (`ELIM-G-3`). A string
-  can exist at runtime only as a literal or a value passed along
-  (`PROF-HEAP-3`), so a string such a function builds must reach
-  `ELIM-G-6` or `ELIM-G-7` at the call site. A call of a function that is
-  already being unfolded is specialized instead, which bounds the rule. A
-  deferred call (`ELIM-G-5`) is unfolded only if no effect happened between
-  building it and applying it; otherwise it is specialized and
-  `PROF-HEAP-5` applies.
-  - *Why this is exact:* evaluation is strict (`SEM-EVAL-1`), so evaluating
-    a body with the values of the arguments is the call.
-  - Test: `tests/e2e/v2/string-functions`
-- **ELIM-G-11 (v2). Unfolding case blocks.** A call of an Idris case or
-  with block is evaluated where it is called, like `ELIM-G-10`. Idris lifts
-  each `case` and `with` into a function of its own, so a loop written as
-  one function with an `if` becomes two or three mutually recursive
-  functions. Unfolding the blocks makes the written function the only one
-  on the cycle again, and directly self recursive. A block that is already
-  being unfolded is specialized instead.
-  - *Why this is exact:* as for `ELIM-G-10`.
-  - Test: `tests/e2e/v2/math-showcase`
-- **ELIM-G-12 (v3). Unfolding on known arguments.** A call whose arguments
-  are all known (no runtime variable occurs in them, so literals, `Integer`s,
-  known strings, and constructors, closures and deferred calls over known
-  values), or one of whose arguments is a known constructor, is evaluated
-  where it is called, like `ELIM-G-10`. This is online partial evaluation:
-  static control is decided before code is generated. It is a guaranteed
-  elimination, not an optimization, because the branch it removes may hold
-  code that cannot exist at runtime: the Prelude's `show` for numbers tests
-  `d >= PrefixMinus && firstCharIs (== '-') str`, and only deciding the
-  test at compile time keeps the string match in `firstCharIs` out of the
-  program. A call of a function that is already being unfolded is
-  specialized instead, so recursion stops at the first repeated call,
-  unless the call can be evaluated completely (`ELIM-G-16`).
-  - Test: `tests/e2e/v3/static-evaluation`,
-    `tests/e2e/v1/ELIM-G-2-known-constructor`
-- **ELIM-G-13 (v3). Library `%inline`.** A call of a definition that a
-  library module (`Builtin`, `PrimIO`, the Prelude, `IdrisMLIR.IO`) marks
-  `%inline` is unfolded like `ELIM-G-10`. The author's hint is honored;
-  semantics do not change. Idris also marks small user definitions `Inline`
-  on its own; those are not unfolded.
-  - Check: `Frontend.Translate.translateInstance` (`TFn.inline`)
-- **ELIM-G-14 (v3). String join points.** A match on a runtime value whose
-  alternatives yield strings, at least one of them built from runtime pieces
-  (`"Just " ++ show n`), is a static string: it keeps the scrutinee, and
-  for each alternative its code and its string. Output fusion (`ELIM-G-7`)
-  writes it as the match, with the rest of the output at the end of each
-  alternative; this generalizes `ELIM-G-7` case 5 from a match that is
-  `putStr`'s argument to one reached through any number of calls
-  (`maybe "none" show m`). The alternatives' code refers to variables in
-  scope where the match was made, so such a value never crosses a
-  specialization: a call that receives one is unfolded, re-entering a
-  function at most 64 times, and a recursive function that would receive
-  one is rejected (`PROF-HEAP-3`).
-  - *Why this is exact:* writing the string of the chosen alternative after
-    that alternative's code is what writing the match's value does.
-  - Test: `tests/e2e/v3/prelude`
 - **ELIM-G-15 (v3). What is known about a string built at runtime.** Two
   facts are used when a string has runtime pieces:
   - it is not `""` when one of its pieces is known not to be empty (a shown
@@ -245,20 +187,6 @@ is static.
   prints as `1e23`), so it comes from the printer itself
   (`idr.double_head`, `LOW-DBL-4`).
   - Test: `tests/e2e/v3/show-values`
-- **ELIM-G-16 (v3). Evaluation of known calls.** A call whose arguments
-  are all known (as in `ELIM-G-12`) is first evaluated at compile time,
-  recursion included, with a budget of 20000 unfoldings. If it finishes with
-  a known value and leaves no code, effect or specialization behind, the
-  call is that value (`fib 15` is `610`). Otherwise everything the attempt
-  did is undone and the call is unfolded or specialized as before
-  (`ELIM-G-12`). A crash, a residual match or a runtime operation inside
-  the attempt gives it up the same way. This is the compile-time half of a
-  two-level evaluator: a program with no runtime input is a constant, and
-  a library's recursion over known values (`Nat` in `power`, Euclid's
-  algorithm on `Integer`) costs nothing at runtime.
-  - *Why this is exact:* the attempt runs the same evaluator, and is kept
-    only when its result depends on nothing at runtime.
-  - Test: `tests/e2e/v3/compile-time-evaluation`
 - **ELIM-G-17 (v3). Specialization on literals.** A specialization is keyed
   by the shapes of its arguments, and their atoms, literals included, become
   its parameters (`ELIM-G-3`). When that specialization cannot be built
@@ -269,18 +197,84 @@ is static.
   a literal is still one specialization; only code that could not be
   compiled otherwise is specialized per literal.
   - Test: `tests/e2e/v3/prelude-user-types` (`printLn 'x'` twice)
-- **ELIM-G-18 (v3). Call-pattern specialization on literals.** A call of a
-  function that returns a runtime value, with a literal argument in a
-  position its body matches on directly (`ack 0 n = ...`), is specialized
-  on that literal, at most four times per function; further calls use the
-  ordinary specialization. This is GHC's call-pattern specialization
-  (Peyton Jones, "Call-pattern specialisation for Haskell programs", ICFP
-  2007) for literals, and the constant cloning gcc does for `ack` (its
-  interprocedural constant propagation). An action is not specialized so:
-  an IO loop that counts down from a literal stays one loop (`ELIM-G-5`).
-  In `ack 3 n` the four specializations fix `m`, and LLVM finds closed
-  forms for three of them.
-  - Test: `tests/e2e/v3/call-pattern`
+- **ELIM-G-19 (v3). The driver.** Every call is decided by one driver,
+  positive supercompilation's (Sørensen, Glück and Jones, JFP 1996):
+  - **Drive.** A call is unfolded, evaluated where it is called with the
+    values of its arguments, when it carries static information:
+    - it is an Idris case or with block, or a library definition marked
+      `%inline`;
+    - its result is a `String`, which must reach `ELIM-G-6` or `ELIM-G-7`
+      where it is used;
+    - an argument has static structure (a closure, a constructor, a
+      deferred call, a string, a choice);
+    - every argument is known (no runtime variable occurs in it), so the
+      call is evaluated at compile time, recursion included: `fib 15` is
+      `610`, and a library's recursion over known values (`Nat` in `power`,
+      Euclid's algorithm on `Integer`) costs nothing at runtime;
+    - or a literal is in a position the body matches on (`ack 0 n`).
+
+    Otherwise the call is residual: a call of the specialization for its
+    shapes (`ELIM-G-3`, `ELIM-G-17`). A call unfolded only for a literal
+    its body matches on is unfolded at most four times on one path, as
+    call-pattern specialization is bounded; the fifth generalizes the
+    innermost of them, so a loop counting down from a literal stays a loop
+    instead of being unrolled. A deferred call (`ELIM-G-5`) is
+    unfolded only if no effect happened between building it and applying
+    it.
+  - **Whistle.** A call's *configuration* is its function, its arguments'
+    shapes with their literals, and its eliminations. Unfolding stops when
+    the configuration of a call on the path of calls being unfolded or
+    specialized *embeds* in the new one: homeomorphic embedding (Kruskal),
+    with integer literals ordered by absolute value, strings by subsequence,
+    characters by equality, and any double embedding any other: a loop that
+    computes a new double each time never repeats one, so equality on
+    doubles would not stop it. Every infinite sequence of configurations
+    has one that embeds in a later one, so every path is finite (Leuschel,
+    SAS 1998). The test is a dynamic program over pairs of subterms, so
+    its cost is the product of the sizes.
+  - **Generalization.** When the whistle blows on an ancestor being
+    unfolded, the ancestor is generalized to the most specific
+    generalization of the two configurations: equal literals stay, other
+    atoms become runtime values. What the ancestor's unfolding did is
+    undone and it becomes a call of the specialization for that
+    generalization. When it blows on a specialization being made, the call
+    calls the specialization for the generalization, often itself. A call
+    whose shapes have no generalization (a static value that grows with
+    each call) is rejected (`PROF-HEAP-4`), and so is one whose result has
+    no runtime representation (`PROF-HEAP-1`, `PROF-HEAP-2`,
+    `PROF-DATA-3`, `PROF-TYPE-4`), where the call is.
+  - **Budget.** A bound on compile time and code size, not a termination
+    argument:
+    - a residual body may unfold 20000 calls that emit code;
+    - it may unfold 20000 calls in a row without emitting code, which
+      bounds a compile-time evaluation such as `fib 27`.
+
+    An unfolding that emitted no code costs the body nothing. When either
+    count is spent, the outermost unfolding of the function being called
+    is generalized to its shapes and residualized.
+  - *Why this is exact:* evaluation is strict (`SEM-EVAL-1`), so evaluating
+    a body with the values of the arguments is the call; generalization
+    only makes a specialization serve more calls.
+  - Test: `tests/e2e/v3/static-evaluation`,
+    `tests/e2e/v3/compile-time-evaluation`, `tests/e2e/v3/call-pattern`,
+    `tests/e2e/v2/string-functions`, `tests/e2e/v2/math-showcase`,
+    `tests/profile/v1/reject/PROF-HEAP-4-growing-function.idr`
+- **ELIM-G-20 (v3). Choices.** A match on a runtime value whose
+  alternatives yield static values of different shapes has their least
+  upper bound as its value: where the shapes agree, their common shape;
+  where they differ, a *choice*, a runtime `Int` tag saying which one. The
+  match continues at a join point that takes the tag and the atoms of every
+  alternative. An alternative passes undefined atoms (`ub.poison`) for the
+  others, and erased atoms are never passed. A use of a choice (applying
+  it, forcing it, matching on it, a primitive, `putStr`, reifying it)
+  dispatches on the tag, with the use in each alternative. So a function, a
+  `Lazy` value, a string or a list picked at runtime from a known set costs
+  a tag and no heap; the match writes each alternative's output where it
+  is (`ELIM-G-7`, as `maybe "none" show m` does); and a choice crosses a
+  specialization as its tag and atoms.
+  - *Why this is exact:* using the value of the chosen alternative is what
+    using the match's value does, and the tag records which one was chosen.
+  - Test: `tests/e2e/v3/choice`, `tests/e2e/v3/prelude`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
@@ -288,21 +282,15 @@ is static.
   - `ELIM-G-4` by the number of uses;
   - `ELIM-G-5` at one application per function;
   - `ELIM-G-7` case 5 by the number of alternatives;
-  - `ELIM-G-10` to `ELIM-G-13` by the call graph: no function is unfolded
-    inside itself; with a string join point (`ELIM-G-14`), at most 64 times;
-  - `ELIM-G-16` by its budget of unfoldings; an attempt that exceeds it is
-    undone;
-  - `ELIM-G-18` by four specializations per function;
-  - values of recursive data (`SEM-REC-2`) and `Integer`s by 10000 nested
-    calls, and the run of an action whose result holds a function (an
-    `IORes` of a function) by 64: neither can cross a specialization.
+  - `ELIM-G-19` by the whistle, and its budget bounds compile time;
+  - `ELIM-G-20` by the number of alternatives.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is
   reported as `PROF-HEAP-4`. A cap on copies per definition backs this up.
 - **ELIM-G-SCOPE (v1).** `Simplify` applies only these rules. Everything else
   (CSE, dead code, general constant folding, and first-order inlining
-  beyond `ELIM-G-10` to `ELIM-G-13` and `ELIM-G-16`) is MLIR's job (`CORE-OPT-1`).
+  beyond `ELIM-G-19`) is MLIR's job (`CORE-OPT-1`).
 
 `Simplify` enforces `PROF-HEAP-*` as it goes: a static value that would
 have to exist at runtime (as a runtime argument, field, result or match
@@ -313,6 +301,23 @@ remove it, with the reason (`DIAG-HEAP-1`). A point Idris proved impossible
 `Core`.
 
 ## Withdrawn
+
+- **ELIM-G-10.** *Withdrawn in v3:* unfolding string functions is a reason
+  the driver unfolds a call (`ELIM-G-19`).
+- **ELIM-G-11.** *Withdrawn in v3:* unfolding case and with blocks is a
+  reason the driver unfolds a call (`ELIM-G-19`).
+- **ELIM-G-12.** *Withdrawn in v3:* unfolding on known arguments is a
+  reason the driver unfolds a call (`ELIM-G-19`).
+- **ELIM-G-13.** *Withdrawn in v3:* library `%inline` is a reason the
+  driver unfolds a call (`ELIM-G-19`).
+- **ELIM-G-14.** *Withdrawn in v3:* a string join point is a choice
+  (`ELIM-G-20`).
+- **ELIM-G-16.** *Withdrawn in v3:* evaluation of known calls is the
+  driver unfolding calls on known arguments, bounded by its budget
+  (`ELIM-G-19`).
+- **ELIM-G-18.** *Withdrawn in v3:* call-pattern specialization is the
+  driver unfolding on a literal the body matches on, with the whistle's
+  generalization keeping the literals that repeat (`ELIM-G-19`).
 
 - **ELIM-DEFUNC-1.** *Withdrawn in draft 2:* superseded by `ELIM-G-3` and
   `PROF-HEAP-4`.

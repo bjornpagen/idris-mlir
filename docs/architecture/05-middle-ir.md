@@ -205,9 +205,8 @@ data Code : Phase -> Type where
 
 - **CORE-OPT-1 (v0).** The middle end performs only monomorphisation and the
   guaranteed eliminations. It MUST NOT add any other optimization:
-  - first-order inlining, beyond the unfolding rules `ELIM-G-10` to
-    `ELIM-G-13` and `ELIM-G-16`, which decide static control before code
-    exists (v3);
+  - first-order inlining, beyond the driver's unfolding (`ELIM-G-19`),
+    which decides static control before code exists (v3);
   - CSE;
   - dead-code elimination of first-order code;
   - constant folding beyond `ELIM-G-6`;

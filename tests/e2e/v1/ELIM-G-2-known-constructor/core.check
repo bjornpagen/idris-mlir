@@ -1,4 +1,4 @@
-rule: ELIM-G-2, ELIM-G-12
+rule: ELIM-G-2, ELIM-G-19
 The match on the known constructor Some is gone: apply receives a known
 constructor, so it is unfolded, and only the addition is left.
 CHECK-NOT: Main.apply

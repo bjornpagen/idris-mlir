@@ -205,8 +205,9 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   values of the same type, directly or through other types) exists at
   compile time only, as `Integer` does (`SEM-BIG-1`): its values are built
   and taken apart during specialization, and a function over it is
-  specialized for each value it receives. A value whose constructor would be
-  chosen at runtime is rejected (`PROF-DATA-3`). This is how the Prelude's
+  specialized for each value it receives. A value picked at runtime among
+  values of known shapes is a choice (`ELIM-G-20`); one that a recursion on
+  a runtime value builds is rejected (`PROF-DATA-3`). This is how the Prelude's
   `Nat` (in `Prec`, which `show` takes) and small static lists work before
   there is a heap.
   - Check: `Frontend.Translate.dataInstance` (a recursive occurrence makes
@@ -215,17 +216,17 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
 - **SEM-REC-2 (v3).** A value of recursive data is built where it is
   written, strictly, as Idris builds it: a call that returns one is
-  evaluated there, recursion included, up to 10000 nested calls, so its
-  constructors are known where it is taken apart. Its fields may hold
+  evaluated there, recursion included, within the driver's whistle and
+  budget (`ELIM-G-19`), so its constructors are known where it is taken
+  apart. Its fields may hold
   runtime values (`map (* n) [1 .. 10]` is ten runtime products). `Inf` is
   a suspension like `Lazy`, so codata (the Prelude's `Stream`, from which
   its ranges are built) is a compile-time value that is only unfolded as
   far as it is forced. A call that receives a known constructor of
-  recursive data is unfolded, re-entering its function up to the same
-  bound: recursion on the value follows it and ends where it ends (the
-  Prelude's `show` for lists).
-  - Check: `Frontend.Translate.coreType` (`Inf`), `Simplify.eval`
-    (`chooses`)
+  recursive data is unfolded: recursion on the value follows it and ends
+  where it ends (the Prelude's `show` for lists), since a smaller value
+  does not embed a larger one.
+  - Check: `Frontend.Translate.coreType` (`Inf`), `Simplify.drive`
   - Test: `tests/profile/v3/accept/SEM-REC-2-streams.idr`,
     `tests/e2e/v3/prelude-lists`
 

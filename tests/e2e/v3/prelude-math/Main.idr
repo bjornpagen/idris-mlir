@@ -1,6 +1,6 @@
 module Main
 
--- rule: PROF-PROG-4, FE-TR-6, SEM-DBL-2, SEM-BIG-1, ELIM-G-16, SEM-IO-7
+-- rule: PROF-PROG-4, FE-TR-6, SEM-DBL-2, SEM-BIG-1, ELIM-G-19, SEM-IO-7
 -- Complex numbers as an ordinary user type with the Prelude's own Num, Neg,
 -- Fractional and Show interfaces, generic code over Num and Integral, the
 -- Mandelbrot set, and the basins of Newton's method for z^3 = 1, on a value

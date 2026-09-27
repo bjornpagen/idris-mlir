@@ -1,8 +1,14 @@
 ||| The code-generation monad of `Simplify`: Kovács's `Gen` (closure-free
-||| two-level type theory, ICFP 2024). Evaluation emits first-order bindings
+||| two-level type theory, ICFP 2024). Evaluation emits first-order statements
 ||| into the current block; `block` runs a computation in a fresh block and
-||| closes it into `Code`. A computation that reaches a point Idris proved
-||| impossible stops, and the nearest block becomes `Absurd`.
+||| closes it into `Code`, where a match followed by more statements becomes
+||| a join point. A computation that reaches a point Idris proved impossible
+||| stops, and the nearest block becomes `Absurd`; one that crashes, or whose
+||| match cannot return, ends its block with that code.
+|||
+||| The state also holds the path of the driver (ELIM-G-19): the calls being
+||| unfolded and the specializations being made, innermost first, with their
+||| configurations. The whistle compares a call with them.
 module IdrisMLIR.Simplify.Gen
 
 import IdrisMLIR.Code
@@ -19,51 +25,56 @@ import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
 
-%default total
+%default covering
 
 ------------------------------------------------------------------------------
--- Keys
+-- Configurations and keys
 ------------------------------------------------------------------------------
 
-||| The key of a specialization (ELIM-G-3): the function, and the shapes of
-||| its arguments and of the eliminations applied to its result (ELIM-G-5).
-||| `lits` is empty, or, for a specialization on literal values (ELIM-G-17),
-||| the literal of each atom, in order.
+||| A call as the driver sees it: the function, its arguments and the
+||| eliminations applied to its result, each with its literals
+||| (ELIM-G-19). A specialization is keyed by one (ELIM-G-3), whose runtime
+||| leaves are its parameters and whose literals it fixes.
 public export
-record Key where
-  constructor MkKey
+record Config where
+  constructor MkConfig
   fn : FnId
-  args : List (SVal ())
-  elims : List (Elim ())
-  lits : List (Maybe Lit)
+  args : List (SVal Leaf)
+  elims : List (Elim Leaf)
 
--- Literals are ordered by how they print, which tells them apart.
-litKey : Maybe Lit -> String
-litKey = maybe "_" show
+export covering
+Eq Config where
+  a == b = a.fn == b.fn && a.args == b.args && cmpElims a.elims b.elims == EQ
 
-export
-Eq Key where
-  a == b = a.fn == b.fn && a.args == b.args && cmpElims a.elims b.elims == EQ &&
-           map litKey a.lits == map litKey b.lits
+export covering
+Ord Config where
+  compare a b = compare a.fn b.fn <+> compare a.args b.args <+> cmpElims a.elims b.elims
 
-export
-Ord Key where
-  compare a b = compare a.fn b.fn <+> compare a.args b.args <+> cmpElims a.elims b.elims <+>
-                compare (map litKey a.lits) (map litKey b.lits)
+||| Does `a` embed in `b` (ELIM-G-19)?
+export covering
+embedsIn : Config -> Config -> Bool
+embedsIn a b = a.fn == b.fn && embedsAll a.args b.args &&
+               length a.elims == length b.elims &&
+               embedsAll (applied a.elims) (applied b.elims)
 
-||| A key with no static argument and no elimination: the function itself.
-export
-trivial : Key -> Bool
-trivial k = all isDyn k.args && null k.elims && all isNothing k.lits
+||| The most specific generalization of two configurations of one call.
+export covering
+generalize : Config -> Config -> Maybe Config
+generalize a b = MkConfig a.fn <$> msgAll a.args b.args <*> msgElims a.elims b.elims
+
+||| A key with no static argument, literal or elimination: the function
+||| itself.
+export covering
+trivial : Config -> Bool
+trivial k = all isDyn k.args && null k.elims
   where
-    isDyn : SVal () -> Bool
-    isDyn (Dyn _ _) = True
+    isDyn : SVal Leaf -> Bool
+    isDyn (Dyn _ Nothing) = True
     isDyn _ = False
 
 export covering
-showKey : Key -> String
-showKey k = show k.fn ++ "(" ++ joinBy "; " (map showShape k.args) ++ ")" ++ showElims k.elims ++
-            (if all isNothing k.lits then "" else " at " ++ joinBy ", " (map litKey k.lits))
+showConfig : Config -> String
+showConfig k = show k.fn ++ "(" ++ joinBy "; " (map showShape k.args) ++ ")" ++ showElims k.elims
   where
     joinBy : String -> List String -> String
     joinBy sep [] = ""
@@ -82,36 +93,48 @@ record SourceIndex where
   datas : SortedMap DataId Data
   cons : SortedMap ConId Con
 
+||| A call in progress on the driver's path.
+public export
+data Frame = Unfolding Nat Config   -- being unfolded, with its identity
+           | Specializing Config     -- its specialization being made
+
+||| The driver's budget (ELIM-G-19), a bound on compile time and code size,
+||| not a termination argument: the unfoldings that emit code allowed in one
+||| residual body, and the unfoldings allowed in a row without emitting code,
+||| a compile-time evaluation such as `fib 15`.
+export
+budget : Nat
+budget = 20000
+
 public export
 record St where
   constructor MkSt
   src : SourceIndex
-  next : Nat                      -- the variable supply
+  next : Nat                      -- the supply of variables and join points
   lets : SnocList Stmt            -- the current block
-  memo : SortedMap Key FnId       -- specializations, made or being made
+  memo : SortedMap Config FnId    -- specializations, made or being made
   made : SortedMap FnId Nat       -- specializations per function (ELIM-G-3)
-  stack : List Key                -- specializations being made, innermost first
   done : SnocList (CFn Pure)
+  path : List Frame               -- the driver's path, innermost first
+  frames : Nat                    -- the supply of frame identities
+  left : Nat                      -- unfoldings that emit code left in this body
+  quiet : Nat                     -- unfoldings since code was last emitted
   raising : Maybe FnId            -- in the prefix of this raised function (ELIM-G-5)
   moved : SnocList (FnId, Loc, Moved)   -- what those prefixes run (PROF-HEAP-5)
   effects : Nat                   -- effects emitted so far, in evaluation order
   ||| Where each raised function runs, and whether an effect was emitted
   ||| between building its action and running it (PROF-HEAP-5).
   runs : SnocList (FnId, Loc, Bool)
-  unfolding : List FnId           -- String functions being unfolded (ELIM-G-10)
-  ||| While a call is evaluated at compile time (ELIM-G-16): the unfoldings
-  ||| it may still make.
-  fuel : Maybe Nat
   ||| The innermost location in the user's code that evaluation is under: a
   ||| diagnostic inside library code is reported there (DIAG-LOC-1).
   site : Maybe Loc
-  ||| Call-pattern specializations made per function (ELIM-G-18).
-  patterns : SortedMap FnId Nat
 
-||| Why evaluation stopped: a user error, a point Idris proved impossible, a
-||| crash, or a compile-time evaluation given up (ELIM-G-16).
+||| Why evaluation stopped: a user error; a point Idris proved impossible;
+||| the end of the block, with the code that ends it (a crash, or a match
+||| none of whose alternatives returns); or the whistle, which generalizes
+||| the unfolding it names (ELIM-G-19).
 public export
-data Stop = Fail Diag | Dead Loc | Crashed Loc String St | Abandoned
+data Stop = Fail Diag | Dead Loc | Ends St (Code Pure) | Generalize Nat Config
 
 public export
 M : Type -> Type
@@ -119,7 +142,7 @@ M = StateT St (Either Stop)
 
 export
 initial : SourceIndex -> St
-initial src = MkSt src 0 [<] empty empty [] [<] Nothing [<] 0 [<] [] Nothing Nothing empty
+initial src = MkSt src 0 [<] empty empty [<] [] 0 budget 0 Nothing [<] 0 [<] Nothing
 
 export
 fail : Rule -> Loc -> String -> M a
@@ -155,6 +178,12 @@ freshVar = do
   put ({ next $= S } st)
   pure (MkVarId st.next)
 
+freshJoin : M JoinId
+freshJoin = do
+  st <- get
+  put ({ next $= S } st)
+  pure (MkJoinId st.next)
+
 ------------------------------------------------------------------------------
 -- Let-insertion
 ------------------------------------------------------------------------------
@@ -168,92 +197,88 @@ remember l m = do
     Just owner => put ({ moved $= (:< (owner, l, m)) } st)
     Nothing => pure ()
 
+||| Emits statements into the current block.
+export
+replay : List Stmt -> M ()
+replay p = modify { lets $= (<>< p), quiet := 0 }
+
 ||| Binds an operation in the current block and returns its variable.
 export
 bind : Loc -> VTy -> Op -> M Atom
 bind l t o = do
   x <- freshVar
-  modify { lets $= (:< SLet l (MkParam x (defaultQuantity t) t) o) }
+  replay [SLet l (MkParam x (defaultQuantity t) t) o]
   remember l (MovedOp o)
   pure (AVar x)
 
-||| A match whose alternatives are finished blocks, and the variable that
-||| holds its value in the rest of the block.
+freshParams : List VTy -> M (List Param)
+freshParams = traverse (\t => (\x => MkParam x (defaultQuantity t) t) <$> freshVar)
+
+||| A match whose alternatives are finished blocks, and the variables that
+||| hold its values in the rest of the block.
 export
-emitCase : Loc -> VTy -> Atom -> List (Branch (Code Pure)) -> Maybe (Code Pure) -> M Atom
-emitCase l t x bs d = do
-  y <- freshVar
-  modify { lets $= (:< SMatch l (MkParam y (defaultQuantity t) t) x bs d) }
-  pure (AVar y)
+emitCase : Loc -> List VTy -> Atom -> List (Branch (Code Pure)) -> Maybe (Code Pure) -> M (List Atom)
+emitCase l ts x bs d = do
+  ps <- freshParams ts
+  replay [SMatch l ps x bs d]
+  pure (map (AVar . (.var)) ps)
 
 ||| A literal match whose alternatives are finished blocks.
 export
-emitCaseLit : Loc -> VTy -> Atom -> List (Lit, Code Pure) -> Code Pure -> M Atom
-emitCaseLit l t x as d = do
-  y <- freshVar
-  modify { lets $= (:< SMatchLit l (MkParam y (defaultQuantity t) t) x as d) }
-  pure (AVar y)
+emitCaseLit : Loc -> List VTy -> Atom -> List (Lit, Code Pure) -> Code Pure -> M (List Atom)
+emitCaseLit l ts x as d = do
+  ps <- freshParams ts
+  replay [SMatchLit l ps x as d]
+  pure (map (AVar . (.var)) ps)
+
+||| Ends the current block with code that does not return to it.
+export
+ends : Code Pure -> M a
+ends c = do
+  st <- get
+  lift (Left (Ends st c))
 
 ||| A crash (SEM-CRASH-2): evaluation of the block stops.
 export
 crash : Loc -> String -> M a
 crash l m = do
   remember l MovedCrash
-  st <- get
-  lift (Left (Crashed l m st))
+  ends (Crash l m)
 
 ||| Counts an effect: an IO primitive, or a call that is passed the world.
 export
 effect : M ()
 effect = modify { effects $= S }
 
-freshJoin : M JoinId
-freshJoin = do
-  st <- get
-  put ({ next $= S } st)
-  pure (MkJoinId st.next)
-
-||| A match whose alternatives continue at a join point with its value.
-continued : Loc -> Param -> Code Pure -> Code Pure -> M (Code Pure)
-continued l p m rest = do
+||| A match whose alternatives continue at a join point with its values.
+continued : Loc -> List Param -> Code Pure -> Code Pure -> M (Code Pure)
+continued l ps m rest = do
   j <- freshJoin
-  pure (Join l j [p] rest (returnTo j m))
+  pure (Join l j ps rest (returnTo j m))
+
+||| Returns exactly the values of these parameters?
+returns : List Param -> List Atom -> Bool
+returns ps as = as == map (AVar . (.var)) ps
 
 ||| Closes statements around the end of a block. A match followed by more
 ||| statements continues at a join point that its alternatives jump to; a
-||| match at the end of a block whose value the block returns is the end of
+||| match at the end of a block whose values the block returns is the end of
 ||| the block itself.
+export
 close : List Stmt -> Code Pure -> M (Code Pure)
 close [] c = pure c
 close (SLet l p o :: ss) c = Let l [p] o <$> close ss c
-close [SMatch l p x bs d] (Ret r [AVar y]) =
-  if y == p.var then pure (Case l x bs d) else continued l p (Case l x bs d) (Ret r [AVar y])
-close [SMatchLit l p x as d] (Ret r [AVar y]) =
-  if y == p.var then pure (CaseLit l x as d) else continued l p (CaseLit l x as d) (Ret r [AVar y])
-close (SMatch l p x bs d :: ss) c = close ss c >>= continued l p (Case l x bs d)
-close (SMatchLit l p x as d :: ss) c = close ss c >>= continued l p (CaseLit l x as d)
-
-||| Runs a computation in a fresh block: its code and the type of its result,
-||| or code that cannot return, without a type. Everything it did is undone
-||| when it cannot return: that code never runs.
-export
-block : Loc -> M (Atom, VTy) -> M (Maybe VTy, Code Pure)
-block l act = do
-  st <- get
-  case runStateT ({ lets := [<] } st) act of
-    Right (st', (a, t)) => do
-      put ({ lets := st.lets } st')
-      (Just t,) <$> close (st'.lets <>> []) (Ret l [a])
-    Left (Dead at) => pure (Nothing, Absurd at)
-    -- The code up to a crash runs; nothing after it does.
-    Left (Crashed at m st') => do
-      put ({ lets := st.lets } st')
-      (Nothing,) <$> close (st'.lets <>> []) (Crash at m)
-    Left err => lift (Left err)
+close [SMatch l ps x bs d] end@(Ret _ as) =
+  if returns ps as then pure (Case l x bs d) else continued l ps (Case l x bs d) end
+close [SMatchLit l ps x as d] end@(Ret _ out) =
+  if returns ps out then pure (CaseLit l x as d) else continued l ps (CaseLit l x as d) end
+close (SMatch l ps x bs d :: ss) c = close ss c >>= continued l ps (Case l x bs d)
+close (SMatchLit l ps x as d :: ss) c = close ss c >>= continued l ps (CaseLit l x as d)
 
 ||| Runs a computation in a fresh block and returns its value with the
-||| statements it made, or the code of a block that cannot return. The value
-||| is reified later, where it is used (ELIM-G-14).
+||| statements it made, or the code of a block that does not return a value.
+||| Everything a block that cannot be reached did is undone: that code never
+||| runs.
 export
 blockV : Loc -> M a -> M (Either (Code Pure) (List Stmt, a))
 blockV l act = do
@@ -263,15 +288,20 @@ blockV l act = do
       put ({ lets := st.lets } st')
       pure (Right (st'.lets <>> [], x))
     Left (Dead at) => pure (Left (Absurd at))
-    Left (Crashed at m st') => do
-      put ({ lets := st.lets } st')
-      Left <$> close (st'.lets <>> []) (Crash at m)
+    -- The code up to the end runs; nothing after it does.
+    Left (Ends st' c) => do
+      put ({ lets := st.lets, path := st.path, raising := st.raising, site := st.site } st')
+      Left <$> close (st'.lets <>> []) c
     Left err => lift (Left err)
 
-||| Emits statements made by `blockV` into the current block.
+||| Runs a computation in a fresh block that returns atoms.
 export
-replay : List Stmt -> M ()
-replay p = modify { lets $= (<>< p) }
+block : Loc -> M (List Atom) -> M (Code Pure)
+block l act = do
+  r <- blockV l act
+  case r of
+    Left c => pure c
+    Right (p, as) => close p (Ret l as)
 
 ||| Runs a computation, or reports the user error that stopped it with the
 ||| state as it was (ELIM-G-17).
@@ -283,33 +313,6 @@ attempt act = do
     Right (st', x) => put st' $> Right x
     Left (Fail d) => pure (Left d)
     Left other => lift (Left other)
-
-||| Evaluates a computation at compile time (ELIM-G-16): its result, if it
-||| finishes within `n` unfoldings with a result that satisfies `ok` and
-||| leaves no code, effect or specialization behind; otherwise nothing, and
-||| the state is as it was.
-export
-evaluate : Nat -> (a -> Bool) -> M a -> M (Maybe a)
-evaluate n ok act = do
-  st <- get
-  case runStateT ({ lets := [<], fuel := Just n } st) act of
-      Right (st', x) =>
-        if ok x && null st'.lets && st'.effects == st.effects && length st'.done == length st.done
-           && size st'.memo == size st.memo && length st'.moved == length st.moved
-          then do
-            put ({ lets := st.lets, fuel := Nothing } st')
-            pure (Just x)
-          else pure Nothing
-      Left _ => pure Nothing
-  where
-    size : SortedMap Key FnId -> Nat
-    size = length . SortedMap.toList
-
-||| Gives up a compile-time evaluation (ELIM-G-16): it ran out of fuel or
-||| would leave code behind.
-export
-abandon : M a
-abandon = lift (Left Abandoned)
 
 ||| Consuming a static value runs the action it describes: its code is not
 ||| part of the prefix it was built in.
@@ -331,3 +334,78 @@ withPrefix p act = do
   x <- act
   modify { raising := saved }
   pure x
+
+------------------------------------------------------------------------------
+-- The driver's path (ELIM-G-19)
+------------------------------------------------------------------------------
+
+||| The configuration of a frame.
+export
+frameConfig : Frame -> Config
+frameConfig (Unfolding _ c) = c
+frameConfig (Specializing c) = c
+
+||| The innermost frame whose configuration embeds in this one.
+export covering
+whistle : Config -> List Frame -> Maybe Frame
+whistle c = find (\f => embedsIn (frameConfig f) c)
+
+||| How many times a call unfolded only for a literal its body matches on may
+||| repeat on one path (ELIM-G-19).
+export
+literalDepth : Nat
+literalDepth = 4
+
+||| The unfoldings of a function on the path, innermost first.
+export
+unfoldingsOf : FnId -> List Frame -> List (Nat, Config)
+unfoldingsOf f = mapMaybe pick
+  where
+    pick : Frame -> Maybe (Nat, Config)
+    pick (Unfolding i c) = if c.fn == f then Just (i, c) else Nothing
+    pick _ = Nothing
+
+||| The outermost unfolding of a function on the path.
+export
+outermost : FnId -> List Frame -> Maybe (Nat, Config)
+outermost f = foldl pick Nothing
+  where
+    pick : Maybe (Nat, Config) -> Frame -> Maybe (Nat, Config)
+    pick acc (Unfolding i c) = if c.fn == f then Just (i, c) else acc
+    pick acc _ = acc
+
+||| Is the budget of this residual body spent (ELIM-G-19)?
+export
+spent : St -> Bool
+spent st = st.left == 0 || st.quiet >= budget
+
+||| Runs an unfolding as a frame of the path. If the whistle generalizes
+||| it, everything it did is undone and `otherwise` runs with the
+||| generalized configuration instead. An unfolding that emitted no code
+||| costs the body's budget nothing.
+export
+unfolding : Config -> M a -> (Config -> M a) -> M a
+unfolding c act otherwise = do
+  st <- get
+  let i = st.frames
+  case runStateT ({ frames $= S, path $= (Unfolding i c ::), left $= (`minus` 1), quiet $= S } st) act of
+    Right (st', x) =>
+      put ({ path := st.path, left := if st'.next == st.next then st.left else st'.left } st') $> x
+    Left (Generalize j g) => if i == j then otherwise g else lift (Left (Generalize j g))
+    Left (Ends st' code) => lift (Left (Ends ({ path := st.path } st') code))
+    Left other => lift (Left other)
+
+||| Runs the making of a specialization's body: the path of specializations
+||| being made, and a fresh budget.
+export
+specializing : Config -> M a -> M a
+specializing c act = do
+  st <- get
+  put ({ path := Specializing c :: filter isSpec st.path, left := budget, quiet := 0 } st)
+  x <- act
+  modify { path := st.path, left := st.left, quiet := st.quiet }
+  pure x
+  where
+    isSpec : Frame -> Bool
+    isSpec (Specializing _) = True
+    isSpec _ = False

@@ -156,6 +156,7 @@ atom l env (ALit (LStr s)) = op1 l "idr.str.lit" [] [("value", BytesA s)] IdrStr
 atom l env (ALit (LDouble d)) = op1 l "arith.constant" [] [("value", FloatA d)] F64
 atom l env (ALit (LBig _)) = internal "an Integer literal at runtime (SEM-BIG-1)"
 atom l env AErased = op1 l "idr.erased" [] [] IdrErased
+atom l env (AUndef t) = op1 l "ub.poison" [] [] (mtype t)
 
 signedness : Bool -> List (String, Attr)
 signedness s = if s then [("is_signed", UnitA)] else []

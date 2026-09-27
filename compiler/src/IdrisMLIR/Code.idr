@@ -42,15 +42,18 @@ import Data.String
 -- The IR
 ------------------------------------------------------------------------------
 
-||| A runtime operand: a variable, a literal or the erased value.
+||| A runtime operand: a variable, a literal, the erased value, or a value
+||| of a type that is never read (a slot of a choice that its tag does not
+||| select, ELIM-G-20).
 public export
-data Atom = AVar VarId | ALit Lit | AErased
+data Atom = AVar VarId | ALit Lit | AErased | AUndef VTy
 
 export
 Eq Atom where
   AVar a == AVar b = a == b
   ALit a == ALit b = a == b
   AErased == AErased = True
+  AUndef s == AUndef t = s == t
   _ == _ = False
 
 export
@@ -58,6 +61,7 @@ Show Atom where
   show (AVar x) = show x
   show (ALit l) = show l
   show AErased = "erased"
+  show (AUndef t) = "undef:" ++ show t
 
 ||| A variable with its quantity and type: a parameter of a function or join
 ||| point, or a binding.

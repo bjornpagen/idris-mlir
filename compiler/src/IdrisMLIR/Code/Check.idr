@@ -51,6 +51,7 @@ atomTy sc (AVar x) = case lookup x sc.vars of
   Just (_, t) => Right t
 atomTy _ (ALit l) = maybe (fail CoreInv2 "an Integer literal at runtime") Right (value (litTy l))
 atomTy _ AErased = Right ErasedT
+atomTy _ (AUndef t) = Right t
 
 ||| An argument in a position of the given quantity and type (CORE-INV-3).
 arg : Scope -> (Quantity, VTy) -> Atom -> Either Err ()

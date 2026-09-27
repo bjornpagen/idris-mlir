@@ -1,0 +1,4 @@
+// rule: OPT-PIPE-3
+// One of the two is the component's loop breaker, and only one.
+// CHECK: sym_name = "Main.{{even|odd}}", sym_visibility = "private", no_inline
+// CHECK-NOT: no_inline

@@ -1,6 +1,6 @@
 module Main
 
--- rule: PROF-IO-4, ELIM-G-14
+-- rule: PROF-IO-4, ELIM-G-20
 -- A program that uses only the Prelude: its own putStrLn, printLn and
 -- putChar, with values known only at runtime (from a recursive function).
 

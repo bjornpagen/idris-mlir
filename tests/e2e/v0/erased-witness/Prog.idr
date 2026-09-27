@@ -14,7 +14,7 @@ public export
 linearId : (1 x : Int) -> Int
 linearId x = x
 
--- A loop longer than compile-time evaluation runs (ELIM-G-16): its result
+-- A loop longer than compile-time evaluation runs (ELIM-G-19): its result
 -- is known only at runtime, so clamp and linearId are residual functions
 -- with their erased and linear parameters.
 public export

@@ -103,7 +103,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/v3/vect`, `tests/profile/v3/reject/PROF-PROG-4-base.idr`
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%default` and other elaboration
-  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-13`). It honours `%foreign` only for the four primitives of
+  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-19`). It honours `%foreign` only for the four primitives of
   `IdrisMLIR.IO`, which it recognizes by full name (`PROF-IO-2`); the
   `%foreign` strings themselves are never read.
 
@@ -212,7 +212,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   U, after instantiation, no cycle is reachable from a runtime data type.
   Quantity-0 fields add no edges. From v3 a recursive data type is a
   compile-time type (`SEM-REC-1`), and this rule rejects a value of one
-  whose constructor would be chosen at runtime.
+  that a recursion on a runtime value builds, so that no finite choice of
+  known shapes stands for it. A choice among values of known shapes is not
+  rejected (`ELIM-G-20`).
   - Check: `Frontend.Translate.dataInstance`, `Simplify`; dialect verifier
     `IDR-DATA-4`
   - Test: `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
@@ -355,8 +357,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   `PROF-HEAP-3` error. Any other surviving string primitive (`strLength`,
   `strIndex`, string comparison, and so on) is rejected with this rule, and
   from v3 so is a match on a string that is not known at compile time; a
-  match on a known string is decided during specialization.
-  - Test: `tests/profile/v1/reject/PROF-PRIM-4-runtime-length.idr`
+  match on a known string is decided during specialization, and one on a
+  choice among known strings is a match on the choice (`ELIM-G-20`).
+  - Test: `tests/profile/v1/reject/PROF-PRIM-4-runtime-match.idr`
 
 ## Heap freedom (v1)
 
@@ -369,8 +372,11 @@ construct, and says which elimination did not apply and why
 
 - **PROF-HEAP-1 (v1).** No value of function type remains in a runtime
   position: no lambda, partial application, or function-typed parameter,
-  field, `let` or result.
-- **PROF-HEAP-2 (v1).** No `Lazy` value remains in a runtime position.
+  field, `let` or result. A function picked at runtime from a known set is
+  a choice (`ELIM-G-20`), used through its tag, and is not in a runtime
+  position; one that a recursion on a runtime value builds is.
+- **PROF-HEAP-2 (v1).** No `Lazy` value remains in a runtime position, in
+  the same sense as `PROF-HEAP-1`.
 - **PROF-HEAP-3 (v1).** No string-building primitive remains (`strAppend`,
   `strCons`, `strReverse`, `strSubstr`, casts to `String`). So every runtime
   `String` value comes from a string literal, possibly passed through
@@ -378,12 +384,11 @@ construct, and says which elimination did not apply and why
 - **PROF-HEAP-4 (v1).** A recursive function does not pass itself a
   function-typed argument that grows from the one it received. This is
   Futhark's restriction that "a loop may not produce a function"; without it,
-  specialization would not terminate. `Simplify` detects it when a function
-  is needed, while its own specialization is being built, with static
-  arguments that homeomorphically embed the ones it received and differ from
-  them (the termination test of supercompilation). Nested uses on unrelated
-  or smaller arguments, such as the `>>` of a `do` block, are not growth. A
-  cap on copies per definition backs this up.
+  specialization would not terminate. `Simplify` detects it when the
+  driver's whistle blows (`ELIM-G-19`): the new call's configuration embeds
+  an ancestor's, and the two have no generalization, because a static part
+  differs and no runtime value can stand for it. Nested uses on unrelated
+  or smaller arguments, such as the `>>` of a `do` block, are not growth.
 - **PROF-HEAP-5 (v1).** Arity raising (`ELIM-G-5`) moves code only if that
   code cannot crash and cannot fail to terminate, or if no effect happens
   between building the action and running it. A function that returns an
@@ -397,9 +402,8 @@ construct, and says which elimination did not apply and why
     (`Simplify.Safety`)
   - Test: `tests/profile/v1/reject/PROF-HEAP-{1..5}-*.idr`, and every v1
     accept fixture (the check passes). A function value survives only when
-    a runtime choice selects it and the choice outlives the match (as a
-    static data value with several constructors); a function returned from
-    a match is raised into each branch instead.
+    a recursion on a runtime value builds it; one picked by a match is a
+    choice (`tests/e2e/v3/choice`).
 
 ## Escape hatches
 
