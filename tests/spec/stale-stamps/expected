@@ -1,0 +1,5 @@
+no stamp: exit 1
+error: Pinned cmake missing or stale; run: tools/bootstrap.sh cmake
+a stale stamp: exit 1
+error: Pinned cmake missing or stale; run: tools/bootstrap.sh cmake
+a stamp at the lock's revision: exit 0

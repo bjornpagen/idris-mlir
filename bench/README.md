@@ -1,7 +1,8 @@
 # Benchmarks
 
-`python3 bench/run.py` builds each program four ways and runs it on the same
-input:
+`make bench` runs `bench/run.sh`, a POSIX shell script, which builds each
+program four ways and runs it on the same input (`make bench ARGS='--runs 3
+fib tak'` runs fewer):
 
 - **this compiler**: `bench/<name>/Main.idr`, ordinary Idris against the
   stock Prelude alone (`import Prelude`: `Num`, `Ord`, `if`, `cast`,
@@ -13,8 +14,10 @@ input:
 
 It checks that the Idris backends print the same text and that every
 program prints the same numbers (to 1e-9), and reports the best of several
-wall-clock runs. MLton comes from the Debian package unpacked into
-`.toolchain/mlton` with `dpkg -x` (nothing is installed system-wide).
+wall-clock runs, timed with GNU `date`'s nanoseconds; each time includes
+starting the program, about a millisecond. MLton comes from the Debian
+package unpacked into `.toolchain/mlton` with `dpkg -x` (nothing is
+installed system-wide), or from `PATH`; without it, its column reads `n/a`.
 
 ## Results
 

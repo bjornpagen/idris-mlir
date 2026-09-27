@@ -1,0 +1,2 @@
+doctor: exit 0
+Idris source: problem: Idris source missing; run: git submodule update --init

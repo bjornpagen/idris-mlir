@@ -1,0 +1,17 @@
+#!/bin/sh
+# rule: TC-PIN-2
+# A pinned tool whose provenance stamp is missing or names another revision
+# than the lock is refused; one at the lock's revision is used.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+mkdir -p "$work/toolchain/cmake"
+verify() {
+  IDRIS_MLIR_TOOLCHAIN=$work/toolchain "$root/tools/verify-pins.sh" cmake > "$work/out" 2>&1
+  say "$1: exit $?"
+  cat "$work/out"
+}
+verify "no stamp"
+printf '{"revision": "%s"}\n' 0000000000000000000000000000000000000000 > "$work/toolchain/cmake/provenance.json"
+verify "a stale stamp"
+printf '{\n  "revision": "%s"\n}\n' "$("$root/tools/verify-pins.sh" lock cmake revision)" \
+  > "$work/toolchain/cmake/provenance.json"
+verify "a stamp at the lock's revision"

@@ -1,0 +1,10 @@
+docs/cpp-profile.md: cpp-starter at bdb6838
+preset dev
+preset release
+preset asan-ubsan
+preset lint
+CMakeLists.txt: set(CMAKE_CXX_STANDARD 26)
+CMakeLists.txt: -fno-exceptions -fno-rtti
+CMakeLists.txt: -freflection
+CMakeLists.txt: -Werror
+CMakeLists.txt: idris_mlir_language_profile

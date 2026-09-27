@@ -1,0 +1,5 @@
+C++: found
+C++: all under foreign/idr
+C++ sources: .cc only
+src/: CMakeLists.txt alone
+unsafe/: CMakeLists.txt alone

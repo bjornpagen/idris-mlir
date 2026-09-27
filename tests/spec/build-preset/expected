@@ -1,0 +1,4 @@
+make -n build: exit 0
+cd <root> && <root>/.toolchain/cmake/bin/cmake --preset dev
+cd <root> && <root>/.toolchain/cmake/bin/cmake --build --preset dev
+cd <root>/compiler && <root>/.toolchain/idris2/bin/idris2 --build idris-mlir.ipkg

@@ -1,0 +1,8 @@
+#!/bin/sh
+# rule: TC-BOOT-1
+# make doctor reports a missing Idris checkout, and does not fail.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+mkdir "$work/empty"
+IDRIS_MLIR_IDRIS_SOURCE=$work/empty "$root/tools/doctor.sh" > "$work/out" 2>&1
+say "doctor: exit $?"
+grep '^Idris source:' "$work/out"

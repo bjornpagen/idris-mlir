@@ -1,0 +1,6 @@
+#!/bin/sh
+# rule: TC-PIN-1, TC-DEV-2
+# toolchain.lock.json (schema 3) pins every tool by revision, repository, tag
+# and version, within the series the configure gate accepts (tests/Lock.idr).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$runtests" --lock

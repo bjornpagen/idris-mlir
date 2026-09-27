@@ -1,0 +1,9 @@
+#!/bin/sh
+# rule: LOW-DBL-2
+# The Double printer's tables in Runtime.mlir.inc are what
+# tools/GenRyuTables.idr computes (make ryu-tables).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$root/tools/build/exec/gen-ryu-tables" --check "$root/foreign/idr/lib/Lower/Runtime.mlir.inc" \
+  > "$work/out" 2>&1
+say "gen-ryu-tables --check: exit $?"
+cat "$work/out"

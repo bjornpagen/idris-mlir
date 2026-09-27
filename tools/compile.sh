@@ -19,9 +19,8 @@
 # Makefile's.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/tools/toolchain.sh"
 idris_mlir=${IDRIS_MLIR:-$root/compiler/build/exec/idris-mlir}
-idris_mlir_cc=$root/build/dev/foreign/idr/idris-mlir-cc
-pinned_cc=$root/.toolchain/gcc/bin/gcc
 
 usage() {
   echo "usage: tools/compile.sh [--int | --io] [-p PACKAGE]... [--directive D]... SOURCE OUTPUT" >&2

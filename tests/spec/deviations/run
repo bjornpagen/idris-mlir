@@ -1,0 +1,15 @@
+#!/bin/sh
+# rule: TC-DEV-1, TC-DEV-3, TC-DEV-4, TC-DEV-5
+# The deviations from cpp-starter are pinned in PINS.md.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cmake=$root/CMakeLists.txt
+if grep -q x86_64 "$cmake"; then say "CMakeLists.txt: the gate accepts x86_64"; else say "CMakeLists.txt: no x86_64"; fi
+if grep -qF 'PIN(lint-graph-unbuilt)' "$cmake"; then
+  say "CMakeLists.txt: PIN(lint-graph-unbuilt)"
+else
+  say "CMakeLists.txt: no PIN(lint-graph-unbuilt)"
+fi
+if sed 's/no-stdexec//g' "$cmake" | grep -q stdexec; then say "CMakeLists.txt: stdexec"; else say "CMakeLists.txt: no stdexec"; fi
+for name in platform-gate-x86_64 lint-graph-unbuilt no-stdexec llvm-cxx17-headers; do
+  if grep -qF "## $name" "$root/PINS.md"; then say "PINS.md: $name"; else say "PINS.md: no $name"; fi
+done

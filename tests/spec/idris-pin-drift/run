@@ -1,0 +1,19 @@
+#!/bin/sh
+# rule: TC-PIN-1
+# A checkout at another commit than the staged gitlink is refused: git here
+# reports HEAD as all zeros.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+real_git=$(command -v git)
+pin=$(git -C "$root" ls-files --stage -- third_party/Idris2 | awk '{ print $2 }')
+mkdir "$work/bin"
+cat > "$work/bin/git" <<GIT
+#!/bin/sh
+for arg; do
+  if [ "\$arg" = rev-parse ]; then echo 0000000000000000000000000000000000000000; exit 0; fi
+done
+exec "$real_git" "\$@"
+GIT
+chmod +x "$work/bin/git"
+PATH=$work/bin:$PATH "$root/tools/verify-pins.sh" > "$work/out" 2>&1
+say "verify-pins: exit $?"
+sed "s/$pin/<pin>/g" "$work/out"

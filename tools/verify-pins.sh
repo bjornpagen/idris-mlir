@@ -15,12 +15,14 @@
 #   built       the tools `make build` makes exist
 #   test-tools  the pinned LLVM has FileCheck, not and count
 #
+#     tools/verify-pins.sh lock TOOL KEY    prints a string of the lock
+#
 # A check that fails prints `error: <why and what to run>` and exits 1.
 # IDRIS_MLIR_TOOLCHAIN and IDRIS_MLIR_IDRIS_SOURCE stand for .toolchain and
-# third_party/Idris2 (the toolchain tests use them).
+# third_party/Idris2 (the tests under tests/spec use them).
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
+. "$root/tools/toolchain.sh"
 idris_source=${IDRIS_MLIR_IDRIS_SOURCE:-$root/third_party/Idris2}
 lock=$root/toolchain.lock.json
 
@@ -29,10 +31,14 @@ fail() {
   exit 1
 }
 
-# lock_field TOOL KEY: a string of toolchain.lock.json (schema 3).
+# lock_field TOOL KEY: a string of toolchain.lock.json. Schemas 3 and 4 both
+# have one object per tool, one field per line.
 lock_field() {
   schema=$(sed -n 's/^[[:space:]]*"schema_version"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lock")
-  [ "$schema" = 3 ] || fail "Unsupported toolchain lock schema"
+  case $schema in
+    3 | 4) ;;
+    *) fail "Unsupported toolchain lock schema" ;;
+  esac
   awk -v tool="$1" -v key="$2" '
     /^[ \t]*"[^"]*"[ \t]*:[ \t]*\{/ { split($0, parts, "\""); object = parts[2]; next }
     /^[ \t]*\}/ { object = ""; next }
@@ -45,11 +51,6 @@ lock_field() {
         exit
       }
     }' "$lock"
-}
-
-# stamp_field PREFIX KEY: a string of PREFIX/provenance.json.
-stamp_field() {
-  sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1/provenance.json" 2> /dev/null | head -n 1
 }
 
 # The Idris checkout is the staged gitlink, unmodified; sets $revision.
@@ -70,7 +71,7 @@ check() {
     source) source_revision ;;
     revision) source_revision; echo "$revision" ;;
     idris)
-      prefix=$toolchain/idris2
+      prefix=$idris_prefix
       { [ -f "$prefix/provenance.json" ] && [ -f "$prefix/bin/idris2" ]; } ||
         fail "Build the local Idris 2 with tools/bootstrap.sh idris first"
       source_revision
@@ -78,7 +79,7 @@ check() {
         fail "Local Idris toolchain is stale; rerun tools/bootstrap.sh idris"
       ;;
     llvm)
-      prefix=$toolchain/llvm
+      prefix=${llvm_bin%/bin}
       [ -f "$prefix/provenance.json" ] ||
         fail "Build the pinned MLIR tools with tools/bootstrap.sh llvm first"
       [ "$(stamp_field "$prefix" llvm_revision)" = "$(lock_field llvm revision)" ] ||
@@ -97,7 +98,7 @@ check() {
       ;;
     test-tools)
       for tool in FileCheck not count; do
-        [ -f "$toolchain/llvm/bin/$tool" ] ||
+        [ -f "$llvm_bin/$tool" ] ||
           fail "$tool is missing from the pinned LLVM; run: tools/bootstrap.sh llvm"
       done
       ;;
@@ -108,6 +109,13 @@ check() {
 if [ $# -eq 0 ]; then
   source_revision
   echo "Idris source matches its pin: $revision"
+  exit 0
+fi
+if [ "$1" = lock ] && [ $# -eq 3 ]; then
+  # tools/verify-pins.sh lock TOOL KEY: a field of the lock, for doctor.sh.
+  value=$(lock_field "$2" "$3") || exit 1
+  [ -n "$value" ] || fail "toolchain.lock.json has no $2.$3"
+  echo "$value"
   exit 0
 fi
 for name in "$@"; do

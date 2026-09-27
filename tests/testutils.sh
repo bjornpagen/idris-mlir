@@ -14,13 +14,9 @@
 
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
-toolchain=$root/.toolchain
-llvm_bin=$toolchain/llvm/bin
-pinned_cc=$toolchain/gcc/bin/gcc
-idris_mlir_cc=$root/build/dev/foreign/idr/idris-mlir-cc
-idris_mlir_opt=$root/build/dev/foreign/idr/idris-mlir-opt
-# Stock Idris 2, the reference implementation (SEM-REF-1).
-idris2=$toolchain/idris2/bin/idris2
+# The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
+# and $idris2, stock Idris 2, the reference implementation (SEM-REF-1).
+. "$root/tools/toolchain.sh"
 runtests=$root/tests/build/exec/runtests
 compile_sh=$root/tools/compile.sh
 here=$(pwd)
@@ -106,7 +102,7 @@ no_artifacts() {
   if [ -z "$no_artifacts_left" ]; then
     say "artifacts: none"
   else
-    say "artifacts left after a rejection:" $no_artifacts_left
+    say "artifacts left after a rejection: $(printf '%s\n' "$no_artifacts_left" | tr '\n' ' ')"
   fi
 }
 
@@ -353,13 +349,18 @@ e2e_io() {
   if cmp -s "$work/ours.out" "$work/chez.out"; then
     io_same=yes
   elif [ -n "$io_crash" ]; then
-    # SEM-DEV-1: Chez writes some crash messages to stdout.
+    # SEM-DEV-1: crash messages are not compared, and Chez writes its own to
+    # stdout: after this compiler's output, or as an `ERROR: ` line before
+    # the Prelude's buffered output.
     io_bytes=$(wc -c < "$work/ours.out" | tr -d ' ')
     if head -c "$io_bytes" "$work/chez.out" | cmp -s - "$work/ours.out"; then
       tail -c +"$((io_bytes + 1))" "$work/chez.out" > "$work/chez.rest"
       if [ ! -s "$work/chez.rest" ] || [ "$(head -c 7 "$work/chez.rest")" = "ERROR: " ]; then
         io_same=yes
       fi
+    fi
+    if [ "$io_same" = no ] && sed '/^ERROR: /d' "$work/chez.out" | cmp -s - "$work/ours.out"; then
+      io_same=yes
     fi
   fi
   if [ "$io_same" = no ]; then

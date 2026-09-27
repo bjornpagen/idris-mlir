@@ -1,0 +1,4 @@
+idris without a stamp: exit 1
+error: Build the local Idris 2 with tools/bootstrap.sh idris first
+llvm without a stamp: exit 1
+error: Build the pinned MLIR tools with tools/bootstrap.sh llvm first

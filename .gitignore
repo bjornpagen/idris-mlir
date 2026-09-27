@@ -2,6 +2,8 @@
 /build/
 build/
 /compiler/src/IdrisMLIR/Frontend/Paths.idr
+# What a golden test printed (tests/Main.idr); `expected` is what it must print.
+/tests/**/output
 __pycache__/
 *.pyc
 .DS_Store

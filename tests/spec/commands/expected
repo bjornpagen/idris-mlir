@@ -1,0 +1,14 @@
+make bootstrap
+make doctor
+make verify-pins
+make check
+make build
+make test
+make test-idr
+make test-mlir-tools
+make compile
+make bench
+tools/bootstrap.sh
+doctor reports the pinned gcc
+doctor reports the pinned cmake
+doctor reports the pinned ninja

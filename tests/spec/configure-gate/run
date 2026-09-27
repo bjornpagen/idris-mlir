@@ -1,0 +1,17 @@
+#!/bin/sh
+# rule: TC-DEV-2
+# The CMake configure gate reads every release series it accepts from the
+# lock: each tool of toolchain.lock.json with an `accept` field.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+awk '/^[ \t]*"[^"]*"[ \t]*:[ \t]*\{/ { split($0, parts, "\""); tool = parts[2] }
+     tool != "" && /^[ \t]*"accept"[ \t]*:/ { print tool }' "$root/toolchain.lock.json" > "$work/tools"
+[ -s "$work/tools" ] || say "toolchain.lock.json: no tool has an accepted series"
+while IFS= read -r tool; do
+  upper=$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')
+  if grep -qF "string(JSON IDRIS_MLIR_${upper}_SERIES GET \"\${IDRIS_MLIR_LOCK}\" $tool accept)" \
+       "$root/CMakeLists.txt"; then
+    say "$tool: the configure gate reads its series from the lock"
+  else
+    say "$tool: the configure gate does not read its series from the lock"
+  fi
+done < "$work/tools"

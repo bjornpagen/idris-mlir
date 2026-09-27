@@ -1,0 +1,12 @@
+#!/bin/sh
+# rule: TC-PIN-2
+# A failed bootstrap cannot look like an installed toolchain: without its
+# stamp, an Idris 2 or an LLVM that is there is refused.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+mkdir -p "$work/toolchain/idris2/bin" "$work/toolchain/llvm/bin"
+: > "$work/toolchain/idris2/bin/idris2"
+for check in idris llvm; do
+  IDRIS_MLIR_TOOLCHAIN=$work/toolchain "$root/tools/verify-pins.sh" "$check" > "$work/out" 2>&1
+  say "$check without a stamp: exit $?"
+  cat "$work/out"
+done

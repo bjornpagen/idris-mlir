@@ -1,0 +1,5 @@
+compile: exit 0
+artifacts: Main.core Main.mlir Main.o Main
+run: exit 0
+stdout: as the header says
+stderr: empty

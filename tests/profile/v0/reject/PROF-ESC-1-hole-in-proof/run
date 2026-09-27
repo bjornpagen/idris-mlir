@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+profile_reject ../PROF-ESC-1-hole-in-proof.idr

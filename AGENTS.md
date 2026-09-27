@@ -17,17 +17,17 @@ current instead of writing new plan documents.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work.
-- Install build dependencies under .toolchain/ through tools/dev.py. Do not
-  modify the user's global compiler installation or shell configuration.
+- Install build dependencies under .toolchain/ through `make bootstrap`. Do
+  not modify the user's global compiler installation or shell configuration.
 - The compiler accepts only the current profile version
   (docs/architecture/02-profile.md). Reject anything outside it with an
   explicit `unsupported` error that names the rule; never miscompile
   silently.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
-- Checks: `python3 tools/dev.py check` always. After compiler changes, run
-  `build` and `test`. After C++ or contract changes, also run `test-idr`.
-  After changing MLIR usage, also run `test-mlir-tools`. If a toolchain is
-  unavailable, say so; do not report skipped tests as passed.
+- Checks: `make check` always. After compiler changes, run `make build` and
+  `make test`. After C++ or contract changes, also run `make test-idr`.
+  After changing MLIR usage, also run `make test-mlir-tools`. If a toolchain
+  is unavailable, say so; do not report skipped tests as passed.
 - Tests must check exit status and produced artifacts, not just stdout.
 - Research tasks produce documents only: do not build or run anything.

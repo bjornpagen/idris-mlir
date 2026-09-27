@@ -1,0 +1,32 @@
+#!/bin/sh
+# rule: TC-BOOT-3
+# The dialect tests run without lit or Python. Their RUN lines find the
+# FileCheck, not and count of the pinned LLVM first on PATH (testutils.sh's
+# lit), shown here with stand-ins for them.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+if [ -e "$root/tests/idr/lit.cfg.py" ]; then say "lit: configured"; else say "lit: none"; fi
+case $llvm_bin in
+  "$root/.toolchain/llvm/bin") say "the pinned LLVM: .toolchain/llvm/bin" ;;
+  *) say "the pinned LLVM: $llvm_bin" ;;
+esac
+llvm_bin=$work/llvm/bin
+mkdir -p "$llvm_bin"
+for tool in FileCheck not count; do
+  printf '#!/bin/sh\nexit 0\n' > "$llvm_bin/$tool"
+  chmod +x "$llvm_bin/$tool"
+done
+cat > "$work/which.mlir" <<'MLIR'
+// RUN: command -v FileCheck > %t.FileCheck
+// RUN: command -v not > %t.not
+// RUN: command -v count > %t.count
+MLIR
+lit "$work/which.mlir" > "$work/lit.log"
+for tool in FileCheck not count; do
+  found=$(cat "$work/t.$tool" 2> /dev/null)
+  if [ "$found" = "$llvm_bin/$tool" ]; then
+    say "$tool: the pinned LLVM's, first on PATH"
+  else
+    say "$tool: ${found:-not found}, not the pinned LLVM's"
+    show "$work/lit.log"
+  fi
+done

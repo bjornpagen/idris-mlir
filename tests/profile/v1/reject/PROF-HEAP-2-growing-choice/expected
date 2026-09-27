@@ -1,0 +1,4 @@
+compile: exit 1
+unsupported (PROF-HEAP-2): the only error
+line: as the header says
+artifacts: none

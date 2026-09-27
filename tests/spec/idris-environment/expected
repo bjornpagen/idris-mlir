@@ -1,0 +1,3 @@
+make env: exit 0
+IDRIS2_PREFIX=<root>/.toolchain/idris2
+IDRIS_MLIR_ROOT=<root>

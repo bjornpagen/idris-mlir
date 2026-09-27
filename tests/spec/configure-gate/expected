@@ -1,0 +1,3 @@
+llvm: the configure gate reads its series from the lock
+cmake: the configure gate reads its series from the lock
+ninja: the configure gate reads its series from the lock

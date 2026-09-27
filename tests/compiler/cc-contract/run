@@ -1,0 +1,23 @@
+#!/bin/sh
+# rule: DRV-CC-1, DRV-CC-2, DIAG-ICE-1
+# A contract violation is an internal error: exit 1, and the output file,
+# which exists, is left untouched. A usage error exits 2.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cat > "$work/bad.mlir" <<'MLIR'
+module attributes {idr.version = 0 : i64, idr.entry = @main, idr.entry_kind = "int"} {
+  func.func private @main() -> i64 attributes {idr.name = "main"} {
+    %0 = llvm.mlir.constant(1 : i64) : i64
+    return %0 : i64
+  }
+}
+MLIR
+printf 'old' > "$work/bad.o"
+"$idris_mlir_cc" "$work/bad.mlir" -o "$work/bad.o" > "$work/cc.log" 2>&1
+say "contract violation: exit $?"
+if [ "$(cat "$work/bad.o")" = old ]; then
+  say "existing output: untouched"
+else
+  say "existing output: changed by a failed compilation"
+fi
+"$idris_mlir_cc" > "$work/usage.log" 2>&1
+say "no arguments: exit $?"

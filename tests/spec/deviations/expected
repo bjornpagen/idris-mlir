@@ -1,0 +1,7 @@
+CMakeLists.txt: the gate accepts x86_64
+CMakeLists.txt: PIN(lint-graph-unbuilt)
+CMakeLists.txt: no stdexec
+PINS.md: platform-gate-x86_64
+PINS.md: lint-graph-unbuilt
+PINS.md: no-stdexec
+PINS.md: llvm-cxx17-headers

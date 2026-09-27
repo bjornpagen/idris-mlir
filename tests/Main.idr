@@ -14,6 +14,10 @@
 |||     runtests <idris-mlir> [--suite check|test|test-idr|test-mlir-tools]
 |||              [--threads N] [--only NAMES] [--except NAMES] [--interactive]
 |||
+||| With `--list`, it prints each pool's tests instead of running them. A
+||| pool's directories are found with `testsInDir`; one that does not exist,
+||| or holds no test yet, adds none.
+|||
 ||| It also answers the `run` scripts that need Idris:
 |||
 |||     runtests --sem-program <name>   the program of a TEST-SEM-1 test
@@ -79,8 +83,7 @@ versioned name tree inside = pool name . map inside =<< subdirs tree
 suites : List (String, List (IO TestPool))
 suites =
   [ ("check",
-      [ pool "spec: rule identifiers against the tests (TEST-SPEC-1)" ["spec"]
-      , pool "toolchain: pins, commands and repository rules" ["toolchain"]
+      [ pool "spec: the rules against the tests (TEST-SPEC-1), the pins, the commands and the layout" ["spec"]
       ])
   , ("test",
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
@@ -89,6 +92,7 @@ suites =
       , versioned "e2e: programs against their oracles and Chez" "e2e" id
       , pool "determinism: byte-identical artifacts (TEST-DET-1)" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
+      , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
       ])
   , ("test-idr",
       [ versioned "dialect: the idr dialect and its passes (TEST-IDR-1)" "idr" id ])
@@ -105,34 +109,45 @@ root = do
     | Nothing => die "the current directory is unknown"
   pure (fromMaybe here (parent here))
 
-||| `--suite NAME` and the other arguments.
-takeSuite : List String -> (Maybe String, List String)
-takeSuite ("--suite" :: name :: rest) = let (_, others) = takeSuite rest in (Just name, others)
-takeSuite (arg :: rest) = let (suite, others) = takeSuite rest in (suite, arg :: others)
-takeSuite [] = (Nothing, [])
+||| `--suite NAME`, `--list` and the other arguments.
+takeOwn : List String -> (Maybe String, Bool, List String)
+takeOwn ("--suite" :: name :: rest) = let (_, list, others) = takeOwn rest in (Just name, list, others)
+takeOwn ("--list" :: rest) = let (suite, _, others) = takeOwn rest in (suite, True, others)
+takeOwn (arg :: rest) = let (suite, list, others) = takeOwn rest in (suite, list, arg :: others)
+takeOwn [] = (Nothing, False, [])
 
 runnerUsage : String
 runnerUsage = unlines
-  [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [Test.Golden options]"
+  [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list] [Test.Golden options]"
   , "       runtests --sem-program <name> | --sem-list | --spec <check> | --lock"
   , Test.Golden.usage
   ]
 
+||| The pools of a suite, or of all of them.
+suitePools : Maybe String -> IO (List (IO TestPool))
+suitePools Nothing = pure (concatMap snd suites)
+suitePools (Just s) =
+  maybe (die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)) pure (lookup s suites)
+
+||| The tests each pool would run, without running them.
+listPools : Options -> List TestPool -> IO ()
+listPools opts pools = for_ pools $ \p => do
+  let tests = filterTests opts (testCases p)
+  putStrLn (poolName p ++ ": " ++ show (length tests))
+  traverse_ (putStrLn . ("  " ++)) tests
+
 runSuites : String -> List String -> IO ()
 runSuites prog args = do
-  let (suite, rest) = takeSuite args
+  let (suite, listing, rest) = takeOwn args
   Just opts <- options (prog :: rest)
     | Nothing => die runnerUsage
   r <- root
   ignore $ setEnv "IDRIS_MLIR_ROOT" r True
-  chosen <- case suite of
-    Nothing => pure (concatMap snd suites)
-    Just s => maybe (die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)) pure (lookup s suites)
-  pools <- sequence chosen
+  pools <- sequence !(suitePools suite)
   -- Run anywhere but tests/, the pools are empty; that must not pass.
   when (all (null . testCases) pools) $
     die "no tests found: run the runner in tests/, through make"
-  runnerWith opts pools
+  if listing then listPools opts pools else runnerWith opts pools
 
 main : IO ()
 main = do

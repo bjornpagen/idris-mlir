@@ -4,22 +4,11 @@
 # IDRIS_MLIR_IDRIS_SOURCE are as in tools/verify-pins.sh.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
+. "$root/tools/toolchain.sh"
 pins=$root/tools/verify-pins.sh
-lock=$root/toolchain.lock.json
 
-# lock_field TOOL KEY, as in tools/verify-pins.sh.
 lock_field() {
-  awk -v tool="$1" -v key="$2" '
-    /^[ \t]*"[^"]*"[ \t]*:[ \t]*\{/ { split($0, parts, "\""); object = parts[2]; next }
-    /^[ \t]*\}/ { object = ""; next }
-    object == tool && match($0, "^[ \t]*\"" key "\"[ \t]*:[ \t]*\"") {
-      value = substr($0, RLENGTH + 1); sub(/".*$/, "", value); print value; exit
-    }' "$lock"
-}
-
-stamp_field() {
-  sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1/provenance.json" 2> /dev/null | head -n 1
+  "$pins" lock "$1" "$2" 2> /dev/null
 }
 
 # problem CHECK: the error of a verify-pins check, without `error: `.
@@ -43,8 +32,8 @@ if command -v cc > /dev/null 2>&1 &&
 else
   echo "GMP headers: not found"
 fi
-if [ -f "$toolchain/idris2/provenance.json" ]; then
-  echo "Local Idris/API: built at $(stamp_field "$toolchain/idris2" idris2_revision)"
+if [ -f "$idris_prefix/provenance.json" ]; then
+  echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision)"
 else
   echo "Local Idris/API: not built"
 fi
@@ -59,16 +48,16 @@ for path in compiler/build/exec/idris-mlir build/dev/foreign/idr/idris-mlir-cc \
             build/dev/foreign/idr/idris-mlir-opt; do
   if [ -f "$root/$path" ]; then echo "$path: built"; else echo "$path: not built (make build)"; fi
 done
-if [ -f "$toolchain/llvm/provenance.json" ]; then
-  echo "Local MLIR tools: built at $(stamp_field "$toolchain/llvm" llvm_revision)"
+if [ -f "${llvm_bin%/bin}/provenance.json" ]; then
+  echo "Local MLIR tools: built at $(stamp_field "${llvm_bin%/bin}" llvm_revision)"
   for tool in mlir-opt mlir-translate mlir-tblgen opt llc llvm-nm FileCheck not count; do
     case $tool in
       not | count)
         # Test utilities without --version.
-        if [ -f "$toolchain/llvm/bin/$tool" ]; then echo "  $tool: present"; else echo "  $tool: MISSING"; fi
+        if [ -f "$llvm_bin/$tool" ]; then echo "  $tool: present"; else echo "  $tool: MISSING"; fi
         ;;
       *)
-        if "$toolchain/llvm/bin/$tool" --version 2> /dev/null | grep -qF "version $llvm_version"; then
+        if "$llvm_bin/$tool" --version 2> /dev/null | grep -qF "version $llvm_version"; then
           echo "  $tool: matches lock"
         else
           echo "  $tool: VERSION MISMATCH"

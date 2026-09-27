@@ -1,0 +1,12 @@
+#!/bin/sh
+# rule: TC-PIN-2
+# The commands run the pinned Idris and inherit no package path from another
+# installation: make's environment, with the caller's set to other values.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+(
+  unset MAKEFLAGS MAKELEVEL MFLAGS
+  IDRIS2_PATH=/unrelated IDRIS2_PACKAGE_PATH=/unrelated IDRIS2_INC_CGS=other IDRIS2_PREFIX=/unrelated \
+    make --no-print-directory -s -C "$root" env
+) > "$work/env" 2>&1
+say "make env: exit $?"
+grep -v '^CHEZ=' "$work/env" | sed "s|$root|<root>|g"

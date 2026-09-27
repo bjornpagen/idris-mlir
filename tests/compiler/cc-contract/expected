@@ -1,0 +1,3 @@
+contract violation: exit 1
+existing output: untouched
+no arguments: exit 2

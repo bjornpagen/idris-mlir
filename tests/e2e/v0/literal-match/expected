@@ -1,0 +1,7 @@
+oracle: stock idris2 checks Oracle.idr
+compile: exit 0
+artifacts: Prog.core Prog.mlir Prog.o Prog
+run: exit status as expected
+stdout: empty
+stderr: empty
+object: no undefined symbol outside LOW-EXT-1's set

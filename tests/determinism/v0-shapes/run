@@ -1,0 +1,4 @@
+#!/bin/sh
+# DRV-FLOW-1 on tests/e2e/v0/shapes, twice (TEST-DET-1).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism v0 "$root/tests/e2e/v0/shapes"

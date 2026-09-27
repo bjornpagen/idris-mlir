@@ -1,0 +1,6 @@
+compile 1: exit 0
+compile 2: exit 0
+core: identical
+mlir: identical
+object: identical
+executable: identical

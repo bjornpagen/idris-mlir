@@ -1,0 +1,5 @@
+lit: none
+the pinned LLVM: .toolchain/llvm/bin
+FileCheck: the pinned LLVM's, first on PATH
+not: the pinned LLVM's, first on PATH
+count: the pinned LLVM's, first on PATH

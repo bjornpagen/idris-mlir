@@ -1,0 +1,31 @@
+#!/bin/sh
+# rule: FE-IN-3
+# Only IdrisMLIR.Frontend.* imports the Idris compiler: no other module of
+# compiler/src imports a module whose root is a root of the Idris API
+# (third_party/Idris2/idris2api.ipkg).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+roots=$(awk 'found { print; next } /modules/ { found = 1; sub(/^.*modules/, ""); print }' \
+          "$root/third_party/Idris2/idris2api.ipkg" |
+        grep -oE '^[[:space:]]*,?[[:space:]]*[A-Z][A-Za-z0-9]*([.,[:space:]]|$)' |
+        sed 's/^[[:space:]]*,\{0,1\}[[:space:]]*\([A-Z][A-Za-z0-9]*\).*/\1/' | sort -u | tr '\n' ' ')
+case " $roots " in
+  *" Core "*) say "the Idris API's module roots include Core" ;;
+  *) say "the Idris API's module roots lack Core: $roots" ;;
+esac
+find "$root/compiler/src" -path "$root/compiler/src/IdrisMLIR/Frontend" -prune -o -name '*.idr' -print |
+  sort > "$work/sources"
+: > "$work/imports"
+while IFS= read -r file; do
+  sed -n 's/^import[[:space:]]\{1,\}\(public[[:space:]]\{1,\}\)\{0,1\}\([A-Za-z0-9_.][A-Za-z0-9_.]*\).*/\2/p' "$file" |
+    while IFS= read -r module; do
+      case " $roots " in
+        *" ${module%%.*} "*) say "${file#"$root"/} imports $module" >> "$work/imports" ;;
+      esac
+    done
+done < "$work/sources"
+if [ -s "$work/imports" ]; then
+  say "modules outside IdrisMLIR.Frontend that import the Idris compiler:"
+  cat "$work/imports"
+else
+  say "only IdrisMLIR.Frontend imports the Idris compiler"
+fi

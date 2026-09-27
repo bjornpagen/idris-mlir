@@ -1,0 +1,2 @@
+the Idris API's module roots include Core
+only IdrisMLIR.Frontend imports the Idris compiler

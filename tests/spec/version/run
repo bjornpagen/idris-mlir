@@ -1,0 +1,6 @@
+#!/bin/sh
+# rule: TEST-SPEC-1
+# VERSION names an implemented version (docs/architecture/VERSION).
+# The check is tests/Spec.idr, in the runner.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$runtests" --spec version

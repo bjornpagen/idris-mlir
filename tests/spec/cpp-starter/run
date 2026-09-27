@@ -1,0 +1,18 @@
+#!/bin/sh
+# rule: TC-CPP-1
+# C++ follows bjornpagen/cpp-starter at bdb6838: its presets and its flags.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+if grep -q bdb6838 "$root/docs/cpp-profile.md"; then
+  say "docs/cpp-profile.md: cpp-starter at bdb6838"
+else
+  say "docs/cpp-profile.md: not cpp-starter at bdb6838"
+fi
+sed -n '/"configurePresets"/,/"buildPresets"/p' "$root/CMakePresets.json" |
+  sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' > "$work/presets"
+for preset in dev release asan-ubsan lint; do
+  if grep -qx "$preset" "$work/presets"; then say "preset $preset"; else say "preset $preset: missing"; fi
+done
+for flag in 'set(CMAKE_CXX_STANDARD 26)' '-fno-exceptions -fno-rtti' '-freflection' '-Werror' \
+            'idris_mlir_language_profile'; do
+  if grep -qF -- "$flag" "$root/CMakeLists.txt"; then say "CMakeLists.txt: $flag"; else say "CMakeLists.txt: no $flag"; fi
+done

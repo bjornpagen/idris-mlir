@@ -1,0 +1,14 @@
+#!/bin/sh
+# Every PIN(<name>) site outside the docs has a `## <name>` entry in PINS.md
+# (what golden tests printed, their `output`, is not a site).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+sed -n 's/^## \([^[:space:]]\{1,\}\)$/\1/p' "$root/PINS.md" | sort -u > "$work/entries"
+(cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name docs \) -prune \
+   -o -type f ! -name '*.md' ! -name output -exec grep -hoI 'PIN([A-Za-z0-9_-]\{1,\})' {} +) |
+  sed 's/^PIN(\(.*\))$/\1/' | sort -u > "$work/sites"
+if comm -23 "$work/sites" "$work/entries" > "$work/missing" && [ ! -s "$work/missing" ]; then
+  say "every PIN site has a PINS.md entry"
+else
+  say "PIN sites without a PINS.md entry:"
+  cat "$work/missing"
+fi

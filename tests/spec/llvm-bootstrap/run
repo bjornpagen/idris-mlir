@@ -1,0 +1,23 @@
+#!/bin/sh
+# rule: TC-BOOT-2
+# tools/bootstrap.sh builds LLVM/MLIR with the pinned tools: its configure
+# names the C and C++ compilers and the Ninja it builds with, and the MLIR
+# project.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+script=$root/tools/bootstrap.sh
+if [ ! -f "$script" ]; then
+  say "tools/bootstrap.sh: missing"
+  exit 0
+fi
+for flag in CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_MAKE_PROGRAM LLVM_ENABLE_PROJECTS; do
+  if grep -qF -- "-D$flag=" "$script"; then
+    say "LLVM's configure sets $flag"
+  else
+    say "LLVM's configure does not set $flag"
+  fi
+done
+if grep -q 'LLVM_ENABLE_PROJECTS=[^[:space:]]*mlir' "$script"; then
+  say "LLVM's projects include mlir"
+else
+  say "LLVM's projects lack mlir"
+fi

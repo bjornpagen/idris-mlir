@@ -3,10 +3,11 @@
 #   make bootstrap         build the pinned toolchain into .toolchain/ (tools/bootstrap.sh all)
 #   make doctor            what the build needs, and what is built
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
-#   make check             tests/spec and tests/toolchain: repository rules; always
+#   make check             tests/spec: the spec's rules against the tests, the pins,
+#                          the commands and the layout; always, without a build
 #   make build             the C++ dev preset and the Idris compiler; after any code change
-#   make test              tests/compiler, profile, e2e, determinism, registry;
-#                          after compiler changes
+#   make test              tests/compiler, profile, e2e, determinism, registry and
+#                          toolchain; after compiler changes
 #   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
 #                          contract changes
 #   make test-mlir-tools   tests/mlir, the pinned upstream MLIR tools; after changing
@@ -23,13 +24,16 @@
 # if any did.
 
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-TOOLCHAIN := $(ROOT)/.toolchain
-IDRIS_PREFIX := $(TOOLCHAIN)/idris2
-IDRIS2 := $(IDRIS_PREFIX)/bin/idris2
-CMAKE := $(TOOLCHAIN)/cmake/bin/cmake
-PINNED_CC := $(TOOLCHAIN)/gcc/bin/gcc
+# Where the pinned tools are, from tools/toolchain.sh, which the scripts share.
+toolchain = $(shell root='$(ROOT)'; . '$(ROOT)/tools/toolchain.sh'; printf '%s' "$$$(1)")
+IDRIS_PREFIX := $(call toolchain,idris_prefix)
+IDRIS2 := $(call toolchain,idris2)
+CMAKE := $(call toolchain,cmake)
+PINNED_CC := $(call toolchain,pinned_cc)
+IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
+# The tools/verify-pins.sh check of PINNED_CC's stamp.
+CC_PIN := gcc
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
-IDRIS_MLIR_CC := $(ROOT)/build/dev/foreign/idr/idris-mlir-cc
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
 GEN_RYU_TABLES := $(ROOT)/tools/build/exec/gen-ryu-tables
@@ -42,7 +46,7 @@ unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_DATA IDRIS2_LIBS 
 export IDRIS2_PREFIX := $(IDRIS_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
-STAMPED_CHEZ := $(shell sed -n 's/.*"scheme"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' '$(IDRIS_PREFIX)/provenance.json' 2> /dev/null)
+STAMPED_CHEZ := $(shell root='$(ROOT)'; . '$(ROOT)/tools/toolchain.sh'; stamp_field "$$idris_prefix" scheme)
 ifneq ($(STAMPED_CHEZ),)
 export CHEZ := $(STAMPED_CHEZ)
 endif
@@ -53,8 +57,13 @@ except ?=
 INTERACTIVE ?=
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
 
-.PHONY: bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \
+.PHONY: help bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \
         runner gen-ryu-tables ryu-tables compile bench
+.DEFAULT_GOAL := help
+
+# `make` alone lists the commands: the comment that starts this file.
+help:
+	@sed -n '/^#/!q; s/^# \{0,1\}//p' $(ROOT)/Makefile
 
 bootstrap:
 	$(ROOT)/tools/bootstrap.sh all
@@ -74,7 +83,7 @@ build:
 	@$(PINS) cmake llvm
 	cd $(ROOT) && $(CMAKE) --preset dev
 	cd $(ROOT) && $(CMAKE) --build --preset dev
-	@$(PINS) idris gcc
+	@$(PINS) idris $(CC_PIN)
 	@$(MAKE) --no-print-directory paths
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
 
@@ -104,22 +113,22 @@ check: runner gen-ryu-tables
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite check $(GOLDEN)
 
 test: runner
-	@$(PINS) built llvm gcc
+	@$(PINS) built llvm $(CC_PIN)
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test $(GOLDEN)
 
 test-idr: runner
-	@$(PINS) built llvm test-tools gcc
+	@$(PINS) built llvm test-tools $(CC_PIN)
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-idr $(GOLDEN)
 
 test-mlir-tools: runner
-	@$(PINS) llvm gcc
+	@$(PINS) llvm $(CC_PIN)
 	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-mlir-tools $(GOLDEN)
 
 compile:
 	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Prog.idr OUT=prog' >&2; exit 2; }
-	@$(PINS) built idris gcc
+	@$(PINS) built idris $(CC_PIN)
 	@$(ROOT)/tools/compile.sh '$(abspath $(SRC))' '$(abspath $(OUT))'
 
 bench:
-	@$(PINS) built idris gcc
+	@$(PINS) built idris $(CC_PIN)
 	$(ROOT)/bench/run.sh $(ARGS)
