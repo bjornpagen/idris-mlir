@@ -34,6 +34,11 @@ with an `unsupported (<RULE>)` error at the source location.
   shortest round-trip printing; libm functions. See
   [the math showcase](tests/e2e/v2/math-showcase) for what that allows.
 
+- **v3 (in progress):** `import Prelude` in IO programs: `Num`, `Eq`,
+  `Ord`, `Bool`, `if`, `Maybe`, pairs, `cast`, and `show`, with `Integer`,
+  `Nat` and lists evaluated at compile time. See
+  [the v3 note](docs/research/v3-entry.md) for what is still missing.
+
 On the heap-free programs it can compile, the output is faster than MLton's
 on every benchmark in [bench/](bench/README.md), by 1.4x to 4.3x, and within
 reach of gcc -O2.

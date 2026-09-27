@@ -1,6 +1,6 @@
 module Main
 
--- rule: PROF-PROG-4, PROF-LIB-1, ELIM-G-12, ELIM-G-13, SEM-BIG-1, SEM-REC-1
+-- rule: PROF-PROG-4, PROF-LIB-1, ELIM-G-12, ELIM-G-13, ELIM-G-14, SEM-BIG-1, SEM-REC-1
 -- The stock Prelude, imported explicitly: Num, Neg, Integral, Eq, Ord,
 -- Bool, if, && and ||, Maybe, Pair, cast, and show on Int, Double and Bool.
 -- Its Integer literals, its Nat inside Prec and its show internals are all
@@ -40,3 +40,7 @@ main = do
   putStrLn (show (the Double (cast n) / 3.0 + 0.5))
   putStrLn (show (n > 3 && n < 9 || n == 42))
   putStrLn (show (fst (n, 2) + snd (3, n)))
+  -- ELIM-G-14: a string built in one alternative of a runtime match.
+  putStrLn (maybe "none" show (safeDiv 100 n))
+  putStrLn (maybe "none" show (safeDiv 100 (n - 7)))
+  putStrLn (show (n, n + 1))

@@ -200,6 +200,21 @@ is static.
   semantics do not change. Idris also marks small user definitions `Inline`
   on its own; those are not unfolded.
   - Check: `Frontend.Translate.translateInstance` (`TFn.inline`)
+- **ELIM-G-14 (v3). String join points.** A match on a runtime value whose
+  alternatives yield strings, at least one of them built from runtime pieces
+  (`"Just " ++ show n`), is a static string: it keeps the scrutinee, and
+  for each alternative its code and its string. Output fusion (`ELIM-G-7`)
+  writes it as the match, with the rest of the output at the end of each
+  alternative; this generalizes `ELIM-G-7` case 5 from a match that is
+  `putStr`'s argument to one reached through any number of calls
+  (`maybe "none" show m`). The alternatives' code refers to variables in
+  scope where the match was made, so such a value never crosses a
+  specialization: a call that receives one is unfolded, re-entering a
+  function at most 64 times, and a recursive function that would receive
+  one is rejected (`PROF-HEAP-3`).
+  - *Why this is exact:* writing the string of the chosen alternative after
+    that alternative's code is what writing the match's value does.
+  - Test: `tests/e2e/v3/prelude`
 - **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
   traversal order: definitions in `FE-DET-1` order, terms outermost first.
   The result is a fixpoint. The rules that can grow the program are bounded:
@@ -208,7 +223,7 @@ is static.
   - `ELIM-G-5` at one application per function;
   - `ELIM-G-7` case 5 by the number of alternatives;
   - `ELIM-G-10` to `ELIM-G-13` by the call graph: no function is unfolded
-    inside itself.
+    inside itself; with a string join point (`ELIM-G-14`), at most 64 times.
 
   Every other rule makes the program smaller. `ELIM-G-3` can diverge only
   when a recursive function passes itself a growing static value, which is

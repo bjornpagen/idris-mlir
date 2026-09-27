@@ -12,6 +12,7 @@ module IdrisMLIR.Simplify.Value
 
 import IdrisMLIR.Code
 import IdrisMLIR.Ids
+import IdrisMLIR.Loc
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -28,15 +29,36 @@ import Data.Vect
 -- Values
 ------------------------------------------------------------------------------
 
-||| A string known at compile time up to runtime pieces (ELIM-G-6, ELIM-G-7):
-||| runtime strings, characters and decimal numbers.
+||| Bindings of first-order code, in order: what a block emitted.
 public export
-data SStr a = SLit String
-            | SRun a                  -- a runtime string
-            | SAppend (SStr a) (SStr a)
-            | SCons a (SStr a)        -- a runtime character in front
-            | SShow VTy a             -- a runtime number (an integer or Double), shown
-            | SChr a                  -- a runtime character
+Prefix : Type
+Prefix = List (Loc, VarId, Quantity, VTy, Op Code)
+
+mutual
+  ||| A string known at compile time up to runtime pieces (ELIM-G-6, ELIM-G-7):
+  ||| runtime strings, characters and decimal numbers, and a match on a
+  ||| runtime value whose alternatives are strings (ELIM-G-14).
+  public export
+  data SStr a = SLit String
+              | SRun a                  -- a runtime string
+              | SAppend (SStr a) (SStr a)
+              | SCons a (SStr a)        -- a runtime character in front
+              | SShow VTy a             -- a runtime number (an integer or Double), shown
+              | SChr a                  -- a runtime character
+              | SCase VTy a (List (Join a)) (Maybe (Arm a))
+
+  ||| One alternative of a string join point: its constructor and fields, and
+  ||| its arm.
+  public export
+  data Join : Type -> Type where
+    MkJoin : ConId -> List VarId -> Arm a -> Join a
+
+  ||| An arm: the code before its string and the string, or code that cannot
+  ||| return.
+  public export
+  data Arm : Type -> Type where
+    Returns : Prefix -> SStr a -> Arm a
+    Stops : Code -> Arm a
 
 mutual
   public export
@@ -68,13 +90,28 @@ mutual
 -- The typed traversal
 ------------------------------------------------------------------------------
 
-traverseS : Applicative f => (VTy -> a -> f b) -> SStr a -> f (SStr b)
-traverseS g (SLit s) = pure (SLit s)
-traverseS g (SRun x) = SRun <$> g StrT x
-traverseS g (SAppend a b) = SAppend <$> traverseS g a <*> traverseS g b
-traverseS g (SCons c s) = SCons <$> g CharT c <*> traverseS g s
-traverseS g (SShow t n) = SShow t <$> g t n
-traverseS g (SChr c) = SChr <$> g CharT c
+mutual
+  traverseS : Applicative f => (VTy -> a -> f b) -> SStr a -> f (SStr b)
+  traverseS g (SLit s) = pure (SLit s)
+  traverseS g (SRun x) = SRun <$> g StrT x
+  traverseS g (SAppend a b) = SAppend <$> traverseS g a <*> traverseS g b
+  traverseS g (SCons c s) = SCons <$> g CharT c <*> traverseS g s
+  traverseS g (SShow t n) = SShow t <$> g t n
+  traverseS g (SChr c) = SChr <$> g CharT c
+  traverseS g (SCase t x js d) =
+    SCase t <$> g t x <*> traverseJoins g js <*> traverseMaybeArm g d
+
+  traverseJoins : Applicative f => (VTy -> a -> f b) -> List (Join a) -> f (List (Join b))
+  traverseJoins g [] = pure []
+  traverseJoins g (MkJoin c ys arm :: js) = (::) . MkJoin c ys <$> traverseArm g arm <*> traverseJoins g js
+
+  traverseArm : Applicative f => (VTy -> a -> f b) -> Arm a -> f (Arm b)
+  traverseArm g (Returns p s) = Returns p <$> traverseS g s
+  traverseArm g (Stops c) = pure (Stops c)
+
+  traverseMaybeArm : Applicative f => (VTy -> a -> f b) -> Maybe (Arm a) -> f (Maybe (Arm b))
+  traverseMaybeArm g Nothing = pure Nothing
+  traverseMaybeArm g (Just a) = Just <$> traverseArm g a
 
 mutual
   ||| Visits the atoms of a value in a fixed order, with their types. Every
@@ -144,6 +181,7 @@ rankS (SAppend _ _) = 2
 rankS (SCons _ _) = 3
 rankS (SShow _ _) = 4
 rankS (SChr _) = 5
+rankS (SCase {}) = 6
 
 cmpS : Ord a => SStr a -> SStr a -> Ordering
 cmpS (SLit a) (SLit b) = compare a b
@@ -151,6 +189,7 @@ cmpS (SRun a) (SRun b) = compare a b
 cmpS (SAppend a b) (SAppend c d) = cmpS a c <+> cmpS b d
 cmpS (SCons a s) (SCons b t) = compare a b <+> cmpS s t
 cmpS (SShow t a) (SShow u b) = compare t u <+> compare a b
+cmpS (SCase _ x js _) (SCase _ y ks _) = compare x y <+> compare (length js) (length ks)
 cmpS (SChr a) (SChr b) = compare a b
 cmpS a b = compare (rankS a) (rankS b)
 
@@ -222,6 +261,7 @@ showS (SAppend a b) = "(" ++ showS a ++ " ++ " ++ showS b ++ ")"
 showS (SCons _ s) = "(_:Char :: " ++ showS s ++ ")"
 showS (SShow t _) = "show(_:" ++ show t ++ ")"
 showS (SChr _) = "str(_:Char)"
+showS (SCase _ _ js _) = "case(" ++ show (length js) ++ " alternatives)"
 
 mutual
   export covering

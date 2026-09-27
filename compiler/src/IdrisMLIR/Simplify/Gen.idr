@@ -186,6 +186,28 @@ block l act = do
       pure (Nothing, close (st'.lets <>> []) (Absurd at))
     Left err => lift (Left err)
 
+||| Runs a computation in a fresh block and returns its value with the
+||| bindings it made, or the code of a block that cannot return. The value is
+||| reified later, where it is used (ELIM-G-14).
+export
+blockV : Loc -> M a -> M (Either Code (Prefix, a))
+blockV l act = do
+  st <- get
+  case runStateT ({ lets := [<] } st) act of
+    Right (st', x) => do
+      put ({ lets := st.lets } st')
+      pure (Right (map (\s => (s.loc, s.var, s.quantity, s.type, s.op)) (st'.lets <>> []), x))
+    Left (Dead at) => pure (Left (Absurd at))
+    Left (Crashed at st') => do
+      put ({ lets := st.lets } st')
+      pure (Left (close (st'.lets <>> []) (Absurd at)))
+    Left err => lift (Left err)
+
+||| Emits bindings made by `blockV` into the current block.
+export
+replay : Prefix -> M ()
+replay p = modify { lets $= (<>< map (\(l, x, q, t, o) => MkStmt l x q t o) p) }
+
 ||| Consuming a static value runs the action it describes: its code is not
 ||| part of the prefix it was built in.
 export

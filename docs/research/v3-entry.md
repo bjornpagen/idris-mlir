@@ -32,18 +32,15 @@ benchmarks in `bench/` did not change.
 
 ## What still fails, and what it needs
 
-1. **A string built inside a runtime branch.** `maybe "none" show m`,
-   `show (Just n)` and `show (n, m)` build a string (`"Just " ++ show n`) in
-   one alternative of a match on a runtime value. Output fusion
-   (`ELIM-G-7` case 5) pushes `putStr` into the alternatives of a match
-   only when the match is syntactically its argument. The general form is a
-   *join point for strings*: a residual match whose alternatives yield
-   static strings is itself a static string value (`SStr` gains a case
-   form holding the scrutinee, each alternative's code and its string),
-   and `putStr` of it emits the match with a `putStr` at the end of each
-   alternative. Everything needed exists (blocks keep their code; `putStr`
-   already walks static strings); the value just has to carry the
-   alternatives. This is the one gap that most limits ordinary programs.
+1. **A string built inside a runtime branch** (`maybe "none" show m`,
+   `show (n, m)`): done, as string join points (`ELIM-G-14`). A residual
+   match whose alternatives yield strings is itself a static string that
+   keeps each alternative's code; `putStr` of it writes the match with the
+   output at the end of each alternative. What is left is `show (Just n)`:
+   the Prelude checks at runtime whether the shown number starts with `-`
+   to print `Just (-5)`, which is `strHead` of a number shown at runtime.
+   A rule for the first character of a shown integer (`-` exactly when it
+   is negative) would close it.
 2. **The Prelude's own IO.** `printLn` and `putStrLn` from `Prelude.IO`
    reach `%foreign prim__putStr` and are rejected. `IdrisMLIR.IO` must be
    imported instead, and Idris then picks its functions. Mapping the
@@ -70,8 +67,8 @@ benchmarks in `bench/` did not change.
 
 ## Exit criteria for `VERSION = v3`
 
-- Items 1 and 2 above, so that `show` of any first-order Prelude value and
-  the Prelude's own IO functions work.
+- Items 1 (`show (Just n)`) and 2 above, so that `show` of any
+  first-order Prelude value and the Prelude's own IO functions work.
 - Every v3 rule tested (`TEST-SPEC-1` with `VERSION = v3`).
 - A Prelude-using version of the math showcase and the benchmarks, diffed
   against Chez, with benchmark times no worse than the `IdrisMLIR`-only

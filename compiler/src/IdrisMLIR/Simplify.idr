@@ -161,6 +161,24 @@ applied [] = []
 applied (Apply v :: es) = v :: applied es
 applied (_ :: es) = applied es
 
+||| Does a value hold a string join point (ELIM-G-14)? Its alternatives' code
+||| refers to the variables in scope where it was made, so it can only be
+||| used there: a call that receives one is unfolded.
+joinIn : V -> Bool
+joinIn (SString s) = joinS s
+  where
+    joinS : SStr Atom -> Bool
+    joinS (SCase {}) = True
+    joinS (SAppend a b) = joinS a || joinS b
+    joinS (SCons _ s) = joinS s
+    joinS _ = False
+joinIn (SCon _ fs) = assert_total (any joinIn fs)
+joinIn (SLam _ caps _ _) = assert_total (any joinIn (toList caps))
+joinIn (SDelay _ caps _) = assert_total (any joinIn (toList caps))
+joinIn (SCall _ _ as es) = assert_total (any joinIn (as ++ applied es))
+joinIn _ = False
+
+
 ------------------------------------------------------------------------------
 -- Reification (Futhark's residualization, Kovács's `down`)
 ------------------------------------------------------------------------------
@@ -265,7 +283,8 @@ mutual
       Nothing => if fn.result == BigT then unfold l fn vs []
                  else pure (SCall f !(gets effects) vs [])                         -- G5
       Just StrT => unfold l fn vs []                                               -- G10
-      Just _ => if fn.block || fn.inline || interesting vs then unfold l fn vs [] -- G11-G13
+      Just _ => if fn.block || fn.inline || interesting vs || any joinIn vs          -- G11-G14
+                   then unfold l fn vs []
                 else call l Nothing f vs []
   eval env (ConApp l c args) = do
     vs <- traverse (\a => evalK env a []) args
@@ -343,11 +362,35 @@ mutual
       tys <- traverse (\f => runtimeTy l f.type) con.fields
       ys <- traverse (const freshVar) tys
       env' <- bindAlt l bs (zipWith dynVar ys tys) env
-      (t, code) <- block (locOf body) (evalK env' body es >>= reify (locOf body))
-      pure (t, MkBranch c ys code)
-    def' <- traverse (\e => branch env e es) def
-    t <- matchTy l (map fst alts' ++ maybe [] (pure . fst) def')
-    Dyn t <$> bind l t (OCase x (map snd alts') (map snd def'))
+      r <- blockV (locOf body) (evalK env' body es)
+      pure (c, ys, locOf body, r)
+    def' <- traverse (\e => (locOf e,) <$> blockV (locOf e) (evalK env e es)) def
+    let results = mapMaybe (\(_, _, _, r) => value r) alts' ++ maybe [] (toList . value . snd) def'
+    -- G14: alternatives that build strings make a string join point.
+    if any needsJoin results && all isString results
+      then pure (SString (SCase (DataT d) x (map (\(c, ys, _, r) => MkJoin c ys (arm r)) alts')
+                                             (map (arm . snd) def')))
+      else do
+        branches <- for alts' $ \(c, ys, bl, r) => map (MkBranch c ys) <$> residual bl r
+        defs <- traverse (\(bl, r) => residual bl r) def'
+        t <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
+        Dyn t <$> bind l t (OCase x (map snd branches) (map snd defs))
+    where
+      residual : Loc -> Either Code (Prefix, V) -> M (Maybe VTy, Code)
+      residual bl (Left code) = pure (Nothing, code)
+      residual bl (Right (p, v)) = block bl (replay p *> reify bl v)
+      arm : Either Code (Prefix, V) -> Arm Atom
+      arm (Left code) = Stops code
+      arm (Right (p, v)) = maybe (Stops (Absurd l)) (Returns p) (asStr v)
+      value : Either Code (Prefix, V) -> Maybe V
+      value (Right (_, v)) = Just v
+      value (Left _) = Nothing
+      isString : V -> Bool
+      isString v = isJust (asStr v)
+      needsJoin : V -> Bool
+      needsJoin (SString (SRun _)) = False
+      needsJoin (SString s) = isNothing (strLit s)
+      needsJoin _ = False
   matchCon env l v alts def es = fail ProfHeap1 l ("a match on " ++ showShape (shape v))
 
   ||| Applies eliminations to a value.
@@ -367,7 +410,8 @@ mutual
       -- callee's own prefix is recorded where it is specialized. G10 and
       -- G11 unfold it instead when no effect separates building the call
       -- from running it.
-      Just r => if (r == StrT || fn.block || fn.inline || interesting (as ++ applied (ms ++ es))) && e == now
+      Just r => if (r == StrT || fn.block || fn.inline || interesting (as ++ applied (ms ++ es))
+                    || any joinIn (as ++ applied (ms ++ es))) && e == now
                    then leavePrefix (unfold l fn as (ms ++ es))
                    else leavePrefix (call l (Just e) f as (ms ++ es))
   consume l v es = fail ProfHeap1 l ("cannot apply or project " ++ showShape (shape v))
@@ -382,7 +426,10 @@ mutual
     st <- get
     -- An Integer function is evaluated at compile time, recursion included,
     -- up to a bound (SEM-BIG-1); anything else unfolds once.
-    let bound = the Nat (if fn.result == BigT then 10000 else 1)
+    -- A string join point cannot cross a specialization (ELIM-G-14), so a
+    -- call that carries one may re-enter a function a bounded number of times.
+    let bound = the Nat (if fn.result == BigT then 10000
+                         else if any joinIn (vs ++ applied es) then 64 else 1)
     if count (== fn.id) st.unfolding >= bound then call l Nothing fn.id vs es else do
       Just env <- pure (toVect fn.arity vs)
         | Nothing => fail CoreCheck1 l ("a call of " ++ show fn.id ++ " with the wrong arity")
@@ -398,6 +445,9 @@ mutual
   call l built f args0 es = do
     fn <- fnDef l f
     let args = map literalStr args0
+    when (any joinIn (args ++ applied es)) $
+      fail ProfHeap3 l ("a string built in a runtime branch is passed to " ++ fn.idrisName ++
+                        ", which calls itself, so it would need the heap (ELIM-G-14)")
     t <- elimTy l fn.result es >>= runtimeTy l
     name <- specialize l fn (MkKey f (map shape args) (shapeElims es)) args es t
     now <- gets effects
@@ -540,9 +590,18 @@ mutual
       r <- putStr l res a w
       putStr l res b !(nextWorld r)
     (_, SLit lit) => write PutStr (ALit (LStr lit))
+    -- G14: the match, with the rest of the output in each alternative.
+    (_, SCase t x js d) => do
+      branches <- for js $ \(MkJoin c ys a) => map (MkBranch c ys) <$> writeArm a
+      defs <- traverse writeArm d
+      rt <- matchTy l (map fst branches ++ maybe [] (pure . fst) defs)
+      Dyn rt <$> bind l rt (OCase x (map snd branches) (map snd defs))
     where
       write : IOOp -> Atom -> M V
       write op a = effect *> (Dyn (DataT res) <$> bind l (DataT res) (OIO op [a, w] res))
+      writeArm : Arm Atom -> M (Maybe VTy, Code)
+      writeArm (Stops code) = pure (Nothing, code)
+      writeArm (Returns p s) = block l (replay p *> (assert_total (putStr l res s w) >>= reify l))
       ||| The world inside an `IORes` value.
       nextWorld : V -> M Atom
       nextWorld (Dyn _ r) = do
