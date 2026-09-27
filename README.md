@@ -40,7 +40,10 @@ with an `unsupported (<RULE>)` error at the source location.
   `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
   ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
   `traverse_`). `Integer`, `Nat`, lists and streams exist at compile time
-  only; a call whose arguments are all known is evaluated there. See
+  only; a call whose arguments are all known is evaluated there. The pure
+  parts of the base library (`-p base`) are trusted too: length-indexed
+  vectors (`Data.Vect`), with their indices at compile time only. See
+  [vectors](tests/e2e/v3/vect),
   [complex numbers through the Prelude](tests/e2e/v3/prelude-math) and
   [the v3 note](docs/research/v3-entry.md) for what is still missing.
 

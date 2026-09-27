@@ -61,6 +61,10 @@ record Pending where
 record ConInfo where
   constructor MkConInfo
   params : List ClosedTerm   -- the data instance's type arguments
+  ||| For each argument of the constructor, in order: the position of the
+  ||| data type's parameter it is, or `Nothing` for a field. Idris does not
+  ||| put the parameters first (`(::) : {0 len} -> {0 elem} -> ...`).
+  layout : List (Maybe Nat)
   con : Con
 
 export
@@ -245,6 +249,10 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value : VarInfo n -> ClosedTerm
     value (TypeValue t) = t
     value (Static t) = t
+    -- A quantity-0 variable (a length, a proof) is not a runtime value: an
+    -- implementation that mentions it (`Foldable (Vect n)`) does not
+    -- depend on anything at runtime.
+    value (Bound _ (Just (V ErasedT))) = Erased fc Placeholder
     value (Bound _ _) = Erased fc Impossible
 
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
@@ -411,6 +419,119 @@ instanceName n args = do
     suffixed p Z = p
     suffixed p k = p ++ "'" ++ show k
 
+||| A stand-in for the `i`th binder of a constructor's type.
+marker : Nat -> ClosedTerm
+marker i = Ref EmptyFC Bound (MN "idris-mlir-binder" (cast i))
+
+||| Which arguments of a constructor are the data type's parameters: each
+||| binder of its type is replaced by a marker, and the markers found at the
+||| parameter positions of the return type name them.
+paramLayout : List Nat -> ClosedTerm -> List (Maybe Nat)
+paramLayout params ty =
+  let (n, ret) = markAll 0 ty
+      args = snd (spine ret [])
+      found = mapMaybe (\p => (,p) <$> (getAt p args >>= markerOf)) params
+  in map (\i => lookup i found) (upto n)
+  where
+    upto : Nat -> List Nat
+    upto Z = []
+    upto (S k) = upto k ++ [k]
+    markAll : Nat -> ClosedTerm -> (Nat, ClosedTerm)
+    markAll i (Bind _ _ (Pi {}) sc) = markAll (S i) (subst (marker i) sc)
+    markAll i t = (i, t)
+    markerOf : ClosedTerm -> Maybe Nat
+    markerOf (Ref _ _ (MN "idris-mlir-binder" k)) = Just (cast k)
+    markerOf _ = Nothing
+
+||| The positions of a type constructor's arguments that are types: its
+||| parameters whose kind is a universe. Only they tell instances apart;
+||| every other argument (an index, or a value parameter such as `Equal`'s
+||| `x`) is compile-time information (SEM-IDX-1).
+typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
+typeParams def = case definition def of
+  TCon arity params _ _ _ _ _ => do
+    defs <- get Ctxt
+    -- A record's parameter kinds may be solved metavariables.
+    ty <- normaliseHoles defs [] (type def)
+    let values = kinds ty
+    pure (filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1])
+  _ => pure []
+  where
+    -- Is a kind certainly the type of values, not a universe: a variable
+    -- (`x : a`) or a data type (`n : Nat`)?
+    valueKind : TT vs -> Bool
+    valueKind (Local {}) = True
+    valueKind tm = case spine tm [] of
+      (Ref _ (TyCon _) _, _) => True
+      (PrimVal _ _, _) => True
+      _ => False
+    kinds : TT vs -> List Bool
+    kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
+    kinds _ = []
+
+||| The type arguments of a type constructor, and its arity.
+paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                 String -> Name -> Core (Maybe (Nat, List Nat))
+paramPositions owner n = do
+  def <- lookupDef EmptyFC owner n
+  case definition def of
+    TCon arity _ _ _ _ _ _ => pure (Just (arity, !(typeParams def)))
+    _ => pure Nothing
+
+||| Does a type mention an erased value other than as an index of an
+||| inductive family? Indices exist at compile time only ("Inductive families
+||| need not store their indices", Brady, McBride and McKinna, 2003).
+erasedOutsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                       String -> ClosedTerm -> Core Bool
+erasedOutsideIndices owner (Bind bfc _ (Pi _ _ _ a) sc) = do
+  -- The argument is erased in the result: a dependency on it is one on an
+  -- erased value, unless it is only an index.
+  inA <- erasedOutsideIndices owner a
+  inB <- erasedOutsideIndices owner (subst (Erased bfc Placeholder) sc)
+  pure (inA || inB)
+erasedOutsideIndices owner tm = case spine tm [] of
+  (Ref _ (TyCon _) n, args) => do
+    Just (_, ps) <- paramPositions owner n
+      | Nothing => pure (anyErased tm)
+    rs <- traverse (erasedOutsideIndices owner) (mapMaybe (\p => getAt p args) ps)
+    pure (any id rs)
+  _ => pure (anyErased tm)
+
+||| The arguments of a constructor application that are fields, by layout.
+fieldsOnly : List (Maybe Nat) -> List a -> List a
+fieldsOnly layout xs = go layout xs
+  where
+    go : List (Maybe Nat) -> List a -> List a
+    go (Just _ :: ls) (_ :: ys) = go ls ys
+    go (Nothing :: ls) (y :: ys) = y :: go ls ys
+    go [] ys = ys
+    go _ [] = []
+
+||| The variables a constructor alternative binds, in argument order:
+||| parameters are type values, fields are the alternative's binders.
+arrange : List (Maybe Nat) -> List ClosedTerm -> List (VarInfo m) -> List (VarInfo m)
+arrange [] ps fs = []
+arrange (Just p :: ls) ps fs = TypeValue (fromMaybe (Erased EmptyFC Placeholder) (getAt p ps)) :: arrange ls ps fs
+arrange (Nothing :: ls) ps (f :: fs) = f :: arrange ls ps fs
+arrange (Nothing :: ls) ps [] = []
+
+||| A type with the indices of every inductive family in it erased, so that
+||| `Vect 3 Double` and `Vect n Double` name one instance (SEM-IDX-1).
+eraseIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               {vars : _} -> String -> TT vars -> Core (TT vars)
+eraseIndices owner tm@(Bind fc x (Pi pfc rig pinfo a) sc) = do
+  a' <- eraseIndices owner a
+  sc' <- eraseIndices owner sc
+  pure (Bind fc x (Pi pfc rig pinfo a') sc')
+eraseIndices owner tm = case spine tm [] of
+  (h@(Ref _ (TyCon _) n), args) => do
+    Just (_, ps) <- paramPositions owner n
+      | Nothing => pure tm
+    args' <- traverse (\(i, a) => if elem i ps then eraseIndices owner a else pure (Erased EmptyFC Placeholder))
+                      (zip [0 .. length args] args)
+    pure (foldl (App EmptyFC) h args')
+  _ => pure tm
+
 ||| Static data holds a function or `Lazy` value, directly or through other
 ||| static data (ELIM-G-2, ELIM-G-5).
 isStatic : Ty -> Bool
@@ -437,7 +558,7 @@ mutual
   coreType fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
     at <- if isErased rig then pure (V ErasedT) else coreType fc owner rule a
     let rest = subst (Erased bfc Placeholder) sc
-    when (anyErased rest && not (isErased rig)) $
+    when (not (isErased rig) && !(erasedOutsideIndices owner rest)) $
       reject fc owner rule "a function type that depends on its argument"
     rt <- coreType fc owner rule !(normaliseClosed rest)
     pure (FunT (quantity rig) at rt)
@@ -459,9 +580,15 @@ mutual
   export
   dataInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> String -> Name -> List ClosedTerm -> Core DataId
-  dataInstance fc owner tcon args = do
+  dataInstance fc owner tcon args0 = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
+    -- SEM-IDX-1: an index is compile-time information; instances differ by
+    -- their parameters only.
+    keep <- typeParams def
+    args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
+                                  else pure (Erased EmptyFC Placeholder))
+                     (zip [0 .. length args0] args0)
     inst <- MkDataId <$> instanceName (fullname def) (map Just args)
     st <- get TState
     -- SEM-REC-1: a recursive occurrence is a compile-time value.
@@ -470,11 +597,10 @@ mutual
         | _ => reject fc owner ProfType4 (tname ++ " is not a data type")
       let Just datacons = datacons
         | Nothing => reject fc owner ProfData5 (tname ++ " has no known constructors")
-      when (any (\i => not (elem i params)) [0 .. minus arity 1] && arity > 0) $
-        reject (location def) tname ProfData5 "a data type with indices at runtime"
       put TState ({ building $= insert inst } st)
       loc <- toLoc (location def)
-      conList <- traverse (constructor inst args) datacons
+      let ps = filter (\i => elem i params) [0 .. minus arity 1]
+      conList <- traverse (constructor inst args ps) datacons
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
       let static = any (any (isStatic . (.type)) . (.fields)) sorted
       update TState { building $= delete inst
@@ -482,29 +608,32 @@ mutual
                     , dataOrder $= (:< inst) }
       pure inst
     where
-      ||| Parameters first, then the fields.
-      walk : String -> FC -> List ClosedTerm -> ClosedTerm -> Core (List Field)
-      walk cname dfc (p :: ps) (Bind _ _ (Pi {}) sc) = walk cname dfc ps (subst p sc)
-      walk cname dfc [] (Bind bfc _ (Pi _ rig _ a) sc) = do
+      ||| The constructor's arguments: a parameter is the instance's, anything
+      ||| else is a field.
+      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm -> Core (List Field)
+      walk cname dfc targs (Just p :: ls) (Bind bfc _ (Pi {}) sc) =
+        walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
+      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
         t <- if isErased rig then pure (V ErasedT) else do
                a' <- normaliseClosed a
-               when (anyErased a') $
+               when !(erasedOutsideIndices cname a') $
                  reject dfc cname ProfData2 "a field type that depends on another field"
                coreType dfc cname ProfData2 a'
-        rest <- walk cname dfc [] (subst (Erased bfc Placeholder) sc)
+        rest <- walk cname dfc targs ls (subst (Erased bfc Placeholder) sc)
         pure (MkField (quantity rig) t :: rest)
-      walk _ _ _ _ = pure []
+      walk _ _ _ _ _ = pure []
 
-      constructor : DataId -> List ClosedTerm -> Name -> Core Con
-      constructor inst targs dcon = do
+      constructor : DataId -> List ClosedTerm -> List Nat -> Name -> Core Con
+      constructor inst targs ps dcon = do
         def <- lookupDef fc owner dcon
         let cname = show (fullname def)
         DCon tag arity _ <- pure (definition def)
           | _ => reject fc owner FeTtc1 (cname ++ " is not a constructor")
         loc <- toLoc (location def)
-        fields <- walk cname (location def) targs (type def)
+        let layout = paramLayout ps (type def)
+        fields <- walk cname (location def) targs layout (type def)
         let con = MkCon (MkConId inst cname) (cast tag) fields loc
-        update TState { cons $= insert con.id (MkConInfo targs con) }
+        update TState { cons $= insert con.id (MkConInfo targs layout con) }
         pure con
 
 ------------------------------------------------------------------------------
@@ -630,8 +759,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
          pure ((Q0, DictParam val) :: rest, res)
        else do
-         indexedHead owner a'
-         when (anyErased a') $
+         when !(erasedOutsideIndices owner a') $
            reject fc owner ProfType4 "a parameter type that depends on another argument"
          t <- coreType fc owner ProfType4 a'
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
@@ -847,7 +975,16 @@ mutual
     def <- lookupDef fc ctx.owner name
     let full = fullname def
     case definition def of
-      PMDef _ params _ _ _ => call fc loc full (length params) (type def) args
+      -- `replace` and `rewrite__impl` (what `rewrite` elaborates to) are the
+      -- identity on their one runtime argument, the last; the rest are
+      -- proofs and types (FE-TR-7).
+      PMDef _ params _ _ _ =>
+        if any (== show full) (the (List String) ["Builtin.replace", "Builtin.rewrite__impl"]) && length args >= length params
+           then do
+             let (now, rest) = splitAt (length params) args
+             v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
+             applyEach loc v rest
+           else call fc loc full (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
@@ -860,6 +997,10 @@ mutual
       Hole {} => reject fc ctx.owner ProfTerm2 ("hole " ++ show full)
       _ => internal fc ("a reference to " ++ show full ++ " (FE-TR-3)")
     where
+      applyEach : Loc -> Term n -> List (TT vars) -> Core (Term n)
+      applyEach loc f [] = pure f
+      applyEach loc f (a :: as) = applyEach loc (App loc f !(term ctx env a)) as
+
       -- Arguments: values of type parameters, erased ones, runtime ones.
       arguments : Loc -> List (Quantity, PKind) -> List (TT vars) -> Core (List (Term n))
       arguments loc kinds as = traverse arg (zip kinds as)
@@ -920,12 +1061,13 @@ mutual
         Just inst <- dataOf <$> coreType fc ctx.owner ProfType4 !(normaliseClosed resTy)
           | Nothing => internal fc "a constructor of a type that is not data (FE-TR-3)"
         given <- arguments loc kinds (take arity as)
-        -- The data type's parameters come first and are not fields; a type
-        -- argument after them is an erased field.
+        -- The data type's parameters are not fields, wherever they are among
+        -- the constructor's arguments; a type argument that is not one is an
+        -- erased field.
         st <- get TState
         let cid = MkConId inst (show (fullname def))
-        let nparams = maybe 0 (length . (.params)) (lookup cid st.cons)
-        finish loc (drop nparams kinds) (drop nparams given) (ConApp loc cid) (drop arity as)
+        let layout = maybe [] (.layout) (lookup cid st.cons)
+        finish loc (fieldsOnly layout kinds) (fieldsOnly layout given) (ConApp loc cid) (drop arity as)
 
       primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (TT vars) -> Core (Term n)
       primitive fc loc name arity op as = case op of
@@ -1015,6 +1157,11 @@ mutual
       Just (Bound i (Just (V WorldT))) => case alts of
         [ConstCase WorldVal rhs] => tree ctx env rhs
         _ => internal ctx.fc "an unexpected match on the world (FE-TR-4)"
+      -- FE-TR-7: a match on a quantity-0 value (a proof, an index) is in the
+      -- compile-time tree only when its type forces the alternative, as
+      -- Idris's erasure check guarantees; its fields are erased too.
+      Just (Bound i (Just (V ErasedT))) => forced alts
+      Just (TypeValue (Erased _ _)) => forced alts
       Just (Bound i (Just t)) => case dataOf t of
         Just inst => do
           (conAlts, def) <- conAlternatives ctx env inst alts
@@ -1039,6 +1186,12 @@ mutual
       -- A match on an implementation selects its alternative now (FE-TR-6).
       Just (Static t) => staticCase ctx env t alts
       _ => internal ctx.fc "a match on a compile-time value (FE-TR-4)"
+    where
+      forced : List (CaseAlt vars) -> Core (Term n)
+      forced [ConCase _ _ args rhs] =
+        tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) rhs
+      forced [DefaultCase rhs] = tree ctx env rhs
+      forced _ = reject ctx.fc ctx.owner ProfFn5 "a match on an erased value with more than one alternative"
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
@@ -1077,8 +1230,8 @@ mutual
     let Just info = lookup cid st.cons
       | Nothing => internal ctx.fc ("unknown constructor " ++ cid.name ++ " of " ++ inst.name)
     let bs = map toBinder info.con.fields
-    let bound = map TypeValue info.params ++ fieldInfos {n} bs ++ map (weakenInfo (length bs)) env
-    when (length info.params + length bs /= length args) $
+    let bound = arrange info.layout info.params (fieldInfos {n} bs) ++ map (weakenInfo (length bs)) env
+    when (length info.layout /= length args) $
       reject ctx.fc ctx.owner FeTtc1 ("constructor " ++ cid.name ++ " binds an unexpected number of arguments")
     body <- tree ctx bound rhs
     (alts, def') <- conAlternatives ctx env inst rest

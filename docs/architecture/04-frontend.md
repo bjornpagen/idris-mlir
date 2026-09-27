@@ -177,6 +177,15 @@ error follows `DIAG-*`.
   may contain the definition's quantity-0 type parameters, which become
   `TyVar`. The closedness check of `FE-TR-1` then runs after `Mono`
   (`PROF-TYPE-4`).
+- **FE-TR-7 (v3). Proofs.** The compile-time case tree matches on
+  quantity-0 values (`natToFinLT Z {prf = LTESucc _}`) where Idris's erasure
+  check proved the alternative forced; such a match takes its one
+  alternative, with its fields erased, and one with more alternatives is
+  rejected (`PROF-FN-5`). `replace` and `rewrite__impl`, which `rewrite`
+  elaborates to, are the identity on their one runtime argument and are
+  translated as it. A quantity-0 variable inside an implementation
+  (`Foldable (Vect n)`) is not a runtime value.
+  - Test: `tests/e2e/v3/vect`
 - **FE-TR-6 (v2). Implementations are compile-time values.** An interface
   is a single-constructor data type whose fields are the superclass
   implementations and the methods; a method with type variables of its own

@@ -90,7 +90,12 @@ benchmarks in `bench/` did not change.
    for a runtime value is built for the literal it was given
    (`ELIM-G-17`): the Prelude's `show` for `Char` compares the character's
    code as an `Integer`, which exists only at compile time.
-9. **`main : Int` programs cannot import the Prelude**: they are compiled
+9. **Inductive families and the base library**: done (`SEM-IDX-1`,
+   `FE-TR-7`, `PROF-LIB-3`, `tests/e2e/v3/vect`). `Data.Vect` works with
+   its indices at compile time only. Not yet: `transpose`, which takes its
+   length at runtime quantity (`{n : _}`), so an implementation that
+   mentions it is rejected as chosen at runtime.
+10. **`main : Int` programs cannot import the Prelude**: they are compiled
    per module (`--inc`), and the Prelude package has no incremental `mlir`
    data (`PROF-PROG-1`). IO programs, which are compiled whole, can.
 
@@ -102,4 +107,4 @@ benchmarks in `bench/` did not change.
   Mandelbrot, Newton basins), diffed against Chez; the benchmarks import
   only the Prelude and are no slower (`bench/README.md`).
 
-What remains is item 9 above, and everything that needs a heap.
+What remains is items 9 (in part) and 10 above, and everything that needs a heap.

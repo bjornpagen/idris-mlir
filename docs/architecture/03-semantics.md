@@ -229,6 +229,24 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   - Test: `tests/profile/v3/accept/SEM-REC-2-streams.idr`,
     `tests/e2e/v3/prelude-lists`
 
+## Inductive families (v3)
+
+- **SEM-IDX-1 (v3).** An index of an inductive family (the length of a
+  `Vect`, the bound of a `Fin`, the sides of `Equal`) is compile-time
+  information: no value stores it, and two instances of a family that
+  differ only in their indices, or in value parameters, are one data type
+  (`Vect 3 Double` and `Vect n Double`). A value of a non-recursive family
+  is its constructor's tag and fields; a value of a recursive one is
+  compile-time data (`SEM-REC-1`). This is Brady, McBride and McKinna,
+  "Inductive families need not store their indices" (TYPES 2003), applied to
+  every family. Idris does not put a constructor's parameters first
+  (`(::) : {0 len} -> {0 elem} -> ...`); which arguments are parameters is
+  read from the constructor's return type.
+  - Check: `Frontend.Translate.dataInstance` (`typeParams`,
+    `eraseIndices`, `paramLayout`)
+  - Test: `tests/profile/v3/accept/SEM-IDX-1-indexed-tags.idr`,
+    `tests/e2e/v3/vect`
+
 ## Laziness (v1)
 
 - **SEM-LAZY-1 (v1).** `Delay e` does not evaluate `e`. `Force` of a delayed

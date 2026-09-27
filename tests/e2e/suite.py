@@ -115,7 +115,9 @@ def v1_case(fixture):
         copy_fixture(fixture, work)
         dumped = (fixture / "core.check").is_file() or (fixture / "translate.check").is_file()
         directives = ["dump-core"] if dumped else []
-        result = dev.compile_io(work / "Main.idr", "prog", directives)
+        # A fixture may use installed packages besides idris-mlir-io.
+        packages = (fixture / "packages").read_text().split() if (fixture / "packages").is_file() else []
+        result = dev.compile_io(work / "Main.idr", "prog", directives, packages)
         assert result.returncode == 0, f"DRV-FLOW-2 failed:\n{text(result)}"
         exe = work / "build/exec/prog"
         for artifact in ("prog.core", "prog.mlir", "prog.o", "prog"):
@@ -141,6 +143,7 @@ def v1_case(fixture):
         chez = workdir("chez")
         copy_fixture(fixture, chez)
         built = run([stock_idris(), "--no-banner", "--no-color", "--no-prelude", "-p", "idris-mlir-io",
+                     *[x for p in packages for x in ("-p", p)],
                      "--cg", "chez", "-o", "prog", "Main.idr"], chez, env=dev.idris_env())
         assert built.returncode == 0, f"stock Chez build failed:\n{text(built)}"
         reference = run([chez / "build/exec/prog"], chez, stdin=stdin)

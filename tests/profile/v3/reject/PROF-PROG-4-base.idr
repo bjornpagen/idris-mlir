@@ -3,7 +3,7 @@
 module Main
 
 import IdrisMLIR.IO
-import Data.List
+import System.File
 
 main : IO ()
 main = putStrLn "hi"

@@ -89,10 +89,18 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
   | `IdrisMLIR.IO` | every definition (`PROF-IO-1`) |
   | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists and `Nat` are compile-time data (`SEM-REC-1`), its `Integer` literals compile-time integers (`SEM-BIG-1`), its `%foreign` IO primitives rejected (`PROF-ESC-1`) |
+  | `Builtin` (v3) | also every other definition but its escape hatches `believe_me`, `idris_crash` and `assert_linear`: the proof combinators `sym`, `trans`, `replace`, `rewrite__impl`, `DPair` |
+  | the base library (v3) | see `PROF-LIB-3` |
 
   - Check: `Frontend.Profile.checkReachable`
-  - Test: `tests/profile/v1/reject/PROF-LIB-1-sym.idr` (`believe_me` is an
-    escape hatch, so `PROF-ESC-1` reports it first)
+  - Test: `tests/profile/v3/accept/PROF-LIB-1-equality-proofs.idr`
+- **PROF-LIB-3 (v3).** The modules of the base library under `Data`,
+  `Control`, `Decidable` and `Syntax` are trusted like the Prelude, when the
+  program is built with `-p base`: every definition is admitted, subject
+  where it is reached to every other rule. `System.*` (the FFI, files,
+  processes, clocks) is not trusted.
+  - Check: `Frontend.Profile.trustedModule`
+  - Test: `tests/e2e/v3/vect`, `tests/profile/v3/reject/PROF-PROG-4-base.idr`
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%default` and other elaboration
   flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-13`). It honours `%foreign` only for the four primitives of
@@ -213,10 +221,11 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/profile/v0/accept/PROF-DATA-4-void.idr`
 - **PROF-DATA-5 (v1).** A runtime data type is declared in a user module or
   admitted by `PROF-LIB-1`. It may have parameters (instantiated by
-  monomorphisation, `ELIM-MONO-*`) but no indices: every constructor returns
-  the type constructor applied to its parameters unchanged.
+  monomorphisation, `ELIM-MONO-*`). Before v3 it had no indices; from v3 an
+  inductive family is admitted, and its indices are compile-time
+  information (`SEM-IDX-1`).
   - Test: `tests/profile/v1/accept/PROF-DATA-5-pair-maybe.idr`,
-    `tests/profile/v1/reject/PROF-DATA-5-index.idr`
+    `tests/profile/v3/accept/SEM-IDX-1-indexed-tags.idr`
 
 ## Functions
 

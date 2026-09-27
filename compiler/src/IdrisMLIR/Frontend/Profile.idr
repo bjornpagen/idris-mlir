@@ -29,12 +29,23 @@ import System.File
 -- Modules
 ------------------------------------------------------------------------------
 
+||| PROF-LIB-3: the namespaces of the base library that are trusted: pure
+||| code, with each definition still subject to every other rule where it
+||| is reached. `System.*` (FFI, files, processes) is not.
+baseNamespaces : List String
+baseNamespaces = ["Data", "Control", "Decidable", "Syntax"]
+
 ||| The trusted modules (PROF-PROG-4): from v3 also the Prelude's modules.
 ||| Namespaces are stored innermost first.
 export
 trustedModule : List String -> Bool
-trustedModule ns = ns == ["Builtin"] || ns == ["PrimIO"] || ns == ["IO", "IdrisMLIR"] || prelude ns
+trustedModule ns = ns == ["Builtin"] || ns == ["PrimIO"] || ns == ["IO", "IdrisMLIR"] || prelude ns || base ns
   where
+    -- PROF-LIB-3: the pure namespaces of the base library.
+    base : List String -> Bool
+    base ns = case reverse ns of
+                (top :: _) => elem top baseNamespaces
+                _ => False
     prelude : List String -> Bool
     prelude ns = case reverse ns of
                    ("Prelude" :: _) => True
@@ -55,6 +66,11 @@ allowed =
   , "PrimIO.fromPrim", "PrimIO.toPrim", "PrimIO.unsafePerformIO"
   , "PrimIO.unsafeCreateWorld", "PrimIO.unsafeDestroyWorld" ]
 
+||| The escape hatches of `Builtin`, which no admitted code may reach
+||| (PROF-ESC-1).
+builtinEscapes : List String
+builtinEscapes = ["Builtin.believe_me", "Builtin.idris_crash", "Builtin.assert_linear"]
+
 ||| PROF-LIB-1: literal elaboration goes through these interfaces of `Builtin`
 ||| (`%charLit fromChar`, `%stringLit fromString`, `%doubleLit fromDouble`),
 ||| with their Char, String and Double implementations; the dictionaries are
@@ -68,6 +84,8 @@ allowedPrefixes = ["Builtin.FromChar", "Builtin.fromChar", "Builtin.MkFromChar",
 ||| subject to every other rule where it is reached.
 admitted : String -> Bool
 admitted n = elem n allowed || any (\p => isPrefixOf p n) allowedPrefixes || isPrefixOf "Prelude." n
+              || any (\b => isPrefixOf (b ++ ".") n) baseNamespaces
+              || (isPrefixOf "Builtin." n && not (elem n builtinEscapes))
 
 ||| PROF-IO-3: reachable only through the root.
 rootOnly : List String
