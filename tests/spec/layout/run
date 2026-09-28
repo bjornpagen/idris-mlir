@@ -4,7 +4,7 @@
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 for path in CMakeLists.txt CMakePresets.json PINS.md toolchain.lock.json Makefile \
             compiler/idris-mlir.ipkg foreign/idr/CMakeLists.txt runtime/CMakeLists.txt \
-            runtime/idris_rt.h src/CMakeLists.txt unsafe/CMakeLists.txt tools/bootstrap.sh tests/Main.idr tests/tests.ipkg tests/testutils.sh \
+            runtime/idris_rt.h tools/bootstrap.sh tests/Main.idr tests/tests.ipkg tests/testutils.sh \
             tests/spec tests/toolchain tests/compiler tests/profile/v0 tests/profile/v1 \
             tests/idr tests/e2e/v0 tests/e2e/v1 tests/mlir docs/cpp-profile.md; do
   if [ -e "$root/$path" ]; then say "$path"; else say "$path: missing"; fi

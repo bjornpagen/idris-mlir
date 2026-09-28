@@ -1432,7 +1432,8 @@ and after must agree test for test.
   - `bootstrap` installs Idris's `libs/test`.
 - **Deleted:**
   - `unsafe/` and `src/`: empty CMake placeholders from cpp-starter's
-    zones. The runtime gets `runtime/`.
+    zones (done; `PINS.md`: `zones-on-demand`). The runtime gets
+    `runtime/`.
   - `lib/idris-mlir-io`: the 72 tests that import `IdrisMLIR.IO` move to
     the Prelude, and `DRV-FLOW-2` stops passing `-p idris-mlir-io`.
 - **`docs/cpp-profile.md`** (1 700 lines) is cut to the rules our C++

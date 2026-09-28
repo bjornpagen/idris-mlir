@@ -1,12 +1,11 @@
 #!/bin/sh
 # rule: TC-CPP-2
 # make build builds C++ through the CMake presets alone, with the pinned
-# CMake, and the compiler with the pinned Idris; nothing installs
-# idris-mlir-io.
+# CMake, and the compiler with the pinned Idris.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (
   unset MAKEFLAGS MAKELEVEL MFLAGS
   make --no-print-directory -n -C "$root" build
 ) > "$work/build" 2>&1
 say "make -n build: exit $?"
-grep -E 'cmake --preset|cmake --build|idris2 --build|idris-mlir-io' "$work/build" | sed "s|$root|<root>|g"
+grep -E 'cmake --preset|cmake --build|idris2 --build' "$work/build" | sed "s|$root|<root>|g"

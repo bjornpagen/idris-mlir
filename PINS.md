@@ -29,6 +29,17 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - retire: when MLIR offers a module-based, inheritance-free API (not expected)
 - upstream: none — MLIR's design
 
+## zones-on-demand
+
+- symptom: cpp-starter's layout has `src/` and `unsafe/` zones, but this
+  project has no C++ outside `foreign/idr/` and `runtime/`; empty zone
+  directories with placeholder `CMakeLists.txt` files are dead weight
+- sites: `CMakeLists.txt` (no `add_subdirectory` for them), TC-ZONE-2
+- workaround: the zones do not exist until their first code does; that
+  change adds the directory, its `CMakeLists.txt` and the `add_subdirectory`
+- retire: when either zone gets code
+- upstream: none — a deviation from cpp-starter
+
 ## orc-lljit
 
 - symptom: docs/plan.md chose upstream's `mlir::ExecutionEngine` for

@@ -2,7 +2,7 @@
 # rule: TC-ZONE-1, TC-ZONE-2, TC-ZONE-3
 # All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr or, for the
 # runtime, runtime/, with .cc its only source extension; src/ and unsafe/
-# hold their CMakeLists.txt alone.
+# do not exist while they would be empty.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name docs \) -prune \
    -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.td' -o -name '*.inc' \) \
@@ -22,6 +22,5 @@ else
   say "C++ sources: .cc only"
 fi
 for zone in src unsafe; do
-  contents=$(ls -A "$root/$zone" 2> /dev/null | tr '\n' ' ')
-  if [ "$contents" = "CMakeLists.txt " ]; then say "$zone/: CMakeLists.txt alone"; else say "$zone/: $contents"; fi
+  if [ -e "$root/$zone" ]; then say "$zone/: exists"; else say "$zone/: absent"; fi
 done

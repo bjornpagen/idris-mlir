@@ -133,10 +133,11 @@ gone.
   - LLVM and MLIR headers are included as system headers, so the project's
     warnings apply to our code, not to theirs.
   - Test: `tests/spec/zones`
-- **TC-ZONE-2 (p0).** `src/` holds cpp-starter dialect code (named modules,
-  no headers, no preprocessor). It stays empty until code exists that
-  touches neither the MLIR API nor a vendored C++ library. `unsafe/` stays
-  empty until needed.
+- **TC-ZONE-2 (p0).** cpp-starter's `src/` (dialect code: named modules,
+  no headers, no preprocessor) and `unsafe/` exist only once they hold code:
+  C++ that touches neither the MLIR API nor a vendored C++ library goes to
+  `src/`, which is then created with its `CMakeLists.txt` (`PINS.md`:
+  `zones-on-demand`).
   - Test: `tests/spec/zones`
 - **TC-ZONE-3 (p0).** `runtime/` holds the runtime (`TC-RT-1`): quarantine
   code, because it adapts vendored header libraries and exports a C ABI
@@ -232,7 +233,6 @@ Each deviation below has a `PINS.md` entry.
   compiler/            Idris: frontend, middle end, emitter (idris-mlir)
   foreign/idr/         C++: idr dialect, passes, the JIT, idris-mlir-opt, -cc, -reduce
   runtime/             C++: the runtime, with a C interface (TC-ZONE-3, LOW-RT-1)
-  src/  unsafe/        cpp-starter zones (empty)
   tests/spec/          the spec's rules, the pins, the commands, the layout
   tests/toolchain/     the pinned toolchain and what it builds
   tests/compiler/      Idris-side unit tests and invalid-Core tests

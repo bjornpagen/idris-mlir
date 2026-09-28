@@ -73,8 +73,7 @@ the reason, and never counted as passed.
   `DRV-DUMP-1`), and an e2e run. They are `tests/e2e/v1/ELIM-G-*` and the
   other e2e fixtures with an `mlir.check` file; the first line of the file
   may choose another module (`// input: emitted` for what `Emit` wrote,
-  `// input: after <step>` for another step). *Revised at the cutover:*
-  before, a `core.check` file matched first-order Core after `Simplify`.
+  `// input: after <step>` for another step).
   The passes also have their own tests in `tests/idr/` (`TEST-IDR-1`).
 - **TEST-CRASH-1 (v0).** A crash fixture has an `expected-crash` file. The
   harness asserts exit status 1, empty stdout, and a stderr that contains

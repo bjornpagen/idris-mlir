@@ -94,7 +94,7 @@ argument (`ackdyn`), MLton is 2.4x faster.
 ```sh
 idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int
 idris-mlir --no-prelude --cg mlir -o prog Main.idr                # IO
-python3 tools/dev.py compile Prog.idr -o prog                     # either
+make compile SRC=Prog.idr OUT=prog                                # either
 ```
 
 The Prelude is imported explicitly (`--no-prelude` plus `import Prelude`);
@@ -103,26 +103,23 @@ a string built at runtime and kept) is rejected with the rule it breaks.
 
 ## Setup
 
-Prerequisites: Python 3.9+, Git, Make, a host C/C++ compiler, a threaded Chez
-Scheme, GMP headers, and GCC's build prerequisites (MPFR, MPC, flex,
-texinfo). See [toolchain](docs/toolchain.md) for exact packages.
+Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
+LLVM and GMP), a threaded Chez Scheme, and the Linux UAPI headers. See
+[toolchain](docs/toolchain.md) for exact packages.
 
 ```sh
 git submodule update --init
-python3 tools/dev.py doctor
-python3 tools/dev.py check                      # tooling tests
-python3 tools/dev.py bootstrap-idris --scheme scheme
-python3 tools/dev.py bootstrap-gcc              # slow: pinned GCC 16
-python3 tools/dev.py bootstrap-cmake
-python3 tools/dev.py bootstrap-ninja
-python3 tools/dev.py bootstrap-llvm             # slow: pinned LLVM/MLIR
-python3 tools/dev.py build                      # C++ dev preset, compiler
-python3 tools/dev.py test                       # profile, e2e (incl. Chez diff)
-python3 tools/dev.py test-idr                   # the idr dialect (lit)
-python3 tools/dev.py test-mlir-tools
+make doctor                  # what the host has, and what is built
+make check                   # the spec's rules against the tests, no build needed
+make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Idris
+make build                   # the C++ dev preset and the compiler
+make test                    # compiler, profile, e2e (incl. the Chez diff)
+make test-idr                # the idr dialect, with FileCheck
+make test-mlir-tools         # the pinned upstream MLIR tools, and upstream/
+make bench                   # bench/run.sh
 ```
 
-Everything is installed under `.toolchain/`.
+Everything is installed under `.toolchain/`; `make` alone lists the commands.
 
 ## Docs
 
