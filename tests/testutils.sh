@@ -221,9 +221,18 @@ v1_symbols='write read _exit'
 # ones LLVM substitutes for pow (SEM-DEV-2).
 v2_symbols="$v1_symbols exp log pow sin cos tan asin acos atan sqrt floor ceil exp2 ldexp"
 
-# filecheck CHECKS INPUT: the pinned FileCheck.
+# filecheck CHECKS INPUT: the pinned FileCheck. A line
+# `// FILECHECK-OPTIONS: <option>...` in CHECKS adds options, words without
+# quotes, such as --implicit-check-not=idr.closure (a check over the whole
+# input).
 filecheck() {
-  if "$llvm_bin/FileCheck" "$1" --input-file="$2" > "$work/filecheck.log" 2>&1; then
+  filecheck_options=$(sed -n 's|^[[:space:]]*//[[:space:]]*FILECHECK-OPTIONS:[[:space:]]*||p' "$1" | tr '\n' ' ')
+  set -f
+  # shellcheck disable=SC2086 # the options are words
+  "$llvm_bin/FileCheck" "$1" --input-file="$2" $filecheck_options > "$work/filecheck.log" 2>&1
+  filecheck_status=$?
+  set +f
+  if [ "$filecheck_status" -eq 0 ]; then
     say "FileCheck ${1##*/}: ok"
   else
     say "FileCheck ${1##*/} on ${2##*/}: failed"

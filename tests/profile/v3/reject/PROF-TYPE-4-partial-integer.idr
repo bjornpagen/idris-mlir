@@ -10,9 +10,9 @@ module Main
 -- exception). The Integer operations are the Prelude's (Integral Integer),
 -- reached from `euclid`, where the rejection is reported (DIAG-LOC-1).
 -- Unverified until idris-mlir-cc exists: the line is predicted from the
--- rule that a C++ rejection is reported at the innermost user definition,
--- and from `euclid` coming before the root, into which `main` is inlined,
--- in the module.
+-- emitted module, where euclid's own ops carry its definition's location
+-- (line 20 is its case block's), and from `euclid` coming before the root,
+-- into which `main` is inlined, in the module.
 
 import Prelude
 

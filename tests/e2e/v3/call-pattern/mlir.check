@@ -1,0 +1,15 @@
+// input: after idr-simplify
+// rule: ELIM-SPEC-1, SEM-EVAL-6, TEST-ELIM-1
+// ack is partial (it recurses on Ints). `ack 3 n` is not closed, so it is
+// specialized on the constant m: copies for m = 3, 2 and 1 (m = 0 is n + 1,
+// inlined). The closed calls the copies reach, `ack 2 1`, `ack 1 1` and
+// `ack 0 1`, are neither evaluated nor specialized, since partial code is
+// never evaluated (docs/cutover.md A23): they call the original ack, which
+// stays. `count 3` is a closed call of a partial function too: it stays a
+// call.
+// Unverified until idris-mlir-cc exists.
+// CHECK-DAG: func.func private @Main.ack(
+// CHECK-DAG: func.func private @Main.ack{{[^(]+}}(
+// CHECK-DAG: func.func private @Main.ack{{[^(]+}}(
+// CHECK-DAG: func.func private @Main.ack{{[^(]+}}(
+// CHECK-DAG: func.call @Main.count(

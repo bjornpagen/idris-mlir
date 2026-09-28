@@ -1,3 +1,6 @@
-// rule: IDR-MATCH-4
-// CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "w"}, {idr.quantity = "w"}, {idr.quantity = "0"}], function_type = (i64, i64, !idr.erased) -> i64, sym_name = "Prog.clamp"
-// CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "1"}], function_type = (i64) -> i64, sym_name = "Prog.linearId"
+// input: emitted
+// rule: IDR-MATCH-4, IDR-FN-1, TEST-EMIT-1
+// Quantities: an erased argument stays a parameter of type !idr.erased
+// with quantity "0", and a linear one has quantity "1".
+// CHECK-DAG: func.func private @Prog.clamp(%{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: !idr.erased {idr.quantity = "0"}) -> i64
+// CHECK-DAG: func.func private @Prog.linearId(%{{[0-9]+}}: i64 {idr.quantity = "1"}) -> i64

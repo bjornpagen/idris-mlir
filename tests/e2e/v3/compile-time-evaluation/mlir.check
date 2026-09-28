@@ -1,4 +1,12 @@
-// rule: ELIM-G-19
-// fib 15 is folded, and so is the line that shows it; the call of fib that
-// remains has a runtime argument.
-// CHECK: value = "610\0A"
+// input: after idr-simplify
+// FILECHECK-OPTIONS: --implicit-check-not=idr.big. --implicit-check-not="610\0A"
+// rule: ELIM-EVAL-1, SEM-EVAL-6, TEST-ELIM-1
+// The closed calls of the total `power` are evaluated: their results are
+// the constants written, and no Integer operation is left. `fib` is
+// partial, so `fib 15` stays a call: its value, 610, is never computed at
+// compile time.
+// Unverified until idris-mlir-cc exists.
+// CHECK-DAG: idr.constant "1267650600228229401496703205376\0A"
+// CHECK-DAG: idr.constant "401\0A"
+// CHECK-DAG: idr.constant "57.6650390625\0A"
+// CHECK-DAG: func.call @Main.fib(
