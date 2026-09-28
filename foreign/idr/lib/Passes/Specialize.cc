@@ -400,6 +400,22 @@ struct Specializer {
   // clone whose key holds.
   bool keyed(func::FuncOp fn) { return !fn->hasAttr(originAttr) || storedKey(fn); }
 
+  // An original function takes a key of its own, a hole per parameter, the
+  // first time a call of it is specialized: remove-dead-values may later
+  // erase its dead parameters, and the keys composed through it must keep
+  // the positions its clones' keys have.
+  void adopt(func::FuncOp fn) {
+    if (fn->hasAttr(originAttr) || fn->hasAttr(keyAttr))
+      return;
+    MLIRContext *ctx = fn.getContext();
+    for (unsigned i = 0; i < fn.getNumArguments(); ++i)
+      fn.setArgAttr(i, holeAttr, IntegerAttr::get(IntegerType::get(ctx, 64), i));
+    std::string text;
+    llvm::raw_string_ostream os(text);
+    ArrayAttr::get(ctx, SmallVector<Attribute>(fn.getNumArguments(), UnitAttr::get(ctx))).print(os);
+    fn->setAttr(keyAttr, StringAttr::get(ctx, text));
+  }
+
   // The runtime leaves of a pattern.
   static unsigned holes(Attribute pattern) {
     if (isHole(pattern))
@@ -448,7 +464,8 @@ struct Specializer {
   // arguments that grow: each is the caller's own pattern or contains it,
   // and one strictly.
   bool grows(func::FuncOp caller, func::FuncOp callee, ArrayAttr key) {
-    if (!caller || !storedKey(caller) || origin(caller) != origin(callee))
+    if (!caller || !caller->hasAttr(originAttr) || !storedKey(caller) ||
+        origin(caller) != origin(callee))
       return false;
     ArrayAttr own = keyOf(caller);
     if (own.size() != key.size())
@@ -486,8 +503,8 @@ struct Specializer {
   // callee matches on (a counter, `ack`'s m) keeps its value.
   void generalize(func::FuncOp caller, func::FuncOp callee, MutableArrayRef<Shape> shapes,
                   ValueRange operands) {
-    if (!caller || !storedKey(caller) || origin(caller) != origin(callee) ||
-        !keyed(callee))
+    if (!caller || !caller->hasAttr(originAttr) || !storedKey(caller) ||
+        origin(caller) != origin(callee) || !keyed(callee))
       return;
     ArrayAttr own = keyOf(caller), calleeKey = keyOf(callee);
     if (own.size() != calleeKey.size())
@@ -549,6 +566,7 @@ struct Specializer {
         llvm::map_to_vector(shapes, [](const Shape &s) { return s.pattern; });
     // Keyed by the origin, or, for a clone whose key no longer holds, by the
     // clone itself, whose parameters the patterns are.
+    adopt(callee);
     auto key = keyed(callee)
                    ? std::make_pair(StringAttr::get(module.getContext(), origin(callee)),
                                     compose(callee, patterns))
