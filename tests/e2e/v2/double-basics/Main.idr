@@ -1,8 +1,11 @@
 module Main
 
--- rule: SEM-DBL-1, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, LOW-DBL-1, LOW-DBL-2, LOW-DBL-3, PROF-PRIM-5
+-- rule: SEM-DBL-1, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, SEM-DEV-2, LOW-DBL-1, LOW-DBL-2, LOW-DBL-3, PROF-PRIM-5
 -- Double arithmetic, libm functions, casts and printing on a value read at
 -- run time, so that nothing folds; the stock Chez backend is the oracle.
+-- The libm results (lines 17 to 26 of the output, `libm-lines`) are musl's
+-- here and the host's in Chez: `tan 7` differs in the last place
+-- (SEM-DEV-2), which the comparison with Chez allows on those lines only.
 
 import Builtin
 import Prelude

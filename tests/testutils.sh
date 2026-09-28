@@ -493,7 +493,30 @@ e2e_io() {
       io_same=yes
     fi
   fi
-  if [ "$io_same" = no ]; then
+  # SEM-DEV-2: on the lines `libm-lines` names (one number per line), the
+  # outputs are libm results, musl's here and the host's in Chez, which may
+  # differ by one unit in the last place where libm is not correctly
+  # rounded.
+  if [ "$io_same" = no ] && [ -f "$io_fixture/libm-lines" ] &&
+     awk -v lines="$io_fixture/libm-lines" '
+       BEGIN { while ((getline n < lines) > 0) libm[n] = 1 }
+       NR == FNR { ours[FNR] = $0; n1 = FNR; next }
+       { n2 = FNR
+         if ($0 == ours[FNR]) next
+         if (!(FNR in libm)) exit 1
+         a = ours[FNR] + 0; b = $0 + 0; m = (a < 0 ? -a : a); if ((b < 0 ? -b : b) > m) m = (b < 0 ? -b : b)
+         d = a - b; if (d < 0) d = -d
+         if (d > m * 2 ^ -52) exit 1 }
+       END { if (n1 != n2) exit 1 }' "$work/ours.out" "$work/chez.out"; then
+    io_same=libm
+  fi
+  if [ "$io_same" = libm ]; then
+    if [ "$io_chez_status" -eq "$io_ours_status" ]; then
+      say "chez: same stdout, up to one ulp on the libm lines (SEM-DEV-2), and exit status"
+    else
+      say "chez: same stdout up to one ulp, but Chez exited $io_chez_status and this compiler $io_ours_status"
+    fi
+  elif [ "$io_same" = no ]; then
     say "chez: stdout differs (< this compiler, > Chez)"
     diff "$work/ours.out" "$work/chez.out" | head -n 20 | sed 's/^/  | /'
   elif [ -n "$io_crash" ]; then

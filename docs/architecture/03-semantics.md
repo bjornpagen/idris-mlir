@@ -465,7 +465,12 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   *Revised at the cutover:* LLVM folds them inside `idris-mlir-cc`, which
   is linked with musl, the executable's `libm` too; the compiler has no
   folder of its own for them.
+  The reference runs the host's `libm`, which need not agree with musl's
+  where neither is correctly rounded: a test whose outputs include `libm`
+  results names those lines (`libm-lines`), and on them the comparison with
+  Chez allows one unit in the last place.
   - Check: review (a statement about LLVM and the platform)
+  - Test: `tests/e2e/v2/double-basics` (`libm-lines`)
 
 ## Excluded from v0
 
