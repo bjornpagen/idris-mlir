@@ -6,11 +6,11 @@
 // RUN: %status 1 idris-mlir-cc %t.foreign.mlir -o %t.o 2> %t.err
 // RUN: FileCheck %s --check-prefix=FOREIGN < %t.err
 // RUN: not ls %t.o
-// rule: DRV-CC-2, A11, A19, IDR-IN-1
+// rule: DRV-CC-2, IDR-IN-1
 // Usage errors are status 2: neither -o nor --check, or both. --check runs
 // the pipeline through idr-check-profile and writes nothing. The program is
 // parsed with exactly the contract's dialects, so an op of any other (here
-// scf) fails to parse: status 1, and no output.
+// scf) fails to parse (row A19 of docs/cutover.md): status 1, and no output.
 // FOREIGN: error: Dialect `scf' not found for custom op 'scf.execute_region'
 // INPUT: module attributes {idr.program} {
 // INPUT:   func.func @Prog.main() -> i64 {

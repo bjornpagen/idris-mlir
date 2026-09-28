@@ -1,8 +1,9 @@
 // RUN: idris-mlir-opt %s --mlir-disable-threading --idr-eval | FileCheck %s
-// rule: SEM-EVAL-6, A23
+// rule: SEM-EVAL-6
 // Only a closed call of a pure, total function is evaluated: not one with a
 // runtime operand, not one of a function Idris does not prove terminating
-// (partial code is never evaluated) or that performs IO, and not one whose
+// (partial code is never evaluated, row A23 of docs/cutover.md) or that
+// performs IO, and not one whose
 // constant operands name a closure of such a function.
 // CHECK-LABEL: func.func @Prog.main(
 // CHECK: call @inc(%arg0)

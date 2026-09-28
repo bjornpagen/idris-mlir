@@ -2,8 +2,9 @@
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "b" | %t > %t.out
 // RUN: FileCheck %s < %t.out
-// rule: LOW-STR-2, LOW-CONST-1, LOW-MATCH-1, A10
-// Operations that allocate nothing, on strings that exist (static data):
+// rule: LOW-STR-2, LOW-CONST-1, LOW-MATCH-1
+// Operations that allocate nothing, on strings that exist (static data;
+// row A10 of docs/cutover.md):
 // the length and the characters of a string picked at runtime, and a match
 // on it.
 // CHECK: 3 98 é 2
