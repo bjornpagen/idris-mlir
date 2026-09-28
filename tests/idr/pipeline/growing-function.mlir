@@ -1,13 +1,14 @@
-// RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4 skip-unregistered=true" --idr-defunctionalize --canonicalize --idr-check-profile -o %t.mlir 2> %t.err
+// RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4 skip-unregistered=true" --idr-defunctionalize --canonicalize --idr-tail-loops --idr-check-profile -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
 // rule: PROF-HEAP-4, ELIM-SPEC-1, DIAG-HEAP-1
 // iter f n x = if n == 0 then f x else iter (\y => f (f y)) (n - 1) x:
 // each clone of @iter passes itself a larger closure, so specialization
 // goes on until the clone limit stops it, and the closure that @iter builds
-// survives into the stopped callee: PROF-HEAP-4.
+// survives in the stopped callee, whose self tail call is a loop by the
+// time the profile is checked: PROF-HEAP-4.
 // Note: idr-eval (the lowering package) is not in this branch yet, so the
 // round runs without it (skip-unregistered, which only tests set).
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @Main.twice is passed to @Main.iter, whose specialization stopped at the clone limit
+// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @Main.twice is built in or passed to @Main.iter, whose specialization stopped at the clone limit
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

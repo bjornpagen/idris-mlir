@@ -66,7 +66,7 @@ module attributes {idr.program} {
 // -----
 
 // A closure that grows while the clone limit stopped its callee.
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @twice is passed to @iter, whose specialization stopped at the clone limit
+// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped at the clone limit
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @twice(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {

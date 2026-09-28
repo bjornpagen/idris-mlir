@@ -403,7 +403,7 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   // What idr-specialize keeps between runs (lib/Passes/Specialize.cc): the
   // clones made of each origin, a clone's origin, and the calls and callees
   // the clone limit stopped.
-  if (name == "idr.clone_counts") {
+  if (key == "idr.clone_counts") {
     auto counts = dyn_cast<DictionaryAttr>(attr.getValue());
     if (!isa<ModuleOp>(op) || !counts ||
         !llvm::all_of(counts.getValue(), [](NamedAttribute entry) {
@@ -412,12 +412,12 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.clone_counts as a dictionary of counts on the module");
     return success();
   }
-  if (name == "idr.origin") {
+  if (key == "idr.origin") {
     if (!isa<func::FuncOp>(op) || !isa<StringAttr>(attr.getValue()))
       return op->emitOpError("expects idr.origin as a string attribute of a function");
     return success();
   }
-  if (name == "idr.clone_limit_hit") {
+  if (key == "idr.clone_limit_hit") {
     if (!isa<func::FuncOp, func::CallOp>(op) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects idr.clone_limit_hit as a unit attribute of a function or call");
     return success();

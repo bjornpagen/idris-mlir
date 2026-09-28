@@ -41,9 +41,16 @@ struct Violation {
   std::string what;
 };
 
-// Ops that pass a value on without building one.
+// Ops whose results pass values on without building them.
 bool isMove(Operation *op) {
-  return isa<idr::FieldOp, idr::MatchOp, idr::MatchLitOp, func::CallOp, idr::ApplyOp>(op);
+  return isa<idr::FieldOp, idr::MatchOp, idr::MatchLitOp, func::CallOp, idr::ApplyOp,
+             scf::WhileOp>(op);
+}
+
+// Ops that pass their operands on, or store them.
+bool isPassing(Operation *op) {
+  return isa<func::CallOp, idr::ApplyOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
+             idr::ClosureOp, scf::ConditionOp, scf::YieldOp>(op);
 }
 
 // Whether `op` computes a new value of type T.
@@ -102,13 +109,22 @@ struct Checker {
     return std::nullopt;
   }
 
+  // PROF-HEAP-4 also covers a closure built inside a stopped function: its
+  // self tail call may be a loop by now.
+  std::optional<StringRef> stoppedAt(Operation *closure) {
+    auto fn = closure->getParentOfType<func::FuncOp>();
+    if (fn && fn->hasAttr("idr.clone_limit_hit"))
+      return fn.getSymName();
+    return reachesStoppedCallee(closure);
+  }
+
   std::optional<Violation> closure(idr::ClosureOp op) {
     if (llvm::all_of(op->getOperands(), isStatic))
       return std::nullopt;
     StringRef label = op.getCallee();
-    if (std::optional<StringRef> stopped = reachesStoppedCallee(op))
+    if (std::optional<StringRef> stopped = stoppedAt(op))
       return Violation{"PROF-HEAP-4",
-                       ("function value grows: a closure of @" + label + " is passed to @" +
+                       ("function value grows: a closure of @" + label + " is built in or passed to @" +
                         *stopped + ", whose specialization stopped at the clone limit")
                            .str()};
     if (cast<idr::FnType>(op.getType()).getInputs().empty())
@@ -128,8 +144,7 @@ struct Checker {
     for (Operation *user : op->getUsers()) {
       if (isa<idr::PutStrOp>(user) || isBuilt<idr::StrType>(user))
         continue;
-      if (isa<func::CallOp, idr::ApplyOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
-              idr::ClosureOp>(user))
+      if (isPassing(user))
         return Violation{"PROF-HEAP-3",
                          "string built at runtime: the result of " + opName(op) + " is passed to " +
                              opName(user) + " instead of being written by output"};
@@ -161,9 +176,7 @@ struct Checker {
     if (isBuilt<idr::StrType>(op))
       if (std::optional<Violation> v = builtString(op))
         return v;
-    if (!isa<idr::PutStrOp>(op) && !isBuilt<idr::StrType>(op) &&
-        !isa<func::CallOp, idr::ApplyOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
-             idr::ClosureOp>(op))
+    if (!isa<idr::PutStrOp>(op) && !isBuilt<idr::StrType>(op) && !isPassing(op))
       if (std::optional<Violation> v = stringPrimitive(op))
         return v;
     if (isBuilt<idr::BigType>(op))
