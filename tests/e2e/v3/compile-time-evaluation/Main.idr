@@ -1,11 +1,17 @@
 module Main
 
--- rule: ELIM-G-19, SEM-BIG-1
--- A call whose arguments are all known is evaluated at compile time,
--- recursion included, within a budget: `fib 15` is the constant 610, and
--- Euclid's algorithm runs on Integer, which has no runtime representation,
--- through the Prelude's Integral interface. `fib 27` exceeds the budget and
--- `fib n` depends on input; both are calls at runtime.
+-- rule: ELIM-EVAL-1, SEM-EVAL-6, SEM-EVAL-2
+-- A closed call of a total function is evaluated at compile time, recursion
+-- included: `power` recurses on a Nat, so `power (the Integer 2) 100` and
+-- `power (the Integer 3) 20` are constants, and no Integer exists at
+-- runtime. `fib` recurses on an Int, which Idris does not prove
+-- terminating, so `fib 15`, `fib 27` and `fib n` are all calls at runtime:
+-- partial code is never evaluated.
+-- `printLn (euclid (the Integer 1071) 462)` is gone since the cutover
+-- (docs/cutover.md 4.3, decision 7.2, a PROF-GEN-4 exception): `euclid` is
+-- partial, so it is not evaluated and its Integer would exist at runtime.
+-- It is the reject fixture profile/v3/reject/PROF-TYPE-4-partial-integer,
+-- and its line of output, 21, left expected-stdout.
 
 import Prelude
 
@@ -26,7 +32,6 @@ main = do
   printLn (fib 15)
   printLn (fib 27)
   printLn (fib n)
-  printLn (euclid (the Integer 1071) 462)
   printLn (euclid (n * 462) 1071)
   printLn (power (the Integer 2) 100)
   printLn (cast {to = Int} (power (the Integer 3) 20 `mod` 1000))

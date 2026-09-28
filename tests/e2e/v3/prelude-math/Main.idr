@@ -1,11 +1,16 @@
 module Main
 
--- rule: PROF-PROG-4, FE-TR-6, SEM-DBL-2, SEM-BIG-1, ELIM-G-19, SEM-IO-7
+-- rule: PROF-PROG-4, FE-TR-6, SEM-DBL-2, ELIM-SPEC-1, ELIM-EVAL-1, SEM-IO-7
 -- Complex numbers as an ordinary user type with the Prelude's own Num, Neg,
 -- Fractional and Show interfaces, generic code over Num and Integral, the
 -- Mandelbrot set, and the basins of Newton's method for z^3 = 1, on a value
 -- read at runtime with the Prelude's getChar. Written the way an Idris
 -- programmer would, and diffed against the stock Chez backend.
+-- `euclid (the Integer 48) 18` is gone since the cutover (docs/cutover.md
+-- 4.3, decision 7.2, a PROF-GEN-4 exception): `euclid` is partial, so it is
+-- not evaluated, and its Integer would exist at runtime
+-- (profile/v3/reject/PROF-TYPE-4-partial-integer). The line that printed
+-- the pair `(21, 6)` prints `21`.
 
 import Prelude
 
@@ -97,6 +102,6 @@ main = do
   picture (n * 2) 0
   printLn (z / MkC 1.0 2.0)
   printLn (recip z * z)
-  printLn (euclid (n * 462) 1071, euclid (the Integer 48) 18)
+  printLn (euclid (n * 462) 1071)
   printLn (abs (negate n), abs (the Double (cast n) - 9.0))
   basins (n * 2) 0 0
