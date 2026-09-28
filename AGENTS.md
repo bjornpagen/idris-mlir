@@ -34,6 +34,11 @@ current instead of writing new plan documents.
   silently.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
+- A workaround for upstream behaviour (LLVM, MLIR, Idris) needs a bug report
+  in `upstream/` (see upstream/README.md): reduce it to upstream dialects and
+  tools, and add the report, its reproducer, its `tests/upstream/` check and
+  its `PINS.md` entry in the same change. If it does not reproduce upstream,
+  the bug is ours: fix it instead.
 - Checks: `make check` always. After compiler changes, run `make build` and
   `make test`. After C++ or contract changes, also run `make test-idr`.
   After changing MLIR usage, also run `make test-mlir-tools`. If a toolchain

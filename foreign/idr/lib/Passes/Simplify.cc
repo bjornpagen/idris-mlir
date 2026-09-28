@@ -148,7 +148,9 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 // remove-dead-values erases the arguments of a function that dead-code
 // analysis never reaches, while ops there still use them, and then folds
 // those ops with a null operand (RemoveDeadValues.cpp, processFuncOp and the
-// region-branch canonicalization at the end of runOnOperation).
+// region-branch canonicalization at the end of runOnOperation). symbol-dce
+// then removes the functions that only the emptied code referred to, which
+// the analysis would find unreachable in turn.
 SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned cloneLimit) {
   return {
       "idr-loop-breakers",
@@ -160,6 +162,7 @@ SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned 
       "cse",
       "idr-eval",
       "idr-prune",
+      "symbol-dce",
       "remove-dead-values",
       "symbol-dce",
   };

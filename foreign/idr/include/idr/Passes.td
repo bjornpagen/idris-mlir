@@ -145,8 +145,8 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing (OPT-PIPE-5)";
   let description = [{
     Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
-    canonicalize, cse, idr-eval, idr-prune, remove-dead-values and
-    symbol-dce, again and again, until a round leaves the module unchanged,
+    canonicalize, cse, idr-eval, idr-prune, symbol-dce, remove-dead-values
+    and symbol-dce, again and again, until a round leaves the module unchanged,
     up to where constants are.
   }];
   let options = [

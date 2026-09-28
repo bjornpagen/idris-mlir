@@ -43,9 +43,11 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
   `absoluteSymbols` table that binds the runtime's functions, and the libm
   functions lowered code may call, to `idris-mlir-cc`'s own copies (LOW-RT-1)
-- retire: never while `idris-mlir-cc` is static on musl; re-read at every
-  LLVM bump, in case `ExecutionEngine` stops requiring process symbols
-- upstream: none — a static process has no process-symbol generator by design
+- retire: when `ExecutionEngine` can be created without the process's
+  symbols (upstream/execution-engine-process-symbols); re-read at every LLVM
+  bump
+- upstream: upstream/execution-engine-process-symbols (not yet filed): an
+  option to create the engine without the process's symbols
 
 ## prune-before-remove-dead-values
 
@@ -61,12 +63,14 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
   foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop,
   OPT-PIPE-5)
-- workaround: `idr-prune` runs right before `remove-dead-values` and
-  empties, with the same analyses, every block they prove unreachable: a
-  match region ends in `ub.unreachable`, a function returns poison
+- workaround: `idr-prune` runs before `remove-dead-values` and empties,
+  with the same analyses, every block they prove unreachable: a match
+  region ends in `ub.unreachable`, a function returns poison. `symbol-dce`
+  runs between them, since emptying code can leave a function nothing
+  refers to, which the analysis would find unreachable in turn
 - retire: when `remove-dead-values` leaves unreachable code alone or erases
-  it at a bump
-- upstream: none filed yet
+  it at a bump; `tests/upstream/remove-dead-values-unreachable` fails then
+- upstream: upstream/remove-dead-values-unreachable (not yet filed)
 
 ## inline-unreachable
 
@@ -82,8 +86,9 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   regions returns) returns `ub.poison` instead, which is never reached. A
   match region that crashes still ends in `ub.unreachable` and stays a
   region, which the lowering lowers (LOW-MATCH-1)
-- retire: when the inliner handles `ub.unreachable` at a bump
-- upstream: none filed yet
+- retire: when the inliner handles `ub.unreachable` at a bump;
+  `tests/upstream/inline-unreachable-terminator` fails then
+- upstream: upstream/inline-unreachable-terminator (not yet filed)
 
 ## platform-gate-x86_64
 
@@ -297,25 +302,3 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   a host program and never links into an executable (TC-PIN-3)
 - retire: when Chez Scheme itself is built on the pinned toolchain
 - upstream: none
-
-## orc-lljit
-
-- symptom: docs/plan.md section 6 runs compile-time evaluation through
-  MLIR's `ExecutionEngine`; at the pinned llvmorg-23.1.2,
-  `ExecutionEngine::create` calls
-  `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))`
-  (`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395`), which needs
-  `dlopen(NULL)` and aborts in the static-musl `idris-mlir-cc`; `LLJITBuilder`
-  also links the process's symbols by default
-- sites: foreign/idr/lib/Eval/Jit.cc (idr-eval, docs/cutover.md 6.4 and
-  decision 7.7)
-- workaround: ORC's `LLJIT`, which `ExecutionEngine` wraps, with
-  `setLinkProcessSymbolsByDefault(false)`, the inactive platform, and an
-  `absoluteSymbols` table of the runtime's entry points, the libm functions
-  of LOW-EXT-1 and the memory functions LLVM emits, all linked into
-  `idris-mlir-cc`: the JITed code runs the same runtime and libc as
-  executables
-- retire: when `ExecutionEngine` can be created without a process-symbol
-  generator (an option to skip it) and its other uses fit idr-eval's
-  (one compile per round, a forked child); re-test on every LLVM bump
-- upstream: none filed

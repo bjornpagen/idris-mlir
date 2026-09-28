@@ -169,7 +169,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
   3. `idr-specialize` (`ELIM-SPEC-1`)
   4. `sccp`, `canonicalize`, `cse`
   5. `idr-eval` (`ELIM-EVAL-1`)
-  6. `idr-prune`, `remove-dead-values`, `symbol-dce`
+  6. `idr-prune`, `symbol-dce`, `remove-dead-values`, `symbol-dce`
 
   The inliner's values:
   - **No threshold** (`inlining-threshold` unlimited, upstream's default):
@@ -180,11 +180,12 @@ Superoptimization, equality saturation and search are non-goals (D7).
     It bounds how often the inliner re-simplifies an SCC in one round; the
     loop repeats the round anyway, so `K` changes compile time, never
     whether a program compiles.
-  - `idr-prune` runs right before `remove-dead-values`, which at the pin
-    crashes on code that dead-code analysis proves unreachable but nothing
-    has removed yet. With the same analyses, it ends each such match region
-    in `ub.unreachable` and makes each such function return `ub.poison`
-    (`PINS.md`: `prune-before-remove-dead-values`).
+  - `idr-prune` and `symbol-dce` run before `remove-dead-values`, which at
+    the pin crashes on code that dead-code analysis proves unreachable but
+    nothing has removed yet. With the same analyses, `idr-prune` ends each
+    such match region in `ub.unreachable` and makes each such function
+    return `ub.poison`; `symbol-dce` removes the functions only that code
+    referred to (`PINS.md`: `prune-before-remove-dead-values`).
 
   *Why the loop terminates.* Inlining never goes around a cycle, because
   loop breakers cut every cycle of the call graph (`OPT-PIPE-3`), and
