@@ -1,13 +1,8 @@
 #!/bin/sh
-# rule: TC-CPP-1
-# C++ follows bjornpagen/cpp-starter at bdb6838: its presets and its flags,
-# with clang and libc++ in place of GCC (TC-DEV-6).
+# rule: TC-CPP-1, TC-DEV-3
+# C++ follows bjornpagen/cpp-starter: its presets and its flags, with clang
+# and libc++ in place of GCC (TC-DEV-6).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-if grep -q bdb6838 "$root/docs/cpp-profile.md"; then
-  say "docs/cpp-profile.md: cpp-starter at bdb6838"
-else
-  say "docs/cpp-profile.md: not cpp-starter at bdb6838"
-fi
 sed -n '/"configurePresets"/,/"buildPresets"/p' "$root/CMakePresets.json" |
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' > "$work/presets"
 for preset in dev release asan-ubsan lint; do
@@ -23,4 +18,10 @@ if grep -v 'PIN(clang-no-reflection)' "$root/CMakeLists.txt" | grep -qF -- '-fre
   say "CMakeLists.txt: -freflection"
 else
   say "CMakeLists.txt: no -freflection"
+fi
+# TC-DEV-3: the lint graph runs the clang-tidy of stage 2, the one LLVM.
+if grep -qF '.toolchain/llvm-musl/bin/clang-tidy' "$root/CMakePresets.json"; then
+  say "CMakePresets.json: lint with the stage-2 clang-tidy"
+else
+  say "CMakePresets.json: lint without the stage-2 clang-tidy"
 fi

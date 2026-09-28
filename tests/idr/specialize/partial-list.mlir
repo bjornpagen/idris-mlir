@@ -5,6 +5,7 @@
 // The clone is folded when it is made, so its match folds and the recursive
 // call is on [2, n], which is specialized in the same run, and so on down to
 // [n]; the call on [] is closed and left to idr-eval.
+// CHECK: idr.clone_counts = {sum = 3 : i64}
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @Nil tag 0 () {quantities = []}
@@ -26,7 +27,7 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: func.func private @use(
   // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64
-  // CHECK: call @sum$spec$1(%[[N]]) : (i64) -> i64
+  // CHECK: call @[[S1:sum\$spec\$[0-9]+]](%[[N]]) : (i64) -> i64
   func.func private @use(%n: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
@@ -41,12 +42,11 @@ module attributes {idr.program} {
     %c = arith.constant 0 : i64
     return %c : i64
   }
-  // CHECK-LABEL: func.func private @sum$spec$1(
+  // CHECK: func.func private @[[S1]](
   // CHECK-SAME: %[[M:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}) -> i64
-  // CHECK: call @sum$spec$2(%[[M]]) {{.*}}: (i64) -> i64
-  // CHECK-LABEL: func.func private @sum$spec$2(
-  // CHECK: call @sum$spec$3(%[[M2:[^)]*]]) {{.*}}: (i64) -> i64
-  // CHECK-LABEL: func.func private @sum$spec$3(
+  // CHECK: call @[[S2:sum\$spec\$[0-9]+]](%[[M]]) {{.*}}: (i64) -> i64
+  // CHECK: func.func private @[[S2]](
+  // CHECK: call @[[S3:sum\$spec\$[0-9]+]](%[[M2:[^)]*]]) {{.*}}: (i64) -> i64
+  // CHECK: func.func private @[[S3]](
   // CHECK: call @sum(%{{[^)]*}}) {{.*}}: (!idr.box<@L>) -> i64
-  // CHECK-NOT: func.func private @sum$spec$4
 }

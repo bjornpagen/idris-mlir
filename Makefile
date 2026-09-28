@@ -10,8 +10,8 @@
 #                          toolchain; after compiler changes
 #   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
 #                          contract changes
-#   make test-mlir-tools   tests/mlir, the pinned upstream MLIR tools; after changing
-#                          upstream MLIR usage
+#   make test-mlir-tools   tests/upstream, the upstream bugs still reproduce with the
+#                          pinned tools (TC-PIN-4); after changing upstream MLIR usage
 #   make compile SRC=Prog.idr OUT=prog
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #

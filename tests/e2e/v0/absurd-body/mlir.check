@@ -5,6 +5,6 @@
 // is never reached (IDR-CRASH-1: a function body never ends in
 // ub.unreachable, which the pinned inliner cannot inline). It never runs.
 // CHECK: func.func private @Prog.never(%{{[0-9]+}}: !idr.data<@Prog.Never> {idr.quantity = "w"}) -> i64
-// CHECK-NEXT: %never = ub.poison : i64
-// CHECK-NEXT: func.return %never : i64
+// CHECK-NEXT: %[[P:[a-z0-9_]+]] = ub.poison : i64
+// CHECK-NEXT: func.return %[[P]] : i64
 // CHECK-NEXT: } loc("Prog.never"

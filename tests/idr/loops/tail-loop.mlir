@@ -32,7 +32,7 @@
 // CHECK-LABEL: func.func private @spin(
 // CHECK: scf.while
 // CHECK-NEXT: idr.may_loop
-// CHECK: scf.condition(%true)
+// CHECK: scf.condition(%{{[a-z0-9_]+}})
 
 // CHECK-LABEL: func.func private @fib(
 // CHECK-NOT: scf.while

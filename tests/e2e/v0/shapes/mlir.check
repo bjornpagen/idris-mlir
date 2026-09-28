@@ -16,12 +16,13 @@
 // CHECK: idr.con @Prog.Shape::@Rect(%{{[0-9]+}}, %{{[0-9]+}}) : (i64, i64) -> !idr.data<@Prog.Shape>
 // CHECK: func.call @Prog.keep(%[[E]], %{{[0-9]+}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":
 // CHECK: } loc("Prog.main"("Prog.idr":
-// CHECK: func.func private @Prog.keep(%{{[0-9]+}}: !idr.erased {idr.quantity = "0"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total}
-// CHECK: func.func private @Prog.area(%{{[0-9]+}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.total}
-// CHECK: idr.match %{{[0-9]+}} : !idr.data<@Prog.Shape> -> (i64) {
-// CHECK: case @Circle(%{{[0-9]+}}: i64) {
-// CHECK: case @Rect(%{{[0-9]+}}: i64, %{{[0-9]+}}: i64) {
+// The other functions, in any order.
+// CHECK-DAG: func.func private @Prog.keep(%{{[0-9]+}}: !idr.erased {idr.quantity = "0"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total}
+// CHECK-DAG: func.func private @Prog.area(%{{[0-9]+}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.total}
+// CHECK-DAG: idr.match %{{[0-9]+}} : !idr.data<@Prog.Shape> -> (i64) {
+// CHECK-DAG: case @Circle(%{{[0-9]+}}: i64) {
+// CHECK-DAG: case @Rect(%{{[0-9]+}}: i64, %{{[0-9]+}}: i64) {
 // countdown recurses on an Int: Idris does not prove it terminating, so it
 // has no idr.total.
-// CHECK: func.func private @Prog.countdown(%{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 {
-// CHECK: idr.match_lit %{{[0-9]+}} : i64 -> (i64) {
+// CHECK-DAG: func.func private @Prog.countdown(%{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 {
+// CHECK-DAG: idr.match_lit %{{[0-9]+}} : i64 -> (i64) {

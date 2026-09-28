@@ -1,6 +1,6 @@
 module Prog
 
--- rule: LOW-TAIL-5, SEM-RES-2, LOW-TAIL-4
+-- rule: LOW-TAIL-5, SEM-RES-2, LOW-TAIL-4, PROF-FN-6
 -- 10^8 self tail calls run in constant stack (the harness limits the stack
 -- to 1 MiB). sum 1..10^8 = 5000000050000000, and 5000000050000000 mod 256
 -- = 128. Idris cannot evaluate this at type-checking time (TEST-ORACLE-2).

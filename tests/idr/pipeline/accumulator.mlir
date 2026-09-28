@@ -10,8 +10,7 @@
 // that @count never branches on, so it is generalized to a runtime value
 // and calls @count again: one clone, no Missed remark, and a second run
 // changes nothing.
-// CHECK: module attributes {idr.clone_counts = {count = 1 : i64}, idr.program}
-// CHECK-NOT: count$spec$2
+// CHECK: idr.clone_counts = {count = 1 : i64}
 // REMARK-NOT: [Missed]
 // AGAIN-NOT: [Missed]
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify

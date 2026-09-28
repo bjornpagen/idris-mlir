@@ -3,10 +3,8 @@
 module Main
 
 -- rule: PROF-HEAP-1, OPT-SAFE-1
--- Was PROF-HEAP-5-division-run-at-once; renamed because PROF-HEAP-5 is
--- withdrawn with arity raising (ELIM-G-5, PROF-GEN-4). `report` divides
--- by a runtime value and its action runs as soon as it is built; no closure
--- of it survives to runtime.
+-- `report` divides, and its action runs as soon as it is built; no
+-- closure of it survives to runtime.
 
 import Prelude
 

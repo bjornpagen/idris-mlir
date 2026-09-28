@@ -1,2 +1,0 @@
-the smoke test fails without the MLIR tools
-missing: mlir-opt mlir-translate opt llc

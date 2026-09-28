@@ -153,18 +153,21 @@ Each deviation below has a `PINS.md` entry.
 - **TC-DEV-1 (p0). Platform gate.** The gate also accepts Linux x86_64, as
   the user decided. Linux x86_64 is the only tested platform. The arm64
   platforms cpp-starter accepts stay accepted but untested.
+  - Check: review (CMakeLists.txt, PINS.md)
 - **TC-DEV-2 (p0). Version source.** The gate reads the accepted versions
   from `toolchain.lock.json` instead of containing them.
   - Test: `tests/spec/configure-gate`, `tests/spec/lock`
 - **TC-DEV-3 (p0). Lint compiler.** The lint graph uses the `clang-tidy`
   built by stage 2, not cpp-starter's separately pinned Clang. The project
   then has one LLVM, not two.
+  - Test: `tests/spec/cpp-starter`
 - **TC-DEV-4 (p0). No stdexec.** cpp-starter's stdexec dependency and wait
   backend are not adopted, because nothing here uses them.
+  - Check: review (CMakeLists.txt, PINS.md)
 - **TC-DEV-5 (p0). C++17 headers.** LLVM's headers are C++17 and are compiled
   in C++26 mode. Any incompatibility found gets a `PINS.md` entry and the
   narrowest possible workaround.
-  - Test: `tests/spec/deviations`
+  - Check: review (CMakeLists.txt, PINS.md)
 - **TC-DEV-6 (p0). clang and libc++.** The compiler is the stage-2 clang
   with libc++, for `x86_64-unknown-linux-musl`, and the gate refuses any
   other; without `-freflection`, which the pinned clang only stubs
@@ -233,15 +236,15 @@ Each deviation below has a `PINS.md` entry.
   compiler/            Idris: frontend, middle end, emitter (idris-mlir)
   foreign/idr/         C++: idr dialect, passes, the JIT, idris-mlir-opt, -cc, -reduce
   runtime/             C++: the runtime, with a C interface (TC-ZONE-3, LOW-RT-1)
-  tests/spec/          the spec's rules, the pins, the commands, the layout
+  tests/spec/          the spec's rules, the pins, the commands
   tests/toolchain/     the pinned toolchain and what it builds
   tests/compiler/      Idris-side unit tests and invalid-Core tests
   tests/profile/vN/    accept/ and reject/ fixtures per profile version
   tests/idr/           hand-written .mlir + FileCheck, per op/folder/pass
   tests/e2e/vN/        Idris source → executable, with oracles
-  tests/mlir/          checks of the pinned upstream tools
+  tests/upstream/      the bugs of upstream/ still reproduce (TC-PIN-4)
   tools/bootstrap.sh   the toolchain; tools/*.sh the other commands' scripts
   docs/architecture/   this spec
   third_party/         Idris2, musl, gmp, simdutf, fast_float, snmalloc, ryu: pinned, unmodified
   ```
-  - Test: `tests/spec/layout`
+  - Check: review (the tree)

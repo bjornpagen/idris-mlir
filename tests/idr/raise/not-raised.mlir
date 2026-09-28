@@ -10,7 +10,7 @@
 // (the fourth). A pure and total callee that cannot crash has nothing to
 // observe, so its call is raised even across output (the fifth), and the
 // raised call is where the apply was, after the output.
-// CHECK: module attributes {idr.clone_counts = {pmk = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {pmk = 1 : i64}
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[F1:.*]] = call @mk(
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int
@@ -25,10 +25,10 @@
 // CHECK: %[[F4:.*]] = call @pmk(%{{.*}}) : (i64) -> !idr.fn<(i64) -> (i64)>
 // CHECK-NEXT: %[[R4:.*]] = idr.apply %[[F4]](
 // CHECK-NEXT: %[[W3:.*]] = idr.io.put_int signed %[[R4]], %[[W2]]
-// CHECK-NEXT: %[[R5:.*]] = call @pmk$raise$1(%{{.*}}, %[[R2]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[R5:.*]] = call @[[PMK:pmk\$raise\$[0-9]+]](%{{.*}}, %[[R2]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.io.put_int signed %[[R5]], %[[W3]]
 // CHECK-NOT: call @mk$raise
-// CHECK-LABEL: func.func private @pmk$raise$1(
+// CHECK: func.func private @[[PMK]](
 // CHECK-SAME: attributes {idr.effect = "pure", idr.origin = "pmk", idr.spec_key = "raise @pmk", idr.total}
 // CHECK-NOT: func.func private @mk$raise
 module attributes {idr.program} {

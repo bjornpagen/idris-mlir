@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply --implicit-check-not=@Main.iter(
 // rule: ELIM-SPEC-1, ELIM-G-1, TEST-ELIM-1
 // One copy of iter per static function argument: iter is partial, but its
 // calls are not closed (n comes from stdin), so each is specialized on the
@@ -12,4 +12,3 @@
 // CHECK: arith.{{addi|muli}}
 // CHECK: func.func private @Main.iter$spec${{[0-9]+}}(
 // CHECK: arith.{{addi|muli}}
-// CHECK-NOT: func.func private @Main.iter

@@ -5,9 +5,9 @@
 // CHECK-LABEL: func.func @io(
 // CHECK: idr.io.put_char
 // CHECK-NEXT: idr.io.put_char
-// CHECK-NEXT: %ch, %next = idr.io.get_char
-// CHECK-NEXT: %ch_0, %next_1 = idr.io.get_char
-// CHECK-NEXT: %ch_2, %next_3 = idr.io.get_byte
+// CHECK-NEXT: %{{.*}}, %{{.*}} = idr.io.get_char
+// CHECK-NEXT: %{{.*}}, %{{.*}} = idr.io.get_char
+// CHECK-NEXT: %{{.*}}, %{{.*}} = idr.io.get_byte
 // CHECK-NEXT: idr.io.exit
 func.func @io(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32

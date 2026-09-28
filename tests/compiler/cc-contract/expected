@@ -1,7 +1,0 @@
-an op outside the contract: exit 1
-existing output: untouched
-a profile rejection: exit 3
-a profile rejection: unsupported (PROF-TYPE-4)
-existing output: untouched
-a profile rejection with --check: exit 3
-no arguments: exit 2

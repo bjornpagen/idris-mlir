@@ -1,5 +1,6 @@
 module Prog
 
+-- rule: PROF-GEN-1, PROF-GEN-3, PROF-TERM-1, SEM-DATA-1
 public export
 record Point where
   constructor MkPoint

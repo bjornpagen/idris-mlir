@@ -1,11 +1,26 @@
 #!/bin/sh
 # rule: TC-CPP-2
 # make build builds C++ through the CMake presets alone, with the pinned
-# CMake, and the compiler with the pinned Idris.
+# CMake, and never invokes Ninja or the compiler directly; it builds the
+# compiler with the pinned Idris.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (
   unset MAKEFLAGS MAKELEVEL MFLAGS
   make --no-print-directory -n -C "$root" build
 ) > "$work/build" 2>&1
 say "make -n build: exit $?"
-grep -E 'cmake --preset|cmake --build|idris2 --build' "$work/build" | sed "s|$root|<root>|g"
+present() {
+  if grep -q -- "$2" "$work/build"; then say "$1: yes"; else say "$1: no"; fi
+}
+present 'cmake --preset' '\.toolchain/cmake/bin/cmake --preset '
+present 'cmake --build --preset' '\.toolchain/cmake/bin/cmake --build --preset '
+present 'pinned idris2 --build' '\.toolchain/idris2/bin/idris2 --build'
+# A command word, at the start of a line or after &&, ;, | or ||, with or
+# without a directory.
+direct='(^|&&|;|\|)[[:space:]]*([^[:space:]]*/)?(ninja|clang\+\+|clang|c\+\+|g\+\+|gcc|cc)([[:space:]]|$)'
+if grep -Eq "$direct" "$work/build"; then
+  say "direct ninja/compiler calls:"
+  grep -E "$direct" "$work/build" | sed "s|$root|<root>|g"
+else
+  say "direct ninja/compiler calls: none"
+fi

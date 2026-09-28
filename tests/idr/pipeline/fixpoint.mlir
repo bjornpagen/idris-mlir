@@ -12,14 +12,14 @@
 // inlined in the next round; @pow and @inc are then dead.
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
 // AGAIN-SAME: fixpoint: round 1 changed nothing
-// CHECK: module attributes {idr.clone_counts = {pow = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {pow = 1 : i64}
 // CHECK-LABEL: func.func @Main.main(
-// CHECK: call @pow$spec$1(
+// CHECK: call @[[POW:pow\$spec\$[0-9]+]](
 // CHECK-NOT: func.func private @pow(
 // CHECK-NOT: @inc
-// CHECK-LABEL: func.func private @pow$spec$1(
+// CHECK: func.func private @[[POW]](
 // CHECK: arith.addi
-// CHECK: call @pow$spec$1(
+// CHECK: call @[[POW]](
 module attributes {idr.program} {
   func.func private @inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

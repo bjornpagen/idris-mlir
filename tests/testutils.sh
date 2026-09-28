@@ -844,67 +844,6 @@ lit() {
   [ "$lit_n" -gt 0 ] || say "no RUN lines in ${1##*/}"
 }
 
-# native_step NAME CMD...: one step of native_pipeline.
-native_step() {
-  native_name=$1
-  shift
-  bounded "$@" > "$work/native.log" 2>&1
-  native_status=$?
-  say "$native_name: exit $native_status"
-  [ "$native_status" -eq 0 ] && return 0
-  show "$work/native.log"
-  return 1
-}
-
-# native_pipeline TOOLS LINKER SOURCE: lowers the MLIR text SOURCE to a
-# native executable with the upstream tools in TOOLS (mlir-opt,
-# mlir-translate, opt, llc) and LINKER, and checks each artifact. The status
-# is 1 if a tool is missing or a step fails.
-native_pipeline() {
-  native_missing=
-  for native_tool in mlir-opt mlir-translate opt llc; do
-    [ -f "$1/$native_tool" ] || native_missing="$native_missing $native_tool"
-  done
-  [ -f "$2" ] || native_missing="$native_missing linker"
-  if [ -n "$native_missing" ]; then
-    say "missing:$native_missing"
-    return 1
-  fi
-  say "tools: mlir-opt, mlir-translate, opt, llc and the linker"
-  native=$work/native
-  mkdir -p "$native"
-  native_step mlir-opt "$1/mlir-opt" "$3" --convert-scf-to-cf --convert-to-llvm \
-    --reconcile-unrealized-casts -o "$native/lowered.mlir" &&
-  native_step mlir-translate "$1/mlir-translate" --mlir-to-llvmir "$native/lowered.mlir" \
-    -o "$native/out.ll" &&
-  native_step opt "$1/opt" -O2 -S "$native/out.ll" -o "$native/opt.ll" &&
-  native_step llc "$1/llc" -O2 -filetype=obj --relocation-model=pic "$native/opt.ll" \
-    -o "$native/out.o" &&
-  native_step link "$2" "$native/out.o" -o "$native/out" || return 1
-  native_found=
-  for native_artifact in lowered.mlir out.ll opt.ll out.o out; do
-    if [ -s "$native/$native_artifact" ]; then native_found="$native_found $native_artifact"; fi
-  done
-  say "artifacts:$native_found"
-  if grep -q 'llvm.func @main' "$native/lowered.mlir"; then
-    say "lowered: defines llvm.func @main"
-  else
-    say "lowered: no llvm.func @main"
-  fi
-  if grep -q 'ret i32 42' "$native/opt.ll"; then
-    say "optimized: returns 42"
-  else
-    say "optimized: does not return 42"
-  fi
-  run_program native "$native/out" /dev/null
-  say "run: exit $ran"
-  if printf 'module { invalid syntax }' | "$1/mlir-opt" > /dev/null 2>&1; then
-    say "mlir-opt: accepts invalid input"
-  else
-    say "mlir-opt: rejects invalid input"
-  fi
-}
-
 # rejection_rule: the rule of a user error in the last compilation's
 # output (`unsupported (<RULE>)`), or nothing.
 rejection_rule() {
@@ -1161,7 +1100,7 @@ two_levels() {
     while IFS= read -r tl_skip; do
       tl_term=${tl_skip%% *}
       tl_text=$(sed -n "s/^$tl_term = //p" "$tl_dir/lower/Terms.idr")
-      say "$tl_corpus: not compared with Idris: $tl_skip: $tl_text"
+      say "$tl_corpus: not compared with Idris: ${tl_skip#* }: $tl_text"
     done < "$work/tl.skipped"
     # Line by line: t<n> <value>.
     awk 'FILENAME == ARGV[1] { skip[$1] = 1; next }

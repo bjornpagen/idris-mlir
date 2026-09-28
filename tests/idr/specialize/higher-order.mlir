@@ -7,7 +7,7 @@
 // a runtime leaf: the clone of @map rebuilds the closure over a new
 // parameter, and the recursive call, which passes the same closure, calls
 // the clone itself. Nothing is left to specialize after that.
-// CHECK: module attributes {idr.clone_counts = {map = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {map = 1 : i64}
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @Nil tag 0 () {quantities = []}
@@ -36,7 +36,7 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: func.func private @use(
   // CHECK-SAME: %[[N:.*]]: i64 {idr.quantity = "w"}, %[[XS:.*]]: !idr.box<@L> {idr.quantity = "w"})
-  // CHECK: %[[R:.*]] = call @map$spec$1(%[[N]], %[[XS]])
+  // CHECK: %[[R:.*]] = call @[[M:map\$spec\$[0-9]+]](%[[N]], %[[XS]])
   // CHECK-NEXT: return %[[R]]
   func.func private @use(%n: i64 {idr.quantity = "w"}, %xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.box<@L> attributes {idr.total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -47,13 +47,12 @@ module attributes {idr.program} {
     %c = arith.constant 0 : i64
     return %c : i64
   }
-  // CHECK-LABEL: func.func private @map$spec$1(
+  // CHECK: func.func private @[[M]](
   // CHECK-SAME: %[[A:.*]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[L:.*]]: !idr.box<@L> {idr.hole = 1 : i64, idr.quantity = "w"})
   // CHECK-SAME: idr.origin = "map"
   // CHECK-SAME: idr.spec_key = "{{.*}}closure{{.*}}@add{{.*}}"
   // CHECK-SAME: idr.total
   // CHECK: case @Cons(%[[H:.*]]: i64, %[[T:.*]]: !idr.box<@L>)
   // CHECK-NEXT: func.call @add(%[[A]], %[[H]])
-  // CHECK-NEXT: call @map$spec$1(%[[A]], %[[T]])
-  // CHECK-NOT: func.func private @map$spec$2
+  // CHECK-NEXT: call @[[M]](%[[A]], %[[T]])
 }

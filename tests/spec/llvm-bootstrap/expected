@@ -1,5 +1,8 @@
-LLVM's configure sets CMAKE_C_COMPILER
-LLVM's configure sets CMAKE_CXX_COMPILER
-LLVM's configure sets CMAKE_MAKE_PROGRAM
-LLVM's configure sets LLVM_ENABLE_PROJECTS
-LLVM's projects include mlir
+tools: all installed
+package: llvm/LLVMConfig.cmake
+package: mlir/MLIRConfig.cmake
+configured: LLVM_TARGETS_TO_BUILD X86
+configured: LLVM_ENABLE_ASSERTIONS ON
+configured: LLVM_ENABLE_RTTI OFF
+configured: LLVM_ENABLE_EH OFF
+configured: LLVM_ENABLE_PLUGINS OFF

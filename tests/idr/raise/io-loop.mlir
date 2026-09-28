@@ -15,21 +15,21 @@
 // which idr-tail-loops makes an scf.while, and which allocates nothing.
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %{{.*}}, %[[W:.*]] = idr.io.get_byte
-// CHECK: call @countdown$raise$1(%{{.*}}, %[[W]]) : (i64, !idr.world) -> !idr.data<@IORes>
-// CHECK-LABEL: func.func private @countdown$raise$1(
+// CHECK: call @[[C:countdown\$raise\$[0-9]+]](%{{.*}}, %[[W]]) : (i64, !idr.world) -> !idr.data<@IORes>
+// CHECK: func.func private @[[C]](
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[W0:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.data<@IORes>
 // CHECK-SAME: idr.origin = "countdown", idr.spec_key = "raise @countdown[@MkIO, 0]", no_inline
 // CHECK: default {
 // CHECK: %[[W1:.*]] = idr.io.put_int signed %[[N]], %[[W0]] : i64
-// CHECK: %[[R:.*]] = func.call @countdown$raise$1(%{{.*}}, %[[W1]])
+// CHECK: %[[R:.*]] = func.call @[[C]](%{{.*}}, %[[W1]])
 // CHECK-NEXT: idr.yield %[[R]]
 // CHECK-NOT: idr.closure
 // CHECK-NOT: idr.apply
 // CHECK-NOT: func.func private @countdown(
 // CHECK-NOT: func.func private @bind(
-// LOOP-LABEL: func.func private @countdown$raise$1(
+// LOOP: func.func private @countdown$raise${{[0-9]+}}(
 // LOOP: scf.while
-// LOOP-NOT: call @countdown$raise$1
+// LOOP-NOT: call @countdown$raise$
 module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit tag 0 () {quantities = []}

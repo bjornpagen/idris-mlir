@@ -73,7 +73,7 @@ runtime operands left out, and those operands are its *runtime leaves*.
   of a constant closure, canonicalizes to `func.call @f(caps…, a…)`, and
   `inline` inlines the call (`IDR-CLOS-1`). The arguments are still
   evaluated first, since they are SSA values (`SEM-EVAL-1`).
-  - Test: `tests/e2e/v1/ELIM-G-1-beta`, `tests/idr/canon/apply.mlir`
+  - Test: `tests/idr/canon/apply.mlir`, `tests/e2e/v1/ELIM-G-4-static-let`
 - **ELIM-G-2 (v1). Known constructor.** A match on a value built by a known
   constructor becomes the selected alternative, with its fields bound to
   the constructor's arguments. This removes `MkIO`, `MkIORes`, `MkPair`
@@ -170,8 +170,8 @@ runtime operands left out, and those operands are its *runtime leaves*.
   `idr.mod`, `idr.to_char`, `idr.to_int`, `idr.str.*` and `idr.big.*`, the
   last two through the runtime's own functions (`LOW-RT-1`). A call of
   constants is `idr-eval`'s (`ELIM-EVAL-1`).
-  - Test: `tests/e2e/v1/ELIM-G-6-compile-time`,
-    `tests/e2e/v3/prelude-user-types`
+  - Test: `tests/idr/fold/`, `tests/idr/eval/fold-vs-jit.mlir`,
+    `tests/e2e/v1/strings-at-compile-time`, `tests/e2e/v3/prelude-user-types`
 - **ELIM-G-7 (v1). Output fusion.** When the argument of `putStr` (the
   Prelude's `prim__putStr`) is built from pieces, the call writes the
   pieces in order instead, applied repeatedly:

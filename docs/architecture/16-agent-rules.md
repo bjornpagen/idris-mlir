@@ -23,7 +23,7 @@ bind every contributor, human or agent.
   | Frontend and middle end (Idris) | `compiler/`, `tests/compiler/`, `tests/profile/` |
   | Dialect and passes (C++) | `foreign/idr/`, `tests/idr/` |
   | Runtime (C++) | `runtime/` |
-  | Toolchain and build | `Makefile`, `tools/`, `CMakeLists.txt`, `CMakePresets.json`, `toolchain.lock.json`, `.gitmodules`, `PINS.md`, `docs/cpp-profile.md`, `docs/toolchain.md`, the test runner (`tests/*.idr`, `tests/tests.ipkg`, `tests/testutils.sh`), `tests/spec/`, `tests/toolchain/`, `tests/mlir/` |
+  | Toolchain and build | `Makefile`, `tools/`, `CMakeLists.txt`, `CMakePresets.json`, `toolchain.lock.json`, `.gitmodules`, `PINS.md`, `docs/cpp-profile.md`, `docs/toolchain.md`, the test runner (`tests/*.idr`, `tests/tests.ipkg`, `tests/testutils.sh`), `tests/spec/`, `tests/toolchain/` |
   | End to end | `tests/e2e/` |
   | Spec | `docs/architecture/` (lead only) |
 

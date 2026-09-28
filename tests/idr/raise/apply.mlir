@@ -10,16 +10,16 @@
 // meets the closure each region builds and becomes a call. Every tail
 // applies a known closure of a total function, and the callee is total, so
 // the clone is total. A second run changes nothing.
-// CHECK: module attributes {idr.clone_counts = {pick = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {pick = 1 : i64}
 // CHECK-LABEL: func.func private @pick(
 // CHECK-SAME: -> !idr.fn<(i64) -> (i64)> attributes {idr.total}
 // CHECK-LABEL: func.func private @use(
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.quantity = "w"}, %[[X:[a-z0-9_]+]]: i64 {idr.quantity = "w"})
 // CHECK: %[[Y:.*]] = arith.addi %[[X]]
-// CHECK-NEXT: %[[R:.*]] = call @pick$raise$1(%[[N]], %[[Y]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[R:.*]] = call @[[PICK:pick\$raise\$[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
 // CHECK-NOT: idr.apply
-// CHECK-LABEL: func.func private @pick$raise$1(
+// CHECK: func.func private @[[PICK]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[B:[a-z0-9_]+]]: i64 {idr.hole = 1 : i64, idr.quantity = "w"}) -> i64
 // CHECK-SAME: attributes {idr.origin = "pick", idr.spec_key = "raise @pick", idr.total}
 // CHECK-NEXT: %[[M:.*]] = idr.match_lit %[[A]] : i64 -> (i64) {

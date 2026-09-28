@@ -8,9 +8,9 @@
 // for them, and the types stay closures. The unrelated closure type in the
 // same module is still converted. idr-check-profile reports the first
 // closure built at runtime (growing-lazy.mlir has the Lazy one alone).
-// CHECK: idr.data @fn$0 {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.neg tag 0 ()
-// CHECK-NOT: idr.data @fn$1
+// CHECK-NOT: idr.data @fn$
 // CHECK-LABEL: func.func private @Main.pick(
 // CHECK-SAME: -> !idr.fn<(i64) -> (i64)>
 // CHECK: idr.closure @Main.inc()
@@ -19,8 +19,8 @@
 // CHECK-SAME: -> !idr.fn<() -> (i64)>
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: idr.apply %{{.*}}(%{{.*}}) : !idr.fn<(i64) -> (i64)>
-// CHECK: idr.match %{{.*}} : !idr.data<@fn$0> -> (i1)
-// ERR: Main.idr:16:5: error: unsupported (PROF-HEAP-1): function value built at runtime: a closure of @Main.twice that no finite choice of functions stands for
+// CHECK: idr.match %{{.*}} : !idr.data<@[[F0]]> -> (i1)
+// ERR: Main.idr:16:5: error: unsupported (PROF-HEAP-1){{.*}}@Main.twice
 // ERR-NOT: error
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

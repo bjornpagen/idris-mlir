@@ -13,10 +13,10 @@
 // call of it for the right subtree is raised across the output of the left
 // one. @label is partial, so output between its call and the write keeps
 // the pair, and so does a string with a second use.
-// CHECK: module attributes {idr.clone_counts = {show = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {show = 1 : i64}
 // CHECK-LABEL: func.func private @print(
 // CHECK-SAME: %[[T:[a-z0-9_]+]]: !idr.box<@T> {idr.quantity = "w"}, %[[W:[a-z0-9_]+]]: !idr.world
-// CHECK-NEXT: %[[W1:.*]] = call @show$write$1(%[[T]], %[[W]]) : (!idr.box<@T>, !idr.world) -> !idr.world
+// CHECK-NEXT: %[[W1:.*]] = call @[[SHOW:show\$write\$[0-9]+]](%[[T]], %[[W]]) : (!idr.box<@T>, !idr.world) -> !idr.world
 // CHECK-NEXT: return %[[W1]]
 // CHECK-LABEL: func.func private @labelled(
 // CHECK: %[[S:.*]] = call @label(
@@ -25,7 +25,7 @@
 // CHECK: %[[S2:.*]] = call @label(
 // CHECK-NEXT: idr.io.put_str %[[S2]]
 // CHECK-NEXT: idr.io.put_str %[[S2]]
-// CHECK-LABEL: func.func private @show$write$1(
+// CHECK: func.func private @[[SHOW]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: !idr.box<@T> {idr.hole = 0 : i64, idr.quantity = "w"}, %[[V:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.world
 // CHECK-SAME: attributes {idr.effect = "effectful", idr.origin = "show", idr.spec_key = "write @show", idr.total}
 // CHECK: idr.match %[[A]] : !idr.box<@T> -> (!idr.world) {
@@ -34,9 +34,9 @@
 // CHECK-NEXT: idr.yield %[[V1]] : !idr.world
 // CHECK: case @Node(%[[L:.*]]: !idr.box<@T>, %[[R:.*]]: !idr.box<@T>) {
 // CHECK-NEXT: %[[V2:.*]] = idr.io.put_str %{{.*}}, %[[V]]
-// CHECK-NEXT: %[[V3:.*]] = func.call @show$write$1(%[[L]], %[[V2]])
+// CHECK-NEXT: %[[V3:.*]] = func.call @[[SHOW]](%[[L]], %[[V2]])
 // CHECK-NEXT: %[[V4:.*]] = idr.io.put_str %{{.*}}, %[[V3]]
-// CHECK-NEXT: %[[V5:.*]] = func.call @show$write$1(%[[R]], %[[V4]])
+// CHECK-NEXT: %[[V5:.*]] = func.call @[[SHOW]](%[[R]], %[[V4]])
 // CHECK-NEXT: %[[V6:.*]] = idr.io.put_str %{{.*}}, %[[V5]]
 // CHECK-NEXT: idr.yield %[[V6]] : !idr.world
 // CHECK-NOT: idr.str

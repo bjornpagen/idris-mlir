@@ -4,7 +4,6 @@
 # FileCheck, not and count of the pinned LLVM first on PATH (testutils.sh's
 # lit), shown here with stand-ins for them.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-if [ -e "$root/tests/idr/lit.cfg.py" ]; then say "lit: configured"; else say "lit: none"; fi
 case $llvm_bin in
   "$root/.toolchain/llvm-musl/bin") say "the pinned LLVM: .toolchain/llvm-musl/bin" ;;
   *) say "the pinned LLVM: $llvm_bin" ;;

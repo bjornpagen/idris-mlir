@@ -9,9 +9,9 @@
 // CHECK-LABEL: func.func @Main.main(
 // CHECK-SAME: %[[W:[a-z0-9_]+]]: !idr.world
 // CHECK: %[[C3:.*]] = arith.constant 3 : i64
-// CHECK: call @countdown$raise$1(%[[C3]], %[[W]])
-// CHECK-LABEL: func.func private @countdown$raise$1(
-// CHECK: func.call @countdown$raise$1(
+// CHECK: call @[[C:countdown\$raise\$[0-9]+]](%[[C3]], %[[W]])
+// CHECK: func.func private @[[C]](
+// CHECK: func.call @[[C]](
 // CHECK-NOT: $spec$
 module attributes {idr.program} {
   idr.data @Unit {

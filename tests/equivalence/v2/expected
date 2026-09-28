@@ -1,6 +1,5 @@
 double-basics: same stdout and exit status
 double-cast-nan: same stdout and exit status
-double-print-fuzz: same stdout and exit status
 interface-option-monad: same stdout and exit status
 interface-ring-power: same stdout and exit status
 interface-state-monad: same stdout and exit status

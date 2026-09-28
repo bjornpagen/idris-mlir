@@ -288,7 +288,7 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   Idris's typechecker may read such a string differently, so the cast may
   not reach a type (`SEM-HOST-1`).
   - Test: `tests/e2e/v2/double-basics`, and 176,000 fuzzed values in
-    `tests/e2e/v2/double-print-fuzz`
+    `tests/toolchain/double-print`
 
 ## Integers (v3)
 

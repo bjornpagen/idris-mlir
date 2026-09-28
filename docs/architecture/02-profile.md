@@ -121,7 +121,7 @@ Unless a rule says otherwise, it applies to runtime-reachable definitions.
     modules are trusted is the library table's (*Trusted*,
     [17-registry](17-registry.md))
   - Test: `tests/profile/v3/reject/PROF-PROG-4-base.idr`,
-    `tests/profile/v1/accept/PROF-PROG-4-two-modules/`, `tests/e2e/v3/prelude`
+    `tests/e2e/v1/multi-module`, `tests/e2e/v3/prelude`
 
 *Note:* conformance fixtures state expected results as Idris proofs, or, for
 IO programs, as expected output ([14-testing](14-testing.md)).
@@ -188,8 +188,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Check: the registry's `IOCall` entries of category 1
     ([17-registry](17-registry.md)), handled by
     `Frontend.Translate.application` and `Frontend.Profile.checkReachable`
-  - Test: `tests/e2e/v3/prelude-io`,
-    `tests/profile/v1/accept/PROF-LIB-2-io-library.idr`
+  - Test: `tests/e2e/v3/prelude-io`, `tests/e2e/v1/hello`
 - **PROF-IO-3 (v1).** User modules do not use `unsafePerformIO`,
   `unsafeCreateWorld`, `unsafeDestroyWorld` or `%MkWorld`. These are reachable
   only through the root term `unsafePerformIO main` that Idris builds for `-o`.
@@ -221,7 +220,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: superseded in v1 (`PROF-TYPE-4`)
 - **PROF-TYPE-3 (v0).** Compile-time positions (quantity 0) may have any type
   that stock Idris accepts, subject to `PROF-ESC-1`.
-  - Test: `tests/profile/v0/accept/PROF-TYPE-3-erased-witness.idr`
+  - Test: `tests/e2e/v0/erased-witness`
 - **PROF-TYPE-4 (v1).** After monomorphisation, the type of every runtime
   position normalizes to a closed type built from:
   - the v0 integer types, `Char`, `String` and `%World`;
@@ -279,7 +278,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
     `tests/profile/v3/reject/PROF-DATA-3-prelude-list.idr`
 - **PROF-DATA-4 (v0).** Data types with zero constructors are allowed. Their
   values cannot exist at runtime.
-  - Test: `tests/profile/v0/accept/PROF-DATA-4-void.idr`
+  - Test: `tests/e2e/v0/void-field`
 - **PROF-DATA-5 (v1).** A runtime data type is declared in a user module or
   admitted by `PROF-LIB-1`. It may have parameters (instantiated by
   monomorphisation, `ELIM-MONO-*`). Before v3 it had no indices; from v3 an
@@ -323,11 +322,13 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/v3/missing-case`,
     `tests/profile/v0/accept/PROF-FN-5-{nonterminating,division}.idr`
 - **PROF-FN-6 (v0).** Recursion, including mutual recursion, is allowed.
-  - Test: `tests/profile/v0/accept/PROF-FN-6-{fib,mutual,tail-loop}.idr`
+  - Test: `tests/profile/v0/accept/PROF-FN-6-fib.idr`, `tests/e2e/v0/mutual-recursion`,
+    `tests/e2e/v0/tail-loop-deep`
 - **PROF-FN-7 (v1).** Higher-order functions, lambdas, partial application,
   functions returning functions, and polymorphic functions are allowed,
   subject to `PROF-HEAP-*` and `PROF-POLY-1`.
-  - Test: `tests/profile/v1/accept/PROF-FN-7-{compose,twice,map-pair,state}.idr`
+  - Test: `tests/profile/v1/accept/PROF-FN-7-{map-pair,partial-application}.idr`,
+    `tests/e2e/v1/state-monad`
 - **PROF-IFACE-1 (v2).** User-defined interfaces are allowed: superclasses,
   default methods, named implementations, constrained implementations, and
   methods with type variables of their own (higher-kinded interfaces such
@@ -393,7 +394,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 
   In v0 only, primitives on `Char` and `String` are also rejected, and in v0
   and v1 everything on `Double`.
-  - Test: `tests/profile/v0/reject/PROF-PRIM-2-{negate,shl}.idr`,
+  - Test: `tests/profile/v0/reject/PROF-PRIM-2-shl.idr`,
     `tests/profile/v2/reject/PROF-PRIM-2-double-*.idr`
 - **PROF-PRIM-3 (v1).** The `Char` primitives are allowed:
   - `prim__lt_Char`, `prim__lte_Char`, `prim__eq_Char`, `prim__gte_Char`,

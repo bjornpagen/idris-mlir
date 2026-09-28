@@ -1,5 +1,0 @@
-#!/bin/sh
-# The pinned upstream MLIR tools lower hand-written MLIR (../fixtures) to a
-# working executable (make test-mlir-tools).
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-native_pipeline "$llvm_bin" "$pinned_cc" "$root/tests/mlir/fixtures/exit_code.mlir"

@@ -1,23 +1,24 @@
 #!/bin/sh
 # rule: TC-BOOT-2
-# tools/bootstrap.sh builds LLVM/MLIR with the pinned tools: its configure
-# names the C and C++ compilers and the Ninja it builds with, and the MLIR
-# project.
+# Stage 2 installed a complete tree into .toolchain/llvm-musl: every tool,
+# the CMake packages of LLVM and MLIR, and the configuration (target X86,
+# assertions on, RTTI and exceptions off, no plugins) those packages record.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-script=$root/tools/bootstrap.sh
-if [ ! -f "$script" ]; then
-  say "tools/bootstrap.sh: missing"
-  exit 0
-fi
-for flag in CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_MAKE_PROGRAM LLVM_ENABLE_PROJECTS; do
-  if grep -qF -- "-D$flag=" "$script"; then
-    say "LLVM's configure sets $flag"
+missing=
+for tool in clang lld clang-tidy mlir-tblgen mlir-opt mlir-translate opt llc llvm-ar llvm-nm \
+            llvm-readelf llvm-objdump llvm-symbolizer FileCheck not count; do
+  [ -x "$llvm_bin/$tool" ] || missing="$missing $tool"
+done
+if [ -n "$missing" ]; then say "tools missing:$missing"; else say "tools: all installed"; fi
+cmake_dir=${llvm_bin%/bin}/lib/cmake
+for package in llvm/LLVMConfig.cmake mlir/MLIRConfig.cmake; do
+  if [ -f "$cmake_dir/$package" ]; then say "package: $package"; else say "package: $package missing"; fi
+done
+for setting in 'LLVM_TARGETS_TO_BUILD X86' 'LLVM_ENABLE_ASSERTIONS ON' 'LLVM_ENABLE_RTTI OFF' \
+               'LLVM_ENABLE_EH OFF' 'LLVM_ENABLE_PLUGINS OFF'; do
+  if grep -qxF "set($setting)" "$cmake_dir/llvm/LLVMConfig.cmake" 2> /dev/null; then
+    say "configured: $setting"
   else
-    say "LLVM's configure does not set $flag"
+    say "not configured: $setting"
   fi
 done
-if grep -q 'LLVM_ENABLE_PROJECTS=[^[:space:]]*mlir' "$script"; then
-  say "LLVM's projects include mlir"
-else
-  say "LLVM's projects lack mlir"
-fi

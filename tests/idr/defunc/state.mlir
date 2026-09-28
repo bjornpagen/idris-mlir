@@ -2,43 +2,43 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-check-profile
 // rule: ELIM-CLOS-1, PROF-HEAP-1
-// A state monad's shape (tests/profile/v1/accept/PROF-FN-7-state.idr):
+// A state monad's shape (tests/e2e/v1/state-monad):
 // run n = if n == 0 then done else seq twice (loop n), where every value is
 // a state transformer of the one type T = i64 -> i64. seq's closure
 // captures closures of T, but only of twice and loop, and twice's only of
 // tick, so the labels never lead back to seq: each (T, labels) gets its own
 // sum, and no closure is left. Keying by the type alone would have called T
 // infinite.
-// CHECK: idr.data @fn$0 {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.tick tag 0 () {quantities = []}
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$1 {
-// CHECK-NEXT: idr.ctor @Main.twice tag 0 (!idr.data<@fn$0>, !idr.data<@fn$0>) {quantities = ["w", "w"]}
+// CHECK: idr.data @[[F1:fn\$[0-9]+]] {
+// CHECK-NEXT: idr.ctor @Main.twice tag 0 (!idr.data<@[[F0]]>, !idr.data<@[[F0]]>) {quantities = ["w", "w"]}
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$2 {
+// CHECK: idr.data @[[F2:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.loop tag 0 (i64) {quantities = ["w"]}
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$3 {
+// CHECK: idr.data @[[F3:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.done tag 0 () {quantities = []}
-// CHECK-NEXT: idr.ctor @Main.seq tag 1 (!idr.data<@fn$1>, !idr.data<@fn$2>) {quantities = ["w", "w"]}
+// CHECK-NEXT: idr.ctor @Main.seq tag 1 (!idr.data<@[[F1]]>, !idr.data<@[[F2]]>) {quantities = ["w", "w"]}
 // CHECK-NEXT: }
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: idr.closure
 // CHECK-NOT: idr.apply
 // CHECK-LABEL: func.func private @Main.twice(
-// CHECK-SAME: %{{.*}}: !idr.data<@fn$0> {{.*}}, %{{.*}}: !idr.data<@fn$0> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
+// CHECK-SAME: %{{.*}}: !idr.data<@[[F0]]> {{.*}}, %{{.*}}: !idr.data<@[[F0]]> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
 // CHECK-LABEL: func.func private @Main.seq(
-// CHECK-SAME: %{{.*}}: !idr.data<@fn$1> {{.*}}, %{{.*}}: !idr.data<@fn$2> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
-// CHECK: idr.match %{{.*}} : !idr.data<@fn$1> -> (i64) {
-// CHECK-NEXT: case @Main.twice(%{{.*}}: !idr.data<@fn$0>, %{{.*}}: !idr.data<@fn$0>) {
-// CHECK: idr.match %{{.*}} : !idr.data<@fn$2> -> (i64) {
+// CHECK-SAME: %{{.*}}: !idr.data<@[[F1]]> {{.*}}, %{{.*}}: !idr.data<@[[F2]]> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
+// CHECK: idr.match %{{.*}} : !idr.data<@[[F1]]> -> (i64) {
+// CHECK-NEXT: case @Main.twice(%{{.*}}: !idr.data<@[[F0]]>, %{{.*}}: !idr.data<@[[F0]]>) {
+// CHECK: idr.match %{{.*}} : !idr.data<@[[F2]]> -> (i64) {
 // CHECK-NEXT: case @Main.loop(%{{.*}}: i64) {
 // CHECK-LABEL: func.func private @Main.run(
-// CHECK-SAME: -> !idr.data<@fn$3>
-// CHECK: idr.constant #idr.con<@fn$1::@Main.twice, [#idr.con<@fn$0::@Main.tick, []>, #idr.con<@fn$0::@Main.tick, []>]> : !idr.data<@fn$1>
-// CHECK: idr.con @fn$3::@Main.done() : () -> !idr.data<@fn$3>
-// CHECK: idr.con @fn$2::@Main.loop(%{{.*}}) : (i64) -> !idr.data<@fn$2>
-// CHECK: idr.con @fn$3::@Main.seq(%{{.*}}, %{{.*}}) : (!idr.data<@fn$1>, !idr.data<@fn$2>) -> !idr.data<@fn$3>
+// CHECK-SAME: -> !idr.data<@[[F3]]>
+// CHECK: idr.constant #idr.con<@[[F1]]::@Main.twice, [#idr.con<@[[F0]]::@Main.tick, []>, #idr.con<@[[F0]]::@Main.tick, []>]> : !idr.data<@[[F1]]>
+// CHECK: idr.con @[[F3]]::@Main.done() : () -> !idr.data<@[[F3]]>
+// CHECK: idr.con @[[F2]]::@Main.loop(%{{.*}}) : (i64) -> !idr.data<@[[F2]]>
+// CHECK: idr.con @[[F3]]::@Main.seq(%{{.*}}, %{{.*}}) : (!idr.data<@[[F1]]>, !idr.data<@[[F2]]>) -> !idr.data<@[[F3]]>
 module attributes {idr.program} {
   func.func private @Main.tick(%s: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

@@ -10,7 +10,7 @@
 // remark, once: the call is marked so that later runs leave it, and so is
 // its callee, for idr-check-profile. The count is kept on the module, so
 // separate runs of the pass share the limit.
-// CHECK: module attributes {idr.clone_counts = {count = 3 : i64}, idr.program}
+// CHECK: idr.clone_counts = {count = 3 : i64}
 // CHECK: func.func private @count(
 // CHECK-SAME: idr.spec_stopped
 // CHECK: func.func private @count$spec$1(

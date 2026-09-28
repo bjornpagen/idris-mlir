@@ -17,8 +17,9 @@ func.func @f(%x: i1) {
 
 // -----
 
+// idr.big.cmp has no `ne`, as Idris's Integer primitives have none.
 func.func @f(%x: !idr.big) {
-  // expected-error @+1 {{expected string or keyword containing one of the following enum values for attribute 'predicate' [eq, lt, lte, gt, gte]}}
+  // expected-error @+1 {{'predicate'}}
   %b = idr.big.cmp ne %x, %x
   return
 }

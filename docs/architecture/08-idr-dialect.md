@@ -352,9 +352,15 @@ default { ... }
     region when in one of them it meets a value it folds or canonicalizes
     against, moving nothing past an effect: the consumer moves up to the
     match across ops with no effect but allocation, or a match with no
-    effect but allocation moves down to the consumer.
+    effect but allocation moves down to the consumer. A value with no
+    effect but allocation, not a constant, that is used only inside a
+    match's regions moves into each region that uses it, when there it
+    meets a consumer that folds against it (output of a string it builds,
+    or a consumer that case-of-case moves into it); the copies are bounded
+    (64 ops for each region past the first).
   - Test: `tests/idr/verify/match.mlir`, `tests/idr/verify/generic.mlir`,
-    `tests/idr/canon/match-*.mlir`, `tests/idr/canon/case-of-case.mlir`
+    `tests/idr/canon/match-*.mlir`, `tests/idr/canon/case-of-case.mlir`,
+    `tests/idr/canon/sink-into-regions.mlir`
 - **IDR-MATCH-6 (v3).** `idr.match_lit %n : T -> (R...) { case <key>
   {...} ... default {...} }` branches on the value of `%n`: an integer
   (`i1` to `i64`, characters as `i32`), a string or a big.
@@ -596,7 +602,7 @@ means unsigned.
     dialects, so an op of any other dialect fails to parse, which is an
     internal error (`DIAG-ICE-1`); passes load the dialects they need
     afterwards. `idr-check-input` and its op list are gone.
-  - Test: `tests/compiler/cc-contract`, `tests/e2e/v0/literal-match`
+  - Test: `tests/idr/e2e/statuses.mlir`, `tests/e2e/v0/literal-match`
 - **IDR-IN-2 (v0).** `arith` ops carry no overflow flags (`nsw`, `nuw`) and
   no `exact` flag. Wrapping is the semantics (`SEM-INT-2`). From v2,
   `arith` and `math` ops carry no fast-math flags (`SEM-DBL-2`).

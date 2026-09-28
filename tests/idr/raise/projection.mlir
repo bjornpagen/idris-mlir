@@ -9,24 +9,24 @@
 // it applies are; it is effectful as its callee is (IDR-FACT-1). Where
 // what a tail applies is not known here (@same returns its parameter), the
 // clone applies the field it reads, and is not total.
-// CHECK: module attributes {idr.clone_counts = {greet = 1 : i64, same = 1 : i64}, idr.program}
+// CHECK: idr.clone_counts = {greet = 1 : i64, same = 1 : i64}
 // CHECK-LABEL: func.func private @twice(
 // CHECK-SAME: %[[IO:[a-z0-9_]+]]: !idr.data<@IO> {idr.quantity = "w"}, %[[V:[a-z0-9_]+]]: !idr.world
-// CHECK-NEXT: %[[S:.*]] = call @same$raise$1(%[[IO]], %[[V]])
+// CHECK-NEXT: %[[S:.*]] = call @[[SAME:same\$raise\$[0-9]+]](%[[IO]], %[[V]])
 // CHECK-NEXT: return %[[S]]
 // CHECK-LABEL: func.func @Main.main(
 // CHECK-SAME: %[[W:[a-z0-9_]+]]: !idr.world
 // CHECK: %[[C:.*]], %[[W1:.*]] = idr.io.get_byte %[[W]]
 // CHECK: %[[N:.*]] = arith.extui %[[C]]
-// CHECK-NEXT: %[[R:.*]] = call @greet$raise$1(%[[N]], %[[W1]]) : (i64, !idr.world) -> !idr.data<@IORes>
+// CHECK-NEXT: %[[R:.*]] = call @[[GREET:greet\$raise\$[0-9]+]](%[[N]], %[[W1]]) : (i64, !idr.world) -> !idr.data<@IORes>
 // CHECK-NEXT: return %[[R]]
-// CHECK-LABEL: func.func private @same$raise$1(
+// CHECK: func.func private @[[SAME]](
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: !idr.data<@IO> {idr.hole = 0 : i64, idr.quantity = "w"}, %[[Y:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.data<@IORes>
 // CHECK-SAME: attributes {idr.effect = "pure", idr.origin = "same", idr.spec_key = "raise @same[@MkIO, 0]"} {
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
 // CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
 // CHECK-NEXT: return %[[Z]]
-// CHECK-LABEL: func.func private @greet$raise$1(
+// CHECK: func.func private @[[GREET]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[B:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.data<@IORes>
 // CHECK-SAME: attributes {idr.effect = "effectful", idr.origin = "greet", idr.spec_key = "raise @greet[@MkIO, 0]", idr.total}
 // CHECK: case 0 {

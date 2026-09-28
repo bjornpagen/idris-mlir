@@ -15,7 +15,7 @@ the reason, and never counted as passed.
   | `make build` | the C++ `dev` preset and the Idris compiler | after any code change |
   | `make test` | `tests/compiler`, `tests/profile`, `tests/e2e`, `tests/determinism`, `tests/registry`, `tests/toolchain`, `tests/equivalence`, `tests/fuzz`, `tests/two-levels` | after compiler changes |
   | `make test-idr` | `tests/idr`, with `FileCheck` | after C++ or contract changes |
-  | `make test-mlir-tools` | `tests/mlir`, and `tests/upstream` (`TC-PIN-4`) | after changing upstream MLIR usage |
+  | `make test-mlir-tools` | `tests/upstream` (`TC-PIN-4`) | after changing upstream MLIR usage |
 
   The suites are golden tests on Idris's own `Test.Golden`, run by
   `tests/Main.idr`. A test is a directory with a POSIX-sh `run` script and

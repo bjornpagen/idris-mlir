@@ -3,10 +3,9 @@ module Main
 -- rule: ELIM-CLOS-1, ELIM-SPEC-1, PROF-HEAP-1, PROF-HEAP-2, PROF-PRIM-4, SEM-REC-1
 -- A match on a runtime value whose alternatives yield different static
 -- values: a function, a Lazy value, a string and a list chosen at runtime.
--- Each is an ordinary value (ELIM-G-20, choices, is withdrawn): the match's
--- consumer is taken into its alternatives (case-of-case), closures left
--- over are defunctionalized, and the list is specialized on its shape;
--- none needs the heap.
+-- Each is an ordinary value: the match's consumer is taken into its
+-- alternatives (case-of-case), closures left over are defunctionalized,
+-- and the list is specialized on its shape; none needs the heap.
 
 import Prelude
 

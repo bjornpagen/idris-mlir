@@ -6,8 +6,7 @@ module Main
 -- Functor on a recursive tree, summed through Num. Chars and strings are
 -- shown with the Prelude's escapes, whose string primitives on literals
 -- fold at compile time, and `show` on a literal Char, a closed call, is
--- evaluated at compile time (ELIM-G-17, the specialization per literal
--- this needed before the cutover, is withdrawn).
+-- evaluated at compile time.
 
 import Prelude
 

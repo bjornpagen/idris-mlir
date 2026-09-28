@@ -2,7 +2,7 @@
 # rule: TC-ZONE-1, TC-ZONE-2, TC-ZONE-3
 # All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr or, for the
 # runtime, runtime/, with .cc its only source extension; src/ and unsafe/
-# do not exist while they would be empty.
+# exist only once they hold code.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name docs \) -prune \
    -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.td' -o -name '*.inc' \) \
@@ -21,6 +21,16 @@ if grep '\.cpp$' "$work/cpp" > "$work/retired"; then
 else
   say "C++ sources: .cc only"
 fi
+# TC-ZONE-2: src/ and unsafe/ exist only once they hold code.
+empty=
 for zone in src unsafe; do
-  if [ -e "$root/$zone" ]; then say "$zone/: exists"; else say "$zone/: absent"; fi
+  [ -e "$root/$zone" ] || continue
+  if [ -f "$root/$zone/CMakeLists.txt" ] &&
+     [ -n "$(find "$root/$zone" -type f -name '*.cc' | head -n 1)" ]; then
+    :
+  else
+    say "$zone/: exists but holds no code"
+    empty=yes
+  fi
 done
+[ -n "$empty" ] || say "zones: none empty"

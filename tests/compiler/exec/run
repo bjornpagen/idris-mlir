@@ -10,7 +10,7 @@ import Prelude
 main : IO ()
 main = putStrLn "x"
 IDRIS
-(cd "$work" && $bounded "$idris_mlir" --no-banner --no-color --no-prelude --cg mlir --exec main Main.idr) \
+(cd "$work" && bounded "$idris_mlir" --no-banner --no-color --no-prelude --cg mlir --exec main Main.idr) \
   > "$work/exec.log" 2>&1
 if grep -qF 'unsupported (FE-ENTRY-5)' "$work/exec.log"; then
   say "--exec: unsupported (FE-ENTRY-5)"

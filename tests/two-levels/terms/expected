@@ -4,29 +4,29 @@ primitives: compile: exit 0
 primitives: run: exit 0
 primitives: stderr: empty
 primitives: chez: compile exit 0
-primitives: not compared with Idris: t90 not reduced by Idris: (prim__cast_DoubleInt8 (litDouble (-2.75)))
-primitives: not compared with Idris: t135 not reduced by Idris: (prim__cast_DoubleInt16 (litDouble (-2.75)))
-primitives: not compared with Idris: t180 not reduced by Idris: (prim__cast_DoubleInt32 (litDouble (-2.75)))
-primitives: not compared with Idris: t225 not reduced by Idris: (prim__cast_DoubleInt64 (litDouble (-2.75)))
-primitives: not compared with Idris: t266 not reduced by Idris: (prim__cast_DoubleBits8 (litDouble (-2.75)))
-primitives: not compared with Idris: t307 not reduced by Idris: (prim__cast_DoubleBits16 (litDouble (-2.75)))
-primitives: not compared with Idris: t348 not reduced by Idris: (prim__cast_DoubleBits32 (litDouble (-2.75)))
-primitives: not compared with Idris: t389 not reduced by Idris: (prim__cast_DoubleBits64 (litDouble (-2.75)))
-primitives: not compared with Idris: t533 host-dependent: prim__doubleExp: libm: (prim__doubleExp (litDouble 0.5))
-primitives: not compared with Idris: t534 host-dependent: prim__doubleLog: libm: (prim__doubleLog (litDouble 0.5))
-primitives: not compared with Idris: t535 host-dependent: prim__doubleSin: libm: (prim__doubleSin (litDouble 0.5))
-primitives: not compared with Idris: t536 host-dependent: prim__doubleCos: libm: (prim__doubleCos (litDouble 0.5))
-primitives: not compared with Idris: t537 host-dependent: prim__doubleTan: libm: (prim__doubleTan (litDouble 0.5))
-primitives: not compared with Idris: t538 host-dependent: prim__doubleASin: libm: (prim__doubleASin (litDouble 0.5))
-primitives: not compared with Idris: t539 host-dependent: prim__doubleACos: libm: (prim__doubleACos (litDouble 0.5))
-primitives: not compared with Idris: t540 host-dependent: prim__doubleATan: libm: (prim__doubleATan (litDouble 0.5))
-primitives: not compared with Idris: t541 host-dependent: prim__doublePow: libm: (prim__doublePow (litDouble 2.5) (litDouble 3.5))
-primitives: not compared with Idris: t544 host-dependent: prim__cast_StringDouble: cast from String: (prim__cast_StringDouble (litString "2.5e-3"))
-primitives: not compared with Idris: t581 Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\233'))
-primitives: not compared with Idris: t582 Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\8364'))
-primitives: not compared with Idris: t583 Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\128512'))
-primitives: not compared with Idris: t640 host-dependent: prim__cast_StringInt: cast from String: (prim__cast_StringInt (litString "-1234"))
-primitives: not compared with Idris: t641 host-dependent: prim__cast_StringInteger: cast from String: (prim__cast_StringInteger (litString "123456789012345678901234567890"))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleInt8 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleInt16 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleInt32 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleInt64 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleBits8 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleBits16 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleBits32 (litDouble (-2.75)))
+primitives: not compared with Idris: not reduced by Idris: (prim__cast_DoubleBits64 (litDouble (-2.75)))
+primitives: not compared with Idris: host-dependent: prim__doubleExp: libm: (prim__doubleExp (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleLog: libm: (prim__doubleLog (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleSin: libm: (prim__doubleSin (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleCos: libm: (prim__doubleCos (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleTan: libm: (prim__doubleTan (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleASin: libm: (prim__doubleASin (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleACos: libm: (prim__doubleACos (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doubleATan: libm: (prim__doubleATan (litDouble 0.5))
+primitives: not compared with Idris: host-dependent: prim__doublePow: libm: (prim__doublePow (litDouble 2.5) (litDouble 3.5))
+primitives: not compared with Idris: host-dependent: prim__cast_StringDouble: cast from String: (prim__cast_StringDouble (litString "2.5e-3"))
+primitives: not compared with Idris: Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\233'))
+primitives: not compared with Idris: Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\8364'))
+primitives: not compared with Idris: Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\128512'))
+primitives: not compared with Idris: host-dependent: prim__cast_StringInt: cast from String: (prim__cast_StringInt (litString "-1234"))
+primitives: not compared with Idris: host-dependent: prim__cast_StringInteger: cast from String: (prim__cast_StringInteger (litString "123456789012345678901234567890"))
 primitives: this compiler prints Idris's value for every other term
 primitives: Chez prints the same, the host-dependent terms aside
 prelude: Idris's evaluator: exit 0
@@ -34,8 +34,8 @@ prelude: compile: exit 0
 prelude: run: exit 0
 prelude: stderr: empty
 prelude: chez: compile exit 0
-prelude: not compared with Idris: t46 host-dependent: exp: libm: exp (litDouble 1.0)
-prelude: not compared with Idris: t47 host-dependent: sin: libm: sin (litDouble 1.0)
-prelude: not compared with Idris: t48 host-dependent: cast from String: cast (litString "123456789012345678901234567890")
+prelude: not compared with Idris: host-dependent: exp: libm: exp (litDouble 1.0)
+prelude: not compared with Idris: host-dependent: sin: libm: sin (litDouble 1.0)
+prelude: not compared with Idris: host-dependent: cast from String: cast (litString "123456789012345678901234567890")
 prelude: this compiler prints Idris's value for every other term
 prelude: Chez prints the same, the host-dependent terms aside

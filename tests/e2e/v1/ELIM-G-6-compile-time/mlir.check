@@ -1,9 +1,0 @@
-// input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.str. --implicit-check-not=arith.muli
-// rule: ELIM-G-6, SEM-STR-2, TEST-ELIM-1
-// No string is built at runtime: the line is one constant. (Idris's
-// elaborator already folds these primitives on literals, so the emitted
-// module holds "42x"; the fuzzer, tests/fuzz, has the folders compute
-// such terms.)
-// CHECK: idr.constant "42x\0A"
-// CHECK: idr.io.put_str

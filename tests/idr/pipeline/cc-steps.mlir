@@ -1,7 +1,8 @@
 // RUN: rm -rf %t.dir && mkdir -p %t.dir
 // RUN: idris-mlir-cc %s -o %t.o --dump-after=all --dump-dir=%t.dir
 // RUN: ls %t.dir | FileCheck %s
-// rule: OPT-PIPE-1, DRV-CC-1, LOW-TARGET-1
+// RUN: idris-mlir-opt %s --idr-pipeline -o %t.p.mlir
+// rule: OPT-PIPE-1, DRV-CC-1, DRV-OPT-1, LOW-TARGET-1
 // CHECK: 01-idr-simplify.mlir
 // CHECK-NEXT: 02-idr-defunctionalize.mlir
 // CHECK-NEXT: 03-canonicalize.mlir

@@ -1,5 +1,6 @@
 module Prog
 
+-- rule: PROF-FN-6
 public export
 data Parity = Even | Odd
 

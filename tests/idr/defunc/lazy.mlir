@@ -5,15 +5,15 @@
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.
-// CHECK: idr.data @fn$0 {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @later tag 0 (i64) {quantities = ["w"]}
 // CHECK-NEXT: idr.ctor @now tag 1 () {quantities = []}
 // CHECK: idr.data @Box {
-// CHECK-NEXT: idr.ctor @MkBox tag 0 (!idr.data<@fn$0>) {quantities = ["w"]}
+// CHECK-NEXT: idr.ctor @MkBox tag 0 (!idr.data<@[[F0]]>) {quantities = ["w"]}
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: func.func @Main.main(
-// CHECK: %[[L:.*]] = idr.field %{{.*}}[@MkBox, 0] : !idr.data<@Box> -> !idr.data<@fn$0>
-// CHECK-NEXT: idr.match %[[L]] : !idr.data<@fn$0> -> (i64) {
+// CHECK: %[[L:.*]] = idr.field %{{.*}}[@MkBox, 0] : !idr.data<@Box> -> !idr.data<@[[F0]]>
+// CHECK-NEXT: idr.match %[[L]] : !idr.data<@[[F0]]> -> (i64) {
 // CHECK-NEXT: case @later(%[[X:.*]]: i64) {
 // CHECK-NEXT: call @later(%[[X]]) : (i64) -> i64
 // CHECK: case @now() {

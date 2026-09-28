@@ -89,7 +89,7 @@ versioned name tree inside = pool name . map inside =<< subdirs tree
 suites : List (String, List (IO TestPool))
 suites =
   [ ("check",
-      [ pool "spec: the rules against the tests (TEST-SPEC-1), the pins, the commands and the layout" ["spec"]
+      [ pool "spec: the rules against the tests (TEST-SPEC-1), the pins and the commands" ["spec"]
       ])
   , ("test",
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
@@ -106,8 +106,7 @@ suites =
   , ("test-idr",
       [ versioned "dialect: the idr dialect and its passes (TEST-IDR-1)" "idr" id ])
   , ("test-mlir-tools",
-      [ pool "pipeline: the pinned upstream MLIR tools" ["mlir"]
-      , pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
+      [ pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
   ]
 
 ||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.

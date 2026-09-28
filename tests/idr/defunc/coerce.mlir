@@ -8,44 +8,45 @@
 // value moves into a slot with more labels, at the calls of @Main.use and
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
-// CHECK: idr.data @fn$0 {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.inc tag 0 () {quantities = []}
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$1 {
+// CHECK: idr.data @[[F1:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.add tag 0 (i64) {quantities = ["w"]}
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$2 {
+// CHECK: idr.data @[[F2:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @Main.add tag 0 (i64) {quantities = ["w"]}
 // CHECK-NEXT: idr.ctor @Main.inc tag 1 () {quantities = []}
 // CHECK-NEXT: }
 // CHECK-NOT: !idr.fn
-// CHECK-LABEL: func.func private @Main.mkInc() -> !idr.data<@fn$0>
+// CHECK-LABEL: func.func private @Main.mkInc()
+// CHECK-SAME: -> !idr.data<@[[F0]]>
 // CHECK-LABEL: func.func private @Main.mkAdd(
-// CHECK-SAME: -> !idr.data<@fn$1>
+// CHECK-SAME: -> !idr.data<@[[F1]]>
 // CHECK-LABEL: func.func private @Main.use(
-// CHECK-SAME: %{{.*}}: !idr.data<@fn$2>
+// CHECK-SAME: %{{.*}}: !idr.data<@[[F2]]>
 // CHECK-LABEL: func.func @Main.main(
-// CHECK: %[[I:.*]] = call @Main.mkInc() : () -> !idr.data<@fn$0>
-// CHECK: %[[A:.*]] = call @Main.mkAdd(%{{.*}}) : (i64) -> !idr.data<@fn$1>
+// CHECK: %[[I:.*]] = call @Main.mkInc() : () -> !idr.data<@[[F0]]>
+// CHECK: %[[A:.*]] = call @Main.mkAdd(%{{.*}}) : (i64) -> !idr.data<@[[F1]]>
 // The calls:
-// CHECK: %[[I2:.*]] = idr.match %[[I]] : !idr.data<@fn$0> -> (!idr.data<@fn$2>) {
+// CHECK: %[[I2:.*]] = idr.match %[[I]] : !idr.data<@[[F0]]> -> (!idr.data<@[[F2]]>) {
 // CHECK-NEXT: case @Main.inc() {
-// CHECK-NEXT: %[[C:.*]] = idr.con @fn$2::@Main.inc() : () -> !idr.data<@fn$2>
-// CHECK-NEXT: idr.yield %[[C]] : !idr.data<@fn$2>
-// CHECK: call @Main.use(%[[I2]], %{{.*}}) : (!idr.data<@fn$2>, i64) -> i64
-// CHECK: %[[A2:.*]] = idr.match %[[A]] : !idr.data<@fn$1> -> (!idr.data<@fn$2>) {
+// CHECK-NEXT: %[[C:.*]] = idr.con @[[F2]]::@Main.inc() : () -> !idr.data<@[[F2]]>
+// CHECK-NEXT: idr.yield %[[C]] : !idr.data<@[[F2]]>
+// CHECK: call @Main.use(%[[I2]], %{{.*}}) : (!idr.data<@[[F2]]>, i64) -> i64
+// CHECK: %[[A2:.*]] = idr.match %[[A]] : !idr.data<@[[F1]]> -> (!idr.data<@[[F2]]>) {
 // CHECK-NEXT: case @Main.add(%[[X:.*]]: i64) {
-// CHECK-NEXT: %[[D:.*]] = idr.con @fn$2::@Main.add(%[[X]]) : (i64) -> !idr.data<@fn$2>
-// CHECK-NEXT: idr.yield %[[D]] : !idr.data<@fn$2>
-// CHECK: call @Main.use(%[[A2]], %{{.*}}) : (!idr.data<@fn$2>, i64) -> i64
+// CHECK-NEXT: %[[D:.*]] = idr.con @[[F2]]::@Main.add(%[[X]]) : (i64) -> !idr.data<@[[F2]]>
+// CHECK-NEXT: idr.yield %[[D]] : !idr.data<@[[F2]]>
+// CHECK: call @Main.use(%[[A2]], %{{.*}}) : (!idr.data<@[[F2]]>, i64) -> i64
 // The join:
-// CHECK: idr.match_lit %{{.*}} : i64 -> (!idr.data<@fn$2>) {
+// CHECK: idr.match_lit %{{.*}} : i64 -> (!idr.data<@[[F2]]>) {
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: %[[J:.*]] = idr.match %[[I]] : !idr.data<@fn$0> -> (!idr.data<@fn$2>) {
-// CHECK: idr.yield %[[J]] : !idr.data<@fn$2>
+// CHECK-NEXT: %[[J:.*]] = idr.match %[[I]] : !idr.data<@[[F0]]> -> (!idr.data<@[[F2]]>) {
+// CHECK: idr.yield %[[J]] : !idr.data<@[[F2]]>
 // CHECK: default {
-// CHECK-NEXT: %[[K:.*]] = idr.match %[[A]] : !idr.data<@fn$1> -> (!idr.data<@fn$2>) {
-// CHECK: idr.yield %[[K]] : !idr.data<@fn$2>
+// CHECK-NEXT: %[[K:.*]] = idr.match %[[A]] : !idr.data<@[[F1]]> -> (!idr.data<@[[F2]]>) {
+// CHECK: idr.yield %[[K]] : !idr.data<@[[F2]]>
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

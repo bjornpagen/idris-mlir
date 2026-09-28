@@ -42,7 +42,7 @@ before lowering (`PROF-HEAP-*`).
   the only place loops are made.
   - Check: the pass `idr-tail-loops`
   - Test: `tests/e2e/v0/tail-loop-deep` (10^8 iterations with the stack
-    limited to 1 MiB), `tests/profile/v0/accept/PROF-FN-6-tail-loop.idr`
+    limited to 1 MiB)
 
 ## Type conversion (`idr-lower`)
 
@@ -261,8 +261,8 @@ through the same code.
   checks with exact digits whether the shortest candidate is a tie and, if
   so, takes the larger, as the reference does. Before, a port of Ryu to
   MLIR text used tables that `tools/GenRyuTables.idr` computed.
-  - Test: `tests/e2e/v2/double-print-fuzz` (45,000 values against Chez,
-    including decimal ties)
+  - Test: `tests/toolchain/double-print` (176,000 values against Chez,
+    including decimal ties), `tests/idr/e2e/doubles.mlir`
 - **LOW-DBL-3 (v2).** The `arith` float ops and the `math` ops pass through
   `idr-lower` unchanged, and `convert-to-llvm` turns them into LLVM
   instructions and intrinsics. LLVM's back end turns the intrinsics that
