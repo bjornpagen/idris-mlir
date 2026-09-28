@@ -554,8 +554,6 @@ struct Converter {
     }
   }
 
-  // idr.apply on a sum: a match over the labels the callee may hold, each
-  // region calling its label with the captures and the arguments.
   // An idr.apply of a converted type, with the labels its callee may hold
   // (all of the type's for an apply the analysis found dead).
   struct Apply {
@@ -564,6 +562,8 @@ struct Converter {
     SmallVector<StringAttr> labels;
   };
 
+  // The apply becomes a match over those labels, each region calling its
+  // label with the captures, then the arguments.
   void rewrite(const Apply &site, OpBuilder &b) {
     auto [apply, type, labels] = site;
     SmallVector<Attribute> cases = llvm::map_to_vector(labels, [](StringAttr label) -> Attribute {

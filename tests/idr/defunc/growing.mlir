@@ -7,7 +7,7 @@
 // captures a closure of its own type, so no finite sum over labels stands
 // for them, and the types stay closures. The unrelated closure type in the
 // same module is still converted. idr-check-profile reports the first
-// closure built at runtime.
+// closure built at runtime (growing-lazy.mlir has the Lazy one alone).
 // CHECK: idr.data @fn$0 {
 // CHECK-NEXT: idr.ctor @Main.neg tag 0 ()
 // CHECK-NOT: idr.data @fn$1
