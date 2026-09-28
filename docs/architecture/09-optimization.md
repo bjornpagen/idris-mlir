@@ -166,7 +166,8 @@ Superoptimization, equality saturation and search are non-goals (D7).
   1. `idr-effects` (`IDR-FACT-1`)
   2. `inline`, with `default-pipeline=canonicalize`, `max-iterations=K`
      and no inlining threshold
-  3. `idr-specialize` (`ELIM-SPEC-1`)
+  3. `idr-specialize`: each call is first raised (`ELIM-G-5`), then
+     specialized (`ELIM-SPEC-1`)
   4. `sccp`, `canonicalize`, `cse`
   5. `idr-eval` (`ELIM-EVAL-1`)
   6. `idr-prune`, `remove-dead-values`, `symbol-dce`
@@ -184,13 +185,27 @@ Superoptimization, equality saturation and search are non-goals (D7).
     crashes on code that dead-code analysis proves unreachable but nothing
     has removed yet. With the same analyses, it ends each such match region
     in `ub.unreachable` and makes each such function return `ub.poison`
-    (`PINS.md`: `prune-before-remove-dead-values`).
+    (`PINS.md`: `prune-before-remove-dead-values`). It also makes a call
+    of a function that a closure names pass `ub.poison` for each parameter
+    the function never reads, which `remove-dead-values` would otherwise
+    leave a null operand (`PINS.md`: `remove-dead-values-address-taken`).
+  - Raising is a step of `idr-specialize`, right after `inline`: inlining
+    the IO monad's bind is what puts the call that builds an action next
+    to the apply that runs it (and output fusion, in the canonicalizations
+    the inliner runs, puts a call that builds a string next to its
+    output), and a raised call, which now takes the world or the apply's
+    arguments, is specialized in the same run. It shares the clone limit,
+    the clones' keys and their facts with specialization. Each new clone
+    is canonicalized when it is made, so the next round inlines calls, not
+    applies of closures.
 
   *Why the loop terminates.* Inlining never goes around a cycle, because
   loop breakers cut every cycle of the call graph (`OPT-PIPE-3`), and
   clones inherit `no_inline`. Specialization is bounded by the clone limit
-  and by the growth stop (`ELIM-SPEC-2`). Every evaluation terminates (`SEM-EVAL-6`) and replaces
-  a call by constants, and there are finitely many calls to evaluate once
+  and by the growth stop (`ELIM-SPEC-2`). Raising makes clones under the
+  same limit, and a raise that makes none removes an apply
+  (`ELIM-G-5`). Every evaluation terminates (`SEM-EVAL-6`) and replaces a
+  call by constants, and there are finitely many calls to evaluate once
   inlining and specialization are bounded. The other passes only shrink the
   module. So after finitely many rounds nothing changes.
   - Check: the pass `idr-simplify`

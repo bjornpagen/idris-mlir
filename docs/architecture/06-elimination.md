@@ -97,12 +97,72 @@ runtime operands left out, and those operands are its *runtime leaves*.
   SSA value, so every use sees its definition, and `sccp` propagates
   constants through calls and regions.
   - Test: `tests/e2e/v1/ELIM-G-4-static-let`, `tests/idr/fold/sccp.mlir`
-- **ELIM-G-5.** *Withdrawn at the cutover:* arity raising gave a function
-  returning a function (such as an IO action) the returned function's
-  parameter, moving the code that computed the action to where it was
-  run, under `PROF-HEAP-5`. Inlining, `ELIM-G-1` and
-  `idr-defunctionalize` remove IO's closures without moving any code, so
-  no crash can move past an effect.
+- **ELIM-G-5 (v3). A call's consumer moves into the callee.** When the
+  result of a call has a single consumer of one of these kinds, the call
+  and the consumer become one call of a clone of the callee that
+  consumes, at each of its tails, what it would have returned:
+  - **an apply** (*arity raising*): `idr.apply` of the result, or of one
+    field of it (an IO action is `MkIO f`). The clone also takes the
+    apply's arguments and returns what the apply returns. This removes the
+    closure of an action built at runtime and run at once: a loop breaker
+    `echo$lam0 : Char -> IO ()` that returns an action over its runtime
+    character, which its only caller runs.
+  - **output**: `idr.io.put_str` of the result (a string). The clone also
+    takes the world, writes at each tail what the callee would return, and
+    returns the next world. This removes a string built at runtime only to
+    be written: a recursive `show` writes its pieces instead.
+
+  A tail is the operand of the clone's return and, through each match
+  whose result reaches the return and has no other use, the yields of its
+  regions. There the consumer usually meets what the body built: an apply
+  meets an `idr.con` or `idr.closure` (`ELIM-G-2`, `ELIM-G-1`), and output
+  meets a string builder (`ELIM-G-7`), which canonicalization reduces.
+  *Revived at the cutover, in MLIR:* before, `Simplify` raised the arity
+  of Core definitions, moving the code that computed an action from where
+  it was built to where it was run, which `PROF-HEAP-5` had to police. Now
+  only a call moves, and only to a consumer that follows it.
+  - **Where.** A step of `idr-specialize`, which raises each call before
+    it specializes it, so that the raised call, which now takes the world
+    or the apply's arguments, is specialized in the same run.
+  - **The key** is the callee and the consumer: an apply with no
+    projection, an apply of a field (the constructor and the index), or
+    output. Calls with equal keys share one clone, also across rounds (the
+    key is kept in `idr.spec_key` as `raise @f`, `raise @f[@C, i]` or
+    `write @f`). A call of the callee inside the clone whose result is
+    consumed the same way calls the clone itself: once inlining exposes
+    the call that an IO loop makes when its action runs, or output fusion
+    the call that a recursive `show` appends, the recursion is a self
+    call, which `idr-tail-loops` makes a loop when it is a tail call
+    (`LOW-TAIL-5`).
+  - **The clone** has the callee's parameters, then the apply's arguments
+    or the world, with `idr.quantity` from their types (`"1"` for the
+    world, which each path of the clone uses once, `IDR-FN-1`,
+    `IDR-WORLD-1`). It is private, named `@<origin>$raise$<n>` or
+    `@<origin>$write$<n>`, numbered with the other clones of its origin in
+    order of first request (`FE-DET-1`), counted against the clone limit
+    (`ELIM-SPEC-2`), and inherits `no_inline` from a loop breaker
+    (`OPT-PIPE-3`). Its parameters are not its callee's, so it is the
+    origin of its own specializations (`ELIM-SPEC-1`). A clone that applies has `idr.total` when its callee
+    has it and every tail applies a known closure of a function that has
+    it, and is pure and may crash as its callee and those functions are; a
+    clone that writes is total and may crash as its callee, and is
+    effectful (`IDR-FACT-1`).
+  - **When.** The consumer, and the projection, are in the call's block,
+    and either every op between the call and the consumer is free of
+    memory effects, or the callee is pure and total and cannot crash. The
+    callee takes no world. A closed call of a pure, total callee is not
+    raised: it is evaluated (`ELIM-EVAL-1`, `SEM-EVAL-6`), and its
+    consumer then folds.
+  - *Why this is exact:* the clone runs the callee's body and then the
+    consumer, as the call and the consumer did. Raising moves the body
+    only past the ops between them, which have no effect, cannot crash and
+    always terminate (a crash is an effect, `IDR-EFF-1`), or else the body
+    itself cannot be observed; so no crash or divergence moves past an
+    effect (`SEM-EVAL-4`), output stays in the world's order, and each
+    operand is still evaluated once, at the call or at the consumer.
+  - Check: the pass `idr-specialize`
+  - Test: `tests/idr/raise/`, `tests/e2e/v1/ELIM-G-5-arity-raising`,
+    `tests/e2e/v1/echo`, `tests/e2e/v3/show-values`
 - **ELIM-G-6 (v1). Compile-time evaluation of primitives.** A primitive
   applied to constants becomes a constant, except where it would crash,
   which is left to crash at runtime. *Owner since the cutover:* folders.
@@ -199,11 +259,13 @@ runtime operands left out, and those operands are its *runtime leaves*.
     `idr.total` when its callee and every function named in its key have
     it (`IDR-FACT-1`).
   - **A closed call is never specialized**, where every argument is a
-    constant. It is evaluated when its callee is total and pure
-    (`ELIM-EVAL-1`), and otherwise left as it is: specializing a partial
-    function on constants would unroll it one clone at a time, which is
-    evaluation under another name, bounded only by the clone limit
-    (`SEM-EVAL-6`).
+    constant, erased or a world. It is evaluated when its callee is total
+    and pure (`ELIM-EVAL-1`), and otherwise left as it is: specializing a
+    partial function on constants would unroll it one clone at a time,
+    which is evaluation under another name, bounded only by the clone
+    limit (`SEM-EVAL-6`). The world carries no value to specialize around:
+    an IO loop called with a literal, whose call raising gave the world
+    (`ELIM-G-5`), stays a loop.
   - *Why this is exact:* a clone computes what its callee computes on
     arguments of that shape; specialization never duplicates an effect or
     a crash, since the arguments are evaluated once, at the call.
