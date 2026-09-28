@@ -1,10 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-specialize | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-specialize --canonicalize --idr-specialize --canonicalize | FileCheck %s --check-prefix=NEXT
 // rule: ELIM-SPEC-1
 // A partially static list, [1, 2, n]: its spine and first two elements are
 // the static shape, n is a runtime leaf and becomes the clone's parameter.
-// Once the clone's match folds, the recursive call is on [2, n], which is
-// specialized in turn.
+// The clone is folded when it is made, so its match folds and the recursive
+// call is on [2, n], which is specialized in the same run, and so on down to
+// [n]; the call on [] is closed and left to idr-eval.
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @Nil tag 0 () {quantities = []}
@@ -42,14 +42,11 @@ module attributes {idr.program} {
     return %c : i64
   }
   // CHECK-LABEL: func.func private @sum$spec$1(
-  // CHECK-SAME: %[[M:[a-z0-9_]+]]: i64 {idr.quantity = "w"}) -> i64
-  // CHECK-DAG: idr.con @L::@Nil()
-  // CHECK-DAG: idr.con @L::@Cons(%[[M]],
-  // CHECK: idr.match
-
-  // NEXT-LABEL: func.func private @sum$spec$1(
-  // NEXT-SAME: %[[M:[a-z0-9_]+]]: i64
-  // NEXT: %[[S:.*]] = call @sum$spec$2(%[[M]]) : (i64) -> i64
-  // NEXT-LABEL: func.func private @sum$spec$2(
-  // NEXT-SAME: attributes {idr.origin = "sum", idr.total}
+  // CHECK-SAME: %[[M:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}) -> i64
+  // CHECK: call @sum$spec$2(%[[M]]) : (i64) -> i64
+  // CHECK-LABEL: func.func private @sum$spec$2(
+  // CHECK: call @sum$spec$3(%[[M2:.*]]) : (i64) -> i64
+  // CHECK-LABEL: func.func private @sum$spec$3(
+  // CHECK: call @sum(%{{.*}}) : (!idr.box<@L>) -> i64
+  // CHECK-NOT: func.func private @sum$spec$4
 }

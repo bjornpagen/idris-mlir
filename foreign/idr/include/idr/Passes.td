@@ -154,9 +154,6 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
            "max-iterations of the inliner in each round (K)">,
     Option<"cloneLimit", "clone-limit", "unsigned", "4096",
            "clone-limit of idr-specialize">,
-    Option<"skipUnregistered", "skip-unregistered", "bool", "false",
-           "Tests only: leave out, with a warning, the steps whose pass is "
-           "not registered (idr-effects and idr-eval live in other packages)">,
   ];
 }
 

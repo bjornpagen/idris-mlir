@@ -1,13 +1,11 @@
-// RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4 skip-unregistered=true" --idr-defunctionalize --canonicalize --idr-tail-loops --idr-check-profile -o %t.mlir 2> %t.err
+// RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4" --idr-defunctionalize --canonicalize --idr-tail-loops --idr-check-profile -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
 // rule: PROF-HEAP-4, ELIM-SPEC-1, DIAG-HEAP-1
 // iter f n x = if n == 0 then f x else iter (\y => f y + 1) (n - 1) x:
-// each clone of @iter passes itself a larger closure, so specialization
-// goes on until the clone limit stops it, and the closure that @iter builds
-// survives in the stopped callee, whose self tail call is a loop by the
-// time the profile is checked: PROF-HEAP-4.
-// Note: idr-eval (the lowering package) is not in this branch yet, so the
-// round runs without it (skip-unregistered, which only tests set).
+// the clone of @iter passes itself a larger closure, which contains its own:
+// specialization stops at once (ELIM-SPEC-2), and the closure that @iter
+// builds survives in the stopped callee, whose self tail call is a loop by
+// the time the profile is checked: PROF-HEAP-4.
 // CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @Main.after is built in or passed to @Main.iter, whose specialization stopped
 // CHECK-NOT: error:
 module attributes {idr.program} {

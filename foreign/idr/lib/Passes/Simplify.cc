@@ -40,29 +40,17 @@ namespace {
 struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   using IdrSimplifyBase::IdrSimplifyBase;
 
-  // The passes of a round are named, not linked: idr-effects and idr-eval
-  // live in other parts of the library. Returns the steps left out.
-  FailureOr<SmallVector<std::string>> buildRound(OpPassManager &pm) const {
-    SmallVector<std::string> left;
-    for (const std::string &step : idr::simplifyRound(inlineIterations, cloneLimit)) {
-      StringRef name = StringRef(step).take_until([](char c) { return c == '{'; });
-      if (skipUnregistered && !PassInfo::lookup(name)) {
-        left.push_back(name.str());
-        continue;
-      }
+  // The passes of one round, parsed from their textual pipelines.
+  LogicalResult buildRound(OpPassManager &pm) const {
+    for (const std::string &step : idr::simplifyRound(inlineIterations, cloneLimit))
       if (failed(parsePassPipeline(step, pm, llvm::errs())))
         return failure();
-    }
-    return left;
+    return success();
   }
 
   LogicalResult initialize(MLIRContext *) override {
     round = OpPassManager(ModuleOp::getOperationName());
-    FailureOr<SmallVector<std::string>> out = buildRound(round);
-    if (failed(out))
-      return failure();
-    skipped = std::move(*out);
-    return success();
+    return buildRound(round);
   }
 
   // The dialects a round's passes create must be loaded before any pass runs.
@@ -74,9 +62,6 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    for (const std::string &name : skipped)
-      emitWarning(module.getLoc(), "idr-simplify: the round leaves out ")
-          << name << ", which is not registered (skip-unregistered)";
     std::array<uint8_t, 20> before = structural(module);
     for (unsigned rounds = 1;; ++rounds) {
       if (failed(runPipeline(round, module)))
@@ -137,7 +122,6 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   }
 
   OpPassManager round;
-  SmallVector<std::string> skipped;
 };
 
 } // namespace
