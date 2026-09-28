@@ -21,6 +21,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -97,11 +98,19 @@ std::string runName(size_t i) { return ("__idr_run_" + Twine(i)).str(); }
 struct Eval : idr::impl::IdrEvalBase<Eval> {
   void runOnOperation() override;
 
+  // The dialects the round's lowering creates, and the translation to LLVM
+  // IR, are loaded before any pass runs.
+  void getDependentDialects(DialectRegistry &registry) const override {
+    IdrEvalBase::getDependentDialects(registry);
+    registerBuiltinDialectTranslation(registry);
+    registerLLVMDialectTranslation(registry);
+  }
+
 private:
   LogicalResult evaluate(ModuleOp module, ArrayRef<Key> keys,
                          const llvm::MapVector<Key, SmallVector<Call>> &calls);
-  OwningOpRef<ModuleOp> scratch(ModuleOp module, ArrayRef<Key> keys,
-                                const llvm::MapVector<Key, SmallVector<Call>> &calls);
+  ModuleOp scratch(ModuleOp module, ArrayRef<Key> keys,
+                   const llvm::MapVector<Key, SmallVector<Call>> &calls);
 
   // Results for the compilation, which the simplify loop runs round after
   // round with this pass (6.4). A call that crashed is known too, so it is
@@ -146,13 +155,16 @@ void Eval::runOnOperation() {
 }
 
 // The callees and every function they reach, a wrapper per call that
-// materializes its arguments and returns its results, and the declarations.
-OwningOpRef<ModuleOp> Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
-                                    const llvm::MapVector<Key, SmallVector<Call>> &calls) {
+// materializes its arguments and returns its results, and the declarations,
+// in a module nested in the one being evaluated, where the pass can run its
+// pipelines.
+ModuleOp Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
+                       const llvm::MapVector<Key, SmallVector<Call>> &calls) {
   MLIRContext *ctx = &getContext();
-  OwningOpRef<ModuleOp> copy = ModuleOp::create(module.getLoc());
   OpBuilder b(ctx);
-  b.setInsertionPointToEnd(copy->getBody());
+  b.setInsertionPointToEnd(module.getBody());
+  ModuleOp copy = ModuleOp::create(b, module.getLoc());
+  b.setInsertionPointToEnd(copy.getBody());
   for (auto data : module.getOps<idr::DataOp>())
     b.clone(*data);
   SymbolTable symbols(module);
@@ -198,9 +210,10 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     site(i).op->emitError("internal error: idr-eval: ") << why;
     return failure();
   };
-  OwningOpRef<ModuleOp> lowered = scratch(module, keys, calls);
+  ModuleOp lowered = scratch(module, keys, calls);
+  auto erase = llvm::make_scope_exit([&] { lowered.erase(); });
   // The layouts of the values, read before idr-lower takes the types apart.
-  OwningOpRef<ModuleOp> pristine = lowered->clone();
+  OwningOpRef<ModuleOp> pristine = lowered.clone();
   idr::lower::Layouts layouts(*pristine);
   SmallVector<SmallVector<Type>> resultTypes;
   for (size_t i = 0; i < keys.size(); ++i)
@@ -208,21 +221,21 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
         llvm::to_vector(pristine->lookupSymbol<func::FuncOp>(evalName(i)).getResultTypes()));
 
   // LOW-JIT-1: the executable's own lowering, in JIT mode.
-  PassManager lower(ctx);
+  OpPassManager lower(ModuleOp::getOperationName());
   lower.addPass(idr::createIdrLower(idr::IdrLowerOptions{/*jit=*/true}));
   lower.addPass(createCanonicalizerPass());
   lower.addPass(createCSEPass());
-  if (failed(lower.run(*lowered)))
+  if (failed(runPipeline(lower, lowered)))
     return internal(0, "lowering the round's calls failed");
   // Each call stores its results' components through a pointer, one 8-byte
   // slot each, behind a C function the JIT finds by name.
   SmallVector<size_t> words;
   SmallVector<std::string> entries;
   OpBuilder b(ctx);
-  b.setInsertionPointToEnd(lowered->getBody());
+  b.setInsertionPointToEnd(lowered.getBody());
   auto ptr = LLVM::LLVMPointerType::get(ctx);
   for (size_t i = 0; i < keys.size(); ++i) {
-    auto wrapped = lowered->lookupSymbol<func::FuncOp>(evalName(i));
+    auto wrapped = lowered.lookupSymbol<func::FuncOp>(evalName(i));
     wrapped.setPrivate();
     Location loc = wrapped.getLoc();
     auto run = func::FuncOp::create(b, loc, runName(i), b.getFunctionType({ptr}, {}));
@@ -239,16 +252,14 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     words.push_back(call.getNumResults());
     entries.push_back(runName(i));
   }
-  registerBuiltinDialectTranslation(*ctx);
-  registerLLVMDialectTranslation(*ctx);
-  PassManager toLLVM(ctx);
+  OpPassManager toLLVM(ModuleOp::getOperationName());
   toLLVM.addPass(createSCFToControlFlowPass());
   toLLVM.addPass(createConvertToLLVMPass());
   toLLVM.addPass(createReconcileUnrealizedCastsPass());
-  if (failed(toLLVM.run(*lowered)))
+  if (failed(runPipeline(toLLVM, lowered)))
     return internal(0, "lowering the round's calls to the LLVM dialect failed");
   std::string why;
-  std::unique_ptr<idr::eval::Jit> jit = idr::eval::Jit::compile(*lowered, entries, why);
+  std::unique_ptr<idr::eval::Jit> jit = idr::eval::Jit::compile(lowered, entries, why);
   if (!jit)
     return internal(0, "the JIT: " + why);
 

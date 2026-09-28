@@ -45,6 +45,7 @@ add_library(idr_dialect STATIC
 	lib/Eval/Eval.cc
 	lib/Eval/Jit.cc
 	lib/Eval/Reify.cc
+	lib/Fold/Fold.cc
 	lib/Lower.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Matches.cc
