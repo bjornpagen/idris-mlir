@@ -5,7 +5,8 @@
 // are, and its results come back as constants of every kind: scalars,
 // strings, bigs of both sizes, unboxed and boxed constructors, closures with
 // their captures, and the erased value. An application of a constant
-// closure is a closed call of its function with the captures first.
+// closure is a closed call of its function with the captures first; a
+// closure made and applied inside the call runs through its code.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK-NOT: call
 // CHECK-DAG: arith.constant 3628800 : i64
@@ -18,8 +19,9 @@
 // CHECK-DAG: idr.constant #idr.con<@List::@Cons, [3, #idr.con<@List::@Cons, [2, #idr.con<@List::@Cons, [1, #idr.con<@List::@Nil, []>]>]>]> : !idr.box<@List>
 // CHECK-DAG: idr.constant #idr.closure<@addTo, [#idr.big<"5">, #idr.con<@Shape::@Dot, []>]> : !idr.fn<(i64) -> (i64)>
 // CHECK-DAG: arith.constant 47 : i64
+// CHECK-DAG: arith.constant -58 : i64
 // CHECK: return
-// REMARK-COUNT-10: remark: [Passed] Evaluated | Category:idr-eval
+// REMARK-COUNT-11: remark: [Passed] Evaluated | Category:idr-eval
 // REMARK-NOT: remark:
 module {
   idr.data @List box {
@@ -110,8 +112,15 @@ module {
     %c = idr.closure @addTo(%k, %s) : (!idr.big, !idr.data<@Shape>) -> !idr.fn<(i64) -> (i64)>
     return %c : !idr.fn<(i64) -> (i64)>
   }
+  func.func private @applyInside(%x: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+    %k = idr.constant #idr.big<"-100"> : !idr.big
+    %dot = idr.con @Shape::@Dot() : () -> !idr.data<@Shape>
+    %c = idr.closure @addTo(%k, %dot) : (!idr.big, !idr.data<@Shape>) -> !idr.fn<(i64) -> (i64)>
+    %r = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
+    return %r : i64
+  }
   func.func @Prog.main() -> (i64, i8, f64, !idr.str, !idr.big, !idr.big, !idr.data<@Shape>,
-                             !idr.box<@List>, !idr.fn<(i64) -> (i64)>, i64) {
+                             !idr.box<@List>, !idr.fn<(i64) -> (i64)>, i64, i64) {
     %ten = arith.constant 10 : i64
     %f = func.call @fact(%ten) : (i64) -> i64
     %m = arith.constant 255 : i64
@@ -136,8 +145,9 @@ module {
     %k = idr.constant #idr.closure<@addTo, [#idr.big<"5">, #idr.con<@Shape::@Dot, []>]> : !idr.fn<(i64) -> (i64)>
     %fortytwo = arith.constant 42 : i64
     %a = idr.apply %k(%fortytwo) : !idr.fn<(i64) -> (i64)>
-    return %f, %b, %n, %t, %neg, %bf, %r, %l, %c, %a
+    %in = func.call @applyInside(%fortytwo) : (i64) -> i64
+    return %f, %b, %n, %t, %neg, %bf, %r, %l, %c, %a, %in
         : i64, i8, f64, !idr.str, !idr.big, !idr.big, !idr.data<@Shape>, !idr.box<@List>,
-          !idr.fn<(i64) -> (i64)>, i64
+          !idr.fn<(i64) -> (i64)>, i64, i64
   }
 }
