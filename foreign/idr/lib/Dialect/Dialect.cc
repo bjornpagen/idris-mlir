@@ -129,10 +129,14 @@ bool idr::isFieldType(Type type) {
 // Lookup helpers
 //===----------------------------------------------------------------------===//
 
+FlatSymbolRefAttr idr::getSumName(Type type) {
+  return TypeSwitch<Type, FlatSymbolRefAttr>(type)
+      .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
+      .Default([](Type) { return nullptr; });
+}
+
 DataOp idr::lookupData(Operation *from, Type type) {
-  auto name = TypeSwitch<Type, FlatSymbolRefAttr>(type)
-                  .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
-                  .Default([](Type) { return nullptr; });
+  FlatSymbolRefAttr name = getSumName(type);
   if (!name)
     return nullptr;
   return SymbolTable::lookupNearestSymbolFrom<DataOp>(from, name);
@@ -247,13 +251,15 @@ LogicalResult verifyProgram(ModuleOp module) {
                               "type must be declared box (IDR-DATA-4)");
     if (!fresh)
       return success();
-    for (auto ctor : data.getBody().front().getOps<CtorOp>())
-      for (Attribute field : ctor.getFieldTypes()) {
+    for (auto ctor : data.getBody().getOps<CtorOp>()) {
+      ArrayAttr fields = ctor.getFieldTypesAttr();
+      for (Attribute field : fields ? fields.getValue() : ArrayRef<Attribute>()) {
         auto type = dyn_cast<TypeAttr>(field);
         auto sum = type ? dyn_cast<DataType>(type.getValue()) : nullptr;
         if (sum && failed(visit(datas.lookup(sum.getName().getAttr()))))
           return failure();
       }
+    }
     marks[data] = Mark::Done;
     return success();
   };

@@ -228,9 +228,7 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   if (untyped(value) != value)
     return false;
   if (auto con = dyn_cast<ConAttr>(value)) {
-    auto name = TypeSwitch<Type, FlatSymbolRefAttr>(type)
-                    .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
-                    .Default([](Type) { return nullptr; });
+    FlatSymbolRefAttr name = getSumName(type);
     return name && name.getAttr() == con.getCtor().getRootReference();
   }
   return (isa<ClosureAttr>(value) && isa<FnType>(type)) ||
@@ -382,9 +380,8 @@ OpFoldResult ConOp::fold(FoldAdaptor adaptor) {
 }
 
 LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  auto data = symbols.lookupNearestSymbolFrom<DataOp>(
-      *this, isa<DataType>(getValue().getType()) ? cast<DataType>(getValue().getType()).getName()
-                                                 : cast<BoxType>(getValue().getType()).getName());
+  auto data =
+      symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getValue().getType()));
   CtorOp ctor = lookupCtor(data, getCtor());
   if (!ctor)
     return emitOpError("refers to an unknown constructor ") << getCtorAttr();
@@ -572,8 +569,9 @@ LogicalResult MatchOp::verify() {
 
 // Each case is a constructor of the scrutinee's type, and its region's
 // arguments are that constructor's fields.
-LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &) {
-  DataOp data = lookupData(*this, getScrutinee().getType());
+LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
+  auto data =
+      symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getScrutinee().getType()));
   for (auto [index, name] : llvm::enumerate(getCases().getAsRange<FlatSymbolRefAttr>())) {
     CtorOp ctor = lookupCtor(data, name.getValue());
     if (!ctor)

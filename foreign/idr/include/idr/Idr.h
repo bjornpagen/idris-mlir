@@ -133,6 +133,10 @@ namespace idr {
 #define GEN_PASS_REGISTRATION
 #include "idr/Passes.h.inc"
 
+// The declaration a !idr.data or !idr.box type names, or null for any other
+// type.
+mlir::FlatSymbolRefAttr getSumName(mlir::Type type);
+
 // The data declaration a !idr.data or !idr.box type names, or null.
 DataOp lookupData(mlir::Operation *from, mlir::Type type);
 
