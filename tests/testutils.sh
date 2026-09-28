@@ -11,6 +11,10 @@
 # *.check files), so each has one source of truth. Everything is built in a
 # temporary directory, removed on exit. The Idris environment is the
 # Makefile's (TC-PIN-2).
+#
+# Every compilation's wall time is recorded under tests/build/timing, one
+# file per test, with the module it emitted; tests/compile-times.sh lists
+# the slowest. The record gates nothing.
 
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
@@ -68,13 +72,76 @@ first_word() {
   awk '{ for (i = 1; i <= NF; i++) { print $i; exit } }' "$1"
 }
 
+# now_ms: the wall clock in milliseconds (GNU date's nanoseconds, or whole
+# seconds where date has none).
+now_ms() {
+  now_ms_ns=$(date +%s%N)
+  case $now_ms_ns in
+    *N) say "$(( $(date +%s) * 1000 ))" ;;
+    *) say "$(( now_ms_ns / 1000000 ))" ;;
+  esac
+}
+
+# The timing record of this test: tests/build/timing/<test path, / as __>.tsv,
+# one line per compilation, `<ms> TAB <exit> TAB <what> TAB <module>`, where
+# <module> is the emitted .mlir kept next to it (or -), so that
+# tests/compile-times.sh can run idris-mlir-cc --timing on it again.
+timing_dir=$root/tests/build/timing
+case $here in
+  "$root/tests/"*) timing_id=$(printf '%s' "${here#"$root/tests/"}" | sed 's|/|__|g') ;;
+  *) timing_id=$(printf '%s' "$here" | sed 's|^/||; s|/|__|g') ;;
+esac
+timing_count=0
+
+# record_time MS COMPILE-ARGUMENTS...: one line of the timing record.
+record_time() {
+  record_ms=$1
+  shift
+  record_what=compile
+  record_flow=
+  while [ $# -gt 2 ]; do
+    case $1 in
+      --int | --io) record_flow=$1 ;;
+      --directive) record_what="$record_what --directive $2"; shift ;;
+      -p) shift ;;
+    esac
+    shift
+  done
+  record_source=$1
+  record_output=$2
+  mkdir -p "$timing_dir" 2> /dev/null || return 0
+  if [ "$timing_count" -eq 0 ]; then
+    : > "$timing_dir/$timing_id.tsv"
+    rm -f "$timing_dir/$timing_id".*.mlir
+  fi
+  timing_count=$((timing_count + 1))
+  record_module=-
+  if [ "$compiled" -eq 0 ]; then
+    record_dir=$(dirname "$record_source")
+    if [ "$record_flow" = --io ]; then
+      record_found=$record_dir/build/exec/${record_output##*/}.mlir
+    else
+      record_stem=${record_source##*/}
+      record_found=$(find "$record_dir/build/ttc" -type f -name "${record_stem%.*}.mlir" 2> /dev/null | sort | head -n 1)
+    fi
+    if [ -n "$record_found" ] && [ -f "$record_found" ]; then
+      record_module=$timing_dir/$timing_id.$timing_count.mlir
+      cp "$record_found" "$record_module" 2> /dev/null || record_module=-
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$record_ms" "$compiled" "$record_what" "$record_module" \
+    >> "$timing_dir/$timing_id.tsv"
+}
+
 # compile_program [--int|--io] [-p PACKAGE]... [--directive D]... SOURCE OUTPUT:
 # DRV-FLOW-1 or DRV-FLOW-2 through tools/compile.sh, the one copy of the
 # chain. Its output is in $work/compile.out and $work/compile.err, its exit
-# status in $compiled.
+# status in $compiled; its wall time goes to the timing record.
 compile_program() {
+  compile_started=$(now_ms)
   IDRIS_MLIR=$idris_mlir "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
   compiled=$?
+  record_time "$(( $(now_ms) - compile_started ))" "$@"
 }
 
 # artifacts DIR NAME...: every NAME is a non-empty file somewhere under
@@ -164,6 +231,55 @@ filecheck() {
   fi
 }
 
+# rule: TEST-ELIM-1, TEST-EMIT-1, DRV-DUMP-1
+# An mlir.check file is FileChecked against one module of the compilation.
+# Its first line chooses which:
+#
+#     // input: emitted              the .mlir Emit wrote (TEST-EMIT-1)
+#     // input: after <step>         the module after that step of
+#                                    idris-mlir-cc's pipeline
+#
+# and without either, the module after `idr-simplify`, the simplify loop,
+# where the eliminations of ELIM-* are done and nothing is lowered yet
+# (TEST-ELIM-1). A step's module is the file `<NN>-<step>.mlir` that
+# idris-mlir-cc --dump-after=all writes (DRV-DUMP-1), found by the step's
+# name and not by its number, so it survives steps added before it; of two
+# dumps of a step (canonicalize runs more than once) the first is taken. A
+# step that left no dump fails the check, never falls back to another.
+
+# mlir_input CHECK: `emitted`, or the step whose module CHECK reads.
+mlir_input() {
+  mlir_input_first=$(head -n 1 "$1")
+  case $mlir_input_first in
+    *'// input: emitted'*) say emitted ;;
+    *'// input: after '*) say "${mlir_input_first##*// input: after }" | awk '{ print $1 }' ;;
+    *) say idr-simplify ;;
+  esac
+}
+
+# mlir_directives CHECK: the directives a compilation needs for CHECK.
+mlir_directives() {
+  [ -f "$1" ] || return 0
+  [ "$(mlir_input "$1")" = emitted ] || say '--directive dump-mlir'
+}
+
+# check_mlir CHECK EMITTED DUMPS: FileCheck of CHECK on its input, the emitted
+# module EMITTED or a module of the directory DUMPS.
+check_mlir() {
+  check_mlir_step=$(mlir_input "$1")
+  if [ "$check_mlir_step" = emitted ]; then
+    filecheck "$1" "$2"
+    return
+  fi
+  check_mlir_file=$(find "$3" -maxdepth 1 -type f -name "[0-9]*-$check_mlir_step.mlir" 2> /dev/null | sort | head -n 1)
+  if [ -z "$check_mlir_file" ]; then
+    say "${1##*/}: no module dumped after $check_mlir_step"
+    ls "$3" 2> /dev/null | sed 's/^/  | /'
+    return
+  fi
+  filecheck "$1" "$check_mlir_file"
+}
+
 # rule: TEST-ORACLE-1, SEM-REF-1, SEM-LIT-1
 # check_oracle FIXTURE: stock Idris checks the fixture's Oracle.idr, so its
 # evaluator agrees with the fixture's expectation.
@@ -196,9 +312,13 @@ oracle_value() {
   say "$oracle_literal"
 }
 
-# compile_v0 DIR: DRV-FLOW-1 on DIR/Prog.idr, to DIR/build/exec/Prog.
+# compile_v0 DIR [--directive D]...: DRV-FLOW-1 on DIR/Prog.idr, to
+# DIR/build/exec/Prog.
 compile_v0() {
-  compile_program --int "$1/Prog.idr" "$1/build/exec/Prog"
+  compile_v0_dir=$1
+  shift
+  compile_program --int "$@" "$compile_v0_dir/Prog.idr" "$compile_v0_dir/build/exec/Prog"
+  set -- "$compile_v0_dir"
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
@@ -219,7 +339,8 @@ e2e_v0() {
   fi
   mkdir "$work/e2e"
   copy_fixture "$1" "$work/e2e"
-  compile_v0 "$work/e2e" || return
+  # shellcheck disable=SC2046 # the directives are words
+  compile_v0 "$work/e2e" $(mlir_directives "$1/mlir.check") || return
   run_program prog "$work/e2e/build/exec/Prog" /dev/null small
   if [ -f "$1/expected-crash" ]; then
     v0_cause=$(cat "$1/expected-crash")
@@ -244,14 +365,16 @@ e2e_v0() {
   fi
   heap_free "$work/e2e/build/exec/Prog.o" $v0_symbols
   if [ -f "$1/mlir.check" ]; then
-    filecheck "$1/mlir.check" "$(find "$work/e2e/build" -type f -name Prog.mlir | sort | head -n 1)"
+    check_mlir "$1/mlir.check" "$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)" \
+      "$work/e2e/build/exec/Prog.dump"
   fi
 }
 
 # rule: TEST-IO-1, TEST-DIFF-1, TEST-ELIM-1, SEM-DEV-1, DRV-FLOW-2, DRV-DUMP-1, FE-ENTRY-4
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
 # stdin against its expected-stdout and expected-exit or expected-crash,
-# with its core.check, translate.check and mlir.check. The stock Chez
+# with its translate.check (on full Core, 01-translate.core) and mlir.check
+# (see check_mlir). The stock Chez
 # backend compiles the same program, and must print the same stdout and
 # exit with the same status (TEST-DIFF-1); with `oracle-chez` it is the only
 # oracle of stdout. `packages` names installed packages it uses.
@@ -267,9 +390,9 @@ e2e_io() {
   if [ -f "$io_fixture/packages" ]; then
     for io_package in $(cat "$io_fixture/packages"); do io_packages="$io_packages -p $io_package"; done
   fi
-  io_directives=
-  if [ -f "$io_fixture/core.check" ] || [ -f "$io_fixture/translate.check" ]; then
-    io_directives='--directive dump-core'
+  io_directives=$(mlir_directives "$io_fixture/mlir.check")
+  if [ -f "$io_fixture/translate.check" ]; then
+    io_directives="$io_directives --directive dump-core"
   fi
   [ -f "$io_fixture/Oracle.idr" ] && check_oracle "$io_fixture"
 
@@ -324,12 +447,10 @@ e2e_io() {
     v2|v3) heap_free "$work/ours/build/exec/prog.o" $v2_symbols ;;
     *) heap_free "$work/ours/build/exec/prog.o" $v1_symbols ;;
   esac
-  [ -f "$io_fixture/core.check" ] &&
-    filecheck "$io_fixture/core.check" "$work/ours/build/exec/prog.dump/02-simplify.core"
   [ -f "$io_fixture/translate.check" ] &&
     filecheck "$io_fixture/translate.check" "$work/ours/build/exec/prog.dump/01-translate.core"
   [ -f "$io_fixture/mlir.check" ] &&
-    filecheck "$io_fixture/mlir.check" "$work/ours/build/exec/prog.mlir"
+    check_mlir "$io_fixture/mlir.check" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
   # The Chez oracle: a second compile of the same program, run on the same
   # input.

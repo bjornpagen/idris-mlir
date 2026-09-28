@@ -13,10 +13,17 @@
 # instead of the type of `main`.
 #
 # Each step runs in SOURCE's directory and its output passes through. The
-# exit status is that of the step that failed; on success the executable's
-# path is printed last. IDRIS_MLIR names the idris-mlir to run (by default
-# the one `make build` makes); the Idris environment is the caller's, the
-# Makefile's.
+# exit status is that of the step that failed, except that idris-mlir-cc's
+# user errors (DRV-CC-2: 3, a profile rejection; 4, EVAL-1) exit 1, as every
+# other user error of the chain does (TEST-REJ-1); on success the
+# executable's path is printed last. IDRIS_MLIR names the idris-mlir to run
+# (by default the one `make build` makes); the Idris environment is the
+# caller's, the Makefile's.
+#
+# Two directives also reach the idris-mlir-cc that DRV-FLOW-1 runs here
+# (DRV-FLOW-2's is run by idris-mlir itself, which reads them too):
+# `no-eval` passes --no-eval, and `dump-mlir` passes --dump-after=all with
+# OUTPUT.dump as --dump-dir (DRV-DUMP-1).
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -29,11 +36,21 @@ usage() {
 
 flow=
 options=
+cc_options=
+dump_mlir=
 while [ $# -gt 2 ]; do
   case $1 in
     --int) flow=int ;;
     --io) flow=io ;;
-    -p | --directive) options="$options $1 $2"; shift ;;
+    -p) options="$options $1 $2"; shift ;;
+    --directive)
+      options="$options $1 $2"
+      case $2 in
+        no-eval) cc_options="$cc_options --no-eval" ;;
+        dump-mlir) dump_mlir=yes ;;
+      esac
+      shift
+      ;;
     *) usage ;;
   esac
   shift
@@ -78,7 +95,8 @@ fi
 # DRV-FLOW-1, for `main : Int` programs.
 log=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-compile.XXXXXX") || exit 1
 trap 'rm -rf "$log"' EXIT
-"$idris_mlir" --no-banner --no-color --no-prelude --cg mlir --inc mlir --check "$file" \
+# shellcheck disable=SC2086 # the options are words
+"$idris_mlir" --no-banner --no-color --no-prelude --cg mlir --inc mlir $options --check "$file" \
   > "$log/out" 2> "$log/err"
 status=$?
 cat "$log/out"
@@ -106,9 +124,37 @@ case ${output##*/} in
   *) object=$output.o ;;
 esac
 mkdir -p "$(dirname "$output")" || exit 1
-"$idris_mlir_cc" "$mlir" -o "$object"
+if [ -n "$dump_mlir" ]; then
+  mkdir -p "$output.dump" || exit 1
+  cc_options="$cc_options --dump-after=all --dump-dir=$output.dump"
+fi
+# shellcheck disable=SC2086 # the options are words
+"$idris_mlir_cc" "$mlir" -o "$object" $cc_options 2> "$log/cc.err"
 status=$?
-[ "$status" -eq 0 ] || failed "$status"
+case $status in
+  0) cat "$log/cc.err" >&2 ;;
+  3 | 4)
+    # DRV-CC-2: a profile rejection (3) or EVAL-1 (4) is a user error. The
+    # frontend's --check already reports rejections at the user's code
+    # (DIAG-LOC-1), so this is reached only when the full pipeline decides
+    # otherwise; its first location is reported as Idris reports one.
+    at=$(grep -m 1 -oE '[A-Za-z0-9_./-]+\.idr"?:[0-9]+:[0-9]+' "$log/cc.err" | tr -d '"')
+    line=$(printf '%s\n' "$at" | sed -n 's/.*:\([0-9]*\):\([0-9]*\)$/\1/p')
+    col=$(printf '%s\n' "$at" | sed -n 's/.*:\([0-9]*\):\([0-9]*\)$/\2/p')
+    what=$(grep -m 1 -o 'unsupported (.*' "$log/cc.err")
+    [ -n "$what" ] || what="idris-mlir-cc exited $status: $(head -n 1 "$log/cc.err")"
+    echo "Error: $stem:${line:-1}:${col:-1}--${line:-1}:${col:-1}:mlir backend: $what" >&2
+    # The rest of what it wrote, without a second copy of the rejection.
+    grep -v 'unsupported (' "$log/cc.err" >&2
+    # FE-ART-1: a rejected program leaves no artifact.
+    rm -f "$object" "$mlir" "${mlir%.mlir}.core"
+    failed 1
+    ;;
+  *)
+    cat "$log/cc.err" >&2
+    failed "$status"
+    ;;
+esac
 # TC-LINK-2: the link of DRV-FLOW-2 (Frontend/Main.idr): a static-PIE
 # executable on musl, by lld, with GMP; musl's libc.a holds libm.
 "$pinned_cc" --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
