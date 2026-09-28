@@ -142,7 +142,7 @@ StringAttr dataName(Type type) {
 }
 
 struct Module {
-  explicit Module(ModuleOp op) : op(op), symbols(op) {}
+  explicit Module(ModuleOp top) : op(top), symbols(top) {}
 
   ModuleOp op;
   SymbolTable symbols;
@@ -180,8 +180,8 @@ struct Module {
     }
     if (auto con = dyn_cast<idr::ConAttr>(attr))
       for (auto [i, field] : llvm::enumerate(con.getFields()))
-        if (Type fieldType = this->fieldType(con.getCtor(), i))
-          closuresIn(field, fieldType, visit);
+        if (Type declared = fieldType(con.getCtor(), static_cast<unsigned>(i)))
+          closuresIn(field, declared, visit);
   }
 
   void gather() {
@@ -211,8 +211,8 @@ class LabelAnalysis : public SparseForwardDataFlowAnalysis<LabelLattice> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LabelAnalysis)
 
-  LabelAnalysis(DataFlowSolver &solver, Module &module)
-      : SparseForwardDataFlowAnalysis(solver), module(module) {
+  LabelAnalysis(DataFlowSolver &dataflow, Module &closures)
+      : SparseForwardDataFlowAnalysis(dataflow), module(closures) {
     registerAnchorKind<FieldAnchor>();
   }
 
@@ -222,7 +222,8 @@ public:
       constant.getValue().walk([&](idr::ConAttr con) {
         for (auto [i, field] : llvm::enumerate(con.getFields()))
           if (auto closure = dyn_cast<idr::ClosureAttr>(field))
-            joinField(con.getCtor(), i, Labels::of(closure.getCallee().getAttr()));
+            joinField(con.getCtor(), static_cast<unsigned>(i),
+                      Labels::of(closure.getCallee().getAttr()));
       });
     });
     return SparseForwardDataFlowAnalysis::initialize(top);
@@ -240,7 +241,7 @@ public:
     if (auto con = dyn_cast<idr::ConOp>(op)) {
       for (auto [i, field] : llvm::enumerate(operands))
         if (isa<idr::FnType>(con.getFields()[i].getType()))
-          joinField(con.getCtor(), i, field->getValue());
+          joinField(con.getCtor(), static_cast<unsigned>(i), field->getValue());
       return success();
     }
     if (auto field = dyn_cast<idr::FieldOp>(op)) {
@@ -248,7 +249,8 @@ public:
         return success();
       auto ref = SymbolRefAttr::get(dataName(field.getValue().getType()),
                                     {field.getCtorAttr()});
-      return set(results[0], readField(getProgramPointAfter(op), ref, field.getIndex()));
+      return set(results[0], readField(getProgramPointAfter(op), ref,
+                                       static_cast<unsigned>(field.getIndex())));
     }
     for (auto [result, lattice] : llvm::zip(op->getResults(), results))
       if (isa<idr::FnType>(result.getType()))
@@ -311,7 +313,7 @@ public:
     bool isLabel = module.closures.count(name) || module.constantClosures.count(name);
     for (idr::ApplyOp apply : module.applies) {
       auto type = cast<idr::FnType>(apply.getCallee().getType());
-      unsigned n = fn.getNumArguments(), k = type.getInputs().size();
+      size_t n = fn.getNumArguments(), k = type.getInputs().size();
       if (!isLabel || k > n || !llvm::equal(fn.getArgumentTypes().drop_front(n - k), type.getInputs()) ||
           !llvm::equal(fn.getResultTypes(), type.getResults()))
         continue;
@@ -385,7 +387,7 @@ struct Closures {
 };
 
 struct Converter {
-  Converter(Module &module, DataFlowSolver &solver) : module(module), solver(solver) {}
+  Converter(Module &closures, DataFlowSolver &dataflow) : module(closures), solver(dataflow) {}
 
   Module &module;
   DataFlowSolver &solver;
@@ -444,7 +446,7 @@ struct Converter {
         holds(field, out, seen);
   }
 
-  unsigned arity(idr::FnType type) { return type.getInputs().size(); }
+  size_t arity(idr::FnType type) { return type.getInputs().size(); }
 
   // The captures of `label` as a closure of `type`.
   ArrayRef<Type> captures(StringAttr label, idr::FnType type) {
@@ -525,7 +527,7 @@ struct Converter {
     if (auto con = dyn_cast<idr::ConAttr>(attr)) {
       SmallVector<Attribute> fields;
       for (auto [i, field] : llvm::enumerate(con.getFields()))
-        fields.push_back(convert(field, module.fieldType(con.getCtor(), i)));
+        fields.push_back(convert(field, module.fieldType(con.getCtor(), static_cast<unsigned>(i))));
       return idr::ConAttr::get(ctx, con.getCtor(), ArrayAttr::get(ctx, fields));
     }
     return attr;
@@ -548,7 +550,7 @@ struct Converter {
           auto quantity = fn.getArgAttrOfType<StringAttr>(i, "idr.quantity");
           quantities.push_back(quantity ? quantity.getValue() : "w");
         }
-        idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(tag),
+        idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(static_cast<int64_t>(tag)),
                             b.getTypeArrayAttr(converted), b.getStrArrayAttr(quantities));
       }
     }

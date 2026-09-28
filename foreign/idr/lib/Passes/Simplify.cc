@@ -43,25 +43,25 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // The passes of a round are named, not linked: idr-effects and idr-eval
   // live in other parts of the library. Returns the steps left out.
   FailureOr<SmallVector<std::string>> buildRound(OpPassManager &pm) const {
-    SmallVector<std::string> skipped;
+    SmallVector<std::string> left;
     for (const std::string &step : idr::simplifyRound(inlineIterations, cloneLimit)) {
       StringRef name = StringRef(step).take_until([](char c) { return c == '{'; });
       if (skipUnregistered && !PassInfo::lookup(name)) {
-        skipped.push_back(name.str());
+        left.push_back(name.str());
         continue;
       }
       if (failed(parsePassPipeline(step, pm, llvm::errs())))
         return failure();
     }
-    return skipped;
+    return left;
   }
 
   LogicalResult initialize(MLIRContext *) override {
     round = OpPassManager(ModuleOp::getOperationName());
-    FailureOr<SmallVector<std::string>> left = buildRound(round);
-    if (failed(left))
+    FailureOr<SmallVector<std::string>> out = buildRound(round);
+    if (failed(out))
       return failure();
-    skipped = std::move(*left);
+    skipped = std::move(*out);
     return success();
   }
 

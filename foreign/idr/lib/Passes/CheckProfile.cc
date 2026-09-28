@@ -65,7 +65,7 @@ bool isStatic(Value value) { return matchPattern(value, m_Constant()); }
 std::string opName(Operation *op) { return op->getName().getStringRef().str(); }
 
 struct Checker {
-  explicit Checker(ModuleOp module) : module(module), users(tables, module) {}
+  explicit Checker(ModuleOp root) : module(root), users(tables, root) {}
 
   ModuleOp module;
   SymbolTableCollection tables;

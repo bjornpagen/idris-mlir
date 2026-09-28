@@ -169,7 +169,8 @@ StringAttr quantityOf(Type type) {
 }
 
 struct Specializer {
-  Specializer(ModuleOp module, unsigned limit) : module(module), limit(limit), symbols(module) {}
+  Specializer(ModuleOp root, unsigned cloneLimit)
+      : module(root), limit(cloneLimit), symbols(root) {}
 
   ModuleOp module;
   unsigned limit;
@@ -209,7 +210,8 @@ struct Specializer {
     SmallVector<Type> types;
     SmallVector<DictionaryAttr> attrs;
     SmallVector<Location> locs;
-    for (auto [i, s] : llvm::enumerate(shapes)) {
+    for (unsigned i = 0; i < shapes.size(); ++i) {
+      const Shape &s = shapes[i];
       if (isHole(s.pattern)) {
         at.push_back(arity);
         types.push_back(clone.getArgument(i).getType());
@@ -232,8 +234,8 @@ struct Specializer {
     Block &entry = clone.getBody().front();
     OpBuilder b = OpBuilder::atBlockBegin(&entry);
     auto next = entry.getArguments().drop_front(arity).begin();
-    for (auto [i, s] : llvm::enumerate(shapes)) {
-      Value value = isHole(s.pattern) ? Value(*next++) : rebuild(b, operands[i], next);
+    for (unsigned i = 0; i < shapes.size(); ++i) {
+      Value value = isHole(shapes[i].pattern) ? Value(*next++) : rebuild(b, operands[i], next);
       entry.getArgument(i).replaceAllUsesWith(value);
     }
     llvm::BitVector originals(clone.getNumArguments());
