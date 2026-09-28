@@ -117,10 +117,16 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     auto isIdr = [](NamedAttribute attr) { return attr.getName().strref().starts_with("idr."); };
     module->setDiscardableAttrs(llvm::to_vector(llvm::make_filter_range(
         module->getDiscardableAttrs(), [&](NamedAttribute a) { return !isIdr(a); })));
-    module.walk([&](func::FuncOp fn) {
-      for (NamedAttribute attr : llvm::to_vector(fn->getDiscardableAttrs()))
+    // Calls carry idr-specialize's own (idr.spec_caller, idr.spec_stopped)
+    // too, which the verifier accepts only on func.call.
+    module.walk([&](Operation *op) {
+      if (op == module.getOperation())
+        return;
+      for (NamedAttribute attr : llvm::to_vector(op->getDiscardableAttrs()))
         if (isIdr(attr))
-          fn->removeDiscardableAttr(attr.getName());
+          op->removeDiscardableAttr(attr.getName());
+    });
+    module.walk([&](func::FuncOp fn) {
       for (unsigned i = 0; i < fn.getNumArguments(); ++i)
         if (DictionaryAttr attrs = fn.getArgAttrDict(i))
           for (NamedAttribute attr : llvm::to_vector(attrs))
