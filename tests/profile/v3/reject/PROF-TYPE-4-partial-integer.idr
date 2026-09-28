@@ -1,4 +1,4 @@
--- expect: PROF-TYPE-4 line 20
+-- expect: PROF-TYPE-4 line 17
 module Main
 
 -- rule: SEM-EVAL-6, PROF-GEN-4
@@ -9,7 +9,7 @@ module Main
 -- compile-time evaluation ran only total code, and was accepted then (a
 -- PROF-GEN-4 exception). The Integer operations are the Prelude's
 -- (Integral Integer), reached from `euclid`, and the rejection is reported
--- at its body, line 20 (DIAG-LOC-1).
+-- at its body, line 17 (DIAG-LOC-1).
 
 import Prelude
 
