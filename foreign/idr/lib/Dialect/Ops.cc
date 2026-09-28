@@ -228,9 +228,7 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   if (untyped(value) != value)
     return false;
   if (auto con = dyn_cast<ConAttr>(value)) {
-    auto name = TypeSwitch<Type, FlatSymbolRefAttr>(type)
-                    .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
-                    .Default([](Type) { return nullptr; });
+    FlatSymbolRefAttr name = getSumName(type);
     return name && name.getAttr() == con.getCtor().getRootReference();
   }
   return (isa<ClosureAttr>(value) && isa<FnType>(type)) ||
@@ -315,7 +313,7 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
     if (!fn)
       return op->emitOpError("has a closure of an unknown function ") << closure.getCallee();
     ArrayRef<Type> inputs = fn.getArgumentTypes();
-    unsigned captures = closure.getCaptures().size();
+    size_t captures = closure.getCaptures().size();
     if (captures > inputs.size())
       return op->emitOpError("has a closure with more captures than ")
              << closure.getCallee() << " has parameters";
@@ -382,9 +380,8 @@ OpFoldResult ConOp::fold(FoldAdaptor adaptor) {
 }
 
 LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  auto data = symbols.lookupNearestSymbolFrom<DataOp>(
-      *this, isa<DataType>(getValue().getType()) ? cast<DataType>(getValue().getType()).getName()
-                                                 : cast<BoxType>(getValue().getType()).getName());
+  auto data =
+      symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getValue().getType()));
   CtorOp ctor = lookupCtor(data, getCtor());
   if (!ctor)
     return emitOpError("refers to an unknown constructor ") << getCtorAttr();
@@ -412,7 +409,7 @@ OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   auto tag = [&](CtorOp ctor) -> OpFoldResult {
     if (!ctor)
       return {};
-    return IntegerAttr::get(getType(), ctor.getTag());
+    return IntegerAttr::get(getType(), static_cast<int64_t>(ctor.getTag()));
   };
   if (auto con = getValue().getDefiningOp<ConOp>())
     return tag(lookupCtor(*this, con.getCtor()));
@@ -475,7 +472,7 @@ void printMatch(Match op, OpAsmPrinter &printer, function_ref<void(unsigned)> pr
   printer << ')';
   printer.printOptionalAttrDictWithKeyword(op->getAttrs(), {"cases"});
   printer << " {";
-  for (unsigned i = 0, e = op.getCases().size(); i < e; ++i) {
+  for (unsigned i = 0, e = static_cast<unsigned>(op.getCases().size()); i < e; ++i) {
     printer.printNewline();
     printer << "case ";
     printKey(i);
@@ -572,8 +569,9 @@ LogicalResult MatchOp::verify() {
 
 // Each case is a constructor of the scrutinee's type, and its region's
 // arguments are that constructor's fields.
-LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &) {
-  DataOp data = lookupData(*this, getScrutinee().getType());
+LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
+  auto data =
+      symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getScrutinee().getType()));
   for (auto [index, name] : llvm::enumerate(getCases().getAsRange<FlatSymbolRefAttr>())) {
     CtorOp ctor = lookupCtor(data, name.getValue());
     if (!ctor)
@@ -593,8 +591,8 @@ Region *MatchOp::getTakenRegion(Attribute value) {
   SymbolRefAttr ctor;
   if (auto con = dyn_cast_or_null<ConAttr>(value))
     ctor = con.getCtor();
-  else if (auto con = getScrutinee().getDefiningOp<ConOp>())
-    ctor = con.getCtor();
+  else if (auto built = getScrutinee().getDefiningOp<ConOp>())
+    ctor = built.getCtor();
   if (!ctor)
     return nullptr;
   return takenRegion(*this, FlatSymbolRefAttr::get(ctor.getLeafReference()));
