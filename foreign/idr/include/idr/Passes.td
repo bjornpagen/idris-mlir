@@ -85,13 +85,16 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let description = [{
     Runs idr-effects, inline, idr-specialize, sccp, canonicalize, cse,
     idr-eval, remove-dead-values and symbol-dce, again and again, until a
-    round leaves the module's fingerprint unchanged.
+    round leaves the module unchanged (its text; op pointers change).
   }];
   let options = [
     Option<"inlineIterations", "inline-iterations", "unsigned", "4",
            "max-iterations of the inliner in each round (K)">,
     Option<"cloneLimit", "clone-limit", "unsigned", "4096",
            "clone-limit of idr-specialize">,
+    Option<"skipUnregistered", "skip-unregistered", "bool", "false",
+           "Tests only: leave out, with a warning, the steps whose pass is "
+           "not registered (idr-effects and idr-eval live in other packages)">,
   ];
 }
 

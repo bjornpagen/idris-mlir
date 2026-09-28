@@ -2,11 +2,12 @@
 // docs/cutover.md 6.3 and 7.3).
 //
 // An argument's pattern is its static shape: a constant is itself, an
-// `idr.con` or `idr.closure` is the matching attribute over the patterns of
-// its operands, and anything else, or an erased value, is `#idr.hole`, a
-// runtime leaf. A call is specialized when some argument has a static
-// shape and some non-erased argument has a runtime leaf; a closed call is
-// left to idr-eval (7.4). The clone for (callee, patterns) substitutes each
+// `idr.con` or `idr.closure` is built over the patterns of its operands (the
+// partially static values of 7.3), and anything else is a hole, a runtime
+// leaf. An erased argument is always a hole: erased is not constant. A call
+// is specialized when some argument has a static shape and some non-erased
+// argument has a runtime leaf; a closed call is left to idr-eval, and is
+// never specialized (7.4). The clone for (callee, patterns) substitutes each
 // static shape into the callee's body, and its parameters are the runtime
 // leaves in order. Clones are shared through that key, named
 // `@<origin>$spec$<n>` with n counting the origin's clones in the order they
@@ -16,9 +17,10 @@
 //
 // The only bound is the clone limit, counted per original callee over the
 // whole compilation (the count is kept on the module as idr.clone_counts, so
-// that rounds of idr-simplify share it). A call it stops gets a Missed remark
-// and its callee idr.clone_limit_hit, which idr-check-profile reports as
-// PROF-HEAP-4 when a closure survives into it.
+// that rounds of idr-simplify share it). A call it stops gets a Missed remark;
+// it and its callee get idr.clone_limit_hit, so that later runs leave the call
+// alone and idr-check-profile reports PROF-HEAP-4 for a closure that survives
+// into the callee.
 //
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
