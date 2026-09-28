@@ -12,15 +12,11 @@ import Idris.Driver
 import Idris.Syntax
 import Libraries.Utils.Path
 
-import IdrisMLIR.Code
-import IdrisMLIR.Code.Check
-import IdrisMLIR.Code.Loops
 import IdrisMLIR.Emit
+import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
-import IdrisMLIR.Simplify
 import IdrisMLIR.Term
-import IdrisMLIR.Term.Check
 import IdrisMLIR.Frontend.Paths
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
@@ -39,10 +35,6 @@ import System.File
 ------------------------------------------------------------------------------
 -- Diagnostics
 ------------------------------------------------------------------------------
-
-||| DIAG-FMT-1 for errors found after translation.
-fromDiag : {auto s : Ref TState TS} -> Diag -> Core a
-fromDiag d = reject (fromLoc d.loc) (if d.loc.file == "" then d.owner else d.loc.file) d.rule d.message
 
 write : String -> String -> Core ()
 write path text = do
@@ -95,34 +87,130 @@ dump : Maybe String -> String -> String -> Core ()
 dump Nothing _ _ = pure ()
 dump (Just dir) name text = write (dir </> name ++ ".core") text
 
-||| CORE-CHECK-1: a failure is an internal error, with the Core on stderr for
-||| the report (DIAG-ICE-1).
-checked : FC -> String -> Either (Rule, String) () -> String -> Core ()
-checked fc pass (Right ()) _ = pure ()
-checked fc pass (Left (rule, msg)) core = do
-  ignore (coreLift (fPutStrLn stderr core))
-  internal fc ("Core.Check after " ++ pass ++ ": " ++ show rule ++ ": " ++ msg)
-
-||| Simplify and Emit, with the checks between them (CORE-PASS-1); returns
-||| the printed first-order Core and the contract text.
-middle : {auto s : Ref TState TS} -> FC -> Maybe String -> Source -> Core (String, String)
+||| The middle end (CORE-PASS-1): Translate's full Core, printed, and `Emit`'s
+||| contract text. `--directive dump-core` writes the full Core as
+||| `01-translate.core`.
+middle : FC -> Maybe String -> Source -> Core (String, String)
 middle fc dir src = do
-  let full = showSource src
-  dump dir "01-translate" full
-  checked fc "Translate" (checkSource src) full
-  Right simple <- pure (simplify src)
-    | Left d => fromDiag d
-  dump dir "02-simplify" (showTarget simple)
-  checked fc "Simplify" (check simple) (showTarget simple)
-  let target = relaxTarget (loopify simple)
-  let core = showTarget target
-  dump dir "03-loops" core
-  checked fc "Loops" (check target) core
-  Right mlir <- pure (emit target)
+  let core = showSource src
+  dump dir "01-translate" core
+  Right mlir <- pure (emit src)
     | Left msg => do
         ignore (coreLift (fPutStrLn stderr core))
-        internal fc msg
+        internal fc ("Emit: " ++ msg)
   pure (core, mlir)
+
+------------------------------------------------------------------------------
+-- idris-mlir-cc (DRV-CC-2)
+------------------------------------------------------------------------------
+
+||| A location in `idris-mlir-cc`'s text: `file:line:column`, 1-based.
+record Place where
+  constructor MkPlace
+  file : String
+  line : Int
+  col : Int
+
+||| The first location in a line of text, as MLIR prints one
+||| (a file name, quoted or not, then `:line:column`).
+place : String -> Maybe Place
+place text = head' (mapMaybe parse (words text))
+  where
+    digits : String -> Maybe Int
+    digits d = if d /= "" && all isDigit (unpack d) then Just (cast d) else Nothing
+    unquote : String -> String
+    unquote f = pack (filter (/= '"') (unpack f))
+    parse : String -> Maybe Place
+    parse w = case reverse (forget (split (== ':') w)) of
+      ("" :: c :: l :: rest@(_ :: _)) => MkPlace (unquote (joinBy ":" (reverse rest))) <$> digits l <*> digits c
+      (c :: l :: rest@(_ :: _)) => MkPlace (unquote (joinBy ":" (reverse rest))) <$> digits l <*> digits c
+      _ => Nothing
+
+||| A profile rejection as `idris-mlir-cc` reports it: the rule, what it
+||| says, and where.
+record Rejection where
+  constructor MkRejection
+  rule : String
+  message : String
+  at : Maybe Place
+
+||| The first `unsupported (<RULE>): ...` in the text, and its location: on
+||| its line, or else anywhere in the text.
+rejection : String -> Maybe Rejection
+rejection text = do
+  l <- find (isInfixOf "unsupported (") (lines text)
+  let (_, rest) = breakOn "unsupported (" l
+  let body = pack (drop (length (unpack "unsupported (")) (unpack rest))
+  let (rule, after) = break (== ')') body
+  let message = trim (pack (drop 1 (dropWhile (/= ':') (unpack after))))
+  pure (MkRejection rule message (place l <|> head' (mapMaybe place (lines text))))
+  where
+    breakOn : String -> String -> (String, String)
+    breakOn needle hay = go [] (unpack hay)
+      where
+        go : List Char -> List Char -> (String, String)
+        go acc [] = (pack (reverse acc), "")
+        go acc cs@(c :: rest) =
+          if isPrefixOf (unpack needle) cs then (pack (reverse acc), pack cs) else go (c :: acc) rest
+
+||| A definition of the program: where it is, and its Idris name.
+record Definition where
+  constructor MkDefinition
+  loc : Loc
+  name : String
+
+||| DIAG-FMT-1, DIAG-LOC-1: a profile rejection from `idris-mlir-cc`, as an
+||| Idris error at the user's code. The location's module is the one a
+||| definition of the program names for that file; the definition reported
+||| is the last one that starts at or before the location.
+reportRejection : {auto s : Ref TState TS} -> FC -> Source -> Rejection -> Core a
+reportRejection fc src r = do
+  let Just rule = parseRule r.rule
+    | Nothing => internal fc ("idris-mlir-cc reported an unknown rule: " ++ r.rule)
+  case r.at of
+    Nothing => reject fc (show src.root) rule r.message
+    Just p => do
+      let inFile = filter (\d => d.loc.file == p.file) definitions
+      -- Of definitions on one line, the first in program order: the IO root
+      -- comes last, at main's location.
+      let owner = maybe p.file (.name)
+                        (last' (sortBy earlier (reverse (filter (\d => d.loc.startLine < p.line) inFile))))
+      let at = case inFile of
+                 (d :: _) => fromLoc ({ startLine := p.line - 1, startCol := p.col - 1
+                                      , endLine := p.line - 1, endCol := p.col - 1 } d.loc)
+                 [] => MkFC (PhysicalPkgSrc p.file) (p.line - 1, p.col - 1) (p.line - 1, p.col - 1)
+      reject at owner rule r.message
+  where
+    definitions : List Definition
+    definitions = map (\f => MkDefinition f.loc (show f.idrisName)) src.fns ++
+                  map (\d => MkDefinition d.loc (show d.idrisName)) src.datas
+    earlier : Definition -> Definition -> Ordering
+    earlier a b = compare a.loc.startLine b.loc.startLine
+
+||| Runs `idris-mlir-cc` with its stderr in `errPath`: its exit status and
+||| what it wrote there. Nothing it wrote is lost: on success, its text goes
+||| on to stderr.
+runCc : List String -> String -> Core (Int, String)
+runCc args errPath = do
+  status <- coreLift (system (escapeCmd (idrisMlirCc :: args) ++ " 2> " ++ escapeArg errPath))
+  text <- either (const "") id <$> coreLift (readFile errPath)
+  remove errPath
+  when (status == 0 && text /= "") $ ignore (coreLift (fPutStr stderr text))
+  pure (status, text)
+
+||| DRV-CC-2: what an exit status of `idris-mlir-cc` means. 3 is a profile
+||| rejection, a user error; anything else but 0 is an internal error
+||| (DIAG-ICE-1). Either way the artifacts are removed (FE-ART-1).
+ccVerdict : {auto s : Ref TState TS} -> FC -> Source -> List String -> (Int, String) -> Core ()
+ccVerdict fc src artifacts (0, _) = pure ()
+ccVerdict fc src artifacts (3, text) = do
+  traverse_ remove artifacts
+  case rejection text of
+    Just r => reportRejection fc src r
+    Nothing => internal fc ("idris-mlir-cc rejected the program without naming a rule:\n" ++ text)
+ccVerdict fc src artifacts (status, text) = do
+  traverse_ remove artifacts
+  internal fc ("idris-mlir-cc failed with status " ++ show status ++ ":\n" ++ text)
 
 ------------------------------------------------------------------------------
 -- main : Int programs (FE-ENTRY-2)
@@ -167,6 +255,9 @@ compileModule c _ source = do
   (core, mlir) <- middle fc dir prog
   write corePath core
   write mlirPath mlir
+  -- A profile rejection on the optimized module is a user error of
+  -- `--check` too, and leaves no artifact (docs/cutover.md, 7.11).
+  ccVerdict fc prog [corePath, mlirPath] !(runCc [mlirPath, "--check"] (mlirPath ++ ".stderr"))
   pure (Just (!(getObjFileName source "mlir"), []))
 
 ------------------------------------------------------------------------------
@@ -184,10 +275,13 @@ rootName tm = case go tm [] of
     go (App _ f a) acc = go f (a :: acc)
     go f acc = (f, acc)
 
-run : FC -> List String -> Core ()
-run fc cmd = do
+||| Runs a pinned tool; a failure is an internal error, and leaves no
+||| artifact (FE-ART-1).
+run : FC -> List String -> List String -> Core ()
+run fc artifacts cmd = do
   status <- coreLift (system (escapeCmd cmd))
-  unless (status == 0) $
+  unless (status == 0) $ do
+    traverse_ remove artifacts
     internal fc (fastConcat (intersperse " " cmd) ++ " failed with status " ++ show status)
 
 compileIO : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
@@ -241,12 +335,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
   write mlirPath mlir
   -- DRV-FLOW-2: the rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
-  run fc ([idrisMlirCc, mlirPath, "-o", objPath] ++ dumps)
+  ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps) (base ++ ".cc.stderr"))
   -- TC-LINK-2: lld links the program's one object (TC-LINK-1) into a
   -- static-PIE executable on musl, whose libc.a also holds the libm functions
   -- of LOW-EXT-1, with GMP as a native archive. The pinned clang's
   -- configuration file supplies the sysroot, compiler-rt and libunwind.
-  run fc [pinnedCc, "--target=x86_64-unknown-linux-musl", "-fuse-ld=lld", "-static-pie",
+  run fc [corePath, mlirPath, objPath, base] [pinnedCc, "--target=x86_64-unknown-linux-musl", "-fuse-ld=lld", "-static-pie",
           "-Wl,--gc-sections", "-Wl,--icf=all", objPath, "-o", base, "-lgmp"]
   pure (Just base)
 
