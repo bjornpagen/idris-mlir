@@ -2,7 +2,7 @@
 ||| diagnostic names its rule (DIAG-CODE-1), so a misspelt rule is a type
 ||| error, not a wrong message. The frontend checks most of them; the
 ||| profile rules on the optimized module (`PROF-TYPE-4`, `PROF-DATA-3`,
-||| `PROF-PRIM-4`, `PROF-HEAP-1` to `-4`) also come back from
+||| `PROF-PRIM-4`, `PROF-HEAP-1` to `-4`) and `EVAL-1` come back from
 ||| `idris-mlir-cc`, which names them in its text (`parseRule`).
 module IdrisMLIR.Rule
 
@@ -24,6 +24,7 @@ data Rule
   | ProfEsc1 | ProfPrag1
   | FeEntry4 | FeTtc1 | FeTr7
   | HookShape1
+  | Eval1
 
 export
 Show Rule where
@@ -54,6 +55,7 @@ Show Rule where
   show FeTtc1 = "FE-TTC-1"
   show FeTr7 = "FE-TR-7"
   show HookShape1 = "HOOK-SHAPE-1"
+  show Eval1 = "EVAL-1"
 
 ||| Every rule, to read one back from its name.
 allRules : List Rule
@@ -61,7 +63,7 @@ allRules =
   [ ProfProg1, ProfProg2, ProfProg4, ProfLib1, ProfIO3, ProfIO4, ProfType4
   , ProfData2, ProfData3, ProfData5, ProfFn1, ProfFn5, ProfFn7, ProfPoly1, ProfTerm2
   , ProfPrim2, ProfPrim4, ProfHeap1, ProfHeap2, ProfHeap3, ProfHeap4, ProfEsc1, ProfPrag1
-  , FeEntry4, FeTtc1, FeTr7, HookShape1 ]
+  , FeEntry4, FeTtc1, FeTr7, HookShape1, Eval1 ]
 
 ||| A rule by its name, as `idris-mlir-cc` reports it.
 export

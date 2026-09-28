@@ -207,18 +207,22 @@ runCc args errPath = do
   pure (status, text)
 
 ||| DRV-CC-2: what an exit status of `idris-mlir-cc` means. 3 is a profile
-||| rejection, a user error; anything else but 0 is an internal error
-||| (DIAG-ICE-1). Either way the artifacts are removed (FE-ART-1).
+||| rejection and 4 a total evaluation the machine could not finish
+||| (EVAL-1): both are user errors that name their rule and the call's
+||| location. Anything else but 0 is an internal error (DIAG-ICE-1). Either
+||| way the artifacts are removed (FE-ART-1).
 ccVerdict : {auto s : Ref TState TS} -> FC -> Source -> List String -> (Int, String) -> Core ()
 ccVerdict fc src artifacts (0, _) = pure ()
-ccVerdict fc src artifacts (3, text) = do
-  traverse_ remove artifacts
-  case rejection text of
-    Just r => reportRejection fc src r
-    Nothing => internal fc ("idris-mlir-cc rejected the program without naming a rule:\n" ++ text)
-ccVerdict fc src artifacts (status, text) = do
-  traverse_ remove artifacts
-  internal fc ("idris-mlir-cc failed with status " ++ show status ++ ":\n" ++ text)
+ccVerdict fc src artifacts (status, text) =
+  if status == 3 || status == 4
+    then do
+      traverse_ remove artifacts
+      case rejection text of
+        Just r => reportRejection fc src r
+        Nothing => internal fc ("idris-mlir-cc reported a user error without naming a rule:\n" ++ text)
+    else do
+      traverse_ remove artifacts
+      internal fc ("idris-mlir-cc failed with status " ++ show status ++ ":\n" ++ text)
 
 ------------------------------------------------------------------------------
 -- main : Int programs (FE-ENTRY-2)
