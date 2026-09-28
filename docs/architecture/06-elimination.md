@@ -267,10 +267,16 @@ runtime operands left out, and those operands are its *runtime leaves*.
     (type, constructor, field), and at an `idr.apply` the arguments of each
     possible callee are updated, because the framework's interprocedural
     mode follows symbol callees only.
-  - A closure type whose set is finite, and whose captures do not make it
-    contain itself, becomes a sum over those functions whose fields are
-    their captures. `idr.closure` becomes the constructor, and `idr.apply`
-    becomes a match on it with a direct call in each region.
+  - Sums are keyed by closure type and set of functions: each value,
+    argument, result and field gets the sum of its type and its set. A key
+    whose set is finite and not empty becomes a sum over those functions
+    whose fields are their captures, each with the key of that capture,
+    unless it is on a cycle of "a capture of one of its functions holds,
+    directly or through unboxed data, a value of that key". A closure may
+    capture another of its own type when the sets differ (a state monad's
+    bind). `idr.closure` becomes the constructor, and `idr.apply` becomes a
+    match on it with a direct call in each region. Where a value moves
+    into a slot of a larger set, a match rebuilds it in that sum.
   - A closure that remains is rejected by the heap-free profile
     (`PROF-HEAP-1`, `PROF-HEAP-2`, `PROF-HEAP-4`).
   - *Why this is exact:* applying the constructor of a function applies
