@@ -1,0 +1,114 @@
+#!/bin/sh
+# rule: ELIM-G-6, SEM-STR-2, SEM-REF-1
+# No primitive has a meaning in the compiler's Idris code (docs/cutover.md
+# 2.1 and 4.5): a primitive means what the runtime computes, and the
+# folders and idr-eval call the runtime's own code, so nothing in
+# compiler/src may compute a primitive's result. A folder, whatever its
+# form, has to do one of three things, and each is looked for in the code
+# of every module (comments and the contents of strings removed):
+#
+# 1. call an Idris primitive (`prim__*`) to compute a value;
+# 2. make a literal of the middle end (LInt, LChar, LStr, LDouble, LBig)
+#    from a computed value: in an expression, a literal constructor may
+#    only take literals of the source (`LBig 0`), except in Translate's
+#    `constantLit`, which converts Idris's own constants, one to one;
+# 3. look into the operands of an operation: a pattern that holds a
+#    literal (`Literal`, `LiteralF`) inside another term's constructor, or
+#    one that binds the value of an Idris constant (`I x`, `Db x`, `Str x`,
+#    ...) anywhere but in `constantLit` (in IdrisMLIR.Frontend, the only
+#    modules that see Idris's constants, FE-IN-3).
+#
+# `allowlist` lists the lines allowed anyway, as `path: text -- reason`:
+# serializing a literal is not computing with it. The checks must also see
+# what they allow, or they would see nothing.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+allowlist=$here/allowlist
+cd "$root" || exit 1
+literals='LInt|LChar|LStr|LDouble|LBig'
+terms='PrimApp|PrimAppF|CaseLit|CaseLitF|App|AppF|ConApp|ConAppF|Effect|EffectF|Let|LetF|Case|CaseF|Lam|LamF|Suspend|SuspendF|Resume|ResumeF'
+constants='I|I8|I16|I32|I64|B8|B16|B32|B64|BI|Ch|Str|Db'
+# A literal of the source: a number, possibly negative and parenthesized,
+# or a string (whose contents the lexer removed).
+source_literal='(\(-?[0-9][0-9A-Fa-fx.e]*\)|-?[0-9][0-9A-Fa-fx.e]*|"")'
+
+: > "$work/found"
+: > "$work/conversions"
+for file in $(find compiler/src -name '*.idr' | sort); do
+  idris_lex code "$file" > "$work/code"
+  # 1. Idris primitives called.
+  grep -nE 'prim__[A-Za-z0-9_]+' "$work/code" | sed 's/^[0-9]*://' |
+    sed "s|^\([0-9]*\):.*|$file:\1|" > "$work/hits"
+  while IFS= read -r hit; do
+    n=${hit##*:}
+    printf '%s: %s\n' "$hit" "$(sed -n "${n}p" "$file")" >> "$work/found"
+  done < "$work/hits"
+  # 2 and 3, clause by clause: the pattern is what comes before the first
+  # ` = ` or `=>` of a line, the expression what comes after (all of a line
+  # without either).
+  # Idris's constants exist only where the Idris API is imported: in
+  # IdrisMLIR.Frontend (FE-IN-3).
+  case $file in compiler/src/IdrisMLIR/Frontend/*) frontend=1 ;; *) frontend=0 ;; esac
+  awk -v file="$file" -v literals="$literals" -v terms="$terms" -v constants="$constants" -v frontend="$frontend" \
+      -v source="$source_literal" '
+    {
+      n = $0; sub(/:.*/, "", n); text = $0; sub(/^[0-9]*:/, "", text)
+      pattern = ""; expr = text
+      if (match(text, / = |=>/)) { pattern = substr(text, 1, RSTART - 1); expr = substr(text, RSTART + RLENGTH) }
+      conversion = (text ~ /^[ \t]*constantLit[ \t]/)
+      # A declaration of the literals is not a use of them.
+      if (text ~ /^[ \t]*(data|record)[ \t]/ || text ~ "^[ \t]*(" literals ")[ \t]*:") next
+      rest = expr
+      while (match(rest, "(^|[^A-Za-z0-9_])(" literals ")([^A-Za-z0-9_]|$)")) {
+        after = substr(rest, RSTART + RLENGTH - 1)
+        name = substr(rest, RSTART, RLENGTH); gsub(/[^A-Za-z]/, "", name)
+        args = after
+        if (name == "LInt") sub(/^[ \t]*[A-Z][A-Za-z0-9]*/, "", args)
+        ok = match(args, "^[ \t]*" source "([^A-Za-z0-9_]|$)")
+        if (!ok) {
+          if (conversion) print "conversion" > "/dev/stderr"
+          else printf "%s:%s: a literal made from a computed value (%s)\n", file, n, name
+        }
+        rest = after
+      }
+      if (pattern ~ "(^|[^A-Za-z0-9_])(" terms ")([^A-Za-z0-9_]|$)" &&
+          pattern ~ /(^|[^A-Za-z0-9_])LiteralF?([^A-Za-z0-9_]|$)/)
+        printf "%s:%s: a pattern that looks into a literal operand\n", file, n
+      if (frontend && pattern ~ "\\((" constants ")[ \t]+[a-z_]") {
+        if (conversion) print "conversion" > "/dev/stderr"
+        else printf "%s:%s: a pattern that binds the value of an Idris constant\n", file, n
+      }
+    }' "$work/code" >> "$work/found" 2>> "$work/conversions"
+done
+
+grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
+while IFS= read -r entry; do
+  case $entry in
+    *': '*' -- '?*) ;;
+    *) say "allowlist entry without a path, a text and a reason: $entry" ;;
+  esac
+done < "$work/allowed"
+allowed=0
+: > "$work/left"
+while IFS= read -r hit; do
+  keep=yes
+  while IFS= read -r entry; do
+    path=${entry%%: *}
+    rest=${entry#*: }
+    text=${rest% -- *}
+    case $hit in "$path:"*"$text"*) keep=no ;; esac
+  done < "$work/allowed"
+  if [ $keep = yes ]; then printf '%s\n' "$hit" >> "$work/left"; else allowed=$((allowed + 1)); fi
+done < "$work/found"
+
+if [ -s "$work/conversions" ]; then
+  say "the checks see Translate's conversion of Idris's constants: yes"
+else
+  say "the checks see Translate's conversion of Idris's constants: no"
+fi
+if [ "$allowed" -gt 0 ]; then
+  say "the checks see the allowed serializations of literals: yes"
+else
+  say "the checks see the allowed serializations of literals: no"
+fi
+sed 's/^/primitive semantics in Idris: /' "$work/left"
+say "places where compiler/src computes a primitive: $(wc -l < "$work/left" | tr -d ' ')"

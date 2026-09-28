@@ -1,0 +1,61 @@
+#!/bin/sh
+# rule: IDR-IN-1, IDR-IN-2, TEST-EMIT-1
+# Emit writes ops of the contract's dialects only: idr, func, arith, math
+# and ub (docs/cutover.md 10 and A19; idris-mlir-cc parses with a registry
+# of exactly these and builtin). Every op name in the text Emit writes comes
+# from a string literal of compiler/src/IdrisMLIR/Emit.idr or MLIR.idr, as
+# `<dialect>.<op>` or as a prefix `<dialect>.` that code completes; each
+# dialect named so must be one of the five. A literal that starts with `.`
+# and a lowercase letter would complete an op name without its dialect, and
+# is refused too. `allowlist` lists the literals that are not op names
+# (`path: text -- reason`). The check must see the five, or it would see
+# nothing.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+allowlist=$here/allowlist
+cd "$root" || exit 1
+allowed_dialects=' idr func arith math ub '
+: > "$work/found"
+: > "$work/dialects"
+for file in compiler/src/IdrisMLIR/Emit.idr compiler/src/IdrisMLIR/MLIR.idr; do
+  idris_lex strings "$file" | awk -v file="$file" '
+    {
+      n = $0; sub(/:.*/, "", n); s = $0; sub(/^[0-9]*:/, "", s)
+      rest = s
+      while (match(rest, /(^|[ (,={<])[a-z][a-z0-9_]*\.([a-z_]|$)/)) {
+        word = substr(rest, RSTART, RLENGTH); sub(/^[ (,={<]/, "", word); sub(/\..*$/, "", word)
+        printf "%s\t%s:%s: \"%s\"\n", word, file, n, s
+        # The rest of the dotted name is not another dialect.
+        rest = substr(rest, RSTART + RLENGTH); sub(/^[a-z0-9_.]*/, "", rest)
+      }
+      if (s ~ /^\.[a-z]/) printf "%s\t%s:%s: \"%s\"\n", "(none)", file, n, s
+    }' >> "$work/dialects"
+done
+while IFS="$(printf '\t')" read -r dialect hit; do
+  case $allowed_dialects in
+    *" $dialect "*) printf '%s\n' "$dialect" >> "$work/seen" ;;
+    *) printf '%s (%s)\n' "$hit" "$dialect" >> "$work/found" ;;
+  esac
+done < "$work/dialects"
+
+grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
+: > "$work/left"
+while IFS= read -r hit; do
+  keep=yes
+  while IFS= read -r entry; do
+    path=${entry%%: *}
+    rest=${entry#*: }
+    text=${rest% -- *}
+    case $hit in "$path:"*"$text"*) keep=no ;; esac
+  done < "$work/allowed"
+  [ $keep = yes ] && printf '%s\n' "$hit" >> "$work/left"
+done < "$work/found"
+
+for dialect in idr func arith math ub; do
+  if grep -qx "$dialect" "$work/seen" 2> /dev/null; then
+    say "Emit names $dialect: yes"
+  else
+    say "Emit names $dialect: no"
+  fi
+done
+sed 's/^/a dialect outside the contract: /' "$work/left"
+say "op names of other dialects: $(wc -l < "$work/left" | tr -d ' ')"
