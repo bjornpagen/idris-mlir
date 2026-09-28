@@ -1,29 +1,54 @@
-// RUN: idris-mlir-opt %s --idr-check-input --idr-entry --inline --sccp --canonicalize --cse --symbol-dce > %t1.mlir
-// RUN: idris-mlir-opt %t1.mlir --inline --sccp --canonicalize --cse --symbol-dce > %t2.mlir
-// RUN: diff %t1.mlir %t2.mlir
-// rule: OPT-IDEM-1, OPT-PIPE-1, OPT-PIPE-3, IDR-IF-1
-module attributes {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"} {
-  idr.data @S {
-    idr.ctor @A tag 0 fields [i64] quantities ["w"]
-    idr.ctor @B tag 1 fields [i64, i64] quantities ["w", "w"]
+// RUN: idris-mlir-opt %s --idr-simplify=skip-unregistered=true > %t1.mlir 2> %t1.err
+// RUN: idris-mlir-opt %t1.mlir --idr-simplify=skip-unregistered=true --remarks-filter-passed=idr-simplify > %t2.mlir 2> %t2.err
+// RUN: FileCheck %s --check-prefix=AGAIN < %t2.err
+// RUN: FileCheck %s < %t1.mlir
+// RUN: FileCheck %s < %t2.mlir
+// rule: OPT-IDEM-1, OPT-PIPE-5, ELIM-SPEC-1, ELIM-G-1
+// The simplify loop runs to a fixpoint, so running it again changes nothing:
+// its first round leaves the module as it was (up to where sccp puts the
+// constants, which it reverses on every run).
+// Note: idr-eval (the lowering package) is not in this branch yet, so the
+// round runs without it (skip-unregistered, which only tests set).
+// The closure passed to the recursive @pow is specialized away: the clone
+// applies a constant closure, which becomes a direct call to @inc and is
+// inlined in the next round; @pow and @inc are then dead.
+// AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
+// AGAIN-SAME: fixpoint: round 1 changed nothing
+// CHECK: module attributes {idr.clone_counts = {pow = 1 : i64}, idr.program}
+// CHECK-LABEL: func.func @Main.main(
+// CHECK: call @pow$spec$1(
+// CHECK-NOT: func.func private @pow(
+// CHECK-NOT: @inc
+// CHECK-LABEL: func.func private @pow$spec$1(
+// CHECK: arith.addi
+// CHECK: call @pow$spec$1(
+module attributes {idr.program} {
+  func.func private @inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+    %c1 = arith.constant 1 : i64
+    %y = arith.addi %x, %c1 : i64
+    return %y : i64
   }
-  func.func private @area(%s: !idr.data<@S> {idr.quantity = "w"}) -> i64 {
-    %t = idr.tag %s : !idr.data<@S>
-    cf.switch %t : i64, [default: ^b, 0: ^a]
-  ^a:
-    %x = idr.field %s[@A, 0] : !idr.data<@S> -> i64
-    return %x : i64
-  ^b:
-    %w = idr.field %s[@B, 0] : !idr.data<@S> -> i64
-    %h = idr.field %s[@B, 1] : !idr.data<@S> -> i64
-    %a = arith.muli %w, %h : i64
-    return %a : i64
+  func.func private @pow(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+    %r = idr.match_lit %n : i64 -> (i64) {
+    case 0 {
+      idr.yield %x : i64
+    }
+    default {
+      %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
+      %c1 = arith.constant 1 : i64
+      %m = arith.subi %n, %c1 : i64
+      %r = func.call @pow(%f, %m, %y) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+      idr.yield %r : i64
+    }
+    }
+    return %r : i64
   }
-  func.func private @Prog.main() -> i64 {
-    %c6 = arith.constant 6 : i64
-    %c7 = arith.constant 7 : i64
-    %s = idr.con @S::@B(%c6, %c7) : (i64, i64) -> !idr.data<@S>
-    %a = func.call @area(%s) : (!idr.data<@S>) -> i64
-    return %a : i64
+  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+    %c, %w1 = idr.io.get_char %w
+    %n = arith.extui %c : i32 to i64
+    %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    %r = func.call @pow(%f, %n, %n) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+    %w2 = idr.io.put_int signed %r, %w1 : i64
+    return %w2 : !idr.world
   }
 }

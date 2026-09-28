@@ -41,6 +41,11 @@ add_library(idr_dialect STATIC
 	lib/Lower/Runtime.cc
 	lib/Lower/Patterns.cc
 	lib/Registration.cc
+	lib/Passes/CheckProfile.cc
+	lib/Passes/Defunctionalize.cc
+	lib/Passes/Simplify.cc
+	lib/Passes/Specialize.cc
+	lib/Passes/TailLoops.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
 # Generated code is included as system headers so the project's warnings
@@ -56,6 +61,7 @@ separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
 target_compile_definitions(idr_dialect PUBLIC ${IDR_LLVM_DEFINITIONS})
 target_link_libraries(idr_dialect
 	PUBLIC
+		MLIRAnalysis
 		MLIRIR
 		MLIRPass
 		MLIRParser
