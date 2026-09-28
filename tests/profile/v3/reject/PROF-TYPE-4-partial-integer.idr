@@ -1,18 +1,15 @@
--- expect: PROF-TYPE-4 line 19
+-- expect: PROF-TYPE-4 line 17
 module Main
 
 -- rule: SEM-EVAL-6, PROF-GEN-4
--- A closed call of a partial function is never evaluated (docs/cutover.md
--- A23): Idris does not prove `euclid` terminating, so `euclid 1071 462`
--- stays a call, and its Integer would exist at runtime. The program was
--- part of e2e/v3/compile-time-evaluation and e2e/v3/prelude-math before the
--- cutover, and was accepted then (4.3, decision 7.2, a PROF-GEN-4
--- exception). The Integer operations are the Prelude's (Integral Integer),
--- reached from `euclid`, where the rejection is reported (DIAG-LOC-1).
--- Unverified until idris-mlir-cc exists: the line is predicted from the
--- emitted module, where euclid's own ops carry its definition's location
--- (line 20 is its case block's), and from `euclid` coming before the root,
--- into which `main` is inlined, in the module.
+-- A closed call of a partial function is never evaluated (SEM-EVAL-6):
+-- Idris does not prove `euclid` terminating, so `euclid 1071 462` stays a
+-- call, and its Integer would exist at runtime. The program was part of
+-- e2e/v3/compile-time-evaluation and e2e/v3/prelude-math before
+-- compile-time evaluation ran only total code, and was accepted then (a
+-- PROF-GEN-4 exception). The Integer operations are the Prelude's
+-- (Integral Integer), reached from `euclid`, and the rejection is reported
+-- at its body, line 17 (DIAG-LOC-1).
 
 import Prelude
 

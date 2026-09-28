@@ -227,8 +227,9 @@ runtime operands left out, and those operands are its *runtime leaves*.
   every call: it unfolded, evaluated or specialized it. Its parts are now
   separate, each with its own rule: unfolding is upstream `inline` with no
   size threshold (`OPT-PIPE-5`); a residual call on a static argument is
-  `idr-specialize` (`ELIM-SPEC-1`), bounded by the clone limit
-  (`ELIM-SPEC-2`) instead of the whistle; evaluation is `idr-eval`
+  `idr-specialize` (`ELIM-SPEC-1`), bounded by generalization, a growth
+  check and the clone limit (`ELIM-SPEC-2`) instead of the whistle;
+  evaluation is `idr-eval`
   (`ELIM-EVAL-1`), on total code only (`SEM-EVAL-6`), with no budget. A
   literal in a matched position (`ack 0 n`) is specialization on a
   constant, without the bound of four unfoldings.
@@ -246,18 +247,29 @@ runtime operands left out, and those operands are its *runtime leaves*.
 - **ELIM-SPEC-1 (v3). `idr-specialize`.** A `func.call` of a function with
   a body, one of whose arguments is constant-like and not a runtime value,
   calls a clone of the callee instead.
-  - **The key** is the callee and the static parts of the arguments, with
-    each runtime leaf a hole (`#idr.hole`, internal to the pass). Calls with
-    equal keys share one clone. *Constant-like includes partially static
+  - **The pattern** of an argument is its static part, with each runtime
+    leaf a hole. An erased argument is always a hole: erased is not
+    constant (`ELIM-ERASE-1`). *Constant-like includes partially static
     values*: a list with one runtime element, `Just n`, or a closure with a
     runtime capture is specialized on its shape, and its runtime leaves
     become the clone's parameters, in order.
+  - **The key is relative to the origin**, the function from `Emit` that
+    the clone descends from: the origin and the patterns of the origin's
+    parameters. A call of a
+    clone composes the clone's key with its own patterns, so the keys of
+    all the clones of one origin are comparable, and calls with equal keys
+    share one clone. A clone keeps its origin as `idr.origin` and its key
+    as `idr.spec_key`, whose runtime leaves are `unit`, and each of its
+    parameters records the hole of the key it fills as `idr.hole`, so the
+    key still holds after `remove-dead-values` drops a parameter
+    (`IDR-FN-1`).
   - **The clone** is the callee with the static parts substituted, so
-    `ELIM-G-1` and `ELIM-G-2` apply inside it. It is private, is named after
-    its callee and numbered in order of first request (`FE-DET-1`),
-    inherits `no_inline` from a loop breaker (`OPT-PIPE-3`), and has
-    `idr.total` when its callee and every function named in its key have
-    it (`IDR-FACT-1`).
+    `ELIM-G-1` and `ELIM-G-2` apply inside it; it is canonicalized when it
+    is made, so a chain of clones on a counter is made in one run. It is
+    private, is named `@<origin>$spec$<n>`, `n` counting the origin's
+    clones in order of first request (`FE-DET-1`), inherits `no_inline`
+    from a loop breaker (`OPT-PIPE-3`), and has `idr.total` when its callee
+    and every function named in its key have it (`IDR-FACT-1`).
   - **A closed call is never specialized**, where every argument is a
     constant, erased or a world. It is evaluated when its callee is total
     and pure (`ELIM-EVAL-1`), and otherwise left as it is: specializing a
@@ -270,19 +282,53 @@ runtime operands left out, and those operands are its *runtime leaves*.
     arguments of that shape; specialization never duplicates an effect or
     a crash, since the arguments are evaluated once, at the call.
   - Check: the pass `idr-specialize`
-- **ELIM-SPEC-2 (v3). Growth and the clone limit.** A clone that calls its
-  own origin with static arguments that grow is not specialized further:
-  each argument's pattern is the clone's own or contains it, and one
-  strictly (`iter (\y => f (f y))`). Such a specialization would never end.
-  Beyond that, `idr-specialize` makes at most `N` clones of one original
-  callee in a compilation, `N` being `idris-mlir-cc --clone-limit=N`
-  (default 4096), which bounds growth in other shapes. A call either stops
-  stays a call of the function it called, with a `Missed` remark naming the
-  reason, and both get `idr.spec_stopped`. A closure that then survives is
-  a `PROF-HEAP-4` rejection. Both bounds stop only specializations that
-  would not end, so acceptance depends on neither for any program
-  `PROF-HEAP-4` does not name.
+  - Test: `tests/idr/specialize/*.mlir`, `tests/e2e/v1/ELIM-G-3-specialization`
+- **ELIM-SPEC-2 (v3). Generalization, growth and the clone limit.** A call
+  is compared with the latest clone of its callee's origin on the chain of
+  clones it was made in, which mutual recursion passes through clones of
+  several origins: each clone keeps, per origin, the key of the latest
+  clone before it (`idr.spec_history`, its own included), and its calls
+  record it (`idr.spec_caller`), which survives when the clone is inlined
+  into a function that is no clone. Clones do not inherit `no_inline`, so a
+  chain of clones on a static shape is inlined. Against that key:
+  - **An accumulator is generalized.** A static argument that differs from
+    the clone's own pattern, and that the callee never branches on (it is
+    not the scrutinee of a match of more than one region, nor a closure the
+    callee applies), only varies: `run (n - 1) (advance s)`. Specializing on
+    it would clone once per value and gain nothing the callee could fold,
+    so it becomes a runtime value, as in the generalization of an offline
+    partial evaluator. An argument the callee branches on (a counter,
+    `ack`'s `m`) keeps its value.
+  - **Growth stops.** A call whose static arguments grow, each the clone's
+    own pattern or containing it, and one strictly (`iter (\y => f (f y))`),
+    would clone forever, so it is not specialized. Later rounds see the
+    growth too, through `idr.spec_key` and the history.
+
+  Beyond that, `idr-specialize` makes at most `N` clones of one origin in
+  a compilation, which bounds growth in other shapes. `N` is the
+  `clone-limit` option of `idr-specialize` and `idr-simplify`, 4096 by
+  default, which `idris-mlir-cc` uses; the count is kept on the module as
+  `idr.clone_counts`, so the rounds of the simplify loop share it. A call
+  that the growth check or the limit stops stays a call of the function it
+  called, with a `Missed` remark naming the reason, and the call and its
+  callee get `idr.spec_stopped`, and the call records the key it stopped
+  at (`idr.spec_stopped_at`): later runs leave it alone while its key stays
+  that one, and check it again once inlining has made it more static (a
+  vector whose spine a chain of clones built). Growth is embedding: each
+  static argument is the earlier pattern or strictly contains an instance
+  of it, holes matching anything (`f (f x)` after `f _`). Whether the callee
+  branches on an argument follows it into the functions the callee passes
+  it to (a wrapper that passes a vector on to the function that matches
+  on it). A
+  closure that then survives is a `PROF-HEAP-4` rejection. Both stops
+  apply only to specializations that would not end, so acceptance depends
+  on neither for any program `PROF-HEAP-4` does not name; generalization is
+  a fixed rule of the pipeline, not a heuristic (`PROF-GEN-5`).
   - Check: the pass `idr-specialize`
+  - Test: `tests/idr/pipeline/accumulator.mlir`,
+    `tests/idr/pipeline/growing-function.mlir`,
+    `tests/idr/specialize/clone-limit.mlir`,
+    `tests/e2e/v3/specialize-growing-accumulator`
 
 ### Evaluation
 
@@ -320,6 +366,7 @@ runtime operands left out, and those operands are its *runtime leaves*.
   - *Why this is exact:* the call runs the code the executable would run,
     with the runtime it links (`SEM-EVAL-6`, `SEM-EVAL-7`).
   - Check: the pass `idr-eval`
+  - Test: `tests/idr/eval/*.mlir`, `tests/idr/e2e/eval.mlir`
 
 ### Closures
 
@@ -348,6 +395,7 @@ runtime operands left out, and those operands are its *runtime leaves*.
     that function to its captures and arguments, which is what applying the
     closure did.
   - Check: the pass `idr-defunctionalize`
+  - Test: `tests/idr/defunc/*.mlir`
 
 ## Withdrawn earlier
 

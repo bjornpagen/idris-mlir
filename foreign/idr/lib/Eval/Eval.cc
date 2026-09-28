@@ -1,5 +1,5 @@
 // idr-eval: compile-time evaluation is runtime evaluation, run early
-// (docs/cutover.md 6.4; SEM-EVAL-6, SEM-EVAL-7, EVAL-1). A closed call of a
+// (ELIM-EVAL-1; SEM-EVAL-6, SEM-EVAL-7, EVAL-1). A closed call of a
 // pure, total function runs the program's own lowered code on the same
 // runtime, with no fuel, no memory cap and no time limit, and its results
 // replace it as constants.
@@ -54,9 +54,9 @@ bool evaluable(func::FuncOp fn) {
   return fn && !fn.isExternal() && idr::isPure(fn) && idr::isTotal(fn);
 }
 
-// 6.4: a func.call, or an idr.apply of a constant closure, whose operands are
-// all constants; its callee is pure and total, and so is every label in
-// the constants, through captures and fields (7.1, 7.4).
+// ELIM-EVAL-1: a func.call, or an idr.apply of a constant closure, whose
+// operands are all constants; its callee is pure and total, and so is every
+// label in the constants, through captures and fields (SEM-EVAL-6).
 std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   SmallVector<Attribute> args;
   FlatSymbolRefAttr callee;
@@ -150,8 +150,8 @@ private:
                    const llvm::MapVector<Key, SmallVector<Call>> &calls);
 
   // Results for the compilation, which the simplify loop runs round after
-  // round with this pass (6.4). A call that crashed is known too, so it is
-  // not run again.
+  // round with this pass (ELIM-EVAL-1). A call that crashed is known too,
+  // so it is not run again.
   llvm::DenseMap<Key, Outcome> cache;
 };
 

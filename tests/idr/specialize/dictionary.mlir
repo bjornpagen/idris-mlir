@@ -1,10 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-specialize | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-specialize --canonicalize | FileCheck %s --check-prefix=FOLD
 // rule: ELIM-SPEC-1
 // An interface dictionary: a record of closures without captures, built at
 // the call. It is entirely static, the other argument is not, so the call
-// is specialized on the whole dictionary, and once the clone's field reads
-// and applications fold, the clone calls the implementation directly.
+// is specialized on the whole dictionary. The clone is folded when it is
+// made: its field read and application become a direct call of the
+// implementation.
 module attributes {idr.program} {
   idr.data @Num {
     idr.ctor @MkNum tag 0 (!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) {quantities = ["w", "w"]}
@@ -38,14 +38,10 @@ module attributes {idr.program} {
     return %c : i64
   }
   // CHECK-LABEL: func.func private @double$spec$1(
-  // CHECK-SAME: %[[Y:[a-z0-9_]+]]: i64 {idr.quantity = "w"}) -> i64 attributes {idr.origin = "double", idr.total}
-  // CHECK-DAG: %[[P:.*]] = idr.closure @plus()
-  // CHECK-DAG: %[[N:.*]] = idr.closure @neg()
-  // CHECK: %[[D:.*]] = idr.con @Num::@MkNum(%[[P]], %[[N]])
-  // CHECK: idr.field %[[D]][@MkNum, 0]
-
-  // FOLD-LABEL: func.func private @double$spec$1(
-  // FOLD-SAME: %[[Y:[a-z0-9_]+]]: i64
-  // FOLD-NEXT: %[[R:.*]] = call @plus(%[[Y]], %[[Y]])
-  // FOLD-NEXT: return %[[R]]
+  // CHECK-SAME: %[[Y:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}) -> i64
+  // CHECK-SAME: idr.origin = "double"
+  // CHECK-SAME: idr.spec_key = "[#idr.con<@Num::@MkNum, [#idr.closure<@plus, []>, #idr.closure<@neg, []>]>, unit]"
+  // CHECK-SAME: idr.total
+  // CHECK-NEXT: %[[R:.*]] = call @plus(%[[Y]], %[[Y]])
+  // CHECK-NEXT: return %[[R]]
 }

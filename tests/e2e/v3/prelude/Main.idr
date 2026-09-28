@@ -39,7 +39,7 @@ main = do
   putStrLn (show (the Double (cast n) / 3.0 + 0.5))
   putStrLn (show (n > 3 && n < 9 || n == 42))
   putStrLn (show (fst (n, 2) + snd (3, n)))
-  -- ELIM-G-7, with case-of-case (docs/cutover.md A3): a string built in
+  -- ELIM-G-7, with case-of-case (IDR-MATCH-5): a string built in
   -- one alternative of a runtime match.
   putStrLn (maybe "none" show (safeDiv 100 n))
   putStrLn (maybe "none" show (safeDiv 100 (n - 7)))

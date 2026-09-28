@@ -1,13 +1,12 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.closure --implicit-check-not=idr.apply --implicit-check-not=idr.str.length --implicit-check-not=@Main.L::@Cons(
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply --implicit-check-not=idr.str.length --implicit-check-not=@Main.L::@Cons(
 // rule: ELIM-G-2, ELIM-SPEC-1, ELIM-G-6, TEST-ELIM-1
 // A value picked at runtime is an ordinary value. A match whose consumer
 // folds against its alternatives takes the consumer into each of them
-// (case-of-case, docs/cutover.md A3): the function and the Lazy value
+// (case-of-case, IDR-MATCH-5): the function and the Lazy value
 // picked are applied where they are known, and each string's length is a
 // constant. The list of runtime elements is specialized on its shape, so
 // no box is built at runtime. What is left matches on the runtime
 // characters.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.io.get_byte
 // CHECK: idr.match_lit

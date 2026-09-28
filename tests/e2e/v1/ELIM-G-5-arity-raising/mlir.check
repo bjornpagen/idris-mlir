@@ -1,11 +1,10 @@
 // input: after idr-defunctionalize
-// FILECHECK-OPTIONS: --implicit-check-not=idr.closure --implicit-check-not=idr.apply
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
 // rule: ELIM-CLOS-1, ELIM-G-7, IDR-WORLD-1, TEST-ELIM-1
 // countdown returns an action, and calls itself inside it: the actions'
 // closures cannot all be inlined away, since countdown is recursive, but
 // the set of their labels is finite, so idr-defunctionalize turns them into
 // a sum over the labels and each idr.apply into a match (ELIM-G-5, arity
 // raising, is withdrawn). No closure is left, and the output is fused.
-// Unverified until idris-mlir-cc exists.
 // CHECK-DAG: idr.io.put_int
 // CHECK-DAG: idr.constant "liftoff\0A"

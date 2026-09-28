@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-MATCH-6, ELIM-G-15
-// A4: a string that cannot be empty never takes the case "".
+// IDR-MATCH-6: a string that cannot be empty never takes the case "".
 
 // CHECK-LABEL: func.func @nonempty(
 // CHECK-SAME: %[[X:.*]]: i64, %[[C:.*]]: i32, %[[S:.*]]: !idr.str)

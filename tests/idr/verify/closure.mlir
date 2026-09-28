@@ -27,7 +27,7 @@ func.func @f(%x: i64) {
 
 // -----
 
-// A8: a closure never captures a world.
+// IDR-WORLD-1: a closure never captures a world.
 func.func private @g(%w: !idr.world) -> !idr.world
 func.func @f(%w: !idr.world) {
   // expected-error @+1 {{captures a world; a world passes only as an argument or result (IDR-WORLD-1)}}

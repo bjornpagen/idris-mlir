@@ -1,5 +1,6 @@
 // The idr dialect: types, attributes, constants, and the rules of the module
-// and of its functions (docs/cutover.md, sections 10.1 to 10.4).
+// and of its functions (docs/architecture/08-idr-dialect.md: module and
+// functions, types, data declarations, constant attributes).
 
 #include "idr/Idr.h"
 
@@ -167,7 +168,7 @@ bool idr::mayCrash(func::FuncOp fn) { return fn->hasAttr("idr.may_crash"); }
 bool idr::isTotal(func::FuncOp fn) { return fn->hasAttr("idr.total"); }
 
 //===----------------------------------------------------------------------===//
-// The module (IDR-FN-1, IDR-DATA-4, the box rule of 10.3)
+// The module (IDR-FN-1, IDR-DATA-4, and IDR-TY-6's box rule)
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -410,9 +411,25 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.clone_counts as a dictionary of counts on the module");
     return success();
   }
+  if (key == "idr.spec_caller" || key == "idr.spec_history") {
+    auto history = dyn_cast<DictionaryAttr>(attr.getValue());
+    bool on = key == "idr.spec_caller" ? isa<func::CallOp>(op) : isa<func::FuncOp>(op);
+    if (!on || !history || !llvm::all_of(history.getValue(), [](NamedAttribute entry) {
+          return isa<StringAttr>(entry.getValue());
+        }))
+      return op->emitOpError("expects ")
+             << key << " as a dictionary of key texts on a "
+             << (key == "idr.spec_caller" ? "call" : "function");
+    return success();
+  }
   if (key == "idr.origin" || key == "idr.spec_key") {
     if (!isa<func::FuncOp>(op) || !isa<StringAttr>(attr.getValue()))
       return op->emitOpError("expects ") << key << " as a string attribute of a function";
+    return success();
+  }
+  if (key == "idr.spec_stopped_at") {
+    if (!isa<func::CallOp>(op) || !isa<StringAttr>(attr.getValue()))
+      return op->emitOpError("expects idr.spec_stopped_at as a string attribute of a call");
     return success();
   }
   if (key == "idr.spec_stopped") {

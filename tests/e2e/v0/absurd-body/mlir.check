@@ -1,8 +1,10 @@
 // input: emitted
 // rule: IDR-MATCH-2, TEST-EMIT-1
-// A body that cannot return is ub.unreachable: impossible alternatives are
-// left out, and no value of the result type is invented (docs/cutover.md
-// A30). It never runs.
+// A body that cannot return: impossible alternatives are left out, and no
+// value of the result type is invented; the body returns ub.poison, which
+// is never reached (IDR-CRASH-1: a function body never ends in
+// ub.unreachable, which the pinned inliner cannot inline). It never runs.
 // CHECK: func.func private @Prog.never(%{{[0-9]+}}: !idr.data<@Prog.Never> {idr.quantity = "w"}) -> i64
-// CHECK-NEXT: ub.unreachable
+// CHECK-NEXT: %never = ub.poison : i64
+// CHECK-NEXT: func.return %never : i64
 // CHECK-NEXT: } loc("Prog.never"

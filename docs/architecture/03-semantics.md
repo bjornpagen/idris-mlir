@@ -139,7 +139,7 @@ was (`ELIM-G-19`, `SEM-BIG-1`).
   Where such a primitive is reachable from a compile-time position
   (`FE-REACH-1`), so that a type could depend on its value, the program is
   rejected with this rule: the two levels could disagree (`SEM-REF-1`).
-  - *planned* (the cutover's follow-up): the check in
+  - *planned* (v3; [the plan](../plan.md), section 1): the check in
     `Frontend.Profile.checkReachable`, and the reject fixtures
     `tests/profile/v3/reject/SEM-HOST-1-*`
 
@@ -465,7 +465,12 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   *Revised at the cutover:* LLVM folds them inside `idris-mlir-cc`, which
   is linked with musl, the executable's `libm` too; the compiler has no
   folder of its own for them.
+  The reference runs the host's `libm`, which need not agree with musl's
+  where neither is correctly rounded: a test whose outputs include `libm`
+  results names those lines (`libm-lines`), and on them the comparison with
+  Chez allows one unit in the last place.
   - Check: review (a statement about LLVM and the platform)
+  - Test: `tests/e2e/v2/double-basics` (`libm-lines`)
 
 ## Excluded from v0
 

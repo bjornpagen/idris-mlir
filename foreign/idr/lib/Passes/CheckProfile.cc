@@ -1,5 +1,6 @@
 // idr-check-profile: the heap-free profile on the optimized module
-// (docs/cutover.md 3.3). It rejects only what would allocate at runtime:
+// (docs/architecture/02-profile.md, heap freedom). It rejects only what
+// would allocate at runtime:
 //   - PROF-DATA-3: a box built from a runtime value;
 //   - PROF-HEAP-1: a closure of arguments built at runtime (one that
 //     idr-defunctionalize could not turn into a sum);

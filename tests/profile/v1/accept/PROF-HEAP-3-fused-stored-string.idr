@@ -4,7 +4,7 @@ module Main
 
 -- rule: PROF-HEAP-3, ELIM-G-2, ELIM-G-7
 -- Was the reject fixture PROF-HEAP-3-stored-string, and is an accept since
--- the cutover (docs/cutover.md 4.2): the string built at runtime is stored
+-- the cutover (PROF-GEN-4): the string built at runtime is stored
 -- in a constructor and taken out again, but `idr.field` of a known
 -- `idr.con` folds, so `putStrLn (strCons c "!")` reaches output fusion and
 -- becomes put_char then put_str; no string is built at runtime.

@@ -33,7 +33,6 @@ IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
-RUNTIME := $(ROOT)/foreign/idr/lib/Lower/Runtime.mlir.inc
 PINS := $(ROOT)/tools/verify-pins.sh
 
 # Every command runs the pinned Idris, and no package path inherited from

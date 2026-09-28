@@ -1,5 +1,5 @@
 // idr-lower: idr to func, arith, math, scf, ub and llvm
-// (docs/architecture/10-lowering.md; docs/cutover.md 6.3). The layouts,
+// (docs/architecture/10-lowering.md; OPT-PIPE-1). The layouts,
 // runtime calls, static data and patterns it uses are in Lower/.
 
 #include "Lower/Patterns.h"

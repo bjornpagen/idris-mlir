@@ -140,27 +140,40 @@ through the same code.
   runtime (`idris_rt_cell`), `idr.tag` reads the header, and `idr.field`
   reads a field. In the heap-free profile only constants and JIT mode's
   arena hold cells.
-  - *planned* (the cutover's lowering): the fields' offsets, written here
-    from the implementation when it lands.
+  - The header is `idris_rt_header` (`runtime/idris_rt.h`): the count and
+    the second word, each 32 bits. The fields' components (`LOW-DATA-1`)
+    follow from offset 8 in order, each at its natural alignment (8 bytes
+    for a pointer or a big), as a C struct of the same members lays them
+    out; the cell's size is rounded up to 8.
   - Check: `idr-lower`
+  - Test: `tests/idr/lower/box-closure.mlir`, `tests/idr/lower/constants.mlir`
 - **LOW-CLOS-1 (v3).** A value of `!idr.fn<...>` that remains after
   `idr-defunctionalize` (in JIT mode, or as a constant) is a pointer to a
   cell: the header, whose second word is the closure's label (a number
   `idr-lower` gives each function that closures name), then the code
   pointer, then the captures. `idr.apply` calls the code pointer with the
   cell's captures and its arguments.
-  - *planned* (the cutover's lowering): the numbering of labels and the
-    captures' offsets, written here from the implementation when it lands.
+  - A label is a function with its number of captures. Labels are
+    numbered from 0 in the order a pre-order walk of the module meets
+    them, in `idr.closure` ops and in `#idr.closure` constants, nested ones
+    included, so `idr-lower` and `idr-eval` number the same module alike.
+  - The code pointer is at offset 8, and the captures follow as a box's
+    fields do (`LOW-BOX-1`).
   - Check: `idr-lower`
+  - Test: `tests/idr/lower/box-closure.mlir`, `tests/idr/lower/constants.mlir`
 - **LOW-BIG-1 (v3).** A value of `!idr.big` is one 64-bit word: an integer
   small enough is held in the word itself, tagged, and any other is a
   pointer to a counted GMP integer (Lean's scalar `Nat`, GHC's `IS`/`IP`).
   An integer is small exactly when it fits, so each integer has one
   representation. The `idr.big.*` ops call the runtime (`LOW-RT-1`), which
   has a fast path for small integers and uses GMP otherwise.
-  - *planned* (the cutover's lowering): the tagging, written here from the
-    implementation when it lands.
+  - An odd word holds an integer of 63 bits (`-2^62` to `2^62 - 1`),
+    shifted left by one. An even word points to an `idris_rt_bignum`: the
+    header, then a GMP integer (`alloc`, `size`, and a pointer to the
+    limbs), whose limbs GMP allocates, or, in static data, a constant
+    array.
   - Check: `idr-lower`, the runtime
+  - Test: `tests/idr/lower/strings-bigs.mlir`, `tests/toolchain/runtime-api`
 - **LOW-STR-2 (v3).** A value of `!idr.str` is a pointer to a string: the
   header, whose second word says whether every byte is ASCII, the length
   in bytes, the number of scalar values, then the UTF-8 bytes. The
@@ -168,9 +181,12 @@ through the same code.
   check their condition first and crash through `LOW-CRASH-1`.
   `idr.str.length` is the stored count, and indexing an ASCII string is
   O(1).
-  - *planned* (the cutover's lowering): the exact field widths, written
-    here from the implementation when it lands.
+  - The layout is `idris_rt_str`: the header, whose second word is 1 when
+    every byte is ASCII, then the byte length and the number of scalar
+    values, 64 bits each, then the bytes.
   - Check: `idr-lower`, the runtime
+  - Test: `tests/idr/lower/strings-bigs.mlir`, `tests/idr/e2e/strings.mlir`,
+    `tests/toolchain/runtime-api`
 - **LOW-STR-1.** *Withdrawn at the cutover:* each distinct string literal
   became a private constant global of its bytes. Every constant is static
   data now, strings included (`LOW-CONST-1`).

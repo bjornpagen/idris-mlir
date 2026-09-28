@@ -7,11 +7,9 @@ module Main
 -- runtime. `fib` recurses on an Int, which Idris does not prove
 -- terminating, so `fib 15`, `fib 27` and `fib n` are all calls at runtime:
 -- partial code is never evaluated.
--- `printLn (euclid (the Integer 1071) 462)` is gone since the cutover
--- (docs/cutover.md 4.3, decision 7.2, a PROF-GEN-4 exception): `euclid` is
+-- `printLn (euclid (the Integer 1071) 462)` is not here: `euclid` is
 -- partial, so it is not evaluated and its Integer would exist at runtime.
--- It is the reject fixture profile/v3/reject/PROF-TYPE-4-partial-integer,
--- and its line of output, 21, left expected-stdout.
+-- It is the reject fixture profile/v3/reject/PROF-TYPE-4-partial-integer.
 
 import Prelude
 

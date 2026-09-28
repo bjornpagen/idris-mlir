@@ -1,0 +1,16 @@
+#!/bin/sh
+# rule: TC-PIN-4
+# The upstream bug upstream/inline-unreachable-terminator still reproduces
+# with the pinned mlir-opt. When this fails, the bug is fixed: let Emit end a
+# body that never returns in ub.unreachable again, and delete the PINS.md
+# entry inline-unreachable, the report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$llvm_bin/mlir-opt" "$root/upstream/inline-unreachable-terminator/never.mlir" --inline \
+  > "$work/out.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ge 128 ] && grep -q 'must implement handleTerminator' "$work/err"; then
+  say "never: still reproduces (the inliner aborts)"
+else
+  say "never: no longer reproduces (exit $status)"
+  sed 's/^/  | /' "$work/err"
+fi

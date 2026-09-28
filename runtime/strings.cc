@@ -1,7 +1,7 @@
 // Strings (LOW-STR-2; SEM-STR-*; docs/plan.md section 3): UTF-8 bytes with
 // their scalar count and an ASCII flag, over simdutf. The operations that
 // allocate nothing (length, index, head, compare) are the ones a program may
-// run (A10 of docs/cutover.md); the others build strings, which compile-time
+// run (PROF-PRIM-4); the others build strings, which compile-time
 // evaluation and the folders run.
 // PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md
 
@@ -92,10 +92,6 @@ const idris_rt_str *rt::stringOf(const char *p, size_t n) {
   idris_rt_str *s = newString(n, idris_rt_utf8_count(p, n), idris_rt_ascii(p, n));
   memcpy(mutableBytes(s), p, n);
   return s;
-}
-
-extern "C" bool idris_rt_utf8_valid(const char *p, size_t n) {
-  return implementation().validate_utf8(p, n);
 }
 
 extern "C" size_t idris_rt_utf8_count(const char *p, size_t n) {

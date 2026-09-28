@@ -105,7 +105,7 @@ middle fc dir src = do
 ------------------------------------------------------------------------------
 
 ||| `--directive no-eval`: `idris-mlir-cc --no-eval`, which leaves every
-||| closed call to run at runtime (docs/cutover.md, 6.4 and 10). The
+||| closed call to run at runtime (DRV-CC-1, ELIM-EVAL-1). The
 ||| equivalence suite (tests/equivalence) compiles each program both ways.
 noEval : {auto c : Ref Ctxt Defs} -> Core (List String)
 noEval = do
@@ -268,7 +268,7 @@ compileModule c _ source = do
   write corePath core
   write mlirPath mlir
   -- A profile rejection on the optimized module is a user error of
-  -- `--check` too, and leaves no artifact (docs/cutover.md, 7.11).
+  -- `--check` too, and leaves no artifact (DRV-FLOW-1, DRV-CC-2).
   ccVerdict fc prog [corePath, mlirPath] !(runCc ([mlirPath, "--check"] ++ !noEval) (mlirPath ++ ".stderr"))
   pure (Just (!(getObjFileName source "mlir"), []))
 

@@ -2,7 +2,7 @@
 # rule: SEM-REF-1, SEM-EVAL-6, ELIM-EVAL-1, ELIM-G-6
 # The fuzzer (tests/Fuzz.idr) on seed 2: closed pure expressions over every
 # primitive, compiled with evaluation, with --no-eval and by Chez, which must
-# agree (docs/cutover.md 4.5). IDRIS_MLIR_FUZZ_CASES and
+# agree (TEST-FUZZ-1). IDRIS_MLIR_FUZZ_CASES and
 # IDRIS_MLIR_FUZZ_ROUNDS make it larger; the output stays the same.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 fuzz 2

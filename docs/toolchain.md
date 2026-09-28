@@ -1,65 +1,51 @@
 # Toolchain
 
-Everything the project builds is installed under `.toolchain/`. Each bootstrap
-writes a `provenance.json` stamp only after every step succeeds, and later
-commands refuse to use a toolchain whose stamp is missing or stale.
+Everything the project builds is installed under `.toolchain/` by
+`make bootstrap` (`tools/bootstrap.sh all`). The rules are in
+[11-toolchain](architecture/11-toolchain.md); the steps, what each builds and
+the environment they read are at the top of `tools/bootstrap.sh`. Each step
+writes a `provenance.json` stamp only after every step succeeded, its checks
+included, and later commands refuse a toolchain whose stamp is missing or
+stale.
 
 ## Prerequisites
 
-On Ubuntu 24.04 (what upstream Idris CI uses):
+The host only builds the pinned tools (TC-PIN-3). On Ubuntu 24.04:
 
 ```sh
-sudo apt-get install -y chezscheme libgmp-dev   # Chez 9.5.8, built threaded
-sudo apt-get install -y git make gcc g++ python3 # host compilers, usually present
-sudo apt-get install -y libmpfr-dev libmpc-dev flex texinfo   # for bootstrap-gcc (TC-PIN-3)
+sudo apt-get install -y git make gcc g++ python3 m4 curl chezscheme linux-libc-dev
 ```
 
-On Apple Silicon use Chez 10 or later. If you build Chez from source, configure
-it with `--threads`. Set `CPPFLAGS`/`LDFLAGS` if GMP is outside the compiler's
-search paths. `python3 tools/dev.py doctor` reports what it finds.
+`python3` is LLVM's configure, `m4` GMP's, and Chez Scheme (built with
+threads; on Apple Silicon Chez 10 or later) runs Idris. `make doctor`
+reports what it finds and what is built.
 
-## Idris
+## What is built
 
-`third_party/Idris2` is an unmodified submodule; its gitlink is the pin.
-`bootstrap-idris` builds that revision with upstream's `make bootstrap`, then
-installs the compiler, libraries, and API into `.toolchain/idris2`. Idris
-package variables inherited from other installations are cleared. The build
-never uses an `idris2` found on `PATH`.
+- `.toolchain/cmake`, `.toolchain/ninja`: CMake and Ninja, with the host's
+  C++ compiler.
+- `.toolchain/stage1`: clang and lld for x86-64, with the host's C++
+  compiler; they build the next steps.
+- `.toolchain/sysroot`: musl, the host's Linux UAPI headers, compiler-rt's
+  builtins, libunwind, libc++abi, libc++ and GMP, for
+  `x86_64-unknown-linux-musl`.
+- `.toolchain/llvm-musl`: stage 2, the LLVM, MLIR, clang, lld and clang-tidy
+  the C++ `dev` preset and the tests use, static on musl and libc++, with LTO.
+- `.toolchain/idris2`: Idris 2 and its API, from the unmodified submodule
+  `third_party/Idris2` (its gitlink is the pin), on the host's Chez Scheme.
+  Idris package variables inherited from other installations are cleared,
+  and the build never uses an `idris2` found on `PATH`.
 
-## GCC, CMake and Ninja
+Stage 1 and stage 2 take hours and tens of GB of disk; parallel jobs are
+capped at one per 5 GiB of memory. Distribution packages and apt.llvm.org
+builds track release branches, not the pinned commit, so the project does
+not use them.
 
-`toolchain.lock.json` (schema 3) pins GCC, CMake and Ninja by tag and
-commit, and the release series the configure gate accepts. `bootstrap-gcc`,
-`bootstrap-cmake` and `bootstrap-ninja` shallow-clone each tag (GCC from
-its GitHub mirror), check the commit and build into `.toolchain/gcc`,
-`.toolchain/cmake` and `.toolchain/ninja`. GCC is built for C and C++ only,
-without bootstrap stages. The distribution compilers only build these tools.
-
-## LLVM and MLIR
-
-`bootstrap-llvm` shallow-clones the pinned LLVM tag into
-`.toolchain/llvm-project`, checks the commit, and builds MLIR with the pinned
-GCC, CMake and Ninja (native target, assertions on, no RTTI or exceptions,
-rpath to the pinned GCC's `libstdc++`). It installs the libraries and CMake
-packages into `.toolchain/llvm`, which the C++ `dev` preset finds, and the
-tools `mlir-opt`, `mlir-translate`, `mlir-tblgen`, `opt`, `llc`, `llvm-nm`,
-`FileCheck`, `not` and `count`. `lit` runs from the source tree. Clang is not
-built (`PINS.md`: `lint-graph-unbuilt`). Some MLIR sources need ~5 GB of
-memory each to compile, so parallel compiles are capped at one per 7 GB of
-RAM. Expect several hours and ~20 GB of disk; `.toolchain/llvm-build-gcc`
-can be deleted afterwards.
-
-Distribution packages and apt.llvm.org builds track release branches, not the
-pinned commit, so the project does not use them.
-
-## C++ and the compiler
-
-`dev.py build` configures and builds the `dev` CMake preset (the `idr`
+`make build` configures and builds the `dev` CMake preset (the `idr`
 dialect, `idris-mlir-opt`, `idris-mlir-cc`) with the pinned tools, writes
-`compiler/src/IdrisMLIR/Frontend/Paths.idr` with the absolute paths of
-`idris-mlir-cc` and the pinned `gcc` (the `-o` path never looks at `PATH`),
-builds the Idris compiler, and installs the `idris-mlir-io` package into
-`.toolchain/idris2`.
+`compiler/src/IdrisMLIR/Frontend/Paths.idr` with the absolute paths of the
+pinned tools (the `-o` path never looks at `PATH`), and builds the Idris
+compiler.
 
 ## Upgrades
 
@@ -67,8 +53,10 @@ Upgrade deliberately and in its own commit, never as a side effect.
 
 - Idris: check out the new commit in the submodule and stage it. Review
   changes to `Core/TT`, `Core/Context`, `Core/TTC.idr`, `Compiler/Common.idr`,
-  and `Idris/ProcessIdr.idr`. Rerun `bootstrap-idris`, `build`, and `test`.
-- LLVM, GCC, CMake, Ninja: update the tag, commit, version and accepted
-  series in the lock together, then work through `PINS.md` (the tombstone
-  ritual). Rerun the bootstraps, `build`, `test`, `test-idr` and
-  `test-mlir-tools`; pass names change between releases.
+  and `Idris/ProcessIdr.idr`. Rerun `make bootstrap`, `make build` and
+  `make test`.
+- LLVM, musl, GMP, CMake, Ninja: update the pin in `toolchain.lock.json`,
+  then work through `PINS.md` (the tombstone ritual) and `upstream/`: a
+  report whose test now fails was fixed upstream, and its workaround goes.
+  Rerun `make bootstrap`, `make build`, `make test`, `make test-idr` and
+  `make test-mlir-tools`; pass names change between releases.

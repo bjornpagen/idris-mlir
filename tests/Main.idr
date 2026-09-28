@@ -106,7 +106,8 @@ suites =
   , ("test-idr",
       [ versioned "dialect: the idr dialect and its passes (TEST-IDR-1)" "idr" id ])
   , ("test-mlir-tools",
-      [ pool "pipeline: the pinned upstream MLIR tools" ["mlir"] ])
+      [ pool "pipeline: the pinned upstream MLIR tools" ["mlir"]
+      , pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
   ]
 
 ||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.

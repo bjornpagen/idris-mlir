@@ -1,7 +1,7 @@
 #!/bin/sh
-# rule: IDR-IN-1, IDR-IN-2, TEST-EMIT-1
+# rule: IDR-IN-1, IDR-IN-2, TEST-EMIT-1, TEST-ENF-1
 # Emit writes ops of the contract's dialects only: idr, func, arith, math
-# and ub (docs/cutover.md 10 and A19; idris-mlir-cc parses with a registry
+# and ub (IDR-IN-1; idris-mlir-cc parses with a registry
 # of exactly these and builtin). Every op name in the text Emit writes comes
 # from a string literal of compiler/src/IdrisMLIR/Emit.idr or MLIR.idr, as
 # `<dialect>.<op>` or as a prefix `<dialect>.` that code completes; each

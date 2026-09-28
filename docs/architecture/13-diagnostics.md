@@ -63,8 +63,9 @@ There are two kinds of error:
 
   With `--remarks=idr-eval` and the other passes' remarks, `idris-mlir-cc`
   also reports the specialization or the evaluation that stopped: a
-  `Missed` remark for a call the clone limit stopped (`ELIM-SPEC-2`) or an
-  evaluation that crashed (`ELIM-EVAL-1`).
+  `Missed` remark for a call the growth check or the clone limit stopped
+  (`ELIM-SPEC-2`), naming which, or an evaluation that crashed
+  (`ELIM-EVAL-1`).
 
   For example:
 

@@ -5,6 +5,5 @@
 // elaborator already folds these primitives on literals, so the emitted
 // module holds "42x"; the fuzzer, tests/fuzz, has the folders compute
 // such terms.)
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.constant "42x\0A"
 // CHECK: idr.io.put_str

@@ -2,6 +2,6 @@
 # rule: SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
 # The two levels (tests/TwoLevels.idr): every primitive, and a corpus of
 # total Prelude functions, on closed terms normalised by the pinned Idris's
-# own evaluator and computed by the compiled program (docs/cutover.md 4.5).
+# own evaluator and computed by the compiled program (TEST-LEVELS-1).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 two_levels primitives prelude

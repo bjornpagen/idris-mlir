@@ -77,9 +77,15 @@ module attributes {idr.program} {
     (`OPT-PIPE-3`), both written by `Emit`; `idr.effect` and `idr.may_crash`
     (`IDR-FACT-1`), which only `idr-effects` writes. `idr-specialize` keeps
     its own state between rounds in attributes internal to the pipeline,
-    which `Emit` never writes (`idr.origin` and `idr.spec_key` on a clone,
-    `idr.clone_counts` on the module, `idr.spec_stopped`; `ELIM-SPEC-1`).
-    Any other `idr.*` attribute is rejected.
+    which `Emit` never writes (`ELIM-SPEC-1`, `ELIM-SPEC-2`): `idr.origin`
+    (a string) on a clone, `idr.spec_key` (a string) on a clone or on an
+    original once it is specialized, the integer `idr.hole` on each of their
+    parameters, `idr.spec_history` on a clone and `idr.spec_caller` on a
+    call (dictionaries of key strings by origin), `idr.clone_counts` (a
+    dictionary of counts) on the module, the unit attribute
+    `idr.spec_stopped` on a function or a call, and the string
+    `idr.spec_stopped_at` (the key a call stopped at) on a call. Any other
+    `idr.*` attribute is rejected.
   - Check: the dialect's attribute verifiers of the module (`idr.program`),
     of each function and of each argument
   - Test: `tests/idr/verify/module.mlir`, `tests/idr/verify/function.mlir`,
@@ -241,8 +247,10 @@ declaration: its values are `!idr.big`.
   - A constructor's fields and a closure's captures agree in number and
     type with the declaration and the function, and every symbol resolves.
   - These are the values folders produce and consume, and the results of
-    `idr-eval` (`ELIM-EVAL-1`). `#idr.hole` is internal to
-    `idr-specialize`'s keys and never appears in a module.
+    `idr-eval` (`ELIM-EVAL-1`). A key of `idr-specialize` (`idr.spec_key`,
+    `ELIM-SPEC-1`) is the text of a list of patterns, each such a value,
+    `unit` for a runtime leaf, or a list that names the `idr.con` or
+    `idr.closure` above one; it is a string attribute, not a value.
   - Test: `tests/idr/verify/values.mlir`, `tests/idr/verify/generic.mlir`,
     `tests/idr/fold/data.mlir`, `tests/idr/fold/closure.mlir`
 - **IDR-CONST-2 (v3).** `%v = idr.constant <value> : <type>` materializes a
@@ -649,6 +657,11 @@ means unsigned.
   - Test: `tests/idr/canon/upstream-passes.mlir`, `tests/idr/canon/apply.mlir`
 - **IDR-IF-2 (v0).** `idr` ops implement `OpAsmOpInterface` result naming
   where useful. This is informative and has no semantic effect.
+
+The ops that name symbols (`idr.constant`, `idr.con`, `idr.field`,
+`idr.match` and `idr.closure`) implement `SymbolUserOpInterface`, whose
+verification checks that each symbol resolves to the declaration or
+function it must name (`IDR-TY-1`, `IDR-CONST-1`).
 
 ## Example (informative)
 

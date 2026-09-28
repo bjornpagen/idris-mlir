@@ -1,0 +1,18 @@
+#!/bin/sh
+# rule: TC-PIN-4
+# The upstream bug upstream/remove-dead-values-unreachable still reproduces
+# with the pinned mlir-opt. When this fails, the bug is fixed: delete
+# idr-prune, the PINS.md entry prune-before-remove-dead-values, the report
+# and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+for input in unreachable uncalled; do
+  "$llvm_bin/mlir-opt" "$root/upstream/remove-dead-values-unreachable/$input.mlir" \
+    --remove-dead-values > "$work/out.mlir" 2> "$work/err"
+  status=$?
+  if [ "$status" -ne 0 ] && grep -q 'null operand found' "$work/err"; then
+    say "$input: still reproduces (exit $status, null operand)"
+  else
+    say "$input: no longer reproduces (exit $status)"
+    sed 's/^/  | /' "$work/err"
+  fi
+done

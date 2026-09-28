@@ -1,4 +1,4 @@
-||| The fuzzer (docs/cutover.md 4.5): programs of closed pure expressions
+||| The fuzzer (TEST-FUZZ-1): programs of closed pure expressions
 ||| over every primitive, each printed from `main`, which the harness
 ||| compiles three ways, with evaluation, with `--no-eval` and with the stock
 ||| Chez backend, and whose outputs must agree (tests/fuzz,
@@ -29,7 +29,7 @@
 |||
 ||| The `runtime` part holds what may exist at runtime: the integer types,
 ||| Double, Char, a small sum type, and strings that are only written or
-||| taken apart without allocating (docs/cutover.md A10). The `static` part
+||| taken apart without allocating (PROF-PRIM-4). The `static` part
 ||| holds Integer and every string builder, which exist at compile time only
 ||| (PROF-TYPE-4, PROF-HEAP-3): it has `d` and `j` lines, and is compiled with
 ||| evaluation and by Chez.

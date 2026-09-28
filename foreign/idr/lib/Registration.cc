@@ -11,7 +11,7 @@ void idr::registerIdr(DialectRegistry &registry) {
   registry.insert<IdrDialect>();
 }
 
-// OPT-PIPE-1 (docs/cutover.md 6.3). LLVM's own pipeline runs in idris-mlir-cc.
+// OPT-PIPE-1. LLVM's own pipeline runs in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
       "idr-simplify",

@@ -7,9 +7,10 @@
 // function, and the values defined outside such a block that only it uses,
 // but keeps the ops that use them, and then crashes on their null operands.
 // So this pass, with dead-code analysis and constant propagation loaded as
-// remove-dead-values loads them, empties every unreachable block of a
-// function: a match region ends in `ub.unreachable`, and a function body
-// returns `ub.poison` (a body never ends in `ub.unreachable`, IDR-CRASH-1).
+// remove-dead-values loads them, empties every unreachable function body
+// and match region: a match region ends in `ub.unreachable`, and a function
+// body returns `ub.poison` (a body never ends in `ub.unreachable`,
+// IDR-CRASH-1).
 // Nothing reachable changes, so the program means what it meant.
 //
 // remove-dead-values also leaves alone the parameters of a function that a
@@ -113,8 +114,9 @@ struct Prune : idr::impl::IdrPruneBase<Prune> {
     // Outermost first: a block inside an unreachable one goes with it.
     SmallVector<Block *> unreachable;
     getOperation().walk<WalkOrder::PreOrder>([&](Block *block) {
-      if (!block->getParentOp()->getParentOfType<func::FuncOp>() &&
-          !isa<func::FuncOp>(block->getParentOp()))
+      // Only a function body or a match region can end in what empty()
+      // puts there; other regions are only walked into.
+      if (!isa<func::FuncOp, idr::MatchOp, idr::MatchLitOp>(block->getParentOp()))
         return WalkResult::advance();
       if (block->empty() || isEmptied(*block))
         return WalkResult::skip();

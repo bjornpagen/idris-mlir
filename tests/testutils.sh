@@ -223,8 +223,9 @@ v2_symbols="$v1_symbols exp log pow sin cos tan asin acos atan sqrt floor ceil e
 
 # filecheck CHECKS INPUT: the pinned FileCheck. A line
 # `// FILECHECK-OPTIONS: <option>...` in CHECKS adds options, words without
-# quotes, such as --implicit-check-not=idr.closure (a check over the whole
-# input).
+# quotes, such as --implicit-check-not={{[^#]}}idr.closure (a check over the
+# whole input; the pattern leaves out `#idr.closure` attributes, which clone
+# keys hold).
 filecheck() {
   filecheck_options=$(sed -n 's|^[[:space:]]*//[[:space:]]*FILECHECK-OPTIONS:[[:space:]]*||p' "$1" | tr '\n' ' ')
   set -f
@@ -493,7 +494,30 @@ e2e_io() {
       io_same=yes
     fi
   fi
-  if [ "$io_same" = no ]; then
+  # SEM-DEV-2: on the lines `libm-lines` names (one number per line), the
+  # outputs are libm results, musl's here and the host's in Chez, which may
+  # differ by one unit in the last place where libm is not correctly
+  # rounded.
+  if [ "$io_same" = no ] && [ -f "$io_fixture/libm-lines" ] &&
+     awk -v lines="$io_fixture/libm-lines" '
+       BEGIN { while ((getline n < lines) > 0) libm[n] = 1 }
+       NR == FNR { ours[FNR] = $0; n1 = FNR; next }
+       { n2 = FNR
+         if ($0 == ours[FNR]) next
+         if (!(FNR in libm)) exit 1
+         a = ours[FNR] + 0; b = $0 + 0; m = (a < 0 ? -a : a); if ((b < 0 ? -b : b) > m) m = (b < 0 ? -b : b)
+         d = a - b; if (d < 0) d = -d
+         if (d > m * 2 ^ -52) exit 1 }
+       END { if (n1 != n2) exit 1 }' "$work/ours.out" "$work/chez.out"; then
+    io_same=libm
+  fi
+  if [ "$io_same" = libm ]; then
+    if [ "$io_chez_status" -eq "$io_ours_status" ]; then
+      say "chez: same stdout, up to one ulp on the libm lines (SEM-DEV-2), and exit status"
+    else
+      say "chez: same stdout up to one ulp, but Chez exited $io_chez_status and this compiler $io_ours_status"
+    fi
+  elif [ "$io_same" = no ]; then
     say "chez: stdout differs (< this compiler, > Chez)"
     diff "$work/ours.out" "$work/chez.out" | head -n 20 | sed 's/^/  | /'
   elif [ -n "$io_crash" ]; then
@@ -842,10 +866,10 @@ rejection_rule() {
   cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([A-Z0-9-]*)' | head -n 1
 }
 
-# rule: SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1, OPT-SAFE-1
+# rule: TEST-EQUIV-1, SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1, OPT-SAFE-1
 # equivalent FIXTURE: an e2e fixture (TEST-ORACLE-1, TEST-IO-1) compiled twice,
 # with evaluation and with `--directive no-eval`, which leaves every closed
-# call to runtime (docs/cutover.md 6.4): both executables must print the
+# call to runtime (ELIM-EVAL-1): both executables must print the
 # same stdout and exit with the same status on the fixture's stdin. Crash
 # messages are not compared. A fixture that --no-eval rejects with a user
 # error (a value the profile forbids at runtime, which only evaluation
@@ -947,7 +971,7 @@ fuzz_agree() {
     }' "$1" >> "$work/fuzz.agree"
 }
 
-# rule: SEM-REF-1, SEM-EVAL-6, ELIM-G-6, ELIM-EVAL-1, SEM-DBL-3, TEST-DIFF-1
+# rule: TEST-FUZZ-1, SEM-REF-1, SEM-EVAL-6, ELIM-G-6, ELIM-EVAL-1, SEM-DBL-3, TEST-DIFF-1
 # fuzz SEED: the fuzzer (tests/Fuzz.idr). For each part, `runtime` and
 # `static`, its program of SEED is compiled with evaluation, with
 # --directive no-eval (the runtime part only: the static part's values
@@ -1035,7 +1059,7 @@ fuzz_report() {
   fi
 }
 
-# rule: SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
+# rule: TEST-LEVELS-1, SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
 # two_levels CORPUS...: the two-level test (tests/TwoLevels.idr). The helper
 # tests/twolevels, Idris's own evaluator as a backend of the stock driver, is
 # built; for each corpus, `primitives` or `prelude`, its terms are

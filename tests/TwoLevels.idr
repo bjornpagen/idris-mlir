@@ -1,4 +1,4 @@
-||| The two levels (docs/cutover.md 4.5, SEM-REF-1): closed terms, over every
+||| The two levels (TEST-LEVELS-1, SEM-REF-1): closed terms, over every
 ||| primitive and over a corpus of total Prelude functions, normalised by the
 ||| pinned Idris's own evaluator and computed by the compiled program, must
 ||| give the same values.
@@ -22,7 +22,7 @@
 ||| Terms whose value depends on the host by design are marked in Terms.idr
 ||| with `-- host-dependent: t<n> <reason>`, and are not compared: the libm
 ||| functions (Idris's evaluator runs the host's, the compiled program
-||| musl's: SEM-DBL-3), and casts from String (docs/cutover.md A25). Terms
+||| musl's: SEM-DBL-3), and casts from String (SEM-HOST-1). Terms
 ||| the pinned Idris's evaluator computes differently from Idris's own
 ||| backends are marked `-- idris-differs: t<n> <reason>`: they are compared
 ||| with Chez, not with the evaluator. Terms Idris's evaluator leaves stuck

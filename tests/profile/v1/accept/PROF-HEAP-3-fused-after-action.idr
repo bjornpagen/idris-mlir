@@ -4,7 +4,7 @@ module Main
 
 -- rule: PROF-HEAP-3, PROF-HEAP-1, ELIM-G-7, OPT-SAFE-1
 -- Was the reject fixture PROF-HEAP-3-reported-before-heap-5, and is an
--- accept since the cutover (docs/cutover.md 4.2): `idr.field` of a known
+-- accept since the cutover (PROF-GEN-4): `idr.field` of a known
 -- `idr.con` folds and output fusion writes `strCons c "!"` as put_char then
 -- put_str, and `report`'s action becomes a direct call once inlining and
 -- defunctionalization remove IO's closures, with PROF-HEAP-5 (arity

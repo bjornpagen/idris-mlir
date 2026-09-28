@@ -564,7 +564,7 @@ shortName n = show n
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `BigT`, zero is `0`, and the
-||| successor adds one (docs/cutover.md, section 10.5). Idris counts only
+||| successor adds one (IDR-IN-3). Idris counts only
 ||| runtime arguments, so `Fin` is one too.
 data NatRole = Zero | Succ
 
@@ -1112,7 +1112,7 @@ mutual
         finish loc kinds given (Call loc inst) (drop arity xs)
 
       -- A constructor of a `Nat`-like type is big arithmetic
-      -- (docs/cutover.md, section 10.5): zero is 0, a successor adds 1.
+      -- (IDR-IN-3): zero is 0, a successor adds 1.
       natConstructor : FC -> Loc -> NatRole -> List (Quantity, PKind) -> List (Term a) ->
                        List (TT vars) -> Core (Term a)
       natConstructor fc loc Zero kinds given extra =
@@ -1248,7 +1248,7 @@ mutual
         let absurd = map (\c => MkAlt c.id (fromList (map toBinder c.fields)) (missingCase ctx loc)) missing
         pure (Case loc i (conAlts ++ absurd) def)
       -- A `Nat`-like value is a big: a match on its constructors is a
-      -- match on zero (docs/cutover.md, section 10.5).
+      -- match on zero (IDR-IN-3).
       Just (Runtime i (Just BigT)) =>
         if any isConCase alts then natCase ctx env loc i alts else literals loc i
       Just (Runtime i (Just _)) => literals loc i

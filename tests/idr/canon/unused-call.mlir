@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-effects --canonicalize | FileCheck %s
 // rule: IDR-FACT-1, OPT-CALL-1, SEM-EVAL-4, OPT-SAFE-1
-// OPT-CALL-1 (A20): an unused call goes when its callee is pure, total and
+// OPT-CALL-1: an unused call goes when its callee is pure, total and
 // cannot crash, and no closure it is given could do otherwise.
 
 func.func private @square(%x: i64) -> i64 attributes {idr.total} {

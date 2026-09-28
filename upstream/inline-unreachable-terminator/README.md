@@ -1,0 +1,64 @@
+# [mlir] Inlining a callee whose body ends in `ub.unreachable` aborts
+
+At `llvmorg-23.1.2`, `--inline` aborts when it inlines a single-block
+callee whose terminator is `ub.unreachable` (a function that never returns:
+it traps, or its body is proved impossible).
+
+## Reproduce
+
+`never.mlir`:
+
+```mlir
+func.func private @never() -> i32 {
+  ub.unreachable
+}
+
+func.func @main() -> i32 {
+  %0 = func.call @never() : () -> i32
+  return %0 : i32
+}
+```
+
+```
+$ mlir-opt never.mlir --inline
+must implement handleTerminator in the case of one inlined block
+UNREACHABLE executed at .../mlir/Transforms/DialectInlinerInterface.h.inc:82!
+```
+
+`mlir-opt` aborts (exit status 134). Expected: `@main` becomes
+`ub.unreachable` (or keeps the call).
+
+## Cause
+
+`UBInlinerInterface` (`mlir/lib/Dialect/UB/IR/UBOps.cpp:25-32`) makes every
+`ub` op legal to inline but implements neither `handleTerminator` hook, and
+`inlineRegionImpl` (`mlir/lib/Transforms/Utils/InliningUtils.cpp:330-340`)
+takes the single-block fast path for any single-block callee: it asks the
+terminator's dialect to replace the call's results with the terminator's
+operands, then erases the terminator and splices the rest of the caller's
+block after the inlined operations. `ub.unreachable` has no operands to
+forward, and nothing may follow it in its block, so the default hook
+(`DialectInlinerInterface.td:103-107`) is `llvm_unreachable`. The
+multi-block path would call the other default hook (`:86-89`), which is
+`llvm_unreachable` too.
+
+## Proposed fix
+
+Two parts:
+
+1. `inlineRegionImpl` takes the single-block fast path only when the
+   inlined block's terminator is return-like
+   (`hasTrait<OpTrait::ReturnLike>()`); otherwise it inlines as multi-block,
+   splitting the caller's block at the call.
+2. `UBInlinerInterface` implements `handleTerminator(Operation *, Block *)`
+   as a no-op: `ub.unreachable` stays the terminator of its inlined block,
+   and the block after the call becomes unreachable, which later cleanups
+   remove.
+
+## Our workaround
+
+`PINS.md`: `inline-unreachable`. No function body the compiler writes ends
+in `ub.unreachable`: `Emit` (`epilogue` in `compiler/src/IdrisMLIR/Emit.idr`)
+and `idr-prune` end a body that never returns with `ub.poison` and
+`func.return`, which is never reached. `ub.unreachable` appears only at the
+end of match regions, which the inliner does not see as callees.

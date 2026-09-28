@@ -2,15 +2,13 @@
 module Main
 
 -- rule: SEM-EVAL-6, SEM-REC-2, PROF-GEN-4, DIAG-LOC-1
--- A closed call of a partial function is never evaluated (docs/cutover.md
--- A23): the Prelude declares `takeBefore` covering, so the list it takes
+-- A closed call of a partial function is never evaluated
+-- (SEM-EVAL-6): the Prelude declares `takeBefore` covering, so the list it takes
 -- from the stream would be built at runtime. The program was part of
 -- profile/v3/accept/SEM-REC-2-streams before the cutover, and was accepted
--- then (4.3, decision 7.2, a PROF-GEN-4 exception). The list is built in
+-- then (a PROF-GEN-4 exception). The list is built in
 -- the Prelude; the rejection is reported at the user's definition that
 -- reached it, `main`, as PROF-TYPE-4-prelude-integer is.
--- Unverified until idris-mlir-cc exists: the line is predicted from the
--- rule that a C++ rejection is reported at the innermost user definition.
 
 import Prelude
 

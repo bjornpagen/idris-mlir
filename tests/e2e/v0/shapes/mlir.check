@@ -1,5 +1,5 @@
 // input: emitted
-// TEST-EMIT-1 on the contract the Idris side emits (docs/cutover.md 10), in
+// TEST-EMIT-1 on the contract the Idris side emits (08-idr-dialect.md), in
 // the custom syntax of each dialect.
 // rule: TEST-EMIT-1, IDR-MOD-2, IDR-FN-1, IDR-FN-2, IDR-FN-3, IDR-LOC-1, IDR-DATA-5, IDR-TY-1, IDR-TY-2, FE-LOC-1, IDR-MATCH-5
 // The module carries idr.program, and no version, entry or entry kind.

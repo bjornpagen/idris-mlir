@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-STR-2, IDR-DBL-3, ELIM-G-15
-// A4: the first character of a string built at runtime.
+// IDR-STR-2: the first character of a string built at runtime.
 
 // CHECK-LABEL: func.func @heads(
 // CHECK-SAME: %[[C:.*]]: i32, %[[S:.*]]: !idr.str, %[[X:.*]]: i64, %[[B:.*]]: i16, %[[D:.*]]: f64)

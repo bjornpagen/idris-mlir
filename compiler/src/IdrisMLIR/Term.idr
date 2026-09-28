@@ -152,25 +152,6 @@ mutual
   termTraversable : Traversable Term
   termTraversable = %runElab derive {mutualWith = [`{Alt}]}
 
-export
-locOf : Term a -> Loc
-locOf (Var l _) = l
-locOf (Literal l _) = l
-locOf (Erased l) = l
-locOf (PrimApp l _ _) = l
-locOf (Effect l _ _ _) = l
-locOf (Call l _ _) = l
-locOf (ConApp l _ _) = l
-locOf (Let l _ _ _) = l
-locOf (Case l _ _ _) = l
-locOf (CaseLit l _ _ _) = l
-locOf (Lam l _ _ _ _) = l
-locOf (App l _ _) = l
-locOf (Suspend l _ _ _) = l
-locOf (Resume l _) = l
-locOf (Unreachable l) = l
-locOf (Crash l _) = l
-
 ------------------------------------------------------------------------------
 -- The base functor and its folds
 ------------------------------------------------------------------------------

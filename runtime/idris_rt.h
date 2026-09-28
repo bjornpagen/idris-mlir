@@ -201,8 +201,6 @@ void idris_rt_str_release(const idris_rt_str *s);
 void idris_rt_big_release(idris_rt_big a);
 
 /* Strings over simdutf (plan section 3). */
-/* Whether the n bytes at p are well-formed UTF-8. */
-bool idris_rt_utf8_valid(const char *p, size_t n);
 /* The number of scalar values in n bytes of well-formed UTF-8. */
 size_t idris_rt_utf8_count(const char *p, size_t n);
 /* Whether the n bytes at p are all ASCII. */

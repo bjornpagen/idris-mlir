@@ -1,5 +1,4 @@
-// The two phases of idr-lower (docs/architecture/10-lowering.md;
-// docs/cutover.md 6.3).
+// The two phases of idr-lower (docs/architecture/10-lowering.md).
 #pragma once
 
 #include "Lower/Runtime.h"

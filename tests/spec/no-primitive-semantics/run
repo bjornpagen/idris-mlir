@@ -1,7 +1,7 @@
 #!/bin/sh
-# rule: ELIM-G-6, SEM-STR-2, SEM-REF-1
-# No primitive has a meaning in the compiler's Idris code (docs/cutover.md
-# 2.1 and 4.5): a primitive means what the runtime computes, and the
+# rule: TEST-ENF-1, ELIM-G-6, SEM-STR-2, SEM-REF-1
+# No primitive has a meaning in the compiler's Idris code (TEST-ENF-1,
+# LOW-RT-1): a primitive means what the runtime computes, and the
 # folders and idr-eval call the runtime's own code, so nothing in
 # compiler/src may compute a primitive's result. A folder, whatever its
 # form, has to do one of three things, and each is looked for in the code
