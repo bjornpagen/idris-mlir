@@ -267,35 +267,48 @@ LogicalResult verifyProgram(ModuleOp module) {
 // World linearity (IDR-WORLD-1)
 //===----------------------------------------------------------------------===//
 
+// Whether each region of `branch` returns straight to it, so that at most
+// one runs: the regions of a match or of an scf.if, not those of a loop.
+bool exclusiveRegions(RegionBranchOpInterface branch) {
+  return llvm::all_of(branch->getRegions(), [&](Region &region) {
+    SmallVector<RegionSuccessor> next;
+    branch.getSuccessorRegions(region, next);
+    return llvm::all_of(next, [](RegionSuccessor &successor) { return successor.isOperation(); });
+  });
+}
+
 // The uses of one world value, counted on the worst path. The regions of a
 // match, and of any op whose regions exclude each other, are alternative
-// paths; a region that may run repeatedly counts twice.
+// paths; a region that may run repeatedly counts twice. A region of several
+// blocks, which the contract does not produce, counts every use in it.
 class WorldUses {
 public:
   explicit WorldUses(Value world) : world(world) {
+    Region *home = world.getParentRegion();
     for (OpOperand &use : world.getUses())
-      for (Operation *op = use.getOwner(); op && op->getBlock();
-           op = op->getParentOp()) {
+      for (Operation *op = use.getOwner(); op; op = op->getParentOp()) {
         if (!holders.insert(op).second)
           break;
-        byBlock[op->getBlock()].push_back(op);
-        if (op->getBlock() == definingBlock())
+        if (op->getParentRegion() == home) {
+          top.push_back(op);
           break;
+        }
+        byBlock[op->getBlock()].push_back(op);
       }
+    llvm::DenseMap<Block *, unsigned> order;
+    for (Block &block : *home)
+      order[&block] = order.size();
+    llvm::sort(top, [&](Operation *a, Operation *b) {
+      if (a->getBlock() != b->getBlock())
+        return order[a->getBlock()] < order[b->getBlock()];
+      return a->isBeforeInBlock(b);
+    });
   }
 
-  Block *definingBlock() const {
-    if (auto arg = dyn_cast<BlockArgument>(world))
-      return arg.getOwner();
-    return world.getDefiningOp()->getBlock();
-  }
-
-  // The first op of `block` after which the world has been used twice.
-  Operation *secondUse(Block *block) {
-    SmallVector<Operation *> ops = byBlock.lookup(block);
-    llvm::sort(ops, [](Operation *a, Operation *b) { return a->isBeforeInBlock(b); });
+  // The first op after which the world has been used twice, if any.
+  Operation *secondUse() {
     unsigned total = 0;
-    for (Operation *op : ops) {
+    for (Operation *op : top) {
       total += count(op);
       if (total > 1)
         return op;
@@ -304,30 +317,24 @@ public:
   }
 
 private:
-  unsigned count(Block *block) {
-    unsigned total = 0;
-    for (Operation *op : byBlock.lookup(block))
-      total += count(op);
-    return total;
-  }
-
   unsigned count(Region &region) {
     unsigned total = 0;
     for (Block &block : region)
-      total += count(&block);
+      for (Operation *op : byBlock.lookup(&block))
+        total += count(op);
     return total;
   }
 
   unsigned count(Operation *op) {
-    unsigned total = llvm::count(op->getOperands(), world);
+    unsigned total = static_cast<unsigned>(llvm::count(op->getOperands(), world));
     if (op->getNumRegions() == 0)
       return total;
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
-    bool exclusive = isa<MatchOp, MatchLitOp>(op) || (branch && !branch.hasLoop());
+    bool exclusive = branch && exclusiveRegions(branch);
     unsigned regions = 0;
     for (auto [index, region] : llvm::enumerate(op->getRegions())) {
       unsigned uses = count(region);
-      if (uses && branch && branch.isRepetitiveRegion(index))
+      if (uses && !exclusive && branch && branch.isRepetitiveRegion(index))
         uses = 2;
       regions = exclusive ? std::max(regions, uses) : regions + uses;
     }
@@ -336,6 +343,7 @@ private:
 
   Value world;
   llvm::DenseSet<Operation *> holders;
+  SmallVector<Operation *> top;
   llvm::DenseMap<Block *, SmallVector<Operation *>> byBlock;
 };
 
@@ -343,8 +351,7 @@ LogicalResult verifyWorlds(FunctionOpInterface fn) {
   auto check = [&](Value value) -> LogicalResult {
     if (!isa<WorldType>(value.getType()))
       return success();
-    WorldUses uses(value);
-    if (Operation *op = uses.secondUse(uses.definingBlock()))
+    if (Operation *op = WorldUses(value).secondUse())
       return op->emitOpError("uses a world that is already used on the same path "
                              "(IDR-WORLD-1)");
     return success();
