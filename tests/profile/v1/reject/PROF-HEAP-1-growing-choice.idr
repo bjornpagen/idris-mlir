@@ -6,7 +6,7 @@ import Prelude
 -- Which function is inside is chosen by a recursion on a runtime value, and
 -- each level builds a larger function from the one below: no finite choice
 -- of static values stands for it, so it would need the heap. (A choice among
--- a fixed set of functions needs nothing: ELIM-CLOS-1.)
+-- a fixed set of functions needs nothing: it is a tag.)
 data Op : Type where
   Inc : (Int -> Int) -> Op
   Dbl : (Int -> Int) -> Op

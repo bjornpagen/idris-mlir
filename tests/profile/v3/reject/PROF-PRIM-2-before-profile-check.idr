@@ -1,13 +1,12 @@
--- expect: PROF-PRIM-2 line 20
+-- expect: PROF-PRIM-2 line 19
 module Main
 
 -- Two violations: `count` makes an Integer from a runtime value, which
 -- idr-check-profile rejects with PROF-TYPE-4 on the optimized module, and
--- `shift`, defined and used after it, uses a primitive the frontend rejects
--- (PROF-PRIM-2). Frontend errors come first (DIAG-ONE-1): the
--- frontend rejects the program before idris-mlir-cc sees it, so PROF-PRIM-2
--- is the only error reported, though `count` comes first in the file and
--- in main.
+-- `shift`, defined and used after it, uses a primitive the frontend
+-- rejects. Frontend errors come first: the frontend rejects the program
+-- before idris-mlir-cc sees it, so PROF-PRIM-2 is the only error
+-- reported, though `count` comes first in the file and in main.
 
 import Prelude
 

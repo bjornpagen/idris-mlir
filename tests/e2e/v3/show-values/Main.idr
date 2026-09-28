@@ -30,7 +30,7 @@ main = do
   putChar (firstOf (show (the Int8 (cast (n * 30)))))
   putChar (firstOf (show (the Bits64 (cast (negate n)))))
   putChar '\n'
-  -- A Double's first character is the printer's own (LOW-DBL-4).
+  -- A Double's first character is the printer's own.
   let x = the Double (cast n)
   putStrLn (show (Just (x / 2.0)))
   putStrLn (show (Just (negate x / 2.0)))

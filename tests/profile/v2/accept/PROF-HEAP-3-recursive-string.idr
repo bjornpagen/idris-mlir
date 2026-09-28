@@ -2,13 +2,11 @@
 -- stdout: 255\n
 module Main
 
--- Was a reject fixture, and is an accept since raising writes a call's
--- result (PROF-GEN-4): `digits` recurses on a runtime value, so the string
--- it returns is not known at compile time, but its only use is output, so
--- idr-specialize makes a clone of `digits` that writes at each tail
--- (ELIM-G-5), where output fusion takes the append apart (ELIM-G-7): no
--- string is built at runtime. On empty stdin the Prelude's getChar returns
--- character 255 (SEM-IO-7).
+-- `digits` recurses on a runtime value, so the string it returns is not
+-- known at compile time, but its only use is output, so idr-specialize
+-- makes a clone of `digits` that writes at each tail, where output fusion
+-- takes the append apart: no string is built at runtime. On empty stdin the
+-- Prelude's getChar returns character 255.
 
 import Prelude
 

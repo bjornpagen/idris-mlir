@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-print-op-generic | idris-mlir-opt | FileCheck %s
-// Every op, type and attribute of the contract (08-idr-dialect.md)
+// Every op, type and attribute of the contract
 // parses in its custom syntax and prints back the same, directly and from the
 // generic form. A symbol that does not start with a letter is quoted: the
 // contract's `@$58$$58$` is written `@"$58$$58$"`.

@@ -1,10 +1,9 @@
--- expect: PROF-HEAP-3 line 11
+-- expect: PROF-HEAP-3 line 10
 module Main
 
 -- `digits` recurses on a runtime value, so the string it returns is built
--- at runtime, and its use is a comparison, not output: neither raising
--- (ELIM-G-5) nor output fusion (ELIM-G-7) consumes it, so it would need
--- the heap.
+-- at runtime, and its use is a comparison, not output: neither raising nor
+-- output fusion consumes it, so it would need the heap.
 
 import Prelude
 

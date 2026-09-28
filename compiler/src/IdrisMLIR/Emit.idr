@@ -1,6 +1,5 @@
-||| Full Core to the contract (08-idr-dialect.md): one module in
-||| the custom syntax of the `idr`, `func`, `arith`, `math` and `ub`
-||| dialects.
+||| Full Core to the contract: one module in the custom syntax of the `idr`,
+||| `func`, `arith`, `math` and `ub` dialects.
 |||
 ||| A body is written by one fold over `Term`, a paramorphism: the algebra
 ||| turns each layer into an emitter, which, given the values of the

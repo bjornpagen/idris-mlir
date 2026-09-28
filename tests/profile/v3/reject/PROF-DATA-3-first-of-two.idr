@@ -2,12 +2,12 @@
 module Main
 
 -- Two violations, and only the first is reported. `build` makes a list
--- whose length is known only at runtime (PROF-DATA-3, as
--- PROF-DATA-3-runtime-list), and `count` computes with an Integer made from
--- a runtime value (PROF-TYPE-4, as PROF-TYPE-4-integer). Neither function is
+-- whose length is known only at runtime (as PROF-DATA-3-runtime-list), and
+-- `count` computes with an Integer made from a runtime value (as
+-- PROF-TYPE-4-integer). Neither function is
 -- inlined, since both are recursive, and nothing of either reaches `main`
 -- but an Int; both are checked by idr-check-profile, where "first" is in op
--- order (DIAG-ONE-1), and `build` comes before `count` in the
+-- order, and `build` comes before `count` in the
 -- module, as `main` calls it first. The error is reported at the user
 -- definition that holds the op, `build`.
 

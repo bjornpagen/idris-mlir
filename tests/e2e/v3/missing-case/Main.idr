@@ -2,7 +2,7 @@ module Main
 
 -- A definition with missing cases runs until an input it does not cover,
 -- then crashes; the output before the crash is written. On Chez the crash
--- message ("ERROR: ...", SEM-DEV-1) goes to stdout through Chez's own port,
+-- message ("ERROR: ...", not compared) goes to stdout through Chez's own port,
 -- which is flushed at exit before the Prelude's C stdio: it comes first.
 
 import Builtin

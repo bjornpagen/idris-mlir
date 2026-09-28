@@ -1,14 +1,11 @@
--- expect: PROF-TYPE-4 line 16
+-- expect: PROF-TYPE-4 line 13
 module Main
 
--- A closed call of a partial function is never evaluated (SEM-EVAL-6):
--- Idris does not prove `euclid` terminating, so `euclid 1071 462` stays a
--- call, and its Integer would exist at runtime. The program was part of
--- e2e/v3/compile-time-evaluation and e2e/v3/prelude-math before
--- compile-time evaluation ran only total code, and was accepted then (a
--- PROF-GEN-4 exception). The Integer operations are the Prelude's
--- (Integral Integer), reached from `euclid`, and the rejection is reported
--- at its body, line 17 (DIAG-LOC-1).
+-- A closed call of a partial function is never evaluated: Idris does not
+-- prove `euclid` terminating, so `euclid 1071 462` stays a call, and its
+-- Integer would exist at runtime. The Integer operations are the
+-- Prelude's (Integral Integer), reached from `euclid`, and the rejection
+-- is reported at its body.
 
 import Prelude
 

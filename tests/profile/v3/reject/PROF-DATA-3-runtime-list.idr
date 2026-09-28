@@ -3,7 +3,7 @@ module Main
 
 -- A list is recursive data, a box: one whose length depends on a runtime
 -- value would need the heap. (One of known shape with runtime elements
--- needs nothing: calls on it are specialized on its shape, ELIM-SPEC-1.)
+-- needs nothing: calls on it are specialized on its shape.)
 
 import Prelude
 

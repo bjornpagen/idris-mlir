@@ -6,7 +6,7 @@ module Main
 -- recursion with a string accumulator, which follows the list),
 -- Maybe, Either and Ordering, nested in one another (a list inside a pair:
 -- the function that shows a list is passed its Show implementation as an
--- explicit argument, recognized by its type, FE-TR-6).
+-- explicit argument, recognized by its type).
 
 import Prelude
 

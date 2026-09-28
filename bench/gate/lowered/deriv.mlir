@@ -9,7 +9,7 @@
 //   Val: header, value (16 bytes). Var: header, string (16). Add, Mul, Pow:
 //   header, two fields (24). Ln: header, one field (16).
 //
-// What Lean's passes and our cells decide here:
+// What Lean's passes and the cell layout decide here:
 // - Closed terms are persistent static cells with count 0: the
 //   string "x", Var "x", powr x x (which is Pow x x), and the results
 //   Val 0, Val 1 and Val (-1). Counting them costs a load and a compare.

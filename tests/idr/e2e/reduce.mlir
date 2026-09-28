@@ -3,7 +3,7 @@
 // RUN: idris-mlir-reduce %s --reduction-tree="traversal-mode=0 test=%t.test" -o %t.reduced 2> %t.log
 // RUN: FileCheck %s < %t.reduced
 // idris-mlir-reduce is mlir-reduce with the idr dialect: it shrinks a module
-// to what keeps a test interesting (14-testing.md), here any
+// to what keeps a test interesting, here any
 // idr.str.append.
 // CHECK: func.func private @twice
 // CHECK-NEXT: idr.str.append

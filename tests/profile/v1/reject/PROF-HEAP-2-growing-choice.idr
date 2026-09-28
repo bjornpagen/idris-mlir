@@ -5,7 +5,7 @@ import Prelude
 
 -- Which Lazy value is inside is chosen by a recursion on a runtime value,
 -- and each level suspends a computation on the one below: it would need the
--- heap. (A choice among a fixed set of Lazy values needs nothing: ELIM-CLOS-1.)
+-- heap. (A choice among a fixed set of Lazy values needs nothing: a tag.)
 data Later : Type where
   Soon : Lazy Int -> Later
   Never : Lazy Int -> Later
