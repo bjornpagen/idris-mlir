@@ -47,37 +47,42 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   LLVM bump, in case `ExecutionEngine` stops requiring process symbols
 - upstream: none — a static process has no process-symbol generator by design
 
-## symbol-dce-first
+## prune-before-remove-dead-values
 
-- symptom: at llvmorg-23.1.2, `remove-dead-values` on a private function
-  that no one calls (or only itself) erases its arguments, while region ops
-  that it keeps for their effects still use them, and then crashes
-  (`mlir/lib/Transforms/RemoveDeadValues.cpp:649` and `:833`); the same
-  happens with `scf.index_switch`
-- sites: foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop,
-  OPT-PIPE-5); tests/idr/canon/upstream-passes.mlir, which gives every
-  private function a caller
-- workaround: every round of the simplify loop runs `symbol-dce` before
-  `remove-dead-values`, so no function without callers reaches it
-- retire: when `remove-dead-values` handles such functions at a bump; then
-  the order is free again
+- symptom: at llvmorg-23.1.2, `remove-dead-values` finds a function or a
+  block unreachable (dead-code analysis never visits it: a private function
+  nothing live calls, or a match region a constant rules out), marks every
+  value there dead and erases the function's arguments, but keeps the ops
+  that still use them, and then crashes on the null operand
+  (`mlir/lib/Transforms/RemoveDeadValues.cpp:649`, the region-branch
+  canonicalization at `:833`, `Matchers.h:491`). The constants that make a
+  region unreachable can appear after `sccp` in the same round (from
+  `canonicalize` or `idr-eval`), so running `sccp` first is not enough
+- sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
+  foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop,
+  OPT-PIPE-5)
+- workaround: `idr-prune` runs right before `remove-dead-values` and
+  empties, with the same analyses, every block they prove unreachable: a
+  match region ends in `ub.unreachable`, a function returns poison
+- retire: when `remove-dead-values` leaves unreachable code alone or erases
+  it at a bump
 - upstream: none filed yet
 
 ## inline-unreachable
 
 - symptom: the upstream inliner's default `handleTerminator`
-  (`DialectInlinerInterface.td`) cannot handle a callee whose body ends in
-  `ub.unreachable`, which is how a function whose body is a crash ends
-  (`idr.crash`, then `ub.unreachable`, IDR-CRASH-1); the inliner's region
+  (`DialectInlinerInterface.td`) aborts on a callee whose body ends in
+  `ub.unreachable`: the `ub` dialect's inliner interface does not implement
+  it, and no hook of ours sees that terminator. The inliner's region
   patterns likewise skip a region that ends in `ub.unreachable`
-- sites: foreign/idr/lib/Dialect/Dialect.cc (`IdrInliner`,
-  IDR-IF-1)
-- workaround: the dialect never inlines a function whose body is a
-  top-level crash; a call of it stays a call, and a match region that
-  crashes stays a region, which `idr-lower` lowers (LOW-MATCH-1). Nothing is
-  lost but the inlining of a call that always crashes
-- retire: when the inliner and region inlining handle `ub.unreachable` at a
-  bump
+- sites: compiler/src/IdrisMLIR/Emit.idr (`epilogue`, IDR-CRASH-1),
+  foreign/idr/lib/Passes/Prune.cc
+- workaround: no function body ends in `ub.unreachable`: one that never
+  returns (a crash, a body Idris proved impossible, a match none of whose
+  regions returns) returns `ub.poison` instead, which is never reached. A
+  match region that crashes still ends in `ub.unreachable` and stays a
+  region, which the lowering lowers (LOW-MATCH-1)
+- retire: when the inliner handles `ub.unreachable` at a bump
 - upstream: none filed yet
 
 ## platform-gate-x86_64

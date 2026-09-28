@@ -15,7 +15,7 @@
 // CHECK: call @iter$spec$2(
 // CHECK-LABEL: func.func private @iter$spec$2(
 // CHECK-SAME: no_inline
-// CHECK: call @iter$spec$1(%{{.*}}) {idr.clone_limit_hit}
+// CHECK: call @iter$spec$1(%{{.*}}) {idr.spec_stopped}
 module attributes {idr.program} {
   func.func private @after(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>

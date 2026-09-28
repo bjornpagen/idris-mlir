@@ -144,13 +144,14 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
 // OPT-PIPE-5: the passes of one round, as textual pipelines, in order.
 //
-// symbol-dce also runs before remove-dead-values: at llvmorg-23.1.2,
-// remove-dead-values on a private function that nothing calls but itself
-// erases the arguments that a region op kept for its effects still uses, and
-// then folds that op with a null operand (RemoveDeadValues.cpp, processFuncOp
-// and the region-branch canonicalization at the end of runOnOperation).
+// idr-prune runs right before remove-dead-values: at llvmorg-23.1.2,
+// remove-dead-values erases the arguments of a function that dead-code
+// analysis never reaches, while ops there still use them, and then folds
+// those ops with a null operand (RemoveDeadValues.cpp, processFuncOp and the
+// region-branch canonicalization at the end of runOnOperation).
 SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned cloneLimit) {
   return {
+      "idr-loop-breakers",
       "idr-effects",
       llvm::formatv("inline{{default-pipeline=canonicalize max-iterations={0}}", inlineIterations),
       llvm::formatv("idr-specialize{{clone-limit={0}}", cloneLimit),
@@ -158,7 +159,7 @@ SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned 
       "canonicalize",
       "cse",
       "idr-eval",
-      "symbol-dce",
+      "idr-prune",
       "remove-dead-values",
       "symbol-dce",
   };

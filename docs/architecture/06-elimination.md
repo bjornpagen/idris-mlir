@@ -208,15 +208,18 @@ runtime operands left out, and those operands are its *runtime leaves*.
     arguments of that shape; specialization never duplicates an effect or
     a crash, since the arguments are evaluated once, at the call.
   - Check: the pass `idr-specialize`
-- **ELIM-SPEC-2 (v3). The clone limit.** `idr-specialize` makes at most
-  `N` clones of one original callee in a compilation, `N` being
-  `idris-mlir-cc --clone-limit=N` (default 4096). A call that the limit
-  stops stays a call of the unspecialized function, with a `Missed` remark
-  naming it. A closure that then survives is a `PROF-HEAP-4` rejection. The
-  limit bounds only a specialization that would not end (a recursive
-  function passing itself a static argument that grows); it is fixed, so
-  acceptance does not depend on it for any program `PROF-HEAP-4` does not
-  name.
+- **ELIM-SPEC-2 (v3). Growth and the clone limit.** A clone that calls its
+  own origin with static arguments that grow is not specialized further:
+  each argument's pattern is the clone's own or contains it, and one
+  strictly (`iter (\y => f (f y))`). Such a specialization would never end.
+  Beyond that, `idr-specialize` makes at most `N` clones of one original
+  callee in a compilation, `N` being `idris-mlir-cc --clone-limit=N`
+  (default 4096), which bounds growth in other shapes. A call either stops
+  stays a call of the function it called, with a `Missed` remark naming the
+  reason, and both get `idr.spec_stopped`. A closure that then survives is
+  a `PROF-HEAP-4` rejection. Both bounds stop only specializations that
+  would not end, so acceptance depends on neither for any program
+  `PROF-HEAP-4` does not name.
   - Check: the pass `idr-specialize`
 
 ### Evaluation

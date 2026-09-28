@@ -11,12 +11,12 @@
 // the pass share the limit.
 // CHECK: module attributes {idr.clone_counts = {count = 3 : i64}, idr.program}
 // CHECK: func.func private @count(
-// CHECK-SAME: idr.clone_limit_hit
+// CHECK-SAME: idr.spec_stopped
 // CHECK: func.func private @count$spec$1(
 // CHECK: func.func private @count$spec$2(
 // CHECK: func.func private @count$spec$3(
-// CHECK-NOT: idr.clone_limit_hit
-// CHECK: call @count(%{{.*}}) {idr.clone_limit_hit}
+// CHECK-NOT: idr.spec_stopped
+// CHECK: call @count(%{{.*}}) {idr.spec_stopped}
 // CHECK-NOT: func.func private @count$spec$4
 // REMARK: remark: [Missed] idr-specialize | Category:idr-specialize
 // REMARK-SAME: specialization of @count stopped: the clone limit of 3 clones of @count is reached

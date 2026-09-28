@@ -518,6 +518,22 @@ attributes terminates breaker =
     [] => ""
     as => " attributes {" ++ joinBy ", " as ++ "}"
 
+||| The end of a function's body, of result type `rt`: its value, returned.
+||| A body that never returns ends in `ub.unreachable` inside its regions
+||| only; at the top level a poison value is returned in its place
+||| (IDR-CRASH-1), because the pinned inliner cannot inline a body that ends
+||| in `ub.unreachable` (PINS.md: inline-unreachable).
+epilogue : Loc -> String -> Maybe Val -> List Op -> List Op
+epilogue l rt (Just v) ops = ops ++ [Line ("func.return " ++ v.name ++ " : " ++ rt) (At l)]
+epilogue l rt Nothing ops =
+  reverse (dropEnd (reverse ops)) ++
+    [ Line ("%never = ub.poison : " ++ rt) (At l)
+    , Line ("func.return %never : " ++ rt) (At l) ]
+  where
+    dropEnd : List Op -> List Op
+    dropEnd (Line "ub.unreachable" _ :: rest) = rest
+    dropEnd rest = rest
+
 ||| A lifted function: private, its captures first, then its parameters.
 ||| Its body is the closure's, and it is what the closure calls.
 lifted : Index -> Loc -> Label -> Vect k Val -> Vect m Val -> Maybe Ty ->
@@ -534,13 +550,10 @@ lifted ix l lbl caps ps expected body = do
          Just t => pure t
          Nothing => internal ("the result type of " ++ show lbl ++ ", whose body never returns")
   rt <- typeText ix t
-  ret <- case res of
-    Just v => pure [Line ("func.return " ++ v.name ++ " : " ++ rt) (At l)]
-    Nothing => pure []
   header <- traverse (param ix) params
   let fn = Nest ("func.func private " ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
                  attributes own.terminating (contains (LamNode lbl) ix.breakers) ++ " {")
-                (ops ++ ret) "}" (Just (Named own.idrisName l))
+                (epilogue l rt res ops) "}" (Just (Named own.idrisName l))
   modify { lifted $= (:< fn) }
   pure (sym, t)
   where
@@ -702,14 +715,11 @@ function ix root f = do
     res <- para alg' f.body (\i => index i params) (Just f.result)
     pure (params, res)
   rt <- typeText ix f.result
-  let ret = case res of
-              Just v => [Line ("func.return " ++ v.name ++ " : " ++ rt) (At f.loc)]
-              Nothing => []
   header <- traverse (param ix) (toList params)
   let visibility = if f.id == root then "" else "private "
   let fn = Nest ("func.func " ++ visibility ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
                  attributes f.facts.terminating.holds (contains (FnNode f.id) ix.breakers) ++ " {")
-                (ops ++ ret) "}" (Just (Named f.idrisName f.loc))
+                (epilogue f.loc rt res ops) "}" (Just (Named f.idrisName f.loc))
   inner <- gets (.lifted)
   pure (fn :: (inner <>> []))
   where

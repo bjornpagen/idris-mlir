@@ -1,5 +1,5 @@
 -- expect: PROF-HEAP-4 line 7
--- message: Main.iter passes itself a function, IO action, Lazy value or other static value that grows
+-- message: is built in or passed to @Main.iter, whose specialization stopped
 module Main
 
 import Prelude

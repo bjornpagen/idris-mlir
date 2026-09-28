@@ -77,9 +77,9 @@ module attributes {idr.program} {
     (`OPT-PIPE-3`), both written by `Emit`; `idr.effect` and `idr.may_crash`
     (`IDR-FACT-1`), which only `idr-effects` writes. `idr-specialize` keeps
     its own state between rounds in attributes internal to the pipeline,
-    which `Emit` never writes (`idr.origin` on a clone, `idr.clone_counts`
-    on the module, `idr.clone_limit_hit`; `ELIM-SPEC-1`). Any other `idr.*`
-    attribute is rejected.
+    which `Emit` never writes (`idr.origin` and `idr.spec_key` on a clone,
+    `idr.clone_counts` on the module, `idr.spec_stopped`; `ELIM-SPEC-1`).
+    Any other `idr.*` attribute is rejected.
   - Check: the dialect's attribute verifiers of the module (`idr.program`),
     of each function and of each argument
   - Test: `tests/idr/verify/module.mlir`, `tests/idr/verify/function.mlir`,
@@ -380,10 +380,12 @@ default { ... }
 
 - **IDR-CRASH-1 (v3).** *Revised at the cutover:* `idr.crash "<message>"`
   ends the program with its message (`SEM-CRASH-2`), and is followed by
-  `ub.unreachable`, which ends its region or function; it has no results.
-  It may crash (`IDR-EFF-1`). A function whose body is a top-level crash is
-  never inlined: the pinned inliner cannot handle the `ub.unreachable`
-  after it (`PINS.md`: `inline-unreachable`).
+  `ub.unreachable`, which ends its region; it has no results. It may crash
+  (`IDR-EFF-1`). A function body never ends in `ub.unreachable`: one that
+  never returns (a crash, a body Idris proved impossible, a match none of
+  whose regions returns) returns `ub.poison` in its place, which is never
+  reached, because the pinned inliner cannot inline a body that ends in
+  `ub.unreachable` (`PINS.md`: `inline-unreachable`).
   - Test: `tests/idr/lower/crash-op.mlir`, `tests/idr/effects/crash.mlir`,
     `tests/idr/canon/upstream-passes.mlir`
 - `idr.may_loop` marks one iteration of a loop that may not terminate

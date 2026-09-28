@@ -55,6 +55,8 @@ add_library(idr_dialect STATIC
 	lib/Registration.cc
 	lib/Passes/CheckProfile.cc
 	lib/Passes/Defunctionalize.cc
+	lib/Passes/LoopBreakers.cc
+	lib/Passes/Prune.cc
 	lib/Passes/Simplify.cc
 	lib/Passes/Specialize.cc
 	lib/Passes/TailLoops.cc

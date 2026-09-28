@@ -15,27 +15,40 @@
 // over the module's functions reaches them and specializes their calls in
 // turn, until no call is left to specialize.
 //
-// The only bound is the clone limit, counted per original callee over the
-// whole compilation (the count is kept on the module as idr.clone_counts, so
-// that rounds of idr-simplify share it). A call it stops gets a Missed remark;
-// it and its callee get idr.clone_limit_hit, so that later runs leave the call
-// alone and idr-check-profile reports PROF-HEAP-4 for a closure that survives
-// into the callee.
+// In a clone's call of its own origin, a static argument that changed and
+// that the callee never takes apart is generalized to a runtime value (an
+// accumulator: `run (n - 1) (advance s)`); one it matches on keeps its value
+// (a counter). Each clone is canonicalized when it is made, so a chain of
+// clones on a counter is made in one run.
 //
-// Clones can close new cycles of calls; the newest clone of each becomes a
-// loop breaker (no_inline, OPT-PIPE-3), as clones of a breaker inherit it.
+// Two things stop a specialization. A clone that calls its own origin with
+// static arguments that grow, each the clone's own pattern or containing it
+// and one strictly (`iter (\y => f (f y))`), would clone forever, so the call
+// stays; each clone keeps the patterns it was made for (idr.spec_key), so
+// that later rounds see the growth too. And the clone limit, counted per original callee over the whole
+// compilation (the count is kept on the module as idr.clone_counts, so that
+// rounds of idr-simplify share it), bounds what growth in other shapes
+// makes. A stopped call gets a Missed remark; it and its callee get
+// idr.spec_stopped, so that later runs leave the call alone and
+// idr-check-profile reports PROF-HEAP-4 for a closure that survives into
+// the callee.
+//
+// Clones can close new cycles of calls; idr-loop-breakers cuts them at the
+// start of the next round (OPT-PIPE-3), and clones of a breaker inherit it.
 //
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
 // when idr-effects has computed those facts (IDR-FACT-1).
 
-#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -51,7 +64,8 @@ namespace {
 
 constexpr StringLiteral cloneCounts = "idr.clone_counts";
 constexpr StringLiteral originAttr = "idr.origin";
-constexpr StringLiteral limitHit = "idr.clone_limit_hit";
+constexpr StringLiteral stopped = "idr.spec_stopped";
+constexpr StringLiteral keyAttr = "idr.spec_key";
 
 // One argument of a call: its pattern and its runtime leaves, in order.
 //
@@ -177,6 +191,7 @@ struct Specializer {
   SymbolTable symbols;
   llvm::DenseMap<std::pair<StringAttr, ArrayAttr>, func::FuncOp> clones;
   llvm::StringMap<int64_t> counts;
+  std::optional<FrozenRewritePatternSet> canon;
   SmallVector<func::FuncOp> work;
   bool changed = false;
 
@@ -261,7 +276,7 @@ struct Specializer {
     func::FuncOp clone = callee.clone();
     clone.setSymName(llvm::formatv("{0}$spec${1}", from, n).str());
     clone.setPrivate();
-    clone->removeAttr(limitHit);
+    clone->removeAttr(stopped);
     clone->setAttr(originAttr, StringAttr::get(module.getContext(), from));
     symbols.insert(clone, module.getBody()->end());
 
@@ -281,24 +296,111 @@ struct Specializer {
 
   // The call and its callee are marked, so later runs neither retry the
   // call nor report it again.
-  void stop(func::CallOp call, func::FuncOp callee) {
-    call->setAttr(limitHit, UnitAttr::get(module.getContext()));
-    callee->setAttr(limitHit, UnitAttr::get(module.getContext()));
+  void stop(func::CallOp call, func::FuncOp callee, const std::string &why) {
+    call->setAttr(stopped, UnitAttr::get(module.getContext()));
+    callee->setAttr(stopped, UnitAttr::get(module.getContext()));
     remark::missed(call.getLoc(),
                    remark::RemarkOpts::name("idr-specialize").category("idr-specialize"))
-        << remark::add("specialization of @{0} stopped: the clone limit of {1} clones of @{2} "
-                       "is reached",
-                       callee.getSymName(), limit, origin(callee));
+        << remark::add("specialization of @{0} stopped: {1}", callee.getSymName(), why);
+  }
+
+  // Whether `inner` is `outer` or occurs inside it.
+  static bool within(Attribute inner, Attribute outer) {
+    if (inner == outer)
+      return true;
+    bool found = false;
+    outer.walk([&](Attribute sub) {
+      if (sub == inner)
+        found = true;
+    });
+    return found;
+  }
+
+  // The patterns `clone` was made for, kept as text in idr.spec_key: as
+  // attributes, the closure labels in them would be symbol uses, and keep
+  // functions alive that symbol-dce should remove.
+  static ArrayAttr patternsOf(func::FuncOp clone) {
+    auto text = clone ? clone->getAttrOfType<StringAttr>(keyAttr) : StringAttr();
+    return text ? dyn_cast_or_null<ArrayAttr>(parseAttribute(text.getValue(), clone.getContext()))
+                : ArrayAttr();
+  }
+
+  // Whether a call in `caller` to the same origin passes static arguments
+  // that grow: each is the caller's own pattern or contains it, and one
+  // strictly.
+  bool grows(func::FuncOp caller, func::FuncOp callee, ArrayRef<Attribute> patterns) {
+    if (!caller || origin(caller) != origin(callee))
+      return false;
+    ArrayAttr own = patternsOf(caller);
+    if (!own || own.size() != patterns.size())
+      return false;
+    bool strictly = false;
+    for (auto [before, after] : llvm::zip(own.getValue(), patterns)) {
+      if (before == after)
+        continue;
+      if (isHole(before) || isHole(after) || !within(before, after))
+        return false;
+      strictly = true;
+    }
+    return strictly;
+  }
+
+  // Whether argument `i` of `fn` is taken apart in its body: the scrutinee
+  // of a match, or a closure it applies.
+  static bool scrutinized(func::FuncOp fn, unsigned i) {
+    return llvm::any_of(fn.getArgument(i).getUses(), [](OpOperand &use) {
+      return use.getOperandNumber() == 0 &&
+             isa<idr::MatchOp, idr::MatchLitOp, idr::ApplyOp>(use.getOwner());
+    });
+  }
+
+  // In a clone's call of its own origin, a static argument that is not the
+  // clone's own pattern, and that the callee never takes apart, only varies
+  // (an accumulator): specializing on it would clone once per value, and
+  // gain nothing the callee could fold. It becomes a runtime value, as in
+  // the generalization of an offline partial evaluator. An argument the
+  // callee matches on (a counter, `ack`'s m) keeps its value.
+  void generalize(func::FuncOp caller, func::FuncOp callee, MutableArrayRef<Shape> shapes,
+                  ValueRange operands) {
+    if (!caller || origin(caller) != origin(callee))
+      return;
+    ArrayAttr own = patternsOf(caller);
+    if (!own || own.size() != shapes.size())
+      return;
+    for (unsigned i = 0; i < shapes.size(); ++i) {
+      Shape &s = shapes[i];
+      if (isHole(s.pattern) || s.pattern == own[i] || scrutinized(callee, i))
+        continue;
+      s.pattern = UnitAttr::get(module.getContext());
+      s.leaves.assign({operands[i]});
+    }
+  }
+
+  // The canonicalization patterns of every loaded dialect and op, as the
+  // canonicalize pass collects them.
+  const FrozenRewritePatternSet &canonicalization() {
+    if (!canon) {
+      MLIRContext *ctx = module.getContext();
+      RewritePatternSet set(ctx);
+      for (Dialect *dialect : ctx->getLoadedDialects())
+        dialect->getCanonicalizationPatterns(set);
+      for (RegisteredOperationName op : ctx->getRegisteredOperations())
+        op.getCanonicalizationPatterns(set, ctx);
+      canon.emplace(std::move(set));
+    }
+    return *canon;
   }
 
   // Whether the call now calls a clone.
   bool specialize(func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
-    if (!callee || callee.isExternal() || call->hasAttr(limitHit))
+    if (!callee || callee.isExternal() || call->hasAttr(stopped))
       return false;
     SmallVector<Shape> shapes = llvm::map_to_vector(call.getOperands(), [](Value v) {
       return shape(v);
     });
+    auto caller = call->getParentOfType<func::FuncOp>();
+    generalize(caller, callee, shapes, call.getOperands());
     bool isStatic = false, open = false;
     for (auto [s, operand] : llvm::zip(shapes, call.getOperands())) {
       isStatic |= !isHole(s.pattern);
@@ -313,12 +415,27 @@ struct Specializer {
                               ArrayAttr::get(module.getContext(), patterns));
     func::FuncOp clone = clones.lookup(key);
     if (!clone) {
+      if (grows(caller, callee, patterns)) {
+        stop(call, callee,
+             llvm::formatv("@{0} passes itself a static value that grows", origin(callee)).str());
+        return false;
+      }
       if (counts.lookup(origin(callee)) >= limit) {
-        stop(call, callee);
+        stop(call, callee,
+             llvm::formatv("the clone limit of {0} clones of @{1} is reached", limit,
+                           origin(callee))
+                 .str());
         return false;
       }
       clone = makeClone(callee, shapes, call.getOperands());
       clones[key] = clone;
+      std::string text;
+      llvm::raw_string_ostream os(text);
+      key.second.print(os);
+      clone->setAttr(keyAttr, StringAttr::get(module.getContext(), text));
+      // Folded now, so that the calls it makes are as static as they will
+      // be, and a chain of clones is made in one run, not one per round.
+      (void)applyPatternsGreedily(clone, canonicalization());
     }
 
     SmallVector<Value> operands;
@@ -336,43 +453,6 @@ struct Specializer {
     return true;
   }
 
-  // OPT-PIPE-3 (A5): every cycle of calls keeps a loop breaker. Clones can
-  // close new cycles: a call redirected to an earlier clone, or a chain of
-  // clones stopped by the limit at a call of its origin. The inliner refuses
-  // only self-recursion and a callee that calls its caller back
-  // (Inliner.cpp:709-715), so from outside such a cycle it would unroll it
-  // round after round. The newest clone of each cycle among functions that
-  // may be inlined becomes no_inline, until no such cycle is left.
-  void breakCycles() {
-    auto callees = [&](func::FuncOp fn) {
-      SmallVector<func::FuncOp> out;
-      fn.walk([&](func::CallOp call) {
-        if (auto callee = symbols.lookup<func::FuncOp>(call.getCallee()))
-          out.push_back(callee);
-      });
-      return out;
-    };
-    for (bool marked = true; marked;) {
-      marked = false;
-      SmallVector<func::FuncOp> inlinable;
-      for (auto fn : module.getOps<func::FuncOp>())
-        if (!fn.isExternal() && !fn.getNoInline())
-          inlinable.push_back(fn);
-      for (const SmallVector<func::FuncOp> &cycle :
-           idr::passes::stronglyConnected<func::FuncOp>(inlinable, callees)) {
-        func::FuncOp newest;
-        for (func::FuncOp fn : cycle)
-          if (cycle.size() > 1 && fn->hasAttr(originAttr) &&
-              (!newest || newest->isBeforeInBlock(fn)))
-            newest = fn;
-        if (!newest)
-          continue;
-        newest.setNoInline(true);
-        marked = true;
-      }
-    }
-  }
-
   void run() {
     loadCounts();
     llvm::append_range(work, module.getOps<func::FuncOp>());
@@ -383,8 +463,6 @@ struct Specializer {
         changed |= specialize(call);
     }
     storeCounts();
-    if (changed)
-      breakCycles();
   }
 };
 

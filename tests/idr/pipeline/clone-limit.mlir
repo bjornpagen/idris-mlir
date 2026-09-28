@@ -12,7 +12,7 @@
 // Note: idr-eval (the lowering package) is not in this branch yet, so the
 // round runs without it (skip-unregistered, which only tests set).
 // CHECK: module attributes {idr.clone_counts = {count = 8 : i64}, idr.program}
-// CHECK: call @count(%{{.*}}) {idr.clone_limit_hit}
+// CHECK: call @count(%{{.*}}) {idr.spec_stopped}
 // REMARK: remark: [Missed] idr-specialize | Category:idr-specialize
 // REMARK-SAME: specialization of @count stopped: the clone limit of 8 clones of @count is reached
 // REMARK-NOT: [Missed]

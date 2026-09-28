@@ -65,8 +65,8 @@ module attributes {idr.program} {
 
 // -----
 
-// A closure that grows while the clone limit stopped its callee.
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped at the clone limit
+// A closure that grows while the specialization of its callee stopped.
+// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @twice(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
@@ -74,7 +74,7 @@ module attributes {idr.program} {
     %z = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
     return %z : i64
   }
-  func.func private @iter(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.clone_limit_hit} {
+  func.func private @iter(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.spec_stopped} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
@@ -84,7 +84,7 @@ module attributes {idr.program} {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %g = idr.closure @twice(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)> loc("Main.idr":8:3)
-      %y = func.call @iter(%g, %m, %x) {idr.clone_limit_hit} : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+      %y = func.call @iter(%g, %m, %x) {idr.spec_stopped} : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
       idr.yield %y : i64
     }
     }

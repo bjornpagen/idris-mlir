@@ -1,4 +1,4 @@
--- expect: PROF-HEAP-2 line 13
+-- expect: PROF-HEAP-2 line 16
 module Main
 
 import Prelude

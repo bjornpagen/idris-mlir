@@ -5,7 +5,7 @@
 //     idr-defunctionalize could not turn into a sum);
 //   - PROF-HEAP-2: the same for a closure of no arguments (Lazy, Inf);
 //   - PROF-HEAP-4: such a closure that flows into a function whose
-//     specialization the clone limit stopped (idr.clone_limit_hit);
+//     specialization that stopped (idr.spec_stopped);
 //   - PROF-HEAP-3: a string built at runtime that is passed on or stored
 //     instead of being written or used to build another string;
 //   - PROF-PRIM-4: a string primitive other than output applied to a string
@@ -76,7 +76,7 @@ struct Checker {
   }
 
   // PROF-HEAP-4: whether the closure built by `closure` reaches a call of a
-  // function the clone limit stopped, through calls, returns, matches and
+  // function whose specialization stopped, through calls, returns, matches and
   // the values it is stored in.
   std::optional<StringRef> reachesStoppedCallee(Operation *closure) {
     SmallVector<Value> work{closure->getResult(0)};
@@ -91,7 +91,7 @@ struct Checker {
           func::FuncOp fn = callee(call);
           if (!fn || fn.isExternal())
             continue;
-          if (fn->hasAttr("idr.clone_limit_hit"))
+          if (fn->hasAttr("idr.spec_stopped"))
             return fn.getSymName();
           work.push_back(fn.getArgument(use.getOperandNumber()));
         } else if (isa<func::ReturnOp>(user)) {
@@ -115,7 +115,7 @@ struct Checker {
   std::optional<StringRef> stoppedAt(Operation *closure) {
     auto fn = closure->getParentOfType<func::FuncOp>();
     std::optional<StringRef> stopped;
-    if (fn && fn->hasAttr("idr.clone_limit_hit"))
+    if (fn && fn->hasAttr("idr.spec_stopped"))
       stopped = fn.getSymName();
     else
       stopped = reachesStoppedCallee(closure);
@@ -133,7 +133,7 @@ struct Checker {
     if (std::optional<StringRef> stopped = stoppedAt(op))
       return Violation{"PROF-HEAP-4",
                        ("function value grows: a closure of @" + label + " is built in or passed to @" +
-                        *stopped + ", whose specialization stopped at the clone limit")
+                        *stopped + ", whose specialization stopped")
                            .str()};
     if (cast<idr::FnType>(op.getType()).getInputs().empty())
       return Violation{"PROF-HEAP-2",

@@ -27,14 +27,11 @@ using namespace idr;
 
 namespace {
 
-// IDR-IF-1: every idr op may be inlined anywhere, except the crash that ends
-// a function's body: the inliner would have to handle the ub.unreachable
-// after it, which it cannot (DialectInlinerInterface.td, handleTerminator).
+// IDR-IF-1: every idr op may be inlined anywhere. (No function body ends in
+// ub.unreachable, which the inliner cannot handle: IDR-CRASH-1.)
 struct IdrInliner : DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
-  bool isLegalToInline(Operation *op, Region *, bool, IRMapping &) const final {
-    return !isa<CrashOp>(op) || !isa<FunctionOpInterface>(op->getParentOp());
-  }
+  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }
   bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final {
     return true;
   }
@@ -402,8 +399,8 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
     return success();
   }
   // What idr-specialize keeps between runs (lib/Passes/Specialize.cc): the
-  // clones made of each origin, a clone's origin, and the calls and callees
-  // the clone limit stopped.
+  // clones made of each origin, a clone's origin and patterns, and the calls
+  // and callees whose specialization stopped.
   if (key == "idr.clone_counts") {
     auto counts = dyn_cast<DictionaryAttr>(attr.getValue());
     if (!isa<ModuleOp>(op) || !counts ||
@@ -413,14 +410,14 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.clone_counts as a dictionary of counts on the module");
     return success();
   }
-  if (key == "idr.origin") {
+  if (key == "idr.origin" || key == "idr.spec_key") {
     if (!isa<func::FuncOp>(op) || !isa<StringAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.origin as a string attribute of a function");
+      return op->emitOpError("expects ") << key << " as a string attribute of a function";
     return success();
   }
-  if (key == "idr.clone_limit_hit") {
+  if (key == "idr.spec_stopped") {
     if (!isa<func::FuncOp, func::CallOp>(op) || !isa<UnitAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.clone_limit_hit as a unit attribute of a function or call");
+      return op->emitOpError("expects idr.spec_stopped as a unit attribute of a function or call");
     return success();
   }
   return op->emitOpError("has an unknown idr attribute ") << attr.getName();

@@ -65,6 +65,18 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
 // The optimization passes (docs/cutover.md 6.3; lib/Passes/)
 //===----------------------------------------------------------------------===//
 
+def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {
+  let summary = "Keep a loop breaker in every cycle of references (OPT-PIPE-3)";
+  let description = [{
+    A function refers to what it calls and to the functions its closures and
+    closure constants name. In every cycle of such references among the
+    functions that may be inlined, one becomes `no_inline`: the newest
+    clone, or else the first function in module order that is not from a
+    library. The first step of every round of `idr-simplify`, so that the
+    inliner never unrolls a cycle the previous round closed.
+  }];
+}
+
 def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
   let summary = "Clone callees for calls with constant-like arguments (ELIM-SPEC-1)";
   let description = [{
@@ -74,7 +86,7 @@ def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
     shared by (callee, pattern) and named `@<origin>$spec$<n>` in the order
     they are first requested. A closed call is left to `idr-eval`. The only
     bound is `clone-limit` clones per original callee; a call it stops gets a
-    `Missed` remark, and its callee the attribute `idr.clone_limit_hit`.
+    `Missed` remark, and its callee the attribute `idr.spec_stopped`.
   }];
   let options = [
     Option<"cloneLimit", "clone-limit", "unsigned", "4096",
@@ -106,6 +118,17 @@ def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
                            "::mlir::arith::ArithDialect"];
 }
 
+def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
+  let summary = "Empty the code dead-code analysis proves unreachable (OPT-PIPE-5)";
+  let description = [{
+    Runs right before `remove-dead-values`, with the analyses it runs: a
+    match region they never reach ends in `ub.unreachable`, and a function
+    they never reach returns `ub.poison`. At the pin, `remove-dead-values`
+    crashes on such code (`PINS.md`: `prune-before-remove-dead-values`).
+  }];
+  let dependentDialects = ["::mlir::ub::UBDialect"];
+}
+
 def IdrCheckProfile : Pass<"idr-check-profile", "::mlir::ModuleOp"> {
   let summary = "Reject what would allocate at runtime (PROF-HEAP-*, PROF-DATA-3, PROF-PRIM-4, PROF-TYPE-4)";
   let description = [{
@@ -117,9 +140,10 @@ def IdrCheckProfile : Pass<"idr-check-profile", "::mlir::ModuleOp"> {
 def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing (OPT-PIPE-5)";
   let description = [{
-    Runs idr-effects, inline, idr-specialize, sccp, canonicalize, cse,
-    idr-eval, remove-dead-values and symbol-dce, again and again, until a
-    round leaves the module unchanged, up to where constants are.
+    Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
+    canonicalize, cse, idr-eval, idr-prune, remove-dead-values and
+    symbol-dce, again and again, until a round leaves the module unchanged,
+    up to where constants are.
   }];
   let options = [
     Option<"inlineIterations", "inline-iterations", "unsigned", "4",

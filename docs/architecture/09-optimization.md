@@ -169,7 +169,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
   3. `idr-specialize` (`ELIM-SPEC-1`)
   4. `sccp`, `canonicalize`, `cse`
   5. `idr-eval` (`ELIM-EVAL-1`)
-  6. `symbol-dce`, then `remove-dead-values`
+  6. `idr-prune`, `remove-dead-values`, `symbol-dce`
 
   The inliner's values:
   - **No threshold** (`inlining-threshold` unlimited, upstream's default):
@@ -180,14 +180,16 @@ Superoptimization, equality saturation and search are non-goals (D7).
     It bounds how often the inliner re-simplifies an SCC in one round; the
     loop repeats the round anyway, so `K` changes compile time, never
     whether a program compiles.
-  - `symbol-dce` runs before `remove-dead-values`, which at the pin
-    crashes on a private function without callers
-    (`PINS.md`: `symbol-dce-first`).
+  - `idr-prune` runs right before `remove-dead-values`, which at the pin
+    crashes on code that dead-code analysis proves unreachable but nothing
+    has removed yet. With the same analyses, it ends each such match region
+    in `ub.unreachable` and makes each such function return `ub.poison`
+    (`PINS.md`: `prune-before-remove-dead-values`).
 
   *Why the loop terminates.* Inlining never goes around a cycle, because
   loop breakers cut every cycle of the call graph (`OPT-PIPE-3`), and
   clones inherit `no_inline`. Specialization is bounded by the clone limit
-  (`ELIM-SPEC-2`). Every evaluation terminates (`SEM-EVAL-6`) and replaces
+  and by the growth stop (`ELIM-SPEC-2`). Every evaluation terminates (`SEM-EVAL-6`) and replaces
   a call by constants, and there are finitely many calls to evaluate once
   inlining and specialization are bounded. The other passes only shrink the
   module. So after finitely many rounds nothing changes.
@@ -205,7 +207,7 @@ pipeline; each workaround has a `PINS.md` entry:
 
 | Limitation | Where | What we do |
 | --- | --- | --- |
-| The inliner's default `handleTerminator` cannot inline a callee whose body ends in `ub.unreachable` | `DialectInlinerInterface.td` | the dialect never inlines a function whose body is a top-level `idr.crash` (`IDR-IF-1`; `inline-unreachable`) |
-| `remove-dead-values` erases the arguments of a private function without callers but keeps the region ops that use them, then crashes | `RemoveDeadValues.cpp:649`, `:833` | `symbol-dce` runs first (`symbol-dce-first`) |
+| The inliner's default `handleTerminator` cannot inline a callee whose body ends in `ub.unreachable`, and the `ub` dialect does not implement it | `DialectInlinerInterface.td` | no function body ends in `ub.unreachable`: one that never returns returns `ub.poison` (`IDR-CRASH-1`; `inline-unreachable`) |
+| `remove-dead-values` erases the arguments of a function that dead-code analysis never reaches but keeps the ops that use them, then crashes | `RemoveDeadValues.cpp:649`, `:833` | `idr-prune` empties unreachable code first (`prune-before-remove-dead-values`) |
 | upstream region inlining (`populateRegionBranchOpInterfaceInliningPattern`) skips a region that ends in `ub.unreachable` | the region patterns | none: a match whose taken region crashes stays a match, and `idr-lower` lowers it |
 | `mlir::ExecutionEngine` aborts in a static-musl process, creating its process-symbol generator | `ExecutionEngine.cpp:393-395` | `idr-eval` uses ORC's `LLJIT` directly, with an absolute-symbol table (`orc-lljit`) |

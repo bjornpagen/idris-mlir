@@ -8,7 +8,7 @@
 // time the profile is checked: PROF-HEAP-4.
 // Note: idr-eval (the lowering package) is not in this branch yet, so the
 // round runs without it (skip-unregistered, which only tests set).
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @Main.after is built in or passed to @Main.iter, whose specialization stopped at the clone limit
+// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @Main.after is built in or passed to @Main.iter, whose specialization stopped
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

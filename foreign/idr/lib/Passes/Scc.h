@@ -1,6 +1,6 @@
 // Strongly connected components (Tarjan), for the passes that must find the
 // cycles of a graph: idr-defunctionalize (closure types that contain
-// themselves) and idr-specialize (cycles of calls among clones).
+// themselves) and idr-loop-breakers (cycles of references among functions).
 #pragma once
 
 #include "llvm/ADT/DenseMap.h"
