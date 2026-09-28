@@ -94,10 +94,6 @@ const idris_rt_str *rt::stringOf(const char *p, size_t n) {
   return s;
 }
 
-extern "C" bool idris_rt_utf8_valid(const char *p, size_t n) {
-  return implementation().validate_utf8(p, n);
-}
-
 extern "C" size_t idris_rt_utf8_count(const char *p, size_t n) {
   return implementation().count_utf8(p, n);
 }

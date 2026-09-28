@@ -287,34 +287,6 @@ primArgs (FromBig _) = [BigT]
 primArgs BigShow = [BigT]
 primArgs BigRead = [StrT]
 
-||| The result type of a primitive. Comparisons return an `Int`, 0 or 1.
-public export
-primResult : Prim -> Ty
-primResult (IntOp _ t) = IntT t
-primResult (FloatOp _) = DoubleT
-primResult Negate = DoubleT
-primResult (Math _) = DoubleT
-primResult (Compare _ _) = IntT IdrisInt
-primResult (Cast _ b) = scalarTy b
-primResult StrLength = IntT IdrisInt
-primResult StrHead = CharT
-primResult StrIndex = CharT
-primResult (StrCompare _) = IntT IdrisInt
-primResult (FromStr s) = scalarTy s
-primResult StrAppend = StrT
-primResult StrCons = StrT
-primResult StrTail = StrT
-primResult StrReverse = StrT
-primResult StrSubstr = StrT
-primResult (ToStr _) = StrT
-primResult (BigArith _) = BigT
-primResult BigNegate = BigT
-primResult (BigCompare _) = IntT IdrisInt
-primResult (ToBig _) = BigT
-primResult (FromBig s) = scalarTy s
-primResult BigShow = StrT
-primResult BigRead = BigT
-
 ------------------------------------------------------------------------------
 -- IO
 ------------------------------------------------------------------------------
