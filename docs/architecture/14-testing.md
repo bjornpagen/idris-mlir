@@ -25,6 +25,18 @@ the reason, and never counted as passed.
   and exits non-zero if any test failed. A command whose pinned toolchain is
   missing or stale refuses to run and names the bootstrap step to run
   (`TC-PIN-2`); nothing is skipped silently.
+- **TEST-TIME-1 (v3). No test can hang.** Every command a test runs (a
+  compilation, a program, Chez, a dialect test's `RUN` stage, a tool of the
+  native pipeline, `FileCheck`) is killed, with every process it started,
+  after 60 seconds, and a test's whole `run` script after 300 seconds, or
+  the larger limit its script sets (the equivalence, fuzz and two-level
+  tests, which compile dozens of programs). A command that timed out exits
+  124 and says so; a test that timed out prints so, which no `expected`
+  holds, so it fails and the suite goes on. `make ... time_scale=N`
+  multiplies every limit. `make bench` bounds each build and run the same
+  way (300 seconds). A limit only ends a test; it never passes one, and
+  compile time gates nothing else (`tests/compile-times.sh` reports it).
+  - Test: `tests/spec/timeouts`
 
 ## Oracles
 

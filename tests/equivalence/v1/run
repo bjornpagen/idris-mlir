@@ -3,5 +3,7 @@
 # Every fixture of tests/e2e/v1, compiled with evaluation and
 # with --no-eval: the same stdout and exit status (TEST-EQUIV-1).
 # A fixture that only compiles with evaluation is listed with its rule.
+# Dozens of compilations: half an hour in all (TEST-TIME-1).
+test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 equivalence v1

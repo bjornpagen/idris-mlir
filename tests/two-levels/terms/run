@@ -3,5 +3,7 @@
 # The two levels (tests/TwoLevels.idr): every primitive, and a corpus of
 # total Prelude functions, on closed terms normalised by the pinned Idris's
 # own evaluator and computed by the compiled program (TEST-LEVELS-1).
+# Dozens of compilations: half an hour in all (TEST-TIME-1).
+test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 two_levels primitives prelude

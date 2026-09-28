@@ -139,13 +139,23 @@ bool feeds(Value value, Operation *consumer) {
          isa<PutStrOp, StrHeadOp>(consumer);
 }
 
+// Whether moving `op` cannot be observed: it has no effects, or it only
+// allocates (a string or a big it builds), which nothing can see.
+bool movable(Operation *op) {
+  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
+  return effects && llvm::all_of(*effects, [](const MemoryEffects::EffectInstance &effect) {
+           return isa<MemoryEffects::Allocate>(effect.getEffect());
+         });
+}
+
 // IDR-MATCH-5, case-of-case: the single consumer of a result of a match,
 // another match included, moves into every region that yields, when in at
 // least one of them it then meets a value it folds or canonicalizes against.
-// The consumer moves past no op with effects, and still runs exactly once on
-// every path (OPT-SAFE-1). When it cannot move up to the match, a match free
-// of effects moves down to it instead, past the ops between them: a value
-// computed without effects may be computed later.
+// The consumer moves past no op with effects (an allocation aside), and still
+// runs exactly once on every path (OPT-SAFE-1). When it cannot move up to the
+// match, a match whose only effects are allocations moves down to it
+// instead, past the ops between them: a value computed without effects may
+// be computed later.
 template <typename Match>
 struct SinkConsumer : OpRewritePattern<Match> {
   using OpRewritePattern<Match>::OpRewritePattern;
@@ -182,7 +192,7 @@ private:
 
   // Whether `consumer` can move up to the match: its other operands, and the
   // values its regions use from outside, are the match's results or exist
-  // before the match, and no op between them has effects.
+  // before the match, and no op between them has effects but allocation.
   static bool canRaise(Match op, Operation *consumer) {
     Block *block = op->getBlock();
     auto before = [&](Value value) {
@@ -199,16 +209,16 @@ private:
       return false;
     for (Operation *between = op->getNextNode(); between != consumer;
          between = between->getNextNode())
-      if (!isMemoryEffectFree(between))
+      if (!movable(between))
         return false;
     return true;
   }
 
-  // Whether the match can move down to `consumer`: it has no effects, and
-  // nothing between them uses its results. Its operands and the values its
+  // Whether the match can move down to `consumer`: it has no effects but
+  // allocation, and nothing between them uses its results. Its operands and the values its
   // regions use exist before it, so they exist before the consumer too.
   static bool canLower(Match op, Operation *consumer) {
-    if (!isMemoryEffectFree(op))
+    if (!movable(op))
       return false;
     return llvm::all_of(op->getUsers(), [&](Operation *user) {
       Operation *at = op->getBlock()->findAncestorOpInBlock(*user);

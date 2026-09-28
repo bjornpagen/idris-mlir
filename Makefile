@@ -17,8 +17,10 @@
 #
 # The test commands run tests/Main.idr, a golden runner on Test.Golden. They
 # take only='NAME...' and except='NAME...' (substrings of test paths such as
-# e2e/v1/hello), threads=N (default: the number of CPUs) and
-# INTERACTIVE=--interactive (offer to accept new output). Each ends with the
+# e2e/v1/hello), threads=N (default: the number of CPUs),
+# INTERACTIVE=--interactive (offer to accept new output) and time_scale=N
+# (multiplies every timeout, TEST-TIME-1: each command a test runs gets 60 s
+# and each test 300 s, or what its run script sets). Each ends with the
 # number of tests that passed and the list of those that failed, and fails
 # if any did.
 
@@ -50,6 +52,8 @@ threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null 
 only ?=
 except ?=
 INTERACTIVE ?=
+time_scale ?= 1
+export IDRIS_MLIR_TIME_SCALE := $(time_scale)
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
 
 .PHONY: help bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \

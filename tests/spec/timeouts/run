@@ -1,0 +1,17 @@
+#!/bin/sh
+# rule: TEST-TIME-1
+# A command that never ends is killed after the step limit and exits 124,
+# and a run script that never ends is killed after the test limit and says
+# so: the harness itself, with small limits (the scale fixed at 1, so the
+# output does not depend on make's time_scale).
+IDRIS_MLIR_TIME_SCALE=1
+step_limit=1
+test_limit=4
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+bounded sleep 30 2> "$work/step.err"
+say "a command that hangs: exit $?"
+grep -q 'timed out after 1s (TEST-TIME-1): sleep' "$work/step.err" && say "it says it timed out"
+bounded true
+say "a command that ends: exit $?"
+sleep 30
+say "not reached: the script outlived its limit"

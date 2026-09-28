@@ -1,0 +1,4 @@
+a command that hangs: exit 124
+it says it timed out
+a command that ends: exit 0
+test: timed out after 4s (TEST-TIME-1)

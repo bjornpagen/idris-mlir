@@ -11,7 +11,8 @@
 # MLton is looked up in .toolchain/mlton (the Debian package, unpacked there
 # with dpkg -x) and then on PATH; a missing compiler is reported and skipped.
 # Times come from GNU date's nanoseconds. The Idris environment is the
-# Makefile's.
+# Makefile's. Every build and run is killed after 300 seconds times
+# IDRIS_MLIR_TIME_SCALE (TEST-TIME-1), and a benchmark that times out fails.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -37,6 +38,19 @@ all='nbody mandelbrot fib tak collatz ack ackdyn harmonic'
 die() {
   echo "$*" >&2
   exit 1
+}
+
+command -v timeout > /dev/null 2>&1 || die "no timeout command, so a benchmark could hang (TEST-TIME-1)"
+limit=$(( 300 * ${IDRIS_MLIR_TIME_SCALE:-1} ))
+
+# bounded CMD...: CMD, killed after $limit seconds; a timeout exits 124.
+bounded() {
+  timeout -k 5 "$limit" "$@"
+  bounded_status=$?
+  case $bounded_status in
+    124 | 137) echo "timed out after ${limit}s: ${1##*/}" >&2; return 124 ;;
+  esac
+  return "$bounded_status"
 }
 
 runs=5
@@ -79,25 +93,25 @@ build() {
     'this compiler')
       idris_sources "$work/ours"
       compile_start=$(date +%s%N)
-      "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
+      bounded "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
       # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
       echo "$name|$(( $(date +%s%N) - compile_start ))" >> "$compiles"
       ;;
     'Idris Chez')
       idris_sources "$work/chez"
-      (cd "$work/chez" && "$idris2" --no-banner --no-color --no-prelude --cg chez -o prog Main.idr) \
+      (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude --cg chez -o prog Main.idr) \
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     MLton)
       if [ -z "$mlton" ]; then missing=yes; return; fi
       cat "$bench/sml/common.sml" "$bench/sml/$name.sml" > "$work/$name.sml"
       # Idris's Int is 64 bits; MLton's default int is 32.
-      "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
+      bounded "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
         > "$work/build.log" 2>&1 && cmd=$work/$name-mlton
       ;;
     'clang -O2')
-      "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" > "$work/build.log" 2>&1 &&
+      bounded "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac
@@ -114,7 +128,7 @@ timed() {
   run=0
   while [ "$run" -lt "$runs" ]; do
     start=$(date +%s%N)
-    "$1" < "$work/stdin" > "$2" 2> "$work/stderr"
+    bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr"
     status=$?
     end=$(date +%s%N)
     [ "$status" -eq 0 ] || die "$1 exited $status: $(cat "$work/stderr")"

@@ -18,6 +18,31 @@
 
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
+
+# rule: TEST-TIME-1
+# No test can hang. Every command a test runs is bounded (`bounded`, below)
+# by step_limit seconds, and the whole run script by test_limit seconds: the
+# first time this file is sourced, it runs the script again under `timeout`
+# and, if the script is killed, prints that it timed out, which no expected
+# output holds, so the test fails. A run script that does many compilations
+# (equivalence, fuzz, two levels) sets a larger test_limit before sourcing
+# this file. IDRIS_MLIR_TIME_SCALE (make's time_scale) multiplies both, for a
+# slower machine; a limit never passes a test, it only ends one.
+if ! command -v timeout > /dev/null 2>&1; then
+  printf '%s\n' "test: no timeout command, so the test could hang (TEST-TIME-1)"
+  exit 1
+fi
+time_scale=${IDRIS_MLIR_TIME_SCALE:-1}
+step_limit=$(( ${step_limit:-60} * time_scale ))
+test_limit=$(( ${test_limit:-300} * time_scale ))
+if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
+  IDRIS_MLIR_TEST_DEADLINE=$test_limit timeout -k 10 "$test_limit" sh "$0" "$@"
+  deadline_status=$?
+  case $deadline_status in
+    124 | 137) printf '%s\n' "test: timed out after ${test_limit}s (TEST-TIME-1)" ;;
+  esac
+  exit "$deadline_status"
+fi
 # The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
 # and $idris2, stock Idris 2, the reference implementation (SEM-REF-1).
 . "$root/tools/toolchain.sh"
@@ -29,8 +54,19 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# Commands under test time out after ten minutes, as they always have.
-if command -v timeout > /dev/null 2>&1; then bounded='timeout 600'; else bounded=; fi
+# bounded CMD...: CMD, killed with everything it started after step_limit
+# seconds (TEST-TIME-1). A command that timed out exits 124 and says so on
+# stderr, which the caller shows with the rest of its output.
+bounded() {
+  timeout -k 5 "$step_limit" "$@"
+  bounded_status=$?
+  case $bounded_status in
+    124 | 137)
+      printf '%s\n' "timed out after ${step_limit}s (TEST-TIME-1): ${1##*/}" >&2
+      return 124 ;;
+  esac
+  return "$bounded_status"
+}
 
 # say TEXT...: one line of the test's output, printed as is.
 say() {
@@ -139,7 +175,7 @@ record_time() {
 # status in $compiled; its wall time goes to the timing record.
 compile_program() {
   compile_started=$(now_ms)
-  IDRIS_MLIR=$idris_mlir "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
+  bounded env "IDRIS_MLIR=$idris_mlir" "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
   compiled=$?
   record_time "$(( $(now_ms) - compile_started ))" "$@"
 }
@@ -178,9 +214,9 @@ no_artifacts() {
 # $ran. With `small`, on a 1 MiB stack (SEM-RES-2).
 run_program() {
   if [ "${4-}" = small ]; then
-    ( ulimit -s 1024 && exec $bounded "$2" ) < "$3" > "$work/$1.out" 2> "$work/$1.err"
+    ( ulimit -s 1024 && bounded "$2" ) < "$3" > "$work/$1.out" 2> "$work/$1.err"
   else
-    $bounded "$2" < "$3" > "$work/$1.out" 2> "$work/$1.err"
+    bounded "$2" < "$3" > "$work/$1.out" 2> "$work/$1.err"
   fi
   ran=$?
 }
@@ -230,7 +266,7 @@ filecheck() {
   filecheck_options=$(sed -n 's|^[[:space:]]*//[[:space:]]*FILECHECK-OPTIONS:[[:space:]]*||p' "$1" | tr '\n' ' ')
   set -f
   # shellcheck disable=SC2086 # the options are words
-  "$llvm_bin/FileCheck" "$1" --input-file="$2" $filecheck_options > "$work/filecheck.log" 2>&1
+  bounded "$llvm_bin/FileCheck" "$1" --input-file="$2" $filecheck_options > "$work/filecheck.log" 2>&1
   filecheck_status=$?
   set +f
   if [ "$filecheck_status" -eq 0 ]; then
@@ -296,7 +332,7 @@ check_mlir() {
 check_oracle() {
   mkdir "$work/oracle"
   copy_fixture "$1" "$work/oracle"
-  (cd "$work/oracle" && $bounded "$idris2" --no-banner --no-color --no-prelude --check Oracle.idr) > "$work/oracle.log" 2>&1
+  (cd "$work/oracle" && bounded "$idris2" --no-banner --no-color --no-prelude --check Oracle.idr) > "$work/oracle.log" 2>&1
   check_oracle_status=$?
   if [ "$check_oracle_status" -eq 0 ]; then
     say "oracle: stock idris2 checks Oracle.idr"
@@ -466,7 +502,7 @@ e2e_io() {
   # input.
   mkdir "$work/chez"
   copy_fixture "$io_fixture" "$work/chez"
-  (cd "$work/chez" && $bounded "$idris2" --no-banner --no-color --no-prelude $io_packages \
+  (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude $io_packages \
      --cg chez -o prog Main.idr) > "$work/chez.log" 2>&1
   io_chez_built=$?
   say "chez: compile exit $io_chez_built"
@@ -737,17 +773,26 @@ sed_escape() {
 # lit_stage CMD...: one command of a RUN line's pipeline; its failure fails
 # the line, as lit's pipefail does.
 lit_stage() {
-  "$@"
+  lit_run "$@"
   lit_stage_status=$?
   [ "$lit_stage_status" -eq 0 ] || say "$1 exited $lit_stage_status" >> "$work/lit.failed"
   return "$lit_stage_status"
+}
+
+# lit_run CMD...: a command of a RUN line; an executable is bounded
+# (TEST-TIME-1), a shell builtin or function is not, since it cannot hang.
+lit_run() {
+  case $(command -v "$1") in
+    /*) bounded "$@" ;;
+    *) "$@" ;;
+  esac
 }
 
 # lit_status N CMD... (`%status N CMD`): CMD exits with exactly status N.
 lit_status() {
   lit_expected_status=$1
   shift
-  "$@"
+  lit_run "$@"
   lit_got_status=$?
   [ "$lit_got_status" -eq "$lit_expected_status" ] && return 0
   say "$1 exited $lit_got_status, expected $lit_expected_status" >&2
@@ -803,7 +848,7 @@ lit() {
 native_step() {
   native_name=$1
   shift
-  "$@" > "$work/native.log" 2>&1
+  bounded "$@" > "$work/native.log" 2>&1
   native_status=$?
   say "$native_name: exit $native_status"
   [ "$native_status" -eq 0 ] && return 0
@@ -1012,7 +1057,7 @@ fuzz() {
           eval) compile_program --io "$fuzz_dir/eval/Main.idr" prog ;;
           noeval) compile_program --io --directive no-eval "$fuzz_dir/noeval/Main.idr" prog ;;
           chez)
-            (cd "$fuzz_dir/chez" && $bounded "$idris2" --no-banner --no-color --no-prelude \
+            (cd "$fuzz_dir/chez" && bounded "$idris2" --no-banner --no-color --no-prelude \
                --cg chez -o prog Main.idr) > "$work/compile.out" 2> "$work/compile.err"
             compiled=$?
             ;;
@@ -1071,7 +1116,7 @@ fuzz_report() {
 # (`-- idris-differs:`), all of which are listed; and Chez prints what the
 # lower level prints, the host-dependent terms aside.
 two_levels() {
-  (cd "$root/tests/twolevels" && $bounded "$idris2" --no-banner --no-color \
+  (cd "$root/tests/twolevels" && bounded "$idris2" --no-banner --no-color \
      --build-dir "$work/twolevels-build" --build twolevels.ipkg) > "$work/twolevels.log" 2>&1
   tl_built=$?
   tl_helper=$work/twolevels-build/exec/twolevels
@@ -1091,7 +1136,7 @@ two_levels() {
           continue 2
         }
     done
-    (cd "$tl_dir/upper" && $bounded "$tl_helper" --no-banner --no-color --no-prelude --cg twolevels \
+    (cd "$tl_dir/upper" && bounded "$tl_helper" --no-banner --no-color --no-prelude --cg twolevels \
        -o unused Main.idr) > "$work/upper.out" 2> "$work/upper.err"
     say "$tl_corpus: Idris's evaluator: exit $?"
     [ -s "$work/upper.err" ] && show "$work/upper.err"
@@ -1104,7 +1149,7 @@ two_levels() {
     run_program lower "$tl_dir/lower/build/exec/prog" /dev/null
     say "$tl_corpus: run: exit $ran"
     empty "$tl_corpus: stderr" "$work/lower.err"
-    (cd "$tl_dir/chez" && $bounded "$idris2" --no-banner --no-color --no-prelude --cg chez \
+    (cd "$tl_dir/chez" && bounded "$idris2" --no-banner --no-color --no-prelude --cg chez \
        -o prog Main.idr) > "$work/chez.log" 2>&1
     say "$tl_corpus: chez: compile exit $?"
     run_program chez "$tl_dir/chez/build/exec/prog" /dev/null

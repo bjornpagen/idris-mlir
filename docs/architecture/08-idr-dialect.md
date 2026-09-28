@@ -351,8 +351,8 @@ default { ... }
     merge; and case-of-case moves a result's single consumer into every
     region when in one of them it meets a value it folds or canonicalizes
     against, moving nothing past an effect: the consumer moves up to the
-    match across ops free of effects, or a match free of effects moves
-    down to the consumer.
+    match across ops with no effect but allocation, or a match with no
+    effect but allocation moves down to the consumer.
   - Test: `tests/idr/verify/match.mlir`, `tests/idr/verify/generic.mlir`,
     `tests/idr/canon/match-*.mlir`, `tests/idr/canon/case-of-case.mlir`
 - **IDR-MATCH-6 (v3).** `idr.match_lit %n : T -> (R...) { case <key>

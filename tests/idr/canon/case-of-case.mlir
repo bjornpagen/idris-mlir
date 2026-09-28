@@ -208,13 +208,20 @@ func.func @match_of_match(%c: i64) -> i64 {
   return %r : i64
 }
 
-// A consumer whose region uses a value made after the match cannot move
-// into the match, where that value does not exist yet.
+// A consumer whose region uses a value made after the match cannot move up
+// into the match, where that value does not exist yet; the match, free of
+// effects, moves down to it instead, and there the consumer meets each
+// constructor: one match is left, of the literal.
 // CHECK-LABEL: func.func @uses_later(
-// CHECK: idr.match_lit
-// CHECK: %[[K:.*]] = arith.muli
-// CHECK: idr.match %{{.*}} : !idr.data<@Maybe> -> (i64) {
-// CHECK: idr.yield %[[K]] : i64
+// CHECK-SAME: %[[C:.*]]: i64)
+// CHECK: %[[K:.*]] = arith.muli %[[C]], %[[C]]
+// CHECK-NEXT: %[[R:.*]] = idr.match_lit %[[C]] : i64 -> (i64) {
+// CHECK-NEXT: case 0 {
+// CHECK-NEXT: idr.yield %{{.*}} : i64
+// CHECK: default {
+// CHECK-NEXT: idr.yield %[[K]] : i64
+// CHECK-NOT: idr.match
+// CHECK: return %[[R]]
 func.func @uses_later(%c: i64) -> i64 {
   %one = arith.constant 1 : i64
   %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {

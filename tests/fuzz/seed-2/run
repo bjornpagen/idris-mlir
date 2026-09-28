@@ -4,5 +4,7 @@
 # primitive, compiled with evaluation, with --no-eval and by Chez, which must
 # agree (TEST-FUZZ-1). IDRIS_MLIR_FUZZ_CASES and
 # IDRIS_MLIR_FUZZ_ROUNDS make it larger; the output stays the same.
+# Dozens of compilations: half an hour in all (TEST-TIME-1).
+test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 fuzz 2
