@@ -628,6 +628,9 @@ ParseResult MatchLitOp::parse(OpAsmParser &parser, OperationState &result) {
         return failure();
       return Attribute(parser.getBuilder().getStringAttr(bytes));
     }
+    if (!isa<BigType>(type))
+      return parser.emitError(parser.getCurrentLocation(), "a literal match on ")
+             << type << " has no keys";
     BigAttr big;
     if (parser.parseAttribute(big))
       return failure();
