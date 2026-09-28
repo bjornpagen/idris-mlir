@@ -1,7 +1,7 @@
 module Main
 
--- rule: ELIM-G-19, ELIM-G-7
--- Functions that build and return strings are unfolded where they are
+-- rule: OPT-PIPE-5, ELIM-G-7
+-- Functions that build and return strings are inlined where they are
 -- called, so their strings are still written straight to the output.
 
 import Builtin

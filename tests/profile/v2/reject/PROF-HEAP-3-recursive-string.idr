@@ -1,12 +1,12 @@
 -- expect: PROF-HEAP-3 line 10
--- rule: ELIM-G-19
+-- rule: ELIM-G-7, OPT-PIPE-5
 module Main
 
 import Prelude
 
--- A string function is unfolded where it is called (ELIM-G-19), but its
--- recursive call is specialized, and the string that call returns is built
--- at runtime: it would need the heap.
+-- A string function is inlined where it is called, but not into its own
+-- recursive call (OPT-PIPE-5), and the string that call returns is built at
+-- runtime, out of output fusion's reach (ELIM-G-7): it would need the heap.
 digits : Int -> String
 digits n = case prim__lt_Int n 10 of
   0 => prim__strAppend (digits (prim__div_Int n 10)) (prim__cast_IntString (prim__mod_Int n 10))

@@ -1,6 +1,6 @@
 module Main
 
--- rule: ELIM-G-20, ELIM-G-15, IDR-DBL-3, LOW-DBL-4
+-- rule: ELIM-G-7, ELIM-G-15, IDR-DBL-3, LOW-DBL-4
 -- The Prelude's show for constructors, which parenthesizes a number that
 -- starts with '-': the first character of a number shown at runtime is its
 -- sign or its leading digit. Checked directly with strHead across sizes and

@@ -2,8 +2,12 @@ module Main
 
 import Prelude
 
--- countdown returns an action; raised, it takes the world and loops. The
--- count comes from stdin, so the loop is not unrolled (ELIM-G-19).
+-- countdown returns an action. ELIM-G-5 (arity raising) is withdrawn at the
+-- cutover (docs/cutover.md A1): inlining, apply of a known closure
+-- (ELIM-G-1) and defunctionalization (ELIM-CLOS-1) remove the action's
+-- closures instead, and the loop takes the world (IDR-WORLD-1). The count
+-- comes from stdin, and countdown recurses on an Int, so it is not
+-- evaluated at compile time (SEM-EVAL-6).
 countdown : Int -> IO ()
 countdown 0 = putStrLn "liftoff"
 countdown n = do

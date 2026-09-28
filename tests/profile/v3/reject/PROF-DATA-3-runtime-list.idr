@@ -2,9 +2,9 @@
 module Main
 
 -- rule: SEM-REC-1
--- A list is recursive data: it exists at compile time only, and one whose
--- length depends on a runtime value would need the heap. (A choice among
--- lists of known shapes needs nothing: ELIM-G-20.)
+-- A list is recursive data, a box: one whose length depends on a runtime
+-- value would need the heap. (One of known shape with runtime elements
+-- needs nothing: calls on it are specialized on its shape, ELIM-SPEC-1.)
 
 import Prelude
 

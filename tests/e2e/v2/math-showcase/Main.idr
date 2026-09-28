@@ -1,6 +1,6 @@
 module Main
 
--- rule: FE-TR-6, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, ELIM-G-19, PROF-PRAG-1
+-- rule: FE-TR-6, SEM-DBL-2, SEM-DBL-3, SEM-DBL-4, SEM-DBL-5, ELIM-SPEC-1, PROF-PRAG-1
 -- Numerical methods written against a user numeric interface, on a value
 -- read at run time, diffed against the stock Chez backend.
 
