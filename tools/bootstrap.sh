@@ -578,7 +578,7 @@ recipe_runtimes() {
 }
 
 # TC-BOOT-2: what stage 2 installs.
-stage2_components='clang;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
+stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
 # TC-BOOT-2: stage 2. Static PIE on musl and libc++ (the configuration file),
 # no shared libraries or plugins, LTO with fat objects: their bitcode serves
