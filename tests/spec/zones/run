@@ -4,7 +4,7 @@
 # runtime, runtime/, with .cc its only source extension; src/ and unsafe/
 # exist only once they hold code.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-(cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name docs \) -prune \
+(cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \) -prune \
    -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.td' -o -name '*.inc' \) \
    -print) | sed 's|^\./||' | sort > "$work/cpp"
 if [ -s "$work/cpp" ]; then say "C++: found"; else say "C++: none found"; fi

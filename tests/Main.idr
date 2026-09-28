@@ -26,7 +26,6 @@
 |||                                     a program of the fuzzer (Fuzz.idr)
 |||     runtests --two-levels-program primitives|prelude terms|main
 |||                                     a module of the two levels (TwoLevels.idr)
-|||     runtests --spec <check>         a TEST-SPEC-1 check (Spec.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
 
@@ -43,7 +42,6 @@ import Test.Golden
 import Fuzz
 import Lock
 import Sem
-import Spec
 import TwoLevels
 
 %default covering
@@ -89,7 +87,7 @@ versioned name tree inside = pool name . map inside =<< subdirs tree
 suites : List (String, List (IO TestPool))
 suites =
   [ ("check",
-      [ pool "spec: the rules against the tests (TEST-SPEC-1), the pins and the commands" ["spec"]
+      [ pool "spec: the repository: pins, commands, toolchain, source rules" ["spec"]
       ])
   , ("test",
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
@@ -128,7 +126,7 @@ takeOwn [] = (Nothing, False, [])
 runnerUsage : String
 runnerUsage = unlines
   [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list] [Test.Golden options]"
-  , "       runtests --sem-program <name> | --sem-list | --spec <check> | --lock"
+  , "       runtests --sem-program <name> | --sem-list | --lock"
   , "       runtests --fuzz-program <seed> <cases> runtime|static"
   , "       runtests --two-levels-program primitives|prelude terms|main"
   , Test.Golden.usage
@@ -173,6 +171,5 @@ main = do
     ("--two-levels-program" :: which) =>
       maybe (die "usage: runtests --two-levels-program primitives|prelude terms|main") putStr
             (TwoLevels.programOf which)
-    ["--spec", name] => Spec.check !root name
     ["--lock"] => Lock.check !root
     rest => runSuites (fromMaybe "runtests" (head' args)) rest

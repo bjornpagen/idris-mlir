@@ -7,7 +7,6 @@ sourcedir = "."
 modules = Fuzz
         , Lock
         , Sem
-        , Spec
         , TwoLevels
 main = Main
 executable = runtests

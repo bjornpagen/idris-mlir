@@ -28,7 +28,7 @@ own runtime, and partial code never is.
 
 Lean 4 is dependently typed, compiles through precise reference counting
 with borrowing and in-place reuse, and ships a production compiler. Our
-memory plan ports its passes ([plan](docs/plan.md), section 4.2). What Lean
+memory plan ports its passes. What Lean
 cannot promise is *when* reuse happens. It tests the count at runtime, so one
 extra reference anywhere silently turns an in-place update into a copy.
 Koka's fully in-place functions check a function's body statically, but
@@ -38,15 +38,11 @@ compiler sees the whole program, so it can prove both halves: the callee
 uses the value once, and every caller passes an unshared one. The plan is
 to promise the result. A quantity-1 value that is matched and rebuilt at
 the same size will be updated in place with no runtime test, or the program
-will not compile, with a named rule (`MEM-LIN-1`). The promise will be
+will not compile, with a named reason. The promise will be
 carried as ownership types in the `idr` MLIR dialect, and MLIR's verifier
 will check it again after every pass instead of trusting the frontend.
 None of this is implemented yet: today's programs are heap-free (below).
 That promise, more than dependent types alone, is why this compiler exists.
-
-The specification is [docs/architecture/](docs/architecture/00-index.md)
-(normative). p0, v0, v1, v2 and v3 are implemented; see its
-[roadmap](docs/architecture/15-roadmap.md) for the status and the deviations.
 
 ## What compiles today
 
@@ -82,8 +78,7 @@ location.
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),
-  [complex numbers through the Prelude](tests/e2e/v3/prelude-math) and
-  [the plan](docs/plan.md) for what is still missing.
+  [complex numbers through the Prelude](tests/e2e/v3/prelude-math).
 
 On the heap-free programs it can compile, the output is faster than MLton's
 on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
@@ -104,29 +99,44 @@ a string built at runtime and kept) is rejected with the rule it breaks.
 ## Setup
 
 Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
-LLVM and GMP), a threaded Chez Scheme, and the Linux UAPI headers. See
-[toolchain](docs/toolchain.md) for exact packages.
+LLVM and GMP), a threaded Chez Scheme, the Linux UAPI headers and coreutils'
+`timeout`. On Ubuntu 24.04:
+
+```sh
+sudo apt-get install -y git make gcc g++ python3 m4 curl chezscheme linux-libc-dev
+```
+
+`make bootstrap` builds the pinned CMake, Ninja, a two-stage LLVM/MLIR
+(static on musl and libc++, with LTO), musl, GMP and Idris 2 into
+`.toolchain/`; the steps and their environment are at the top of
+`tools/bootstrap.sh`. Stage 1 and stage 2 take hours and tens of GB of disk.
+Distribution LLVM packages track release branches, not the pinned commit, so
+they are not used.
 
 ```sh
 git submodule update --init
 make doctor                  # what the host has, and what is built
-make check                   # the spec's rules against the tests, no build needed
+make check                   # the repository: pins, commands, source rules; no build
 make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Idris
 make build                   # the C++ dev preset and the compiler
 make test                    # compiler, profile, e2e (incl. the Chez diff)
 make test-idr                # the idr dialect, with FileCheck
-make test-mlir-tools         # the pinned upstream MLIR tools, and upstream/
+make test-mlir-tools         # the upstream bugs in upstream/ still reproduce
 make bench                   # bench/run.sh
 ```
 
 Everything is installed under `.toolchain/`; `make` alone lists the commands.
 
-## Docs
+## Layout
 
-- [Architecture spec](docs/architecture/00-index.md) (normative)
-- [Toolchain](docs/toolchain.md)
-- [The plan](docs/plan.md): the only plan; what comes next and why
-- [Research library](docs/research/library/): vendored papers and source snapshots
+- `compiler/`: the Idris side: frontend, Core, `Emit`.
+- `foreign/idr/`: the `idr` dialect, its passes, the JIT and the tools.
+- `runtime/`: the runtime every program links, and that folding and
+  compile-time evaluation call.
+- `tests/`: golden tests (`tests/Main.idr`); `bench/`: benchmarks.
+- `upstream/`: upstream bugs we work around, written to be filed.
+- `PINS.md`: every pinned workaround and deviation.
+- `sources/`: vendored papers, upstream docs and source snapshots.
 
 ## License
 

@@ -1,6 +1,0 @@
-#!/bin/sh
-# rule: TEST-SPEC-1
-# Every rule identifier a test references exists in the spec.
-# The check is tests/Spec.idr, in the runner.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-"$runtests" --spec unknown

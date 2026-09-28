@@ -1,4 +1,4 @@
-# idris-mlir's commands (TEST-CMD-1, docs/architecture/14-testing.md). GNU make.
+# idris-mlir's commands. GNU make.
 #
 #   make bootstrap         build the pinned toolchain into .toolchain/ (tools/bootstrap.sh all)
 #   make doctor            what the build needs, and what is built

@@ -1,6 +1,0 @@
-#!/bin/sh
-# rule: TEST-SPEC-1
-# Every implemented rule has a test; prints those that have none.
-# The check is tests/Spec.idr, in the runner.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-"$runtests" --spec untested

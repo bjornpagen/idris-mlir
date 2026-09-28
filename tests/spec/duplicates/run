@@ -1,6 +1,0 @@
-#!/bin/sh
-# rule: TEST-SPEC-1
-# No rule identifier is defined twice in docs/architecture/.
-# The check is tests/Spec.idr, in the runner.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-"$runtests" --spec duplicates

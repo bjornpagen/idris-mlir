@@ -32,7 +32,7 @@ sources pass and never written; this library is the material it was to reason fr
 ## Layout
 
 ```
-docs/research/library/
+sources/
 ├── README.md          this file: provenance, licences, access, pins, gaps
 ├── INDEX.md           the papers by topic, with the snapshots each topic draws on
 ├── bibliography.bib   one BibTeX file for the library (653 entries)
@@ -447,7 +447,7 @@ curl -sG "https://export.arxiv.org/api/query" \
 ```bash
 id=2004.03082
 shortname=willsey-2021-egg
-dest="docs/research/library/papers/${shortname}"
+dest="sources/papers/${shortname}"
 mkdir -p "$dest"
 curl -L --fail -o "/tmp/${id}.src" "https://arxiv.org/e-print/${id}"
 file "/tmp/${id}.src"                      # detect: gzip, tar, or single .tex
