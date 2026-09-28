@@ -211,7 +211,8 @@ func.func @match_of_match(%c: i64) -> i64 {
 // A consumer whose region uses a value made after the match cannot move up
 // into the match, where that value does not exist yet; the match, free of
 // effects, moves down to it instead, and there the consumer meets each
-// constructor: one match is left, of the literal.
+// constructor: one match is left, of the literal. The product stays before
+// it: nothing in the region folds against it.
 // CHECK-LABEL: func.func @uses_later(
 // CHECK-SAME: %[[C:.*]]: i64)
 // CHECK: %[[K:.*]] = arith.muli %[[C]], %[[C]]

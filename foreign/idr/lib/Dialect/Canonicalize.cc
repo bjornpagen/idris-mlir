@@ -158,7 +158,9 @@ bool movable(Operation *op) {
 // be computed later.
 template <typename Match>
 struct SinkConsumer : OpRewritePattern<Match> {
-  using OpRewritePattern<Match>::OpRewritePattern;
+  explicit SinkConsumer(MLIRContext *context) : OpRewritePattern<Match>(context) {
+    this->setDebugName("idr-sink-consumer");
+  }
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
     for (OpResult result : op->getResults()) {
       Operation *consumer = candidate(op, result);
@@ -252,6 +254,80 @@ private:
   }
 };
 
+// IDR-MATCH-5: a value computed in the match's block, free of effects (an
+// allocation aside), and used only inside the match's regions moves into each
+// region that uses it, when there it meets a consumer that folds against it:
+// output of a string it builds, or a consumer a match of its moves into
+// (case-of-case). Only one region runs, so the value is still computed at most
+// once. The copies are bounded: each region past the first may receive at
+// most kSinkBudget ops, so a large match is not copied into every case of
+// another. A constant stays where it is: the folder hoists constants back,
+// and each would undo the other.
+constexpr int64_t kSinkBudget = 64;
+template <typename Match>
+struct SinkIntoRegions : OpRewritePattern<Match> {
+  explicit SinkIntoRegions(MLIRContext *context) : OpRewritePattern<Match>(context) {
+    this->setDebugName("idr-sink-into-regions");
+  }
+  LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
+    Operation *value = nullptr;
+    visitUsedValuesDefinedAbove(op->getRegions(), [&](OpOperand *use) {
+      Operation *def = use->get().getDefiningOp();
+      if (!value && def && def->getBlock() == op->getBlock() && sinkable(def, op))
+        value = def;
+    });
+    if (!value)
+      return failure();
+    for (Region &region : op->getRegions()) {
+      auto inside = [&](OpOperand &use) { return region.isAncestor(use.getOwner()->getParentRegion()); };
+      if (llvm::none_of(value->getUses(), inside))
+        continue;
+      rewriter.setInsertionPointToStart(&region.front());
+      Operation *copy = rewriter.clone(*value);
+      rewriter.replaceUsesWithIf(value->getResults(), copy->getResults(), inside);
+    }
+    rewriter.eraseOp(value);
+    return success();
+  }
+
+private:
+  static bool sinkable(Operation *value, Operation *match) {
+    if (value->getNumResults() == 0 || value->hasTrait<OpTrait::ConstantLike>() || !movable(value))
+      return false;
+    if (!llvm::all_of(value->getUsers(), [&](Operation *user) {
+          return user != match && match->isAncestor(user);
+        }))
+      return false;
+    if (!llvm::any_of(value->getResults(), [](Value result) {
+          return llvm::any_of(result.getUsers(), [&](Operation *user) { return meets(result, user); });
+        }))
+      return false;
+    int64_t regions = llvm::count_if(match->getRegions(), [&](Region &region) {
+      return llvm::any_of(value->getUsers(), [&](Operation *user) {
+        return region.isAncestor(user->getParentRegion());
+      });
+    });
+    int64_t size = 0;
+    value->walk([&](Operation *) { ++size; });
+    return (regions - 1) * size <= kSinkBudget;
+  }
+
+  // Whether `user` folds or canonicalizes against `value` once they meet:
+  // what feeds() says for a value an op builds, and for a match's result,
+  // a consumer that case-of-case would move into the match.
+  static bool meets(Value value, Operation *user) {
+    if (feeds(value, user))
+      return true;
+    auto result = dyn_cast<OpResult>(value);
+    if (!result || !isa<MatchOp, MatchLitOp>(result.getOwner()))
+      return false;
+    return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
+      auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
+      return yield && feeds(yield.getOperand(result.getResultNumber()), user);
+    });
+  }
+};
+
 // IDR-MATCH-6, IDR-STR-2: a string that cannot be empty never takes the
 // case `""`.
 struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
@@ -296,7 +372,7 @@ void populateMatchPatterns(RewritePatternSet &results, MLIRContext *context,
                                                           Match::getOperationName());
   populateRegionBranchOpInterfaceInliningPattern(results, Match::getOperationName(),
                                                  replacement);
-  results.add<MergeIdenticalRegions<Match>, SinkConsumer<Match>>(context);
+  results.add<MergeIdenticalRegions<Match>, SinkConsumer<Match>, SinkIntoRegions<Match>>(context);
 }
 
 } // namespace
