@@ -154,11 +154,6 @@ private:
 
 void Eval::runOnOperation() {
   ModuleOp module = getOperation();
-  if (getContext().isMultithreadingEnabled()) {
-    module.emitError("internal error: idr-eval forks, so MLIR must run single-threaded "
-                     "(--mlir-disable-threading)");
-    return signalPassFailure();
-  }
   SymbolTable symbols(module);
   llvm::MapVector<Key, SmallVector<Call>> calls;
   module.walk([&](Operation *op) {

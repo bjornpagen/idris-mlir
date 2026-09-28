@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --mlir-disable-threading --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
 // rule: EVAL-1, OPT-SAFE-1, SEM-EVAL-4, LOW-JIT-1
 // A total call can still crash (division by zero). The crash leaves the call

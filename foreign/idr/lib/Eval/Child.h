@@ -1,10 +1,12 @@
 // Running a round's calls in a child process (docs/cutover.md 6.4, EVAL-1).
-// idris-mlir-cc runs MLIR single-threaded, so it can fork. The child runs
-// the calls on a stack reserved as large as the address space allows, with a
-// guard below it, and writes each result's attribute text to a pipe. A crash
-// the runtime reports ends the child; the calls before it have their results
-// and the caller forks again for the rest. Total code runs to completion:
-// there is no fuel, no memory cap and no time limit.
+// idris-mlir-cc runs MLIR single-threaded; elsewhere a module pass runs
+// alone, so any threads of MLIR's pool wait idle, holding no lock the child
+// needs, when it forks. The child runs the calls on a stack reserved as large
+// as the address space allows, with a guard below it, and writes each
+// result's attribute text to a pipe. A crash the runtime reports ends the
+// child; the calls before it have their results and the caller forks again
+// for the rest. Total code runs to completion: there is no fuel, no memory
+// cap and no time limit.
 #pragma once
 
 #include "Eval/Jit.h"
