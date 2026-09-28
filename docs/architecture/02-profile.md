@@ -485,7 +485,6 @@ when `Simplify` enforced them; with `PROF-TYPE-4` (bigs), `PROF-DATA-3`
   closures without moving any code, so no crash can move past an effect.
   Its accept fixture stays an accept, and its reject fixture
   (`PROF-HEAP-5-division-before-action`) became one (`PROF-GEN-4`).
-  - Test: `tests/profile/v1/accept/PROF-HEAP-5-division-run-at-once.idr`
 
 ## Escape hatches
 
