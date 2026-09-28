@@ -9,8 +9,6 @@ module Main
 -- then (4.3, decision 7.2, a PROF-GEN-4 exception). The list is built in
 -- the Prelude; the rejection is reported at the user's definition that
 -- reached it, `main`, as PROF-TYPE-4-prelude-integer is.
--- Unverified until idris-mlir-cc exists: the line is predicted from the
--- rule that a C++ rejection is reported at the innermost user definition.
 
 import Prelude
 

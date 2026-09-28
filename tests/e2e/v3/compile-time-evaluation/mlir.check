@@ -5,8 +5,7 @@
 // the constants written, and no Integer operation is left. `fib` is
 // partial, so `fib 15` stays a call: its value, 610, is never computed at
 // compile time.
-// Unverified until idris-mlir-cc exists.
 // CHECK-DAG: idr.constant "1267650600228229401496703205376\0A"
 // CHECK-DAG: idr.constant "401\0A"
 // CHECK-DAG: idr.constant "57.6650390625\0A"
-// CHECK-DAG: func.call @Main.fib(
+// CHECK-DAG: call @Main.fib(%{{.*}}) : (i64) -> i64

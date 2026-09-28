@@ -5,7 +5,6 @@
 // closure of no arguments, and forcing a known one is a call, inlined.
 // choose is inlined at its call; what remains is a match on the runtime
 // character whose alternatives are the literals.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.match_lit
 // CHECK: case 0
 // CHECK: default

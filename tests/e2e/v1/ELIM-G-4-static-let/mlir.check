@@ -4,6 +4,5 @@
 // The let-bound lambda is an SSA value, a closure; both applications of it
 // are calls once it is known, inlined, and folded: f (f 1) is 201, written
 // as one constant.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.constant "201\0A"
 // CHECK: idr.io.put_str

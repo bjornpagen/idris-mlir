@@ -7,7 +7,6 @@
 // never evaluated (docs/cutover.md A23): they call the original ack, which
 // stays. `count 3` is a closed call of a partial function too: it stays a
 // call.
-// Unverified until idris-mlir-cc exists.
 // CHECK-DAG: func.func private @Main.ack(
 // CHECK-DAG: func.func private @Main.ack{{[^(]+}}(
 // CHECK-DAG: func.func private @Main.ack{{[^(]+}}(

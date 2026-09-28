@@ -4,7 +4,6 @@
 // The match on the known constructor Some is gone: apply is inlined, its
 // idr.match on an idr.con folds, and the closure of (+ 10) it held is
 // applied where it is known. No Opt is built, and apply is not called.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.io.get_byte
 // CHECK: arith.addi
 // CHECK: idr.io.put_int

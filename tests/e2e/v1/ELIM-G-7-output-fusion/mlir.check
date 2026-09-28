@@ -4,7 +4,6 @@
 // putStrLn of a string built from a runtime character becomes writes in
 // order: append becomes two writes, cons a put_char then a put_str, and
 // show of an Int a put_int. No string op is left.
-// Unverified until idris-mlir-cc exists.
 // CHECK-DAG: [[GOT:%[a-z0-9_]+]] = idr.constant "got "
 // CHECK-DAG: [[EQ:%[a-z0-9_]+]] = idr.constant " = "
 // CHECK-DAG: [[NL:%[a-z0-9_]+]] = idr.constant "\0A"

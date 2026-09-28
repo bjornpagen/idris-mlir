@@ -3,6 +3,5 @@
 // rule: ELIM-G-2, ELIM-EVAL-1, FE-TR-6, TEST-ELIM-1
 // No dictionary exists: the frontend resolves them (FE-TR-6), and fold3's
 // call, closed and total, is gone: its value, 42, is a constant.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.constant "42\0A"
 // CHECK: idr.io.put_str

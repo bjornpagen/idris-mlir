@@ -6,6 +6,5 @@
 // checked TT), and so are the IO actions' closures of putStrLn, applied
 // where they are built (idr.apply of a known idr.closure is a call, then
 // inlined). The line is one constant, written by one put_str.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.constant "21\0A"
 // CHECK: idr.io.put_str

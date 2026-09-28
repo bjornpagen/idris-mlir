@@ -5,6 +5,5 @@
 // sums over labels, and the matches on known labels are folded, they are
 // self tail calls, which idr-tail-loops turns into loops; a loop of a
 // function Idris does not prove terminating carries idr.may_loop.
-// Unverified until idris-mlir-cc exists.
 // CHECK-COUNT-2: scf.while
 // CHECK: idr.may_loop

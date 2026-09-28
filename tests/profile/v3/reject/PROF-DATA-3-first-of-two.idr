@@ -11,9 +11,6 @@ module Main
 -- order (docs/cutover.md 3.9), and `build` comes before `count` in the
 -- module, as `main` calls it first. The error is reported at the user
 -- definition that holds the op, `build`.
--- Unverified until idris-mlir-cc exists: the line is predicted from the
--- emitted module, where the ops of `build` carry its definition's location,
--- and from op order being the module's order (main, len, build, count).
 
 import Prelude
 

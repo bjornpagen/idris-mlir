@@ -5,5 +5,4 @@
 // a closed call of a total function, evaluated to False, so `both` never
 // forces `firstIs`, whose string match could not run at runtime, and
 // `parens False s` is s. main writes the number.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.io.put_int

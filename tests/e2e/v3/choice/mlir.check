@@ -8,6 +8,5 @@
 // constant. The list of runtime elements is specialized on its shape, so
 // no box is built at runtime. What is left matches on the runtime
 // characters.
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.io.get_byte
 // CHECK: idr.match_lit

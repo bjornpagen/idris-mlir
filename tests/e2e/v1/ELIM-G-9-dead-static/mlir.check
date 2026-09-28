@@ -4,6 +4,5 @@
 // The unused lambda and the unused action leave no code: an idr.closure and
 // an unused call of a pure, total function that cannot crash are dead
 // (OPT-CALL-1), and so is "never run".
-// Unverified until idris-mlir-cc exists.
 // CHECK: idr.constant "only this\0A"
 // CHECK: idr.io.put_str

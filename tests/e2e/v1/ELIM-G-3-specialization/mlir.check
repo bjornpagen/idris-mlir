@@ -6,7 +6,6 @@
 // closure it passes, whose label is the key. The original iter is dead
 // and removed, and in each copy the closure is known, so it is applied as
 // a call and inlined: no closure is left.
-// Unverified until idris-mlir-cc exists.
 // CHECK-COUNT-2: func.func private @Main.iter
 // CHECK-NOT: func.func private @Main.iter
 // CHECK-DAG: arith.addi

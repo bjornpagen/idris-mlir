@@ -6,6 +6,5 @@
 // the set of their labels is finite, so idr-defunctionalize turns them into
 // a sum over the labels and each idr.apply into a match (ELIM-G-5, arity
 // raising, is withdrawn). No closure is left, and the output is fused.
-// Unverified until idris-mlir-cc exists.
 // CHECK-DAG: idr.io.put_int
 // CHECK-DAG: idr.constant "liftoff\0A"
