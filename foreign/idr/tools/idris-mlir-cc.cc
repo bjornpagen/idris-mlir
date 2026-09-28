@@ -350,9 +350,9 @@ int run() {
   Verdict verdict;
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
     if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
-      llvm::StringRef message = diagnostic.str();
-      verdict.rejected |= message.starts_with("unsupported (");
-      verdict.exhausted |= message.starts_with("EVAL-1");
+      std::string message = diagnostic.str();
+      verdict.rejected |= llvm::StringRef(message).starts_with("unsupported (");
+      verdict.exhausted |= llvm::StringRef(message).starts_with("EVAL-1");
     }
     return mlir::failure();
   });

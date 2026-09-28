@@ -211,7 +211,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     return failure();
   };
   ModuleOp lowered = scratch(module, keys, calls);
-  auto erase = llvm::make_scope_exit([&] { lowered.erase(); });
+  llvm::scope_exit erase([&] { lowered.erase(); });
   // The layouts of the values, read before idr-lower takes the types apart.
   OwningOpRef<ModuleOp> pristine = lowered.clone();
   idr::lower::Layouts layouts(*pristine);

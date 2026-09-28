@@ -38,7 +38,8 @@ Value i64Constant(OpBuilder &b, Location loc, int64_t value) {
 }
 
 Value i32Constant(OpBuilder &b, Location loc, int64_t value) {
-  return LLVM::ConstantOp::create(b, loc, b.getI32Type(), b.getI32IntegerAttr(value));
+  return LLVM::ConstantOp::create(b, loc, b.getI32Type(),
+                                  b.getI32IntegerAttr(static_cast<int32_t>(value)));
 }
 
 Value at(OpBuilder &b, Location loc, Value cell, unsigned offset) {
@@ -233,12 +234,12 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
     const auto &fields = layout.fields.find(ctor.getSymName())->second;
     for (auto [i, field] : llvm::enumerate(con.getFields()))
       for (auto [slot, component] :
-           llvm::zip_equal(fields[i], constant(b, loc, field, ctor.getFieldType(i))))
+           llvm::zip_equal(fields[i], constant(b, loc, field, ctor.getFieldType(static_cast<unsigned>(i)))))
         slots[slot] = component;
     SmallVector<Value> out;
     if (layout.tag)
       out.push_back(LLVM::ConstantOp::create(b, loc, layout.tag,
-                                             b.getIntegerAttr(layout.tag, ctor.getTag())));
+                                             b.getIntegerAttr(layout.tag, static_cast<int64_t>(ctor.getTag()))));
     for (auto [slot, component] : llvm::enumerate(slots))
       out.push_back(component ? component
                               : LLVM::PoisonOp::create(b, loc, layout.slots[slot]).getResult());
@@ -256,7 +257,8 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
         SmallVector<Value> members{i32Constant(init, loc, 0),
                                    i32Constant(init, loc, static_cast<int64_t>(ctor.getTag()))};
         for (auto [i, field] : llvm::enumerate(con.getFields()))
-          llvm::append_range(members, constant(init, loc, field, ctor.getFieldType(i)));
+          llvm::append_range(members,
+                             constant(init, loc, field, ctor.getFieldType(static_cast<unsigned>(i))));
         return pack(init, loc, structType, members);
       });
     } else {

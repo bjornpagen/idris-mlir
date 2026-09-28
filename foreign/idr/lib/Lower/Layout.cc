@@ -11,7 +11,7 @@ namespace {
 // The size and alignment of a component: a scalar or a pointer.
 unsigned sizeOf(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
-    return llvm::PowerOf2Ceil((integer.getWidth() + 7) / 8);
+    return static_cast<unsigned>(llvm::PowerOf2Ceil((integer.getWidth() + 7) / 8));
   return 8;
 }
 
