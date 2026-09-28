@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-CHAR-1
-module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "int"} {
+module {
   // CHECK-LABEL: func.func @chars
   // CHECK-DAG: %[[L:.*]] = arith.constant 955 : i32
   // CHECK-DAG: %[[Z:.*]] = arith.constant 0 : i32
@@ -16,9 +16,5 @@ module attributes {idr.version = 1 : i64, idr.entry = @r, idr.entry_kind = "int"
     %rc = idr.to_char signed %c : i64
     %rd = idr.to_char %d : i8
     return %ra, %rb, %rc, %rd : i32, i32, i32, i32
-  }
-  func.func private @r() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
   }
 }

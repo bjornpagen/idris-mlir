@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-DBL-1, IDR-EFF-1
-module attributes {idr.version = 2 : i64, idr.entry = @r, idr.entry_kind = "int"} {
+module {
   // Finite constants truncate toward zero and wrap to the result width.
   // CHECK-LABEL: func.func @finite
   // CHECK-DAG: %[[A:.*]] = arith.constant -2 : i64
@@ -28,9 +28,5 @@ module attributes {idr.version = 2 : i64, idr.entry = @r, idr.entry_kind = "int"
     %a = idr.to_int %n : i64
     %b = idr.to_int %f : i64
     return
-  }
-  func.func private @r() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
   }
 }

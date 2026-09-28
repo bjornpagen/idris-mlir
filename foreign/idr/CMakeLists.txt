@@ -17,16 +17,25 @@ mlir_tablegen(include/idr/IdrDialect.h.inc -gen-dialect-decls -dialect=idr)
 mlir_tablegen(include/idr/IdrDialect.cc.inc -gen-dialect-defs -dialect=idr)
 mlir_tablegen(include/idr/IdrTypes.h.inc -gen-typedef-decls -typedefs-dialect=idr)
 mlir_tablegen(include/idr/IdrTypes.cc.inc -gen-typedef-defs -typedefs-dialect=idr)
+mlir_tablegen(include/idr/IdrAttrs.h.inc -gen-attrdef-decls -attrdefs-dialect=idr)
+mlir_tablegen(include/idr/IdrAttrs.cc.inc -gen-attrdef-defs -attrdefs-dialect=idr)
+mlir_tablegen(include/idr/IdrEnums.h.inc -gen-enum-decls)
+mlir_tablegen(include/idr/IdrEnums.cc.inc -gen-enum-defs)
 mlir_tablegen(include/idr/IdrOps.h.inc -gen-op-decls)
 mlir_tablegen(include/idr/IdrOps.cc.inc -gen-op-defs)
 mlir_tablegen(include/idr/IdrInterfaces.h.inc -gen-op-interface-decls)
 mlir_tablegen(include/idr/IdrInterfaces.cc.inc -gen-op-interface-defs)
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Passes.td)
 mlir_tablegen(include/idr/Passes.h.inc -gen-pass-decls -name Idr)
+set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/lib/Dialect/Canonicalize.td)
+mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(idr_tablegen)
 
 add_library(idr_dialect STATIC
-	lib/IdrDialect.cc
+	lib/Dialect/Canonicalize.cc
+	lib/Dialect/Dialect.cc
+	lib/Dialect/Effects.cc
+	lib/Dialect/Ops.cc
 	lib/Lower.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Runtime.cc
@@ -66,6 +75,10 @@ target_link_libraries(idr_dialect
 		MLIRLLVMDialect
 		MLIRMathDialect
 		MLIRControlFlowDialect
+		MLIRControlFlowInterfaces
+		MLIRCallInterfaces
+		MLIRInferIntRangeInterface
+		MLIRSideEffectInterfaces
 	PRIVATE
 		idris_mlir_language_profile
 )
