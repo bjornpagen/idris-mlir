@@ -85,7 +85,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let description = [{
     Runs idr-effects, inline, idr-specialize, sccp, canonicalize, cse,
     idr-eval, remove-dead-values and symbol-dce, again and again, until a
-    round leaves the module unchanged (its text; op pointers change).
+    round leaves the module unchanged, up to where constants are.
   }];
   let options = [
     Option<"inlineIterations", "inline-iterations", "unsigned", "4",

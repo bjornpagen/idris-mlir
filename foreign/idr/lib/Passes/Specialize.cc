@@ -22,10 +22,14 @@
 // alone and idr-check-profile reports PROF-HEAP-4 for a closure that survives
 // into the callee.
 //
+// Clones can close new cycles of calls; the newest clone of each becomes a
+// loop breaker (no_inline, OPT-PIPE-3), as clones of a breaker inherit it.
+//
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
 // when idr-effects has computed those facts (IDR-FACT-1).
 
+#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -173,6 +177,7 @@ struct Specializer {
   llvm::DenseMap<std::pair<StringAttr, ArrayAttr>, func::FuncOp> clones;
   llvm::StringMap<int64_t> counts;
   SmallVector<func::FuncOp> work;
+  bool changed = false;
 
   void loadCounts() {
     if (auto dict = module->getAttrOfType<DictionaryAttr>(cloneCounts))
@@ -284,10 +289,11 @@ struct Specializer {
                        callee.getSymName(), limit, origin(callee));
   }
 
-  void specialize(func::CallOp call) {
+  // Whether the call now calls a clone.
+  bool specialize(func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
     if (!callee || callee.isExternal() || call->hasAttr(limitHit))
-      return;
+      return false;
     SmallVector<Shape> shapes = llvm::map_to_vector(call.getOperands(), [](Value v) {
       return shape(v);
     });
@@ -297,7 +303,7 @@ struct Specializer {
       open |= !isa<idr::ErasedType>(operand.getType()) && !isConstant(s.pattern);
     }
     if (!isStatic || !open)
-      return;
+      return false;
 
     SmallVector<Attribute> patterns =
         llvm::map_to_vector(shapes, [](const Shape &s) { return s.pattern; });
@@ -305,8 +311,10 @@ struct Specializer {
                               ArrayAttr::get(module.getContext(), patterns));
     func::FuncOp clone = clones.lookup(key);
     if (!clone) {
-      if (counts.lookup(origin(callee)) >= limit)
-        return stop(call, callee);
+      if (counts.lookup(origin(callee)) >= limit) {
+        stop(call, callee);
+        return false;
+      }
       clone = makeClone(callee, shapes, call.getOperands());
       clones[key] = clone;
     }
@@ -323,6 +331,44 @@ struct Specializer {
     replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
     call.replaceAllUsesWith(replacement.getResults());
     call.erase();
+    return true;
+  }
+
+  // OPT-PIPE-3 (A5): every cycle of calls keeps a loop breaker. Clones can
+  // close new cycles: a call redirected to an earlier clone, or a chain of
+  // clones stopped by the limit at a call of its origin. The inliner refuses
+  // only self-recursion and a callee that calls its caller back
+  // (Inliner.cpp:709-715), so from outside such a cycle it would unroll it
+  // round after round. The newest clone of each cycle among functions that
+  // may be inlined becomes no_inline, until no such cycle is left.
+  void breakCycles() {
+    auto callees = [&](func::FuncOp fn) {
+      SmallVector<func::FuncOp> out;
+      fn.walk([&](func::CallOp call) {
+        if (auto callee = symbols.lookup<func::FuncOp>(call.getCallee()))
+          out.push_back(callee);
+      });
+      return out;
+    };
+    for (bool marked = true; marked;) {
+      marked = false;
+      SmallVector<func::FuncOp> inlinable;
+      for (auto fn : module.getOps<func::FuncOp>())
+        if (!fn.isExternal() && !fn.getNoInline())
+          inlinable.push_back(fn);
+      for (const SmallVector<func::FuncOp> &cycle :
+           idr::passes::stronglyConnected<func::FuncOp>(inlinable, callees)) {
+        func::FuncOp newest;
+        for (func::FuncOp fn : cycle)
+          if (cycle.size() > 1 && fn->hasAttr(originAttr) &&
+              (!newest || newest->isBeforeInBlock(fn)))
+            newest = fn;
+        if (!newest)
+          continue;
+        newest.setNoInline(true);
+        marked = true;
+      }
+    }
   }
 
   void run() {
@@ -332,9 +378,11 @@ struct Specializer {
       SmallVector<func::CallOp> calls;
       work[i].walk([&](func::CallOp call) { calls.push_back(call); });
       for (func::CallOp call : calls)
-        specialize(call);
+        changed |= specialize(call);
     }
     storeCounts();
+    if (changed)
+      breakCycles();
   }
 };
 

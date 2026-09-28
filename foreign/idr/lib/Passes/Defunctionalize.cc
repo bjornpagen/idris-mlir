@@ -22,6 +22,7 @@
 // the labels the callee may hold, each region calling its label. Other
 // closure types are left alone, and idr-check-profile rejects their closures.
 
+#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
@@ -34,10 +35,9 @@
 
 #include "llvm/ADT/MapVector.h"
 
-#include <functional>
-
 using namespace mlir;
 using namespace mlir::dataflow;
+namespace passes = idr::passes;
 
 namespace idr {
 #define GEN_PASS_DEF_IDRDEFUNCTIONALIZE
@@ -475,43 +475,12 @@ struct Converter {
           holds(capture, edges[type], seen);
         }
     }
-    llvm::DenseSet<idr::FnType> kept(candidates.begin(), candidates.end());
-    // Tarjan's algorithm over the candidates.
-    llvm::DenseMap<idr::FnType, unsigned> index, low;
-    SmallVector<idr::FnType> stack;
-    llvm::DenseSet<idr::FnType> onStack, cyclic;
-    unsigned counter = 0;
-    std::function<void(idr::FnType)> visit = [&](idr::FnType v) {
-      index[v] = low[v] = counter++;
-      stack.push_back(v);
-      onStack.insert(v);
-      for (idr::FnType w : edges.lookup(v)) {
-        if (!kept.contains(w))
-          continue;
-        if (w == v)
-          cyclic.insert(v);
-        if (!index.count(w)) {
-          visit(w);
-          low[v] = std::min(low[v], low[w]);
-        } else if (onStack.contains(w)) {
-          low[v] = std::min(low[v], index[w]);
-        }
-      }
-      if (low[v] != index[v])
-        return;
-      SmallVector<idr::FnType> component;
-      idr::FnType w;
-      do {
-        w = stack.pop_back_val();
-        onStack.erase(w);
-        component.push_back(w);
-      } while (w != v);
-      if (component.size() > 1)
+    llvm::DenseSet<idr::FnType> cyclic;
+    for (const SmallVector<idr::FnType> &component : passes::stronglyConnected<idr::FnType>(
+             candidates, [&](idr::FnType type) { return edges.lookup(type); }))
+      if (component.size() > 1 || llvm::is_contained(edges.lookup(component.front()),
+                                                      component.front()))
         cyclic.insert(component.begin(), component.end());
-    };
-    for (idr::FnType v : candidates)
-      if (!index.count(v))
-        visit(v);
 
     MLIRContext *ctx = module.op.getContext();
     unsigned n = 0;

@@ -110,12 +110,20 @@ struct Checker {
   }
 
   // PROF-HEAP-4 also covers a closure built inside a stopped function: its
-  // self tail call may be a loop by now.
+  // self tail call may be a loop by now. The function is named by its
+  // origin, the one the user wrote.
   std::optional<StringRef> stoppedAt(Operation *closure) {
     auto fn = closure->getParentOfType<func::FuncOp>();
+    std::optional<StringRef> stopped;
     if (fn && fn->hasAttr("idr.clone_limit_hit"))
-      return fn.getSymName();
-    return reachesStoppedCallee(closure);
+      stopped = fn.getSymName();
+    else
+      stopped = reachesStoppedCallee(closure);
+    if (!stopped)
+      return std::nullopt;
+    auto origin = tables.lookupSymbolIn(module, StringAttr::get(module.getContext(), *stopped))
+                      ->getAttrOfType<StringAttr>("idr.origin");
+    return origin ? origin.getValue() : *stopped;
   }
 
   std::optional<Violation> closure(idr::ClosureOp op) {
