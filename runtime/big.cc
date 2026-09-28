@@ -167,7 +167,7 @@ extern "C" idris_rt_big idris_rt_big_neg(idris_rt_big a) {
   return finish(r);
 }
 
-extern "C" int32_t idris_rt_big_compare(idris_rt_big a, idris_rt_big b) {
+extern "C" int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b) {
   if (isSmall(a) && isSmall(b))
     return smallValue(a) < smallValue(b) ? -1 : smallValue(a) > smallValue(b) ? 1 : 0;
   Operand x(a), y(b);

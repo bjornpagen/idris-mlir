@@ -22,13 +22,13 @@ enum { stringCount = sizeof strings / sizeof strings[0] };
 static const double doubles[] = {0.0, -0.0, 0.5, -0.5, 123.9, -123.9, 4.6e18, -1.5e19, 1e300, 2.5e-310};
 enum { doubleCount = sizeof doubles / sizeof doubles[0] };
 
-static void text(const char *s) { idris_rt_put_str(idris_rt_str_from_utf8(s, strlen(s))); }
-static void big(idris_rt_big b) { idris_rt_put_str(idris_rt_big_show(b)); }
-static void line(void) { idris_rt_put_char('\n'); }
+static void text(const char *s) { idris_rt_io_put_str(idris_rt_str_from_utf8(s, strlen(s))); }
+static void big(idris_rt_big b) { idris_rt_io_put_str(idris_rt_big_show(b)); }
+static void line(void) { idris_rt_io_put_char('\n'); }
 static void str(const idris_rt_str *s) {
-  idris_rt_put_char('"');
-  idris_rt_put_str(s);
-  idris_rt_put_char('"');
+  idris_rt_io_put_char('"');
+  idris_rt_io_put_str(s);
+  idris_rt_io_put_char('"');
 }
 static const idris_rt_str *make(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
 
@@ -81,37 +81,37 @@ int main(void) {
         line();
       }
       text("compare ");
-      idris_rt_put_int_s(idris_rt_big_compare(values[i], values[j]));
+      idris_rt_io_put_int_s(idris_rt_big_cmp(values[i], values[j]));
       line();
     }
     text("neg ");
     big(idris_rt_big_neg(values[i]));
     text(" to_int ");
-    idris_rt_put_int_s(idris_rt_big_to_int(values[i]));
+    idris_rt_io_put_int_s(idris_rt_big_to_int(values[i]));
     text(" to_double ");
-    idris_rt_put_double(idris_rt_big_to_double(values[i]));
+    idris_rt_io_put_double(idris_rt_big_to_double(values[i]));
     line();
   }
   for (int i = 0; i < doubleCount; ++i) {
     text("from_double ");
     big(idris_rt_big_from_double(doubles[i]));
     text(" show ");
-    str(idris_rt_str_show_double(doubles[i]));
+    str(idris_rt_str_show_f64(doubles[i]));
     line();
   }
   for (int i = 0; i < stringCount; ++i) {
     const idris_rt_str *s = make(strings[i]);
     int64_t n = idris_rt_str_length(s);
     text("length ");
-    idris_rt_put_int_s(n);
+    idris_rt_io_put_int_s(n);
     text(" chars");
     for (int64_t k = 0; k < n; ++k) {
       text(" ");
-      idris_rt_put_int_s(idris_rt_str_index(s, k));
+      idris_rt_io_put_int_s(idris_rt_str_index(s, k));
     }
     if (n > 0) {
       text(" head ");
-      idris_rt_put_int_s(idris_rt_str_head(s));
+      idris_rt_io_put_int_s(idris_rt_str_head(s));
       text(" tail ");
       str(idris_rt_str_tail(s));
     }
@@ -130,9 +130,9 @@ int main(void) {
     line();
     for (int j = 0; j < stringCount; ++j) {
       const idris_rt_str *t = make(strings[j]);
-      int32_t c = idris_rt_str_compare(s, t);
+      int32_t c = idris_rt_str_cmp(s, t);
       text("compare ");
-      idris_rt_put_int_s(c < 0 ? -1 : c > 0 ? 1 : 0);
+      idris_rt_io_put_int_s(c < 0 ? -1 : c > 0 ? 1 : 0);
       text(" append ");
       str(idris_rt_str_append(s, t));
       line();

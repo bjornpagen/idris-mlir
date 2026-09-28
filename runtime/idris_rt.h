@@ -93,30 +93,30 @@ void *idris_rt_cell(size_t size);
  * Output goes through one static buffer, flushed when it fills, before every
  * read, before exit and a crash's message, and when main returns. */
 void idris_rt_flush(void);
-void idris_rt_put_str(const idris_rt_str *s);
+void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c. */
-void idris_rt_put_char(int32_t c);
+void idris_rt_io_put_char(int32_t c);
 /* The decimal text of a signed or an unsigned integer, which idr-lower
  * extends to 64 bits as its type's signedness says. */
-void idris_rt_put_int_s(int64_t value);
-void idris_rt_put_int_u(uint64_t value);
+void idris_rt_io_put_int_s(int64_t value);
+void idris_rt_io_put_int_u(uint64_t value);
 /* The text of SEM-DBL-5. */
-void idris_rt_put_double(double value);
+void idris_rt_io_put_double(double value);
 /* One UTF-8 encoded scalar value: '\0' at the end of input, U+FFFD for each
  * maximal invalid subsequence (SEM-IO-3). */
-int32_t idris_rt_get_char(void);
+int32_t idris_rt_io_get_char(void);
 /* One byte, or 255 at the end of input (SEM-IO-7). */
-int32_t idris_rt_get_byte(void);
+int32_t idris_rt_io_get_byte(void);
 /* Writes pending output, then ends the process with status code mod 256
  * (SEM-IO-5). */
-IDRIS_RT_NORETURN void idris_rt_exit(int64_t code);
+IDRIS_RT_NORETURN void idris_rt_io_exit(int64_t code);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status 1 (SEM-CRASH-1, LOW-CRASH-1). */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
 
 /* Doubles (LOW-DBL-1, LOW-DBL-4). x truncated toward zero, modulo 2^64; x is
  * finite (idr-lower checks it first). */
-int64_t idris_rt_f64_to_i64(double x);
+int64_t idris_rt_to_int(double x);
 /* The first character of the text of SEM-DBL-5. */
 int32_t idris_rt_double_head(double x);
 /* The first character of the decimal text of a signed or unsigned integer. */
@@ -133,7 +133,7 @@ const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *s);
 const idris_rt_str *idris_rt_str_from_char(int32_t c);
 const idris_rt_str *idris_rt_str_show_s(int64_t value);
 const idris_rt_str *idris_rt_str_show_u(uint64_t value);
-const idris_rt_str *idris_rt_str_show_double(double value);
+const idris_rt_str *idris_rt_str_show_f64(double value);
 /* The number of scalar values. */
 int64_t idris_rt_str_length(const idris_rt_str *s);
 int32_t idris_rt_str_index(const idris_rt_str *s, int64_t i);
@@ -145,7 +145,7 @@ const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_t start, in
 const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
 /* Negative, zero or positive as a is before, equal to or after b in the
  * order of their scalar values (Chez's string<?). */
-int32_t idris_rt_str_compare(const idris_rt_str *a, const idris_rt_str *b);
+int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
 /* `cast` from String (plan section 3). Which strings are numbers is ours to
  * define:
  * - to Double: the whole string in fast_float's general format, with a
@@ -181,7 +181,7 @@ idris_rt_big idris_rt_big_or(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_xor(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_neg(idris_rt_big a);
 /* Negative, zero or positive as a < b, a = b or a > b. */
-int32_t idris_rt_big_compare(idris_rt_big a, idris_rt_big b);
+int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_from_int_s(int64_t value);
 idris_rt_big idris_rt_big_from_int_u(uint64_t value);
 /* The value modulo 2^64; idr-lower wraps it to the op's width. */

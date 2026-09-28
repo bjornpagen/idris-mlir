@@ -156,7 +156,7 @@ extern "C" int32_t idris_rt_double_head(double x) {
 }
 
 // |x| = m * 2^e, truncated by shifting; then the sign, modulo 2^64.
-extern "C" int64_t idris_rt_f64_to_i64(double x) {
+extern "C" int64_t idris_rt_to_int(double x) {
   uint64_t bits = bitsOf(x);
   uint64_t exponent = (bits >> mantissaBits) & exponentMask;
   uint64_t m = exponent == 0 ? bits & mantissaMask : (bits & mantissaMask) | (uint64_t{1} << mantissaBits);

@@ -153,7 +153,7 @@ extern "C" const idris_rt_str *idris_rt_str_show_u(uint64_t value) {
   return rt::stringOf(start, static_cast<size_t>(end - start));
 }
 
-extern "C" const idris_rt_str *idris_rt_str_show_double(double value) {
+extern "C" const idris_rt_str *idris_rt_str_show_f64(double value) {
   char text[rt::doubleTextMax];
   size_t n = rt::formatDouble(value, text);
   return rt::stringOf(text, n);
@@ -205,7 +205,7 @@ extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
 }
 
 // UTF-8's byte order is the order of the scalar values it encodes.
-extern "C" int32_t idris_rt_str_compare(const idris_rt_str *a, const idris_rt_str *b) {
+extern "C" int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b) {
   const char *p = idris_rt_str_bytes(a);
   const char *q = idris_rt_str_bytes(b);
   uint64_t n = a->bytes < b->bytes ? a->bytes : b->bytes;

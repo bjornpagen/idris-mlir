@@ -55,5 +55,5 @@ extern "C" int64_t idris_rt_str_to_int(const idris_rt_str *s) {
     return static_cast<int64_t>(p[0] == '-' ? 0 - value : value);
   }
   double value = idris_rt_parse_double(p, s->bytes);
-  return __builtin_isfinite(value) ? idris_rt_f64_to_i64(value) : 0;
+  return __builtin_isfinite(value) ? idris_rt_to_int(value) : 0;
 }

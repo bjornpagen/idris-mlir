@@ -1,7 +1,7 @@
 /* rule: SEM-DBL-5, LOW-DBL-2
  * The runtime's Double printer against Chez's number->string. `fuzz N BITS`
  * writes N bit patterns to the file BITS, one per line in hex, and prints
- * each double with idris_rt_put_double, one per line; chez.ss prints the
+ * each double with idris_rt_io_put_double, one per line; chez.ss prints the
  * same doubles from BITS. The patterns: any bits, exponents near 1023,
  * subnormals, and doubles whose decimal expansion ends in a 5, where the
  * shortest digits may be a tie (Ryu rounds a tie to even, Chez up). */
@@ -77,8 +77,8 @@ int main(int argc, char **argv) {
     union { uint64_t u; double d; } v = {b};
     x = v.d;
     fprintf(bits, "%016" PRIx64 "\n", b);
-    idris_rt_put_double(x);
-    idris_rt_put_char('\n');
+    idris_rt_io_put_double(x);
+    idris_rt_io_put_char('\n');
   }
   idris_rt_flush();
   return fclose(bits) == 0 ? 0 : 1;

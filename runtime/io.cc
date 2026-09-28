@@ -93,35 +93,35 @@ extern "C" void idris_rt_flush(void) {
   outputLength = 0;
 }
 
-extern "C" void idris_rt_put_str(const idris_rt_str *s) {
+extern "C" void idris_rt_io_put_str(const idris_rt_str *s) {
   putBytes(idris_rt_str_bytes(s), s->bytes);
 }
 
-extern "C" void idris_rt_put_char(int32_t c) {
+extern "C" void idris_rt_io_put_char(int32_t c) {
   char bytes[4];
   putBytes(bytes, rt::encodeUtf8(c, bytes));
 }
 
-extern "C" void idris_rt_put_int_s(int64_t value) {
+extern "C" void idris_rt_io_put_int_s(int64_t value) {
   char text[rt::intTextMax];
   char *end = text + sizeof text;
   char *start = rt::formatSigned(value, end);
   putBytes(start, static_cast<size_t>(end - start));
 }
 
-extern "C" void idris_rt_put_int_u(uint64_t value) {
+extern "C" void idris_rt_io_put_int_u(uint64_t value) {
   char text[rt::intTextMax];
   char *end = text + sizeof text;
   char *start = rt::formatUnsigned(value, end);
   putBytes(start, static_cast<size_t>(end - start));
 }
 
-extern "C" void idris_rt_put_double(double value) {
+extern "C" void idris_rt_io_put_double(double value) {
   char text[rt::doubleTextMax];
   putBytes(text, rt::formatDouble(value, text));
 }
 
-extern "C" int32_t idris_rt_get_byte(void) {
+extern "C" int32_t idris_rt_io_get_byte(void) {
   int32_t b = peek();
   if (b < 0)
     return 255;
@@ -132,7 +132,7 @@ extern "C" int32_t idris_rt_get_byte(void) {
 // The first byte decides the length and the range of the second byte
 // (Unicode's table of well-formed byte sequences); a byte outside it ends a
 // maximal invalid subsequence, which is not consumed.
-extern "C" int32_t idris_rt_get_char(void) {
+extern "C" int32_t idris_rt_io_get_char(void) {
   int32_t b0 = peek();
   if (b0 < 0)
     return 0;
@@ -167,7 +167,7 @@ extern "C" int32_t idris_rt_get_char(void) {
   return value;
 }
 
-extern "C" void idris_rt_exit(int64_t code) {
+extern "C" void idris_rt_io_exit(int64_t code) {
   idris_rt_flush();
   _exit(static_cast<int>(code & 0xFF));
 }
