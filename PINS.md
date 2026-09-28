@@ -68,6 +68,25 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   it at a bump
 - upstream: none filed yet
 
+## remove-dead-values-address-taken
+
+- symptom: at llvmorg-23.1.2, `remove-dead-values` leaves alone the
+  parameters of a function that is named other than as a callee (by an
+  `idr.closure` or a closure constant), but still finds a value that a
+  direct call passes to one of those parameters dead when the function
+  never reads it: it erases the value (a parameter of the caller, or the op
+  that made it) and the call keeps a null operand ("null operand found").
+  Raising (`ELIM-G-5`) and apply of a known closure (`ELIM-G-1`) make such
+  direct calls
+- sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
+  foreign/idr/lib/Eval/Eval.cc (a poison operand is no value to evaluate)
+- workaround: `idr-prune`, right before `remove-dead-values`, makes each
+  call of such a function pass `ub.poison` for every parameter the
+  function never reads
+- retire: when `remove-dead-values` keeps the operands of calls whose
+  callee's signature it keeps
+- upstream: none filed yet
+
 ## inline-unreachable
 
 - symptom: the upstream inliner's default `handleTerminator`
