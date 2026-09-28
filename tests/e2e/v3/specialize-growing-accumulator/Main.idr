@@ -1,14 +1,14 @@
 module Main
 
--- rule: ELIM-SPEC-1, OPT-PIPE-5
+-- rule: ELIM-SPEC-1, ELIM-SPEC-2, OPT-PIPE-5, TEST-TERM-1
 -- `count` is called with a counter read at runtime and an accumulator that
 -- is a constant, and grows by 3 at every call: specializing on it would
 -- clone `count` forever, once per value, since the counter never becomes
--- known. The clone limit (--idr-clone-limit, docs/cutover.md 6.3) stops it:
--- the program compiles, the calls past the limit run the original, and the
--- result is what the source says. (Idris proves no loop on an Int
--- terminating, so `count` is partial; a total loop needs a Nat or a list as
--- its counter, which cannot exist at runtime in this profile.)
+-- known. `count` never branches on it, so it is generalized (ELIM-SPEC-2):
+-- one clone, whose own call passes it as a runtime value; the program
+-- compiles, and the result is what the source says. (Idris proves no loop on
+-- an Int terminating, so `count` is partial; a total loop needs a Nat or a
+-- list as its counter, which cannot exist at runtime in this profile.)
 
 import Prelude
 

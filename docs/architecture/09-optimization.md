@@ -54,12 +54,12 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | --- | --- | --- | --- | --- |
 | Monomorphisation, instance specialization | Futhark `Monomorphise`, MLton, Lean `specialize` (`fixedInst`) | types, quantities, normalization | Idris (`ELIM-MONO-*`) | v1 |
 | Representations: unboxed sum, box, big | MLton, Lean's scalar `Nat`, Idris's `ZERO`/`SUCC` flags | types, recursion, constructor flags | Idris (`Frontend.Translate`, `IDR-DATA-4`, `IDR-IN-3`) | cutover |
-| Loop breakers | GHC's inliner | the call graph of full Core, the registry's *Break last* | Idris (`Emit`, `OPT-PIPE-3`) | v2 |
+| Loop breakers | GHC's inliner | the call graph of full Core, the registry's *Break last*; the cycles the simplify loop closes | Idris (`Emit`, `OPT-PIPE-3`), then our C++ `idr-loop-breakers` every round | v2 |
 | Inlining | everyone | call graph, bodies | upstream `inline`, enabled by `IDR-IF-1`, with no size threshold (`OPT-PIPE-5`) | v0 |
 | Beta, force of delay | GHC, Lean `simp` | known closures | our canonicalization of `idr.apply`, then `inline` (`ELIM-G-1`, `ELIM-G-8`) | cutover |
 | Case-of-known-constructor, projection-of-constructor | Lean `simp`, GHC | constructor semantics | our folders (`idr.tag`, `idr.field`) and region patterns (`idr.match`), run by upstream `canonicalize` (`ELIM-G-2`) | v0 |
 | Case-of-case | GHC, Lean | a match's single consumer | our canonicalization of `idr.match` (`IDR-MATCH-5`) | cutover |
-| Specialization on static arguments, higher-order specialization | Futhark `Defunctionalise`, Lean `fixedHO`, call-pattern specialization | constant-like arguments | our C++ `idr-specialize` (`ELIM-SPEC-1`) | cutover |
+| Specialization on static arguments, higher-order specialization | Futhark `Defunctionalise`, Lean `fixedHO`, call-pattern specialization; generalization of accumulators from offline partial evaluation | constant-like arguments | our C++ `idr-specialize` (`ELIM-SPEC-1`, `ELIM-SPEC-2`) | cutover |
 | Compile-time evaluation | MLton constant folding, Zig `comptime` | closed total pure calls | our C++ `idr-eval`, which runs the program's own code (`ELIM-EVAL-1`) | cutover |
 | Constant folding and propagation | Lean `ElimDeadBranches` (constants) | constants | upstream `canonicalize` and `sccp`, through our folders (`ELIM-G-6`) | v0 |
 | Defunctionalization of closures that remain | Reynolds, MLton `ClosureConvert` | sets of functions | our C++ `idr-defunctionalize` on MLIR's dataflow framework (`ELIM-CLOS-1`) | cutover |
@@ -72,7 +72,7 @@ Superoptimization, equality saturation and search are non-goals (D7).
 | Proved rewrites | Lean `@[csimp]` | equality proofs in TT | Idris | reserved ([07](07-proved-rewrites.md)) |
 | Integer ranges | | tags, characters, lengths | upstream `int-range-optimizations`, through `IDR-RANGE-1` | cutover |
 | CSE | Lean `cse`, Futhark CSE | purity | upstream `cse`, enabled by `Pure` traits | v0 |
-| Dead code, dead functions, unused parameters | Lean `elimDead`, `reduceArity`; Futhark `removeDeadFunctions` | uses, purity | upstream `canonicalize`, `symbol-dce`, `remove-dead-values`; unused calls by `OPT-CALL-1` | v0 |
+| Dead code, dead functions, unused parameters | Lean `elimDead`, `reduceArity`; Futhark `removeDeadFunctions` | uses, purity | upstream `canonicalize`, `symbol-dce`, `remove-dead-values` (after our `idr-prune`, `OPT-PIPE-5`); unused calls by `OPT-CALL-1` | v0 |
 | Self tail call to loop | MLton `Contify`, Lean join points | tail position | our C++ `idr-tail-loops` (`LOW-TAIL-5`) | cutover |
 | The heap-free profile | | what allocates | our C++ `idr-check-profile` (`PROF-HEAP-*`) | cutover |
 | Unboxing and flattening of data | Futhark `ReplaceRecords`, MLton `Flatten`, Lean `structProjCases` | layout from dialect types | our C++ `idr-lower` (1:N type conversion); upstream `sroa` works only on memory | v0 |
@@ -149,8 +149,20 @@ Superoptimization, equality saturation and search are non-goals (D7).
   200-function program took over a minute and grew twentyfold. *Revised at
   the cutover:* the breakers are computed by `Emit`, on full Core; before,
   on first-order Core.
-  - Check: `Emit`
-  - Test: `tests/e2e/v2/loop-breakers/mlir.check`
+  - The rounds of the simplify loop close new cycles: a call redirected to
+    a clone that calls back, or, through `sccp`, a function that returns a
+    closure constant of itself (an IO loop whose action is a constant).
+    The inliner refuses only self-recursion and a callee that calls its
+    caller back, so it would unroll such a cycle once per round. So
+    `idr-loop-breakers` runs first in every round (`OPT-PIPE-5`): a
+    function refers to what it calls and to the functions its closures and
+    closure constants name, and in each cycle of references without a
+    breaker (two or more functions, or one that refers to itself) it marks
+    the newest clone `no_inline`, or else the first function in module
+    order that is not from a library, then cuts the rest of the cycle the
+    same way.
+  - Check: `Emit`; the pass `idr-loop-breakers`
+  - Test: `tests/e2e/v2/loop-breakers/mlir.check`, `tests/idr/loops/breakers.mlir`
 - **OPT-PIPE-4 (v3).** Code generation aligns every function, and every
   block that is not reached by falling through, to 64 bytes
   (`--align-all-functions=6 --align-all-nofallthru-blocks=6`, which the
@@ -161,25 +173,34 @@ Superoptimization, equality saturation and search are non-goals (D7).
   `bench/` is slower and `fib` is 9% faster.
   - Test: `tests/idr/pipeline/layout.mlir`
 - **OPT-PIPE-5 (v3). The simplify loop.** `idr-simplify` repeats this
-  round until a round leaves the module unchanged, as its
-  `OperationFingerPrint` shows:
-  1. `idr-effects` (`IDR-FACT-1`)
-  2. `inline`, with `default-pipeline=canonicalize`, `max-iterations=K`
+  round until a round leaves the module unchanged:
+  1. `idr-loop-breakers` (`OPT-PIPE-3`)
+  2. `idr-effects` (`IDR-FACT-1`)
+  3. `inline`, with `default-pipeline=canonicalize`, `max-iterations=K`
      and no inlining threshold
-  3. `idr-specialize` (`ELIM-SPEC-1`)
-  4. `sccp`, `canonicalize`, `cse`
-  5. `idr-eval` (`ELIM-EVAL-1`)
-  6. `idr-prune`, `symbol-dce`, `remove-dead-values`, `symbol-dce`
+  4. `idr-specialize` (`ELIM-SPEC-1`), with the clone limit
+     (`ELIM-SPEC-2`)
+  5. `sccp`, `canonicalize`, `cse`
+  6. `idr-eval` (`ELIM-EVAL-1`)
+  7. `idr-prune`, `symbol-dce`, `remove-dead-values`, `symbol-dce`
 
-  The inliner's values:
+  "Unchanged" is a structural hash of the module, not
+  `OperationFingerPrint` or the module's text: `sccp` replaces every
+  constant by a new op on every run, and the constants it and
+  `canonicalize` materialize come out in another order each round. The
+  hash takes a constant as its value at each use, and any other value by
+  its position in the walk. There is no bound on the number of rounds.
+
+  The inliner's values, and the order of the last step:
   - **No threshold** (`inlining-threshold` unlimited, upstream's default):
     every legal call is inlined. With a finite threshold, whether a string
     reached output fusion, and so whether a program compiled, would depend
     on a cost model (`PROF-GEN-5`).
-  - **`K`** is 4 (upstream's default; tuned on `bench/` at stop point 3).
-    It bounds how often the inliner re-simplifies an SCC in one round; the
-    loop repeats the round anyway, so `K` changes compile time, never
-    whether a program compiles.
+  - **`K`** is 4, upstream's default, and `idr-simplify`'s option
+    `inline-iterations`; it is not yet tuned on `bench/` ([the
+    plan](../plan.md), section 8.2). It bounds how often the inliner
+    re-simplifies an SCC in one round; the loop repeats the round anyway,
+    so `K` changes compile time, never whether a program compiles.
   - `idr-prune` and `symbol-dce` run before `remove-dead-values`, which at
     the pin crashes on code that dead-code analysis proves unreachable but
     nothing has removed yet. With the same analyses, `idr-prune` ends each
@@ -188,13 +209,16 @@ Superoptimization, equality saturation and search are non-goals (D7).
     referred to (`PINS.md`: `prune-before-remove-dead-values`).
 
   *Why the loop terminates.* Inlining never goes around a cycle, because
-  loop breakers cut every cycle of the call graph (`OPT-PIPE-3`), and
-  clones inherit `no_inline`. Specialization is bounded by the clone limit
-  and by the growth stop (`ELIM-SPEC-2`). Every evaluation terminates (`SEM-EVAL-6`) and replaces
-  a call by constants, and there are finitely many calls to evaluate once
-  inlining and specialization are bounded. The other passes only shrink the
-  module. So after finitely many rounds nothing changes.
+  loop breakers cut every cycle of references at the start of every round
+  (`OPT-PIPE-3`), and clones inherit `no_inline`. Specialization is bounded
+  by generalization, the growth stop and the clone limit (`ELIM-SPEC-2`).
+  Every evaluation terminates (`SEM-EVAL-6`) and replaces a call by
+  constants, and there are finitely many calls to evaluate once inlining
+  and specialization are bounded. The other passes only shrink the module.
+  So after finitely many rounds nothing changes.
   - Check: the pass `idr-simplify`
+  - Test: `tests/idr/loops/breakers.mlir`, `tests/idr/prune/unreachable.mlir`,
+    `tests/e2e/v3/specialize-growing-accumulator`
 - **OPT-IDEM-1 (v0).** *Revised at the cutover:* the simplify loop runs to a
   fixpoint, so running it again on its own output changes nothing. A
   difference in the rest of the pipeline means a missing canonicalization
@@ -204,7 +228,8 @@ Superoptimization, equality saturation and search are non-goals (D7).
 ## Upstream limitations at the pin
 
 LLVM and MLIR are pinned at `llvmorg-23.1.2`. These limitations shape the
-pipeline; each workaround has a `PINS.md` entry:
+pipeline; each workaround has a `PINS.md` entry and a report under
+`upstream/` (`TC-PIN-4`):
 
 | Limitation | Where | What we do |
 | --- | --- | --- |

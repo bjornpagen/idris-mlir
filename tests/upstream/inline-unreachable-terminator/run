@@ -1,4 +1,5 @@
 #!/bin/sh
+# rule: TC-PIN-4
 # The upstream bug upstream/inline-unreachable-terminator still reproduces
 # with the pinned mlir-opt. When this fails, the bug is fixed: let Emit end a
 # body that never returns in ub.unreachable again, and delete the PINS.md

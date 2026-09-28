@@ -139,7 +139,7 @@ was (`ELIM-G-19`, `SEM-BIG-1`).
   Where such a primitive is reachable from a compile-time position
   (`FE-REACH-1`), so that a type could depend on its value, the program is
   rejected with this rule: the two levels could disagree (`SEM-REF-1`).
-  - *planned* (the cutover's follow-up): the check in
+  - *planned* (v3; [the plan](../plan.md), section 1): the check in
     `Frontend.Profile.checkReachable`, and the reject fixtures
     `tests/profile/v3/reject/SEM-HOST-1-*`
 

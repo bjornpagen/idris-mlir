@@ -13,9 +13,9 @@ the reason, and never counted as passed.
   | --- | --- | --- |
   | `make check` | `tests/spec` (repository rules, `TEST-SPEC-1`) | always |
   | `make build` | the C++ `dev` preset and the Idris compiler | after any code change |
-  | `make test` | `tests/compiler`, `tests/profile`, `tests/e2e`, `tests/determinism`, `tests/registry`, `tests/toolchain` | after compiler changes |
+  | `make test` | `tests/compiler`, `tests/profile`, `tests/e2e`, `tests/determinism`, `tests/registry`, `tests/toolchain`, `tests/equivalence`, `tests/fuzz`, `tests/two-levels` | after compiler changes |
   | `make test-idr` | `tests/idr`, with `FileCheck` | after C++ or contract changes |
-  | `make test-mlir-tools` | `tests/mlir` | after changing upstream MLIR usage |
+  | `make test-mlir-tools` | `tests/mlir`, and `tests/upstream` (`TC-PIN-4`) | after changing upstream MLIR usage |
 
   The suites are golden tests on Idris's own `Test.Golden`, run by
   `tests/Main.idr`. A test is a directory with a POSIX-sh `run` script and
@@ -146,34 +146,44 @@ the reason, and never counted as passed.
 computes, and what Idris's evaluator computes.
 
 - **TEST-EQUIV-1 (v3). Equivalence.** Every e2e program that compiles both
-  with and without `idris-mlir-cc --no-eval` gives, both ways, the same
-  stdout and exit status on the same stdin. And in the final MLIR of every
-  e2e fixture, compiled with `--remarks=idr-eval`, no closed call to a pure
-  total function survives but those whose evaluation crashed.
-  - *planned* (stop point 3 of the cutover)
+  with and without `idris-mlir-cc --no-eval` (`--directive no-eval`,
+  `DRV-DUMP-1`) gives, both ways, the same stdout and exit status on the
+  same stdin; crash messages are not compared. A fixture that compiles only
+  with evaluation (a value the profile forbids at runtime, which only
+  evaluation removes) is listed with the rule `--no-eval` rejects it with.
+  - Test: `tests/equivalence/*` (every e2e fixture, by version)
+  - *planned*: a check that in the final MLIR of every e2e fixture,
+    compiled with `--remarks=idr-eval`, no closed call to a pure total
+    function survives but those whose evaluation crashed
+    ([the plan](../plan.md), section 1)
 - **TEST-FUZZ-1 (v3). The fuzzer.** Closed pure expressions over every
   primitive, generated at random, give the same value at compile time
-  (folders and `idr-eval`), at runtime (`--no-eval`), and on Chez. Each
+  (folders and `idr-eval`), at runtime (`--no-eval`, and through a partial
+  identity that is never evaluated), and on Chez; results through `libm`
+  are compared among this compiler's builds only (`SEM-DBL-3`). Each
   folder is also run against its own lowering through the JIT.
-  - *planned* (stop point 3 of the cutover)
-- **TEST-LEVELS-1 (v3). The two levels.** Closed terms that Idris's
-  evaluator normalizes in a type (`Refl` proofs) give the same value under
-  `idr-eval`, for every primitive but those of `SEM-HOST-1`.
-  - *planned* (stop point 3 of the cutover)
+  - Test: `tests/fuzz/*` (`tests/Fuzz.idr`),
+    `tests/idr/eval/fold-vs-jit.mlir`, `tests/idr/eval/fold-vs-jit-scalar.mlir`
+- **TEST-LEVELS-1 (v3). The two levels.** Closed terms over every primitive
+  and over a corpus of total Prelude functions, normalized by the pinned
+  Idris's own evaluator, give the same value in the compiled program, for
+  every primitive but those of `SEM-HOST-1`.
+  - Test: `tests/two-levels/terms` (`tests/TwoLevels.idr`)
 - **TEST-ENF-1 (v3). Enforcement.** Tests that fail when the division of
   labour erodes:
   - no primitive has semantics in Idris: `compiler/src` computes no
     primitive's result (no host `prim__` call, no folding);
   - `Emit` names only the dialects of `IDR-IN-1`, with no flag `IDR-IN-2`
     forbids;
-  - every canonicalization has a lit test (`TEST-IDR-1`).
-  - *planned* (stop point 3 of the cutover)
+  - every canonicalization has a lit test (`TEST-IDR-1`): *planned* as a
+    check ([the plan](../plan.md), section 1); today by review.
+  - Test: `tests/spec/no-primitive-semantics`, `tests/spec/emit-dialects`
 - **TEST-TERM-1 (v3). Termination.** A closed call to a partial function
   that diverges only on a path never taken compiles, runs, and is not
   evaluated (`SEM-EVAL-6`); an accumulator that would specialize forever
-  stops at the clone limit (`ELIM-SPEC-2`) and is rejected with
-  `PROF-HEAP-4` or compiles, as its closures decide.
-  - *planned* (stop point 3 of the cutover)
+  is generalized (`ELIM-SPEC-2`), and the program compiles.
+  - Test: `tests/e2e/v3/partial-untaken-divergence`,
+    `tests/e2e/v3/specialize-growing-accumulator`
 
 Compile time is measured and reported for every fixture, with the slowest
 broken down by pass, JIT compilation and evaluation (`idris-mlir-cc

@@ -44,9 +44,10 @@ programs, and the program runs at compile time*
   for `Integer` and the types Idris flags `ZERO`/`SUCC`.
 - `Emit` writes full Core as it is into the `idr` dialect: closures,
   boxes, bigs, strings, matches with regions. Nothing is removed in Idris.
-- `idris-mlir-cc` runs the simplify loop to a fixpoint (`idr-effects`,
-  `inline` with no threshold, `idr-specialize`, `sccp`, `canonicalize`,
-  `cse`, `idr-eval`, `symbol-dce`, `remove-dead-values`), then
+- `idris-mlir-cc` runs the simplify loop to a fixpoint
+  (`idr-loop-breakers`, `idr-effects`, `inline` with no threshold,
+  `idr-specialize`, `sccp`, `canonicalize`, `cse`, `idr-eval`,
+  `idr-prune`, `symbol-dce`, `remove-dead-values`), then
   `idr-defunctionalize`, `idr-tail-loops`, `idr-check-profile` and
   `idr-lower`, then LLVM's O3 over the program and the runtime's bitcode
   ([architecture/09](architecture/09-optimization.md)).
@@ -65,7 +66,7 @@ evaluating partial code were split, and three reject fixtures became
 accepts (`PROF-GEN-4`).
 
 **Benchmarks** (`bench/`, best of 5, seconds; x86-64, 4 CPUs; measured
-before the cutover, and measured again at its stop point 3):
+before the cutover, and not yet measured again since):
 
 | benchmark | this compiler | Idris Chez | MLton | gcc -O2 |
 | --- | ---: | ---: | ---: | ---: |
@@ -78,13 +79,23 @@ before the cutover, and measured again at its stop point 3):
 | ackdyn | 0.213 | 1.018 | 0.088 | 0.039 |
 | harmonic | 0.256 | 6.655 | 0.641 | 0.258 |
 
-**Next for the cutover: its stop point 3.** The equivalence suite
-(`--no-eval`), the fuzzer against Chez, the two-level test and the
-enforcement tests ([architecture/14-testing](architecture/14-testing.md),
-`TEST-EQUIV-1` to `TEST-TERM-1`); `bench/` against the table above; every
-fixture's compile time, the slowest ten broken down by pass, JIT
-compilation and evaluation; the inliner's `max-iterations` tuned on
-`bench/`; and the check `SEM-HOST-1`.
+**Next: what the cutover left to measure and check.** The equivalence,
+fuzzer, two-level, enforcement and termination suites exist
+([architecture/14-testing](architecture/14-testing.md), `TEST-EQUIV-1` to
+`TEST-TERM-1`). Still to do:
+- `bench/` against the table above (every row reads its size at
+  runtime); a row slower beyond noise is a regression to fix;
+- every fixture's compile time, the slowest ten broken down by pass, JIT
+  compilation and evaluation, and the suites' wall time (section 8.2);
+- the inliner's `max-iterations` (`K`, `OPT-PIPE-5`) tuned on `bench/`;
+- the check `SEM-HOST-1` and its reject fixtures;
+- the rest of `TEST-EQUIV-1`: no closed call to a pure total function
+  survives in the final MLIR of any e2e fixture, but those whose
+  evaluation crashed (`--remarks=idr-eval`);
+- the rest of `TEST-ENF-1`: a check that every canonicalization has a lit
+  test;
+- `upstream/execution-engine-process-symbols` has a report but no
+  reproducer and no `tests/upstream` check (`TC-PIN-4`).
 
 **What stops us.** Every value has a runtime representation, and the
 passes that remove abstraction are in MLIR. What is left is the heap: a
@@ -1164,8 +1175,7 @@ call, and a symbolic evaluator kept until M2):
   time and at runtime, and no evaluator is written in Idris.
 
 **Still open.**
-- The JIT's share of compile time, per fixture, measured at the cutover's
-  stop point 3 (section 8.2).
+- The JIT's share of compile time, per fixture (section 8.2).
 - Caching evaluations across compilations: only if the measurements ask
   for it.
 - macOS (milestone 12): `MAP_JIT` under the hardened runtime, and `fork`
@@ -1350,15 +1360,15 @@ withdrawn):
 - The harness records every compilation's wall time, and lists the
   slowest fixtures; `idris-mlir-cc --timing` breaks one down by pass, JIT
   compilation, evaluation and LLVM stage.
-- The cutover's stop point 3 reports every fixture's compile time, with
-  the slowest ten broken down, and the suites' wall time before and after.
+- Still to do (section 1): a report of every fixture's compile time,
+  with the slowest ten broken down, and the suites' wall time.
 - `printLn 'x'` took 5.7 s before the cutover, because `Simplify`
   evaluated a `Nat` of 120 constructors; `Nat` is a big now, and its
   compile time is measured with the rest.
 - What can be tuned without changing what compiles: the inliner's
-  `max-iterations` (4, upstream's default, tuned on `bench/` at stop point
-  3), and the LLVM pipeline of `idr-eval`'s scratch modules. The clone
-  limit and the inlining threshold are not tuned: they decide acceptance
+  `max-iterations` (4, upstream's default, not yet tuned on `bench/`), and
+  the LLVM pipeline of `idr-eval`'s scratch modules. The clone limit and
+  the inlining threshold are not tuned: they decide acceptance
   (`PROF-GEN-5`).
 
 ### 8.3 One algebra of facts
@@ -1692,7 +1702,7 @@ and the memory gate is first: the rest rests on it.
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
-| 0b | **The cutover** (done; section 1): Idris does types, MLIR does programs, and the program runs at compile time | `Simplify`, first-order Core and `Fold.idr` deleted, with the line counts in the merge's message; every suite green, every changed expectation listed with its reason (`PROF-GEN-4`); the v3 programs that need compile-time evaluation compile, with `idr-eval` computing their results; the spec matches the code; the "who owns what" note ([18](architecture/18-ownership.md)). Its stop point 3 is next: the equivalence, fuzzer, two-level and enforcement suites green; `bench/` within noise on every row; compile times reported with the JIT's share |
+| 0b | **The cutover** (done; section 1): Idris does types, MLIR does programs, and the program runs at compile time | `Simplify`, first-order Core and `Fold.idr` deleted, with the line counts in the merge's message; every suite green, every changed expectation listed with its reason (`PROF-GEN-4`); the v3 programs that need compile-time evaluation compile, with `idr-eval` computing their results; the spec matches the code; the "who owns what" note ([18](architecture/18-ownership.md)); the equivalence, fuzzer, two-level and enforcement suites. What it left to measure and check is in section 1 |
 | 2 | **Memory gate** (section 4.4) | the four experiments pass, or the decision is reopened with the numbers; M1 and the milestones after it do not start before this passes |
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
 | 1b | **The registry** (section 9.1) | the three stop points of 9.1 passed; the suite agrees test for test; `bench/` and e2e compile times unchanged beyond noise; the enforcement tests green; `NN-registry.md` written |
@@ -1964,13 +1974,13 @@ about is gone; the questions are now about the MLIR pipeline.
       seconds, and `printLn 'x'` in 5.7 s.
     - **Unknown:** its compile time on large programs, and how much of it
       is JIT compilation.
-    - **Settles it:** the cutover's stop point 3 (section 8.2), then a
+    - **Settles it:** the compile-time report (section 8.2), then a
       compile-time benchmark on the largest programs we can write against
       base and contrib.
 15. **Code size.** Inlining with no threshold and specialization can grow
-    code. Loop breakers and the clone limit bound them, and LLVM's
-    `MergeFunctions` merges identical clones, but no budget is set on the
-    result.
+    code. Loop breakers, generalization and the clone limit bound them, and
+    LLVM's `MergeFunctions` merges identical clones, but no budget is set on
+    the result.
     - **Settles it:** a code-size column in `bench/` and in the compile-time
       benchmark; any limit found necessary is a fixed parameter of the
       pipeline, so acceptance stays a rule (`PROF-GEN-5`).

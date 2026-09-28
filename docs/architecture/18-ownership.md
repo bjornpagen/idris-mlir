@@ -45,12 +45,14 @@ Only three things are original:
 | Folders and canonicalizations: known constructor, beta, case-of-case, output fusion | shrink the program | MLIR's `canonicalize` and DRR; GHC's and Lean's simplifiers | ported, on borrowed drivers |
 | `inline`, `sccp`, `cse`, `symbol-dce`, `remove-dead-values`, `int-range-optimizations` | generic optimization | MLIR | borrowed |
 | `idr-effects` | effect and crash facts over the call graph | Lean's function facts | ported |
-| `idr-specialize` | specialization on constant-like arguments | Futhark's defunctionalisation by static values, Lean's `fixedHO`, call-pattern specialization | ported |
+| `idr-specialize` | specialization on constant-like arguments | Futhark's defunctionalisation by static values, Lean's `fixedHO`, call-pattern specialization; generalization from offline partial evaluation | ported |
 | `idr-eval` | compile-time evaluation | ORC's `LLJIT`; the executable's own lowering and runtime | borrowed JIT; the rule is original |
 | `idr-defunctionalize` | closures to sums | Reynolds; MLton's `ClosureConvert`; MLIR's dataflow framework | ported, on a borrowed framework |
 | `idr-tail-loops` | self tail calls to `scf.while` | MLton's `Contify` | ported |
 | `idr-check-profile` | the heap-free rules | ours | original (the guarantees) |
-| `idr-simplify` | the fixpoint of the passes above | MLIR's pass manager and `OperationFingerPrint` | original (glue) |
+| `idr-loop-breakers` | cut the cycles the simplify loop closes, every round | GHC's inliner (Peyton Jones and Marlow) | ported |
+| `idr-prune` | empty the code dead-code analysis proves unreachable, before `remove-dead-values` | MLIR's dead-code analysis | borrowed analysis; a workaround (`PINS.md`: `prune-before-remove-dead-values`) |
+| `idr-simplify` | the fixpoint of the passes above | MLIR's pass manager; a structural hash of the module | original (glue) |
 | `idr-lower` | the contract to `func`, `arith`, `scf`, `llvm` | MLIR's dialect conversion; layouts after Chataing, Dolan, Scherer and Yallop | borrowed framework, ported layouts |
 | `convert-scf-to-cf`, `convert-to-llvm` | to the LLVM dialect | MLIR | borrowed |
 | `idris-mlir-opt`, `idris-mlir-reduce` | tools for tests and debugging | `mlir-opt`, `mlir-reduce` | borrowed, with our dialect registered |

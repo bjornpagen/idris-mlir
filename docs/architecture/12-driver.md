@@ -12,10 +12,13 @@
 - **DRV-OPT-1 (p0).** `idris-mlir-opt` registers:
   - the upstream dialects and passes that `OPT-PIPE-1` uses;
   - the `idr` dialect;
-  - the passes `idr-effects`, `idr-specialize`, `idr-eval`,
-    `idr-simplify`, `idr-defunctionalize`, `idr-tail-loops`,
-    `idr-check-profile` and `idr-lower` (*revised at the cutover*; before,
-    `idr-check-input`, `idr-entry` and `idr-lower`);
+  - the passes `idr-loop-breakers`, `idr-effects`, `idr-specialize`,
+    `idr-eval`, `idr-prune`, `idr-simplify`, `idr-defunctionalize`,
+    `idr-tail-loops`, `idr-check-profile` and `idr-lower` (*revised at the
+    cutover*; before, `idr-check-input`, `idr-entry` and `idr-lower`), with
+    their options: `idr-simplify`'s `inline-iterations` and `clone-limit`
+    (`OPT-PIPE-5`, `ELIM-SPEC-2`), `idr-specialize`'s `clone-limit` and
+    `idr-lower`'s `jit` (`LOW-JIT-1`);
   - the pipeline `--idr-pipeline`, which runs steps 1–10 of `OPT-PIPE-1`.
 
   Otherwise it behaves like `mlir-opt`: it registers every upstream dialect,
@@ -24,8 +27,8 @@
 
   ```sh
   idris-mlir-cc INPUT.mlir (-o OUTPUT | --check) [--emit=obj|asm|llvm|mlir]
-                [--cpu=CPU] [--runtime=ARCHIVE] [--no-eval] [--clone-limit=N]
-                [--remarks=REGEX] [--timing] [--dump-after=PASS|all] [--dump-dir=DIR]
+                [--cpu=CPU] [--runtime=ARCHIVE] [--no-eval] [--remarks=REGEX]
+                [--timing] [--dump-after=PASS|all] [--dump-dir=DIR]
   ```
 
   - It parses `INPUT` with a registry of exactly the contract's dialects
@@ -49,12 +52,14 @@
       nothing: the frontend runs it for `main : Int` programs, so that
       `idris-mlir --check` reports a profile rejection (`DIAG-EXIT-1`);
     - `--no-eval` turns `idr-eval` off (`ELIM-EVAL-1`, `TEST-EQUIV-1`);
-    - `--clone-limit=N` sets the clone limit, 4096 by default
-      (`ELIM-SPEC-2`);
     - `--remarks=REGEX` prints the MLIR remarks of the matching categories,
       such as `idr-eval` (`DIAG-HEAP-1`);
     - `--timing` reports the time of each pass, of JIT compilation and of
       evaluation, and of each LLVM stage.
+
+    The pipeline's parameters are fixed (`PROF-GEN-5`): `idris-mlir-cc`
+    has no option for the clone limit or the inliner's `max-iterations`,
+    which only `idris-mlir-opt` sets, for tests (`DRV-OPT-1`).
 - **DRV-CC-2 (p0).** Exit status:
   - `0`: success, and `OUTPUT` is complete;
   - `1`: the input violates the contract, or a pass failed. The input came
@@ -109,9 +114,10 @@
   (`build/exec/prog.dump/`) or the module's TTC. `--directive dump-mlir` passes `--dump-after=all` and
   that directory to `idris-mlir-cc`.
   Together they show a program at every stage, from TT to object code.
-  One more directive exists for tests only: `--directive break-shape=<key>`
+  Two more directives exist for tests only: `--directive break-shape=<key>`
   breaks a registry entry's shape (`HOOK-SHAPE-1`,
-  [17-registry](17-registry.md)).
+  [17-registry](17-registry.md)), and `--directive no-eval` passes
+  `--no-eval` to `idris-mlir-cc` (`TEST-EQUIV-1`).
 - **DRV-DET-1 (v0).** The same inputs and toolchain produce byte-identical
   `.core`, `.mlir`, object files and executables.
   - Test: `tests/e2e/v0/determinism`

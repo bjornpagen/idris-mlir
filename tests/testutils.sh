@@ -866,10 +866,10 @@ rejection_rule() {
   cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([A-Z0-9-]*)' | head -n 1
 }
 
-# rule: SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1, OPT-SAFE-1
+# rule: TEST-EQUIV-1, SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1, OPT-SAFE-1
 # equivalent FIXTURE: an e2e fixture (TEST-ORACLE-1, TEST-IO-1) compiled twice,
 # with evaluation and with `--directive no-eval`, which leaves every closed
-# call to runtime (docs/cutover.md 6.4): both executables must print the
+# call to runtime (ELIM-EVAL-1): both executables must print the
 # same stdout and exit with the same status on the fixture's stdin. Crash
 # messages are not compared. A fixture that --no-eval rejects with a user
 # error (a value the profile forbids at runtime, which only evaluation
@@ -971,7 +971,7 @@ fuzz_agree() {
     }' "$1" >> "$work/fuzz.agree"
 }
 
-# rule: SEM-REF-1, SEM-EVAL-6, ELIM-G-6, ELIM-EVAL-1, SEM-DBL-3, TEST-DIFF-1
+# rule: TEST-FUZZ-1, SEM-REF-1, SEM-EVAL-6, ELIM-G-6, ELIM-EVAL-1, SEM-DBL-3, TEST-DIFF-1
 # fuzz SEED: the fuzzer (tests/Fuzz.idr). For each part, `runtime` and
 # `static`, its program of SEED is compiled with evaluation, with
 # --directive no-eval (the runtime part only: the static part's values
@@ -1059,7 +1059,7 @@ fuzz_report() {
   fi
 }
 
-# rule: SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
+# rule: TEST-LEVELS-1, SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
 # two_levels CORPUS...: the two-level test (tests/TwoLevels.idr). The helper
 # tests/twolevels, Idris's own evaluator as a backend of the stock driver, is
 # built; for each corpus, `primitives` or `prelude`, its terms are
