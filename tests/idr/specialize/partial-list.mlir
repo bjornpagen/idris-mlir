@@ -43,10 +43,10 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: func.func private @sum$spec$1(
   // CHECK-SAME: %[[M:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}) -> i64
-  // CHECK: call @sum$spec$2(%[[M]]) : (i64) -> i64
+  // CHECK: call @sum$spec$2(%[[M]]) {{.*}}: (i64) -> i64
   // CHECK-LABEL: func.func private @sum$spec$2(
-  // CHECK: call @sum$spec$3(%[[M2:.*]]) : (i64) -> i64
+  // CHECK: call @sum$spec$3(%[[M2:[^)]*]]) {{.*}}: (i64) -> i64
   // CHECK-LABEL: func.func private @sum$spec$3(
-  // CHECK: call @sum(%{{.*}}) : (!idr.box<@L>) -> i64
+  // CHECK: call @sum(%{{[^)]*}}) {{.*}}: (!idr.box<@L>) -> i64
   // CHECK-NOT: func.func private @sum$spec$4
 }

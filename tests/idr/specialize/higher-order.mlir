@@ -49,7 +49,9 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: func.func private @map$spec$1(
   // CHECK-SAME: %[[A:.*]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[L:.*]]: !idr.box<@L> {idr.hole = 1 : i64, idr.quantity = "w"})
-  // CHECK-SAME: attributes {idr.origin = "map", idr.spec_key = "{{.*}}closure{{.*}}@add{{.*}}", idr.total}
+  // CHECK-SAME: idr.origin = "map"
+  // CHECK-SAME: idr.spec_key = "{{.*}}closure{{.*}}@add{{.*}}"
+  // CHECK-SAME: idr.total
   // CHECK: case @Cons(%[[H:.*]]: i64, %[[T:.*]]: !idr.box<@L>)
   // CHECK-NEXT: func.call @add(%[[A]], %[[H]])
   // CHECK-NEXT: call @map$spec$1(%[[A]], %[[T]])

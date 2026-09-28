@@ -78,10 +78,13 @@ module attributes {idr.program} {
     (`IDR-FACT-1`), which only `idr-effects` writes. `idr-specialize` keeps
     its own state between rounds in attributes internal to the pipeline,
     which `Emit` never writes (`ELIM-SPEC-1`, `ELIM-SPEC-2`): `idr.origin`
-    and `idr.spec_key` (strings) on a clone, the integer `idr.hole` on each
-    of a clone's parameters, `idr.clone_counts` (a dictionary of counts) on
-    the module, and the unit attribute `idr.spec_stopped` on a function or
-    a call. Any other `idr.*` attribute is rejected.
+    (a string) on a clone, `idr.spec_key` (a string) on a clone or on an
+    original once it is specialized, the integer `idr.hole` on each of their
+    parameters, `idr.spec_history` on a clone and `idr.spec_caller` on a
+    call (dictionaries of key strings by origin), `idr.clone_counts` (a
+    dictionary of counts) on the module, and the unit attribute
+    `idr.spec_stopped` on a function or a call. Any other `idr.*` attribute
+    is rejected.
   - Check: the dialect's attribute verifiers of the module (`idr.program`),
     of each function and of each argument
   - Test: `tests/idr/verify/module.mlir`, `tests/idr/verify/function.mlir`,

@@ -37,7 +37,16 @@
 // the callee.
 //
 // Clones can close new cycles of calls; idr-loop-breakers cuts them at the
-// start of the next round (OPT-PIPE-3), and clones of a breaker inherit it.
+// start of the next round (OPT-PIPE-3). A clone does not inherit no_inline
+// from a breaker: a chain of clones on a static shape is acyclic, and
+// inlining it is what exposes the shape to its consumer.
+//
+// Generalization and the growth stop compare a call with the latest clone
+// of its callee's origin on the chain of clones it was made in: each clone
+// keeps, per origin, the key of the latest clone before it
+// (idr.spec_history, its own included), and its calls record it
+// (idr.spec_caller), which survives inlining the clone into a function that
+// is no clone, and covers mutual recursion through several origins.
 //
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
@@ -70,6 +79,8 @@ constexpr StringLiteral originAttr = "idr.origin";
 constexpr StringLiteral stopped = "idr.spec_stopped";
 constexpr StringLiteral keyAttr = "idr.spec_key";
 constexpr StringLiteral holeAttr = "idr.hole";
+constexpr StringLiteral callerAttr = "idr.spec_caller";
+constexpr StringLiteral historyAttr = "idr.spec_history";
 
 // One argument of a call: its pattern and its runtime leaves, in order.
 //
@@ -299,6 +310,7 @@ struct Specializer {
     clone.setSymName(llvm::formatv("{0}$spec${1}", from, n).str());
     clone.setPrivate();
     clone->removeAttr(stopped);
+    clone.setNoInline(false);
     clone->setAttr(originAttr, StringAttr::get(module.getContext(), from));
     symbols.insert(clone, module.getBody()->end());
 
@@ -460,15 +472,38 @@ struct Specializer {
     return ArrayAttr::get(callee.getContext(), out);
   }
 
-  // Whether a call in `caller`, a clone of the callee's origin, passes static
-  // arguments that grow: each is the caller's own pattern or contains it,
-  // and one strictly.
-  bool grows(func::FuncOp caller, func::FuncOp callee, ArrayAttr key) {
-    if (!caller || !caller->hasAttr(originAttr) || !storedKey(caller) ||
-        origin(caller) != origin(callee))
-      return false;
-    ArrayAttr own = keyOf(caller);
-    if (own.size() != key.size())
+  // The history of a call: for each origin on the chain of clones the call
+  // was made in, the key of the latest such clone. A call in a clone records
+  // it (idr.spec_caller), since inlining the clone moves the call into a
+  // function that is no clone; otherwise it is the enclosing clone's
+  // (idr.spec_history), if any.
+  static DictionaryAttr historyOf(func::CallOp call) {
+    if (auto history = call->getAttrOfType<DictionaryAttr>(callerAttr))
+      return history;
+    auto caller = call->getParentOfType<func::FuncOp>();
+    return caller ? caller->getAttrOfType<DictionaryAttr>(historyAttr) : DictionaryAttr();
+  }
+
+  // The key of the latest clone of the callee's origin on the call's chain,
+  // as the patterns of the origin's parameters, or null. Mutual recursion
+  // goes through clones of several origins, so a call is compared with the
+  // latest clone of its callee's origin, not only with the clone it is in.
+  ArrayAttr ownKey(func::CallOp call, func::FuncOp callee) {
+    DictionaryAttr history = historyOf(call);
+    auto text = history ? history.getAs<StringAttr>(origin(callee)) : StringAttr();
+    if (!text)
+      return {};
+    ArrayAttr &key = parsed[text];
+    if (!key)
+      key = dyn_cast_or_null<ArrayAttr>(parseAttribute(text.getValue(), call.getContext()));
+    return key;
+  }
+
+  // Whether the call passes static arguments that grow over `own`, the key
+  // of the clone it was made in: each is that clone's own pattern or
+  // contains it, and one strictly.
+  static bool grows(ArrayAttr own, ArrayAttr key) {
+    if (!own || own.size() != key.size())
       return false;
     bool strictly = false;
     for (auto [before, after] : llvm::zip(own.getValue(), key.getValue())) {
@@ -501,12 +536,11 @@ struct Specializer {
   // gain nothing the callee could fold. It becomes a runtime value, as in
   // the generalization of an offline partial evaluator. An argument the
   // callee matches on (a counter, `ack`'s m) keeps its value.
-  void generalize(func::FuncOp caller, func::FuncOp callee, MutableArrayRef<Shape> shapes,
+  void generalize(ArrayAttr own, func::FuncOp callee, MutableArrayRef<Shape> shapes,
                   ValueRange operands) {
-    if (!caller || !caller->hasAttr(originAttr) || !storedKey(caller) ||
-        origin(caller) != origin(callee) || !keyed(callee))
+    if (!own || !keyed(callee))
       return;
-    ArrayAttr own = keyOf(caller), calleeKey = keyOf(callee);
+    ArrayAttr calleeKey = keyOf(callee);
     if (own.size() != calleeKey.size())
       return;
     // Each position of the origin covers a run of the callee's parameters:
@@ -552,8 +586,9 @@ struct Specializer {
     SmallVector<Shape> shapes = llvm::map_to_vector(call.getOperands(), [](Value v) {
       return shape(v);
     });
-    auto caller = call->getParentOfType<func::FuncOp>();
-    generalize(caller, callee, shapes, call.getOperands());
+    adopt(callee);
+    ArrayAttr own = ownKey(call, callee);
+    generalize(own, callee, shapes, call.getOperands());
     bool isStatic = false, open = false;
     for (auto [s, operand] : llvm::zip(shapes, call.getOperands())) {
       isStatic |= !isHole(s.pattern);
@@ -566,7 +601,6 @@ struct Specializer {
         llvm::map_to_vector(shapes, [](const Shape &s) { return s.pattern; });
     // Keyed by the origin, or, for a clone whose key no longer holds, by the
     // clone itself, whose parameters the patterns are.
-    adopt(callee);
     auto key = keyed(callee)
                    ? std::make_pair(StringAttr::get(module.getContext(), origin(callee)),
                                     compose(callee, patterns))
@@ -574,7 +608,7 @@ struct Specializer {
                                     ArrayAttr::get(module.getContext(), patterns));
     func::FuncOp clone = clones.lookup(key);
     if (!clone) {
-      if (grows(caller, callee, key.second)) {
+      if (grows(own, key.second)) {
         stop(call, callee,
              llvm::formatv("@{0} passes itself a static value that grows", origin(callee)).str());
         return false;
@@ -589,15 +623,25 @@ struct Specializer {
       clone = makeClone(callee, shapes, call.getOperands());
       clones[key] = clone;
       clone->removeAttr(keyAttr);
+      clone->removeAttr(historyAttr);
+      MLIRContext *ctx = module.getContext();
+      NamedAttrList history(historyOf(call));
       if (keyed(callee)) {
         std::string text;
         llvm::raw_string_ostream os(text);
         key.second.print(os);
-        clone->setAttr(keyAttr, StringAttr::get(module.getContext(), text));
+        clone->setAttr(keyAttr, StringAttr::get(ctx, text));
+        history.set(origin(callee), StringAttr::get(ctx, text));
       }
+      DictionaryAttr chain = history.getDictionary(ctx);
+      if (!chain.empty())
+        clone->setAttr(historyAttr, chain);
       // Folded now, so that the calls it makes are as static as they will
       // be, and a chain of clones is made in one run, not one per round.
       (void)applyPatternsGreedily(clone, canonicalization());
+      // Its calls record its history, for when it is inlined.
+      if (!chain.empty())
+        clone.walk([&](func::CallOp inner) { inner->setAttr(callerAttr, chain); });
     }
 
     SmallVector<Value> operands;

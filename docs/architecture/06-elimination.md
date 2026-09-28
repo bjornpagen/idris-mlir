@@ -221,8 +221,14 @@ runtime operands left out, and those operands are its *runtime leaves*.
     a crash, since the arguments are evaluated once, at the call.
   - Check: the pass `idr-specialize`
   - Test: `tests/idr/specialize/*.mlir`, `tests/e2e/v1/ELIM-G-3-specialization`
-- **ELIM-SPEC-2 (v3). Generalization, growth and the clone limit.** In a
-  clone's call of its own origin:
+- **ELIM-SPEC-2 (v3). Generalization, growth and the clone limit.** A call
+  is compared with the latest clone of its callee's origin on the chain of
+  clones it was made in, which mutual recursion passes through clones of
+  several origins: each clone keeps, per origin, the key of the latest
+  clone before it (`idr.spec_history`, its own included), and its calls
+  record it (`idr.spec_caller`), which survives when the clone is inlined
+  into a function that is no clone. Clones do not inherit `no_inline`, so a
+  chain of clones on a static shape is inlined. Against that key:
   - **An accumulator is generalized.** A static argument that differs from
     the clone's own pattern, and that the callee never branches on (it is
     not the scrutinee of a match of more than one region, nor a closure the
@@ -234,7 +240,7 @@ runtime operands left out, and those operands are its *runtime leaves*.
   - **Growth stops.** A call whose static arguments grow, each the clone's
     own pattern or containing it, and one strictly (`iter (\y => f (f y))`),
     would clone forever, so it is not specialized. Later rounds see the
-    growth too, through `idr.spec_key`.
+    growth too, through `idr.spec_key` and the history.
 
   Beyond that, `idr-specialize` makes at most `N` clones of one origin in
   a compilation, which bounds growth in other shapes. `N` is the

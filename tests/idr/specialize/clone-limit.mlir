@@ -17,7 +17,7 @@
 // CHECK: func.func private @count$spec$2(
 // CHECK: func.func private @count$spec$3(
 // CHECK-NOT: idr.spec_stopped
-// CHECK: call @count(%{{.*}}, %{{.*}}) {idr.spec_stopped}
+// CHECK: call @count(%{{.*}}, %{{.*}}) {{{.*}}idr.spec_stopped}
 // CHECK-NOT: func.func private @count$spec$4
 // REMARK: remark: [Missed] idr-specialize | Category:idr-specialize
 // REMARK-SAME: specialization of @count stopped: the clone limit of 3 clones of @count is reached
