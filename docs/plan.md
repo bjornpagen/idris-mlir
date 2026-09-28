@@ -58,7 +58,8 @@ programs, and the program runs at compile time*
   survives the pipeline is rejected with the rule it breaks.
 
 **What the cutover deleted:** `Simplify` (the supercompiling driver,
-choices, arity raising), first-order Core and its checkers, the compiler's
+choices, arity raising over Core, now `idr-specialize`'s over the
+dialect), first-order Core and its checkers, the compiler's
 own folding of primitives (`Fold.idr`), the runtime written as MLIR text,
 `idr-check-input`, `idr-entry` and the contract version: about 5,200 lines,
 whose exact counts are in the merge's message. Four programs that relied on

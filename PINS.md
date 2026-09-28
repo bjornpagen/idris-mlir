@@ -99,8 +99,9 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   call of such a function pass `ub.poison` for every parameter the
   function never reads
 - retire: when `remove-dead-values` keeps the operands of calls whose
-  callee's signature it keeps
-- upstream: none filed yet
+  callee's signature it keeps (`tests/upstream/remove-dead-values-address-taken`
+  fails)
+- upstream: upstream/remove-dead-values-address-taken (not yet filed)
 
 ## inline-unreachable
 

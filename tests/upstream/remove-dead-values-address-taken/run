@@ -1,0 +1,17 @@
+#!/bin/sh
+# rule: TC-PIN-4
+# The upstream bug upstream/remove-dead-values-address-taken still
+# reproduces with the pinned mlir-opt. When this fails, the bug is fixed:
+# delete idr-prune's poison operands, the PINS.md entry
+# remove-dead-values-address-taken, the report and this test
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$llvm_bin/mlir-opt" "$root/upstream/remove-dead-values-address-taken/address-taken.mlir" \
+  --remove-dead-values > "$work/out.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ] && grep -q 'null operand found' "$work/err"; then
+  say "address-taken: still reproduces (exit $status, null operand)"
+else
+  say "address-taken: no longer reproduces (exit $status)"
+  sed 's/^/  | /' "$work/err"
+fi

@@ -480,10 +480,11 @@ when `Simplify` enforced them; with `PROF-TYPE-4` (bigs), `PROF-DATA-3`
 - **PROF-HEAP-5.** *Withdrawn at the cutover:* arity raising (`ELIM-G-5`)
   moved code that computed an action from where it was built to where it
   was run, so this rule rejected a function whose moved code could crash
-  or fail to terminate across an effect. Arity raising is gone: inlining,
-  application of known closures and defunctionalization remove IO's
-  closures without moving any code, so no crash can move past an effect.
-  Its accept fixture stays an accept, and its reject fixture
+  or fail to terminate across an effect. Raising is now `idr-specialize`'s
+  (`ELIM-G-5`), and it moves a callee's body only across ops free of
+  effects, or moves a body that is pure, total and cannot crash, so no
+  crash can move past an effect and nothing is left to reject. Its accept
+  fixture stays an accept, and its reject fixture
   (`PROF-HEAP-5-division-before-action`) became one (`PROF-GEN-4`).
 
 ## Escape hatches

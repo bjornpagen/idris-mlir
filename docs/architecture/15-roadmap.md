@@ -50,7 +50,7 @@ The cutover ([the plan](../plan.md), section 1) differed from v3's rules as
 follows; the profile stays v3, and each change is marked in its rule:
 - Idris does types and MLIR does programs (`GOAL-P2`, `GOAL-P4`,
   `GOAL-P6`, D14). `Simplify`, its supercompiling driver, choices, arity
-  raising and first-order Core are deleted: `ELIM-G-5`, `ELIM-G-17`,
+  raising and first-order Core are deleted: `ELIM-G-17`,
   `ELIM-G-19`, `ELIM-G-20`, `CORE-INV-*`, `CORE-CHECK-1`, `CORE-OPT-1`,
   `PROF-HEAP-5`, `SEM-BIG-1`, `IDR-MOD-1`, `IDR-MATCH-1`, `IDR-MATCH-3`,
   `LOW-SWITCH-1`, `LOW-BLOCK-1` and `LOW-STR-1` are withdrawn.
@@ -62,6 +62,9 @@ follows; the profile stays v3, and each change is marked in its rule:
 - Compile-time evaluation runs total code only (`SEM-EVAL-6`). Four
   programs that evaluated partial code were split (`PROF-GEN-4`), and
   three reject fixtures became accepts.
+- `ELIM-G-5` is revised, not withdrawn: raising a call's consumer into its
+  callee (an apply, or output of a string) is part of `idr-specialize`,
+  over the dialect, instead of `Simplify`'s arity raising over Core.
 - The compile-time budget (the plan's decision 13) is withdrawn: compile
   time is measured and reported, never a gate.
 - `IDR-DATA-4`, `PROF-TYPE-4`, `PROF-DATA-3`, `PROF-PRIM-4`,

@@ -24,5 +24,6 @@ workaround. If it does not, the bug is ours.
 | Bug | Project | Filed | Our workaround (`PINS.md`) |
 | --- | --- | --- | --- |
 | [remove-dead-values-unreachable](remove-dead-values-unreachable/README.md) | MLIR | not yet | `prune-before-remove-dead-values`: `idr-prune` and `symbol-dce` run first |
+| [remove-dead-values-address-taken](remove-dead-values-address-taken/README.md) | MLIR | not yet | `remove-dead-values-address-taken`: `idr-prune` passes `ub.poison` for parameters an address-taken function never reads |
 | [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | not yet | `inline-unreachable`: no function body ends in `ub.unreachable` |
 | [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | not yet | `orc-lljit`: `idr-eval` uses ORC's `LLJIT` directly |
