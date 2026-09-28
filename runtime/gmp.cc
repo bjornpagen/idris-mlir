@@ -1,41 +1,45 @@
 // GMP's memory functions over the runtime's allocator (TC-RT-1;
 // docs/plan.md sections 5.3 and 5.6). GMP cannot recover from a failed
-// allocation, so exhausted memory ends the process here, with exit status 1
-// and a message, as the other crashes do.
+// allocation; rt::allocate ends the process with a crash (or, in an
+// evaluation child, reports EVAL-1) instead of returning.
 // PIN(runtime-quarantine) — see PINS.md
 
-#include "idris_rt.h"
+#include "internal.h"
 
-#include <string.h>
-#include <unistd.h>
+#include <atomic>
 
 #include <gmp.h>
+#include <string.h>
 
 namespace {
 
-[[noreturn]] void outOfMemory() {
-  static constexpr char message[] = "idris runtime: out of memory\n";
-  ssize_t written = write(2, message, sizeof message - 1);
-  static_cast<void>(written);
-  _exit(1);
-}
-
-void *allocate(size_t size) {
-  void *block = idris_rt_alloc(size);
-  if (block == nullptr)
-    outOfMemory();
-  return block;
-}
+void *allocate(size_t size) { return rt::allocate(size); }
 
 void *reallocate(void *block, size_t oldSize, size_t newSize) {
-  void *moved = allocate(newSize);
+  void *moved = rt::allocate(newSize);
   memcpy(moved, block, oldSize < newSize ? oldSize : newSize);
-  idris_rt_free(block);
+  rt::release(block);
   return moved;
 }
 
-void release(void *block, size_t) { idris_rt_free(block); }
+void release(void *block, size_t) { rt::release(block); }
+
+// 0: not yet, 1: being set, 2: set. Constant-initialized, so no constructor.
+std::atomic<int> gmpState{0};
 
 } // namespace
 
 extern "C" void idris_rt_gmp_init(void) { mp_set_memory_functions(allocate, reallocate, release); }
+
+void rt::gmpReady() {
+  if (gmpState.load(std::memory_order_acquire) == 2) [[likely]]
+    return;
+  int expected = 0;
+  if (gmpState.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+    idris_rt_gmp_init();
+    gmpState.store(2, std::memory_order_release);
+    return;
+  }
+  while (gmpState.load(std::memory_order_acquire) != 2) {
+  }
+}
