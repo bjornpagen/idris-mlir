@@ -13,6 +13,7 @@ module Main
 
 import Prelude
 
+partial
 digits : Int -> String
 digits n = case prim__lt_Int n 10 of
   0 => prim__strAppend (digits (prim__div_Int n 10)) (prim__cast_IntString (prim__mod_Int n 10))

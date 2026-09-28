@@ -1,4 +1,4 @@
--- expect: PROF-HEAP-3 line 99
+-- expect: PROF-HEAP-3 line 12
 module Main
 
 -- rule: PROF-HEAP-3, ELIM-G-5, ELIM-G-7
