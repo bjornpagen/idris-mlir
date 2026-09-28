@@ -42,8 +42,6 @@ data Purpose
     Trusted
   | ||| Every definition of it is admitted (PROF-LIB-1).
     Admitted
-  | ||| `%inline` in it is its author's hint to unfold (ELIM-G-19).
-    InlineHints
   | ||| A function of it is chosen as a loop breaker only when its cycle has
     ||| no function from elsewhere (OPT-PIPE-3).
     BreakLast
@@ -54,22 +52,21 @@ data Purpose
 ||| A library's cells, one per purpose.
 record Row where
   constructor MkRow
-  trusted, admitted, inlineHints, breakLast, reportAtCaller : Bool
+  trusted, admitted, breakLast, reportAtCaller : Bool
 
 ||| The table, one row per library. `Admitted` is off for `PrimIO`, which
 ||| admits only what `admittedFromPrimIO` lists.
 |||
-|||                         trusted admitted inline break-last report
+|||                         trusted admitted break-last report
 row : Lib -> Row
-row Builtin  = MkRow        True    True     True   True       True
-row PrimIO   = MkRow        True    False    True   True       True
-row Prelude  = MkRow        True    True     True   False      True
-row (Base _) = MkRow        True    True     False  False      False
+row Builtin  = MkRow        True    True     True       True
+row PrimIO   = MkRow        True    False    True       True
+row Prelude  = MkRow        True    True     False      True
+row (Base _) = MkRow        True    True     False      False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
 column Admitted = (.admitted)
-column InlineHints = (.inlineHints)
 column BreakLast = (.breakLast)
 column ReportAtCaller = (.reportAtCaller)
 

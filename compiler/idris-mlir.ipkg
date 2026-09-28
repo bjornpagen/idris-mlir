@@ -15,8 +15,10 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Recognized
         , IdrisMLIR.Registry
         , IdrisMLIR.Facts
+        , IdrisMLIR.Graph
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR
+        , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Paths
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate

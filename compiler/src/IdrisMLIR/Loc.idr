@@ -38,10 +38,3 @@ Show Loc where
 export
 inLibrary : Loc -> Bool
 inLibrary l = covers ReportAtCaller l.origin
-
-||| Is a location known at all?
-export
-known : Loc -> Bool
-known l = case l.origin of
-  Generated => False
-  _ => True

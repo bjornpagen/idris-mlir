@@ -4,7 +4,7 @@ module IdrisMLIR.Ids
 
 %default total
 
-||| A function instance or specialization (ELIM-MONO-4, ELIM-G-3).
+||| A function instance (ELIM-MONO-4).
 public export
 record FnId where
   constructor MkFnId
@@ -23,20 +23,8 @@ record ConId where
   dataId : DataId
   name : String
 
-||| A variable of first-order Core: unique within its function (CORE-INV-1).
-public export
-record VarId where
-  constructor MkVarId
-  index : Nat
-
-||| A join point of first-order Core: unique within its function.
-public export
-record JoinId where
-  constructor MkJoinId
-  index : Nat
-
 ||| The program point of a lambda or `Delay` in full Core: the identity of a
-||| closure, and of its specializations (ELIM-G-3).
+||| closure, and of the function lifted from it.
 public export
 record Label where
   constructor MkLabel
@@ -68,14 +56,6 @@ export Show DataId where show = (.name)
 export Eq ConId where a == b = a.dataId == b.dataId && a.name == b.name
 export Ord ConId where compare a b = compare (a.dataId, a.name) (b.dataId, b.name)
 export Show ConId where show c = c.name
-
-export Eq VarId where a == b = a.index == b.index
-export Ord VarId where compare a b = compare a.index b.index
-export Show VarId where show v = "%" ++ show v.index
-
-export Eq JoinId where a == b = a.index == b.index
-export Ord JoinId where compare a b = compare a.index b.index
-export Show JoinId where show j = "j" ++ show j.index
 
 export Eq Label where a == b = a.index == b.index
 export Ord Label where compare a b = compare a.index b.index

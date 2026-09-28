@@ -1,16 +1,13 @@
-||| Types, literals and primitives shared by both levels of Core.
+||| Types, literals and primitives of Core (docs/architecture/05-middle-ir.md).
 |||
-||| The split that matters is Kovács's value/computation split (closure-free
-||| two-level type theory, ICFP 2024): `VTy` are the value types, which exist
-||| at runtime and may be stored in data; `Ty` adds function types, `Lazy` and
-||| static data, which exist only at compile time and must be eliminated
-||| (PROF-HEAP-*). First-order Core mentions only `VTy`, so a function value
-||| cannot survive into it.
+||| There is one type language: every type of full Core exists at runtime,
+||| and MLIR removes abstraction (docs/cutover.md, section 6.1). A data
+||| instance records its representation where it is declared (`Term.Data`),
+||| so `DataT` names the instance and nothing more. Types Idris flags
+||| `ZERO`/`SUCC` are not data at all: they are `BigT`.
 module IdrisMLIR.Types
 
 import IdrisMLIR.Ids
-
-import Data.String
 
 %default total
 
@@ -49,7 +46,6 @@ rank UInt32 = 7
 rank UInt64 = 8
 
 export Eq IntTy where a == b = rank a == rank b
-export Ord IntTy where compare a b = compare (rank a) (rank b)
 
 export
 Show IntTy where
@@ -82,95 +78,51 @@ signed UInt64 = False
 signed _ = True
 
 ------------------------------------------------------------------------------
--- Value types and types
+-- Types
 ------------------------------------------------------------------------------
 
-||| Value types: what exists at runtime (Kovács's `ValTy`).
+||| The types of Core. `BigT` is `Integer` and every `Nat`-like type;
+||| `FunT` and `LazyT` are closures; `DataT` is a data instance, whose
+||| declaration says whether it is an unboxed sum or a box.
 public export
-data VTy = IntT IntTy | CharT | StrT | WorldT | ErasedT | DataT DataId | DoubleT
-
-||| Types: value types, and the compile-time-only types that `Simplify`
-||| eliminates (Kovács's computation types, and data holding them).
-||| `BigT` is `Integer`, whose values exist only at compile time
-||| (SEM-BIG-1).
-public export
-data Ty = V VTy | FunT Quantity Ty Ty | LazyT Ty | StaticT DataId | BigT
-
-vrank : VTy -> Nat
-vrank (IntT _) = 0
-vrank CharT = 1
-vrank StrT = 2
-vrank WorldT = 3
-vrank ErasedT = 4
-vrank (DataT _) = 5
-vrank DoubleT = 6
-
-export
-Eq VTy where
-  IntT a == IntT b = a == b
-  DataT a == DataT b = a == b
-  a == b = vrank a == vrank b
-
-export
-Ord VTy where
-  compare (IntT a) (IntT b) = compare a b
-  compare (DataT a) (DataT b) = compare a b
-  compare a b = compare (vrank a) (vrank b)
+data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | WorldT | ErasedT
+        | DataT DataId
+        | FunT Quantity Ty Ty
+        | LazyT Ty
 
 export
 Eq Ty where
-  V a == V b = a == b
+  IntT a == IntT b = a == b
+  CharT == CharT = True
+  DoubleT == DoubleT = True
+  StrT == StrT = True
+  BigT == BigT = True
+  WorldT == WorldT = True
+  ErasedT == ErasedT = True
+  DataT a == DataT b = a == b
   FunT q a r == FunT q' a' r' = q == q' && a == a' && r == r'
   LazyT a == LazyT b = a == b
-  StaticT a == StaticT b = a == b
-  BigT == BigT = True
   _ == _ = False
 
 export
-Show VTy where
+Show Ty where
   show (IntT t) = show t
   show CharT = "Char"
+  show DoubleT = "Double"
   show StrT = "String"
+  show BigT = "Integer"
   show WorldT = "%World"
   show ErasedT = "Erased"
   show (DataT d) = show d
-  show DoubleT = "Double"
-
-export
-Show Ty where
-  show (V t) = show t
   show (FunT q a r) = "((" ++ show q ++ " _ : " ++ show a ++ ") -> " ++ show r ++ ")"
   show (LazyT a) = "Lazy (" ++ show a ++ ")"
-  show (StaticT d) = show d
-  show BigT = "Integer"
-
-||| A type that exists at runtime.
-public export
-value : Ty -> Maybe VTy
-value (V t) = Just t
-value _ = Nothing
-
-||| The data instance of a data type, runtime or static.
-public export
-dataOf : Ty -> Maybe DataId
-dataOf (V (DataT d)) = Just d
-dataOf (StaticT d) = Just d
-dataOf _ = Nothing
-
-||| The quantity a runtime value of this type is passed with.
-export
-defaultQuantity : VTy -> Quantity
-defaultQuantity ErasedT = Q0
-defaultQuantity WorldT = Q1
-defaultQuantity _ = QW
 
 ------------------------------------------------------------------------------
 -- Literals
 ------------------------------------------------------------------------------
 
 public export
-data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double
-         | LBig Integer    -- an Integer: in Term only, never at runtime (SEM-BIG-1)
+data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double | LBig Integer
 
 export
 Eq Lit where
@@ -188,14 +140,6 @@ Show Lit where
   show (LStr s) = show s
   show (LDouble d) = prim__cast_DoubleString d ++ ":Double"
   show (LBig n) = show n ++ ":Integer"
-
-public export
-litTy : Lit -> Ty
-litTy (LInt t _) = V (IntT t)
-litTy (LChar _) = V CharT
-litTy (LStr _) = V StrT
-litTy (LDouble _) = V DoubleT
-litTy (LBig _) = BigT
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -215,30 +159,24 @@ data FArith = FAdd | FSub | FMul | FDiv
 public export
 data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Floor | Ceiling
 
-||| Operand types of comparisons and casts at runtime.
+||| The fixed-width operand types of comparisons and casts.
 public export
 data Scalar = SInt IntTy | SChar | SDouble
 
-||| Primitives that run at runtime, in first-order Core.
+||| Idris's primitives as Core has them (IDR-IN-3): on fixed-width
+||| integers, characters and doubles; on strings; on `Integer`.
 public export
-data Prim = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
-          | Compare Cmp Scalar | Cast Scalar Scalar
-          | DoubleHead   -- the first character of a Double as shown (ELIM-G-15)
-
-||| Integer primitives: evaluated at compile time, never run (SEM-BIG-1).
-public export
-data BigOp = BigArith ArithOp | BigNegate | BigCompare Cmp
-           | ToBig Scalar | FromBig Scalar | BigShow | BigRead
-
-||| String primitives: evaluated at compile time or fused into output
-||| (ELIM-G-6, ELIM-G-7), never run (PROF-HEAP-3, PROF-PRIM-4).
-public export
-data StrOp = Append | Cons | Length | Head | Tail | Index | Reverse | Substr
-           | StrCompare Cmp | ToStr Scalar | FromStr Scalar
-
-||| The primitives of full Core.
-public export
-data PrimOp = Run Prim | Str StrOp | Big BigOp
+data Prim
+  = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
+  | Compare Cmp Scalar | Cast Scalar Scalar
+  | StrAppend | StrCons | StrLength | StrHead | StrTail | StrIndex | StrReverse | StrSubstr
+  | StrCompare Cmp
+  | ||| A scalar shown as a string.
+    ToStr Scalar
+  | ||| A string read as a number.
+    FromStr Scalar
+  | BigArith ArithOp | BigNegate | BigCompare Cmp
+  | ToBig Scalar | FromBig Scalar | BigShow | BigRead
 
 export
 Show ArithOp where
@@ -295,24 +233,17 @@ Show Prim where
   show (Math f) = show f ++ "_Double"
   show (Compare op s) = show op ++ "_" ++ show s
   show (Cast a b) = "cast_" ++ show a ++ show b
-  show DoubleHead = "head_showDouble"
-
-export
-Show StrOp where
-  show Append = "strAppend"
-  show Cons = "strCons"
-  show Length = "strLength"
-  show Head = "strHead"
-  show Tail = "strTail"
-  show Index = "strIndex"
-  show Reverse = "strReverse"
-  show Substr = "strSubstr"
+  show StrAppend = "strAppend"
+  show StrCons = "strCons"
+  show StrLength = "strLength"
+  show StrHead = "strHead"
+  show StrTail = "strTail"
+  show StrIndex = "strIndex"
+  show StrReverse = "strReverse"
+  show StrSubstr = "strSubstr"
   show (StrCompare op) = show op ++ "_String"
   show (ToStr s) = "cast_" ++ show s ++ "String"
   show (FromStr s) = "cast_String" ++ show s
-
-export
-Show BigOp where
   show (BigArith op) = show op ++ "_Integer"
   show BigNegate = "negate_Integer"
   show (BigCompare op) = show op ++ "_Integer"
@@ -321,21 +252,15 @@ Show BigOp where
   show BigShow = "cast_IntegerString"
   show BigRead = "cast_StringInteger"
 
-export
-Show PrimOp where
-  show (Run p) = show p
-  show (Str s) = show s
-  show (Big b) = show b
-
 public export
-scalarTy : Scalar -> VTy
+scalarTy : Scalar -> Ty
 scalarTy (SInt t) = IntT t
 scalarTy SChar = CharT
 scalarTy SDouble = DoubleT
 
-||| The operand types of a runtime primitive.
+||| The operand types of a primitive, in Idris's argument order.
 public export
-primArgs : Prim -> List VTy
+primArgs : Prim -> List Ty
 primArgs (IntOp _ t) = [IntT t, IntT t]
 primArgs (FloatOp _) = [DoubleT, DoubleT]
 primArgs Negate = [DoubleT]
@@ -343,61 +268,60 @@ primArgs (Math Pow) = [DoubleT, DoubleT]
 primArgs (Math _) = [DoubleT]
 primArgs (Compare _ s) = [scalarTy s, scalarTy s]
 primArgs (Cast a _) = [scalarTy a]
-primArgs DoubleHead = [DoubleT]
+primArgs StrAppend = [StrT, StrT]
+primArgs StrCons = [CharT, StrT]
+primArgs StrIndex = [StrT, IntT IdrisInt]
+primArgs StrSubstr = [IntT IdrisInt, IntT IdrisInt, StrT]
+primArgs (StrCompare _) = [StrT, StrT]
+primArgs (ToStr s) = [scalarTy s]
+primArgs StrLength = [StrT]
+primArgs StrHead = [StrT]
+primArgs StrTail = [StrT]
+primArgs StrReverse = [StrT]
+primArgs (FromStr _) = [StrT]
+primArgs (BigArith _) = [BigT, BigT]
+primArgs BigNegate = [BigT]
+primArgs (BigCompare _) = [BigT, BigT]
+primArgs (ToBig s) = [scalarTy s]
+primArgs (FromBig _) = [BigT]
+primArgs BigShow = [BigT]
+primArgs BigRead = [StrT]
 
+||| The result type of a primitive. Comparisons return an `Int`, 0 or 1.
 public export
-primResult : Prim -> VTy
+primResult : Prim -> Ty
 primResult (IntOp _ t) = IntT t
 primResult (FloatOp _) = DoubleT
 primResult Negate = DoubleT
 primResult (Math _) = DoubleT
 primResult (Compare _ _) = IntT IdrisInt
 primResult (Cast _ b) = scalarTy b
-primResult DoubleHead = CharT
-
-public export
-strArgs : StrOp -> List VTy
-strArgs Cons = [CharT, StrT]
-strArgs Index = [StrT, IntT IdrisInt]
-strArgs Substr = [IntT IdrisInt, IntT IdrisInt, StrT]
-strArgs (ToStr s) = [scalarTy s]
-strArgs Append = [StrT, StrT]
-strArgs (StrCompare _) = [StrT, StrT]
-strArgs _ = [StrT]
-
-public export
-strResult : StrOp -> VTy
-strResult Length = IntT IdrisInt
-strResult Head = CharT
-strResult Index = CharT
-strResult (StrCompare _) = IntT IdrisInt
-strResult (FromStr s) = scalarTy s
-strResult _ = StrT
-
-public export
-bigArgs : BigOp -> List Ty
-bigArgs (BigArith _) = [BigT, BigT]
-bigArgs BigNegate = [BigT]
-bigArgs (BigCompare _) = [BigT, BigT]
-bigArgs (ToBig s) = [V (scalarTy s)]
-bigArgs (FromBig _) = [BigT]
-bigArgs BigShow = [BigT]
-bigArgs BigRead = [V StrT]
-
-public export
-opArgs : PrimOp -> List Ty
-opArgs (Run p) = map V (primArgs p)
-opArgs (Str s) = map V (strArgs s)
-opArgs (Big b) = bigArgs b
+primResult StrLength = IntT IdrisInt
+primResult StrHead = CharT
+primResult StrIndex = CharT
+primResult (StrCompare _) = IntT IdrisInt
+primResult (FromStr s) = scalarTy s
+primResult StrAppend = StrT
+primResult StrCons = StrT
+primResult StrTail = StrT
+primResult StrReverse = StrT
+primResult StrSubstr = StrT
+primResult (ToStr _) = StrT
+primResult (BigArith _) = BigT
+primResult BigNegate = BigT
+primResult (BigCompare _) = IntT IdrisInt
+primResult (ToBig _) = BigT
+primResult (FromBig s) = scalarTy s
+primResult BigShow = StrT
+primResult BigRead = BigT
 
 ------------------------------------------------------------------------------
 -- IO
 ------------------------------------------------------------------------------
 
-||| The IO operations: the primitives the registry lists (`IOCall`), and
-||| the targets of output fusion (`PutInt`, `PutDouble`, ELIM-G-7).
+||| The IO primitives the registry lists (`IOCall`, PROF-IO-4).
 public export
-data IOOp = PutStr | PutChar | PutInt IntTy | PutDouble
+data IOOp = PutStr | PutChar
           | GetByte   -- one byte of input (SEM-IO-7)
 
 export
@@ -405,18 +329,10 @@ Show IOOp where
   show PutStr = "putStr"
   show PutChar = "putChar"
   show GetByte = "getByte"
-  show (PutInt t) = "putInt_" ++ show t
-  show PutDouble = "putDouble"
 
-||| The runtime operands of an IO primitive before the world; its result
-||| value is a character for `GetByte`, and `()` otherwise.
+||| The operand types of an IO primitive, before the world.
 public export
-ioArgs : IOOp -> List VTy
+ioArgs : IOOp -> List Ty
 ioArgs PutStr = [StrT]
 ioArgs PutChar = [CharT]
-ioArgs (PutInt t) = [IntT t]
 ioArgs GetByte = []
-ioArgs PutDouble = [DoubleT]
-
-public export
-data EntryKind = IntEntry | IOEntry
