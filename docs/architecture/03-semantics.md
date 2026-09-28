@@ -12,7 +12,10 @@ this meaning. Every optimization, at every level, is bound by it.
   backend, this document fixes it as follows:
   - **Values:** Idris's compile-time evaluator (`src/Core/Primitives.idr`,
     `src/Core/Normalise*`) is the reference. Every value it computes in a
-    type (`Refl` proofs) MUST equal the compiled program's value.
+    type (`Refl` proofs) MUST equal the compiled program's value. The
+    `Refl` oracles check it per fixture (`TEST-ORACLE-1`), and the
+    two-level test on closed terms (`TEST-LEVELS-1`). The exceptions are
+    the primitives whose value depends on the host (`SEM-HOST-1`).
   - **Runtime behaviour:** the Chez backend (`support/chez/support.ss`,
     `src/Compiler/Scheme/Common.idr`) is the reference for behaviour the
     evaluator does not define, such as crashes. Deviations are listed
@@ -38,25 +41,107 @@ this meaning. Every optimization, at every level, is bound by it.
   - IO effects are ordered by the world chain (`SEM-IO-1`), never by
     argument order.
   - The implementation evaluates left to right, the arguments of a curried
-    application included (from v3; before, they went right to left, which
-    cost `fib` 14% because LLVM's tail recursion elimination then looped
-    on the other call).
+    application included: `Emit` writes them in that order (from v3;
+    before, they went right to left, which cost `fib` 14% because LLVM's
+    tail recursion elimination then looped on the other call).
   - Test: `bench/` (`fib`); `tests/e2e/v3/compile-time-evaluation`
 - **SEM-EVAL-3 (v0).** Quantity-0 arguments, fields and `let` bindings are
   never evaluated at runtime.
 - **SEM-EVAL-4 (v0).** An evaluation that would crash MUST crash, even if its
   result is unused. No optimization may remove, reorder past an observable
   effect, or speculate an operation that may crash, unless it proves that the
-  operation cannot crash (`OPT-SAFE-1`).
+  operation cannot crash (`OPT-SAFE-1`). So a call that may crash is never
+  removed (`OPT-CALL-1`), and a compile-time evaluation that crashes leaves
+  its call to crash at runtime (`SEM-EVAL-6`).
 - **SEM-EVAL-5 (v0).** Non-termination is observable. No optimization may
   remove a computation that may not terminate, or assume that it terminates.
   In particular, the compiler MUST NOT emit LLVM attributes or metadata that
   assert termination or forward progress (`mustprogress`, `willreturn`)
-  unless a later version of this document allows it.
+  unless a later version of this document allows it. A loop in a function
+  that is not total carries `idr.may_loop` (`LOW-TAIL-4`), so that no pass
+  deletes it.
 
 *Note:* the Chez backend's own optimizations may drop unused `let` bindings.
 Conformance tests therefore never rely on a crash in dead code; the rules
 above bind this compiler regardless.
+
+## Compile-time evaluation
+
+*New at the cutover.* These rules replace the evaluator that `Simplify`
+was (`ELIM-G-19`, `SEM-BIG-1`).
+
+- **SEM-EVAL-6 (v3).** Compile-time evaluation is runtime evaluation, run
+  early. The compiler evaluates a call at compile time exactly when:
+  - it is closed: every argument is a constant (`IDR-CONST-1`), including
+    the captures and fields inside it;
+  - its callee is total and pure, and so is every function named by a
+    closure in its arguments, recursively through captures and fields.
+
+  Such a call is always evaluated, and no other call ever is. Evaluating
+  runs the program's own code, lowered as the executable's is, with the
+  runtime the executable links (`ELIM-EVAL-1`, `LOW-JIT-1`); so a value
+  computed at compile time is the value the executable would compute. A
+  call whose evaluation crashes is left in place, and crashes at runtime
+  (`SEM-EVAL-4`).
+  - **Total** means that Idris's totality checker reports the function
+    terminating: `Core.Termination.checkTotal` returns `IsTerminating`.
+    That includes the library's own `assert_total` (`PROF-ESC-1`), and
+    excludes every function that calls one Idris does not report
+    terminating, since the checker's result is transitive. Coverage is not
+    part of it: a function with missing cases, or one that divides, is
+    total when it terminates, and a missing case is a crash.
+  - **Pure** means that the function reaches no IO primitive
+    (`IDR-FACT-1`), `unsafePerformIO` in library code included.
+  - **Partial code is never evaluated.** A closed call to a partial
+    function runs at runtime. If its result has no runtime representation
+    in the heap-free profile, the program is rejected with the rule of that
+    value (`PROF-TYPE-4`, `PROF-DATA-3`), even if the call would finish.
+  - *Rationale:* Idris's typechecker decides differently which terms it
+    reduces. It unfolds any definition visible from where it evaluates
+    (`reducibleInAny` in `evalRef`, `Core/Normalise/Eval.idr:302`), whether
+    or not it is total, and bounds the work by a timer (`checkTimer`,
+    `:308`) and optional fuel (`evalDef`, `:531`). A timer cannot decide
+    what a compiled program means, and a partial function may not return,
+    so this compiler asks for termination instead: every evaluation it
+    starts finishes, except when the machine runs out (`EVAL-1`). The rule
+    is stricter than the typechecker's, and never more permissive.
+  - Check: `idr-eval` (`ELIM-EVAL-1`), with `idr.total` from `Emit`
+    (`IDR-FACT-1`)
+  - Test: `tests/e2e/v3/compile-time-evaluation`,
+    `tests/e2e/v3/static-evaluation`; `TEST-EQUIV-1`
+- **SEM-EVAL-7 (v3).** Memory management is not observable. Where a value
+  lives (a register, static data, a heap cell, or the arena that the JIT
+  allocates from) changes no result (`SEM-DATA-1`). So evaluating at
+  compile time, in the JIT's arena, computes what the executable computes.
+  - Check: review (a property of the representations, `LOW-JIT-1`)
+- **EVAL-1 (v3).** A compile-time evaluation that the machine cannot
+  finish is a compile error that names the call. By `SEM-EVAL-6` it would
+  finish on a large enough machine; the compiler's own stack (reserved as
+  large as the address space allows) or memory ran out first. It is not a
+  profile rejection, since the program is in the profile.
+  - The error names the call and its location, and says which resource ran
+    out. `idris-mlir-cc` exits with status 4 (`DRV-CC-2`), and the frontend
+    reports it as an Idris error at the call.
+  - `--no-eval` compiles the program without evaluating (`DRV-CC-1`); a
+    program so compiled means the same.
+  - Check: `idr-eval`: a fault on the evaluation stack's guard, a failed
+    arena mapping, or the child killed by the kernel for memory
+    (`ELIM-EVAL-1`)
+- **SEM-HOST-1 (v3).** Two kinds of primitive give their value from the
+  host that evaluates them:
+  - `cast` from `String` to `Double` and to the integer types: Idris's
+    typechecker reduces it through its own host (`castDouble` and friends
+    in `src/Core/Primitives.idr`, on Chez), while compiled code reads the
+    grammar of `SEM-DBL-5`;
+  - the `libm` functions of `SEM-DBL-3`: the typechecker runs the host's
+    `libm`, and compiled code, at compile time and at runtime, musl's.
+
+  Where such a primitive is reachable from a compile-time position
+  (`FE-REACH-1`), so that a type could depend on its value, the program is
+  rejected with this rule: the two levels could disagree (`SEM-REF-1`).
+  - *planned* (the cutover's follow-up): the check in
+    `Frontend.Profile.checkReachable`, and the reject fixtures
+    `tests/profile/v3/reject/SEM-HOST-1-*`
 
 ## Integers
 
@@ -122,18 +207,22 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-STR-1 (v1).** A `String` is a finite sequence of Unicode scalar values.
   A string literal denotes the sequence Idris stores in the elaborated TT
   constant.
-- **SEM-STR-2 (v1).** A string primitive applied to literal arguments means
-  what Idris's evaluator computes for it (`src/Core/Primitives.idr`). In
-  particular:
+- **SEM-STR-2 (v1).** A string primitive means what Idris's evaluator
+  computes for it (`src/Core/Primitives.idr`). In particular:
   - `prim__strAppend` concatenates;
   - `prim__strCons c s` prepends `c`;
   - `prim__cast_CharString c` is the one-character string;
   - `prim__cast_TString n` is the decimal representation of `n`: an optional
     `-` followed by digits with no leading zeros, as Chez's `number->string`
-    produces.
+    produces;
+  - `strLength` counts scalar values, and `strIndex` indexes by them.
 
-  Compile-time evaluation (`ELIM-G-6`) MUST agree with the evaluator. Tests
-  check this with `Refl` proofs.
+  *Revised at the cutover:* the compiler has one implementation of each
+  string primitive, the runtime's (`LOW-STR-2`). Folders and compile-time
+  evaluation call the same functions (`SEM-EVAL-6`, `LOW-RT-1`), so no
+  primitive has a second meaning inside the compiler. The `Refl` oracles
+  and the two-level test hold the runtime to Idris's evaluator
+  (`TEST-LEVELS-1`).
 
 ## Doubles (v2)
 
@@ -154,7 +243,10 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   `ASin`, `ACos` and `ATan` return what the platform's C library (`libm`)
   returns: the reference backend calls the same functions (`flexp` and so on
   import them). `prim__doubleSqrt`, `Floor` and `Ceiling` are the exact IEEE
-  operations. See `SEM-DEV-2`.
+  operations. See `SEM-DEV-2`. *Revised at the cutover:* this compiler runs
+  one `libm`, musl's, at compile time (inside `idris-mlir-cc`) and at
+  runtime; Idris's typechecker runs the host's, which is why such a value
+  may not reach a type (`SEM-HOST-1`).
   - Test: `tests/e2e/v2/double-basics`
 - **SEM-DBL-4 (v2).** `prim__cast_TDouble n` is the double nearest to `n`,
   ties to even. `prim__cast_DoubleT x` truncates `x` toward zero and then
@@ -175,47 +267,68 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   - a subnormal ends with `|p`, where `p` is the number of significant bits
     (`5e-324|1`).
 
-  `prim__cast_StringDouble` is Chez's `string->number`; like every string
-  primitive it is evaluated at compile time (`PROF-PRIM-4`).
-  - Test: `tests/e2e/v2/double-basics`, `tests/spec/ryu-tables` (the
-    printer's tables), and 176,000 fuzzed values in
+  *Revised at the cutover:* the digits come from Ryu (Adams, PLDI 2018),
+  vendored, with a wrapper that detects an exact tie and takes the larger
+  candidate (`LOW-DBL-2`).
+
+  `prim__cast_StringDouble s` reads the whole of `s`; a string that is not
+  a number is `0.0`, as Idris's frame (`cast-num` in `support.ss`) says.
+  Which strings are numbers Idris leaves to the host, so this compiler
+  defines it, at compile time and at runtime alike (*revised at the
+  cutover*; before, it was Chez's `string->number`, evaluated at compile
+  time only):
+  - the whole string is fast_float's `general` format: an optional sign
+    (`+` allowed), digits with an optional point and an optional exponent
+    (`.5` and `5.` included), or `inf`, `infinity` or `nan` in any case;
+  - the value is correctly rounded to nearest, ties to even; an exponent
+    out of range gives ±infinity or ±0;
+  - anything else is `0.0`, surrounding spaces, `1d3`, `1/2`, `0x10` and
+    `1_000` included.
+
+  Idris's typechecker may read such a string differently, so the cast may
+  not reach a type (`SEM-HOST-1`).
+  - Test: `tests/e2e/v2/double-basics`, and 176,000 fuzzed values in
     `tests/e2e/v2/double-print-fuzz`
 
 ## Integers (v3)
 
-- **SEM-BIG-1.** *Withdrawn at the cutover:* an `Integer` is a runtime
-  value (`!idr.big`). Compile-time evaluation runs the program's own code
-  (`idr-eval`); a runtime big is rejected by the heap-free profile
-  (`PROF-TYPE-4`) because it may allocate.
+- **SEM-BIG-1.** *Withdrawn at the cutover:* an `Integer` existed at
+  compile time only, and `Simplify` evaluated `Integer` code whatever its
+  totality. An `Integer` is now a runtime value (`!idr.big`, `IDR-TY-8`),
+  with the meaning of Idris's evaluator. Compile-time evaluation runs the
+  program's own code on total calls only (`SEM-EVAL-6`); a big that
+  remains at runtime is rejected by the heap-free profile (`PROF-TYPE-4`),
+  because it may allocate.
 
 ## Recursive data (v3)
 
 - **SEM-REC-1 (v3).** A recursive data type (one whose values can contain
-  values of the same type, directly or through other types) exists at
-  compile time only, as `Integer` does (`SEM-BIG-1`): its values are built
-  and taken apart during specialization, and a function over it is
-  specialized for each value it receives. A value picked at runtime among
-  values of known shapes is a choice (`ELIM-G-20`); one that a recursion on
-  a runtime value builds is rejected (`PROF-DATA-3`). This is how the Prelude's
-  `Nat` (in `Prec`, which `show` takes) and small static lists work before
-  there is a heap.
-  - Check: `Frontend.Translate.dataInstance` (a recursive occurrence makes
-    the type static), `Simplify` (`staticReason`)
+  values of the same type, directly or through other types) is boxed: its
+  values are cells, and a field of one refers to another (`IDR-TY-6`,
+  `IDR-DATA-4`). *Revised at the cutover:* before, it existed at compile
+  time only, its values built during specialization, and a value picked
+  at runtime among known shapes was a choice (`ELIM-G-20`).
+  - A constant of recursive data (a list written in the program, or one a
+    compile-time evaluation returns) is static data (`LOW-CONST-1`), and
+    allocates nothing at runtime.
+  - A cell built at runtime from values that are not all constants is a
+    heap allocation, which the heap-free profile rejects where it survives
+    the optimizations (`PROF-DATA-3`).
+  - `Nat`-like types are not boxed: they are bigs (`IDR-IN-3`).
+  - Check: `Frontend.Translate.dataInstance` (the representation);
+    `idr-check-profile` (`PROF-DATA-3`)
   - Test: `tests/profile/v3/accept/SEM-REC-1-static-list.idr`,
     `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
 - **SEM-REC-2 (v3).** A value of recursive data is built where it is
-  written, strictly, as Idris builds it: a call that returns one is
-  evaluated there, recursion included, within the driver's whistle and
-  budget (`ELIM-G-19`), so its constructors are known where it is taken
-  apart. Its fields may hold
+  written, strictly, as Idris builds it (`SEM-EVAL-1`). Its fields may hold
   runtime values (`map (* n) [1 .. 10]` is ten runtime products). `Inf` is
-  a suspension like `Lazy`, so codata (the Prelude's `Stream`, from which
-  its ranges are built) is a compile-time value that is only unfolded as
-  far as it is forced. A call that receives a known constructor of
-  recursive data is unfolded: recursion on the value follows it and ends
-  where it ends (the Prelude's `show` for lists), since a smaller value
-  does not embed a larger one.
-  - Check: `Frontend.Translate.coreType` (`Inf`), `Simplify.drive`
+  a suspension like `Lazy`: a closure of no arguments, forced by applying
+  it (`IDR-TY-7`), so codata (the Prelude's `Stream`, from which its ranges
+  are built) is unfolded only as far as it is forced. *Revised at the
+  cutover:* a call that returns recursive data is evaluated at compile
+  time when `SEM-EVAL-6` says so, and otherwise builds its cells at
+  runtime; the driver's whistle and budget (`ELIM-G-19`) are gone.
+  - Check: `Frontend.Translate` (`Inf`); the simplify loop (`OPT-PIPE-5`)
   - Test: `tests/profile/v3/accept/SEM-REC-2-streams.idr`,
     `tests/e2e/v3/prelude-lists`
 
@@ -226,8 +339,8 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   information: no value stores it, and two instances of a family that
   differ only in their indices, or in value parameters, are one data type
   (`Vect 3 Double` and `Vect n Double`). A value of a non-recursive family
-  is its constructor's tag and fields; a value of a recursive one is
-  compile-time data (`SEM-REC-1`). This is Brady, McBride and McKinna,
+  is its constructor's tag and fields; a value of a recursive one is a
+  box (`SEM-REC-1`). This is Brady, McBride and McKinna,
   "Inductive families need not store their indices" (TYPES 2003), applied to
   every family. Idris does not put a constructor's parameters first
   (`(::) : {0 len} -> {0 elem} -> ...`); which arguments are parameters is
@@ -329,7 +442,8 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
 - **SEM-RES-1 (v0).** Exhausting the stack ends the process abnormally. The
   exit status and any output are unspecified.
   - Check: review (the behaviour is unspecified)
-- **SEM-RES-2 (v0).** A self tail call (`CORE-LOOP-1`) uses constant stack.
+- **SEM-RES-2 (v0).** A self tail call uses constant stack: `idr-tail-loops`
+  makes it a loop (`LOW-TAIL-5`).
   A function whose only recursion is self tail calls runs in stack space
   that does not grow with the number of iterations.
 
@@ -348,8 +462,9 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
   replace a call with an equivalent that is exact (`pow(x, 2.0)` with
   `x * x`). The result then differs from the reference only where `libm`
   itself is not correctly rounded, by at most one unit in the last place.
-  `Simplify` folds these functions with the Idris compiler's own `Double`
-  operations, which run on the same `libm` as the reference.
+  *Revised at the cutover:* LLVM folds them inside `idris-mlir-cc`, which
+  is linked with musl, the executable's `libm` too; the compiler has no
+  folder of its own for them.
   - Check: review (a statement about LLVM and the platform)
 
 ## Excluded from v0
@@ -361,7 +476,8 @@ are 64, `IntN` is N, `BitsN` is N. Signed types (`Int`, `IntN`) hold
     LLVM treats as poison.
 
   A version that admits them MUST first specify them here.
-- **SEM-EXCL-2.** `Integer` at runtime is excluded until the memory design
-  gives it a representation; at compile time it is `SEM-BIG-1` (v3).
+- **SEM-EXCL-2.** *Revised at the cutover:* `Integer` has a representation
+  (`!idr.big`); at runtime only the heap-free profile excludes it
+  (`PROF-TYPE-4`), until the memory design.
   `Double` is specified by `SEM-DBL-*` from v2; its other primitives (casts
   to and from `Char`, matching on literals) stay excluded.

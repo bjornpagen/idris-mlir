@@ -1,20 +1,30 @@
 # 06. Eliminating abstraction
 
-The middle end removes source-level abstraction before MLIR sees the
-program, following MLton and Futhark. What reaches the `idr` dialect is
-first-order and monomorphic, with no closures, no thunks, no monadic
-plumbing, and no runtime-built strings (`GOAL-P2`).
+Source-level abstraction (polymorphism, closures, laziness, monadic
+plumbing, strings built only to be written) costs nothing in a compiled
+profile program. Monomorphisation happens in Idris, where types are.
+*Revised at the cutover:* everything else happens in MLIR, on the `idr`
+dialect, by upstream passes and ours, run to a fixpoint (`OPT-PIPE-5`),
+following MLton, Futhark and Lean. Before, one Idris pass, `Simplify`,
+did it all, as a supercompiler over full Core, and MLIR received
+first-order code.
 
-The eliminations are a fixed list, applied deterministically. A program is
-accepted exactly when they remove everything `PROF-HEAP-*` forbids, so
-acceptance is a rule, not optimizer luck.
+What the heap-free profile accepts is decided by the documented pipeline
+with its parameters fixed (`PROF-GEN-5`): a program is accepted exactly
+when no dynamic allocation survives it (`PROF-HEAP-*`), so acceptance is a
+rule, not optimizer luck.
+
+Each rule below keeps the identifier it had, with its new owner. Each
+preserves the semantics of [03](03-semantics.md); the reason is stated
+with the rule.
 
 ## Erasure
 
-- **ELIM-ERASE-1 (v0).** Quantity-0 values are kept as `Erased` in `Core` and
-  as `!idr.erased` in the contract. They are removed only by the 1:0 type
-  conversion in `idr-lower` (`LOW-ERASE-1`). No stage before `idr-lower` drops
-  an erased parameter, argument or field.
+- **ELIM-ERASE-1 (v0).** Quantity-0 values are kept as `Erased` in `Core`
+  and as `!idr.erased` in the contract. No pass reads an erased value or
+  treats it as a constant. They are removed by the 1:0 type conversion in
+  `idr-lower` (`LOW-ERASE-1`); before that, `remove-dead-values` may drop
+  an erased parameter that no one uses, like any other.
 - **ELIM-ERASE-2 (v0).** Definitions reachable only at compile time (types,
   proofs) are not translated. They stay available in `Defs` throughout
   compilation, for checks (`PROF-ESC-1`) and for proved rewrites later
@@ -51,108 +61,60 @@ acceptance is a rule, not optimizer luck.
   to the names of their binders (`(x : a) -> b` and `a -> b`) name one
   instance: the first printed form is kept.
 
-## The guaranteed eliminations (v1): `Simplify`
+## The eliminations, in MLIR
 
-`Simplify` runs after `Mono`. It is an evaluator with two levels: it
-evaluates full `Core` to a *static value* and emits first-order `Core` for
-the runtime parts (Futhark's defunctionalisation judgment, written in
-Kovács's code-generation monad). The rules below are what it does to each
-construct. Each rule preserves the semantics of [03](03-semantics.md); the
-reason is stated with each rule.
+What `Simplify` called a *static value* is now a *constant-like* value: an
+`idr.constant`, or an `idr.con` or `idr.closure` whose operands are
+constant-like or runtime values. Its *static part* is the value with its
+runtime operands left out, and those operands are its *runtime leaves*.
 
-**Static values.** A *static value* is a value whose shape is known at
-compile time. Following Futhark, it is one of:
-- a closure: a lambda or a `Delay`, identified by its label
-  ([05](05-middle-ir.md)), with the values it captured;
-- a constructor of static data (data holding a function or `Lazy` value,
-  such as `IO`), with its fields;
-- a deferred call of a function whose result is static, with the
-  eliminations applied to it so far (`ELIM-G-5`);
-- a string known up to runtime characters, strings and numbers
-  (`ELIM-G-6`, `ELIM-G-7`);
-- a runtime value: an atom of first-order `Core`.
-
-A known function applied to fewer arguments than its arity is a closure,
-since the frontend eta-expands it. The runtime values inside a static value
-are its *atoms*. Only its *shape*, the static value with its atoms left out,
-is static.
-
-- **ELIM-G-1 (v1). Beta.** `(\x => b) a` becomes `let x = a in b`. The `let` is
-  strict, so `a` is still evaluated first (`SEM-EVAL-1`).
+- **ELIM-G-1 (v1). Beta.** `(\x => b) a` computes `b` with `x` bound to `a`.
+  *Owner since the cutover:* `idr.apply` of an `idr.closure @f(caps)`, or
+  of a constant closure, canonicalizes to `func.call @f(caps…, a…)`, and
+  `inline` inlines the call (`IDR-CLOS-1`). The arguments are still
+  evaluated first, since they are SSA values (`SEM-EVAL-1`).
+  - Test: `tests/e2e/v1/ELIM-G-1-beta`, `tests/idr/canon/apply.mlir`
 - **ELIM-G-2 (v1). Known constructor.** A match on a value built by a known
-  constructor (directly, or through a `let`) becomes the selected
-  alternative, with its fields bound to the constructor's arguments. This
-  removes `MkIO`, `MkIORes`, `MkPair` and records of functions. From v3 a
-  constructor of runtime data whose fields are all known stays a known
-  value too (`True`, `Nothing`, an enumeration), and is built only where it
-  must exist at runtime. A match on a runtime value of a type with one
-  constructor is not a choice either: when its alternative yields a static
-  value (an `IORes` holding a function, as the Prelude's `(*>)` for IO
-  makes), the fields are read in place and the value is used where the
-  match is, instead of being returned from a residual match.
-  - Test: `tests/e2e/v3/prelude-traverse`
-- **ELIM-G-3 (v1). Specialization on static arguments.** A call `f a₁ … aₙ`
-  in which some argument is a static value becomes a call to a specialized
-  copy of `f` for the shapes `σ` of its arguments:
-  - the atoms of the arguments, in order, become its parameters;
-  - inside the copy, the static arguments are known, so `ELIM-G-1` and
-    `ELIM-G-2` apply.
-
-  Copies are memoized by `(f, σ)`, and shapes are compared structurally:
-  two closures are the same when their labels and captured shapes are. The
-  `k`-th copy of `f` is named `f#k`; a call whose arguments are all runtime
-  values calls `f` itself. This is Futhark's defunctionalisation by static
-  values and Lean's `fixedHO` specialization. It never introduces a branch
-  or a closure.
-- **ELIM-G-4 (v1). Static let.** `let k = v in body`, where `v` is a static
-  value, substitutes `v` into `body` and removes the binding. Copying a
-  static value copies only its shape; its captured variables are already
-  evaluated.
-- **ELIM-G-5 (v1). Arity raising.** A function `f` whose result is a function
-  (after monomorphisation) gets that function's parameter as an extra
-  parameter: `f args` applied to `y` becomes `f' args y`. For this rule, a
-  value of a single-constructor type with exactly one runtime field of
-  function type (such as `IO a = MkIO (PrimIO a)`) counts as that function.
-  So every IO-returning function takes the world as a parameter and returns
-  `IORes a`, and every state-monad function takes the state.
-  - Raising moves the code that computes the lambda (the *prefix*) from where
-    the action is built to where it is run. The prefix may contain only
-    code that cannot crash and cannot fail to terminate:
-    - primitives other than `div` and `mod` by a divisor not known to be
-      nonzero;
-    - constructor applications;
-    - `let` and `case`;
-    - calls to functions that Idris's checker reports total and whose bodies
-      satisfy this rule transitively.
-  - Otherwise `f` is not raised. Its result survives as a function value and
-    is reported as `PROF-HEAP-5`. This is what keeps raising within
-    `SEM-EVAL-4` and `SEM-EVAL-5`: moving a crash from build time to run time
-    could otherwise reorder it relative to output.
-  - Moving is observable only when an effect (an IO primitive, or a call
-    passed the world) happens between building an action and running it.
-    So the rule applies to a raised function only if one of its actions is
-    run after such an effect; an action run as soon as it is built, as in
-    a `do` block, may move any code.
-  - `Simplify` raises optimistically and records each operation it moves.
-    Once every copy is made, it computes which functions satisfy the rule,
-    as a greatest fixpoint (recursion between copies is why it must be the
-    greatest), and checks the recorded operations against it.
-- **ELIM-G-6 (v1). Compile-time evaluation of primitives.** A primitive applied
-  to literal arguments becomes a literal (`SEM-INT-*`, `SEM-CHAR-*`,
-  `SEM-STR-2`). The exception is a primitive that would crash, such as `div`
-  by 0, which is left in place to crash at runtime. This turns
-  `putStrLn "hello"` into one literal, `"hello\n"`: a string known at
-  compile time is a static argument, so a function that receives it is
-  specialized on its value (`ELIM-G-3`). From v3 this covers `strHead`,
-  `strTail`, `strIndex` and `strSubstr` on literals too (the Prelude's
-  `show` for `Char` and `String`, `unpack`, `length`), computed with the
-  reference's own primitives, since the compiler runs on it; an empty
-  string or an index out of range is left to fail at runtime as the
-  reference does.
-  - Test: `tests/e2e/v3/prelude-user-types`
-- **ELIM-G-7 (v1). Output fusion.** When the argument of the `putStr`
-  primitive (the Prelude's `prim__putStr`) is not a literal, the call is
-  rewritten by the first matching case, applied repeatedly:
+  constructor becomes the selected alternative, with its fields bound to
+  the constructor's arguments. This removes `MkIO`, `MkIORes`, `MkPair`
+  and records of functions. *Owner since the cutover:* `idr.field` and
+  `idr.tag` fold on an `idr.con` or a constant, and an `idr.match` on
+  either is replaced by its region, as is a match with one region left
+  (`IDR-MATCH-5`); `canonicalize` runs them, inside the inliner and on its
+  own.
+  - Test: `tests/e2e/v1/ELIM-G-2-known-constructor`,
+    `tests/idr/canon/match-known.mlir`, `tests/idr/fold/data.mlir`
+- **ELIM-G-3 (v1). Specialization on static arguments.** A call in which
+  some argument is constant-like calls a clone of the callee specialized
+  for the argument's static part, whose parameters are the runtime leaves;
+  inside the clone, the static part is known, so `ELIM-G-1` and `ELIM-G-2`
+  apply. This is Futhark's defunctionalisation by static values and Lean's
+  `fixedHO` specialization; it never introduces a branch or a closure.
+  *Owner since the cutover:* `idr-specialize` (`ELIM-SPEC-1`).
+  - Test: `tests/e2e/v1/ELIM-G-3-specialization`
+- **ELIM-G-4 (v1). Static let.** A `let` of a constant-like value is known
+  where it is used. *Owner since the cutover:* `Emit` writes a `let` as an
+  SSA value, so every use sees its definition, and `sccp` propagates
+  constants through calls and regions.
+  - Test: `tests/e2e/v1/ELIM-G-4-static-let`, `tests/idr/fold/sccp.mlir`
+- **ELIM-G-5.** *Withdrawn at the cutover:* arity raising gave a function
+  returning a function (such as an IO action) the returned function's
+  parameter, moving the code that computed the action to where it was
+  run, under `PROF-HEAP-5`. Inlining, `ELIM-G-1` and
+  `idr-defunctionalize` remove IO's closures without moving any code, so
+  no crash can move past an effect.
+- **ELIM-G-6 (v1). Compile-time evaluation of primitives.** A primitive
+  applied to constants becomes a constant, except where it would crash,
+  which is left to crash at runtime. *Owner since the cutover:* folders.
+  Upstream folds `arith` and `math`; the dialect folds `idr.div`,
+  `idr.mod`, `idr.to_char`, `idr.to_int`, `idr.str.*` and `idr.big.*`, the
+  last two through the runtime's own functions (`LOW-RT-1`). A call of
+  constants is `idr-eval`'s (`ELIM-EVAL-1`).
+  - Test: `tests/e2e/v1/ELIM-G-6-compile-time`,
+    `tests/e2e/v3/prelude-user-types`
+- **ELIM-G-7 (v1). Output fusion.** When the argument of `putStr` (the
+  Prelude's `prim__putStr`) is built from pieces, the call writes the
+  pieces in order instead, applied repeatedly:
   1. `putStr (a ++ b)` becomes `putStr a`, then `putStr b`, in the world
      chain;
   2. `putStr (strCons c s)` becomes `putChar c`, then `putStr s`;
@@ -162,164 +124,187 @@ is static.
   5. `putStr (case x of alts)` becomes `case x of alts'`, with the `putStr`
      moved into each alternative.
 
+  *Owner since the cutover:* cases 1 to 4 are DRR canonicalizations of
+  `idr.io.put_str` (`IDR-IO-1`); case 5 is case-of-case, a canonicalization
+  of `idr.match` (`IDR-MATCH-5`).
   *Why this is exact:* the UTF-8 encoding of a concatenation is the
   concatenation of the encodings (`SEM-IO-2`). The case scrutinee is still
   evaluated before any output of this call.
+  - Test: `tests/e2e/v1/ELIM-G-7-output-fusion`,
+    `tests/idr/canon/output-fusion.mlir`, `tests/idr/canon/case-of-case.mlir`
 - **ELIM-G-8 (v1). Force of Delay.** `Force (Delay e)` becomes `e`
-  (`SEM-LAZY-1`). Together with `ELIM-G-3` and `ELIM-G-4`, this removes the
-  `Lazy` in `>>` and in every other known use.
-- **ELIM-G-9 (v1). Dead static values.** A static value that is never used is
-  removed. Building a static value has no effect.
-
+  (`SEM-LAZY-1`). *Owner since the cutover:* a `Lazy` value is a closure of
+  no arguments, so this is `ELIM-G-1` with no arguments.
+  - Test: `tests/e2e/v1/ELIM-G-8-force-delay`, `tests/idr/canon/apply.mlir`
+- **ELIM-G-9 (v1). Dead static values.** A constant-like value that is
+  never used is removed: building it has no effect. *Owner since the
+  cutover:* upstream dead-code elimination. `idr.closure` and an unboxed
+  `idr.con` are `Pure`, and a box's `idr.con` allocates only its own
+  result, which MLIR ignores when it decides that an op is dead.
+  - Test: `tests/e2e/v1/ELIM-G-9-dead-static`, `tests/idr/effects/alloc.mlir`
 - **ELIM-G-15 (v3). What is known about a string built at runtime.** Two
   facts are used when a string has runtime pieces:
   - it is not `""` when one of its pieces is known not to be empty (a shown
     number, a character, a non-empty literal), which decides a match whose
     only literal alternative is `""`;
-  - its first character is known when its first piece gives it: a literal's
-    or a runtime character, or for an integer shown at runtime its sign or
-    leading digit, which straight-line code computes by comparing with the
-    powers of ten that fit the type.
+  - its first character is known when its first piece gives it: a
+    literal's or a runtime character, or for a number shown at runtime
+    what the printer writes first.
 
   The Prelude's `show` for constructors uses both, to put `-5` in
-  parentheses (`Just (-5)`). For a `Double` shown at runtime the first
-  character depends on the shortest digits (the double nearest `1e23`
-  prints as `1e23`), so it comes from the printer itself
-  (`idr.double_head`, `LOW-DBL-4`).
-  - Test: `tests/e2e/v3/show-values`
-- **ELIM-G-17 (v3). Specialization on literals.** A specialization is keyed
-  by the shapes of its arguments, and their atoms, literals included, become
-  its parameters (`ELIM-G-3`). When that specialization cannot be built
-  (its body would need a value that cannot exist at runtime, such as an
-  `Integer` made from a `Char` in the Prelude's `show` for characters), and
-  some atoms are literals, it is built again with those literals fixed, and
-  keyed by them too. The first attempt is undone. A loop whose argument is
-  a literal is still one specialization; only code that could not be
-  compiled otherwise is specialized per literal.
-  - Test: `tests/e2e/v3/prelude-user-types` (`printLn 'x'` twice)
-- **ELIM-G-19 (v3). The driver.** Every call is decided by one driver,
-  positive supercompilation's (Sørensen, Glück and Jones, JFP 1996):
-  - **Drive.** A call is unfolded, evaluated where it is called with the
-    values of its arguments, when it carries static information:
-    - it is an Idris case or with block, or a library definition marked
-      `%inline` (the *Inline hints* column of the library table,
-      [17-registry](17-registry.md): `Builtin`, `PrimIO` and the Prelude);
-      each is a fact of the function, with its provenance;
-    - its result is a `String`, which must reach `ELIM-G-6` or `ELIM-G-7`
-      where it is used;
-    - an argument has static structure (a closure, a constructor, a
-      deferred call, a string, a choice);
-    - every argument is known (no runtime variable occurs in it), so the
-      call is evaluated at compile time, recursion included: `fib 15` is
-      `610`, and a library's recursion over known values (`Nat` in `power`,
-      Euclid's algorithm on `Integer`) costs nothing at runtime;
-    - or a literal is in a position the body matches on (`ack 0 n`).
+  parentheses (`Just (-5)`). *Owner since the cutover:* canonicalizations
+  of `idr.str.head` and `idr.match_lit` (`IDR-STR-2`, `IDR-MATCH-6`), with
+  `idr.int_head` and `idr.double_head` (`IDR-DBL-3`, `LOW-DBL-4`).
+  - Test: `tests/e2e/v3/show-values`, `tests/idr/canon/head.mlir`,
+    `tests/idr/canon/match-lit-string.mlir`
+- **ELIM-G-17.** *Withdrawn at the cutover:* specialization per literal
+  rebuilt a specialization with its literals fixed when its body needed a
+  value that could not exist at runtime (an `Integer` made from a `Char`
+  in the Prelude's `show` for characters). Every such value now has a
+  representation, so the cause is gone.
+- **ELIM-G-19.** *Withdrawn at the cutover:* one driver, positive
+  supercompilation with a whistle, generalization and a budget, decided
+  every call: it unfolded, evaluated or specialized it. Its parts are now
+  separate, each with its own rule: unfolding is upstream `inline` with no
+  size threshold (`OPT-PIPE-5`); a residual call on a static argument is
+  `idr-specialize` (`ELIM-SPEC-1`), bounded by the clone limit
+  (`ELIM-SPEC-2`) instead of the whistle; evaluation is `idr-eval`
+  (`ELIM-EVAL-1`), on total code only (`SEM-EVAL-6`), with no budget. A
+  literal in a matched position (`ack 0 n`) is specialization on a
+  constant, without the bound of four unfoldings.
+- **ELIM-G-20.** *Withdrawn at the cutover:* a match whose alternatives
+  yielded static values of different shapes had a *choice* as its value,
+  a runtime tag with the atoms of every alternative. A value picked at
+  runtime is now an ordinary value: data built from constants is a
+  constant in each region, a closure is defunctionalized
+  (`ELIM-CLOS-1`), and a use that folds against the alternatives moves
+  into them by case-of-case (`IDR-MATCH-5`), which is what choices did for
+  consumers (`putStr (maybe "none" show m)`).
 
-    Otherwise the call is residual: a call of the specialization for its
-    shapes (`ELIM-G-3`, `ELIM-G-17`). A call unfolded only for a literal
-    its body matches on is unfolded at most four times on one path, as
-    call-pattern specialization is bounded; the fifth generalizes the
-    innermost of them, so a loop counting down from a literal stays a loop
-    instead of being unrolled. A deferred call (`ELIM-G-5`) is
-    unfolded only if no effect happened between building it and applying
-    it.
-  - **Whistle.** A call's *configuration* is its function, its arguments'
-    shapes with their literals, and its eliminations. Unfolding stops when
-    the configuration of a call on the path of calls being unfolded or
-    specialized *embeds* in the new one: homeomorphic embedding (Kruskal),
-    with integer literals ordered by absolute value, strings by subsequence,
-    characters by equality, and any double embedding any other: a loop that
-    computes a new double each time never repeats one, so equality on
-    doubles would not stop it. Every infinite sequence of configurations
-    has one that embeds in a later one, so every path is finite (Leuschel,
-    SAS 1998). The test is a dynamic program over pairs of subterms, so
-    its cost is the product of the sizes.
-  - **Generalization.** When the whistle blows on an ancestor being
-    unfolded, the ancestor is generalized to the most specific
-    generalization of the two configurations: equal literals stay, other
-    atoms become runtime values. What the ancestor's unfolding did is
-    undone and it becomes a call of the specialization for that
-    generalization. When it blows on a specialization being made, the call
-    calls the specialization for the generalization, often itself. A call
-    whose shapes have no generalization (a static value that grows with
-    each call) is rejected (`PROF-HEAP-4`), and so is one whose result has
-    no runtime representation (`PROF-HEAP-1`, `PROF-HEAP-2`,
-    `PROF-DATA-3`, `PROF-TYPE-4`), where the call is.
-  - **Budget.** A bound on compile time and code size, not a termination
-    argument:
-    - a residual body may unfold 20000 calls that emit code;
-    - it may unfold 20000 calls in a row without emitting code, which
-      bounds a compile-time evaluation such as `fib 27`.
+### Specialization
 
-    An unfolding that emitted no code costs the body nothing. When either
-    count is spent, the outermost unfolding of the function being called
-    is generalized to its shapes and residualized.
-  - *Why this is exact:* evaluation is strict (`SEM-EVAL-1`), so evaluating
-    a body with the values of the arguments is the call; generalization
-    only makes a specialization serve more calls.
-  - Test: `tests/e2e/v3/static-evaluation`,
-    `tests/e2e/v3/compile-time-evaluation`, `tests/e2e/v3/call-pattern`,
-    `tests/e2e/v2/string-functions`, `tests/e2e/v2/math-showcase`,
-    `tests/profile/v1/reject/PROF-HEAP-4-growing-function.idr`
-- **ELIM-G-20 (v3). Choices.** A match on a runtime value whose
-  alternatives yield static values of different shapes has their least
-  upper bound as its value: where the shapes agree, their common shape;
-  where they differ, a *choice*, a runtime `Int` tag saying which one. The
-  match continues at a join point that takes the tag and the atoms of every
-  alternative. An alternative passes undefined atoms (`ub.poison`) for the
-  others, and erased atoms are never passed. A use of a choice (applying
-  it, forcing it, matching on it, a primitive, `putStr`, reifying it)
-  dispatches on the tag, with the use in each alternative. So a function, a
-  `Lazy` value, a string or a list picked at runtime from a known set costs
-  a tag and no heap; the match writes each alternative's output where it
-  is (`ELIM-G-7`, as `maybe "none" show m` does); and a choice crosses a
-  specialization as its tag and atoms.
-  - *Why this is exact:* using the value of the chosen alternative is what
-    using the match's value does, and the tag records which one was chosen.
-  - Test: `tests/e2e/v3/choice`, `tests/e2e/v3/prelude`
-- **ELIM-G-ORDER (v1). Termination and determinism.** Rules apply in one fixed
-  traversal order: definitions in `FE-DET-1` order, terms outermost first.
-  The result is a fixpoint. The rules that can grow the program are bounded:
-  - `ELIM-G-3` by memoization;
-  - `ELIM-G-4` by the number of uses;
-  - `ELIM-G-5` at one application per function;
-  - `ELIM-G-7` case 5 by the number of alternatives;
-  - `ELIM-G-19` by the whistle, and its budget bounds compile time;
-  - `ELIM-G-20` by the number of alternatives.
+- **ELIM-SPEC-1 (v3). `idr-specialize`.** A `func.call` of a function with
+  a body, one of whose arguments is constant-like and not a runtime value,
+  calls a clone of the callee instead.
+  - **The key** is the callee and the static parts of the arguments, with
+    each runtime leaf a hole (`#idr.hole`, internal to the pass). Calls with
+    equal keys share one clone. *Constant-like includes partially static
+    values*: a list with one runtime element, `Just n`, or a closure with a
+    runtime capture is specialized on its shape, and its runtime leaves
+    become the clone's parameters, in order.
+  - **The clone** is the callee with the static parts substituted, so
+    `ELIM-G-1` and `ELIM-G-2` apply inside it. It is private, is named after
+    its callee and numbered in order of first request (`FE-DET-1`),
+    inherits `no_inline` from a loop breaker (`OPT-PIPE-3`), and has
+    `idr.total` when its callee and every function named in its key have
+    it (`IDR-FACT-1`).
+  - **A closed call is never specialized**, where every argument is a
+    constant. It is evaluated when its callee is total and pure
+    (`ELIM-EVAL-1`), and otherwise left as it is: specializing a partial
+    function on constants would unroll it one clone at a time, which is
+    evaluation under another name, bounded only by the clone limit
+    (`SEM-EVAL-6`).
+  - *Why this is exact:* a clone computes what its callee computes on
+    arguments of that shape; specialization never duplicates an effect or
+    a crash, since the arguments are evaluated once, at the call.
+  - Check: the pass `idr-specialize`
+- **ELIM-SPEC-2 (v3). The clone limit.** `idr-specialize` makes at most
+  `N` clones of one original callee in a compilation, `N` being
+  `idris-mlir-cc --clone-limit=N` (default 4096). A call that the limit
+  stops stays a call of the unspecialized function, with a `Missed` remark
+  naming it. A closure that then survives is a `PROF-HEAP-4` rejection. The
+  limit bounds only a specialization that would not end (a recursive
+  function passing itself a static argument that grows); it is fixed, so
+  acceptance does not depend on it for any program `PROF-HEAP-4` does not
+  name.
+  - Check: the pass `idr-specialize`
 
-  Every other rule makes the program smaller. `ELIM-G-3` can diverge only
-  when a recursive function passes itself a growing static value, which is
-  reported as `PROF-HEAP-4`. A cap on copies per definition backs this up.
-- **ELIM-G-SCOPE (v1).** `Simplify` applies only these rules. Everything else
-  (CSE, dead code, general constant folding, and first-order inlining
-  beyond `ELIM-G-19`) is MLIR's job (`CORE-OPT-1`).
+### Evaluation
 
-`Simplify` enforces `PROF-HEAP-*` as it goes: a static value that would
-have to exist at runtime (as a runtime argument, field, result or match
-scrutinee) has no first-order representation, and is reported there. Each
-rejection names the construct that survived, and the rule that could not
-remove it, with the reason (`DIAG-HEAP-1`). A point Idris proved impossible
-(`Unreachable`) makes the code that reaches it `Absurd` in first-order
-`Core`.
+- **ELIM-EVAL-1 (v3). `idr-eval`.** Every closed call that `SEM-EVAL-6`
+  allows is replaced by its results, as constants.
+  - **What is evaluated**: a `func.call`, or an `idr.apply` of a constant
+    closure, whose operands are all constants; its callee is pure and has
+    `idr.total`, and so does every function a closure in its operands
+    names, recursively through captures and fields.
+  - **One compile per round.** The pass collects every such call of the
+    module, and clones the callees' transitive closure into one scratch
+    module. For each call it adds a wrapper that materializes the arguments
+    as static data, calls the callee, and stores the flattened results. The
+    scratch module is lowered by the executable's own `idr-lower`, in JIT
+    mode (`LOW-JIT-1`), and LLVM pipeline, then compiled once by ORC's
+    `LLJIT` (`PINS.md`: `orc-lljit`). The runtime's symbols are bound to
+    `idris-mlir-cc`'s own copies, so the JIT runs the same runtime as the
+    executable (`LOW-RT-1`). Results are cached per callee and arguments
+    for the compilation.
+  - **The child.** `idris-mlir-cc` runs MLIR single-threaded, so it can
+    fork. The child runs the round's calls on a stack reserved as large as
+    the address space allows (committed as it is touched), turns each
+    result into attribute text with the layout code `idr-lower` uses, and
+    writes it to a pipe; the parent parses it and replaces the call.
+  - **Crashes and exhaustion.** A crash that the runtime reports leaves
+    that call in place, to crash at runtime (`SEM-EVAL-4`), and the parent
+    forks again for the remaining calls. A fault on the stack's guard, a
+    failed arena mapping, or the child killed by the kernel for memory is
+    `EVAL-1`. Any other signal is an internal error (`DIAG-ICE-1`).
+  - **Remarks.** `--remarks=idr-eval` reports a `Passed` remark per call,
+    with its wall-clock time, and a `Missed` remark per call that crashed,
+    with its call-site chain.
+  - **`--no-eval`** turns the pass off, which changes no program's meaning
+    (`SEM-EVAL-6`, `TEST-EQUIV-1`).
+  - *Why this is exact:* the call runs the code the executable would run,
+    with the runtime it links (`SEM-EVAL-6`, `SEM-EVAL-7`).
+  - Check: the pass `idr-eval`
 
-## Withdrawn
+### Closures
 
-- **ELIM-G-10.** *Withdrawn in v3:* unfolding string functions is a reason
-  the driver unfolds a call (`ELIM-G-19`).
-- **ELIM-G-11.** *Withdrawn in v3:* unfolding case and with blocks is a
-  reason the driver unfolds a call (`ELIM-G-19`).
-- **ELIM-G-12.** *Withdrawn in v3:* unfolding on known arguments is a
-  reason the driver unfolds a call (`ELIM-G-19`).
-- **ELIM-G-13.** *Withdrawn in v3:* library `%inline` is a reason the
-  driver unfolds a call (`ELIM-G-19`).
-- **ELIM-G-14.** *Withdrawn in v3:* a string join point is a choice
-  (`ELIM-G-20`).
-- **ELIM-G-16.** *Withdrawn in v3:* evaluation of known calls is the
+- **ELIM-CLOS-1 (v3). `idr-defunctionalize`.** After the simplify loop,
+  the closures left are replaced by data where the set of functions that
+  can reach them is known (Reynolds's defunctionalization, as MLton's
+  `ClosureConvert` and Futhark do it):
+  - The analysis runs on MLIR's dataflow framework. Its lattice holds sets
+    of functions. A closure reaches fields through one anchor per
+    (type, constructor, field), and at an `idr.apply` the arguments of each
+    possible callee are updated, because the framework's interprocedural
+    mode follows symbol callees only.
+  - A closure type whose set is finite, and whose captures do not make it
+    contain itself, becomes a sum over those functions whose fields are
+    their captures. `idr.closure` becomes the constructor, and `idr.apply`
+    becomes a match on it with a direct call in each region.
+  - A closure that remains is rejected by the heap-free profile
+    (`PROF-HEAP-1`, `PROF-HEAP-2`, `PROF-HEAP-4`).
+  - *Why this is exact:* applying the constructor of a function applies
+    that function to its captures and arguments, which is what applying the
+    closure did.
+  - Check: the pass `idr-defunctionalize`
+
+## Withdrawn earlier
+
+- **ELIM-G-10.** *Withdrawn in v3:* unfolding string functions was a
+  reason the driver unfolded a call (`ELIM-G-19`). Since the cutover,
+  `inline` inlines every legal call.
+- **ELIM-G-11.** *Withdrawn in v3:* unfolding case and with blocks was a
+  reason the driver unfolded a call (`ELIM-G-19`); since the cutover, as
+  `ELIM-G-10`.
+- **ELIM-G-12.** *Withdrawn in v3:* unfolding on known arguments was a
+  reason the driver unfolded a call (`ELIM-G-19`). Since the cutover, it is
+  specialization (`ELIM-SPEC-1`) or evaluation (`ELIM-EVAL-1`).
+- **ELIM-G-13.** *Withdrawn in v3:* library `%inline` was a reason the
+  driver unfolded a call (`ELIM-G-19`). Since the cutover, `%inline` is
+  ignored (`PROF-LIB-2`).
+- **ELIM-G-14.** *Withdrawn in v3:* a string join point was a choice
+  (`ELIM-G-20`). Since the cutover, a string picked at runtime is a value.
+- **ELIM-G-16.** *Withdrawn in v3:* evaluation of known calls was the
   driver unfolding calls on known arguments, bounded by its budget
-  (`ELIM-G-19`).
-- **ELIM-G-18.** *Withdrawn in v3:* call-pattern specialization is the
-  driver unfolding on a literal the body matches on, with the whistle's
-  generalization keeping the literals that repeat (`ELIM-G-19`).
+  (`ELIM-G-19`). Since the cutover, it is `ELIM-EVAL-1`, on total code.
+- **ELIM-G-18.** *Withdrawn in v3:* call-pattern specialization was the
+  driver unfolding on a literal the body matches on (`ELIM-G-19`). Since
+  the cutover, it is specialization on a constant (`ELIM-SPEC-1`).
+- *ELIM-G-ORDER* (termination and determinism of `Simplify`'s rules) and
+  *ELIM-G-SCOPE* (`Simplify` applies only its rules) are withdrawn at the
+  cutover with `Simplify`: the simplify loop has its own termination
+  argument (`OPT-PIPE-5`), and no optimizer is left in Idris
+  (`CORE-OPT-1`).
 
 - **ELIM-DEFUNC-1.** *Withdrawn in draft 2:* superseded by `ELIM-G-3` and
   `PROF-HEAP-4`.
@@ -337,7 +322,9 @@ indices" (TYPES 2003).
   constructors determined by an index, are removed from the runtime layout.
   The frontend decides this from TT, where the index relationships live, and
   records it as a fact. C++ never infers it.
-- **ELIM-FORCE-2 (v0).** Idris's `newtypeArg` and its Nat-to-Integer
-  optimization are not used. Single-constructor types already lose their tag
-  in lowering (`LOW-DATA-1`), and `Nat` is not a runtime type.
+- **ELIM-FORCE-2 (v0).** Idris's `newtypeArg` is not used: single-constructor
+  types already lose their tag in lowering (`LOW-DATA-1`). *Revised at the
+  cutover:* `Nat`-like types are bigs, decided from Idris's `ZERO`/`SUCC`
+  constructor flags (`IDR-IN-3`), which is what Idris's own
+  Nat-to-Integer optimization reads.
   - Check: review (no code reads `newtypeArg`)

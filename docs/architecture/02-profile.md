@@ -11,6 +11,13 @@ normative only when adopted.
 A rule marked `(vN)` applies from version N on. A rule marked `(vN only)`
 applies to version N and is replaced by the rule it names in later versions.
 
+*Revised at the cutover*, with the profile still v3: types, monomorphisation
+and representations stay in Idris, and everything the program needs is
+decided in MLIR ([09](09-optimization.md)). The rules of heap freedom now
+reject only dynamic allocation, found on the optimized module
+(`PROF-GEN-3`, `PROF-HEAP-*`), and the programs that changed are listed
+under `PROF-GEN-4`.
+
 ## General rules
 
 - **PROF-GEN-1 (v0).** Every program in the profile is an ordinary Idris 2
@@ -19,21 +26,58 @@ applies to version N and is replaced by the rule it names in later versions.
 - **PROF-GEN-2 (v0).** Every rule in this document is enforced by the
   compiler. A violation fails compilation with an `unsupported` error that
   names the rule and points at the Idris source
-  ([13-diagnostics](13-diagnostics.md)).
+  ([13-diagnostics](13-diagnostics.md)). A violation that `idr-check-profile`
+  finds comes back from `idris-mlir-cc` as exit status 3, and the frontend
+  reports it the same way, at the innermost user location of the op
+  (`DRV-CC-2`, `DIAG-LOC-1`).
 - **PROF-GEN-3 (v0).** Rules are stated at source level but checked on
-  checked TT, or, for `PROF-HEAP-*`, on `Core` after the guaranteed
-  eliminations. Elaboration inserts implicit arguments, auto-bound names and
-  generated definitions that the source does not show. Where the source and
-  the checked form disagree, the check on the checked form decides.
+  checked TT, or, for the rules of dynamic allocation (`PROF-HEAP-*`,
+  `PROF-TYPE-4` for bigs, `PROF-DATA-3`, `PROF-PRIM-4`), on the optimized
+  MLIR module, by `idr-check-profile` (*revised at the cutover*; before, on
+  `Core` after `Simplify`). Elaboration inserts implicit arguments,
+  auto-bound names and generated definitions that the source does not
+  show. Where the source and the checked form disagree, the check on the
+  checked form decides.
 - **PROF-GEN-4 (v0).** Each version is a superset of the previous version,
   and adopting a new version changes the meaning of no program already in the
-  profile.
+  profile. The deliberate exceptions are listed here, each with its reason:
+  - `PROF-IO-1` (after v3): programs that imported this compiler's IO
+    module.
+  - The cutover, where partial code stopped being evaluated at compile
+    time (`SEM-EVAL-6`). Four accepted programs built, by a closed call to
+    a function Idris does not report terminating, a value that the profile
+    forbids at runtime. Each was split: its total part stays an accept
+    fixture, whose results `idr-eval` computes, and its partial calls
+    became reject fixtures that document the rule:
+
+    | program | the call | now |
+    | --- | --- | --- |
+    | `tests/e2e/v3/compile-time-evaluation` | `euclid (the Integer 1071) 462` | `tests/profile/v3/reject/PROF-TYPE-4-partial-integer.idr` |
+    | `tests/e2e/v3/prelude-math` | `euclid (the Integer 48) 18` | the same |
+    | `tests/profile/v3/accept/SEM-BIG-1-static-integers.idr` | `fact 30`, with `fact : Integer -> Integer` | the same |
+    | `tests/profile/v3/accept/SEM-REC-2-streams.idr` | `takeBefore (> 40) (countFrom 1 (* 2))`, `covering` in the Prelude | `tests/profile/v3/reject/PROF-DATA-3-partial-stream.idr` |
+
+    User modules cannot assert totality (`PROF-ESC-1`), so such programs
+    cannot be made total by annotation.
+
+  These are not exceptions, since the profile only grew, but changed
+  fixtures at the cutover: three reject fixtures became accepts, because
+  `PROF-HEAP-5` was withdrawn and output fusion now sees through what
+  `Simplify` could not (`profile/v1/reject/PROF-HEAP-3-reported-before-heap-5`,
+  `PROF-HEAP-3-stored-string` and `PROF-HEAP-5-division-before-action`).
+  - Test: `TEST-VER-1`
 - **PROF-GEN-5 (v1).** Source constructs that would need a heap (lambdas,
-  partial application, `Lazy`, `IO` actions, string building) are allowed in
-  the source. A program is accepted only if every one of them is removed by
-  the guaranteed eliminations ([06-elimination](06-elimination.md)), and
-  `PROF-HEAP-*` states exactly what may survive. The eliminations are a fixed,
-  deterministic list, so acceptance never depends on optimizer heuristics.
+  partial application, `Lazy`, `IO` actions, string building, and from the
+  cutover recursive data and `Integer`) are allowed in the source. A program
+  is accepted only if no dynamic allocation survives the documented
+  pipeline, with its parameters fixed (`OPT-PIPE-1`, `OPT-PIPE-5`), and
+  `PROF-HEAP-*` states exactly what may not survive. *Revised at the
+  cutover:* the fixed list of guaranteed eliminations in `Simplify` became
+  that pipeline: inlining with no size threshold, specialization,
+  compile-time evaluation and defunctionalization, run to a fixpoint. No
+  parameter is a heuristic: the inliner inlines every legal call, and the
+  clone limit only bounds a specialization that would otherwise not end
+  (`ELIM-SPEC-2`). So acceptance never depends on a cost model.
 
 Scope of the rules:
 - **Reachable** means reachable from the root through any reference in types
@@ -91,7 +135,7 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   | --- | --- |
   | `Builtin` | `Unit`, `MkUnit`, `Pair`, `MkPair`, `fst`, `snd`, `Equal`, `Refl`, `Void`, `id`, `the`, `delay`, `force`; the literal interfaces `FromChar`, `FromString` and, from v2, `FromDouble` (`fromChar`, `fromString`, `fromDouble`, their `Mk` constructors and implementations) and their default hints `defaultChar`, `defaultString`, `defaultDouble`, which elaborate character, string and `Double` literals in polymorphic positions |
   | `PrimIO` | `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`, `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`, `unsafeCreateWorld`, `unsafeDestroyWorld` |
-  | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists and `Nat` are compile-time data (`SEM-REC-1`), its `Integer` literals compile-time integers (`SEM-BIG-1`), its `%foreign` primitives other than the IO primitives of `PROF-IO-4` rejected (`PROF-ESC-1`) |
+  | the Prelude (v3) | every definition, subject where it is reached to every other rule: its lists are boxes (`SEM-REC-1`), its `Nat` and `Integer` bigs (`IDR-TY-8`), each rejected where it would allocate at runtime (`PROF-DATA-3`, `PROF-TYPE-4`); its `%foreign` primitives other than the IO primitives of `PROF-IO-4` rejected (`PROF-ESC-1`) |
   | `Builtin` (v3) | also every other definition but its escape hatches `believe_me`, `idris_crash` and `assert_linear`: the proof combinators `sym`, `trans`, `replace`, `rewrite__impl`, `DPair` |
   | the base library (v3) | see `PROF-LIB-3` |
 
@@ -110,7 +154,8 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - Test: `tests/e2e/v3/vect`, `tests/profile/v3/reject/PROF-PROG-4-base.idr`
 - **PROF-LIB-2 (v1).** Pragmas inside trusted modules are allowed. Their
   effects are not: the compiler ignores `%default` and other elaboration
-  flags, and from v3 takes `%inline` as a hint to unfold (`ELIM-G-19`). It
+  flags, and `%inline` (*revised at the cutover*: from v3 it was a hint to
+  unfold, `ELIM-G-19`; the inliner now inlines every legal call). It
   honours `%foreign` and `%extern` only for the IO primitives the registry
   lists (`PROF-IO-4`): a `%foreign` definition by the spec it declares for
   backends (`C:idris2_putStr`), whose Idris name and type are validated
@@ -183,18 +228,28 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   - `Double`, from v2;
   - profile data types, instantiated;
   - function types and `Lazy`, which must then be eliminated
-    (`PROF-HEAP-1`, `PROF-HEAP-2`).
+    (`PROF-HEAP-1`, `PROF-HEAP-2`);
+  - from the cutover, `Integer` and the `Nat`-like types, as bigs
+    (`IDR-TY-8`).
 
   Still excluded at runtime:
-  - `Integer`, which from v3 exists at compile time only (`SEM-BIG-1`), and
-    `Double` before v2;
+  - `Double` before v2;
   - `Type`;
   - `Inf` (codata) before v3, which from v3 is a suspension like `Lazy`
     (`SEM-REC-2`);
   - types that depend on runtime values.
+
+  *Revised at the cutover:* `Integer` is a runtime type, and a big may
+  allocate. So a big that is not a constant in the optimized module (the
+  result of an `idr.big.*` op, or a runtime value of big type in any
+  position) is rejected with this rule, at the op that makes it. Before,
+  `Integer` existed at compile time only (`SEM-BIG-1`). A big that
+  compile-time evaluation computes is a constant, and allocates nothing.
   - Check: `Frontend.Translate.coreType`, on each instance (monomorphisation
-    happens during translation, `CORE-PASS-1`)
-  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,dependent}.idr`
+    happens during translation, `CORE-PASS-1`), for `Type` and dependent
+    types; `idr-check-profile` for bigs
+  - Test: `tests/profile/v1/reject/PROF-TYPE-4-{integer,dependent}.idr`,
+    `tests/profile/v3/reject/PROF-TYPE-4-prelude-integer.idr`
 
 ## Data types
 
@@ -209,14 +264,19 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-DATA-3 (v0).** Runtime data types are not recursive. In the graph
   with an edge T → U whenever a constructor of T has a runtime field of type
   U, after instantiation, no cycle is reachable from a runtime data type.
-  Quantity-0 fields add no edges. From v3 a recursive data type is a
-  compile-time type (`SEM-REC-1`), and this rule rejects a value of one
-  that a recursion on a runtime value builds, so that no finite choice of
-  known shapes stands for it. A choice among values of known shapes is not
-  rejected (`ELIM-G-20`).
-  - Check: `Frontend.Translate.dataInstance`, `Simplify`; dialect verifier
+  Quantity-0 fields add no edges. *Revised at the cutover:* a recursive data
+  type is a box (`SEM-REC-1`), whose constants are static data. What this
+  rule rejects is a cell built at runtime: an `idr.con` of a box with an
+  operand that is not a constant, which survives the optimizations. A
+  value picked at runtime among constants is not rejected: it is a
+  constant in each alternative. (From v3 to the cutover, a recursive type
+  existed at compile time only, and a choice among known shapes stood for
+  a value picked at runtime, `ELIM-G-20`.)
+  - Check: `idr-check-profile`; the representation in
+    `Frontend.Translate.dataInstance` and the dialect verifier
     `IDR-DATA-4`
-  - Test: `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`
+  - Test: `tests/profile/v3/reject/PROF-DATA-3-runtime-list.idr`,
+    `tests/profile/v3/reject/PROF-DATA-3-prelude-list.idr`
 - **PROF-DATA-4 (v0).** Data types with zero constructors are allowed. Their
   values cannot exist at runtime.
   - Test: `tests/profile/v0/accept/PROF-DATA-4-void.idr`
@@ -252,11 +312,13 @@ IO programs, as expected output ([14-testing](14-testing.md)).
 - **PROF-FN-5 (v0).** Before v3, every runtime-reachable function's own
   patterns cover every case: Idris's coverage check reports no missing
   cases. From v3 a function with missing cases is allowed, and a missing
-  case crashes (`SEM-CRASH-2`); the Prelude's `div` and `mod` are written
-  that way. Idris treats `prim__div_T` and `prim__mod_T` as partial, so a
-  function that divides must be declared `partial` (or the module sets
+  case crashes (`SEM-CRASH-2`): it is an `idr.crash` (`IDR-CRASH-1`). The
+  Prelude's `div` and `mod` are written that way. Idris treats
+  `prim__div_T` and `prim__mod_T` as partial, so a function that divides
+  must be declared `partial` (or the module sets
   `%default partial`); dividing by zero is a defined crash (`SEM-INT-4`).
-  Termination is not required.
+  Termination is not required; it decides only what is evaluated at
+  compile time (`SEM-EVAL-6`).
   - Check: `Frontend.Translate.translateInstance`
   - Test: `tests/e2e/v3/missing-case`,
     `tests/profile/v0/accept/PROF-FN-5-{nonterminating,division}.idr`
@@ -322,9 +384,9 @@ IO programs, as expected output ([14-testing](14-testing.md)).
     (`TEST-SEM-1`)
 - **PROF-PRIM-2 (v0).** In every version, these primitives are rejected:
   - `prim__negate_T`, `prim__shl_T`, `prim__shr_T` (`SEM-EXCL-1`);
-  - everything on `Integer` before v3; from v3, `Integer` primitives are
-    evaluated at compile time (`SEM-BIG-1`), and an `Integer` at runtime is
-    a `PROF-TYPE-4` error;
+  - everything on `Integer` before v3; from v3 `Integer` primitives are
+    allowed, and from the cutover they are `idr.big.*` ops (`IDR-BIG-1`),
+    whose result at runtime is a `PROF-TYPE-4` error;
   - casts between `Char` and `Double`, and a match on a `Double` literal
     (`SEM-EXCL-2`);
   - `prim__believe_me` and `prim__crash`, which `PROF-ESC-1` reports first.
@@ -352,58 +414,77 @@ IO programs, as expected output ([14-testing](14-testing.md)).
   Their meaning is `SEM-DBL-*`.
   - Test: `tests/e2e/v2/double-basics`
 - **PROF-PRIM-4 (v1).** Every `String` primitive may appear in the source.
-  Each occurrence must be removed by compile-time evaluation or output fusion
-  (`ELIM-G-6`, `ELIM-G-7`). A surviving string-building primitive is a
-  `PROF-HEAP-3` error. Any other surviving string primitive (`strLength`,
-  `strIndex`, string comparison, and so on) is rejected with this rule, and
-  from v3 so is a match on a string that is not known at compile time; a
-  match on a known string is decided during specialization, and one on a
-  choice among known strings is a match on the choice (`ELIM-G-20`).
+  *Revised at the cutover:* operations that allocate nothing, on strings
+  that exist, are allowed at runtime and call the runtime (`LOW-STR-2`):
+  `strLength`, `strIndex`, `strHead`, the comparisons, and a literal match,
+  on a literal or a string picked among literals. What this rule rejects is
+  a string built at runtime (`PROF-HEAP-3`) that reaches any use but
+  output: a match, a length, an index, a comparison, a cast. The error is
+  at that use. (Before, every string primitive had to be evaluated at
+  compile time or fused into output, `ELIM-G-6`, `ELIM-G-7`, and a match
+  on a choice among known strings was a match on the choice, `ELIM-G-20`.)
+  - Check: `idr-check-profile`
   - Test: `tests/profile/v1/reject/PROF-PRIM-4-runtime-match.idr`
 
 ## Heap freedom (v1)
 
-These are checked by the guaranteed eliminations
-([06-elimination](06-elimination.md)), which produce first-order `Core`: a
-value these rules forbid has no representation there, so `Simplify` reports
-it where it would have to exist at runtime. Each error points at that source
-construct, and says which elimination did not apply and why
-(`DIAG-HEAP-1`).
+*Revised at the cutover.* Until the memory design, a compiled program
+allocates no heap memory. What is rejected is exactly dynamic allocation:
+an op that would allocate at runtime and survives the documented pipeline
+(`PROF-GEN-5`). The check is `idr-check-profile`, which runs on the module
+after the simplify loop, `idr-defunctionalize` and `idr-tail-loops`
+(`OPT-PIPE-1`), and reports each rejection with the rule IDs below, at the
+op's location chain, with the reason (`DIAG-HEAP-1`). Constants allocate
+nothing: a closure, a string, a big, a box or a sum known at compile time
+is static data (`LOW-CONST-1`). The rules keep the identifiers they had
+when `Simplify` enforced them; with `PROF-TYPE-4` (bigs), `PROF-DATA-3`
+(boxes) and `PROF-PRIM-4` (runtime strings), they are the complete list.
 
-- **PROF-HEAP-1 (v1).** No value of function type remains in a runtime
-  position: no lambda, partial application, or function-typed parameter,
-  field, `let` or result. A function picked at runtime from a known set is
-  a choice (`ELIM-G-20`), used through its tag, and is not in a runtime
-  position; one that a recursion on a runtime value builds is.
-- **PROF-HEAP-2 (v1).** No `Lazy` value remains in a runtime position, in
-  the same sense as `PROF-HEAP-1`.
-- **PROF-HEAP-3 (v1).** No string-building primitive remains (`strAppend`,
-  `strCons`, `strReverse`, `strSubstr`, casts to `String`). So every runtime
-  `String` value comes from a string literal, possibly passed through
-  variables, arguments, fields and results, and lives in static data.
+- **PROF-HEAP-1 (v1).** No closure of at least one argument exists at
+  runtime. *Revised at the cutover:* a closure whose possible functions
+  form a finite set, and whose captures do not make that set recursive, is
+  defunctionalized into a sum over them (`ELIM-CLOS-1`) and allocates
+  nothing. This rule rejects a closure that survives `idr-defunctionalize`:
+  its set of functions is unknown, or its captures would make the sum
+  contain itself (a lambda capturing a closure of its own type). An
+  implementation chosen at runtime is rejected by the frontend under this
+  rule (`FE-TR-6`).
+  - Check: `idr-check-profile`; `Frontend.Translate` (implementations)
+  - Test: `tests/profile/v1/reject/PROF-HEAP-1-growing-choice.idr`,
+    `tests/profile/v2/reject/PROF-HEAP-1-runtime-implementation.idr`
+- **PROF-HEAP-2 (v1).** The same as `PROF-HEAP-1`, for closures of no
+  arguments: `Lazy` and `Inf` values.
+  - Check: `idr-check-profile`
+  - Test: `tests/profile/v1/reject/PROF-HEAP-2-growing-choice.idr`
+- **PROF-HEAP-3 (v1).** No string is built at runtime. *Revised at the
+  cutover:* a string-building op (`idr.str.append`, `cons`, `from_char`,
+  `show`, `substr`, `reverse`, `tail`, `idr.big.show`) whose result output
+  fusion did not consume, and that compile-time evaluation did not
+  compute, is rejected, unless its result reaches a use of `PROF-PRIM-4`,
+  which is reported instead. So every runtime `String` is a literal, or
+  one picked among literals, passed through variables, arguments, fields
+  and results, and lives in static data.
+  - Check: `idr-check-profile`
+  - Test: `tests/profile/v2/reject/PROF-HEAP-3-recursive-string.idr`
 - **PROF-HEAP-4 (v1).** A recursive function does not pass itself a
-  function-typed argument that grows from the one it received. This is
-  Futhark's restriction that "a loop may not produce a function"; without it,
-  specialization would not terminate. `Simplify` detects it when the
-  driver's whistle blows (`ELIM-G-19`): the new call's configuration embeds
-  an ancestor's, and the two have no generalization, because a static part
-  differs and no runtime value can stand for it. Nested uses on unrelated
-  or smaller arguments, such as the `>>` of a `do` block, are not growth.
-- **PROF-HEAP-5 (v1).** Arity raising (`ELIM-G-5`) moves code only if that
-  code cannot crash and cannot fail to terminate, or if no effect happens
-  between building the action and running it. A function that returns an
-  action or function after such code, and whose action is run after an
-  effect, cannot be raised, and its result survives as a function value;
-  the error names the blocking operation.
-  - Test: `tests/profile/v1/accept/PROF-HEAP-5-division-run-at-once.idr`
-  It is decided once specialization is finished, so any other user error
-  found while specializing is reported instead (`DIAG-ONE-1`).
-  - Check: `Simplify`; `PROF-HEAP-5` on the finished program
-    (`Simplify.Safety`)
-  - Test: `tests/profile/v1/reject/PROF-HEAP-{1..5}-*.idr`, and every v1
-    accept fixture (the check passes). A function value survives only when
-    a recursion on a runtime value builds it; one picked by a match is a
-    choice (`tests/e2e/v3/choice`).
+  function argument that grows from the one it received. This is Futhark's
+  restriction that "a loop may not produce a function"; without it,
+  specialization would not terminate. *Revised at the cutover:* the clone
+  limit stops such a specialization (`ELIM-SPEC-2`), and a closure that
+  then survives, because its callee's specialization was stopped, is
+  rejected with this rule instead of `PROF-HEAP-1`. Before, `Simplify`
+  detected growth with its whistle (`ELIM-G-19`). Compiling such a program
+  takes a limit's worth of clones.
+  - Check: `idr-specialize` (which calls it stopped), `idr-check-profile`
+  - Test: `tests/profile/v1/reject/PROF-HEAP-4-growing-function.idr`
+- **PROF-HEAP-5.** *Withdrawn at the cutover:* arity raising (`ELIM-G-5`)
+  moved code that computed an action from where it was built to where it
+  was run, so this rule rejected a function whose moved code could crash
+  or fail to terminate across an effect. Arity raising is gone: inlining,
+  application of known closures and defunctionalization remove IO's
+  closures without moving any code, so no crash can move past an effect.
+  Its accept fixture stays an accept, and its reject fixture
+  (`PROF-HEAP-5-division-before-action`) became one (`PROF-GEN-4`).
 
 ## Escape hatches
 
@@ -450,7 +531,7 @@ construct, and says which elimination did not apply and why
   `%spec`, `%foreign`); others leave none (`%logging`). Lexing catches them
   all. `%default` changes only the totality Idris demands of a definition,
   not the totality it finds, which is all the compiler reads
-  (`PROF-HEAP-5`); without it, every numeric program would mark each
+  (`SEM-EVAL-6`); without it, every numeric program would mark each
   function that divides `partial`, because the division primitives are
   partial in `Builtin`.
 
@@ -460,4 +541,4 @@ construct, and says which elimination did not apply and why
 | --- | --- |
 | v2 | User-defined interfaces, whose dictionaries are eliminated by specialization; `do` over any user monad through a `Monad` interface; `Double` (with semantics added to 03 first) |
 | v3 onward | The Prelude's dependency modules, one layer at a time and each fully tested: first the non-recursive parts of `Prelude.Basics`, `Prelude.Types`, `Prelude.Interfaces` and `Prelude.Ops` (`Bool`, `Maybe`, `Either`, `Num`/`Eq`/`Ord` at machine types) |
-| after the memory design | recursive data, `Integer`, `Nat` at runtime, strings built at runtime, the stock Prelude imported implicitly |
+| after the memory design | recursive data, `Integer`, `Nat`, strings and closures allocated at runtime (each already has a representation, and the heap-free rules become "lower instead of reject", op by op; [the plan](../plan.md), section 10), the stock Prelude imported implicitly |

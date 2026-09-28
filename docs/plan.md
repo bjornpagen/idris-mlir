@@ -35,21 +35,37 @@ step ends on a promise to fix something later (AGENTS.md, 16).
 ## 1. Where we are
 
 **Implemented:** profile versions p0 to v3 (`docs/architecture/VERSION`
-is `v3`).
+is `v3`), compiled since the cutover as *Idris does types, MLIR does
+programs, and the program runs at compile time*
+([architecture/15-roadmap](architecture/15-roadmap.md)):
 - Checked TT, from the stock Idris 2 frontend at the pinned revision,
-  becomes full Core.
-- `Simplify`, a two-level evaluator, turns full Core into first-order Core
-  with join points:
-  - one driver: positive supercompilation with a whistle and upward
-    generalization, `ELIM-G-19`;
-  - choices for static values picked at runtime, `ELIM-G-20`;
-  - loops as recursive join points, `CORE-LOOP-1`.
-- `Emit` writes the `idr` dialect with `cf` blocks, and the C++ passes
-  lower it to LLVM.
-- Programs are heap-free: whatever cannot be computed away at compile time
-  is rejected with the rule it breaks.
+  becomes full Core (`Term a`), monomorphic, with each data instance's
+  representation: an unboxed sum, a box when it is recursive, or a big
+  for `Integer` and the types Idris flags `ZERO`/`SUCC`.
+- `Emit` writes full Core as it is into the `idr` dialect: closures,
+  boxes, bigs, strings, matches with regions. Nothing is removed in Idris.
+- `idris-mlir-cc` runs the simplify loop to a fixpoint (`idr-effects`,
+  `inline` with no threshold, `idr-specialize`, `sccp`, `canonicalize`,
+  `cse`, `idr-eval`, `symbol-dce`, `remove-dead-values`), then
+  `idr-defunctionalize`, `idr-tail-loops`, `idr-check-profile` and
+  `idr-lower`, then LLVM's O3 over the program and the runtime's bitcode
+  ([architecture/09](architecture/09-optimization.md)).
+- `idr-eval` evaluates every closed call of total, pure code by running
+  the program's own lowered code, with the executable's runtime, in a JIT
+  (section 6). Partial code is never evaluated.
+- Programs are heap-free: an op that would allocate at runtime and
+  survives the pipeline is rejected with the rule it breaks.
 
-**Benchmarks** (`bench/`, best of 5, seconds; x86-64, 4 CPUs):
+**What the cutover deleted:** `Simplify` (the supercompiling driver,
+choices, arity raising), first-order Core and its checkers, the compiler's
+own folding of primitives (`Fold.idr`), the runtime written as MLIR text,
+`idr-check-input`, `idr-entry` and the contract version: about 5,200 lines,
+whose exact counts are in the merge's message. Four programs that relied on
+evaluating partial code were split, and three reject fixtures became
+accepts (`PROF-GEN-4`).
+
+**Benchmarks** (`bench/`, best of 5, seconds; x86-64, 4 CPUs; measured
+before the cutover, and measured again at its stop point 3):
 
 | benchmark | this compiler | Idris Chez | MLton | gcc -O2 |
 | --- | ---: | ---: | ---: | ---: |
@@ -62,14 +78,21 @@ is `v3`).
 | ackdyn | 0.213 | 1.018 | 0.088 | 0.039 |
 | harmonic | 0.256 | 6.655 | 0.641 | 0.258 |
 
-**What stops us.** `Integer`, strings built at runtime, recursive data and
-closures have no runtime representation. So:
-- Every one of them must be computed away at compile time.
-- `Simplify` has had to be an interpreter as well as a specializer:
-  - `printLn 'x'` takes 5.7 s to compile, because the Prelude turns `'x'`
-    into a `Nat` of 120 constructors and the driver evaluates it;
-  - a list whose length depends on input is rejected (`PROF-DATA-3`);
-  - so is a runtime `Integer` (`PROF-TYPE-4`).
+**Next for the cutover: its stop point 3.** The equivalence suite
+(`--no-eval`), the fuzzer against Chez, the two-level test and the
+enforcement tests ([architecture/14-testing](architecture/14-testing.md),
+`TEST-EQUIV-1` to `TEST-TERM-1`); `bench/` against the table above; every
+fixture's compile time, the slowest ten broken down by pass, JIT
+compilation and evaluation; the inliner's `max-iterations` tuned on
+`bench/`; and the check `SEM-HOST-1`.
+
+**What stops us.** Every value has a runtime representation, and the
+passes that remove abstraction are in MLIR. What is left is the heap: a
+box, a string or a big built at runtime, and a closure that
+`idr-defunctionalize` cannot remove, would allocate, so the heap-free
+profile rejects them (`PROF-DATA-3`, `PROF-HEAP-3`, `PROF-PRIM-4`,
+`PROF-TYPE-4`, `PROF-HEAP-1`, `-2`, `-4`). M1 to M3 lower them instead,
+op by op (section 10).
 
 **The memory gate** (section 4.4, `bench/gate/`) ran once, on 2026-09-27:
 it fails 3 of its 20 criteria, all in experiment 2. The hand-lowered
@@ -84,13 +107,12 @@ the program (section 5.7) once the bootstrap has built clang. If it still
 fails, the memory decision is reopened with those numbers.
 
 **Also open from v3:**
-- **n-body over `Vect 3 Double`** returns a static value from a runtime
+- **n-body over `Vect 3 Double`** returns a `Vect`, a box, from a runtime
   loop (section 8.1).
 - **`main : Int` programs cannot import the Prelude** (`PROF-PROG-1`), and
   the Prelude is never imported implicitly.
 - **`Data.Vect.transpose`** takes its length at runtime quantity. It
-  compiles once `Nat` exists at runtime.
-
+  compiles once bigs are lowered at runtime (M2).
 ## 2. Decisions
 
 Settled, and the rest of the plan builds on them:
@@ -109,7 +131,9 @@ Settled, and the rest of the plan builds on them:
      - The compiler knows library definitions only through the registry;
        nothing else in the codebase names an Idris definition.
 2. **Every value gets a runtime representation** (section 3). After that,
-   compile-time evaluation is an optimization, never a requirement.
+   compile-time evaluation is an optimization, never a requirement. The
+   cutover gave every value its representation and its ops; M1 to M3 give
+   the ones that allocate a heap.
 3. **Memory is reference counting, Lean's way** (section 4):
    - precise counts;
    - borrowing and in-place reuse, guaranteed where quantities promise it
@@ -130,14 +154,17 @@ Settled, and the rest of the plan builds on them:
      allocator (snmalloc) are vendored as pinned git submodules.
    - The toolchain is LLVM alone: clang, lld, libc++ and compiler-rt from
      the pinned llvm-project, with no GCC. It is built on musl, together
-     with LLVM/MLIR and our C++ tools (`idr-jit` included), so compile time
-     and runtime share one libc.
+     with LLVM/MLIR and our C++ tools (`idris-mlir-cc` and its JIT
+     included), so compile time and runtime share one libc.
    - **macOS** (a later target): the interface is `libSystem`, since Apple
      does not keep the syscall interface stable, so executables link
      `libSystem` dynamically and everything else statically.
-6. **Compile-time evaluation is one JIT path** (section 6). It runs the
-   compiler's own pipeline and the program's own runtime, and has no
-   features of its own.
+6. **Compile-time evaluation is `idr-eval`** (section 6): a pass of
+   `idris-mlir-cc` that runs the program's own code, lowered by the
+   executable's own pipeline, with the executable's own runtime, in a JIT.
+   It has no features of its own and no limits but the machine's: closed
+   calls of total, pure code are always evaluated, and partial code never
+   is (`SEM-EVAL-6`). A primitive has one implementation, the runtime's.
 7. **Semantics are upstream Idris's.** A compiled program means what the
    Idris language and its libraries say it means.
    - The Chez backend is a test oracle, not the definition.
@@ -186,11 +213,13 @@ Settled, and the rest of the plan builds on them:
     so every bump is a frontend migration. A bump is its own milestone,
     with the whole suite and the differential tests, never a side effect
     of other work (AGENTS.md).
-13. **Compile time has a hard budget from now on** (section 8.2). Rust's
-    biggest complaint is compile time, and whole-program supercompilation
-    with full LTO could be worse. Every e2e fixture compiles in under a
-    second, and the suite fails when one does not, apart from a listed
-    set of exceptions that shrinks to empty by M2.
+13. *Withdrawn at the cutover:* compile time had a hard budget, a second
+    per e2e fixture, with a shrinking list of exceptions, because
+    whole-program supercompilation could be slow. **Comptime always
+    wins**: a total evaluation runs to its end, however long it takes, or
+    fails with `EVAL-1` when the machine runs out. Compile time is measured
+    and reported (per fixture, per pass, JIT compilation and evaluation,
+    section 8.2), and never gates a test.
 
 ## 3. Representations
 
@@ -208,7 +237,7 @@ computed:
 | non-recursive data, records | `Sop` | unboxed into registers and fields; slots shared by type (`LOW-DATA-1`) |
 | `Maybe` of a pointer | the pointer | null is `Nothing` |
 | recursive data | `Box` | a counted heap cell; nullary constructors are immediates |
-| a closure that must exist at runtime | `Sop` over the lambda labels that reach it, or `Box` | defunctionalized; a finite set is already a choice (`ELIM-G-20`) |
+| a closure that must exist at runtime | `Sop` over the lambda labels that reach it, or `Box` | defunctionalized by `idr-defunctionalize` where the set is finite (`ELIM-CLOS-1`); a counted cell otherwise (M3) |
 | `Lazy`, `Inf` | a closure | call-by-name, as the reference (no memo cell) |
 | `ArrayData a` | `Arr (Rep a)` | struct of arrays: `Arr (Sop [[a, b]])` is two arrays |
 
@@ -301,10 +330,11 @@ backend implements, so we add no library and no API.
 - **Strings are immutable.** When the left string of `strAppend` is unique
   and has room, the append can extend it in place (Lean's `String.append`).
 - **One world.**
-  - Every effectful op consumes and produces the world (`CORE-INV-9`).
+  - Every effectful op consumes and produces the world (`IDR-WORLD-1`).
   - `unsafePerformIO` in library code takes the current world where it is
     evaluated, so it is sequenced in strict left-to-right order.
-  - A function that reaches an IO primitive is *effectful* (section 8.3).
+  - A function that reaches an IO primitive is *effectful* (`idr.effect`,
+    `IDR-FACT-1`).
   - Calls to an effectful function are never deferred, duplicated,
     dropped or evaluated at compile time.
 - **Indexed vectors do not imply contiguous storage.** `Vect` is a list:
@@ -558,8 +588,8 @@ That is what MLIR offers over emitting C, as Lean and Koka do.
   08. The rejection `MEM-LIN-1` joins the user-facing rules of 02.
 
 **Lean's passes, the best effort.** Lean's impure pipeline (its `LCNF`
-passes, which are A-normal form with join points like ours), as C++ passes
-over the `idr` dialect, in Lean's order:
+passes, in A-normal form with join points), as C++ passes over the `idr`
+dialect, in Lean's order:
 
 1. **Counting follows `Rep`.** Only `Box`, `Str`, `Big` above the small
    range, `Arr`, and escaped closures carry a count. Scalars and SOP
@@ -685,9 +715,9 @@ on macOS the C library is `libSystem`, whichever we pick here.
 The first two rows decide it:
 - LLVM's libc lacks functions the runtime needs, and its own docs advise
   against a full build.
-- The JIT server must run the program's own runtime on the program's own
-  libc (section 6), so its process (LLVM, MLIR, our C++) must be built on
-  that libc, and on musl the whole toolchain can be.
+- The JIT must run the program's own runtime on the program's own libc
+  (section 6), so its process (LLVM, MLIR, our C++) must be built on that
+  libc, and on musl the whole toolchain can be.
 
 **Math is not a criterion.** The results of the math functions are
 implementation-defined (decision 7). musl's are deterministic across x86-64
@@ -789,7 +819,8 @@ The runtime is C++ in `runtime/`, compiled by our stage-2 clang for musl.
 - A link check fails the build if any C++ runtime symbol is referenced.
 - It is built as fat objects (`-ffat-lto-objects`): each object carries
   LLVM bitcode, which joins every program's LTO module (section 5.7), and
-  native code, which links into `idr-jit`.
+  native code, which links into `idris-mlir-cc`, whose folders and JIT call
+  it (`LOW-RT-1`).
 - Our tools link libc++; the runtime links no C++ library. It is the one
   place with that rule, because every program links it.
 
@@ -798,8 +829,9 @@ It contains:
 - bignums over GMP;
 - strings (section 3), with simdutf, and number parsing, with fast_float;
 - the scheduler, stacks, `epoll`, timers and the blocking pool (section 7);
-- the crash, output and number-printing paths that are LLVM-dialect
-  helpers today (`Lower/Runtime.mlir.inc`, which shrinks accordingly).
+- the crash, output and number-printing paths, and the JIT's arena
+  (`LOW-RT-1`, `LOW-JIT-1`; before the cutover they were LLVM-dialect
+  helpers, `Lower/Runtime.mlir.inc`).
 
 The allocator underneath is vendored, not written (section 5.6).
 
@@ -821,8 +853,8 @@ of that layer and not a redesign:
 | Bignums | GMP, static | GMP, static |
 | Allocator | snmalloc, in the LTO module | snmalloc, in the LTO module |
 
-- **The one-libc rule still holds on macOS:** `idr-jit` and the executables
-  both use `libSystem`.
+- **The one-libc rule still holds on macOS:** `idris-mlir-cc`'s JIT and the
+  executables both use `libSystem`.
 - **What macOS loses:** hard pinning of threads to cores, and `io_uring`.
   Thread-per-core becomes one scheduler per CPU that the OS may move.
 
@@ -995,8 +1027,9 @@ seconds):
   and runs LLVM's O2 pipeline for the CPU `generic`
   (`foreign/idr/tools/idris-mlir-cc.cc`). Then the pinned `gcc` links it
   with `-lm`.
-- The runtime helpers are LLVM-dialect functions in the same module
-  (`Lower/Runtime.mlir.inc`).
+- The runtime helpers were LLVM-dialect functions in the same module
+  (`Lower/Runtime.mlir.inc`); since the cutover they are the runtime's C
+  (`LOW-RT-1`).
 - Our C++ is built with GCC's LTO in the Release configuration
   (`CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE`); LLVM/MLIR are not.
 
@@ -1084,10 +1117,59 @@ first milestone that has a runtime to link.
 
 ## 6. Compile-time evaluation: `idr-eval`
 
-Rewritten by the cutover: compile-time evaluation is the `idr-eval` pass
-inside `idris-mlir-cc`, running the program's own lowered code through ORC
-in process (docs/cutover.md, section 6.4). The server design (a process, a
-wire protocol, `popen`, fork per call, fuel) is deleted.
+Compile-time evaluation is runtime evaluation, run early (decision 6). It
+is the pass `idr-eval`, inside `idris-mlir-cc`, in every round of the
+simplify loop. The spec states it: the rule is `SEM-EVAL-6` and `EVAL-1`
+([03](architecture/03-semantics.md)), the pass `ELIM-EVAL-1`
+([06](architecture/06-elimination.md)), and its lowering `LOW-JIT-1`
+([10](architecture/10-lowering.md)).
+
+**What it evaluates.** Every closed call (all its arguments constants) of
+a function that is pure and that Idris reports terminating, and whose
+constant closures name only such functions. Always, and nothing else:
+partial code is never evaluated, however small the call, because a timer
+or a fuel count cannot decide what a program means. This is stricter than
+Idris's typechecker, which unfolds any visible definition under a timer.
+
+**How.**
+- **One compile per round.** The round's closed calls, and the transitive
+  closure of their callees, are cloned into a scratch module, with a
+  wrapper per call that builds the arguments as static data and stores the
+  results. The executable's own `idr-lower`, in JIT mode, and LLVM
+  pipeline lower it, and ORC's `LLJIT` compiles it once. The runtime's
+  symbols are bound to `idris-mlir-cc`'s own copy of the runtime, so the
+  JIT runs the executable's runtime. Results are cached per callee and
+  arguments for the compilation.
+- **A forked child runs the calls**, on a stack reserved as large as the
+  address space allows, and writes each result back as attribute text,
+  through the layout code `idr-lower` uses. A crash leaves its call in
+  place, to crash at runtime; running out of stack or memory is `EVAL-1`,
+  a compile error naming the call.
+- **JIT mode** allocates from an arena, which is dropped after the round:
+  memory management is not observable (`SEM-EVAL-7`).
+- **Remarks** (`--remarks=idr-eval`) report each evaluation's wall-clock
+  time, and each crash with its call-site chain. `--no-eval` turns the
+  pass off, and the equivalence suite compiles every e2e program both ways.
+
+**Why this shape, and not the server this plan used to describe** (a
+process per compilation, a wire protocol, `popen`, a fork and fuel per
+call, and a symbolic evaluator kept until M2):
+- `mlir::ExecutionEngine` aborts in a static-musl process, so the JIT is
+  ORC's `LLJIT` directly, with an absolute-symbol table (`PINS.md`:
+  `orc-lljit`).
+- In process, a round's calls cost one JIT compilation and one fork, and
+  their results come back as attributes the pass can use at once.
+- The folders of the string, big and `Double`-printing ops call the same
+  runtime functions, so every primitive has one implementation at compile
+  time and at runtime, and no evaluator is written in Idris.
+
+**Still open.**
+- The JIT's share of compile time, per fixture, measured at the cutover's
+  stop point 3 (section 8.2).
+- Caching evaluations across compilations: only if the measurements ask
+  for it.
+- macOS (milestone 12): `MAP_JIT` under the hardened runtime, and `fork`
+  of a process that uses it.
 
 ## 7. Concurrency
 
@@ -1151,9 +1233,9 @@ general.
 
 **What the compiler contributes.** An execution algebra built from these
 (a monad of futures, a free monad of tasks, a pipeline, a parallel
-`traverse`) is a static value. `Simplify` specializes its interpreter away,
-as it does for IO and state monads today, so only spawns, awaits, sends and
-loops reach code generation.
+`traverse`) is built from constant-like values. MLIR's inlining and
+specialization remove its interpreter, as they do for IO and state monads
+today, so only spawns, awaits, sends and loops reach code generation.
 
 ### 7.3 Tasks and their stacks
 
@@ -1209,8 +1291,8 @@ The candidates:
   segment limit to a value above any stack pointer, so the next function
   entry takes the slow path and yields. This is Go's `stackPreempt`
   (`runtime/stack.go`, *code*).
-- Loops are join points and contain no call, so `idr-lower` puts the same
-  check on loop back-edges.
+- Loops (`scf.while` from `idr-tail-loops`) contain no call, so `idr-lower`
+  puts the same check on loop back-edges.
 
 **Semantics.**
 - The reference's `fork` starts an OS thread; ours starts a task. Only
@@ -1246,57 +1328,61 @@ This is Linux; macOS maps each item to `kqueue` and pthreads (section 5.5).
 
 ## 8. Compiler work not tied to memory
 
-### 8.1 Static results from runtime loops (SOP returns)
+Since the cutover, all of it is in MLIR but the frontend's (8.4).
 
-A residual function whose alternatives return static values of one shape
-returns that shape's atoms, and the caller rebuilds the value (CPR; Lean's
-`struct` returns).
-- The shape is the least fixpoint of the join (`⊔`) over the function's
-  alternatives: start from the non-recursive ones and iterate, with the
-  whistle as widening.
-- Several summands return a tag plus the union of their atoms, and the
-  caller switches on the tag into its join points.
-- This compiles n-body over `Vect 3 Double` to scalars, as the record
-  version already does.
+### 8.1 Unboxed returns
+
+A function whose every path returns a box of the same shape (n-body's
+`Vect 3 Double`, built by a runtime loop) returns that shape's fields
+instead, and the caller rebuilds the value where it takes it apart (CPR;
+Lean's `struct` returns). So the box never exists, and n-body over
+`Vect 3 Double` compiles to scalars, as the record version already does.
+- A C++ pass after the simplify loop, before `idr-check-profile`, on the
+  dataflow framework: the shape is the join of what each path returns.
+- Several shapes return a tag and the union of their fields, as a sum.
+- Before the cutover this was planned for `Simplify` (SOP returns); it is
+  now a rewrite of the contract, which no rule of 02 needs to change for.
 
 ### 8.2 Compile time
 
-`printLn 'x'` takes 5.7 s:
-- The Nat of 120 constructors goes away with runtime `Nat` (M2) and the JIT
-  (section 6).
-- The driver's own cost per call (configurations, the path walk, state
-  copies at each unfolding) should also be measured and cut: hash-consed
-  configurations, and memoized embedding checks.
-- **Budget, enforced now** (decision 13):
-  - `test` times each e2e fixture's compilation, and fails when one takes
-    more than a second, unless the fixture is on a list naming the
-    milestone that fixes it;
-  - the list starts with today's offenders, `printLn 'x'` among them;
-  - it is empty by M2;
-  - the full LTO of section 5.7 is inside the budget, not outside it.
+Compile time is measured and reported, never a gate (decision 13 is
+withdrawn):
+- The harness records every compilation's wall time, and lists the
+  slowest fixtures; `idris-mlir-cc --timing` breaks one down by pass, JIT
+  compilation, evaluation and LLVM stage.
+- The cutover's stop point 3 reports every fixture's compile time, with
+  the slowest ten broken down, and the suites' wall time before and after.
+- `printLn 'x'` took 5.7 s before the cutover, because `Simplify`
+  evaluated a `Nat` of 120 constructors; `Nat` is a big now, and its
+  compile time is measured with the rest.
+- What can be tuned without changing what compiles: the inliner's
+  `max-iterations` (4, upstream's default, tuned on `bench/` at stop point
+  3), and the LLVM pipeline of `idr-eval`'s scratch modules. The clone
+  limit and the inlining threshold are not tuned: they decide acceptance
+  (`PROF-GEN-5`).
 
 ### 8.3 One algebra of facts
 
-`needsV1`/`needsV2`/`needsV3` and the scattered call-graph walks become one
-record of facts per function, computed once and joined over the call graph:
-- `features`: the contract version is its maximum;
-- `effectful`;
-- `allocates`;
-- `terminating`;
+The facts about each function are computed once and joined over the call
+graph. Since the cutover they live in the contract:
+- `terminating`: from Idris's totality checker, written by `Emit` as
+  `idr.total` (`IDR-FACT-1`);
+- `effectful` and "may crash": computed by `idr-effects` on the module,
+  after every round (`IDR-FACT-1`);
+- `allocates`: each op's `MemAlloc` effect (`IDR-STR-2`, `IDR-BIG-1`),
+  which `idr-check-profile` reads;
 - `unique`: per quantity-1 binder, whether every caller passes a unique
-  value (`MEM-LIN-1`).
+  value (`MEM-LIN-1`), computed by Idris and written as ownership modes
+  (M1).
 
-Every fact records its source (section 9.1):
-- a quantity;
-- a flag Idris computed (`isEscapeHatch`, `ZERO`/`SUCC`);
-- a registry hook.
-
-The rules consume facts whatever their source.
+Every fact records its source (section 9.1): a quantity, a flag Idris
+computed (`isEscapeHatch`, `ZERO`/`SUCC`), a registry hook, or an analysis
+of the module. The rules consume facts whatever their source.
 
 ### 8.4 The frontend
 
-- `Frontend/Translate.idr` (1 381 lines) splits into `Data`, `Instances`,
-  `Terms` and `Trees`, with one `ParamInfo` per parameter.
+- `Frontend/Translate.idr` splits into `Data`, `Instances`, `Terms` and
+  `Trees`, with one `ParamInfo` per parameter.
 - **`main : Int` with the Prelude** (`PROF-PROG-1`): compile such programs
   whole, as IO programs are, instead of per module.
 - **Implicit Prelude import:** admitted once the heap exists, since the
@@ -1305,8 +1391,8 @@ The rules consume facts whatever their source.
 ### 8.5 Later
 
 Proved rewrites ([07](architecture/07-proved-rewrites.md)),
-constructor-set analysis, and forcing/detagging/collapsing
-(`ELIM-FORCE-1`).
+constructor-set analysis on the dataflow framework, and
+forcing/detagging/collapsing (`ELIM-FORCE-1`).
 
 ## 9. Repository cleanup
 
@@ -1497,7 +1583,7 @@ behaviour on an Idris name or shape:
   structure of Idris's case and with blocks (`Profile.idr:95-103`).
 - **Host primitives used to fold at compile time:** `Simplify/Fold.idr`
   (87-161), `Types.idr:189`, `MLIR.idr:165` and `Simplify.idr:181` call the
-  compiler's own `prim__*`. The JIT plan deletes them (section 6).
+  compiler's own `prim__*`. The cutover deleted them (section 6).
 - **Idris structure read structurally** (category 3 already):
   - `PrimType` (`IntegerType`, `StringType`, `WorldType`);
   - `TDelay`, `TForce` and `TDelayed` (`Lazy`, `Inf`);
@@ -1597,7 +1683,7 @@ answers to Q1–Q7 follow from the representation.
 Each milestone requires:
 - all suites green;
 - no benchmark regression beyond noise;
-- the compile-time budget (section 8.2);
+- compile times measured and reported (section 8.2), never a gate;
 - its own exit criteria, below.
 
 The numbers are names, not order. **The rows are in execution order**,
@@ -1606,13 +1692,14 @@ and the memory gate is first: the rest rests on it.
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | 0 | **Driver cutover** (done: `5fbc601`) | G19/G20 in the spec; 189 tests; benchmarks at baseline |
+| 0b | **The cutover** (done; section 1): Idris does types, MLIR does programs, and the program runs at compile time | `Simplify`, first-order Core and `Fold.idr` deleted, with the line counts in the merge's message; every suite green, every changed expectation listed with its reason (`PROF-GEN-4`); the v3 programs that need compile-time evaluation compile, with `idr-eval` computing their results; the spec matches the code; the "who owns what" note ([18](architecture/18-ownership.md)). Its stop point 3 is next: the equivalence, fuzzer, two-level and enforcement suites green; `bench/` within noise on every row; compile times reported with the JIT's share |
 | 2 | **Memory gate** (section 4.4) | the four experiments pass, or the decision is reopened with the numbers; M1 and the milestones after it do not start before this passes |
 | 1 | **Cleanup** (section 9), **and optimization from day one** (5.7) | no Python; golden runner green with the same tests; library organized; `idris-mlir-io` gone; `idris-mlir-cc` at O3 for `x86-64-v3` with every symbol but `main` internalized, and `bench/` no slower |
 | 1b | **The registry** (section 9.1) | the three stop points of 9.1 passed; the suite agrees test for test; `bench/` and e2e compile times unchanged beyond noise; the enforcement tests green; `NN-registry.md` written |
 | 3 | **LLVM-only static toolchain on musl, with full LTO** (section 5; starts now, beside the gate) | musl, GMP, simdutf, fast_float and snmalloc pinned as submodules; the two-stage LLVM bootstrap (5.2) with its build time and peak memory stated; no GCC left in `.toolchain/` or `tools/dev.py`; LLVM/MLIR, `clang`, `lld` and our C++ tools static on musl and libc++, with LTO; `lint-graph-unbuilt` retired; snmalloc's own tests pass on musl; a `runtime/` archive of fat objects with no C++ runtime symbol referenced; programs linked into one LTO module (5.7); every executable static-PIE (no `INTERP`, no `DYNAMIC`); GMP's own tests pass; the differential tests compare math function results within a tolerance, since they are implementation-defined |
-| 4 | **M1 (v4): heap and strings** | `Rep`; `Box` for recursive data; ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced in user modules, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected at the breaking call; the gate's linear red-black tree compiles with zero `dup`s and full reuse, and its broken call site is rejected; runtime strings and `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; `idr-jit` with primitives and closed calls; `PROF-DATA-3` and `PROF-HEAP-3` withdrawn for runtime values; the allocation suite in `bench/` within the gate's targets |
-| 5 | **M2 (v5): `Integer` and `Nat`** | small integers with GMP fallback; `Nat` as `Big`; the server's `Integer`; `Fold.idr` and `SEM-BIG-1` deleted; `transpose` compiles; `printLn 'x'` compiles in under a second |
-| 6 | **M3 (v6): closures and `Lazy`** | defunctionalized where the set is known, boxed otherwise; `PROF-HEAP-1/2/4` withdrawn for runtime values |
+| 4 | **M1 (v4): heap and strings: lower instead of reject** | a box's `idr.con` with runtime operands allocates a counted cell instead of being rejected (`PROF-DATA-3` withdrawn for it), and the string builders (`idr.str.*`, `idr.big.show`) allocate counted strings (`PROF-HEAP-3` and `PROF-PRIM-4` withdrawn); ownership modes, counting ops and the `IDR-OWN-*` verifier in the `idr` dialect, Lean's passes over it (section 4.2); `MEM-LIN-1` enforced in user modules, with tests that inspect the emitted code (no allocation, no count operation at guaranteed sites) and tests that are rejected at the breaking call; the gate's linear red-black tree compiles with zero `dup`s and full reuse, and its broken call site is rejected; `getLine`; `words`/`lines`/`pack`/`unpack` through the Prelude; the allocation suite in `bench/` within the gate's targets |
+| 5 | **M2 (v5): `Integer` and `Nat`: lower instead of reject** | the `idr.big.*` ops lower to the runtime's small integers with GMP fallback, and a big at runtime is no longer rejected (`PROF-TYPE-4` withdrawn for `Integer` and the `Nat`-like types); `transpose` compiles (the representation, `Nat` as a big, and the ops exist since the cutover) |
+| 6 | **M3 (v6): closures and `Lazy`: lower instead of reject** | a closure that `idr-defunctionalize` cannot remove (defunctionalization of known sets exists since the cutover) becomes a counted cell with its code pointer and captures (`LOW-CLOS-1`) instead of being rejected; `PROF-HEAP-1`, `-2` and `-4` withdrawn for runtime values |
 | 7 | **M4 (v7): arrays** | the three array primitives; `IOArray`; `Data.Linear.Array`; bounds traps; `ELIM-FIN-1` enforced, with tests that find no bounds test at guaranteed sites and tests that are rejected; the array benchmarks (sieve, quicksort, matrix multiply) beat MLton |
 | 8 | **C0: stacks** (section 7.3) | the segment check in `idr-lower` and the system-stack switch, measured: the benchmark table within noise, and the hot-split case bounded; a million-deep non-tail recursion runs |
 | 8a | **Debugging and profiling** (12.5) | crash backtraces with source locations; DWARF from MLIR locations; `perf` and `gdb` through segments and system-stack switches |
@@ -1620,10 +1707,10 @@ and the memory gate is first: the rest rests on it.
 | 9 | **C2: thread-per-core** | a pinned scheduler per core; per-core listeners (`SO_REUSEPORT`) as a runtime policy under the program's one listening socket (7.1a); move-or-mark across cores; heaps per core with remote frees; the plaintext server against Rust (monoio or Glommio, hyper on tokio), Go and Seastar |
 | 10 | **C3: parallel futures** | the reference program (7.1a) compiles and matches Chez; stealable `System.Future` work; granularity control; parallel `binarytrees`, n-body and mandelbrot against Rayon, MPL and Lean |
 | 11 | **C4: `io_uring`** | behind the same scheduler, if C2's numbers call for it |
-| 12 | **macOS** (section 5.5) | the OS layer on `libSystem` and `kqueue`; Mach-O output; `idr-jit` with `MAP_JIT`; every suite green on macOS (arm64 and x86-64) |
+| 12 | **macOS** (section 5.5) | the OS layer on `libSystem` and `kqueue`; Mach-O output; `idr-eval`'s JIT with `MAP_JIT`; every suite green on macOS (arm64 and x86-64) |
 
-- **Anywhere after 0:** SOP returns (8.1), the facts algebra (8.3) and the
-  frontend split (8.4).
+- **Anywhere after 0b:** unboxed returns (8.1) and the frontend split
+  (8.4).
 
 ### 10.1 Work streams for parallel agents
 
@@ -1663,27 +1750,30 @@ in its milestone:
   rejections; admit the Prelude, base, contrib and linear modules that become
   compilable, `prim__getStr`, the array externs, `System.Concurrency`,
   `System.Future` and `Network.Socket`; withdraw the heap rejections as
-  their values gain representations.
+  their values are lowered with a heap (M1 to M3; every value has a
+  representation since the cutover).
 - **03:**
   - the results of the math functions are implementation-defined
     (replacing "what `libm` returns"), and semantics are upstream Idris's,
     with Chez as a test oracle only;
-  - `Integer` and `Nat` at runtime;
-  - strings built at runtime;
+  - `Integer`, `Nat` and strings allocated at runtime (their semantics are
+    written since the cutover; M1 and M2 remove the heap-free exclusion);
   - the one-world rule for `unsafePerformIO`;
   - tasks in place of OS threads, with fairness unspecified;
   - bounds traps on arrays;
-  - the grammar of `cast` from `String` to `Double` and to the fixed-width
-    integers (section 3).
-- **05:** `Code Mem`'s `Mark` and `Release` give way to the dialect's
-  counting ops (section 4.2). `Code` keeps quantities on binders and
-  fields, for emission as ownership modes.
+  - the grammar of `cast` from `String` to the fixed-width integers (that
+    to `Double` is in `SEM-DBL-5` since the cutover).
+- **05:** full Core keeps quantities on binders and fields, for emission
+  as ownership modes (first-order Core and its `Mark` and `Release` are
+  gone since the cutover).
 - **08:** the ownership modes, the counting ops (`idr.dup`, `idr.drop`,
   `idr.borrow`, `idr.share`, `idr.reset`, `idr.reset.dyn`, `idr.reuse`) and
-  the `IDR-OWN-*` verifier rules; the `idr.box`, `idr.str.*`, `idr.big.*`, `idr.array.*` and
-  `idr.io.get_line` ops and the count operations, with their memory
-  effects.
-- **10:** the `Rep` layouts and struct-of-arrays; the runtime calls.
+  the `IDR-OWN-*` verifier rules; the `idr.array.*` and `idr.io.get_line`
+  ops and the count operations, with their memory effects (boxes, strings
+  and bigs are in the contract since the cutover).
+- **10:** heap cells for boxes, strings, bigs and closures (their layouts
+  exist since the cutover, for static data and the JIT's arena), and
+  struct-of-arrays.
 - **11:** the LLVM-only static toolchain and its cpp-starter deviations
   (clang, libc++, no reflection yet), full LTO, GMP, the libc, `runtime/`.
 
@@ -1710,7 +1800,10 @@ reverse it.
 | LLVM only, no GCC (5.2) | one compiler, one LTO domain, one C++ library (libc++); clang and `clang-tidy` finally built | a two-stage LLVM bootstrap on a small machine; cpp-starter's GCC profile replaced | a needed C++ feature that only GCC has |
 | fast_float, and our own number grammar (3) | correctly rounded parsing with the algorithm behind GCC's and LLVM's `from_chars`; one written grammar | strings some hosts accept (`1d3`, `1/2`) give 0 | nothing foreseeable |
 | GMP (5.3) | the fastest bignums, with assembly kernels | LGPL obligations for static executables; a build dependency | licensing forbids it for a user; a permissive library of comparable speed appears |
-| One JIT path (6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time | a C++ server process per compilation; start-up time; `fork` per call | start-up dominates small compilations and cannot be cached |
+| Compile-time evaluation is `idr-eval` (decision 6, section 6) | one semantics per primitive; no Idris copy of the runtime; native speed at compile time; the evaluator is the executable's own code | a JIT compilation and a `fork` per round of the simplify loop; LLVM inside the compiler's process | JIT compilation dominates small compilations and cannot be cached |
+| Total code always evaluated, partial code never (`SEM-EVAL-6`) | what is evaluated is a rule, not a timer or fuel; every evaluation ends, or is `EVAL-1` | a closed call to a partial function runs at runtime, and its result may have no heap-free representation, as four programs showed at the cutover | Idris programs rarely prove termination where evaluation would pay |
+| Idris does types, MLIR does programs (the cutover) | one optimizer, MLIR's, with upstream passes doing most of it; no evaluator, specializer or checker duplicated across two languages | a larger C++ side; the dialect is higher-order, with its own verifiers and effects | MLIR cannot express a fact a needed optimization uses, and it must move back to Idris |
+| No compile-time budget (decision 13 withdrawn) | comptime always wins: no program's result or acceptance depends on how long compilation takes | a slow compilation is found by measurement, not by a failing test | compile times grow unnoticed; then a report, never a gate, is the remedy |
 | UTF-8 strings with scalar counts, via simdutf (3) | upstream's encoding at every boundary; output without transcoding; compact storage; O(1) for ASCII; SIMD validation and counting | breadcrumbs for indexing non-ASCII strings; a C++ dependency built without a C++ library at link time, a mode marked experimental | programs index non-ASCII strings heavily enough that UTF-32 wins, or that mode breaks and a small validator replaces it |
 | `believe_me` is the identity only between equal `Rep`s (12.1) | library casts keep their meaning where representations agree; everything else is a named rejection, never a miscompile | a library cast between differing `Rep`s that a program needs is rejected | the census finds such a cast on a common path |
 | Idris's C support library, behind one IO layer (12.1) | base's IO without rewriting it; defined ordering of output | wrapping or replacing its blocking calls | its `FILE*` model cannot be made to share descriptors safely with the scheduler |
@@ -1753,7 +1846,7 @@ Where the plan meets each inheritance:
      otherwise rejected with a named rule; then a census of every site
      reachable from the test programs.
    - **Leaning:** that rule; `Nat` and `Integer` must share `Big` exactly
-     (section 3).
+     (section 3), which they do since the cutover (`!idr.big`).
 2. **Idris's C support library.**
    - **Known:** `base` has 145 `%foreign` declarations and `network` 41.
      Most name `libidris2_support`: about 1 500 lines of BSD-3 C built on
@@ -1817,7 +1910,7 @@ Where the plan meets each inheritance:
      - `-fstack-usage` over the runtime's allocation entry points;
      - gate experiment 3, with and without the flush points and with
        dead roots sent home;
-     - for replacing `malloc`: a build of `idr-jit` with and without the
+     - for replacing `malloc`: a build of `idris-mlir-cc` with and without the
        replacement. musl supports the replacement: its `WHATSNEW` says
        "replacement of malloc is now allowed/supported", and allocations
        inside musl that must stay musl's call `__libc_malloc` (*code*).
@@ -1829,16 +1922,16 @@ Where the plan meets each inheritance:
     - **Known:** with a heap, a large constant list (`[1 .. 10000]`) should
       be one static object in `.rodata`, not code that builds it. Lean
       extracts closed terms (`extractClosed`, `SimpleGroundExpr`, *code*).
-    - **Settles it:** a threshold on the size of static data the driver
-      builds as code.
+    - *Settled at the cutover:* every constant is static data
+      (`LOW-CONST-1`), whatever its size.
 
 11. **How precise the uniqueness analysis must be** (`MEM-LIN-1`).
     - **Known:** its cases are values built at the call, quantity-1
       binders, variables whose other uses are dead, and fields of a unique
       value that is consumed.
     - **Unknown:** closures that capture a linear value, values that cross
-      cores (count 1 after a move is still unique), and code the driver
-      duplicates into branches.
+      cores (count 1 after a move is still unique), and code that inlining
+      and case-of-case duplicate into branches.
     - **Settles it:** the census below, then M1's tests. Every rejection
       must name a call and a reason a person can act on.
 12. **Quantity 1 in the libraries.** Settled by decision 10: library
@@ -1859,34 +1952,35 @@ Where the plan meets each inheritance:
       every pass on the whole suite. Each violation is fixed by ordering or
       by an op's traits, never by relaxing the verifier.
 
-### 12.3 The driver and compile time
+### 12.3 The simplify loop and compile time
 
-14. **Does supercompilation scale?**
-    - **Known:** Mitchell's supercompiler (Haskell, 2010, *read*) was
-      measured on programs of at most 148 lines, compiling in under four
-      seconds; his earlier version took up to five minutes. Whether
-      supercompilation scales to large programs is the technique's known
-      open problem.
-    - Our driver runs over the Prelude and base with every program.
-      Today's fixtures compile in seconds, and `printLn 'x'` in 5.7 s.
-    - **Settles it:**
-      - a compile-time benchmark on the largest programs we can write
-        against base and contrib;
-      - hash-consed configurations and incremental embedding checks;
-      - the target of section 8.2.
-15. **Code size.** Choices, specializations and literal unfolding can each
-    grow code. The whistle bounds them, but no budget is set on the result.
+*Revised at the cutover:* the supercompiling driver these items asked
+about is gone; the questions are now about the MLIR pipeline.
+
+14. **Does the simplify loop scale?**
+    - **Known:** it inlines every legal call (no threshold), over the
+      Prelude and base with every program, and repeats until nothing
+      changes. Before the cutover, `Simplify` compiled today's fixtures in
+      seconds, and `printLn 'x'` in 5.7 s.
+    - **Unknown:** its compile time on large programs, and how much of it
+      is JIT compilation.
+    - **Settles it:** the cutover's stop point 3 (section 8.2), then a
+      compile-time benchmark on the largest programs we can write against
+      base and contrib.
+15. **Code size.** Inlining with no threshold and specialization can grow
+    code. Loop breakers and the clone limit bound them, and LLVM's
+    `MergeFunctions` merges identical clones, but no budget is set on the
+    result.
     - **Settles it:** a code-size column in `bench/` and in the compile-time
-      benchmark, with a per-function limit if growth appears.
-16. **What goes to the JIT.** Every primitive fold becomes a request,
-    thousands per compilation.
-    - **Unknown:** whether a pipe round trip per fold is small next to the
-      driver's own cost.
-    - **Settles it:** measure. Batch the folds of one step if needed.
-
-17. **Joining two literal strings:** data layout (kept in `Simplify`), or a
-    primitive fold for the server? Leaning: data layout, since it is the
-    same concatenation a linker performs on literal pools.
+      benchmark; any limit found necessary is a fixed parameter of the
+      pipeline, so acceptance stays a rule (`PROF-GEN-5`).
+16. **What goes to the JIT.** *Settled at the cutover:* one JIT compilation
+    per round of the simplify loop, for every closed call of the round,
+    and the folders call the runtime directly, with no JIT at all
+    (section 6). What remains is measuring the JIT's share (item 14).
+17. **Joining two literal strings.** *Settled at the cutover:* the folder
+    of `idr.str.append`, which calls the runtime's own function; the
+    result is a constant, which is static data (`LOW-CONST-1`).
 
 ### 12.4 Concurrency
 
@@ -1932,8 +2026,8 @@ Where the plan meets each inheritance:
       unless each segment's first frame records the link to the previous
       one, as Go does for its stacks.
     - **Settles it:** milestone 8a, after C0.
-25. **macOS JIT.** `fork` per call and `MAP_JIT` under the hardened
-    runtime. Checked when macOS starts (milestone 12).
+25. **macOS JIT.** `fork` per round of the simplify loop and `MAP_JIT`
+    under the hardened runtime. Checked when macOS starts (milestone 12).
 26. **Full LTO's compile time and memory** (section 5.7).
     - **Unknown:**
       - how long O3 over program plus runtime takes per compile;
@@ -1954,9 +2048,10 @@ Where the plan meets each inheritance:
     such as `"1d3"`, a type could compute 1000.0 while the runtime gives 0.
     - This is the same class of question as `strLength` (section 3):
       a proof about a runtime value.
-    - **Settles it:** a census of the library for `cast` from `String` in
-      types. A literal cast outside our grammar that reaches a type could
-      be rejected with a named rule.
+    - *Decided at the cutover:* such a cast, and a `libm` function, where
+      it can reach a type, is rejected with a named rule, `SEM-HOST-1`
+      (*planned*); a census of the library for `cast` from `String` in
+      types says how often it bites.
 
 ### 12.6 Evidence we cannot produce here yet
 

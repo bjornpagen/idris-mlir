@@ -48,31 +48,41 @@
      folders and interfaces.
   2. Our own C++ passes, when the facts are visible in the dialect but no
      upstream pass uses them.
-  3. The Idris middle end, when the facts need dependent types, evaluation, or
-     the TT context.
+  3. Idris, when the facts need dependent types, normalization, or the TT
+     context.
 
   [09-optimization](09-optimization.md) assigns every optimization to a
-  level.
-- **GOAL-P2. Remove abstraction before the core, then optimize first-order
-  code.** Following MLton and Futhark, the Idris middle end removes
-  polymorphism, lambdas, laziness, monadic structure and string building
-  with a fixed list of whole-program eliminations
-  ([06-elimination](06-elimination.md)). So the `idr` dialect is first-order
-  and monomorphic. Lowering is a change of representation (dialect
-  conversion), not a place where decisions are made.
+  level, and [18-ownership](18-ownership.md) every component to its
+  upstream.
+- **GOAL-P2. Idris does types; MLIR does programs.** *Revised at the
+  cutover.* Idris removes what needs types: polymorphism, by
+  monomorphisation, and it decides each value's representation. Every
+  other abstraction (lambdas, laziness, monadic structure, strings built
+  to be written) is removed *in* MLIR, following MLton, Futhark and Lean:
+  by inlining, specialization, compile-time evaluation, known-constructor
+  and case-of-case rewrites, and defunctionalization
+  ([06-elimination](06-elimination.md)). So the `idr` dialect is
+  monomorphic but higher-order. Lowering is a change of representation
+  (dialect conversion), not a place where decisions are made. Before the
+  cutover, an Idris pass (`Simplify`) removed abstraction before the core,
+  and the dialect was first-order.
 - **GOAL-P3. Reject rather than guess.** Any construct, type, or missing fact
   that the current version cannot handle fails with an explicit `unsupported`
   error ([13-diagnostics](13-diagnostics.md)). Silent miscompilation is the
   worst possible outcome.
-- **GOAL-P4. Heap-free by guaranteed elimination.** Until the memory design
+- **GOAL-P4. Heap-free by a documented pipeline.** Until the memory design
   exists:
-  - A program is accepted only if no heap operation survives the guaranteed
-    eliminations (`PROF-HEAP-1`). The source may use lambdas, `Lazy`, monads
-    and string operations, as long as each is eliminated.
-  - The list of eliminations is fixed and deterministic, so acceptance is a
-    rule and does not depend on optimizer heuristics.
-  - The `idr` dialect has no allocating operation, so any program that passes
-    its verifier lowers to code with no heap allocation.
+  - A program is accepted only if no dynamic allocation survives the
+    documented pipeline (`PROF-GEN-5`, `PROF-HEAP-*`). The source may use
+    lambdas, `Lazy`, monads, recursive data, `Integer` and string
+    operations, as long as nothing is allocated at runtime.
+  - The pipeline and its parameters are fixed: the inliner has no size
+    threshold, and the clone limit only stops a specialization that would
+    not end. So acceptance is a rule and does not depend on a cost model.
+  - *Revised at the cutover:* the `idr` dialect has allocating operations,
+    each marked so in its effects, and `idr-check-profile` rejects any that
+    survives; constants are static data. Before, the dialect had none, and
+    a fixed list of eliminations in Idris decided acceptance.
 - **GOAL-P5. Facts are not semantics.**
   - Erased does not mean constant.
   - Quantity 1 does not mean unique ownership: Idris's linearity promises
@@ -83,10 +93,16 @@
   - An indexed vector does not imply contiguous storage.
   - A fact MUST NOT be used beyond what it proves.
 - **GOAL-P6. Two languages, one contract.**
-  - Idris code handles everything that needs dependent types.
-  - C++ code handles simply typed, first-order rewriting inside MLIR.
+  - Idris code handles everything that needs dependent types or the TT
+    context: monomorphisation, representations, totality, quantities.
+  - C++ code handles everything that needs only the program: specialization,
+    evaluation at compile time (by running the program's own code),
+    defunctionalization, loops, the heap-free check, and lowering, inside
+    MLIR (*revised at the cutover*: before, only simply typed, first-order
+    rewriting).
   - They meet only at the `idr` dialect text ([08-idr-dialect](08-idr-dialect.md)).
-  - Neither side mirrors the other's data structures.
+  - Neither side mirrors the other's data structures, and no primitive has
+    an implementation in Idris: its one meaning is the runtime's.
 
 ## Settled decisions
 
@@ -108,6 +124,6 @@ user's approval.
 | D11 | v0's entry point is a pure `main : Int`, and the process exit status is its low 8 bits. From v1, `main : IO ()` is also an entry point, compiled through `-o`. | v0 brings up the pipeline without IO. v1 adds IO. |
 | D12 | The compiler reads checked TT (`treeCT`, signatures, quantities), never `CExp` or runtime case trees. | `CExp` and `treeRT` have already erased facts we need. |
 | D13 | v1 targets "hello world": an IO monad, static strings, and `Char`, heap-free. | Static strings live in read-only data. IO is world-passing code once its lambdas are eliminated. Neither needs a heap. |
-| D14 | Heap-freedom is decided after a fixed list of MLton-style eliminations in the Idris middle end: specialization on known functions, inlining of known higher-order and monadic code, arity raising, compile-time string evaluation, and output fusion. | Most apparent heap use in Idris code, such as closures, monadic binds, and `putStrLn`'s append, is statically eliminable in a whole program. |
+| D14 | Heap-freedom is decided by the documented MLIR pipeline with its parameters fixed: inlining with no threshold, specialization on constant-like arguments, compile-time evaluation of total pure calls by running the program's own code, known-constructor and case-of-case rewrites, output fusion, and defunctionalization, run to a fixpoint. *Revised at the cutover:* it was a fixed list of MLton-style eliminations in the Idris middle end (`Simplify`), with arity raising. | Most apparent heap use in Idris code, such as closures, monadic binds, and `putStrLn`'s append, is statically eliminable in a whole program; MLIR sees the facts it needs, and one implementation of each primitive (the runtime's) serves compile time and runtime. |
 | D15 | The Prelude is deferred like GC. Its dependency modules are compiled first, one layer at a time and fully tested, before the stock Prelude is ever imported implicitly. | Grow from a verified base. |
 | D16 | IO comes from the stock libraries: `Builtin`, `PrimIO` and the Prelude, whose IO primitives are the only `%foreign` definitions the compiler maps (`PROF-IO-4`); user code stays pragma-free. *Revised after v3:* it came from a small module of our own until [the plan](../plan.md)'s decision 1 removed it (`PROF-IO-1`). | No language design and no package of our own. |

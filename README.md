@@ -9,9 +9,20 @@ replacement for explicit layout and control, and not merely a faster Idris
 backend.
 
 ```text
-Idris frontend (pinned) → checked TT → Core (Idris) → guaranteed eliminations
-  → idr dialect (C++) → upstream MLIR → LLVM → object → lld links a static-PIE executable on musl
+Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation, representations)
+  → idr dialect (C++) → the simplify loop: inline, specialize, evaluate at compile time
+    by running the program's own code in a JIT, to a fixpoint
+  → defunctionalize, loops, the heap-free check → idr-lower → LLVM O3 with the runtime
+  → object → lld links a static-PIE executable on musl
 ```
+
+Idris does types; MLIR does programs. Idris checks the program,
+monomorphises it and decides each value's representation; everything else
+(inlining, specialization, compile-time evaluation, defunctionalization,
+loops and the heap-free profile's check) happens in MLIR. Compile-time
+evaluation is runtime evaluation run early: every closed call of total,
+pure code is evaluated by running the program's own lowered code with its
+own runtime, and partial code never is.
 
 ## Why not Lean 4
 
@@ -39,11 +50,13 @@ The specification is [docs/architecture/](docs/architecture/00-index.md)
 
 ## What compiles today
 
-Programs are heap-free: after monomorphisation and the guaranteed
-eliminations (beta reduction, known constructors, specialization on
-functions, arity raising, compile-time string evaluation, output fusion),
-no closure, thunk or runtime-built string may remain, or compilation fails
-with an `unsupported (<RULE>)` error at the source location.
+Programs are heap-free: after the documented pipeline (inlining with no
+threshold, known constructors, case-of-case, specialization on
+constant-like arguments, compile-time evaluation of total code, output
+fusion, defunctionalization), nothing may allocate at runtime (a closure
+that remains, a list, string or `Integer` built at runtime), or
+compilation fails with an `unsupported (<RULE>)` error at the source
+location.
 - **v0:** a single `--no-prelude` module with `main : Int` (the exit status):
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
@@ -63,8 +76,9 @@ with an `unsupported (<RULE>)` error at the source location.
   `Show` (on `Int`, `Double`, `Bool`, `Maybe`, pairs and user types),
   `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
   ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
-  `traverse_`). `Integer`, `Nat`, lists and streams exist at compile time
-  only; a call whose arguments are all known is evaluated there. The pure
+  `traverse_`). `Integer`, `Nat`, lists and streams have runtime
+  representations, but may not allocate at runtime yet: a closed call of
+  total code is evaluated at compile time, and its result is static data. The pure
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),

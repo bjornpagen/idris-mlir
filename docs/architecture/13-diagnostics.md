@@ -2,13 +2,15 @@
 
 There are two kinds of error:
 - **User errors.** The program is outside the profile. These are reported by
-  the Idris side, at Idris source locations.
+  the Idris side, at Idris source locations, including those that
+  `idris-mlir-cc` finds (`DRV-CC-2`, *since the cutover*).
 - **Internal errors.** The compiler broke its own contract. These are bugs.
 
 ## User errors
 
 - **DIAG-CODE-1 (v0).** The error code is the violated rule's identifier
-  (`PROF-*`, or `FE-ENTRY-3` for `-o`). There is no separate numbering.
+  (`PROF-*`, or `FE-ENTRY-3` for `-o`; also `HOOK-SHAPE-1`, and from the
+  cutover `SEM-HOST-1` and `EVAL-1`). There is no separate numbering.
 - **DIAG-FMT-1 (v0).** A user error is an Idris `GenericMsg` with the message:
 
   ```text
@@ -32,44 +34,73 @@ There are two kinds of error:
   programs, which Idris loads from TTC under `-o`, errors point at the
   enclosing definition or case block, not at the term itself.
 
-  From v3, an error found inside library code that specialization unfolded
-  (the Prelude, `Builtin`, `PrimIO`: the *Report at caller* column of the
-  library table, [17-registry](17-registry.md)) is reported at the
-  innermost user definition that reached it, and names the library location
-  in parentheses: `Main:11:1: ... (in Prelude.Cast:83:1)`.
+  From v3, an error found inside library code (the Prelude, `Builtin`,
+  `PrimIO`: the *Report at caller* column of the library table,
+  [17-registry](17-registry.md)) is reported at the innermost user
+  definition that reached it, and names the library location in
+  parentheses: `Main:11:1: ... (in Prelude.Cast:83:1)`.
+
+  *Revised at the cutover:* an error that `idris-mlir-cc` finds carries the
+  op's MLIR location chain: inlining and specialization nest the locations
+  of the code they copy inside those of the call, and `Emit` wraps the
+  location of library code in `loc(fused<"library">[...])` (`IDR-LOC-1`).
+  The frontend reports the innermost location in the chain that is not
+  library code, and names the library location in parentheses as above.
   - Test: `tests/profile/v3/reject/PROF-TYPE-4-prelude-integer.idr`
 - **DIAG-EXIT-1 (v0).** `idris-mlir --check` exits with status 1 on any user
   error and writes no artifact (`FE-ART-1`).
-- **DIAG-HEAP-1 (v1).** A `PROF-HEAP-*` error explains why the value survived.
-  It gives:
-  1. the source location of the construct that survived (a lambda, a
-     `Delay`, a string primitive);
-  2. the elimination that could not remove it, and why (for example "`k` is
-     passed a different function on each iteration" or "arity raising
-     blocked by `div` at Main.idr:12:9");
+- **DIAG-HEAP-1 (v1).** A rejection of dynamic allocation (`PROF-HEAP-*`,
+  `PROF-TYPE-4` for bigs, `PROF-DATA-3`, `PROF-PRIM-4`) explains why the
+  value survived. *Revised at the cutover:* `idr-check-profile` reports it,
+  and it gives:
+  1. the op that allocates (a closure, a box's constructor, a string
+     builder, a big op), with its location chain (`DIAG-LOC-1`);
+  2. why it survived: for a closure, the functions that may reach it are
+     not a finite set, or its captures contain it; for a string, the use
+     that is not output; for a box or a big, the operand that is not a
+     constant;
   3. where the value is used, as a secondary location.
+
+  With `--remarks=idr-eval` and the other passes' remarks, `idris-mlir-cc`
+  also reports the specialization or the evaluation that stopped: a
+  `Missed` remark for a call the clone limit stopped (`ELIM-SPEC-2`) or an
+  evaluation that crashed (`ELIM-EVAL-1`).
 
   For example:
 
   ```text
-  mlir backend: Main.main: unsupported (PROF-HEAP-3): string built at runtime
-    `prim__strCons c "!"` at Main.idr:9:9 cannot be evaluated at compile time
-    (`c` comes from getChar at Main.idr:8:3), and output fusion cannot apply:
-    the string is passed to Main.greet at Main.idr:9:3 instead of being
-    written directly by putStr
+  mlir backend: Main.label: unsupported (PROF-HEAP-3): string built at runtime
+    by `strCons` at Main.idr:9:9, from a value known only at runtime, is
+    returned by Main.label instead of being written by putStr
+    (used at Main.idr:14:3)
+  ```
+
+  An `EVAL-1` error names the call and what ran out, at the call's
+  location:
+
+  ```text
+  mlir backend: Main.main: unsupported (EVAL-1): the compile-time evaluation
+    of Main.ackermann at Main.idr:12:10 ran out of stack
   ```
 - **DIAG-ONE-1 (v0).** Compilation stops at the first user error. Reporting
-  several errors at once is a later improvement. "First" is in pass order,
-  and within `Simplify` in evaluation order; `PROF-HEAP-5` is decided after
-  specialization, so it comes last.
-  - Test: `tests/profile/v1/reject/PROF-HEAP-3-reported-before-heap-5.idr`
+  several errors at once is a later improvement. *Revised at the cutover:*
+  "first" means the frontend's errors, in its stage order (`04-frontend`),
+  then `idr-check-profile`'s, in the order of the ops in the module after
+  the pipeline. (Before, it was evaluation order within `Simplify`, and
+  `PROF-HEAP-5` came last.)
+  - Test: the reject fixtures whose programs break two rules, of which the
+    expected one comes first (`TEST-REJ-1`)
 
 ## Internal errors
 
 - **DIAG-ICE-1 (v0).** These are internal errors:
-  - a failure of the checks of `Core` (`CORE-CHECK-1`);
-  - a contract violation found by `idr-check-input` or a verifier;
-  - any pass failure in `idris-mlir-cc`;
+  - a module that does not parse, or that fails the MLIR verifier, when
+    `idris-mlir-cc` reads it or after any pass (*revised at the cutover*:
+    this replaces the checks of `Core`, `CORE-CHECK-1`, and
+    `idr-check-input`);
+  - any pass failure in `idris-mlir-cc` other than a profile rejection
+    (exit status 3) or `EVAL-1` (exit status 4), and any signal in
+    `idr-eval`'s child but those of `EVAL-1`;
   - any failure of the upstream tools on our output.
 
   They are reported as `idris-mlir: internal error: <stage>: <message>`, with
