@@ -188,7 +188,8 @@ LogicalResult verifyProgram(ModuleOp module) {
            << roots.size();
   FunctionType root = roots.front().getFunctionType();
   Builder b(module.getContext());
-  bool intRoot = root.getInputs().empty() && root.getResults() == TypeRange{b.getI64Type()};
+  bool intRoot = root.getInputs().empty() && root.getNumResults() == 1 &&
+                 root.getResult(0) == b.getI64Type();
   bool ioRoot = root.getInputs().size() == 1 && isa<WorldType>(root.getInput(0));
   if (!intRoot && !ioRoot)
     return roots.front().emitOpError("is the root, so its type must be () -> i64 or "
