@@ -103,6 +103,7 @@ struct LabelLattice : Lattice<Labels> {
 // A field of a constructor: (data type, constructor, index).
 struct FieldAnchor
     : GenericLatticeAnchorBase<FieldAnchor, std::tuple<StringAttr, StringAttr, unsigned>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FieldAnchor)
   using Base::Base;
   Location getLoc() const override { return UnknownLoc::get(std::get<0>(getValue()).getContext()); }
   void print(raw_ostream &os) const override {
@@ -141,8 +142,10 @@ StringAttr dataName(Type type) {
 }
 
 struct Module {
+  explicit Module(ModuleOp op) : op(op), symbols(op) {}
+
   ModuleOp op;
-  SymbolTable symbols{op};
+  SymbolTable symbols;
   // The closure ops and closure constants (their captures) of each label.
   llvm::DenseMap<StringAttr, SmallVector<idr::ClosureOp>> closures;
   llvm::DenseMap<StringAttr, SmallVector<ArrayAttr>> constantClosures;
@@ -206,6 +209,8 @@ struct Module {
 
 class LabelAnalysis : public SparseForwardDataFlowAnalysis<LabelLattice> {
 public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LabelAnalysis)
+
   LabelAnalysis(DataFlowSolver &solver, Module &module)
       : SparseForwardDataFlowAnalysis(solver), module(module) {
     registerAnchorKind<FieldAnchor>();
@@ -260,14 +265,14 @@ public:
       return SparseForwardDataFlowAnalysis::visitCallOperation(call, operands, results);
     const Labels &callee = static_cast<const LabelLattice *>(operands[0])->getValue();
     if (callee.unknown) {
-      setAllToEntryStates(results);
+      AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
       return success();
     }
     ProgramPoint *point = getProgramPointAfter(apply);
     for (StringAttr label : callee.names) {
       func::FuncOp fn = module.function(label);
       if (!fn || fn.isExternal()) {
-        setAllToEntryStates(results);
+        AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
         return success();
       }
       fn.walk([&](func::ReturnOp ret) {
@@ -284,7 +289,7 @@ public:
                               ArrayRef<AbstractSparseLattice *> arguments) override {
     auto fn = dyn_cast<func::FuncOp>(callable.getOperation());
     if (!fn || fn.isPublic() || module.escaping.contains(fn.getSymNameAttr()))
-      return setAllToEntryStates(arguments);
+      return AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(arguments);
     Block *entry = &fn.getBody().front();
     ProgramPoint *point = getProgramPointBefore(entry);
     const auto *calls = getOrCreateFor<PredecessorState>(point, getProgramPointAfter(fn));
@@ -380,11 +385,11 @@ struct Closures {
 };
 
 struct Converter {
+  Converter(Module &module, DataFlowSolver &solver) : module(module), solver(solver) {}
+
   Module &module;
   DataFlowSolver &solver;
   llvm::MapVector<idr::FnType, Closures> types;
-  // The unboxed data types a data type contains, for the cycle check.
-  llvm::DenseMap<StringAttr, SmallVector<idr::FnType>> contained;
 
   Labels labelsOf(Value value) {
     if (const auto *lattice = solver.lookupState<LabelLattice>(value))
@@ -602,7 +607,7 @@ struct Converter {
       func::FuncOp fn = module.function(label);
       SmallVector<Type> fields =
           llvm::map_to_vector(captures(label, type), [&](Type t) { return convert(t); });
-      Block *block = b.createBlock(region, {}, fields,
+      Block *block = b.createBlock(&region, region.end(), fields,
                                    SmallVector<Location>(fields.size(), apply.getLoc()));
       SmallVector<Value> operands(block->getArguments());
       llvm::append_range(operands, apply.getArgs());
@@ -664,14 +669,14 @@ struct Converter {
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
   void runOnOperation() override {
-    Module module{getOperation()};
+    Module module(getOperation());
     module.gather();
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     loadBaselineAnalyses(solver);
     solver.load<LabelAnalysis>(module);
     if (failed(solver.initializeAndRun(getOperation())))
       return signalPassFailure();
-    Converter{module, solver}.run();
+    Converter(module, solver).run();
   }
 };
 

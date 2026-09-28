@@ -163,9 +163,11 @@ StringAttr quantityOf(Type type) {
 }
 
 struct Specializer {
+  Specializer(ModuleOp module, unsigned limit) : module(module), limit(limit), symbols(module) {}
+
   ModuleOp module;
   unsigned limit;
-  SymbolTable symbols{module};
+  SymbolTable symbols;
   llvm::DenseMap<std::pair<StringAttr, ArrayAttr>, func::FuncOp> clones;
   llvm::StringMap<int64_t> counts;
   SmallVector<func::FuncOp> work;
@@ -194,7 +196,7 @@ struct Specializer {
   // Replaces each argument of `clone` that has a static shape by that
   // shape, rebuilt from the ops that `shapes` came from; its runtime leaves
   // become parameters, in order.
-  void substitute(func::FuncOp clone, ArrayRef<Shape> shapes, ArrayRef<Value> operands) {
+  void substitute(func::FuncOp clone, ArrayRef<Shape> shapes, ValueRange operands) {
     unsigned arity = clone.getNumArguments();
     SmallVector<unsigned> at;
     SmallVector<Type> types;
@@ -244,7 +246,7 @@ struct Specializer {
     return b.clone(*def, map)->getResult(0);
   }
 
-  func::FuncOp makeClone(func::FuncOp callee, ArrayRef<Shape> shapes, ArrayRef<Value> operands) {
+  func::FuncOp makeClone(func::FuncOp callee, ArrayRef<Shape> shapes, ValueRange operands) {
     StringRef from = origin(callee);
     int64_t n = ++counts[from];
     func::FuncOp clone = callee.clone();
@@ -336,7 +338,7 @@ struct Specializer {
 
 struct Specialize : idr::impl::IdrSpecializeBase<Specialize> {
   using IdrSpecializeBase::IdrSpecializeBase;
-  void runOnOperation() override { Specializer{getOperation(), cloneLimit}.run(); }
+  void runOnOperation() override { Specializer(getOperation(), cloneLimit).run(); }
 };
 
 } // namespace

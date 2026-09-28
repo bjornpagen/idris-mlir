@@ -79,8 +79,8 @@ struct Loop {
   }
 
   // Rewrites the tail of `block`, which ends in a tail position, to compute
-  // the payload (continue, A, R), and returns it. The block's terminator is
-  // left for the caller to replace.
+  // the payload (continue, A, R), and returns it. The block's terminator,
+  // whose operands may be dropped, is left for the caller to replace.
   SmallVector<Value> payload(Block &block) {
     Operation *terminator = block.getTerminator();
     Location loc = terminator->getLoc();
@@ -91,11 +91,12 @@ struct Loop {
       out.push_back(flag(loc, true));
       llvm::append_range(out, prev->getOperands());
       llvm::append_range(out, poison(loc, results));
+      prev->dropAllUses();
       prev->erase();
       return out;
     }
     if (prev && isTailMatch(prev) && reachesTailCall(block, fn))
-      return llvm::to_vector(rebuildMatch(prev)->getResults());
+      return SmallVector<Value>(rebuildMatch(prev)->getResults());
     b.setInsertionPoint(terminator);
     out.push_back(flag(loc, false));
     llvm::append_range(out, poison(loc, args));
@@ -112,12 +113,13 @@ struct Loop {
     OperationState state(op->getLoc(), op->getName());
     state.addOperands(op->getOperands());
     state.addTypes(types);
-    state.addAttributes(op->getDiscardableAttrs());
+    state.addAttributes(llvm::to_vector(op->getDiscardableAttrs()));
     state.propertiesAttr = op->getPropertiesAsAttribute();
     for (Region &region : op->getRegions())
       state.addRegion()->takeBody(region);
     b.setInsertionPoint(op);
     Operation *match = b.create(state);
+    op->dropAllUses();
     op->erase();
     for (Region &region : match->getRegions()) {
       if (region.empty())
@@ -158,7 +160,7 @@ struct Loop {
     b.setInsertionPointToEnd(&entry);
     auto loop = scf::WhileOp::create(b, loc, carried, entry.getArguments());
     loop.getBefore().push_back(before.release());
-    Block *after = b.createBlock(&loop.getAfter(), {}, carried,
+    Block *after = b.createBlock(&loop.getAfter(), loop.getAfter().end(), carried,
                                  SmallVector<Location>(carried.size(), loc));
     scf::YieldOp::create(b, loc, after->getArguments().take_front(args.size()));
     b.setInsertionPointToEnd(&entry);

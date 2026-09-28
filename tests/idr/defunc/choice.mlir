@@ -42,10 +42,10 @@ module attributes {idr.program} {
   // CHECK: %[[F:.*]] = call @pick(%[[N:.*]]) : (i64) -> !idr.data<@fn$0>
   // CHECK: idr.match %[[F]] : !idr.data<@fn$0> -> (i64) {
   // CHECK-NEXT: case @add(%[[A:.*]]: i64) {
-  // CHECK-NEXT: %[[R:.*]] = call @add(%[[A]], %[[N]]) : (i64, i64) -> i64
+  // CHECK-NEXT: %[[R:.*]] = {{(func.)?}}call @add(%[[A]], %[[N]]) : (i64, i64) -> i64
   // CHECK-NEXT: idr.yield %[[R]] : i64
   // CHECK: case @dbl() {
-  // CHECK-NEXT: %[[S:.*]] = call @dbl(%[[N]]) : (i64) -> i64
+  // CHECK-NEXT: %[[S:.*]] = {{(func.)?}}call @dbl(%[[N]]) : (i64) -> i64
   // CHECK-NEXT: idr.yield %[[S]] : i64
   func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
     %c, %w1 = idr.io.get_char %w

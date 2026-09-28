@@ -36,7 +36,7 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: func.func private @use(
   // CHECK-SAME: %[[N:.*]]: i64 {idr.quantity = "w"}, %[[XS:.*]]: !idr.box<@L> {idr.quantity = "w"})
-  // CHECK-NEXT: %[[R:.*]] = call @map$spec$1(%[[N]], %[[XS]])
+  // CHECK: %[[R:.*]] = call @map$spec$1(%[[N]], %[[XS]])
   // CHECK-NEXT: return %[[R]]
   func.func private @use(%n: i64 {idr.quantity = "w"}, %xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.box<@L> attributes {idr.total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>

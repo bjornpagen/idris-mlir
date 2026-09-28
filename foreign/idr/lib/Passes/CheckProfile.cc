@@ -25,6 +25,8 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/SymbolTable.h"
 
+#include "llvm/Support/FormatVariadic.h"
+
 using namespace mlir;
 
 namespace idr {
@@ -44,9 +46,10 @@ bool isMove(Operation *op) {
   return isa<idr::FieldOp, idr::MatchOp, idr::MatchLitOp, func::CallOp, idr::ApplyOp>(op);
 }
 
-bool isBuilt(Operation *op, Type type) {
+// Whether `op` computes a new value of type T.
+template <typename T> bool isBuilt(Operation *op) {
   return !op->hasTrait<OpTrait::ConstantLike>() && !isMove(op) &&
-         llvm::any_of(op->getResultTypes(), [&](Type t) { return t == type; });
+         llvm::any_of(op->getResultTypes(), llvm::IsaPred<T>);
 }
 
 // An operand that a box or closure can hold as static data.
@@ -55,9 +58,11 @@ bool isStatic(Value value) { return matchPattern(value, m_Constant()); }
 std::string opName(Operation *op) { return op->getName().getStringRef().str(); }
 
 struct Checker {
+  explicit Checker(ModuleOp module) : module(module), users(tables, module) {}
+
   ModuleOp module;
   SymbolTableCollection tables;
-  SymbolUserMap users{tables, module};
+  SymbolUserMap users;
 
   func::FuncOp callee(func::CallOp call) {
     return tables.lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
@@ -121,7 +126,7 @@ struct Checker {
   // primitive applied to one.
   std::optional<Violation> builtString(Operation *op) {
     for (Operation *user : op->getUsers()) {
-      if (isa<idr::PutStrOp>(user) || isBuilt(user, op->getResult(0).getType()))
+      if (isa<idr::PutStrOp>(user) || isBuilt<idr::StrType>(user))
         continue;
       if (isa<func::CallOp, idr::ApplyOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
               idr::ClosureOp>(user))
@@ -135,7 +140,7 @@ struct Checker {
   std::optional<Violation> stringPrimitive(Operation *op) {
     for (Value operand : op->getOperands()) {
       Operation *def = operand.getDefiningOp();
-      if (isa<idr::StrType>(operand.getType()) && def && isBuilt(def, operand.getType()))
+      if (isa<idr::StrType>(operand.getType()) && def && isBuilt<idr::StrType>(def))
         return Violation{"PROF-PRIM-4", opName(op) + " of a string built at runtime by " +
                                             opName(def)};
     }
@@ -143,7 +148,6 @@ struct Checker {
   }
 
   std::optional<Violation> check(Operation *op) {
-    MLIRContext *ctx = module.getContext();
     if (auto con = dyn_cast<idr::ConOp>(op)) {
       if (isa<idr::BoxType>(con.getType()) && !llvm::all_of(op->getOperands(), isStatic))
         return Violation{"PROF-DATA-3", ("recursive data built at runtime: " +
@@ -154,15 +158,15 @@ struct Checker {
     }
     if (auto closureOp = dyn_cast<idr::ClosureOp>(op))
       return closure(closureOp);
-    if (isBuilt(op, idr::StrType::get(ctx)))
+    if (isBuilt<idr::StrType>(op))
       if (std::optional<Violation> v = builtString(op))
         return v;
-    if (!isa<idr::PutStrOp>(op) && !isBuilt(op, idr::StrType::get(ctx)) &&
+    if (!isa<idr::PutStrOp>(op) && !isBuilt<idr::StrType>(op) &&
         !isa<func::CallOp, idr::ApplyOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
              idr::ClosureOp>(op))
       if (std::optional<Violation> v = stringPrimitive(op))
         return v;
-    if (isBuilt(op, idr::BigType::get(ctx)))
+    if (isBuilt<idr::BigType>(op))
       return Violation{"PROF-TYPE-4",
                        "Integer computed at runtime by " + opName(op) + ", which may allocate"};
     return std::nullopt;
@@ -220,7 +224,7 @@ void report(Operation *op, const Violation &violation) {
 
 struct CheckProfile : idr::impl::IdrCheckProfileBase<CheckProfile> {
   void runOnOperation() override {
-    Checker checker{getOperation()};
+    Checker checker(getOperation());
     WalkResult result = getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) {
       std::optional<Violation> violation = checker.check(op);
       if (!violation)
