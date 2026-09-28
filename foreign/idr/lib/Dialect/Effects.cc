@@ -1,5 +1,5 @@
 // idr-effects: the facts idr.effect and idr.may_crash of every function
-// (IDR-FACT-1, docs/cutover.md, section 6.3).
+// (IDR-FACT-1, OPT-PIPE-5).
 
 #include "idr/Idr.h"
 

@@ -38,6 +38,21 @@ gone.
   Linux UAPI headers, which the musl step copies into the sysroot and records
   (`PINS.md`: `linux-uapi-from-host`, `idris-support-host-cc`).
   - Check: review (tools/bootstrap.sh)
+- **TC-PIN-4 (v3). Upstream bugs.** A workaround in this repository for a
+  bug of a pinned upstream (LLVM, MLIR, Idris) comes, in the same change,
+  with:
+  - the bug reduced to upstream dialects and tools, in its own directory
+    under `upstream/`: a report written to be filed as it is, and its
+    reproducer (`upstream/README.md`);
+  - a `PINS.md` entry of the same name;
+  - a test `tests/upstream/<name>/run` (`make test-mlir-tools`) that
+    checks that the bug still reproduces with the pinned tools, so a
+    toolchain bump that fixes it fails the test; then the workaround, the
+    entry, the directory and the test are deleted in one change.
+
+  If the reduced input does not reproduce upstream, the bug is ours, and
+  is fixed instead.
+  - Test: `tests/upstream/*`
 
 - **TC-LIB-1 (v1 only; withdrawn in v3).** `idris-mlir-io` was a package
   installed into `.toolchain/`; programs use the Prelude now.

@@ -469,12 +469,12 @@ when `Simplify` enforced them; with `PROF-TYPE-4` (bigs), `PROF-DATA-3`
 - **PROF-HEAP-4 (v1).** A recursive function does not pass itself a
   function argument that grows from the one it received. This is Futhark's
   restriction that "a loop may not produce a function"; without it,
-  specialization would not terminate. *Revised at the cutover:* the clone
-  limit stops such a specialization (`ELIM-SPEC-2`), and a closure that
-  then survives, because its callee's specialization was stopped, is
-  rejected with this rule instead of `PROF-HEAP-1`. Before, `Simplify`
-  detected growth with its whistle (`ELIM-G-19`). Compiling such a program
-  takes a limit's worth of clones.
+  specialization would not terminate. *Revised at the cutover:* the growth
+  check stops such a specialization, and the clone limit growth in other
+  shapes (`ELIM-SPEC-2`); a closure that then survives, because its
+  callee's specialization was stopped, is rejected with this rule instead
+  of `PROF-HEAP-1`. Before, `Simplify` detected growth with its whistle
+  (`ELIM-G-19`).
   - Check: `idr-specialize` (which calls it stopped), `idr-check-profile`
   - Test: `tests/profile/v1/reject/PROF-HEAP-4-growing-function.idr`
 - **PROF-HEAP-5.** *Withdrawn at the cutover:* arity raising (`ELIM-G-5`)

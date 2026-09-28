@@ -1,4 +1,4 @@
-// idr-simplify: the simplify loop (OPT-PIPE-5, docs/cutover.md 6.3). One
+// idr-simplify: the simplify loop (OPT-PIPE-5). One
 // round runs the passes of simplifyRound() in order; rounds repeat until one
 // leaves the module unchanged, so running the loop again changes nothing
 // (OPT-IDEM-1). There is no bound on the number of rounds: the loop ends

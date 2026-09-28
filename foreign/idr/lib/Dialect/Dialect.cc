@@ -1,5 +1,6 @@
 // The idr dialect: types, attributes, constants, and the rules of the module
-// and of its functions (docs/cutover.md, sections 10.1 to 10.4).
+// and of its functions (docs/architecture/08-idr-dialect.md: module and
+// functions, types, data declarations, constant attributes).
 
 #include "idr/Idr.h"
 
@@ -167,7 +168,7 @@ bool idr::mayCrash(func::FuncOp fn) { return fn->hasAttr("idr.may_crash"); }
 bool idr::isTotal(func::FuncOp fn) { return fn->hasAttr("idr.total"); }
 
 //===----------------------------------------------------------------------===//
-// The module (IDR-FN-1, IDR-DATA-4, the box rule of 10.3)
+// The module (IDR-FN-1, IDR-DATA-4, and IDR-TY-6's box rule)
 //===----------------------------------------------------------------------===//
 
 namespace {

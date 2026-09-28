@@ -14,7 +14,7 @@ namespace idr {
 llvm::SmallVector<std::string> simplifyRound(unsigned inlineIterations, unsigned cloneLimit);
 
 // Whether a diagnostic is idr-check-profile's rejection of the program: a
-// user error (exit status 3, docs/cutover.md 6.6), not an internal one.
+// user error (exit status 3, DRV-CC-2), not an internal one.
 bool isProfileRejection(const mlir::Diagnostic &diag);
 
 } // namespace idr

@@ -1,4 +1,4 @@
-// Passes of the idr dialect (docs/cutover.md, section 6.3).
+// Passes of the idr dialect (OPT-PIPE-1, OPT-PIPE-5).
 
 #ifndef IDR_PASSES
 #define IDR_PASSES
@@ -40,7 +40,7 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   ];
 }
 
-// EVAL-1, docs/cutover.md 6.4
+// ELIM-EVAL-1, EVAL-1
 def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
   let summary = "Evaluate closed calls of pure, total functions at compile time";
   let description = [{
@@ -62,7 +62,7 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// The optimization passes (docs/cutover.md 6.3; lib/Passes/)
+// The optimization passes (docs/architecture/06 and 09; lib/Passes/)
 //===----------------------------------------------------------------------===//
 
 def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {

@@ -4,7 +4,7 @@
 // RUN: FileCheck %s < %t.reduced
 // rule: DRV-OPT-1
 // idris-mlir-reduce is mlir-reduce with the idr dialect: it shrinks a module
-// to what keeps a test interesting (docs/cutover.md 8.2), here any
+// to what keeps a test interesting (14-testing.md), here any
 // idr.str.append.
 // CHECK: func.func private @twice
 // CHECK-NEXT: idr.str.append

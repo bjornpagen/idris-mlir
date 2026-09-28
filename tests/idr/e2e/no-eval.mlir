@@ -11,7 +11,7 @@
 // rule: EVAL-1, SEM-EVAL-6, SEM-EVAL-7, DRV-CC-2
 // Evaluation changes when a result is computed, not what it is: the program
 // prints the same with and without --no-eval (the equivalence of
-// docs/cutover.md 4.5). With it, the call stays and runs.
+// TEST-EQUIV-1). With it, the call stays and runs.
 // CHECK: 832040 -1.5e-7 250
 // EVALUATED-NOT: @fib
 // RUNTIME: @fib

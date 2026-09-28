@@ -1,5 +1,4 @@
-// idr-defunctionalize: closures of known labels become sums (ELIM-CLOS-1,
-// docs/cutover.md 6.3).
+// idr-defunctionalize: closures of known labels become sums (ELIM-CLOS-1).
 //
 // The analysis is a sparse forward dataflow analysis on MLIR's framework,
 // interprocedural, whose lattice is the set of labels (functions) a

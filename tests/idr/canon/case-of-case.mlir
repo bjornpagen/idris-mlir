@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // rule: IDR-MATCH-5, IDR-MATCH-6, ELIM-G-7, OPT-SAFE-1
-// A3, case-of-case: the single consumer of a match's result moves into every
+// IDR-MATCH-5, case-of-case: the single consumer of a match's result moves into every
 // region that yields, when in some region it meets a value it folds or
 // canonicalizes against.
 

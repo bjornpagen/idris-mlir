@@ -1,5 +1,5 @@
 ||| What `Emit` writes, and its one printer: MLIR's custom syntax for the
-||| contract's dialects (docs/cutover.md, section 10). An operation is a
+||| contract's dialects (IDR-MOD-2, IDR-IN-1). An operation is a
 ||| line, or a line that opens regions, their contents, and the line that
 ||| closes them; every operation carries its location (IDR-LOC-1).
 module IdrisMLIR.MLIR
@@ -72,7 +72,7 @@ symbol m = case unpack m of
 -- Types
 ------------------------------------------------------------------------------
 
-||| The contract's types (docs/cutover.md, section 10.2). Data types hold
+||| The contract's types (IDR-TY-*). Data types hold
 ||| their mangled symbol.
 public export
 data MType = I Nat | F64

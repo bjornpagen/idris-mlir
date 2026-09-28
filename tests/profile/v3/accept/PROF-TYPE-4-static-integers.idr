@@ -7,8 +7,8 @@ module Main
 -- folders compute arithmetic beyond 64 bits and casts that wrap, and data
 -- with an Integer field is taken apart at compile time.
 -- Was SEM-BIG-1-static-integers; SEM-BIG-1 is withdrawn at the cutover
--- (docs/cutover.md 3.4), and its `fact 30` is gone with it (4.3, decision
--- 7.2, a PROF-GEN-4 exception): `fact : Integer -> Integer` recurses on an
+-- (SEM-BIG-1), and its `fact 30` is gone with it (a PROF-GEN-4
+-- exception, SEM-EVAL-6): `fact : Integer -> Integer` recurses on an
 -- Integer, which Idris does not prove terminating, so it is not evaluated
 -- and its Integer would exist at runtime. The same rejection is
 -- profile/v3/reject/PROF-TYPE-4-partial-integer, and the line of output

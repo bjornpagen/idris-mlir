@@ -1,4 +1,4 @@
-// The idr dialect (docs/cutover.md, section 10).
+// The idr dialect (docs/architecture/08-idr-dialect.md).
 #pragma once
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
@@ -34,7 +34,7 @@ struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
 
 // The resource that every IO op reads and writes (IDR-EFF-2), and that a
 // crash and a possibly endless loop also write, so that no pass reorders
-// either with output (A21).
+// either with output (IDR-EFF-1).
 struct IOResource : mlir::SideEffects::Resource::Base<IOResource> {
   llvm::StringRef getName() const final { return "idr.io"; }
 };
@@ -67,7 +67,7 @@ public:
 template <typename ConcreteType>
 class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {};
 
-// IDR-EFF-1, A21: an op that may crash writes the crash resource and the IO
+// IDR-EFF-1: an op that may crash writes the crash resource and the IO
 // resource, and is speculatable exactly when it can neither crash nor
 // allocate. All of it follows from the op's `getCrashCause` and from whether
 // it allocates its result (`Idr_MayCrash`).

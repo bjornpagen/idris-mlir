@@ -1,5 +1,5 @@
 // The idr ops: syntax, verifiers, folders and interfaces
-// (docs/cutover.md, sections 10.3 and 10.5).
+// (docs/architecture/08-idr-dialect.md: data declarations and operations).
 
 #include "idr/Idr.h"
 
@@ -756,7 +756,8 @@ ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
 // Closures (IDR-CLOS-1)
 //===----------------------------------------------------------------------===//
 
-// A8: worlds pass only as arguments and results, never in a closure.
+// IDR-WORLD-1, IDR-CLOS-1: worlds pass only as arguments and results, never
+// in a closure.
 LogicalResult ClosureOp::verify() {
   if (llvm::any_of(getCaptures().getTypes(), llvm::IsaPred<WorldType>))
     return emitOpError("captures a world; a world passes only as an argument or "

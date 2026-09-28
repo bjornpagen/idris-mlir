@@ -1,6 +1,6 @@
 // idris-mlir-cc: runs OPT-PIPE-1 in process, from idr contract text to one
 // object file that holds the whole program (DRV-CC-1, DRV-CC-2, LOW-TARGET-1,
-// TC-LINK-1; docs/cutover.md 6.3, 6.6).
+// TC-LINK-1, OPT-PIPE-5).
 
 #include "idr/Idr.h"
 #include "idr/Target.h"
@@ -59,12 +59,12 @@ namespace {
 
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
 cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
-// A11, DRV-CC-2: check the program against the profile, and write nothing.
+// DRV-CC-1, DRV-CC-2: check the program against the profile, and write nothing.
 cl::opt<bool> checkOnly("check",
                         cl::desc("Stop after idr-check-profile and write nothing (exit status 3 "
                                  "names a profile rejection)"),
                         cl::init(false));
-// docs/cutover.md section 10's knob: no compile-time evaluation.
+// DRV-CC-1, TEST-EQUIV-1: no compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
 cl::opt<std::string> remarks("remarks",
                              cl::desc("Print the remarks of these categories (a regex), e.g. "
@@ -93,7 +93,7 @@ cl::opt<std::string> runtimeArchive("runtime",
                                              "joins the program ('' for none)"),
                                     cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
 
-// Exit statuses (DRV-CC-2, docs/cutover.md 6.6): an internal error or a
+// Exit statuses (DRV-CC-2): an internal error or a
 // contract violation is 1, a usage error 2, a profile rejection (a user
 // error, `unsupported (<RULE>)`) 3, and a total evaluation the machine
 // cannot finish (EVAL-1) 4.
@@ -321,7 +321,7 @@ int status(const Verdict &verdict) {
 int run() {
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
-  // A19, IDR-IN-1: the program is parsed with exactly the contract's
+  // IDR-IN-1: the program is parsed with exactly the contract's
   // dialects, so an op of any other fails to parse. The rest load after.
   mlir::DialectRegistry contract;
   contract.insert<mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::math::MathDialect,
@@ -385,7 +385,7 @@ int run() {
             categories, /*printAsEmitRemarks=*/true)))
       return usage;
   }
-  // The knob of docs/cutover.md section 10: the idr-eval pass, wherever a
+  // --no-eval (DRV-CC-1, ELIM-EVAL-1): the idr-eval pass, wherever a
   // pipeline runs it, is skipped.
   if (noEval)
     context.registerActionHandler([](llvm::function_ref<void()> transform,

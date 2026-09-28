@@ -1,7 +1,7 @@
 ||| Types, literals and primitives of Core (docs/architecture/05-middle-ir.md).
 |||
 ||| There is one type language: every type of full Core exists at runtime,
-||| and MLIR removes abstraction (docs/cutover.md, section 6.1). A data
+||| and MLIR removes abstraction (docs/architecture/09-optimization.md). A data
 ||| instance records its representation where it is declared (`Term.Data`),
 ||| so `DataT` names the instance and nothing more. Types Idris flags
 ||| `ZERO`/`SUCC` are not data at all: they are `BigT`.

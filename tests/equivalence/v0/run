@@ -1,7 +1,7 @@
 #!/bin/sh
 # rule: SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1
 # Every fixture of tests/e2e/v0 but the TEST-SEM-1 ones, compiled with evaluation and
-# with --no-eval: the same stdout and exit status (docs/cutover.md 4.5).
+# with --no-eval: the same stdout and exit status (TEST-EQUIV-1).
 # A fixture that only compiles with evaluation is listed with its rule.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 equivalence v0
