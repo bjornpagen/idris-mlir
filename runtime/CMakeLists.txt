@@ -84,10 +84,14 @@ target_include_directories(idris_rt SYSTEM PRIVATE
 target_compile_definitions(idris_rt PRIVATE
 	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
 	# snmalloc (docs/plan.md section 5.6): size classes that step by 8 bytes;
-	# thread teardown through pthread keys, not the C++ runtime; its own small
-	# STL; and what the musl sysroot provides.
+	# no thread teardown of its own, since both of the others need a static
+	# destructor (pthread keys register one with [[gnu::destructor]]) or the
+	# C++ runtime (TC-RT-1): a thread's cached memory is returned only if the
+	# C library calls _malloc_thread_cleanup, which musl does not, and
+	# programs are single-threaded; its own small STL; and what the musl
+	# sysroot provides.
 	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
-	SNMALLOC_USE_PTHREAD_DESTRUCTORS
+	SNMALLOC_USE_THREAD_CLEANUP
 	SNMALLOC_USE_SELF_VENDORED_STL
 	SNMALLOC_PLATFORM_HAS_GETENTROPY
 	SNMALLOC_HAS_LINUX_RANDOM_H

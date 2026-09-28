@@ -4,8 +4,8 @@
 // thread-local free-list pop, and a free as a pagemap lookup and a push.
 //
 // snmalloc is configured at compile time only (runtime/CMakeLists.txt): size
-// classes step by 8 bytes, thread teardown through pthread keys rather than
-// the C++ runtime, and its own small STL instead of the C++ library's.
+// classes step by 8 bytes, no thread teardown that needs a static destructor
+// or the C++ runtime, and its own small STL instead of the C++ library's.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"

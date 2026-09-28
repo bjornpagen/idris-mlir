@@ -92,6 +92,40 @@ std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   return Call{op, fn, ArrayAttr::get(op->getContext(), args)};
 }
 
+bool isLibrary(Location loc) {
+  if (auto name = dyn_cast<NameLoc>(loc))
+    return isLibrary(name.getChildLoc());
+  auto fused = dyn_cast<FusedLoc>(loc);
+  auto origin = fused ? dyn_cast_or_null<StringAttr>(fused.getMetadata()) : StringAttr();
+  return origin && origin.getValue() == "library";
+}
+
+// The frames of a call-site chain, innermost first.
+void frames(Location loc, SmallVectorImpl<Location> &out) {
+  if (auto site = dyn_cast<CallSiteLoc>(loc)) {
+    frames(site.getCallee(), out);
+    frames(site.getCaller(), out);
+    return;
+  }
+  out.push_back(loc);
+}
+
+// EVAL-1, in the form of every user error of idris-mlir-cc (DIAG-LOC-1): at
+// the innermost frame of the call's call-site chain that is the user's code,
+// with the callers as notes.
+void exhausted(Call call, StringRef why) {
+  SmallVector<Location> chain;
+  frames(call.op->getLoc(), chain);
+  auto user = llvm::find_if(chain, [](Location loc) { return !isLibrary(loc); });
+  if (user == chain.end())
+    user = chain.begin();
+  InFlightDiagnostic diag = emitError(*user)
+                            << "unsupported (EVAL-1): the machine could not finish evaluating @"
+                            << call.callee.getSymName() << ", which is total: " << why;
+  for (Location caller : llvm::make_range(std::next(user), chain.end()))
+    diag.attachNote(caller) << "called from here";
+}
+
 std::string evalName(size_t i) { return ("__idr_eval_" + Twine(i)).str(); }
 std::string runName(size_t i) { return ("__idr_run_" + Twine(i)).str(); }
 
@@ -311,8 +345,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
       break;
     }
     case idr::eval::Run::Status::Exhausted:
-      site(next).op->emitError("EVAL-1: the machine cannot finish evaluating this call of @")
-          << site(next).callee.getSymName() << ", which is total: " << run.message;
+      exhausted(site(next), run.message);
       return failure();
     case idr::eval::Run::Status::Failed:
       return internal(next, run.message);

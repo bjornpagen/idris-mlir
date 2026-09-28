@@ -217,8 +217,14 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
 // dead runtime code (and its libc calls) in every executable: constructors are
 // rejected, `used` markers dropped.
 bool prepareMember(llvm::Module &member, llvm::StringRef name) {
+  // An empty list of constructors, which clang writes for some translation
+  // units, lists none.
   for (llvm::StringRef array : {"llvm.global_ctors", "llvm.global_dtors"})
-    if (member.getNamedGlobal(array)) {
+    if (llvm::GlobalVariable *global = member.getNamedGlobal(array)) {
+      if (llvm::cast<llvm::ArrayType>(global->getValueType())->getNumElements() == 0) {
+        global->eraseFromParent();
+        continue;
+      }
       llvm::errs() << "idris-mlir-cc: runtime member " << name
                    << " has static constructors or destructors; the runtime must be "
                       "constant-initialized (TC-RT-1)\n";
@@ -300,7 +306,9 @@ void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
 }
 
 // Which errors the passes reported: a profile rejection (`unsupported
-// (<RULE>)`) and EVAL-1 are the user's; any other error is internal.
+// (<RULE>): ...`) and EVAL-1 (`unsupported (EVAL-1): ...`) are the user's,
+// each at the location of the user's code the frontend reports; any other
+// error is internal.
 struct Verdict {
   bool rejected = false;
   bool exhausted = false;
@@ -351,8 +359,10 @@ int run() {
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
     if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
       std::string message = diagnostic.str();
-      verdict.rejected |= llvm::StringRef(message).starts_with("unsupported (");
-      verdict.exhausted |= llvm::StringRef(message).starts_with("EVAL-1");
+      if (llvm::StringRef(message).starts_with("unsupported (EVAL-1)"))
+        verdict.exhausted = true;
+      else if (llvm::StringRef(message).starts_with("unsupported ("))
+        verdict.rejected = true;
     }
     return mlir::failure();
   });
