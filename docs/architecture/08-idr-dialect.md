@@ -82,9 +82,10 @@ module attributes {idr.program} {
     original once it is specialized, the integer `idr.hole` on each of their
     parameters, `idr.spec_history` on a clone and `idr.spec_caller` on a
     call (dictionaries of key strings by origin), `idr.clone_counts` (a
-    dictionary of counts) on the module, and the unit attribute
-    `idr.spec_stopped` on a function or a call. Any other `idr.*` attribute
-    is rejected.
+    dictionary of counts) on the module, the unit attribute
+    `idr.spec_stopped` on a function or a call, and the string
+    `idr.spec_stopped_at` (the key a call stopped at) on a call. Any other
+    `idr.*` attribute is rejected.
   - Check: the dialect's attribute verifiers of the module (`idr.program`),
     of each function and of each argument
   - Test: `tests/idr/verify/module.mlir`, `tests/idr/verify/function.mlir`,

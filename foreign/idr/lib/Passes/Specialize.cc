@@ -32,9 +32,10 @@
 // compilation (the count is kept on the module as idr.clone_counts, so that
 // rounds of idr-simplify share it), bounds what growth in other shapes
 // makes. A stopped call gets a Missed remark; it and its callee get
-// idr.spec_stopped, so that later runs leave the call alone and
-// idr-check-profile reports PROF-HEAP-4 for a closure that survives into
-// the callee.
+// idr.spec_stopped, so that idr-check-profile reports PROF-HEAP-4 for a
+// closure that survives into the callee, and the call records the key it
+// stopped at (idr.spec_stopped_at): later runs leave it alone while its key
+// is that one, and check it again once inlining has made it more static.
 //
 // Clones can close new cycles of calls; idr-loop-breakers cuts them at the
 // start of the next round (OPT-PIPE-3). A clone does not inherit no_inline
@@ -81,6 +82,7 @@ constexpr StringLiteral keyAttr = "idr.spec_key";
 constexpr StringLiteral holeAttr = "idr.hole";
 constexpr StringLiteral callerAttr = "idr.spec_caller";
 constexpr StringLiteral historyAttr = "idr.spec_history";
+constexpr StringLiteral stoppedAt = "idr.spec_stopped_at";
 
 // One argument of a call: its pattern and its runtime leaves, in order.
 //
@@ -328,27 +330,51 @@ struct Specializer {
     return clone;
   }
 
-  // The call and its callee are marked, so later runs neither retry the
-  // call nor report it again.
-  void stop(func::CallOp call, func::FuncOp callee, const std::string &why) {
+  // The call and its callee are marked, and the call records the key it
+  // stopped at, so later runs neither retry it nor report it again while
+  // its key stays the same.
+  void stop(func::CallOp call, func::FuncOp callee, StringRef key, const std::string &why) {
     call->setAttr(stopped, UnitAttr::get(module.getContext()));
+    call->setAttr(stoppedAt, StringAttr::get(module.getContext(), key));
     callee->setAttr(stopped, UnitAttr::get(module.getContext()));
     remark::missed(call.getLoc(),
                    remark::RemarkOpts::name("idr-specialize").category("idr-specialize"))
         << remark::add("specialization of @{0} stopped: {1}", callee.getSymName(), why);
   }
 
-  // Whether `inner` is `outer` or occurs inside it.
-  static bool within(Attribute inner, Attribute outer) {
-    if (inner == outer)
-      return true;
-    bool found = false;
-    outer.walk([&](Attribute sub) {
-      if (sub == inner)
-        found = true;
-    });
-    return found;
+  // The label and parts of a pattern that is a node or a constructor or
+  // closure constant, or nothing.
+  static std::optional<std::pair<Attribute, ArrayRef<Attribute>>> split(Attribute pattern) {
+    if (auto node = dyn_cast<ArrayAttr>(pattern))
+      return std::make_pair(node[1], cast<ArrayAttr>(node[2]).getValue());
+    if (auto con = dyn_cast<idr::ConAttr>(pattern))
+      return std::make_pair(Attribute(con.getCtor()), con.getFields().getValue());
+    if (auto closure = dyn_cast<idr::ClosureAttr>(pattern))
+      return std::make_pair(Attribute(closure.getCallee()), closure.getCaptures().getValue());
+    return std::nullopt;
   }
+
+  // Whether `value` is an instance of `pattern`, whose holes (and unused
+  // positions) match anything.
+  static bool instance(Attribute pattern, Attribute value) {
+    if (isHole(pattern) || isUnused(pattern) || pattern == value)
+      return true;
+    auto p = split(pattern), v = split(value);
+    if (!p || !v || p->first != v->first || p->second.size() != v->second.size())
+      return false;
+    return llvm::all_of(llvm::zip(p->second, v->second),
+                        [](auto pair) { return instance(std::get<0>(pair), std::get<1>(pair)); });
+  }
+
+  // Whether a proper part of `value` is an instance of `pattern`: the
+  // embedding a whistle looks for (`f (f x)` after `f x`).
+  static bool embedsStrictly(Attribute pattern, Attribute value) {
+    auto v = split(value);
+    return v && llvm::any_of(v->second, [&](Attribute part) {
+             return instance(pattern, part) || embedsStrictly(pattern, part);
+           });
+  }
+
 
   // The patterns of `fn`'s parameters as values of its origin's: a clone's
   // key, kept as text in idr.spec_key (as attributes, the closure labels in
@@ -500,28 +526,43 @@ struct Specializer {
   }
 
   // Whether the call passes static arguments that grow over `own`, the key
-  // of the clone it was made in: each is that clone's own pattern or
-  // contains it, and one strictly.
+  // of the latest clone of its callee's origin on its chain: each is that
+  // clone's own pattern or strictly contains an instance of it (holes match
+  // anything), and one differs.
   static bool grows(ArrayAttr own, ArrayAttr key) {
     if (!own || own.size() != key.size())
       return false;
     bool strictly = false;
     for (auto [before, after] : llvm::zip(own.getValue(), key.getValue())) {
-      if (before == after)
+      // A position one of the clones never reads says nothing either way.
+      if (before == after || isUnused(before) || isUnused(after))
         continue;
-      if (isHole(before) || isUnused(before) || isHole(after) || !within(before, after))
+      if (isHole(before) || isHole(after) || !embedsStrictly(before, after))
         return false;
       strictly = true;
     }
     return strictly;
   }
 
-  // Whether `fn` branches on argument `i` in its body: the scrutinee of a
-  // match with more than one region, or a closure it applies. (A match of
-  // one region only takes a record apart.)
-  static bool scrutinized(func::FuncOp fn, unsigned i) {
-    return llvm::any_of(fn.getArgument(i).getUses(), [](OpOperand &use) {
+  // Whether `fn` branches on argument `i`: it is the scrutinee of a match
+  // with more than one region, or a closure the function applies, in `fn`
+  // or in a function `fn` passes it to (a wrapper). A match of one region
+  // only takes a record apart.
+  bool scrutinized(func::FuncOp fn, unsigned i) {
+    llvm::DenseSet<std::pair<Operation *, unsigned>> seen;
+    return scrutinized(fn, i, seen);
+  }
+
+  bool scrutinized(func::FuncOp fn, unsigned i,
+                   llvm::DenseSet<std::pair<Operation *, unsigned>> &seen) {
+    if (fn.isExternal() || !seen.insert({fn.getOperation(), i}).second)
+      return false;
+    return llvm::any_of(fn.getArgument(i).getUses(), [&](OpOperand &use) {
       Operation *user = use.getOwner();
+      if (auto call = dyn_cast<func::CallOp>(user)) {
+        auto target = symbols.lookup<func::FuncOp>(call.getCallee());
+        return target && scrutinized(target, use.getOperandNumber(), seen);
+      }
       if (use.getOperandNumber() != 0)
         return false;
       if (isa<idr::ApplyOp>(user))
@@ -529,6 +570,7 @@ struct Specializer {
       return isa<idr::MatchOp, idr::MatchLitOp>(user) && user->getNumRegions() > 1;
     });
   }
+
 
   // In a clone's call of its own origin, a static argument that is not the
   // clone's own pattern, and that the callee never branches on, only varies
@@ -581,7 +623,7 @@ struct Specializer {
   // Whether the call now calls a clone.
   bool specialize(func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
-    if (!callee || callee.isExternal() || call->hasAttr(stopped))
+    if (!callee || callee.isExternal())
       return false;
     SmallVector<Shape> shapes = llvm::map_to_vector(call.getOperands(), [](Value v) {
       return shape(v);
@@ -606,15 +648,27 @@ struct Specializer {
                                     compose(callee, patterns))
                    : std::make_pair(callee.getSymNameAttr(),
                                     ArrayAttr::get(module.getContext(), patterns));
+    // A stopped call stays stopped while its key is the one it stopped at.
+    // Inlining may since have made it more static (a clone chain that built
+    // a vector's spine inlined into its caller); then it is checked again.
+    std::string keyText;
+    llvm::raw_string_ostream keyStream(keyText);
+    key.second.print(keyStream);
+    if (auto at = call->getAttrOfType<StringAttr>(stoppedAt)) {
+      if (at.getValue() == keyText)
+        return false;
+      call->removeAttr(stopped);
+      call->removeAttr(stoppedAt);
+    }
     func::FuncOp clone = clones.lookup(key);
     if (!clone) {
       if (grows(own, key.second)) {
-        stop(call, callee,
+        stop(call, callee, keyText,
              llvm::formatv("@{0} passes itself a static value that grows", origin(callee)).str());
         return false;
       }
       if (counts.lookup(origin(callee)) >= limit) {
-        stop(call, callee,
+        stop(call, callee, keyText,
              llvm::formatv("the clone limit of {0} clones of @{1} is reached", limit,
                            origin(callee))
                  .str());
@@ -654,6 +708,8 @@ struct Specializer {
     OpBuilder b(call);
     auto replacement = func::CallOp::create(b, call.getLoc(), clone, operands);
     replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
+    replacement->removeAttr(stopped);
+    replacement->removeAttr(stoppedAt);
     call.replaceAllUsesWith(replacement.getResults());
     call.erase();
     return true;

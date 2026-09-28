@@ -427,6 +427,11 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects ") << key << " as a string attribute of a function";
     return success();
   }
+  if (key == "idr.spec_stopped_at") {
+    if (!isa<func::CallOp>(op) || !isa<StringAttr>(attr.getValue()))
+      return op->emitOpError("expects idr.spec_stopped_at as a string attribute of a call");
+    return success();
+  }
   if (key == "idr.spec_stopped") {
     if (!isa<func::FuncOp, func::CallOp>(op) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects idr.spec_stopped as a unit attribute of a function or call");

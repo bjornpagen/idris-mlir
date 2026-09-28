@@ -249,7 +249,15 @@ runtime operands left out, and those operands are its *runtime leaves*.
   `idr.clone_counts`, so the rounds of the simplify loop share it. A call
   that the growth check or the limit stops stays a call of the function it
   called, with a `Missed` remark naming the reason, and the call and its
-  callee get `idr.spec_stopped`, so later runs leave the call alone. A
+  callee get `idr.spec_stopped`, and the call records the key it stopped
+  at (`idr.spec_stopped_at`): later runs leave it alone while its key stays
+  that one, and check it again once inlining has made it more static (a
+  vector whose spine a chain of clones built). Growth is embedding: each
+  static argument is the earlier pattern or strictly contains an instance
+  of it, holes matching anything (`f (f x)` after `f _`). Whether the callee
+  branches on an argument follows it into the functions the callee passes
+  it to (a wrapper that passes a vector on to the function that matches
+  on it). A
   closure that then survives is a `PROF-HEAP-4` rejection. Both stops
   apply only to specializations that would not end, so acceptance depends
   on neither for any program `PROF-HEAP-4` does not name; generalization is
