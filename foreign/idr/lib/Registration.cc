@@ -11,14 +11,14 @@ void idr::registerIdr(DialectRegistry &registry) {
   registry.insert<IdrDialect>();
 }
 
-// OPT-PIPE-1, steps 1-11. Step 11 (LLVM) happens in idris-mlir-cc.
+// OPT-PIPE-1 (docs/cutover.md 6.3). LLVM's own pipeline runs in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
-      "inline",
-      "sccp",
+      "idr-simplify",
+      "idr-defunctionalize",
       "canonicalize",
-      "cse",
-      "symbol-dce",
+      "idr-tail-loops",
+      "idr-check-profile",
       "idr-lower",
       "canonicalize,cse",
       "convert-scf-to-cf,convert-to-llvm,reconcile-unrealized-casts",
