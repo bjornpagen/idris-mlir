@@ -1,4 +1,4 @@
-// Compiling a round of compile-time evaluation (ELIM-EVAL-1): ORC's
+// Compiling a round of compile-time evaluation: ORC's
 // LLJIT, not mlir::ExecutionEngine, which aborts in a static musl process
 // (PINS.md: orc-lljit). Nothing is linked from the process by name: the
 // runtime's entry points, which idris-mlir-cc links natively, and the libc
@@ -20,7 +20,7 @@ public:
   using Entry = void (*)(void *);
 
   // Translates `module` (LLVM dialect) to LLVM IR, optimizes it as
-  // idris-mlir-cc optimizes executables for the host CPU (LOW-TARGET-1),
+  // idris-mlir-cc optimizes executables for the host CPU,
   // compiles it once, and finds `entries`. On failure, says why in `error`.
   static std::unique_ptr<Jit> compile(mlir::ModuleOp module, llvm::ArrayRef<std::string> entries,
                                       std::string &error);

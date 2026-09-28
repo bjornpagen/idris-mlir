@@ -1,4 +1,3 @@
-// rule: FE-TR-7
 // The hook fires: full Core calls neither `Builtin.rewrite__impl` nor
 // `Builtin.replace`, and each function returns the box it was given: its
 // body ends in a bare variable.

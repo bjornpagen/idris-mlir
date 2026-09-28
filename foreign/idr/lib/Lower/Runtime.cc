@@ -146,7 +146,7 @@ Value Runtime::pack(OpBuilder &b, Location loc, Type structType, ValueRange memb
   return value;
 }
 
-// LOW-STR-2: the header (count 0: static data), the byte length and the
+// A string: the header (count 0: static data), the byte length and the
 // scalar count, which the runtime computes, then the bytes.
 Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
   auto key = std::make_pair(Attribute(b.getStringAttr(bytes)), Type(StrType::get(b.getContext())));
@@ -173,7 +173,7 @@ Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
   return addressOf(b, loc, it->second);
 }
 
-// LOW-BIG-1: the runtime reads the decimal text (one semantics for what a
+// A big: the runtime reads the decimal text (one semantics for what a
 // big literal denotes); a small result is its tagged word, any other a
 // static idris_rt_bignum whose limbs are static too.
 Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {

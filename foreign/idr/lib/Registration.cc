@@ -1,4 +1,4 @@
-// Registration of the idr dialect, passes and pipeline (DRV-OPT-1, OPT-PIPE-1).
+// Registration of the idr dialect, passes and pipeline.
 
 #include "idr/Idr.h"
 
@@ -11,7 +11,7 @@ void idr::registerIdr(DialectRegistry &registry) {
   registry.insert<IdrDialect>();
 }
 
-// OPT-PIPE-1. LLVM's own pipeline runs in idris-mlir-cc.
+// The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
       "idr-simplify",

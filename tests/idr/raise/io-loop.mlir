@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-simplify > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-tail-loops --idr-check-profile | FileCheck %s --check-prefix=LOOP
-// rule: ELIM-G-5, OPT-PIPE-3, OPT-PIPE-5, LOW-TAIL-5, PROF-HEAP-1
 // An IO loop, in the shape Emit gives it: @countdown, a loop breaker,
 // returns the action `put n >>= \_ => countdown (n - 1)`, where @bind runs
 // its first action, then applies the function it is given and runs the

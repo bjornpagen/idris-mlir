@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-CLOS-1, IDR-CONST-1
 // A closure whose captures are constants is a constant.
 
 func.func private @add(%a: i64, %b: i64) -> i64 {

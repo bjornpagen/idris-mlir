@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-DATA-1, LOW-DATA-2, LOW-DATA-3, LOW-ERASE-1, LOW-MATCH-1, LOW-UP-1
 // S has three constructors, so an i8 tag; B's i32 and C's flattened P
 // (i64, i8) get separate slots; the erased field has none. The match reads
 // each case's fields in its region; with no default, the last case is the

@@ -3,7 +3,6 @@
 // RUN: %status 1 %t > %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=OUT < %t.out
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
-// rule: LOW-CRASH-1, LOW-CRASH-2, SEM-CRASH-1, SEM-IO-4
 // A crash writes pending output, then its message with the Idris location
 // to stderr, and exits with status 1; nothing after it runs.
 // OUT: before

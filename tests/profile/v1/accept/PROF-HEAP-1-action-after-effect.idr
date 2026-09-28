@@ -2,7 +2,6 @@
 -- stdout: ready\n0\n
 module Main
 
--- rule: PROF-HEAP-1, OPT-SAFE-1, SEM-EVAL-2
 -- The action `report d` is built, then "ready" is written, then the action
 -- runs. No closure of it survives to runtime, and the division is not
 -- moved before the write: it runs where Idris runs it, as Chez does. On

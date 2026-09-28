@@ -1,10 +1,9 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
-// rule: ELIM-G-5, ELIM-G-1, ELIM-G-7, IDR-WORLD-1, TEST-ELIM-1
 // countdown returns an action, and main applies it at once to a world, so
-// idr-specialize calls a clone of countdown that takes the world (ELIM-G-5).
+// idr-specialize calls a clone of countdown that takes the world.
 // In the clone the apply meets the closures the body built and becomes a
-// call (ELIM-G-1), and the clone calls itself. No closure is left, and the
+// call, and the clone calls itself. No closure is left, and the
 // output is fused. This is tests/idr/raise/io-loop.mlir, from Idris.
 // CHECK: call @Main.countdown$raise${{[0-9]+}}(
 // CHECK: func.func private @Main.countdown$raise${{[0-9]+}}({{.*}}!idr.world

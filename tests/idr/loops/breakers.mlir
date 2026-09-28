@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-loop-breakers | FileCheck %s
-// rule: OPT-PIPE-3, OPT-PIPE-5
 // idr-loop-breakers cuts every cycle of references among the functions that
 // may be inlined, calls and closures alike, at the start of every round.
 

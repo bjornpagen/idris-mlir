@@ -1,6 +1,5 @@
 // input: emitted
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.Mnd --implicit-check-not=@Main.Loud
-// rule: FE-TR-6, TEST-EMIT-1
 // No dictionary exists at runtime: neither interface's data type is
 // emitted, only the user's state type.
 // CHECK: idr.data @Main.St

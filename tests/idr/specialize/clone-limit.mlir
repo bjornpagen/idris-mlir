@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline="builtin.module(idr-specialize{clone-limit=3},canonicalize,idr-specialize{clone-limit=3})" --remarks-filter-missed=idr-specialize > %t.mlir 2> %t.remarks
 // RUN: FileCheck %s < %t.mlir
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
-// rule: ELIM-SPEC-1, ELIM-SPEC-2, PROF-HEAP-4, DIAG-HEAP-1
 // A counter that @count branches on, called with the constant 100 and a
 // runtime accumulator: each clone's own call has the next constant counter,
 // which stays static (a counter, not an accumulator), and each clone is

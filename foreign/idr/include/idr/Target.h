@@ -1,5 +1,5 @@
-// The LLVM side of OPT-PIPE-1 that idris-mlir-cc and idr-eval's JIT share
-// (LOW-TARGET-1): one semantics for Double at compile time and at runtime.
+// The LLVM side of the pipeline that idris-mlir-cc and idr-eval's JIT
+// share: one semantics for Double at compile time and at runtime.
 #pragma once
 
 #include "llvm/IR/Module.h"
@@ -8,7 +8,7 @@
 
 namespace idr {
 
-// No fast-math and no FP contraction anywhere (docs/plan.md section 5.7):
+// No fast-math and no FP contraction anywhere:
 // `+` and `*` are IEEE operations, never fused.
 llvm::TargetOptions targetOptions();
 

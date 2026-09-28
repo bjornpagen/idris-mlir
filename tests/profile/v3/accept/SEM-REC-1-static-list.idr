@@ -2,7 +2,6 @@
 -- stdout: 3\n6\n
 module Main
 
--- rule: SEM-REC-1
 -- Recursive data built and consumed at compile time: a list and mutually
 -- recursive types. Nothing of them exists at runtime.
 

@@ -1,6 +1,5 @@
 module Prog
 
--- rule: PROF-DATA-4
 public export
 data Never : Type where
 

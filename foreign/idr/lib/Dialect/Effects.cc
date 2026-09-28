@@ -1,5 +1,4 @@
-// idr-effects: the facts idr.effect and idr.may_crash of every function
-// (IDR-FACT-1, OPT-PIPE-5).
+// idr-effects: the facts idr.effect and idr.may_crash of every function.
 
 #include "idr/Idr.h"
 

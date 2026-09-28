@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-check-profile
-// rule: ELIM-CLOS-1, PROF-HEAP-1
 // A function picked at runtime between two labels, one with a capture: the
 // closure type becomes a sum with a constructor per label, whose fields are
 // the captures, and the application a match that calls the label. What is

@@ -1,5 +1,5 @@
-// The memory gate's runtime prototype, over snmalloc. runtime.h has the ABI and the cell layout;
-// bench/gate/README.md has the build and the experiments.
+// The memory gate's runtime prototype, over snmalloc. runtime.h has the ABI and
+// the cell layout; bench/gate/README.md has the build and the experiments.
 //
 // Restricted C++ as the real runtime will be: no exceptions, no
 // RTTI, no standard containers; threads are pthreads.

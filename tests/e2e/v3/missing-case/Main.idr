@@ -1,6 +1,5 @@
 module Main
 
--- rule: SEM-CRASH-2, PROF-FN-5, LOW-CRASH-2
 -- A definition with missing cases runs until an input it does not cover,
 -- then crashes; the output before the crash is written. On Chez the crash
 -- message ("ERROR: ...", SEM-DEV-1) goes to stdout through Chez's own port,

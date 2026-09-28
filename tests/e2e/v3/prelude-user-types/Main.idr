@@ -1,6 +1,5 @@
 module Main
 
--- rule: ELIM-EVAL-1, ELIM-G-6, FE-TR-6, SEM-REC-2, PROF-PROG-4
 -- User types with the Prelude's interfaces: Show with showPrec, showCon
 -- and showArg; Eq; Ord through compare; Semigroup and Monoid (concat);
 -- Functor on a recursive tree, summed through Num. Chars and strings are

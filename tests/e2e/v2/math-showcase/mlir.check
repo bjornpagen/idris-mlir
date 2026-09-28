@@ -1,5 +1,4 @@
 // input: after idr-tail-loops
-// rule: LOW-TAIL-5, LOW-TAIL-4, ELIM-CLOS-1
 // The IO loops that print the Mandelbrot set return actions and call
 // themselves inside them. Once idr-defunctionalize has made their closures
 // sums over labels, and the matches on known labels are folded, they are

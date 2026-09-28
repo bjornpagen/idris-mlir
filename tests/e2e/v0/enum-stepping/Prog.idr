@@ -1,6 +1,5 @@
 module Prog
 
--- rule: IDR-MATCH-2, PROF-FN-6
 public export
 data Day = Mon | Tue | Wed | Thu | Fri | Sat | Sun
 

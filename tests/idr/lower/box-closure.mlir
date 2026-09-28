@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-BOX-1, LOW-CLOS-1, LOW-RT-1
 // A boxed constructor is a new cell: the runtime allocates it, then its
 // header (count 1, the tag) and its fields are stored at their offsets. A
 // match on a box reads the tag from the header, and each case its fields

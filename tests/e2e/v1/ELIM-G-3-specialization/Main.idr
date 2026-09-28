@@ -3,13 +3,13 @@ module Main
 import Prelude
 
 -- A recursive function passed a function: the loop is specialized on the
--- closure, one copy per static function argument (ELIM-SPEC-1).
+-- closure, one copy per static function argument.
 iter : (Int -> Int) -> Int -> Int -> Int
 iter f 0 x = x
 iter f n x = iter f (prim__sub_Int n 1) (f x)
 
 -- The number comes from stdin, so that the calls are not evaluated at
--- compile time (ELIM-EVAL-1).
+-- compile time.
 partial
 main : IO ()
 main = do

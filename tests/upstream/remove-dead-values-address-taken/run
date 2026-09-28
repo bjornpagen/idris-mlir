@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-PIN-4
 # The upstream bug upstream/remove-dead-values-address-taken still
 # reproduces with the pinned mlir-opt. When this fails, the bug is fixed:
 # delete idr-prune's poison operands, the PINS.md entry

@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-BOOT-1, TEST-CMD-1
 # The Makefile has every command, tools/bootstrap.sh builds the toolchain,
 # and doctor reports the pinned CMake, Ninja, LLVM and sysroot.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

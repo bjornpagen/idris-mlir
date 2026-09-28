@@ -1,9 +1,8 @@
 #!/bin/sh
-# rule: TC-RT-4, LOW-BIG-1, LOW-STR-2, SEM-STR-2, SEM-INT-3
 # The runtime's big and string operations print what Chez computes, and the
 # casts from String follow the grammar of idris_rt.h.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-# The runtime archive the build made (TC-RT-1), linked natively with GMP.
+# The runtime archive the build made, linked natively with GMP.
 runtime=$root/build/dev/runtime/libidris_rt.a
 build_test() {
   if "$pinned_cc" -O1 -I"$root/runtime" "$1" "$runtime" -lgmp -o "$2" > "$work/cc.log" 2>&1; then
@@ -14,7 +13,7 @@ build_test() {
     return 1
   fi
 }
-# Chez Scheme, found as tools/bootstrap.sh finds it for Idris (TC-PIN-3).
+# Chez Scheme, found as tools/bootstrap.sh finds it for Idris.
 chez=
 for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
   if command -v "$chez_name" > /dev/null 2>&1; then chez=$chez_name; break; fi

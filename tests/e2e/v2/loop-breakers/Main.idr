@@ -1,6 +1,5 @@
 module Main
 
--- rule: OPT-PIPE-3
 -- Two functions that call each other form one strongly connected
 -- component: the first is its loop breaker, which the inliner leaves alone,
 -- so the other is inlined into it and it becomes self recursive.

@@ -1,4 +1,3 @@
-;; rule: SEM-DBL-5
 ;; Prints number->string of each double whose bits (hex, one per line) are in
 ;; the file named by the first argument, one per line.
 (let ([in (open-input-file (car (command-line-arguments)))]

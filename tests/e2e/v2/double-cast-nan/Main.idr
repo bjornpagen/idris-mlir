@@ -1,6 +1,5 @@
 module Main
 
--- rule: SEM-DBL-4, LOW-DBL-1, SEM-CRASH-1
 -- Casting NaN to Int crashes, after the output written so far.
 
 import Builtin

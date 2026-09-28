@@ -1,4 +1,4 @@
-||| The fuzzer (TEST-FUZZ-1): programs of closed pure expressions
+||| The fuzzer: programs of closed pure expressions
 ||| over every primitive, each printed from `main`, which the harness
 ||| compiles three ways, with evaluation, with `--no-eval` and with the stock
 ||| Chez backend, and whose outputs must agree (tests/fuzz,
@@ -18,28 +18,26 @@
 |||   leaves to runtime.
 ||| - `r<n>`, with its leaves behind `hide<T> 1`, a partial identity (it
 |||   recurses on an Int, so Idris does not prove it terminating): partial
-|||   code is never evaluated (SEM-EVAL-6), so the expression is computed at
+|||   code is never evaluated, so the expression is computed at
 |||   runtime in every build.
 |||
 ||| The three lines of a case must print the same value, in every build, and
 ||| each line the same as Chez prints. A case whose value goes through the
 ||| libm functions that the two C libraries may round differently (exp, log,
-||| pow and the trigonometric functions: SEM-DBL-3, SEM-DEV-2) has lines
+||| pow and the trigonometric functions) has lines
 ||| labelled `L...`; those are compared among this compiler's builds only.
 |||
 ||| The `runtime` part holds what may exist at runtime: the integer types,
 ||| Double, Char, a small sum type, and strings that are only written or
-||| taken apart without allocating (PROF-PRIM-4). The `static` part
-||| holds Integer and every string builder, which exist at compile time only
-||| (PROF-TYPE-4, PROF-HEAP-3): it has `d` and `j` lines, and is compiled with
-||| evaluation and by Chez.
+||| taken apart without allocating. The `static` part holds Integer and
+||| every string builder, which may allocate and so exist at compile time
+||| only: it has `d` and `j` lines, and is compiled with evaluation and by
+||| Chez.
 |||
 ||| Division has a divisor that is a nonzero leaf; casts from Double to an
 ||| integer, from Int to Char and from String take leaves in their domain;
 ||| strings are taken apart within their bounds. Everything else is any value
 ||| of its type, NaN, the infinities, -0.0 and subnormals included.
-|||
-||| rule: SEM-REF-1, SEM-EVAL-6, SEM-EVAL-7, ELIM-G-6, ELIM-EVAL-1, SEM-STR-2, SEM-DBL-5
 module Fuzz
 
 import Control.Monad.State

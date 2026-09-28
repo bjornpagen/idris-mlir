@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-CONST-1, LOW-STR-2, LOW-BIG-1, LOW-BOX-1, LOW-CLOS-1, IDR-CONST-1
 // Every constant of a string, a big outside the small range, a box or a
 // closure is a private constant global with count 0, shared when equal. A
 // string's header holds the ASCII flag, the byte length and the scalar count

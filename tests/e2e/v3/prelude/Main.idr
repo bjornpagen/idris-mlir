@@ -1,6 +1,5 @@
 module Main
 
--- rule: PROF-PROG-4, PROF-LIB-1, ELIM-EVAL-1, ELIM-G-7, PROF-TYPE-4, SEM-REC-1
 -- The stock Prelude, imported explicitly: Num, Neg, Integral, Eq, Ord,
 -- Bool, if, && and ||, Maybe, Pair, cast, and show on Int, Double and Bool.
 -- Its Integer literals, its Nat inside Prec and its show internals are all

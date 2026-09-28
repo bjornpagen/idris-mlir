@@ -31,9 +31,9 @@ Value constantI64(OpBuilder &b, Location loc, int64_t value) {
   return arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(value));
 }
 
-// LOW-DATA-2: an unboxed constructor is its tag and its components in their
-// slots, poison in the slots it does not use. LOW-BOX-1: a boxed one is a new
-// cell holding its tag and components.
+// An unboxed constructor is its tag and its components in their slots,
+// poison in the slots it does not use. A boxed one is a new cell holding its
+// tag and components.
 struct LowerCon : IdrPattern<ConOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ConOp op, OneToNOpAdaptor adaptor,
@@ -66,7 +66,7 @@ struct LowerCon : IdrPattern<ConOp> {
   }
 };
 
-// LOW-DATA-2: the tag slot, extended to i64, or 0 for one constructor; a
+// The tag slot, extended to i64, or 0 for one constructor; a
 // box's tag is in its header.
 struct LowerTag : IdrPattern<TagOp> {
   using IdrPattern::IdrPattern;
@@ -88,7 +88,7 @@ struct LowerTag : IdrPattern<TagOp> {
   }
 };
 
-// LOW-DATA-2: the components of a field from its constructor's slots, or
+// The components of a field from its constructor's slots, or
 // loaded from a box's cell.
 struct LowerField : IdrPattern<FieldOp> {
   using IdrPattern::IdrPattern;
@@ -113,7 +113,7 @@ struct LowerField : IdrPattern<FieldOp> {
   }
 };
 
-// LOW-CONST-1: strings, bigs, boxes and closures are static data; an unboxed
+// Strings, bigs, boxes and closures are static data; an unboxed
 // constant is its components.
 struct LowerConstant : IdrPattern<ConstantOp> {
   using IdrPattern::IdrPattern;
@@ -125,7 +125,7 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
-// LOW-CLOS-1: a new cell with the label, its code and the captures.
+// A new cell with the label, its code and the captures.
 struct LowerClosure : IdrPattern<ClosureOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ClosureOp op, OneToNOpAdaptor adaptor,
@@ -144,7 +144,7 @@ struct LowerClosure : IdrPattern<ClosureOp> {
   }
 };
 
-// LOW-CLOS-1: a call of the closure's code with the closure and the
+// A call of the closure's code with the closure and the
 // arguments.
 struct LowerApply : IdrPattern<ApplyOp> {
   using IdrPattern::IdrPattern;
@@ -176,7 +176,7 @@ struct LowerApply : IdrPattern<ApplyOp> {
   }
 };
 
-// LOW-CRASH-2: the runtime's crash, which does not return; the
+// The runtime's crash, which does not return; the
 // ub.unreachable after it stays.
 struct LowerCrash : IdrPattern<CrashOp> {
   using IdrPattern::IdrPattern;
@@ -188,8 +188,8 @@ struct LowerCrash : IdrPattern<CrashOp> {
   }
 };
 
-// LOW-TAIL-4: an effect no MLIR pass removes, and LLVM keeps too, so a loop
-// that may not terminate stays (SEM-EVAL-5).
+// An effect no MLIR pass removes, and LLVM keeps too, so a loop that may
+// not terminate stays.
 struct LowerMayLoop : IdrPattern<MayLoopOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
@@ -215,7 +215,7 @@ struct LowerPoison : IdrPattern<ub::PoisonOp> {
   }
 };
 
-// LOW-SEL-1: a select of an idr value selects each of its components.
+// A select of an idr value selects each of its components.
 struct LowerSelect : IdrPattern<arith::SelectOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(arith::SelectOp op, OneToNOpAdaptor adaptor,
@@ -229,7 +229,6 @@ struct LowerSelect : IdrPattern<arith::SelectOp> {
   }
 };
 
-// LOW-DIV-1
 template <typename OpT>
 struct LowerDivision : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -260,7 +259,7 @@ struct LowerDivision : IdrPattern<OpT> {
                              : Value(arith::RemUIOp::create(rewriter, loc, a, safe));
     } else {
       // MIN / -1 and division by zero (already crashed) use divisor 1, which
-      // gives MIN and 0: exactly the wrapped Euclidean results (SEM-INT-3).
+      // gives MIN and 0: exactly the wrapped Euclidean results.
       Value min = constant(APInt::getSignedMinValue(width));
       Value minusOne = constant(APInt::getAllOnes(width));
       Value isMin = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, a, min);
@@ -290,7 +289,6 @@ struct LowerDivision : IdrPattern<OpT> {
   }
 };
 
-// LOW-CHAR-1
 struct LowerToChar : IdrPattern<ToCharOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ToCharOp op, OpAdaptor adaptor,
@@ -317,7 +315,7 @@ struct LowerToChar : IdrPattern<ToCharOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Runtime calls (LOW-RT-1)
+// Runtime calls
 //===----------------------------------------------------------------------===//
 
 // The runtime function of an op is named after it (Idr_CallsRuntime). Where
@@ -345,7 +343,7 @@ Value notFinite(OpBuilder &b, Location loc, Value x) {
   return arith::XOrIOp::create(b, loc, finite, yes);
 }
 
-// IDR-EFF-1: where the op crashes; checked before the call, whose runtime
+// Where the op crashes; checked before the call, whose runtime
 // function assumes it does not.
 Value crashCondition(StrIndexOp, OpBuilder &b, Location loc, Runtime &runtime,
                      ArrayRef<Value> args) {
@@ -364,7 +362,7 @@ Value crashCondition(StrTailOp, OpBuilder &b, Location loc, Runtime &runtime,
                      ArrayRef<Value> args) {
   return emptyString(b, loc, runtime, args[0]);
 }
-// LOW-BIG-1: zero is the small word 1.
+// Zero is the small word 1.
 Value bigZero(OpBuilder &b, Location loc, Value big) {
   return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, big, constantI64(b, loc, 1));
 }

@@ -2,7 +2,6 @@
 -- stdout: 55\n
 module Main
 
--- rule: SEM-REC-2, SEM-REC-1, ELIM-EVAL-1
 -- Codata: an infinite Stream is a closure of no arguments, forced by name,
 -- and taken apart only as far as it is forced. `take` is total, so the
 -- closed call is evaluated at compile time and the list never exists at

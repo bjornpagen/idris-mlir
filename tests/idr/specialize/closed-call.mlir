@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: ELIM-SPEC-1, SEM-EVAL-6, ELIM-ERASE-1
 // A closed call is never specialized: one to a total function is left to
 // idr-eval, and one to a function without idr.total is left alone (partial
 // code is never evaluated, and specializing it would unroll it one clone at a

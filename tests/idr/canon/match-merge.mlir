@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-MATCH-5, IDR-MATCH-6
 // Identical regions merge: a case that does what the default does goes to
 // the default, and without a default, cases that do the same become it.
 

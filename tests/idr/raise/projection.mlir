@@ -1,12 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: ELIM-G-5, ELIM-G-2, IDR-FACT-1, IDR-FN-1
 // An IO action is a closure in a constructor (MkIO). When the result of a
 // call is projected and applied at once, the projection moves with the
 // apply: in the clone of @greet it meets the constant action of one region
 // and the constructor of the other, and both fold to a call of the
 // closure's function. The clone is total, as its callee and every function
-// it applies are; it is effectful as its callee is (IDR-FACT-1). Where
+// it applies are; it is effectful as its callee is. Where
 // what a tail applies is not known here (@same returns its parameter), the
 // clone applies the field it reads, and is not total.
 // CHECK: idr.clone_counts = {greet = 1 : i64, same = 1 : i64}

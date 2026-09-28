@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-CHAR-1
 module {
   // CHECK-LABEL: func.func @chars
   // CHECK-DAG: %[[L:.*]] = arith.constant 955 : i32

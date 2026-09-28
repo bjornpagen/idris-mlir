@@ -1,4 +1,4 @@
-// Running a round's calls in a child process (ELIM-EVAL-1, EVAL-1).
+// Running a round's calls in a child process.
 // idris-mlir-cc runs MLIR single-threaded; elsewhere a module pass runs
 // alone, so any threads of MLIR's pool wait idle, holding no lock the child
 // needs, when it forks. The child runs the calls on a stack reserved as large
@@ -30,7 +30,7 @@ struct Run {
     Done,
     // A call crashed; `message` is what the runtime reported.
     Crashed,
-    // The machine refused memory or stack, or killed the child (EVAL-1).
+    // The machine refused memory or stack, or killed the child.
     Exhausted,
     // Anything else: an internal error, described by `message`.
     Failed,

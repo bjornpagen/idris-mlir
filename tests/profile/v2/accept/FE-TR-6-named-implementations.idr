@@ -2,7 +2,6 @@
 -- stdout: 13\n42\n
 module Main
 
--- rule: FE-TR-6
 -- Named implementations chosen statically in each branch.
 
 import Prelude

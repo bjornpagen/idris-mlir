@@ -1,7 +1,6 @@
 #!/bin/sh
-# rule: HOOK-NAME-1
-# The compiler names Idris definitions only in its registry
-# (docs/architecture/17-registry.md): outside compiler/src/IdrisMLIR/Registry.idr
+# The compiler names Idris definitions only in its registry: outside
+# compiler/src/IdrisMLIR/Registry.idr
 # and compiler/src/IdrisMLIR/Registry/, no string literal in compiler/src or in
 # the dialect's sources under foreign/idr is a qualified Idris name or a
 # namespace the registry classifies, and no Idris name is built from a

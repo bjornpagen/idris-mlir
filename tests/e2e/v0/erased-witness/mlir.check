@@ -1,5 +1,4 @@
 // input: emitted
-// rule: IDR-MATCH-4, IDR-FN-1, TEST-EMIT-1
 // Quantities: an erased argument stays a parameter of type !idr.erased
 // with quantity "0", and a linear one has quantity "1".
 // CHECK-DAG: func.func private @Prog.clamp(%{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: !idr.erased {idr.quantity = "0"}) -> i64

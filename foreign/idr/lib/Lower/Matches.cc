@@ -1,4 +1,4 @@
-// Phase 1 of idr-lower: matches become scf, still on idr types (LOW-MATCH-1).
+// Phase 1 of idr-lower: matches become scf, still on idr types.
 
 #include "Lower/Patterns.h"
 

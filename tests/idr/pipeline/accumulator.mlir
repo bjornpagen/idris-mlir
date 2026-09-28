@@ -3,7 +3,6 @@
 // RUN: FileCheck %s --check-prefix=REMARK --allow-empty < %t.err
 // RUN: idris-mlir-opt %t.mlir --idr-simplify --remarks-filter="idr-(simplify|specialize)" > %t2.mlir 2> %t2.err
 // RUN: FileCheck %s --check-prefix=AGAIN < %t2.err
-// rule: OPT-PIPE-5, OPT-IDEM-1, ELIM-SPEC-1, ELIM-SPEC-2
 // An accumulator through the whole simplify loop: @count is called with a
 // constant accumulator and a counter read at runtime. The first call is
 // specialized on the accumulator; the clone's own call passes a new constant

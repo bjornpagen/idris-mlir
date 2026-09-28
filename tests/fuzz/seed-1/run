@@ -1,10 +1,9 @@
 #!/bin/sh
-# rule: SEM-REF-1, SEM-EVAL-6, ELIM-EVAL-1, ELIM-G-6
 # The fuzzer (tests/Fuzz.idr) on seed 1: closed pure expressions over every
 # primitive, compiled with evaluation, with --no-eval and by Chez, which must
-# agree (TEST-FUZZ-1). IDRIS_MLIR_FUZZ_CASES and
+# agree. IDRIS_MLIR_FUZZ_CASES and
 # IDRIS_MLIR_FUZZ_ROUNDS make it larger; the output stays the same.
-# Dozens of compilations: half an hour in all (TEST-TIME-1).
+# Dozens of compilations: half an hour in all.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 fuzz 1

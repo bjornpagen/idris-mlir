@@ -1,4 +1,4 @@
-// The evaluation child (EVAL-1): fork, a guarded stack as large as the
+// The evaluation child: fork, a guarded stack as large as the
 // address space allows, and the results pipe.
 
 #include "Eval/Child.h"
@@ -48,7 +48,7 @@ bool reserve(Stack &stack) {
   return false;
 }
 
-// A fault on the guard is EVAL-1; any other fault is an internal error, so
+// A fault on the guard is exhaustion; any other fault is an internal error, so
 // the handler steps aside and the fault repeats with the default action.
 void onFault(int signal, siginfo_t *info, void *) {
   auto address = reinterpret_cast<uintptr_t>(info->si_addr);

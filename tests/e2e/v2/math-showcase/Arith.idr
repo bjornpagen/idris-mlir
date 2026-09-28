@@ -1,7 +1,7 @@
 module Arith
 
 -- A small numeric prelude for the math showcase: arithmetic as a user
--- interface (FE-TR-6), with implementations for Double and Int. IO comes from
+-- interface, with implementations for Double and Int. IO comes from
 -- PrimIO, and putStr and `do` from the Prelude's own IO and Interfaces
 -- modules; the rest of the Prelude is not imported, since its names would
 -- clash with these.

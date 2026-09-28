@@ -1,6 +1,5 @@
 module Main
 
--- rule: SEM-REC-2, SEM-REC-1, FE-TR-6, ELIM-SPEC-1
 -- The Prelude's lists and Foldable, the ordinary way: literals and ranges
 -- whose elements are computed at runtime, sum and product (through the
 -- named Additive and Multiplicative monoids), folds with lambdas, map,

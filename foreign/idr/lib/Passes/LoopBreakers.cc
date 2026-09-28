@@ -1,5 +1,5 @@
 // idr-loop-breakers: every cycle of references among the functions that may
-// be inlined keeps a loop breaker (OPT-PIPE-3), at the start of every round
+// be inlined keeps a loop breaker, at the start of every round
 // of the simplify loop.
 //
 // Emit marks the breakers of full Core's call graph. The rounds then close
@@ -30,7 +30,7 @@ namespace idr {
 
 namespace {
 
-// Whether `fn` was written in a library module (IDR-DATA-5: its location is
+// Whether `fn` was written in a library module (its location is
 // fused<"library">).
 bool isLibrary(func::FuncOp fn) {
   Location loc = fn.getLoc();

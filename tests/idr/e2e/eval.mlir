@@ -8,7 +8,6 @@
 // RUN: FileCheck %s --check-prefix=REJECTED < %t-no-eval.err
 // RUN: not ls %t-no-eval.o
 // RUN: %status 3 idris-mlir-cc %s --no-eval --check
-// rule: EVAL-1, SEM-EVAL-6, LOW-JIT-1, DRV-CC-2
 // A closed call of a pure, total function is evaluated at compile time: the
 // program's own lowering runs in the JIT, and the results, among them a
 // string built by the runtime, are static data in the executable, which

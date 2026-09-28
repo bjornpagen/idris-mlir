@@ -1,5 +1,5 @@
 // idr-prune: code that dead-code analysis proves unreachable is emptied
-// before remove-dead-values sees it (OPT-PIPE-5; PINS.md:
+// before remove-dead-values sees it (PINS.md:
 // prune-before-remove-dead-values).
 //
 // remove-dead-values runs the same analyses and treats every value in a
@@ -9,8 +9,8 @@
 // So this pass, with dead-code analysis and constant propagation loaded as
 // remove-dead-values loads them, empties every unreachable function body
 // and match region: a match region ends in `ub.unreachable`, and a function
-// body returns `ub.poison` (a body never ends in `ub.unreachable`,
-// IDR-CRASH-1).
+// body returns `ub.poison` (a body never ends in `ub.unreachable`:
+// PINS.md: inline-unreachable).
 // Nothing reachable changes, so the program means what it meant.
 //
 // remove-dead-values also leaves alone the parameters of a function that a
@@ -18,7 +18,7 @@
 // value passed to one that the function never reads as dead: it erases that
 // value, a parameter of the caller or the op that made it, and the call
 // keeps a null operand (PINS.md: remove-dead-values-address-taken). Raising
-// and apply of a known closure make such calls (ELIM-G-5, ELIM-G-1). So a
+// and apply of a known closure make such calls. So a
 // call of such a function passes `ub.poison` for each parameter it never
 // reads, which nothing reads either.
 

@@ -1,7 +1,6 @@
--- expect: PROF-DATA-3 line 26
+-- expect: PROF-DATA-3 line 25
 module Main
 
--- rule: DIAG-ONE-1, SEM-REC-1, PROF-TYPE-4
 -- Two violations, and only the first is reported. `build` makes a list
 -- whose length is known only at runtime (PROF-DATA-3, as
 -- PROF-DATA-3-runtime-list), and `count` computes with an Integer made from

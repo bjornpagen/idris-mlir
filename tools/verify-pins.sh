@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pins (TC-PIN-1, TC-PIN-2): the Idris submodule at its staged gitlink,
+# The pins: the Idris submodule at its staged gitlink,
 # and the provenance stamps of the tools built under .toolchain/, which
 # commands refuse when missing or stale.
 #

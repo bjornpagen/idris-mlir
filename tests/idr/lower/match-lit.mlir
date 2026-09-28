@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-MATCH-1, IDR-MATCH-6
 // An integer literal match is a switch on the key's zero-extended bits; a
 // string or big match compares with each key in turn, in the else branch of
 // the comparison before, then takes the default.

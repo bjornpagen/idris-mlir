@@ -1,9 +1,8 @@
 #!/bin/sh
-# rule: TEST-ENF-1, ELIM-G-6, SEM-STR-2, SEM-REF-1
-# No primitive has a meaning in the compiler's Idris code (TEST-ENF-1,
-# LOW-RT-1): a primitive means what the runtime computes, and the
-# folders and idr-eval call the runtime's own code, so nothing in
-# compiler/src may compute a primitive's result. A folder, whatever its
+# No primitive has a meaning in the compiler's Idris code: a primitive
+# means what the runtime computes, and the folders and idr-eval call the
+# runtime's own code, so nothing in compiler/src may compute a primitive's
+# result. A folder, whatever its
 # form, has to do one of three things, and each is looked for in the code
 # of every module (comments and the contents of strings removed):
 #
@@ -16,7 +15,7 @@
 #    literal (`Literal`, `LiteralF`) inside another term's constructor, or
 #    one that binds the value of an Idris constant (`I x`, `Db x`, `Str x`,
 #    ...) anywhere but in `constantLit` (in IdrisMLIR.Frontend, the only
-#    modules that see Idris's constants, FE-IN-3).
+#    modules that see Idris's constants).
 #
 # `allowlist` lists the lines allowed anyway, as `path: text -- reason`:
 # serializing a literal is not computing with it. The checks must also see
@@ -46,7 +45,7 @@ for file in $(find compiler/src -name '*.idr' | sort); do
   # ` = ` or `=>` of a line, the expression what comes after (all of a line
   # without either).
   # Idris's constants exist only where the Idris API is imported: in
-  # IdrisMLIR.Frontend (FE-IN-3).
+  # IdrisMLIR.Frontend.
   case $file in compiler/src/IdrisMLIR/Frontend/*) frontend=1 ;; *) frontend=0 ;; esac
   awk -v file="$file" -v literals="$literals" -v terms="$terms" -v constants="$constants" -v frontend="$frontend" \
       -v source="$source_literal" '

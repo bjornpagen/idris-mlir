@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
-// rule: ELIM-CLOS-1, PROF-HEAP-2, SEM-LAZY-1
 // later 0 = Delay 1; later n = Delay (force (later (n - 1))): each level
 // suspends a computation that captures the suspension below, so no finite
 // sum stands for the Lazy type, which stays a closure, and the profile

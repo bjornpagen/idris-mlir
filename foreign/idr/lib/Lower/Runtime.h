@@ -1,7 +1,6 @@
 // What idr-lower adds to a module besides converted ops: calls of the
-// runtime's C functions (LOW-RT-1), static data (LOW-CONST-1), cells
-// (LOW-BOX-1, LOW-CLOS-1) and crashes (LOW-CRASH-1), in executable or JIT
-// mode (LOW-JIT-1).
+// runtime's C functions, static data, cells and crashes, in executable or
+// JIT mode.
 #pragma once
 
 #include "Lower/Layout.h"
@@ -21,7 +20,7 @@ public:
   mlir::Value call(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
                    mlir::Type result, mlir::ValueRange args);
 
-  // A crash at `loc` reporting `cause` (LOW-CRASH-1): idris_rt_crash, or in
+  // A crash at `loc` reporting `cause`: idris_rt_crash, or in
   // JIT mode idris_rt_eval_crash, neither of which returns.
   void crash(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef cause);
   // The same, where `condition` holds at runtime.
@@ -37,7 +36,7 @@ public:
   // The i32 at offset 4 of a cell: a box's tag or a closure's label.
   mlir::Value loadInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
 
-  // The components of the constant `value` of type `type` (IDR-CONST-1):
+  // The components of the constant `value` of type `type`:
   // scalars as LLVM constants, strings, bigs outside the small range, boxes
   // and closures as static data. Usable in code and in the initializer of a
   // global.
@@ -45,7 +44,7 @@ public:
                                           mlir::Attribute value, mlir::Type type);
 
   // The address of the code of `label`'s closures: a function taking the
-  // closure, then the arguments (LOW-CLOS-1).
+  // closure, then the arguments.
   mlir::Value code(mlir::OpBuilder &b, mlir::Location loc, const Label &label);
   // The type of that code, and the code itself, once the functions have
   // their converted signatures.

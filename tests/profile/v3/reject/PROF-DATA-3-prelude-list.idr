@@ -1,7 +1,6 @@
--- expect: PROF-DATA-3 line 11
+-- expect: PROF-DATA-3 line 10
 module Main
 
--- rule: SEM-REC-1
 -- The Prelude's lists are recursive: a list whose length is known only at
 -- runtime would need the heap. The program uses nothing but the Prelude,
 -- its IO included.

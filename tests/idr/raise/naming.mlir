@@ -5,7 +5,6 @@
 // RUN: idris-mlir-opt %s --idr-specialize="clone-limit=1" --remarks-filter-missed=idr-specialize > %t3.mlir 2> %t3.err
 // RUN: FileCheck %s --check-prefix=LIMIT < %t3.mlir
 // RUN: FileCheck %s --check-prefix=REMARK < %t3.err
-// rule: ELIM-G-5, ELIM-SPEC-1, ELIM-SPEC-2, FE-DET-1
 // A clone made by raising is keyed by its callee and the projection before
 // the apply, named @<origin>$raise$<n>, and numbered with the other clones
 // of its origin in order of first request. Calls with equal keys share a

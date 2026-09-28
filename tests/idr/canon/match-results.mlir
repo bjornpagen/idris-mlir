@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-MATCH-5, IDR-MATCH-6
 // Results no one uses are dropped, and a result that every region yields
 // from the same outer value is that value (upstream's region patterns).
 
@@ -42,7 +41,7 @@ func.func @same(%b: !idr.data<@B>, %x: i64, %c: i32) -> i64 {
 }
 
 // A match without effects whose results are unused is dead code; one that
-// may crash is not (SEM-EVAL-4).
+// may crash is not: a crash is an effect.
 // CHECK-LABEL: func.func @dead(
 // CHECK-NOT: idr.match_lit %{{.*}} : i64 -> (i64)
 // CHECK: idr.match_lit %{{.*}} : i64 -> () {

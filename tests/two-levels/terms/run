@@ -1,9 +1,8 @@
 #!/bin/sh
-# rule: SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
 # The two levels (tests/TwoLevels.idr): every primitive, and a corpus of
 # total Prelude functions, on closed terms normalised by the pinned Idris's
-# own evaluator and computed by the compiled program (TEST-LEVELS-1).
-# Dozens of compilations: half an hour in all (TEST-TIME-1).
+# own evaluator and computed by the compiled program.
+# Dozens of compilations: half an hour in all.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 two_levels primitives prelude

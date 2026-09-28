@@ -1,6 +1,5 @@
 module Prog
 
--- rule: IDR-MATCH-3, FE-TR-3, FE-TR-4, IDR-IN-1, IDR-IN-2
 public export
 classify : Int -> Int
 classify 0 = 10

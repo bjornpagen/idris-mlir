@@ -11,7 +11,7 @@ apply None x = x
 apply (Some f) x = f x
 
 -- The number comes from stdin, so that the call is not evaluated at compile
--- time (ELIM-EVAL-1).
+-- time.
 partial
 main : IO ()
 main = do

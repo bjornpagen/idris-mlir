@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-tail-loops > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --inline --canonicalize | FileCheck %s --check-prefix=KEPT
-// rule: LOW-TAIL-4, LOW-TAIL-5, SEM-EVAL-5, OPT-SAFE-1
 // A self tail call in a region of a match whose results are returned
 // becomes one scf.while: the before region is the body, and each tail
 // position yields (continue, arguments, results). A total function's loop

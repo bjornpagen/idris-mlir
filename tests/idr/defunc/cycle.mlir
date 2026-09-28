@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
-// rule: ELIM-CLOS-1, PROF-HEAP-1
 // ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,

@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-CRASH-1, LOW-CRASH-2, LOW-DIV-1, IDR-CRASH-1, IDR-EFF-1
 // idr.crash calls the runtime's crash, which does not return, with its
 // message and location; the ub.unreachable after it stays where it ends a
 // function, and in a match region (now scf) the region yields poison

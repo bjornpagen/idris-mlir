@@ -1,7 +1,6 @@
-||| Qualified Idris names as the registry writes them
-||| (docs/architecture/17-registry.md). Values of `QName` are written only in
-||| the registry: the frontend turns Idris's names into them to ask it, and
-||| the registry does every comparison.
+||| Qualified Idris names as the registry writes them. Values of `QName` are
+||| written only in the registry: the frontend turns Idris's names into them
+||| to ask it, and the registry does every comparison.
 module IdrisMLIR.Registry.Name
 
 import Data.String

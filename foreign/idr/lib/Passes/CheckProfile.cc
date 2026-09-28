@@ -1,22 +1,21 @@
-// idr-check-profile: the heap-free profile on the optimized module
-// (docs/architecture/02-profile.md, heap freedom). It rejects only what
-// would allocate at runtime:
-//   - PROF-DATA-3: a box built from a runtime value;
-//   - PROF-HEAP-1: a closure of arguments built at runtime (one that
-//     idr-defunctionalize could not turn into a sum);
-//   - PROF-HEAP-2: the same for a closure of no arguments (Lazy, Inf);
-//   - PROF-HEAP-4: such a closure that flows into a function whose
-//     specialization that stopped (idr.spec_stopped);
-//   - PROF-HEAP-3: a string built at runtime that is passed on or stored
-//     instead of being written or used to build another string;
-//   - PROF-PRIM-4: a string primitive other than output applied to a string
-//     built at runtime, reported at that primitive;
-//   - PROF-TYPE-4: an Integer computed at runtime.
+// idr-check-profile: the heap-free profile on the optimized module. It
+// rejects only what would allocate at runtime:
+//   - a box built from a runtime value;
+//   - a closure of arguments built at runtime (one that idr-defunctionalize
+//     could not turn into a sum);
+//   - the same for a closure of no arguments (Lazy, Inf);
+//   - such a closure that flows into a function whose specialization
+//     stopped (idr.spec_stopped);
+//   - a string built at runtime that is passed on or stored instead of being
+//     written or used to build another string;
+//   - a string primitive other than output applied to a string built at
+//     runtime, reported at that primitive;
+//   - an Integer computed at runtime.
 // Constants of any size are static data. Values that are only passed along
 // (fields, match results, call results) are judged where they are built.
 //
 // The first violation in op order is reported as `unsupported (<RULE>)` at
-// the innermost user location of the op's call-site chain (DIAG-LOC-1), with
+// the innermost user location of the op's call-site chain, with
 // the library location in parentheses and the callers as notes. The pass
 // then fails; isProfileRejection() recognizes the error.
 
@@ -76,7 +75,7 @@ struct Checker {
     return tables.lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
   }
 
-  // PROF-HEAP-4: whether the closure built by `closure` reaches a call of a
+  // Whether the closure built by `closure` reaches a call of a
   // function whose specialization stopped, through calls, returns, matches and
   // the values it is stored in.
   std::optional<StringRef> reachesStoppedCallee(Operation *closure) {
@@ -110,8 +109,8 @@ struct Checker {
     return std::nullopt;
   }
 
-  // PROF-HEAP-4 also covers a closure built inside a stopped function: its
-  // self tail call may be a loop by now. The function is named by its
+  // A closure built inside a stopped function counts too: its self tail
+  // call may be a loop by now. The function is named by its
   // origin, the one the user wrote.
   std::optional<StringRef> stoppedAt(Operation *closure) {
     auto fn = closure->getParentOfType<func::FuncOp>();
@@ -147,8 +146,8 @@ struct Checker {
                          .str()};
   }
 
-  // PROF-HEAP-3 at the op that builds a string, PROF-PRIM-4 at a string
-  // primitive applied to one.
+  // A string passed on, at the op that builds it, or a string primitive
+  // applied to one.
   std::optional<Violation> builtString(Operation *op) {
     for (Operation *user : op->getUsers()) {
       if (isa<idr::PutStrOp>(user) || isBuilt<idr::StrType>(user))
@@ -229,7 +228,7 @@ std::string position(Location loc) {
   return out;
 }
 
-// DIAG-LOC-1: the error is reported at the innermost user frame.
+// The error is reported at the innermost user frame.
 void report(Operation *op, const Violation &violation) {
   SmallVector<Location> chain;
   frames(op->getLoc(), chain);

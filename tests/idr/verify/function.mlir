@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-FN-1, IDR-FACT-1, CORE-INV-3
 
 // expected-error @+1 {{argument 0 has quantity "w" and type '!idr.erased'; quantity "0" is exactly for !idr.erased}}
 func.func private @f(%e: !idr.erased {idr.quantity = "w"}) {

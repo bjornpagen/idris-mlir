@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize --cse --loop-invariant-code-motion | FileCheck %s
-// rule: IDR-EFF-1, OPT-SAFE-1, SEM-EVAL-4
 // A dead division by a value that may be zero stays, because it may crash;
 // a dead division by a nonzero constant is removed. A division that may
 // crash is not speculated.

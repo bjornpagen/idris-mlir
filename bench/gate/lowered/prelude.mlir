@@ -1,7 +1,8 @@
-// What the lowering puts in every module that has a heap: the runtime prototype's entries (foreign/idr/bench/gate/runtime.h)
-// and the fast paths of the count operations, which LLVM inlines. The
-// programs here are appended to this file before lowering (lower.sh), as
-// idr-lower copies Lower/Runtime.mlir.inc into a module today.
+// What the lowering puts in every module that has a heap: the runtime
+// prototype's entries (foreign/idr/bench/gate/runtime.h) and the fast paths of
+// the count operations, which LLVM inlines. The programs here are appended to
+// this file before lowering (lower.sh), as idr-lower copies
+// Lower/Runtime.mlir.inc into a module today.
 //
 // A cell is an 8-byte header {i32 count, i8 kind, i8 tag, i8 pointer
 // fields, i8 size in words}, then its pointer fields, then its scalars. A

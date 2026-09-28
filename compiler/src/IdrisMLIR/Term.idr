@@ -1,4 +1,4 @@
-||| Full Core (docs/architecture/05-middle-ir.md): the higher-order language
+||| Full Core: the higher-order language
 ||| that `Frontend.Translate` produces from checked TT and `Emit` writes as
 ||| MLIR.
 |||
@@ -99,7 +99,7 @@ mutual
     Call : Loc -> FnId -> List (Term a) -> Term a
     ||| A saturated constructor application; parameters are not fields.
     ConApp : Loc -> ConId -> List (Term a) -> Term a
-    ||| `let`, with its quantity. TTC does not keep let types (FE-TR-1):
+    ||| `let`, with its quantity. TTC does not keep let types:
     ||| `Emit` synthesizes them.
     Let : Loc -> Quantity -> Term a -> Term (Under 1 a) -> Term a
     Case : Loc -> a -> List (Alt a) -> Maybe (Term a) -> Term a
@@ -111,9 +111,9 @@ mutual
     ||| A suspended computation, closure-converted like a lambda.
     Suspend : {k : Nat} -> Loc -> Label -> Vect k a -> Term (Fin k) -> Term a
     Resume : Loc -> Term a -> Term a
-    ||| A branch Idris proved impossible (`FE-TR-4`, `SEM-DATA-2`).
+    ||| A branch Idris proved impossible.
     Unreachable : Loc -> Term a
-    ||| A case the definition does not cover: a crash (`SEM-CRASH-2`).
+    ||| A case the definition does not cover: a crash.
     Crash : Loc -> String -> Term a
 
   ||| A constructor alternative binds the constructor's fields (not its
@@ -307,15 +307,14 @@ public export
 record Con where
   constructor MkCon
   id : ConId
-  ||| The Idris full name, for the constructor's location (IDR-DATA-5).
+  ||| The Idris full name, for the constructor's location.
   idrisName : Shown
   tag : Nat
   fields : List Field
   loc : Loc
 
 ||| How a data instance is represented: an unboxed sum, or a box when its
-||| containment is recursive (`IDR-DATA-4`: every cycle passes through a
-||| box). Data holding closures is a sum like any other.
+||| containment is recursive (every cycle passes through a box). Data holding closures is a sum like any other.
 public export
 data Repr = Sop | Box
 
@@ -352,7 +351,7 @@ record Source where
   root : FnId
 
 ------------------------------------------------------------------------------
--- Printing (CORE-DUMP-1)
+-- Printing
 ------------------------------------------------------------------------------
 
 indent : Nat -> String

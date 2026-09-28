@@ -1,7 +1,6 @@
 // RUN: idris-mlir-cc %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// rule: LOW-DBL-2, SEM-DBL-5, LOW-DBL-1, SEM-DBL-4
 // Doubles printed by the runtime as Chez prints them: shortest digits, an
 // exact tie taken up (Ryu alone gives 1.1258999068426242e15), positional
 // between 1e-3 and 1e10, subnormals with their precision, the special

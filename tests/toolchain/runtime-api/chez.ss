@@ -1,4 +1,3 @@
-;; rule: TC-RT-4, SEM-STR-2, SEM-INT-3
 ;; What Chez computes for the operations api.c runs, in the same format:
 ;; Integer's div and mod are blodwen-euclidDiv and blodwen-euclidMod of
 ;; Idris's Chez support code, and the string operations are those the Chez

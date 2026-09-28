@@ -1,4 +1,4 @@
-||| The golden test runner (docs/plan.md section 9; TEST-CMD-1), on Idris's
+||| The golden test runner, on Idris's
 ||| own `Test.Golden`, as third_party/Idris2/tests/Main.idr.
 |||
 ||| A test is a directory with a POSIX-sh `run` script and an `expected`
@@ -20,8 +20,8 @@
 |||
 ||| It also answers the `run` scripts that need Idris:
 |||
-|||     runtests --sem-program <name>   the program of a TEST-SEM-1 test
-|||     runtests --sem-list             the names of the TEST-SEM-1 tests
+|||     runtests --sem-program <name>   the program of a semantics test
+|||     runtests --sem-list             the names of the semantics tests
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||                                     a program of the fuzzer (Fuzz.idr)
 |||     runtests --two-levels-program primitives|prelude terms|main

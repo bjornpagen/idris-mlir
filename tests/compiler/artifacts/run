@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: FE-ART-1, DRV-ART-1, FE-ENTRY-1, FE-ENTRY-2
 # Artifacts exist after success, are not rewritten when nothing changed, and
 # are removed when the same module later fails.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

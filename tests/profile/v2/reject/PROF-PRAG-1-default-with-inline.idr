@@ -1,7 +1,6 @@
--- expect: PROF-PRAG-1 line 7
+-- expect: PROF-PRAG-1 line 6
 module Main
 
--- rule: PROF-PRAG-1
 %default total
 
 %inline

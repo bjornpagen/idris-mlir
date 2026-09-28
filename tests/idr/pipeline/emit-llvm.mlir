@@ -1,6 +1,5 @@
 // RUN: idris-mlir-cc %s -o %t.ll --emit=llvm
 // RUN: FileCheck %s < %t.ll
-// rule: LOW-ATTR-1, LOW-CC-1, SEM-EVAL-5, LOW-TARGET-1, LOW-TAIL-4, LOW-TAIL-5
 // An infinite loop without effects is kept: idr-tail-loops puts idr.may_loop
 // in the loop of a function that is not total, and nothing asserts
 // termination or forward progress (no mustprogress), so neither MLIR nor

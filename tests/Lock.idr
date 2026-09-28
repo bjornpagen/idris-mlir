@@ -1,11 +1,9 @@
-||| TC-PIN-1, TC-DEV-2: toolchain.lock.json pins every tool the build uses:
+||| toolchain.lock.json pins every tool the build uses:
 ||| each entry records the exact version, the source repository, the commit,
 ||| and a tag or a `git describe`; where the configure gate accepts a release
 ||| series (`accept`), the pinned version is in it.
 |||
 |||     runtests --lock
-|||
-||| rule: TC-PIN-1, TC-DEV-2
 module Lock
 
 import Data.List

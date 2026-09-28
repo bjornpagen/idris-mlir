@@ -1,6 +1,5 @@
 // input: emitted
-// rule: OPT-PIPE-3, TEST-EMIT-1
-// Emit marks loop breakers (OPT-PIPE-3): one of the two functions
+// Emit marks loop breakers: one of the two functions
 // of the cycle, the first in program order, `even`, gets no_inline, and
 // only it.
 // CHECK-NOT: no_inline

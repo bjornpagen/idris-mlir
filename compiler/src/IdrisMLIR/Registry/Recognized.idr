@@ -1,4 +1,4 @@
-||| Category 2 of the registry (docs/architecture/17-registry.md): ordinary
+||| Category 2 of the registry: ordinary
 ||| library definitions the compiler treats specially. This is the
 ||| privileged-knowledge table: each entry makes its definition faster or
 ||| stricter, never different, and removing one may change speed or which
@@ -23,16 +23,15 @@ equal = Head (Def (MkQName ["Builtin"] "Equal")) [Hole, Hole, Hole, Hole]
 rewriting : Shape
 rewriting = Pi Q0 TypeOfTypes (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 equal (Pi Q1 Hole Hole)))))
 
-||| `replace` and `rewrite__impl`, which `rewrite` elaborates to (FE-TR-7).
+||| `replace` and `rewrite__impl`, which `rewrite` elaborates to.
 identity : String -> Entry
 identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument [FeTr7]
 
-||| A world operation of `PrimIO`, reachable only through the program root
-||| (PROF-IO-3).
+||| A world operation of `PrimIO`, reachable only through the program root.
 rootOnly : String -> Shape -> Entry
 rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden ProfIO3) [ProfIO3]
 
-||| An escape hatch as the user can write it (PROF-ESC-1). Idris evaluates
+||| An escape hatch as the user can write it. Idris evaluates
 ||| `prim__believe_me` applied to a constructor while elaborating, so it can
 ||| vanish from TT; the source is scanned instead.
 spelling : String -> Entry

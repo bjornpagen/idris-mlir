@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-lower | FileCheck %s
-// rule: LOW-SEL-1
 // canonicalize turns a match that only chooses between two values into
 // arith.select, also of an idr type; that select chooses each component.
 // CHECK-LABEL: func.func private @pick(

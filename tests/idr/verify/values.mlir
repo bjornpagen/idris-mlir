@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-CON-1, IDR-FIELD-1, IDR-TAG-1, IDR-CONST-1, IDR-CONST-2
 
 idr.data @T {
   idr.ctor @A tag 0 (i64) {quantities = ["w"]}

@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower=jit=true | FileCheck %s
-// rule: LOW-JIT-1
 // In JIT mode (idr-eval's), cells come from the evaluation arena and a
 // crash reports to the evaluator; there is no root, so no @main.
 // CHECK-DAG: llvm.func @idris_rt_arena_alloc(i64) -> !llvm.ptr

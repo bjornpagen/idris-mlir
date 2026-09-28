@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: SEM-EVAL-5, LOW-TAIL-4
-// LOW-TAIL-4: idr.may_loop keeps a loop that may not terminate, even when its
+// idr.may_loop keeps a loop that may not terminate, even when its
 // results are unused; an effect-free loop without it is dead code.
 
 // CHECK-LABEL: func.func @kept(

@@ -1,5 +1,4 @@
-/* rule: TC-RT-4, LOW-BIG-1, LOW-STR-2, SEM-STR-2, SEM-INT-3
- * The runtime's string and big operations against Chez: `api` prints one
+/* The runtime's string and big operations against Chez: `api` prints one
  * line per operation, and chez.ss prints what Chez computes for the same
  * operations, which the run script compares. Then the casts from String,
  * whose grammar is ours (idris_rt.h), are checked against a table. */

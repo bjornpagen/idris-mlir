@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
-// rule: ELIM-SPEC-1, FE-DET-1
 // A closure passed to a recursive map. Its label is static and its capture
 // a runtime leaf: the clone of @map rebuilds the closure over a new
 // parameter, and the recursive call, which passes the same closure, calls

@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-DEV-2
 # The CMake configure gate reads every release series it accepts from the
 # lock: each tool of toolchain.lock.json with an `accept` field.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

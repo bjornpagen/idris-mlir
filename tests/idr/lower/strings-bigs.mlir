@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-STR-2, LOW-BIG-1, LOW-DBL-1, LOW-DBL-4, LOW-RT-1, IDR-EFF-1
 // String and big ops call the runtime function named after them. Where an
 // op may crash, the lowering checks first: an index out of range, the head
 // or tail of "", a big divisor of 0 (the small word 1), a non-finite Double.

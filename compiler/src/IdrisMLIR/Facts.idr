@@ -1,7 +1,7 @@
-||| The facts about a function (docs/plan.md, section 8.3), as far as that
-||| record exists today. Each fact records its provenance: an analysis or
-||| flag of Idris's own, or the registry. Rules consume facts whatever their
-||| provenance; the provenance says why one holds.
+||| The facts about a function, as far as the compiler records them today.
+||| Each fact records its provenance: an analysis or flag of Idris's own, or
+||| the registry. Rules consume facts whatever their provenance; the
+||| provenance says why one holds.
 module IdrisMLIR.Facts
 
 %default total
@@ -12,7 +12,7 @@ data Provenance
   = ||| Idris itself: its totality checker, its flags, the structure of its
     ||| names.
     FromIdris
-  | ||| The registry (docs/architecture/17-registry.md): a hook, or a cell of
+  | ||| The registry: a hook, or a cell of
     ||| its library table.
     FromRegistry
 

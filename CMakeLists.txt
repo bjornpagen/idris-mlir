@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 4.0)
 
-# The configure gate (TC-CPP-1, adopted from bjornpagen/cpp-starter). The
-# accepted toolchain series live in toolchain.lock.json only (TC-DEV-2).
+# The configure gate (adopted from bjornpagen/cpp-starter). The accepted
+# toolchain series live in toolchain.lock.json only.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/toolchain.lock.json" IDRIS_MLIR_LOCK)
 string(JSON IDRIS_MLIR_NINJA_SERIES GET "${IDRIS_MLIR_LOCK}" ninja accept)
 string(JSON IDRIS_MLIR_CMAKE_SERIES GET "${IDRIS_MLIR_LOCK}" cmake accept)
@@ -35,7 +35,7 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
 
 project(idris_mlir LANGUAGES C CXX)
 
-# PIN(platform-gate-x86_64): cpp-starter's platforms plus Linux x86_64 (TC-DEV-1)
+# PIN(platform-gate-x86_64): cpp-starter's platforms plus Linux x86_64
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	set(IDRIS_MLIR_LINUX TRUE)
 	if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64|arm64)$")
@@ -60,7 +60,7 @@ if(IDRIS_MLIR_RUNTIME_SANITIZERS)
 	message(FATAL_ERROR "runtime sanitizers need compiler-rt's sanitizer runtimes, which the static musl toolchain does not have (PINS.md: no-sanitizer-runtimes)")
 endif()
 
-# TC-DEV-6: the production compiler is the stage-2 clang of the pinned
+# The production compiler is the stage-2 clang of the pinned
 # llvm-project, with libc++, for x86_64-unknown-linux-musl (tools/bootstrap.sh).
 # PIN(clang-libcxx) — see PINS.md
 foreach(lang C CXX)
@@ -119,8 +119,8 @@ target_compile_options(idris_mlir_warnings INTERFACE
 	-Wimplicit-fallthrough
 )
 
-# The language profile of our tools. No FP contraction anywhere (docs/plan.md
-# section 5.7). TC-DEV-8: the Release build is one LTO domain with LLVM and
+# The language profile of our tools. No FP contraction anywhere. The Release
+# build is one LTO domain with LLVM and
 # MLIR, whose libraries carry bitcode next to native code (fat LTO objects).
 # PIN(stage2-thinlto): our code is full LTO, LLVM's own bitcode ThinLTO — see
 # PINS.md
@@ -155,7 +155,7 @@ if(IDRIS_MLIR_LINUX)
 		-fPIE
 		"$<IF:$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>,-fcf-protection=full,-mbranch-protection=standard>"
 	)
-	# TC-LINK-2: static-PIE on musl. PIN(musl-thread-stacks): LLVM takes the
+	# Static-PIE on musl. PIN(musl-thread-stacks): LLVM takes the
 	# libc's default thread stack, which musl reads from PT_GNU_STACK — see
 	# PINS.md
 	target_link_options(idris_mlir_language_profile INTERFACE
@@ -168,9 +168,9 @@ if(IDRIS_MLIR_LINUX)
 	)
 endif()
 
-# The runtime (TC-RT-1, TC-ZONE-3), then the quarantine code that faces MLIR
-# (TC-ZONE-1), which records where the runtime's archive is.
+# The runtime, then the quarantine code that faces MLIR, which records where
+# the runtime's archive is.
 # PIN(zones-on-demand): cpp-starter's src/ and unsafe/ have no code, so
-# they do not exist (TC-ZONE-2).
+# they do not exist.
 add_subdirectory(runtime)
 add_subdirectory(foreign/idr)

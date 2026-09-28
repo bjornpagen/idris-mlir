@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s
-// rule: LOW-UP-1, LOW-CLOS-1, LOW-CONST-1
 // After idr-lower, upstream's conversions take the module to the LLVM
 // dialect alone: a closure's code becomes the address of its function, in
 // code and in a static closure alike, and no cast is left.

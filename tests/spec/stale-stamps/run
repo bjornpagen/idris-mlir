@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-PIN-2
 # A pinned tool whose provenance stamp is missing or names another revision
 # than the lock is refused; one at the lock's revision is used.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

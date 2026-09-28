@@ -1,4 +1,4 @@
-||| The two levels (TEST-LEVELS-1, SEM-REF-1): closed terms, over every
+||| The two levels: closed terms, over every
 ||| primitive and over a corpus of total Prelude functions, normalised by the
 ||| pinned Idris's own evaluator and computed by the compiled program, must
 ||| give the same values.
@@ -17,18 +17,16 @@
 |||
 ||| Values are printed as the programs print them: integers in decimal, a
 ||| Char as its code point, a String as itself, a Double as Idris's `show`
-||| (which is Chez's number->string on both sides: SEM-DBL-5).
+||| (which is Chez's number->string on both sides).
 |||
 ||| Terms whose value depends on the host by design are marked in Terms.idr
 ||| with `-- host-dependent: t<n> <reason>`, and are not compared: the libm
 ||| functions (Idris's evaluator runs the host's, the compiled program
-||| musl's: SEM-DBL-3), and casts from String (SEM-HOST-1). Terms
+||| musl's), and casts from String. Terms
 ||| the pinned Idris's evaluator computes differently from Idris's own
 ||| backends are marked `-- idris-differs: t<n> <reason>`: they are compared
 ||| with Chez, not with the evaluator. Terms Idris's evaluator leaves stuck
 ||| are listed by the test.
-|||
-||| rule: SEM-REF-1, SEM-EVAL-6, SEM-STR-2, SEM-DBL-5, ELIM-EVAL-1
 module TwoLevels
 
 import Data.List

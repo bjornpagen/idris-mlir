@@ -1,7 +1,7 @@
-||| The frontend's side of the registry (docs/architecture/17-registry.md):
-||| Idris's names, modules and types as the registry's names, origins and
-||| shapes, and the validation of every entry against the loaded context
-||| (HOOK-SHAPE-1). This module converts and asks; the registry compares.
+||| The frontend's side of the registry: Idris's names, modules and types as
+||| the registry's names, origins and shapes, and the validation of every
+||| entry against the loaded context. This module converts and asks; the
+||| registry compares.
 module IdrisMLIR.Frontend.Resolve
 
 import Core.Context
@@ -64,7 +64,7 @@ hooksOf n = hooks (Def (qname n))
 
 ||| What the registry makes of a `%foreign` definition, by its full name and
 ||| the specs Idris recorded for it: nothing, its hook, or the message of
-||| HOOK-SHAPE-1 when another definition declares an entry's spec.
+||| a shape mismatch when another definition declares an entry's spec.
 export
 foreignHookOf : Name -> List String -> Maybe (Either String Hook)
 foreignHookOf n specs = map (mapFst (\(e, m) => mismatch e m)) (foreignHook (qname n) specs)
@@ -109,7 +109,7 @@ shapeOf tm = case spine tm [] of
   _ => Hole
 
 ------------------------------------------------------------------------------
--- Validation (HOOK-SHAPE-1)
+-- Validation
 ------------------------------------------------------------------------------
 
 ||| What validation found.
@@ -128,7 +128,7 @@ breakDirective d =
   let flag = "break-shape=" in
   if isPrefixOf flag d then Just (substr (length flag) (length d) d) else Nothing
 
-||| HOOK-SHAPE-1: every entry, resolved against the loaded context once per
+||| Every entry, resolved against the loaded context once per
 ||| compilation, before anything uses the registry. An entry whose module the
 ||| program does not load is not checked; one whose definition is present
 ||| must be what the entry expects. There is no fallback: a mismatch stops

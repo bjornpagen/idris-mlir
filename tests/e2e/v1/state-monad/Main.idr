@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: PROF-FN-7
 State : Type -> Type -> Type
 State s a = s -> Pair a s
 

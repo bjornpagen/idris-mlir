@@ -1,7 +1,7 @@
 ||| What `Emit` writes, and its one printer: MLIR's custom syntax for the
-||| contract's dialects (IDR-MOD-2, IDR-IN-1). An operation is a
-||| line, or a line that opens regions, their contents, and the line that
-||| closes them; every operation carries its location (IDR-LOC-1).
+||| contract's dialects. An operation is a line, or a line that opens
+||| regions, their contents, and the line that closes them; every operation
+||| carries its location.
 module IdrisMLIR.MLIR
 
 import IdrisMLIR.Ids
@@ -17,7 +17,7 @@ import Data.String
 -- Names
 ------------------------------------------------------------------------------
 
-||| IDR-FN-2: injective mangling into MLIR symbol text. Characters outside
+||| Injective mangling into MLIR symbol text. Characters outside
 ||| `[A-Za-z0-9_.]`, `$` included, are written `$<code point>$`.
 export
 mangle : String -> String
@@ -43,7 +43,7 @@ quoted s = "\"" ++ concatMap esc (unpack s) ++ "\""
     esc '\\' = "\\\\"
     esc c = if ord c < 32 || ord c == 127 then "\\" ++ hex (ord c) else singleton c
 
-||| A string as the UTF-8 bytes of a string attribute (SEM-STR-1).
+||| A string as the UTF-8 bytes of a string attribute.
 export
 utf8 : String -> String
 utf8 s = "\"" ++ concatMap enc (unpack s) ++ "\""
@@ -141,21 +141,21 @@ twos w n = let m = pow w
 -- Locations
 ------------------------------------------------------------------------------
 
-||| An operation's location: a source span (IDR-LOC-1), or an Idris name at
-||| one, MLIR's `NameLoc` (IDR-DATA-5). Names reach MLIR only this way: as
+||| An operation's location: a source span, or an Idris name at one, MLIR's
+||| `NameLoc`. Names reach MLIR only this way: as
 ||| debug information, which passes keep and diagnostics print, and never
 ||| as data a pass could compare.
 public export
 data Location = At Loc | Named Shown Loc
 
-||| IDR-LOC-1: the file and the 1-based line and column of the start.
+||| The file and the 1-based line and column of the start.
 span : Loc -> String
 span l = if l.file == "" then "unknown"
          else quoted l.file ++ ":" ++ show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
 
 ||| The location's text inside `loc(...)`. Code from a library whose
 ||| diagnostics are reported at the user's caller (the registry's *Report at
-||| caller* column, DIAG-LOC-1) is wrapped as `fused<"library">[...]`.
+||| caller* column) is wrapped as `fused<"library">[...]`.
 wrapped : Loc -> String -> String
 wrapped l inner = "loc(" ++ (if inLibrary l then "fused<\"library\">[" ++ inner ++ "]" else inner) ++ ")"
 
@@ -190,7 +190,7 @@ mutual
   showOps d [] = ""
   showOps d (o :: os) = showOp d o ++ showOps d os
 
-||| A module with its attributes (IDR-MOD-2).
+||| A module with its attributes.
 export
 showModule : String -> List Op -> String
 showModule attrs ops = "module attributes {" ++ attrs ++ "} {\n" ++ showOps 1 ops ++ "}\n"

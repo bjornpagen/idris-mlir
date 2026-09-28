@@ -1,6 +1,5 @@
 // RUN: %status 1 idris-mlir-opt %s --split-input-file --idr-check-profile -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
-// rule: DIAG-LOC-1, DIAG-ONE-1, PROF-TYPE-4, PROF-HEAP-3
 // Library code inlined into user code: the error is reported at the
 // innermost user location of the op's call-site chain, names the library
 // location in parentheses, and notes the callers.

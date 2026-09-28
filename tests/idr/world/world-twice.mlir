@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-WORLD-1, IDR-TY-5
 // A world used twice on one path is rejected, wherever the second use is.
 
 func.func private @f(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {

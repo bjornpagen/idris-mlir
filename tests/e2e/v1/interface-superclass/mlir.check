@@ -1,7 +1,6 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.fold3 --implicit-check-not=arith.addi
-// rule: ELIM-G-2, ELIM-EVAL-1, FE-TR-6, TEST-ELIM-1
-// No dictionary exists: the frontend resolves them (FE-TR-6), and fold3's
+// No dictionary exists: the frontend resolves them, and fold3's
 // call, closed and total, is gone: its value, 42, is a constant.
 // CHECK: idr.constant "42\0A"
 // CHECK: idr.io.put_str

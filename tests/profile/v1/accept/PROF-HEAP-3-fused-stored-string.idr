@@ -2,7 +2,6 @@
 -- stdout: \0303\0277!\n
 module Main
 
--- rule: PROF-HEAP-3, ELIM-G-2, ELIM-G-7
 -- Was the reject fixture PROF-HEAP-3-stored-string, and is an accept since
 -- the cutover (PROF-GEN-4): the string built at runtime is stored
 -- in a constructor and taken out again, but `idr.field` of a known

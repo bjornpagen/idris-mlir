@@ -1,5 +1,5 @@
-// GMP's memory functions over the runtime's allocator. GMP cannot recover from a failed
-// allocation; rt::allocate ends the process with a crash (or, in an
+// GMP's memory functions over the runtime's allocator. GMP cannot recover from
+// a failed allocation; rt::allocate ends the process with a crash (or, in an
 // evaluation child, reports exhaustion) instead of returning.
 // PIN(runtime-quarantine) — see PINS.md
 

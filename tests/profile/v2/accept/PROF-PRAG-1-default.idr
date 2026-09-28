@@ -2,7 +2,6 @@
 -- stdout: 0.5\n
 module Main
 
--- rule: PROF-PRAG-1
 -- %default only changes which totality Idris requires.
 
 import Prelude

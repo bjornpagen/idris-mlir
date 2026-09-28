@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-MATCH-5, IDR-MATCH-6, ELIM-G-2
 // A match whose taken region is known is replaced by that region: the
 // scrutinee is a constant or built by idr.con, or one region is left. The
 // region's arguments become the constructor's fields.

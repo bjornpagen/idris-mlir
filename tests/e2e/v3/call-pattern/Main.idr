@@ -1,6 +1,5 @@
 module Main
 
--- rule: ELIM-SPEC-1, SEM-EVAL-6, LOW-TAIL-5
 -- Call-pattern specialization on literals: `ack` matches on `m`, and is
 -- called with the literal 3, so it is specialized for m = 3, 2 and 1, with
 -- n a runtime value; m = 0 is inlined where it is called. `count`, an IO

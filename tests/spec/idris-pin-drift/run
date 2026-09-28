@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-PIN-1
 # A checkout at another commit than the staged gitlink is refused: git here
 # reports HEAD as all zeros.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

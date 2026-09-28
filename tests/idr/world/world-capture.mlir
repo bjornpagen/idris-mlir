@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-WORLD-1
-// IDR-WORLD-1: a closure never captures a world; worlds pass only as arguments and
+// A closure never captures a world; worlds pass only as arguments and
 // results. A closure may take a world as an argument.
 
 func.func private @g(%w: !idr.world) -> !idr.world {

@@ -120,11 +120,10 @@ every version reads its input from stdin and prints the same text:
 The other languages:
 
 - **Idris** uses the stock Prelude and base only, and runs on the Chez
-  backend. The sources stay within what the compiler's first profile compiles: `Int`
-  everywhere (no `Integer` or `Nat`), no closures that must
-  exist at runtime, and base's array primitives (`Data.IOArray.Prims`) for
-  `qsort` and `unionfind`, since `Data.IOArray` boxes every element in a
-  `Just`.
+  backend. The sources stay within a small subset: `Int` everywhere (no
+  `Integer` or `Nat`), no closures that must exist at runtime, and base's
+  array primitives (`Data.IOArray.Prims`) for `qsort` and `unionfind`, since
+  `Data.IOArray` boxes every element in a `Just`.
 - **SML** follows the Counting Immutable Beans SML versions (`rbmap.sml`,
   `rbmap_checkpoint.sml`, `deriv.sml`, `const_fold.sml`, `qsort.sml`,
   `binarytrees.st.sml`) where there is one.
@@ -281,9 +280,9 @@ matches inside `ins` that rebuild the node they matched, which a unique
 cell makes free. It is an Idris program that typechecks and runs on Chez.
 
 - **Static reuse:** `lowered/linrb-static.mlir` + `linrb.mlir`, as the
-  compiler will emit it for a tree bound at quantity 1: a reset is the cell itself (no
-  count test), a reuse stores the fields that change (no null test), and
-  no dup is emitted anywhere.
+  compiler will emit it for a tree bound at quantity 1: a reset is the cell
+  itself (no count test), a reuse stores the fields that change (no null
+  test), and no dup is emitted anywhere.
 - **Dynamic reuse:** `lowered/linrb-dynamic.mlir` + `linrb.mlir`, Lean's
   best effort: the same program, with a count test at every reset.
 - **The cliff:** `linrb.kk` and `linrb.lean` are the same program in Koka

@@ -4,7 +4,7 @@ module IdrisMLIR.Ids
 
 %default total
 
-||| A function instance (ELIM-MONO-4).
+||| A function instance.
 public export
 record FnId where
   constructor MkFnId
@@ -32,8 +32,7 @@ record Label where
 
 ||| An Idris name as it is printed: what the compiler reports, never what it
 ||| compares. It has `Show` and no `Eq`, so code outside the registry can
-||| name a definition in a message but cannot key behaviour on it
-||| (docs/architecture/17-registry.md).
+||| name a definition in a message but cannot key behaviour on it.
 export
 data Shown = MkShown String
 

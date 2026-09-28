@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: FE-ENTRY-5
 # --exec is rejected: the mlir backend writes programs, it does not run them.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cat > "$work/Main.idr" <<'IDRIS'

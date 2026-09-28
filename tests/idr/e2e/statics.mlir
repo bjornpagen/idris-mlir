@@ -2,7 +2,6 @@
 // RUN: FileCheck %s --check-prefix=TIMING < %t.timing
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// rule: LOW-CONST-1, LOW-BOX-1, LOW-STR-2, EVAL-1, DRV-CC-2
 // A list built at compile time (range is total) is static data: cells with
 // count 0 in the executable, which a function that is not total (so not
 // evaluated) walks at runtime, printing the strings they hold. --timing

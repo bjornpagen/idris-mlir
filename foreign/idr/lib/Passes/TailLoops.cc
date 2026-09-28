@@ -1,4 +1,4 @@
-// idr-tail-loops: self tail calls become loops (LOW-TAIL-5, LOW-TAIL-4).
+// idr-tail-loops: self tail calls become loops.
 //
 // A self tail call is a `func.call` of the enclosing function whose results
 // are returned unchanged: it is the last op before the function's
@@ -16,7 +16,7 @@
 //
 // A function without `idr.total` may not terminate, so its loop gets
 // `idr.may_loop`: a loop without effects whose results are unused would
-// otherwise be trivially dead upstream (SEM-EVAL-5). Nothing here adds a
+// otherwise be trivially dead upstream. Nothing here adds a
 // progress guarantee.
 
 #include "idr/Idr.h"

@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-MATCH-5, ELIM-G-7, OPT-SAFE-1
 // A value free of effects (an allocation aside) that only a match's regions
 // use moves into each region that uses it; there it meets its consumer.
 

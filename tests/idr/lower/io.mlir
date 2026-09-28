@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// rule: LOW-IO-1, LOW-IO-2, LOW-IO-3, LOW-IO-4, LOW-DBL-2, LOW-RT-1, LOW-ENTRY-1
 // Each IO op calls its runtime function; the world disappears (1:0). put_int
 // extends to 64 bits as its signedness says and picks the _s or _u function.
 // An IO root is called by @main, which then flushes and returns 0.

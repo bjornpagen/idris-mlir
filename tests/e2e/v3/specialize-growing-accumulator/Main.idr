@@ -1,6 +1,5 @@
 module Main
 
--- rule: ELIM-SPEC-1, ELIM-SPEC-2, OPT-PIPE-5, TEST-TERM-1
 -- `count` is called with a counter read at runtime and an accumulator that
 -- is a constant, and grows by 3 at every call: specializing on it would
 -- clone `count` forever, once per value, since the counter never becomes

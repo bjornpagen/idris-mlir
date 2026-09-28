@@ -1,5 +1,6 @@
-// bench/gate/linear/linrb/Main.idr, lowered by hand (experiment 4). The same program under two lowerings, which differ only in
-// the file placed before this one:
+// bench/gate/linear/linrb/Main.idr, lowered by hand (experiment 4). The same
+// program under two lowerings, which differ only in the file placed before this
+// one:
 // - linrb-static.mlir, as the compiler will emit it under quantity 1: every
 //   matched cell is unique by proof, so a reset is the cell itself (no
 //   count test) and a reuse stores the fields that change (no null test).

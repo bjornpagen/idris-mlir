@@ -1,6 +1,5 @@
-// idris-mlir-cc: runs OPT-PIPE-1 in process, from idr contract text to one
-// object file that holds the whole program (DRV-CC-1, DRV-CC-2, LOW-TARGET-1,
-// TC-LINK-1, OPT-PIPE-5).
+// idris-mlir-cc: runs the pipeline in process, from idr contract text to one
+// object file that holds the whole program.
 
 #include "idr/Idr.h"
 #include "idr/Target.h"
@@ -59,12 +58,12 @@ namespace {
 
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
 cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
-// DRV-CC-1, DRV-CC-2: check the program against the profile, and write nothing.
+// Check the program against the profile, and write nothing.
 cl::opt<bool> checkOnly("check",
                         cl::desc("Stop after idr-check-profile and write nothing (exit status 3 "
                                  "names a profile rejection)"),
                         cl::init(false));
-// DRV-CC-1, TEST-EQUIV-1: no compile-time evaluation.
+// No compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
 cl::opt<std::string> remarks("remarks",
                              cl::desc("Print the remarks of these categories (a regex), e.g. "
@@ -79,27 +78,27 @@ cl::opt<std::string> dumpAfter("dump-after",
                                cl::init(""));
 cl::opt<std::string> dumpDir("dump-dir", cl::desc("Directory for --dump-after files"),
                              cl::init("."));
-// LOW-TARGET-1: x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since
+// x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since
 // Haswell (2013) and AMD's Zen. `native` is the machine that compiles,
 // `x86-64` the baseline.
 cl::opt<std::string> targetCpu("cpu",
                                cl::desc("Target CPU: x86-64-v3 (default), native, x86-64, "
                                         "or any x86-64 CPU name LLVM knows"),
                                cl::init("x86-64-v3"));
-// TC-LINK-1: the runtime's archive of fat LTO objects, recorded at build time.
+// The runtime's archive of fat LTO objects, recorded at build time.
 // Its bitcode joins the program's module; an empty path links no runtime.
 cl::opt<std::string> runtimeArchive("runtime",
                                     cl::desc("Runtime archive of fat LTO objects whose bitcode "
                                              "joins the program ('' for none)"),
                                     cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
 
-// Exit statuses (DRV-CC-2): an internal error or a
+// Exit statuses: an internal error or a
 // contract violation is 1, a usage error 2, a profile rejection (a user
 // error, `unsupported (<RULE>)`) 3, and a total evaluation the machine
-// cannot finish (EVAL-1) 4.
+// cannot finish 4.
 constexpr int ok = 0, failure = 1, usage = 2, rejected = 3, exhausted = 4;
 
-// TC-LINK-1: executables are static-PIE on musl, so code is compiled for the
+// Executables are static-PIE on musl, so code is compiled for the
 // musl triple, the one the runtime's bitcode carries.
 constexpr llvm::StringLiteral targetTriple = "x86_64-unknown-linux-musl";
 
@@ -124,7 +123,7 @@ bool dump(mlir::ModuleOp module, unsigned index, llvm::StringRef name) {
 }
 
 // Writes `contents` to the output path only once everything succeeded, so a
-// failure never leaves a partial or stale output (DRV-CC-2).
+// failure never leaves a partial or stale output.
 template <typename Write> bool writeOutput(Write write) {
   std::error_code error;
   auto file = std::make_unique<llvm::ToolOutputFile>(outputPath, error, llvm::sys::fs::OF_None);
@@ -138,7 +137,7 @@ template <typename Write> bool writeOutput(Write write) {
   return true;
 }
 
-// LOW-TARGET-1: the CPU and extra features for --cpu. A name LLVM does not
+// The CPU and extra features for --cpu. A name LLVM does not
 // know is a usage error: LLVM itself would only warn and fall back to a
 // generic CPU.
 struct Cpu {
@@ -172,7 +171,7 @@ struct Member {
   llvm::MemoryBufferRef bitcode;
 };
 
-// TC-RT-1: every member of the runtime archive is a fat LTO object; this is
+// Every member of the runtime archive is a fat LTO object; this is
 // the bitcode half of each.
 bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
@@ -211,7 +210,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
   return true;
 }
 
-// TC-RT-1: the runtime is constant-initialized, and its `used` markers exist
+// The runtime is constant-initialized, and its `used` markers exist
 // for separate compilation only. LinkOnlyNeeded always links appending
 // globals, so constructors would run in every program, and `used` would keep
 // dead runtime code (and its libc calls) in every executable: constructors are
@@ -242,7 +241,7 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
   return true;
 }
 
-// TC-LINK-1: the program and the runtime become one module. The members are
+// The program and the runtime become one module. The members are
 // first joined into one runtime module, where a symbol two members define is
 // an error, and that module is linked once with LinkOnlyNeeded: only what the
 // program reaches joins it, and each file-local global is copied at most
@@ -286,7 +285,7 @@ bool linkRuntime(llvm::Module &program) {
   return true;
 }
 
-// TC-LINK-1: runtime code was compiled for the x86-64 baseline, plus the
+// Runtime code was compiled for the x86-64 baseline, plus the
 // features a function asks for itself (a simdutf kernel's AVX2, say). It takes
 // the program's CPU and keeps every feature it asked for, so it inlines into
 // program code and no function loses an instruction it relies on.
@@ -306,9 +305,9 @@ void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
 }
 
 // Which errors the passes reported: a profile rejection (`unsupported
-// (<RULE>): ...`) and EVAL-1 (`unsupported (EVAL-1): ...`) are the user's,
-// each at the location of the user's code the frontend reports; any other
-// error is internal.
+// (<RULE>): ...`) and an evaluation the machine cannot finish (`unsupported
+// (EVAL-1): ...`) are the user's, each at the location of the user's code
+// the frontend reports; any other error is internal.
 struct Verdict {
   bool rejected = false;
   bool exhausted = false;
@@ -321,14 +320,14 @@ int status(const Verdict &verdict) {
 int run() {
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
-  // IDR-IN-1: the program is parsed with exactly the contract's
+  // The program is parsed with exactly the contract's
   // dialects, so an op of any other fails to parse. The rest load after.
   mlir::DialectRegistry contract;
   contract.insert<mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::math::MathDialect,
                   mlir::ub::UBDialect>();
   idr::registerIdr(contract);
   mlir::MLIRContext context(contract);
-  // FE-DET-1: MLIR runs single-threaded, so results do not depend on
+  // MLIR runs single-threaded, so results do not depend on
   // scheduling, and idr-eval may fork.
   context.disableMultithreading();
 
@@ -385,7 +384,7 @@ int run() {
             categories, /*printAsEmitRemarks=*/true)))
       return usage;
   }
-  // --no-eval (DRV-CC-1, ELIM-EVAL-1): the idr-eval pass, wherever a
+  // --no-eval: the idr-eval pass, wherever a
   // pipeline runs it, is skipped.
   if (noEval)
     context.registerActionHandler([](llvm::function_ref<void()> transform,
@@ -448,14 +447,14 @@ int run() {
   }
   llvmModule->setTargetTriple(triple);
   llvmModule->setDataLayout(machine->createDataLayout());
-  // TC-LINK-2: the executable is static-PIE.
+  // The executable is static-PIE.
   llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
   llvmModule->setPIELevel(llvm::PIELevel::Large);
 
   if (!linkRuntime(*llvmModule))
     return failure;
   retarget(*llvmModule, *machine);
-  // OPT-PIPE-1: the program is whole, so nothing but the process entry is
+  // The program is whole, so nothing but the process entry is
   // visible outside it; O3 then removes what main does not reach.
   llvm::internalizeModule(*llvmModule,
                           [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
@@ -487,7 +486,7 @@ int run() {
 // The compilation runs on a stack reserved as large as the address space
 // allows, committed as it is touched: MLIR's parser, printer and walks
 // recurse over nested constants, and compile-time evaluation builds them as
-// large as the program's own values (EVAL-1: no limits but the machine's).
+// large as the program's own values (no limits but the machine's).
 struct Compilation {
   int status = failure;
 };
@@ -524,7 +523,7 @@ int runOnLargeStack() {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM init(argc, argv);
-  // OPT-PIPE-4: functions and blocks not reached by fallthrough start on a
+  // Functions and blocks not reached by fallthrough start on a
   // 64-byte line. The padding is never executed, and the hot code of a
   // program no longer moves when unrelated code changes size. Given first,
   // so the command line can override them.

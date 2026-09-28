@@ -1,7 +1,6 @@
--- expect: PROF-TYPE-4 line 17
+-- expect: PROF-TYPE-4 line 16
 module Main
 
--- rule: SEM-EVAL-6, PROF-GEN-4
 -- A closed call of a partial function is never evaluated (SEM-EVAL-6):
 -- Idris does not prove `euclid` terminating, so `euclid 1071 462` stays a
 -- call, and its Integer would exist at runtime. The program was part of

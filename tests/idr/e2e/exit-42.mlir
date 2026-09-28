@@ -1,7 +1,6 @@
 // RUN: idris-mlir-cc %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %status 42 %t
-// rule: LOW-ENTRY-1, LOW-DATA-1, LOW-MATCH-1, SEM-PROG-1
 // A `main : Int` root: the low 8 bits of its result (298) are the exit
 // status. The area comes from a function that is not total, so it is not
 // evaluated and runs.

@@ -1,5 +1,5 @@
-// The canonicalizations of the idr dialect that DRR can state
-// (IDR-IO-1, IDR-STR-2). The others are in Canonicalize.cc.
+// The canonicalizations of the idr dialect that DRR can state. The others are
+// in Canonicalize.cc.
 
 #ifndef IDR_CANONICALIZE
 #define IDR_CANONICALIZE
@@ -13,7 +13,7 @@ def Idr_IsDouble : Constraint<CPred<"::llvm::isa<::mlir::FloatType>($0.getType()
                               "a Double">;
 
 //===----------------------------------------------------------------------===//
-// IDR-IO-1 (ELIM-G-7): output fusion. A string built only to be written is
+// Output fusion. A string built only to be written is
 // written piece by piece, in the same order, through the world.
 //===----------------------------------------------------------------------===//
 
@@ -33,7 +33,7 @@ def Idr_PutStrOfShowDouble : Pat<(Idr_PutStrOp (Idr_StrShowOp $isSigned, $x), $w
                                  (Idr_PutDoubleOp $x, $w), [(Idr_IsDouble $x)]>;
 
 //===----------------------------------------------------------------------===//
-// IDR-STR-2 (ELIM-G-15): the first character of a string built at runtime.
+// The first character of a string built at runtime.
 //===----------------------------------------------------------------------===//
 
 def Idr_HeadOfCons : Pat<(Idr_StrHeadOp (Idr_StrConsOp $c, $s)), (replaceWithValue $c)>;

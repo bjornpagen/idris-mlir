@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=idr.str.
-// rule: ELIM-G-7, TEST-ELIM-1
 // putStrLn of a string built from a runtime character becomes writes in
 // order: append becomes two writes, cons a put_char then a put_str, and
 // show of an Int a put_int. No string op is left.

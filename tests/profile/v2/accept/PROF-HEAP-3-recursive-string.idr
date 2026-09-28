@@ -2,7 +2,6 @@
 -- stdout: 255\n
 module Main
 
--- rule: PROF-HEAP-3, ELIM-G-5, ELIM-G-7
 -- Was a reject fixture, and is an accept since raising writes a call's
 -- result (PROF-GEN-4): `digits` recurses on a runtime value, so the string
 -- it returns is not known at compile time, but its only use is output, so

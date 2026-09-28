@@ -1,4 +1,4 @@
-||| What an entry of the registry is (docs/architecture/17-registry.md): the
+||| What an entry of the registry is: the
 ||| key the compiler knows a library definition by, the shape it expects
 ||| the definition to have, and the hook, what the compiler does with it.
 module IdrisMLIR.Registry.Entry
@@ -144,7 +144,7 @@ mutual
   parens True s = "(" ++ s ++ ")"
   parens False s = s
 
-||| The one printer of shapes, expected and found alike (HOOK-SHAPE-1), in
+||| The one printer of shapes, expected and found alike, in
 ||| Idris's notation with every binder written: `(0 _ : Type) -> (_ :
 ||| PrimIO.IO _) -> _`.
 export
@@ -161,20 +161,20 @@ showShape = showAt False
 public export
 data Hook
   = ||| An IO primitive of Idris's backend contract: its calls are the
-    ||| `idr.io` op of this IO operation (PROF-IO-4). Handler:
+    ||| `idr.io` op of this IO operation. Handler:
     ||| `Frontend.Translate.application`.
     IOCall IOOp
   | ||| The identity on its last argument, its one runtime argument; the
-    ||| rest are proofs and types (FE-TR-7). Handler:
+    ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
     IdentityOnLastArgument
   | ||| The head of the term Idris hands an IO backend, `unsafePerformIO
-    ||| main`, which the compiler writes as world-passing code
-    ||| (FE-ENTRY-4). Handler: `Frontend.Main.compileIO`.
+    ||| main`, which the compiler writes as world-passing code. Handler:
+    ||| `Frontend.Main.compileIO`.
     ProgramRoot
   | ||| Rejected where the user's code uses it, under the rule named:
     ||| a definition the user's definitions refer to, or a spelling in the
-    ||| user's source (PROF-IO-3, PROF-ESC-1). Handler:
+    ||| user's source. Handler:
     ||| `Frontend.Profile.checkReachable`, `Frontend.Profile.checkPragmas`.
     Forbidden Rule
 
@@ -234,8 +234,7 @@ site e = at e.key e.expect
     at (Foreign _) (Declared q s) = Just (q, s)
     at (Spelling _) Written = Nothing
 
-||| What validation finds wrong with an entry whose definition is present
-||| (HOOK-SHAPE-1).
+||| What validation finds wrong with an entry whose definition is present.
 public export
 data Mismatch
   = ||| The definition's module is loaded, and the definition is not in it.
@@ -247,7 +246,7 @@ data Mismatch
   | ||| The definition's normalised type, which does not conform.
     Found Shape
 
-||| The HOOK-SHAPE-1 message: the entry, what it expects and what was
+||| The message of a shape mismatch: the entry, what it expects and what was
 ||| found, through one printer.
 export
 mismatch : Entry -> Mismatch -> String

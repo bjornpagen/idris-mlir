@@ -1,30 +1,29 @@
 # PINS.md — the pinned-quirk registry
 
 One entry per pinned workaround: code or build configuration that is
-deliberately wrong by dialect law (docs/cpp-profile.md) because the pinned
-toolchain, platform or dependency requires it, or a deliberate deviation from
-bjornpagen/cpp-starter or from docs/plan.md (docs/architecture/11-toolchain.md,
-TC-DEV-*). Each `PIN(name)` site in the tree points at its entry here; the
-essay lives here, once.
+deliberately wrong by the C++ profile we follow (bjornpagen/cpp-starter)
+because the pinned toolchain, platform or dependency requires it, or a
+deliberate deviation from cpp-starter. Each `PIN(name)` site in the tree
+points at its entry here; the essay lives here, once.
 
 Tombstone ritual: on every toolchain bump, read this file top to bottom,
 re-test every retire condition, and delete what upstream fixed — one file,
-one sweep. Retired with the LLVM-only toolchain (docs/plan.md section 5.2):
-`lint-graph-unbuilt` (stage 2 builds clang and clang-tidy) and
+one sweep. Retired with the LLVM-only toolchain: `lint-graph-unbuilt`
+(stage 2 builds clang and clang-tidy) and
 `cmake-ipo-probe-ordering` (no IPO probe and no `-freflection` remain).
 
 The accepted toolchain release series live only in `toolchain.lock.json`,
-which the top-level CMake configure gate reads (TC-DEV-2).
+which the top-level CMake configure gate reads.
 
 ## mlir-cxx-api
 
 - symptom: MLIR's C++ API requires inheritance (`Dialect`, `Pass`,
   `OpRewritePattern`, `OpConversionPattern`), CRTP (`Op<...>`), headers and
   TableGen-generated `.inc` files included through the preprocessor; all of
-  that is forbidden in dialect code
+  that is forbidden by the C++ profile
 - sites: `foreign/idr/` — the whole dialect, its passes and both tools
-- workaround: all MLIR-facing code is quarantine code in `foreign/idr/`
-  (TC-ZONE-1); LLVM/MLIR headers and generated files are system includes, so
+- workaround: all MLIR-facing code is quarantine code in `foreign/idr/`;
+  LLVM/MLIR headers and generated files are system includes, so
   the project's warnings apply to our code only; the targets never import std
 - retire: when MLIR offers a module-based, inheritance-free API (not expected)
 - upstream: none — MLIR's design
@@ -34,7 +33,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - symptom: cpp-starter's layout has `src/` and `unsafe/` zones, but this
   project has no C++ outside `foreign/idr/` and `runtime/`; empty zone
   directories with placeholder `CMakeLists.txt` files are dead weight
-- sites: `CMakeLists.txt` (no `add_subdirectory` for them), TC-ZONE-2
+- sites: `CMakeLists.txt` (no `add_subdirectory` for them)
 - workaround: the zones do not exist until their first code does; that
   change adds the directory, its `CMakeLists.txt` and the `add_subdirectory`
 - retire: when either zone gets code
@@ -42,18 +41,18 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 
 ## orc-lljit
 
-- symptom: docs/plan.md chose upstream's `mlir::ExecutionEngine` for
-  compile-time evaluation, but it aborts in a static-musl process: creating
+- symptom: upstream's `mlir::ExecutionEngine`, the natural engine for
+  compile-time evaluation, aborts in a static-musl process: creating
   it calls `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))`
   (`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395` at
   llvmorg-23.1.2), which needs `dlopen(NULL)`, and a static musl
   `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
   symbols by default
-- sites: foreign/idr/lib/Eval/Jit.cc (`idr-eval`, ELIM-EVAL-1, LOW-JIT-1)
+- sites: foreign/idr/lib/Eval/Jit.cc (`idr-eval`)
 - workaround: ORC's `LLJIT` directly, which `ExecutionEngine` wraps, with
   `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
   `absoluteSymbols` table that binds the runtime's functions, and the libm
-  functions lowered code may call, to `idris-mlir-cc`'s own copies (LOW-RT-1)
+  functions lowered code may call, to `idris-mlir-cc`'s own copies
 - retire: when `ExecutionEngine` can be created without the process's
   symbols (upstream/execution-engine-process-symbols); re-read at every LLVM
   bump
@@ -72,8 +71,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   region unreachable can appear after `sccp` in the same round (from
   `canonicalize` or `idr-eval`), so running `sccp` first is not enough
 - sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
-  foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop,
-  OPT-PIPE-5)
+  foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop)
 - workaround: `idr-prune` runs before `remove-dead-values` and empties,
   with the same analyses, every block they prove unreachable: a match
   region ends in `ub.unreachable`, a function returns poison. `symbol-dce`
@@ -91,8 +89,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   direct call passes to one of those parameters dead when the function
   never reads it: it erases the value (a parameter of the caller, or the op
   that made it) and the call keeps a null operand ("null operand found").
-  Raising (`ELIM-G-5`) and apply of a known closure (`ELIM-G-1`) make such
-  direct calls
+  Arity raising and apply of a known closure make such direct calls
 - sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
   foreign/idr/lib/Eval/Eval.cc (a poison operand is no value to evaluate)
 - workaround: `idr-prune`, right before `remove-dead-values`, makes each
@@ -110,13 +107,13 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   `ub.unreachable`: the `ub` dialect's inliner interface does not implement
   it, and no hook of ours sees that terminator. The inliner's region
   patterns likewise skip a region that ends in `ub.unreachable`
-- sites: compiler/src/IdrisMLIR/Emit.idr (`epilogue`, IDR-CRASH-1),
+- sites: compiler/src/IdrisMLIR/Emit.idr (`epilogue`),
   foreign/idr/lib/Passes/Prune.cc
 - workaround: no function body ends in `ub.unreachable`: one that never
   returns (a crash, a body Idris proved impossible, a match none of whose
   regions returns) returns `ub.poison` instead, which is never reached. A
   match region that crashes still ends in `ub.unreachable` and stays a
-  region, which the lowering lowers (LOW-MATCH-1)
+  region, which the lowering lowers
 - retire: when the inliner handles `ub.unreachable` at a bump;
   `tests/upstream/inline-unreachable-terminator` fails then
 - upstream: upstream/inline-unreachable-terminator (not yet filed)
@@ -124,7 +121,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 ## platform-gate-x86_64
 
 - symptom: cpp-starter's gate accepts arm64 only; this project runs on
-  Linux x86_64 (the user's decision, TC-DEV-1)
+  Linux x86_64 (the user's decision)
 - sites: CMakeLists.txt — the platform gate, and the Linux hardening block,
   which uses `-fcf-protection=full` (CET) on x86_64 where arm64 uses
   `-mbranch-protection=standard` (PAC/BTI, which x86_64 compilers reject)
@@ -139,26 +136,26 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   configure gate, but `tools/bootstrap.sh` must build the same pins
 - sites: CMakeLists.txt reads `toolchain.lock.json` (`string(JSON ...)`);
   tools/bootstrap.sh and tools/verify-pins.sh read it too
-- workaround: one source of truth, the lock file, read by all (TC-DEV-2)
+- workaround: one source of truth, the lock file, read by all
 - retire: never; deliberate
 - upstream: none
 
 ## no-stdexec
 
 - symptom: cpp-starter depends on stdexec and a wait backend; nothing here
-  uses senders, receivers or an event loop yet (TC-DEV-4)
+  uses senders, receivers or an event loop yet
 - sites: CMakeLists.txt (no `FetchContent_Declare(stdexec)`), no contracts
   runtime link either, since no code uses contracts
 - workaround: omit both until a runtime needs them
 - retire: when code needs them; then adopt cpp-starter's declarations and
   its `cmake-ld-link-order` entry. Its `gcc-gmf-stdexec-ice` entry stays
-  behind: GCC is gone (docs/plan.md section 5.2)
+  behind: GCC is gone
 - upstream: none
 
 ## llvm-cxx17-headers
 
 - symptom: LLVM/MLIR headers are C++17 and are compiled here in C++26 mode
-  by the pinned clang with libc++ (TC-DEV-5)
+  by the pinned clang with libc++
 - sites: every translation unit in `foreign/idr/`
 - workaround: none needed so far — GCC compiled them cleanly in the full
   profile, and so did a host clang against the old headers; the pinned
@@ -196,14 +193,14 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 
 - symptom: cpp-starter's profile is GCC with libstdc++; this project's
   compiler is the stage-2 clang of the pinned llvm-project with libc++,
-  static on musl (docs/plan.md section 5.2, TC-DEV-6). GCC-only diagnostics
+  static on musl. GCC-only diagnostics
   of the profile (`-Wduplicated-cond`, `-Wlogical-op`, `-Wuseless-cast` and
   the like) and libstdc++'s `_GLIBCXX_ASSERTIONS` have no clang spelling
 - sites: CMakeLists.txt — the compiler gate (Clang, the lock's LLVM series,
   a `-linux-musl` target, libc++), the warning set, and libc++'s extensive
   hardening mode in place of `_GLIBCXX_ASSERTIONS`
-- workaround: keep every warning clang has; the lint graph (clang-tidy,
-  TC-DEV-3) covers what the GCC-only warnings did
+- workaround: keep every warning clang has; the lint graph (clang-tidy)
+  covers what the GCC-only warnings did
 - retire: never; GCC is gone
 - upstream: none
 
@@ -243,8 +240,8 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 
 ## stage2-thinlto
 
-- symptom: docs/plan.md section 5.7 builds stage 2 (LLVM, MLIR, clang,
-  lld) with `LLVM_ENABLE_LTO=Full`. A full-LTO link is one single-threaded
+- symptom: stage 2 (LLVM, MLIR, clang, lld) was meant to be built with
+  `LLVM_ENABLE_LTO=Full`. A full-LTO link is one single-threaded
   process over the whole program: for clang, clang-tidy or mlir-opt that is
   roughly 10 GB or more of memory and most of an hour each, on a machine
   with 4 cores and 15 GB that also runs compile jobs, and it has not been
@@ -265,11 +262,11 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 
 - symptom: the runtime is C++ over vendored header libraries (snmalloc,
   simdutf, fast_float) and exports a C ABI (`idris_rt.h`), so it has headers
-  and preprocessor code, which dialect law forbids
-- sites: `runtime/` (TC-ZONE-3), every source there
+  and preprocessor code, which the C++ profile forbids
+- sites: `runtime/`, every source there
 - workaround: the runtime is quarantine code in its own zone, built with its
   own profile (no exceptions, no RTTI, no C++ library at link time, fat LTO
-  objects) and checked by `check-archive.sh` (TC-RT-2)
+  objects) and checked by `check-archive.sh`
 - retire: never; the vendored libraries are C++ headers
 - upstream: none
 
@@ -302,7 +299,7 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - sites: tools/bootstrap.sh (step `musl`)
 - workaround: the host's Linux UAPI headers (`linux/`, `asm/`,
   `asm-generic/`) are copied into the sysroot; the musl stamp records their
-  package version and SHA-256 (TC-PIN-3). The UAPI is the kernel's stable ABI
+  package version and SHA-256. The UAPI is the kernel's stable ABI
 - retire: when the kernel's headers are pinned and installed from source
 - upstream: none
 
@@ -324,12 +321,12 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 
 ## idris-support-host-cc
 
-- symptom: docs/plan.md section 5.2 compiles Idris's C support library with
-  the stage-2 clang; the library is a shared object loaded by the host's
+- symptom: the pinned toolchain builds everything else with the stage-2
+  clang, but Idris's C support library is a shared object loaded by the host's
   Chez Scheme, a glibc process, which the static musl toolchain cannot build
   for
 - sites: tools/bootstrap.sh (step `idris`)
 - workaround: Idris 2 is built as before, with the host's C compiler; it is
-  a host program and never links into an executable (TC-PIN-3)
+  a host program and never links into an executable
 - retire: when Chez Scheme itself is built on the pinned toolchain
 - upstream: none

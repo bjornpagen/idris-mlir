@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: FE-TR-1
 -- TTC drops the types of lets; they are inferred from the values.
 main : IO ()
 main = do

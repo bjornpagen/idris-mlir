@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-PIN-1
 # make verify-pins: the Idris checkout is the staged gitlink, unmodified.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 "$root/tools/verify-pins.sh" > "$work/out" 2>&1

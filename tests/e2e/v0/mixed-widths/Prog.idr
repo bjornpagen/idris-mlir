@@ -1,6 +1,5 @@
 module Prog
 
--- rule: PROF-TYPE-1, LOW-DATA-1
 public export
 data Packed = MkPacked Bits8 Int16 Bits64 Int32
 

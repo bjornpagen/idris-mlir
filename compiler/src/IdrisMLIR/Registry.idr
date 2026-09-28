@@ -1,4 +1,4 @@
-||| The registry of privileged knowledge (docs/architecture/17-registry.md).
+||| The registry of privileged knowledge.
 |||
 ||| No language features in the compiler: features are Idris libraries, and
 ||| the compiler has privileged knowledge of a fixed, registered set of them,
@@ -42,7 +42,7 @@ declares e specs = any (\s => Foreign s == e.key) (mapMaybe parseSpec specs)
 ||| What the registry makes of a `%foreign` definition, by the specs Idris
 ||| recorded for it: `Nothing` if it declares no entry's spec; the entry's
 ||| hook if it is the definition the entry names; otherwise the entry and
-||| its mismatch (HOOK-SHAPE-1).
+||| its mismatch.
 export
 foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hook)
 foreignHook q specs = do
@@ -58,7 +58,7 @@ export
 inModules : List (List String) -> QName -> Bool
 inModules mods q = elem q.space mods
 
-||| The test hook of HOOK-SHAPE-1: the entries with the one whose key is
+||| The test hook of shape validation: the entries with the one whose key is
 ||| shown as `name` expecting one more argument in front, a world at
 ||| quantity ω, which no entry's definition takes. `Nothing` when no entry
 ||| with a definition is shown so.

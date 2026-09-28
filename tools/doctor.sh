@@ -1,5 +1,5 @@
 #!/bin/sh
-# make doctor: what the build needs and what is built (TC-BOOT-1). It
+# make doctor: what the build needs and what is built. It
 # reports problems and never fails. IDRIS_MLIR_TOOLCHAIN and
 # IDRIS_MLIR_IDRIS_SOURCE are as in tools/verify-pins.sh.
 
@@ -23,7 +23,7 @@ else
 fi
 llvm_version=$(lock_field llvm version)
 echo "LLVM pin: $(lock_field llvm tag) $(lock_field llvm revision)"
-# TC-PIN-3: what the host provides, only to build the pinned tools.
+# What the host provides, only to build the pinned tools.
 for tool in git make cc c++ python3 m4 curl tar sha256sum timeout scheme chez chezscheme; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done

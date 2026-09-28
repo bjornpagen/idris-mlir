@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize --cse | FileCheck %s
-// rule: IDR-EFF-2, IDR-IO-1, IDR-IO-2, IDR-IF-2
 // Identical IO operations are neither merged nor removed, even unused.
 
 // CHECK-LABEL: func.func @io(

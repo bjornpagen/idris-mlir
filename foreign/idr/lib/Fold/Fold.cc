@@ -1,10 +1,9 @@
-// The folders of the string and big ops, and of double_head and int_head
-// (ELIM-G-6, LOW-RT-1): each converts its constant operands to runtime
-// values, calls the runtime's own C function, which idris-mlir-cc links
-// natively, and converts the result back. A primitive has one
-// implementation, at compile time and at runtime; nothing here computes one.
-// An op whose operands would make it crash is not folded: it crashes at
-// runtime (OPT-SAFE-1).
+// The folders of the string and big ops, and of double_head and int_head:
+// each converts its constant operands to runtime values, calls the runtime's
+// own C function, which idris-mlir-cc links natively, and converts the
+// result back. A primitive has one implementation, at compile time and at
+// runtime; nothing here computes one. An op whose operands would make it
+// crash is not folded: it crashes at runtime.
 
 #include "idr/Idr.h"
 
@@ -117,7 +116,7 @@ OpFoldResult bigBinary(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp op)
   return scope.attr(op(scope.big(a), scope.big(b)));
 }
 
-// Division by zero crashes (IDR-EFF-1); the runtime's zero is the word 1.
+// Division by zero crashes; the runtime's zero is the word 1.
 OpFoldResult bigDivision(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp op) {
   auto a = dyn_cast_or_null<BigAttr>(lhs), b = dyn_cast_or_null<BigAttr>(rhs);
   if (!a || !b)

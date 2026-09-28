@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // RUN: idris-mlir-opt %s --canonicalize --inline | FileCheck %s --check-prefix=INLINE
-// rule: IDR-CLOS-1, ELIM-G-1, ELIM-G-8
 // Applying a known closure calls its function with the captures first, as
 // upstream's func.call_indirect of a constant becomes a direct call; the
 // inliner then removes the call.

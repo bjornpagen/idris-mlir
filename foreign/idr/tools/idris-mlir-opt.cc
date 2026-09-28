@@ -1,5 +1,5 @@
 // idris-mlir-opt: mlir-opt with the idr dialect, passes and pipeline
-// registered (DRV-OPT-1).
+// registered.
 
 #include "idr/Idr.h"
 

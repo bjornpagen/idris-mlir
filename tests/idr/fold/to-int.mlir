@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-DBL-1, IDR-EFF-1
 module {
   // Finite constants truncate toward zero and wrap to the result width.
   // CHECK-LABEL: func.func @finite

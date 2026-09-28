@@ -1,4 +1,4 @@
-// Runtime layouts of idr values (LOW-DATA-1, LOW-BOX-1, LOW-CLOS-1).
+// Runtime layouts of idr values.
 
 #include "Lower/Layout.h"
 

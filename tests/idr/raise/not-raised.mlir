@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: ELIM-G-5, SEM-EVAL-4, SEM-EVAL-6, IDR-EFF-1, OPT-SAFE-1
 // Raising runs the callee's body where the apply was, so it must not move
 // that body past anything observable. @mk is partial: its body could fail
 // to terminate, so no op with an effect may lie between its call and the

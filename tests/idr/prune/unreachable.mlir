@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-prune | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-prune --symbol-dce --remove-dead-values | FileCheck %s --check-prefix=RDV
-// rule: OPT-PIPE-5
 // The match region that the constant 1 rules out, and @g, which only that
 // region calls, are unreachable: idr-prune ends the region in
 // ub.unreachable and makes @g return poison. remove-dead-values then keeps

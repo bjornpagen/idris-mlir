@@ -1,4 +1,3 @@
-rule: CORE-DUMP-1, FE-TR-1, FE-TR-3
 In full Core the lambda is closure-converted (a label, no captures, a closed
 body) and the let has no type. With the Prelude imported, an integer literal
 is its fromInteger, which Idris evaluates while elaborating only below 100:

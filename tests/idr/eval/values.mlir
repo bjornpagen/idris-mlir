@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
-// rule: EVAL-1, SEM-EVAL-6, LOW-JIT-1, IDR-CONST-1
 // Each closed call of a pure, total function runs, lowered as executables
 // are, and its results come back as constants of every kind: scalars,
 // strings, bigs of both sizes, unboxed and boxed constructors, closures with

@@ -1,5 +1,4 @@
--- expect: PROF-PRIM-2 line 7
--- rule: SEM-DBL-1
+-- expect: PROF-PRIM-2 line 6
 module Main
 
 import Prelude

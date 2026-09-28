@@ -2,7 +2,6 @@
 // RUN: chmod +x %t.test
 // RUN: idris-mlir-reduce %s --reduction-tree="traversal-mode=0 test=%t.test" -o %t.reduced 2> %t.log
 // RUN: FileCheck %s < %t.reduced
-// rule: DRV-OPT-1
 // idris-mlir-reduce is mlir-reduce with the idr dialect: it shrinks a module
 // to what keeps a test interesting (14-testing.md), here any
 // idr.str.append.

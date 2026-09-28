@@ -1,10 +1,11 @@
 module Main
 
 -- The guarantee on a linear red-black tree (experiment 4). The tree is
--- bound at quantity 1 everywhere, so every insert rebuilds its path in the cells it matched: no allocation but the
--- new leaf, no count test, no dup. The algorithm is Lean's rbmap
--- (bench/gate/suite/rbtree-ck), with its isRed tests written as matches
--- that rebuild the same node, which a unique cell makes free.
+-- bound at quantity 1 everywhere, so every insert rebuilds its path in the
+-- cells it matched: no allocation but the new leaf, no count test, no dup. The
+-- algorithm is Lean's rbmap (bench/gate/suite/rbtree-ck), with its isRed tests
+-- written as matches that rebuild the same node, which a unique cell makes
+-- free.
 --
 -- The compiler must compile this program with zero dups and full reuse,
 -- and reject ../linrb-shared, which differs at one call site.

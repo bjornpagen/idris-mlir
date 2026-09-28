@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-ZONE-1, TC-ZONE-2, TC-ZONE-3
 # All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr or, for the
 # runtime, runtime/, with .cc its only source extension; src/ and unsafe/
 # exist only once they hold code.
@@ -21,7 +20,7 @@ if grep '\.cpp$' "$work/cpp" > "$work/retired"; then
 else
   say "C++ sources: .cc only"
 fi
-# TC-ZONE-2: src/ and unsafe/ exist only once they hold code.
+# src/ and unsafe/ exist only once they hold code.
 empty=
 for zone in src unsafe; do
   [ -e "$root/$zone" ] || continue

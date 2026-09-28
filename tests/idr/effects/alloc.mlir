@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --cse --canonicalize | FileCheck %s
-// rule: IDR-CON-1, IDR-STR-2, IDR-BIG-1, ELIM-G-9
 // Ops that allocate their result (a box's idr.con, string builders, big
 // ops) are never merged, so that no two cells become one, but an unused one
 // is dead code. An unboxed constructor is Pure: equal ones merge.

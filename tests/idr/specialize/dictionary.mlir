@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-specialize | FileCheck %s
-// rule: ELIM-SPEC-1
 // An interface dictionary: a record of closures without captures, built at
 // the call. It is entirely static, the other argument is not, so the call
 // is specialized on the whole dictionary. The clone is folded when it is

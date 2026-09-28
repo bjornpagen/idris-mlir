@@ -1,8 +1,7 @@
-// idr-eval: compile-time evaluation is runtime evaluation, run early
-// (ELIM-EVAL-1; SEM-EVAL-6, SEM-EVAL-7, EVAL-1). A closed call of a
-// pure, total function runs the program's own lowered code on the same
-// runtime, with no fuel, no memory cap and no time limit, and its results
-// replace it as constants.
+// idr-eval: compile-time evaluation is runtime evaluation, run early. A
+// closed call of a pure, total function runs the program's own lowered code on
+// the same runtime, with no fuel, no memory cap and no time limit, and its
+// results replace it as constants.
 
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
@@ -54,9 +53,9 @@ bool evaluable(func::FuncOp fn) {
   return fn && !fn.isExternal() && idr::isPure(fn) && idr::isTotal(fn);
 }
 
-// ELIM-EVAL-1: a func.call, or an idr.apply of a constant closure, whose
+// A closed call: a func.call, or an idr.apply of a constant closure, whose
 // operands are all constants; its callee is pure and total, and so is every
-// label in the constants, through captures and fields (SEM-EVAL-6).
+// label in the constants, through captures and fields.
 std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   SmallVector<Attribute> args;
   FlatSymbolRefAttr callee;
@@ -113,7 +112,8 @@ void frames(Location loc, SmallVectorImpl<Location> &out) {
   out.push_back(loc);
 }
 
-// EVAL-1, in the form of every user error of idris-mlir-cc (DIAG-LOC-1): at
+// An evaluation the machine cannot finish, in the form of every user error
+// of idris-mlir-cc: at
 // the innermost frame of the call's call-site chain that is the user's code,
 // with the callers as notes.
 void exhausted(Call call, StringRef why) {
@@ -150,7 +150,7 @@ private:
                    const llvm::MapVector<Key, SmallVector<Call>> &calls);
 
   // Results for the compilation, which the simplify loop runs round after
-  // round with this pass (ELIM-EVAL-1). A call that crashed is known too,
+  // round with this pass. A call that crashed is known too,
   // so it is not run again.
   llvm::DenseMap<Key, Outcome> cache;
 };
@@ -252,7 +252,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     resultTypes.push_back(
         llvm::to_vector(pristine->lookupSymbol<func::FuncOp>(evalName(i)).getResultTypes()));
 
-  // LOW-JIT-1: the executable's own lowering, in JIT mode.
+  // The executable's own lowering, in JIT mode.
   OpPassManager lower(ModuleOp::getOperationName());
   lower.addPass(idr::createIdrLower(idr::IdrLowerOptions{/*jit=*/true}));
   lower.addPass(createCanonicalizerPass());
@@ -332,7 +332,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
         return internal(next, "the evaluation child stopped before this call");
       break;
     case idr::eval::Run::Status::Crashed: {
-      // OPT-SAFE-1: the crash happens at runtime, where the call stays.
+      // The crash happens at runtime, where the call stays.
       Call call = site(next);
       remark::missed(call.op->getLoc(), remark::RemarkOpts::name("Crashed")
                                             .category("idr-eval")

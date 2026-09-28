@@ -1,11 +1,10 @@
-// Passes of the idr dialect (OPT-PIPE-1, OPT-PIPE-5).
+// Passes of the idr dialect.
 
 #ifndef IDR_PASSES
 #define IDR_PASSES
 
 include "mlir/Pass/PassBase.td"
 
-// IDR-FACT-1
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
   let summary = "Compute idr.effect and idr.may_crash on every function";
   let description = [{
@@ -40,7 +39,6 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   ];
 }
 
-// ELIM-EVAL-1, EVAL-1
 def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
   let summary = "Evaluate closed calls of pure, total functions at compile time";
   let description = [{
@@ -62,7 +60,7 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// The optimization passes (docs/architecture/06 and 09; lib/Passes/)
+// The optimization passes (lib/Passes/)
 //===----------------------------------------------------------------------===//
 
 def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {

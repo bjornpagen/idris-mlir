@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-BOOT-3
 # The dialect tests run without lit or Python. Their RUN lines find the
 # FileCheck, not and count of the pinned LLVM first on PATH (testutils.sh's
 # lit), shown here with stand-ins for them.

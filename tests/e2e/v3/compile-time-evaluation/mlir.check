@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=idr.big. --implicit-check-not="610\0A"
-// rule: ELIM-EVAL-1, SEM-EVAL-6, TEST-ELIM-1
 // The closed calls of the total `power` are evaluated: their results are
 // the constants written, and no Integer operation is left. `fib` is
 // partial, so `fib 15` stays a call: its value, 610, is never computed at

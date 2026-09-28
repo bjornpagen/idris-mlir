@@ -1,6 +1,5 @@
 module Main
 
--- rule: PROF-IFACE-1, FE-TR-6, ELIM-G-2, ELIM-G-3
 -- A Functor/Applicative/Monad hierarchy over a user option type; `do` in
 -- `calc` uses the user's `>>=` (the Prelude's would need a `Monad Opt`),
 -- and `main`'s uses the Prelude's, for IO.

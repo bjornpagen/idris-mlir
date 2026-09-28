@@ -1,6 +1,5 @@
 module Prog
 
--- rule: SEM-DATA-2, IDR-MATCH-2
 -- The erased proof rules out Large; Idris marks that branch impossible and
 -- it is never taken.
 public export

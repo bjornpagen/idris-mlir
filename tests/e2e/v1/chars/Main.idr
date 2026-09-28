@@ -2,9 +2,8 @@ module Main
 
 import Prelude
 
--- rule: SEM-CHAR-1, SEM-CHAR-2, SEM-CHAR-3, PROF-PRIM-3, IDR-CHAR-1, LOW-CHAR-1
--- The Prelude's putChar agrees with the reference only on ASCII (SEM-IO-2),
--- so 'λ' is written as a string. Its getChar reads one byte (SEM-IO-7): the
+-- The Prelude's putChar agrees with the reference only on ASCII, so 'λ'
+-- is written as a string. Its getChar reads one byte: the
 -- first of the two bytes of the 'é' on stdin, 195.
 main : IO ()
 main = do

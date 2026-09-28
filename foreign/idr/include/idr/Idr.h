@@ -1,4 +1,4 @@
-// The idr dialect (docs/architecture/08-idr-dialect.md).
+// The idr dialect.
 #pragma once
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
@@ -27,19 +27,20 @@
 
 namespace idr {
 
-// The resource that a possible crash writes to (IDR-EFF-1).
+// The resource that a possible crash writes to.
 struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
   llvm::StringRef getName() const final { return "idr.crash"; }
 };
 
-// The resource that every IO op reads and writes (IDR-EFF-2), and that a
-// crash and a possibly endless loop also write, so that no pass reorders
-// either with output (IDR-EFF-1).
+// The resource that every IO op reads and writes, and that a crash and a
+// possibly endless loop also write, so that no pass reorders either with
+// output.
 struct IOResource : mlir::SideEffects::Resource::Base<IOResource> {
   llvm::StringRef getName() const final { return "idr.io"; }
 };
 
-// The resource that idr.may_loop writes (SEM-EVAL-5).
+// The resource that idr.may_loop writes, so that a loop that may not end is
+// never removed as dead.
 struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource> {
   llvm::StringRef getName() const final { return "idr.divergence"; }
 };
@@ -47,7 +48,7 @@ struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource
 // The traits below carry what IdrOps.td declares about an op, so that each
 // fact is written once, next to the op, and every pass derives from it.
 
-// LOW-RT-1: the runtime function the op lowers to, named after the op:
+// The runtime function the op lowers to, named after the op:
 // `idr.str.append` calls `idris_rt_str_append` (`Idr_CallsRuntime`).
 template <typename ConcreteType>
 class CallsRuntime : public mlir::OpTrait::TraitBase<ConcreteType, CallsRuntime> {
@@ -63,11 +64,11 @@ public:
   }
 };
 
-// IDR-EFF-2: an idr.io op (`Idr_PerformsIO`), what idr-effects looks for.
+// An idr.io op (`Idr_PerformsIO`), what idr-effects looks for.
 template <typename ConcreteType>
 class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {};
 
-// IDR-EFF-1: an op that may crash writes the crash resource and the IO
+// An op that may crash writes the crash resource and the IO
 // resource, and is speculatable exactly when it can neither crash nor
 // allocate. All of it follows from the op's `getCrashCause` and from whether
 // it allocates its result (`Idr_MayCrash`).
@@ -97,7 +98,7 @@ template <bool Allocates> struct MayCrash {
   };
 };
 
-// The facts that rule out a crash (IDR-EFF-1): a constant other than zero
+// The facts that rule out a crash: a constant other than zero
 // (an integer or a big), a finite Double constant, and a string that cannot
 // be empty (a non-empty constant, or a string built with a character or a
 // number in it).
@@ -105,7 +106,7 @@ bool knownNonZero(mlir::Value value);
 bool knownFinite(mlir::Value value);
 bool knownNonEmpty(mlir::Value value);
 
-// The types a field of a constructor may have (IDR-DATA-3).
+// The types a field of a constructor may have.
 bool isFieldType(mlir::Type type);
 
 } // namespace idr
@@ -146,19 +147,19 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
-// The facts idr-effects computes on a function (IDR-FACT-1): whether it is
+// The facts idr-effects computes on a function: whether it is
 // pure, and whether it may crash. Together with `idr.total` they decide
-// whether an unused call may be removed (OPT-CALL-1).
+// whether an unused call may be removed.
 bool isPure(mlir::func::FuncOp fn);
 bool mayCrash(mlir::func::FuncOp fn);
 bool isTotal(mlir::func::FuncOp fn);
 
 // Registers the idr dialect, and (once per process) its passes and the named
-// pipeline `idr-pipeline` (OPT-PIPE-1).
+// pipeline `idr-pipeline`.
 void registerIdr(mlir::DialectRegistry &registry);
 void registerIdrPipeline();
 
-// The pipeline steps of OPT-PIPE-1, as textual pass pipelines, in order.
+// The pipeline's steps, as textual pass pipelines, in order.
 llvm::ArrayRef<llvm::StringRef> pipelineSteps();
 
 } // namespace idr

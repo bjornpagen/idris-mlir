@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-check-profile -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: PROF-DATA-3, PROF-HEAP-1, PROF-HEAP-3, PROF-PRIM-4, PROF-TYPE-4, LOW-CONST-1
 // Only what would allocate at runtime is rejected. Constants of any size are
 // static data; a string that is built and written goes to output; strings
 // that already exist may be measured, compared and matched at runtime; an

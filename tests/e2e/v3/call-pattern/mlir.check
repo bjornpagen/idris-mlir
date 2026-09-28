@@ -1,12 +1,11 @@
 // input: after idr-simplify
-// rule: ELIM-SPEC-1, SEM-EVAL-6, TEST-ELIM-1, ELIM-G-5
 // ack is partial (it recurses on Ints). `ack 3 n` is not closed, so it is
 // specialized on the constant m: copies for m = 3, 2 and 1 (m = 0 is n + 1,
 // inlined). The closed calls the copies reach, `ack 2 1`, `ack 1 1` and
 // `ack 0 1`, are neither evaluated nor specialized, since partial code is
-// never evaluated (SEM-EVAL-6): they call the original ack, which
+// never evaluated: they call the original ack, which
 // stays. `count 3` is a closed call of a partial function too: it stays a
-// call, of the clone that runs the action it returns (ELIM-G-5), which the
+// call, of the clone that runs the action it returns, which the
 // world does not make open.
 // CHECK-DAG: func.func private @Main.ack(
 // CHECK-DAG: func.func private @Main.ack{{[^(]+}}(

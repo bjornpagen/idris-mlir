@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-CON-1, IDR-TAG-1, IDR-FIELD-1, IDR-CONST-1, IDR-CONST-2, ELIM-G-2
 // Constructors of constants fold to constants; fields and tags of known
 // constructors fold.
 

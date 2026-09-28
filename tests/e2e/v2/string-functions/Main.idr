@@ -1,6 +1,5 @@
 module Main
 
--- rule: OPT-PIPE-5, ELIM-G-7
 -- Functions that build and return strings are inlined where they are
 -- called, so their strings are still written straight to the output.
 

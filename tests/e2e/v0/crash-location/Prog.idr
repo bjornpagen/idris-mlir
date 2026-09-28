@@ -1,6 +1,6 @@
 module Prog
 
--- rule: LOW-CRASH-1
+-- A crash reports the source location of the operation that failed.
 partial
 f : Int -> Int
 f x = prim__div_Int 10 x

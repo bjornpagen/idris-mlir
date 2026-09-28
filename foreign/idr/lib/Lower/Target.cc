@@ -1,4 +1,4 @@
-// The LLVM pipeline of executables and of idr-eval's JIT (LOW-TARGET-1).
+// The LLVM pipeline of executables and of idr-eval's JIT.
 
 #include "idr/Target.h"
 

@@ -1,4 +1,4 @@
-||| Category 1 of the registry (docs/architecture/17-registry.md): Idris's own
+||| Category 1 of the registry: Idris's own
 ||| backend contract, which the compiler must implement. None of it is
 ||| privileged knowledge: Idris requires it of every backend.
 |||
@@ -16,13 +16,13 @@ import IdrisMLIR.Types
 
 %default total
 
-||| PROF-PROG-2: the root of a `main : Int` program is `main` in its module,
+||| The root of a `main : Int` program is `main` in its module,
 ||| given by its path, outermost first.
 export
 intEntry : List String -> QName
 intEntry ns = MkQName ns "main"
 
-||| FE-ENTRY-4: the module Idris takes `main` from when none is named.
+||| The module Idris takes `main` from when none is named.
 export
 mainModule : List String
 mainModule = ["Main"]
@@ -69,6 +69,6 @@ primitives =
                 (Pi QW (Prim StringP) (Pi Q1 world (ioRes unit))) PutStr
   , ioPrimitive (MkSpec "C" "putchar") "prim__putChar"
                 (Pi QW (Prim CharP) (Pi Q1 world (ioRes unit))) PutChar
-  -- SEM-IO-7: the Prelude's getChar reads one byte.
+  -- The Prelude's getChar reads one byte.
   , ioPrimitive (MkSpec "C" "getchar") "prim__getChar"
                 (Pi Q1 world (ioRes (Prim CharP))) GetByte ]

@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: SEM-LAZY-1, ELIM-G-8
 partial
 pick : Int -> Lazy Int -> Lazy Int -> Int
 pick 0 a _ = a

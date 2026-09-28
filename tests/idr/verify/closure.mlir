@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-CLOS-1, IDR-WORLD-1
 
 func.func private @g(%a: i64, %b: f64) -> i64
 func.func @f(%d: f64) {
@@ -27,7 +26,7 @@ func.func @f(%x: i64) {
 
 // -----
 
-// IDR-WORLD-1: a closure never captures a world.
+// A closure never captures a world.
 func.func private @g(%w: !idr.world) -> !idr.world
 func.func @f(%w: !idr.world) {
   // expected-error @+1 {{captures a world; a world passes only as an argument or result (IDR-WORLD-1)}}

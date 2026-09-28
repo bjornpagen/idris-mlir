@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
-// rule: IDR-WORLD-1, IDR-TY-5
 // Worlds used once on each path are accepted.
 
 idr.data @B {

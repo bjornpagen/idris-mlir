@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-CPP-2
 # make build builds C++ through the CMake presets alone, with the pinned
 # CMake, and never invokes Ninja or the compiler directly; it builds the
 # compiler with the pinned Idris.

@@ -3,7 +3,6 @@
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "xé" | %t > %t.out
 // RUN: FileCheck %s < %t.out
-// rule: LOW-IO-1, LOW-IO-2, LOW-IO-4, LOW-EXT-1, LOW-ENTRY-1, SEM-IO-2, SEM-IO-3, SEM-IO-7, SEM-PROG-2
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input decoded as UTF-8, then bytes, then 255 at the
 // end. The object needs nothing from the C library but write and read.

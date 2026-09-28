@@ -1,6 +1,5 @@
 module Main
 
--- rule: PROF-IFACE-1, FE-TR-6, ELIM-G-3
 -- Generic exponentiation by squaring over a user Ring, with a constrained
 -- implementation for 2x2 matrices: Fibonacci numbers from matrix powers.
 

@@ -1,4 +1,4 @@
-# What the golden tests' run scripts share (docs/plan.md section 9). A run
+# What the golden tests' run scripts share. A run
 # script starts with
 #
 #     . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
@@ -10,7 +10,7 @@
 # stdin, expected-stdout, expected-exit, expected-crash, Oracle.idr and the
 # *.check files), so each has one source of truth. Everything is built in a
 # temporary directory, removed on exit. The Idris environment is the
-# Makefile's (TC-PIN-2).
+# Makefile's.
 #
 # Every compilation's wall time is recorded under tests/build/timing, one
 # file per test, with the module it emitted; tests/compile-times.sh lists
@@ -19,7 +19,6 @@
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 
-# rule: TEST-TIME-1
 # No test can hang. Every command a test runs is bounded (`bounded`, below)
 # by step_limit seconds, and the whole run script by test_limit seconds: the
 # first time this file is sourced, it runs the script again under `timeout`
@@ -44,7 +43,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 # The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
-# and $idris2, stock Idris 2, the reference implementation (SEM-REF-1).
+# and $idris2, stock Idris 2, the reference implementation.
 . "$root/tools/toolchain.sh"
 runtests=$root/tests/build/exec/runtests
 compile_sh=$root/tools/compile.sh
@@ -55,7 +54,7 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
 # bounded CMD...: CMD, killed with everything it started after step_limit
-# seconds (TEST-TIME-1). A command that timed out exits 124 and says so on
+# seconds, so a hang is a failure. A command that timed out exits 124 and says so on
 # stderr, which the caller shows with the rest of its output.
 bounded() {
   timeout -k 5 "$step_limit" "$@"
@@ -170,8 +169,8 @@ record_time() {
 }
 
 # compile_program [--int|--io] [-p PACKAGE]... [--directive D]... SOURCE OUTPUT:
-# DRV-FLOW-1 or DRV-FLOW-2 through tools/compile.sh, the one copy of the
-# chain. Its output is in $work/compile.out and $work/compile.err, its exit
+# SOURCE, a `main : Int` program (--int) or an IO program (--io), compiled
+# through tools/compile.sh, the one copy of the chain. Its output is in $work/compile.out and $work/compile.err, its exit
 # status in $compiled; its wall time goes to the timing record.
 compile_program() {
   compile_started=$(now_ms)
@@ -211,7 +210,7 @@ no_artifacts() {
 
 # run_program NAME EXE INPUT [small]: runs EXE with stdin from INPUT, its
 # stdout and stderr in $work/NAME.out and $work/NAME.err, its exit status in
-# $ran. With `small`, on a 1 MiB stack (SEM-RES-2).
+# $ran. With `small`, on a 1 MiB stack.
 run_program() {
   if [ "${4-}" = small ]; then
     ( ulimit -s 1024 && bounded "$2" ) < "$3" > "$work/$1.out" 2> "$work/$1.err"
@@ -226,7 +225,6 @@ empty() {
   if [ -s "$2" ]; then say "$1: not empty"; show "$2"; else say "$1: empty"; fi
 }
 
-# rule: TEST-HEAP-1, LOW-EXT-1
 # heap_free OBJECT SYMBOL...: the object's undefined symbols (llvm-nm) are
 # among SYMBOLs: no malloc, no runtime, no other libc call.
 heap_free() {
@@ -253,8 +251,8 @@ heap_free() {
 
 v0_symbols='write _exit'
 v1_symbols='write read _exit'
-# LOW-EXT-1: v2 programs may also call these libm functions, including the
-# ones LLVM substitutes for pow (SEM-DEV-2).
+# v2 programs may also call these libm functions, including the ones LLVM
+# substitutes for pow.
 v2_symbols="$v1_symbols exp log pow sin cos tan asin acos atan sqrt floor ceil exp2 ldexp"
 
 # filecheck CHECKS INPUT: the pinned FileCheck. A line
@@ -277,18 +275,17 @@ filecheck() {
   fi
 }
 
-# rule: TEST-ELIM-1, TEST-EMIT-1, DRV-DUMP-1
 # An mlir.check file is FileChecked against one module of the compilation.
 # Its first line chooses which:
 #
-#     // input: emitted              the .mlir Emit wrote (TEST-EMIT-1)
+#     // input: emitted              the .mlir Emit wrote
 #     // input: after <step>         the module after that step of
 #                                    idris-mlir-cc's pipeline
 #
 # and without either, the module after `idr-simplify`, the simplify loop,
-# where the eliminations of ELIM-* are done and nothing is lowered yet
-# (TEST-ELIM-1). A step's module is the file `<NN>-<step>.mlir` that
-# idris-mlir-cc --dump-after=all writes (DRV-DUMP-1), found by the step's
+# where the eliminations are done and nothing is lowered yet. A step's
+# module is the file `<NN>-<step>.mlir` that idris-mlir-cc
+# --dump-after=all writes, found by the step's
 # name and not by its number, so it survives steps added before it; of two
 # dumps of a step (canonicalize runs more than once) the first is taken. A
 # step that left no dump fails the check, never falls back to another.
@@ -326,7 +323,6 @@ check_mlir() {
   filecheck "$1" "$check_mlir_file"
 }
 
-# rule: TEST-ORACLE-1, SEM-REF-1, SEM-LIT-1
 # check_oracle FIXTURE: stock Idris checks the fixture's Oracle.idr, so its
 # evaluator agrees with the fixture's expectation.
 check_oracle() {
@@ -358,7 +354,7 @@ oracle_value() {
   say "$oracle_literal"
 }
 
-# compile_v0 DIR [--directive D]...: DRV-FLOW-1 on DIR/Prog.idr, to
+# compile_v0 DIR [--directive D]...: the `main : Int` program DIR/Prog.idr, to
 # DIR/build/exec/Prog.
 compile_v0() {
   compile_v0_dir=$1
@@ -373,10 +369,9 @@ compile_v0() {
   artifacts "$1" Prog.core Prog.mlir Prog.o Prog
 }
 
-# rule: TEST-CRASH-1, TEST-ORACLE-2, SEM-CRASH-1, SEM-PROG-1, DRV-FLOW-1, FE-ENTRY-2, CORE-DUMP-1
 # e2e_v0 FIXTURE: a `main : Int` program, Prog.idr, whose exit status is
-# its Oracle.idr's literal mod 256 (TEST-ORACLE-1) or its expected-exit
-# (TEST-ORACLE-2), or which crashes with its expected-crash (TEST-CRASH-1).
+# its Oracle.idr's literal mod 256 or its expected-exit, or which crashes
+# with its expected-crash.
 e2e_v0() {
   v0_expected=
   if [ -f "$1/Oracle.idr" ]; then
@@ -416,13 +411,12 @@ e2e_v0() {
   fi
 }
 
-# rule: TEST-IO-1, TEST-DIFF-1, TEST-ELIM-1, SEM-DEV-1, DRV-FLOW-2, DRV-DUMP-1, FE-ENTRY-4
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
 # stdin against its expected-stdout and expected-exit or expected-crash,
 # with its translate.check (on full Core, 01-translate.core) and mlir.check
 # (see check_mlir). The stock Chez
 # backend compiles the same program, and must print the same stdout and
-# exit with the same status (TEST-DIFF-1); with `oracle-chez` it is the only
+# exit with the same status; with `oracle-chez` it is the only
 # oracle of stdout. `packages` names installed packages it uses.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
@@ -516,7 +510,7 @@ e2e_io() {
   if cmp -s "$work/ours.out" "$work/chez.out"; then
     io_same=yes
   elif [ -n "$io_crash" ]; then
-    # SEM-DEV-1: crash messages are not compared, and Chez writes its own to
+    # Crash messages are not compared, and Chez writes its own to
     # stdout: after this compiler's output, or as an `ERROR: ` line before
     # the Prelude's buffered output.
     io_bytes=$(wc -c < "$work/ours.out" | tr -d ' ')
@@ -530,7 +524,7 @@ e2e_io() {
       io_same=yes
     fi
   fi
-  # SEM-DEV-2: on the lines `libm-lines` names (one number per line), the
+  # On the lines `libm-lines` names (one number per line), the
   # outputs are libm results, musl's here and the host's in Chez, which may
   # differ by one unit in the last place where libm is not correctly
   # rounded.
@@ -565,7 +559,7 @@ e2e_io() {
   fi
 }
 
-# sem_case NAME: the TEST-SEM-1 test NAME, a v0 fixture whose Prog.idr the
+# sem_case NAME: the generated semantics test NAME, a v0 fixture whose Prog.idr the
 # runner generates (tests/Sem.idr) and whose Oracle.idr proves
 # `Prog.main = 0`.
 sem_case() {
@@ -617,9 +611,9 @@ profile_prepare() {
   fi
 }
 
-# profile_compile: $work/fixture/Main.idr to build/exec/Main, through
-# DRV-FLOW-2 with the packages its header names if its main is IO, and
-# DRV-FLOW-1 otherwise.
+# profile_compile: $work/fixture/Main.idr to build/exec/Main, as an IO
+# program with the packages its header names if its main is IO, and as a
+# `main : Int` program otherwise.
 profile_compile() {
   profile_main=$work/fixture/Main.idr
   if grep -Eq '^main[[:space:]]*:[[:space:]]*IO([^[:alnum:]_]|$)' "$profile_main"; then
@@ -633,7 +627,6 @@ profile_compile() {
   fi
 }
 
-# rule: TEST-REJ-1, FE-ART-1, DIAG-FMT-1, DIAG-LOC-1, DIAG-EXIT-1, DIAG-CODE-1, DIAG-ONE-1, PROF-GEN-2
 # profile_reject FIXTURE: `tests/profile/vN/reject/<RULE-ID>-<desc>.idr`, or a
 # directory of that name holding Main.idr and its other modules, whose first
 # line is `-- expect: <RULE-ID> line <n>` (and then, optionally,
@@ -680,7 +673,6 @@ profile_reject() {
   no_artifacts "$work/fixture"
 }
 
-# rule: TEST-ACC-1, TEST-VER-1, PROF-GEN-4
 # profile_accept FIXTURE: `tests/profile/vN/accept/<RULE-ID>-<desc>.idr`, or a
 # directory of that name holding Main.idr: it compiles with every artifact
 # written. With `-- exit: <status>` or `-- stdout: <text with \n escapes>` in
@@ -721,10 +713,9 @@ profile_accept() {
   empty stderr "$work/accept.err"
 }
 
-# rule: TEST-DET-1, FE-DET-1, DRV-DET-1
 # determinism FLOW FIXTURE: two compilations of the fixture give
-# byte-identical .core, .mlir, object and executable. FLOW is `v0`, DRV-FLOW-1
-# on Prog.idr, or `io`, DRV-FLOW-2 on Main.idr.
+# byte-identical .core, .mlir, object and executable. FLOW is `v0`, a
+# `main : Int` program in Prog.idr, or `io`, an IO program in Main.idr.
 determinism() {
   mkdir "$work/det"
   copy_fixture "$2" "$work/det"
@@ -779,8 +770,8 @@ lit_stage() {
   return "$lit_stage_status"
 }
 
-# lit_run CMD...: a command of a RUN line; an executable is bounded
-# (TEST-TIME-1), a shell builtin or function is not, since it cannot hang.
+# lit_run CMD...: a command of a RUN line; an executable is bounded, a
+# shell builtin or function is not, since it cannot hang.
 lit_run() {
   case $(command -v "$1") in
     /*) bounded "$@" ;;
@@ -799,7 +790,6 @@ lit_status() {
   return 1
 }
 
-# rule: TEST-IDR-1
 # lit FILE: the `// RUN:` lines of a dialect test, run as lit's internal
 # shell ran them, with no lit and no Python: %s is FILE, %t a path in the
 # work directory, %cc the pinned C compiler, and `%status N CMD` checks that
@@ -850,10 +840,8 @@ rejection_rule() {
   cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([A-Z0-9-]*)' | head -n 1
 }
 
-# rule: TEST-EQUIV-1, SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1, OPT-SAFE-1
-# equivalent FIXTURE: an e2e fixture (TEST-ORACLE-1, TEST-IO-1) compiled twice,
-# with evaluation and with `--directive no-eval`, which leaves every closed
-# call to runtime (ELIM-EVAL-1): both executables must print the
+# equivalent FIXTURE: an e2e fixture compiled twice, with evaluation and
+# with `--directive no-eval`, which leaves every closed call to runtime: both executables must print the
 # same stdout and exit with the same status on the fixture's stdin. Crash
 # messages are not compared. A fixture that --no-eval rejects with a user
 # error (a value the profile forbids at runtime, which only evaluation
@@ -919,8 +907,8 @@ equivalent() {
 }
 
 # equivalence VERSION [sem]: `equivalent` on every fixture of
-# tests/e2e/VERSION, in order; with `sem`, on its TEST-SEM-1 fixtures
-# (SEM-INT-*) alone, and without, on the others.
+# tests/e2e/VERSION, in order; with `sem`, on its generated semantics
+# fixtures (the integer primitives) alone, and without, on the others.
 equivalence() {
   for eq_base in $(cd "$root/tests/e2e/$1" && ls | LC_ALL=C sort); do
     [ -d "$root/tests/e2e/$1/$eq_base" ] || continue
@@ -955,7 +943,6 @@ fuzz_agree() {
     }' "$1" >> "$work/fuzz.agree"
 }
 
-# rule: TEST-FUZZ-1, SEM-REF-1, SEM-EVAL-6, ELIM-G-6, ELIM-EVAL-1, SEM-DBL-3, TEST-DIFF-1
 # fuzz SEED: the fuzzer (tests/Fuzz.idr). For each part, `runtime` and
 # `static`, its program of SEED is compiled with evaluation, with
 # --directive no-eval (the runtime part only: the static part's values
@@ -965,7 +952,7 @@ fuzz_agree() {
 #     idr-eval or the runtime computes (j) and the runtime's (r);
 #   - --no-eval prints what evaluation prints, byte for byte;
 #   - Chez prints the same, but for the lines of cases through libm (L),
-#     which C libraries may round differently (SEM-DBL-3).
+#     which C libraries may round differently.
 # IDRIS_MLIR_FUZZ_CASES sets the cases of a program (default 30), and
 # IDRIS_MLIR_FUZZ_ROUNDS=N adds N seeds, SEED + 1000, SEED + 2000, ...; the
 # output is the same for any of them.
@@ -1043,7 +1030,6 @@ fuzz_report() {
   fi
 }
 
-# rule: TEST-LEVELS-1, SEM-REF-1, SEM-DBL-3, SEM-STR-2, FE-IN-3
 # two_levels CORPUS...: the two-level test (tests/TwoLevels.idr). The helper
 # tests/twolevels, Idris's own evaluator as a backend of the stock driver, is
 # built; for each corpus, `primitives` or `prelude`, its terms are

@@ -1,6 +1,5 @@
--- expect: PROF-PRAG-1 line 11
+-- expect: PROF-PRAG-1 line 10
 module Main
--- rule: RW-DAY1-4
 
 slow : Int -> Int
 slow x = prim__add_Int x 0

@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: FE-IN-2
 # The frontend reads none of the forms that have already erased facts or
 # were built for other backends: no identifier of them, and no import of the
 # modules that define them, anywhere in compiler/src.

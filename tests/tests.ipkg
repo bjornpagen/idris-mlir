@@ -1,6 +1,6 @@
 package runtests
 version = 0.1.0
-brief = "The golden test runner of idris-mlir (docs/plan.md section 9)"
+brief = "The golden test runner of idris-mlir"
 
 depends = contrib, test
 sourcedir = "."

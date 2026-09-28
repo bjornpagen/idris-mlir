@@ -3,9 +3,8 @@
 // RUN: not ls %t.o
 // RUN: %status 4 bash -c 'ulimit -v 3000000; exec idris-mlir-cc %s --check' 2> %t.check.err
 // RUN: FileCheck %s < %t.check.err
-// rule: EVAL-1, DRV-CC-2
 // A total evaluation the machine cannot finish (here, in an address space
-// of 3 GB) is EVAL-1: status 4, at the call, and no output. --check runs the
+// of 3 GB) is a user error: status 4, at the call, and no output. --check runs the
 // same evaluation, so it reports the same.
 // CHECK: exhausted.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (EVAL-1): the machine could not finish evaluating @range
 module attributes {idr.program} {

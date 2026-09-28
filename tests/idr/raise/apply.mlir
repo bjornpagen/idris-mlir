@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
-// rule: ELIM-G-5, ELIM-G-1, IDR-FACT-1, IDR-FN-1
 // A call whose result is applied at once, with only an op without effects
 // between them: the call and the apply become one call of a clone of the
 // callee that also takes the apply's argument. In the clone, the apply

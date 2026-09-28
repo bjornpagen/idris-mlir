@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
-// rule: ELIM-G-5, ELIM-G-7, IDR-WORLD-1, IDR-FACT-1, OPT-SAFE-1
 // Output is the other consumer that moves into its callee. @show builds a
 // string at runtime, recursively, and @print only writes it: the pair
 // becomes a call of a clone that takes the world and writes, at each tail,

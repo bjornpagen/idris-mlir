@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-PIN-2
 # The commands run the pinned Idris and inherit no package path from another
 # installation: make's environment, with the caller's set to other values.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

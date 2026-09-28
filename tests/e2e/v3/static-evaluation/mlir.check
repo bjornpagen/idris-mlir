@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.atLeast --implicit-check-not=@Main.firstIs --implicit-check-not=@Main.parens --implicit-check-not=idr.big. --implicit-check-not=idr.str.
-// rule: ELIM-EVAL-1, ELIM-G-2, ELIM-G-7, TEST-ELIM-1
 // Nothing of the precedence test remains at runtime: `atLeast Low High` is
 // a closed call of a total function, evaluated to False, so `both` never
 // forces `firstIs`, whose string match could not run at runtime, and

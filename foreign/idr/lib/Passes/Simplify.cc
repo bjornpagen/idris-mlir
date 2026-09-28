@@ -1,7 +1,7 @@
-// idr-simplify: the simplify loop (OPT-PIPE-5). One
+// idr-simplify: the simplify loop. One
 // round runs the passes of simplifyRound() in order; rounds repeat until one
-// leaves the module unchanged, so running the loop again changes nothing
-// (OPT-IDEM-1). There is no bound on the number of rounds: the loop ends
+// leaves the module unchanged, so running the loop again changes nothing.
+// There is no bound on the number of rounds: the loop ends
 // because loop breakers stop inlining at every cycle, clones are bounded by
 // the clone limit, and every evaluation removes a call.
 //
@@ -126,7 +126,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
 } // namespace
 
-// OPT-PIPE-5: the passes of one round, as textual pipelines, in order.
+// The passes of one round, as textual pipelines, in order.
 //
 // idr-prune runs right before remove-dead-values: at llvmorg-23.1.2,
 // remove-dead-values erases the arguments of a function that dead-code

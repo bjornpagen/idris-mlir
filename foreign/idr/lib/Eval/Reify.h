@@ -1,5 +1,5 @@
-// Reading a result of compile-time evaluation back as a constant attribute
-// (IDR-CONST-1), through the layouts idr-lower built it in (ELIM-EVAL-1).
+// Reading a result of compile-time evaluation back as a constant attribute,
+// through the layouts idr-lower built it in.
 // Runs in idr-eval's child, on the memory of the JITed code.
 #pragma once
 

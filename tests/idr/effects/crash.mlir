@@ -1,8 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --cse | FileCheck %s
-// rule: IDR-EFF-1, IDR-CRASH-1, IDR-STR-2, IDR-BIG-1, IDR-DBL-1, SEM-EVAL-4, OPT-SAFE-1
 // Every op that may crash keeps its crash when its result is unused, and
-// loses it exactly when the operands rule the crash out (IDR-EFF-1: the crash
-// also writes the IO resource, so it stays ordered with output).
+// loses it exactly when the operands rule the crash out (the crash also
+// writes the IO resource, so it stays ordered with output).
 
 // CHECK-LABEL: func.func @may_crash(
 // CHECK-SAME: %[[S:.*]]: !idr.str, %[[I:.*]]: i64, %[[B:.*]]: !idr.big, %[[D:.*]]: f64)

@@ -1,9 +1,9 @@
 // The red-black tree of bench/gate/suite/rbtree/Main.idr (Perceus's
-// rbtree.kk), lowered by hand to what the compiler will emit: the cells, reset and reuse, ins, insert and the
-// fold that counts. rbtree.mlir (experiment 2) and shmap.mlir (experiment
-// 3) add their main. The source binds its trees at quantity omega, so reuse
-// is Lean's best effort: every reset tests the count at runtime
-// (idr.reset.dyn).
+// rbtree.kk), lowered by hand to what the compiler will emit: the cells, reset
+// and reuse, ins, insert and the fold that counts. rbtree.mlir (experiment 2)
+// and shmap.mlir (experiment 3) add their main. The source binds its trees at
+// quantity omega, so reuse is Lean's best effort: every reset tests the count
+// at runtime (idr.reset.dyn).
 //
 // data Tree = Leaf | Node Color Tree Int Bool Tree
 //   Leaf is the immediate 1. Node is tag 1, 40 bytes: header, l, r, key,

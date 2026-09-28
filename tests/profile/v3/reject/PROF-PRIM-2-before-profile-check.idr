@@ -1,7 +1,6 @@
--- expect: PROF-PRIM-2 line 21
+-- expect: PROF-PRIM-2 line 20
 module Main
 
--- rule: DIAG-ONE-1, PROF-TYPE-4
 -- Two violations: `count` makes an Integer from a runtime value, which
 -- idr-check-profile rejects with PROF-TYPE-4 on the optimized module, and
 -- `shift`, defined and used after it, uses a primitive the frontend rejects

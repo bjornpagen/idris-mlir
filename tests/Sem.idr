@@ -1,11 +1,11 @@
-||| TEST-SEM-1: table-driven integer semantics over every integer type.
+||| Table-driven integer semantics over every integer type.
 |||
 ||| Each generated program is an ordinary v0 end-to-end fixture: `Prog.main`
 ||| is 0 when every case agrees with the table, and otherwise the number of
 ||| the first case that disagrees. `Oracle.idr` proves `Prog.main = 0` with
-||| `Refl`, so the stock evaluator agrees with the same table (SEM-REF-1). The
-||| table itself is computed here from the rules in
-||| docs/architecture/03-semantics.md.
+||| `Refl`, so the stock evaluator agrees with the same table. The table
+||| itself is computed here, from what each primitive means, not from the
+||| compiler.
 |||
 ||| The tests are `tests/e2e/v0/SEM-INT-<type>-<table>-<part>/`. Their `run`
 ||| asks the test runner for the program:
@@ -13,9 +13,6 @@
 |||     runtests --sem-program <type> <table> <part>
 |||
 ||| and `runtests --sem-list` names every test the tables make.
-|||
-||| rule: TEST-SEM-1, SEM-INT-1, SEM-INT-2, SEM-INT-3, SEM-INT-5, SEM-INT-6, SEM-INT-7, PROF-PRIM-1
-||| rule: LOW-DIV-1, IDR-DIV-1, IDR-DIV-2, IDR-IN-3, SEM-EVAL-1, SEM-EVAL-2
 module Sem
 
 import Data.Bits

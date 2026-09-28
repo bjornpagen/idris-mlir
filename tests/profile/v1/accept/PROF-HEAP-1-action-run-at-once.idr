@@ -2,7 +2,6 @@
 -- stdout: 2\n
 module Main
 
--- rule: PROF-HEAP-1, OPT-SAFE-1
 -- `report` divides, and its action runs as soon as it is built; no
 -- closure of it survives to runtime.
 

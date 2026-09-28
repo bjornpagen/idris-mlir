@@ -1,6 +1,5 @@
 module Main
 
--- rule: ELIM-EVAL-1, SEM-EVAL-6, SEM-EVAL-2
 -- A closed call of a total function is evaluated at compile time, recursion
 -- included: `power` recurses on a Nat, so `power (the Integer 2) 100` and
 -- `power (the Integer 3) 20` are constants, and no Integer exists at

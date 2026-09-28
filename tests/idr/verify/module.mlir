@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-FN-1, IDR-DATA-4, IDR-TY-1, IDR-TY-6
 // The rules of a whole module, checked on its idr.program attribute.
 
 // expected-error @+1 {{expects exactly one public function (the root), found 2}}
@@ -54,7 +53,7 @@ module attributes {idr.program} {
 
 // -----
 
-// IDR-DATA-4 (revised): containment through unboxed sums is acyclic.
+// Containment through unboxed sums is acyclic.
 module attributes {idr.program} {
   // expected-error @+1 {{contains itself through unboxed sums; a recursive type must be declared box (IDR-DATA-4)}}
   idr.data @T {

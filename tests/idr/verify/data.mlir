@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-DATA-1, IDR-DATA-2, IDR-DATA-3, IDR-TY-3
 
 idr.data @T {
   idr.ctor @A tag 0 () {quantities = []}

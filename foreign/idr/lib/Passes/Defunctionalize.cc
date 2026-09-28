@@ -1,4 +1,4 @@
-// idr-defunctionalize: closures of known labels become sums (ELIM-CLOS-1).
+// idr-defunctionalize: closures of known labels become sums.
 //
 // The analysis is a sparse forward dataflow analysis on MLIR's framework,
 // interprocedural, whose lattice is the set of labels (functions) a
@@ -22,7 +22,7 @@
 // may capture another closure of type T when the captured one holds other
 // labels (a state monad's bind captures a bind of different lambdas).
 // A converted key's values belong to a new unboxed sum `@fn$<n>`, numbered
-// by first appearance in the module (FE-DET-1), with one constructor per
+// by first appearance in the module, with one constructor per
 // label whose fields are the label's captures, each with the key of that
 // capture (the label's entry argument): `idr.closure @f(...)` becomes
 // `idr.con @fn$n::@f(...)`, a closure constant the matching constructor
@@ -913,7 +913,7 @@ struct Converter {
   }
 
   // Where the program builds a closure of `label`: a closure a coercion
-  // rebuilds is reported there (DIAG-LOC-1).
+  // rebuilds is reported there.
   Location closureLoc(StringAttr label, Location fallback) {
     auto it = module.closures.find(label);
     return it == module.closures.end() || it->second.empty() ? fallback

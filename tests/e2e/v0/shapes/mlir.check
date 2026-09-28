@@ -1,10 +1,8 @@
 // input: emitted
-// TEST-EMIT-1 on the contract the Idris side emits (08-idr-dialect.md), in
-// the custom syntax of each dialect.
-// rule: TEST-EMIT-1, IDR-MOD-2, IDR-FN-1, IDR-FN-2, IDR-FN-3, IDR-LOC-1, IDR-DATA-5, IDR-TY-1, IDR-TY-2, FE-LOC-1, IDR-MATCH-5
+// The contract the Idris side emits, in the custom syntax of each dialect.
 // The module carries idr.program, and no version, entry or entry kind.
 // CHECK: module attributes {idr.program} {
-// IDR-DATA-5: an Idris name is a NameLoc around the source location.
+// An Idris name is a NameLoc around the source location.
 // CHECK-NEXT: idr.data @Prog.Shape {
 // CHECK-NEXT: idr.ctor @Circle tag 0 (i64) {quantities = ["w"]} loc("Prog.Circle"("Prog.idr":
 // CHECK-NEXT: idr.ctor @Rect tag 1 (i64, i64) {quantities = ["w", "w"]} loc("Prog.Rect"("Prog.idr":

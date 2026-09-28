@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: SEM-IO-4, SEM-CRASH-1
 -- The divisor is the digit on stdin, 0, known only at runtime.
 partial
 main : IO ()

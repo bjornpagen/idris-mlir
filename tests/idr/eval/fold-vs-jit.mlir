@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --inline --canonicalize | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-disable-threading --idr-eval --canonicalize | FileCheck %s
-// rule: LOW-RT-1, ELIM-G-6, SEM-STR-2, SEM-INT-3, SEM-DBL-5, TEST-IDR-1
 // Every folder of a string or big op (and of double_head and int_head)
 // against its lowering: each case calls a function of one op on constants.
 // The first run inlines the call and folds the op, which calls the

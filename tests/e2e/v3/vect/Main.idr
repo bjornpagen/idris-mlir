@@ -1,6 +1,5 @@
 module Main
 
--- rule: SEM-IDX-1, FE-TR-7, PROF-LIB-3, SEM-REC-2
 -- Length-indexed vectors from the base library: an inductive family whose
 -- index exists at compile time only (Brady, McBride and McKinna,
 -- "Inductive families need not store their indices"). A Vect is built

@@ -2,7 +2,6 @@
 -- stdout: 1331246629686034420\n2\n
 module Main
 
--- rule: PROF-TYPE-4, ELIM-G-6, PROF-GEN-4
 -- Integers that are constants in the optimized module are allowed: the
 -- folders compute arithmetic beyond 64 bits and casts that wrap, and data
 -- with an Integer field is taken apart at compile time. An Integer that

@@ -1,4 +1,4 @@
-// The two phases of idr-lower (docs/architecture/10-lowering.md).
+// The two phases of idr-lower.
 #pragma once
 
 #include "Lower/Runtime.h"
@@ -7,7 +7,7 @@
 
 namespace idr::lower {
 
-// Phase 1, on idr types (LOW-MATCH-1): idr.match becomes idr.tag and
+// Phase 1, on idr types: idr.match becomes idr.tag and
 // scf.index_switch, whose cases read their constructor's fields;
 // idr.match_lit becomes scf.index_switch on an integer and a chain of scf.if
 // on string or big comparisons. A region that ends in ub.unreachable (after

@@ -1,7 +1,6 @@
 -- exit: 3
 module Main
 
--- rule: FE-TOT-1
 -- Division is partial in Idris; a function that divides is declared partial
 -- and is accepted, because its own patterns cover every case.
 partial

@@ -1,9 +1,8 @@
 module Main
 
--- rule: FE-TR-6, SEM-DBL-2, ELIM-EVAL-1
 -- The n-body benchmark of the Computer Language Benchmarks Game: five
 -- bodies, immutable records, one function per pair interaction. Record
--- updates put implementations under a `let` (FE-TR-6, zeta).
+-- updates put implementations under a `let`, which the frontend reduces.
 
 import Arith
 

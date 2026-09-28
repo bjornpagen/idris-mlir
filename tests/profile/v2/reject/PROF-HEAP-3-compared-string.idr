@@ -1,7 +1,6 @@
--- expect: PROF-HEAP-3 line 12
+-- expect: PROF-HEAP-3 line 11
 module Main
 
--- rule: PROF-HEAP-3, ELIM-G-5, ELIM-G-7
 -- `digits` recurses on a runtime value, so the string it returns is built
 -- at runtime, and its use is a comparison, not output: neither raising
 -- (ELIM-G-5) nor output fusion (ELIM-G-7) consumes it, so it would need

@@ -1,5 +1,4 @@
-// How idr values are represented at runtime (LOW-DATA-1, LOW-BOX-1,
-// LOW-CLOS-1, LOW-BIG-1, LOW-STR-2). idr-lower builds values in these
+// How idr values are represented at runtime. idr-lower builds values in these
 // layouts, and idr-eval's child reads its results back through the same code.
 #pragma once
 
@@ -10,7 +9,7 @@
 
 namespace idr::lower {
 
-// LOW-DATA-1: an unboxed sum spread over scalar slots.
+// An unboxed sum spread over scalar slots.
 struct SumLayout {
   mlir::Type tag;                       // null when the type has at most one constructor
   llvm::SmallVector<mlir::Type> slots;
@@ -27,7 +26,7 @@ struct Slot {
   unsigned offset;
 };
 
-// LOW-BOX-1, LOW-CLOS-1: a cell is the 8-byte header (idris_rt_header: the
+// A box or a closure: a cell is the 8-byte header (idris_rt_header: the
 // count, then the constructor tag or the closure's label), then its
 // components at their natural alignment, as a C struct or an LLVM struct of
 // the same members lays them out. A closure's first component after the
@@ -43,7 +42,7 @@ struct Cell {
   llvm::SmallVector<mlir::Type> members(mlir::MLIRContext *ctx) const;
 };
 
-// A closure label (LOW-CLOS-1): a function with the number of leading
+// A closure label: a function with the number of leading
 // parameters that are captures. Closures of one label share their code.
 struct Label {
   mlir::FlatSymbolRefAttr callee;

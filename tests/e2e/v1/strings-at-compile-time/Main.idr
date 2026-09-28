@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: SEM-STR-1, ELIM-G-6
 public export
 greeting : String
 greeting = prim__strAppend (prim__strCons 'h' "ello") (prim__strAppend ", " (prim__cast_CharString 'w'))

@@ -27,8 +27,8 @@ template <typename T> std::pair<llvm::StringRef, llvm::orc::ExecutorAddr> bind(l
 using Unary = double (*)(double);
 using Binary = double (*)(double, double);
 
-// What lowered code may call: the runtime's entry points (LOW-RT-1), the libm
-// functions of LOW-EXT-1 (and fmod), and the memory functions LLVM emits.
+// What lowered code may call: the runtime's entry points, the libm functions
+// idr-lower calls (and fmod), and the memory functions LLVM emits.
 llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols() {
 #define IDRIS_RT_BIND(name) bind(#name, &name)
   return {

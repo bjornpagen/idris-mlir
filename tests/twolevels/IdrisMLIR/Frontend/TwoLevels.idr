@@ -1,4 +1,4 @@
-||| The upper level of the two-level test (tests/TwoLevels.idr, SEM-REF-1):
+||| The upper level of the two-level test (tests/TwoLevels.idr):
 ||| the pinned Idris's own evaluator on the terms `Terms.t1`, `Terms.t2`, ...
 ||| of the program it is given, as a backend of the stock driver, as the
 ||| compiler's frontend is:
@@ -11,10 +11,8 @@
 ||| value is printed as `stuck <term>`.
 |||
 ||| It uses the Idris API, which only modules named IdrisMLIR.Frontend.* may
-||| import (FE-IN-3); it is a test, built by its test (tests/two-levels), and
+||| import; it is a test, built by its test (tests/two-levels), and
 ||| not part of the compiler.
-|||
-||| rule: SEM-REF-1, FE-IN-3
 module IdrisMLIR.Frontend.TwoLevels
 
 import Compiler.Common

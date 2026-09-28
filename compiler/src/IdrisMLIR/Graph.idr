@@ -1,6 +1,7 @@
-||| Strongly connected components of a finite graph, in a deterministic order
-||| (FE-DET-1). Two users: which data instances are recursive (a box,
-||| `Term.Repr`) and the loop breakers of the call graph (OPT-PIPE-3).
+||| Strongly connected components of a finite graph, in a deterministic
+||| order, so the output does not depend on map iteration. Two users: which
+||| data instances are recursive (a box, `Term.Repr`) and the loop breakers
+||| of the call graph.
 module IdrisMLIR.Graph
 
 import Data.List

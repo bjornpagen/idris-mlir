@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --sccp | FileCheck %s
-// rule: IDR-CONST-1, IDR-FIELD-1, ELIM-G-4
 // SCCP propagates a constructor constant through a call into a private
 // function, where the field read of it folds.
 

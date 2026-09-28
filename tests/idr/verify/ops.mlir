@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-STR-2, IDR-BIG-1
 
 func.func @f(%d: f64) {
   // expected-error @+1 {{shows a Double, which has no signedness}}

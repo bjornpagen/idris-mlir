@@ -1,6 +1,5 @@
 module Main
 
--- rule: ELIM-EVAL-1, ELIM-G-2, PROF-PRIM-4, PROF-TYPE-4
 -- Calls whose arguments are all known are evaluated during specialization,
 -- and constructors of known values stay known: the conditions below are
 -- decided at compile time, so the string match in `firstIs`, which could

@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-simplify > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: ELIM-G-5, ELIM-SPEC-1, SEM-EVAL-6
 // The IO loop of io-loop.mlir, called with a literal. The call of the loop
 // breaker @countdown is closed, and stays a call: raising gives it the
 // world, which carries no value to specialize around, so the raised call

@@ -1,11 +1,10 @@
 // RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4" --idr-defunctionalize --canonicalize --idr-tail-loops --idr-check-profile -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
-// rule: PROF-HEAP-4, ELIM-SPEC-1
 // iter f n x = if n == 0 then f x else iter (\y => f y + 1) (n - 1) x:
 // the clone of @iter passes itself a larger closure, which contains its own:
-// specialization stops at once (ELIM-SPEC-2), and the closure that @iter
+// specialization stops at once, and the closure that @iter
 // builds survives in the stopped callee, whose self tail call is a loop by
-// the time the profile is checked: PROF-HEAP-4.
+// the time the profile is checked, which rejects it.
 // CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4){{.*}}@Main.after{{.*}}@Main.iter
 // CHECK-NOT: error:
 module attributes {idr.program} {

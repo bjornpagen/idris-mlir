@@ -1,7 +1,6 @@
 // RUN: %status 1 bash -c 'ulimit -v 3000000; exec idris-mlir-opt %s --mlir-disable-threading --idr-eval' > %t.out 2> %t.err
 // RUN: FileCheck %s < %t.err
-// rule: EVAL-1, DIAG-LOC-1
-// EVAL-1 is reported where the user's code is: a call inlined from a library
+// An evaluation that cannot finish is reported where the user's code is: a call inlined from a library
 // carries its call-site chain, and the error is at the innermost frame that
 // is not the library's, with its callers as notes.
 // CHECK: Main.idr:5:7: error: unsupported (EVAL-1): the machine could not finish evaluating @range, which is total

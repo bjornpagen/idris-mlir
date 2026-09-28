@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
-// rule: EVAL-1, OPT-SAFE-1, SEM-EVAL-4, LOW-JIT-1
 // A total call can still crash (division by zero). The crash leaves the call
 // in place, to crash at runtime, with a Missed remark naming it; the calls
 // after it in the round still run, in a new child.

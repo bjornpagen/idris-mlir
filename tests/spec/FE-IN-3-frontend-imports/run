@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: FE-IN-3
 # Only IdrisMLIR.Frontend.* imports the Idris compiler: no other module of
 # compiler/src, or of the tests, imports a module whose root is a root of
 # the Idris API (third_party/Idris2/idris2api.ipkg).

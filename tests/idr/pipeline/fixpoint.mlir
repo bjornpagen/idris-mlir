@@ -3,7 +3,6 @@
 // RUN: FileCheck %s --check-prefix=AGAIN < %t2.err
 // RUN: FileCheck %s < %t1.mlir
 // RUN: FileCheck %s < %t2.mlir
-// rule: OPT-IDEM-1, OPT-PIPE-5, ELIM-SPEC-1, ELIM-G-1
 // The simplify loop runs to a fixpoint, so running it again changes nothing:
 // its first round leaves the module as it was (up to where sccp puts the
 // constants, which it reverses on every run).

@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --int-range-optimizations | FileCheck %s
-// rule: IDR-TAG-1, IDR-CHAR-1, IDR-DBL-3, IDR-STR-2, IDR-RANGE-1
-// IDR-RANGE-1: tags, characters and lengths have known ranges, which
+// Tags, characters and lengths have known ranges, which
 // upstream's integer range optimizations use.
 
 idr.data @T {

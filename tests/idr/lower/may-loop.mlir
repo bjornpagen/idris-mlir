@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize | FileCheck %s
-// rule: LOW-TAIL-4, SEM-EVAL-5
 // idr.may_loop, which idr-tail-loops puts in the loops of functions that
 // are not total, becomes an effect no MLIR pass removes and LLVM keeps: an
 // empty inline assembly with side effects. So an unused loop that may not

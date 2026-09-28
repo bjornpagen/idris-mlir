@@ -1,6 +1,5 @@
 #!/bin/sh
-# The pinned toolchain, built from source into .toolchain/ (TC-BOOT-1 to
-# TC-BOOT-6, docs/architecture/11-toolchain.md; docs/plan.md section 5.2).
+# The pinned toolchain, built from source into .toolchain/.
 #
 #     tools/bootstrap.sh STEP...          (make bootstrap runs `all`)
 #
@@ -26,7 +25,7 @@
 # configuration, and the inputs of the steps it builds with, so a change to
 # any of them makes the step, and every step built with it, stale. A step
 # deletes its stamp first and writes it after everything, its checks
-# included, succeeded (TC-PIN-2). The long builds (stage1, stage2) resume in
+# included, succeeded. The long builds (stage1, stage2) resume in
 # their build directory after a failure, when their inputs did not change.
 #
 # Environment:
@@ -38,7 +37,7 @@
 #   CHEZ                   the Chez Scheme for Idris (default: chezscheme,
 #                          scheme or chez on PATH)
 #
-# The host provides (TC-PIN-3): a C and C++ compiler, make, git, python3
+# The host provides: a C and C++ compiler, make, git, python3
 # (LLVM's configure), m4 (GMP), Chez Scheme (Idris), its Linux UAPI headers,
 # tar, sha256sum, and curl to check release tarballs. Each step logs to
 # .toolchain/logs/STEP.log; a failure prints the log's end and exits 1, a
@@ -48,7 +47,7 @@ set -eu
 LC_ALL=C
 export LC_ALL
 # Nothing of the caller's environment reaches the builds' flags or search
-# paths (TC-PIN-2).
+# paths.
 unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LIBS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH \
   LIBRARY_PATH DESTDIR MAKEFLAGS MFLAGS MAKELEVEL CMAKE_PREFIX_PATH CMAKE_GENERATOR \
   CMAKE_TOOLCHAIN_FILE CMAKE_BUILD_TYPE CMAKE_INSTALL_PREFIX CLANG_NO_DEFAULT_CONFIG
@@ -310,7 +309,7 @@ used_kib() {
   awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { print (t > 0 ? t - a : 0) }' /proc/meminfo 2> /dev/null || echo 0
 }
 
-# TC-BOOT-6: the most memory in use on the machine while a build runs,
+# The most memory in use on the machine while a build runs,
 # sampled every 5 seconds (there is no /usr/bin/time here).
 sampler=
 sample_memory() {
@@ -359,7 +358,7 @@ version_is() {
   esac
 }
 
-# static_pie READELF FILE: TC-LINK-2. A static-PIE executable has a dynamic
+# static_pie READELF FILE: a static-PIE executable has a dynamic
 # section, for its self-relocation, but no interpreter and no DT_NEEDED.
 static_pie() {
   static_pie_out=$("$1" --file-header --program-headers --dynamic "$2") || die "$1 cannot read $2"
@@ -385,7 +384,7 @@ clone_pinned() {
 }
 
 # submodule PATH [TOOL]: PATH is checked out at its gitlink, unmodified, and
-# the gitlink is the lock's revision of TOOL (TC-PIN-1). Prints the gitlink.
+# the gitlink is the lock's revision of TOOL. Prints the gitlink.
 submodule() {
   submodule_entry=$(git -C "$root" ls-files --stage -- "$1") || die "git ls-files failed"
   submodule_mode=$(printf '%s\n' "$submodule_entry" | awk '{ print $1 }')
@@ -414,7 +413,7 @@ export_source() {
 
 # verify_release TOOL PATH: the lock's release tarball, when it can be
 # fetched, has the lock's SHA-256 and exactly the files of the pinned commit
-# (docs/plan.md section 5.2; PINS.md: mirrored-sources). Sets release_check.
+# (PINS.md: mirrored-sources). Sets release_check.
 verify_release() {
   release_url=$(lock_value "$1" release) || exit 1
   release_sha256=$(lock_value "$1" release_sha256) || exit 1
@@ -459,7 +458,7 @@ install_staged() {
 
 # --- Recipes ------------------------------------------------------------
 
-# TC-BOOT-5: the only configuration of the pinned clangs, next to them, which
+# The only configuration of the pinned clangs, next to them, which
 # clang reads for its target (<CFGDIR> is the file's directory). Static-PIE is
 # the only kind of executable: a shared link fails.
 config_file() {
@@ -514,7 +513,7 @@ recipe_ninja() {
   args_ninja
 }
 
-# TC-BOOT-4: only what the next steps use: the compilers, the linker, the
+# Only what the next steps use: the compilers, the linker, the
 # archiver and nm for LTO objects, and readelf for the static-PIE checks.
 stage1_components='clang;clang-resource-headers;lld;llvm-ar;llvm-ranlib;llvm-nm;llvm-readobj;llvm-readelf'
 
@@ -577,10 +576,10 @@ recipe_runtimes() {
   args_libcxx
 }
 
-# TC-BOOT-2: what stage 2 installs.
+# What stage 2 installs.
 stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
-# TC-BOOT-2: stage 2. Static PIE on musl and libc++ (the configuration file),
+# Stage 2. Static PIE on musl and libc++ (the configuration file),
 # no shared libraries or plugins, LTO with fat objects: their bitcode serves
 # the Release build of our tools, their native code every other build. A
 # ThinLTO link runs two backend threads, so that it and two compile jobs fit
@@ -680,7 +679,7 @@ step_ninja() {
   finish
 }
 
-# TC-BOOT-4: stage 1, the host compiler's clang and lld; nothing else.
+# Stage 1, the host compiler's clang and lld; nothing else.
 step_stage1() {
   begin stage1 "clang and lld $llvm_tag, with the host's C++ compiler" || return 0
   require cmake ninja
@@ -714,7 +713,7 @@ step_stage1() {
   finish
 }
 
-# TC-BOOT-4: musl, with stage 1, and the kernel's UAPI headers, which musl
+# musl, with stage 1, and the kernel's UAPI headers, which musl
 # does not ship and libc++ and snmalloc include (PIN(linux-uapi-from-host)).
 step_musl() {
   begin musl "musl $musl_version, with stage 1" || return 0
@@ -751,7 +750,7 @@ step_musl() {
   finish
 }
 
-# TC-BOOT-4: the LLVM runtimes, with stage 1, for musl.
+# The LLVM runtimes, with stage 1, for musl.
 step_runtimes() {
   begin runtimes "compiler-rt's builtins, libunwind, libc++abi and libc++, with stage 1" || return 0
   require stage1 musl
@@ -793,12 +792,12 @@ CC
   finish
 }
 
-# TC-BOOT-2, TC-BOOT-4: stage 2, with stage 1, on musl and libc++.
+# Stage 2, with stage 1, on musl and libc++.
 step_stage2() {
   begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, with stage 1 ($lto LTO)" || return 0
   require cmake ninja stage1 musl runtimes
   need git python3
-  # TC-BOOT-6: objects that carry bitcode and native code, then one copy of
+  # Objects that carry bitcode and native code, then one copy of
   # the libraries installed; measured, the stamp says how much it took.
   clone_pinned llvm "$llvm_source"
   build_dir resume
@@ -852,8 +851,8 @@ step_stage2() {
   finish
 }
 
-# TC-BOOT-4: GMP, with the stage-2 clang: static, position-independent, with
-# every x86-64 kernel selected at run time (docs/plan.md section 5.3).
+# GMP, with the stage-2 clang: static, position-independent, with every
+# x86-64 kernel selected at run time.
 step_gmp() {
   begin gmp "GMP $gmp_version, with the stage-2 clang" || return 0
   require stage2 musl runtimes
@@ -879,7 +878,7 @@ step_gmp() {
   finish
 }
 
-# Idris 2 on the host's Chez Scheme (TC-PIN-3). Its C support library is a
+# Idris 2 on the host's Chez Scheme. Its C support library is a
 # shared object in the host's Chez process, so the host's C compiler builds
 # it. PIN(idris-support-host-cc) — see PINS.md
 step_idris() {

@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TC-BOOT-2
 # Stage 2 installed a complete tree into .toolchain/llvm-musl: every tool,
 # the CMake packages of LLVM and MLIR, and the configuration (target X86,
 # assertions on, RTTI and exceptions off, no plugins) those packages record.

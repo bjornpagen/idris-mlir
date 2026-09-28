@@ -1,6 +1,5 @@
 module Main
 
--- rule: FE-TR-6, SEM-REC-2, ELIM-G-7, ELIM-G-15
 -- The Prelude's Show on composite values whose parts are computed at
 -- runtime: tuples of three or more (the implementation for the inner pair
 -- is a solved metavariable in the elaborated term), lists (shown by a

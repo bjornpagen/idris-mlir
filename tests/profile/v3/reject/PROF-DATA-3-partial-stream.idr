@@ -1,7 +1,6 @@
--- expect: PROF-DATA-3 line 15
+-- expect: PROF-DATA-3 line 14
 module Main
 
--- rule: SEM-EVAL-6, SEM-REC-2, PROF-GEN-4, DIAG-LOC-1
 -- A closed call of a partial function is never evaluated
 -- (SEM-EVAL-6): the Prelude declares `takeBefore` covering, so the list it takes
 -- from the stream would be built at runtime. The program was part of

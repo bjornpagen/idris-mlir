@@ -1,5 +1,4 @@
 #!/bin/sh
-# rule: TEST-TIME-1
 # A command that never ends is killed after the step limit and exits 124,
 # and a run script that never ends is killed after the test limit and says
 # so: the harness itself, with small limits (the scale fixed at 1, so the

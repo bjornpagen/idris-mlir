@@ -1,8 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file --remove-dead-values | FileCheck %s --check-prefix=RDV
 // RUN: idris-mlir-opt %s -split-input-file --inline | FileCheck %s --check-prefix=INLINE
-// rule: IDR-IF-1, IDR-MATCH-5, IDR-CLOS-1, IDR-CRASH-1, ELIM-ERASE-1
 // Upstream's remove-dead-values and inline work on matches and closures. A
-// function whose body is a crash returns ub.poison after it (IDR-CRASH-1),
+// function whose body is a crash returns ub.poison after it,
 // so the inliner inlines it: it cannot inline a body that ends in
 // ub.unreachable (upstream/inline-unreachable-terminator). Every private
 // function here has a caller: remove-dead-values at the pin erases the

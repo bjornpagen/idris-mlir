@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.apply --implicit-check-not=@Main.Opt:: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
-// rule: ELIM-G-2, ELIM-G-1, TEST-ELIM-1
 // The match on the known constructor Some is gone: apply is inlined, its
 // idr.match on an idr.con folds, and the closure of (+ 10) it held is
 // applied where it is known. No Opt is built, and apply is not called.

@@ -1,6 +1,5 @@
 // The idr dialect: types, attributes, constants, and the rules of the module
-// and of its functions (docs/architecture/08-idr-dialect.md: module and
-// functions, types, data declarations, constant attributes).
+// and of its functions.
 
 #include "idr/Idr.h"
 
@@ -28,8 +27,9 @@ using namespace idr;
 
 namespace {
 
-// IDR-IF-1: every idr op may be inlined anywhere. (No function body ends in
-// ub.unreachable, which the inliner cannot handle: IDR-CRASH-1.)
+// Every idr op may be inlined anywhere. (No function body ends in
+// ub.unreachable, which the inliner cannot handle: PINS.md:
+// inline-unreachable.)
 struct IdrInliner : DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
   bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }
@@ -56,7 +56,7 @@ void IdrDialect::initialize() {
   addInterfaces<IdrInliner>();
 }
 
-// IDR-CONST-2: idr.constant for the dialect's values and strings, and
+// idr.constant for the dialect's values and strings, and
 // arith.constant for scalars.
 Operation *IdrDialect::materializeConstant(OpBuilder &builder, Attribute value,
                                            Type type, Location loc) {
@@ -97,7 +97,7 @@ void FnType::print(AsmPrinter &printer) const {
   printer << ")>";
 }
 
-// IDR-CONST-1: one spelling per integer, so that equal bigs are equal attributes.
+// One spelling per integer, so that equal bigs are equal attributes.
 LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                               StringRef value, Type) {
   StringRef digits = value;
@@ -155,7 +155,7 @@ CtorOp idr::lookupCtor(Operation *from, SymbolRefAttr ctor) {
 }
 
 //===----------------------------------------------------------------------===//
-// The facts of IDR-FACT-1
+// The facts
 //===----------------------------------------------------------------------===//
 
 bool idr::isPure(func::FuncOp fn) {
@@ -168,7 +168,7 @@ bool idr::mayCrash(func::FuncOp fn) { return fn->hasAttr("idr.may_crash"); }
 bool idr::isTotal(func::FuncOp fn) { return fn->hasAttr("idr.total"); }
 
 //===----------------------------------------------------------------------===//
-// The module (IDR-FN-1, IDR-DATA-4, and IDR-TY-6's box rule)
+// The module
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -237,7 +237,7 @@ LogicalResult verifyProgram(ModuleOp module) {
   if (types.wasInterrupted())
     return failure();
 
-  // IDR-DATA-4 (revised): containment through unboxed sums is acyclic, so
+  // Containment through unboxed sums is acyclic, so
   // every cycle of types passes through a box.
   enum class Mark { Open, Done };
   llvm::DenseMap<DataOp, Mark> marks;
@@ -269,7 +269,7 @@ LogicalResult verifyProgram(ModuleOp module) {
 }
 
 //===----------------------------------------------------------------------===//
-// World linearity (IDR-WORLD-1)
+// World linearity
 //===----------------------------------------------------------------------===//
 
 // Whether each region of `branch` returns straight to it, so that at most
@@ -377,7 +377,7 @@ LogicalResult verifyWorlds(FunctionOpInterface fn) {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// The dialect's attributes on other ops (IDR-FN-1, IDR-FACT-1)
+// The dialect's attributes on other ops
 //===----------------------------------------------------------------------===//
 
 LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute attr) {

@@ -2,7 +2,6 @@ module Main
 
 import Prelude
 
--- rule: SEM-STR-2
 main : IO ()
 main = do
   putStrLn (prim__cast_IntString (prim__sub_Int 0 9223372036854775807))

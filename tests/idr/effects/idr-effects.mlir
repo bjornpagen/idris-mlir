@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-effects | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-effects --idr-effects | FileCheck %s
-// rule: IDR-FACT-1, IDR-EFF-1, IDR-EFF-2
 // idr-effects: a function is effectful if it reaches an idr.io op, through
 // calls or the closures it creates; it may crash if it reaches an op that
 // may crash. A call of a function without a body does both. Running the

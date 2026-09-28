@@ -1,7 +1,6 @@
--- expect: PROF-DATA-3 line 19
+-- expect: PROF-DATA-3 line 18
 module Main
 
--- rule: SEM-REC-1
 -- A list is recursive data, a box: one whose length depends on a runtime
 -- value would need the heap. (One of known shape with runtime elements
 -- needs nothing: calls on it are specialized on its shape, ELIM-SPEC-1.)

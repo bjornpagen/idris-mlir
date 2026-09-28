@@ -1,9 +1,8 @@
--- expect: PROF-TYPE-4 line 9
+-- expect: PROF-TYPE-4 line 8
 module Main
 
 import Prelude
 
--- rule: SEM-EXCL-2
 -- An Integer computed from a value known only at runtime would have to
 -- exist at runtime.
 count : Int -> Integer

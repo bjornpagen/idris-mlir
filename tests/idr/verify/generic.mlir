@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// rule: IDR-MATCH-5, IDR-MATCH-6, IDR-CONST-1, IDR-CONST-2
 // The verifier errors that the custom syntax cannot produce, in the generic
 // form.
 

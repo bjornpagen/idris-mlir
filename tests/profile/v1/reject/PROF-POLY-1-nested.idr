@@ -1,7 +1,5 @@
--- expect: PROF-POLY-1 line 8
+-- expect: PROF-POLY-1 line 6
 module Main
-
--- rule: ELIM-MONO-3
 
 import Prelude
 

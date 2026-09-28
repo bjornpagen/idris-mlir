@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-specialize | FileCheck %s
-// rule: ELIM-SPEC-1
 // A partially static list, [1, 2, n]: its spine and first two elements are
 // the static shape, n is a runtime leaf and becomes the clone's parameter.
 // The clone is folded when it is made, so its match folds and the recursive

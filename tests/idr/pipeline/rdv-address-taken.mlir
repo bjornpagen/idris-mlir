@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-prune --remove-dead-values > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: OPT-PIPE-5, ELIM-G-5, ELIM-G-1
 // @f is named by a closure, so remove-dead-values keeps its parameters, but
 // at the pin it still finds %y, which @g passes to the parameter @f never
 // reads, dead: it erases the parameter of @g and leaves the call a null

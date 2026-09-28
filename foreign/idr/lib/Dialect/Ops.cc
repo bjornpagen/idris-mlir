@@ -1,5 +1,4 @@
-// The idr ops: syntax, verifiers, folders and interfaces
-// (docs/architecture/08-idr-dialect.md: data declarations and operations).
+// The idr ops: syntax, verifiers, folders and interfaces.
 
 #include "idr/Idr.h"
 
@@ -15,7 +14,7 @@ using namespace mlir;
 using namespace idr;
 
 //===----------------------------------------------------------------------===//
-// Facts that rule out a crash (IDR-EFF-1)
+// Facts that rule out a crash
 //===----------------------------------------------------------------------===//
 
 bool idr::knownNonZero(Value value) {
@@ -89,10 +88,10 @@ void printFieldTypes(OpAsmPrinter &printer, Operation *, ArrayAttr fieldTypes) {
 }
 
 //===----------------------------------------------------------------------===//
-// Division (IDR-DIV-*), shared by idr.div and idr.mod through IdrOps.td
+// Division, shared by idr.div and idr.mod through IdrOps.td
 //===----------------------------------------------------------------------===//
 
-// Euclidean quotient and remainder (SEM-INT-3) on the mathematical values of
+// Euclidean quotient and remainder on the mathematical values of
 // `a` and `b` in `width` bits; the quotient wraps.
 std::pair<APInt, APInt> idrisDivMod(const APInt &a, const APInt &b, bool isSigned) {
   if (!isSigned)
@@ -148,7 +147,7 @@ ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
 #include "idr/IdrOps.cc.inc"
 
 //===----------------------------------------------------------------------===//
-// Data declarations (IDR-DATA-*)
+// Data declarations
 //===----------------------------------------------------------------------===//
 
 SmallVector<CtorOp> DataOp::getCtors() {
@@ -162,7 +161,6 @@ Type DataOp::getValueType() {
   return DataType::get(getContext(), name);
 }
 
-// IDR-DATA-1, IDR-DATA-2
 LogicalResult DataOp::verify() {
   uint64_t expected = 0;
   for (Operation &op : getBody().front()) {
@@ -181,7 +179,6 @@ Type CtorOp::getFieldType(unsigned index) {
   return cast<TypeAttr>(getFieldTypes()[index]).getValue();
 }
 
-// IDR-DATA-2, IDR-DATA-3
 LogicalResult CtorOp::verify() {
   auto types = getFieldTypes();
   auto quantities = getQuantities();
@@ -200,7 +197,7 @@ LogicalResult CtorOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// Constants (IDR-CONST-1, IDR-CONST-2)
+// Constants
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -336,7 +333,7 @@ LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 //===----------------------------------------------------------------------===//
-// Constructors, fields and tags (IDR-CON-1, IDR-FIELD-1, IDR-TAG-1)
+// Constructors, fields and tags
 //===----------------------------------------------------------------------===//
 
 // A box's constructor allocates its cell, so CSE never merges two of them;
@@ -421,7 +418,6 @@ OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   return {};
 }
 
-// IDR-RANGE-1
 void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
   DataOp data = lookupData(*this, getValue().getType());
   size_t count = data ? data.getCtors().size() : 0;
@@ -430,7 +426,7 @@ void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResu
 }
 
 //===----------------------------------------------------------------------===//
-// Matches (IDR-MATCH-5, IDR-MATCH-6)
+// Matches
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -753,10 +749,10 @@ ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
 }
 
 //===----------------------------------------------------------------------===//
-// Closures (IDR-CLOS-1)
+// Closures
 //===----------------------------------------------------------------------===//
 
-// IDR-WORLD-1, IDR-CLOS-1: worlds pass only as arguments and results, never
+// Worlds pass only as arguments and results, never
 // in a closure.
 LogicalResult ClosureOp::verify() {
   if (llvm::any_of(getCaptures().getTypes(), llvm::IsaPred<WorldType>))
@@ -793,13 +789,13 @@ OpFoldResult ClosureOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// Crashes (IDR-CRASH-1)
+// Crashes
 //===----------------------------------------------------------------------===//
 
 std::optional<StringRef> CrashOp::getCrashCause() { return getMessage(); }
 
 //===----------------------------------------------------------------------===//
-// Scalars (IDR-CHAR-1, IDR-DBL-*)
+// Scalars
 //===----------------------------------------------------------------------===//
 
 OpFoldResult ToCharOp::fold(FoldAdaptor adaptor) {
@@ -847,7 +843,7 @@ void IntHeadOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn set
 }
 
 //===----------------------------------------------------------------------===//
-// Strings (IDR-STR-2)
+// Strings
 //===----------------------------------------------------------------------===//
 
 LogicalResult StrShowOp::verify() {

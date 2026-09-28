@@ -1,5 +1,5 @@
 ||| Source locations, kept independent of Idris's `FC` so that the middle end
-||| does not import the Idris compiler (FE-IN-3).
+||| does not import the Idris compiler.
 module IdrisMLIR.Loc
 
 import IdrisMLIR.Ids
@@ -34,7 +34,7 @@ Show Loc where
            show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
 
 ||| Is a location in a library whose diagnostics are reported at the user's
-||| code that reached it (DIAG-LOC-1)?
+||| code that reached it?
 export
 inLibrary : Loc -> Bool
 inLibrary l = covers ReportAtCaller l.origin

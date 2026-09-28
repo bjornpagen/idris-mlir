@@ -1,8 +1,7 @@
-// The canonicalizations of the idr dialect (IDR-MATCH-5, IDR-CLOS-1, IDR-IO-1,
-// IDR-STR-2, OPT-CALL-1):
+// The canonicalizations of the idr dialect:
 // the DRR patterns of Canonicalize.td, and in C++ those that DRR cannot
 // state: apply of a known closure, the region patterns of the matches, and
-// the removal of unused calls (OPT-CALL-1).
+// the removal of unused calls.
 
 #include "idr/Idr.h"
 
@@ -18,7 +17,7 @@ namespace {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Apply of a known closure (ELIM-G-1, ELIM-G-8)
+// Apply of a known closure
 //===----------------------------------------------------------------------===//
 
 // `idr.apply` of `idr.closure @f(caps)` or of a constant `#idr.closure<@f,
@@ -56,7 +55,7 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
-// Matches (ELIM-G-2, IDR-MATCH-5, IDR-MATCH-6)
+// Matches
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -128,7 +127,7 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
 
 // Whether `consumer` folds or canonicalizes when its operand is `value`: a
 // constant, a constructor, a closure, or, for output and the first
-// character, a string builder (IDR-IO-1, IDR-STR-2).
+// character, a string builder.
 bool feeds(Value value, Operation *consumer) {
   if (matchPattern(value, m_Constant()))
     return true;
@@ -148,11 +147,11 @@ bool movable(Operation *op) {
          });
 }
 
-// IDR-MATCH-5, case-of-case: the single consumer of a result of a match,
+// Case-of-case: the single consumer of a result of a match,
 // another match included, moves into every region that yields, when in at
 // least one of them it then meets a value it folds or canonicalizes against.
 // The consumer moves past no op with effects (an allocation aside), and still
-// runs exactly once on every path (OPT-SAFE-1). When it cannot move up to the
+// runs exactly once on every path. When it cannot move up to the
 // match, a match whose only effects are allocations moves down to it
 // instead, past the ops between them: a value computed without effects may
 // be computed later.
@@ -254,7 +253,7 @@ private:
   }
 };
 
-// IDR-MATCH-5: a value computed in the match's block, free of effects (an
+// A value computed in the match's block, free of effects (an
 // allocation aside), and used only inside the match's regions moves into each
 // region that uses it, when there it meets a consumer that folds against it:
 // output of a string it builds, or a consumer a match of its moves into
@@ -328,7 +327,7 @@ private:
   }
 };
 
-// IDR-MATCH-6, IDR-STR-2: a string that cannot be empty never takes the
+// A string that cannot be empty never takes the
 // case `""`.
 struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -389,7 +388,7 @@ void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
 }
 
 //===----------------------------------------------------------------------===//
-// Strings (IDR-IO-1, IDR-STR-2)
+// Strings
 //===----------------------------------------------------------------------===//
 
 void PutStrOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
@@ -402,7 +401,7 @@ void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRCont
 }
 
 //===----------------------------------------------------------------------===//
-// Unused calls (OPT-CALL-1)
+// Unused calls
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -442,8 +441,8 @@ bool passesNoEffect(Operation *call, Value value) {
 }
 
 // A call whose results are unused goes when its callee is pure, total and
-// cannot crash: it could only run, and SEM-EVAL-4 keeps a crash even when
-// its result is unused.
+// cannot crash: it could only run, and a crash stays even when its result
+// is unused.
 struct RemoveUnusedCall : OpRewritePattern<func::CallOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(func::CallOp call, PatternRewriter &rewriter) const final {

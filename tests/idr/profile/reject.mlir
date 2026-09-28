@@ -1,6 +1,5 @@
 // RUN: %status 1 idris-mlir-opt %s --split-input-file --idr-check-profile -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
-// rule: PROF-DATA-3, PROF-HEAP-1, PROF-HEAP-2, PROF-HEAP-3, PROF-HEAP-4, PROF-PRIM-4, PROF-TYPE-4, DIAG-ONE-1, DIAG-HEAP-1
 // Each module holds one kind of allocation at runtime. The check reports
 // the first violation in op order, with its rule, and fails.
 

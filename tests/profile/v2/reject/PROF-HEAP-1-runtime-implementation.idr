@@ -1,8 +1,6 @@
--- expect: PROF-HEAP-1 line 22
+-- expect: PROF-HEAP-1 line 20
 -- message: an implementation chosen at runtime
 module Main
-
--- rule: FE-TR-6
 
 import Prelude
 

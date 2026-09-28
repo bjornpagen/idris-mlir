@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-DIV-1, IDR-DIV-2
 module {
   // CHECK-LABEL: func.func @divfold
   // CHECK-DAG: %[[M4:.*]] = arith.constant -4 : i64

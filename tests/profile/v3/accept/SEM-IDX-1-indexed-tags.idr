@@ -2,7 +2,6 @@
 -- stdout: one\nzero\n
 module Main
 
--- rule: SEM-IDX-1
 -- An indexed data type at runtime: its index is compile-time information,
 -- so a value is only its constructor's tag.
 

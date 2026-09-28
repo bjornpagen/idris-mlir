@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply --implicit-check-not=arith.addi
-// rule: ELIM-G-4, ELIM-G-1, ELIM-G-6, TEST-ELIM-1
 // The let-bound lambda is an SSA value, a closure; both applications of it
 // are calls once it is known, inlined, and folded: f (f 1) is 201, written
 // as one constant.

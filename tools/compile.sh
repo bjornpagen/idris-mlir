@@ -1,29 +1,28 @@
 #!/bin/sh
-# Compiles an Idris program: DRV-FLOW-1 or DRV-FLOW-2
-# (docs/architecture/12-driver.md). This is the only copy of the chain;
-# `make compile` and the tests run it.
+# Compiles an Idris program. This is the only copy of the chain; `make
+# compile` and the tests run it.
 #
 #     tools/compile.sh [--int | --io] [-p PACKAGE]... [--directive D]... SOURCE OUTPUT
 #
-# A program whose `main` has type IO goes through DRV-FLOW-2: one idris-mlir
+# A program whose `main` has type IO goes through the -o flow: one idris-mlir
 # command, which leaves the program in build/exec/<name of OUTPUT> next to
 # SOURCE, with the packages and directives given. Any other goes through
-# DRV-FLOW-1: `idris-mlir --check`, idris-mlir-cc and the pinned clang,
+# the check flow: `idris-mlir --check`, idris-mlir-cc and the pinned clang,
 # which leave OUTPUT and OUTPUT's object file. --int and --io choose the flow
 # instead of the type of `main`.
 #
 # Each step runs in SOURCE's directory and its output passes through. The
 # exit status is that of the step that failed, except that idris-mlir-cc's
-# user errors (DRV-CC-2: 3, a profile rejection; 4, EVAL-1) exit 1, as every
-# other user error of the chain does (TEST-REJ-1); on success the
+# user errors (3, a profile rejection; 4, an evaluation the machine cannot
+# finish) exit 1, as every other user error of the chain does; on success the
 # executable's path is printed last. IDRIS_MLIR names the idris-mlir to run
 # (by default the one `make build` makes); the Idris environment is the
 # caller's, the Makefile's.
 #
-# Two directives also reach the idris-mlir-cc that DRV-FLOW-1 runs here
-# (DRV-FLOW-2's is run by idris-mlir itself, which reads them too):
+# Two directives also reach the idris-mlir-cc that the check flow runs here
+# (the -o flow's is run by idris-mlir itself, which reads them too):
 # `no-eval` passes --no-eval, and `dump-mlir` passes --dump-after=all with
-# OUTPUT.dump as --dump-dir (DRV-DUMP-1).
+# OUTPUT.dump as --dump-dir.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -83,7 +82,7 @@ fi
 cd "$directory" || exit 1
 
 if [ "$flow" = io ]; then
-  # DRV-FLOW-2: idris-mlir runs idris-mlir-cc and the pinned clang itself.
+  # The -o flow: idris-mlir runs idris-mlir-cc and the pinned clang itself.
   name=${output##*/}
   "$idris_mlir" --no-banner --no-color --no-prelude --cg mlir $options -o "$name" "$file"
   status=$?
@@ -92,7 +91,7 @@ if [ "$flow" = io ]; then
   exit 0
 fi
 
-# DRV-FLOW-1, for `main : Int` programs.
+# The check flow, for `main : Int` programs.
 log=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-compile.XXXXXX") || exit 1
 trap 'rm -rf "$log"' EXIT
 # shellcheck disable=SC2086 # the options are words
@@ -105,7 +104,7 @@ cat "$log/err" >&2
 
 set -- build/ttc/*/"$stem.mlir"
 if [ ! -f "$1" ] && grep -q "No incremental compile data" "$log/out" "$log/err"; then
-  # PROF-PROG-1: Idris skips the incremental backend for a module that
+  # Idris skips the incremental backend for a module that
   # imports one without `mlir` incremental data (the prelude package), and
   # exits 0 without writing anything. The chain reports it.
   line=$(grep -n '^import[[:space:]]' "$file" | head -n 1 | cut -d: -f1)
@@ -134,9 +133,9 @@ status=$?
 case $status in
   0) cat "$log/cc.err" >&2 ;;
   3 | 4)
-    # DRV-CC-2: a profile rejection (3) or EVAL-1 (4) is a user error. The
-    # frontend's --check already reports rejections at the user's code
-    # (DIAG-LOC-1), so this is reached only when the full pipeline decides
+    # A profile rejection (3) or an evaluation the machine cannot finish (4)
+    # is a user error. The frontend's --check already reports rejections at the
+    # user's code, so this is reached only when the full pipeline decides
     # otherwise; its first location is reported as Idris reports one.
     at=$(grep -m 1 -oE '[A-Za-z0-9_./-]+\.idr"?:[0-9]+:[0-9]+' "$log/cc.err" | tr -d '"')
     line=$(printf '%s\n' "$at" | sed -n 's/.*:\([0-9]*\):\([0-9]*\)$/\1/p')
@@ -146,7 +145,7 @@ case $status in
     echo "Error: $stem:${line:-1}:${col:-1}--${line:-1}:${col:-1}:mlir backend: $what" >&2
     # The rest of what it wrote, without a second copy of the rejection.
     grep -v 'unsupported (' "$log/cc.err" >&2
-    # FE-ART-1: a rejected program leaves no artifact.
+    # A rejected program leaves no artifact.
     rm -f "$object" "$mlir" "${mlir%.mlir}.core"
     failed 1
     ;;
@@ -155,7 +154,7 @@ case $status in
     failed "$status"
     ;;
 esac
-# TC-LINK-2: the link of DRV-FLOW-2 (Frontend/Main.idr): a static-PIE
+# The link of the -o flow (Frontend/Main.idr): a static-PIE
 # executable on musl, by lld, with GMP; musl's libc.a holds libm.
 "$pinned_cc" --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
   -Wl,--gc-sections -Wl,--icf=all "$object" -o "$output" -lgmp

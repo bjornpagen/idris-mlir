@@ -1,7 +1,6 @@
-// The idr dialect: the contract between the Idris compiler and the C++ side
-// (docs/architecture/08-idr-dialect.md). Rule identifiers refer to
-// docs/architecture/. Every fact about an op is declared
-// here once; the C++ in lib/Dialect and every pass derive from it.
+// The idr dialect: the contract between the Idris compiler and the C++ side.
+// Every fact about an op is declared here once; the C++ in lib/Dialect and
+// every pass derive from it.
 
 #ifndef IDR_OPS
 #define IDR_OPS
@@ -24,9 +23,9 @@ def Idr_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;
-  // OPT-CALL-1: the pattern that removes unused calls of func.call.
+  // The pattern that removes unused calls of func.call.
   let hasCanonicalizer = 1;
-  // The module's and the functions' rules (IDR-WORLD-1, IDR-DATA-4, IDR-FN-1).
+  // The module's and the functions' rules.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
   // Constants of scalars, calls from closures, and regions ending in
@@ -36,7 +35,7 @@ def Idr_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
-// Types (IDR-TY-*)
+// Types
 //===----------------------------------------------------------------------===//
 
 class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
@@ -44,21 +43,20 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-// IDR-TY-1
 def Idr_DataType : Idr_Type<"Data", "data"> {
   let summary = "a value of the unboxed sum declared by idr.data";
   let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
   let assemblyFormat = "`<` $name `>`";
 }
 
-// IDR-TY-6: a value of a boxed (recursive) type, declared `idr.data @T box`.
+// A value of a boxed (recursive) type, declared `idr.data @T box`.
 def Idr_BoxType : Idr_Type<"Box", "box"> {
   let summary = "a value of the boxed type declared by idr.data ... box";
   let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
   let assemblyFormat = "`<` $name `>`";
 }
 
-// IDR-TY-7: `!idr.fn<(A...) -> (R...)>`; Lazy and Inf are `!idr.fn<() -> (a)>`.
+// `!idr.fn<(A...) -> (R...)>`; Lazy and Inf are `!idr.fn<() -> (a)>`.
 def Idr_FnType : Idr_Type<"Fn", "fn"> {
   let summary = "a closure";
   let parameters = (ins ArrayRefParameter<"::mlir::Type">:$inputs,
@@ -69,22 +67,18 @@ def Idr_FnType : Idr_Type<"Fn", "fn"> {
   }];
 }
 
-// IDR-TY-2
 def Idr_ErasedType : Idr_Type<"Erased", "erased"> {
   let summary = "a quantity-0 value with no runtime representation";
 }
 
-// IDR-TY-4 (revised at the cutover): any string, not only a literal.
 def Idr_StrType : Idr_Type<"Str", "str"> {
   let summary = "a string (UTF-8)";
 }
 
-// IDR-TY-8
 def Idr_BigType : Idr_Type<"Big", "big"> {
   let summary = "an Integer, or a Nat-like value (non-negative)";
 }
 
-// IDR-TY-5
 def Idr_WorldType : Idr_Type<"World", "world"> {
   let summary = "the IO world token";
 }
@@ -93,7 +87,7 @@ def Idr_SumType : AnyTypeOf<[Idr_DataType, Idr_BoxType]>;
 def Idr_Int : AnyTypeOf<[I8, I16, I32, I64]>;
 
 //===----------------------------------------------------------------------===//
-// Constant attributes (IDR-CONST-1)
+// Constant attributes
 //===----------------------------------------------------------------------===//
 
 // A value, written untyped: its type is that of the idr.constant holding it,
@@ -169,7 +163,7 @@ class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, traits>;
 
 // The op lowers to a call of the runtime's C function named after it:
-// `idr.str.append` calls `idris_rt_str_append` (LOW-RT-1).
+// `idr.str.append` calls `idris_rt_str_append`.
 def Idr_RuntimeCallOpInterface : OpInterface<"RuntimeCallOpInterface"> {
   let cppNamespace = "::idr";
   let description = "An op whose lowering calls a runtime function.";
@@ -185,8 +179,8 @@ def Idr_CallsRuntimeTrait : NativeOpTrait<"CallsRuntime"> {
 
 def Idr_CallsRuntime : TraitList<[Idr_CallsRuntimeTrait, Idr_RuntimeCallOpInterface]>;
 
-// IDR-EFF-1: an op that may end the program. Its cause is the text of
-// the crash message (LOW-CRASH-1); its effects and speculatability follow.
+// An op that may end the program. Its cause is the text of the crash
+// message; its effects and speculatability follow.
 def Idr_MayCrashOpInterface : OpInterface<"MayCrashOpInterface"> {
   let cppNamespace = "::idr";
   let description = "An op that may end the program with a crash.";
@@ -206,13 +200,13 @@ class Idr_MayCrash<bit allocates = 0> : TraitList<[Idr_MayCrashTrait<allocates>,
     DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>,
     MemoryEffectsOpInterface, ConditionallySpeculatable]>;
 
-// IDR-EFF-2: the idr.io ops, which idr-effects looks for (IDR-FACT-1).
+// The idr.io ops, which idr-effects looks for.
 def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
   let cppNamespace = "::idr";
 }
 
 //===----------------------------------------------------------------------===//
-// Data declarations (IDR-DATA-*)
+// Data declarations
 //===----------------------------------------------------------------------===//
 
 def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
@@ -243,7 +237,7 @@ def Idr_CtorOp : Idr_Op<"ctor", [Symbol, HasParent<"DataOp">]> {
 }
 
 //===----------------------------------------------------------------------===//
-// Values (IDR-CONST-2, IDR-CON-1, IDR-FIELD-1, IDR-TAG-1)
+// Values
 //===----------------------------------------------------------------------===//
 
 def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
@@ -276,7 +270,7 @@ def Idr_ConOp : Idr_Op<"con", [
 }
 
 // Reading a field of another constructor gives an unspecified value but never
-// traps, so the op is speculatable (IDR-FIELD-1).
+// traps, so the op is speculatable.
 def Idr_FieldOp : Idr_Op<"field", [Pure,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "reads a field of a constructor value";
@@ -289,7 +283,7 @@ def Idr_FieldOp : Idr_Op<"field", [Pure,
   let hasFolder = 1;
 }
 
-// IDR-RANGE-1: the tag is in [0, n-1] for n constructors.
+// The tag is in [0, n-1] for n constructors.
 def Idr_TagOp : Idr_Op<"tag", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the constructor tag of a value";
@@ -300,7 +294,7 @@ def Idr_TagOp : Idr_Op<"tag", [Pure,
 }
 
 //===----------------------------------------------------------------------===//
-// Matches (IDR-MATCH-5, IDR-MATCH-6)
+// Matches
 //===----------------------------------------------------------------------===//
 
 // Region i < cases.size() is the case cases[i]; one more region is the default.
@@ -347,7 +341,7 @@ def Idr_YieldOp : Idr_Op<"yield", [Pure, ReturnLike, Terminator,
 }
 
 //===----------------------------------------------------------------------===//
-// Closures (IDR-CLOS-1)
+// Closures
 //===----------------------------------------------------------------------===//
 
 def Idr_ClosureOp : Idr_Op<"closure", [Pure,
@@ -389,18 +383,17 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
 // Crashes and loops
 //===----------------------------------------------------------------------===//
 
-// IDR-CRASH-1 (revised): a case the definition does not cover (SEM-CRASH-2),
-// followed by ub.unreachable.
+// A case the definition does not cover, followed by ub.unreachable.
 def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>]> {
   let summary = "ends the program with a message naming the cause";
   let arguments = (ins StrAttr:$message);
   let assemblyFormat = "$message attr-dict";
 }
 
-// LOW-TAIL-4: created by idr-tail-loops in loops of functions that are
+// Created by idr-tail-loops in loops of functions that are
 // not total, never written by Emit. MLIR deletes a region op without effects
-// even if it never finishes; this op's effect keeps such a loop (SEM-EVAL-5),
-// and orders it with output as a crash is (IDR-EFF-1).
+// even if it never finishes; this op's effect keeps such a loop, and orders
+// it with output as a crash is.
 def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
     MemWrite<Idr_DivergenceResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "marks one iteration of a loop that may not terminate";
@@ -434,7 +427,6 @@ class Idr_DivisionOp<string mnemonic, bit isQuotient>
   }];
 }
 
-// IDR-DIV-*, IDR-EFF-1
 def Idr_DivOp : Idr_DivisionOp<"div", 1> {
   let summary = "Idris div: Euclidean when signed, crashes on zero";
 }
@@ -442,7 +434,6 @@ def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
   let summary = "Idris mod: Euclidean when signed, crashes on zero";
 }
 
-// IDR-CHAR-1
 def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "an integer as a Char: itself if a scalar value, else 0";
@@ -454,8 +445,8 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
   let hasFolder = 1;
 }
 
-// IDR-DBL-1: truncates toward zero and wraps to the result width; crashes on
-// NaN and the infinities (IDR-EFF-1).
+// Truncates toward zero and wraps to the result width; crashes on NaN and
+// the infinities.
 def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
   let summary = "a Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
@@ -464,10 +455,10 @@ def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
   let hasFolder = 1;
 }
 
-// IDR-DBL-3: the first character of prim__cast_DoubleString (ELIM-G-15).
+// The first character of prim__cast_DoubleString.
 def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the first character of a Double as the reference prints it";
   let arguments = (ins F64:$value);
@@ -475,10 +466,10 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
   let assemblyFormat = "$value attr-dict";
 }
 
-// The first character of the decimal text of an integer (ELIM-G-15, IDR-DBL-3).
+// The first character of the decimal text of an integer.
 def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the first character of an integer's decimal text";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
@@ -489,13 +480,13 @@ def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
 }
 
 //===----------------------------------------------------------------------===//
-// Strings (IDR-STR-2)
+// Strings
 //===----------------------------------------------------------------------===//
 
 // A string builder allocates its result (MemAlloc).
 class Idr_StrBuilderOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"str." # mnemonic, !listconcat(traits, [Idr_CallsRuntime])> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let results = (outs Res<Idr_StrType, "", [MemAlloc]>:$result);
 }
@@ -541,7 +532,7 @@ def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse"> {
 }
 
 def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string without its first character; crashes on \"\"";
   let arguments = (ins Idr_StrType:$str);
@@ -556,10 +547,9 @@ def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
   }];
 }
 
-// IDR-RANGE-1
 def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the number of characters of a string";
   let arguments = (ins Idr_StrType:$str);
@@ -568,7 +558,7 @@ def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
 }
 
 def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, Idr_MayCrash<>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the character at an index; crashes out of range";
   let arguments = (ins Idr_StrType:$str, I64:$index);
@@ -577,7 +567,7 @@ def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 }
 
 def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, Idr_MayCrash<>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the first character of a string; crashes on \"\"";
   let arguments = (ins Idr_StrType:$str);
@@ -594,7 +584,7 @@ def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 }
 
 def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "compares two strings";
   let arguments = (ins Idr_CmpPredicate:$predicate, Idr_StrType:$lhs,
@@ -604,7 +594,7 @@ def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string as an integer, as prim__cast_StringT reads it";
   let arguments = (ins UnitAttr:$is_signed, Idr_StrType:$str);
@@ -615,7 +605,7 @@ def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string as a Double, as prim__cast_StringDouble reads it";
   let arguments = (ins Idr_StrType:$str);
@@ -624,13 +614,13 @@ def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
 }
 
 //===----------------------------------------------------------------------===//
-// Bigs (IDR-BIG-1)
+// Bigs
 //===----------------------------------------------------------------------===//
 
 // An op that makes a big allocates its result (MemAlloc).
 class Idr_BigBinaryOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
@@ -647,7 +637,7 @@ def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 
 class Idr_BigDivisionOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_MayCrash<1>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs, as Integer's div and mod; crashes on zero";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
@@ -666,7 +656,7 @@ def Idr_BigDivOp : Idr_BigDivisionOp<"div", "the quotient">;
 def Idr_BigModOp : Idr_BigDivisionOp<"mod", "the remainder">;
 
 def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the negation of a big";
   let arguments = (ins Idr_BigType:$value);
@@ -675,7 +665,7 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "compares two bigs";
   let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigType:$lhs,
@@ -685,7 +675,7 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "an integer as a big";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
@@ -696,7 +686,7 @@ def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a big as an integer, wrapped to its width";
   let arguments = (ins Idr_BigType:$value);
@@ -706,7 +696,7 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime]> {
 
 def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
     [Idr_CallsRuntime, Idr_MayCrash<1>]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a Double truncated to a big; crashes on NaN and the infinities";
   let arguments = (ins F64:$value);
@@ -722,7 +712,7 @@ def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
 }
 
 def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a big as the nearest Double";
   let arguments = (ins Idr_BigType:$value);
@@ -731,7 +721,7 @@ def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the decimal text of a big";
   let arguments = (ins Idr_BigType:$value);
@@ -740,7 +730,7 @@ def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
-  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string as a big, as prim__cast_StringInteger reads it";
   let arguments = (ins Idr_StrType:$str);
@@ -749,7 +739,7 @@ def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
 }
 
 //===----------------------------------------------------------------------===//
-// IO (IDR-IO-*, IDR-EFF-2)
+// IO
 //===----------------------------------------------------------------------===//
 
 // Each IO op consumes one world and produces the next.
@@ -780,7 +770,6 @@ def Idr_PutIntOp : Idr_IOOp<"put_int"> {
   }];
 }
 
-// IDR-DBL-2
 def Idr_PutDoubleOp : Idr_IOOp<"put_double"> {
   let arguments = (ins F64:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
@@ -793,7 +782,7 @@ def Idr_GetCharOp : Idr_IOOp<"get_char"> {
   let assemblyFormat = "$world attr-dict";
 }
 
-// IDR-IO-2: one byte of input, or 255 at its end (SEM-IO-7).
+// One byte of input, or 255 at its end.
 def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs I32:$ch, Idr_WorldType:$next);

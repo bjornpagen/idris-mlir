@@ -1,7 +1,7 @@
-||| Types, literals and primitives of Core (docs/architecture/05-middle-ir.md).
+||| Types, literals and primitives of Core.
 |||
 ||| There is one type language: every type of full Core exists at runtime,
-||| and MLIR removes abstraction (docs/architecture/09-optimization.md). A data
+||| and MLIR removes abstraction. A data
 ||| instance records its representation where it is declared (`Term.Data`),
 ||| so `DataT` names the instance and nothing more. Types Idris flags
 ||| `ZERO`/`SUCC` are not data at all: they are `BigT`.
@@ -151,11 +151,11 @@ data ArithOp = Add | Sub | Mul | Div | Mod | And | Or | Xor
 public export
 data Cmp = CLt | CLte | CEq | CGte | CGt
 
-||| Double arithmetic (SEM-DBL-2).
+||| Double arithmetic.
 public export
 data FArith = FAdd | FSub | FMul | FDiv
 
-||| The C library's functions on doubles, and the exact ones (SEM-DBL-3).
+||| The C library's functions on doubles, and the exact ones.
 public export
 data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Floor | Ceiling
 
@@ -163,7 +163,7 @@ data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Fl
 public export
 data Scalar = SInt IntTy | SChar | SDouble
 
-||| Idris's primitives as Core has them (IDR-IN-3): on fixed-width
+||| Idris's primitives as Core has them: on fixed-width
 ||| integers, characters and doubles; on strings; on `Integer`.
 public export
 data Prim
@@ -291,10 +291,10 @@ primArgs BigRead = [StrT]
 -- IO
 ------------------------------------------------------------------------------
 
-||| The IO primitives the registry lists (`IOCall`, PROF-IO-4).
+||| The IO primitives the registry lists (`IOCall`).
 public export
 data IOOp = PutStr | PutChar
-          | GetByte   -- one byte of input (SEM-IO-7)
+          | GetByte   -- one byte of input
 
 export
 Show IOOp where

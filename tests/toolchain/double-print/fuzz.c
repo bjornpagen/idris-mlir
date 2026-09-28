@@ -1,5 +1,4 @@
-/* rule: SEM-DBL-5, LOW-DBL-2
- * The runtime's Double printer against Chez's number->string. `fuzz N BITS`
+/* The runtime's Double printer against Chez's number->string. `fuzz N BITS`
  * writes N bit patterns to the file BITS, one per line in hex, and prints
  * each double with idris_rt_io_put_double, one per line; chez.ss prints the
  * same doubles from BITS. The patterns: any bits, exponents near 1023,

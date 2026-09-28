@@ -1,6 +1,5 @@
 module Main
 
--- rule: FE-TR-7
 -- The registry's IdentityOnLastArgument hook (docs/architecture/17-registry.md,
 -- entries Builtin.replace and Builtin.rewrite__impl): a value moved along an
 -- equality is the value itself. translate.check finds neither called in

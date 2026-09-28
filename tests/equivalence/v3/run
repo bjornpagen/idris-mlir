@@ -1,9 +1,8 @@
 #!/bin/sh
-# rule: SEM-EVAL-6, SEM-EVAL-7, ELIM-EVAL-1
 # Every fixture of tests/e2e/v3, compiled with evaluation and
-# with --no-eval: the same stdout and exit status (TEST-EQUIV-1).
+# with --no-eval: the same stdout and exit status.
 # A fixture that only compiles with evaluation is listed with its rule.
-# Dozens of compilations: half an hour in all (TEST-TIME-1).
+# Dozens of compilations: half an hour in all.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 equivalence v3

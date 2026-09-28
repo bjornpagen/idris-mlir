@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// rule: IDR-IO-1, IDR-DBL-2, ELIM-G-7
-// IDR-IO-1: a string built only to be written is written piece by piece, in the
+// A string built only to be written is written piece by piece, in the
 // same order, through the world.
 
 // "n = " ++ show n ++ "\n": three writes.

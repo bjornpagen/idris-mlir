@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// rule: LOW-UP-1, ELIM-SPEC-1, ELIM-G-5
 // The attributes idr-specialize keeps between rounds sit on calls too (the
 // history of a clone's calls, a stopped call): idr-lower drops them with
 // the rest of the idr attributes, so the calls LLVM gets carry none.

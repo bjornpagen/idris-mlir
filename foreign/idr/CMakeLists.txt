@@ -1,4 +1,4 @@
-# The idr dialect, its passes and tools (TC-ZONE-1). Everything here faces the
+# The idr dialect, its passes and tools. Everything here faces the
 # MLIR C++ API, so it is quarantine code: headers, TableGen, inheritance.
 # PIN(mlir-cxx-api) — see PINS.md
 
@@ -32,7 +32,7 @@ mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(idr_tablegen)
 
 # idris-mlir-cc links the runtime's bitcode into the program (Linker,
-# BitReader, Object) and internalizes it (IPO), TC-LINK-1; idr-eval compiles
+# BitReader, Object) and internalizes it (IPO); idr-eval compiles
 # with ORC's LLJIT (OrcJIT) and the same pipeline (Passes).
 llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo orcjit)
 
@@ -100,7 +100,7 @@ target_link_libraries(idr_dialect
 		MLIRBuiltinToLLVMIRTranslation
 		MLIRLLVMToLLVMIRTranslation
 		${IDR_LLVM_CODEGEN_LIBS}
-		# LOW-RT-1: the runtime, natively, for the folders and idr-eval's JIT,
+		# The runtime, natively, for the folders and idr-eval's JIT,
 		# with GMP, which it calls.
 		idris_rt
 		gmp
@@ -126,15 +126,14 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	MLIRRegisterAllPasses
 	idris_mlir_language_profile
 )
-# TC-LINK-1: the runtime archive whose bitcode joins every program, checked
-# (TC-RT-2) before idris-mlir-cc is built. --runtime overrides the path.
+# The runtime archive whose bitcode joins every program, checked before
+# idris-mlir-cc is built. --runtime overrides the path.
 target_compile_definitions(idris-mlir-cc PRIVATE
 	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 
-# Shrinking a module that makes a pass fail (docs/architecture/14-testing.md,
-# "Debugging a rewrite").
+# Shrinking a module that makes a pass fail.
 add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
 target_link_libraries(idris-mlir-reduce PRIVATE
 	idr_dialect

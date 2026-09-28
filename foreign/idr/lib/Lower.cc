@@ -1,5 +1,4 @@
-// idr-lower: idr to func, arith, math, scf, ub and llvm
-// (docs/architecture/10-lowering.md; OPT-PIPE-1). The layouts,
+// idr-lower: idr to func, arith, math, scf, ub and llvm. The layouts,
 // runtime calls, static data and patterns it uses are in Lower/.
 
 #include "Lower/Patterns.h"
@@ -16,10 +15,10 @@ namespace idr {
 
 namespace {
 
-// LOW-ENTRY-1: the root, the only public function, becomes private, and
+// The root, the only public function, becomes private, and
 // @main runs it. Its type is its kind: `() -> i64` returns the exit status
-// (its low 8 bits, SEM-PROG-1); an IO root takes the world, and main then
-// writes pending output and returns 0 (SEM-PROG-2).
+// (its low 8 bits); an IO root takes the world, and main then writes
+// pending output and returns 0.
 FailureOr<func::FuncOp> findRoot(ModuleOp module) {
   SmallVector<func::FuncOp> roots;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -84,7 +83,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
                            cf::ControlFlowDialect>();
     target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp, func::CallIndirectOp,
                       func::ConstantOp>();
-    // The declarations are erased after the conversion (LOW-DATA-3).
+    // The declarations are erased after the conversion.
     target.addLegalOp<idr::DataOp, idr::CtorOp>();
     target.addDynamicallyLegalOp<ub::PoisonOp>(
         [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });

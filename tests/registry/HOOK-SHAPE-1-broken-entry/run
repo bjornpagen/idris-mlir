@@ -1,10 +1,9 @@
 #!/bin/sh
-# rule: HOOK-SHAPE-1
 # The registry validates every entry against the loaded context before
-# anything uses it (docs/architecture/17-registry.md). The test hook
-# `--directive break-shape=<key>` gives one entry a shape no definition has;
-# the compilation must then fail with HOOK-SHAPE-1, showing the entry, the
-# shape expected and the shape found, and leave no artifact. An entry keyed
+# anything uses it. The test hook `--directive break-shape=<key>` gives one
+# entry a shape no definition has; the compilation must then fail with a
+# shape mismatch, showing the entry, the shape expected and the shape found,
+# and leave no artifact. An entry keyed
 # by a definition and one keyed by a %foreign spec are broken in turn;
 # unbroken, the program compiles.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

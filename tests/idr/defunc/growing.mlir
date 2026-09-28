@@ -2,7 +2,6 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
-// rule: ELIM-CLOS-1, PROF-HEAP-1, PROF-HEAP-2, DIAG-LOC-1
 // Closures that a recursion on a runtime value makes larger: each level
 // captures a closure of its own type, so no finite sum over labels stands
 // for them, and the types stay closures. The unrelated closure type in the
