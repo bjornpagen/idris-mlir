@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.closure --implicit-check-not=idr.apply --implicit-check-not=@Main.choose
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply --implicit-check-not=@Main.choose
 // rule: ELIM-G-8, ELIM-G-1, TEST-ELIM-1
 // Both Lazy arguments are forced where they are known: a Lazy value is a
 // closure of no arguments, and forcing a known one is a call, inlined.

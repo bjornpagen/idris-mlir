@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.closure --implicit-check-not=idr.apply --implicit-check-not=arith.muli
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply --implicit-check-not=arith.muli
 // rule: ELIM-G-1, ELIM-G-7, TEST-ELIM-1
 // No closure is left after the simplify loop: the lambda applied to 7 is
 // gone (Idris's elaborator already reduces `(\x => x * 3) 7` to 21 in the

@@ -223,8 +223,9 @@ v2_symbols="$v1_symbols exp log pow sin cos tan asin acos atan sqrt floor ceil e
 
 # filecheck CHECKS INPUT: the pinned FileCheck. A line
 # `// FILECHECK-OPTIONS: <option>...` in CHECKS adds options, words without
-# quotes, such as --implicit-check-not=idr.closure (a check over the whole
-# input).
+# quotes, such as --implicit-check-not={{[^#]}}idr.closure (a check over the
+# whole input; the pattern leaves out `#idr.closure` attributes, which clone
+# keys hold).
 filecheck() {
   filecheck_options=$(sed -n 's|^[[:space:]]*//[[:space:]]*FILECHECK-OPTIONS:[[:space:]]*||p' "$1" | tr '\n' ' ')
   set -f

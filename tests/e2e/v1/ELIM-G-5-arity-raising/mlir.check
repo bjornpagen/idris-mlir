@@ -1,5 +1,5 @@
 // input: after idr-defunctionalize
-// FILECHECK-OPTIONS: --implicit-check-not=idr.closure --implicit-check-not=idr.apply
+// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
 // rule: ELIM-CLOS-1, ELIM-G-7, IDR-WORLD-1, TEST-ELIM-1
 // countdown returns an action, and calls itself inside it: the actions'
 // closures cannot all be inlined away, since countdown is recursive, but

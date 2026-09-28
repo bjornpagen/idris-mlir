@@ -7,6 +7,7 @@
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 using namespace mlir;
 using namespace idr;
@@ -137,9 +138,9 @@ bool feeds(Value value, Operation *consumer) {
          isa<PutStrOp, StrHeadOp>(consumer);
 }
 
-// A3, case-of-case: the single consumer of a result of a match moves into
-// every region that yields, when in at least one of them it then meets a
-// value it folds or canonicalizes against. It moves past no op with effects,
+// A3, case-of-case: the single consumer of a result of a match, another
+// match included, moves into every region that yields, when in at least one
+// of them it then meets a value it folds or canonicalizes against. It moves past no op with effects,
 // and still runs exactly once on every path (OPT-SAFE-1).
 template <typename Match>
 struct SinkConsumer : OpRewritePattern<Match> {
@@ -157,15 +158,22 @@ private:
       return nullptr;
     Operation *consumer = *result.getUsers().begin();
     Block *block = op->getBlock();
-    if (consumer->getBlock() != block || consumer->hasTrait<OpTrait::IsTerminator>() ||
-        consumer->getNumRegions() != 0)
+    if (consumer->getBlock() != block || consumer->hasTrait<OpTrait::IsTerminator>())
       return nullptr;
-    // Its other operands are the match's results or exist before the match.
-    for (Value operand : consumer->getOperands()) {
-      Operation *def = operand.getDefiningOp();
-      if (def && def != op && def->getBlock() == block && op->isBeforeInBlock(def))
-        return nullptr;
-    }
+    // Its other operands, and the values its regions use from outside, are
+    // the match's results or exist before the match.
+    auto before = [&](Value value) {
+      Operation *def = value.getDefiningOp();
+      return !def || def == op || def->getBlock() != block || def->isBeforeInBlock(op);
+    };
+    if (!llvm::all_of(consumer->getOperands(), before))
+      return nullptr;
+    bool captured = true;
+    visitUsedValuesDefinedAbove(consumer->getRegions(), [&](OpOperand *use) {
+      captured &= before(use->get());
+    });
+    if (!captured)
+      return nullptr;
     for (Operation *between = op->getNextNode(); between != consumer;
          between = between->getNextNode())
       if (!isMemoryEffectFree(between))

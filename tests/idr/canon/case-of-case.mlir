@@ -141,3 +141,71 @@ func.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
   %w1 = idr.io.put_str %s, %w
   return %w1 : !idr.world
 }
+
+// A match of a match: the consumer is itself a match, and in each region it
+// meets a known constructor, so each region keeps only the case it takes.
+// CHECK-LABEL: func.func @match_of_match(
+// CHECK-SAME: %[[C:.*]]: i64)
+// CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
+// CHECK-DAG: %[[TWO:.*]] = arith.constant 2 : i64
+// CHECK: %[[R:.*]] = idr.match_lit %[[C]] : i64 -> (i64) {
+// CHECK-NEXT: case 0 {
+// CHECK-NEXT: idr.yield %[[ONE]] : i64
+// CHECK: default {
+// CHECK-NEXT: idr.yield %[[TWO]] : i64
+// CHECK-NOT: idr.match
+// CHECK: return %[[R]]
+func.func @match_of_match(%c: i64) -> i64 {
+  %one = arith.constant 1 : i64
+  %two = arith.constant 2 : i64
+  %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
+  case 0 {
+    %j = idr.con @Maybe::@Just(%one) : (i64) -> !idr.data<@Maybe>
+    idr.yield %j : !idr.data<@Maybe>
+  }
+  default {
+    %n = idr.con @Maybe::@Nothing() : () -> !idr.data<@Maybe>
+    idr.yield %n : !idr.data<@Maybe>
+  }
+  }
+  %r = idr.match %p : !idr.data<@Maybe> -> (i64) {
+  case @Just(%x: i64) {
+    idr.yield %x : i64
+  }
+  case @Nothing() {
+    idr.yield %two : i64
+  }
+  }
+  return %r : i64
+}
+
+// A consumer whose region uses a value made after the match cannot move
+// into the match, where that value does not exist yet.
+// CHECK-LABEL: func.func @uses_later(
+// CHECK: idr.match_lit
+// CHECK: %[[K:.*]] = arith.muli
+// CHECK: idr.match %{{.*}} : !idr.data<@Maybe> -> (i64) {
+// CHECK: idr.yield %[[K]] : i64
+func.func @uses_later(%c: i64) -> i64 {
+  %one = arith.constant 1 : i64
+  %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
+  case 0 {
+    %j = idr.con @Maybe::@Just(%one) : (i64) -> !idr.data<@Maybe>
+    idr.yield %j : !idr.data<@Maybe>
+  }
+  default {
+    %n = idr.con @Maybe::@Nothing() : () -> !idr.data<@Maybe>
+    idr.yield %n : !idr.data<@Maybe>
+  }
+  }
+  %k = arith.muli %c, %c : i64
+  %r = idr.match %p : !idr.data<@Maybe> -> (i64) {
+  case @Just(%x: i64) {
+    idr.yield %x : i64
+  }
+  case @Nothing() {
+    idr.yield %k : i64
+  }
+  }
+  return %r : i64
+}
