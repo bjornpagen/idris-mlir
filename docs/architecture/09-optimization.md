@@ -146,10 +146,18 @@ Superoptimization, equality saturation and search are non-goals (D7).
   and each breaker becomes self recursive. A clone of a loop breaker
   inherits `no_inline` (`ELIM-SPEC-1`). Without it the inliner unrolled
   mutual recursion between an IO loop and its `>>` specialization until a
-  200-function program took over a minute and grew twentyfold. *Revised at
-  the cutover:* the breakers are computed by `Emit`, on full Core; before,
-  on first-order Core.
-  - Check: `Emit`
+  200-function program took over a minute and grew twentyfold. The rounds
+  of the simplify loop close new cycles, through clones that call each
+  other and through closure constants (`sccp` replaces a call of a breaker
+  that returns a closure of itself by that constant), so
+  `idr-loop-breakers` cuts every cycle of references, calls and closures
+  alike, among the functions that may be inlined at the start of every
+  round, with the same preference: the newest clone, else the first
+  function not from a library. *Revised at the cutover:* the breakers are
+  computed by `Emit`, on full Core, and kept by `idr-loop-breakers`;
+  before, on first-order Core.
+  - Check: `Emit`, the pass `idr-loop-breakers`
+  - Test: `tests/idr/loops/breakers.mlir`
   - Test: `tests/e2e/v2/loop-breakers/mlir.check`
 - **OPT-PIPE-4 (v3).** Code generation aligns every function, and every
   block that is not reached by falling through, to 64 bytes
