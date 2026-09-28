@@ -87,11 +87,15 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
   let summary = "Replace closures of known labels by sums (ELIM-CLOS-1)";
   let description = [{
     A sparse dataflow analysis finds the labels each `!idr.fn` value may
-    hold. A closure type whose values all have known labels, and whose
-    captures do not contain the type again, becomes a sum with one
-    constructor per label: `idr.closure` becomes `idr.con` and `idr.apply`
-    an `idr.match` that calls the label.
+    hold. Sums are keyed by (closure type, label set): each slot (value,
+    argument, result, field) of a key whose labels are known and fit, and
+    which is on no cycle of "a capture of its labels holds a value of that
+    key", becomes a sum with one constructor per label, whose fields are the
+    label's captures: `idr.closure` becomes `idr.con` and `idr.apply` an
+    `idr.match` that calls the label. Where a value moves between slots of
+    different keys, a match rebuilds it in the other sum, or as a closure.
   }];
+  let dependentDialects = ["::mlir::ub::UBDialect"];
 }
 
 def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
