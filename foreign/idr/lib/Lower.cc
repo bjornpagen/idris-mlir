@@ -1,9 +1,9 @@
-// idr-lower: idr to func, arith, scf, ub and llvm (docs/architecture/10-lowering.md).
-// The layouts, runtime helpers and patterns it uses are in Lower/.
+// idr-lower: idr to func, arith, math, scf, ub and llvm
+// (docs/architecture/10-lowering.md; docs/cutover.md 6.3). The layouts,
+// runtime calls, static data and patterns it uses are in Lower/.
 
 #include "Lower/Patterns.h"
 
-#include "mlir/Dialect/ControlFlow/Transforms/StructuralTypeConversions.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 
@@ -16,115 +16,120 @@ namespace idr {
 
 namespace {
 
+// LOW-ENTRY-1: the root, the only public function, becomes private, and
+// @main runs it. Its type is its kind: `() -> i64` returns the exit status
+// (its low 8 bits, SEM-PROG-1); an IO root takes the world, and main then
+// writes pending output and returns 0 (SEM-PROG-2).
+FailureOr<func::FuncOp> findRoot(ModuleOp module) {
+  SmallVector<func::FuncOp> roots;
+  for (auto fn : module.getOps<func::FuncOp>())
+    if (fn.isPublic())
+      roots.push_back(fn);
+  if (roots.size() != 1 || module.lookupSymbol("main"))
+    return module.emitError("internal error: idr-lower needs exactly one public function, "
+                            "the root, and no @main");
+  return roots.front();
+}
+
+void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &runtime) {
+  root.setPrivate();
+  OpBuilder b(module.getContext());
+  b.setInsertionPointToEnd(module.getBody());
+  Location loc = root.getLoc();
+  auto main = func::FuncOp::create(b, loc, "main", b.getFunctionType({}, {b.getI32Type()}));
+  b.setInsertionPointToStart(main.addEntryBlock());
+  auto call = func::CallOp::create(b, loc, root, ValueRange{});
+  Value status;
+  if (io) {
+    runtime.call(b, loc, "idris_rt_flush", Type(), ValueRange{});
+    status = arith::ConstantOp::create(b, loc, b.getI32IntegerAttr(0));
+  } else {
+    status = arith::TruncIOp::create(b, loc, b.getI32Type(), call.getResult(0));
+  }
+  func::ReturnOp::create(b, loc, status);
+}
+
 struct Lower : idr::impl::IdrLowerBase<Lower> {
+  using IdrLowerBase::IdrLowerBase;
+
   void runOnOperation() override {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
-    auto entry = module->getAttrOfType<FlatSymbolRefAttr>("idr.entry");
-    auto kind = module->getAttrOfType<StringAttr>("idr.entry_kind");
-    if (!entry || !kind) {
-      module.emitError("internal error: idr-lower needs idr.entry and idr.entry_kind");
-      return signalPassFailure();
+    func::FuncOp root;
+    bool io = false;
+    if (!jit) {
+      FailureOr<func::FuncOp> found = findRoot(module);
+      if (failed(found))
+        return signalPassFailure();
+      root = *found;
+      io = llvm::any_of(root.getArgumentTypes(), llvm::IsaPred<idr::WorldType>);
     }
-
     idr::lower::Layouts layouts(module);
-    idr::lower::Runtime runtime(module);
-    idr::lower::Context state{layouts, runtime};
-
-    // Static data and helpers are added before the conversion starts.
-    bool ok = true;
-    auto need = [&](StringRef name) { ok &= succeeded(runtime.require(name)); };
-    // What each op needs follows from what it declares (IdrOps.td).
-    module.walk([&](Operation *op) {
-      if (auto lit = dyn_cast<idr::StrLitOp>(op))
-        runtime.declareString(lit.getValue());
-      if (auto call = dyn_cast<idr::RuntimeCallOpInterface>(op))
-        need(call.getHelper());
-      if (auto mayCrash = dyn_cast<idr::MayCrashOpInterface>(op))
-        if (auto cause = mayCrash.getCrashCause()) {
-          runtime.declareString(idr::lower::crashMessage(op->getLoc(), *cause));
-          need("__idr_crash");
-        }
-    });
-    if (kind.getValue() == "io")
-      need("__idr_flush");
-    if (!ok)
-      return signalPassFailure();
+    idr::lower::Runtime runtime(module, layouts, jit);
+    idr::lower::lowerMatches(module);
 
     TypeConverter converter;
     converter.addConversion([](Type type) { return type; });
-    converter.addConversion([&](Type type, SmallVectorImpl<Type> &out)
-                                -> std::optional<LogicalResult> {
-      if (!isa<idr::ErasedType, idr::WorldType, idr::StrType, idr::DataType>(type))
-        return std::nullopt;
-      auto parts = layouts.components(type);
-      out.append(parts.begin(), parts.end());
-      return success();
-    });
+    converter.addConversion(
+        [&](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
+          if (type.getDialect().getNamespace() != idr::IdrDialect::getDialectNamespace())
+            return std::nullopt;
+          llvm::append_range(out, layouts.components(type));
+          return success();
+        });
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<idr::IdrDialect>();
     target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
                            cf::ControlFlowDialect>();
+    target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp, func::CallIndirectOp,
+                      func::ConstantOp>();
+    // The declarations are erased after the conversion (LOW-DATA-3).
+    target.addLegalOp<idr::DataOp, idr::CtorOp>();
     target.addDynamicallyLegalOp<ub::PoisonOp>(
         [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
     target.addDynamicallyLegalOp<arith::SelectOp>(
         [&](arith::SelectOp op) { return converter.isLegal(op.getType()); });
-    // The blocks after the entry are converted with the branches to them.
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return converter.isSignatureLegal(op.getFunctionType()) &&
-             (op.getBody().empty() || converter.isLegal(op.getBody().front().getArgumentTypes()));
+             converter.isLegal(&op.getBody());
     });
     target.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
         [&](Operation *op) { return converter.isLegal(op); });
-    // idr.data declarations are erased after the conversion (LOW-DATA-3).
-    target.addLegalOp<idr::DataOp, idr::CtorOp>();
 
     RewritePatternSet patterns(ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, converter);
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    cf::populateCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    idr::lower::populatePatterns(patterns, converter, state);
+    idr::lower::populatePatterns(patterns, converter, layouts, runtime);
 
-    if (failed(applyPartialConversion(module, target, std::move(patterns))))
+    ConversionConfig config;
+    config.allowPatternRollback = false;
+    if (failed(applyPartialConversion(module, target, std::move(patterns), config)))
       return signalPassFailure();
 
+    runtime.emitCode();
     for (auto data : llvm::make_early_inc_range(module.getOps<idr::DataOp>()))
       data.erase();
-
-    // LOW-ENTRY-1
-    auto root = module.lookupSymbol<func::FuncOp>(entry.getAttr());
-    if (!root || module.lookupSymbol("main")) {
-      module.emitError("internal error: bad entry for idr-lower");
-      return signalPassFailure();
-    }
-    OpBuilder b(ctx);
-    b.setInsertionPointToEnd(module.getBody());
-    Location loc = root.getLoc();
-    root.setPrivate();
-    auto main = func::FuncOp::create(b, loc, "main", b.getFunctionType({}, {b.getI32Type()}));
-    b.setInsertionPointToStart(main.addEntryBlock());
-    auto call = func::CallOp::create(b, loc, root, ValueRange{});
-    Value status;
-    if (kind.getValue() == "int") {
-      status = arith::TruncIOp::create(b, loc, b.getI32Type(), call.getResult(0));
-    } else {
-      func::CallOp::create(b, loc, "__idr_flush", TypeRange{}, ValueRange{});
-      status = arith::ConstantOp::create(b, loc, b.getI32IntegerAttr(0));
-    }
-    func::ReturnOp::create(b, loc, status);
-    // The idr attributes have served their purpose; LLVM lowering would warn.
-    module.walk([](func::FuncOp fn) {
+    // The idr attributes have served their purpose; LLVM's translation
+    // refuses attributes of a dialect it cannot translate.
+    auto isIdr = [](NamedAttribute attr) { return attr.getName().strref().starts_with("idr."); };
+    module->setDiscardableAttrs(llvm::to_vector(llvm::make_filter_range(
+        module->getDiscardableAttrs(), [&](NamedAttribute a) { return !isIdr(a); })));
+    module.walk([&](func::FuncOp fn) {
+      for (NamedAttribute attr : llvm::to_vector(fn->getDiscardableAttrs()))
+        if (isIdr(attr))
+          fn->removeDiscardableAttr(attr.getName());
       for (unsigned i = 0; i < fn.getNumArguments(); ++i)
-        fn.removeArgAttr(i, "idr.quantity");
+        if (DictionaryAttr attrs = fn.getArgAttrDict(i))
+          for (NamedAttribute attr : llvm::to_vector(attrs))
+            if (isIdr(attr))
+              fn.removeArgAttr(i, attr.getName());
     });
-    module->removeAttr("idr.version");
-    module->removeAttr("idr.entry");
-    module->removeAttr("idr.entry_kind");
+    if (!jit)
+      emitMain(module, root, io, runtime);
   }
 };
-
 
 } // namespace

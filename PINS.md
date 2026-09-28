@@ -292,3 +292,25 @@ which the top-level CMake configure gate reads (TC-DEV-2).
   a host program and never links into an executable (TC-PIN-3)
 - retire: when Chez Scheme itself is built on the pinned toolchain
 - upstream: none
+
+## orc-lljit
+
+- symptom: docs/plan.md section 6 runs compile-time evaluation through
+  MLIR's `ExecutionEngine`; at the pinned llvmorg-23.1.2,
+  `ExecutionEngine::create` calls
+  `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))`
+  (`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395`), which needs
+  `dlopen(NULL)` and aborts in the static-musl `idris-mlir-cc`; `LLJITBuilder`
+  also links the process's symbols by default
+- sites: foreign/idr/lib/Eval/Jit.cc (idr-eval, docs/cutover.md 6.4 and
+  decision 7.7)
+- workaround: ORC's `LLJIT`, which `ExecutionEngine` wraps, with
+  `setLinkProcessSymbolsByDefault(false)`, the inactive platform, and an
+  `absoluteSymbols` table of the runtime's entry points, the libm functions
+  of LOW-EXT-1 and the memory functions LLVM emits, all linked into
+  `idris-mlir-cc`: the JITed code runs the same runtime and libc as
+  executables
+- retire: when `ExecutionEngine` can be created without a process-symbol
+  generator (an option to skip it) and its other uses fit idr-eval's
+  (one compile per round, a forked child); re-test on every LLVM bump
+- upstream: none filed

@@ -4,11 +4,11 @@
 // thread-local free-list pop, and a free as a pagemap lookup and a push.
 //
 // snmalloc is configured at compile time only (runtime/CMakeLists.txt): size
-// classes step by 8 bytes, thread teardown through pthread keys rather than
-// the C++ runtime, and its own small STL instead of the C++ library's.
+// classes step by 8 bytes, no thread teardown that needs a static destructor
+// or the C++ runtime, and its own small STL instead of the C++ library's.
 // PIN(runtime-quarantine) — see PINS.md
 
-#include "idris_rt.h"
+#include "internal.h"
 
 #include <snmalloc/snmalloc.h>
 
@@ -25,3 +25,21 @@ IDRIS_RT_SIZE_CLASSES(IDRIS_RT_DEFINE_SIZE_CLASS)
 extern "C" void *idris_rt_alloc(size_t size) { return snmalloc::alloc(size); }
 
 extern "C" void idris_rt_free(void *block) { snmalloc::dealloc(block); }
+
+void *rt::allocate(size_t size) {
+  if (arenaActive)
+    return idris_rt_arena_alloc(size);
+  void *block = idris_rt_alloc(size);
+  if (block == nullptr) {
+    static constexpr char message[] = "idris runtime: out of memory\n";
+    idris_rt_crash(message, sizeof message - 1);
+  }
+  return block;
+}
+
+void rt::release(void *block) {
+  if (!arenaActive)
+    idris_rt_free(block);
+}
+
+extern "C" void *idris_rt_cell(size_t size) { return rt::allocate(size); }

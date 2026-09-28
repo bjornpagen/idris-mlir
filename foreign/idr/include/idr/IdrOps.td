@@ -467,6 +467,8 @@ def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 // IDR-DBL-3: the first character of prim__cast_DoubleString (ELIM-G-15).
 def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the first character of a Double as the reference prints it";
   let arguments = (ins F64:$value);
   let results = (outs I32:$result);
@@ -476,6 +478,8 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
 // The first character of the decimal text of an integer (ELIM-G-15, A4).
 def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the first character of an integer's decimal text";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
   let results = (outs I32:$result);
@@ -491,6 +495,8 @@ def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
 // A string builder allocates its result (MemAlloc).
 class Idr_StrBuilderOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"str." # mnemonic, !listconcat(traits, [Idr_CallsRuntime])> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let results = (outs Res<Idr_StrType, "", [MemAlloc]>:$result);
 }
 
@@ -535,6 +541,8 @@ def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse"> {
 }
 
 def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a string without its first character; crashes on \"\"";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs Idr_StrType:$result);
@@ -551,6 +559,8 @@ def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
 // IDR-RANGE-1
 def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the number of characters of a string";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs I64:$result);
@@ -558,6 +568,8 @@ def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
 }
 
 def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the character at an index; crashes out of range";
   let arguments = (ins Idr_StrType:$str, I64:$index);
   let results = (outs I32:$result);
@@ -565,6 +577,8 @@ def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 }
 
 def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the first character of a string; crashes on \"\"";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs I32:$result);
@@ -580,6 +594,8 @@ def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 }
 
 def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "compares two strings";
   let arguments = (ins Idr_CmpPredicate:$predicate, Idr_StrType:$lhs,
                        Idr_StrType:$rhs);
@@ -588,6 +604,8 @@ def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a string as an integer, as prim__cast_StringT reads it";
   let arguments = (ins UnitAttr:$is_signed, Idr_StrType:$str);
   let results = (outs Idr_Int:$result);
@@ -597,6 +615,8 @@ def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a string as a Double, as prim__cast_StringDouble reads it";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs F64:$result);
@@ -610,6 +630,8 @@ def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
 // An op that makes a big allocates its result (MemAlloc).
 class Idr_BigBinaryOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = what # " of two bigs";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
   let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
@@ -625,6 +647,8 @@ def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 
 class Idr_BigDivisionOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = what # " of two bigs, as Integer's div and mod; crashes on zero";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
   let results = (outs Idr_BigType:$result);
@@ -642,6 +666,8 @@ def Idr_BigDivOp : Idr_BigDivisionOp<"div", "the quotient">;
 def Idr_BigModOp : Idr_BigDivisionOp<"mod", "the remainder">;
 
 def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the negation of a big";
   let arguments = (ins Idr_BigType:$value);
   let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
@@ -649,6 +675,8 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "compares two bigs";
   let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigType:$lhs,
                        Idr_BigType:$rhs);
@@ -657,6 +685,8 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "an integer as a big";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
   let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
@@ -666,6 +696,8 @@ def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a big as an integer, wrapped to its width";
   let arguments = (ins Idr_BigType:$value);
   let results = (outs Idr_Int:$result);
@@ -674,6 +706,8 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime]> {
 
 def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
     [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a Double truncated to a big; crashes on NaN and the infinities";
   let arguments = (ins F64:$value);
   let results = (outs Idr_BigType:$result);
@@ -688,6 +722,8 @@ def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
 }
 
 def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a big as the nearest Double";
   let arguments = (ins Idr_BigType:$value);
   let results = (outs F64:$result);
@@ -695,6 +731,8 @@ def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
 }
 
 def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "the decimal text of a big";
   let arguments = (ins Idr_BigType:$value);
   let results = (outs Res<Idr_StrType, "", [MemAlloc]>:$result);
@@ -702,6 +740,8 @@ def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
 }
 
 def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
+  // LOW-RT-1: folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
   let summary = "a string as a big, as prim__cast_StringInteger reads it";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);

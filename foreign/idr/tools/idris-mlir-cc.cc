@@ -1,16 +1,19 @@
 // idris-mlir-cc: runs OPT-PIPE-1 in process, from idr contract text to one
 // object file that holds the whole program (DRV-CC-1, DRV-CC-2, LOW-TARGET-1,
-// TC-LINK-1).
+// TC-LINK-1; docs/cutover.md 6.3, 6.6).
 
 #include "idr/Idr.h"
+#include "idr/Target.h"
 
 #include "mlir/IR/AsmState.h"
+#include "mlir/IR/Remarks.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Support/Timing.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
@@ -28,7 +31,6 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/IRObjectFile.h"
-#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -48,12 +50,28 @@
 #include <string>
 #include <vector>
 
+#include <pthread.h>
+#include <sys/mman.h>
+
 namespace cl = llvm::cl;
 
 namespace {
 
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
-cl::opt<std::string> outputPath("o", cl::desc("Output file"), cl::Required);
+cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
+// A11, DRV-CC-2: check the program against the profile, and write nothing.
+cl::opt<bool> checkOnly("check",
+                        cl::desc("Stop after idr-check-profile and write nothing (exit status 3 "
+                                 "names a profile rejection)"),
+                        cl::init(false));
+// docs/cutover.md section 10's knob: no compile-time evaluation.
+cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
+cl::opt<std::string> remarks("remarks",
+                             cl::desc("Print the remarks of these categories (a regex), e.g. "
+                                      "idr-eval"),
+                             cl::init(""));
+cl::opt<bool> timing("timing", cl::desc("Report the time of each pass and LLVM stage"),
+                     cl::init(false));
 cl::opt<std::string> emitKind("emit", cl::desc("obj (default), asm, llvm or mlir"),
                               cl::init("obj"));
 cl::opt<std::string> dumpAfter("dump-after",
@@ -75,8 +93,11 @@ cl::opt<std::string> runtimeArchive("runtime",
                                              "joins the program ('' for none)"),
                                     cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
 
-// Exit statuses (DRV-CC-2).
-constexpr int ok = 0, failure = 1, usage = 2;
+// Exit statuses (DRV-CC-2, docs/cutover.md 6.6): an internal error or a
+// contract violation is 1, a usage error 2, a profile rejection (a user
+// error, `unsupported (<RULE>)`) 3, and a total evaluation the machine
+// cannot finish (EVAL-1) 4.
+constexpr int ok = 0, failure = 1, usage = 2, rejected = 3, exhausted = 4;
 
 // TC-LINK-1: executables are static-PIE on musl, so code is compiled for the
 // musl triple, the one the runtime's bitcode carries.
@@ -196,8 +217,14 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
 // dead runtime code (and its libc calls) in every executable: constructors are
 // rejected, `used` markers dropped.
 bool prepareMember(llvm::Module &member, llvm::StringRef name) {
+  // An empty list of constructors, which clang writes for some translation
+  // units, lists none.
   for (llvm::StringRef array : {"llvm.global_ctors", "llvm.global_dtors"})
-    if (member.getNamedGlobal(array)) {
+    if (llvm::GlobalVariable *global = member.getNamedGlobal(array)) {
+      if (llvm::cast<llvm::ArrayType>(global->getValueType())->getNumElements() == 0) {
+        global->eraseFromParent();
+        continue;
+      }
       llvm::errs() << "idris-mlir-cc: runtime member " << name
                    << " has static constructors or destructors; the runtime must be "
                       "constant-initialized (TC-RT-1)\n";
@@ -278,19 +305,39 @@ void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
   }
 }
 
+// Which errors the passes reported: a profile rejection (`unsupported
+// (<RULE>): ...`) and EVAL-1 (`unsupported (EVAL-1): ...`) are the user's,
+// each at the location of the user's code the frontend reports; any other
+// error is internal.
+struct Verdict {
+  bool rejected = false;
+  bool exhausted = false;
+};
+
+int status(const Verdict &verdict) {
+  return verdict.exhausted ? exhausted : verdict.rejected ? rejected : failure;
+}
+
 int run() {
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
-  mlir::DialectRegistry registry;
-  mlir::registerAllDialects(registry);
-  mlir::registerAllExtensions(registry);
-  mlir::registerBuiltinDialectTranslation(registry);
-  mlir::registerLLVMDialectTranslation(registry);
-  idr::registerIdr(registry);
-  mlir::MLIRContext context(registry);
+  // A19, IDR-IN-1: the program is parsed with exactly the contract's
+  // dialects, so an op of any other fails to parse. The rest load after.
+  mlir::DialectRegistry contract;
+  contract.insert<mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::math::MathDialect,
+                  mlir::ub::UBDialect>();
+  idr::registerIdr(contract);
+  mlir::MLIRContext context(contract);
+  // FE-DET-1: MLIR runs single-threaded, so results do not depend on
+  // scheduling, and idr-eval may fork.
+  context.disableMultithreading();
 
   if (emitKind != "obj" && emitKind != "asm" && emitKind != "llvm" && emitKind != "mlir") {
     llvm::errs() << "idris-mlir-cc: --emit must be obj, asm, llvm or mlir\n";
+    return usage;
+  }
+  if (checkOnly == !outputPath.empty()) {
+    llvm::errs() << "idris-mlir-cc: give either -o or --check\n";
     return usage;
   }
   llvm::InitializeNativeTarget();
@@ -308,26 +355,70 @@ int run() {
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
+  Verdict verdict;
+  context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
+    if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
+      std::string message = diagnostic.str();
+      if (llvm::StringRef(message).starts_with("unsupported (EVAL-1)"))
+        verdict.exhausted = true;
+      else if (llvm::StringRef(message).starts_with("unsupported ("))
+        verdict.rejected = true;
+    }
+    return mlir::failure();
+  });
   mlir::OwningOpRef<mlir::ModuleOp> module =
       mlir::parseSourceFile<mlir::ModuleOp>(inputPath, sources, &context);
   if (!module)
     return failure;
+  mlir::DialectRegistry everything;
+  mlir::registerAllDialects(everything);
+  mlir::registerAllExtensions(everything);
+  mlir::registerBuiltinDialectTranslation(everything);
+  mlir::registerLLVMDialectTranslation(everything);
+  context.appendDialectRegistry(everything);
+
+  if (!remarks.empty()) {
+    mlir::remark::RemarkCategories categories;
+    categories.passed = categories.missed = remarks.getValue();
+    if (mlir::failed(mlir::remark::enableOptimizationRemarks(
+            context, nullptr, std::make_unique<mlir::remark::RemarkEmittingPolicyAll>(),
+            categories, /*printAsEmitRemarks=*/true)))
+      return usage;
+  }
+  // The knob of docs/cutover.md section 10: the idr-eval pass, wherever a
+  // pipeline runs it, is skipped.
+  if (noEval)
+    context.registerActionHandler([](llvm::function_ref<void()> transform,
+                                     const mlir::tracing::Action &action) {
+      if (action.getTag() == mlir::PassExecutionAction::tag &&
+          static_cast<const mlir::PassExecutionAction &>(action).getPass().getArgument() ==
+              "idr-eval")
+        return;
+      transform();
+    });
+  mlir::DefaultTimingManager timings;
+  timings.setEnabled(timing);
+  mlir::TimingScope rootTiming = timings.getRootScope();
 
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
     mlir::PassManager pm(&context);
+    pm.enableTiming(rootTiming);
     if (mlir::failed(mlir::parsePassPipeline(step, pm))) {
       llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << step << "\n";
       return failure;
     }
     if (mlir::failed(pm.run(*module))) {
-      llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step
-                   << ") failed\n";
-      return failure;
+      if (!verdict.rejected && !verdict.exhausted)
+        llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step
+                     << ") failed\n";
+      return status(verdict);
     }
     if (!dump(*module, index, stepName(step)))
       return failure;
+    if (checkOnly && step == "idr-check-profile")
+      return ok;
   }
   if (emitKind == "mlir")
     return writeOutput([&](llvm::raw_ostream &os) {
@@ -339,14 +430,9 @@ int run() {
 
   // Step 11: LLVM IR, joined with the runtime into one module; every symbol
   // but main internalized; LLVM's O3 pipeline; object code for the CPU.
-  // LOW-TARGET-1, OPT-PIPE-1: no fast-math and no FP contraction anywhere
-  // (docs/plan.md section 5.7): `+` and `*` are IEEE operations, never fused.
-  llvm::TargetOptions options;
-  options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
-  options.FunctionSections = true;
-  options.DataSections = true;
+  mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
   std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, cpu->name, cpu->features, options, llvm::Reloc::PIC_, std::nullopt,
+      triple, cpu->name, cpu->features, idr::targetOptions(), llvm::Reloc::PIC_, std::nullopt,
       llvm::CodeGenOptLevel::Aggressive));
   if (!machine) {
     llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
@@ -373,20 +459,7 @@ int run() {
   // visible outside it; O3 then removes what main does not reach.
   llvm::internalizeModule(*llvmModule,
                           [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
-
-  llvm::LoopAnalysisManager lam;
-  llvm::FunctionAnalysisManager fam;
-  llvm::CGSCCAnalysisManager cgam;
-  llvm::ModuleAnalysisManager mam;
-  llvm::PassBuilder builder(machine.get());
-  builder.registerModuleAnalyses(mam);
-  builder.registerCGSCCAnalyses(cgam);
-  builder.registerFunctionAnalyses(fam);
-  builder.registerLoopAnalyses(lam);
-  builder.crossRegisterProxies(lam, fam, cgam, mam);
-  llvm::ModulePassManager passes =
-      builder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
-  passes.run(*llvmModule, mam);
+  idr::optimize(*llvmModule, *machine);
 
   if (emitKind == "llvm")
     return writeOutput([&](llvm::raw_ostream &os) {
@@ -411,6 +484,42 @@ int run() {
              : failure;
 }
 
+// The compilation runs on a stack reserved as large as the address space
+// allows, committed as it is touched: MLIR's parser, printer and walks
+// recurse over nested constants, and compile-time evaluation builds them as
+// large as the program's own values (EVAL-1: no limits but the machine's).
+struct Compilation {
+  int status = failure;
+};
+
+void *compile(void *argument) {
+  static_cast<Compilation *>(argument)->status = run();
+  return nullptr;
+}
+
+int runOnLargeStack() {
+  Compilation compilation;
+  constexpr size_t guard = size_t{1} << 20;
+  for (size_t size = size_t{1} << 44; size >= size_t{1} << 26; size >>= 1) {
+    void *base = mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (base == MAP_FAILED)
+      continue;
+    pthread_attr_t attributes;
+    pthread_t thread;
+    if (mprotect(base, guard, PROT_NONE) != 0 || pthread_attr_init(&attributes) != 0 ||
+        pthread_attr_setstack(&attributes, static_cast<char *>(base) + guard, size - guard) != 0 ||
+        pthread_create(&thread, &attributes, compile, &compilation) != 0 ||
+        pthread_join(thread, nullptr) != 0) {
+      munmap(base, size);
+      continue;
+    }
+    return compilation.status;
+  }
+  llvm::errs() << "idris-mlir-cc: no stack could be reserved for the compilation\n";
+  return failure;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -425,5 +534,5 @@ int main(int argc, char **argv) {
   if (!cl::ParseCommandLineOptions(static_cast<int>(args.size()), args.data(),
                                    "idris-mlir-cc: idr to object code\n", &llvm::errs()))
     return usage;
-  return run();
+  return runOnLargeStack();
 }

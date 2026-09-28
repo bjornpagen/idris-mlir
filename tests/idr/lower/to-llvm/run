@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+lit ../to-llvm.mlir

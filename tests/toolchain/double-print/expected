@@ -1,0 +1,4 @@
+fuzz: built
+fuzz: exit 0
+chez: exit 0
+176000 doubles: the same text as Chez

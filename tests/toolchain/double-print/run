@@ -1,0 +1,33 @@
+#!/bin/sh
+# rule: SEM-DBL-5, LOW-DBL-2
+# 176,000 doubles printed by the runtime (Ryu and its tie wrapper) and by
+# Chez's number->string: every text is the same.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+# The runtime archive the build made (TC-RT-1), linked natively with GMP.
+runtime=$root/build/dev/runtime/libidris_rt.a
+build_test() {
+  if "$pinned_cc" -O1 -I"$root/runtime" "$1" "$runtime" -lgmp -o "$2" > "$work/cc.log" 2>&1; then
+    say "${2##*/}: built"
+  else
+    say "${2##*/}: does not build"
+    show "$work/cc.log"
+    return 1
+  fi
+}
+# Chez Scheme, found as tools/bootstrap.sh finds it for Idris (TC-PIN-3).
+chez=
+for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
+  if command -v "$chez_name" > /dev/null 2>&1; then chez=$chez_name; break; fi
+done
+build_test "$here/fuzz.c" "$work/fuzz" || exit 0
+"$work/fuzz" 176000 "$work/bits" > "$work/ours" 2> "$work/fuzz.err"
+say "fuzz: exit $?"
+if [ -z "$chez" ]; then say "chez: not found (TC-PIN-3)"; exit 0; fi
+"$chez" --script "$here/chez.ss" "$work/bits" > "$work/chez" 2> "$work/chez.err"
+say "chez: exit $?"
+if cmp -s "$work/ours" "$work/chez"; then
+  say "176000 doubles: the same text as Chez"
+else
+  say "doubles printed differently (< runtime, > Chez):"
+  diff "$work/ours" "$work/chez" | head -n 20 | sed 's/^/  | /'
+fi

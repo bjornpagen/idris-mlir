@@ -1,7 +1,8 @@
-# The runtime (TC-RT-1, TC-RT-2; docs/plan.md sections 5.4 and 5.6): C++ with
-# no exceptions, no RTTI and no C++ library at link time, built into one
-# archive of fat LTO objects. Their bitcode joins every program's LTO module
-# in idris-mlir-cc (TC-LINK-1); their native code is for idr-jit.
+# The runtime (TC-RT-1, TC-RT-2, LOW-RT-1; docs/plan.md sections 5.4 and 5.6):
+# C++ with no exceptions, no RTTI and no C++ library at link time, built into
+# one archive of fat LTO objects. Their bitcode joins every program's LTO
+# module in idris-mlir-cc (TC-LINK-1); their native code links into
+# idris-mlir-cc itself, where the folders and idr-eval's JIT call it.
 # It includes the vendored libraries' headers, so like foreign/idr it is
 # quarantine code.
 # PIN(runtime-quarantine), PIN(runtime-cx16) — see PINS.md
@@ -10,7 +11,8 @@ set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
 foreach(file
 		snmalloc/src/snmalloc/snmalloc.h
 		simdutf/src/simdutf.cpp
-		fast_float/include/fast_float/fast_float.h)
+		fast_float/include/fast_float/fast_float.h
+		ryu/ryu/d2s.c)
 	if(NOT EXISTS "${IDRIS_MLIR_THIRD_PARTY}/${file}")
 		message(FATAL_ERROR "third_party/${file} is missing; run: git submodule update --init")
 	endif()
@@ -20,7 +22,7 @@ endforeach()
 # - optimized, since optnone bitcode would stay unoptimized in programs;
 # - the x86-64 baseline plus CMPXCHG16B, which snmalloc requires: idris-mlir-cc
 #   raises every runtime function to the program's CPU (TC-LINK-1);
-# - fat LTO objects: bitcode for programs, native code for idr-jit;
+# - fat LTO objects: bitcode for programs, native code for idris-mlir-cc;
 # - no FP contraction (docs/plan.md section 5.7).
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
@@ -55,26 +57,41 @@ target_include_directories(idris_rt_simdutf SYSTEM PRIVATE
 target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
 target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)
 
+# Ryu's shortest digits (LOW-DBL-2), which double.cc wraps; C, unmodified.
+add_library(idris_rt_ryu OBJECT "${IDRIS_MLIR_THIRD_PARTY}/ryu/ryu/d2s.c")
+target_include_directories(idris_rt_ryu SYSTEM PRIVATE "${IDRIS_MLIR_THIRD_PARTY}/ryu")
+target_link_libraries(idris_rt_ryu PRIVATE idris_mlir_runtime_profile)
+
 add_library(idris_rt STATIC
 	alloc.cc
+	big.cc
+	double.cc
+	eval.cc
 	gmp.cc
+	io.cc
 	numbers.cc
 	strings.cc
 	$<TARGET_OBJECTS:idris_rt_simdutf>
+	$<TARGET_OBJECTS:idris_rt_ryu>
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(idris_rt SYSTEM PRIVATE
 	"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
 	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
 	"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
+	"${IDRIS_MLIR_THIRD_PARTY}/ryu"
 )
 target_compile_definitions(idris_rt PRIVATE
 	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
 	# snmalloc (docs/plan.md section 5.6): size classes that step by 8 bytes;
-	# thread teardown through pthread keys, not the C++ runtime; its own small
-	# STL; and what the musl sysroot provides.
+	# no thread teardown of its own, since both of the others need a static
+	# destructor (pthread keys register one with [[gnu::destructor]]) or the
+	# C++ runtime (TC-RT-1): a thread's cached memory is returned only if the
+	# C library calls _malloc_thread_cleanup, which musl does not, and
+	# programs are single-threaded; its own small STL; and what the musl
+	# sysroot provides.
 	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
-	SNMALLOC_USE_PTHREAD_DESTRUCTORS
+	SNMALLOC_USE_THREAD_CLEANUP
 	SNMALLOC_USE_SELF_VENDORED_STL
 	SNMALLOC_PLATFORM_HAS_GETENTROPY
 	SNMALLOC_HAS_LINUX_RANDOM_H
@@ -83,13 +100,14 @@ target_compile_definitions(idris_rt PRIVATE
 )
 target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 
-foreach(target idris_rt_simdutf idris_rt)
+foreach(target idris_rt_simdutf idris_rt_ryu idris_rt)
 	set_target_properties(${target} PROPERTIES
 		CXX_MODULE_STD OFF
 		CXX_SCAN_FOR_MODULES OFF
 	)
 endforeach()
 set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
+set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 # idris-mlir-cc reads the runtime's bitcode from here (TC-LINK-1).

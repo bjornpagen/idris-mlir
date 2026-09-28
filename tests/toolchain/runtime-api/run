@@ -1,0 +1,34 @@
+#!/bin/sh
+# rule: TC-RT-4, LOW-BIG-1, LOW-STR-2, SEM-STR-2, SEM-INT-3
+# The runtime's big and string operations print what Chez computes, and the
+# casts from String follow the grammar of idris_rt.h.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+# The runtime archive the build made (TC-RT-1), linked natively with GMP.
+runtime=$root/build/dev/runtime/libidris_rt.a
+build_test() {
+  if "$pinned_cc" -O1 -I"$root/runtime" "$1" "$runtime" -lgmp -o "$2" > "$work/cc.log" 2>&1; then
+    say "${2##*/}: built"
+  else
+    say "${2##*/}: does not build"
+    show "$work/cc.log"
+    return 1
+  fi
+}
+# Chez Scheme, found as tools/bootstrap.sh finds it for Idris (TC-PIN-3).
+chez=
+for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
+  if command -v "$chez_name" > /dev/null 2>&1; then chez=$chez_name; break; fi
+done
+build_test "$here/api.c" "$work/api" || exit 0
+"$work/api" > "$work/ours" 2> "$work/api.err"
+say "api: exit $?"
+cat "$work/api.err"
+if [ -z "$chez" ]; then say "chez: not found (TC-PIN-3)"; exit 0; fi
+"$chez" --script "$here/chez.ss" > "$work/chez" 2> "$work/chez.err"
+say "chez: exit $?"
+if cmp -s "$work/ours" "$work/chez"; then
+  say "$(wc -l < "$work/ours" | tr -d ' ') operations: the same results as Chez"
+else
+  say "results differ (< runtime, > Chez):"
+  diff "$work/ours" "$work/chez" | head -n 20 | sed 's/^/  | /'
+fi

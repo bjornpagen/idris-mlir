@@ -1,0 +1,5 @@
+api: built
+api: exit 0
+casts from String: 43 of 43 as idris_rt.h defines them
+chez: exit 0
+3061 operations: the same results as Chez
