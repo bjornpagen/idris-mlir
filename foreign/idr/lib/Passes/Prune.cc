@@ -11,6 +11,15 @@
 // function: a match region ends in `ub.unreachable`, and a function body
 // returns `ub.poison` (a body never ends in `ub.unreachable`, IDR-CRASH-1).
 // Nothing reachable changes, so the program means what it meant.
+//
+// remove-dead-values also leaves alone the parameters of a function that a
+// closure names, since not every use of it is a call, but still treats a
+// value passed to one that the function never reads as dead: it erases that
+// value, a parameter of the caller or the op that made it, and the call
+// keeps a null operand (PINS.md: remove-dead-values-address-taken). Raising
+// and apply of a known closure make such calls (ELIM-G-5, ELIM-G-1). So a
+// call of such a function passes `ub.poison` for each parameter it never
+// reads, which nothing reads either.
 
 #include "idr/Idr.h"
 
@@ -56,8 +65,46 @@ void empty(Block &block) {
   func::ReturnOp::create(b, loc, results);
 }
 
+// The functions some symbol use other than a call's callee names: a closure,
+// a closure constant.
+llvm::DenseSet<StringAttr> addressTaken(ModuleOp module) {
+  llvm::DenseSet<StringAttr> taken;
+  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&module.getBodyRegion()))
+    for (const SymbolTable::SymbolUse &use : *uses)
+      if (!isa<func::CallOp>(use.getUser()))
+        taken.insert(use.getSymbolRef().getRootReference());
+  return taken;
+}
+
+// Passes poison for every parameter of an address-taken function that it
+// never reads. Returns whether a call changed.
+bool guardUnreadParameters(ModuleOp module) {
+  llvm::DenseSet<StringAttr> taken = addressTaken(module);
+  SymbolTable symbols(module);
+  bool changed = false;
+  module.walk([&](func::CallOp call) {
+    if (!taken.contains(call.getCalleeAttr().getAttr()))
+      return;
+    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
+    if (!callee || callee.isExternal() || callee.getNumArguments() != call.getNumOperands())
+      return;
+    for (BlockArgument param : callee.getArguments()) {
+      Value operand = call.getOperand(param.getArgNumber());
+      if (!param.use_empty() || isa<idr::WorldType, idr::ErasedType>(param.getType()) ||
+          operand.getDefiningOp<ub::PoisonOp>())
+        continue;
+      OpBuilder b(call);
+      call.setOperand(param.getArgNumber(),
+                      ub::PoisonOp::create(b, call.getLoc(), param.getType()));
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 struct Prune : idr::impl::IdrPruneBase<Prune> {
   void runOnOperation() override {
+    bool guarded = guardUnreadParameters(getOperation());
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     loadBaselineAnalyses(solver);
     if (failed(solver.initializeAndRun(getOperation())))
@@ -79,7 +126,7 @@ struct Prune : idr::impl::IdrPruneBase<Prune> {
     });
     for (Block *block : unreachable)
       empty(*block);
-    if (unreachable.empty())
+    if (unreachable.empty() && !guarded)
       markAllAnalysesPreserved();
   }
 };

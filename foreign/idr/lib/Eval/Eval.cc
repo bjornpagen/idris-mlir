@@ -12,6 +12,7 @@
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Remarks.h"
@@ -75,7 +76,9 @@ std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   }
   for (Value operand : operands) {
     Attribute value;
-    if (!matchPattern(operand, m_Constant(&value)))
+    // Poison, which idr-prune passes for a parameter nothing reads, is no
+    // value to materialize.
+    if (!matchPattern(operand, m_Constant(&value)) || isa<ub::PoisonAttr>(value))
       return std::nullopt;
     args.push_back(value);
   }

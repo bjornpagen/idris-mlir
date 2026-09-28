@@ -78,8 +78,15 @@ def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {
 }
 
 def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
-  let summary = "Clone callees for calls with constant-like arguments (ELIM-SPEC-1)";
+  let summary = "Clone callees for consumed results (ELIM-G-5) and constant-like arguments (ELIM-SPEC-1)";
   let description = [{
+    Raising comes first: a `func.call` whose result is only applied
+    (`idr.apply`, possibly of an `idr.field` of it) or written
+    (`idr.io.put_str`), with nothing that has an effect in between, calls
+    instead a clone that takes the apply's arguments or the world too,
+    keyed by (callee, consumer) and named `@<origin>$raise$<n>` or
+    `@<origin>$write$<n>`; the consumer moves to the clone's tails.
+
     A `func.call` with an argument built from constants, `idr.con` or
     `idr.closure` gets a clone of its callee with that static part
     substituted; the runtime leaves become the clone's parameters. Clones are
@@ -129,6 +136,9 @@ def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
     match region they never reach ends in `ub.unreachable`, and a function
     they never reach returns `ub.poison`. At the pin, `remove-dead-values`
     crashes on such code (`PINS.md`: `prune-before-remove-dead-values`).
+    A call of a function that a closure names passes `ub.poison` for each
+    parameter the function never reads, which `remove-dead-values` would
+    otherwise leave null (`PINS.md`: `remove-dead-values-address-taken`).
   }];
   let dependentDialects = ["::mlir::ub::UBDialect"];
 }

@@ -1,22 +1,23 @@
 // idr-specialize: specialization on constant-like arguments (ELIM-SPEC-1,
-// docs/cutover.md 6.3 and 7.3).
+// docs/cutover.md 6.3 and 7.3), after raising a call's consumer into its
+// callee (ELIM-G-5, below).
 //
 // An argument's pattern is its static shape: a constant is itself, an
 // `idr.con` or `idr.closure` is built over the patterns of its operands (the
 // partially static values of 7.3), and anything else is a hole, a runtime
 // leaf. An erased argument is always a hole: erased is not constant. A call
-// is specialized when some argument has a static shape and some non-erased
-// argument has a runtime leaf; a closed call is left to idr-eval, and is
-// never specialized (7.4). The clone substitutes each static shape into the
-// callee's body, and its parameters are the runtime leaves in order. Its key
-// is the patterns of its origin's parameters: a call of a clone composes the
-// clone's key with its own patterns, so keys of all the clones of one origin
-// are comparable. Clones are shared through (origin, key), kept on each
-// clone as idr.spec_key, and named
-// `@<origin>$spec$<n>` with n counting the origin's clones in the order they
-// are first requested (FE-DET-1), and appended to the module, so the walk
-// over the module's functions reaches them and specializes their calls in
-// turn, until no call is left to specialize.
+// is specialized when some argument has a static shape and some argument
+// that is neither erased nor a world has a runtime leaf; a closed call is
+// left to idr-eval, and is never specialized (7.4). The clone substitutes
+// each static shape into the callee's body, and its parameters are the
+// runtime leaves in order. Its key is the patterns of its origin's
+// parameters: a call of a clone composes the clone's key with its own
+// patterns, so keys of all the clones of one origin are comparable. Clones
+// are shared through (origin, key), kept on each clone as idr.spec_key, and
+// named `@<origin>$spec$<n>` with n counting the origin's clones in the
+// order they are first requested (FE-DET-1), and appended to the module, so
+// the walk over the module's functions reaches them and specializes their
+// calls in turn, until no call is left to specialize.
 //
 // In a clone's call of its own origin, a static argument that changed and
 // that the callee never branches on is generalized to a runtime value (an
@@ -42,6 +43,44 @@
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
 // when idr-effects has computed those facts (IDR-FACT-1).
+//
+// Raising (ELIM-G-5) comes first, for each call: the single consumer of a
+// call's result moves into a clone of the callee. Two consumers move:
+// - an apply, `idr.apply %r(xs)` or, for an action in a constructor
+//   (`MkIO f`), `idr.apply` of `idr.field %r[@C, i]` (arity raising): the
+//   clone takes xs too and returns what the apply returns;
+// - output, `idr.io.put_str %r, %w`: the clone takes the world, writes
+//   what the callee would return, and returns the next world.
+// In the clone, the consumer (with its projection) moves to every tail of
+// the body: the operand of its return and, through each match whose result
+// reaches the return and has no other use, the yields of its regions. There
+// an apply meets the `idr.con` and `idr.closure` the body built, and output
+// meets the string builders, which canonicalization then reduces (ELIM-G-1,
+// ELIM-G-2, ELIM-G-7). The clone is keyed by its callee and its consumer,
+// kept on it as idr.spec_key (`raise @f`, `raise @f[@C, i]` or `write @f`),
+// so that later rounds share it too: a call of the callee in the clone
+// whose result is consumed the same way, which inlining exposes where an
+// action recurs, and output fusion where a recursive `show` appends, becomes
+// a self call, and idr-tail-loops makes a tail call a loop. Its parameters
+// are the callee's, then the consumer's other operands, each numbered by
+// idr.hole, so that a call still finds the parameters remove-dead-values
+// leaves. It is named `@<origin>$raise$<n>` or `@<origin>$write$<n>`,
+// counted with the origin's other clones and bounded by the clone limit,
+// and has idr.origin, so that a loop breaker's clone stays one and the
+// newest clone breaks a new cycle (OPT-PIPE-3).
+//
+// Raising moves the callee's body from the call to its consumer, so nothing
+// may run between them: the consumer and the projection are in the call's
+// block, and every op between the call and the consumer is free of memory
+// effects (a crash, output and an allocation are effects, IDR-EFF-1), or the
+// callee is pure and total and cannot crash, so that when its body runs
+// cannot be observed (SEM-EVAL-4). A callee that takes a world is never
+// raised: its body would take part in the world chain. A closed call of a
+// pure, total callee is idr-eval's, and is not raised (SEM-EVAL-6). A clone
+// that applies is total if its callee is and every tail applies a known
+// closure of a total function, and is pure and may crash as its callee and
+// those functions; a clone that writes is total and may crash as its
+// callee, and is effectful (IDR-FACT-1).
 
 #include "idr/Idr.h"
 
@@ -70,6 +109,13 @@ constexpr StringLiteral originAttr = "idr.origin";
 constexpr StringLiteral stopped = "idr.spec_stopped";
 constexpr StringLiteral keyAttr = "idr.spec_key";
 constexpr StringLiteral holeAttr = "idr.hole";
+// The start of the idr.spec_key of a clone made by raising (ELIM-G-5): one
+// that applies its result, and one that writes it.
+constexpr StringLiteral raiseKey = "raise ";
+constexpr StringLiteral writeKey = "write ";
+bool isRaiseKey(StringAttr text) {
+  return text && (text.getValue().starts_with(raiseKey) || text.getValue().starts_with(writeKey));
+}
 
 // One argument of a call: its pattern and its runtime leaves, in order.
 //
@@ -206,6 +252,8 @@ struct Specializer {
   std::optional<FrozenRewritePatternSet> canon;
   // idr.spec_key texts, parsed.
   llvm::DenseMap<StringAttr, ArrayAttr> parsed;
+  // The clones made by arity raising, by their idr.spec_key.
+  llvm::DenseMap<StringAttr, func::FuncOp> raised;
   SmallVector<func::FuncOp> work;
   bool changed = false;
 
@@ -225,7 +273,14 @@ struct Specializer {
     module->setAttr(cloneCounts, b.getDictionaryAttr(entries));
   }
 
+  // The function whose clones `fn` counts with and whose parameters keys
+  // are patterns of. A clone made by raising has parameters its callee does
+  // not have, so it is an origin of its own: its own clones are keyed by
+  // its parameters, and a clone's call of it generalizes as a call of any
+  // origin does.
   StringRef origin(func::FuncOp fn) {
+    if (isRaiseKey(fn->getAttrOfType<StringAttr>(keyAttr)))
+      return fn.getSymName();
     auto attr = fn->getAttrOfType<StringAttr>(originAttr);
     return attr ? attr.getValue() : fn.getSymName();
   }
@@ -347,7 +402,7 @@ struct Specializer {
   // parameters, and says nothing about the rest.
   std::optional<ArrayAttr> storedKey(func::FuncOp fn) {
     auto text = fn->getAttrOfType<StringAttr>(keyAttr);
-    if (!text)
+    if (!text || isRaiseKey(text))
       return std::nullopt;
     ArrayAttr &key = parsed[text];
     if (!key)
@@ -396,9 +451,12 @@ struct Specializer {
     return ArrayAttr::get(ctx, SmallVector<Attribute>(fn.getNumArguments(), UnitAttr::get(ctx)));
   }
 
-  // Whether calls of `fn` are keyed by its origin: it is no clone, or a
-  // clone whose key holds.
-  bool keyed(func::FuncOp fn) { return !fn->hasAttr(originAttr) || storedKey(fn); }
+  // Whether calls of `fn` are keyed by its origin: it is no clone, a clone
+  // made by raising (its own origin), or a clone whose key holds.
+  bool keyed(func::FuncOp fn) {
+    return !fn->hasAttr(originAttr) || isRaiseKey(fn->getAttrOfType<StringAttr>(keyAttr)) ||
+           storedKey(fn);
+  }
 
   // The runtime leaves of a pattern.
   static unsigned holes(Attribute pattern) {
@@ -527,6 +585,276 @@ struct Specializer {
     return *canon;
   }
 
+  //===--------------------------------------------------------------------===//
+  // Raising (ELIM-G-5)
+  //===--------------------------------------------------------------------===//
+
+  // The single consumer of a call's result that moves into a clone of the
+  // callee: an apply of the result or of one field of it, or output of it.
+  struct Consumer {
+    idr::FieldOp field; // an apply's projection, or null
+    Operation *op;      // the idr.apply or the idr.io.put_str
+
+    bool writes() const { return isa<idr::PutStrOp>(op); }
+    // The operands the clone takes after the callee's: the apply's
+    // arguments, or the world that output takes.
+    OperandRange extra() const {
+      return writes() ? op->getOperands().drop_front() : cast<idr::ApplyOp>(op).getArgs();
+    }
+  };
+
+  // The consumer of `call`'s result, if moving the callee's body from the
+  // call to it cannot be observed.
+  static std::optional<Consumer> consumer(func::CallOp call, func::FuncOp callee) {
+    if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() ||
+        llvm::any_of(callee.getArgumentTypes(), llvm::IsaPred<idr::WorldType>))
+      return std::nullopt;
+    Value value = call->getResult(0);
+    Operation *user = *value.user_begin();
+    auto field = dyn_cast<idr::FieldOp>(user);
+    if (field) {
+      if (!field.getResult().hasOneUse())
+        return std::nullopt;
+      value = field.getResult();
+      user = *value.user_begin();
+    }
+    bool applies = isa<idr::ApplyOp>(user) && cast<idr::ApplyOp>(user).getCallee() == value;
+    bool writes = !field && isa<idr::PutStrOp>(user) && cast<idr::PutStrOp>(user).getStr() == value;
+    if ((!applies && !writes) || user->getBlock() != call->getBlock())
+      return std::nullopt;
+    bool evaluable = idr::isPure(callee) && idr::isTotal(callee);
+    // SEM-EVAL-6: idr-eval evaluates this call, and its consumer then folds.
+    if (evaluable &&
+        llvm::all_of(call.getOperands(), [](Value v) { return matchPattern(v, m_Constant()); }))
+      return std::nullopt;
+    if (!evaluable || idr::mayCrash(callee))
+      for (Operation *op = call->getNextNode(); op != user; op = op->getNextNode())
+        if (!isMemoryEffectFree(op))
+          return std::nullopt;
+    return Consumer{field, user};
+  }
+
+  // The key of the clone that moves `c` into `callee`.
+  static StringAttr consumerKey(func::FuncOp callee, Consumer c) {
+    std::string text =
+        llvm::formatv("{0}@{1}", c.writes() ? writeKey : raiseKey, callee.getSymName()).str();
+    if (c.field)
+      text += llvm::formatv("[@{0}, {1}]", c.field.getCtor(), c.field.getIndex()).str();
+    return StringAttr::get(callee.getContext(), text);
+  }
+
+  // The function a value applies to after the projection of `c`, when the
+  // value is a closure built here or a constant: the label of a tail.
+  static FlatSymbolRefAttr label(Value value, Consumer c) {
+    Attribute constant;
+    (void)matchPattern(value, m_Constant(&constant));
+    if (c.field) {
+      StringAttr ctor = c.field.getCtorAttr().getAttr();
+      uint64_t index = c.field.getIndex();
+      if (auto con = value.getDefiningOp<idr::ConOp>()) {
+        if (con.getCtor().getLeafReference() != ctor || index >= con.getFields().size())
+          return {};
+        value = con.getFields()[static_cast<unsigned>(index)];
+        constant = {};
+        (void)matchPattern(value, m_Constant(&constant));
+      } else if (auto data = dyn_cast_or_null<idr::ConAttr>(constant)) {
+        if (data.getCtor().getLeafReference() != ctor || index >= data.getFields().size())
+          return {};
+        value = {};
+        constant = data.getFields()[static_cast<unsigned>(index)];
+      } else {
+        return {};
+      }
+    }
+    if (auto closure = value ? value.getDefiningOp<idr::ClosureOp>() : idr::ClosureOp())
+      return closure.getCalleeAttr();
+    if (auto closure = dyn_cast_or_null<idr::ClosureAttr>(constant))
+      return closure.getCallee();
+    return {};
+  }
+
+  // A match like `op` whose results have `types`, with `op`'s regions.
+  template <typename Match>
+  static Operation *retyped(OpBuilder &b, Match op, TypeRange types) {
+    auto fresh = Match::create(b, op.getLoc(), types, op.getScrutinee(), op.getCases(),
+                               op->getNumRegions());
+    fresh->setDiscardableAttrs(op->getDiscardableAttrDictionary());
+    for (auto [to, from] : llvm::zip(fresh->getRegions(), op->getRegions()))
+      to.takeBody(from);
+    return fresh;
+  }
+
+  static void replaceOperand(Operation *op, unsigned index, ValueRange values) {
+    SmallVector<Value> operands(op->getOperands());
+    operands.erase(operands.begin() + index);
+    operands.insert(operands.begin() + index, values.begin(), values.end());
+    op->setOperands(operands);
+  }
+
+  // Makes `c` consume operand `index` of `term`, a return or a yield, where
+  // that value is made: through a match whose result it is and that has no
+  // other use, in each region that yields; otherwise right before `term`.
+  // `result` is the call's result that `c` consumed, and `extra` stands for
+  // `c.extra()`. For an apply, `labels` collects the function each tail
+  // applies, and `known` becomes false for a tail whose function is not
+  // known here.
+  void push(Operation *term, unsigned index, Consumer c, Value result, ValueRange extra,
+            SmallVectorImpl<FlatSymbolRefAttr> &labels, bool &known) {
+    Value value = term->getOperand(index);
+    auto res = dyn_cast<OpResult>(value);
+    Operation *match = res ? res.getOwner() : nullptr;
+    if (match && isa<idr::MatchOp, idr::MatchLitOp>(match) && res.hasOneUse()) {
+      unsigned k = res.getResultNumber();
+      for (Region &region : match->getRegions())
+        if (auto yield = dyn_cast<idr::YieldOp>(region.front().getTerminator()))
+          push(yield, k, c, result, extra, labels, known);
+      TypeRange types = match->getResultTypes();
+      SmallVector<Type> fresh(types.take_front(k));
+      llvm::append_range(fresh, c.op->getResultTypes());
+      llvm::append_range(fresh, types.drop_front(k + 1));
+      OpBuilder b(match);
+      Operation *made = isa<idr::MatchOp>(match)
+                            ? retyped(b, cast<idr::MatchOp>(match), fresh)
+                            : retyped(b, cast<idr::MatchLitOp>(match), fresh);
+      unsigned n = c.op->getNumResults();
+      for (unsigned i = 0; i < match->getNumResults(); ++i)
+        if (i != k)
+          match->getResult(i).replaceAllUsesWith(made->getResult(i < k ? i : i + n - 1));
+      replaceOperand(term, index, made->getResults().slice(k, n));
+      match->erase();
+      return;
+    }
+    if (!c.writes()) {
+      if (FlatSymbolRefAttr fn = label(value, c))
+        labels.push_back(fn);
+      else
+        known = false;
+    }
+    OpBuilder b(term);
+    IRMapping map;
+    map.map(result, value);
+    if (c.field)
+      b.clone(*c.field, map);
+    for (auto [operand, param] : llvm::zip(c.extra(), extra))
+      map.map(operand, param);
+    Operation *consumed = b.clone(*c.op, map);
+    replaceOperand(term, index, consumed->getResults());
+  }
+
+  // The clone of `callee` that consumes its result as `c` does.
+  func::FuncOp makeRaised(func::FuncOp callee, Value result, Consumer c, StringAttr key) {
+    MLIRContext *ctx = module.getContext();
+    StringRef from = origin(callee);
+    int64_t n = ++counts[from];
+    func::FuncOp clone = callee.clone();
+    clone.setSymName(llvm::formatv("{0}${1}${2}", from, c.writes() ? "write" : "raise", n).str());
+    clone.setPrivate();
+    clone->setAttr(originAttr, StringAttr::get(ctx, from));
+    clone->setAttr(keyAttr, key);
+    clone.removeResAttrsAttr();
+    symbols.insert(clone, module.getBody()->end());
+
+    unsigned arity = clone.getNumArguments();
+    SmallVector<unsigned> at(c.extra().size(), arity);
+    SmallVector<Type> types(c.extra().getTypes());
+    SmallVector<DictionaryAttr> attrs;
+    SmallVector<Location> locs;
+    for (Value operand : c.extra()) {
+      attrs.push_back(DictionaryAttr::get(
+          ctx,
+          {NamedAttribute(StringAttr::get(ctx, "idr.quantity"), quantityOf(operand.getType()))}));
+      locs.push_back(c.op->getLoc());
+    }
+    (void)clone.insertArguments(at, types, attrs, locs);
+    for (unsigned i = 0; i < clone.getNumArguments(); ++i)
+      clone.setArgAttr(i, holeAttr, IntegerAttr::get(IntegerType::get(ctx, 64), i));
+    clone.setFunctionType(FunctionType::get(ctx, clone.getArgumentTypes(), c.op->getResultTypes()));
+
+    auto ret = cast<func::ReturnOp>(clone.getBody().front().getTerminator());
+    SmallVector<FlatSymbolRefAttr> labels;
+    bool known = true;
+    push(ret, 0, c, result, clone.getArguments().drop_front(arity), labels, known);
+
+    Facts facts = Facts::of(callee);
+    facts.total &= known;
+    for (FlatSymbolRefAttr name : labels) {
+      if (auto fn = symbols.lookup<func::FuncOp>(name.getAttr()))
+        facts.meet(Facts::of(fn));
+      else
+        facts.total = false;
+    }
+    if (c.writes())
+      facts.pure = false;
+    facts.apply(clone);
+    (void)applyPatternsGreedily(clone, canonicalization());
+    work.push_back(clone);
+    return clone;
+  }
+
+  // The operands of a call of `clone`, a clone made by raising, from `all`,
+  // the callee's operands and the consumer's others: those of the
+  // parameters it has left, or nothing if they no longer fit.
+  static std::optional<SmallVector<Value>> raisedOperands(func::FuncOp clone, ValueRange all,
+                                                          TypeRange results) {
+    if (TypeRange(clone.getResultTypes()) != results)
+      return std::nullopt;
+    SmallVector<Value> operands;
+    int64_t last = -1;
+    for (BlockArgument param : clone.getArguments()) {
+      auto hole = clone.getArgAttrOfType<IntegerAttr>(param.getArgNumber(), holeAttr);
+      if (!hole || hole.getInt() <= last || hole.getInt() >= static_cast<int64_t>(all.size()) ||
+          all[static_cast<size_t>(hole.getInt())].getType() != param.getType())
+        return std::nullopt;
+      last = hole.getInt();
+      operands.push_back(all[static_cast<size_t>(last)]);
+    }
+    return operands;
+  }
+
+  // The call of a clone that replaces `call` and the consumer of its
+  // result, or null.
+  func::CallOp raise(func::CallOp call) {
+    auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
+    if (!callee || callee.isExternal())
+      return {};
+    std::optional<Consumer> c = consumer(call, callee);
+    if (!c)
+      return {};
+    StringAttr key = consumerKey(callee, *c);
+    func::FuncOp clone = raised.lookup(key);
+    if (!clone) {
+      if (counts.lookup(origin(callee)) >= limit) {
+        remark::missed(call.getLoc(),
+                       remark::RemarkOpts::name("idr-specialize").category("idr-specialize"))
+            << remark::add("{0} of @{1} stopped: the clone limit of {2} clones of @{3} is reached",
+                           c->writes() ? "output into" : "arity raising", callee.getSymName(),
+                           limit, origin(callee));
+        return {};
+      }
+      clone = makeRaised(callee, call->getResult(0), *c, key);
+      raised[key] = clone;
+    }
+    SmallVector<Value> all(call.getOperands());
+    llvm::append_range(all, c->extra());
+    std::optional<SmallVector<Value>> operands =
+        raisedOperands(clone, all, c->op->getResultTypes());
+    if (!operands)
+      return {};
+    OpBuilder b(c->op);
+    auto replacement = func::CallOp::create(b, call.getLoc(), clone, *operands);
+    replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
+    c->op->replaceAllUsesWith(replacement.getResults());
+    c->op->erase();
+    if (c->field)
+      c->field->erase();
+    call.erase();
+    return replacement;
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Specialization (ELIM-SPEC-1)
+  //===--------------------------------------------------------------------===//
+
   // Whether the call now calls a clone.
   bool specialize(func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
@@ -540,7 +868,10 @@ struct Specializer {
     bool isStatic = false, open = false;
     for (auto [s, operand] : llvm::zip(shapes, call.getOperands())) {
       isStatic |= !isHole(s.pattern);
-      open |= !isa<idr::ErasedType>(operand.getType()) && !isConstant(s.pattern);
+      // The world is no runtime value to specialize around: a call whose
+      // other operands are constants is closed, as the call that raising
+      // gave the world was (SEM-EVAL-6).
+      open |= !isa<idr::ErasedType, idr::WorldType>(operand.getType()) && !isConstant(s.pattern);
     }
     if (!isStatic || !open)
       return false;
@@ -599,15 +930,24 @@ struct Specializer {
 
   void run() {
     loadCounts();
-    for (auto fn : module.getOps<func::FuncOp>())
+    for (auto fn : module.getOps<func::FuncOp>()) {
       if (std::optional<ArrayAttr> key = storedKey(fn))
         clones[{StringAttr::get(module.getContext(), origin(fn)), *key}] = fn;
+      else if (auto text = fn->getAttrOfType<StringAttr>(keyAttr); isRaiseKey(text))
+        raised.try_emplace(text, fn);
+    }
     llvm::append_range(work, module.getOps<func::FuncOp>());
     for (size_t i = 0; i < work.size(); ++i) {
       SmallVector<func::CallOp> calls;
       work[i].walk([&](func::CallOp call) { calls.push_back(call); });
-      for (func::CallOp call : calls)
+      for (func::CallOp call : calls) {
+        // The raised call, if any, is the one to specialize.
+        if (func::CallOp raisedCall = raise(call)) {
+          changed = true;
+          call = raisedCall;
+        }
         changed |= specialize(call);
+      }
     }
     storeCounts();
   }
