@@ -1,6 +1,10 @@
-// The conversion patterns of idr-lower: one per idr op.
+// Phase 2 of idr-lower: the conversion pattern of each idr op.
 
 #include "Lower/Patterns.h"
+
+#include "mlir/Dialect/Math/IR/Math.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -10,26 +14,45 @@ namespace {
 
 template <typename OpT>
 struct IdrPattern : OpConversionPattern<OpT> {
-  IdrPattern(const TypeConverter &converter, MLIRContext *ctx, Context &s,
-             PatternBenefit benefit = 1)
-      : OpConversionPattern<OpT>(converter, ctx, benefit), state(s) {}
-  Context &state;
+  IdrPattern(const TypeConverter &converter, MLIRContext *ctx, Layouts &l, Runtime &r)
+      : OpConversionPattern<OpT>(converter, ctx), layouts(l), runtime(r) {}
+  Layouts &layouts;
+  Runtime &runtime;
 };
 
-struct LowerCon : IdrPattern<idr::ConOp> {
+SmallVector<Value> flatten(ArrayRef<ValueRange> operands) {
+  SmallVector<Value> values;
+  for (ValueRange operand : operands)
+    llvm::append_range(values, operand);
+  return values;
+}
+
+Value constantI64(OpBuilder &b, Location loc, int64_t value) {
+  return arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(value));
+}
+
+// LOW-DATA-2: an unboxed constructor is its tag and its components in their
+// slots, poison in the slots it does not use. LOW-BOX-1: a boxed one is a new
+// cell holding its tag and components.
+struct LowerCon : IdrPattern<ConOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::ConOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ConOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    auto type = cast<idr::DataType>(op.getResult().getType());
-    const Layout &layout = state.layouts.get(type.getName().getAttr());
-    auto data = rewriter.getInsertionBlock()->getParentOp()->getParentOfType<ModuleOp>()
-                    .lookupSymbol<idr::DataOp>(type.getName().getAttr());
-    idr::CtorOp ctor = idr::lookupCtor(data, op.getCtor().getLeafReference());
     Location loc = op.getLoc();
+    CtorOp ctor = lookupCtor(op, op.getCtor());
+    if (isa<BoxType>(op.getType())) {
+      const Cell &cell = layouts.box(ctor);
+      Value box = runtime.allocate(rewriter, loc, cell.size, static_cast<uint32_t>(ctor.getTag()));
+      for (auto [slots, values] : llvm::zip_equal(cell.fields, adaptor.getFields()))
+        runtime.store(rewriter, loc, box, slots, values);
+      rewriter.replaceOp(op, box);
+      return success();
+    }
+    const SumLayout &layout = layouts.sum(cast<DataType>(op.getType()).getName().getAttr());
     SmallVector<Value> slots(layout.slots.size());
     const auto &fields = layout.fields.find(ctor.getSymName())->second;
-    for (auto [field, values] : llvm::zip(fields, adaptor.getFields()))
-      for (auto [slot, value] : llvm::zip(field, values))
+    for (auto [field, values] : llvm::zip_equal(fields, adaptor.getFields()))
+      for (auto [slot, value] : llvm::zip_equal(field, values))
         slots[slot] = value;
     SmallVector<Value> out;
     if (layout.tag)
@@ -37,54 +60,144 @@ struct LowerCon : IdrPattern<idr::ConOp> {
           rewriter, loc, IntegerAttr::get(layout.tag, static_cast<int64_t>(ctor.getTag()))));
     for (auto [slot, value] : llvm::enumerate(slots))
       out.push_back(value ? value
-                          : ub::PoisonOp::create(rewriter, loc, layout.slots[slot])
-                                .getResult());
+                          : ub::PoisonOp::create(rewriter, loc, layout.slots[slot]).getResult());
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
 };
 
-struct LowerTag : IdrPattern<idr::TagOp> {
+// LOW-DATA-2: the tag slot, extended to i64, or 0 for one constructor; a
+// box's tag is in its header.
+struct LowerTag : IdrPattern<TagOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::TagOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(TagOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    auto type = cast<idr::DataType>(op.getValue().getType());
-    const Layout &layout = state.layouts.get(type.getName().getAttr());
-    Value tag;
+    Location loc = op.getLoc();
     auto i64 = rewriter.getI64Type();
+    if (isa<BoxType>(op.getValue().getType())) {
+      Value tag = runtime.loadInfo(rewriter, loc, adaptor.getValue().front());
+      rewriter.replaceOpWithNewOp<arith::ExtUIOp>(op, i64, tag);
+      return success();
+    }
+    const SumLayout &layout = layouts.sum(cast<DataType>(op.getValue().getType()).getName().getAttr());
     if (!layout.tag)
-      tag = arith::ConstantOp::create(rewriter, op.getLoc(), rewriter.getI64IntegerAttr(0));
-    else if (layout.tag == i64)
-      tag = adaptor.getValue().front();
+      rewriter.replaceOp(op, constantI64(rewriter, loc, 0));
     else
-      tag = arith::ExtUIOp::create(rewriter, op.getLoc(), i64, adaptor.getValue().front());
-    rewriter.replaceOp(op, tag);
+      rewriter.replaceOpWithNewOp<arith::ExtUIOp>(op, i64, adaptor.getValue().front());
     return success();
   }
 };
 
-struct LowerField : IdrPattern<idr::FieldOp> {
+// LOW-DATA-2: the components of a field from its constructor's slots, or
+// loaded from a box's cell.
+struct LowerField : IdrPattern<FieldOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::FieldOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(FieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    auto type = cast<idr::DataType>(op.getValue().getType());
-    const Layout &layout = state.layouts.get(type.getName().getAttr());
-    const auto &field =
-        layout.fields.find(op.getCtor())->second[op.getIndex()];
+    auto index = static_cast<unsigned>(op.getIndex());
+    Type type = op.getValue().getType();
+    if (isa<BoxType>(type)) {
+      CtorOp ctor = lookupCtor(lookupData(op, type), op.getCtor());
+      rewriter.replaceOpWithMultiple(
+          op, {runtime.load(rewriter, op.getLoc(), adaptor.getValue().front(),
+                            layouts.box(ctor).fields[index])});
+      return success();
+    }
+    const SumLayout &layout = layouts.sum(cast<DataType>(type).getName().getAttr());
     ValueRange values = adaptor.getValue();
     SmallVector<Value> out;
-    for (unsigned slot : field)
+    for (unsigned slot : layout.fields.find(op.getCtor())->second[index])
       out.push_back(values[layout.offset() + slot]);
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
 };
 
-struct LowerErased : IdrPattern<idr::ErasedOp> {
+// LOW-CONST-1: strings, bigs, boxes and closures are static data; an unboxed
+// constant is its components.
+struct LowerConstant : IdrPattern<ConstantOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::ErasedOp op, OneToNOpAdaptor,
+  LogicalResult matchAndRewrite(ConstantOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(op, {ValueRange{}});
+    rewriter.replaceOpWithMultiple(
+        op, {runtime.constant(rewriter, op.getLoc(), op.getValue(), op.getType())});
+    return success();
+  }
+};
+
+// LOW-CLOS-1: a new cell with the label, its code and the captures.
+struct LowerClosure : IdrPattern<ClosureOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ClosureOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    const Label &label = layouts.label(layouts.labelId(
+        op.getCalleeAttr(), static_cast<unsigned>(op.getCaptures().size())));
+    const Cell &cell = layouts.closure(label);
+    Value closure = runtime.allocate(rewriter, loc, cell.size, layouts.labelId(label));
+    runtime.store(rewriter, loc, closure, cell.fields.front(), runtime.code(rewriter, loc, label));
+    for (auto [slots, values] :
+         llvm::zip_equal(ArrayRef(cell.fields).drop_front(), adaptor.getCaptures()))
+      runtime.store(rewriter, loc, closure, slots, values);
+    rewriter.replaceOp(op, closure);
+    return success();
+  }
+};
+
+// LOW-CLOS-1: a call of the closure's code with the closure and the
+// arguments.
+struct LowerApply : IdrPattern<ApplyOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ApplyOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value closure = adaptor.getCallee().front();
+    auto fn = cast<FnType>(op.getCallee().getType());
+    SmallVector<Type> inputs{closure.getType()}, results;
+    for (Type input : fn.getInputs())
+      llvm::append_range(inputs, layouts.components(input));
+    for (Type result : fn.getResults())
+      llvm::append_range(results, layouts.components(result));
+    auto type = rewriter.getFunctionType(inputs, results);
+    Value code = runtime.load(rewriter, loc, closure, {{closure.getType(), 8}}).front();
+    Value function = UnrealizedConversionCastOp::create(rewriter, loc, type, code).getResult(0);
+    SmallVector<Value> args{closure};
+    llvm::append_range(args, flatten(adaptor.getArgs()));
+    auto call = func::CallIndirectOp::create(rewriter, loc, function, args);
+    SmallVector<ValueRange> out;
+    ResultRange values = call.getResults();
+    for (Type result : fn.getResults()) {
+      size_t n = layouts.components(result).size();
+      out.push_back(values.take_front(n));
+      values = values.drop_front(n);
+    }
+    rewriter.replaceOpWithMultiple(op, out);
+    return success();
+  }
+};
+
+// LOW-CRASH-2: the runtime's crash, which does not return; the
+// ub.unreachable after it stays.
+struct LowerCrash : IdrPattern<CrashOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(CrashOp op, OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    runtime.crash(rewriter, op.getLoc(), op.getMessage());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// LOW-TAIL-4: an effect no MLIR pass removes, and LLVM keeps too, so a loop
+// that may not terminate stays (SEM-EVAL-5).
+struct LowerMayLoop : IdrPattern<MayLoopOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    LLVM::InlineAsmOp::create(rewriter, op.getLoc(), TypeRange{}, ValueRange{}, "", "",
+                              /*has_side_effects=*/true, /*is_align_stack=*/false,
+                              LLVM::TailCallKind::None, LLVM::AsmDialectAttr(), ArrayAttr());
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -94,19 +207,15 @@ struct LowerPoison : IdrPattern<ub::PoisonOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ub::PoisonOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> types;
-    if (failed(getTypeConverter()->convertType(op.getType(), types)))
-      return failure();
     SmallVector<Value> out;
-    for (Type type : types)
+    for (Type type : layouts.components(op.getType()))
       out.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
 };
 
-// A select of an idr value (canonicalize makes one from an scf.if) selects
-// each of its components.
+// LOW-SEL-1: a select of an idr value selects each of its components.
 struct LowerSelect : IdrPattern<arith::SelectOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(arith::SelectOp op, OneToNOpAdaptor adaptor,
@@ -119,25 +228,6 @@ struct LowerSelect : IdrPattern<arith::SelectOp> {
     return success();
   }
 };
-
-struct LowerStr : IdrPattern<idr::StrLitOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::StrLitOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    auto [ptr, len] = state.runtime.string(rewriter, op.getLoc(), op.getValue());
-    rewriter.replaceOpWithMultiple(op, {{ptr, len}});
-    return success();
-  }
-};
-
-// Emits a crash reporting `cause` where `condition` holds at runtime.
-void crashIf(ConversionPatternRewriter &rewriter, Location loc, const Runtime &runtime,
-             Value condition, StringRef cause) {
-  auto check = scf::IfOp::create(rewriter, loc, condition, /*withElse=*/false);
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointToStart(check.thenBlock());
-  emitCrash(rewriter, loc, runtime, cause);
-}
 
 // LOW-DIV-1
 template <typename OpT>
@@ -155,17 +245,17 @@ struct LowerDivision : IdrPattern<OpT> {
     Value zero = constant(APInt::getZero(width));
     Value one = constant(APInt(width, 1));
     auto cause = op.getCrashCause();
-    bool nonZero = !cause;
     if (cause)
-      crashIf(rewriter, loc, this->state.runtime,
-              arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero), *cause);
+      this->runtime.crashIf(
+          rewriter, loc, arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero),
+          *cause);
     Value result;
     if (!op.getIsSigned()) {
-      Value safe = nonZero ? b : arith::SelectOp::create(
-                                     rewriter, loc,
-                                     arith::CmpIOp::create(rewriter, loc,
-                                                           arith::CmpIPredicate::eq, b, zero),
-                                     one, b);
+      Value safe = !cause ? b
+                          : arith::SelectOp::create(
+                                rewriter, loc,
+                                arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero),
+                                one, b);
       result = OpT::quotient ? Value(arith::DivUIOp::create(rewriter, loc, a, safe))
                              : Value(arith::RemUIOp::create(rewriter, loc, a, safe));
     } else {
@@ -201,20 +291,17 @@ struct LowerDivision : IdrPattern<OpT> {
 };
 
 // LOW-CHAR-1
-struct LowerToChar : IdrPattern<idr::ToCharOp> {
+struct LowerToChar : IdrPattern<ToCharOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::ToCharOp op, OpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ToCharOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value x = adaptor.getValue();
     auto i64 = rewriter.getI64Type();
-    auto width = x.getType().getIntOrFloatBitWidth();
-    if (width < 64)
+    if (x.getType().getIntOrFloatBitWidth() < 64)
       x = op.getIsSigned() ? Value(arith::ExtSIOp::create(rewriter, loc, i64, x))
-                         : Value(arith::ExtUIOp::create(rewriter, loc, i64, x));
-    auto c = [&](int64_t v) -> Value {
-      return arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(v));
-    };
+                           : Value(arith::ExtUIOp::create(rewriter, loc, i64, x));
+    auto c = [&](int64_t v) { return constantI64(rewriter, loc, v); };
     // Unsigned comparison treats negative signed values as huge: not scalar.
     auto ule = arith::CmpIPredicate::ule, uge = arith::CmpIPredicate::uge;
     Value low = arith::CmpIOp::create(rewriter, loc, ule, x, c(0xD7FF));
@@ -229,111 +316,171 @@ struct LowerToChar : IdrPattern<idr::ToCharOp> {
   }
 };
 
-// LOW-DBL-1: crash unless finite, then truncate and wrap in 64 bits, then to
-// the result width.
-struct LowerToInt : IdrPattern<idr::ToIntOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::ToIntOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value x = adaptor.getValue();
-    if (auto cause = op.getCrashCause()) {
-      Value finite = math::IsFiniteOp::create(rewriter, loc, x);
-      Value bad = arith::XOrIOp::create(
-          rewriter, loc, finite, arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true)));
-      crashIf(rewriter, loc, state.runtime, bad, *cause);
-    }
-    auto i64 = rewriter.getI64Type();
-    Value wide = func::CallOp::create(rewriter, loc, op.getHelper(), i64, x).getResult(0);
-    if (op.getType() == i64)
-      rewriter.replaceOp(op, wide);
-    else
-      rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, op.getType(), wide);
-    return success();
-  }
-};
+//===----------------------------------------------------------------------===//
+// Runtime calls (LOW-RT-1)
+//===----------------------------------------------------------------------===//
 
-// LOW-CRASH-2: a missing case calls the crash helper; the code after it is
-// unreachable.
-struct LowerCrash : IdrPattern<idr::CrashOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(idr::CrashOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    emitCrash(rewriter, op.getLoc(), state.runtime, *op.getCrashCause());
-    SmallVector<SmallVector<Value>> results;
-    for (Type result : op.getResultTypes()) {
-      SmallVector<Type> types;
-      if (failed(getTypeConverter()->convertType(result, types)))
-        return failure();
-      SmallVector<Value> poison;
-      for (Type type : types)
-        poison.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
-      results.push_back(std::move(poison));
-    }
-    rewriter.replaceOpWithMultiple(op, results);
-    return success();
-  }
-};
-
-// LOW-IO-2, LOW-DBL-4: an op that is exactly a call of its runtime helper.
-// Its operands and results become their components (the world has none,
-// LOW-IO-3), and an integer narrower than the helper's parameter is extended
-// as the op's signedness says.
+// The runtime function of an op is named after it (Idr_CallsRuntime). Where
+// the op's signedness or operand type picks the function, the name ends in
+// _s, _u or _f64 and an integer is extended to 64 bits as the signedness
+// says. Ops whose result width varies get the result modulo 2^64 and
+// truncate it.
 template <typename OpT>
-struct LowerCall : IdrPattern<OpT> {
+constexpr bool returnsWord = llvm::is_one_of<OpT, ToIntOp, StrToIntOp, BigToIntOp>::value;
+
+template <typename OpT>
+std::optional<bool> signedness(OpT op) {
+  if constexpr (requires { op.getIsSigned(); })
+    return op.getIsSigned();
+  return std::nullopt;
+}
+
+Value stringLength(OpBuilder &b, Location loc, Runtime &runtime, Value s) {
+  return runtime.call(b, loc, "idris_rt_str_length", b.getI64Type(), s);
+}
+
+Value notFinite(OpBuilder &b, Location loc, Value x) {
+  Value finite = math::IsFiniteOp::create(b, loc, x);
+  Value yes = arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
+  return arith::XOrIOp::create(b, loc, finite, yes);
+}
+
+// IDR-EFF-1: where the op crashes; checked before the call, whose runtime
+// function assumes it does not.
+Value crashCondition(StrIndexOp, OpBuilder &b, Location loc, Runtime &runtime,
+                     ArrayRef<Value> args) {
+  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::uge, args[1],
+                               stringLength(b, loc, runtime, args[0]));
+}
+Value emptyString(OpBuilder &b, Location loc, Runtime &runtime, Value s) {
+  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, stringLength(b, loc, runtime, s),
+                               constantI64(b, loc, 0));
+}
+Value crashCondition(StrHeadOp, OpBuilder &b, Location loc, Runtime &runtime,
+                     ArrayRef<Value> args) {
+  return emptyString(b, loc, runtime, args[0]);
+}
+Value crashCondition(StrTailOp, OpBuilder &b, Location loc, Runtime &runtime,
+                     ArrayRef<Value> args) {
+  return emptyString(b, loc, runtime, args[0]);
+}
+// LOW-BIG-1: zero is the small word 1.
+Value bigZero(OpBuilder &b, Location loc, Value big) {
+  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, big, constantI64(b, loc, 1));
+}
+Value crashCondition(BigDivOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
+  return bigZero(b, loc, args[1]);
+}
+Value crashCondition(BigModOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
+  return bigZero(b, loc, args[1]);
+}
+Value crashCondition(BigFromDoubleOp, OpBuilder &b, Location loc, Runtime &,
+                     ArrayRef<Value> args) {
+  return notFinite(b, loc, args[0]);
+}
+Value crashCondition(ToIntOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
+  return notFinite(b, loc, args[0]);
+}
+
+template <typename OpT>
+struct LowerRuntimeCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    func::FuncOp helper = this->state.runtime.helper(op.getHelper());
-    if (!helper)
-      return rewriter.notifyMatchFailure(op, "the helper was not required");
-    SmallVector<Value> args;
-    for (ValueRange operand : adaptor.getOperands())
-      llvm::append_range(args, operand);
-    TypeRange params = helper.getFunctionType().getInputs();
-    if (args.size() != params.size())
-      return rewriter.notifyMatchFailure(op, "arguments do not match the helper");
-    for (auto [arg, param] : llvm::zip_equal(args, params)) {
-      if (arg.getType() == param)
-        continue;
-      bool isSigned = false;
-      if constexpr (requires { op.getIsSigned(); })
-        isSigned = op.getIsSigned();
-      arg = isSigned ? Value(arith::ExtSIOp::create(rewriter, loc, param, arg))
-                     : Value(arith::ExtUIOp::create(rewriter, loc, param, arg));
+    std::string name = op.getHelper().str();
+    SmallVector<Value> args = flatten(adaptor.getOperands());
+    if (std::optional<bool> isSigned = signedness(op)) {
+      for (Value &arg : args) {
+        if (isa<FloatType>(arg.getType())) {
+          name += "_f64";
+        } else if (auto integer = dyn_cast<IntegerType>(arg.getType())) {
+          name += *isSigned ? "_s" : "_u";
+          if (integer.getWidth() < 64)
+            arg = *isSigned ? Value(arith::ExtSIOp::create(rewriter, loc, rewriter.getI64Type(), arg))
+                            : Value(arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), arg));
+        }
+      }
     }
-    auto call = func::CallOp::create(rewriter, loc, helper, args);
-    SmallVector<ValueRange> results;
-    size_t next = 0;
-    for (Type type : op->getResultTypes()) {
-      SmallVector<Type> parts;
-      if (failed(this->getTypeConverter()->convertType(type, parts)))
-        return failure();
-      results.push_back(call.getResults().slice(next, parts.size()));
-      next += parts.size();
-    }
-    if (next != call.getNumResults())
-      return rewriter.notifyMatchFailure(op, "results do not match the helper");
-    rewriter.replaceOpWithMultiple(op, results);
+    if constexpr (requires { crashCondition(op, rewriter, loc, this->runtime, args); })
+      if (std::optional<StringRef> cause = op.getCrashCause())
+        this->runtime.crashIf(rewriter, loc, crashCondition(op, rewriter, loc, this->runtime, args),
+                              *cause);
+    SmallVector<Type> results;
+    for (Type type : op->getResultTypes())
+      llvm::append_range(results, this->layouts.components(type));
+    Type result = results.empty() ? Type() : results.front();
+    if constexpr (returnsWord<OpT>)
+      result = rewriter.getI64Type();
+    Value value = this->runtime.call(rewriter, loc, name, result, args);
+    if constexpr (returnsWord<OpT>)
+      if (results.front() != value.getType())
+        value = arith::TruncIOp::create(rewriter, loc, results.front(), value);
+    SmallVector<SmallVector<Value>> out;
+    for (Type type : op->getResultTypes())
+      out.push_back(this->layouts.components(type).empty() ? SmallVector<Value>{}
+                                                           : SmallVector<Value>{value});
+    rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
 };
 
-} // namespace
+// str.cmp and big.cmp: the runtime's three-way comparison against 0.
+template <typename OpT>
+struct LowerCompare : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value order = this->runtime.call(rewriter, loc, op.getHelper(), rewriter.getI32Type(),
+                                     ValueRange{adaptor.getLhs(), adaptor.getRhs()});
+    arith::CmpIPredicate predicate;
+    switch (op.getPredicate()) {
+    case CmpPredicate::eq:
+      predicate = arith::CmpIPredicate::eq;
+      break;
+    case CmpPredicate::lt:
+      predicate = arith::CmpIPredicate::slt;
+      break;
+    case CmpPredicate::lte:
+      predicate = arith::CmpIPredicate::sle;
+      break;
+    case CmpPredicate::gt:
+      predicate = arith::CmpIPredicate::sgt;
+      break;
+    case CmpPredicate::gte:
+      predicate = arith::CmpIPredicate::sge;
+      break;
+    }
+    Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI32IntegerAttr(0));
+    rewriter.replaceOpWithNewOp<arith::CmpIOp>(op, predicate, order, zero);
+    return success();
+  }
+};
 
 template <typename... Ops>
-void addCalls(RewritePatternSet &patterns, const TypeConverter &converter, Context &state) {
-  patterns.add<LowerCall<Ops>...>(converter, patterns.getContext(), state);
+void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
+                     Layouts &layouts, Runtime &runtime) {
+  patterns.add<LowerRuntimeCall<Ops>...>(converter, patterns.getContext(), layouts, runtime);
 }
 
+} // namespace
+
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
-                      Context &state) {
-  patterns.add<LowerCon, LowerTag, LowerField, LowerErased, LowerPoison, LowerSelect, LowerStr,
-               LowerToChar, LowerToInt, LowerCrash, LowerDivision<idr::DivOp>,
-               LowerDivision<idr::ModOp>>(converter, patterns.getContext(), state);
-  addCalls<idr::PutStrOp, idr::PutCharOp, idr::PutIntOp, idr::PutDoubleOp, idr::GetCharOp,
-           idr::GetByteOp, idr::ExitOp, idr::DoubleHeadOp>(patterns, converter, state);
+                      Layouts &layouts, Runtime &runtime) {
+  MLIRContext *ctx = patterns.getContext();
+  patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerClosure, LowerApply,
+               LowerCrash, LowerMayLoop, LowerPoison, LowerSelect, LowerToChar,
+               LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,
+               LowerCompare<BigCmpOp>>(converter, ctx, layouts, runtime);
+  addRuntimeCalls<ToIntOp, DoubleHeadOp, IntHeadOp,
+                  StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp, StrSubstrOp, StrReverseOp,
+                  StrTailOp, StrLengthOp, StrIndexOp, StrHeadOp, StrToIntOp, StrToDoubleOp,
+                  BigAddOp, BigSubOp, BigMulOp, BigDivOp, BigModOp, BigAndOp, BigOrOp, BigXorOp,
+                  BigNegOp, BigFromIntOp, BigToIntOp, BigFromDoubleOp, BigToDoubleOp, BigShowOp,
+                  BigFromStrOp,
+                  PutStrOp, PutCharOp, PutIntOp, PutDoubleOp, GetCharOp, GetByteOp, ExitOp>(
+      patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::lower

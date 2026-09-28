@@ -1,22 +1,23 @@
-// The conversion patterns of idr-lower (docs/architecture/10-lowering.md).
+// The two phases of idr-lower (docs/architecture/10-lowering.md;
+// docs/cutover.md 6.3).
 #pragma once
 
-#include "Lower/Layout.h"
 #include "Lower/Runtime.h"
 
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace idr::lower {
 
-// What the patterns share: the layouts and the runtime of the module. The
-// pass owns it for the whole conversion.
-struct Context {
-  Layouts &layouts;
-  const Runtime &runtime;
-};
+// Phase 1, on idr types (LOW-MATCH-1): idr.match becomes idr.tag and
+// scf.index_switch, whose cases read their constructor's fields;
+// idr.match_lit becomes scf.index_switch on an integer and a chain of scf.if
+// on string or big comparisons. A region that ends in ub.unreachable (after
+// idr.crash) yields poison instead, which the crash before it makes
+// unreachable. The structural conversion of scf then takes the types apart.
+void lowerMatches(mlir::ModuleOp module);
 
-// Adds the patterns that lower each idr op.
+// Phase 2: the patterns that convert each idr op and type.
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
-                      Context &state);
+                      Layouts &layouts, Runtime &runtime);
 
 } // namespace idr::lower

@@ -31,15 +31,26 @@ set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/lib/Dialect/Canonicalize
 mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(idr_tablegen)
 
+# idris-mlir-cc links the runtime's bitcode into the program (Linker,
+# BitReader, Object) and internalizes it (IPO), TC-LINK-1; idr-eval compiles
+# with ORC's LLJIT (OrcJIT) and the same pipeline (Passes).
+llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo orcjit)
+
 add_library(idr_dialect STATIC
 	lib/Dialect/Canonicalize.cc
 	lib/Dialect/Dialect.cc
 	lib/Dialect/Effects.cc
 	lib/Dialect/Ops.cc
+	lib/Eval/Child.cc
+	lib/Eval/Eval.cc
+	lib/Eval/Jit.cc
+	lib/Eval/Reify.cc
 	lib/Lower.cc
 	lib/Lower/Layout.cc
-	lib/Lower/Runtime.cc
+	lib/Lower/Matches.cc
 	lib/Lower/Patterns.cc
+	lib/Lower/Runtime.cc
+	lib/Lower/Target.cc
 	lib/Registration.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
@@ -73,13 +84,20 @@ target_link_libraries(idr_dialect
 		MLIRCallInterfaces
 		MLIRInferIntRangeInterface
 		MLIRSideEffectInterfaces
+		MLIRSCFToControlFlow
+		MLIRConvertToLLVMPass
+		MLIRReconcileUnrealizedCasts
+		MLIRTargetLLVMIRExport
+		MLIRBuiltinToLLVMIRTranslation
+		MLIRLLVMToLLVMIRTranslation
+		${IDR_LLVM_CODEGEN_LIBS}
+		# LOW-RT-1: the runtime, natively, for the folders and idr-eval's JIT,
+		# with GMP, which it calls.
+		idris_rt
+		gmp
 	PRIVATE
 		idris_mlir_language_profile
 )
-
-# idris-mlir-cc also links the runtime's bitcode into the program (Linker,
-# BitReader, Object) and internalizes it (IPO); TC-LINK-1.
-llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo)
 
 add_executable(idris-mlir-opt tools/idris-mlir-opt.cc)
 target_link_libraries(idris-mlir-opt PRIVATE
@@ -97,10 +115,6 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
 	MLIRRegisterAllPasses
-	MLIRTargetLLVMIRExport
-	MLIRBuiltinToLLVMIRTranslation
-	MLIRLLVMToLLVMIRTranslation
-	${IDR_LLVM_CODEGEN_LIBS}
 	idris_mlir_language_profile
 )
 # TC-LINK-1: the runtime archive whose bitcode joins every program, checked
@@ -110,8 +124,19 @@ target_compile_definitions(idris-mlir-cc PRIVATE
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 
+# docs/cutover.md 8.2: shrinking a module that makes a pass fail.
+add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
+target_link_libraries(idris-mlir-reduce PRIVATE
+	idr_dialect
+	MLIRReduceLib
+	MLIRRegisterAllDialects
+	MLIRRegisterAllExtensions
+	MLIRRegisterAllPasses
+	idris_mlir_language_profile
+)
+
 # The MLIR API is not module-aware: these targets never import std.
-foreach(target idr_dialect idris-mlir-opt idris-mlir-cc)
+foreach(target idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce)
 	set_target_properties(${target} PROPERTIES
 		CXX_MODULE_STD OFF
 		CXX_SCAN_FOR_MODULES OFF
