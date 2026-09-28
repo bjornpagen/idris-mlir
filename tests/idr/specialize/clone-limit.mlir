@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --pass-pipeline="builtin.module(idr-specialize{clone-limit=3},canonicalize,idr-specialize{clone-limit=3},canonicalize,idr-specialize{clone-limit=3},canonicalize,idr-specialize{clone-limit=3},canonicalize,idr-specialize{clone-limit=3})" --remarks-filter-missed=idr-specialize > %t.mlir 2> %t.remarks
 // RUN: FileCheck %s < %t.mlir
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
-// rule: ELIM-SPEC-1, PROF-HEAP-4, DIAG-HEAP-1
+// rule: ELIM-SPEC-1, ELIM-SPEC-2, PROF-HEAP-4, DIAG-HEAP-1
 // An accumulator that would specialize forever: each clone's recursive call
 // has a new constant accumulator once canonicalize folds the addition. The
 // clone limit is the only bound: after three clones of @count, whichever
