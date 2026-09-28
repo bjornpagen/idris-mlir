@@ -12,8 +12,8 @@
 ||| its captures.
 |||
 ||| Types are synthesized as they are written, bidirectionally: every
-||| emitter returns its value's type (TTC drops the types of `let`s,
-||| FE-TR-1), and a context that knows the type it expects passes it down, for
+||| emitter returns its value's type (TTC drops the types of `let`s), and a
+||| context that knows the type it expects passes it down, for
 ||| the one term whose type its parts do not give, a closure whose body never
 ||| returns.
 module IdrisMLIR.Emit
@@ -39,7 +39,7 @@ import Data.Vect
 %default total
 
 ------------------------------------------------------------------------------
--- Loop breakers (OPT-PIPE-3)
+-- Loop breakers
 ------------------------------------------------------------------------------
 
 ||| A function of the emitted module: an instance, or a function lifted
@@ -84,7 +84,7 @@ refs (ResumeF _ e) = e
 refs (UnreachableF _) = ([], [])
 refs (CrashF _ _) = ([], [])
 
-||| OPT-PIPE-3: the loop breakers, as in GHC ("Secrets of the Glasgow
+||| The loop breakers, as in GHC ("Secrets of the Glasgow
 ||| Haskell Compiler inliner", Peyton Jones and Marlow), on full Core's call
 ||| graph, where a function refers to what it calls and to the closures it
 ||| builds: enough functions that every cycle through two or more contains
@@ -158,7 +158,7 @@ record ES where
 E : Type -> Type
 E = StateT ES (Either String)
 
-||| DIAG-ICE-1: what `Emit` cannot write is a bug of the frontend.
+||| What `Emit` cannot write is a bug of the frontend.
 internal : String -> E a
 internal msg = lift (Left msg)
 
@@ -213,7 +213,7 @@ mtype ix (LazyT r) = pure (Fn [] [!(mtype ix r)])
 typeText : Index -> Ty -> E String
 typeText ix t = showType <$> mtype ix t
 
-||| IDR-FN-1: `"0"` exactly on an erased value.
+||| `"0"` exactly on an erased value.
 quantityOf : Ty -> Quantity -> E Quantity
 quantityOf ErasedT _ = pure Q0
 quantityOf t Q0 = internal ("a quantity-0 binder of type " ++ show t)
@@ -246,7 +246,7 @@ names vs = joinBy ", " (map (.name) vs)
 types : Index -> List Val -> E String
 types ix vs = joinBy ", " <$> traverse (typeText ix . (.type)) vs
 
-||| A literal (SEM-LIT-1): integers and doubles are `arith.constant`,
+||| A literal: integers and doubles are `arith.constant`,
 ||| strings and bigs `idr.constant`.
 literal : Loc -> Lit -> E Val
 literal l (LInt t n) = value l (IntT t) ("arith.constant " ++ show (twos (width t) n) ++ " : i" ++ show (width t))
@@ -272,7 +272,7 @@ cmpi CLte s = if s then "sle" else "ule"
 cmpi CGt s = if s then "sgt" else "ugt"
 cmpi CGte s = if s then "sge" else "uge"
 
-||| The `arith.cmpf` predicate: ordered, so false on NaN (SEM-DBL-2).
+||| The `arith.cmpf` predicate: ordered, so false on NaN.
 cmpf : Cmp -> String
 cmpf CEq = "oeq"
 cmpf CLt = "olt"
@@ -280,7 +280,7 @@ cmpf CLte = "ole"
 cmpf CGt = "ogt"
 cmpf CGte = "oge"
 
-||| The `math` op of a C library function or exact operation (SEM-DBL-3).
+||| The `math` op of a C library function or exact operation.
 mathOp : MathFn -> String
 mathOp Exp = "math.exp"
 mathOp Log = "math.log"
@@ -295,7 +295,7 @@ mathOp Sqrt = "math.sqrt"
 mathOp Floor = "math.floor"
 mathOp Ceiling = "math.ceil"
 
-||| A comparison's `i1` as an `Int` (IDR-IN-3).
+||| A comparison's `i1` as an `Int`.
 extend : Loc -> Val -> E Val
 extend l c = value l (IntT IdrisInt) ("arith.extui " ++ c.name ++ " : i1 to i64")
 
@@ -305,8 +305,7 @@ intLike (SInt t) = Just (width t, signed t)
 intLike SChar = Just (32, False)
 intLike SDouble = Nothing
 
-||| A primitive (IDR-IN-3), on operands in
-||| Idris's order.
+||| A primitive, on operands in Idris's order.
 prim : Loc -> Prim -> List Val -> E Val
 prim l (IntOp op t) [a, b] =
   let w = " : i" ++ show (width t)
@@ -337,7 +336,6 @@ prim l (Compare c s) [a, b] = case intLike s of
     extend l !(value l (IntT IdrisInt)
                  ("arith.cmpi " ++ cmpi c sgn ++ ", " ++ a.name ++ ", " ++ b.name ++ " : i" ++ show w))
   Nothing => internal ("a comparison of " ++ show s)
--- SEM-INT-7, SEM-CHAR-3, SEM-DBL-4
 prim l (Cast from to) [a] = case (from, to) of
   (SInt f, SChar) => value l CharT ("idr.to_char " ++ (if signed f then "signed " else "") ++ a.name ++ " : i" ++ show (width f))
   (SInt f, SDouble) =>
@@ -378,7 +376,7 @@ prim l (ToBig SChar) [c] = value l BigT ("idr.big.from_int unsigned " ++ c.name 
 prim l (ToBig SDouble) [d] = value l BigT ("idr.big.from_double " ++ d.name)
 prim l (FromBig (SInt t)) [b] = value l (IntT t) ("idr.big.to_int " ++ b.name ++ " : i" ++ show (width t))
 prim l (FromBig SDouble) [b] = value l DoubleT ("idr.big.to_double " ++ b.name)
--- SEM-CHAR-3: the code point if the integer is one, else 0; `idr.to_char`
+-- The code point if the integer is one, else 0; `idr.to_char`
 -- decides for the integers an `i64` holds, and 0 stands for the rest.
 prim l (FromBig SChar) [b] = do
   lo <- literal l (LBig 0)
@@ -408,7 +406,7 @@ only ix d = case (.cons) <$> lookup d ix.datas of
   Just [c] => pure c
   _ => internal (show d ++ " does not have exactly one constructor")
 
-||| An IO primitive (IDR-IO-1), and the `IORes` of its result and next
+||| An IO primitive, and the `IORes` of its result and next
 ||| world.
 io : Index -> Loc -> IOOp -> List Val -> DataId -> E Val
 io ix l op vs res = do
@@ -445,7 +443,7 @@ bind : Vect k Val -> (b -> Val) -> Under k b -> Val
 bind vs env (Bound i) = index i vs
 bind vs env (Free x) = env x
 
-||| Operands, left to right (SEM-EVAL-2), each checked against the type
+||| Operands, left to right, each checked against the type
 ||| its position expects; `Nothing` once one never returns.
 operands : (b -> Val) -> List (Sub Em b) -> List Ty -> E (Maybe (List Val))
 operands env [] _ = pure (Just [])
@@ -454,8 +452,7 @@ operands env (a :: as) ts = do
     | Nothing => pure Nothing
   map (map (v ::)) (operands env as (drop 1 ts))
 
-||| Is a term a branch Idris proved impossible? It is left out
-||| (IDR-MATCH-2).
+||| Is a term a branch Idris proved impossible? It is left out.
 excluded : Sub Em b -> Bool
 excluded s = case s.term of
   Unreachable _ => True
@@ -511,7 +508,7 @@ inFunction act = do
   pure (x, inner <>> [])
 
 ||| The attributes of a function: `idr.total` when Idris proved it
-||| terminating, `no_inline` on a loop breaker (IDR-FN-1).
+||| terminating, `no_inline` on a loop breaker.
 attributes : Bool -> Bool -> String
 attributes terminates breaker =
   case the (List String) ((if terminates then ["idr.total"] else []) ++ (if breaker then ["no_inline"] else [])) of
@@ -520,9 +517,9 @@ attributes terminates breaker =
 
 ||| The end of a function's body, of result type `rt`: its value, returned.
 ||| A body that never returns ends in `ub.unreachable` inside its regions
-||| only; at the top level a poison value is returned in its place
-||| (IDR-CRASH-1), because the pinned inliner cannot inline a body that ends
-||| in `ub.unreachable` (PINS.md: inline-unreachable).
+||| only; at the top level a poison value is returned in its place, because
+||| the pinned inliner cannot inline a body that ends in `ub.unreachable`
+||| (PINS.md: inline-unreachable).
 epilogue : Loc -> String -> Maybe Val -> List Op -> List Op
 epilogue l rt (Just v) ops = ops ++ [Line ("func.return " ++ v.name ++ " : " ++ rt) (At l)]
 epilogue l rt Nothing ops =
@@ -587,7 +584,7 @@ alg ix (ConAppF l c as) env _ = do
   Just vs <- operands env as (map (.type) k.fields)
     | Nothing => pure Nothing
   Just <$> con ix l k vs
--- IDR-MATCH-4: a `let` binds an SSA value; its type is its value's.
+-- A `let` binds an SSA value; its type is its value's.
 alg ix (LetF _ q v b) env expected = do
   Just x <- v.result env Nothing
     | Nothing => pure Nothing
@@ -678,7 +675,7 @@ alg ix (ResumeF l e) env expected = do
 alg ix (UnreachableF l) env _ = do
   statement l "ub.unreachable"
   pure Nothing
--- SEM-CRASH-2, IDR-CRASH-1
+-- A crash reports its message and never returns.
 alg ix (CrashF l msg) env _ = do
   statement l ("idr.crash " ++ utf8 msg)
   statement l "ub.unreachable"
@@ -688,7 +685,7 @@ alg ix (CrashF l msg) env _ = do
 -- Declarations
 ------------------------------------------------------------------------------
 
-||| IDR-DATA-5: a declaration is located by its Idris name.
+||| A declaration is located by its Idris name.
 dataDecl : Index -> Data -> E Op
 dataDecl ix d = do
   ctors <- traverse ctor d.cons
@@ -726,7 +723,7 @@ function ix root f = do
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
     alg' = alg ix
 
-||| The contract text of a program (docs/architecture/08-idr-dialect.md).
+||| The contract text of a program: the `idr` module `idris-mlir-cc` reads.
 export
 emit : Source -> Either String String
 emit src = do

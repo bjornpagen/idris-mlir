@@ -1,4 +1,4 @@
-// Reset and reuse under MEM-LIN-1 (docs/plan.md 4.2), for linrb.mlir: every
+// Reset and reuse under quantity 1, for linrb.mlir: every
 // cell they are given is unique by proof, so
 // - idr.reset is the cell itself: no count test, and its fields move;
 // - idr.reuse stores the fields that change: no test for a null token, and

@@ -1,4 +1,4 @@
-// Bigs (LOW-BIG-1; docs/plan.md sections 3 and 5.3): Integer and the
+// Bigs: Integer and the
 // Nat-like types. A value that fits in 63 bits is a tagged word, and any
 // other is a GMP integer, so each integer has one representation; every
 // operation returns the small form when the result fits.
@@ -7,7 +7,7 @@
 // blodwen-euclidDiv and blodwen-euclidMod of the Chez support code, which
 // Integer's div and mod compile to (`div (Signed Unlimited)` in
 // Compiler/Scheme/Common.idr), and what Idris's evaluator computes, through
-// the Integer div and mod of the Chez it runs on (SEM-INT-3).
+// the Integer div and mod of the Chez it runs on.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"

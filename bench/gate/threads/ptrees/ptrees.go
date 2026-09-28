@@ -1,5 +1,5 @@
-// Parallel binary trees, as bench/gate/lowered/ptrees.mlir (docs/plan.md
-// 4.4, experiment 3): each depth's trees are split into 8 work items that
+// Parallel binary trees, as bench/gate/lowered/ptrees.mlir (experiment
+// 3): each depth's trees are split into 8 work items that
 // one goroutine per CPU takes from a shared index. The output is that of
 // the suite's binarytrees.
 package main

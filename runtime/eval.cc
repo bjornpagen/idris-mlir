@@ -1,7 +1,6 @@
-// What compile-time evaluation's child process adds to the runtime
-// (LOW-JIT-1, EVAL-1, ELIM-EVAL-1): the arena, which is never
-// freed, and the crash report. A crash leaves its call in place; memory the
-// machine refuses is EVAL-1.
+// What compile-time evaluation's child process adds to the runtime: the
+// arena, which is never freed, and the crash report. A crash leaves its
+// call in place; memory the machine refuses is reported as exhaustion.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"

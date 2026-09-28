@@ -1,8 +1,7 @@
-||| The rules of docs/architecture/ that the compiler reports, as data. A
-||| diagnostic names its rule (DIAG-CODE-1), so a misspelt rule is a type
-||| error, not a wrong message. The frontend checks most of them; the
-||| profile rules on the optimized module (`PROF-TYPE-4`, `PROF-DATA-3`,
-||| `PROF-PRIM-4`, `PROF-HEAP-1` to `-4`) and `EVAL-1` come back from
+||| The rules the compiler names in its diagnostics, as data, so a misspelt
+||| rule is a type error, not a wrong message. The frontend checks most of
+||| them; the ones checked on the optimized module (`ProfType4`, `ProfData3`,
+||| `ProfPrim4`, `ProfHeap1` to `ProfHeap4`) and `Eval1` come back from
 ||| `idris-mlir-cc`, which names them in its text (`parseRule`).
 module IdrisMLIR.Rule
 

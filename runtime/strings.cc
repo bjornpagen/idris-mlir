@@ -1,7 +1,7 @@
-// Strings (LOW-STR-2; SEM-STR-*; docs/plan.md section 3): UTF-8 bytes with
+// Strings: UTF-8 bytes with
 // their scalar count and an ASCII flag, over simdutf. The operations that
 // allocate nothing (length, index, head, compare) are the ones a program may
-// run (PROF-PRIM-4); the others build strings, which compile-time
+// run; the others build strings, which compile-time
 // evaluation and the folders run.
 // PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md
 

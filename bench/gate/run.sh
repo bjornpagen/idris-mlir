@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the memory gate (docs/plan.md 4.4; bench/gate/README.md):
+# Runs the memory gate (bench/gate/README.md):
 #
 #   bench/gate/run.sh [suite] [lowered] [threads] [linear]    (default: all)
 #
@@ -196,7 +196,7 @@ exp_lowered() {
     [ -n "$tp" ] && [ -n "$tm" ] && vs_m="$(ratio "$tm" "$tp")x"
     [ -n "$tp" ] && [ -n "$best" ] && vs_b="$(ratio "$tp" "$best")"
     echo "| $name | $input | $(col "$tp" "$kp") | $(col "$tm" "$km") | $(secs "$tl") | $(secs "$tk") | $vs_m | $vs_b | $live |" >> "$md"
-    # The pass criteria of plan 4.4.
+    # The pass criteria.
     if [ -n "$tp" ] && [ -n "$tm" ]; then
       if lt "$tp" "$tm"; then verdict lowered "$name faster than MLton" pass "$tp s < $tm s"
       else verdict lowered "$name faster than MLton" FAIL "$tp s >= $tm s"; fi
@@ -255,7 +255,7 @@ exp_threads() {
     vs=n/a
     [ -n "$tp" ] && [ -n "$tg" ] && vs="$(ratio "$tg" "$tp")x"
     echo "| $name | $input | $(col "$tp" "$kp") | $(col "$tg" "$kg") | $vs | $atom | $marked | $moved |" >> "$md"
-    # Atomics only on genuinely shared data (plan 4.4): nothing is shared in
+    # Atomics only on genuinely shared data: nothing is shared in
     # ptrees and pipe; in shmap exactly the map's n cells are.
     if [ "$atom" != n/a ]; then
       case $name in
@@ -277,7 +277,7 @@ exp_threads() {
       verdict threads "$name against Go" n/a "a time is missing"
     fi
   done
-  # The open parameters of plan 12.2 item 8, measured on the pipeline:
+  # The runtime's open parameters, measured on the pipeline:
   # flushing remote frees at the end of each turn, and dead roots sent home.
   {
     echo
@@ -323,7 +323,7 @@ exp_linear() {
   else
     failure linear "linrb on Chez"
   fi
-  # The prototype: static reuse (MEM-LIN-1) against dynamic reuse.
+  # The prototype: static reuse against dynamic reuse.
   ts=""; td=""
   for v in static dynamic; do
     if exe=$(lowered "linrb-$v" plain) && measure linear "linrb-$v" prototype "$exe" "$input"; then

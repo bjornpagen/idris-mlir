@@ -1,9 +1,9 @@
 module Main
 
 -- ../linrb with one call site changed: the build loop keeps the tree it
--- passes to insert for one more step (docs/plan.md 4.4, experiment 4).
+-- passes to insert for one more step (experiment 4).
 -- Idris accepts this, since a shared value may be passed to a quantity-1
--- parameter; MEM-LIN-1 must reject it at that call ("the value is used
+-- parameter; the compiler must reject it at that call ("the value is used
 -- again after the call"). Koka and Lean compile the same change silently,
 -- and every insert copies the path it would have updated in place.
 import Prelude
@@ -62,7 +62,7 @@ insert k v t = setBlack (ins k v t)
 
 -- An Int that a function consuming a tree returns: its field is
 -- unrestricted, so a match on it gives an ordinary Int. Not recursive, so
--- it is a register, not a cell (plan section 3).
+-- it is a register, not a cell.
 data Count = MkCount Int
 
 -- Counts the True values, consuming the tree.

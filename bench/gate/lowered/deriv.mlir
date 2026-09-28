@@ -1,5 +1,5 @@
 // bench/gate/suite/deriv/Main.idr, lowered by hand to what the compiler
-// will emit after M1 (docs/plan.md 4.2, 4.3, 4.4 experiment 2). The source
+// will emit (experiment 2). The source
 // binds everything at quantity omega: reuse is Lean's best effort, with a
 // count test at every reset.
 //
@@ -9,8 +9,8 @@
 //   Val: header, value (16 bytes). Var: header, string (16). Add, Mul, Pow:
 //   header, two fields (24). Ln: header, one field (16).
 //
-// What Lean's passes and the plan decide here:
-// - Closed terms are persistent static cells with count 0 (plan 4.3): the
+// What Lean's passes and our cells decide here:
+// - Closed terms are persistent static cells with count 0: the
 //   string "x", Var "x", powr x x (which is Pow x x), and the results
 //   Val 0, Val 1 and Val (-1). Counting them costs a load and a compare.
 // - d and count borrow their expression (inferBorrow; Koka's deriv.kk

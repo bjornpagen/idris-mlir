@@ -1,28 +1,22 @@
-||| The library table (docs/architecture/17-registry.md): where code comes
-||| from, and what each purpose of the compiler makes of each library.
-|||
-||| It replaces the lists that answered "is this library code?" and the one
-||| that admitted definitions by prefix (the census's M1-M3, P1 and P4). Each
-||| purpose keeps its list's membership exactly, so where the lists
-||| disagreed the cells do: only `Trusted` and `Admitted` cover base,
-||| `BreakLast` leaves out the Prelude, and `Admitted` covers `PrimIO` only
-||| for what it lists. Unifying them later means editing cells.
+||| The library table: where code comes from, and what each purpose of the
+||| compiler makes of each library. The purposes differ: only `Trusted` and
+||| `Admitted` cover base, `BreakLast` leaves out the Prelude, and `Admitted`
+||| covers `PrimIO` only for what it lists.
 module IdrisMLIR.Registry.Libraries
 
 import IdrisMLIR.Registry.Name
 
 %default total
 
-||| The areas of the base library that the profile trusts (PROF-LIB-3), by
+||| The areas of the base library that the profile trusts, by
 ||| their top namespace.
 public export
 data Area = Data | Control | Decidable | Syntax
 
-||| The libraries the compiler knows, by namespace, as every list knew
-||| them: `Builtin` and `PrimIO`, the Prelude's modules, and base's trusted
-||| areas. A module of another package under `Data`, or a user module named
-||| so, is base to the table as it was to the lists (a disagreement with
-||| PROF-LIB-3, kept); the table does not know other packages yet.
+||| The libraries the compiler knows, by namespace: `Builtin` and `PrimIO`,
+||| the Prelude's modules, and base's trusted areas. A module of another
+||| package under `Data`, or a user module named so, is base to the table;
+||| the table does not know other packages yet.
 public export
 data Lib = Builtin | PrimIO | Prelude | Base Area
 
@@ -37,16 +31,15 @@ data Origin = User | Library Lib | Generated
 public export
 data Purpose
   = ||| An IO program may import it, its source is not lexed for pragmas,
-    ||| and its definitions must be admitted (PROF-PROG-4, PROF-LIB-3,
-    ||| PROF-PRAG-1, PROF-LIB-1).
+    ||| and its definitions must be admitted.
     Trusted
-  | ||| Every definition of it is admitted (PROF-LIB-1).
+  | ||| Every definition of it is admitted.
     Admitted
   | ||| A function of it is chosen as a loop breaker only when its cycle has
-    ||| no function from elsewhere (OPT-PIPE-3).
+    ||| no function from elsewhere.
     BreakLast
   | ||| A diagnostic inside it is reported at the user's code that reached
-    ||| it (DIAG-LOC-1).
+    ||| it.
     ReportAtCaller
 
 ||| A library's cells, one per purpose.
@@ -95,7 +88,7 @@ moduleOrigin _ = User
 -- Policy by definition
 ------------------------------------------------------------------------------
 
-||| PROF-LIB-1: what `PrimIO` admits. Its other definitions (pointers,
+||| What `PrimIO` admits. Its other definitions (pointers,
 ||| threads and their foreign calls) are not admitted.
 admittedFromPrimIO : List String
 admittedFromPrimIO =
@@ -103,15 +96,16 @@ admittedFromPrimIO =
   , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
   , "unsafeCreateWorld", "unsafeDestroyWorld" ]
 
-||| PROF-LIB-1: is a definition of this origin admitted? The name is the
+||| Is a definition of this origin admitted? The name is the
 ||| definition's own, or for a case or with block its parent's. `Builtin`'s
 ||| escape hatches are admitted like the rest of it: Idris flags them
-||| (`isEscapeHatch`), and PROF-ESC-1 rejects them on that flag first.
+||| (`isEscapeHatch`), and the escape-hatch check rejects them on that flag
+||| first.
 export
 admits : Origin -> QName -> Bool
 admits o q = covers Admitted o || (q.space == ["PrimIO"] && elem q.name admittedFromPrimIO)
 
-||| PROF-ESC-1: a totality assertion, an escape hatch that changes no value.
+||| A totality assertion, an escape hatch that changes no value.
 ||| A trusted library's own are trusted; the user's are rejected on Idris's
 ||| flag like any other escape hatch.
 export

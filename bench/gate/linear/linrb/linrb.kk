@@ -1,5 +1,4 @@
-// The linear red-black tree of Main.idr here (docs/plan.md 4.4, experiment
-// 4), in Koka: the same program, with Koka's reuse deciding at runtime
+// The linear red-black tree of Main.idr here (experiment 4), in Koka: the same program, with Koka's reuse deciding at runtime
 // whether a matched cell is unique. linrb-shared.kk differs at one call
 // site.
 import std/os/readline

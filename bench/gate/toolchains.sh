@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fetches the comparison toolchains of the memory gate (docs/plan.md 4.4)
+# Fetches the comparison toolchains of the memory gate
 # into .toolchain/lean, .toolchain/koka and .toolchain/go. Nothing is
 # installed outside .toolchain/ (AGENTS.md).
 #

@@ -1,50 +1,49 @@
-// idr-specialize: specialization on constant-like arguments (ELIM-SPEC-1,
-// ELIM-SPEC-2), after raising a call's consumer into its callee (ELIM-G-5,
-// below).
+// idr-specialize: clones a function for the static parts of its arguments,
+// after first moving a call's consumer into its callee (raising, below).
 //
 // An argument's pattern is its static shape: a constant is itself, an
-// `idr.con` or `idr.closure` is built over the patterns of its operands (the
-// partially static values of ELIM-SPEC-1), and anything else is a hole, a
-// runtime leaf. An erased argument is always a hole: erased is not constant.
-// A call is specialized when some argument has a static shape and some
-// argument that is neither erased nor a world has a runtime leaf; a closed
-// call is left to idr-eval, and is never specialized (SEM-EVAL-6). The clone
-// substitutes each static shape into the callee's body, and its parameters
-// are the runtime leaves in order. Its key is the patterns of its origin's
-// parameters: a call of a clone composes the clone's key with its own
-// patterns, so keys of all the clones of one origin are comparable. Clones
-// are shared through (origin, key), kept on each clone as idr.spec_key, and
-// named `@<origin>$spec$<n>` with n counting the origin's clones in the
-// order they are first requested (FE-DET-1), and appended to the module, so
-// the walk over the module's functions reaches them and specializes their
-// calls in turn, until no call is left to specialize.
+// `idr.con` or `idr.closure` is built over the patterns of its operands, and
+// anything else is a hole, a runtime leaf. An erased argument is always a
+// hole: erased is not constant. A call is specialized when some argument has
+// a static shape and some argument that is neither erased nor a world has a
+// runtime leaf; a closed call is idr-eval's. The clone substitutes each
+// static shape into the callee's body, and its parameters are the runtime
+// leaves in order. Its key is the patterns of its origin's parameters: a
+// call of a clone composes the clone's key with its own patterns, so the
+// keys of all the clones of one origin are comparable. Clones are shared
+// through (origin, key), kept on each clone as idr.spec_key, named
+// `@<origin>$spec$<n>` in the order they are first requested (so the output
+// is deterministic), and appended to the module, so the walk over the
+// module's functions reaches them and specializes their calls in turn.
 //
-// In a clone's call of its own origin, a static argument that changed and
-// that the callee never branches on is generalized to a runtime value (an
-// accumulator: `run (n - 1) (advance s)`); one it matches on keeps its value
-// (a counter). Each clone is canonicalized when it is made, so a chain of
-// clones on a counter is made in one run.
+// In a clone's call of its own origin, a static argument that changed is
+// generalized to a runtime value when the callee never branches on it (an
+// accumulator: `run (n - 1) (advance s)`), or when it is a machine number,
+// at any depth of its pattern (a loop counter: `go (i + 1)` up to a limit),
+// which would otherwise unroll the loop once per value. A Nat or an Integer
+// the callee matches on keeps its value: counting one down is how a
+// vector's static length unrolls. Each clone is canonicalized when it is
+// made, so a chain of clones is made in one run.
 //
 // Two things stop a specialization. A clone that calls its own origin with
 // static arguments that grow, each the clone's own pattern or containing it
 // and one strictly (`iter (\y => f (f y))`), would clone forever, so the call
 // stays; later rounds see the growth too, through idr.spec_key. And the
-// clone limit, counted per original callee over the whole
-// compilation (the count is kept on the module as idr.clone_counts, so that
-// rounds of idr-simplify share it), bounds what growth in other shapes
-// makes. A stopped call gets a Missed remark; it and its callee get
-// idr.spec_stopped, so that idr-check-profile reports PROF-HEAP-4 for a
-// closure that survives into the callee, and the call records the key it
+// clone limit, counted per origin over the whole compilation (on the module,
+// as idr.clone_counts, so the rounds of idr-simplify share it), bounds
+// growth in other shapes. A stopped call gets a Missed remark; it and its
+// callee get idr.spec_stopped, so that idr-check-profile names the stop when
+// a closure survives into the callee, and the call records the key it
 // stopped at (idr.spec_stopped_at): later runs leave it alone while its key
 // is that one, and check it again once inlining has made it more static.
 //
 // Clones can close new cycles of calls; idr-loop-breakers cuts them at the
-// start of the next round (OPT-PIPE-3). A clone does not inherit no_inline
-// from a breaker: a chain of clones on a static shape is acyclic, and
-// inlining it is what exposes the shape to its consumer.
+// start of the next round. A clone does not inherit no_inline from a
+// breaker: a chain of clones on a static shape is acyclic, and inlining it is
+// what exposes the shape to its consumer.
 //
-// Generalization and the growth stop compare a call with the latest clone
-// of its callee's origin on the chain of clones it was made in: each clone
+// Generalization and the growth stop compare a call with the latest clone of
+// its callee's origin on the chain of clones it was made in: each clone
 // keeps, per origin, the key of the latest clone before it
 // (idr.spec_history, its own included), and its calls record it
 // (idr.spec_caller), which survives inlining the clone into a function that
@@ -52,52 +51,50 @@
 //
 // A clone is total if its origin is and so is every function its static
 // arguments name; the same holds for purity and, reversed, for "may crash",
-// when idr-effects has computed those facts (IDR-FACT-1).
+// when idr-effects has computed those facts.
 //
-// Raising (ELIM-G-5) comes first, for each call: the single consumer of a
-// call's result moves into a clone of the callee. Two consumers move:
+// Raising comes first, for each call: the single consumer of a call's result
+// moves into a clone of the callee. Two consumers move:
 // - an apply, `idr.apply %r(xs)` or, for an action in a constructor
 //   (`MkIO f`), `idr.apply` of `idr.field %r[@C, i]` (arity raising): the
 //   clone takes xs too and returns what the apply returns;
-// - output, `idr.io.put_str %r, %w`: the clone takes the world, writes
-//   what the callee would return, and returns the next world.
-// In the clone, the consumer (with its projection) moves to every tail of
-// the body: the operand of its return and, through each match whose result
+// - output, `idr.io.put_str %r, %w`: the clone takes the world, writes what
+//   the callee would return, and returns the next world.
+// In the clone, the consumer (with its projection) moves to every tail of the
+// body: the operand of its return and, through each match whose result
 // reaches the return and has no other use, the yields of its regions. There
 // an apply meets the `idr.con` and `idr.closure` the body built, and output
-// meets the string builders, which canonicalization then reduces (ELIM-G-1,
-// ELIM-G-2, ELIM-G-7). The clone is keyed by its callee and its consumer,
-// kept on it as idr.spec_key (`raise @f`, `raise @f[@C, i]` or `write @f`),
-// so that later rounds share it too: a call of the callee in the clone
-// whose result is consumed the same way, which inlining exposes where an
-// action recurs, and output fusion where a recursive `show` appends, becomes
-// a self call, and idr-tail-loops makes a tail call a loop. Its parameters
-// are the callee's, then the consumer's other operands, each numbered by
-// idr.hole, so that a call still finds the parameters remove-dead-values
-// leaves. It is named `@<origin>$raise$<n>` or `@<origin>$write$<n>`,
-// counted with the origin's other clones and bounded by the clone limit,
-// and has idr.origin, so that the newest clone breaks a new cycle
-// (OPT-PIPE-3). Unlike a clone that specializes, it keeps no_inline from a
-// loop breaker: it is where the breaker's loop becomes a self call. Its
-// parameters are not its callee's, so it is the origin of its own clones:
-// it has no key of patterns and takes none (adopt), and a clone of it
-// records it in idr.spec_history as a clone of any origin does. It keeps
-// the history its callee had, and the raised call keeps the history of the
-// call it replaces (idr.spec_caller), so a chain of clones goes on through
-// it.
+// meets the string builders, which canonicalization then takes apart. The
+// clone is keyed by its callee and its consumer (`raise @f`,
+// `raise @f[@C, i]` or `write @f` in idr.spec_key), so that later rounds
+// share it too: a call of the callee in the clone whose result is consumed
+// the same way, which inlining exposes where an action recurs, and output
+// fusion where a recursive `show` appends, becomes a self call, and
+// idr-tail-loops makes a tail call a loop. Its parameters are the callee's,
+// then the consumer's other operands, each numbered by idr.hole, so that a
+// call still finds the parameters remove-dead-values leaves. It is named
+// `@<origin>$raise$<n>` or `@<origin>$write$<n>`, counted with the origin's
+// other clones and bounded by the clone limit, and has idr.origin, so that
+// the newest clone breaks a new cycle. Unlike a clone that specializes, it
+// keeps no_inline from a loop breaker: it is where the breaker's loop becomes
+// a self call. Its parameters are not its callee's, so it is the origin of
+// its own clones: it has no key of patterns and takes none (adopt), and a
+// clone of it records it in idr.spec_history as a clone of any origin does.
+// It keeps the history its callee had, and the raised call keeps the history
+// of the call it replaces (idr.spec_caller), so a chain of clones goes on
+// through it.
 //
 // Raising moves the callee's body from the call to its consumer, so nothing
 // may run between them: the consumer and the projection are in the call's
 // block, and every op between the call and the consumer is free of memory
-// effects (a crash, output and an allocation are effects, IDR-EFF-1), or the
-// callee is pure and total and cannot crash, so that when its body runs
-// cannot be observed (SEM-EVAL-4). A callee that takes a world is never
-// raised: its body would take part in the world chain. A closed call of a
-// pure, total callee is idr-eval's, and is not raised (SEM-EVAL-6). A clone
-// that applies is total if its callee is and every tail applies a known
-// closure of a total function, and is pure and may crash as its callee and
-// those functions; a clone that writes is total and may crash as its
-// callee, and is effectful (IDR-FACT-1).
+// effects (a crash, output and an allocation are effects), or the callee is
+// pure and total and cannot crash, so that when its body runs cannot be
+// observed. A callee that takes a world is never raised: its body would take
+// part in the world chain. A closed call of a pure, total callee is
+// idr-eval's, and is not raised. A clone that applies is total if its callee
+// is and every tail applies a known closure of a total function, and is pure
+// and may crash as its callee and those functions; a clone that writes is
+// total and may crash as its callee, and is effectful.
 
 #include "idr/Idr.h"
 
@@ -129,7 +126,7 @@ constexpr StringLiteral holeAttr = "idr.hole";
 constexpr StringLiteral callerAttr = "idr.spec_caller";
 constexpr StringLiteral historyAttr = "idr.spec_history";
 constexpr StringLiteral stoppedAt = "idr.spec_stopped_at";
-// The start of the idr.spec_key of a clone made by raising (ELIM-G-5): one
+// The start of the idr.spec_key of a clone made by raising: one
 // that applies its result, and one that writes it. Such a key is no
 // pattern: storedKey() and the history leave it out.
 constexpr StringLiteral raiseKey = "raise ";
@@ -201,6 +198,62 @@ Shape shape(Value value) {
   }
   out.pattern = shape(value, out.leaves);
   return out;
+}
+
+// Whether a static pattern is a machine number: an integer of a fixed width,
+// a Char or a Double (not a big: a Nat or an Integer, whose countdown is how
+// a vector's static length unrolls).
+bool machineNumber(Attribute pattern) {
+  if (auto integer = dyn_cast<IntegerAttr>(pattern))
+    return isa<IntegerType>(integer.getType());
+  return isa<FloatAttr>(pattern);
+}
+
+// The parts of `pattern` when it is a node built by `label` (a constructor or
+// a closure's function), open or closed; empty otherwise.
+ArrayRef<Attribute> partsOf(Attribute pattern, Attribute label) {
+  if (auto node = dyn_cast_or_null<ArrayAttr>(pattern))
+    return node[1] == label ? cast<ArrayAttr>(node[2]).getValue() : ArrayRef<Attribute>();
+  if (auto con = dyn_cast_or_null<idr::ConAttr>(pattern))
+    return con.getCtor() == label ? con.getFields().getValue() : ArrayRef<Attribute>();
+  if (auto closure = dyn_cast_or_null<idr::ClosureAttr>(pattern))
+    return closure.getCallee() == label ? closure.getCaptures().getValue() : ArrayRef<Attribute>();
+  return {};
+}
+
+// The shape of `value` as shape() makes it, except that a machine number
+// that differs from the one at the same place in `before` is a runtime leaf
+// (a loop counter, also inside a constructor or a closure's captures).
+Attribute relaxed(Value value, Attribute before, SmallVectorImpl<Value> &leaves) {
+  MLIRContext *ctx = value.getContext();
+  if (!isShapeOp(value)) {
+    leaves.push_back(value);
+    return UnitAttr::get(ctx);
+  }
+  Operation *def = value.getDefiningOp();
+  Attribute constant;
+  if (matchPattern(value, m_Constant(&constant))) {
+    if (machineNumber(constant) && before && machineNumber(before) && before != constant) {
+      leaves.push_back(value);
+      return UnitAttr::get(ctx);
+    }
+    return constant;
+  }
+  Attribute label = isa<idr::ConOp>(def) ? Attribute(cast<idr::ConOp>(def).getCtor())
+                                         : Attribute(cast<idr::ClosureOp>(def).getCalleeAttr());
+  ArrayRef<Attribute> previous = partsOf(before, label);
+  SmallVector<Attribute> parts;
+  for (auto [i, operand] : llvm::enumerate(def->getOperands()))
+    parts.push_back(relaxed(operand, i < previous.size() ? previous[i] : Attribute(), leaves));
+  auto array = ArrayAttr::get(ctx, parts);
+  bool closed = llvm::all_of(parts, isConstant);
+  if (auto con = dyn_cast<idr::ConOp>(def))
+    return closed ? Attribute(idr::ConAttr::get(ctx, con.getCtor(), array))
+                  : ArrayAttr::get(ctx, {StringAttr::get(ctx, "con"), con.getCtor(), array});
+  auto closure = cast<idr::ClosureOp>(def);
+  return closed ? Attribute(idr::ClosureAttr::get(ctx, closure.getCalleeAttr(), array))
+                : ArrayAttr::get(ctx,
+                                 {StringAttr::get(ctx, "closure"), closure.getCalleeAttr(), array});
 }
 
 // The functions a pattern names as closure labels.
@@ -643,7 +696,10 @@ struct Specializer {
   // (an accumulator): specializing on it would clone once per value, and
   // gain nothing the callee could fold. It becomes a runtime value, as in
   // the generalization of an offline partial evaluator. An argument the
-  // callee matches on (a counter, `ack`'s m) keeps its value.
+  // callee matches on (`ack`'s m) keeps its value, unless it is a machine
+  // number that changed, here or inside a constructor or a closure: a loop
+  // counter (`go (i + 1)` until a limit), which specializing would unroll
+  // once per value, all the way to the limit.
   void generalize(ArrayAttr own, func::FuncOp callee, MutableArrayRef<Shape> shapes,
                   ValueRange operands) {
     if (!own || !keyed(callee))
@@ -658,6 +714,18 @@ struct Specializer {
     unsigned first = 0;
     for (auto [part, before] : llvm::zip(calleeKey.getValue(), own.getValue())) {
       unsigned n = holes(part);
+      // Counters first: each operand's shape against what the clone's own
+      // key has at the same place.
+      SmallVector<Attribute> previous;
+      align(part, before, previous);
+      for (unsigned p = first; p < first + n; ++p) {
+        if (isHole(shapes[p].pattern) || !previous[p - first])
+          continue;
+        Shape relaxedShape;
+        relaxedShape.pattern = relaxed(operands[p], previous[p - first], relaxedShape.leaves);
+        shapes[p] = std::move(relaxedShape);
+        patterns[p] = shapes[p].pattern;
+      }
       size_t next = first;
       Attribute after = fill(part, patterns, next);
       bool varies = after != before && after != part;
@@ -669,6 +737,21 @@ struct Specializer {
       }
       first += n;
     }
+  }
+
+  // For each hole of `part`, a pattern of a callee's key, the pattern at the
+  // same place in `before`, or null where `before` has none.
+  static void align(Attribute part, Attribute before, SmallVectorImpl<Attribute> &out) {
+    if (isHole(part)) {
+      out.push_back(!before || isHole(before) || isUnused(before) ? Attribute() : before);
+      return;
+    }
+    auto node = dyn_cast<ArrayAttr>(part);
+    if (!node)
+      return;
+    ArrayRef<Attribute> previous = partsOf(before, node[1]);
+    for (auto [i, inner] : llvm::enumerate(cast<ArrayAttr>(node[2])))
+      align(inner, i < previous.size() ? previous[i] : Attribute(), out);
   }
 
   // The canonicalization patterns of every loaded dialect and op, as the
@@ -687,7 +770,7 @@ struct Specializer {
   }
 
   //===--------------------------------------------------------------------===//
-  // Raising (ELIM-G-5)
+  // Raising
   //===--------------------------------------------------------------------===//
 
   // The single consumer of a call's result that moves into a clone of the
@@ -724,7 +807,7 @@ struct Specializer {
     if ((!applies && !writes) || user->getBlock() != call->getBlock())
       return std::nullopt;
     bool evaluable = idr::isPure(callee) && idr::isTotal(callee);
-    // SEM-EVAL-6: idr-eval evaluates this call, and its consumer then folds.
+    // idr-eval evaluates this call, and its consumer then folds.
     if (evaluable &&
         llvm::all_of(call.getOperands(), [](Value v) { return matchPattern(v, m_Constant()); }))
       return std::nullopt;
@@ -953,7 +1036,7 @@ struct Specializer {
   }
 
   //===--------------------------------------------------------------------===//
-  // Specialization (ELIM-SPEC-1)
+  // Specialization
   //===--------------------------------------------------------------------===//
 
   // Whether the call now calls a clone.
@@ -972,7 +1055,7 @@ struct Specializer {
       isStatic |= !isHole(s.pattern);
       // The world is no runtime value to specialize around: a call whose
       // other operands are constants is closed, as the call that raising
-      // gave the world was (SEM-EVAL-6).
+      // gave the world was.
       open |= !isa<idr::ErasedType, idr::WorldType>(operand.getType()) && !isConstant(s.pattern);
     }
     if (!isStatic || !open)

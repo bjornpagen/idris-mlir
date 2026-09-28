@@ -1,4 +1,4 @@
-// `cast` from String (TC-RT-4; docs/plan.md section 3). Idris fixes the
+// `cast` from String. Idris fixes the
 // frame: the whole string is read, and a string that is not a number is 0.
 // Which strings are numbers is ours to define (idris_rt.h):
 // - to Double: the whole string in fast_float's general format, with a

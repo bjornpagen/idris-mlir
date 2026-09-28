@@ -1,5 +1,5 @@
 // A pipeline passing trees between cores, as bench/gate/lowered/pipe.mlir
-// (docs/plan.md 4.4, experiment 3): goroutines pair up; the first of a pair
+// (experiment 3): goroutines pair up; the first of a pair
 // builds count trees make_ i depth and sends them on a channel of 64
 // entries, the second checks them. The garbage collector reclaims the
 // trees.

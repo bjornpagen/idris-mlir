@@ -1,5 +1,5 @@
 // Allocation shapes of the planned runtime, used to choose its allocator
-// (docs/plan.md section 5.6; how to build and run it: README.md here).
+// (how to build and run it: README.md here).
 // Build with exactly one of -DUSE_MI, -DUSE_SN, -DUSE_LIBC.
 // Objects model our heap layout: an 8-byte header (count, tag), then fields.
 // Freeing is iterative through the header, as in Lean's lean_del_core.

@@ -1,6 +1,5 @@
 // The red-black tree of bench/gate/suite/rbtree/Main.idr (Perceus's
-// rbtree.kk), lowered by hand to what the compiler will emit after M1
-// (docs/plan.md 4.2, 4.4): the cells, reset and reuse, ins, insert and the
+// rbtree.kk), lowered by hand to what the compiler will emit: the cells, reset and reuse, ins, insert and the
 // fold that counts. rbtree.mlir (experiment 2) and shmap.mlir (experiment
 // 3) add their main. The source binds its trees at quantity omega, so reuse
 // is Lean's best effort: every reset tests the count at runtime
@@ -10,7 +9,7 @@
 //   Leaf is the immediate 1. Node is tag 1, 40 bytes: header, l, r, key,
 //   then color (Red 0, Black 1) and value as bytes at offsets 32 and 33.
 //
-// What Lean's passes decide here (plan 4.2):
+// What Lean's passes decide here:
 // - ins, insert and the balance functions own their tree arguments (reset
 //   targets); fold's specialization borrows its tree.
 // - balanceLeft and balanceRight are inlined into ins (one call site each),

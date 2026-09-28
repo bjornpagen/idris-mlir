@@ -1,4 +1,4 @@
-// Reset and reuse as Lean's passes do them (docs/plan.md 4.2), for
+// Reset and reuse as Lean's passes do them, for
 // linrb.mlir: the best effort, which cannot rely on quantities.
 // - idr.reset.dyn tests the count. Count 1: the cell is the token and its
 //   fields move. Otherwise its fields are duplicated, the cell is dropped

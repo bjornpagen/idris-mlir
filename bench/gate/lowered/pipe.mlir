@@ -1,5 +1,5 @@
-// A pipeline passing trees between cores (docs/plan.md 4.4 experiment 3,
-// 7.4), after bintree.mlir. Cores pair up, 0 with 1, 2 with 3: the first of
+// A pipeline passing trees between cores (experiment 3), after
+// bintree.mlir. Cores pair up, 0 with 1, 2 with 3: the first of
 // a pair builds `count` trees make' i depth and sends each on a channel;
 // the second checks each tree and drops it. main prints the sum of the
 // checks.
@@ -10,7 +10,7 @@
 // owns: remote frees, batched by snmalloc. The stats build must show
 // atomic-rc=0, marked=0 and moved = the number of cells sent.
 //
-// The runtime's variants measure plan 5.6 and 12.2 item 8: `flush` sends
+// The runtime's variants: `flush` sends
 // the batched remote frees at the end of each consumer turn; `home` sends
 // each dead root back to its producer, which drops it locally.
 

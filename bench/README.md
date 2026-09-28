@@ -54,7 +54,7 @@ the same programs written against a hand-made numeric module.
 - All four print the same n-body energies to the last digit, so the
   floating-point work is the same.
 - `ack` computes `ack 3 n`. With `m` a literal, call-pattern
-  specialization (`ELIM-G-19`) makes copies of `ack` with `m` fixed,
+  specialization makes copies of `ack` with `m` fixed,
   and LLVM turns three of them into closed forms, so almost nothing is left
   to run; gcc gets part of the way with its own constant cloning. This
   measures the specialization, not recursion.
@@ -69,11 +69,11 @@ the same programs written against a hand-made numeric module.
   inlines the function into itself, which LLVM does not do. This compiler
   now matches clang 18 at `-O2` on the C version (0.109 s); it was 14%
   slower while it evaluated curried arguments right to left, which made
-  LLVM loop on the other call (`SEM-EVAL-2`).
+  LLVM loop on the other call.
 
 ## Allocation shapes
 
 `foreign/idr/bench/alloc/` benchmarks the heap traffic the planned runtime
 will produce (it is C++, which lives only under `foreign/idr`). It chose
-the allocator (`docs/plan.md` section 5.6); its README has the commands
+the allocator; its README has the commands
 and the results.

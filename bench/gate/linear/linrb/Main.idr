@@ -1,15 +1,13 @@
 module Main
 
--- The guarantee on a linear red-black tree (docs/plan.md 4.4, experiment
--- 4). The tree is bound at quantity 1 everywhere, so under MEM-LIN-1 every
--- insert rebuilds its path in the cells it matched: no allocation but the
+-- The guarantee on a linear red-black tree (experiment 4). The tree is
+-- bound at quantity 1 everywhere, so every insert rebuilds its path in the cells it matched: no allocation but the
 -- new leaf, no count test, no dup. The algorithm is Lean's rbmap
 -- (bench/gate/suite/rbtree-ck), with its isRed tests written as matches
 -- that rebuild the same node, which a unique cell makes free.
 --
--- M1's exit criteria: this program compiles with zero dups and full reuse,
--- and ../linrb-shared, which differs at one call site, is rejected with
--- MEM-LIN-1.
+-- The compiler must compile this program with zero dups and full reuse,
+-- and reject ../linrb-shared, which differs at one call site.
 
 import Prelude
 
@@ -67,7 +65,7 @@ insert k v t = setBlack (ins k v t)
 
 -- An Int that a function consuming a tree returns: its field is
 -- unrestricted, so a match on it gives an ordinary Int. Not recursive, so
--- it is a register, not a cell (plan section 3).
+-- it is a register, not a cell.
 data Count = MkCount Int
 
 -- Counts the True values, consuming the tree.

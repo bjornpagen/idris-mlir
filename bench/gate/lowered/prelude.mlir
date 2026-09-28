@@ -1,5 +1,4 @@
-// What the lowering puts in every module that has a heap (docs/plan.md 4.2,
-// 4.3): the runtime prototype's entries (foreign/idr/bench/gate/runtime.h)
+// What the lowering puts in every module that has a heap: the runtime prototype's entries (foreign/idr/bench/gate/runtime.h)
 // and the fast paths of the count operations, which LLVM inlines. The
 // programs here are appended to this file before lowering (lower.sh), as
 // idr-lower copies Lower/Runtime.mlir.inc into a module today.

@@ -1,6 +1,5 @@
-// Standard output and input, exit and crash (LOW-IO-1..4, LOW-CRASH-1;
-// SEM-IO-2..7, SEM-PROG-2, SEM-CRASH-1). Static storage and the stack only:
-// the only libc symbols are write, read and _exit (LOW-EXT-1).
+// Standard output and input, exit and crash. Static storage and the stack
+// only: the only libc symbols are write, read and _exit.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
@@ -12,7 +11,7 @@ namespace {
 constexpr size_t bufferSize = 4096;
 
 // Written through a volatile pointer, so that LLVM makes no memcpy of the
-// copy loop (LOW-EXT-1).
+// copy loop.
 char output[bufferSize];
 size_t outputLength = 0;
 
@@ -34,7 +33,7 @@ void putBytes(const char *p, size_t n) {
 }
 
 // The next input byte, or -1 at the end of input. Pending output is written
-// before the program blocks reading (SEM-IO-4).
+// before the program blocks reading.
 int32_t peek() {
   if (inputPosition >= inputLength) {
     idris_rt_flush();

@@ -1,5 +1,4 @@
-// Doubles as text and as integers (LOW-DBL-1, LOW-DBL-2, LOW-DBL-4;
-// SEM-DBL-4, SEM-DBL-5).
+// Doubles as text and as integers.
 //
 // The digits are Ryu's (Adams, PLDI 2018; third_party/ryu, unmodified): the
 // shortest that read back as the same double, the closest when there are
@@ -12,7 +11,7 @@
 // far from x, and the interval is no narrower above x than below it. Ryu
 // rounds such a tie to even, so D is even and D + 1 needs no carry.
 // The layout is Chez's. The text is written through a volatile pointer, so
-// that LLVM makes no memcpy or memset of its loops (LOW-EXT-1).
+// that LLVM makes no memcpy or memset of its loops.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"

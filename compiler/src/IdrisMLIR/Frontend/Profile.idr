@@ -1,9 +1,8 @@
-||| Profile rules checked on checked TT and on the source (docs/architecture/02-profile.md):
-||| pragmas (PROF-PRAG-1), escape hatches (PROF-ESC-1), trusted modules
-||| (PROF-LIB-1, PROF-IO-3). The rest is checked during translation. Which
+||| Profile rules checked on checked TT and on the source: pragmas, escape
+||| hatches, trusted modules. The rest is checked during translation. Which
 ||| modules are trusted, what they admit and which definitions are escape
-||| hatches the user may not use is the registry's knowledge
-||| (docs/architecture/17-registry.md); this module asks it.
+||| hatches the user may not use is the registry's knowledge; this module
+||| asks it.
 module IdrisMLIR.Frontend.Profile
 
 import Core.Case.CaseTree
@@ -45,7 +44,7 @@ forbiddenBy (Forbidden rule :: _) = Just rule
 forbiddenBy (_ :: hs) = forbiddenBy hs
 
 ||| The first of the definitions a user definition refers to that the
-||| registry forbids in the user's code, with its rule (PROF-IO-3).
+||| registry forbids in the user's code, with its rule.
 firstForbidden : List Name -> Maybe (Name, Rule)
 firstForbidden [] = Nothing
 firstForbidden (r :: rs) = case forbiddenBy (hooksOf r) of
@@ -64,11 +63,11 @@ enclosing (NS ns (WithBlock outer _)) = NS ns (UN (Basic outer))
 enclosing n = n
 
 ------------------------------------------------------------------------------
--- Imports (PROF-PROG-1, PROF-PROG-4)
+-- Imports
 ------------------------------------------------------------------------------
 
 ||| The modules a user module's source imports, with the location of each
-||| `import` (PROF-PROG-1, PROF-PROG-4; DIAG-LOC-1).
+||| `import`, where an error about it is reported.
 export
 imports : ModuleIdent -> String -> Core (List (String, FC))
 imports ident path = do
@@ -89,7 +88,7 @@ imports ident path = do
       _ => go (i + 1) ls
 
 ------------------------------------------------------------------------------
--- Pragmas (PROF-PRAG-1)
+-- Pragmas
 ------------------------------------------------------------------------------
 
 ||| Lexes a user module's source with Idris's lexer and rejects any pragma.
@@ -108,7 +107,7 @@ checkPragmas ident path = do
     at : WithBounds Token -> FC
     at tok = let b = tok.bounds in
              MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
-    ||| PROF-ESC-1 in the source: a spelling the registry forbids. Idris
+    ||| An escape hatch in the source: a spelling the registry forbids. Idris
     ||| reduces `prim__believe_me` applied to a value during elaboration, so
     ||| it can vanish from TT.
     spelled : WithBounds Token -> String -> Core ()
@@ -126,7 +125,7 @@ checkPragmas ident path = do
       _ => pure ()
 
 ------------------------------------------------------------------------------
--- Reachability (FE-REACH-1) and escape hatches (PROF-ESC-1)
+-- Reachability and escape hatches
 ------------------------------------------------------------------------------
 
 ||| Does a term contain the `%MkWorld` literal?
@@ -161,8 +160,8 @@ refsOf def =
     _ => fromType
 
 ||| Walks everything reachable from the roots, at runtime or compile time, and
-||| checks PROF-ESC-1, PROF-LIB-1 and PROF-IO-3. Errors name the path from
-||| the nearest user definition.
+||| checks escape hatches, what trusted modules admit and what the user may
+||| not call. Errors name the path from the nearest user definition.
 export
 checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> List Name -> Core ()
@@ -193,7 +192,6 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
         let owner = case here of
                       ((u, _) :: _) => show u
                       [] => key
-        -- PROF-ESC-1
         when (isEscapeHatch def) $
           reject (userFC here) owner ProfEsc1 ("the escape hatch " ++ key ++ via here)
         case definition def of
@@ -210,11 +208,11 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             Just (Left wrong) => reject (userFC here) key HookShape1 wrong
             Nothing => reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
           _ => pure ()
-        -- PROF-LIB-1
+        -- A trusted module admits only some of its definitions.
         when (trusted && not (admits origin (qname (enclosing full)))) $
           reject (userFC here) owner ProfLib1 (key ++ " is not admitted from its trusted module" ++ via here)
         refs <- traverse toFullNames (refsOf def)
-        -- PROF-IO-3
+        -- User code may not use what the registry forbids, nor forge a world.
         unless trusted $ do
           case firstForbidden refs of
             Just (r, rule) => reject (location def) key rule ("uses " ++ show r)
@@ -223,6 +221,6 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             PMDef _ _ tree _ _ =>
               when (treeMentionsWorld tree) $ reject (location def) key ProfIO3 "uses %MkWorld"
             _ => pure ()
-        -- PROF-ESC-1: a library's own totality assertions are trusted.
+        -- A library's own totality assertions are trusted.
         let refs' = if trusted then filter (not . assertion . qname) refs else refs
         go (insert key seen) (rest ++ map (\r => (r, here)) refs')

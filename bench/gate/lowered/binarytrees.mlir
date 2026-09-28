@@ -1,5 +1,5 @@
 // bench/gate/suite/binarytrees/Main.idr, lowered by hand to what the
-// compiler will emit after M1 (docs/plan.md 4.4, experiment 2): main, after
+// compiler will emit (experiment 2): main, after
 // the trees of bintree.mlir.
 
 func.func @idr_main() -> i32 {

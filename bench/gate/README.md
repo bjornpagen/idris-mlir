@@ -1,11 +1,10 @@
 # The memory gate
 
-The four experiments of [docs/plan.md](../../docs/plan.md) section 4.4,
-which decide whether the memory design of section 4 is built: reference
+Four experiments that decide whether the memory design is built: reference
 counting Lean's way, with guaranteed reuse where quantities promise it, a
 heap per core, and move-or-mark where values cross cores. They run before
-every other milestone (plan section 10); if the gate fails, the memory
-decision is reopened with the numbers.
+anything is built on that design; if the gate fails, the memory decision is
+reopened with the numbers.
 
 **First run** (2026-09-27, on 4 cores of an Intel Xeon at 2.80 GHz with
 15 GB; best of 5): **the gate fails**, on 3 of its 20 criteria, all in
@@ -13,11 +12,11 @@ experiment 2. `rbtree` is 1.59x Koka where the limit is 1.2x, and
 `binarytrees` is slower than MLton and 1.32x Lean. Experiments 3 and 4 pass
 every criterion. In this run the runtime prototype was compiled separately,
 by GCC, and linked as a native object, so every allocation and every free
-is a call into it; the plan's driver instead joins the runtime's bitcode
-into the program as one LTO module (plan section 5.7, `TC-LINK-1`). With
+is a call into it; the driver instead joins the runtime's bitcode
+into the program as one LTO module. With
 no clang in the toolchain yet, that could not be measured; experiment 2 is
 rerun that way once the pinned clang exists, before the memory decision is
-reopened (plan section 4.4).
+reopened.
 
 ## Running it
 
@@ -69,7 +68,7 @@ For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
 | Lean 4 | 4.34.1 | GitHub release, `toolchains.sh` | `lean -c`, then `leanc -O3 -DNDEBUG`, as Lean's benchmarks |
 | Go | 1.24.13 | Ubuntu 24.04 packages, `toolchains.sh` | default settings |
 | MLIR and LLVM | the pinned revision | `.toolchain/llvm` | `mlir-opt`, `mlir-translate`, `opt`, `llc` |
-| snmalloc | `e9f7b2e` (0.7.5-15) | `third_party/snmalloc` | 8-byte size-class steps (plan 5.6) |
+| snmalloc | `e9f7b2e` (0.7.5-15) | `third_party/snmalloc` | 8-byte size-class steps |
 
 - `toolchains.sh` checks every download against a pinned SHA-256 and
   unpacks it into a temporary directory first, so an interrupted run leaves
@@ -79,8 +78,7 @@ For the Makefile, a `gate` target is `bench/gate/run.sh $(ARGS)`, as
   only `import Lean`, `Std` or `Lake` need; the script leaves those out
   (1.4 GB remain).
 - Lean and Koka are the official release binaries, pinned by version and
-  checksum, rather than builds from source as plan 10.1's stream K
-  planned.
+  checksum, rather than builds from source.
 
 ## Experiment 1: the suite
 
@@ -122,8 +120,8 @@ every version reads its input from stdin and prints the same text:
 The other languages:
 
 - **Idris** uses the stock Prelude and base only, and runs on the Chez
-  backend. The sources stay within what milestone 1 compiles: `Int`
-  everywhere (no `Integer` or `Nat`, which are M2), no closures that must
+  backend. The sources stay within what the compiler's first profile compiles: `Int`
+  everywhere (no `Integer` or `Nat`), no closures that must
   exist at runtime, and base's array primitives (`Data.IOArray.Prims`) for
   `qsort` and `unionfind`, since `Data.IOArray` boxes every element in a
   `Just`.
@@ -152,12 +150,12 @@ Results (best of 5, seconds, peak RSS in MiB):
 ## Experiment 2: hand-lowered code
 
 `rbtree`, `deriv` and `binarytrees`, written by hand in
-[lowered/](lowered/) as the code `idr-lower` will emit after M1: `func`,
+[lowered/](lowered/) as the code `idr-lower` will emit: `func`,
 `arith`, `cf` and `llvm` operations, as `idr-lower` emits today, before the
 standard conversions. Each file says what Lean's passes decide for its
 program.
 
-- **Cells** (plan 4.3). An 8-byte header: a 32-bit count, then the kind, the
+- **Cells**. An 8-byte header: a 32-bit count, then the kind, the
   constructor tag, the number of pointer fields and the size in words.
   Pointer fields come first. A nullary constructor is the immediate
   `tag << 1 | 1`. The header is one 64-bit store.
@@ -195,15 +193,15 @@ containers). Build switches:
 
 **Lowering** ([lower.sh](lower.sh), `lower` in [lib.sh](lib.sh)) concatenates
 the prelude and the program, then runs idris-mlir-cc's last steps with the
-pinned tools, with plan 5.7's settings from milestone 1:
+pinned tools, with the compiler's settings:
 `mlir-opt` (canonicalize, cse, convert-scf-to-cf, convert-to-llvm,
 reconcile-unrealized-casts), `mlir-translate`, `opt` (internalize every
 symbol but `idr_main`, then O3, for `x86-64-v3`) and `llc` (O3, PIC,
-64-byte alignment as OPT-PIPE-4). `$CXX` links the object with the runtime.
+64-byte alignment). `$CXX` links the object with the runtime.
 
 - **Not yet whole-program LTO.** The program and the runtime are separate
-  objects, so each allocation and each cold count operation is a call; plan
-  5.7 inlines them. This handicaps the prototype. Lean's and Koka's
+  objects, so each allocation and each cold count operation is a call; the
+  driver's LTO inlines them. This handicaps the prototype. Lean's and Koka's
   allocators are called the same way.
 - The stats build's `live` (cells allocated minus freed) must be 0 at exit:
   the hand-lowered counts free everything, which the runner checks.
@@ -215,7 +213,7 @@ symbol but `idr_main`, then O3, for `x86-64-v3`) and `llc` (O3, PIC,
   an update in place costs only the changed stores. The criterion takes
   the better of Lean and Koka, so this does not make it easier.
 
-**Pass** (plan 4.4), for each of the three programs:
+**Pass**, for each of the three programs:
 
 - faster than MLton: t(prototype) < t(MLton);
 - within 1.2x of Lean's or Koka's generated C, read strictly:
@@ -230,7 +228,7 @@ symbol but `idr_main`, then O3, for `x86-64-v3`) and `llc` (O3, PIC,
 
 ## Experiment 3: threads
 
-Three programs on the prototype with move-or-mark (plan 4.3, 7.4), each
+Three programs on the prototype with move-or-mark, each
 with a Go version in [threads/](threads/)`<name>/`. The lowered programs
 share the trees of experiment 2 (`bintree.mlir`, `rbmap.mlir`).
 
@@ -247,7 +245,7 @@ share the trees of experiment 2 (`bintree.mlir`, `rbmap.mlir`).
 - **The counter of atomic operations** is the stats build's `atomic-rc`:
   every atomic read-modify-write on a count. The runtime performs one only
   on a count that is negative, that is, on a cell marked shared.
-- **Variants of the pipeline** (plan 5.6 and 12.2 item 8): `flush` sends the
+- **Variants of the pipeline**: `flush` sends the
   allocator's batched remote frees at the end of every consumer turn;
   `home` sends each dead root back to its producer, which drops the tree
   locally; `flush-home` does both. They are measured and reported, with no
@@ -256,7 +254,7 @@ share the trees of experiment 2 (`bintree.mlir`, `rbmap.mlir`).
   against a handshake at steal time. No program here captures a heap value
   in a future.
 
-**Pass** (plan 4.4):
+**Pass**:
 
 - atomics only on genuinely shared data: `ptrees` and `pipe` have
   `atomic-rc` = 0 and `marked` = 0; `shmap` marks exactly the map's n cells;
@@ -283,7 +281,7 @@ matches inside `ins` that rebuild the node they matched, which a unique
 cell makes free. It is an Idris program that typechecks and runs on Chez.
 
 - **Static reuse:** `lowered/linrb-static.mlir` + `linrb.mlir`, as the
-  compiler will emit it under `MEM-LIN-1`: a reset is the cell itself (no
+  compiler will emit it for a tree bound at quantity 1: a reset is the cell itself (no
   count test), a reuse stores the fields that change (no null test), and
   no dup is emitted anywhere.
 - **Dynamic reuse:** `lowered/linrb-dynamic.mlir` + `linrb.mlir`, Lean's
@@ -293,8 +291,8 @@ cell makes free. It is an Idris program that typechecks and runs on Chez.
   `rbmap.lean`). [linear/linrb-shared/](linear/linrb-shared/) changes one
   call site: the build loop keeps the tree it passes to insert for one more
   step (`mkMap n1 (insert n1 v t) t`). Idris accepts that (a shared value
-  may be passed to a quantity-1 parameter); `MEM-LIN-1` must reject it in
-  M1. Koka and Lean compile it without a word, and every insert copies its
+  may be passed to a quantity-1 parameter); the compiler must reject it.
+  Koka and Lean compile it without a word, and every insert copies its
   path.
 - **Lean reuses less to begin with.** In the C that Lean 4.34.1 emits for
   `ins`, the red-node branches free the cell they reset
@@ -305,7 +303,7 @@ cell makes free. It is an Idris program that typechecks and runs on Chez.
   reused even less in Lean (they are not inlined), and was dropped for
   this one in every language.
 
-**Pass** (plan 4.4):
+**Pass**:
 
 - the guaranteed form is at least as fast as the dynamic one:
   t(static) <= t(dynamic);
@@ -319,14 +317,13 @@ insert (full reuse) and free every cell.
 | version | unique | shared | shared / unique | verdict |
 | --- | ---: | ---: | ---: | --- |
 | Idris Chez (baseline) | 2.536 s, 529.1 MiB | 2.610 s, 529.0 MiB | 1.03 | |
-| prototype, static reuse | 1.238 s, 165.3 MiB | rejected by `MEM-LIN-1` in M1 | | pass: no slower than dynamic |
+| prototype, static reuse | 1.238 s, 165.3 MiB | rejected by the compiler | | pass: no slower than dynamic |
 | prototype, dynamic reuse | 1.492 s, 165.2 MiB | | | |
 | Koka | 1.026 s, 165.0 MiB | 2.975 s, 165.1 MiB | 2.90 | pass: a silent cliff |
 | Lean | 2.287 s, 200.7 MiB | 3.404 s, 200.8 MiB | 1.49 | pass: a silent cliff |
 
-In the compiler, M1's exit criteria then require that `linrb` compiles with
-zero dups and full reuse, and that `linrb-shared` is rejected with
-`MEM-LIN-1` at its changed call site.
+The compiler must then compile `linrb` with zero dups and full reuse, and
+reject `linrb-shared` at its changed call site.
 
 ## Layout
 

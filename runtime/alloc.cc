@@ -1,5 +1,5 @@
-// Allocation entry points over snmalloc, one per size class (TC-RT-1;
-// docs/plan.md section 5.6). snmalloc::alloc<S>() fixes the size class at
+// Allocation entry points over snmalloc, one per size class.
+// snmalloc::alloc<S>() fixes the size class at
 // compile time, so after LTO an allocation inlines into generated code as a
 // thread-local free-list pop, and a free as a pagemap lookup and a push.
 //

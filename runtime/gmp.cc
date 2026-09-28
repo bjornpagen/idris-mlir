@@ -1,7 +1,6 @@
-// GMP's memory functions over the runtime's allocator (TC-RT-1;
-// docs/plan.md sections 5.3 and 5.6). GMP cannot recover from a failed
+// GMP's memory functions over the runtime's allocator. GMP cannot recover from a failed
 // allocation; rt::allocate ends the process with a crash (or, in an
-// evaluation child, reports EVAL-1) instead of returning.
+// evaluation child, reports exhaustion) instead of returning.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"

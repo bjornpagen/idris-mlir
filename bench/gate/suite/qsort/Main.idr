@@ -3,7 +3,7 @@ module Main
 -- Quicksort of arrays of 32-bit words, n times over for every size below
 -- n. Lean's `qsort.lean` (Counting Immutable Beans), where the array is a
 -- pure value updated in place while unshared; here it is base's array
--- primitive, which every backend implements (docs/plan.md section 3). Lean
+-- primitive, which every backend implements. Lean
 -- checks that each array is sorted; this version also prints a checksum of
 -- the middle elements, so that every language prints the same line.
 

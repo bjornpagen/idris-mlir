@@ -1,7 +1,7 @@
 # Allocation shapes
 
 `shapes.cc` models the heap traffic the planned runtime will produce, and
-was used to choose its allocator (`docs/plan.md` section 5.6). Objects have
+was used to choose its allocator. Objects have
 our layout: an 8-byte header, then fields. Every allocation has a size known
 at compile time. Freeing is iterative through the header, as in Lean. Each
 thread is pinned to one core, as the schedulers will be.

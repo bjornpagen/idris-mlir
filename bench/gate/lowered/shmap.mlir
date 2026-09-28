@@ -1,4 +1,4 @@
-// A shared read-mostly map (docs/plan.md 4.4 experiment 3, 7.4), after
+// A shared read-mostly map (experiment 3), after
 // rbmap.mlir. Core 0 builds a red-black tree of n keys (as rbtree), then
 // every core runs, on its own version of it,
 //
@@ -14,7 +14,7 @@
 // and main prints the sum of the hits. The inserted keys are negative, so
 // the lookups, and the output, do not depend on them.
 //
-// The crossing (plan 7.4): main takes one reference per core, and the walk
+// The crossing: main takes one reference per core, and the walk
 // of idr_send finds the root's count above 1, so it marks the whole map
 // shared, once. Lookups borrow, so they count nothing. An insert into a
 // core's version copies the shared part of its path: the dups of the

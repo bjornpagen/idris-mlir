@@ -1,4 +1,4 @@
-// Parallel binary trees (docs/plan.md 4.4 experiment 3, 7.1): the
+// Parallel binary trees (experiment 3): the
 // binarytrees of experiment 1 with each depth's trees split into 8 work
 // items that the cores take as idle cores take futures (Perceus's
 // binarytrees.kk, Lean's binarytrees.lean). Its output is binarytrees'.

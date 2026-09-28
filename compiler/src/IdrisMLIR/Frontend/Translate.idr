@@ -1,6 +1,6 @@
-||| Checked TT to full Core (docs/architecture/04-frontend.md). Reads compile-time
-||| case trees (`treeCT`) and types; monomorphises on demand (ELIM-MONO-*), with
-||| Idris's own normalizer doing all type-level computation.
+||| Checked TT to full Core. Reads compile-time case trees (`treeCT`) and
+||| types; monomorphises on demand, with Idris's own normalizer doing all
+||| type-level computation.
 |||
 ||| Scopes carry over from TT: a TT term in scope `vars` becomes a `Term a`,
 ||| with an environment saying what each TT variable stands for. A TT index
@@ -51,15 +51,15 @@ TTBinder = Core.TT.Binder.Binder
 -- State
 ------------------------------------------------------------------------------
 
-||| A function instance waiting to be translated (ELIM-MONO-1).
+||| A function instance waiting to be translated.
 record Pending where
   constructor MkPending
   name : Name
   inst : FnId
-  ||| The compile-time arguments, by position (ELIM-MONO-1).
+  ||| The compile-time arguments, by position.
   statics : List (Maybe ClosedTerm)
   ||| The instances that requested this one, innermost first, with the size
-  ||| of their keys (ELIM-MONO-3).
+  ||| of their keys, to catch polymorphic recursion.
   path : List (String, String)
 
 ||| What a constructor instance needs for case trees.
@@ -100,12 +100,12 @@ record TS where
   queue : List Pending
   moduleFC : FC
   current : List (String, String)     -- the path of the instance being translated
-  perName : SortedMap String Nat      -- instances per definition (ELIM-MONO-3)
-  ||| Who owns each instance name: names are injective (ELIM-MONO-4), and
+  perName : SortedMap String Nat      -- instances per definition
+  ||| Who owns each instance name: names are injective, and
   ||| a printed form that two instances share is told apart here.
   owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))
   ||| The instances of each definition by their arguments, up to the names
-  ||| of binders: `(x : a) -> b` and `a -> b` are one type (ELIM-MONO-4).
+  ||| of binders: `(x : a) -> b` and `a -> b` are one type.
   named : SortedMap String (List (List (Maybe ClosedTerm), String))
 
 export
@@ -127,7 +127,7 @@ isEmptyFC : FC -> Bool
 isEmptyFC EmptyFC = True
 isEmptyFC _ = False
 
-||| DIAG-FMT-1, DIAG-LOC-1: never an empty location.
+||| A user error, never at an empty location.
 export
 reject : {auto s : Ref TState TS} -> FC -> String -> Rule -> String -> Core a
 reject fc owner rule what = do
@@ -135,7 +135,7 @@ reject fc owner rule what = do
   let fc' = if isEmptyFC fc then st.moduleFC else fc
   throw (GenericMsg fc' ("mlir backend: " ++ owner ++ ": unsupported (" ++ show rule ++ "): " ++ what))
 
-||| DIAG-ICE-1
+||| A compiler bug, not the user's.
 export
 internal : FC -> String -> Core a
 internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg))
@@ -173,7 +173,7 @@ fromLoc l = case l.origin of
 ||| match may need it), a type argument's value, or an implementation's value.
 ||| Types and implementations are compile-time values, closed TT terms: types
 ||| are erased at runtime, and an implementation is used by translating it
-||| where it is needed (FE-TR-6).
+||| where it is needed.
 data VarInfo : Type -> Type where
   Runtime : a -> Maybe Ty -> VarInfo a
   TypeValue : ClosedTerm -> VarInfo a
@@ -299,7 +299,7 @@ hasMeta (TForce _ _ t) = hasMeta t
 hasMeta _ = False
 
 ||| A written form with the solutions of its metavariables filled in, and
-||| nothing else evaluated (FE-TR-6).
+||| nothing else evaluated.
 solved : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 solved tm =
   if hasMeta tm
@@ -415,7 +415,7 @@ nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
 nameKey n = show n
 
-||| ELIM-MONO-4: the definition's full name and its arguments' normal forms.
+||| The definition's full name and its arguments' normal forms.
 ||| The printed form is made unique by a suffix if a different instance
 ||| already prints the same way.
 instanceName : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -469,7 +469,7 @@ paramLayout params ty =
 ||| The positions of a type constructor's arguments that are types: its
 ||| parameters whose kind is a universe. Only they tell instances apart;
 ||| every other argument (an index, or a value parameter such as `Equal`'s
-||| `x`) is compile-time information (SEM-IDX-1).
+||| `x`) is compile-time information.
 typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
 typeParams def = case definition def of
   TCon arity params _ _ _ _ _ => do
@@ -539,7 +539,7 @@ arrange (Nothing :: ls) ps (f :: fs) = f :: arrange ls ps fs
 arrange (Nothing :: ls) ps [] = []
 
 ||| A type with the indices of every inductive family in it erased, so that
-||| `Vect 3 Double` and `Vect n Double` name one instance (SEM-IDX-1).
+||| `Vect 3 Double` and `Vect n Double` name one instance.
 eraseIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                {vars : _} -> String -> TT vars -> Core (TT vars)
 eraseIndices owner tm@(Bind fc x (Pi pfc rig pinfo a) sc) = do
@@ -557,15 +557,15 @@ eraseIndices owner tm = case spine tm [] of
 
 ||| A constructor's name within its data type, the symbol of its `idr.ctor`:
 ||| a data type's constructors share its namespace, so the name without it
-||| is unique there. The full name is its location (IDR-DATA-5).
+||| is unique there. The full name is its location.
 shortName : Name -> String
 shortName (NS _ n) = shortName n
 shortName n = show n
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `BigT`, zero is `0`, and the
-||| successor adds one (IDR-IN-3). Idris counts only
-||| runtime arguments, so `Fin` is one too.
+||| successor adds one. Idris counts only runtime arguments, so `Fin` is one
+||| too.
 data NatRole = Zero | Succ
 
 natRole : GlobalDef -> Maybe NatRole
@@ -580,7 +580,7 @@ natRole def = case mapMaybe role (flags def) of
 
 ||| Is a type constructor `Nat`-like: do its constructors carry Idris's
 ||| `ZERO` and `SUCC` flags? These are read from Idris's metadata, never
-||| from names (docs/architecture/17-registry.md, category 3).
+||| from names.
 natLike : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
 natLike def = case definition def of
   TCon _ _ _ _ _ (Just cons) _ => do
@@ -590,9 +590,9 @@ natLike def = case definition def of
   _ => pure False
 
 mutual
-  ||| The Core type of a closed, normalised type (FE-TR-1). A type that has
-  ||| no runtime representation is reported under `rule`: PROF-TYPE-4, or
-  ||| PROF-DATA-2 for a constructor field.
+  ||| The Core type of a closed, normalised type. A type that has no runtime
+  ||| representation is reported under `rule`: `ProfType4`, or `ProfData2`
+  ||| for a constructor field.
   export
   coreType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> String -> Rule -> ClosedTerm -> Core Ty
@@ -612,7 +612,7 @@ mutual
       reject fc owner rule "a function type that depends on its argument"
     rt <- coreType fc owner rule !(normaliseClosed rest)
     pure (FunT (quantity rig) at rt)
-  -- SEM-REC-2: `Inf` is a suspension like `Lazy`.
+  -- `Inf` is a suspension like `Lazy`.
   coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
   coreType fc owner rule tm = case spine tm [] of
     (Ref rfc (TyCon _) n, args) => do
@@ -624,14 +624,14 @@ mutual
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => reject fc owner rule ("unsupported runtime type " ++ showTT tm)
 
-  ||| Registers a monomorphic data instance (PROF-DATA-*, ELIM-MONO-1).
+  ||| Registers a monomorphic data instance.
   export
   dataInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> String -> Name -> List ClosedTerm -> Core DataId
   dataInstance fc owner tcon args0 = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
-    -- SEM-IDX-1: an index is compile-time information; instances differ by
+    -- An index is compile-time information; instances differ by
     -- their parameters only.
     keep <- typeParams def
     args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
@@ -689,7 +689,7 @@ mutual
 ------------------------------------------------------------------------------
 
 ||| Requests a function instance and returns its name. Polymorphic recursion
-||| would request ever larger instances of one definition (ELIM-MONO-3).
+||| would request ever larger instances of one definition.
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> String -> Name -> List (Maybe ClosedTerm) -> Core FnId
 request fc owner n statics = do
@@ -715,7 +715,7 @@ request fc owner n statics = do
 
 ||| Parameter classification after instantiation. A type parameter and an
 ||| implementation (an auto-implicit argument, such as an interface
-||| constraint) are compile-time values: they key the instance (ELIM-MONO-1)
+||| constraint) are compile-time values: they key the instance
 ||| and are erased at runtime.
 data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ErasedParam | RuntimeParam Ty
 
@@ -752,7 +752,7 @@ isAuto _ = False
 ||| Is a type an interface, whatever binds a value of it? Idris declares an
 ||| interface's record with unique search (`uniqueAuto`), and passes a
 ||| function's constraints to its `where` functions and its case and with
-||| blocks as explicit arguments (FE-TR-6).
+||| blocks as explicit arguments.
 interfaceType : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
 interfaceType ty = case spine ty [] of
   (Ref _ (TyCon _) n, _) => do
@@ -813,7 +813,7 @@ scalar CharType = Just SChar
 scalar DoubleType = Just SDouble
 scalar t = SInt <$> intTy t
 
-||| Double arithmetic and the C library's functions (SEM-DBL-2, SEM-DBL-3).
+||| Double arithmetic and the C library's functions.
 double : PrimFn k -> Maybe Prim
 double (Add DoubleType) = Just (FloatOp FAdd)
 double (Sub DoubleType) = Just (FloatOp FSub)
@@ -835,7 +835,7 @@ double DoubleCeiling = Just (Math Ceiling)
 double _ = Nothing
 
 ||| A cast between types that exist at runtime; `Char` and `Double` are not
-||| cast to each other (PROF-PRIM-2).
+||| cast to each other.
 runtimeCast : Scalar -> Scalar -> Maybe Prim
 runtimeCast SChar SDouble = Nothing
 runtimeCast SDouble SChar = Nothing
@@ -860,7 +860,7 @@ comparison (GTE t) = Just (CGte, t)
 comparison (GT t) = Just (CGt, t)
 comparison _ = Nothing
 
-||| Integer primitives (IDR-IN-3: `idr.big.*`).
+||| Integer primitives: `idr.big.*`.
 integer : PrimFn k -> Maybe Prim
 integer (Neg IntegerType) = Just BigNegate
 integer (Cast IntegerType StringType) = Just BigShow
@@ -898,16 +898,16 @@ primOp p = case (integer p, double p, arith p, comparison p, p) of
   _ => Nothing
 
 ------------------------------------------------------------------------------
--- Hooks (docs/architecture/17-registry.md)
+-- Hooks
 ------------------------------------------------------------------------------
 
-||| FE-TR-7: is a definition the identity on its last argument?
+||| Is a definition the identity on its last argument?
 identityOnLast : List Hook -> Bool
 identityOnLast [] = False
 identityOnLast (IdentityOnLastArgument :: _) = True
 identityOnLast (_ :: hs) = identityOnLast hs
 
-||| PROF-IO-4: the IO operation a definition's calls are.
+||| The IO operation a definition's calls are.
 export
 ioCallOf : List Hook -> Maybe IOOp
 ioCallOf [] = Nothing
@@ -915,14 +915,14 @@ ioCallOf (IOCall op :: _) = Just op
 ioCallOf (_ :: hs) = ioCallOf hs
 
 ------------------------------------------------------------------------------
--- Terms (FE-TR-3)
+-- Terms
 ------------------------------------------------------------------------------
 
 record Ctx where
   constructor MkCtx
   owner : String
   fc : FC
-  complete : Bool     -- Idris found no missing case (PROF-FN-5)
+  complete : Bool     -- Idris found no missing case
 
 constantLit : Constant -> Maybe Lit
 constantLit (I x) = Just (LInt IdrisInt (cast x))
@@ -995,7 +995,7 @@ mutual
   term ctx env (Bind fc _ (Pi {}) _) = Erased <$> toLoc (bestFC ctx fc)
   term ctx env (Bind fc x (Let lfc rig val ty) sc) = do
     -- TTC does not keep the types of lets (Core.TTC, `Let` binders): `Emit`
-    -- synthesizes them (FE-TR-1).
+    -- synthesizes them.
     loc <- toLoc (bestFC ctx fc)
     let env' = under [Runtime (Bound FZ) Nothing] env
     if isErased rig
@@ -1032,7 +1032,7 @@ mutual
     def <- lookupDef fc ctx.owner name
     let full = fullname def
     case definition def of
-      -- FE-TR-7: a hook for the identity on the one runtime argument, the
+      -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
       PMDef _ params _ _ _ =>
@@ -1045,7 +1045,7 @@ mutual
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
-      -- PROF-IO-4: an IO primitive the registry lists, a `%foreign` one by
+      -- An IO primitive the registry lists, a `%foreign` one by
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
@@ -1111,8 +1111,8 @@ mutual
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst) (drop arity xs)
 
-      -- A constructor of a `Nat`-like type is big arithmetic
-      -- (IDR-IN-3): zero is 0, a successor adds 1.
+      -- A constructor of a `Nat`-like type is big arithmetic: zero is 0,
+      -- a successor adds 1.
       natConstructor : FC -> Loc -> NatRole -> List (Quantity, PKind) -> List (Term a) ->
                        List (TT vars) -> Core (Term a)
       natConstructor fc loc Zero kinds given extra =
@@ -1175,7 +1175,7 @@ mutual
     where
       ||| An implementation applied to arguments is used as written; its type
       ||| arguments are substituted, so its body is translated at the types of
-      ||| this use (FE-TR-6).
+      ||| this use.
       staticArg : TT vars -> Bool
       staticArg (Local _ _ idx _) = case getAt idx env of
         Just (Static _) => True
@@ -1188,7 +1188,7 @@ mutual
         _ => Nothing
       -- A lambda over an implementation (`\@{m} => ...`, as a dictionary's
       -- polymorphic method field is written) takes it as written, like a
-      -- type: it is a compile-time value (FE-TR-6).
+      -- type: it is a compile-time value.
       headStep (Bind _ _ (Lam _ rig pinfo _) sc) (a :: as) =
         if isErased rig || isAuto pinfo || staticArg a then Just (subst a sc, as) else Nothing
       headStep _ _ = Nothing
@@ -1198,7 +1198,7 @@ mutual
       applyAll loc f (x :: xs) = applyAll loc (App loc f !(term ctx env x)) xs
 
 ------------------------------------------------------------------------------
--- Case trees (FE-TR-4)
+-- Case trees
 ------------------------------------------------------------------------------
 
 ||| The variables a constructor alternative binds for its fields, in field
@@ -1210,7 +1210,7 @@ toBinder : Field -> Binder
 toBinder f = MkBinder f.quantity f.type
 
 ||| A leaf no input reaches: `Unreachable` in a covering definition
-||| (PROF-FN-5), a crash otherwise (SEM-CRASH-2).
+||| (Idris proved no input reaches it), a crash otherwise.
 missingCase : {0 a : Type} -> Ctx -> Loc -> IdrisMLIR.Term.Term a
 missingCase ctx loc =
   if ctx.complete then Unreachable loc else Crash loc ("unhandled input for " ++ ctx.owner)
@@ -1219,10 +1219,10 @@ mutual
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
          Ctx -> List (VarInfo a) -> CaseTree vars -> Core (Term a)
   tree ctx env (STerm _ tm) = term ctx env tm
-  -- FE-TR-4, SEM-DATA-2: Idris proved it cannot be reached. An `Unmatched`
-  -- leaf of a covering definition (PROF-FN-5) is one too: a definition whose
-  -- clauses are all impossible has only that leaf. In a definition with
-  -- missing cases it is one of them, and crashes (SEM-CRASH-2).
+  -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
+  -- definition is one too: a definition whose clauses are all impossible
+  -- has only that leaf. In a definition with missing cases it is one of
+  -- them, and crashes.
   tree ctx env (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
   tree ctx env Impossible = Unreachable <$> toLoc ctx.fc
   tree ctx env (Case idx _ scTy alts) = do
@@ -1231,7 +1231,7 @@ mutual
       Just (Runtime i (Just WorldT)) => case alts of
         [ConstCase WorldVal rhs] => tree ctx env rhs
         _ => internal ctx.fc "an unexpected match on the world (FE-TR-4)"
-      -- FE-TR-7: a match on a quantity-0 value (a proof, an index) is in the
+      -- A match on a quantity-0 value (a proof, an index) is in the
       -- compile-time tree only when its type forces the alternative, as
       -- Idris's erasure check guarantees; its fields are erased too.
       Just (Runtime i (Just ErasedT)) => forced alts
@@ -1240,19 +1240,18 @@ mutual
         (conAlts, def) <- conAlternatives ctx env inst alts
         st <- get TState
         -- Constructors the tree leaves out are impossible when the
-        -- definition is covering (PROF-FN-5), and crash otherwise
-        -- (SEM-CRASH-2).
+        -- definition is covering, and crash otherwise.
         let missing = case (def, lookup inst st.datas) of
                         (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
                         _ => []
         let absurd = map (\c => MkAlt c.id (fromList (map toBinder c.fields)) (missingCase ctx loc)) missing
         pure (Case loc i (conAlts ++ absurd) def)
       -- A `Nat`-like value is a big: a match on its constructors is a
-      -- match on zero (IDR-IN-3).
+      -- match on zero.
       Just (Runtime i (Just BigT)) =>
         if any isConCase alts then natCase ctx env loc i alts else literals loc i
       Just (Runtime i (Just _)) => literals loc i
-      -- A match on an implementation selects its alternative now (FE-TR-6).
+      -- A match on an implementation selects its alternative now.
       Just (Static t) => staticCase ctx env t alts
       _ => internal ctx.fc "a match on a compile-time value (FE-TR-4)"
     where
@@ -1383,8 +1382,7 @@ mutual
 -- Function instances and programs
 ------------------------------------------------------------------------------
 
-||| FE-TOT-1: Idris's termination checker reports the definition
-||| terminating.
+||| Idris's termination checker reports the definition terminating.
 isTotal : {auto c : Ref Ctxt Defs} -> FC -> Name -> Core Bool
 isTotal fc n = do
   t <- catch (checkTotal fc n) (\_ => pure Unchecked)
@@ -1392,7 +1390,7 @@ isTotal fc n = do
           IsTerminating => True
           _ => False)
 
-||| Translates one function instance (FE-TR-*).
+||| Translates one function instance.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
   def <- lookupDef EmptyFC (show p.name) p.name
@@ -1400,7 +1398,7 @@ translateInstance p = do
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
     | _ => reject fc owner ProfFn1 "not a pattern-matching definition"
-  -- PROF-FN-5: a missing case crashes (SEM-CRASH-2).
+  -- A missing case crashes.
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
@@ -1453,7 +1451,7 @@ assemble root = do
     dataField (MkField _ (DataT d)) = Just d
     dataField _ = Nothing
 
-||| A `main : Int` program (FE-ENTRY-2): the root is `main` itself.
+||| A `main : Int` program: the root is `main` itself.
 export
 translateIntProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Source
 translateIntProgram main = do
@@ -1461,12 +1459,12 @@ translateIntProgram main = do
   drain
   assemble root
 
-||| An IO program (FE-ENTRY-4). The root is `unsafePerformIO main` written
+||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,
 ||| `unsafeCreateWorld` and `unsafeDestroyWorld` mean:
 |||   root w = case main of MkIO f => f w
 ||| It returns the `IORes` of `main`'s result and the last world, so the
-||| world is used exactly once. `%MkWorld` never appears (PROF-IO-3).
+||| world is used exactly once. `%MkWorld` never appears.
 export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core Source

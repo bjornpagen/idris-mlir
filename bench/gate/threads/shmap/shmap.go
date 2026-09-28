@@ -1,5 +1,5 @@
-// A shared read-mostly map, as bench/gate/lowered/shmap.mlir (docs/plan.md
-// 4.4, experiment 3): one goroutine builds a persistent red-black tree of n
+// A shared read-mostly map, as bench/gate/lowered/shmap.mlir (experiment
+// 3): one goroutine builds a persistent red-black tree of n
 // keys (Perceus's rbtree), then one goroutine per CPU looks up q
 // pseudo-random keys in its own version of it, inserting a negative key of
 // its own every thousandth step. Nodes are immutable: an insert copies its

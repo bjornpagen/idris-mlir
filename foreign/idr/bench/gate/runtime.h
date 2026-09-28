@@ -1,4 +1,4 @@
-// The memory gate's runtime prototype (docs/plan.md 4.3, 4.4, 5.6, 7.4): the
+// The memory gate's runtime prototype: the
 // C ABI that the hand-lowered programs in bench/gate/lowered call. How to
 // build and run it: bench/gate/README.md.
 //
@@ -65,7 +65,7 @@ void idr_dec_cold(IdrCell *cell);
 // dies with it, iteratively through the free list.
 void idr_free_cell(IdrCell *cell);
 
-// Move-or-mark (plan 4.3, 7.4): called on a value, which may be an
+// Move-or-mark: called on a value, which may be an
 // immediate, before its reference crosses to another core. One walk moves
 // each cell whose count is 1 (it stays non-atomic, now the receiver's) and
 // marks shared each cell with a higher count, with everything it reaches.
@@ -104,7 +104,7 @@ void idr_chan_send(void *chan, void *value);
 // Waits for the next value.
 void *idr_chan_recv(void *chan);
 
-// Sending dead roots home (plan 5.6): `home` is a channel of 256 entries
+// Sending dead roots home: `home` is a channel of 256 entries
 // from a consumer back to its producer.
 void *idr_home_new(void);
 // A consumer drops a value that another core built. By default it drops it
@@ -120,7 +120,7 @@ void idr_producer_turn(void *home);
 void idr_producer_finish(void *home, int64_t sent);
 // The end of a scheduler turn: with IDR_GATE_FLUSH, sends the allocator's
 // batched remote frees now (snmalloc's flush) instead of when its cache
-// fills (plan 5.6, 12.2 item 8).
+// fills.
 void idr_turn_end(void);
 
 // The program's entry point, defined by the lowered module.

@@ -9,7 +9,7 @@
 #                 pinned LLVM's clang++ if there is one, else the pinned g++)
 #   GATE_LTO      1: the program and the runtime prototype become one LTO
 #                 module, as idris-mlir-cc joins the runtime's bitcode
-#                 (plan 5.7, TC-LINK-1), for x86_64-unknown-linux-musl as a
+#                 for x86_64-unknown-linux-musl as a
 #                 static PIE; needs the stage-2 clang, or stage 1's with the
 #                 sysroot (tools/bootstrap.sh stage1 musl runtimes)
 
@@ -35,13 +35,13 @@ if [ -z "${CC:-}" ]; then
   if [ -x "$TC/gcc/bin/gcc" ]; then CC=$TC/gcc/bin/gcc; else CC=cc; fi
 fi
 
-# The target of the lowered programs and of the runtime: the plan's default
-# CPU from milestone 1 on (plan 5.7).
+# The target of the lowered programs and of the runtime: the compiler's
+# default CPU.
 TRIPLE=x86_64-unknown-linux-gnu
 CPU=x86-64-v3
 
 # GATE_LTO=1: the clang that compiles the runtime to bitcode and links the
-# program with it, and the musl target of the plan's executables.
+# program with it, and the musl target of the compiler's executables.
 GATE_LTO=${GATE_LTO:-0}
 if [ "$GATE_LTO" = 1 ]; then
   if [ -x "$TC/llvm-musl/bin/clang++" ]; then LTO_CXX=$TC/llvm-musl/bin/clang++
@@ -236,7 +236,7 @@ build_runtime() {
     echo "$obj"
     return 0
   fi
-  # snmalloc with size classes in 8-byte steps (plan 5.6).
+  # snmalloc with size classes in 8-byte steps.
   "$CXX" -std=c++20 -O2 -DNDEBUG -march=$CPU -mcx16 -pthread -fno-exceptions -fno-rtti \
     -DSNMALLOC_USE_WAIT_ON_ADDRESS=1 -DSNMALLOC_MIN_ALLOC_STEP_SIZE=8 "$@" \
     -I "$SNMALLOC_SRC" -c "$src" -o "$obj" > "$obj.log" 2>&1 ||
@@ -259,7 +259,7 @@ runtime_defines() {
 
 # lower EXE VARIANT FILE...: lowers a hand-written module (the prelude, then
 # the FILEs) with the pinned LLVM's tools, as idris-mlir-cc's last steps do
-# (OPT-PIPE-1 steps 9-11, with plan 5.7's O3, x86-64-v3 and internalizing
+# (with O3, x86-64-v3 and internalizing
 # every symbol but the entry), and links it with the runtime prototype.
 lower() {
   exe=$1; variant=$2; shift 2
@@ -279,7 +279,7 @@ lower() {
   if [ "$GATE_LTO" = 1 ]; then
     # One module: lld's full LTO joins the program with the runtime's
     # bitcode, internalizes all but the process entry and runs O3, as
-    # idris-mlir-cc does (TC-LINK-1); a static PIE on musl (TC-LINK-2).
+    # idris-mlir-cc does; a static PIE on musl.
     "$LTO_CXX" --target=$TRIPLE -flto=full -O3 -march=$CPU -pthread \
       -Wl,--lto-O3 -Wl,-mllvm,--align-all-functions=6 -Wl,-mllvm,--align-all-nofallthru-blocks=6 \
       "$work/module.bc" "$rt" -o "$exe" || { say "lowering $* failed"; return 1; }

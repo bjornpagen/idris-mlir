@@ -12,7 +12,7 @@
 # with dpkg -x) and then on PATH; a missing compiler is reported and skipped.
 # Times come from GNU date's nanoseconds. The Idris environment is the
 # Makefile's. Every build and run is killed after 300 seconds times
-# IDRIS_MLIR_TIME_SCALE (TEST-TIME-1), and a benchmark that times out fails.
+# IDRIS_MLIR_TIME_SCALE, and a benchmark that times out fails.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"

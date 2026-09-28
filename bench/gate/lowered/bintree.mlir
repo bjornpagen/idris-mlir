@@ -1,12 +1,12 @@
 // The binary trees of bench/gate/suite/binarytrees/Main.idr, lowered by
-// hand to what the compiler will emit after M1 (docs/plan.md 4.2, 4.4):
+// hand to what the compiler will emit:
 // make', check, sumT and the output. binarytrees.mlir (experiment 2) and
 // ptrees.mlir and pipe.mlir (experiment 3) add their main.
 //
 // data Tree = Tip | Node Tree Tree
 //   Tip is the immediate 1; Node is tag 1 with two pointer fields, 24 bytes.
 //
-// What Lean's passes decide here (plan 4.2):
+// What Lean's passes decide here:
 // - make' returns a fresh tree: allocation only, no count operation.
 // - check's parameter is borrowed (inferBorrow: it only reads it), so the
 //   walk does no count operation.

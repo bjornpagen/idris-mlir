@@ -1,5 +1,5 @@
 // bench/gate/suite/rbtree/Main.idr, lowered by hand to what the compiler
-// will emit after M1 (docs/plan.md 4.4, experiment 2): main, after the tree
+// will emit (experiment 2): main, after the tree
 // of rbmap.mlir. Insert n keys, count the True values, then drop the tree,
 // which the runtime frees iteratively.
 

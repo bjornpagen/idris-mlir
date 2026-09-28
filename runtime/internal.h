@@ -1,4 +1,4 @@
-// What the runtime's sources share and do not export (TC-RT-1).
+// What the runtime's sources share and do not export.
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
@@ -19,13 +19,13 @@ void *allocate(size_t size);
 void release(void *block);
 
 // Writes n bytes to fd, looping over partial writes; a failed write abandons
-// the rest (SEM-IO-6).
+// the rest.
 void writeAll(int fd, const char *p, size_t n);
 
 // The longest text formatDouble writes: a sign, 17 digits, a point, the
 // zeros of 1e-3 or an exponent, and a subnormal's `|52`.
 constexpr size_t doubleTextMax = 48;
-// The text of SEM-DBL-5; returns its length.
+// The text of a double, as Chez writes it; returns its length.
 size_t formatDouble(double x, volatile char *out);
 
 // The decimal digits of an integer, written backwards from `end`; returns

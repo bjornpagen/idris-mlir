@@ -1,6 +1,6 @@
 #!/bin/sh
-# TC-RT-2: the runtime archive references no symbol of the C++ runtime, not
-# even weakly, and has no static constructors or destructors (TC-RT-1). The
+# The runtime archive references no symbol of the C++ runtime, not even
+# weakly, and has no static constructors or destructors. The
 # build runs it after the link check (runtime/CMakeLists.txt), and so does
 # tests/toolchain/runtime-link.
 #
