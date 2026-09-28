@@ -75,7 +75,10 @@ module attributes {idr.program} {
   - Function attributes: `idr.total` (unit) when Idris reports the function
     terminating (`SEM-EVAL-6`), and `no_inline` on a loop breaker
     (`OPT-PIPE-3`), both written by `Emit`; `idr.effect` and `idr.may_crash`
-    (`IDR-FACT-1`), which only `idr-effects` writes. Any other `idr.*`
+    (`IDR-FACT-1`), which only `idr-effects` writes. `idr-specialize` keeps
+    its own state between rounds in attributes internal to the pipeline,
+    which `Emit` never writes (`idr.origin` on a clone, `idr.clone_counts`
+    on the module, `idr.clone_limit_hit`; `ELIM-SPEC-1`). Any other `idr.*`
     attribute is rejected.
   - Check: the dialect's attribute verifiers of the module (`idr.program`),
     of each function and of each argument
@@ -310,7 +313,9 @@ default { ... }
   none gets a region of its own. A match may therefore lack constructors
   and have no default: Idris proved the missing ones cannot occur
   (`SEM-DATA-2`). A case the definition does not cover is a region that
-  crashes (`IDR-CRASH-1`).
+  crashes (`IDR-CRASH-1`). A point Idris proved unreachable that is not an
+  alternative (the body of a definition whose clauses are all
+  `impossible`) is `ub.unreachable`.
   - Test: `tests/e2e/v0/absurd-body`, `tests/e2e/v0/enum-stepping`,
     `tests/e2e/v0/impossible-branch`
 - **IDR-MATCH-3.** *Withdrawn at the cutover:* an integer-literal match was
@@ -325,7 +330,8 @@ default { ... }
     that constructor's fields, in order, and an optional default region
     with no arguments. The constructors are distinct constructors of `T`.
   - Every region ends in `idr.yield` of the match's result types, or in
-    `ub.unreachable` after `idr.crash`.
+    `ub.unreachable` (after `idr.crash`, or where Idris proved the point
+    unreachable, `IDR-MATCH-2`).
   - It implements `RegionBranchOpInterface` (control enters exactly one
     region, which returns to the match, as `scf.index_switch` does), and
     has `RecursiveMemoryEffects` and `RecursivelySpeculatable`.
@@ -572,8 +578,8 @@ means unsigned.
 
 - **IDR-IN-1 (v0).** *Revised at the cutover:* besides `idr`, the input
   contains ops of `builtin`, `func`, `arith`, `math` and `ub` only
-  (`ub.unreachable` after a crash). `Emit` writes the ops of `IDR-IN-3`'s
-  mapping and no other.
+  (`ub.unreachable`, `IDR-MATCH-2`, `IDR-CRASH-1`). `Emit` writes the ops
+  of `IDR-IN-3`'s mapping and no other.
   - Check: `idris-mlir-cc` parses with a registry of exactly these six
     dialects, so an op of any other dialect fails to parse, which is an
     internal error (`DIAG-ICE-1`); passes load the dialects they need

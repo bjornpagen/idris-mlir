@@ -3,7 +3,9 @@
 The frontend is the Idris code under `IdrisMLIR.Frontend.*`. It is the only
 code that imports upstream Idris compiler modules. It turns the checked
 program into `Core` ([05-middle-ir](05-middle-ir.md)) and reports every
-profile violation that TT can show.
+profile violation that TT can show. *Since the cutover*, the violations of
+heap freedom are found in MLIR instead (`PROF-GEN-3`), and the frontend
+reports them as it reports its own (`DRV-CC-2`).
 
 ## Registration and entry (v0)
 
@@ -49,6 +51,9 @@ profile violation that TT can show.
     `treeCT`, `DCon`, `TCon`, `Builtin`, `Hole`, `ExternDef`, `ForeignDef`),
     `multiplicity`, `totality`, `isEscapeHatch`, `flags`, `location`, and
     `fullname`;
+  - **from each `DCon`:** its `ConInfo` flags, of which only `ZERO` and
+    `SUCC` are read, to represent a `Nat`-like type as a big (`IDR-IN-3`;
+    *since the cutover*);
   - **the source file of each user module**, only to lex it for pragmas,
     hole identifiers and escape-hatch names (`PROF-PRAG-1`, `PROF-ESC-1`),
     and to find its `import` lines for error locations (`PROF-PROG-1`,
@@ -60,6 +65,10 @@ profile violation that TT can show.
   - `getCompileData` or `getIncCompileData`.
 
   These have already erased facts, or were built for other backends.
+  *Revised at the cutover:* the one exemption is `ConInfo`, the constructor
+  flags Idris computes for every backend: it is declared in
+  `Core.CompileExpr`, beside `CExp`, and `Frontend.Translate` imports that
+  module only to read the flags. No `CExp` is read.
   - Check: review, plus a test that greps `compiler/src` for these names
     and the modules that define them
   - Test: `tests/spec/FE-IN-2-no-erased-inputs`
@@ -99,8 +108,9 @@ error follows `DIAG-*`.
 6. **Translation to full `Core` (`FE-TR-*`)**, which also checks
    `PROF-TERM-*` and `PROF-PRIM-*` (and, in v0, `PROF-TYPE-2`, `PROF-FN-3`
    and `PROF-FN-4`).
-7. **The middle end** (`Mono`, `Simplify`) **and emission**
-   ([05-middle-ir](05-middle-ir.md)).
+7. **Emission** ([05-middle-ir](05-middle-ir.md)), and for `main : Int`
+   programs `idris-mlir-cc --check`, whose profile rejections are this
+   stage's errors (`DRV-CC-2`; *since the cutover*).
 8. **Artifacts (`FE-ART-1`)**, then, for IO programs, the rest of the driver
    chain (`DRV-FLOW-2`).
 
@@ -111,7 +121,10 @@ error follows `DIAG-*`.
   against `PROF-ESC-1` and are not translated.
 - **FE-TOT-1 (v0).** Coverage status comes from Idris's totality checker
   (`Core.Termination.checkTotal`), not from a `totality` field that may be
-  unchecked.
+  unchecked. *Revised at the cutover:* so does termination, which now also
+  decides compile-time evaluation: a function is total exactly when the
+  checker reports it terminating (`SEM-EVAL-6`), and `Emit` marks it
+  `idr.total` (`IDR-FACT-1`).
   - Test: `tests/profile/v0/reject/PROF-FN-5-partial.idr`
 
 ## Translation to Core
@@ -126,18 +139,22 @@ error follows `DIAG-*`.
   From v1, the result may also be:
   - `Char`, `String` or `%World`;
   - a type constructor applied to its parameters;
-  - a function type or `Lazy`.
+  - a function type or `Lazy`;
+  - from the cutover, `Integer` or a `Nat`-like type (a big) and recursive
+    data (a box).
 
   Anything else is a `PROF-TYPE-2` error (v0) or a `PROF-TYPE-4` error (v1)
   at the binder's location.
 
   TTC does not store the types of `let` binders (`Core.TTC` writes only the
   value), so under `-o` a runtime `let` has type `Erased` in TT. Full `Core`
-  therefore has no let types (`05-middle-ir`): `Simplify` knows the type of
-  a let-bound value when it evaluates it.
+  therefore has no let types (`05-middle-ir`): `Emit` synthesizes the type
+  of a let-bound value from the value (*revised at the cutover*; before,
+  `Simplify` knew it when it evaluated it).
 - **FE-TR-2 (v0). Quantities.** Each Pi binder's quantity maps to `Q0`, `Q1`
   or `QW`. The quantity is recorded on every parameter, every constructor
-  field, and every `let` in `Core` (`CORE-INV-4`).
+  field, and every `let` in `Core`, and `Emit` writes it into the contract
+  (`IDR-FN-1`, `IDR-DATA-2`).
 - **FE-TR-3 (v0). Terms.** Each runtime-position term translates as follows:
 
   | TT | Core |
@@ -164,17 +181,18 @@ error follows `DIAG-*`.
   | --- | --- |
   | `Case` on a variable | match on that variable |
   | `ConCase` | alternative with the constructor's tag, binding its fields (compile-time fields bind the erased value) |
-  | `ConstCase` on an integer or `Char` constant | literal alternative (a `ConstCase` on `String` is a `PROF-PRIM-4` error) |
+  | `ConstCase` on an integer, `Char`, `String` or `Integer` constant | literal alternative (*revised at the cutover*: a string match was a `PROF-PRIM-4` error; a match on a `Double` is `PROF-PRIM-2`) |
   | `DefaultCase` | default alternative |
   | `DelayCase` | `PROF-TERM-2` error |
   | `STerm` | term |
-  | `Unmatched` | `Unreachable`: the definition is covering (`PROF-FN-5`), so Idris proved no input reaches it. A definition whose clauses are all `impossible` is one such leaf. |
+  | `Unmatched` | in a covering definition (`PROF-FN-5`), `Unreachable`: Idris proved no input reaches it, and a definition whose clauses are all `impossible` is one such leaf; in a definition with missing cases, `Crash` (`SEM-CRASH-2`) |
   | `Impossible` | `Unreachable` (`SEM-DATA-2`) |
 
-  A constructor match without a default that leaves out constructors gets
-  an `Unreachable` alternative for each of them: the definition is covering
-  (`PROF-FN-5`), so Idris proved them impossible. Every constructor match is
-  therefore exhaustive (`CORE-INV-6`).
+  *Revised at the cutover:* an alternative whose body is `Unreachable` is
+  left out of the match, and none is invented for a constructor the match
+  leaves out (`IDR-MATCH-2`). A match on a `Nat`-like value becomes a
+  literal match on the big `0`, whose default computes the predecessor
+  (`IDR-IN-3`).
 
 - **FE-TR-5 (v1). Polymorphism.** Before `Mono`, the type of a runtime binder
   may contain the definition's quantity-0 type parameters, which become
@@ -221,7 +239,8 @@ error follows `DIAG-*`.
     it is translated, so it is translated at the types of each use.
 
   No dictionary exists in `Core`; each method call is an ordinary call of a
-  monomorphic instance, which `ELIM-G-3` specializes like any other.
+  monomorphic instance, which MLIR inlines and specializes like any other
+  (`ELIM-SPEC-1`).
   - Test: `tests/e2e/v2/interface-*`,
     `tests/profile/v2/accept/FE-TR-6-named-implementations.idr`,
     `tests/profile/v2/reject/PROF-HEAP-1-runtime-implementation.idr`
@@ -231,7 +250,12 @@ error follows `DIAG-*`.
   location (`IDR-LOC-1`).
 - **FE-DET-1 (v0).** The same input produces byte-identical `.core` and
   `.mlir` files. Definitions are visited in a deterministic order: worklist
-  order from the root, ties broken by full name.
+  order from the root, ties broken by full name. *Revised at the cutover:*
+  `.core` is full Core after `Translate`, and what `idris-mlir-cc` does is
+  deterministic too: MLIR runs single-threaded, clones are numbered in order
+  of first request (`ELIM-SPEC-1`), and no result of `idr-eval` depends on
+  the JIT's optimization level or the host CPU (`LOW-JIT-1`), so objects are
+  byte-identical as well (`DRV-DET-1`).
   - Test: `tests/e2e/v0/determinism` (compile twice and compare)
 
 ## Artifacts (v0)
@@ -255,7 +279,7 @@ error follows `DIAG-*`.
 | Binder quantities | `type` (Pi binders), `multiplicity` | Only for user names (`isUserName`) |
 | Compile-time case tree | `PMDef … treeCT` | Yes |
 | Runtime case tree | `PMDef … treeRT` | No (and never read) |
-| Constructor tag, arity, newtype argument | `DCon` | Yes |
+| Constructor tag, arity, newtype argument, `ZERO`/`SUCC` flags | `DCon` | Yes |
 | Parameters, detaggable positions | `TCon` | Yes |
 | Totality | `totality`, and computed by the checker | Only for user names |
 | `let` binder types | `Bind … (Let _ _ val ty)` | No: `ty` becomes `Erased` (`FE-TR-1`) |

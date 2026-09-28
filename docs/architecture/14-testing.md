@@ -67,10 +67,15 @@ the reason, and never counted as passed.
   which the Chez backend implements (`PROF-IO-4`); fixtures put only ASCII
   characters with `putChar`, where the two agree (`SEM-IO-2`). Crash
   messages are not compared (`SEM-DEV-1`).
-- **TEST-ELIM-1 (v1).** Each `ELIM-G-*` rule has Core-level tests: a small
-  program, its expected Core after `Simplify` (checked with `FileCheck` on
-  `--directive dump-core` output, `prog.dump/02-simplify.core`), and an e2e
-  run. They are `tests/e2e/v1/ELIM-G-*`, with a `core.check` file.
+- **TEST-ELIM-1 (v1).** Each `ELIM-*` rule has tests on the module after the
+  simplify loop: a small program, its expected MLIR after `idr-simplify`
+  (checked with `FileCheck` on `idris-mlir-cc --dump-after=all` output,
+  `DRV-DUMP-1`), and an e2e run. They are `tests/e2e/v1/ELIM-G-*` and the
+  other e2e fixtures with an `mlir.check` file; the first line of the file
+  may choose another module (`// input: emitted` for what `Emit` wrote,
+  `// input: after <step>` for another step). *Revised at the cutover:*
+  before, a `core.check` file matched first-order Core after `Simplify`.
+  The passes also have their own tests in `tests/idr/` (`TEST-IDR-1`).
 - **TEST-CRASH-1 (v0).** A crash fixture has an `expected-crash` file. The
   harness asserts exit status 1, empty stdout, and a stderr that contains
   the cause it names (`SEM-CRASH-1`).
@@ -90,12 +95,16 @@ the reason, and never counted as passed.
   it compiles through `DRV-FLOW-1` with every artifact written. If an oracle
   accompanies it, the fixture is also run.
 - **TEST-VER-1 (v1+).** Every accept fixture of a version remains an accept
-  fixture of all later versions with the same oracle (`PROF-GEN-4`).
+  fixture of all later versions with the same oracle (`PROF-GEN-4`), but
+  for the exceptions `PROF-GEN-4` lists, each with its reason. A changed
+  expectation keeps its program: a fixture split at the cutover keeps its
+  total part as an accept and moves the rest to a named reject fixture.
 
 ## C++ and contract tests
 
-- **TEST-IDR-1 (v0).** Every `idr` op, verifier, folder, effect rule and
-  pass, and every conversion pattern, has tests in `tests/idr/`. They run
+- **TEST-IDR-1 (v0).** Every `idr` op, verifier, folder, canonicalization,
+  effect rule and pass, and every conversion pattern, has tests in
+  `tests/idr/`. They run
   hand-written `.mlir` through `idris-mlir-opt` and check the result with
   `FileCheck`, without involving Idris. Each `.mlir` file keeps its
   `// RUN:` lines, which the `lit` function of `tests/testutils.sh` runs as
@@ -104,8 +113,12 @@ the reason, and never counted as passed.
   status.
 - **TEST-EMIT-1 (v0).** The Idris side's output is checked against the
   contract with `FileCheck` on the `.mlir` of selected fixtures (erased
-  arguments present, quantity attributes, locations, switch shape), and by
-  `idr-check-input`.
+  arguments present, quantity attributes, locations, match shape: an
+  `mlir.check` with `// input: emitted`), and by the dialect's verifiers
+  when `idris-mlir-cc` parses every fixture's output (*revised at the
+  cutover*: before, by `idr-check-input`). A test checks that `Emit` names
+  only the dialects of `IDR-IN-1` and writes no flag `IDR-IN-2` forbids
+  (`TEST-ENF-1`).
 
 ## Whole-program properties
 
@@ -113,7 +126,9 @@ the reason, and never counted as passed.
   of the object file (`llvm-nm --undefined-only`) are a subset of
   `{write, _exit}`, and from v1 `{write, read, _exit}`, and from v2 the
   `libm` functions of `LOW-EXT-1`. There is no `malloc` and no other libc
-  call: no runtime code is reached (`TC-LINK-1` joins only what is).
+  call. *Revised at the cutover:* the runtime's code joins the object where
+  the program reaches it (`TC-LINK-1`), and what a heap-free program
+  reaches of it allocates nothing.
 - **TEST-DET-1 (v0).** Compiling a fixture twice gives byte-identical
   `.core`, `.mlir` and object files (`FE-DET-1`, `DRV-DET-1`).
 - **TEST-SEM-1 (v0).** Every `SEM-INT-*` rule has table-driven end-to-end
@@ -123,6 +138,82 @@ the reason, and never counted as passed.
   - comparisons across the sign boundary for `BitsN`;
   - every cast pair at the range boundaries.
 
+
+## The two evaluations
+
+*New at the cutover.* Compile-time evaluation runs the program's own code
+(`SEM-EVAL-6`), so these suites check that it computes what the executable
+computes, and what Idris's evaluator computes.
+
+- **TEST-EQUIV-1 (v3). Equivalence.** Every e2e program that compiles both
+  with and without `idris-mlir-cc --no-eval` gives, both ways, the same
+  stdout and exit status on the same stdin. And in the final MLIR of every
+  e2e fixture, compiled with `--remarks=idr-eval`, no closed call to a pure
+  total function survives but those whose evaluation crashed.
+  - *planned* (stop point 3 of the cutover)
+- **TEST-FUZZ-1 (v3). The fuzzer.** Closed pure expressions over every
+  primitive, generated at random, give the same value at compile time
+  (folders and `idr-eval`), at runtime (`--no-eval`), and on Chez. Each
+  folder is also run against its own lowering through the JIT.
+  - *planned* (stop point 3 of the cutover)
+- **TEST-LEVELS-1 (v3). The two levels.** Closed terms that Idris's
+  evaluator normalizes in a type (`Refl` proofs) give the same value under
+  `idr-eval`, for every primitive but those of `SEM-HOST-1`.
+  - *planned* (stop point 3 of the cutover)
+- **TEST-ENF-1 (v3). Enforcement.** Tests that fail when the division of
+  labour erodes:
+  - no primitive has semantics in Idris: `compiler/src` computes no
+    primitive's result (no host `prim__` call, no folding);
+  - `Emit` names only the dialects of `IDR-IN-1`, with no flag `IDR-IN-2`
+    forbids;
+  - every canonicalization has a lit test (`TEST-IDR-1`).
+  - *planned* (stop point 3 of the cutover)
+- **TEST-TERM-1 (v3). Termination.** A closed call to a partial function
+  that diverges only on a path never taken compiles, runs, and is not
+  evaluated (`SEM-EVAL-6`); an accumulator that would specialize forever
+  stops at the clone limit (`ELIM-SPEC-2`) and is rejected with
+  `PROF-HEAP-4` or compiles, as its closures decide.
+  - *planned* (stop point 3 of the cutover)
+
+Compile time is measured and reported for every fixture, with the slowest
+broken down by pass, JIT compilation and evaluation (`idris-mlir-cc
+--timing`); it is never a gate ([the plan](../plan.md), decision 13, is
+withdrawn).
+
+## Debugging a rewrite (informative)
+
+When an optimization breaks a program (an e2e fixture's output differs, or
+the verifier fails after a pass), the module and the step that broke it are
+found as follows.
+
+- **The step.** `idris-mlir --directive dump-mlir` (`DRV-DUMP-1`), or
+  `idris-mlir-cc --dump-after=all --dump-dir=DIR`, writes the module after
+  every step as `NN-STEP.mlir`. The first dump that is wrong names the step,
+  and the dump before it is the step's input, which `idris-mlir-opt` runs
+  the step on alone.
+- **The rewrite.** MLIR's action framework makes every pattern application
+  (`apply-pattern`) and pass run (`pass-execution`) an action that a debug
+  counter can skip or limit:
+
+  ```sh
+  idris-mlir-opt in.mlir --canonicalize \
+    --mlir-debug-counter=apply-pattern-skip=0,apply-pattern-count=N
+  ```
+
+  applies only the first `N` patterns. Bisecting on `N`, with the check
+  that fails as the oracle, finds the one application that breaks the
+  module; `--mlir-print-debug-counter` lists the actions counted.
+- **A small module.** `idris-mlir-reduce` (`mlir-reduce` with the `idr`
+  dialect and passes registered, built by `foreign/idr`) shrinks a module
+  while an interestingness script, which exits 1 while the failure still
+  happens, keeps holding:
+
+  ```sh
+  idris-mlir-reduce in.mlir -reduction-tree='traversal-mode=0 test=fails.sh'
+  ```
+
+  The reduced module becomes the regression test in `tests/idr/` that the
+  fix comes with (`DIAG-ICE-1`).
 ## Spec conformance
 
 - **TEST-SPEC-1 (p0).** `make check` (`tests/Spec.idr`) parses every rule

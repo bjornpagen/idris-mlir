@@ -32,8 +32,8 @@ bind every contributor, human or agent.
 - **AG-OWN-2.** The frontend package and the dialect package depend on each
   other only through [08](08-idr-dialect.md). Each tests against the contract
   alone:
-  - the frontend with `FileCheck` on its `.mlir` output, and
-    `idr-check-input` once that exists;
+  - the frontend with `FileCheck` on its `.mlir` output, and the dialect's
+    verifiers, which run when `idris-mlir-cc` parses it (`IDR-IN-1`);
   - the dialect with hand-written `.mlir`.
 
   Neither waits for the other.

@@ -3,7 +3,8 @@
 ## Status
 
 p0, v0, v1, v2 and v3 are implemented (`docs/architecture/VERSION` is
-`v3`). Everything after v3 is planned in [the plan](../plan.md), the only
+`v3`), and so is the cutover, which changed how v3 is compiled but not the
+profile's version. Everything after v3 is planned in [the plan](../plan.md), the only
 plan; this file records what was done and how it differed from what was
 planned.
 
@@ -21,6 +22,7 @@ not end on a promise to fix something later.
 | v2 | user interfaces resolved at compile time, `do` over user monads, `Double`, the math showcase, `bench/` |
 | v3 | the stock Prelude imported explicitly by IO programs; `Integer`, `Nat`, lists and streams at compile time; `Data.Vect` with compile-time indices |
 | after v3 | first-order Core with join points and loops (`CORE-LOOP-1`, `cf` in the contract); one driver with a whistle and generalization (`ELIM-G-19`); choices (`ELIM-G-20`) |
+| the cutover | Idris does types, monomorphisation and representations; MLIR does the program: `Simplify` and first-order Core deleted; a higher-order `idr` dialect with closures, boxes, bigs and runtime strings; the simplify loop (`inline`, `idr-specialize`, `idr-eval`), `idr-defunctionalize`, `idr-tail-loops` and `idr-check-profile`; compile-time evaluation by running the program's own code in a JIT; the runtime in C, with vendored Ryu |
 
 - **RM-V1-1. The v1 entry experiment.** Under `-o`, the definitions
   admitted by `PROF-LIB-1` and ordinary user code loaded from TTC keep
@@ -31,7 +33,43 @@ not end on a promise to fix something later.
   primitives behave as Chez computes them. Confirmed before v2; the
   results are in `FE-TR-6` and `SEM-DBL-*`.
 
+## What comes next
+
+Every value has a runtime representation since the cutover, and the
+heap-free profile rejects only what would allocate (`PROF-HEAP-*`). So the
+memory milestones of [the plan](../plan.md) (section 10) are "lower instead
+of reject", op by op: M1 lowers boxes and runtime strings instead of
+rejecting them (`PROF-DATA-3`, `PROF-HEAP-3`, `PROF-PRIM-4`), M2 bigs
+(`PROF-TYPE-4`), and M3 closures that `idr-defunctionalize` cannot remove
+(`PROF-HEAP-1`, `PROF-HEAP-2`, `PROF-HEAP-4`). Each rejection is withdrawn
+when its op is lowered with a heap.
+
 ## History
+
+The cutover ([the plan](../plan.md), section 1) differed from v3's rules as
+follows; the profile stays v3, and each change is marked in its rule:
+- Idris does types and MLIR does programs (`GOAL-P2`, `GOAL-P4`,
+  `GOAL-P6`, D14). `Simplify`, its supercompiling driver, choices, arity
+  raising and first-order Core are deleted: `ELIM-G-5`, `ELIM-G-17`,
+  `ELIM-G-19`, `ELIM-G-20`, `CORE-INV-*`, `CORE-CHECK-1`, `CORE-OPT-1`,
+  `PROF-HEAP-5`, `SEM-BIG-1`, `IDR-MOD-1`, `IDR-MATCH-1`, `IDR-MATCH-3`,
+  `LOW-SWITCH-1`, `LOW-BLOCK-1` and `LOW-STR-1` are withdrawn.
+- New: `ELIM-SPEC-1`, `ELIM-SPEC-2`, `ELIM-EVAL-1`, `ELIM-CLOS-1`,
+  `OPT-PIPE-5`, `OPT-CALL-1`, `SEM-EVAL-6`, `SEM-EVAL-7`, `EVAL-1`,
+  `SEM-HOST-1`, the `IDR-*` rules of closures, boxes, bigs, strings,
+  constants and matches with regions, and the `LOW-*` rules of their
+  lowering, the runtime and JIT mode.
+- Compile-time evaluation runs total code only (`SEM-EVAL-6`). Four
+  programs that evaluated partial code were split (`PROF-GEN-4`), and
+  three reject fixtures became accepts.
+- The compile-time budget (the plan's decision 13) is withdrawn: compile
+  time is measured and reported, never a gate.
+- `IDR-DATA-4`, `PROF-TYPE-4`, `PROF-DATA-3`, `PROF-PRIM-4`,
+  `PROF-HEAP-1` to `-4`: recursive data, `Integer` and strings have
+  representations, and only their dynamic allocation is rejected.
+- The JIT is ORC's `LLJIT`, not `mlir::ExecutionEngine`, which aborts in a
+  static musl process (`PINS.md`: `jit-lljit`).
+
 
 The cleanup after v3 ([the plan](../plan.md), section 9) differed from
 v3's rules as follows:

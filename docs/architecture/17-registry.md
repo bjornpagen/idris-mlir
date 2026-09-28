@@ -109,8 +109,9 @@ flags is switched to the flag.
   `believe_me`, `idris_crash` and `assert_linear` are rejected on the flag,
   where a list of their names once excluded them from admission.
 - `PrimType`, `TDelay`, `TForce` and `TDelayed`, `WorldVal`, and the
-  `ZERO`/`SUCC` constructor flags (`Nat` is compile-time only, and nothing
-  reads them yet).
+  `ZERO`/`SUCC` constructor flags, from which a `Nat`-like type is a big
+  (`IDR-IN-3`, *since the cutover*): `Nat`, `Fin` and any user type of the
+  same shape, never a list of names.
 - The compiler's own names are not Idris knowledge: instance names
   (`nameKey`), the `idris-mlir-binder` markers, the IO root
   `$idris-mlir.root`, and the structure of Idris's case and with blocks
@@ -128,12 +129,12 @@ origin flows through every IR and no pass reads a namespace.
 What each purpose of the compiler makes of each library is one table,
 purpose × library (`Registry/Libraries.idr`):
 
-| Library | Trusted | Admitted | Inline hints | Break last | Report at caller |
-| --- | --- | --- | --- | --- | --- |
-| `Builtin` | yes | yes | yes | yes | yes |
-| `PrimIO` | yes | only what it lists | yes | yes | yes |
-| `Prelude` | yes | yes | yes | no | yes |
-| base's areas | yes | yes | no | no | no |
+| Library | Trusted | Admitted | Break last | Report at caller |
+| --- | --- | --- | --- | --- |
+| `Builtin` | yes | yes | yes | yes |
+| `PrimIO` | yes | only what it lists | yes | yes |
+| `Prelude` | yes | yes | no | yes |
+| base's areas | yes | yes | no | no |
 
 `User` and `Generated` code is in no library.
 - *Trusted*: an IO program may import the module, its source is not lexed,
@@ -143,11 +144,15 @@ purpose × library (`Registry/Libraries.idr`):
   `IORes`, `MkIORes`, `PrimIO`, `IO`, `MkIO`, `prim__io_pure`, `io_pure`,
   `prim__io_bind`, `io_bind`, `fromPrim`, `toPrim`, `unsafePerformIO`,
   `unsafeCreateWorld` and `unsafeDestroyWorld`, and no other definition.
-- *Inline hints*: `%inline` is the author's hint to unfold (`ELIM-G-19`).
+- *Inline hints*: *deleted at the cutover.* `%inline` was the author's hint
+  to unfold (`ELIM-G-19`); the inliner now inlines every legal call, and
+  `%inline` is ignored (`PROF-LIB-2`).
 - *Break last*: a function is chosen as a loop breaker only when its cycle
-  has none from elsewhere (`OPT-PIPE-3`).
+  has none from elsewhere (`OPT-PIPE-3`); `Emit` reads it.
 - *Report at caller*: a diagnostic inside is reported at the user's code
-  that reached it (`DIAG-LOC-1`).
+  that reached it (`DIAG-LOC-1`). *Since the cutover*, `Emit` writes it
+  into MLIR as location metadata (`loc(fused<"library">[...])`,
+  `IDR-LOC-1`), so errors that `idris-mlir-cc` finds follow it too.
 - A trusted library's own totality assertions (`Builtin.assert_total`,
   an escape hatch that changes no value) are trusted (`PROF-ESC-1`); the
   user's are rejected on Idris's flag.
@@ -210,9 +215,10 @@ disagreements are its cells, recorded here for a later decision:
 A hook's results, like Idris's own analyses, become facts about functions,
 each recorded with its provenance (`IdrisMLIR.Facts`; [the
 plan](../plan.md), section 8.3). The record today holds whether a function
-terminates (Idris's totality checker), whether it is a case or with block
-(the structure of Idris's names), and whether it is unfolded as its
-author's `%inline` hint (the library table). The IO root is the
+terminates (Idris's totality checker), which `Emit` writes as `idr.total`
+(`IDR-FACT-1`). *Revised at the cutover:* whether it is a case or with
+block, and whether it is unfolded as its author's `%inline` hint, went with
+the driver that used them (`ELIM-G-19`). The IO root is the
 `ProgramRoot` hook's code, so its facts are the registry's. Rules consume
 facts whatever their provenance.
 
@@ -226,10 +232,11 @@ facts whatever their provenance.
   dialect has no attribute that holds a name, so C++ cannot compare one.
 - C++ that would need an Idris name has that knowledge moved into the
   registry, and `Emit` produces a dedicated op or attribute instead.
-- The extern symbols the runtime implements stay in one C++ table, the
-  `Idr_Helper` traits of `IdrOps.td`, which category 1 mirrors: each
-  `IOCall` hook names an `idr.io` op, and each such op its helper. The two
-  are kept in agreement by review; no test checks it yet.
+- The extern symbols the runtime implements are named after the ops that
+  call them, as the `Idr_CallsRuntime` trait of `IdrOps.td` derives them
+  (`LOW-RT-1`); category 1 mirrors them: each `IOCall` hook names an
+  `idr.io` op, and each such op its runtime function. The two are kept in
+  agreement by review; no test checks it yet.
 
 ## Adding a hook
 

@@ -12,8 +12,8 @@ gone.
 - **TC-PIN-1 (p0).** Every external tool and library the build uses is
   pinned:
   - Idris 2, by the `third_party/Idris2` gitlink;
-  - musl, GMP, simdutf, fast_float and snmalloc, by the gitlinks of their
-    submodules under `third_party/`, which `toolchain.lock.json` records
+  - musl, GMP, simdutf, fast_float, snmalloc and, since the cutover, Ryu,
+    by the gitlinks of their submodules under `third_party/`, which `toolchain.lock.json` records
     too, with their repository, tag or `git describe`, and version;
   - LLVM/MLIR, CMake and Ninja, in `toolchain.lock.json` (schema 4), each
     with the exact version, the source URL, the commit and the tag.
@@ -108,7 +108,8 @@ gone.
 
 - **TC-ZONE-1 (p0).** All MLIR-facing C++ lives in `foreign/idr/`: TableGen
   `.td` files, generated `.inc` files, headers, dialect and pass sources,
-  and the two tools.
+  and the tools (`idris-mlir-opt`, `idris-mlir-cc`, and since the cutover
+  `idris-mlir-reduce`).
   - *Rationale:* MLIR's C++ API requires inheritance (`Dialect`, `Pass`,
     `OpRewritePattern`), CRTP (`Op<…>`), headers, and preprocessor-generated
     code. Under cpp-starter's rules that is quarantine code, "unavoidable
@@ -194,7 +195,10 @@ Each deviation below has a `PINS.md` entry.
   default the archive the build made), keeping only what the program reaches
   and refusing runtime constructors; raises runtime functions to the
   program's CPU; internalizes every symbol but `main`; runs LLVM's O3
-  pipeline without FP contraction; and emits one object.
+  pipeline without FP contraction, and with `MergeFunctions` (*since the
+  cutover*); and emits one object. `idris-mlir-cc` also links the runtime
+  natively, so its folders and `idr-eval`'s JIT call the same functions
+  (`LOW-RT-1`).
   - *planned* (m3): `tests/toolchain/driver`
 - **TC-LINK-2 (p0).** Executables are static PIE for
   `x86_64-unknown-linux-musl`, linked by `lld` with `--gc-sections` and
@@ -211,8 +215,8 @@ Each deviation below has a `PINS.md` entry.
   ```text
   CMakeLists.txt  CMakePresets.json  Makefile  PINS.md  toolchain.lock.json
   compiler/            Idris: frontend, middle end, emitter (idris-mlir)
-  foreign/idr/         C++: idr dialect, passes, idris-mlir-opt, idris-mlir-cc
-  runtime/             C++: the runtime (TC-ZONE-3)
+  foreign/idr/         C++: idr dialect, passes, the JIT, idris-mlir-opt, -cc, -reduce
+  runtime/             C++: the runtime, with a C interface (TC-ZONE-3, LOW-RT-1)
   src/  unsafe/        cpp-starter zones (empty)
   tests/spec/          the spec's rules, the pins, the commands, the layout
   tests/toolchain/     the pinned toolchain and what it builds
@@ -223,6 +227,6 @@ Each deviation below has a `PINS.md` entry.
   tests/mlir/          checks of the pinned upstream tools
   tools/bootstrap.sh   the toolchain; tools/*.sh the other commands' scripts
   docs/architecture/   this spec
-  third_party/         Idris2, musl, gmp, simdutf, fast_float, snmalloc: pinned, unmodified
+  third_party/         Idris2, musl, gmp, simdutf, fast_float, snmalloc, ryu: pinned, unmodified
   ```
   - Test: `tests/spec/layout`

@@ -1,7 +1,10 @@
 # idris-mlir architecture specification
 
-Status: **approved (draft 2).** It governs p0 to v3 (see
-[roadmap](15-roadmap.md)). What comes next is [the plan](../plan.md).
+Status: **approved (draft 2), revised at the cutover.** It governs p0 to v3
+(see [roadmap](15-roadmap.md)), as the cutover compiles them: Idris does
+types, monomorphisation and representations, and MLIR does the program,
+running it at compile time where it is total. What comes next is
+[the plan](../plan.md).
 
 This directory is the normative specification of idris-mlir: a whole-program
 compiler for a versioned, strict subset of Idris 2 (the *profile*). It lowers
@@ -18,7 +21,7 @@ described the "no C++" state.
 | [03-semantics](03-semantics.md) | reference semantics of profile programs | **yes** |
 | [04-frontend](04-frontend.md) | what the compiler reads from Idris and how | |
 | [05-middle-ir](05-middle-ir.md) | the Idris-side IR (`Core`) and its pass order | |
-| [06-elimination](06-elimination.md) | erasure, monomorphisation, the guaranteed eliminations (lambdas, monads, strings) | |
+| [06-elimination](06-elimination.md) | erasure, monomorphisation, and how MLIR removes abstraction: specialization, compile-time evaluation, defunctionalization | |
 | [07-proved-rewrites](07-proved-rewrites.md) | reserved: rewriting with user-proved equalities | |
 | [08-idr-dialect](08-idr-dialect.md) | the `idr` dialect: the Idris ↔ C++ boundary | **yes** |
 | [09-optimization](09-optimization.md) | which optimization runs where, and why | |
@@ -30,6 +33,7 @@ described the "no C++" state.
 | [15-roadmap](15-roadmap.md) | what is done, and how it differed from its plan | |
 | [16-agent-rules](16-agent-rules.md) | how implementation work is divided and constrained | |
 | [17-registry](17-registry.md) | the registry: every library definition the compiler knows, and what it does with each | |
+| [18-ownership](18-ownership.md) | who owns what: every component, its upstream, and whether it is borrowed, ported or ours | |
 
 Read 01, 02, 03 and 08 before any other document. They define what is
 compiled, what it means, and the one interface between the two
@@ -52,7 +56,7 @@ Every normative rule has a stable identifier `<DOC>-<AREA>-<n>`, for example
 | --- | --- |
 | `GOAL` | 01 |
 | `PROF` | 02 |
-| `SEM` | 03 |
+| `SEM`, `EVAL` | 03 (`EVAL-1` is the one rule of the `EVAL` prefix, named for the error it reports) |
 | `FE` | 04 |
 | `CORE` | 05 |
 | `ELIM` | 06 |
@@ -127,7 +131,11 @@ exist only on paper.
   [08-idr-dialect](08-idr-dialect.md). It is the only interface between the
   Idris code and the C++ code.
 - **Frontend.** The Idris code that reads checked TT (`IdrisMLIR.Frontend.*`).
-- **Middle end.** The Idris code that transforms `Core`.
+- **Middle end.** *Since the cutover*, no Idris code transforms `Core`:
+  `Translate` monomorphises while it builds it, and `Emit` writes it. Every
+  transformation of the program is MLIR's ([09](09-optimization.md)).
+- **Simplify loop.** The MLIR passes run to a fixpoint that remove
+  abstraction and evaluate at compile time (`OPT-PIPE-5`).
 
 ## Open questions
 
