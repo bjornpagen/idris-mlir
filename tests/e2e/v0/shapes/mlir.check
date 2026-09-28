@@ -1,17 +1,27 @@
-// TEST-EMIT-1 on the contract the Idris side emits, in MLIR's generic form.
-// rule: TEST-EMIT-1, IDR-MOD-1, IDR-MOD-2, IDR-FN-1, IDR-FN-2, IDR-FN-3, IDR-LOC-1, IDR-DATA-5, IDR-TY-1, IDR-TY-2, FE-LOC-1, CORE-INV-4
-// CHECK: "idr.data"() <{sym_name = "Prog.Shape"}>
+// input: emitted
+// TEST-EMIT-1 on the contract the Idris side emits (docs/cutover.md 10), in
+// the custom syntax of each dialect.
+// rule: TEST-EMIT-1, IDR-MOD-2, IDR-FN-1, IDR-FN-2, IDR-FN-3, IDR-LOC-1, IDR-DATA-5, IDR-TY-1, IDR-TY-2, FE-LOC-1, IDR-MATCH-5
+// The module carries idr.program, and no version, entry or entry kind.
+// CHECK: module attributes {idr.program} {
 // IDR-DATA-5: an Idris name is a NameLoc around the source location.
-// CHECK-NEXT: "idr.ctor"() <{field_types = [i64], quantities = ["w"], sym_name = "Prog.Circle", tag = 0 : i64}> : () -> () loc("Prog.Circle"("Prog.idr":
-// CHECK-NEXT: "idr.ctor"() <{field_types = [i64, i64], quantities = ["w", "w"], sym_name = "Prog.Rect", tag = 1 : i64}> : () -> () loc("Prog.Rect"("Prog.idr":
-// CHECK-NEXT: }) : () -> () loc("Prog.Shape"("Prog.idr":
-// CHECK: "func.func"() <{function_type = () -> i64, sym_name = "Prog.main", sym_visibility = "private"}>
-// CHECK: "idr.con"(%{{[0-9]+}}, %{{[0-9]+}}) <{ctor = @Prog.Shape::@Prog.Rect}>
-// CHECK: %[[E:[0-9]+]] = "idr.erased"() : () -> !idr.erased
-// CHECK: "func.call"(%[[E]], %{{[0-9]+}}) <{callee = @Prog.keep}> : (!idr.erased, i64) -> i64 loc("Prog.idr":26:8)
-// CHECK: }) : () -> () loc("Prog.main"("Prog.idr":
-// CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "w"}], function_type = (!idr.data<@Prog.Shape>) -> i64, sym_name = "Prog.area", sym_visibility = "private"}>
-// CHECK: "idr.tag"
-// CHECK: "cf.switch"
-// CHECK: "func.func"() <{arg_attrs = [{idr.quantity = "0"}, {idr.quantity = "w"}], function_type = (!idr.erased, i64) -> i64, sym_name = "Prog.keep", sym_visibility = "private"}>
-// CHECK: }) {idr.version = 0 : i64, idr.entry = @Prog.main, idr.entry_kind = "int"}
+// CHECK-NEXT: idr.data @Prog.Shape {
+// CHECK-NEXT: idr.ctor @Circle tag 0 (i64) {quantities = ["w"]} loc("Prog.Circle"("Prog.idr":
+// CHECK-NEXT: idr.ctor @Rect tag 1 (i64, i64) {quantities = ["w", "w"]} loc("Prog.Rect"("Prog.idr":
+// CHECK-NEXT: } loc("Prog.Shape"("Prog.idr":
+// The root is the only public function; a main : Int program's is () -> i64.
+// CHECK: func.func @Prog.main() -> i64 {
+// An erased argument is passed as the erased constant.
+// CHECK: %[[E:[0-9]+]] = idr.constant #idr.erased : !idr.erased
+// CHECK: idr.con @Prog.Shape::@Rect(%{{[0-9]+}}, %{{[0-9]+}}) : (i64, i64) -> !idr.data<@Prog.Shape>
+// CHECK: func.call @Prog.keep(%[[E]], %{{[0-9]+}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":
+// CHECK: } loc("Prog.main"("Prog.idr":
+// CHECK: func.func private @Prog.keep(%{{[0-9]+}}: !idr.erased {idr.quantity = "0"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total}
+// CHECK: func.func private @Prog.area(%{{[0-9]+}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.total}
+// CHECK: idr.match %{{[0-9]+}} : !idr.data<@Prog.Shape> -> (i64) {
+// CHECK: case @Circle(%{{[0-9]+}}: i64) {
+// CHECK: case @Rect(%{{[0-9]+}}: i64, %{{[0-9]+}}: i64) {
+// countdown recurses on an Int: Idris does not prove it terminating, so it
+// has no idr.total.
+// CHECK: func.func private @Prog.countdown(%{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 {
+// CHECK: idr.match_lit %{{[0-9]+}} : i64 -> (i64) {

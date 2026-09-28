@@ -1,0 +1,17 @@
+call-pattern: same stdout and exit status
+choice: same stdout and exit status
+compile-time-evaluation: compiles only with evaluation: unsupported (PROF-TYPE-4)
+missing-case: same stdout and exit status
+partial-untaken-divergence: same stdout and exit status
+prelude: same stdout and exit status
+prelude-input: same stdout and exit status
+prelude-io: same stdout and exit status
+prelude-lists: same stdout and exit status
+prelude-math: same stdout and exit status
+prelude-show: same stdout and exit status
+prelude-traverse: same stdout and exit status
+prelude-user-types: same stdout and exit status
+show-values: same stdout and exit status
+specialize-growing-accumulator: same stdout and exit status
+static-evaluation: same stdout and exit status
+vect: same stdout and exit status

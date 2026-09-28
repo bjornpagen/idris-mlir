@@ -2,14 +2,14 @@ module Main
 
 import Prelude
 
--- A recursive function passed a function: the whistle stops unfolding at
--- the recursive call, and the loop is specialized on the closure.
+-- A recursive function passed a function: the loop is specialized on the
+-- closure, one copy per static function argument (ELIM-SPEC-1).
 iter : (Int -> Int) -> Int -> Int -> Int
 iter f 0 x = x
 iter f n x = iter f (prim__sub_Int n 1) (f x)
 
 -- The number comes from stdin, so that the calls are not evaluated at
--- compile time (ELIM-G-19).
+-- compile time (ELIM-EVAL-1).
 partial
 main : IO ()
 main = do

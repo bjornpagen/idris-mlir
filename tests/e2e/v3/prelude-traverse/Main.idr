@@ -1,6 +1,6 @@
 module Main
 
--- rule: SEM-REC-2, ELIM-G-5, PROF-IO-4
+-- rule: SEM-REC-2, ELIM-G-1, ELIM-CLOS-1, PROF-IO-4
 -- The Prelude's Applicative combinators over IO: `(*>)` is
 -- `map (const id) a <*> b`, so running `a` yields an IORes holding a
 -- function. IORes has one constructor, so matching it is not a choice: its

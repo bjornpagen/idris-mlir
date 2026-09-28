@@ -1,13 +1,13 @@
 module Main
 
--- rule: ELIM-G-17, ELIM-G-6, FE-TR-6, SEM-REC-2, PROF-PROG-4
+-- rule: ELIM-EVAL-1, ELIM-G-6, FE-TR-6, SEM-REC-2, PROF-PROG-4
 -- User types with the Prelude's interfaces: Show with showPrec, showCon
 -- and showArg; Eq; Ord through compare; Semigroup and Monoid (concat);
 -- Functor on a recursive tree, summed through Num. Chars and strings are
 -- shown with the Prelude's escapes, whose string primitives on literals
--- fold at compile time, and `show` on a literal Char reached twice is
--- specialized on the literal, since it cannot be built for a runtime Char
--- without an Integer.
+-- fold at compile time, and `show` on a literal Char, a closed call, is
+-- evaluated at compile time (ELIM-G-17, the specialization per literal
+-- this needed before the cutover, is withdrawn).
 
 import Prelude
 

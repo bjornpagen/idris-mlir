@@ -3,7 +3,8 @@
 # the stock Idris Chez backend (the same source), by MLton (bench/sml) and by
 # the pinned clang -O2 (bench/c; static PIE on musl, as our programs), on the
 # same input. Prints a Markdown table of the best
-# of several wall-clock times, and checks that the outputs agree.
+# of several wall-clock times, and checks that the outputs agree; then the
+# wall-clock time this compiler took to compile each program.
 #
 #     bench/run.sh [--runs N] [name ...]
 #
@@ -77,8 +78,11 @@ build() {
   case $1 in
     'this compiler')
       idris_sources "$work/ours"
+      compile_start=$(date +%s%N)
       "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
+      # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
+      echo "$name|$(( $(date +%s%N) - compile_start ))" >> "$compiles"
       ;;
     'Idris Chez')
       idris_sources "$work/chez"
@@ -148,6 +152,8 @@ agree() {
 
 rows=$tmp/rows
 : > "$rows"
+compiles=$tmp/compiles
+: > "$compiles"
 for name in $names; do
   stdin=$(input "$name") || die "unknown benchmark: $name"
   work=$tmp/$name
@@ -191,3 +197,9 @@ awk -F'|' '
     ratio = ($5 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $5 / $3) : "n/a"
     printf "| %s | %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), cell($6), ratio
   }' "$rows"
+echo
+echo "Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link."
+echo
+echo "| benchmark | compile |"
+echo "| --- | ---: |"
+awk -F'|' '{ printf "| %s | %.3f |\n", $1, $2 / 1e9 }' "$compiles"

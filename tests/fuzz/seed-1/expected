@@ -1,0 +1,7 @@
+runtime: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+runtime: each case prints one value, whoever computes it: ok
+runtime: --no-eval prints what evaluation prints: ok
+runtime: Chez prints the same, the libm lines aside: ok
+static: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+static: each case prints one value, whoever computes it: ok
+static: Chez prints the same, the libm lines aside: ok

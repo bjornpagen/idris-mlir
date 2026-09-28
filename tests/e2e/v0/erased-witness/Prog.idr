@@ -1,6 +1,6 @@
 module Prog
 
--- rule: FE-TR-1, SEM-EVAL-3, SEM-Q-1, SEM-Q-2, ELIM-ERASE-2, CORE-INV-5, FE-TR-2
+-- rule: FE-TR-1, SEM-EVAL-3, SEM-Q-1, SEM-Q-2, ELIM-ERASE-2, IDR-FN-1, FE-TR-2
 -- A proof argument and a linear argument: neither has a runtime cost.
 public export
 data LTE : Int -> Int -> Type where
@@ -14,9 +14,10 @@ public export
 linearId : (1 x : Int) -> Int
 linearId x = x
 
--- A loop longer than compile-time evaluation runs (ELIM-G-19): its result
--- is known only at runtime, so clamp and linearId are residual functions
--- with their erased and linear parameters.
+-- A loop on an Int, which Idris does not prove terminating, so it is never
+-- evaluated at compile time (SEM-EVAL-6): its result is known only at
+-- runtime, so clamp and linearId are residual functions with their erased
+-- and linear parameters.
 public export
 countdown : Int -> Int
 countdown 0 = 7

@@ -1,7 +1,7 @@
 module Prog
 
--- rule: IDR-DATA-1, IDR-DATA-2, IDR-DATA-3, IDR-CON-1, IDR-TAG-1, IDR-FIELD-1, IDR-MATCH-1
--- rule: LOW-DATA-1, LOW-DATA-2, LOW-DATA-3, LOW-SWITCH-1, LOW-ERASE-1, CORE-ERASE-1, ELIM-ERASE-3
+-- rule: IDR-DATA-1, IDR-DATA-2, IDR-DATA-3, IDR-CON-1, IDR-TAG-1, IDR-FIELD-1, IDR-MATCH-5
+-- rule: LOW-DATA-1, LOW-DATA-2, LOW-DATA-3, LOW-MATCH-1, LOW-ERASE-1, CORE-ERASE-1, ELIM-ERASE-3
 public export
 data Shape = Circle Int | Rect Int Int
 
@@ -14,8 +14,9 @@ public export
 keep : (0 witness : Int) -> Int -> Int
 keep witness v = v
 
--- A loop longer than compile-time evaluation runs (ELIM-G-19), so its
--- result is known only at runtime and the code below is not folded away.
+-- A loop on an Int, which Idris does not prove terminating, so it is never
+-- evaluated at compile time (SEM-EVAL-6): its result is known only at
+-- runtime and the code below is not folded away.
 public export
 countdown : Int -> Int
 countdown 0 = 6

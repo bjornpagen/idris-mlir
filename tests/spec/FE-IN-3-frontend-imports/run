@@ -1,8 +1,8 @@
 #!/bin/sh
 # rule: FE-IN-3
 # Only IdrisMLIR.Frontend.* imports the Idris compiler: no other module of
-# compiler/src imports a module whose root is a root of the Idris API
-# (third_party/Idris2/idris2api.ipkg).
+# compiler/src, or of the tests, imports a module whose root is a root of
+# the Idris API (third_party/Idris2/idris2api.ipkg).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 roots=$(awk 'found { print; next } /modules/ { found = 1; sub(/^.*modules/, ""); print }' \
           "$root/third_party/Idris2/idris2api.ipkg" |
@@ -12,8 +12,11 @@ case " $roots " in
   *" Core "*) say "the Idris API's module roots include Core" ;;
   *) say "the Idris API's module roots lack Core: $roots" ;;
 esac
-find "$root/compiler/src" -path "$root/compiler/src/IdrisMLIR/Frontend" -prune -o -name '*.idr' -print |
-  sort > "$work/sources"
+# The test programs too: tests/twolevels, which runs Idris's evaluator, is
+# named IdrisMLIR.Frontend.TwoLevels for this reason.
+{ find "$root/compiler/src" -path "$root/compiler/src/IdrisMLIR/Frontend" -prune -o -name '*.idr' -print
+  find "$root/tests" \( -name build -o -path '*/IdrisMLIR/Frontend' \) -prune -o -name '*.idr' -print
+} | sort > "$work/sources"
 : > "$work/imports"
 while IFS= read -r file; do
   sed -n 's/^import[[:space:]]\{1,\}\(public[[:space:]]\{1,\}\)\{0,1\}\([A-Za-z0-9_.][A-Za-z0-9_.]*\).*/\2/p' "$file" |

@@ -1,0 +1,6 @@
+Emit names idr: yes
+Emit names func: yes
+Emit names arith: yes
+Emit names math: yes
+Emit names ub: yes
+op names of other dialects: 0

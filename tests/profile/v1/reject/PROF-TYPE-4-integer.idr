@@ -3,7 +3,7 @@ module Main
 
 import Prelude
 
--- rule: SEM-BIG-1
+-- rule: SEM-EXCL-2
 -- An Integer computed from a value known only at runtime would have to
 -- exist at runtime.
 count : Int -> Integer

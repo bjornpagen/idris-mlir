@@ -104,6 +104,14 @@ middle fc dir src = do
 -- idris-mlir-cc (DRV-CC-2)
 ------------------------------------------------------------------------------
 
+||| `--directive no-eval`: `idris-mlir-cc --no-eval`, which leaves every
+||| closed call to run at runtime (docs/cutover.md, 6.4 and 10). The
+||| equivalence suite (tests/equivalence) compiles each program both ways.
+noEval : {auto c : Ref Ctxt Defs} -> Core (List String)
+noEval = do
+  ds <- getDirectives (Other "mlir")
+  pure (if elem "no-eval" ds then ["--no-eval"] else [])
+
 ||| A location in `idris-mlir-cc`'s text: `file:line:column`, 1-based.
 record Place where
   constructor MkPlace
@@ -257,7 +265,7 @@ compileModule c _ source = do
   write mlirPath mlir
   -- A profile rejection on the optimized module is a user error of
   -- `--check` too, and leaves no artifact (docs/cutover.md, 7.11).
-  ccVerdict fc prog [corePath, mlirPath] !(runCc [mlirPath, "--check"] (mlirPath ++ ".stderr"))
+  ccVerdict fc prog [corePath, mlirPath] !(runCc ([mlirPath, "--check"] ++ !noEval) (mlirPath ++ ".stderr"))
   pure (Just (!(getObjFileName source "mlir"), []))
 
 ------------------------------------------------------------------------------
@@ -335,7 +343,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
   write mlirPath mlir
   -- DRV-FLOW-2: the rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
-  ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps) (base ++ ".cc.stderr"))
+  ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !noEval) (base ++ ".cc.stderr"))
   -- TC-LINK-2: lld links the program's one object (TC-LINK-1) into a
   -- static-PIE executable on musl, whose libc.a also holds the libm functions
   -- of LOW-EXT-1, with GMP as a native archive. The pinned clang's

@@ -1,4 +1,8 @@
-// rule: OPT-PIPE-3
-// One of the two is the component's loop breaker, and only one.
-// CHECK: sym_name = "Main.{{even|odd}}", sym_visibility = "private", no_inline
+// input: emitted
+// rule: OPT-PIPE-3, TEST-EMIT-1
+// Emit marks loop breakers (docs/cutover.md A5): one of the two functions
+// of the cycle, the first in program order, `even`, gets no_inline, and
+// only it.
+// CHECK-NOT: no_inline
+// CHECK: func.func private @Main.even({{.*}}attributes {{[{][^}]*}}no_inline
 // CHECK-NOT: no_inline

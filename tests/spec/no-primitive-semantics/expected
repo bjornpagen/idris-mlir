@@ -1,0 +1,3 @@
+the checks see Translate's conversion of Idris's constants: yes
+the checks see the allowed serializations of literals: yes
+places where compiler/src computes a primitive: 0

@@ -1,0 +1,4 @@
+compile: exit 1
+unsupported (PROF-DATA-3): the only error
+line: as the header says
+artifacts: none

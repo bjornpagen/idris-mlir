@@ -1,5 +1,10 @@
-// rule: CORE-LOOP-1, ELIM-G-19
-// The two IO loops that print the Mandelbrot set are self recursive once
-// case blocks are unfolded, so they are loops, not loop breakers: nothing
-// here is on a cycle of two or more functions.
-// CHECK-NOT: no_inline
+// input: after idr-tail-loops
+// rule: LOW-TAIL-5, LOW-TAIL-4, ELIM-CLOS-1
+// The IO loops that print the Mandelbrot set return actions and call
+// themselves inside them. Once idr-defunctionalize has made their closures
+// sums over labels, and the matches on known labels are folded, they are
+// self tail calls, which idr-tail-loops turns into loops; a loop of a
+// function Idris does not prove terminating carries idr.may_loop.
+// Unverified until idris-mlir-cc exists.
+// CHECK-COUNT-2: scf.while
+// CHECK: idr.may_loop

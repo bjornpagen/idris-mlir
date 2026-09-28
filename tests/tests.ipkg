@@ -4,8 +4,10 @@ brief = "The golden test runner of idris-mlir (docs/plan.md section 9)"
 
 depends = contrib, test
 sourcedir = "."
-modules = Lock
+modules = Fuzz
+        , Lock
         , Sem
         , Spec
+        , TwoLevels
 main = Main
 executable = runtests
