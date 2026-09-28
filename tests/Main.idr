@@ -22,6 +22,10 @@
 |||
 |||     runtests --sem-program <name>   the program of a TEST-SEM-1 test
 |||     runtests --sem-list             the names of the TEST-SEM-1 tests
+|||     runtests --fuzz-program <seed> <cases> runtime|static
+|||                                     a program of the fuzzer (Fuzz.idr)
+|||     runtests --two-levels-program primitives|prelude terms|main
+|||                                     a module of the two levels (TwoLevels.idr)
 |||     runtests --spec <check>         a TEST-SPEC-1 check (Spec.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
@@ -36,9 +40,11 @@ import System.Path
 
 import Test.Golden
 
+import Fuzz
 import Lock
 import Sem
 import Spec
+import TwoLevels
 
 %default covering
 
@@ -93,6 +99,9 @@ suites =
       , pool "determinism: byte-identical artifacts (TEST-DET-1)" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
+      , pool "equivalence: every e2e program with and without compile-time evaluation" ["equivalence"]
+      , pool "fuzz: closed expressions over every primitive, three ways" ["fuzz"]
+      , pool "two levels: Idris's evaluator against the compiled program (SEM-REF-1)" ["two-levels"]
       ])
   , ("test-idr",
       [ versioned "dialect: the idr dialect and its passes (TEST-IDR-1)" "idr" id ])
@@ -120,6 +129,8 @@ runnerUsage : String
 runnerUsage = unlines
   [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list] [Test.Golden options]"
   , "       runtests --sem-program <name> | --sem-list | --spec <check> | --lock"
+  , "       runtests --fuzz-program <seed> <cases> runtime|static"
+  , "       runtests --two-levels-program primitives|prelude terms|main"
   , Test.Golden.usage
   ]
 
@@ -156,6 +167,12 @@ main = do
     ["--sem-program", name] =>
       maybe (die ("no TEST-SEM-1 test " ++ name)) putStr (programOf name)
     ["--sem-list"] => traverse_ putStrLn names
+    ("--fuzz-program" :: fuzz) =>
+      maybe (die "usage: runtests --fuzz-program <seed> <cases> runtime|static") putStr
+            (Fuzz.programOf fuzz)
+    ("--two-levels-program" :: which) =>
+      maybe (die "usage: runtests --two-levels-program primitives|prelude terms|main") putStr
+            (TwoLevels.programOf which)
     ["--spec", name] => Spec.check !root name
     ["--lock"] => Lock.check !root
     rest => runSuites (fromMaybe "runtests" (head' args)) rest

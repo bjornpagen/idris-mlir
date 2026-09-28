@@ -1,0 +1,14 @@
+absurd-body: same stdout and exit status
+crash-div-zero: same stdout and exit status
+crash-location: same stdout and exit status
+crash-mod-zero: same stdout and exit status
+enum-stepping: same stdout and exit status
+erased-witness: same stdout and exit status
+impossible-branch: same stdout and exit status
+literal-match: same stdout and exit status
+mixed-widths: same stdout and exit status
+mutual-recursion: same stdout and exit status
+records: same stdout and exit status
+shapes: same stdout and exit status
+tail-loop-deep: same stdout and exit status
+void-field: same stdout and exit status
