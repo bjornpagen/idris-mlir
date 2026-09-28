@@ -7,16 +7,19 @@
 // leaf. An erased argument is always a hole: erased is not constant. A call
 // is specialized when some argument has a static shape and some non-erased
 // argument has a runtime leaf; a closed call is left to idr-eval, and is
-// never specialized (7.4). The clone for (callee, patterns) substitutes each
-// static shape into the callee's body, and its parameters are the runtime
-// leaves in order. Clones are shared through that key, named
+// never specialized (7.4). The clone substitutes each static shape into the
+// callee's body, and its parameters are the runtime leaves in order. Its key
+// is the patterns of its origin's parameters: a call of a clone composes the
+// clone's key with its own patterns, so keys of all the clones of one origin
+// are comparable. Clones are shared through (origin, key), kept on each
+// clone as idr.spec_key, and named
 // `@<origin>$spec$<n>` with n counting the origin's clones in the order they
 // are first requested (FE-DET-1), and appended to the module, so the walk
 // over the module's functions reaches them and specializes their calls in
 // turn, until no call is left to specialize.
 //
 // In a clone's call of its own origin, a static argument that changed and
-// that the callee never takes apart is generalized to a runtime value (an
+// that the callee never branches on is generalized to a runtime value (an
 // accumulator: `run (n - 1) (advance s)`); one it matches on keeps its value
 // (a counter). Each clone is canonicalized when it is made, so a chain of
 // clones on a counter is made in one run.
@@ -24,8 +27,8 @@
 // Two things stop a specialization. A clone that calls its own origin with
 // static arguments that grow, each the clone's own pattern or containing it
 // and one strictly (`iter (\y => f (f y))`), would clone forever, so the call
-// stays; each clone keeps the patterns it was made for (idr.spec_key), so
-// that later rounds see the growth too. And the clone limit, counted per original callee over the whole
+// stays; later rounds see the growth too, through idr.spec_key. And the
+// clone limit, counted per original callee over the whole
 // compilation (the count is kept on the module as idr.clone_counts, so that
 // rounds of idr-simplify share it), bounds what growth in other shapes
 // makes. A stopped call gets a Missed remark; it and its callee get
@@ -66,6 +69,7 @@ constexpr StringLiteral cloneCounts = "idr.clone_counts";
 constexpr StringLiteral originAttr = "idr.origin";
 constexpr StringLiteral stopped = "idr.spec_stopped";
 constexpr StringLiteral keyAttr = "idr.spec_key";
+constexpr StringLiteral holeAttr = "idr.hole";
 
 // One argument of a call: its pattern and its runtime leaves, in order.
 //
@@ -80,7 +84,15 @@ struct Shape {
 
 bool isHole(Attribute pattern) { return isa<UnitAttr>(pattern); }
 bool isNode(Attribute pattern) { return isa<ArrayAttr>(pattern); }
-bool isConstant(Attribute pattern) { return !isHole(pattern) && !isNode(pattern); }
+// In a clone's key, a hole whose parameter remove-dead-values erased: the
+// clone never reads that value.
+bool isUnused(Attribute pattern) {
+  auto ref = dyn_cast<FlatSymbolRefAttr>(pattern);
+  return ref && ref.getValue() == "idr.unused";
+}
+bool isConstant(Attribute pattern) {
+  return !isHole(pattern) && !isNode(pattern) && !isUnused(pattern);
+}
 
 // The ops a static shape is built from; anything else is a runtime leaf.
 bool isShapeOp(Value value) {
@@ -192,6 +204,8 @@ struct Specializer {
   llvm::DenseMap<std::pair<StringAttr, ArrayAttr>, func::FuncOp> clones;
   llvm::StringMap<int64_t> counts;
   std::optional<FrozenRewritePatternSet> canon;
+  // idr.spec_key texts, parsed.
+  llvm::DenseMap<StringAttr, ArrayAttr> parsed;
   SmallVector<func::FuncOp> work;
   bool changed = false;
 
@@ -243,6 +257,14 @@ struct Specializer {
                             quantityOf(leaf.getType()))}));
         locs.push_back(leaf.getLoc());
       }
+    }
+    // Each parameter records which hole of the key it is (idr.hole), so the
+    // key still holds after remove-dead-values erases some of them.
+    for (auto [hole, dict] : llvm::enumerate(attrs)) {
+      NamedAttrList list(dict);
+      list.set(holeAttr, IntegerAttr::get(IntegerType::get(clone.getContext(), 64),
+                                          static_cast<int64_t>(hole)));
+      dict = list.getDictionary(clone.getContext());
     }
     (void)clone.insertArguments(at, types, attrs, locs);
 
@@ -316,63 +338,177 @@ struct Specializer {
     return found;
   }
 
-  // The patterns `clone` was made for, kept as text in idr.spec_key: as
-  // attributes, the closure labels in them would be symbol uses, and keep
-  // functions alive that symbol-dce should remove.
-  static ArrayAttr patternsOf(func::FuncOp clone) {
-    auto text = clone ? clone->getAttrOfType<StringAttr>(keyAttr) : StringAttr();
-    return text ? dyn_cast_or_null<ArrayAttr>(parseAttribute(text.getValue(), clone.getContext()))
-                : ArrayAttr();
+  // The patterns of `fn`'s parameters as values of its origin's: a clone's
+  // key, kept as text in idr.spec_key (as attributes, the closure labels in
+  // them would be symbol uses, and keep functions alive that symbol-dce
+  // should remove), or a hole per parameter for a function that is no clone.
+  // The key `fn` was made for, if it still holds: once remove-dead-values
+  // erases parameters of a clone, its key has more holes than the clone has
+  // parameters, and says nothing about the rest.
+  std::optional<ArrayAttr> storedKey(func::FuncOp fn) {
+    auto text = fn->getAttrOfType<StringAttr>(keyAttr);
+    if (!text)
+      return std::nullopt;
+    ArrayAttr &key = parsed[text];
+    if (!key)
+      key = dyn_cast_or_null<ArrayAttr>(parseAttribute(text.getValue(), fn.getContext()));
+    if (!key)
+      return std::nullopt;
+    // The holes whose parameters remain, in order.
+    llvm::DenseSet<int64_t> live;
+    int64_t last = -1;
+    for (unsigned i = 0; i < fn.getNumArguments(); ++i) {
+      auto hole = fn.getArgAttrOfType<IntegerAttr>(i, holeAttr);
+      if (!hole || hole.getInt() <= last)
+        return std::nullopt;
+      last = hole.getInt();
+      live.insert(last);
+    }
+    int64_t next = 0;
+    SmallVector<Attribute> parts;
+    for (Attribute part : key)
+      parts.push_back(retire(part, live, next));
+    if (last >= next)
+      return std::nullopt;
+    return ArrayAttr::get(fn.getContext(), parts);
   }
 
-  // Whether a call in `caller` to the same origin passes static arguments
-  // that grow: each is the caller's own pattern or contains it, and one
-  // strictly.
-  bool grows(func::FuncOp caller, func::FuncOp callee, ArrayRef<Attribute> patterns) {
-    if (!caller || origin(caller) != origin(callee))
+  // `part` with each hole whose number is not in `live` marked unused.
+  static Attribute retire(Attribute part, const llvm::DenseSet<int64_t> &live, int64_t &next) {
+    if (isHole(part))
+      return live.contains(next++) ? part
+                                   : FlatSymbolRefAttr::get(part.getContext(), "idr.unused");
+    auto node = dyn_cast<ArrayAttr>(part);
+    if (!node)
+      return part;
+    SmallVector<Attribute> parts;
+    for (Attribute inner : cast<ArrayAttr>(node[2]))
+      parts.push_back(retire(inner, live, next));
+    return ArrayAttr::get(part.getContext(), {node[0], node[1], ArrayAttr::get(part.getContext(), parts)});
+  }
+
+  // The patterns of `fn`'s parameters as values of its origin's, or a hole
+  // per parameter for a function that is no clone.
+  ArrayAttr keyOf(func::FuncOp fn) {
+    if (std::optional<ArrayAttr> key = storedKey(fn))
+      return *key;
+    MLIRContext *ctx = fn.getContext();
+    return ArrayAttr::get(ctx, SmallVector<Attribute>(fn.getNumArguments(), UnitAttr::get(ctx)));
+  }
+
+  // Whether calls of `fn` are keyed by its origin: it is no clone, or a
+  // clone whose key holds.
+  bool keyed(func::FuncOp fn) { return !fn->hasAttr(originAttr) || storedKey(fn); }
+
+  // The runtime leaves of a pattern.
+  static unsigned holes(Attribute pattern) {
+    if (isHole(pattern))
+      return 1;
+    auto node = dyn_cast<ArrayAttr>(pattern);
+    unsigned n = 0;
+    if (node)
+      for (Attribute part : cast<ArrayAttr>(node[2]))
+        n += holes(part);
+    return n;
+  }
+
+  // `part`, a pattern of a callee's key, with its holes filled in order by
+  // `args`, the patterns of a call of it; a node whose parts all become
+  // constants is the constant it folds to, as shape() makes it.
+  static Attribute fill(Attribute part, ArrayRef<Attribute> args, size_t &next) {
+    if (isHole(part))
+      return args[next++];
+    auto node = dyn_cast<ArrayAttr>(part);
+    if (!node)
+      return part;
+    MLIRContext *ctx = part.getContext();
+    SmallVector<Attribute> parts;
+    for (Attribute inner : cast<ArrayAttr>(node[2]))
+      parts.push_back(fill(inner, args, next));
+    auto array = ArrayAttr::get(ctx, parts);
+    if (!llvm::all_of(parts, isConstant))
+      return ArrayAttr::get(ctx, {node[0], node[1], array});
+    if (cast<StringAttr>(node[0]).getValue() == "con")
+      return idr::ConAttr::get(ctx, cast<SymbolRefAttr>(node[1]), array);
+    return idr::ClosureAttr::get(ctx, cast<FlatSymbolRefAttr>(node[1]), array);
+  }
+
+  // The key of a call of `callee` with `patterns`: the patterns of its
+  // origin's parameters. Keys of calls of an origin and of its clones are
+  // comparable, and a clone made for one is shared by the other.
+  ArrayAttr compose(func::FuncOp callee, ArrayRef<Attribute> patterns) {
+    size_t next = 0;
+    SmallVector<Attribute> out;
+    for (Attribute part : keyOf(callee))
+      out.push_back(fill(part, patterns, next));
+    return ArrayAttr::get(callee.getContext(), out);
+  }
+
+  // Whether a call in `caller`, a clone of the callee's origin, passes static
+  // arguments that grow: each is the caller's own pattern or contains it,
+  // and one strictly.
+  bool grows(func::FuncOp caller, func::FuncOp callee, ArrayAttr key) {
+    if (!caller || !storedKey(caller) || origin(caller) != origin(callee))
       return false;
-    ArrayAttr own = patternsOf(caller);
-    if (!own || own.size() != patterns.size())
+    ArrayAttr own = keyOf(caller);
+    if (own.size() != key.size())
       return false;
     bool strictly = false;
-    for (auto [before, after] : llvm::zip(own.getValue(), patterns)) {
+    for (auto [before, after] : llvm::zip(own.getValue(), key.getValue())) {
       if (before == after)
         continue;
-      if (isHole(before) || isHole(after) || !within(before, after))
+      if (isHole(before) || isUnused(before) || isHole(after) || !within(before, after))
         return false;
       strictly = true;
     }
     return strictly;
   }
 
-  // Whether argument `i` of `fn` is taken apart in its body: the scrutinee
-  // of a match, or a closure it applies.
+  // Whether `fn` branches on argument `i` in its body: the scrutinee of a
+  // match with more than one region, or a closure it applies. (A match of
+  // one region only takes a record apart.)
   static bool scrutinized(func::FuncOp fn, unsigned i) {
     return llvm::any_of(fn.getArgument(i).getUses(), [](OpOperand &use) {
-      return use.getOperandNumber() == 0 &&
-             isa<idr::MatchOp, idr::MatchLitOp, idr::ApplyOp>(use.getOwner());
+      Operation *user = use.getOwner();
+      if (use.getOperandNumber() != 0)
+        return false;
+      if (isa<idr::ApplyOp>(user))
+        return true;
+      return isa<idr::MatchOp, idr::MatchLitOp>(user) && user->getNumRegions() > 1;
     });
   }
 
   // In a clone's call of its own origin, a static argument that is not the
-  // clone's own pattern, and that the callee never takes apart, only varies
+  // clone's own pattern, and that the callee never branches on, only varies
   // (an accumulator): specializing on it would clone once per value, and
   // gain nothing the callee could fold. It becomes a runtime value, as in
   // the generalization of an offline partial evaluator. An argument the
   // callee matches on (a counter, `ack`'s m) keeps its value.
   void generalize(func::FuncOp caller, func::FuncOp callee, MutableArrayRef<Shape> shapes,
                   ValueRange operands) {
-    if (!caller || origin(caller) != origin(callee))
+    if (!caller || !storedKey(caller) || origin(caller) != origin(callee) ||
+        !keyed(callee))
       return;
-    ArrayAttr own = patternsOf(caller);
-    if (!own || own.size() != shapes.size())
+    ArrayAttr own = keyOf(caller), calleeKey = keyOf(callee);
+    if (own.size() != calleeKey.size())
       return;
-    for (unsigned i = 0; i < shapes.size(); ++i) {
-      Shape &s = shapes[i];
-      if (isHole(s.pattern) || s.pattern == own[i] || scrutinized(callee, i))
-        continue;
-      s.pattern = UnitAttr::get(module.getContext());
-      s.leaves.assign({operands[i]});
+    // Each position of the origin covers a run of the callee's parameters:
+    // one where the callee's key has a hole, the holes of a node otherwise.
+    SmallVector<Attribute> patterns =
+        llvm::map_to_vector(shapes, [](const Shape &s) { return s.pattern; });
+    unsigned first = 0;
+    for (auto [part, before] : llvm::zip(calleeKey.getValue(), own.getValue())) {
+      unsigned n = holes(part);
+      size_t next = first;
+      Attribute after = fill(part, patterns, next);
+      bool varies = after != before && after != part;
+      for (unsigned p = first; varies && p < first + n; ++p)
+        varies = !scrutinized(callee, p);
+      for (unsigned p = first; varies && p < first + n; ++p) {
+        shapes[p].pattern = UnitAttr::get(module.getContext());
+        shapes[p].leaves.assign({operands[p]});
+      }
+      first += n;
     }
   }
 
@@ -411,11 +547,16 @@ struct Specializer {
 
     SmallVector<Attribute> patterns =
         llvm::map_to_vector(shapes, [](const Shape &s) { return s.pattern; });
-    auto key = std::make_pair(call.getCalleeAttr().getAttr(),
-                              ArrayAttr::get(module.getContext(), patterns));
+    // Keyed by the origin, or, for a clone whose key no longer holds, by the
+    // clone itself, whose parameters the patterns are.
+    auto key = keyed(callee)
+                   ? std::make_pair(StringAttr::get(module.getContext(), origin(callee)),
+                                    compose(callee, patterns))
+                   : std::make_pair(callee.getSymNameAttr(),
+                                    ArrayAttr::get(module.getContext(), patterns));
     func::FuncOp clone = clones.lookup(key);
     if (!clone) {
-      if (grows(caller, callee, patterns)) {
+      if (grows(caller, callee, key.second)) {
         stop(call, callee,
              llvm::formatv("@{0} passes itself a static value that grows", origin(callee)).str());
         return false;
@@ -429,10 +570,13 @@ struct Specializer {
       }
       clone = makeClone(callee, shapes, call.getOperands());
       clones[key] = clone;
-      std::string text;
-      llvm::raw_string_ostream os(text);
-      key.second.print(os);
-      clone->setAttr(keyAttr, StringAttr::get(module.getContext(), text));
+      clone->removeAttr(keyAttr);
+      if (keyed(callee)) {
+        std::string text;
+        llvm::raw_string_ostream os(text);
+        key.second.print(os);
+        clone->setAttr(keyAttr, StringAttr::get(module.getContext(), text));
+      }
       // Folded now, so that the calls it makes are as static as they will
       // be, and a chain of clones is made in one run, not one per round.
       (void)applyPatternsGreedily(clone, canonicalization());
@@ -455,6 +599,9 @@ struct Specializer {
 
   void run() {
     loadCounts();
+    for (auto fn : module.getOps<func::FuncOp>())
+      if (std::optional<ArrayAttr> key = storedKey(fn))
+        clones[{StringAttr::get(module.getContext(), origin(fn)), *key}] = fn;
     llvm::append_range(work, module.getOps<func::FuncOp>());
     for (size_t i = 0; i < work.size(); ++i) {
       SmallVector<func::CallOp> calls;

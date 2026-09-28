@@ -429,6 +429,9 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
                                                    unsigned argIndex,
                                                    NamedAttribute attr) {
   auto fn = dyn_cast<FunctionOpInterface>(op);
+  // idr-specialize numbers a clone's parameters by the holes of its key.
+  if (attr.getName().getValue() == "idr.hole" && fn && isa<IntegerAttr>(attr.getValue()))
+    return success();
   if (attr.getName().getValue() != "idr.quantity" || !fn)
     return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
   auto quantity = dyn_cast<StringAttr>(attr.getValue());
