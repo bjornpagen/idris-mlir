@@ -257,8 +257,8 @@ LogicalResult verifyProgram(ModuleOp module) {
     marks[data] = Mark::Done;
     return success();
   };
-  for (auto &entry : datas)
-    if (failed(visit(entry.second)))
+  for (auto data : module.getOps<DataOp>())
+    if (failed(visit(data)))
       return failure();
   return success();
 }

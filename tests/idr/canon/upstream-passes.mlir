@@ -1,0 +1,88 @@
+// RUN: idris-mlir-opt %s -split-input-file --remove-dead-values | FileCheck %s --check-prefix=RDV
+// RUN: idris-mlir-opt %s -split-input-file --inline | FileCheck %s --check-prefix=INLINE
+// rule: IDR-IF-1, IDR-MATCH-5, IDR-CLOS-1, IDR-CRASH-1, ELIM-ERASE-1
+// Upstream's remove-dead-values and inline work on matches and closures. A
+// function whose body is a crash is not inlined: the inliner cannot handle
+// the ub.unreachable after it (DialectInlinerInterface.td, handleTerminator).
+// Every private function here has a caller: remove-dead-values at the pin
+// erases the arguments of a private function without callers but keeps the
+// region ops that use them, and then crashes (RemoveDeadValues.cpp:649 and
+// :833), with scf.index_switch as well; the pipeline runs symbol-dce after it.
+
+module attributes {idr.program} {
+  idr.data @Maybe {
+    idr.ctor @Nothing tag 0 () {quantities = []}
+    idr.ctor @Just tag 1 (i64) {quantities = ["w"]}
+  }
+  func.func private @inc(%k: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64
+      attributes {idr.total} {
+    %r = arith.addi %k, %x : i64
+    return %r : i64
+  }
+  func.func private @fail(%x: i64 {idr.quantity = "w"}) -> i64 {
+    idr.crash "unhandled input for fail"
+    ub.unreachable
+  }
+  // RDV-LABEL: func.func private @get(
+  // RDV-SAME: %{{.*}}: !idr.data<@Maybe> {idr.quantity = "w"}, %[[D:.*]]: i64 {idr.quantity = "w"}) -> i64 {
+  // RDV: %[[R:.*]] = idr.match %{{.*}} : !idr.data<@Maybe> -> (i64) {
+  // RDV: idr.apply
+  // RDV: default {
+  // RDV-NEXT: call @fail()
+  // RDV: return %[[R]] : i64
+  func.func private @get(%m: !idr.data<@Maybe> {idr.quantity = "w"}, %d: i64 {idr.quantity = "w"},
+                         %unused: i64 {idr.quantity = "w"}) -> (i64, i64) {
+    %r, %s = idr.match %m : !idr.data<@Maybe> -> (i64, i64) {
+    case @Just(%x: i64) {
+      %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
+      %y = idr.apply %c(%d) : !idr.fn<(i64) -> (i64)>
+      idr.yield %y, %unused : i64, i64
+    }
+    default {
+      %f = func.call @fail(%d) : (i64) -> i64
+      idr.yield %f, %d : i64, i64
+    }
+    }
+    return %r, %s : i64, i64
+  }
+  // INLINE-LABEL: func.func private @fail(
+  // INLINE-LABEL: func.func @main
+  // INLINE-NEXT: %[[C:.*]] = arith.constant 8 : i64
+  // INLINE-NEXT: return %[[C]] : i64
+  // RDV-LABEL: func.func @main
+  // RDV: call @get(%{{.*}}, %{{.*}}) : (!idr.data<@Maybe>, i64) -> i64
+  func.func @main() -> i64 {
+    %n = arith.constant 4 : i64
+    %m = idr.con @Maybe::@Just(%n) : (i64) -> !idr.data<@Maybe>
+    %r, %s = func.call @get(%m, %n, %n) : (!idr.data<@Maybe>, i64, i64) -> (i64, i64)
+    return %r : i64
+  }
+}
+
+// -----
+
+module {
+  func.func private @fail(%x: i64 {idr.quantity = "w"}) -> i64 {
+    idr.crash "unhandled input for fail"
+    ub.unreachable
+  }
+  // INLINE-LABEL: func.func @crash_stays
+  // INLINE: idr.match_lit
+  // INLINE: default {
+  // INLINE-NEXT: call @fail
+  // RDV-LABEL: func.func @crash_stays
+  // RDV: default {
+  // RDV-NEXT: call @fail()
+  func.func @crash_stays(%x: i64 {idr.quantity = "w"}) -> i64 {
+    %r = idr.match_lit %x : i64 -> (i64) {
+    case 0 {
+      idr.yield %x : i64
+    }
+    default {
+      %f = func.call @fail(%x) : (i64) -> i64
+      idr.yield %f : i64
+    }
+    }
+    return %r : i64
+  }
+}
