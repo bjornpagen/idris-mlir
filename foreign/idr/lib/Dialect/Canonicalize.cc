@@ -35,7 +35,7 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
     if (!fn || constant.getCaptures().size() > fn.getNumArguments())
       return failure();
     auto captures = llvm::zip(constant.getCaptures(), fn.getArgumentTypes());
-    Dialect *idr = apply->getDialect();
+    Dialect *dialect = apply->getDialect();
     if (!llvm::all_of(captures, [](auto capture) {
           auto [value, type] = capture;
           return ConstantOp::isBuildableWith(value, type) ||
@@ -44,7 +44,7 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
       return failure();
     for (auto [value, type] : captures)
       operands.push_back(
-          idr->materializeConstant(rewriter, value, type, apply.getLoc())->getResult(0));
+          dialect->materializeConstant(rewriter, value, type, apply.getLoc())->getResult(0));
   } else {
     return failure();
   }
@@ -65,7 +65,8 @@ template <typename Match>
 Match rebuildMatch(PatternRewriter &rewriter, Match op, TypeRange types,
                    ArrayRef<Attribute> cases, ArrayRef<Region *> regions) {
   auto fresh = Match::create(rewriter, op.getLoc(), types, op.getScrutinee(),
-                             rewriter.getArrayAttr(cases), regions.size());
+                             rewriter.getArrayAttr(cases),
+                             static_cast<unsigned>(regions.size()));
   fresh->setDiscardableAttrs(op->getDiscardableAttrDictionary());
   for (auto [to, from] : llvm::zip(fresh.getRegions(), regions))
     rewriter.inlineRegionBefore(*from, to, to.end());
@@ -213,11 +214,11 @@ struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
     auto dropped = static_cast<unsigned>(it - op.getCases().begin());
     SmallVector<Attribute> cases;
     SmallVector<Region *> regions;
-    for (auto [index, region] : llvm::enumerate(op.getRegions()))
+    for (unsigned index = 0, count = op->getNumRegions(); index < count; ++index)
       if (index != dropped) {
         if (index < op.getCases().size())
           cases.push_back(op.getCases()[index]);
-        regions.push_back(&region);
+        regions.push_back(&op->getRegion(index));
       }
     rewriter.replaceOp(op, rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
     return success();

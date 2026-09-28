@@ -129,10 +129,14 @@ bool idr::isFieldType(Type type) {
 // Lookup helpers
 //===----------------------------------------------------------------------===//
 
+FlatSymbolRefAttr idr::getSumName(Type type) {
+  return TypeSwitch<Type, FlatSymbolRefAttr>(type)
+      .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
+      .Default([](Type) { return nullptr; });
+}
+
 DataOp idr::lookupData(Operation *from, Type type) {
-  auto name = TypeSwitch<Type, FlatSymbolRefAttr>(type)
-                  .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
-                  .Default([](Type) { return nullptr; });
+  FlatSymbolRefAttr name = getSumName(type);
   if (!name)
     return nullptr;
   return SymbolTable::lookupNearestSymbolFrom<DataOp>(from, name);
@@ -247,13 +251,15 @@ LogicalResult verifyProgram(ModuleOp module) {
                               "type must be declared box (IDR-DATA-4)");
     if (!fresh)
       return success();
-    for (auto ctor : data.getBody().front().getOps<CtorOp>())
-      for (Attribute field : ctor.getFieldTypes()) {
+    for (auto ctor : data.getBody().getOps<CtorOp>()) {
+      ArrayAttr fields = ctor.getFieldTypesAttr();
+      for (Attribute field : fields ? fields.getValue() : ArrayRef<Attribute>()) {
         auto type = dyn_cast<TypeAttr>(field);
         auto sum = type ? dyn_cast<DataType>(type.getValue()) : nullptr;
         if (sum && failed(visit(datas.lookup(sum.getName().getAttr()))))
           return failure();
       }
+    }
     marks[data] = Mark::Done;
     return success();
   };
@@ -283,7 +289,7 @@ bool exclusiveRegions(RegionBranchOpInterface branch) {
 // blocks, which the contract does not produce, counts every use in it.
 class WorldUses {
 public:
-  explicit WorldUses(Value world) : world(world) {
+  explicit WorldUses(Value value) : world(value) {
     Region *home = world.getParentRegion();
     for (OpOperand &use : world.getUses())
       for (Operation *op = use.getOwner(); op; op = op->getParentOp()) {
@@ -332,8 +338,8 @@ private:
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
     bool exclusive = branch && exclusiveRegions(branch);
     unsigned regions = 0;
-    for (auto [index, region] : llvm::enumerate(op->getRegions())) {
-      unsigned uses = count(region);
+    for (unsigned index = 0, e = op->getNumRegions(); index < e; ++index) {
+      unsigned uses = count(op->getRegion(index));
       if (uses && !exclusive && branch && branch.isRepetitiveRegion(index))
         uses = 2;
       regions = exclusive ? std::max(regions, uses) : regions + uses;
@@ -376,18 +382,18 @@ LogicalResult verifyWorlds(FunctionOpInterface fn) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute attr) {
-  StringRef name = attr.getName().getValue();
-  if (name == "idr.program") {
+  StringRef key = attr.getName().getValue();
+  if (key == "idr.program") {
     if (!isa<ModuleOp>(op) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects idr.program as a unit attribute of the module");
     return verifyProgram(cast<ModuleOp>(op));
   }
-  if (name == "idr.total" || name == "idr.may_crash") {
+  if (key == "idr.total" || key == "idr.may_crash") {
     if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
-      return op->emitOpError("expects ") << name << " as a unit attribute of a function";
+      return op->emitOpError("expects ") << key << " as a unit attribute of a function";
     return success();
   }
-  if (name == "idr.effect") {
+  if (key == "idr.effect") {
     auto effect = dyn_cast<StringAttr>(attr.getValue());
     if (!isa<func::FuncOp>(op) || !effect ||
         !llvm::is_contained({"pure", "effectful"}, effect.getValue()))
