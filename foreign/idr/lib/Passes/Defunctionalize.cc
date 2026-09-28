@@ -12,15 +12,34 @@
 // `idr.apply` that may call it, and an `idr.apply` gets the results of every
 // label it may call.
 //
-// A closure type is converted when every value of it has known labels and
-// the captures of those labels do not contain the type again through
-// unboxed data or other converted closure types (the sum would be infinite).
-// Its values then belong to a new unboxed sum `@fn$<n>`, numbered by first
-// appearance, with one constructor per label whose fields are the captures:
-// `idr.closure @f(...)` becomes `idr.con @fn$n::@f(...)`, a closure constant
-// the matching constructor constant, and `idr.apply` an `idr.match` over
-// the labels the callee may hold, each region calling its label. Other
-// closure types are left alone, and idr-check-profile rejects their closures.
+// Sums are keyed by (closure type, label set), not by type alone. Every
+// slot that holds a closure (a value, a function argument or result, a
+// field of a constructor) has the key of its type and the labels the
+// analysis found for it; a closure or constant used only where one larger
+// set is expected takes that set. A key is converted when its labels are
+// known, not empty and fit the type, and it is on no cycle of "a capture
+// of one of its labels holds, directly or through unboxed data, a value of
+// key K". Only such a cycle makes the sum infinite: a closure of type T
+// may capture another closure of type T when the captured one holds other
+// labels (a state monad's bind captures a bind of different lambdas).
+// A converted key's values belong to a new unboxed sum `@fn$<n>`, numbered
+// by first appearance in the module (FE-DET-1), with one constructor per
+// label whose fields are the label's captures, each with the key of that
+// capture (the label's entry argument): `idr.closure @f(...)` becomes
+// `idr.con @fn$n::@f(...)`, a closure constant the matching constructor
+// constant, and `idr.apply` an `idr.match` over the labels the callee may
+// hold, each region calling its label.
+//
+// Where a value flows from a slot into one of another key (call operand to
+// argument, return to result, yield to match result, field, capture, and
+// through a rewritten apply to and from its labels), a coercion is
+// inserted: an `idr.match` that rebuilds each label in the other sum, or as
+// an `idr.closure` when the other key stays a closure. A value the analysis
+// never reaches (the empty set) becomes `ub.poison`. A key stays a closure
+// when a value can reach it only as a closure, and then every label that
+// can reach it keeps the closure type's signature: its argument and result
+// slots of closure type stay closures too. idr-check-profile rejects the
+// closures that remain.
 
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
@@ -29,7 +48,6 @@
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/SymbolTable.h"
 
@@ -373,66 +391,348 @@ private:
 // The conversion
 //===----------------------------------------------------------------------===//
 
-// What the analysis found about one closure type.
-struct Closures {
-  bool unknown = false;
-  SmallVector<StringAttr> labels;
-  idr::DataType sum;
+// The key of a slot: its closure type and the labels it may hold, sorted by
+// name, or null labels when they are unknown. A null type means the slot
+// holds no closure.
+using Key = std::pair<idr::FnType, ArrayAttr>;
 
-  void add(const Labels &more) {
-    Labels all = Labels::join(Labels{unknown, labels}, more);
-    unknown = all.unknown;
-    labels = all.names;
-  }
+bool isEmpty(const Key &key) { return key.second && key.second.empty(); }
+
+// Whether every label of `a` is one of `b`'s.
+bool within(const Key &a, const Key &b) {
+  return a.second && b.second && llvm::all_of(a.second, [&](Attribute label) {
+           return llvm::is_contained(b.second, label);
+         });
+}
+
+// A value moves from a slot of `from` into a slot of `to`.
+struct Flow {
+  Key from, to;
 };
 
+// Operand `index` of `user` moves into a slot of `to`.
+struct Sink {
+  Operation *user;
+  unsigned index;
+  Key to;
+};
+
+size_t arity(idr::FnType type) { return type.getInputs().size(); }
+
 struct Converter {
-  Converter(Module &closures, DataFlowSolver &dataflow) : module(closures), solver(dataflow) {}
+  Converter(Module &closures, DataFlowSolver &dataflow)
+      : module(closures), solver(dataflow), ctx(closures.op.getContext()) {}
 
   Module &module;
   DataFlowSolver &solver;
-  llvm::MapVector<idr::FnType, Closures> types;
+  MLIRContext *ctx;
 
+  // The keys of closure values (entry arguments included), of function
+  // results and of fields.
+  llvm::DenseMap<Value, Key> values;
+  llvm::DenseMap<Operation *, SmallVector<Key>> results;
+  llvm::DenseMap<std::tuple<StringAttr, StringAttr, unsigned>, Key> fields;
+  // Every key by first appearance, with its sum once numbered.
+  llvm::MapVector<Key, idr::DataType> keys;
+  llvm::DenseSet<Key> converted;
+
+  SmallVector<Sink> sinks;
+  SmallVector<Flow> flows;
+  // A closure op or constant of a label in a slot of a key.
+  SmallVector<std::pair<StringAttr, Key>> sources;
+
+  //===--------------------------------------------------------------------===//
+  // Keys
+  //===--------------------------------------------------------------------===//
+
+  Key keyOf(Type type, const Labels &labels) {
+    auto fnType = cast<idr::FnType>(type);
+    if (labels.unknown)
+      return {fnType, ArrayAttr()};
+    return {fnType, ArrayAttr::get(ctx, SmallVector<Attribute>(labels.names.begin(),
+                                                               labels.names.end()))};
+  }
+
+  Key unknown(Type type) { return {cast<idr::FnType>(type), ArrayAttr()}; }
+
+  // What the analysis found for `value`, with the label of the closure or
+  // closure constant that defines it.
   Labels labelsOf(Value value) {
+    Labels out;
     if (const auto *lattice = solver.lookupState<LabelLattice>(value))
-      return lattice->getValue();
+      out = lattice->getValue();
+    if (auto closure = value.getDefiningOp<idr::ClosureOp>())
+      out = Labels::join(out, Labels::of(closure.getCalleeAttr().getAttr()));
+    if (auto constant = value.getDefiningOp<idr::ConstantOp>())
+      if (auto closure = dyn_cast<idr::ClosureAttr>(constant.getValue()))
+        out = Labels::join(out, Labels::of(closure.getCallee().getAttr()));
+    return out;
+  }
+
+  Key field(SymbolRefAttr ctor, unsigned index) {
+    return fields.lookup({ctor.getRootReference(), ctor.getLeafReference(), index});
+  }
+
+  Key argument(func::FuncOp fn, unsigned index) {
+    if (!fn || index >= fn.getNumArguments())
+      return {};
+    Type type = fn.getArgumentTypes()[index];
+    if (fn.isExternal())
+      return isa<idr::FnType>(type) ? unknown(type) : Key();
+    return values.lookup(fn.getArgument(index));
+  }
+
+  Key argument(StringAttr label, unsigned index) {
+    return argument(module.function(label), index);
+  }
+
+  Key result(func::FuncOp fn, unsigned index) {
+    auto it = results.find(fn.getOperation());
+    return it == results.end() ? Key() : it->second[index];
+  }
+
+  // Whether `label` is a function whose signature ends in `type`'s.
+  bool fits(StringAttr label, idr::FnType type) {
+    func::FuncOp fn = module.function(label);
+    return fn && !fn.isExternal() && fn.getNumArguments() >= arity(type) &&
+           llvm::equal(fn.getArgumentTypes().take_back(arity(type)), type.getInputs()) &&
+           llvm::equal(fn.getResultTypes(), type.getResults());
+  }
+
+  // The number of captures of `label` as a closure of `type`.
+  size_t captures(StringAttr label, idr::FnType type) {
+    return module.function(label).getNumArguments() - arity(type);
+  }
+
+  // The slot a use moves its value into, or a null key.
+  Key sinkOf(OpOperand &use) {
+    Operation *user = use.getOwner();
+    unsigned index = use.getOperandNumber();
+    if (isa<func::ReturnOp>(user))
+      return result(user->getParentOfType<func::FuncOp>(), index);
+    if (isa<idr::YieldOp>(user))
+      return values.lookup(user->getParentOp()->getResult(index));
+    if (auto call = dyn_cast<func::CallOp>(user))
+      return argument(call.getCalleeAttr().getAttr(), index);
+    if (auto con = dyn_cast<idr::ConOp>(user))
+      return field(con.getCtor(), index);
+    if (auto closure = dyn_cast<idr::ClosureOp>(user))
+      return argument(closure.getCalleeAttr().getAttr(), index);
     return {};
   }
 
-  void collect() {
-    auto note = [&](Value value) {
-      if (auto type = dyn_cast<idr::FnType>(value.getType()))
-        types[type].add(labelsOf(value));
-    };
-    module.op.walk([&](Operation *op) {
-      for (Region &region : op->getRegions())
-        for (Block &block : region)
-          llvm::for_each(block.getArguments(), note);
-      llvm::for_each(op->getResults(), note);
-      if (auto closure = dyn_cast<idr::ClosureOp>(op))
-        types[closure.getType()].add(Labels::of(closure.getCalleeAttr().getAttr()));
-      if (auto constant = dyn_cast<idr::ConstantOp>(op))
-        module.closuresIn(constant.getValue(), constant.getType(),
-                          [&](idr::ClosureAttr closure, Type type) {
-                            if (auto fnType = dyn_cast<idr::FnType>(type))
-                              types[fnType].add(Labels::of(closure.getCallee().getAttr()));
-                          });
-    });
+  // Ops whose closure operands, results and region arguments the pass
+  // follows. Those of any other op stay closures.
+  static bool isFollowed(Operation *op) {
+    return isa<func::FuncOp, func::CallOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
+               idr::ClosureOp, idr::ApplyOp, idr::FieldOp, idr::MatchOp, idr::MatchLitOp,
+               idr::ConstantOp>(op);
+  }
+
+  void keyFields() {
     module.op.walk([&](idr::CtorOp ctor) {
       auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
-      for (auto [i, type] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
-        if (auto fnType = dyn_cast<idr::FnType>(type)) {
-          const auto *field = solver.lookupState<FieldLabels>(solver.getLatticeAnchor<FieldAnchor>(
-              std::make_tuple(data, ctor.getSymNameAttr(), unsigned(i))));
-          types[fnType].add(field ? field->value : Labels{});
-        }
+      for (auto [i, type] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>())) {
+        if (!isa<idr::FnType>(type))
+          continue;
+        auto index = std::make_tuple(data, ctor.getSymNameAttr(), unsigned(i));
+        const auto *state =
+            solver.lookupState<FieldLabels>(solver.getLatticeAnchor<FieldAnchor>(index));
+        fields[index] = keyOf(type, state ? state->value : Labels{});
+      }
     });
   }
 
-  // The closure types a value of `type` holds without a box in between.
-  void holds(Type type, SmallVectorImpl<idr::FnType> &out, llvm::DenseSet<StringAttr> &seen) {
-    if (auto fnType = dyn_cast<idr::FnType>(type)) {
-      out.push_back(fnType);
+  void keyFunctions() {
+    for (func::FuncOp fn : module.op.getOps<func::FuncOp>()) {
+      SmallVector<Labels> joined(fn.getNumResults());
+      if (fn.isExternal())
+        llvm::for_each(joined, [](Labels &labels) { labels.unknown = true; });
+      else
+        for (BlockArgument arg : fn.getArguments())
+          if (isa<idr::FnType>(arg.getType()))
+            values[arg] = keyOf(arg.getType(), labelsOf(arg));
+      fn.walk([&](func::ReturnOp ret) {
+        for (auto [operand, labels] : llvm::zip(ret.getOperands(), joined))
+          labels = Labels::join(labels, labelsOf(operand));
+      });
+      SmallVector<Key> &out = results[fn.getOperation()];
+      for (auto [type, labels] : llvm::zip(fn.getResultTypes(), joined))
+        out.push_back(isa<idr::FnType>(type) ? keyOf(type, labels) : Key());
+    }
+  }
+
+  void keyValues() {
+    module.op.walk([&](Operation *op) {
+      auto match = dyn_cast<idr::MatchOp>(op);
+      for (Region &region : op->getRegions())
+        for (Block &block : region)
+          for (BlockArgument arg : block.getArguments()) {
+            if (!isa<idr::FnType>(arg.getType()) ||
+                (isa<func::FuncOp>(op) && block.isEntryBlock()))
+              continue;
+            // The arguments of a case are the fields of its constructor.
+            if (match) {
+              auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region.getRegionNumber()]);
+              values[arg] = field(
+                  SymbolRefAttr::get(dataName(match.getScrutinee().getType()), {ctor}),
+                  arg.getArgNumber());
+            } else {
+              values[arg] = keyOf(arg.getType(), labelsOf(arg));
+            }
+          }
+      for (OpResult result : op->getResults()) {
+        if (!isa<idr::FnType>(result.getType()))
+          continue;
+        if (auto read = dyn_cast<idr::FieldOp>(op))
+          values[result] = field(
+              SymbolRefAttr::get(dataName(read.getValue().getType()), {read.getCtorAttr()}),
+              static_cast<unsigned>(read.getIndex()));
+        else
+          values[result] = keyOf(result.getType(), labelsOf(result));
+      }
+    });
+    // A closure or constant whose every use moves it into slots of one key
+    // with more labels takes that key, so that it needs no coercion.
+    module.op.walk([&](Operation *op) {
+      if (!isa<idr::ClosureOp, idr::ConstantOp>(op) || !isa<idr::FnType>(op->getResultTypes()[0]))
+        return;
+      Value value = op->getResult(0);
+      std::optional<Key> common;
+      for (OpOperand &use : value.getUses()) {
+        Key to = sinkOf(use);
+        if (!to.first || (common && *common != to))
+          return;
+        common = to;
+      }
+      if (common && within(values.lookup(value), *common))
+        values[value] = *common;
+    });
+  }
+
+  // Every slot's key in the order the module shows it.
+  void order() {
+    auto note = [&](const Key &key) {
+      if (key.first)
+        keys.insert({key, idr::DataType()});
+    };
+    module.op->walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (auto ctor = dyn_cast<idr::CtorOp>(op)) {
+        auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
+        for (unsigned i = 0; i < ctor.getFieldTypes().size(); ++i)
+          note(fields.lookup({data, ctor.getSymNameAttr(), i}));
+        return;
+      }
+      if (auto fn = dyn_cast<func::FuncOp>(op)) {
+        for (unsigned i = 0; i < fn.getNumArguments(); ++i)
+          note(argument(fn, i));
+        llvm::for_each(results.lookup(fn.getOperation()), note);
+        return;
+      }
+      for (Value result : op->getResults())
+        note(values.lookup(result));
+      for (Region &region : op->getRegions())
+        for (Block &block : region)
+          for (Value arg : block.getArguments())
+            note(values.lookup(arg));
+    });
+  }
+
+  // The labels of the closures stored in constant `attr`, in a slot of
+  // `slot` (a null key where the slot is not a closure).
+  void constantSources(Attribute attr, const Key &slot) {
+    if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
+      StringAttr label = closure.getCallee().getAttr();
+      sources.push_back({label, slot});
+      for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
+        constantSources(capture, argument(label, static_cast<unsigned>(i)));
+      return;
+    }
+    if (auto con = dyn_cast<idr::ConAttr>(attr))
+      for (auto [i, value] : llvm::enumerate(con.getFields()))
+        constantSources(value, field(con.getCtor(), static_cast<unsigned>(i)));
+  }
+
+  // The moves between slots, and the labels each closure puts in a slot.
+  void connect() {
+    module.op.walk([&](Operation *op) {
+      if (auto closure = dyn_cast<idr::ClosureOp>(op))
+        sources.push_back({closure.getCalleeAttr().getAttr(), values.lookup(closure.getResult())});
+      if (auto constant = dyn_cast<idr::ConstantOp>(op))
+        constantSources(constant.getValue(), values.lookup(constant.getResult()));
+      if (auto call = dyn_cast<func::CallOp>(op)) {
+        func::FuncOp fn = module.function(call.getCalleeAttr().getAttr());
+        for (OpResult value : call.getResults())
+          if (isa<idr::FnType>(value.getType()))
+            flows.push_back({fn ? result(fn, value.getResultNumber()) : unknown(value.getType()),
+                             values.lookup(value)});
+      }
+      if (auto apply = dyn_cast<idr::ApplyOp>(op)) {
+        connect(apply);
+        return;
+      }
+      for (OpOperand &use : op->getOpOperands()) {
+        if (!isa<idr::FnType>(use.get().getType()))
+          continue;
+        Key to = isFollowed(op) ? sinkOf(use) : Key();
+        if (!to.first)
+          to = unknown(use.get().getType());
+        sinks.push_back({op, use.getOperandNumber(), to});
+        flows.push_back({values.lookup(use.get()), to});
+      }
+      if (!isFollowed(op))
+        for (OpResult value : op->getResults())
+          if (isa<idr::FnType>(value.getType()))
+            flows.push_back({unknown(value.getType()), values.lookup(value)});
+      // Arguments of blocks the pass does not follow the branches to.
+      if (!isFollowed(op) || isa<func::FuncOp>(op))
+        for (Region &region : op->getRegions())
+          for (Block &block : region)
+            for (BlockArgument arg : block.getArguments())
+              if (isa<idr::FnType>(arg.getType()) &&
+                  !(isa<func::FuncOp>(op) && block.isEntryBlock()))
+                flows.push_back({unknown(arg.getType()), values.lookup(arg)});
+    });
+  }
+
+  // Through an apply, the arguments move into each label's and the label's
+  // results into the apply's.
+  void connect(idr::ApplyOp apply) {
+    Key callee = values.lookup(apply.getCallee());
+    if (!callee.second)
+      return;
+    for (StringAttr label : callee.second.getAsRange<StringAttr>()) {
+      if (!fits(label, callee.first))
+        continue;
+      func::FuncOp fn = module.function(label);
+      size_t first = captures(label, callee.first);
+      for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
+        if (isa<idr::FnType>(arg.getType()))
+          flows.push_back({values.lookup(arg), argument(fn, static_cast<unsigned>(first + i))});
+      for (OpResult value : apply.getResults())
+        if (isa<idr::FnType>(value.getType()))
+          flows.push_back({result(fn, value.getResultNumber()), values.lookup(value)});
+    }
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Deciding
+  //===--------------------------------------------------------------------===//
+
+  bool isConverted(const Key &key) { return converted.contains(key); }
+
+  // Whether a value of `from` can be rebuilt as one of `to`.
+  bool canCoerce(const Key &from, const Key &to) {
+    return from == to || !isConverted(to) || isEmpty(from) ||
+           (isConverted(from) && within(from, to));
+  }
+
+  // The keys a value of `type`, in a slot of `key`, holds without a box in
+  // between.
+  void holds(Type type, const Key &key, SmallVectorImpl<Key> &out,
+             llvm::DenseSet<StringAttr> &seen) {
+    if (isa<idr::FnType>(type)) {
+      out.push_back(key);
       return;
     }
     auto data = dyn_cast<idr::DataType>(type);
@@ -442,199 +742,350 @@ struct Converter {
     if (!decl)
       return;
     for (idr::CtorOp ctor : decl.getCtors())
-      for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-        holds(field, out, seen);
+      for (auto [i, field] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
+        holds(field, fields.lookup({data.getName().getAttr(), ctor.getSymNameAttr(), unsigned(i)}),
+              out, seen);
   }
 
-  size_t arity(idr::FnType type) { return type.getInputs().size(); }
-
-  // The captures of `label` as a closure of `type`.
-  ArrayRef<Type> captures(StringAttr label, idr::FnType type) {
-    func::FuncOp fn = module.function(label);
-    return fn.getArgumentTypes().drop_back(arity(type));
-  }
-
-  // A type is convertible if its labels are known and fit it, and it is on
-  // no cycle of "a capture holds" among such types.
+  // A key is converted if its labels are known, not empty and fit its
+  // type, and it is on no cycle of "a capture holds". Then, to a fixpoint,
+  // a key stays a closure where a value can only come to it as a closure,
+  // and the labels of a closure keep its type's signature.
   void decide() {
-    llvm::DenseMap<idr::FnType, SmallVector<idr::FnType>> edges;
-    SmallVector<idr::FnType> candidates;
-    for (auto &[type, closures] : types) {
-      bool fits = !closures.unknown && !closures.labels.empty() &&
-                  llvm::all_of(closures.labels, [&](StringAttr label) {
-                    func::FuncOp fn = module.function(label);
-                    return fn && !fn.isExternal() && fn.getNumArguments() >= arity(type) &&
-                           llvm::equal(fn.getArgumentTypes().take_back(arity(type)),
-                                       type.getInputs()) &&
-                           llvm::equal(fn.getResultTypes(), type.getResults());
-                  });
-      if (!fits)
+    llvm::DenseMap<Key, SmallVector<Key>> edges;
+    SmallVector<Key> candidates;
+    for (auto &[key, sum] : keys) {
+      if (!key.second || key.second.empty() ||
+          !llvm::all_of(key.second.getAsRange<StringAttr>(),
+                        [&](StringAttr label) { return fits(label, key.first); }))
         continue;
-      candidates.push_back(type);
-      for (StringAttr label : closures.labels)
-        for (Type capture : captures(label, type)) {
+      candidates.push_back(key);
+      for (StringAttr label : key.second.getAsRange<StringAttr>()) {
+        func::FuncOp fn = module.function(label);
+        for (unsigned i = 0; i < captures(label, key.first); ++i) {
           llvm::DenseSet<StringAttr> seen;
-          holds(capture, edges[type], seen);
+          holds(fn.getArgumentTypes()[i], argument(fn, i), edges[key], seen);
         }
+      }
     }
-    llvm::DenseSet<idr::FnType> cyclic;
-    for (const SmallVector<idr::FnType> &component : passes::stronglyConnected<idr::FnType>(
-             candidates, [&](idr::FnType type) { return edges.lookup(type); }))
+    llvm::DenseSet<Key> cyclic;
+    for (const SmallVector<Key> &component : passes::stronglyConnected<Key>(
+             candidates, [&](Key key) { return edges.lookup(key); }))
       if (component.size() > 1 || llvm::is_contained(edges.lookup(component.front()),
                                                       component.front()))
         cyclic.insert(component.begin(), component.end());
+    for (const Key &key : candidates)
+      if (!cyclic.contains(key))
+        converted.insert(key);
 
-    MLIRContext *ctx = module.op.getContext();
-    unsigned n = 0;
-    for (idr::FnType type : candidates)
-      if (!cyclic.contains(type))
-        types[type].sum = idr::DataType::get(
-            ctx, FlatSymbolRefAttr::get(ctx, ("fn$" + Twine(n++)).str()));
-  }
-
-  idr::DataType sumOf(Type type) {
-    auto fnType = dyn_cast<idr::FnType>(type);
-    return fnType ? types.lookup(fnType).sum : idr::DataType();
-  }
-
-  Type convert(Type type) {
-    auto fnType = dyn_cast<idr::FnType>(type);
-    if (!fnType)
-      return type;
-    if (idr::DataType sum = sumOf(fnType))
-      return sum;
-    auto map = [&](ArrayRef<Type> in) {
-      return llvm::map_to_vector(in, [&](Type t) { return convert(t); });
+    bool changed = true;
+    auto keep = [&](const Key &key) {
+      if (key.first && converted.erase(key))
+        changed = true;
     };
-    return idr::FnType::get(type.getContext(), map(fnType.getInputs()), map(fnType.getResults()));
+    // A closure of `label` of `type` calls it with the type's arguments.
+    auto seal = [&](StringAttr label, idr::FnType type) {
+      func::FuncOp fn = module.function(label);
+      if (!type || !fn || fn.isExternal() || fn.getNumArguments() < arity(type))
+        return;
+      for (size_t i = fn.getNumArguments() - arity(type); i < fn.getNumArguments(); ++i)
+        keep(argument(fn, static_cast<unsigned>(i)));
+      llvm::for_each(results.lookup(fn.getOperation()), keep);
+    };
+    auto sealAll = [&](const Key &key) {
+      if (key.second)
+        for (StringAttr label : key.second.getAsRange<StringAttr>())
+          seal(label, key.first);
+    };
+    // Functions that others may call keep their signatures.
+    for (func::FuncOp fn : module.op.getOps<func::FuncOp>())
+      if (!fn.isExternal() && (fn.isPublic() || module.escaping.contains(fn.getSymNameAttr()))) {
+        for (unsigned i = 0; i < fn.getNumArguments(); ++i)
+          keep(argument(fn, i));
+        llvm::for_each(results.lookup(fn.getOperation()), keep);
+      }
+    while (changed) {
+      changed = false;
+      for (const Flow &flow : flows) {
+        if (isConverted(flow.to) && !canCoerce(flow.from, flow.to))
+          keep(flow.to);
+        if (!isConverted(flow.to) && isConverted(flow.from))
+          sealAll(flow.from);
+      }
+      for (auto &[label, slot] : sources) {
+        if (isConverted(slot) && !llvm::is_contained(slot.second, label))
+          keep(slot);
+        if (!isConverted(slot))
+          seal(label, slot.first);
+      }
+      for (auto &[key, sum] : keys)
+        if (!isConverted(key))
+          sealAll(key);
+      // An apply of a closure passes closures and returns closures.
+      for (idr::ApplyOp apply : module.applies) {
+        if (isConverted(values.lookup(apply.getCallee())))
+          continue;
+        for (Value arg : apply.getArgs())
+          if (isa<idr::FnType>(arg.getType()) && isConverted(values.lookup(arg)))
+            sealAll(values.lookup(arg));
+        for (Value value : apply.getResults())
+          if (isa<idr::FnType>(value.getType()))
+            keep(values.lookup(value));
+      }
+    }
+
+    unsigned n = 0;
+    for (auto &[key, sum] : keys)
+      if (isConverted(key))
+        sum = idr::DataType::get(ctx, FlatSymbolRefAttr::get(ctx, ("fn$" + Twine(n++)).str()));
   }
 
-  // A constant of type `type` with its closures of converted types as
-  // constructors.
-  Attribute convert(Attribute attr, Type type) {
-    MLIRContext *ctx = attr.getContext();
+  //===--------------------------------------------------------------------===//
+  // Rewriting
+  //===--------------------------------------------------------------------===//
+
+  idr::DataType sumOf(const Key &key) {
+    return isConverted(key) ? keys.lookup(key) : idr::DataType();
+  }
+
+  // The type of a slot of `key`: its sum, or the closure type unchanged.
+  Type typeOf(const Key &key) {
+    if (idr::DataType sum = sumOf(key))
+      return sum;
+    return key.first;
+  }
+
+  Type typeOf(Type type, const Key &key) { return key.first ? typeOf(key) : type; }
+
+  // The types of the captures of `label` as a closure of `type`, as
+  // converted.
+  ArrayRef<Type> captureTypes(StringAttr label, idr::FnType type) {
+    return module.function(label).getArgumentTypes().drop_back(arity(type));
+  }
+
+  void retype() {
+    for (func::FuncOp fn : module.op.getOps<func::FuncOp>()) {
+      SmallVector<Type> inputs, outputs;
+      for (auto [i, type] : llvm::enumerate(fn.getArgumentTypes()))
+        inputs.push_back(typeOf(type, argument(fn, static_cast<unsigned>(i))));
+      for (auto [i, type] : llvm::enumerate(fn.getResultTypes()))
+        outputs.push_back(typeOf(type, result(fn, static_cast<unsigned>(i))));
+      fn.setFunctionType(FunctionType::get(ctx, inputs, outputs));
+    }
+    for (auto &[value, key] : values)
+      value.setType(typeOf(key));
+    module.op.walk([&](idr::CtorOp ctor) {
+      auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
+      SmallVector<Type> types;
+      for (auto [i, type] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
+        types.push_back(typeOf(type, fields.lookup({data, ctor.getSymNameAttr(), unsigned(i)})));
+      ctor.setFieldTypesAttr(Builder(ctx).getTypeArrayAttr(types));
+    });
+  }
+
+  void declareSums(OpBuilder &b) {
+    b.setInsertionPointToStart(module.op.getBody());
+    for (auto &[key, sum] : keys) {
+      if (!sum)
+        continue;
+      auto data = idr::DataOp::create(b, module.op.getLoc(), sum.getName().getAttr(), UnitAttr());
+      OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
+      for (auto [tag, label] : llvm::enumerate(key.second.getAsRange<StringAttr>())) {
+        func::FuncOp fn = module.function(label);
+        ArrayRef<Type> types = captureTypes(label, key.first);
+        SmallVector<StringRef> quantities;
+        for (unsigned i = 0; i < types.size(); ++i) {
+          auto quantity = fn.getArgAttrOfType<StringAttr>(i, "idr.quantity");
+          quantities.push_back(quantity ? quantity.getValue() : "w");
+        }
+        idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(static_cast<int64_t>(tag)),
+                            b.getTypeArrayAttr(types), b.getStrArrayAttr(quantities));
+      }
+    }
+  }
+
+  // `label` with `captures` as a value of `key`.
+  Value build(OpBuilder &b, Location loc, StringAttr label, const Key &key, ValueRange captures) {
+    auto callee = FlatSymbolRefAttr::get(label);
+    if (idr::DataType sum = sumOf(key))
+      return idr::ConOp::create(b, loc, sum, SymbolRefAttr::get(sum.getName().getAttr(), {callee}),
+                                captures);
+    return idr::ClosureOp::create(b, loc, key.first, callee, captures);
+  }
+
+  // Where the program builds a closure of `label`: a closure a coercion
+  // rebuilds is reported there (DIAG-LOC-1).
+  Location closureLoc(StringAttr label, Location fallback) {
+    auto it = module.closures.find(label);
+    return it == module.closures.end() || it->second.empty() ? fallback
+                                                              : it->second.front().getLoc();
+  }
+
+  bool needsCoercion(const Key &from, const Key &to) {
+    return from != to && (isConverted(from) || isConverted(to));
+  }
+
+  // `value` of `from` as a value of `to`: a match that rebuilds each label,
+  // or poison for a value the analysis never reaches.
+  Value coerce(OpBuilder &b, Location loc, Value value, const Key &from, const Key &to) {
+    if (!needsCoercion(from, to))
+      return value;
+    assert(canCoerce(from, to) && "idr-defunctionalize: a move it did not decide");
+    if (isEmpty(from))
+      return ub::PoisonOp::create(b, loc, typeOf(to));
+    SmallVector<Attribute> cases;
+    for (StringAttr label : from.second.getAsRange<StringAttr>())
+      cases.push_back(FlatSymbolRefAttr::get(label));
+    OpBuilder::InsertionGuard guard(b);
+    auto match = idr::MatchOp::create(b, loc, TypeRange{typeOf(to)}, value, b.getArrayAttr(cases),
+                                      unsigned(cases.size()));
+    for (auto [label, region] :
+         llvm::zip(from.second.getAsRange<StringAttr>(), match.getRegions())) {
+      ArrayRef<Type> types = captureTypes(label, from.first);
+      Block *block = b.createBlock(&region, region.end(), types,
+                                   SmallVector<Location>(types.size(), loc));
+      Location at = isConverted(to) ? loc : closureLoc(label, loc);
+      idr::YieldOp::create(b, loc, build(b, at, label, to, block->getArguments()));
+    }
+    return match.getResult(0);
+  }
+
+  // A call returns its callee's result, then moves it into its own slot.
+  void coerceCalls(OpBuilder &b) {
+    SmallVector<func::CallOp> calls;
+    module.op.walk([&](func::CallOp call) { calls.push_back(call); });
+    for (func::CallOp call : calls) {
+      func::FuncOp fn = module.function(call.getCalleeAttr().getAttr());
+      for (OpResult value : call.getResults()) {
+        auto it = values.find(value);
+        if (it == values.end())
+          continue;
+        Key to = it->second;
+        Key from = fn ? result(fn, value.getResultNumber()) : unknown(to.first);
+        value.setType(typeOf(from));
+        values[value] = from;
+        b.setInsertionPointAfter(call);
+        Value moved = coerce(b, call.getLoc(), value, from, to);
+        if (moved == value)
+          continue;
+        value.replaceAllUsesExcept(moved, moved.getDefiningOp());
+        values[moved] = to;
+      }
+    }
+  }
+
+  void coerceSinks(OpBuilder &b) {
+    for (const Sink &sink : sinks) {
+      Value value = sink.user->getOperand(sink.index);
+      b.setInsertionPoint(sink.user);
+      Value moved = coerce(b, sink.user->getLoc(), value, values.lookup(value), sink.to);
+      sink.user->setOperand(sink.index, moved);
+    }
+  }
+
+  // Constant `attr` in a slot of `slot`, with its closures of converted
+  // keys as constructors.
+  Attribute convert(Attribute attr, const Key &slot) {
     if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
-      func::FuncOp fn = module.function(closure.getCallee().getAttr());
+      StringAttr label = closure.getCallee().getAttr();
       SmallVector<Attribute> captures;
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
-        captures.push_back(convert(capture, fn.getArgumentTypes()[i]));
+        captures.push_back(convert(capture, argument(label, static_cast<unsigned>(i))));
       auto array = ArrayAttr::get(ctx, captures);
-      if (idr::DataType sum = sumOf(type))
+      if (idr::DataType sum = sumOf(slot))
         return idr::ConAttr::get(ctx, SymbolRefAttr::get(sum.getName().getAttr(), {closure.getCallee()}),
                                  array);
       return idr::ClosureAttr::get(ctx, closure.getCallee(), array);
     }
     if (auto con = dyn_cast<idr::ConAttr>(attr)) {
-      SmallVector<Attribute> fields;
-      for (auto [i, field] : llvm::enumerate(con.getFields()))
-        fields.push_back(convert(field, module.fieldType(con.getCtor(), static_cast<unsigned>(i))));
-      return idr::ConAttr::get(ctx, con.getCtor(), ArrayAttr::get(ctx, fields));
+      SmallVector<Attribute> parts;
+      for (auto [i, value] : llvm::enumerate(con.getFields()))
+        parts.push_back(convert(value, field(con.getCtor(), static_cast<unsigned>(i))));
+      return idr::ConAttr::get(ctx, con.getCtor(), ArrayAttr::get(ctx, parts));
     }
     return attr;
   }
 
-  void declareSums(OpBuilder &b) {
-    b.setInsertionPointToStart(module.op.getBody());
-    for (auto &[type, closures] : types) {
-      if (!closures.sum)
-        continue;
-      auto data = idr::DataOp::create(b, module.op.getLoc(), closures.sum.getName().getAttr(),
-                                      UnitAttr());
-      OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
-      for (auto [tag, label] : llvm::enumerate(closures.labels)) {
-        func::FuncOp fn = module.function(label);
-        ArrayRef<Type> fields = captures(label, type);
-        SmallVector<Type> converted = llvm::map_to_vector(fields, [&](Type t) { return convert(t); });
-        SmallVector<StringRef> quantities;
-        for (unsigned i = 0; i < fields.size(); ++i) {
-          auto quantity = fn.getArgAttrOfType<StringAttr>(i, "idr.quantity");
-          quantities.push_back(quantity ? quantity.getValue() : "w");
-        }
-        idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(static_cast<int64_t>(tag)),
-                            b.getTypeArrayAttr(converted), b.getStrArrayAttr(quantities));
-      }
-    }
-  }
-
-  // An idr.apply of a converted type, with the labels its callee may hold
-  // (all of the type's for an apply the analysis found dead).
-  struct Apply {
-    idr::ApplyOp op;
-    idr::FnType type;
-    SmallVector<StringAttr> labels;
-  };
-
-  // The apply becomes a match over those labels, each region calling its
-  // label with the captures, then the arguments.
-  void rewrite(const Apply &site, OpBuilder &b) {
-    auto [apply, type, labels] = site;
-    SmallVector<Attribute> cases = llvm::map_to_vector(labels, [](StringAttr label) -> Attribute {
-      return FlatSymbolRefAttr::get(label);
-    });
+  // An apply of a converted key becomes a match over its labels, each
+  // region calling its label with the captures, then the arguments. An
+  // apply of a closure gets closures.
+  void rewrite(idr::ApplyOp apply, OpBuilder &b) {
+    // The callee is retyped by now, so not getCallee(), which casts it.
+    Value closure = apply->getOperand(0);
+    Key callee = values.lookup(closure);
+    ArrayRef<Type> inputs = callee.first.getInputs();
     b.setInsertionPoint(apply);
-    auto match = idr::MatchOp::create(b, apply.getLoc(), apply.getResultTypes(), apply.getCallee(),
-                                      b.getArrayAttr(cases), unsigned(labels.size()));
-    for (auto [label, region] : llvm::zip(labels, match.getRegions())) {
-      func::FuncOp fn = module.function(label);
-      SmallVector<Type> fields =
-          llvm::map_to_vector(captures(label, type), [&](Type t) { return convert(t); });
-      Block *block = b.createBlock(&region, region.end(), fields,
-                                   SmallVector<Location>(fields.size(), apply.getLoc()));
-      SmallVector<Value> operands(block->getArguments());
-      llvm::append_range(operands, apply.getArgs());
-      auto call = func::CallOp::create(b, apply.getLoc(), fn, operands);
-      idr::YieldOp::create(b, apply.getLoc(), call.getResults());
+    if (!isConverted(callee)) {
+      for (auto [i, type] : llvm::enumerate(inputs)) {
+        if (!isa<idr::FnType>(type))
+          continue;
+        OpOperand &arg = apply.getArgsMutable()[static_cast<unsigned>(i)];
+        arg.set(coerce(b, apply.getLoc(), arg.get(), values.lookup(arg.get()), unknown(type)));
+      }
+      return;
     }
+    SmallVector<Attribute> cases;
+    for (StringAttr label : callee.second.getAsRange<StringAttr>())
+      cases.push_back(FlatSymbolRefAttr::get(label));
+    auto match = idr::MatchOp::create(b, apply.getLoc(), apply.getResultTypes(), closure,
+                                      b.getArrayAttr(cases), unsigned(cases.size()));
+    for (auto [label, region] :
+         llvm::zip(callee.second.getAsRange<StringAttr>(), match.getRegions())) {
+      func::FuncOp fn = module.function(label);
+      ArrayRef<Type> types = captureTypes(label, callee.first);
+      Block *block = b.createBlock(&region, region.end(), types,
+                                   SmallVector<Location>(types.size(), apply.getLoc()));
+      SmallVector<Value> operands(block->getArguments());
+      for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
+        operands.push_back(isa<idr::FnType>(inputs[i])
+                               ? coerce(b, apply.getLoc(), arg, values.lookup(arg),
+                                        argument(fn, static_cast<unsigned>(types.size() + i)))
+                               : arg);
+      auto call = func::CallOp::create(b, apply.getLoc(), fn, operands);
+      SmallVector<Value> yields;
+      for (auto [value, own] : llvm::zip(call.getResults(), apply.getResults()))
+        yields.push_back(values.count(own)
+                             ? coerce(b, apply.getLoc(), value,
+                                      result(fn, cast<OpResult>(value).getResultNumber()),
+                                      values.lookup(own))
+                             : value);
+      idr::YieldOp::create(b, apply.getLoc(), yields);
+    }
+    for (auto [own, value] : llvm::zip(apply.getResults(), match.getResults()))
+      if (values.count(own))
+        values[value] = values.lookup(own);
     apply.replaceAllUsesWith(match.getResults());
     apply.erase();
   }
 
   void run() {
-    collect();
+    keyFields();
+    keyFunctions();
+    keyValues();
+    order();
+    connect();
     decide();
-    OpBuilder b(module.op.getContext());
-    declareSums(b);
-    SmallVector<Apply> applies;
-    for (idr::ApplyOp apply : module.applies) {
-      auto type = cast<idr::FnType>(apply.getCallee().getType());
-      if (!sumOf(type))
-        continue;
-      Labels callee = labelsOf(apply.getCallee());
-      applies.push_back(
-          {apply, type, callee.names.empty() ? types.lookup(type).labels : callee.names});
-    }
 
+    OpBuilder b(ctx);
+    retype();
+    declareSums(b);
+    coerceCalls(b);
+    coerceSinks(b);
     module.op.walk([&](idr::ConstantOp constant) {
-      Attribute value = convert(constant.getValue(), constant.getType());
-      Type type = convert(constant.getType());
-      if (value == constant.getValue() && type == constant.getType())
-        return;
-      b.setInsertionPoint(constant);
-      auto replacement = idr::ConstantOp::create(b, constant.getLoc(), type, value);
-      constant.replaceAllUsesWith(replacement.getResult());
-      constant.erase();
+      constant.setValueAttr(convert(constant.getValue(), values.lookup(constant.getResult())));
     });
+    for (idr::ApplyOp apply : module.applies)
+      rewrite(apply, b);
     module.op.walk([&](idr::ClosureOp closure) {
-      idr::DataType sum = sumOf(closure.getType());
-      if (!sum)
+      Key key = values.lookup(closure->getResult(0));
+      if (!sumOf(key))
         return;
       b.setInsertionPoint(closure);
-      auto con = idr::ConOp::create(
-          b, closure.getLoc(), sum,
-          SymbolRefAttr::get(sum.getName().getAttr(), {closure.getCalleeAttr()}),
-          closure.getCaptures());
-      closure.replaceAllUsesWith(con.getResult());
+      Value con = build(b, closure.getLoc(), closure.getCalleeAttr().getAttr(), key,
+                        closure.getCaptures());
+      closure.replaceAllUsesWith(con);
       closure.erase();
     });
-    for (const Apply &apply : applies)
-      rewrite(apply, b);
-
-    AttrTypeReplacer replacer;
-    replacer.addReplacement([&](idr::FnType type) -> std::pair<Type, WalkResult> {
-      return {convert(type), WalkResult::skip()};
-    });
-    replacer.recursivelyReplaceElementsIn(module.op, /*replaceAttrs=*/true,
-                                          /*replaceLocs=*/false, /*replaceTypes=*/true);
   }
 };
 
