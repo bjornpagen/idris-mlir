@@ -1,4 +1,5 @@
-// The canonicalizations of the idr dialect (docs/cutover.md, section 6.2):
+// The canonicalizations of the idr dialect (IDR-MATCH-5, IDR-CLOS-1, IDR-IO-1,
+// IDR-STR-2, OPT-CALL-1):
 // the DRR patterns of Canonicalize.td, and in C++ those that DRR cannot
 // state: apply of a known closure, the region patterns of the matches, and
 // the removal of unused calls (OPT-CALL-1).
@@ -55,7 +56,7 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
-// Matches (ELIM-G-2, A3, A4)
+// Matches (ELIM-G-2, IDR-MATCH-5, IDR-MATCH-6)
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -127,7 +128,7 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
 
 // Whether `consumer` folds or canonicalizes when its operand is `value`: a
 // constant, a constructor, a closure, or, for output and the first
-// character, a string builder (A2, A4).
+// character, a string builder (IDR-IO-1, IDR-STR-2).
 bool feeds(Value value, Operation *consumer) {
   if (matchPattern(value, m_Constant()))
     return true;
@@ -138,10 +139,11 @@ bool feeds(Value value, Operation *consumer) {
          isa<PutStrOp, StrHeadOp>(consumer);
 }
 
-// A3, case-of-case: the single consumer of a result of a match, another
-// match included, moves into every region that yields, when in at least one
-// of them it then meets a value it folds or canonicalizes against. It moves past no op with effects,
-// and still runs exactly once on every path (OPT-SAFE-1).
+// IDR-MATCH-5, case-of-case: the single consumer of a result of a match,
+// another match included, moves into every region that yields, when in at
+// least one of them it then meets a value it folds or canonicalizes against.
+// It moves past no op with effects, and still runs exactly once on every path
+// (OPT-SAFE-1).
 template <typename Match>
 struct SinkConsumer : OpRewritePattern<Match> {
   using OpRewritePattern<Match>::OpRewritePattern;
@@ -211,7 +213,8 @@ private:
   }
 };
 
-// A4: a string that cannot be empty never takes the case `""`.
+// IDR-MATCH-6, IDR-STR-2: a string that cannot be empty never takes the
+// case `""`.
 struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(MatchLitOp op, PatternRewriter &rewriter) const final {
@@ -271,7 +274,7 @@ void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
 }
 
 //===----------------------------------------------------------------------===//
-// Strings (A2, A4)
+// Strings (IDR-IO-1, IDR-STR-2)
 //===----------------------------------------------------------------------===//
 
 void PutStrOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
@@ -284,7 +287,7 @@ void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRCont
 }
 
 //===----------------------------------------------------------------------===//
-// Unused calls (OPT-CALL-1, A20)
+// Unused calls (OPT-CALL-1)
 //===----------------------------------------------------------------------===//
 
 namespace {

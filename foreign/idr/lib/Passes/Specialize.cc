@@ -1,22 +1,22 @@
 // idr-specialize: specialization on constant-like arguments (ELIM-SPEC-1,
-// docs/cutover.md 6.3 and 7.3).
+// ELIM-SPEC-2).
 //
 // An argument's pattern is its static shape: a constant is itself, an
 // `idr.con` or `idr.closure` is built over the patterns of its operands (the
-// partially static values of 7.3), and anything else is a hole, a runtime
-// leaf. An erased argument is always a hole: erased is not constant. A call
-// is specialized when some argument has a static shape and some non-erased
-// argument has a runtime leaf; a closed call is left to idr-eval, and is
-// never specialized (7.4). The clone substitutes each static shape into the
-// callee's body, and its parameters are the runtime leaves in order. Its key
-// is the patterns of its origin's parameters: a call of a clone composes the
-// clone's key with its own patterns, so keys of all the clones of one origin
-// are comparable. Clones are shared through (origin, key), kept on each
-// clone as idr.spec_key, and named
-// `@<origin>$spec$<n>` with n counting the origin's clones in the order they
-// are first requested (FE-DET-1), and appended to the module, so the walk
-// over the module's functions reaches them and specializes their calls in
-// turn, until no call is left to specialize.
+// partially static values of ELIM-SPEC-1), and anything else is a hole, a
+// runtime leaf. An erased argument is always a hole: erased is not constant.
+// A call is specialized when some argument has a static shape and some
+// non-erased argument has a runtime leaf; a closed call is left to idr-eval,
+// and is never specialized (SEM-EVAL-6). The clone substitutes each static
+// shape into the callee's body, and its parameters are the runtime leaves in
+// order. Its key is the patterns of its origin's parameters: a call of a
+// clone composes the clone's key with its own patterns, so keys of all the
+// clones of one origin are comparable. Clones are shared through (origin,
+// key), kept on each clone as idr.spec_key, and named `@<origin>$spec$<n>`
+// with n counting the origin's clones in the order they are first requested
+// (FE-DET-1), and appended to the module, so the walk over the module's
+// functions reaches them and specializes their calls in turn, until no call
+// is left to specialize.
 //
 // In a clone's call of its own origin, a static argument that changed and
 // that the callee never branches on is generalized to a runtime value (an

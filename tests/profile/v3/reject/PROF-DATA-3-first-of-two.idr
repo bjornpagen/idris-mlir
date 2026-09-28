@@ -8,7 +8,7 @@ module Main
 -- a runtime value (PROF-TYPE-4, as PROF-TYPE-4-integer). Neither function is
 -- inlined, since both are recursive, and nothing of either reaches `main`
 -- but an Int; both are checked by idr-check-profile, where "first" is in op
--- order (docs/cutover.md 3.9), and `build` comes before `count` in the
+-- order (DIAG-ONE-1), and `build` comes before `count` in the
 -- module, as `main` calls it first. The error is reported at the user
 -- definition that holds the op, `build`.
 

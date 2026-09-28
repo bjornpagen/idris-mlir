@@ -6,8 +6,8 @@ module Main
 -- Mandelbrot set, and the basins of Newton's method for z^3 = 1, on a value
 -- read at runtime with the Prelude's getChar. Written the way an Idris
 -- programmer would, and diffed against the stock Chez backend.
--- `euclid (the Integer 48) 18` is gone since the cutover (docs/cutover.md
--- 4.3, decision 7.2, a PROF-GEN-4 exception): `euclid` is partial, so it is
+-- `euclid (the Integer 48) 18` is gone since the cutover (a PROF-GEN-4
+-- exception, SEM-EVAL-6): `euclid` is partial, so it is
 -- not evaluated, and its Integer would exist at runtime
 -- (profile/v3/reject/PROF-TYPE-4-partial-integer). The line that printed
 -- the pair `(21, 6)` prints `21`.

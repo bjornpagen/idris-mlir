@@ -1,4 +1,4 @@
-// Compiling a round of compile-time evaluation (docs/cutover.md 6.4): ORC's
+// Compiling a round of compile-time evaluation (ELIM-EVAL-1): ORC's
 // LLJIT, not mlir::ExecutionEngine, which aborts in a static musl process
 // (PINS.md: orc-lljit). Nothing is linked from the process by name: the
 // runtime's entry points, which idris-mlir-cc links natively, and the libc

@@ -1,4 +1,4 @@
-// Running a round's calls in a child process (docs/cutover.md 6.4, EVAL-1).
+// Running a round's calls in a child process (ELIM-EVAL-1, EVAL-1).
 // idris-mlir-cc runs MLIR single-threaded; elsewhere a module pass runs
 // alone, so any threads of MLIR's pool wait idle, holding no lock the child
 // needs, when it forks. The child runs the calls on a stack reserved as large

@@ -1,6 +1,6 @@
 #!/bin/sh
 # rule: DRV-CC-1, DRV-CC-2, DIAG-ICE-1, IDR-IN-1, PROF-TYPE-4
-# idris-mlir-cc's exit statuses (DRV-CC-2, docs/cutover.md 6.6): an op of a
+# idris-mlir-cc's exit statuses (DRV-CC-2): an op of a
 # dialect outside the contract does not parse (IDR-IN-1: the parse-time
 # registry holds only builtin, idr, func, arith, math and ub), an internal
 # error, exit 1; a profile rejection is a user error, exit 3, with

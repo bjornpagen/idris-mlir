@@ -2,7 +2,7 @@
 // rule: SEM-EVAL-6
 // Only a closed call of a pure, total function is evaluated: not one with a
 // runtime operand, not one of a function Idris does not prove terminating
-// (partial code is never evaluated, row A23 of docs/cutover.md) or that
+// (partial code is never evaluated, SEM-EVAL-6) or that
 // performs IO, and not one whose
 // constant operands name a closure of such a function.
 // CHECK-LABEL: func.func @Prog.main(

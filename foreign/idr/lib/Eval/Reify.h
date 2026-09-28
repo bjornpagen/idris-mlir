@@ -1,6 +1,6 @@
 // Reading a result of compile-time evaluation back as a constant attribute
-// (IDR-CONST-1), through the layouts idr-lower built it in (docs/cutover.md
-// 6.4). Runs in idr-eval's child, on the memory of the JITed code.
+// (IDR-CONST-1), through the layouts idr-lower built it in (ELIM-EVAL-1).
+// Runs in idr-eval's child, on the memory of the JITed code.
 #pragma once
 
 #include "Lower/Layout.h"

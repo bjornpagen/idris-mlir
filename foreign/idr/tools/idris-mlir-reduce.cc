@@ -1,5 +1,6 @@
 // idris-mlir-reduce: mlir-reduce with the idr dialect and passes registered,
-// for shrinking a module that makes a pass fail (docs/cutover.md 8.2).
+// for shrinking a module that makes a pass fail (docs/architecture/
+// 14-testing.md, "Debugging a rewrite").
 
 #include "idr/Idr.h"
 

@@ -133,7 +133,8 @@ target_compile_definitions(idris-mlir-cc PRIVATE
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 
-# docs/cutover.md 8.2: shrinking a module that makes a pass fail.
+# Shrinking a module that makes a pass fail (docs/architecture/14-testing.md,
+# "Debugging a rewrite").
 add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
 target_link_libraries(idris-mlir-reduce PRIVATE
 	idr_dialect

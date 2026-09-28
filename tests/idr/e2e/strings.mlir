@@ -4,7 +4,7 @@
 // RUN: FileCheck %s < %t.out
 // rule: LOW-STR-2, LOW-CONST-1, LOW-MATCH-1
 // Operations that allocate nothing, on strings that exist (static data;
-// row A10 of docs/cutover.md):
+// PROF-PRIM-4):
 // the length and the characters of a string picked at runtime, and a match
 // on it.
 // CHECK: 3 98 é 2

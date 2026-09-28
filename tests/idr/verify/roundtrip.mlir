@@ -4,7 +4,7 @@
 // rule: IDR-MOD-2, IDR-TY-1, IDR-TY-2, IDR-TY-4, IDR-TY-5, IDR-TY-6, IDR-TY-7, IDR-TY-8
 // rule: IDR-CONST-1, IDR-CONST-2, IDR-DATA-1, IDR-DATA-2, IDR-CON-1, IDR-TAG-1, IDR-FIELD-1
 // rule: IDR-MATCH-5, IDR-MATCH-6, IDR-CLOS-1, IDR-CRASH-1, IDR-STR-2, IDR-BIG-1, IDR-IO-1
-// Every op, type and attribute of the contract (docs/cutover.md, section 10)
+// Every op, type and attribute of the contract (08-idr-dialect.md)
 // parses in its custom syntax and prints back the same, directly and from the
 // generic form. A symbol that does not start with a letter is quoted: the
 // contract's `@$58$$58$` is written `@"$58$$58$"`.

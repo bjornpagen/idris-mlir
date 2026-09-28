@@ -1,6 +1,6 @@
 // The idr dialect: the contract between the Idris compiler and the C++ side
-// (docs/cutover.md, section 10, which becomes docs/architecture/08). Rule
-// identifiers refer to those documents. Every fact about an op is declared
+// (docs/architecture/08-idr-dialect.md). Rule identifiers refer to
+// docs/architecture/. Every fact about an op is declared
 // here once; the C++ in lib/Dialect and every pass derive from it.
 
 #ifndef IDR_OPS
@@ -24,7 +24,7 @@ def Idr_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;
-  // OPT-CALL-1 (A20): the pattern that removes unused calls of func.call.
+  // OPT-CALL-1: the pattern that removes unused calls of func.call.
   let hasCanonicalizer = 1;
   // The module's and the functions' rules (IDR-WORLD-1, IDR-DATA-4, IDR-FN-1).
   let hasOperationAttrVerify = 1;
@@ -185,7 +185,7 @@ def Idr_CallsRuntimeTrait : NativeOpTrait<"CallsRuntime"> {
 
 def Idr_CallsRuntime : TraitList<[Idr_CallsRuntimeTrait, Idr_RuntimeCallOpInterface]>;
 
-// IDR-EFF-1, A21: an op that may end the program. Its cause is the text of
+// IDR-EFF-1: an op that may end the program. Its cause is the text of
 // the crash message (LOW-CRASH-1); its effects and speculatability follow.
 def Idr_MayCrashOpInterface : OpInterface<"MayCrashOpInterface"> {
   let cppNamespace = "::idr";
@@ -397,10 +397,10 @@ def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>]> {
   let assemblyFormat = "$message attr-dict";
 }
 
-// LOW-TAIL-4 (A14): created by idr-tail-loops in loops of functions that are
+// LOW-TAIL-4: created by idr-tail-loops in loops of functions that are
 // not total, never written by Emit. MLIR deletes a region op without effects
 // even if it never finishes; this op's effect keeps such a loop (SEM-EVAL-5),
-// and orders it with output as a crash is (A21).
+// and orders it with output as a crash is (IDR-EFF-1).
 def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
     MemWrite<Idr_DivergenceResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "marks one iteration of a loop that may not terminate";
@@ -475,7 +475,7 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
   let assemblyFormat = "$value attr-dict";
 }
 
-// The first character of the decimal text of an integer (ELIM-G-15, A4).
+// The first character of the decimal text of an integer (ELIM-G-15, IDR-DBL-3).
 def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // LOW-RT-1: folded by calling the runtime (lib/Fold).

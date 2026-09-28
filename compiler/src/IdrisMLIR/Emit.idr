@@ -1,4 +1,4 @@
-||| Full Core to the contract of docs/cutover.md, section 10: one module in
+||| Full Core to the contract (08-idr-dialect.md): one module in
 ||| the custom syntax of the `idr`, `func`, `arith`, `math` and `ub`
 ||| dialects.
 |||
@@ -193,7 +193,7 @@ record Val where
 -- Types
 ------------------------------------------------------------------------------
 
-||| The contract type of a Core type (docs/cutover.md, section 10.2).
+||| The contract type of a Core type (IDR-TY-*).
 mtype : Index -> Ty -> E MType
 mtype ix (IntT t) = pure (I (width t))
 mtype ix CharT = pure (I 32)
@@ -305,7 +305,7 @@ intLike (SInt t) = Just (width t, signed t)
 intLike SChar = Just (32, False)
 intLike SDouble = Nothing
 
-||| A primitive (IDR-IN-3, docs/cutover.md, section 10.6), on operands in
+||| A primitive (IDR-IN-3), on operands in
 ||| Idris's order.
 prim : Loc -> Prim -> List Val -> E Val
 prim l (IntOp op t) [a, b] =
@@ -726,7 +726,7 @@ function ix root f = do
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
     alg' = alg ix
 
-||| The contract text of a program (docs/cutover.md, section 10).
+||| The contract text of a program (docs/architecture/08-idr-dialect.md).
 export
 emit : Source -> Either String String
 emit src = do
