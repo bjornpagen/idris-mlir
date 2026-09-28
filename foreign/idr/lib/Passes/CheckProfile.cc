@@ -49,10 +49,8 @@ bool isBuilt(Operation *op, Type type) {
          llvm::any_of(op->getResultTypes(), [&](Type t) { return t == type; });
 }
 
-// A value with no runtime content of its own: a constant, or erased.
-bool isStatic(Value value) {
-  return isa<idr::ErasedType>(value.getType()) || matchPattern(value, m_Constant());
-}
+// An operand that a box or closure can hold as static data.
+bool isStatic(Value value) { return matchPattern(value, m_Constant()); }
 
 std::string opName(Operation *op) { return op->getName().getStringRef().str(); }
 

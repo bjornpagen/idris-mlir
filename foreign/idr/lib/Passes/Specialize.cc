@@ -268,7 +268,10 @@ struct Specializer {
     return clone;
   }
 
+  // The call and its callee are marked, so later runs neither retry the
+  // call nor report it again.
   void stop(func::CallOp call, func::FuncOp callee) {
+    call->setAttr(limitHit, UnitAttr::get(module.getContext()));
     callee->setAttr(limitHit, UnitAttr::get(module.getContext()));
     remark::missed(call.getLoc(),
                    remark::RemarkOpts::name("idr-specialize").category("idr-specialize"))
@@ -279,7 +282,7 @@ struct Specializer {
 
   void specialize(func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
-    if (!callee || callee.isExternal())
+    if (!callee || callee.isExternal() || call->hasAttr(limitHit))
       return;
     SmallVector<Shape> shapes = llvm::map_to_vector(call.getOperands(), [](Value v) {
       return shape(v);
