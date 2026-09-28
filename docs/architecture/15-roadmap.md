@@ -68,7 +68,7 @@ follows; the profile stays v3, and each change is marked in its rule:
   `PROF-HEAP-1` to `-4`: recursive data, `Integer` and strings have
   representations, and only their dynamic allocation is rejected.
 - The JIT is ORC's `LLJIT`, not `mlir::ExecutionEngine`, which aborts in a
-  static musl process (`PINS.md`: `jit-lljit`).
+  static musl process (`PINS.md`: `orc-lljit`).
 
 
 The cleanup after v3 ([the plan](../plan.md), section 9) differed from

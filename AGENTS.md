@@ -6,14 +6,23 @@ current instead of writing new plan documents.
 - Before changing a compiler boundary, read 00, 01, 02, 03 and 08.
 - Before any implementation work, read 16-agent-rules.md.
 
-- The compiler front and middle end are Idris. The `idr` MLIR dialect and its
-  passes are C++ in `foreign/idr/`, following bjornpagen/cpp-starter as
-  adopted in docs/architecture/11-toolchain.md. p0, v0, v1, v2 and v3 are
-  implemented (docs/architecture/15-roadmap.md); `PINS.md` records every
-  deliberate deviation from that C++ profile.
+- Idris does types; MLIR does programs. The Idris side (the frontend and
+  `Emit`) checks the profile, monomorphises and decides representations.
+  The `idr` MLIR dialect and its passes (specialization, compile-time
+  evaluation, defunctionalization, loops, the heap-free check, lowering) are
+  C++ in `foreign/idr/`, following bjornpagen/cpp-starter as adopted in
+  docs/architecture/11-toolchain.md. p0, v0, v1, v2 and v3 are implemented,
+  as the cutover compiles them (docs/architecture/15-roadmap.md); `PINS.md`
+  records every deliberate deviation from that C++ profile, the plan and
+  the pinned upstreams.
 - The compiler consumes checked Idris TT and its definition context. Do not
-  replace that input with CExp or runtime case trees, and do not erase facts
-  before the passes that use them.
+  replace that input with CExp or runtime case trees (only the `ZERO`/`SUCC`
+  constructor flags are read from `Core.CompileExpr`, FE-IN-2), and do not
+  erase facts before the passes that use them.
+- No primitive has an implementation in Idris: its one meaning is the
+  runtime's, which folders and compile-time evaluation call too (LOW-RT-1).
+  Compile-time evaluation runs total code always and partial code never
+  (SEM-EVAL-6).
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work.

@@ -233,7 +233,7 @@ runtime operands left out, and those operands are its *runtime leaves*.
     as static data, calls the callee, and stores the flattened results. The
     scratch module is lowered by the executable's own `idr-lower`, in JIT
     mode (`LOW-JIT-1`), and LLVM pipeline, then compiled once by ORC's
-    `LLJIT` (`PINS.md`: `jit-lljit`). The runtime's symbols are bound to
+    `LLJIT` (`PINS.md`: `orc-lljit`). The runtime's symbols are bound to
     `idris-mlir-cc`'s own copies, so the JIT runs the same runtime as the
     executable (`LOW-RT-1`). Results are cached per callee and arguments
     for the compilation.

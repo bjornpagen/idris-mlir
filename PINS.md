@@ -29,6 +29,57 @@ which the top-level CMake configure gate reads (TC-DEV-2).
 - retire: when MLIR offers a module-based, inheritance-free API (not expected)
 - upstream: none — MLIR's design
 
+## orc-lljit
+
+- symptom: docs/plan.md chose upstream's `mlir::ExecutionEngine` for
+  compile-time evaluation, but it aborts in a static-musl process: creating
+  it calls `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))`
+  (`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395` at
+  llvmorg-23.1.2), which needs `dlopen(NULL)`, and a static musl
+  `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
+  symbols by default
+- sites: foreign/idr/lib/Eval/Jit.cc (`idr-eval`, ELIM-EVAL-1, LOW-JIT-1)
+- workaround: ORC's `LLJIT` directly, which `ExecutionEngine` wraps, with
+  `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
+  `absoluteSymbols` table that binds the runtime's functions, and the libm
+  functions lowered code may call, to `idris-mlir-cc`'s own copies (LOW-RT-1)
+- retire: never while `idris-mlir-cc` is static on musl; re-read at every
+  LLVM bump, in case `ExecutionEngine` stops requiring process symbols
+- upstream: none — a static process has no process-symbol generator by design
+
+## symbol-dce-first
+
+- symptom: at llvmorg-23.1.2, `remove-dead-values` on a private function
+  that no one calls (or only itself) erases its arguments, while region ops
+  that it keeps for their effects still use them, and then crashes
+  (`mlir/lib/Transforms/RemoveDeadValues.cpp:649` and `:833`); the same
+  happens with `scf.index_switch`
+- sites: foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop,
+  OPT-PIPE-5); tests/idr/canon/upstream-passes.mlir, which gives every
+  private function a caller
+- workaround: every round of the simplify loop runs `symbol-dce` before
+  `remove-dead-values`, so no function without callers reaches it
+- retire: when `remove-dead-values` handles such functions at a bump; then
+  the order is free again
+- upstream: none filed yet
+
+## inline-unreachable
+
+- symptom: the upstream inliner's default `handleTerminator`
+  (`DialectInlinerInterface.td`) cannot handle a callee whose body ends in
+  `ub.unreachable`, which is how a function whose body is a crash ends
+  (`idr.crash`, then `ub.unreachable`, IDR-CRASH-1); the inliner's region
+  patterns likewise skip a region that ends in `ub.unreachable`
+- sites: foreign/idr/lib/Dialect/Dialect.cc (`IdrInliner`,
+  IDR-IF-1)
+- workaround: the dialect never inlines a function whose body is a
+  top-level crash; a call of it stays a call, and a match region that
+  crashes stays a region, which `idr-lower` lowers (LOW-MATCH-1). Nothing is
+  lost but the inlining of a call that always crashes
+- retire: when the inliner and region inlining handle `ub.unreachable` at a
+  bump
+- upstream: none filed yet
+
 ## platform-gate-x86_64
 
 - symptom: cpp-starter's gate accepts arm64 only; this project runs on
