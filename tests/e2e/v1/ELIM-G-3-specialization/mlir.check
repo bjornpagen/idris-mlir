@@ -5,8 +5,11 @@
 // calls are not closed (n comes from stdin), so each is specialized on the
 // closure it passes, whose label is the key. The original iter is dead
 // and removed, and in each copy the closure is known, so it is applied as
-// a call and inlined: no closure is left.
-// CHECK-COUNT-2: func.func private @Main.iter
+// a call and inlined: no closure is left. Each copy computes with its own
+// function, in either order (two copies with the same function would share
+// one key, so they would be one copy).
+// CHECK: func.func private @Main.iter$spec${{[0-9]+}}(
+// CHECK: arith.{{addi|muli}}
+// CHECK: func.func private @Main.iter$spec${{[0-9]+}}(
+// CHECK: arith.{{addi|muli}}
 // CHECK-NOT: func.func private @Main.iter
-// CHECK-DAG: arith.addi
-// CHECK-DAG: arith.muli

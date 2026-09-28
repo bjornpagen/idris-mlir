@@ -465,7 +465,8 @@ when `Simplify` enforced them; with `PROF-TYPE-4` (bigs), `PROF-DATA-3`
   one picked among literals, passed through variables, arguments, fields
   and results, and lives in static data.
   - Check: `idr-check-profile`
-  - Test: `tests/profile/v2/reject/PROF-HEAP-3-recursive-string.idr`
+  - Test: `tests/profile/v2/reject/PROF-HEAP-3-compared-string.idr`,
+    `tests/profile/v2/accept/PROF-HEAP-3-recursive-string.idr`
 - **PROF-HEAP-4 (v1).** A recursive function does not pass itself a
   function argument that grows from the one it received. This is Futhark's
   restriction that "a loop may not produce a function"; without it,

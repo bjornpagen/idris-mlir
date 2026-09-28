@@ -67,11 +67,16 @@ func.func @field_of(%b: i64, %p: !idr.data<@P>) -> i64 {
   return %f : i64
 }
 
-// The consumer does not move past an op with effects.
+// The consumer does not move up past an op with effects, but a match free
+// of effects moves down past it to the consumer: show m is computed after
+// the character is written, and each region writes its own string.
 // CHECK-LABEL: func.func @past_effect(
-// CHECK: idr.match
 // CHECK: idr.io.put_char
+// CHECK-NEXT: idr.match
+// CHECK-NEXT: case @Nothing() {
 // CHECK-NEXT: idr.io.put_str
+// CHECK: case @Just(%[[X:.*]]: i64) {
+// CHECK-NEXT: idr.io.put_int signed %[[X]]
 func.func @past_effect(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
   %s = idr.match %m : !idr.data<@Maybe> -> (!idr.str) {
   case @Nothing() {
@@ -81,6 +86,30 @@ func.func @past_effect(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
   case @Just(%x: i64) {
     %t = idr.str.show signed %x : i64
     idr.yield %t : !idr.str
+  }
+  }
+  %ch = arith.constant 65 : i32
+  %w1 = idr.io.put_char %ch, %w
+  %w2 = idr.io.put_str %s, %w1
+  return %w2 : !idr.world
+}
+
+// A match with an effect (a region crashes) does not move past output, and
+// the consumer does not move up past it: both stay.
+// CHECK-LABEL: func.func @both_effects(
+// CHECK: idr.match_lit
+// CHECK: idr.crash
+// CHECK: idr.io.put_char
+// CHECK-NEXT: idr.io.put_str
+func.func @both_effects(%n: i64, %w: !idr.world) -> !idr.world {
+  %s = idr.match_lit %n : i64 -> (!idr.str) {
+  case 0 {
+    %c = idr.constant "zero" : !idr.str
+    idr.yield %c : !idr.str
+  }
+  default {
+    idr.crash "no"
+    ub.unreachable
   }
   }
   %ch = arith.constant 65 : i32

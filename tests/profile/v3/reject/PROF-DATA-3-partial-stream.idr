@@ -1,4 +1,4 @@
--- expect: PROF-DATA-3 line 17
+-- expect: PROF-DATA-3 line 15
 module Main
 
 -- rule: SEM-EVAL-6, SEM-REC-2, PROF-GEN-4, DIAG-LOC-1

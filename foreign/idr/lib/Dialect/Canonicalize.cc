@@ -142,49 +142,78 @@ bool feeds(Value value, Operation *consumer) {
 // IDR-MATCH-5, case-of-case: the single consumer of a result of a match,
 // another match included, moves into every region that yields, when in at
 // least one of them it then meets a value it folds or canonicalizes against.
-// It moves past no op with effects, and still runs exactly once on every path
-// (OPT-SAFE-1).
+// The consumer moves past no op with effects, and still runs exactly once on
+// every path (OPT-SAFE-1). When it cannot move up to the match, a match free
+// of effects moves down to it instead, past the ops between them: a value
+// computed without effects may be computed later.
 template <typename Match>
 struct SinkConsumer : OpRewritePattern<Match> {
   using OpRewritePattern<Match>::OpRewritePattern;
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    for (OpResult result : op->getResults())
-      if (Operation *consumer = sinkable(op, result))
+    for (OpResult result : op->getResults()) {
+      Operation *consumer = candidate(op, result);
+      if (!consumer)
+        continue;
+      if (canRaise(op, consumer))
         return sink(op, consumer, rewriter);
+      if (canLower(op, consumer)) {
+        rewriter.moveOpBefore(op, consumer);
+        return sink(op, consumer, rewriter);
+      }
+    }
     return failure();
   }
 
 private:
-  static Operation *sinkable(Match op, OpResult result) {
+  // The single consumer of `result`, in the match's block, when it would
+  // meet in some region a value it folds or canonicalizes against.
+  static Operation *candidate(Match op, OpResult result) {
     if (!result.hasOneUse())
       return nullptr;
     Operation *consumer = *result.getUsers().begin();
-    Block *block = op->getBlock();
-    if (consumer->getBlock() != block || consumer->hasTrait<OpTrait::IsTerminator>())
+    if (consumer->getBlock() != op->getBlock() || consumer->hasTrait<OpTrait::IsTerminator>())
       return nullptr;
-    // Its other operands, and the values its regions use from outside, are
-    // the match's results or exist before the match.
-    auto before = [&](Value value) {
-      Operation *def = value.getDefiningOp();
-      return !def || def == op || def->getBlock() != block || def->isBeforeInBlock(op);
-    };
-    if (!llvm::all_of(consumer->getOperands(), before))
-      return nullptr;
-    bool captured = true;
-    visitUsedValuesDefinedAbove(consumer->getRegions(), [&](OpOperand *use) {
-      captured &= before(use->get());
-    });
-    if (!captured)
-      return nullptr;
-    for (Operation *between = op->getNextNode(); between != consumer;
-         between = between->getNextNode())
-      if (!isMemoryEffectFree(between))
-        return nullptr;
     bool feedsSome = llvm::any_of(op.getRegions(), [&](Region &region) {
       auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
       return yield && feeds(yield.getOperand(result.getResultNumber()), consumer);
     });
     return feedsSome ? consumer : nullptr;
+  }
+
+  // Whether `consumer` can move up to the match: its other operands, and the
+  // values its regions use from outside, are the match's results or exist
+  // before the match, and no op between them has effects.
+  static bool canRaise(Match op, Operation *consumer) {
+    Block *block = op->getBlock();
+    auto before = [&](Value value) {
+      Operation *def = value.getDefiningOp();
+      return !def || def == op || def->getBlock() != block || def->isBeforeInBlock(op);
+    };
+    if (!llvm::all_of(consumer->getOperands(), before))
+      return false;
+    bool captured = true;
+    visitUsedValuesDefinedAbove(consumer->getRegions(), [&](OpOperand *use) {
+      captured &= before(use->get());
+    });
+    if (!captured)
+      return false;
+    for (Operation *between = op->getNextNode(); between != consumer;
+         between = between->getNextNode())
+      if (!isMemoryEffectFree(between))
+        return false;
+    return true;
+  }
+
+  // Whether the match can move down to `consumer`: it has no effects, and
+  // nothing between them uses its results. Its operands and the values its
+  // regions use exist before it, so they exist before the consumer too.
+  static bool canLower(Match op, Operation *consumer) {
+    if (!isMemoryEffectFree(op))
+      return false;
+    return llvm::all_of(op->getUsers(), [&](Operation *user) {
+      Operation *at = op->getBlock()->findAncestorOpInBlock(*user);
+      return at && (at == consumer || consumer->isBeforeInBlock(at));
+    });
   }
 
   static LogicalResult sink(Match op, Operation *consumer, PatternRewriter &rewriter) {
