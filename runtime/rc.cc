@@ -56,49 +56,36 @@ private:
   idris_rt_header *top = nullptr;
 };
 
-// Drops a reference that an object slot of a dying cell held. A cell whose
-// count reaches 0 joins the worklist instead of being released here.
-void drop(void *o, Dying &dying) {
+// Drops one reference to o, and returns o's cell when that was the last.
+idris_rt_header *lastReference(void *o) {
   if (!isObject(o))
-    return;
+    return nullptr;
   idris_rt_header *cell = headerOf(o);
   uint32_t count = cell->count;
   if (!isCounted(count))
-    return;
+    return nullptr;
   if (count == 1)
-    dying.push(cell);
-  else
-    cell->count = count - 1;
+    return cell;
+  cell->count = count - 1;
+  return nullptr;
 }
 
-void **slotsAt(idris_rt_header *cell, size_t offset) {
+// A cell's object slots: after the header, and in a closure after its code
+// pointer too. Strings and bignums have none.
+void **slotsOf(idris_rt_header *cell) {
+  size_t offset = idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_CLOSURE ? 16 : 8;
   return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
 }
 
-// Releases what a cell owns besides its memory: a box's or a closure's
-// object slots, a bignum's limbs. A string owns nothing else.
+// Releases what a cell owns besides its memory: its object slots, and a
+// bignum's limbs, which GMP keeps outside the cell.
 void releaseOwned(idris_rt_header *cell, Dying &dying) {
-  uint32_t info = cell->info;
-  void **slots = nullptr;
-  switch (idris_rt_info_kind(info)) {
-  case IDRIS_RT_KIND_BOX:
-    slots = slotsAt(cell, sizeof(idris_rt_header));
-    break;
-  case IDRIS_RT_KIND_CLOSURE:
-    slots = slotsAt(cell, sizeof(idris_rt_header) + sizeof(void *));
-    break;
-  case IDRIS_RT_KIND_STRING:
-    return;
-  case IDRIS_RT_KIND_BIGNUM:
+  if (idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_BIGNUM)
     rt::clearBignum(static_cast<idris_rt_bignum *>(static_cast<void *>(cell)));
-    return;
-  default: {
-    static constexpr char message[] = "idris runtime: freeing a cell of no known kind\n";
-    idris_rt_crash(message, sizeof message - 1);
-  }
-  }
-  for (uint32_t i = 0, n = idris_rt_info_objs(info); i < n; ++i)
-    drop(slots[i], dying);
+  void **slots = slotsOf(cell);
+  for (uint32_t i = 0, n = idris_rt_info_objs(cell->info); i < n; ++i)
+    if (idris_rt_header *dead = lastReference(slots[i]))
+      dying.push(dead);
 }
 
 // A dead cell's memory is freed, but a stack cell's belongs to its frame:
@@ -121,20 +108,13 @@ void releaseAll(Dying &dying) {
 // Out of line, so that the inlined decrement stays a test and a store.
 [[gnu::noinline]] void release(idris_rt_header *cell) {
   Dying dying;
-  releaseOwned(cell, dying);
-  freeDead(cell);
+  dying.push(cell);
   releaseAll(dying);
 }
 
 } // namespace
 
-extern "C" void idris_rt_inc(void *o) {
-  if (!isObject(o))
-    return;
-  idris_rt_header *cell = headerOf(o);
-  if (isCounted(cell->count))
-    ++cell->count;
-}
+extern "C" void idris_rt_inc(void *o) { idris_rt_inc_n(o, 1); }
 
 extern "C" void idris_rt_inc_n(void *o, uint32_t n) {
   if (!isObject(o))
@@ -148,16 +128,8 @@ extern "C" void idris_rt_inc_n(void *o, uint32_t n) {
 }
 
 extern "C" void idris_rt_dec(void *o) {
-  if (!isObject(o))
-    return;
-  idris_rt_header *cell = headerOf(o);
-  uint32_t count = cell->count;
-  if (!isCounted(count))
-    return;
-  if (count == 1)
-    release(cell);
-  else
-    cell->count = count - 1;
+  if (idris_rt_header *dead = lastReference(o))
+    release(dead);
 }
 
 extern "C" bool idris_rt_is_unique(const void *o) {
