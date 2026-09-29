@@ -1,13 +1,12 @@
 // RUN: idris-mlir-cc %s -o %t.ll --emit=llvm
 // RUN: FileCheck %s < %t.ll
-// An infinite loop without effects is kept: idr-tail-loops puts idr.may_loop
-// in the loop of a function that is not total, and nothing asserts
-// termination or forward progress (no mustprogress), so neither MLIR nor
-// LLVM deletes it: the loop's body is the effect idr.may_loop lowers to.
-// CHECK: define {{.*}}i32 @main()
-// CHECK: [[L:[0-9]+]]:
-// CHECK-NEXT: tail call void asm sideeffect "", ""()
-// CHECK-NEXT: br label %[[L]]
+// RUN: idris-mlir-cc %s -o %t.o
+// RUN: %cc %t.o -o %t
+// RUN: %status 124 timeout 2 %t
+// An endless loop without effects is kept: idr-tail-loops puts idr.may_loop
+// in the loop of a function that is not total, and nothing asserts forward
+// progress, so neither MLIR nor LLVM deletes it. The program is still
+// running when its time is up.
 // CHECK-NOT: mustprogress
 module attributes {idr.program} {
   func.func private @Prog.spin(%n: i64) -> i64 {

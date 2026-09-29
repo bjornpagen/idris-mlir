@@ -103,9 +103,10 @@ void Runtime::mayLoop(OpBuilder &b, Location loc) {
     call(b, loc, "idris_rt_eval_tick", Type(), ValueRange{});
     return;
   }
-  // A fence within the thread is an effect LLVM keeps, so the loop stays,
-  // and it emits no instruction.
-  LLVM::FenceOp::create(b, loc, LLVM::AtomicOrdering::seq_cst, "singlethread");
+  // llvm.sideeffect is the effect LLVM keeps in place and emits as no
+  // instruction, so the body of a loop that may not end never empties. A
+  // fence would not do: LLVM hoists it out of the loop.
+  LLVM::CallIntrinsicOp::create(b, loc, b.getStringAttr("llvm.sideeffect"), ValueRange{});
 }
 
 Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info) {
