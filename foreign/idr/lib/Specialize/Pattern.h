@@ -71,6 +71,11 @@ Pattern shapeOf(mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
 // linear leaf used by both would be used twice.
 void eraseUnused(mlir::Value value);
 
+// Whether the shape of `value` has no use but the one that reads it: each
+// operation that built it is used once. A call on such a shape takes its
+// leaves alone once the shape is erased.
+bool usedOnce(mlir::Value value);
+
 // Whether `value` is closed: a constant, or a constructor or closure of
 // closed values.
 bool isClosed(mlir::Value value);

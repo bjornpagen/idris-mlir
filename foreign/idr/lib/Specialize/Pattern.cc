@@ -112,6 +112,13 @@ void eraseUnused(Value value) {
     eraseUnused(part);
 }
 
+bool usedOnce(Value value) {
+  Operation *def = value.getDefiningOp();
+  if (!isa_and_nonnull<ConOp, ClosureOp, LinEnterOp>(def))
+    return true;
+  return value.hasOneUse() && llvm::all_of(def->getOperands(), usedOnce);
+}
+
 bool isClosed(Value value) {
   if (matchPattern(value, m_Constant()))
     return true;

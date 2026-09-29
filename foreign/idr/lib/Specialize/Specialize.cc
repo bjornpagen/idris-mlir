@@ -182,6 +182,11 @@ LogicalResult Specializer::specialize(func::CallOp call) {
     bool unrolls = *time == BindingTime::Decreasing || *time == BindingTime::Bounded;
     if (shape.isHole() || (unrolls ? unrollSize(shape) > kUnrollLimit : !hasStructure(shape)))
       continue;
+    // A linear leaf moves into the clone's call, so the shape that held it
+    // must die with the call it feeds: else the leaf is used twice.
+    if (llvm::any_of(leaves, [](Value leaf) { return isa<LinType>(leaf.getType()); }) &&
+        !usedOnce(operand))
+      continue;
     arg.pattern = std::move(shape);
     arg.leaves = std::move(leaves);
     any = true;
