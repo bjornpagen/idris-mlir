@@ -63,10 +63,10 @@ module attributes {idr.program} {
 // CHECK-LABEL: func.func private @Main.back(
 // CHECK-SAME: no_inline
 module attributes {idr.program} {
-  func.func private @Lib.go(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @Lib.go(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.library} {
     %r = func.call @Main.back(%x) : (i64) -> i64
     return %r : i64
-  } loc(fused<"library">[unknown])
+  }
   func.func private @Main.back(%x: i64 {idr.quantity = "w"}) -> i64 {
     %r = func.call @Lib.go(%x) : (i64) -> i64
     return %r : i64

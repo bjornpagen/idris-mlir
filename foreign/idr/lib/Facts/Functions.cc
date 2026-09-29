@@ -82,17 +82,7 @@ void facts::inherit(func::FuncOp made, func::FuncOp origin, ArrayRef<func::FuncO
     made->setAttr("idr.total", UnitAttr::get(made.getContext()));
 }
 
-bool facts::isLibrary(func::FuncOp fn) {
-  if (fn->hasAttr("idr.library"))
-    return true;
-  // Until the frontend marks library functions, their locations say it.
-  Location loc = fn.getLoc();
-  if (auto named = dyn_cast<NameLoc>(loc))
-    loc = named.getChildLoc();
-  auto fused = dyn_cast<FusedLoc>(loc);
-  auto tag = fused ? dyn_cast_or_null<StringAttr>(fused.getMetadata()) : StringAttr();
-  return tag && tag.getValue() == "library";
-}
+bool facts::isLibrary(func::FuncOp fn) { return fn->hasAttr("idr.library"); }
 
 // The old facts, which idr-specialize reads until it asks `of`: pure when
 // idr-effects found that the function reaches no IO op (a closure counts
