@@ -19,10 +19,6 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
     without a body, and every function that reaches one or calls anything
     but a func.func, gets both. `#idr.effects<none>` is neither.
 
-    Until idr-specialize reads `idr.effects`, the pass also writes the old
-    facts it reads: `idr.effect` ("effectful" when the function reaches an
-    idr.io op the same way, else "pure") and `idr.may_crash`.
-
     A string parameter gets `idr.writes_first` when the function, total and
     unable to crash, with exactly one world parameter, writes that string
     before anything else it does with the world: every use of the world

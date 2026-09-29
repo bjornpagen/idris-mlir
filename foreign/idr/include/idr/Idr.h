@@ -161,14 +161,6 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
-// The old facts of a function, which idr-specialize reads until it asks
-// lib/Facts (Facts/Facts.h): pure when idr-effects found that it reaches no
-// IO op (a closure counts where it is made), able to crash unless
-// idr-effects found it cannot, and total as Idris proves (idr.total).
-bool isPure(mlir::func::FuncOp fn);
-bool mayCrash(mlir::func::FuncOp fn);
-bool isTotal(mlir::func::FuncOp fn);
-
 // Registers the idr dialect, and (once per process) its passes and the named
 // pipeline `idr-pipeline`.
 void registerIdr(mlir::DialectRegistry &registry);

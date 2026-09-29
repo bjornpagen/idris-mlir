@@ -418,7 +418,7 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   }
   // The facts of a function (lib/Facts): what Idris proves, whether it was
   // written in a library, and what idr-effects finds.
-  if (key == "idr.total" || key == "idr.library" || key == "idr.may_crash") {
+  if (key == "idr.total" || key == "idr.library") {
     if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects ") << key << " as a unit attribute of a function";
     return success();
@@ -434,13 +434,6 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
     auto con = dyn_cast<ConOp>(op);
     if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects idr.stack as a unit attribute of an idr.con of a box");
-    return success();
-  }
-  if (key == "idr.effect") {
-    auto effect = dyn_cast<StringAttr>(attr.getValue());
-    if (!isa<func::FuncOp>(op) || !effect ||
-        !llvm::is_contained({"pure", "effectful"}, effect.getValue()))
-      return op->emitOpError("expects idr.effect = \"pure\" or \"effectful\" on a function");
     return success();
   }
   // What idr-specialize keeps between runs (lib/Passes/Specialize.cc): the

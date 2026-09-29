@@ -38,26 +38,10 @@ facts::Effects facts::of(func::FuncOp fn) {
   if (!fn || fn.isExternal())
     return out;
   out.partial = !fn->hasAttr("idr.total");
-  auto found = fn->getAttrOfType<EffectAttr>("idr.effects");
-  // idr-specialize copies its origin's attributes to a clone and then
-  // gives it the facts it computes as idr.effect and idr.may_crash, which
-  // idr-effects writes too until idr-specialize gives its clones
-  // idr.effects (inherit): both count.
-  auto effect = fn->getAttrOfType<StringAttr>("idr.effect");
-  if (!found && !effect)
-    return out;
-  out.io = out.crash = false;
-  if (found) {
+  if (auto found = fn->getAttrOfType<EffectAttr>("idr.effects")) {
     out.io = bitEnumContainsAny(found.getValue(), Effect::io);
     out.crash = bitEnumContainsAny(found.getValue(), Effect::crash);
   }
-  if (effect) {
-    out.io |= effect.getValue() != "pure";
-    out.crash |= fn->hasAttr("idr.may_crash");
-  }
-  // Arity raising gives a clone the world its consumer took, so a function
-  // that takes a world performs IO whatever its copied attribute says.
-  out.io |= llvm::any_of(fn.getArgumentTypes(), llvm::IsaPred<WorldType>);
   return out;
 }
 
@@ -83,17 +67,3 @@ void facts::inherit(func::FuncOp made, func::FuncOp origin, ArrayRef<func::FuncO
 }
 
 bool facts::isLibrary(func::FuncOp fn) { return fn->hasAttr("idr.library"); }
-
-// The old facts, which idr-specialize reads until it asks `of`: pure when
-// idr-effects found that the function reaches no IO op (a closure counts
-// where it is made), and able to crash unless idr-effects found it cannot.
-bool idr::isPure(func::FuncOp fn) {
-  auto effect = fn->getAttrOfType<StringAttr>("idr.effect");
-  return effect && effect.getValue() == "pure";
-}
-
-bool idr::mayCrash(func::FuncOp fn) {
-  return !fn->hasAttr("idr.effect") || fn->hasAttr("idr.may_crash");
-}
-
-bool idr::isTotal(func::FuncOp fn) { return fn->hasAttr("idr.total"); }
