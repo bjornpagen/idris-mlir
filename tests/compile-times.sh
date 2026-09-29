@@ -1,5 +1,5 @@
 #!/bin/sh
-# The compile times the golden tests recorded (tests/testutils.sh,
+# The compile times the golden tests recorded (tests/lib/timing.sh,
 # `record_time`): the slowest compilations, each broken down by
 # idris-mlir-cc's --timing into JIT compilation, evaluation and everything
 # else. It reports; it gates nothing.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # The dialect tests run without lit or Python. Their RUN lines find the
-# FileCheck, not and count of the pinned LLVM first on PATH (testutils.sh's
-# lit), shown here with stand-ins for them.
+# FileCheck, not and count of the pinned LLVM first on PATH (`lit`, in
+# tests/lib/lit.sh), shown here with stand-ins for them.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 case $llvm_bin in
   "$root/.toolchain/llvm-musl/bin") say "the pinned LLVM: .toolchain/llvm-musl/bin" ;;
