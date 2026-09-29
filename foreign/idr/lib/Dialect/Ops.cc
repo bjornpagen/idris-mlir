@@ -554,6 +554,13 @@ LogicalResult MatchOp::verify() {
   return verifyMatchRegions(*this);
 }
 
+// A region argument binds its field as the field's type says, or linearly:
+// matching a linear value binds each of its fields linearly.
+static bool bindsField(Type arg, Type field) {
+  auto lin = dyn_cast<LinType>(arg);
+  return arg == field || (lin && lin.getValue() == field);
+}
+
 // Each case is a constructor of the scrutinee's type, and its region's
 // arguments are that constructor's fields.
 LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -565,7 +572,9 @@ LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
       return emitOpError("has a case for ")
              << name << ", which is not a constructor of " << getScrutinee().getType();
     TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
-    if (!llvm::equal(args, ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
+    if (args.size() != ctor.getFieldTypes().size() ||
+        !llvm::all_of(llvm::zip(args, ctor.getFieldTypes().getAsValueRange<TypeAttr>()),
+                      [](auto pair) { return bindsField(std::get<0>(pair), std::get<1>(pair)); }))
       return emitOpError("case ") << name << " must take the constructor's fields "
                                   << ctor.getFieldTypes();
   }

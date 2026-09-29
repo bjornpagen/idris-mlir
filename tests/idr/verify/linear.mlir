@@ -81,3 +81,43 @@ func.func @root() -> i64 {
 func.func private @f(%w: !idr.lin<!idr.world>) {
   return
 }
+
+// -----
+
+// Matching binds the fields of a value used once as used once: a region
+// argument may be the field's type or its linear type.
+module attributes {idr.program} {
+idr.data @P {
+  idr.ctor @MkP tag 0 (i64, !idr.lin<i64>)
+}
+func.func private @fst(%p: !idr.lin<!idr.data<@P>>) -> i64 {
+  %v = idr.lin.use %p : !idr.lin<!idr.data<@P>>
+  %r = idr.match %v : !idr.data<@P> -> (i64) {
+  case @MkP(%a: !idr.lin<i64>, %b: !idr.lin<i64>) {
+    %x = idr.lin.use %a : !idr.lin<i64>
+    idr.yield %x : i64
+  }
+  }
+  return %r : i64
+}
+func.func @root() -> i64 {
+  %z = arith.constant 0 : i64
+  return %z : i64
+}
+}
+
+// -----
+
+idr.data @P {
+  idr.ctor @MkP tag 0 (i64)
+}
+func.func private @f(%p: !idr.data<@P>) -> i64 {
+  // expected-error @+1 {{case @MkP must take the constructor's fields}}
+  %r = idr.match %p : !idr.data<@P> -> (i64) {
+  case @MkP(%a: !idr.lin<i32>) {
+    %z = arith.constant 0 : i64
+    idr.yield %z : i64
+  }
+  }
+  return %r : i64
+}

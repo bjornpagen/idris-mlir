@@ -45,7 +45,7 @@ func.func private @f() {
 // -----
 
 // The facts a function may carry.
-func.func private @f(%e: !idr.erased, %x: i64,
+func.func private @f(%e: !idr.erased, %x: !idr.lin<i64>,
                      %y: i64)
     attributes {idr.total, idr.library, idr.effects = #idr.effects<io, crash>, no_inline} {
   return

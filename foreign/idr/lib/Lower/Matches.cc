@@ -28,13 +28,17 @@ void moveRegion(RewriterBase &rewriter, Region &from, Region &to, TypeRange resu
 }
 
 // A case region's fields become idr.field reads of the scrutinee at its
-// start.
+// start; a field the region binds linearly enters its linear type.
 void readFields(RewriterBase &rewriter, Region &region, Value scrutinee, FlatSymbolRefAttr ctor) {
   Block &block = region.front();
   rewriter.setInsertionPointToStart(&block);
+  CtorOp decl = lookupCtor(lookupData(region.getParentOp(), scrutinee.getType()), ctor.getValue());
   for (BlockArgument field : block.getArguments()) {
-    Value value = FieldOp::create(rewriter, field.getLoc(), field.getType(), scrutinee, ctor,
+    Type type = decl.getFieldType(field.getArgNumber());
+    Value value = FieldOp::create(rewriter, field.getLoc(), type, scrutinee, ctor,
                                   rewriter.getI64IntegerAttr(field.getArgNumber()));
+    if (type != field.getType())
+      value = LinEnterOp::create(rewriter, field.getLoc(), field.getType(), value);
     rewriter.replaceAllUsesWith(field, value);
   }
   block.eraseArguments(0, block.getNumArguments());
