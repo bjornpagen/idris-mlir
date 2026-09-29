@@ -160,6 +160,10 @@ StringAttr dataName(Type type) {
   return {};
 }
 
+// Whether a slot of `type` holds a closure: a closure, or a linear one,
+// whose linearity the pass keeps on everything it rewrites.
+bool isClosureType(Type type) { return isa<idr::FnType>(idr::unrestricted(type)); }
+
 struct Module {
   explicit Module(ModuleOp top) : op(top), symbols(top) {}
 
@@ -259,12 +263,18 @@ public:
     }
     if (auto con = dyn_cast<idr::ConOp>(op)) {
       for (auto [i, field] : llvm::enumerate(operands))
-        if (isa<idr::FnType>(con.getFields()[i].getType()))
+        if (isClosureType(con.getFields()[i].getType()))
           joinField(con.getCtor(), static_cast<unsigned>(i), field->getValue());
       return success();
     }
+    // Entering or using a linear value keeps what it holds.
+    if (isa<idr::LinEnterOp, idr::LinUseOp>(op)) {
+      if (isClosureType(op->getResult(0).getType()))
+        return set(results[0], operands[0]->getValue());
+      return success();
+    }
     if (auto field = dyn_cast<idr::FieldOp>(op)) {
-      if (!isa<idr::FnType>(field.getType()))
+      if (!isClosureType(field.getType()))
         return success();
       auto ref = SymbolRefAttr::get(dataName(field.getValue().getType()),
                                     {field.getCtorAttr()});
@@ -272,7 +282,7 @@ public:
                                        static_cast<unsigned>(field.getIndex())));
     }
     for (auto [result, lattice] : llvm::zip(op->getResults(), results))
-      if (isa<idr::FnType>(result.getType()))
+      if (isClosureType(result.getType()))
         setToEntryState(lattice);
     return success();
   }
@@ -356,7 +366,7 @@ public:
     auto ref = SymbolRefAttr::get(dataName(match.getScrutinee().getType()), {ctor});
     ProgramPoint *point = getProgramPointBefore(&region->front());
     for (auto [input, lattice] : llvm::zip(inputs, lattices))
-      if (isa<idr::FnType>(input.getType()))
+      if (isClosureType(input.getType()))
         propagateIfChanged(lattice, lattice->join(readField(
                                         point, ref, cast<BlockArgument>(input).getArgNumber())));
   }
@@ -450,14 +460,14 @@ struct Converter {
   //===--------------------------------------------------------------------===//
 
   Key keyOf(Type type, const Labels &labels) {
-    auto fnType = cast<idr::FnType>(type);
+    auto fnType = cast<idr::FnType>(idr::unrestricted(type));
     if (labels.unknown)
       return {fnType, ArrayAttr()};
     return {fnType, ArrayAttr::get(ctx, SmallVector<Attribute>(labels.names.begin(),
                                                                labels.names.end()))};
   }
 
-  Key unknown(Type type) { return {cast<idr::FnType>(type), ArrayAttr()}; }
+  Key unknown(Type type) { return {cast<idr::FnType>(idr::unrestricted(type)), ArrayAttr()}; }
 
   // What the analysis found for `value`, with the label of the closure or
   // closure constant that defines it.
@@ -482,7 +492,7 @@ struct Converter {
       return {};
     Type type = fn.getArgumentTypes()[index];
     if (fn.isExternal())
-      return isa<idr::FnType>(type) ? unknown(type) : Key();
+      return isClosureType(type) ? unknown(type) : Key();
     return values.lookup(fn.getArgument(index));
   }
 
@@ -522,6 +532,8 @@ struct Converter {
       return field(con.getCtor(), index);
     if (auto closure = dyn_cast<idr::ClosureOp>(user))
       return argument(closure.getCalleeAttr().getAttr(), index);
+    if (isa<idr::LinEnterOp, idr::LinUseOp>(user))
+      return values.lookup(user->getResult(0));
     return {};
   }
 
@@ -530,6 +542,7 @@ struct Converter {
   static bool isFollowed(Operation *op) {
     return isa<func::FuncOp, func::CallOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
                idr::ClosureOp, idr::ApplyOp, idr::FieldOp, idr::MatchOp, idr::MatchLitOp,
+               idr::LinEnterOp, idr::LinUseOp,
                idr::ConstantOp>(op);
   }
 
@@ -537,7 +550,7 @@ struct Converter {
     module.op.walk([&](idr::CtorOp ctor) {
       auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
       for (auto [i, type] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>())) {
-        if (!isa<idr::FnType>(type))
+        if (!isClosureType(type))
           continue;
         auto index = std::make_tuple(data, ctor.getSymNameAttr(), unsigned(i));
         const auto *state =
@@ -554,7 +567,7 @@ struct Converter {
         llvm::for_each(joined, [](Labels &labels) { labels.unknown = true; });
       else
         for (BlockArgument arg : fn.getArguments())
-          if (isa<idr::FnType>(arg.getType()))
+          if (isClosureType(arg.getType()))
             values[arg] = keyOf(arg.getType(), labelsOf(arg));
       fn.walk([&](func::ReturnOp ret) {
         for (auto [operand, labels] : llvm::zip(ret.getOperands(), joined))
@@ -562,7 +575,7 @@ struct Converter {
       });
       SmallVector<Key> &out = results[fn.getOperation()];
       for (auto [type, labels] : llvm::zip(fn.getResultTypes(), joined))
-        out.push_back(isa<idr::FnType>(type) ? keyOf(type, labels) : Key());
+        out.push_back(isClosureType(type) ? keyOf(type, labels) : Key());
     }
   }
 
@@ -572,7 +585,7 @@ struct Converter {
       for (Region &region : op->getRegions())
         for (Block &block : region)
           for (BlockArgument arg : block.getArguments()) {
-            if (!isa<idr::FnType>(arg.getType()) ||
+            if (!isClosureType(arg.getType()) ||
                 (isa<func::FuncOp>(op) && block.isEntryBlock()))
               continue;
             // The arguments of a case are the fields of its constructor.
@@ -586,7 +599,7 @@ struct Converter {
             }
           }
       for (OpResult result : op->getResults()) {
-        if (!isa<idr::FnType>(result.getType()))
+        if (!isClosureType(result.getType()))
           continue;
         if (auto read = dyn_cast<idr::FieldOp>(op))
           values[result] = field(
@@ -599,7 +612,7 @@ struct Converter {
     // A closure or constant whose every use moves it into slots of one key
     // with more labels takes that key, so that it needs no coercion.
     module.op.walk([&](Operation *op) {
-      if (!isa<idr::ClosureOp, idr::ConstantOp>(op) || !isa<idr::FnType>(op->getResultTypes()[0]))
+      if (!isa<idr::ClosureOp, idr::ConstantOp>(op) || !isClosureType(op->getResultTypes()[0]))
         return;
       Value value = op->getResult(0);
       std::optional<Key> common;
@@ -667,7 +680,7 @@ struct Converter {
       if (auto call = dyn_cast<func::CallOp>(op)) {
         func::FuncOp fn = module.function(call.getCalleeAttr().getAttr());
         for (OpResult value : call.getResults())
-          if (isa<idr::FnType>(value.getType()))
+          if (isClosureType(value.getType()))
             flows.push_back({fn ? result(fn, value.getResultNumber()) : unknown(value.getType()),
                              values.lookup(value)});
       }
@@ -676,7 +689,7 @@ struct Converter {
         return;
       }
       for (OpOperand &use : op->getOpOperands()) {
-        if (!isa<idr::FnType>(use.get().getType()))
+        if (!isClosureType(use.get().getType()))
           continue;
         Key to = isFollowed(op) ? sinkOf(use) : Key();
         if (!to.first)
@@ -686,14 +699,14 @@ struct Converter {
       }
       if (!isFollowed(op))
         for (OpResult value : op->getResults())
-          if (isa<idr::FnType>(value.getType()))
+          if (isClosureType(value.getType()))
             flows.push_back({unknown(value.getType()), values.lookup(value)});
       // Arguments of blocks the pass does not follow the branches to.
       if (!isFollowed(op) || isa<func::FuncOp>(op))
         for (Region &region : op->getRegions())
           for (Block &block : region)
             for (BlockArgument arg : block.getArguments())
-              if (isa<idr::FnType>(arg.getType()) &&
+              if (isClosureType(arg.getType()) &&
                   !(isa<func::FuncOp>(op) && block.isEntryBlock()))
                 flows.push_back({unknown(arg.getType()), values.lookup(arg)});
     });
@@ -711,10 +724,10 @@ struct Converter {
       func::FuncOp fn = module.function(label);
       size_t first = captures(label, callee.first);
       for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
-        if (isa<idr::FnType>(arg.getType()))
+        if (isClosureType(arg.getType()))
           flows.push_back({values.lookup(arg), argument(fn, static_cast<unsigned>(first + i))});
       for (OpResult value : apply.getResults())
-        if (isa<idr::FnType>(value.getType()))
+        if (isClosureType(value.getType()))
           flows.push_back({result(fn, value.getResultNumber()), values.lookup(value)});
     }
   }
@@ -735,11 +748,11 @@ struct Converter {
   // between.
   void holds(Type type, const Key &key, SmallVectorImpl<Key> &out,
              llvm::DenseSet<StringAttr> &seen) {
-    if (isa<idr::FnType>(type)) {
+    if (isClosureType(type)) {
       out.push_back(key);
       return;
     }
-    auto data = dyn_cast<idr::DataType>(type);
+    auto data = dyn_cast<idr::DataType>(idr::unrestricted(type));
     if (!data || !seen.insert(data.getName().getAttr()).second)
       return;
     auto decl = module.symbols.lookup<idr::DataOp>(data.getName().getAttr());
@@ -827,10 +840,10 @@ struct Converter {
         if (isConverted(values.lookup(apply.getCallee())))
           continue;
         for (Value arg : apply.getArgs())
-          if (isa<idr::FnType>(arg.getType()) && isConverted(values.lookup(arg)))
+          if (isClosureType(arg.getType()) && isConverted(values.lookup(arg)))
             sealAll(values.lookup(arg));
         for (Value value : apply.getResults())
-          if (isa<idr::FnType>(value.getType()))
+          if (isClosureType(value.getType()))
             keep(values.lookup(value));
       }
     }
@@ -859,7 +872,14 @@ struct Converter {
     return key.first;
   }
 
-  Type typeOf(Type type, const Key &key) { return key.first ? typeOf(key) : type; }
+  // The type of a slot of `key` whose type was `type`: its sum or closure
+  // type, linear when `type` is.
+  Type typeOf(Type type, const Key &key) {
+    if (!key.first)
+      return type;
+    Type slot = typeOf(key);
+    return isa<idr::LinType>(type) ? Type(idr::LinType::get(ctx, slot)) : slot;
+  }
 
   // The types of the captures of `label` as a closure of `type`, as
   // converted.
@@ -877,7 +897,7 @@ struct Converter {
       fn.setFunctionType(FunctionType::get(ctx, inputs, outputs));
     }
     for (auto &[value, key] : values)
-      value.setType(typeOf(key));
+      value.setType(typeOf(value.getType(), key));
     module.op.walk([&](idr::CtorOp ctor) {
       auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
       SmallVector<Type> types;
@@ -932,6 +952,13 @@ struct Converter {
   Value coerce(OpBuilder &b, Location loc, Value value, const Key &from, const Key &to) {
     if (!needsCoercion(from, to))
       return value;
+    // A linear value is used once, rebuilt, and enters the other linear
+    // slot.
+    if (auto linear = dyn_cast<idr::LinType>(value.getType())) {
+      Value used = idr::LinUseOp::create(b, loc, linear.getValue(), value);
+      Value moved = coerce(b, loc, used, from, to);
+      return idr::LinEnterOp::create(b, loc, idr::LinType::get(ctx, moved.getType()), moved);
+    }
     assert(canCoerce(from, to) && "idr-defunctionalize: a move it did not decide");
     if (isEmpty(from))
       return ub::PoisonOp::create(b, loc, typeOf(to));
@@ -964,7 +991,7 @@ struct Converter {
           continue;
         Key to = it->second;
         Key from = fn ? result(fn, value.getResultNumber()) : unknown(to.first);
-        value.setType(typeOf(from));
+        value.setType(typeOf(value.getType(), from));
         values[value] = from;
         b.setInsertionPointAfter(call);
         Value moved = coerce(b, call.getLoc(), value, from, to);
@@ -1019,7 +1046,7 @@ struct Converter {
     b.setInsertionPoint(apply);
     if (!isConverted(callee)) {
       for (auto [i, type] : llvm::enumerate(inputs)) {
-        if (!isa<idr::FnType>(type))
+        if (!isClosureType(type))
           continue;
         OpOperand &arg = apply.getArgsMutable()[static_cast<unsigned>(i)];
         arg.set(coerce(b, apply.getLoc(), arg.get(), values.lookup(arg.get()), unknown(type)));
@@ -1039,7 +1066,7 @@ struct Converter {
                                    SmallVector<Location>(types.size(), apply.getLoc()));
       SmallVector<Value> operands(block->getArguments());
       for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
-        operands.push_back(isa<idr::FnType>(inputs[i])
+        operands.push_back(isClosureType(inputs[i])
                                ? coerce(b, apply.getLoc(), arg, values.lookup(arg),
                                         argument(fn, static_cast<unsigned>(types.size() + i)))
                                : arg);
