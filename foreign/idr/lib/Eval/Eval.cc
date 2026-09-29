@@ -45,21 +45,26 @@ namespace {
 // captures come before the arguments of its application.
 using Key = std::pair<Attribute, Attribute>;
 
-// What a call may spend: ticks, counted where code enters a function or
-// goes round a loop, bytes of arena and bytes of stack. A call of code Idris
-// does not prove terminating may never end, so a loop that does not costs
-// the compilation well under a second. A call of total code ends, and gets
-// room for what a program computes from its constants, bounded all the
-// same: past it the call is left to runtime.
-constexpr idr::eval::Budget partialBudget{
-    /*ticks=*/uint64_t{1} << 25,
-    /*bytes=*/uint64_t{1} << 28,
-    /*stack=*/uint64_t{1} << 28,
+// How a call runs: what it may spend (ticks, counted where code enters a
+// function or goes round a loop, bytes of arena and bytes of stack), and
+// how its remark says it did not finish.
+struct Meter {
+  idr::eval::Budget budget;
+  const char *unfinished;
 };
-constexpr idr::eval::Budget totalBudget{
-    /*ticks=*/uint64_t{1} << 31,
-    /*bytes=*/uint64_t{1} << 32,
-    /*stack=*/uint64_t{1} << 30,
+
+// A call of code Idris does not prove terminating may never end, so one
+// that does not costs the compilation well under a second.
+constexpr Meter partialCode{
+    {/*ticks=*/uint64_t{1} << 25, /*bytes=*/uint64_t{1} << 28, /*stack=*/uint64_t{1} << 28},
+    "reaches code Idris does not prove terminating and did not finish",
+};
+
+// A call of total code ends, and gets room for what a program computes from
+// its constants, bounded all the same.
+constexpr Meter totalCode{
+    {/*ticks=*/uint64_t{1} << 31, /*bytes=*/uint64_t{1} << 32, /*stack=*/uint64_t{1} << 30},
+    "did not finish within the budget of total code",
 };
 
 struct Outcome {
@@ -72,8 +77,7 @@ struct Call {
   Operation *op;
   func::FuncOp callee;
   ArrayAttr args;
-  // It reaches only total code, so it runs with the larger budget.
-  bool total;
+  const Meter *meter;
 };
 
 // A closed call that may run now (Facts/Evaluate.cc).
@@ -82,7 +86,7 @@ std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   if (!evaluation)
     return std::nullopt;
   return Call{op, evaluation->callee, ArrayAttr::get(op->getContext(), evaluation->args),
-              evaluation->total};
+              evaluation->total ? &totalCode : &partialCode};
 }
 
 std::string evalName(size_t i) { return ("__idr_eval_" + Twine(i)).str(); }
@@ -171,21 +175,8 @@ ModuleOp Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
     if (auto uses = SymbolTable::getSymbolUses(reached[i]))
       for (const SymbolTable::SymbolUse &use : *uses)
         reach(use.getSymbolRef());
-  // Every call runs metered, so every function ticks the meter when it is
-  // entered, as idr-lower makes a function without idr.total do, and so
-  // does every loop.
-  for (func::FuncOp fn : reached) {
-    auto clone = cast<func::FuncOp>(b.clone(*fn));
-    clone.setPrivate();
-    clone->removeAttr("idr.total");
-    clone.walk([&](scf::WhileOp loop) {
-      Block &body = loop.getAfter().front();
-      if (body.getOps<idr::MayLoopOp>().empty()) {
-        OpBuilder inner = OpBuilder::atBlockBegin(&body);
-        idr::MayLoopOp::create(inner, loop.getLoc());
-      }
-    });
-  }
+  for (func::FuncOp fn : reached)
+    cast<func::FuncOp>(b.clone(*fn)).setPrivate();
   Dialect *dialect = ctx->getLoadedDialect<idr::IdrDialect>();
   for (auto [i, key] : llvm::enumerate(keys)) {
     func::FuncOp callee = calls.find(key)->second.front().callee;
@@ -252,7 +243,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     }
     func::ReturnOp::create(b, loc);
     words.push_back(call.getNumResults());
-    budgets.push_back(site(i).total ? totalBudget : partialBudget);
+    budgets.push_back(site(i).meter->budget);
     entries.push_back(runName(i));
   }
   OpPassManager toLLVM(ModuleOp::getOperationName());
@@ -320,9 +311,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
       remark::missed(call.op->getLoc(), remark::RemarkOpts::name("Unfinished")
                                             .category("idr-eval")
                                             .function(call.callee.getSymName()))
-          << ("the call of @" + call.callee.getSymName() +
-              (call.total ? " did not finish within the budget of total code"
-                          : " reaches code Idris does not prove terminating and did not finish") +
+          << ("the call of @" + call.callee.getSymName() + " " + call.meter->unfinished +
               ", so it stays: " + run.message)
                  .str();
       cache[keys[next++]].stays = true;

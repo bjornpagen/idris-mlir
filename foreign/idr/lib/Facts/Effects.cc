@@ -177,14 +177,8 @@ struct Effects : idr::impl::IdrEffectsBase<Effects> {
       });
     };
     for (auto &[fn, found] : facts) {
-      bool io = found.unknown || takesWorld(fn);
       bool crash = found.unknown || found.crash;
-      idr::Effect bits = idr::Effect::none;
-      if (io)
-        bits = bits | idr::Effect::io;
-      if (crash)
-        bits = bits | idr::Effect::crash;
-      fn->setAttr("idr.effects", idr::EffectAttr::get(ctx, bits));
+      idr::facts::record(fn, {/*io=*/found.unknown || takesWorld(fn), crash});
       fn->setAttr("idr.effect",
                   StringAttr::get(ctx, found.unknown || found.io ? "effectful" : "pure"));
       if (crash)

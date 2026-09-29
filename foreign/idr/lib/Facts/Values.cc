@@ -33,8 +33,7 @@ bool holdsClosure(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
 
 // What a call of the label `name` may do.
 facts::Effects label(Operation *from, StringAttr name) {
-  auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(from, name);
-  return fn ? facts::of(fn) : facts::Effects::all();
+  return facts::of(SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(from, name));
 }
 
 // What the closures in a constant may do, through its captures and fields.

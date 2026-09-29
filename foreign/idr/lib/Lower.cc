@@ -63,13 +63,13 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
       root = *found;
       io = llvm::any_of(root.getArgumentTypes(), llvm::IsaPred<idr::WorldType>);
     }
-    // A metered evaluation must be able to stop code that does not end.
-    // Such code loops through idr-tail-loops' idr.may_loop or recurses
-    // through a function Idris does not prove terminating, so every such
-    // function counts a tick when entered too.
+    // Every evaluation is metered, total code with a larger budget, so every
+    // function counts a tick when entered. idr-eval runs before idr-tail-loops
+    // makes loops; a loop of code that need not end ticks at its
+    // idr.may_loop.
     if (jit)
       for (auto fn : module.getOps<func::FuncOp>())
-        if (!fn.isExternal() && !idr::isTotal(fn)) {
+        if (!fn.isExternal()) {
           auto b = OpBuilder::atBlockBegin(&fn.getBody().front());
           idr::MayLoopOp::create(b, fn.getLoc());
         }

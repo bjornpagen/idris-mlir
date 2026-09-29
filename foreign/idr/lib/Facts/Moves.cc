@@ -16,10 +16,8 @@ facts::Effects own(Operation *op) {
   if (op->hasTrait<PerformsIO>()) {
     out.io = true;
   } else if (auto call = dyn_cast<func::CallOp>(op)) {
-    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
-    if (!callee)
-      return facts::Effects::all();
-    out = facts::of(callee);
+    out = facts::of(
+        SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr()));
     for (Value operand : call.getOperands())
       out |= facts::passed(call, operand);
   } else if (auto mayCrash = dyn_cast<MayCrashOpInterface>(op)) {

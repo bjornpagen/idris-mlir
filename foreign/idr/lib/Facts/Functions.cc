@@ -33,7 +33,9 @@ bool facts::takesWorld(func::FuncOp fn) {
 
 facts::Effects facts::of(func::FuncOp fn) {
   Effects out = Effects::all();
-  if (fn.isExternal())
+  // A function the module does not have, or whose body it does not have, may
+  // do anything.
+  if (!fn || fn.isExternal())
     return out;
   out.partial = !fn->hasAttr("idr.total");
   auto found = fn->getAttrOfType<EffectAttr>("idr.effects");
@@ -59,22 +61,25 @@ facts::Effects facts::of(func::FuncOp fn) {
   return out;
 }
 
-void facts::inherit(func::FuncOp made, func::FuncOp origin, ArrayRef<func::FuncOp> labels) {
-  Effects effects = of(origin);
-  for (func::FuncOp label : labels)
-    effects |= label ? of(label) : Effects::all();
-  effects.io |= takesWorld(made);
-  MLIRContext *ctx = made.getContext();
+void facts::record(func::FuncOp fn, Effects effects) {
   Effect bits = Effect::none;
   if (effects.io)
     bits = bits | Effect::io;
   if (effects.crash)
     bits = bits | Effect::crash;
-  made->setAttr("idr.effects", EffectAttr::get(ctx, bits));
+  fn->setAttr("idr.effects", EffectAttr::get(fn.getContext(), bits));
+}
+
+void facts::inherit(func::FuncOp made, func::FuncOp origin, ArrayRef<func::FuncOp> labels) {
+  Effects effects = of(origin);
+  for (func::FuncOp label : labels)
+    effects |= of(label);
+  effects.io |= takesWorld(made);
+  record(made, effects);
   if (effects.partial)
     made->removeAttr("idr.total");
   else
-    made->setAttr("idr.total", UnitAttr::get(ctx));
+    made->setAttr("idr.total", UnitAttr::get(made.getContext()));
 }
 
 bool facts::isLibrary(func::FuncOp fn) {

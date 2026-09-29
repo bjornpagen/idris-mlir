@@ -42,25 +42,19 @@ std::optional<facts::Evaluation> facts::canEvaluate(Operation *op, SymbolTable &
       return std::nullopt;
     out.args.push_back(value);
   }
+  // The callee, then every function the constants name as closures.
   out.callee = symbols.lookup<func::FuncOp>(callee.getAttr());
-  if (!runs(out.callee))
-    return std::nullopt;
-  out.total = !of(out.callee).partial;
-  bool labels = true;
-  auto visit = [&](StringAttr name) {
-    auto label = symbols.lookup<func::FuncOp>(name);
-    labels &= runs(label);
-    out.total &= labels && !of(label).partial;
-  };
+  SmallVector<func::FuncOp> runners{out.callee};
   for (Attribute arg : out.args)
     arg.walk([&](Attribute nested) {
       if (auto closure = dyn_cast<ClosureAttr>(nested))
-        visit(closure.getCallee().getAttr());
+        runners.push_back(symbols.lookup<func::FuncOp>(closure.getCallee().getAttr()));
       else if (auto con = dyn_cast<ConAttr>(nested))
         if (StringAttr name = closureLabel(con.getCtor()))
-          visit(name);
+          runners.push_back(symbols.lookup<func::FuncOp>(name));
     });
-  if (!labels)
+  if (!llvm::all_of(runners, runs))
     return std::nullopt;
+  out.total = llvm::none_of(runners, [](func::FuncOp fn) { return of(fn).partial; });
   return out;
 }

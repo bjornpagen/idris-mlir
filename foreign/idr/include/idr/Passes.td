@@ -44,9 +44,8 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     the runtime's C functions. Constants become static data. The root, the
     only public function, becomes private, and @main runs it. In JIT mode,
     used by idr-eval, cells come from the evaluation arena, a crash reports
-    to the evaluator, code that need not end ticks the evaluator's meter
-    (at `idr.may_loop` and on entry to every function without `idr.total`),
-    and no @main is made.
+    to the evaluator, code ticks the evaluator's meter (on entry to every
+    function, and at `idr.may_loop`), and no @main is made.
   }];
   let options = [
     Option<"jit", "jit", "bool", "false",

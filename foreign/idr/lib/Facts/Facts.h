@@ -28,9 +28,14 @@ struct Effects {
   }
 };
 
-// What a call of `fn` may do. A function without a body, or without
-// `idr.effects`, may do anything; one without `idr.total` may not return.
+// What a call of `fn` may do. A null function (one the module lacks), a
+// function without a body, or one without `idr.effects` may do anything;
+// one without `idr.total` may not return.
 Effects of(mlir::func::FuncOp fn);
+
+// Writes what idr-effects found, `io` and `crash`, as `idr.effects`; whether
+// `fn` returns is Idris's fact, `idr.total`.
+void record(mlir::func::FuncOp fn, Effects effects);
 
 // Whether a value of `type` may hold a world: a world, or data with a field
 // that may. A closure never captures one, so a world reaches a function
@@ -84,7 +89,8 @@ std::optional<Evaluation> canEvaluate(mlir::Operation *call, mlir::SymbolTable &
 
 // Gives `made`, a new function that runs the body of `origin` with closures
 // of `labels` in it (a clone), the facts idr-effects would find: those of
-// `origin` and of `labels` together, and IO if it takes a world.
+// `origin` and of `labels` together (a null label, one not known, may do
+// anything), and IO if it takes a world.
 void inherit(mlir::func::FuncOp made, mlir::func::FuncOp origin,
              llvm::ArrayRef<mlir::func::FuncOp> labels);
 
