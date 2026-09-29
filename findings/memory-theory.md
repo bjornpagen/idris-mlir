@@ -513,7 +513,7 @@ linearity is the base and uniqueness is a modality").
   values, so CSE, folding and compile-time evaluation share them freely,
   and "one reference" is meaningless there.
 - Its *owned* stage is Perceus's λ1 / Beans' λRC. Once it is typed
-  (step 1: `!idr.own<T>`, used exactly once, with an explicit `idr.dup`),
+  (path step 2: `!idr.own<T>`, used exactly once, with an explicit `idr.dup`),
   it is a linear base with `!` made explicit.
 - **In that base, an SSA owned value has never been duplicated**: `dup`
   consumes its operand and makes new values. So exclusivity becomes a
@@ -561,7 +561,7 @@ so there is nothing to reuse (FP²'s `atom` rule, ⋄0). Non-box leaves
 ### 6.3 Representation
 
 - **`!idr.own<T>`** is an owned reference, used exactly once on every path
-  (step 1). Plain `T` in the owned stage is a borrowed reference.
+  (path step 2). Plain `T` in the owned stage is a borrowed reference.
 - **`idr.exclusive %v : !idr.own<T> -> i1`**. It borrows `%v`, and
   `true ⇒ %v's cell is exclusive`; `false` is always safe.
   - Its folder decides from provenance, through `lin.enter`/`lin.use`:
@@ -746,7 +746,7 @@ Then:
 - **Borrow inference.** A borrowed parameter preserves the caller's
   exclusivity only when it does not escape (§7.9). The escape summaries
   idr-stack already computes (Escape.h, parameter nodes) answer that.
-- **idr-stack.** A stack cell's indicator folds false (step 2). The
+- **idr-stack.** A stack cell's indicator folds false (path step 3). The
   reuse-equivalence edge relaxes that later (§6.6).
 - **Compile-time evaluation.** Closed results become persistent constants
   and so fold false. That is correct, and costs at most one `copy` at the
