@@ -53,43 +53,49 @@ struct Operand {
   mpz_srcptr get() const { return &view; }
 };
 
-// A new large big, initialized to 0, for a GMP operation to write: a cell
-// the caller owns.
-idris_rt_bignum *fresh() {
-  rt::gmpReady();
-  auto *b = static_cast<idris_rt_bignum *>(
-      rt::newCell(sizeof(idris_rt_bignum), idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
-  mpz_init(integer(b));
-  return b;
-}
+// The integer a GMP operation writes, on the stack. finish gives it its one
+// representation: a small word, or, only when it does not fit one, a new
+// cell the integer moves into, so a small result allocates no cell.
+class Result {
+public:
+  Result() {
+    rt::gmpReady();
+    mpz_init(&value);
+  }
+  Result(const Result &) = delete;
+  Result &operator=(const Result &) = delete;
 
-// The result of a GMP operation, in its one representation.
-idris_rt_big finish(idris_rt_bignum *b) {
-  mpz_ptr z = integer(b);
-  if (mpz_fits_slong_p(z)) {
-    long v = mpz_get_si(z);
-    if (fits(v)) {
-      mpz_clear(z);
-      rt::freeCell(b);
+  mpz_ptr get() { return &value; }
+
+  idris_rt_big finish() {
+    if (mpz_fits_slong_p(&value) && fits(mpz_get_si(&value))) {
+      int64_t v = mpz_get_si(&value);
+      mpz_clear(&value);
       return small(v);
     }
+    auto *b = static_cast<idris_rt_bignum *>(
+        rt::newCell(sizeof(idris_rt_bignum), idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
+    *integer(b) = value;
+    return reinterpret_cast<idris_rt_big>(b);
   }
-  return reinterpret_cast<idris_rt_big>(b);
-}
+
+private:
+  __mpz_struct value;
+};
 
 idris_rt_big ofInt64(int64_t v) {
   if (fits(v))
     return small(v);
-  idris_rt_bignum *b = fresh();
-  mpz_set_si(integer(b), v);
-  return reinterpret_cast<idris_rt_big>(b);
+  Result r;
+  mpz_set_si(r.get(), v);
+  return r.finish();
 }
 
 template <typename Op> idris_rt_big binary(idris_rt_big a, idris_rt_big b, Op op) {
   Operand x(a), y(b);
-  idris_rt_bignum *r = fresh();
-  op(integer(r), x.get(), y.get());
-  return finish(r);
+  Result r;
+  op(r.get(), x.get(), y.get());
+  return r.finish();
 }
 
 int32_t signOf(idris_rt_big a) {
@@ -163,9 +169,9 @@ extern "C" idris_rt_big idris_rt_big_neg(idris_rt_big a) {
   if (isSmall(a))
     return ofInt64(-smallValue(a));
   Operand x(a);
-  idris_rt_bignum *r = fresh();
-  mpz_neg(integer(r), x.get());
-  return finish(r);
+  Result r;
+  mpz_neg(r.get(), x.get());
+  return r.finish();
 }
 
 extern "C" int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b) {
@@ -181,9 +187,9 @@ extern "C" idris_rt_big idris_rt_big_from_int_s(int64_t value) { return ofInt64(
 extern "C" idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
   if (value <= static_cast<uint64_t>(smallMax))
     return small(static_cast<int64_t>(value));
-  idris_rt_bignum *b = fresh();
-  mpz_set_ui(integer(b), value);
-  return reinterpret_cast<idris_rt_big>(b);
+  Result r;
+  mpz_set_ui(r.get(), value);
+  return r.finish();
 }
 
 extern "C" int64_t idris_rt_big_to_int(idris_rt_big a) {
@@ -197,9 +203,9 @@ extern "C" int64_t idris_rt_big_to_int(idris_rt_big a) {
 extern "C" idris_rt_big idris_rt_big_from_double(double x) {
   if (x > -4611686018427387904.0 && x < 4611686018427387904.0)
     return small(static_cast<int64_t>(x));
-  idris_rt_bignum *b = fresh();
-  mpz_set_d(integer(b), x);
-  return finish(b);
+  Result r;
+  mpz_set_d(r.get(), x);
+  return r.finish();
 }
 
 // GMP's mpz_get_d truncates. The top 64 bits of |a|, with a sticky bit for
@@ -256,14 +262,13 @@ extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
       value = 10 * value + (p[i] - '0');
     return ofInt64(p[0] == '-' ? -value : value);
   }
-  rt::gmpReady();
+  Result r;
   auto *text = static_cast<char *>(rt::allocate(s->bytes + 1));
   memcpy(text, p, s->bytes);
   text[s->bytes] = '\0';
-  idris_rt_bignum *b = fresh();
-  mpz_set_str(integer(b), text + (p[0] == '+' ? 1 : 0), 10);
+  mpz_set_str(r.get(), text + (p[0] == '+' ? 1 : 0), 10);
   rt::release(text);
-  return finish(b);
+  return r.finish();
 }
 
 void rt::clearBignum(idris_rt_bignum *b) { mpz_clear(integer(b)); }

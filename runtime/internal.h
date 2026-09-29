@@ -23,8 +23,8 @@ void release(void *block);
 // evaluation child, from the arena with the header {0, info}: persistent, and
 // not counted. Exhausted memory is a crash.
 void *newCell(size_t size, uint32_t info);
-// Frees the memory of a counted heap cell and stops counting it; in an
-// evaluation child it does nothing, as the arena is never freed.
+// Frees the memory of a counted heap cell, which an evaluation child never
+// has, and stops counting it.
 void freeCell(void *cell);
 
 // Frees a bignum's limbs, and leaves its cell alone.

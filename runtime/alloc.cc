@@ -56,22 +56,15 @@ void rt::release(void *block) {
 }
 
 void *rt::newCell(size_t size, uint32_t info) {
-  if (arenaActive) {
-    auto *cell = static_cast<idris_rt_header *>(idris_rt_arena_alloc(size));
-    *cell = idris_rt_header{0, info};
-    return cell;
-  }
-  auto *cell = static_cast<idris_rt_header *>(idris_rt_alloc(size));
-  if (cell == nullptr)
-    outOfMemory();
-  *cell = idris_rt_header{1, info};
-  ++liveCells;
+  // An evaluation child's cells are persistent: its arena is never freed.
+  uint32_t count = arenaActive ? 0 : 1;
+  auto *cell = static_cast<idris_rt_header *>(allocate(size));
+  *cell = idris_rt_header{count, info};
+  liveCells += count;
   return cell;
 }
 
 void rt::freeCell(void *cell) {
-  if (arenaActive)
-    return;
   --liveCells;
   idris_rt_free(cell);
 }
