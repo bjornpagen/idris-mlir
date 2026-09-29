@@ -37,7 +37,14 @@ add_public_tablegen_target(idr_tablegen)
 llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo orcjit)
 
 add_library(idr_dialect STATIC
-	lib/Dialect/Canonicalize.cc
+	lib/Dialect/Canonicalize/Apply.cc
+	lib/Dialect/Canonicalize/Calls.cc
+	lib/Dialect/Canonicalize/CaseOfCase.cc
+	lib/Dialect/Canonicalize/Matches.cc
+	lib/Dialect/Canonicalize/Meet.cc
+	lib/Dialect/Canonicalize/Merge.cc
+	lib/Dialect/Canonicalize/Sink.cc
+	lib/Dialect/Canonicalize/Strings.cc
 	lib/Dialect/Dialect.cc
 	lib/Dialect/Ops.cc
 	lib/Facts/Effects.cc

@@ -45,6 +45,12 @@ struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource
   llvm::StringRef getName() const final { return "idr.divergence"; }
 };
 
+// The resource that idr.lin.enter and idr.lin.use allocate their results
+// on: no heap, only a new value that no pass may merge with another.
+struct LinResource : mlir::SideEffects::Resource::Base<LinResource> {
+  llvm::StringRef getName() const final { return "idr.lin"; }
+};
+
 // The traits below carry what IdrOps.td declares about an op, so that each
 // fact is written once, next to the op, and every pass derives from it.
 
@@ -108,6 +114,14 @@ bool knownNonEmpty(mlir::Value value);
 
 // The types a field of a constructor may have.
 bool isFieldType(mlir::Type type);
+
+// How often a value may be used, as its type says: never (!idr.erased),
+// exactly once (!idr.lin<T> and the world), or any number of times.
+enum class Quantity : uint8_t { Zero, One, Many };
+Quantity quantityOf(mlir::Type type);
+
+// The type of the value itself: T for !idr.lin<T>, the type otherwise.
+mlir::Type unrestricted(mlir::Type type);
 
 } // namespace idr
 

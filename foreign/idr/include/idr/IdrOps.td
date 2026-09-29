@@ -83,6 +83,19 @@ def Idr_WorldType : Idr_Type<"World", "world"> {
   let summary = "the IO world token";
 }
 
+// A quantity lives in the type, where no pass can drop it: !idr.erased is
+// quantity 0, !idr.lin<T> (and the world, linear by its own rule) quantity
+// 1, and every other type any number of uses. A value of !idr.lin<T> is
+// used at most once on every path; its one use is idr.lin.use, or a
+// position that is linear itself (a parameter, a field, a capture or a
+// result of type !idr.lin<T>).
+def Idr_LinType : Idr_Type<"Lin", "lin"> {
+  let summary = "the value of a binder Idris proved is used exactly once";
+  let parameters = (ins "::mlir::Type":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
 def Idr_SumType : AnyTypeOf<[Idr_DataType, Idr_BoxType]>;
 def Idr_Int : AnyTypeOf<[I8, I16, I32, I64]>;
 
@@ -182,6 +195,7 @@ def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects"> {
 def Idr_CrashResource : Resource<"::idr::CrashResource">;
 def Idr_IOResource : Resource<"::idr::IOResource">;
 def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
+def Idr_LinResource : Resource<"::idr::LinResource">;
 
 class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, traits>;
@@ -949,6 +963,36 @@ def Idr_KeyWriteAttr : Idr_KeyAttr<"KeyWrite", "key_write"> {
   let summary = "the key of a clone that writes its callee's result";
   let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity);
   let assemblyFormat = "`<` $callee `,` $arity `>`";
+}
+
+//===----------------------------------------------------------------------===//
+// Linearity
+//===----------------------------------------------------------------------===//
+
+// The two ops that move a value into and out of a linear type. Each makes
+// a new value, allocated on a resource of its own: an allocation is never
+// merged with another and is removed when unused, and no fold undoes the
+// pair, so the quantity stays where Idris put it. Both lower to nothing.
+
+// Idris lets any value fill a quantity-1 binder: what enters is used once
+// from then on.
+def Idr_LinEnterOp : Idr_Op<"lin.enter", [
+    TypesMatchWith<"the operand is the linear type's value", "result", "value",
+                   "::llvm::cast<LinType>($_self).getValue()">]> {
+  let summary = "a value handed to a linear position";
+  let arguments = (ins AnyType:$value);
+  let results = (outs Res<Idr_LinType, "", [MemAlloc<Idr_LinResource>]>:$result);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($result))";
+}
+
+// The one use of a linear value, where it becomes an ordinary one.
+def Idr_LinUseOp : Idr_Op<"lin.use", [
+    TypesMatchWith<"the result is the linear type's value", "linear", "result",
+                   "::llvm::cast<LinType>($_self).getValue()">]> {
+  let summary = "the one use of a linear value";
+  let arguments = (ins Idr_LinType:$linear);
+  let results = (outs Res<AnyType, "", [MemAlloc<Idr_LinResource>]>:$result);
+  let assemblyFormat = "$linear attr-dict `:` qualified(type($linear))";
 }
 
 #endif // IDR_OPS
