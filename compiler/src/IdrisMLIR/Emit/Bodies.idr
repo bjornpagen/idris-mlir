@@ -206,7 +206,7 @@ alg ix own (CaseF l x alts def) env expected = do
   where
     alternative : AltF (Sub Em) b -> E Region
     alternative (MkAltF c fs body) = do
-      vals <- traverse (\f => (\n => MkVal n (typeOf f) (fieldMode (env x).mode f)) <$> fresh) fs
+      vals <- traverse (\f => (\n => MkVal n (typeOf f) (binderMode f)) <$> fresh) fs
       args <- traverse (param ix) (toList vals)
       (res, ops) <- collect (plain ix l (body.result (bind vals env) expected))
       pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
@@ -248,12 +248,10 @@ alg ix own (CaseNatF l x z s) env expected =
       match ix l ("idr.match_lit " ++ n.name ++ " : !idr.big")
             [MkRegion ("case " ++ key (LBig 0) ++ " {") zr zops, MkRegion "default {" sr sops]
   where
-    -- The predecessor of a linear value is linear, as a field of it is.
     successor : Val -> E (Maybe Val)
     successor n = do
       p <- value l BigT ("idr.big.pred " ++ n.name)
-      p' <- coerce ix l (fieldMode (env x).mode (Held Many BigT)) p
-      s.result (bind [p'] env) expected
+      s.result (bind [p] env) expected
 alg ix own (LamF l lbl caps b body) env expected = do
   let capVals = map env caps
   let result = case expected of

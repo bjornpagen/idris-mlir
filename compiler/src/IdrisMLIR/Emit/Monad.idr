@@ -83,14 +83,6 @@ binderMode : Binder -> Mode
 binderMode Gone = Plain
 binderMode (Held u t) = modeOf u t
 
-||| How a match binds a field: as the field is held, or linearly when the
-||| value matched is linear, since Idris binds every field of a value used
-||| once as used once.
-export
-fieldMode : Mode -> Binder -> Mode
-fieldMode Linear (Held _ t) = modeOf Once t
-fieldMode _ f = binderMode f
-
 ||| A value in scope: its SSA name, its type and how it is held.
 public export
 record Val where
