@@ -6,8 +6,8 @@
 // count acc n = count (acc + 1) (n - 1): an accumulator and a counter.
 // CHECK-DAG: remark: @count: other, other
 // iter f n x = iter (twice f) (n - 1) x: a closure rebuilt on every
-// iteration is no fixed parameter, x is.
-// CHECK-DAG: remark: @iter: other, other, fixed
+// iteration is no fixed parameter, x is, and the Int n counts down.
+// CHECK-DAG: remark: @iter: other, decreasing, fixed
 // walk xs 0 = walk xs 1; walk (_ :: t) _ = walk t 0: xs is passed itself
 // and a part of itself, so its keys are parts of the first.
 // CHECK-DAG: remark: @walk: bounded, other
