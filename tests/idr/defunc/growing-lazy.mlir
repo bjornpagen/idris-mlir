@@ -1,17 +1,15 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
-// RUN: FileCheck %s --check-prefix=ERR < %t.err
 // later 0 = Delay 1; later n = Delay (force (later (n - 1))): each level
-// suspends a computation that captures the suspension below, so no finite
-// sum stands for the Lazy type, which stays a closure, and the profile
-// rejects the suspension built at runtime.
-// CHECK-NOT: idr.data @fn$
+// suspends a computation that captures the suspension below, so the Lazy
+// type's key is on a cycle: it becomes a boxed sum, a suspension a cell,
+// and forcing a match that calls the suspended function.
+// CHECK: idr.data @[[F:fn\$[0-9]+]] box {
+// CHECK-NOT: !idr.fn
+// CHECK-NOT: idr.closure
 // CHECK-LABEL: func.func private @Main.later(
-// CHECK-SAME: -> !idr.fn<() -> (i64)>
-// CHECK: idr.closure @Main.force(%{{.*}}) : (!idr.fn<() -> (i64)>) -> !idr.fn<() -> (i64)>
-// ERR: Main.idr:13:9: error: unsupported (runtime lazy value){{.*}}@Main.force
-// ERR-NOT: error:
+// CHECK-SAME: -> !idr.box<@[[F]]>
+// CHECK: idr.con @[[F]]::@Main.force(%{{.*}}) : (!idr.box<@[[F]]>) -> !idr.box<@[[F]]>
 module attributes {idr.program} {
   func.func private @Main.one() -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

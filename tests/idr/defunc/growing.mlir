@@ -1,26 +1,19 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
-// RUN: FileCheck %s --check-prefix=ERR < %t.err
 // Closures that a recursion on a runtime value makes larger: each level
-// captures a closure of its own type, so no finite sum over labels stands
-// for them, and the types stay closures. The unrelated closure type in the
-// same module is still converted. idr-check-profile reports the first
-// closure built at runtime (growing-lazy.mlir has the Lazy one alone).
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @Main.neg tag 0 ()
-// CHECK-NOT: idr.data @fn$
+// captures a closure of its own type, so no unboxed sum over labels stands
+// for them: their keys become boxed sums. The unrelated closure type in the
+// same module is still an unboxed sum. No closure is left.
+// CHECK-DAG: idr.data @[[F0:fn\$[0-9]+]] {
+// CHECK-DAG: idr.data @{{fn\$[0-9]+}} box {
+// CHECK-NOT: !idr.fn
+// CHECK-NOT: idr.closure
+// CHECK-NOT: idr.apply
 // CHECK-LABEL: func.func private @Main.pick(
-// CHECK-SAME: -> !idr.fn<(i64) -> (i64)>
-// CHECK: idr.closure @Main.inc()
-// CHECK: idr.closure @Main.twice(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
-// CHECK-LABEL: func.func private @Main.later(
-// CHECK-SAME: -> !idr.fn<() -> (i64)>
+// CHECK-SAME: -> !idr.box<@fn${{[0-9]+}}>
+// CHECK: idr.con @fn${{[0-9]+}}::@Main.twice(
 // CHECK-LABEL: func.func @Main.main(
-// CHECK: idr.apply %{{.*}}(%{{.*}}) : !idr.fn<(i64) -> (i64)>
 // CHECK: idr.match %{{.*}} : !idr.data<@[[F0]]> -> (i1)
-// ERR: Main.idr:16:5: error: unsupported (runtime closure){{.*}}@Main.twice
-// ERR-NOT: error
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

@@ -1,27 +1,21 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-check-profile -o %t.out 2> %t.err
-// RUN: FileCheck %s --check-prefix=ERR < %t.err
 // ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,
-// but each holds the other: a cycle, and no finite sum stands for either.
-// Both stay closures, and the profile rejects the first one built at
-// runtime.
-// CHECK-NOT: idr.data @fn$
+// but each holds the other: a cycle, which no unboxed sum can stand for.
+// Both become boxed sums, whose cells end the cycle, and no closure is
+// left.
+// CHECK-DAG: idr.data @[[Q:fn\$[0-9]+]] box {
+// CHECK-DAG: idr.data @[[P:fn\$[0-9]+]] box {
+// CHECK-NOT: !idr.fn
+// CHECK-NOT: idr.closure
+// CHECK-NOT: idr.apply
 // CHECK-LABEL: func.func private @Main.p(
-// CHECK-SAME: %{{.*}}: !idr.fn<(i64) -> (i64)>
-// CHECK-LABEL: func.func private @Main.q(
-// CHECK-SAME: %{{.*}}: !idr.fn<(i64) -> (i64)>
+// CHECK-SAME: !idr.box<@fn${{[0-9]+}}>
 // CHECK-LABEL: func.func private @Main.ping(
-// CHECK-SAME: -> !idr.fn<(i64) -> (i64)>
-// CHECK: idr.closure @Main.p(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
-// CHECK-LABEL: func.func private @Main.pong(
-// CHECK: idr.closure @Main.q(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
-// CHECK-LABEL: func.func @Main.main(
-// CHECK: idr.apply %{{.*}}(%{{.*}}) : !idr.fn<(i64) -> (i64)>
-// ERR: Main.idr:7:3: error: unsupported (runtime closure){{.*}}@Main.p{{( |$)}}
-// ERR-NOT: error:
+// CHECK-SAME: -> !idr.box<@fn${{[0-9]+}}>
+// CHECK: idr.con @fn${{[0-9]+}}::@Main.p(
 module attributes {idr.program} {
   func.func private @Main.zero(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     return %x : i64
