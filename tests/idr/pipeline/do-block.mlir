@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-simplify --remarks-filter-passed=idr-simplify > %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.mlir
 // RUN: FileCheck %s --check-prefix=ROUNDS < %t.err
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A do block of 16 statements, in the shape Emit gives it: statement k is
 // @sk, the thunk `putStr "k" >> rest` that `>>` delays, whose action is
 // @bind of @put and of @seq, which forces the thunk of the next statement.
@@ -8,7 +9,8 @@
 // canonicalization that turns the apply of the next thunk into a call.
 // The inliner iterates until it inlines nothing, so the whole block
 // unfolds in one round, not one statement or two per round: the loop ends
-// within three rounds, however long the block.
+// within three rounds, however long the block, and no closure is left:
+// each action's closure, linear as an IO action is, becomes a call.
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: idr.io.put_str
 // CHECK: idr.io.put_str
