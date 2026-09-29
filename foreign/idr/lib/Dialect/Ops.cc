@@ -756,8 +756,7 @@ ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
 // in a closure.
 LogicalResult ClosureOp::verify() {
   if (llvm::any_of(getCaptures().getTypes(), llvm::IsaPred<WorldType>))
-    return emitOpError("captures a world; a world passes only as an argument or "
-                       "result (IDR-WORLD-1)");
+    return emitOpError("captures a world; a world passes only as an argument or result");
   return success();
 }
 

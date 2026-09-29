@@ -40,7 +40,7 @@ die() {
   exit 1
 }
 
-command -v timeout > /dev/null 2>&1 || die "no timeout command, so a benchmark could hang (TEST-TIME-1)"
+command -v timeout > /dev/null 2>&1 || die "no timeout command, so a benchmark could hang"
 limit=$(( 300 * ${IDRIS_MLIR_TIME_SCALE:-1} ))
 
 # bounded CMD...: CMD, killed after $limit seconds; a timeout exits 124.

@@ -345,7 +345,7 @@ exp_linear() {
     fi
   done
   if [ -n "$ts" ] && [ -n "$td" ]; then
-    echo "| prototype, static reuse | $(cell "$ts" "$ks") | rejected (MEM-LIN-1) | |" >> "$md"
+    echo "| prototype, static reuse | $(cell "$ts" "$ks") | rejected: linearity is not unique ownership | |" >> "$md"
     echo "| prototype, dynamic reuse | $(cell "$td" "$kd") | | |" >> "$md"
     if le "$ts" "$td"; then verdict linear "static reuse at least as fast as dynamic" pass "$ts s <= $td s"
     else verdict linear "static reuse at least as fast as dynamic" FAIL "$ts s > $td s"; fi

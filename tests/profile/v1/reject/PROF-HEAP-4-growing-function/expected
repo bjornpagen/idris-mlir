@@ -1,5 +1,0 @@
-compile: exit 1
-unsupported (PROF-HEAP-4): the only error
-line: as the header says
-message: as the header says
-artifacts: none

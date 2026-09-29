@@ -20,7 +20,7 @@
 // CHECK: idr.closure @Main.q(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: idr.apply %{{.*}}(%{{.*}}) : !idr.fn<(i64) -> (i64)>
-// ERR: Main.idr:7:3: error: unsupported (PROF-HEAP-1){{.*}}@Main.p{{( |$)}}
+// ERR: Main.idr:7:3: error: unsupported (runtime closure){{.*}}@Main.p{{( |$)}}
 // ERR-NOT: error:
 module attributes {idr.program} {
   func.func private @Main.zero(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

@@ -91,18 +91,18 @@ suites =
       ])
   , ("test",
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
-      , versioned "accept: profile fixtures that compile (TEST-ACC-1)" "profile" (++ "/accept")
-      , versioned "reject: profile fixtures that are rejected (TEST-REJ-1)" "profile" (++ "/reject")
+      , versioned "accept: profile fixtures that compile" "profile" (++ "/accept")
+      , versioned "reject: profile fixtures that are rejected" "profile" (++ "/reject")
       , versioned "e2e: programs against their oracles and Chez" "e2e" id
-      , pool "determinism: byte-identical artifacts (TEST-DET-1)" ["determinism"]
+      , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
       , pool "equivalence: every e2e program with and without compile-time evaluation" ["equivalence"]
       , pool "fuzz: closed expressions over every primitive, three ways" ["fuzz"]
-      , pool "two levels: Idris's evaluator against the compiled program (SEM-REF-1)" ["two-levels"]
+      , pool "two levels: Idris's evaluator against the compiled program" ["two-levels"]
       ])
   , ("test-idr",
-      [ versioned "dialect: the idr dialect and its passes (TEST-IDR-1)" "idr" id ])
+      [ versioned "dialect: the idr dialect and its passes" "idr" id ])
   , ("test-mlir-tools",
       [ pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
   ]
@@ -163,7 +163,7 @@ main = do
   args <- getArgs
   case drop 1 args of
     ["--sem-program", name] =>
-      maybe (die ("no TEST-SEM-1 test " ++ name)) putStr (programOf name)
+      maybe (die ("no semantics test " ++ name)) putStr (programOf name)
     ["--sem-list"] => traverse_ putStrLn names
     ("--fuzz-program" :: fuzz) =>
       maybe (die "usage: runtests --fuzz-program <seed> <cases> runtime|static") putStr

@@ -6,7 +6,7 @@
 // A total evaluation the machine cannot finish (here, in an address space
 // of 3 GB) is a user error: status 4, at the call, and no output. --check runs the
 // same evaluation, so it reports the same.
-// CHECK: exhausted.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (EVAL-1): the machine could not finish evaluating @range
+// CHECK: exhausted.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (compile-time evaluation): the machine could not finish evaluating @range
 module attributes {idr.program} {
   idr.data @List box {
     idr.ctor @Nil tag 0 () {quantities = []}

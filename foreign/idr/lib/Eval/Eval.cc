@@ -123,7 +123,8 @@ void exhausted(Call call, StringRef why) {
   if (user == chain.end())
     user = chain.begin();
   InFlightDiagnostic diag = emitError(*user)
-                            << "unsupported (EVAL-1): the machine could not finish evaluating @"
+                            << "unsupported (compile-time evaluation): the machine could not "
+                               "finish evaluating @"
                             << call.callee.getSymName() << ", which is total: " << why;
   for (Location caller : llvm::make_range(std::next(user), chain.end()))
     diag.attachNote(caller) << "called from here";

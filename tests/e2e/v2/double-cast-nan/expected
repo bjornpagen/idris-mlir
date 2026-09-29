@@ -3,6 +3,6 @@ artifacts: prog.core prog.mlir prog.o prog
 run: exit 1, a crash
 stdout: as expected
 stderr: names the cause in expected-crash
-object: no undefined symbol outside LOW-EXT-1's set
+object: no undefined symbol outside the allowed set
 chez: compile exit 0
 chez: same stdout

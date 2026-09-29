@@ -19,7 +19,7 @@
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: idr.apply %{{.*}}(%{{.*}}) : !idr.fn<(i64) -> (i64)>
 // CHECK: idr.match %{{.*}} : !idr.data<@[[F0]]> -> (i1)
-// ERR: Main.idr:16:5: error: unsupported (PROF-HEAP-1){{.*}}@Main.twice
+// ERR: Main.idr:16:5: error: unsupported (runtime closure){{.*}}@Main.twice
 // ERR-NOT: error
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

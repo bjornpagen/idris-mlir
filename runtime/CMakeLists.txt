@@ -128,7 +128,7 @@ add_custom_command(
 		"${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:idris_rt>"
 		"${CMAKE_CURRENT_BINARY_DIR}/idris_rt.checked"
 	DEPENDS idris_rt idris_rt_link_check "${CMAKE_CURRENT_SOURCE_DIR}/check-archive.sh"
-	COMMENT "Checking the runtime for C++ runtime references and static constructors (TC-RT-2)"
+	COMMENT "Checking the runtime for C++ runtime references and static constructors"
 	VERBATIM
 )
 add_custom_target(idris_rt_check ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.checked")

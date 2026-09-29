@@ -109,7 +109,7 @@ if [ ! -f "$1" ] && grep -q "No incremental compile data" "$log/out" "$log/err";
   # exits 0 without writing anything. The chain reports it.
   line=$(grep -n '^import[[:space:]]' "$file" | head -n 1 | cut -d: -f1)
   line=${line:-1}
-  echo "Error: $stem:$line:1--$line:1:mlir backend: $stem: unsupported (PROF-PROG-1): a main : Int program imports nothing" >&2
+  echo "Error: $stem:$line:1--$line:1:mlir backend: $stem: unsupported (program): a main : Int program imports nothing" >&2
   failed 1
 fi
 if [ $# -ne 1 ] || [ ! -f "$1" ]; then

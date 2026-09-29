@@ -17,19 +17,18 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
 }
 
 def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
-  let summary = "Lower idr to func, arith, math, scf, ub and llvm (LOW-*)";
+  let summary = "Lower idr to func, arith, math, scf, ub and llvm";
   let description = [{
-    Matches become scf (LOW-MATCH-1), then a dialect conversion takes every
-    idr type apart into its runtime layout and every idr op to arith, scf,
-    llvm and calls of the runtime's C functions (LOW-RT-1). Constants become
-    static data (LOW-CONST-1). The root, the only public function, becomes
-    private, and @main runs it (LOW-ENTRY-1). In JIT mode (LOW-JIT-1), used
-    by idr-eval, cells come from the evaluation arena, a crash reports to
-    the evaluator, and no @main is made.
+    Matches become scf, then a dialect conversion takes every idr type apart
+    into its runtime layout and every idr op to arith, scf, llvm and calls of
+    the runtime's C functions. Constants become static data. The root, the
+    only public function, becomes private, and @main runs it. In JIT mode,
+    used by idr-eval, cells come from the evaluation arena, a crash reports
+    to the evaluator, and no @main is made.
   }];
   let options = [
     Option<"jit", "jit", "bool", "false",
-           "Lower for compile-time evaluation: arena cells, crashes reported (LOW-JIT-1)">,
+           "Lower for compile-time evaluation: arena cells, crashes reported">,
   ];
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
@@ -47,7 +46,8 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
     the round's calls are lowered with idr-lower in JIT mode, compiled once
     by ORC's LLJIT and run in a child process, and each result replaces its
     call as constants. A call that crashes stays. Memory or stack the
-    machine refuses is the error EVAL-1, which names the call. Results are
+    machine refuses is the error `unsupported (compile-time evaluation)`,
+    which names the call. Results are
     cached per callee and arguments. Remarks: `Passed` with the wall time,
     `Missed` for a crash, in the category idr-eval.
   }];
@@ -64,7 +64,7 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
 //===----------------------------------------------------------------------===//
 
 def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {
-  let summary = "Keep a loop breaker in every cycle of references (OPT-PIPE-3)";
+  let summary = "Keep a loop breaker in every cycle of references ";
   let description = [{
     A function refers to what it calls and to the functions its closures and
     closure constants name. In every cycle of such references among the
@@ -76,7 +76,7 @@ def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {
 }
 
 def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
-  let summary = "Clone callees for consumed results (ELIM-G-5) and constant-like arguments (ELIM-SPEC-1)";
+  let summary = "Clone callees for consumed results and constant-like arguments";
   let description = [{
     Raising comes first: a `func.call` whose result is only applied
     (`idr.apply`, possibly of an `idr.field` of it) or written
@@ -101,7 +101,7 @@ def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
 }
 
 def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
-  let summary = "Replace closures of known labels by sums (ELIM-CLOS-1)";
+  let summary = "Replace closures of known labels by sums";
   let description = [{
     A sparse dataflow analysis finds the labels each `!idr.fn` value may
     hold. Sums are keyed by (closure type, label set): each slot (value,
@@ -116,19 +116,18 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
 }
 
 def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
-  let summary = "Turn self tail calls into scf.while loops (LOW-TAIL-5)";
+  let summary = "Turn self tail calls into scf.while loops";
   let description = [{
     A function that calls itself in tail position, directly or through the
     regions of matches whose results it returns, becomes one `scf.while`.
-    A function without `idr.total` gets `idr.may_loop` in its loop
-    (LOW-TAIL-4, SEM-EVAL-5).
+    A function without `idr.total` gets `idr.may_loop` in its loop.
   }];
   let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::ub::UBDialect",
                            "::mlir::arith::ArithDialect"];
 }
 
 def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
-  let summary = "Empty the code dead-code analysis proves unreachable (OPT-PIPE-5)";
+  let summary = "Empty the code dead-code analysis proves unreachable";
   let description = [{
     Runs right before `remove-dead-values`, with the analyses it runs: a
     match region they never reach ends in `ub.unreachable`, and a function
@@ -142,15 +141,15 @@ def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
 }
 
 def IdrCheckProfile : Pass<"idr-check-profile", "::mlir::ModuleOp"> {
-  let summary = "Reject what would allocate at runtime (PROF-HEAP-*, PROF-DATA-3, PROF-PRIM-4, PROF-TYPE-4)";
+  let summary = "Reject what would allocate at runtime";
   let description = [{
-    Reports the first violation in op order as `unsupported (<RULE>): ...`
-    at the innermost user location (DIAG-LOC-1), and fails.
+    Reports the first violation in op order as `unsupported (<reason>): ...`
+    at the innermost user location, and fails.
   }];
 }
 
 def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
-  let summary = "Repeat the simplify round until it changes nothing (OPT-PIPE-5)";
+  let summary = "Repeat the simplify round until it changes nothing";
   let description = [{
     Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
     canonicalize, cse, idr-eval, idr-prune, symbol-dce, remove-dead-values

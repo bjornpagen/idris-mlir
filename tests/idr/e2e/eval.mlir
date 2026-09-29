@@ -22,7 +22,7 @@
 // EVALUATED-NOT: @dashes
 // EVALUATED: "x-x-x"
 // REJECTED-NOT: remark
-// REJECTED: eval.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (PROF-HEAP-3)
+// REJECTED: eval.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (runtime string)
 module attributes {idr.program} {
   func.func private @fact(%n: i64) -> i64 attributes {idr.total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {

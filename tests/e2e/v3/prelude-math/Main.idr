@@ -7,7 +7,7 @@ module Main
 -- programmer would, and diffed against the stock Chez backend.
 -- `euclid` is partial, so a closed call of it is not evaluated:
 -- `euclid (the Integer 48) 18` would leave an Integer at runtime
--- (profile/v3/reject/PROF-TYPE-4-partial-integer), so it is called here on
+-- (profile/v3/reject/runtime-integer-partial), so it is called here on
 -- runtime Ints only.
 
 import Prelude

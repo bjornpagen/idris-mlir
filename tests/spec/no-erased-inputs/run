@@ -1,0 +1,19 @@
+#!/bin/sh
+# The frontend reads none of the forms that have already erased facts or
+# were built for other backends: no identifier of them, and no import of the
+# modules that define them, anywhere in compiler/src.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+find "$root/compiler/src" -name '*.idr' | sort > "$work/sources"
+: > "$work/found"
+while IFS= read -r file; do
+  grep -n -w -E 'treeRT|compexpr|namedcompexpr|schemeExpr|CExp|NamedCExp|Lifted|ANF|VM|getCompileData|getIncCompileData' "$file" |
+    sed "s|^|${file#"$root"/}:|" >> "$work/found"
+  grep -n -E '^import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' "$file" |
+    sed "s|^|${file#"$root"/}:|" >> "$work/found"
+done < "$work/sources"
+if [ -s "$work/found" ]; then
+  say "compiler/src reads inputs that have already erased facts:"
+  cat "$work/found"
+else
+  say "compiler/src reads no input that has already erased facts"
+fi

@@ -22,7 +22,7 @@ build_test "$here/api.c" "$work/api" || exit 0
 "$work/api" > "$work/ours" 2> "$work/api.err"
 say "api: exit $?"
 cat "$work/api.err"
-if [ -z "$chez" ]; then say "chez: not found (TC-PIN-3)"; exit 0; fi
+if [ -z "$chez" ]; then say "chez: not found"; exit 0; fi
 "$chez" --script "$here/chez.ss" > "$work/chez" 2> "$work/chez.err"
 say "chez: exit $?"
 if cmp -s "$work/ours" "$work/chez"; then

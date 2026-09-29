@@ -29,7 +29,7 @@ ArrayRef<StringRef> idr::pipelineSteps() {
 void idr::registerIdrPipeline() {
   registerIdrPasses();
   PassPipelineRegistration<>(
-      "idr-pipeline", "OPT-PIPE-1 steps 1-10: contract text to the LLVM dialect",
+      "idr-pipeline", "The contract text to the LLVM dialect",
       [](OpPassManager &pm) {
         for (StringRef step : pipelineSteps())
           if (failed(parsePassPipeline(step, pm)))

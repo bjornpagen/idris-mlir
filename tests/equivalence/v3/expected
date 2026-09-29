@@ -1,6 +1,6 @@
 call-pattern: same stdout and exit status
 choice: same stdout and exit status
-compile-time-evaluation: compiles only with evaluation: unsupported (PROF-TYPE-4)
+compile-time-evaluation: compiles only with evaluation: unsupported (runtime integer)
 missing-case: same stdout and exit status
 partial-untaken-divergence: same stdout and exit status
 prelude: same stdout and exit status

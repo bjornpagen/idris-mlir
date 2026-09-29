@@ -9,7 +9,7 @@ test_limit=4
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 bounded sleep 30 2> "$work/step.err"
 say "a command that hangs: exit $?"
-grep -q 'timed out after 1s (TEST-TIME-1): sleep' "$work/step.err" && say "it says it timed out"
+grep -q 'timed out after 1s: sleep' "$work/step.err" && say "it says it timed out"
 bounded true
 say "a command that ends: exit $?"
 sleep 30

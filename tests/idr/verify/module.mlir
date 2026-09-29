@@ -55,7 +55,7 @@ module attributes {idr.program} {
 
 // Containment through unboxed sums is acyclic.
 module attributes {idr.program} {
-  // expected-error @+1 {{contains itself through unboxed sums; a recursive type must be declared box (IDR-DATA-4)}}
+  // expected-error @+1 {{contains itself through unboxed sums; a recursive type must be declared box}}
   idr.data @T {
     idr.ctor @A tag 0 (!idr.data<@U>) {quantities = ["w"]}
   }

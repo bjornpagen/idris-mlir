@@ -28,7 +28,7 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # this file. IDRIS_MLIR_TIME_SCALE (make's time_scale) multiplies both, for a
 # slower machine; a limit never passes a test, it only ends one.
 if ! command -v timeout > /dev/null 2>&1; then
-  printf '%s\n' "test: no timeout command, so the test could hang (TEST-TIME-1)"
+  printf '%s\n' "test: no timeout command, so the test could hang"
   exit 1
 fi
 time_scale=${IDRIS_MLIR_TIME_SCALE:-1}
@@ -38,7 +38,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   IDRIS_MLIR_TEST_DEADLINE=$test_limit timeout -k 10 "$test_limit" sh "$0" "$@"
   deadline_status=$?
   case $deadline_status in
-    124 | 137) printf '%s\n' "test: timed out after ${test_limit}s (TEST-TIME-1)" ;;
+    124 | 137) printf '%s\n' "test: timed out after ${test_limit}s" ;;
   esac
   exit "$deadline_status"
 fi
@@ -61,7 +61,7 @@ bounded() {
   bounded_status=$?
   case $bounded_status in
     124 | 137)
-      printf '%s\n' "timed out after ${step_limit}s (TEST-TIME-1): ${1##*/}" >&2
+      printf '%s\n' "timed out after ${step_limit}s: ${1##*/}" >&2
       return 124 ;;
   esac
   return "$bounded_status"
@@ -243,9 +243,9 @@ heap_free() {
     esac
   done
   if [ -z "$heap_extra" ]; then
-    say "object: no undefined symbol outside LOW-EXT-1's set"
+    say "object: no undefined symbol outside the allowed set"
   else
-    say "object: undefined symbols outside LOW-EXT-1's set:$heap_extra"
+    say "object: undefined symbols outside the allowed set:$heap_extra"
   fi
 }
 
@@ -543,7 +543,7 @@ e2e_io() {
   fi
   if [ "$io_same" = libm ]; then
     if [ "$io_chez_status" -eq "$io_ours_status" ]; then
-      say "chez: same stdout, up to one ulp on the libm lines (SEM-DEV-2), and exit status"
+      say "chez: same stdout, up to one ulp on the libm lines, and exit status"
     else
       say "chez: same stdout up to one ulp, but Chez exited $io_chez_status and this compiler $io_ours_status"
     fi
@@ -565,7 +565,7 @@ e2e_io() {
 sem_case() {
   mkdir "$work/sem"
   if ! "$runtests" --sem-program "$1" > "$work/sem/Prog.idr" 2> "$work/sem.err"; then
-    say "no TEST-SEM-1 program $1"
+    say "no semantics program $1"
     show "$work/sem.err"
     return
   fi
@@ -627,34 +627,37 @@ profile_compile() {
   fi
 }
 
-# profile_reject FIXTURE: `tests/profile/vN/reject/<RULE-ID>-<desc>.idr`, or a
+# profile_reject FIXTURE: `tests/profile/vN/reject/<reason>-<desc>.idr`, or a
 # directory of that name holding Main.idr and its other modules, whose first
-# line is `-- expect: <RULE-ID> line <n>` (and then, optionally,
-# `-- message: <text>`). It is rejected with exit status 1 and exactly one
-# `unsupported (<RULE-ID>)`, reported on line n, and leaves no artifact.
+# line is `-- expect: <reason>, line <n>` (and then, optionally,
+# `-- message: <text>`), <reason> being the phrase the compiler gives and the
+# name starting with it, words joined by dashes. It is rejected with exit
+# status 1 and exactly one `unsupported (<reason>)`, reported on line n, and
+# leaves no artifact.
 profile_reject() {
   if [ -d "$1" ]; then reject_main=$1/Main.idr; else reject_main=$1; fi
   reject_name=$(fixture_name "$1")
   reject_expect=$(header "$reject_main" expect)
-  reject_rule=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([A-Z0-9-][A-Z0-9-]*\) line \([0-9][0-9]*\)$/\1/p')
-  reject_line=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([A-Z0-9-][A-Z0-9-]*\) line \([0-9][0-9]*\)$/\2/p')
-  if [ -z "$reject_rule" ]; then
-    say "$reject_name: the first line must be '-- expect: <RULE-ID> line <n>'"
+  reject_reason=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([a-z][a-z -]*[a-z]\), line \([0-9][0-9]*\)$/\1/p')
+  reject_line=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([a-z][a-z -]*[a-z]\), line \([0-9][0-9]*\)$/\2/p')
+  if [ -z "$reject_reason" ]; then
+    say "$reject_name: the first line must be '-- expect: <reason>, line <n>'"
     return
   fi
+  reject_prefix=$(printf '%s' "$reject_reason" | tr ' ' '-')
   case $reject_name in
-    "$reject_rule"*) ;;
-    *) say "$reject_name does not start with $reject_rule"; return ;;
+    "$reject_prefix"*) ;;
+    *) say "$reject_name does not start with $reject_prefix"; return ;;
   esac
   profile_prepare "$1"
   profile_compile
   say "compile: exit $compiled"
   cat "$work/compile.out" "$work/compile.err" > "$work/compile.all"
   reject_count=$(grep -o 'unsupported (' "$work/compile.all" | wc -l | tr -d ' ')
-  if grep -qF "unsupported ($reject_rule)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
-    say "unsupported ($reject_rule): the only error"
+  if grep -qF "unsupported ($reject_reason)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
+    say "unsupported ($reject_reason): the only error"
   else
-    say "unsupported ($reject_rule): expected once, among $reject_count unsupported errors"
+    say "unsupported ($reject_reason): expected once, among $reject_count unsupported errors"
     show "$work/compile.all"
   fi
   reject_reported=$(reported_line "$work/compile.all")
@@ -673,7 +676,7 @@ profile_reject() {
   no_artifacts "$work/fixture"
 }
 
-# profile_accept FIXTURE: `tests/profile/vN/accept/<RULE-ID>-<desc>.idr`, or a
+# profile_accept FIXTURE: `tests/profile/vN/accept/<desc>.idr`, or a
 # directory of that name holding Main.idr: it compiles with every artifact
 # written. With `-- exit: <status>` or `-- stdout: <text with \n escapes>` in
 # its header it also runs, with those, and with nothing on stderr.
@@ -834,10 +837,10 @@ lit() {
   [ "$lit_n" -gt 0 ] || say "no RUN lines in ${1##*/}"
 }
 
-# rejection_rule: the rule of a user error in the last compilation's
-# output (`unsupported (<RULE>)`), or nothing.
-rejection_rule() {
-  cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([A-Z0-9-]*)' | head -n 1
+# rejection_reason: the reason of a user error in the last compilation's
+# output (`unsupported (<reason>)`), or nothing.
+rejection_reason() {
+  cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([a-z][a-z -]*)' | head -n 1
 }
 
 # equivalent FIXTURE: an e2e fixture compiled twice, with evaluation and
@@ -845,7 +848,7 @@ rejection_rule() {
 # same stdout and exit with the same status on the fixture's stdin. Crash
 # messages are not compared. A fixture that --no-eval rejects with a user
 # error (a value the profile forbids at runtime, which only evaluation
-# removes) is listed with the rule, not failed; the listing is the test's
+# removes) is listed with the reason, not failed; the listing is the test's
 # expected output.
 equivalent() {
   eq_fixture=${1%/}
@@ -865,9 +868,9 @@ equivalent() {
   fi
   for eq_mode in eval noeval; do
     case $eq_name in
-      SEM-INT-*)
+      prim-*)
         if ! "$runtests" --sem-program "$eq_name" > "$eq_dir/$eq_mode/Prog.idr" 2> "$work/sem.err"; then
-          say "$eq_name: no TEST-SEM-1 program"
+          say "$eq_name: no semantics program"
           return
         fi
         ;;
@@ -884,9 +887,9 @@ equivalent() {
       eq_exe=$eq_dir/$eq_mode/build/exec/Prog
     fi
     if [ "$compiled" -ne 0 ]; then
-      eq_rule=$(rejection_rule)
-      if [ "$eq_mode" = noeval ] && [ "$compiled" -eq 1 ] && [ -n "$eq_rule" ]; then
-        say "$eq_name: compiles only with evaluation: $eq_rule"
+      eq_reason=$(rejection_reason)
+      if [ "$eq_mode" = noeval ] && [ "$compiled" -eq 1 ] && [ -n "$eq_reason" ]; then
+        say "$eq_name: compiles only with evaluation: $eq_reason"
       else
         say "$eq_name: $eq_mode: compile exit $compiled"
         show "$work/compile.out" "$work/compile.err"
@@ -913,7 +916,7 @@ equivalence() {
   for eq_base in $(cd "$root/tests/e2e/$1" && ls | LC_ALL=C sort); do
     [ -d "$root/tests/e2e/$1/$eq_base" ] || continue
     case $eq_base in
-      SEM-INT-*) [ "${2-}" = sem ] || continue ;;
+      prim-*) [ "${2-}" = sem ] || continue ;;
       *) [ "${2-}" = sem ] && continue ;;
     esac
     equivalent "$root/tests/e2e/$1/$eq_base"

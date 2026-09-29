@@ -3,7 +3,7 @@
 // Library code inlined into user code: the error is reported at the
 // innermost user location of the op's call-site chain, names the library
 // location in parentheses, and notes the callers.
-// CHECK: Main.idr:11:3: error: unsupported (PROF-TYPE-4): Integer computed at runtime by idr.big.from_int, which may allocate (in Prelude/Cast.idr:83:1)
+// CHECK: Main.idr:11:3: error: unsupported (runtime integer): Integer computed at runtime by idr.big.from_int, which may allocate (in Prelude/Cast.idr:83:1)
 // CHECK-NEXT: Main.idr:20:1: note: called from here
 module attributes {idr.program} {
   func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
@@ -19,7 +19,7 @@ module attributes {idr.program} {
 // -----
 
 // Two violations: only the first in op order is reported.
-// CHECK: Main.idr:30:1: error: unsupported (PROF-HEAP-3)
+// CHECK: Main.idr:30:1: error: unsupported (runtime string)
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @show(%x: i64 {idr.quantity = "w"}) -> !idr.str {

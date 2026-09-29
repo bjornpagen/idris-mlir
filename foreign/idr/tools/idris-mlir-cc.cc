@@ -94,7 +94,7 @@ cl::opt<std::string> runtimeArchive("runtime",
 
 // Exit statuses: an internal error or a
 // contract violation is 1, a usage error 2, a profile rejection (a user
-// error, `unsupported (<RULE>)`) 3, and a total evaluation the machine
+// error, `unsupported (<reason>)`) 3, and a total evaluation the machine
 // cannot finish 4.
 constexpr int ok = 0, failure = 1, usage = 2, rejected = 3, exhausted = 4;
 
@@ -194,8 +194,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
     if (!bitcode) {
       llvm::errs() << "idris-mlir-cc: runtime member " << *name
-                   << " carries no bitcode; the runtime must be built of fat LTO objects "
-                      "(TC-RT-1): "
+                   << " carries no bitcode; the runtime must be built of fat LTO objects: "
                    << llvm::toString(bitcode.takeError()) << "\n";
       llvm::consumeError(std::move(error));
       return false;
@@ -226,7 +225,7 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
       }
       llvm::errs() << "idris-mlir-cc: runtime member " << name
                    << " has static constructors or destructors; the runtime must be "
-                      "constant-initialized (TC-RT-1)\n";
+                      "constant-initialized\n";
       return false;
     }
   for (llvm::StringRef array : {"llvm.used", "llvm.compiler.used"})
@@ -234,7 +233,7 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
       global->eraseFromParent();
   for (const llvm::GlobalVariable &global : member.globals())
     if (global.hasAppendingLinkage()) {
-      llvm::errs() << "idris-mlir-cc: unsupported (TC-RT-1): runtime member " << name
+      llvm::errs() << "idris-mlir-cc: unsupported (runtime): runtime member " << name
                    << " defines the appending global " << global.getName() << "\n";
       return false;
     }
@@ -305,8 +304,8 @@ void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
 }
 
 // Which errors the passes reported: a profile rejection (`unsupported
-// (<RULE>): ...`) and an evaluation the machine cannot finish (`unsupported
-// (EVAL-1): ...`) are the user's, each at the location of the user's code
+// (<reason>): ...`) and an evaluation the machine cannot finish (`unsupported
+// (compile-time evaluation): ...`) are the user's, each at the location of the user's code
 // the frontend reports; any other error is internal.
 struct Verdict {
   bool rejected = false;
@@ -358,7 +357,7 @@ int run() {
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
     if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
       std::string message = diagnostic.str();
-      if (llvm::StringRef(message).starts_with("unsupported (EVAL-1)"))
+      if (llvm::StringRef(message).starts_with("unsupported (compile-time evaluation)"))
         verdict.exhausted = true;
       else if (llvm::StringRef(message).starts_with("unsupported ("))
         verdict.rejected = true;

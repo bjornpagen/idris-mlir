@@ -1,3 +1,0 @@
-#!/bin/sh
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-sem_case SEM-INT-Bits32-bitwise-0

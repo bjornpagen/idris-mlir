@@ -8,7 +8,7 @@ module Main
 -- partial code is never evaluated.
 -- `printLn (euclid (the Integer 1071) 462)` is not here: `euclid` is
 -- partial, so it is not evaluated and its Integer would exist at runtime.
--- It is the reject fixture profile/v3/reject/PROF-TYPE-4-partial-integer.
+-- It is the reject fixture profile/v3/reject/runtime-integer-partial.
 
 import Prelude
 

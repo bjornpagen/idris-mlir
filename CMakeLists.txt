@@ -72,7 +72,7 @@ foreach(lang C CXX)
 	endif()
 endforeach()
 if(IDRIS_MLIR_LINUX AND NOT CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-musl$")
-	message(FATAL_ERROR "Linux builds target musl through the pinned sysroot (TC-LINK-2); configure with a preset (got target '${CMAKE_CXX_COMPILER_TARGET}')")
+	message(FATAL_ERROR "Linux builds target musl through the pinned sysroot; configure with a preset (got target '${CMAKE_CXX_COMPILER_TARGET}')")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)
@@ -94,7 +94,7 @@ check_cxx_source_compiles([=[
 int main() { return 0; }
 ]=] IDRIS_MLIR_HAS_LIBCXX)
 if(NOT IDRIS_MLIR_HAS_LIBCXX)
-	message(FATAL_ERROR "production builds require libc++ from the pinned sysroot (TC-DEV-6)")
+	message(FATAL_ERROR "production builds require libc++ from the pinned sysroot")
 endif()
 
 # Warnings are errors, for every target with our own C++ (the runtime too).

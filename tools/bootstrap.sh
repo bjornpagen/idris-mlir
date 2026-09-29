@@ -92,7 +92,7 @@ for arg in "$@"; do
     cmake | ninja | stage1 | musl | runtimes | stage2 | gmp | idris) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 musl runtimes stage2" ;;
     all) steps="$steps cmake ninja stage1 musl runtimes stage2 gmp idris" ;;
-    gcc) usage "gcc is retired: the pinned C compiler is the stage-2 clang (docs/plan.md section 5.2); run: tools/bootstrap.sh llvm" ;;
+    gcc) usage "gcc is retired: the pinned C compiler is the stage-2 clang; run: tools/bootstrap.sh llvm" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -273,7 +273,7 @@ in_dir() {
 
 need() {
   for need_tool in "$@"; do
-    command -v "$need_tool" > /dev/null 2>&1 || die "$step needs $need_tool on PATH (TC-PIN-3)"
+    command -v "$need_tool" > /dev/null 2>&1 || die "$step needs $need_tool on PATH"
   done
 }
 
@@ -362,9 +362,9 @@ version_is() {
 # section, for its self-relocation, but no interpreter and no DT_NEEDED.
 static_pie() {
   static_pie_out=$("$1" --file-header --program-headers --dynamic "$2") || die "$1 cannot read $2"
-  case $static_pie_out in *'Type:'*DYN*) ;; *) die "$2 is not position-independent (TC-LINK-2)" ;; esac
-  case $static_pie_out in *INTERP*) die "$2 has an interpreter (TC-LINK-2)" ;; esac
-  case $static_pie_out in *NEEDED*) die "$2 needs a shared library (TC-LINK-2)" ;; esac
+  case $static_pie_out in *'Type:'*DYN*) ;; *) die "$2 is not position-independent" ;; esac
+  case $static_pie_out in *INTERP*) die "$2 has an interpreter" ;; esac
+  case $static_pie_out in *NEEDED*) die "$2 needs a shared library" ;; esac
 }
 
 # clone_pinned TOOL DEST: a shallow clone of the lock's tag, at the lock's
@@ -463,9 +463,9 @@ install_staged() {
 # the only kind of executable: a shared link fails.
 config_file() {
   cat << 'CFG'
-# idris-mlir's toolchain for x86_64-unknown-linux-musl (TC-BOOT-5), written
+# idris-mlir's toolchain for x86_64-unknown-linux-musl, written
 # by tools/bootstrap.sh: musl, libc++ and GMP from the sysroot next to this
-# clang; compiler-rt and libunwind; lld; static-PIE executables (TC-LINK-2).
+# clang; compiler-rt and libunwind; lld; static-PIE executables.
 --sysroot=<CFGDIR>/../../sysroot
 --rtlib=compiler-rt
 --unwindlib=libunwind
@@ -631,7 +631,7 @@ find_chez() {
   for chez_name in chezscheme scheme chez chez-scheme; do
     if command -v "$chez_name" 2> /dev/null; then return 0; fi
   done
-  die "Chez Scheme not found: install it or set CHEZ (TC-PIN-3)"
+  die "Chez Scheme not found: install it or set CHEZ"
 }
 
 recipe_idris() {
@@ -726,7 +726,7 @@ step_musl() {
     if [ -f "$uapi_candidate/asm/unistd.h" ]; then uapi=$uapi_candidate; break; fi
   done
   if [ -z "$uapi" ] || [ ! -f /usr/include/linux/futex.h ] || [ ! -d /usr/include/asm-generic ]; then
-    die "the host's Linux UAPI headers are missing; install its kernel headers package (linux-libc-dev) (TC-PIN-3)"
+    die "the host's Linux UAPI headers are missing; install its kernel headers package (linux-libc-dev)"
   fi
   build_dir
   export_source third_party/musl "$build/src"

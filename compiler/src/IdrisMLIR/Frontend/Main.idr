@@ -1,4 +1,4 @@
-||| The `mlir` backend, registered with the stock Idris driver (FE-ENTRY-*).
+||| The `mlir` backend, registered with the stock Idris driver.
 module IdrisMLIR.Frontend.Main
 
 import Compiler.Common

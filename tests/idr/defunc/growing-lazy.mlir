@@ -10,7 +10,7 @@
 // CHECK-LABEL: func.func private @Main.later(
 // CHECK-SAME: -> !idr.fn<() -> (i64)>
 // CHECK: idr.closure @Main.force(%{{.*}}) : (!idr.fn<() -> (i64)>) -> !idr.fn<() -> (i64)>
-// ERR: Main.idr:13:9: error: unsupported (PROF-HEAP-2){{.*}}@Main.force
+// ERR: Main.idr:13:9: error: unsupported (runtime lazy value){{.*}}@Main.force
 // ERR-NOT: error:
 module attributes {idr.program} {
   func.func private @Main.one() -> i64 attributes {idr.total} {

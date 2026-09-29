@@ -4,7 +4,7 @@
 // the first violation in op order, with its rule, and fails.
 
 // A box built from a runtime value.
-// CHECK: Main.idr:3:7: error: unsupported (PROF-DATA-3): recursive data built at runtime: Cons has a field that is not known at compile time
+// CHECK: Main.idr:3:7: error: unsupported (runtime data): recursive data built at runtime: Cons has a field that is not known at compile time
 // CHECK-NOT: error:
 module attributes {idr.program} {
   idr.data @L box {
@@ -25,7 +25,7 @@ module attributes {idr.program} {
 // -----
 
 // A closure of an argument that captures a runtime value.
-// CHECK: Main.idr:4:9: error: unsupported (PROF-HEAP-1): function value built at runtime: a closure of @add that no finite choice of functions stands for
+// CHECK: Main.idr:4:9: error: unsupported (runtime closure): function value built at runtime: a closure of @add that no finite choice of functions stands for
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
@@ -45,7 +45,7 @@ module attributes {idr.program} {
 // -----
 
 // A suspension (Lazy) that captures a runtime value.
-// CHECK: Main.idr:5:2: error: unsupported (PROF-HEAP-2): Lazy value built at runtime: a suspension of @sq whose captures are not known at compile time
+// CHECK: Main.idr:5:2: error: unsupported (runtime lazy value): Lazy value built at runtime: a suspension of @sq whose captures are not known at compile time
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @sq(%a: i64 {idr.quantity = "w"}) -> i64 {
@@ -65,7 +65,7 @@ module attributes {idr.program} {
 // -----
 
 // A closure that grows while the specialization of its callee stopped.
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped
+// CHECK: Main.idr:8:3: error: unsupported (growing specialization): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @twice(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
@@ -98,7 +98,7 @@ module attributes {idr.program} {
 // -----
 
 // A string built at runtime and passed to a function instead of output.
-// CHECK: Main.idr:9:9: error: unsupported (PROF-HEAP-3): string built at runtime: the result of idr.str.cons is passed to func.call instead of being written by output
+// CHECK: Main.idr:9:9: error: unsupported (runtime string): string built at runtime: the result of idr.str.cons is passed to func.call instead of being written by output
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @greet(%s: !idr.str {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world {
@@ -119,7 +119,7 @@ module attributes {idr.program} {
 
 // A string built at runtime reaching a primitive other than output: the
 // error is at the primitive.
-// CHECK: Main.idr:12:4: error: unsupported (PROF-PRIM-4): idr.match_lit of a string built at runtime by idr.str.from_char
+// CHECK: Main.idr:12:4: error: unsupported (string primitive): idr.match_lit of a string built at runtime by idr.str.from_char
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
@@ -143,7 +143,7 @@ module attributes {idr.program} {
 // -----
 
 // An Integer computed at runtime.
-// CHECK: Main.idr:13:1: error: unsupported (PROF-TYPE-4): Integer computed at runtime by idr.big.from_int, which may allocate
+// CHECK: Main.idr:13:1: error: unsupported (runtime integer): Integer computed at runtime by idr.big.from_int, which may allocate
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {

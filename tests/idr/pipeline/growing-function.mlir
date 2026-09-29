@@ -5,7 +5,7 @@
 // specialization stops at once, and the closure that @iter
 // builds survives in the stopped callee, whose self tail call is a loop by
 // the time the profile is checked, which rejects it.
-// CHECK: Main.idr:8:3: error: unsupported (PROF-HEAP-4){{.*}}@Main.after{{.*}}@Main.iter
+// CHECK: Main.idr:8:3: error: unsupported (growing specialization){{.*}}@Main.after{{.*}}@Main.iter
 // CHECK-NOT: error:
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {

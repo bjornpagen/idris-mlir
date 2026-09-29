@@ -1,4 +1,0 @@
-compile: exit 1
-unsupported (PROF-PRAG-1): the only error
-line: as the header says
-artifacts: none

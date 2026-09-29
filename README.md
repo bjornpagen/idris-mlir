@@ -51,8 +51,8 @@ threshold, known constructors, case-of-case, specialization on
 constant-like arguments, compile-time evaluation of total code, output
 fusion, defunctionalization), nothing may allocate at runtime (a closure
 that remains, a list, string or `Integer` built at runtime), or
-compilation fails with an `unsupported (<RULE>)` error at the source
-location.
+compilation fails with an `unsupported (<reason>)` error, such as
+`unsupported (runtime string)`, at the source location.
 - **v0:** a single `--no-prelude` module with `main : Int` (the exit status):
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.

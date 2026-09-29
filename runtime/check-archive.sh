@@ -46,12 +46,12 @@ grep -E '[[:space:]]\.(init_array|fini_array|ctors|dtors|preinit_array)([.[:spac
 
 status=0
 if [ -s "$work/cxx" ]; then
-  echo "runtime check: the runtime references the C++ runtime (TC-RT-2):"
+  echo "runtime check: the runtime references the C++ runtime:"
   sed 's/^/  /' "$work/cxx"
   status=1
 fi
 if [ -s "$work/constructors" ]; then
-  echo "runtime check: the runtime has static constructors or destructors (TC-RT-1):"
+  echo "runtime check: the runtime has static constructors or destructors:"
   sed 's/^/  /' "$work/constructors"
   status=1
 fi

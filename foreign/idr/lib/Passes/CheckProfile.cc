@@ -14,7 +14,7 @@
 // Constants of any size are static data. Values that are only passed along
 // (fields, match results, call results) are judged where they are built.
 //
-// The first violation in op order is reported as `unsupported (<RULE>)` at
+// The first violation in op order is reported as `unsupported (<reason>)` at
 // the innermost user location of the op's call-site chain, with
 // the library location in parentheses and the callers as notes. The pass
 // then fails; isProfileRejection() recognizes the error.
@@ -37,7 +37,7 @@ namespace idr {
 namespace {
 
 struct Violation {
-  StringRef rule;
+  StringRef reason;
   std::string what;
 };
 
@@ -131,16 +131,16 @@ struct Checker {
       return std::nullopt;
     StringRef label = op.getCallee();
     if (std::optional<StringRef> stopped = stoppedAt(op))
-      return Violation{"PROF-HEAP-4",
+      return Violation{"growing specialization",
                        ("function value grows: a closure of @" + label + " is built in or passed to @" +
                         *stopped + ", whose specialization stopped")
                            .str()};
     if (cast<idr::FnType>(op.getType()).getInputs().empty())
-      return Violation{"PROF-HEAP-2",
+      return Violation{"runtime lazy value",
                        ("Lazy value built at runtime: a suspension of @" + label +
                         " whose captures are not known at compile time")
                            .str()};
-    return Violation{"PROF-HEAP-1",
+    return Violation{"runtime closure",
                      ("function value built at runtime: a closure of @" + label +
                       " that no finite choice of functions stands for")
                          .str()};
@@ -153,7 +153,7 @@ struct Checker {
       if (isa<idr::PutStrOp>(user) || isBuilt<idr::StrType>(user))
         continue;
       if (isPassing(user))
-        return Violation{"PROF-HEAP-3",
+        return Violation{"runtime string",
                          "string built at runtime: the result of " + opName(op) + " is passed to " +
                              opName(user) + " instead of being written by output"};
     }
@@ -164,8 +164,8 @@ struct Checker {
     for (Value operand : op->getOperands()) {
       Operation *def = operand.getDefiningOp();
       if (isa<idr::StrType>(operand.getType()) && def && isBuilt<idr::StrType>(def))
-        return Violation{"PROF-PRIM-4", opName(op) + " of a string built at runtime by " +
-                                            opName(def)};
+        return Violation{"string primitive",
+                         opName(op) + " of a string built at runtime by " + opName(def)};
     }
     return std::nullopt;
   }
@@ -173,10 +173,10 @@ struct Checker {
   std::optional<Violation> check(Operation *op) {
     if (auto con = dyn_cast<idr::ConOp>(op)) {
       if (isa<idr::BoxType>(con.getType()) && !llvm::all_of(op->getOperands(), isStatic))
-        return Violation{"PROF-DATA-3", ("recursive data built at runtime: " +
-                                         con.getCtor().getLeafReference().getValue() +
-                                         " has a field that is not known at compile time")
-                                            .str()};
+        return Violation{"runtime data", ("recursive data built at runtime: " +
+                                          con.getCtor().getLeafReference().getValue() +
+                                          " has a field that is not known at compile time")
+                                             .str()};
       return std::nullopt;
     }
     if (auto closureOp = dyn_cast<idr::ClosureOp>(op))
@@ -188,7 +188,7 @@ struct Checker {
       if (std::optional<Violation> v = stringPrimitive(op))
         return v;
     if (isBuilt<idr::BigType>(op))
-      return Violation{"PROF-TYPE-4",
+      return Violation{"runtime integer",
                        "Integer computed at runtime by " + opName(op) + ", which may allocate"};
     return std::nullopt;
   }
@@ -235,7 +235,7 @@ void report(Operation *op, const Violation &violation) {
   auto user = llvm::find_if(chain, [](Location loc) { return !isLibrary(loc); });
   if (user == chain.end())
     user = chain.begin();
-  InFlightDiagnostic diag = emitError(*user) << "unsupported (" << violation.rule
+  InFlightDiagnostic diag = emitError(*user) << "unsupported (" << violation.reason
                                              << "): " << violation.what;
   if (user != chain.begin())
     diag << " (in " << position(chain.front()) << ")";

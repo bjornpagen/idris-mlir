@@ -247,7 +247,7 @@ LogicalResult verifyProgram(ModuleOp module) {
     auto [it, fresh] = marks.try_emplace(data, Mark::Open);
     if (!fresh && it->second == Mark::Open)
       return data.emitOpError("contains itself through unboxed sums; a recursive "
-                              "type must be declared box (IDR-DATA-4)");
+                              "type must be declared box");
     if (!fresh)
       return success();
     for (auto ctor : data.getBody().getOps<CtorOp>()) {
@@ -357,8 +357,7 @@ LogicalResult verifyWorlds(FunctionOpInterface fn) {
     if (!isa<WorldType>(value.getType()))
       return success();
     if (Operation *op = WorldUses(value).secondUse())
-      return op->emitOpError("uses a world that is already used on the same path "
-                             "(IDR-WORLD-1)");
+      return op->emitOpError("uses a world that is already used on the same path");
     return success();
   };
   WalkResult result = fn->walk([&](Block *block) -> WalkResult {

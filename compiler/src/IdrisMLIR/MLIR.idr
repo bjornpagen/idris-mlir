@@ -72,7 +72,7 @@ symbol m = case unpack m of
 -- Types
 ------------------------------------------------------------------------------
 
-||| The contract's types (IDR-TY-*). Data types hold
+||| The contract's types. Data types hold
 ||| their mangled symbol.
 public export
 data MType = I Nat | F64

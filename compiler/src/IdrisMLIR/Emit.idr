@@ -192,7 +192,7 @@ record Val where
 -- Types
 ------------------------------------------------------------------------------
 
-||| The contract type of a Core type (IDR-TY-*).
+||| The contract type of a Core type.
 mtype : Index -> Ty -> E MType
 mtype ix (IntT t) = pure (I (width t))
 mtype ix CharT = pure (I 32)
