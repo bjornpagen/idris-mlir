@@ -21,6 +21,7 @@
 // data would re-abstract what the key already fixed.
 
 #include "Facts/Facts.h"
+#include "Support/Actions.h"
 #include "Specialize/Specializer.h"
 
 using namespace mlir;
@@ -203,42 +204,49 @@ LogicalResult Specializer::specialize(func::CallOp call) {
   }
   auto key = SpecKeyAttr::get(ctx, clones.ownerOf(callee), ArrayAttr::get(ctx, composed.patterns));
 
-  const Clone *clone = clones.lookup(key);
-  if (clone) {
-    ++stats.shared;
-  } else {
-    FailureOr<func::FuncOp> made = clones.copy(callee, key.getOrigin(), "spec", call);
-    if (failed(made))
-      return failure();
-    // A chain of clones on a static shape is acyclic, and inlining it is
-    // what exposes the shape to its consumer: a clone is no loop breaker.
-    made->setNoInline(false);
-    substitute(*made, args, composed);
-    SmallVector<FlatSymbolRefAttr> named;
-    for (const Argument &arg : args)
-      labels(arg.pattern, named);
-    facts::inherit(*made, callee, llvm::map_to_vector(named, [&](FlatSymbolRefAttr name) {
-                   return clones.symbols().lookup<func::FuncOp>(name.getAttr());
-                 }));
-    for (const Argument &arg : args)
-      if (!arg.pattern.isHole())
-        count(stats, arg.time);
-    ++stats.clones;
-    // Into the table before it is simplified: the clone's own calls with
-    // its key call it.
-    clone = &clones.add(key, *made);
-    canonicalize(clone->fn);
-    work.push_back(clone->fn);
-  }
-  std::optional<SmallVector<Value>> operands = operandsFor(*clone, composed.values);
-  if (!operands)
-    return success();
-  OpBuilder b(call);
-  auto replacement = func::CallOp::create(b, call.getLoc(), clone->fn, *operands);
-  replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
-  call.replaceAllUsesWith(replacement.getResults());
-  call.erase();
-  return success();
+  // Making the clone and calling it is one action, which a debug counter
+  // may skip: then there is no clone and the call stays.
+  LogicalResult result = success();
+  perform<SpecializeCloneAction>(call, [&] {
+    const Clone *clone = clones.lookup(key);
+    if (clone) {
+      ++stats.shared;
+    } else {
+      FailureOr<func::FuncOp> made = clones.copy(callee, key.getOrigin(), "spec", call);
+      if (failed(made)) {
+        result = failure();
+        return;
+      }
+      // A chain of clones on a static shape is acyclic, and inlining it is
+      // what exposes the shape to its consumer: a clone is no loop breaker.
+      made->setNoInline(false);
+      substitute(*made, args, composed);
+      SmallVector<FlatSymbolRefAttr> named;
+      for (const Argument &arg : args)
+        labels(arg.pattern, named);
+      facts::inherit(*made, callee, llvm::map_to_vector(named, [&](FlatSymbolRefAttr name) {
+                     return clones.symbols().lookup<func::FuncOp>(name.getAttr());
+                   }));
+      for (const Argument &arg : args)
+        if (!arg.pattern.isHole())
+          count(stats, arg.time);
+      ++stats.clones;
+      // Into the table before it is simplified: the clone's own calls with
+      // its key call it.
+      clone = &clones.add(key, *made);
+      canonicalize(clone->fn);
+      work.push_back(clone->fn);
+    }
+    std::optional<SmallVector<Value>> operands = operandsFor(*clone, composed.values);
+    if (!operands)
+      return;
+    OpBuilder b(call);
+    auto replacement = func::CallOp::create(b, call.getLoc(), clone->fn, *operands);
+    replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
+    call.replaceAllUsesWith(replacement.getResults());
+    call.erase();
+  });
+  return result;
 }
 
 } // namespace idr::specialize

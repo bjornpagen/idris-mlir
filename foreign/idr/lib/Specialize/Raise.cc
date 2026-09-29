@@ -24,6 +24,7 @@
 // idr-eval runs to the end is left to it.
 
 #include "Facts/Facts.h"
+#include "Support/Actions.h"
 #include "Specialize/Specializer.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -226,31 +227,38 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
   std::optional<Consumer> c = consumerOf(call, callee);
   if (!c)
     return func::CallOp();
-  Attribute key = keyOf(*c, callee);
-  const Clone *clone = clones.lookup(key);
-  if (!clone) {
-    if (failed(makeRaised(callee, call, *c, key)))
-      return failure();
-    clone = clones.lookup(key);
-  }
-  SmallVector<std::optional<Value>> all(call.getOperands());
-  llvm::append_range(all, c->apply.getArgs());
-  Operation *consumer = c->apply;
-  func::FuncOp fn = clone->fn;
-  std::optional<SmallVector<Value>> operands = operandsFor(*clone, all);
-  if (!operands || TypeRange(fn.getResultTypes()) != consumer->getResultTypes())
-    return func::CallOp();
-  OpBuilder b(consumer);
-  auto replacement = func::CallOp::create(b, call.getLoc(), fn, *operands);
-  replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
-  consumer->replaceAllUsesWith(replacement.getResults());
-  consumer->erase();
-  if (c->use)
-    c->use.erase();
-  if (c->field)
-    c->field.erase();
-  call.erase();
-  return replacement;
+  // Making the clone and calling it is one action, which a debug counter
+  // may skip: then there is no clone and the call and its consumer stay.
+  FailureOr<func::CallOp> result = func::CallOp();
+  perform<RaiseAction>(call, [&] {
+    Attribute key = keyOf(*c, callee);
+    const Clone *clone = clones.lookup(key);
+    if (!clone) {
+      if (failed(makeRaised(callee, call, *c, key))) {
+        result = failure();
+        return;
+      }
+      clone = clones.lookup(key);
+    }
+    SmallVector<std::optional<Value>> all(call.getOperands());
+    llvm::append_range(all, c->apply.getArgs());
+    func::FuncOp fn = clone->fn;
+    std::optional<SmallVector<Value>> operands = operandsFor(*clone, all);
+    if (!operands || TypeRange(fn.getResultTypes()) != c->apply.getResultTypes())
+      return;
+    OpBuilder b(c->apply);
+    auto replacement = func::CallOp::create(b, call.getLoc(), fn, *operands);
+    replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
+    c->apply->replaceAllUsesWith(replacement.getResults());
+    c->apply->erase();
+    if (c->use)
+      c->use.erase();
+    if (c->field)
+      c->field.erase();
+    call.erase();
+    result = replacement;
+  });
+  return result;
 }
 
 } // namespace idr::specialize
