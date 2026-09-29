@@ -1,28 +1,12 @@
-// The closures a value may hold, and what running them may do.
+// What the closures a value holds may do when code given it applies them.
+module idr.facts;
 
-#include "Facts/Facts.h"
-
-#include "mlir/IR/Matchers.h"
+import idr.mlir;
 
 using namespace mlir;
 using namespace idr;
 
 namespace {
-
-bool holdsClosure(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
-  type = unrestricted(type);
-  if (isa<FnType>(type))
-    return true;
-  DataOp data = lookupData(from, type);
-  if (data && data.getClosures())
-    return true;
-  if (!data || !seen.insert(type).second)
-    return false;
-  return llvm::any_of(data.getCtors(), [&](CtorOp ctor) {
-    return llvm::any_of(ctor.getFieldTypes().getAsValueRange<TypeAttr>(),
-                        [&](Type field) { return holdsClosure(from, field, seen); });
-  });
-}
 
 // What a call of the label `name` may do.
 facts::Effects label(Operation *from, StringAttr name) {
@@ -43,17 +27,6 @@ facts::Effects inConstant(Operation *from, Attribute constant) {
 }
 
 } // namespace
-
-StringAttr facts::closureLabel(Operation *from, SymbolRefAttr ctor) {
-  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
-      from, FlatSymbolRefAttr::get(ctor.getRootReference()));
-  return data && data.getClosures() ? ctor.getLeafReference() : StringAttr();
-}
-
-bool facts::mayHoldClosure(Operation *from, Type type) {
-  llvm::SmallDenseSet<Type> seen;
-  return holdsClosure(from, type, seen);
-}
 
 // A value made here, as a constant, a closure or a constructor, holds the
 // closures it is made of, and a value moved into or out of a linear type

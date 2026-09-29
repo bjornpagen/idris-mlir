@@ -1,6 +1,8 @@
-// Which code may be dropped, delayed or moved, from what its ops may do.
+// Whether every op in an op does only what a predicate accepts, from what
+// each op itself may do.
+module idr.facts;
 
-#include "Facts/Facts.h"
+import idr.mlir;
 
 using namespace mlir;
 using namespace idr;
@@ -39,23 +41,11 @@ facts::Effects own(Operation *op) {
   return out;
 }
 
-// Whether every op in `op`, itself included, does only what `allowed`
-// accepts.
-bool only(Operation *op, function_ref<bool(const facts::Effects &)> allowed) {
+} // namespace
+
+bool facts::only(Operation *op, function_ref<bool(const Effects &)> allowed) {
   return !op->walk([&](Operation *inner) {
               return allowed(own(inner)) ? WalkResult::advance() : WalkResult::interrupt();
             })
               .wasInterrupted();
 }
-
-} // namespace
-
-bool facts::canMoveAcross(Operation *op) {
-  return only(op, [](const Effects &effects) { return effects.none(); });
-}
-
-bool facts::canDelay(Operation *op) {
-  return only(op, [](const Effects &effects) { return !effects.io; });
-}
-
-bool facts::canDrop(func::CallOp call) { return call->use_empty() && canMoveAcross(call); }

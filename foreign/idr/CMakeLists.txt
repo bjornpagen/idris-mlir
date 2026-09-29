@@ -1,6 +1,7 @@
 # The idr dialect, its passes and tools. Everything here faces the
 # MLIR C++ API, so it is quarantine code: headers, TableGen, inheritance.
 # PIN(mlir-cxx-api) — see PINS.md
+# PIN(cmake-module-restat) — see PINS.md
 
 find_package(MLIR REQUIRED CONFIG)
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}" "${LLVM_CMAKE_DIR}")
@@ -38,78 +39,30 @@ add_public_tablegen_target(idr_tablegen)
 # emitter parses with the native target's assembly parser.
 llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader object ipo orcjit)
 
-add_library(idr_dialect STATIC
-	lib/Dialect/Canonicalize/Apply.cc
-	lib/Dialect/Canonicalize/Calls.cc
-	lib/Dialect/Canonicalize/CaseOfCase.cc
-	lib/Dialect/Canonicalize/Field.cc
-	lib/Dialect/Canonicalize/Matches.cc
-	lib/Dialect/Canonicalize/Meet.cc
-	lib/Dialect/Canonicalize/Merge.cc
-	lib/Dialect/Canonicalize/Sink.cc
-	lib/Dialect/Canonicalize/Strings.cc
-	lib/Dialect/Dialect.cc
-	lib/Dialect/Ops.cc
-	lib/Facts/Effects.cc
-	lib/Facts/Evaluate.cc
-	lib/Facts/Functions.cc
-	lib/Facts/Moves.cc
-	lib/Facts/Values.cc
-	lib/Eval/Child.cc
-	lib/Eval/Eval.cc
-	lib/Eval/Jit.cc
-	lib/Eval/Reify.cc
-	lib/Expect/Allocation.cc
-	lib/Expect/Breakers.cc
-	lib/Expect/Clones.cc
-	lib/Expect/Closures.cc
-	lib/Expect/Counting.cc
-	lib/Expect/Facts.cc
-	lib/Expect/Folds.cc
-	lib/Expect/Output.cc
-	lib/Expect/Pass.cc
-	lib/Expect/Quantities.cc
-	lib/Fold/Fold.cc
-	lib/Inline/Inline.cc
-	lib/Lower.cc
-	lib/Lower/Closures.cc
-	lib/Lower/Counting.cc
-	lib/Lower/Layout.cc
-	lib/Lower/Matches.cc
-	lib/Lower/Patterns.cc
-	lib/Lower/Predecessors.cc
-	lib/Lower/Runtime.cc
-	lib/Lower/Target.cc
-	lib/Ownership/Borrow.cc
-	lib/Ownership/Counting.cc
-	lib/Ownership/Counts.cc
-	lib/Ownership/Ops.cc
-	lib/Ownership/Rc.cc
-	lib/Ownership/ResetReuse.cc
-	lib/Ownership/Take.cc
-	lib/Ownership/Verify.cc
-	lib/Registration.cc
-	lib/Passes/Defunctionalize.cc
-	lib/Passes/LoopBreakers.cc
-	lib/Passes/Prune.cc
-	lib/Passes/Simplify.cc
-	lib/Passes/TailLoops.cc
-	lib/Specialize/BindingTimes.cc
-	lib/Specialize/Clones.cc
-	lib/Specialize/Pass.cc
-	lib/Specialize/Pattern.cc
-	lib/Specialize/Raise.cc
-	lib/Specialize/Run.cc
-	lib/Specialize/Specialize.cc
-	lib/Stack/Cell.cc
-	lib/Stack/Escape.cc
-	lib/Stack/Pass.cc
-	lib/Stack/Recursion.cc
-	lib/Stack/Tail.cc
-	lib/Canonicalize/Pass.cc
-	lib/Support/PatternCounts.cc
-	lib/Support/PipelineStatistics.cc
+# idr.mlir is the one unit that parses MLIR's, LLVM's and TableGen's
+# headers; every module imports their names from it. Each area of lib/
+# lists its own sources, module units and plain ones.
+add_library(idr_dialect STATIC lib/Registration.cc)
+target_sources(idr_dialect PRIVATE
+	FILE_SET idr_mlir TYPE CXX_MODULES FILES lib/Mlir.cppm
 )
+foreach(area
+		Canonicalize
+		Dialect
+		Eval
+		Expect
+		Facts
+		Fold
+		Inline
+		Lower
+		Ownership
+		Passes
+		Specialize
+		Stack
+		Support
+	)
+	add_subdirectory(lib/${area})
+endforeach()
 add_dependencies(idr_dialect idr_tablegen)
 # Generated code is included as system headers so the project's warnings
 # apply to our code, not to TableGen's output.
@@ -203,10 +156,13 @@ target_link_libraries(idris-mlir-reduce PRIVATE
 	idris_mlir_language_profile
 )
 
-# The MLIR API is not module-aware: these targets never import std.
-foreach(target idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce)
-	set_target_properties(${target} PROPERTIES
-		CXX_MODULE_STD OFF
-		CXX_SCAN_FOR_MODULES OFF
-	)
-endforeach()
+# The MLIR API is not module-aware, so no target imports std: idr.mlir
+# wraps its headers instead. Only idr_dialect has module units; the tools
+# are plain translation units.
+set_target_properties(idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce PROPERTIES
+	CXX_MODULE_STD OFF
+)
+set_target_properties(idr_dialect PROPERTIES CXX_SCAN_FOR_MODULES ON)
+set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce PROPERTIES
+	CXX_SCAN_FOR_MODULES OFF
+)

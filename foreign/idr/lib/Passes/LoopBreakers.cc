@@ -16,7 +16,6 @@
 // function in module order that is not from a library; then the rest of the
 // cycle is cut the same way.
 
-#include "Facts/Facts.h"
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
 
@@ -28,6 +27,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRLOOPBREAKERS
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.facts;
 
 namespace {
 

@@ -24,9 +24,30 @@ which the top-level CMake configure gate reads.
 - sites: `foreign/idr/` — the whole dialect, its passes and both tools
 - workaround: all MLIR-facing code is quarantine code in `foreign/idr/`;
   LLVM/MLIR headers and generated files are system includes, so
-  the project's warnings apply to our code only; the targets never import std
+  the project's warnings apply to our code only; the targets never import std.
+  The headers are parsed once, by the module `idr.mlir`
+  (`foreign/idr/lib/Mlir.cppm`), which re-exports the names the code uses;
+  what TableGen declares (the dialect, op hooks, pass bases, DRR patterns)
+  stays in plain translation units in the global module
 - retire: when MLIR offers a module-based, inheritance-free API (not expected)
 - upstream: none — MLIR's design
+
+## cmake-module-restat
+
+- symptom: the Ninja rule CMake 4.2 writes for a scanned C++ compile has no
+  `restat`, and clang writes a module interface's BMI anew on every compile
+  of it; so touching an interface unit, even a comment in it, recompiles
+  every unit that imports it, and every unit that imports those. Touching
+  `idr/Idr.h`, TableGen's output or `lib/Mlir.cppm` recompiles every unit
+  that imports anything
+- sites: `foreign/idr/CMakeLists.txt` and `foreign/idr/lib/*/CMakeLists.txt`
+  (the `CXX_MODULES` file sets of `idr_dialect`)
+- workaround: interface units declare and never define, so that an edit to
+  code recompiles its one implementation unit and nothing else; `idr.mlir`
+  already exports every name the code uses, so it rarely changes
+- retire: when CMake's Ninja generator restats a BMI and clang leaves an
+  unchanged BMI untouched; then a definition may sit in an interface again
+- upstream: none filed — a CMake and clang feature, not a bug
 
 ## zones-on-demand
 

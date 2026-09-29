@@ -1,9 +1,10 @@
 // The dialect's patterns on func.call.
 
-#include "Facts/Facts.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/PatternMatch.h"
+
+import idr.facts;
 
 using namespace mlir;
 using namespace idr;

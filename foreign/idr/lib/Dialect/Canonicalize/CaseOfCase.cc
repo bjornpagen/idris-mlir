@@ -6,10 +6,11 @@
 // that only computes moves down to it instead, past the ops between them.
 
 #include "Dialect/Canonicalize/Matches.h"
-#include "Facts/Facts.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/RegionUtils.h"
+
+import idr.facts;
 
 using namespace mlir;
 using namespace idr;

@@ -4,7 +4,8 @@
 // fails wherever lib/Facts answers otherwise; the op itself is not changed.
 
 #include "Expect/Expect.h"
-#include "Facts/Facts.h"
+
+import idr.facts;
 
 using namespace mlir;
 

@@ -20,9 +20,10 @@
 // it is a closure: a closure static at a later call is new knowledge, where
 // data would re-abstract what the key already fixed.
 
-#include "Facts/Facts.h"
 #include "Support/Actions.h"
 #include "Specialize/Specializer.h"
+
+import idr.facts;
 
 using namespace mlir;
 

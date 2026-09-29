@@ -1,10 +1,11 @@
 #!/bin/sh
-# All C++ (.cpp, .h, .hpp, .cc, .td, .inc) is under foreign/idr or, for the
-# runtime, runtime/, with .cc its only source extension; src/ and unsafe/
-# exist only once they hold code.
+# All C++ (.cpp, .h, .hpp, .cc, .cppm, .td, .inc) is under foreign/idr or,
+# for the runtime, runtime/, with .cc its only source extension and .cppm
+# that of a module interface; src/ and unsafe/ exist only once they hold
+# code.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (cd "$root" && find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \) -prune \
-   -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.td' -o -name '*.inc' \) \
+   -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.cppm' -o -name '*.td' -o -name '*.inc' \) \
    -print) | sed 's|^\./||' | sort > "$work/cpp"
 if [ -s "$work/cpp" ]; then say "C++: found"; else say "C++: none found"; fi
 if grep -q '^runtime/' "$work/cpp"; then say "C++: the runtime under runtime/"; else say "C++: no runtime under runtime/"; fi

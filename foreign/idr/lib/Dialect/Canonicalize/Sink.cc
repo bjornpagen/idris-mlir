@@ -15,7 +15,8 @@
 // and each would undo the other.
 
 #include "Dialect/Canonicalize/Matches.h"
-#include "Facts/Facts.h"
+
+import idr.facts;
 
 using namespace mlir;
 using namespace idr;

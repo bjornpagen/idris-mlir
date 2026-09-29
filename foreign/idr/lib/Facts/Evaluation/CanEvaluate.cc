@@ -1,8 +1,7 @@
 // Which calls idr-eval may run at compile time.
+module idr.facts;
 
-#include "Facts/Facts.h"
-
-#include "mlir/IR/Matchers.h"
+import idr.mlir;
 
 using namespace mlir;
 using namespace idr;

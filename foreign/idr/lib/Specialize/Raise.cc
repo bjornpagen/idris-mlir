@@ -24,12 +24,13 @@
 // raised: its body would take part in the world chain. A closed call that
 // idr-eval runs to the end is left to it.
 
-#include "Facts/Facts.h"
 #include "Support/Actions.h"
 #include "Specialize/Specializer.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
+
+import idr.facts;
 
 using namespace mlir;
 

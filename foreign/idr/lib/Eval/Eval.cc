@@ -11,7 +11,6 @@
 
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
-#include "Facts/Facts.h"
 #include "Support/Actions.h"
 
 #include "idr/Idr.h"
@@ -39,6 +38,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDREVAL
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.facts;
 
 namespace {
 
@@ -81,7 +82,7 @@ struct Call {
   const Meter *meter;
 };
 
-// A closed call that may run now (Facts/Evaluate.cc).
+// A closed call that may run now (idr.facts, canEvaluate).
 std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   std::optional<idr::facts::Evaluation> evaluation = idr::facts::canEvaluate(op, symbols);
   if (!evaluation)
