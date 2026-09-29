@@ -45,7 +45,7 @@ export
 function : Index -> FnId -> TFn -> E (List Op)
 function ix root f = do
   let sym = mangle f.id.name
-  modify { owner := MkOwner sym f.idrisName (inherited f), lifted := [<] }
+  modify { lifted := [<] }
   ((params, res), ops) <- inFunction $ do
     params <- traverse (\b => (\n => MkVal n (typeOf b) (binderMode b)) <$> fresh) f.params
     res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
@@ -60,6 +60,6 @@ function ix root f = do
   pure (fn :: (inner <>> []))
   where
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
-    alg' = alg ix
+    alg' = alg ix (MkOwner (mangle f.id.name) f.idrisName (inherited f))
     plain' : E (Maybe Val) -> E (Maybe Val)
     plain' = plain ix f.loc

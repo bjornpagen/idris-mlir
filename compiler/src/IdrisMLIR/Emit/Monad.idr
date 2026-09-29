@@ -31,7 +31,6 @@ record ES where
   ops : SnocList Op
   ||| The functions lifted so far from the function being written.
   lifted : SnocList Op
-  owner : Owner
 
 public export
 E : Type -> Type

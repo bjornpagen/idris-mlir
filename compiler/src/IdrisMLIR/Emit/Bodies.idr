@@ -128,10 +128,9 @@ epilogue l rt Nothing ops =
 
 ||| A lifted function: private, its captures first, then its parameters.
 ||| Its body is the closure's, and it is what the closure calls.
-lifted : Index -> Loc -> Label -> Vect k Val -> Vect m Val -> Maybe Ty ->
+lifted : Index -> Owner -> Loc -> Label -> Vect k Val -> Vect m Val -> Maybe Ty ->
          (Vect k Val -> Vect m Val -> E (Maybe Val)) -> E (String, Ty)
-lifted ix l lbl caps ps expected body = do
-  own <- gets (.owner)
+lifted ix own l lbl caps ps expected body = do
   let sym = own.symbol ++ "$lam" ++ show lbl.index
   ((params, res), ops) <- inFunction $ do
     cs <- traverse renamed caps
@@ -154,19 +153,19 @@ lifted ix l lbl caps ps expected body = do
 
 ||| The algebra: one layer of `Term` to its emitter.
 export
-alg : {0 b : Type} -> Index -> TermF (Sub Em) b -> Em b
-alg ix (VarF _ x) env _ = pure (Just (env x))
-alg ix (LiteralF l x) env _ = Just <$> literal l x
-alg ix (ErasedF l) env _ = Just <$> erased l
-alg ix (PrimAppF l p as) env _ = do
+alg : {0 b : Type} -> Index -> Owner -> TermF (Sub Em) b -> Em b
+alg ix own (VarF _ x) env _ = pure (Just (env x))
+alg ix own (LiteralF l x) env _ = Just <$> literal l x
+alg ix own (ErasedF l) env _ = Just <$> erased l
+alg ix own (PrimAppF l p as) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing
   Just <$> prim l p vs
-alg ix (EffectF l op as res) env _ = do
+alg ix own (EffectF l op as res) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (ioArgs op ++ [WorldT]))
     | Nothing => pure Nothing
   Just <$> io ix l op vs res
-alg ix (CallF l fn as) env _ = do
+alg ix own (CallF l fn as) env _ = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
   Just vs <- operands ix l env as (toList f.params)
@@ -174,19 +173,19 @@ alg ix (CallF l fn as) env _ = do
   rt <- typeText ix f.result
   Just <$> value l f.result ("func.call " ++ symbol (mangle fn.name) ++ "(" ++ names vs ++ ") : (" ++
                              !(types ix vs) ++ ") -> " ++ rt)
-alg ix (ConAppF l c as) env _ = do
+alg ix own (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
   Just vs <- operands ix l env as k.fields
     | Nothing => pure Nothing
   Just <$> con ix l k vs
 -- A `let` binds an SSA value; its type is its value's.
-alg ix (LetF l u v b) env expected = do
+alg ix own (LetF l u v b) env expected = do
   Just x <- v.result env Nothing
     | Nothing => pure Nothing
   x' <- coerce ix l (modeOf u x.type) x
   b.result (bind [x'] env) expected
-alg ix (CaseF l x alts def) env expected = do
+alg ix own (CaseF l x alts def) env expected = do
   scrut <- coerce ix l Plain (env x)
   DataT d <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
@@ -211,7 +210,7 @@ alg ix (CaseF l x alts def) env expected = do
       args <- traverse (param ix) (toList vals)
       (res, ops) <- collect (plain ix l (body.result (bind vals env) expected))
       pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
-alg ix (CaseLitF l x alts def) env expected = do
+alg ix own (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible
   -- alternative stands for it.
@@ -235,7 +234,7 @@ alg ix (CaseLitF l x alts def) env expected = do
       match ix l ("idr.match_lit " ++ scrut.name ++ " : " ++ st) (regions ++ [MkRegion "default {" res ops])
 -- The predecessor exists only where the value is not zero: the successor's
 -- region computes it, and only it binds it.
-alg ix (CaseNatF l x z s) env expected =
+alg ix own (CaseNatF l x z s) env expected =
   case (excluded z, excluded s) of
     (True, True) => do
       statement l "ub.unreachable"
@@ -255,12 +254,12 @@ alg ix (CaseNatF l x z s) env expected =
       p <- value l BigT ("idr.big.pred " ++ n.name)
       p' <- coerce ix l (fieldMode (env x).mode (Held Many BigT)) p
       s.result (bind [p'] env) expected
-alg ix (LamF l lbl caps b body) env expected = do
+alg ix own (LamF l lbl caps b body) env expected = do
   let capVals = map env caps
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
-  (sym, rt) <- lifted ix l lbl capVals [MkVal "" (typeOf b) (binderMode b)] result
+  (sym, rt) <- lifted ix own l lbl capVals [MkVal "" (typeOf b) (binderMode b)] result
                  (\cs, [p] => body.result (bind [p] (\i => index i cs)) result)
   let t = FunT b rt
   Just <$> closure sym (toList capVals) t
@@ -268,7 +267,7 @@ alg ix (LamF l lbl caps b body) env expected = do
     closure : String -> List Val -> Ty -> E Val
     closure sym cs t = value l t ("idr.closure " ++ symbol sym ++ "(" ++ names cs ++ ") : (" ++
                                   !(types ix cs) ++ ") -> " ++ !(typeText ix t))
-alg ix (AppF l f x) env expected = do
+alg ix own (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
@@ -277,26 +276,26 @@ alg ix (AppF l f x) env expected = do
     | Nothing => pure Nothing
   xv <- coerce ix l (binderMode a) xv
   Just <$> value l r ("idr.apply " ++ fv.name ++ "(" ++ xv.name ++ ") : " ++ !(typeText ix fv.type))
-alg ix (SuspendF l lbl caps body) env expected = do
+alg ix own (SuspendF l lbl caps body) env expected = do
   let capVals = map env caps
   let result = case expected of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  (sym, rt) <- lifted ix l lbl capVals [] result (\cs, _ => body.result (\i => index i cs) result)
+  (sym, rt) <- lifted ix own l lbl capVals [] result (\cs, _ => body.result (\i => index i cs) result)
   let t = LazyT rt
   Just <$> value l t ("idr.closure " ++ symbol sym ++ "(" ++ names (toList capVals) ++ ") : (" ++
                       !(types ix (toList capVals)) ++ ") -> " ++ !(typeText ix t))
-alg ix (ResumeF l e) env expected = do
+alg ix own (ResumeF l e) env expected = do
   Just ev <- plain ix l (e.result env Nothing)
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
   Just <$> value l r ("idr.apply " ++ ev.name ++ "() : " ++ !(typeText ix ev.type))
-alg ix (UnreachableF l) env _ = do
+alg ix own (UnreachableF l) env _ = do
   statement l "ub.unreachable"
   pure Nothing
 -- A crash reports its message and never returns.
-alg ix (CrashF l msg) env _ = do
+alg ix own (CrashF l msg) env _ = do
   statement l ("idr.crash " ++ utf8 msg)
   statement l "ub.unreachable"
   pure Nothing
