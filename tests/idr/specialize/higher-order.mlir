@@ -52,6 +52,6 @@ module attributes {idr.program} {
   // CHECK-SAME: idr.spec_key = "{{.*}}closure{{.*}}@add{{.*}}"
   // CHECK-SAME: idr.total
   // CHECK: case @Cons(%[[H:.*]]: i64, %[[T:.*]]: !idr.box<@L>)
-  // CHECK-NEXT: func.call @add(%[[A]], %[[H]])
+  // CHECK: func.call @add(%[[A]], %[[H]])
   // CHECK-NEXT: call @[[M]](%[[A]], %[[T]])
 }

@@ -3,7 +3,7 @@
 //
 // An argument's pattern is its static shape: a constant is itself, an
 // `idr.con` or `idr.closure` is built over the patterns of its operands, and
-// anything else is a hole, a runtime leaf. An erased argument is always a
+// anything else is a hole, a runtime leaf; so is a machine number (shape()). An erased argument is always a
 // hole: erased is not constant. A call is specialized when some argument has
 // a static shape and some argument that is neither erased nor a world has a
 // runtime leaf; a closed call is idr-eval's. The clone substitutes each
@@ -18,12 +18,8 @@
 //
 // In a clone's call of its own origin, a static argument that changed is
 // generalized to a runtime value when the callee never branches on it (an
-// accumulator: `run (n - 1) (advance s)`), or when it is a machine number,
-// at any depth of its pattern (a loop counter: `go (i + 1)` up to a limit),
-// which would otherwise unroll the loop once per value. A Nat or an Integer
-// the callee matches on keeps its value: counting one down is how a
-// vector's static length unrolls. Each clone is canonicalized when it is
-// made, so a chain of clones is made in one run.
+// accumulator: `run (n - 1) (advance s)`). Each clone is canonicalized when
+// it is made, so a chain of clones is made in one run.
 //
 // Two things stop a specialization. A clone that calls its own origin with
 // static arguments that grow, each the clone's own pattern or containing it
@@ -164,9 +160,37 @@ bool isShapeOp(Value value) {
   return def && (def->hasTrait<OpTrait::ConstantLike>() || isa<idr::ConOp, idr::ClosureOp>(def));
 }
 
+// Whether a constant is a machine number: an integer of a fixed width, a
+// Char or a Double; not a big (a Nat or an Integer).
+bool machineNumber(Attribute pattern) {
+  if (auto integer = dyn_cast<IntegerAttr>(pattern))
+    return isa<IntegerType>(integer.getType());
+  return isa<FloatAttr>(pattern);
+}
+
+// Whether `value` is closed: a constant, or a constructor or closure of
+// closed values. A call of closed values is idr-eval's.
+bool closed(Value value) {
+  if (matchPattern(value, m_Constant()))
+    return true;
+  Operation *def = value.getDefiningOp();
+  return isa_and_nonnull<idr::ConOp, idr::ClosureOp>(def) && llvm::all_of(def->getOperands(), closed);
+}
+
+// Whether `value` is a runtime leaf of a shape: it is built by no shape op,
+// or it is a machine number. Specializing on a machine number only unrolls
+// (a loop counter would clone once per value), which LLVM's own
+// specialization of numeric constants weighs better; what this pass removes
+// is structure, closures and constructors. A Nat or an Integer stays static:
+// counting one down is how a vector's static length unrolls.
+bool isLeaf(Value value) {
+  Attribute constant;
+  return !isShapeOp(value) || (matchPattern(value, m_Constant(&constant)) && machineNumber(constant));
+}
+
 Attribute shape(Value value, SmallVectorImpl<Value> &leaves) {
   MLIRContext *ctx = value.getContext();
-  if (!isShapeOp(value)) {
+  if (isLeaf(value)) {
     leaves.push_back(value);
     return UnitAttr::get(ctx);
   }
@@ -178,12 +202,12 @@ Attribute shape(Value value, SmallVectorImpl<Value> &leaves) {
   for (Value operand : def->getOperands())
     parts.push_back(shape(operand, leaves));
   auto array = ArrayAttr::get(ctx, parts);
-  bool closed = llvm::all_of(parts, isConstant);
+  bool whole = llvm::all_of(parts, isConstant);
   if (auto con = dyn_cast<idr::ConOp>(def))
-    return closed ? Attribute(idr::ConAttr::get(ctx, con.getCtor(), array))
+    return whole ? Attribute(idr::ConAttr::get(ctx, con.getCtor(), array))
                   : ArrayAttr::get(ctx, {StringAttr::get(ctx, "con"), con.getCtor(), array});
   auto closure = cast<idr::ClosureOp>(def);
-  return closed ? Attribute(idr::ClosureAttr::get(ctx, closure.getCalleeAttr(), array))
+  return whole ? Attribute(idr::ClosureAttr::get(ctx, closure.getCalleeAttr(), array))
                 : ArrayAttr::get(ctx,
                                  {StringAttr::get(ctx, "closure"), closure.getCalleeAttr(), array});
 }
@@ -198,62 +222,6 @@ Shape shape(Value value) {
   }
   out.pattern = shape(value, out.leaves);
   return out;
-}
-
-// Whether a static pattern is a machine number: an integer of a fixed width,
-// a Char or a Double (not a big: a Nat or an Integer, whose countdown is how
-// a vector's static length unrolls).
-bool machineNumber(Attribute pattern) {
-  if (auto integer = dyn_cast<IntegerAttr>(pattern))
-    return isa<IntegerType>(integer.getType());
-  return isa<FloatAttr>(pattern);
-}
-
-// The parts of `pattern` when it is a node built by `label` (a constructor or
-// a closure's function), open or closed; empty otherwise.
-ArrayRef<Attribute> partsOf(Attribute pattern, Attribute label) {
-  if (auto node = dyn_cast_or_null<ArrayAttr>(pattern))
-    return node[1] == label ? cast<ArrayAttr>(node[2]).getValue() : ArrayRef<Attribute>();
-  if (auto con = dyn_cast_or_null<idr::ConAttr>(pattern))
-    return con.getCtor() == label ? con.getFields().getValue() : ArrayRef<Attribute>();
-  if (auto closure = dyn_cast_or_null<idr::ClosureAttr>(pattern))
-    return closure.getCallee() == label ? closure.getCaptures().getValue() : ArrayRef<Attribute>();
-  return {};
-}
-
-// The shape of `value` as shape() makes it, except that a machine number
-// that differs from the one at the same place in `before` is a runtime leaf
-// (a loop counter, also inside a constructor or a closure's captures).
-Attribute relaxed(Value value, Attribute before, SmallVectorImpl<Value> &leaves) {
-  MLIRContext *ctx = value.getContext();
-  if (!isShapeOp(value)) {
-    leaves.push_back(value);
-    return UnitAttr::get(ctx);
-  }
-  Operation *def = value.getDefiningOp();
-  Attribute constant;
-  if (matchPattern(value, m_Constant(&constant))) {
-    if (machineNumber(constant) && before && machineNumber(before) && before != constant) {
-      leaves.push_back(value);
-      return UnitAttr::get(ctx);
-    }
-    return constant;
-  }
-  Attribute label = isa<idr::ConOp>(def) ? Attribute(cast<idr::ConOp>(def).getCtor())
-                                         : Attribute(cast<idr::ClosureOp>(def).getCalleeAttr());
-  ArrayRef<Attribute> previous = partsOf(before, label);
-  SmallVector<Attribute> parts;
-  for (auto [i, operand] : llvm::enumerate(def->getOperands()))
-    parts.push_back(relaxed(operand, i < previous.size() ? previous[i] : Attribute(), leaves));
-  auto array = ArrayAttr::get(ctx, parts);
-  bool closed = llvm::all_of(parts, isConstant);
-  if (auto con = dyn_cast<idr::ConOp>(def))
-    return closed ? Attribute(idr::ConAttr::get(ctx, con.getCtor(), array))
-                  : ArrayAttr::get(ctx, {StringAttr::get(ctx, "con"), con.getCtor(), array});
-  auto closure = cast<idr::ClosureOp>(def);
-  return closed ? Attribute(idr::ClosureAttr::get(ctx, closure.getCalleeAttr(), array))
-                : ArrayAttr::get(ctx,
-                                 {StringAttr::get(ctx, "closure"), closure.getCalleeAttr(), array});
 }
 
 // The functions a pattern names as closure labels.
@@ -412,7 +380,7 @@ struct Specializer {
   // The static shape of `value` rebuilt at `b`, taking its runtime leaves
   // from `next` in the order shape() found them.
   template <typename It> Value rebuild(OpBuilder &b, Value value, It &next) {
-    if (!isShapeOp(value))
+    if (isLeaf(value))
       return *next++;
     Operation *def = value.getDefiningOp();
     IRMapping map;
@@ -696,10 +664,7 @@ struct Specializer {
   // (an accumulator): specializing on it would clone once per value, and
   // gain nothing the callee could fold. It becomes a runtime value, as in
   // the generalization of an offline partial evaluator. An argument the
-  // callee matches on (`ack`'s m) keeps its value, unless it is a machine
-  // number that changed, here or inside a constructor or a closure: a loop
-  // counter (`go (i + 1)` until a limit), which specializing would unroll
-  // once per value, all the way to the limit.
+  // callee matches on keeps its value.
   void generalize(ArrayAttr own, func::FuncOp callee, MutableArrayRef<Shape> shapes,
                   ValueRange operands) {
     if (!own || !keyed(callee))
@@ -714,18 +679,6 @@ struct Specializer {
     unsigned first = 0;
     for (auto [part, before] : llvm::zip(calleeKey.getValue(), own.getValue())) {
       unsigned n = holes(part);
-      // Counters first: each operand's shape against what the clone's own
-      // key has at the same place.
-      SmallVector<Attribute> previous;
-      align(part, before, previous);
-      for (unsigned p = first; p < first + n; ++p) {
-        if (isHole(shapes[p].pattern) || !previous[p - first])
-          continue;
-        Shape relaxedShape;
-        relaxedShape.pattern = relaxed(operands[p], previous[p - first], relaxedShape.leaves);
-        shapes[p] = std::move(relaxedShape);
-        patterns[p] = shapes[p].pattern;
-      }
       size_t next = first;
       Attribute after = fill(part, patterns, next);
       bool varies = after != before && after != part;
@@ -737,21 +690,6 @@ struct Specializer {
       }
       first += n;
     }
-  }
-
-  // For each hole of `part`, a pattern of a callee's key, the pattern at the
-  // same place in `before`, or null where `before` has none.
-  static void align(Attribute part, Attribute before, SmallVectorImpl<Attribute> &out) {
-    if (isHole(part)) {
-      out.push_back(!before || isHole(before) || isUnused(before) ? Attribute() : before);
-      return;
-    }
-    auto node = dyn_cast<ArrayAttr>(part);
-    if (!node)
-      return;
-    ArrayRef<Attribute> previous = partsOf(before, node[1]);
-    for (auto [i, inner] : llvm::enumerate(cast<ArrayAttr>(node[2])))
-      align(inner, i < previous.size() ? previous[i] : Attribute(), out);
   }
 
   // The canonicalization patterns of every loaded dialect and op, as the
@@ -1056,7 +994,7 @@ struct Specializer {
       // The world is no runtime value to specialize around: a call whose
       // other operands are constants is closed, as the call that raising
       // gave the world was.
-      open |= !isa<idr::ErasedType, idr::WorldType>(operand.getType()) && !isConstant(s.pattern);
+      open |= !isa<idr::ErasedType, idr::WorldType>(operand.getType()) && !closed(operand);
     }
     if (!isStatic || !open)
       return false;

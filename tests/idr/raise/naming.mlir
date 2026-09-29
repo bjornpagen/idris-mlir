@@ -9,14 +9,11 @@
 // the apply, named @<origin>$raise$<n>, and numbered with the other clones
 // of its origin in order of first request. Calls with equal keys share a
 // clone, and so does the next run, which finds the key in idr.spec_key: the
-// second run changes nothing. A raised call is then specialized as any
-// other (the constant 3): the clone that raising made has parameters @f
-// does not have, so it is the origin of its own clones, which record it in
-// idr.spec_history as a clone of any origin does, and that clone calls a
-// clone of @add in turn. The clone limit counts the clones that raising
-// makes: with a limit of one, the second projection of @pair is not raised,
-// with a Missed remark.
-// CHECK: module attributes {idr.clone_counts = {add = 1 : i64, f = 1 : i64, f$raise$1 = 1 : i64, g = 1 : i64, pair = 2 : i64}, idr.program}
+// second run changes nothing. A call with a constant argument shares the
+// clone too: a machine number is no static shape. The clone limit counts the
+// clones that raising makes: with a limit of one, the second projection of
+// @pair is not raised, with a Missed remark.
+// CHECK: idr.clone_counts = {f = 1 : i64, g = 1 : i64, pair = 2 : i64}
 // CHECK-LABEL: func.func private @use(
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.quantity = "w"}, %[[X:[a-z0-9_]+]]: i64 {idr.quantity = "w"})
 // CHECK: call @g$raise$1(%[[N]], %[[X]])
@@ -24,7 +21,7 @@
 // CHECK-NEXT: call @f$raise$1(%[[X]], %[[N]])
 // CHECK-NEXT: call @pair$raise$1(%[[N]], %[[X]])
 // CHECK-NEXT: call @pair$raise$2(%[[X]], %[[N]])
-// CHECK-NEXT: call @f$raise$1$spec$1(%[[X]])
+// CHECK-NEXT: call @f$raise$1(%{{[a-z0-9_]+}}, %[[X]])
 // CHECK-LABEL: func.func private @g$raise$1(
 // CHECK-SAME: idr.origin = "g", idr.spec_key = "raise @g"
 // CHECK: call @sub(
@@ -37,11 +34,8 @@
 // CHECK-LABEL: func.func private @pair$raise$2(
 // CHECK-SAME: idr.spec_key = "raise @pair[@MkPair, 1]"
 // CHECK: call @sub(
-// CHECK-LABEL: func.func private @f$raise$1$spec$1(
-// CHECK-SAME: idr.origin = "f$raise$1", idr.spec_history = {f$raise$1 = "[3, unit]"}, idr.spec_key = "[3, unit]"
-// CHECK: call @add$spec$1(%{{.*}})
 // CHECK-NOT: func.func private @f$raise$2
-// LIMIT: module attributes {idr.clone_counts = {add = 1 : i64, f = 1 : i64, f$raise$1 = 1 : i64, g = 1 : i64, pair = 1 : i64}, idr.program}
+// LIMIT: idr.clone_counts = {f = 1 : i64, g = 1 : i64, pair = 1 : i64}
 // LIMIT: call @pair$raise$1(
 // LIMIT-NEXT: %[[Q:.*]] = call @pair(
 // LIMIT-NEXT: %[[Q1:.*]] = idr.field %[[Q]][@MkPair, 1]
