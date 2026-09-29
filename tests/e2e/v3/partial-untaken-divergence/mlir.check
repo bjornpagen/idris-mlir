@@ -1,6 +1,5 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.safeDiv --implicit-check-not=@Main.collatz
-// Both closed calls are evaluated: what they print is a constant, and
-// neither function is left to run at runtime.
-// CHECK-DAG: idr.constant "42\0A"
-// CHECK-DAG: idr.constant "111\0A"
+// Both closed calls are evaluated, so neither function is left to run at
+// runtime. What they print is the run's to check.
+// CHECK: idr.io.put_

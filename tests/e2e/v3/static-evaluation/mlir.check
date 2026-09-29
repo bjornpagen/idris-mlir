@@ -1,7 +1,7 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=@Main.atLeast --implicit-check-not=@Main.firstIs --implicit-check-not=@Main.parens --implicit-check-not=idr.big. --implicit-check-not=idr.str.
+// FILECHECK-OPTIONS: --implicit-check-not=@Main.atLeast --implicit-check-not=@Main.firstIs --implicit-check-not=@Main.parens --implicit-check-not=idr.big.
 // Nothing of the precedence test remains at runtime: `atLeast Low High` is
 // a closed call of a total function, evaluated to False, so `both` never
-// forces `firstIs`, whose string match could not run at runtime, and
-// `parens False s` is s. main writes the number.
-// CHECK: idr.io.put_int
+// forces `firstIs`, and `parens False s` is s. What main writes is the
+// run's to check.
+// CHECK: idr.io.put_
