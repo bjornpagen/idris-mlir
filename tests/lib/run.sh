@@ -13,20 +13,23 @@ run_program() {
 }
 
 # run_ours NAME EXE INPUT [small]: run_program for a program this compiler
-# built. With IDRIS_RT_LIVE=1 its runtime ends a normal exit by writing
-# `idris-rt: live cells N` on stderr, N being the heap cells it allocated
-# and did not free; a crash writes no count. The count is kept in
-# $live_cells (empty without one) and a count of 0 is taken off stderr, so
-# that stderr is checked as it was; any other count stays there as well,
-# where every check of stderr sees it.
+# built, which must free every heap cell it allocates. With IDRIS_RT_LIVE=1
+# its runtime ends a normal exit by writing `idris-rt: live cells N` on
+# stderr, N being the cells still live; a crash writes no count. A count of
+# 0 is taken off stderr, which is then checked as before; any other count
+# stays, and a missing one is said there, so that every check that stderr
+# is empty sees the leak. A crash's stderr is only searched for its cause,
+# which the added line does not hide.
 run_ours() {
   IDRIS_RT_LIVE=1
   export IDRIS_RT_LIVE
   run_program "$@"
   unset IDRIS_RT_LIVE
-  live_cells=$(tail -n 1 "$work/$1.err" | sed -n 's/^idris-rt: live cells \([0-9][0-9]*\)$/\1/p')
-  if [ "$live_cells" = 0 ]; then
-    sed '$d' "$work/$1.err" > "$work/$1.err.counted"
-    mv "$work/$1.err.counted" "$work/$1.err"
-  fi
+  case $(tail -n 1 "$work/$1.err") in
+    'idris-rt: live cells 0')
+      sed '$d' "$work/$1.err" > "$work/$1.err.counted"
+      mv "$work/$1.err.counted" "$work/$1.err" ;;
+    'idris-rt: live cells '*) ;;
+    *) say "idris-rt: no count of live cells at exit" >> "$work/$1.err" ;;
+  esac
 }

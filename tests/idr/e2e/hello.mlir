@@ -5,8 +5,10 @@
 // RUN: FileCheck %s < %t.out
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input decoded as UTF-8, then bytes, then 255 at the
-// end. The object needs nothing from the C library but write and read.
-// EXT: read
+// end. The object needs nothing from the C library but write and read,
+// and getenv, which asks at exit whether to report the cells still live.
+// EXT: getenv
+// EXT-NEXT: read
 // EXT-NEXT: write
 // EXT-NOT: {{.}}
 // CHECK: hello x é
