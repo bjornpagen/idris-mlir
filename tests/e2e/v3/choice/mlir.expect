@@ -1,0 +1,2 @@
+# No closure is left: the function and the Lazy value picked are applied where they are known.
+idr-simplify: no-closures

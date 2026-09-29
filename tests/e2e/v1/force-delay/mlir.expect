@@ -1,0 +1,2 @@
+# No closure is left: a Lazy value forced where it is known leaves no closure.
+idr-simplify: no-closures

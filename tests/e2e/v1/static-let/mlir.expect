@@ -1,0 +1,2 @@
+# No closure is left: the let-bound lambda is applied where it is known.
+idr-simplify: no-closures

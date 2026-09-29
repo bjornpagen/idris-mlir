@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=arith.addi --implicit-check-not=never
+// FILECHECK-OPTIONS: --implicit-check-not=arith.addi --implicit-check-not=never
 // The unused lambda and the unused action leave no code: an idr.closure and
 // an unused call of a pure, total function that cannot crash are dead,
 // and so is "never run".

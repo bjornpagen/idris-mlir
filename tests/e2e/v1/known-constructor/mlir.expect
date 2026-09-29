@@ -1,0 +1,2 @@
+# No closure is left: the closure of (+ 10) is applied where it is known.
+idr-simplify: no-closures

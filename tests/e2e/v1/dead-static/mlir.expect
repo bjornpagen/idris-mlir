@@ -1,0 +1,2 @@
+# No closure is left: the unused lambda leaves no closure behind.
+idr-simplify: no-closures
