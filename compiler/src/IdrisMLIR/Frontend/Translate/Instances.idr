@@ -10,6 +10,7 @@ import Core.TT
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
@@ -23,8 +24,14 @@ import Data.String
 
 %default covering
 
-||| Requests a function instance and returns its name. Polymorphic recursion
-||| would request ever larger instances of one definition.
+||| How many instances of one definition the translation makes before it
+||| gives up. Idris's size-change graphs rule out polymorphic recursion
+||| (`checkRecursion`), so only a call Idris does not record (under
+||| `assert_total`, or through a local function) can reach it.
+instanceBudget : Nat
+instanceBudget = 4096
+
+||| Requests a function instance and returns its name.
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> String -> Name -> List (Maybe ClosedTerm) -> Core FnId
@@ -33,20 +40,13 @@ request fc owner n statics = do
   base <- nameKey <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
-    -- Growth is a homeomorphic embedding of the static arguments (here, of
-    -- their text): the new instance's contain the old one's and are larger.
-    -- Another implementation of the same method is not growth.
-    let args = snd (break (== '[') inst.name)
-    let strip = \s => pack (filter (\c => c /= '[' && c /= ']') (unpack s))
-    when (any (\(b, old) => b == base && length old < length args && isInfixOf (strip old) args) st.current) $
-      reject fc owner Polymorphism
-             ("polymorphic recursion: " ++ base ++ " calls itself at a larger type (" ++ inst.name ++ ")")
+    checkRecursion n
     let count = fromMaybe 0 (lookup base st.perName)
-    when (count >= 64) $
-      reject fc owner Polymorphism ("more than 64 instances of " ++ base)
-    put TState ({ seen $= insert inst
-                , perName $= insert base (S count)
-                , queue $= (++ [MkPending n inst statics ((base, args) :: st.current)]) } st)
+    when (count >= instanceBudget) $
+      reject fc owner CompileBudget ("more than " ++ show instanceBudget ++ " instances of " ++ base)
+    update TState { seen $= insert inst
+                  , perName $= insert base (S count)
+                  , queue $= (++ [MkPending n inst statics]) }
   pure inst
 
 ||| Parameter classification after instantiation. A type parameter and an
@@ -90,26 +90,6 @@ nextStatic [] = (Nothing, [])
 
 skip : ArgValues -> ArgValues
 skip = Data.List.drop 1
-
-export
-isAuto : PiInfo t -> Bool
-isAuto AutoImplicit = True
-isAuto _ = False
-
-||| Is a type an interface, whatever binds a value of it? Idris declares an
-||| interface's record with unique search (`uniqueAuto`), and passes a
-||| function's constraints to its `where` functions and its case and with
-||| blocks as explicit arguments.
-interfaceType : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
-interfaceType ty = case spine ty [] of
-  (Ref _ (TyCon _) n, _) => do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
-      | Nothing => pure False
-    case definition def of
-      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
-      _ => pure False
-  _ => pure False
 
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are runtime (and their types).

@@ -327,3 +327,24 @@ mutual
         let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) fields loc
         update TState { cons $= insert con.id (MkConLayout targs layout con) }
         pure con
+
+export
+isAuto : PiInfo t -> Bool
+isAuto AutoImplicit = True
+isAuto _ = False
+
+||| Is a type an interface, whatever binds a value of it? Idris declares an
+||| interface's record with unique search (`uniqueAuto`), and passes a
+||| function's constraints to its `where` functions and its case and with
+||| blocks as explicit arguments.
+export
+interfaceType : {auto c : Ref Ctxt Defs} -> TT vars -> Core Bool
+interfaceType ty = case spine ty [] of
+  (Ref _ (TyCon _) n, _) => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact n (gamma defs)
+      | Nothing => pure False
+    case definition def of
+      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
+      _ => pure False
+  _ => pure False

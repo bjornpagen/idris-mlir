@@ -261,7 +261,7 @@ spine fn args = (fn, args)
 
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
 export
-isTypeLike : ClosedTerm -> Bool
+isTypeLike : TT vars -> Bool
 isTypeLike (TType _ _) = True
 isTypeLike (Bind _ _ (Pi _ _ _ _) sc) = typeLikeScope sc
   where

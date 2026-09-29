@@ -75,7 +75,7 @@ drain = do
   case st.queue of
     [] => pure ()
     (p :: rest) => do
-      put TState ({ queue := rest, current := p.path } st)
+      put TState ({ queue := rest } st)
       translateInstance p
       drain
 

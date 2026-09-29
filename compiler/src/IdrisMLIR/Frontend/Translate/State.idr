@@ -24,9 +24,6 @@ record Pending where
   inst : FnId
   ||| The compile-time arguments, by position.
   statics : List (Maybe ClosedTerm)
-  ||| The instances that requested this one, innermost first, with the size
-  ||| of their keys, to catch polymorphic recursion.
-  path : List (String, String)
 
 ||| What a constructor instance needs for case trees.
 public export
@@ -67,8 +64,11 @@ record TS where
   seen : SortedSet FnId
   queue : List Pending
   moduleFC : FC
-  current : List (String, String)     -- the path of the instance being translated
-  perName : SortedMap String Nat      -- instances per definition
+  ||| Instances per definition, which only an assertion bounds.
+  perName : SortedMap String Nat
+  ||| The definitions whose component of the call graph has been checked
+  ||| for polymorphic recursion.
+  checked : SortedSet String
   ||| Who owns each instance name: names are injective, and
   ||| a printed form that two instances share is told apart here.
   owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))
@@ -78,7 +78,7 @@ record TS where
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc [] empty empty empty
+initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc empty empty empty empty
 
 ||| A fresh program point for a lambda or `Delay`.
 export
