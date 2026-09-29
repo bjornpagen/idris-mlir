@@ -4,6 +4,9 @@
 
 #include "Passes/Scc.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/Matchers.h"
+
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -115,6 +118,13 @@ private:
           out = Abstract::partOf(self(self, field.getValue()));
         else if (auto pred = dyn_cast<BigPredOp>(def))
           out = Abstract::partOf(self(self, pred.getValue()));
+        // An integer counted down by a positive step. Unlike a Nat it may
+        // pass zero; specialization unrolls only a counter that stays in a
+        // small range of naturals, so its clones stay few either way.
+        else if (IntegerAttr step; isa<arith::SubIOp>(def) &&
+                                   matchPattern(def->getOperand(1), m_Constant(&step)) &&
+                                   step.getValue().isStrictlyPositive())
+          out = Abstract::partOf(self(self, def->getOperand(0)));
       }
       known[value] = out;
       return out;

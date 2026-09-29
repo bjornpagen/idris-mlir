@@ -89,8 +89,9 @@ bool hasStructure(const Pattern &pattern);
 void renumber(Pattern &pattern, unsigned &next);
 
 // How long a chain of clones that each take a proper part of the value can
-// be: its constructors and closures, and the value of a big, which counts
-// down by one. Scalars take no part apart.
+// be: its constructors and closures, the value of a big, which counts down
+// by one, and a lone machine integer, a counter; a negative one has no end.
+// Scalars inside a structure take no part apart.
 uint64_t unrollSize(const Pattern &pattern);
 
 // The pattern as a key: a typed attribute, whose labels are names and not

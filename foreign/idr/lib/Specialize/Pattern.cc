@@ -162,19 +162,34 @@ void renumber(Pattern &pattern, unsigned &next) {
              pattern.node);
 }
 
-uint64_t unrollSize(const Pattern &pattern) {
+namespace {
+
+uint64_t sizeOf(const Pattern &pattern) {
   auto sum = [](const std::vector<Pattern> &parts) {
     uint64_t size = 1;
     for (const Pattern &part : parts)
-      size += unrollSize(part);
+      size += sizeOf(part);
     return size;
   };
   return std::visit(Match{[](const Hole &) { return uint64_t(0); },
                           [](const Constant &c) { return constantSize(c.value); },
                           [&](const Con &con) { return sum(con.fields); },
                           [&](const Closure &closure) { return sum(closure.captures); },
-                          [](const Linear &linear) { return unrollSize(linear.value.front()); }},
+                          [](const Linear &linear) { return sizeOf(linear.value.front()); }},
                     pattern.node);
+}
+
+} // namespace
+
+uint64_t unrollSize(const Pattern &pattern) {
+  // A machine integer on its own is a counter, counted down to zero; one
+  // below zero only goes on. Inside a structure it is an element.
+  if (const auto *c = std::get_if<Constant>(&pattern.node))
+    if (auto integer = dyn_cast<IntegerAttr>(c->value); integer && isa<IntegerType>(integer.getType())) {
+      const APInt &n = integer.getValue();
+      return n.isNegative() || n.getActiveBits() > 32 ? uint64_t(1) << 32 : n.getZExtValue();
+    }
+  return sizeOf(pattern);
 }
 
 Attribute keyOf(const Pattern &pattern) {
