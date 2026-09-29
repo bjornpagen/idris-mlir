@@ -4,13 +4,13 @@
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
 // --stats prints the statistics of every step's passes. The simplify loop
 // shows those of the passes its rounds run, which the pass manager never
-// prints, as its own, `<pass>.<statistic>`, after the rounds it ran.
-// Without --stats, nothing.
+// prints, as its own, `<pass>.<statistic>`, after the rounds it ran; the
+// closed call of @fact is evaluated. Without --stats, nothing.
 // CHECK: Pass statistics report
 // CHECK: IdrSimplify
 // CHECK-DAG: (S) {{ *[0-9]+}} idr-canonicalize.rewrites - Rewrites by patterns
 // CHECK-DAG: (S) {{ *[0-9]+}} idr-eval.cache-hits -
-// CHECK-DAG: (S) {{ *[0-9]+}} idr-eval.evaluated - Calls replaced by their results
+// CHECK-DAG: (S) {{ *[1-9][0-9]*}} idr-eval.evaluated - Calls replaced by their results
 // CHECK-DAG: (S) {{ *[0-9]+}} idr-loop-breakers.breakers -
 // CHECK-DAG: (S) {{ *[1-9][0-9]*}} rounds - Rounds run
 // CHECK: IdrDefunctionalize

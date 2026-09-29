@@ -31,8 +31,12 @@ module attributes {idr.program} {
     %r = func.call @apply(%f, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
     return %r : i64
   }
-  func.func @Main.main(%x: i64) -> i64 {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_char %w
+    %x = arith.extui %c : i32 to i64
     %r = func.call @apply$spec$1024(%x) : (i64) -> i64
-    return %r : i64
+    %s = func.call @use(%x, %r) : (i64, i64) -> i64
+    %w2 = idr.io.put_int signed %s, %w1 : i64
+    return %w2 : !idr.world
   }
 }

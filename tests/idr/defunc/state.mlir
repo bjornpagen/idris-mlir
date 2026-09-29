@@ -25,9 +25,9 @@
 // CHECK-NOT: idr.closure
 // CHECK-NOT: idr.apply
 // CHECK-LABEL: func.func private @Main.twice(
-// CHECK-SAME: %{{.*}}: !idr.data<@[[F0]]> {{.*}}, %{{.*}}: !idr.data<@[[F0]]> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
+// CHECK-SAME: %{{.*}}: !idr.data<@[[F0]]>, %{{.*}}: !idr.data<@[[F0]]>, %{{.*}}: i64) -> i64
 // CHECK-LABEL: func.func private @Main.seq(
-// CHECK-SAME: %{{.*}}: !idr.data<@[[F1]]> {{.*}}, %{{.*}}: !idr.data<@[[F2]]> {{.*}}, %{{.*}}: i64 {{.*}}) -> i64
+// CHECK-SAME: %{{.*}}: !idr.data<@[[F1]]>, %{{.*}}: !idr.data<@[[F2]]>, %{{.*}}: i64) -> i64
 // CHECK: idr.match %{{.*}} : !idr.data<@[[F1]]> -> (i64) {
 // CHECK-NEXT: case @Main.twice(%{{.*}}: !idr.data<@[[F0]]>, %{{.*}}: !idr.data<@[[F0]]>) {
 // CHECK: idr.match %{{.*}} : !idr.data<@[[F2]]> -> (i64) {

@@ -23,7 +23,8 @@
 // CHECK-SAME: idr.effects = #idr.effects<io, crash>
 // CHECK-NOT: idr.total
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
-// CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
+// CHECK-NEXT: %[[U:.*]] = idr.lin.use %[[F]]
+// CHECK-NEXT: %[[Z:.*]] = idr.apply %[[U]](%[[Y]])
 // CHECK-NEXT: return %[[Z]]
 // CHECK: func.func private @[[GREET]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[B:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>

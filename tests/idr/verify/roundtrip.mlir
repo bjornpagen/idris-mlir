@@ -279,6 +279,8 @@ module attributes {idr.program} {
     %7 = idr.big.xor %a, %a
     // CHECK: idr.big.neg %{{.*}}
     %8 = idr.big.neg %a
+    // CHECK: idr.big.pred %{{.*}}
+    %pred = idr.big.pred %a
     // CHECK: idr.big.cmp gte %{{.*}}, %{{.*}}
     %9 = idr.big.cmp gte %a, %a
     // CHECK: idr.big.from_int signed %{{.*}} : i64

@@ -27,8 +27,11 @@ module attributes {idr.program} {
     %r = func.call @first(%p, %w) : (!idr.data<@P>, !idr.world) -> !idr.world
     return %r : !idr.world
   }
-  func.func @Main.main(%a: !idr.lin<i64>, %b: i64, %w: !idr.world) -> !idr.world {
-    %r = func.call @use(%a, %b, %w) : (!idr.lin<i64>, i64, !idr.world) -> !idr.world
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_char %w
+    %b = arith.extui %c : i32 to i64
+    %a = idr.lin.enter %b : !idr.lin<i64>
+    %r = func.call @use(%a, %b, %w1) : (!idr.lin<i64>, i64, !idr.world) -> !idr.world
     return %r : !idr.world
   }
 }

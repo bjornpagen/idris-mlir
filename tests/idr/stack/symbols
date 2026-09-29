@@ -1,0 +1,3 @@
+# The stack programs read and write; at exit the runtime reads IDRIS_RT_LIVE,
+# whether to report the cells still live.
+write read _exit getenv

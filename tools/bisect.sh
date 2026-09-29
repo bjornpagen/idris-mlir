@@ -23,8 +23,8 @@
 # Every compilation, link and run is bounded by BISECT_LIMIT seconds (300 by
 # default). IDRIS_MLIR_CC names the idris-mlir-cc to bisect (by default the
 # one `make build` makes), IDRIS_MLIR the idris-mlir that tools/compile.sh
-# runs. Exit
-# status: 0 when the action is found; 1 when there is none to find (the
+# runs. Exit status: 0 when the action is found; 1 when there is none to
+# find (the
 # program behaves as the reference, or already differs with no action of
 # TAG); 2 on a usage error or when the reference cannot be built.
 

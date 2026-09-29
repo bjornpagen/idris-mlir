@@ -12,7 +12,8 @@
 // CHECK: %[[W1:.*]] = idr.io.put_int signed
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int signed %{{.*}}, %[[W1]]
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[B]][@MkIO, 0]
-// CHECK-NEXT: %[[R:.*]] = idr.apply %[[F]](%[[W2]])
+// CHECK-NEXT: %[[U:.*]] = idr.lin.use %[[F]]
+// CHECK-NEXT: %[[R:.*]] = idr.apply %[[U]](%[[W2]])
 // CHECK-NEXT: %[[W3:.*]] = idr.field %[[R]][@MkIORes, 1]
 // CHECK-NEXT: %[[W4:.*]] = idr.io.put_int signed %{{.*}}, %[[W3]]
 // CHECK-NEXT: %{{.*}} = call @actions$raise$[[N:[0-9]+]](%{{.*}}, %[[W4]])

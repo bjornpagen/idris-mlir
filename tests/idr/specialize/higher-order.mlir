@@ -44,9 +44,32 @@ module attributes {idr.program} {
     %r = func.call @map(%f, %xs) : (!idr.fn<(i64) -> (i64)>, !idr.box<@L>) -> !idr.box<@L>
     return %r : !idr.box<@L>
   }
-  func.func @Main.main() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_char %w
+    %n = arith.extui %c : i32 to i64
+    %xs = func.call @read(%n) : (i64) -> !idr.box<@L>
+    %r = func.call @use(%n, %xs) : (i64, !idr.box<@L>) -> !idr.box<@L>
+    %s = func.call @first(%r) : (!idr.box<@L>) -> i64
+    %w2 = idr.io.put_int signed %s, %w1 : i64
+    return %w2 : !idr.world
+  }
+  // A list known only at runtime.
+  func.func private @read(%n: i64) -> !idr.box<@L> attributes {idr.total, no_inline} {
+    %nil = idr.con @L::@Nil() : () -> !idr.box<@L>
+    %xs = idr.con @L::@Cons(%n, %nil) : (i64, !idr.box<@L>) -> !idr.box<@L>
+    return %xs : !idr.box<@L>
+  }
+  func.func private @first(%xs: !idr.box<@L>) -> i64 attributes {idr.total} {
+    %r = idr.match %xs : !idr.box<@L> -> (i64) {
+    case @Nil() {
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    case @Cons(%h: i64, %t: !idr.box<@L>) {
+      idr.yield %h : i64
+    }
+    }
+    return %r : i64
   }
   // CHECK: func.func private @[[M]](
   // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[L:[a-z0-9_]+]]: !idr.box<@L>
