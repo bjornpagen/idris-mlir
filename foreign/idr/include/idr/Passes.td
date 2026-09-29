@@ -232,6 +232,8 @@ def IdrStack : Pass<"idr-stack", "::mlir::ModuleOp"> {
     function on a cycle of calls. Any `idr.stack` already present is
     recomputed.
   }];
+  // A cell's size is idr-lower's layout, whose components are LLVM types.
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
   let statistics = [
     Statistic<"numBoxes", "boxes", "Constructors of boxes seen">,
     Statistic<"numCells", "cells", "Constructors of boxes put on the stack">,
