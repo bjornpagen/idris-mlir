@@ -6,8 +6,11 @@
 // An endless loop without effects is kept: idr-tail-loops puts idr.may_loop
 // in the loop of a function that is not total, and nothing asserts forward
 // progress, so neither MLIR nor LLVM deletes it. The program is still
-// running when its time is up.
+// running when its time is up, and main does not claim forward progress.
+// CHECK: define {{.*}}@main() {{.*}}#[[A:[0-9]+]] {
+// CHECK: attributes #[[A]] = {
 // CHECK-NOT: mustprogress
+// CHECK-SAME: }
 module attributes {idr.program} {
   func.func private @Prog.spin(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
