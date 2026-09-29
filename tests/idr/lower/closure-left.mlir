@@ -2,7 +2,7 @@
 // idr-defunctionalize makes every closure of the program a sum, so the
 // program's lowering has no closure to lower: one left is the compiler's
 // error, not a program it lowers some other way. idr-eval's lowering
-// (jit) still meets closures, which tests/idr/lower/box-closure.mlir runs.
+// (jit) still meets closures, which tests/idr/lower/closure.mlir lowers.
 // CHECK: internal error: idr-lower: a closure is left after idr-defunctionalize
 module attributes {idr.program} {
   func.func private @add(%a: i64, %b: i64) -> i64 {

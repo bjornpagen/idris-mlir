@@ -8,7 +8,7 @@
 // CHECK-NOT: func.
 // CHECK-DAG: llvm.mlir.global private constant @__idr_closure_{{[0-9]+}}()
 // CHECK-DAG: llvm.mlir.addressof @__idr_code_{{[0-9]+}} : !llvm.ptr
-// CHECK-DAG: llvm.func @main() -> i32
+// CHECK-DAG: llvm.func @Prog.main() -> i64
 // CHECK-DAG: llvm.call %{{.*}}(%{{.*}}, %{{.*}}) : !llvm.ptr, (!llvm.ptr, i64) -> i64
 module attributes {idr.program} {
   func.func private @add(%k: i64, %x: i64) -> i64 {
