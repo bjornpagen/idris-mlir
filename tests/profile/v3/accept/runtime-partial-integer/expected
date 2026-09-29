@@ -1,0 +1,2 @@
+compile: exit 0
+artifacts: Main.core Main.mlir Main.o Main

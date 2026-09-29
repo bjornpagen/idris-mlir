@@ -862,9 +862,11 @@ def Idr_TokenType : Idr_Type<"Token", "token"> {
 }
 
 // The values that hold references: a string, a big (a small one holds
-// none), a box, a closure, and an unboxed sum with a slot of any of these.
+// none), a box, a closure, and an unboxed sum with a slot of any of these;
+// linear or not, since a linear field read from a cell that lives on needs
+// a reference of its own.
 def Idr_CountedType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
-                                 Idr_BigType]>;
+                                 Idr_BigType, Idr_LinType]>;
 
 // An op that exists only in the owned stage: before idr-rc nothing counts
 // references, so a pass that meets one knows the module's stage.
@@ -887,10 +889,9 @@ def Idr_DecOp : Idr_OwnedOp<"dec"> {
   let description = [{
     Freeing a cell drops its fields' references in turn. The dec of a token
     frees the memory of its cell, whose fields idr.reset already released.
-    A linear value is used at most once, and may be dropped instead; it is
-    never given a second reference, so idr.inc does not take one.
+    A linear value is used at most once, and may be dropped instead.
   }];
-  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType, Idr_LinType]>, "",
+  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType]>, "",
                            [MemRead, MemWrite, MemFree]>:$value);
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }

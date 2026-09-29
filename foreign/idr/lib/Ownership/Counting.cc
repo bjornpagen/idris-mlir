@@ -7,6 +7,9 @@ using namespace mlir;
 namespace idr::ownership {
 
 bool Counting::counted(Type type) {
+  // A linear value is counted as the value it is; its quantity decides
+  // only how it is used.
+  type = unrestricted(type);
   if (isa<StrType, BigType, BoxType, FnType, TokenType>(type))
     return true;
   auto data = dyn_cast<DataType>(type);
@@ -71,8 +74,10 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
   if (auto apply = dyn_cast<ApplyOp>(op))
     return operand.get() == apply.getCallee() && operand.getOperandNumber() == 0 ? Use::Borrow
                                                                                 : Use::Consume;
-  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, DecOp, scf::ConditionOp,
-          scf::YieldOp, scf::WhileOp>(op))
+  // A linear value moves into its one use and out of it again, with its
+  // reference.
+  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, DecOp, LinEnterOp,
+          LinUseOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;
 }

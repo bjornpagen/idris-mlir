@@ -1,0 +1,5 @@
+# An IO program reads and writes; at exit the runtime reads IDRIS_RT_LIVE,
+# whether to report the cells still live. Doubles bring libm, with the
+# functions LLVM substitutes for pow.
+write read _exit getenv
+exp log pow sin cos tan asin acos atan sqrt floor ceil exp2 ldexp
