@@ -87,9 +87,9 @@ still live when it ends: none.
 
 On the programs of the benchmarks, the output is faster than MLton's
 on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
-4.2x (and 65x where call-pattern specialization removes most of the work),
-and within reach of gcc -O2. On deep non-tail recursion with no constant
-argument (`ackdyn`), MLton is 2.4x faster.
+4.3x (and 32x where call-pattern specialization removes most of the work),
+and within reach of clang -O2. On deep non-tail recursion with no constant
+argument (`ackdyn`), MLton is 2.3x faster.
 
 ```sh
 idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int

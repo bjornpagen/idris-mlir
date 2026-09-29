@@ -10,7 +10,8 @@ fib tak'` runs fewer):
 - **Idris Chez**: the same Idris source through the stock Chez backend;
 - **MLton**: `bench/sml/<name>.sml`, the same algorithm in Standard ML,
   compiled with `-default-type int64` because Idris's `Int` has 64 bits;
-- **gcc -O2**: `bench/c/<name>.c`, the same algorithm in C.
+- **clang -O2**: `bench/c/<name>.c`, the same algorithm in C, built with the
+  pinned clang as a static PIE on musl, as our programs are.
 
 It checks that the Idris backends print the same text and that every
 program prints the same numbers (to 1e-9), and reports the best of several
@@ -22,18 +23,21 @@ installed system-wide), or from `PATH`; without it, its column reads `n/a`.
 ## Results
 
 On the development container (x86-64, 4 CPUs; LLVM 23.1.2, MLton 20210117,
-GCC as pinned), best of 5, seconds:
+the pinned clang), best of 5, seconds:
 
-| benchmark | input | this compiler | Idris Chez | MLton | gcc -O2 | vs MLton |
+| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.338 | 5.909 | 1.340 | 0.341 | 3.97x |
-| mandelbrot | 2000 | 0.358 | 5.195 | 0.518 | 0.366 | 1.45x |
-| fib | 38 | 0.109 | 3.426 | 0.286 | 0.065 | 2.64x |
-| tak | 18 | 0.117 | 1.303 | 0.175 | 0.105 | 1.49x |
-| collatz | 3000000 | 0.466 | 21.007 | 1.972 | 0.596 | 4.23x |
-| ack | 10 | 0.001 | 1.067 | 0.090 | 0.039 | 64.51x |
-| ackdyn | 10 | 0.212 | 1.026 | 0.088 | 0.038 | 0.42x |
-| harmonic | 200000000 | 0.254 | 6.412 | 0.649 | 0.247 | 2.56x |
+| nbody | 5000000 | 0.326 | 6.496 | 1.402 | 0.327 | 4.30x |
+| mandelbrot | 2000 | 0.358 | 5.842 | 0.517 | 0.398 | 1.45x |
+| fib | 38 | 0.128 | 3.688 | 0.288 | 0.111 | 2.26x |
+| tak | 18 | 0.121 | 1.307 | 0.185 | 0.118 | 1.52x |
+| collatz | 3000000 | 0.492 | 24.226 | 2.016 | 0.470 | 4.09x |
+| ack | 10 | 0.003 | 1.144 | 0.094 | 0.177 | 31.98x |
+| ackdyn | 10 | 0.207 | 1.136 | 0.090 | 0.167 | 0.44x |
+| harmonic | 200000000 | 0.251 | 7.448 | 0.639 | 0.261 | 2.54x |
+
+Compiling each program takes 1.9 to 3.1 seconds (idris-mlir, idris-mlir-cc
+and the link).
 
 The Prelude costs nothing: its interfaces, `Integer` literals and `show`
 internals are all resolved at compile time, and these times equal those of
@@ -41,10 +45,9 @@ the same programs written against a hand-made numeric module.
 
 ## Caveats
 
-- The programs are the ones the heap-free profile can express: no arrays,
-  lists or trees. MLton's strengths on allocation-heavy code are not
-  measured, and nothing here says how this compiler will do once it has a
-  heap.
+- The programs compute on numbers, with no lists or trees, so they
+  measure code generation and specialization, not the heap. MLton's
+  strengths on allocation-heavy code are not measured here.
 - SML's `int` arithmetic traps on overflow, and Idris's wraps. That costs
   MLton a check per operation (collatz, fib, tak). The C and Idris versions
   wrap.
@@ -56,20 +59,19 @@ the same programs written against a hand-made numeric module.
 - `ack` computes `ack 3 n`. With `m` a literal, call-pattern
   specialization makes copies of `ack` with `m` fixed,
   and LLVM turns three of them into closed forms, so almost nothing is left
-  to run; gcc gets part of the way with its own constant cloning. This
+  to run; clang does none of this (0.18 s, as on `ackdyn`). This
   measures the specialization, not recursion.
 - `ackdyn` is the same computation with `m` read from the input, so no
   specialization applies. It measures deep, non-tail recursion, and MLton
-  is 2.4x faster: LLVM's code here matches clang's on the C version
-  (0.16 s), and gcc is faster still by inlining `ack` into itself. Doing
-  that by hand in the Idris source helped `ack` (0.13 s) and hurt `fib`,
-  so it is not done.
-- `fib` is one of the cases where gcc is clearly faster, by 1.7x. LLVM turns
-  one of the two recursive calls into a loop with an accumulator; gcc also
-  inlines the function into itself, which LLVM does not do. This compiler
-  now matches clang 18 at `-O2` on the C version (0.109 s); it was 14%
-  slower while it evaluated curried arguments right to left, which made
-  LLVM loop on the other call.
+  is 2.3x faster, as it is than clang on the C version (0.17 s). Inlining
+  `ack` into itself by hand in the Idris source helped `ack` and hurt
+  `fib`, so it is not done.
+- `fib`: LLVM turns one of the two recursive calls into a loop with an
+  accumulator, for this compiler and for clang alike; the two run in the
+  same time (0.11 s) to within this machine's run-to-run spread, which
+  reaches 15% (the table's 0.128 is one such run). It was 14% slower while
+  it evaluated curried arguments right to left, which made LLVM loop on the
+  other call.
 
 ## Allocation shapes
 
