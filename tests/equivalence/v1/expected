@@ -9,6 +9,7 @@ hello: same stdout and exit status
 interface-superclass: same stdout and exit status
 known-constructor: same stdout and exit status
 laziness: same stdout and exit status
+let-after-output: same stdout and exit status
 multi-module: same stdout and exit status
 numbers: same stdout and exit status
 output-fusion: same stdout and exit status

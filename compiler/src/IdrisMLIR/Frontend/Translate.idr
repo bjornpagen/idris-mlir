@@ -265,6 +265,20 @@ zeta : ClosedTerm -> ClosedTerm
 zeta (Bind _ _ (Let _ _ v _) sc) = zeta (subst v sc)
 zeta tm = tm
 
+||| `let`s around a `Delay`, moved into it: the location of the `Delay` and
+||| the `let`s around its argument. Idris elaborates `a; let x = v; b` in a
+||| `do` block to `a >> (let x = v in Delay b)`. A `let` of TT has no
+||| evaluation time of its own: Idris's evaluator and its inliner substitute
+||| it, and the stock backend, which inlines `>>`, computes `v` where `b` is
+||| forced, after `a` has run. Computed where the `Delay` is built, `v` would
+||| run before `a`'s effects, and a `v` that crashes or never returns would
+||| hide them. Every use of `x` is inside the `Delay`, so the `let` can move
+||| there.
+delayedLets : TT vars -> Maybe (FC, TT vars)
+delayedLets (TDelay fc _ _ arg) = Just (fc, arg)
+delayedLets (Bind fc x b@(Let {}) sc) = map (Bind fc x b) <$> delayedLets sc
+delayedLets _ = Nothing
+
 ||| A term in scope as a closed term, with compile-time values substituted
 ||| and not normalised, so that an implementation keeps its written form. A
 ||| runtime variable becomes `Erased` with reason `Impossible`, which
@@ -993,7 +1007,9 @@ mutual
   term ctx env (TType fc _) = Erased <$> toLoc (bestFC ctx fc)
   term ctx env (Erased fc _) = Erased <$> toLoc (bestFC ctx fc)
   term ctx env (Bind fc _ (Pi {}) _) = Erased <$> toLoc (bestFC ctx fc)
-  term ctx env (Bind fc x (Let lfc rig val ty) sc) = do
+  term ctx env tm@(Bind fc x (Let lfc rig val ty) sc) = do
+    let Nothing = delayedLets tm
+      | Just (dfc, arg) => suspend ctx env dfc arg
     -- TTC does not keep the types of lets (Core.TTC, `Let` binders): `Emit`
     -- synthesizes them.
     loc <- toLoc (bestFC ctx fc)
