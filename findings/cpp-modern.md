@@ -40,12 +40,13 @@ is a thin, named piece of glue with a `PINS.md` entry.
   declarations TableGen writes, and lambdas handed to an LLVM template that
   cannot take a `noexcept` callable. Each exception is exempted by a
   matcher, not by a comment (§0.3).
-- **Every non-void function is `[[nodiscard]]`**, and a discarded
-  `std::expected` fails the build. This matters here because libc++ does
-  *not* mark `std::expected` nodiscard. Discarding an `mlir::FailureOr`
-  warns today; discarding a `std::expected` is silent (tested,
-  `snip/nd.cc`). Moving to `std::expected` without this gate would lose a
-  check.
+- **No blanket `[[nodiscard]]`** (the user's decision: little benefit
+  for the noise). The one check kept is that a discarded `std::expected`
+  fails lint, through `bugprone-unused-return-value` configured for
+  `^::std::expected$`. libc++ does not mark `std::expected` nodiscard, so
+  discarding one is silent, while discarding an `mlir::FailureOr` warns
+  (tested, `snip/nd.cc`); without the check, moving to `std::expected`
+  would lose one.
 - **Closed alternatives are `std::variant`,** visited by a visitor struct
   with one `operator()` per alternative (cpp-starter AGENTS.md:1833-1854),
   or by the C++26 member `v.visit(...)`. That covers every tag enum with a
@@ -227,7 +228,7 @@ Today's `PINS.md` entries:
 | `clang-no-reflection` | stays | user decision |
 | `no-stdexec` | stays | nothing is async |
 | `llvm-cxx17-headers` | **goes.** Its retire condition was the first stage-2 build ("the first `make build` does", `PINS.md:204`), and `build/dev` exists and passes | met |
-| `runtime-quarantine` | **stays, narrowed.** The runtime keeps its C ABI, but it can be `noexcept` (by macro), `[[nodiscard]]`, `std::bit_cast`/`std::span`/`std::optional` internally (header-only), and linted by the quarantine profile, which today it is not: `CXX_CLANG_TIDY` is on for `idris_rt` only through the preset | vendored C++ headers, C ABI |
+| `runtime-quarantine` | **stays, narrowed.** The runtime keeps its C ABI, but it can be `noexcept` (by macro), `std::bit_cast`/`std::span`/`std::optional` internally (header-only), and linted by the quarantine profile, which today it is not: `CXX_CLANG_TIDY` is on for `idris_rt` only through the preset | vendored C++ headers, C ABI |
 
 Deviations that exist today with **no** PINS entry. Each must be removed or
 recorded:
@@ -306,7 +307,7 @@ recorded:
 | `import std`, modules only | build graph | `CXX_MODULE_STD ON`; plain units listed by name in a `glue` file set |
 | no raw buffers in dialect code | compiler | `-Wunsafe-buffer-usage` on every unit but the unsafe ones |
 | exhaustive `switch` over enums | compiler | `-Wswitch` (in `-Wall`) + `-Wcovered-switch-default` + no `default` |
-| `[[nodiscard]]` + `expected` not discarded | compiler + lint + compile-fail test | `custom-nodiscard`, `bugprone-unused-return-value` with `^::std::expected$` (cpp-starter's option, `.clang-tidy:49-50`), `tests/compile_fail/discarded_expected` |
+| `expected` not discarded (no blanket `[[nodiscard]]`) | lint | `bugprone-unused-return-value` with `^::std::expected$` (cpp-starter's option, `.clang-tidy:49-50`) |
 | `noexcept` | lint + lint-fail test | `custom-noexcept-function`, `custom-noexcept-lambda` |
 | no inheritance between our types, no `std::function`/`shared_ptr`/`new`/default arguments/bool parameters/mutable globals/local statics | lint | eleven custom checks (`cpp-modern-lint.md` §2) |
 | variants over tag+payload, `expected` over bool+errs, comment forms, visitor form | review | cpp-starter's checklist (AGENTS.md:1757-1795), plus `cpp-modern-audit.md` as the worklist |
@@ -319,9 +320,9 @@ recorded:
   (AGENTS.md:28-60). Closed sums are variants with visitor structs,
   failure is `expected` with a typed, retry-classifying error
   (AGENTS.md:1382-1411), and "failure is transparent" (1412-1423). Concepts,
-  not inheritance, tags or `enable_if`. Every non-void function is
-  `[[nodiscard]]`, and `std::ignore =` / `auto _ =` are the only ways to
-  discard (1350-1380). Three comment forms. PINS.md is a tombstone
+  not inheritance, tags or `enable_if`. cpp-starter marks every non-void function
+  `[[nodiscard]]` (1350-1380); idris-mlir does not adopt that part (the
+  user's decision) and keeps only the discarded-`expected` lint. Three comment forms. PINS.md is a tombstone
   registry. The lint innovations are:
   - the enforcement ladder with the rule that every rule "aspires upward"
     (1690-1721);
@@ -445,11 +446,11 @@ exist only because an area imports its dependencies' modules:
 | 3 | `expect`, `inline`, `canonicalize` | facts, passes | `Property` table + `optional<Check>`; function patterns |
 | 4 | glue: `Dialect/`, `Fold/`, `Registration.cc` | all | hooks become one-line forwards; `Fold`'s `Scope` → one RAII owner per runtime reference |
 | 4 | tools | all | `Options` aggregate; `Emit`/`Output`/`Cpu`/`Dump` variants; `expected<Artifact, ToolError>` pipeline; `cl::opt` locals; typed `raw_pwrite_stream` |
-| any | `runtime/` | none | `IDRIS_RT_NOEXCEPT`, `[[nodiscard]]`, `optional<size_t>` in place of `bool isInteger(..., size_t &)`, `std::bit_cast`, the quarantine lint profile; keep the C ABI |
+| any | `runtime/` | none | `IDRIS_RT_NOEXCEPT`, `optional<size_t>` in place of `bool isInteger(..., size_t &)`, `std::bit_cast`, the quarantine lint profile; keep the C ABI |
 
 Each area agent follows MODULES.md's six steps and adds, per file:
 
-- `noexcept` and `[[nodiscard]]`;
+- `noexcept`;
 - trailing return types;
 - the variants and `expected`s the audit lists;
 - concepts on its templates;
