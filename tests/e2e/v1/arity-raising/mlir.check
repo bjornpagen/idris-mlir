@@ -1,11 +1,6 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not={{[^#]}}idr.closure --implicit-check-not=idr.apply
 // countdown returns an action, and main applies it at once to a world, so
-// idr-specialize calls a clone of countdown that takes the world.
-// In the clone the apply meets the closures the body built and becomes a
-// call, and the clone calls itself. No closure is left, and the
-// output is fused. This is tests/idr/raise/io-loop.mlir, from Idris.
+// idr-specialize calls a clone of countdown that takes the world, and the
+// clone calls itself. This is tests/idr/raise/io-loop.mlir, from Idris.
 // CHECK: call @Main.countdown$raise${{[0-9]+}}(
 // CHECK: func.func private @Main.countdown$raise${{[0-9]+}}({{.*}}!idr.world
-// CHECK-DAG: idr.io.put_int
-// CHECK-DAG: idr.constant "liftoff\0A"

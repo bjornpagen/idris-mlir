@@ -1,0 +1,3 @@
+# Each copy of iter knows the function it was specialized on, so it applies
+# it as a call, which is inlined: no closure is left.
+idr-simplify: no-closures

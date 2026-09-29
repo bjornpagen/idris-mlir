@@ -1,0 +1,4 @@
+# In the raised clone of countdown the apply meets the closures the body
+# built and becomes a call: no closure is left, and the output is written
+# piece by piece.
+idr-simplify: no-closures output-fused
