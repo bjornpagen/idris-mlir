@@ -16,6 +16,15 @@ It corrects both in places:
 - the rejecting promise (§6.11);
 - idr-specialize does not specialize on lone scalars (§6.5).
 
+The user's direction shapes it: push as much as possible onto MLIR's own
+implementations. So the primary design reuses:
+- bufferization's ownership-based deallocation;
+- One-Shot Bufferize's in-place analysis;
+- MLIR's DataFlow framework.
+
+Only a residue that MLIR provably cannot cover is ours, and it is kept
+minimal.
+
 Experiments ran against the pinned Chez backend (`.toolchain/idris2/bin/idris2`)
 and the built idris-mlir, in the stream's scratch directory. Every program
 is short and quoted in full, so each one can be rerun.
@@ -29,14 +38,14 @@ is short and quoted in full, so each one can be rerun.
 4. Which Idris idioms *do* give uniqueness, and why are they sound?
 5. What does idris-mlir do today?
 6. What design puts uniqueness into the representation, with every piece
-   load-bearing?
+   load-bearing, and on MLIR's own machinery?
 7. Which pitfalls break soundness?
 8. Which tests pin the design down?
 
 ## The global maximum
 
-The answer to all eight questions, in one picture. The sections after this
-one give the evidence and the details.
+The answer in one picture. The sections after this one give the evidence
+and the details.
 
 **The theory in one line.** In-place update of `x` at `p` is sound when
 `exclusive(x at p) ∧ dead(x after p)`.
@@ -47,149 +56,124 @@ one give the evidence and the details.
   since it was made* (Marshall et al. 2022, Theorem 5). A compiler must
   establish it, and must never read it off a binder.
 
-**The target design has four layers.** Each is an MLIR mechanism, not a
-hand-written pass.
+**MLIR already solves this problem for one shape of data: flat buffers.**
+- *Tensors* are values.
+- One-Shot Bufferize decides statically which writes may happen in place.
+  A read-after-write conflict is exactly a missing exclusivity: the
+  written value is still read later.
+- Ownership-based buffer deallocation places the frees, carrying ownership
+  as an `i1` SSA value that folds when static.
+- The global maximum is therefore: **every piece of Idris data that has
+  that shape takes MLIR's path whole, and the rest (heap graphs of cells)
+  reuses MLIR's mechanisms (the DataFlow framework, the foldable `i1`,
+  canonicalization) with a minimal residue of our own.**
 
-1. **The owned stage is a linear type system.** This is
-   mlir-ownership-types.md, adopted.
-   - Owned references have type `!idr.own<T>` and are used exactly once.
-   - Borrowed references are plain `T`, bounded by their owner's consuming
-     use.
-   - Duplication is an op, `idr.dup`; so are `idr.drop` and `idr.borrow`.
-   - The stage is in the types, so the `idr.stage` attribute goes, and so
-     does most of Verify.cc's path interpreter. The verifier becomes one
-     linear-use rule plus borrow liveness (§6.8).
-   - This is the *linear base* that Marshall's entente needs (§6.1): in it,
-     an SSA owned value has never been duplicated, by construction.
+| concern | MLIR does it | our residue, and why MLIR provably cannot |
+|---|---|---|
+| arrays and other flat buffers (future Idris arrays; `Vect` of scalars when the representation stream chooses contiguous storage) | all of it: `tensor` values, then `one-shot-bufferize` (function boundaries), then `ownership-based-buffer-deallocation`, canonicalize, `buffer-deallocation-simplification`, `lower-deallocations`, `promote-buffers-to-stack`; `linalg`/`vector`/`affine` for the loops; conflicts reported by `print-conflicts` | none, beyond emitting tensor/linalg ops for the array primitives |
+| boxes (recursive, sum-typed cell graphs): *is this cell exclusive?* | the DataFlow framework: `AbstractSparseForwardDataFlowAnalysis` with `DeadCodeAnalysis`, interprocedural over the call graph (SparseAnalysis.cpp:263-290), optimistic like SCCP | the lattice and its transfer functions (§6.3-6.5). One-Shot's alias sets express only *may-alias* among SSA values. "The child of an exclusive parent is exclusive" is a *must*-fact about heap reachability, which it has no word for |
+| boxes: using exclusivity | bufferization's mechanism: an `i1` SSA indicator, folded by upstream canonicalization (`scf.if` on a constant) and `sccp`; parameters that folded dropped by `remove-dead-values` | the indicator operand on `take`/`reset`/`drop` and the `idr.exclusive` query with its provenance folder (§6.3) |
+| boxes: when they die | bufferization's *shape*: insert conservatively, then simplify with patterns (dup+drop cancels; drop of fresh becomes free; drop of exclusive becomes free of the tree) | the count itself: `dup`/`drop` and the runtime test for heap-stored references. Ownership-based deallocation handles only `BaseMemRefType` values (OwnershipBasedBufferDeallocation.cpp:49, `isMemref`); `bufferization.dealloc` frees "the given memrefs", not what they point to; its alias checks compare SSA-visible base pointers. A cell's children are reached through *stored* pointers, and how many there are is a runtime fact (`replicate n xs` stores one list n times) |
+| boxes: copies at a conflict | not applicable: One-Shot copies *eagerly and shallowly* (`memCpyFn`, one buffer) | Perceus's *lazy* per-cell copy on the dynamic path. A shallow copy is unsound for a cell graph: the callee would write the shared children. A deep eager copy is asymptotically wrong for persistent data: a tree insert copies a path, not a tree |
+| recursion | One-Shot Module Bufferize analyzes the *boundaries* of non-recursive functions only ("We currently skip all function argument analyses for functions that call each other circularly", OneShotModuleBufferize.cpp:518-523) | none. The DataFlow framework is a fixpoint solver and handles cycles, and Idris data code is almost all recursion (`bump`, `map`, `insert`) |
+| the stage | a type conversion with `ConversionTarget` legality (mlir-ownership-types.md) | `LinearUses` (exists) tightened to exact counts: MLIR has no linear-type verifier |
+| function ABI | `func.call`'s type check verifies whatever the types say (FuncOps.cpp:80) | the types `!idr.own<T>`, `T` (borrowed), `!idr.uniq<T>`: an ABI inferred and typed, Lean-style, where bufferization's is fixed |
 
-2. **Exclusivity is an `i1` SSA value that folds.** This follows
-   bufferization's ownership indicator, but with a different meaning (§6.10).
+**So for boxes the target is four pieces**, each an MLIR mechanism with a
+small core of our own:
+1. **A linear owned stage** in types: `!idr.own<T>` used exactly once, `T`
+   borrowed, and explicit `idr.dup`/`idr.drop`/`idr.borrow`
+   (mlir-ownership-types.md).
+   - It is the *linear base* that Marshall's entente needs (§6.1): an SSA
+     owned value has never been duplicated, by construction.
+   - That is what makes exclusivity a local, provenance fact.
+2. **Exclusivity as an `i1` that folds.**
    - `idr.take`, `idr.reset` and `idr.drop` take an exclusivity operand.
-   - A new query `idr.exclusive %v : !idr.own<T> -> i1` supplies it:
-     - it *folds* from the linear provenance of `%v`;
-     - `true` for a fresh constructor tree, a field taken from a
-       statically exclusive parent, or a `!idr.uniq` parameter or call
-       result;
-     - `false` for a constant, a stack cell or a `dup` result;
-     - otherwise it *lowers* to the runtime count test that exists today.
-   - Canonicalization then removes the dead branch of every take and reuse.
-   - Static reuse is therefore not a separate code path. It is the constant
-     case of the dynamic one, exactly as a constant ownership indicator
-     folds `bufferization.dealloc` away
-     (OwnershipBasedBufferDeallocation.md, "Ownerships",
-     "Buffer Deallocation Simplification Pass").
+   - `idr.exclusive %v` supplies it. It folds `true` for a fresh
+     constructor tree, a field taken from a statically exclusive parent, or
+     a `!idr.uniq` parameter or result. It folds `false` for a constant, a
+     stack cell or a `dup` result.
+   - Otherwise it lowers to today's runtime count test.
+   - Upstream canonicalization deletes the dead branch.
+   - Static reuse is the constant case of the dynamic path, as a constant
+     ownership indicator folds `bufferization.dealloc` away.
+3. **The interprocedural exclusivity lattice** in the DataFlow framework,
+   committed into signatures as `!idr.uniq<T>`, with mixed call sites
+   cloned. `func.call`'s verifier then checks the caller half of the
+   entente, and `LinearUses` the callee half.
+4. **Diagnostics in One-Shot's form.** Each take that did not fold is
+   reported as a (definition, reuse, reason) conflict, as `print-conflicts`
+   reports a RaW triple. That triple is also the named reason when the user
+   demands in-place and the compiler rejects (§6.11).
 
-3. **Function boundaries carry exclusivity in the type**: `!idr.uniq<T>`
-   for an owned reference whose cell tree is deeply exclusive (§6.2).
-   - It is chosen by optimistic interprocedural propagation of the
-     exclusivity lattice. That is MLIR's sparse dataflow framework, whose
-     `visitCallableOperation` joins over all call sites of a function whose
-     callers are known (Analysis/DataFlow/SparseAnalysis.cpp:263-290). That
-     is the greatest fixpoint the problem needs (§6.5).
-   - Call sites that disagree are cloned by specialization.
-   - The result is committed into signatures, where MLIR's `func.call`
-     verifier ("operand type mismatch", Func/IR/FuncOps.cpp:80) checks the
-     caller half of the entente for free. The callee half is the linear-use
-     rule.
-   - No fact lives in a discardable attribute: static exclusivity is a
-     type, and dynamic exclusivity is an SSA value.
-
-4. **Construction is destination-passing, analyzed like One-Shot
-   Bufferize.**
-   - A reuse token is the "destination" of a constructor (DPS,
-     Bufferization.md "Destination-Passing Style"). Choosing destinations is
-     today's ResetReuse heuristic, the Beans D/S passes.
-   - Every non-exclusive decision is explained as a conflict triple, as
-     One-Shot's `print-conflicts` does (Bufferization.md "Debugging Buffer
-     Copies"): definition, conflicting write (the reuse), later read.
-   - That triple is the named reason in remarks and in on-demand rejections
-     (§6.11).
-   - **Arrays**, which the runtime does not have yet, take the tensor path
-     whole: `tensor` values, then `one-shot-bufferize`
-     (function boundaries), then `ownership-based-buffer-deallocation`,
-     then `promote-buffers-to-stack`, with `linalg`/`vector` for bulk
-     loops. That path is MLIR's in-place analysis, used as MLIR.
-
-**What the four layers license.**
+**What this licenses.**
 - Test-free reuse and in-place update wherever the indicator folds.
-- No `inc`/`dec` for exclusive values: a drop with a true indicator is a
-  free of the tree.
-- Loop-carried exclusivity. After the first iteration the value is fresh
-  or reused, so the indicator becomes constant, and peeling one iteration
-  gives a test-free steady state.
-- Count-free types, where every value of a type is exclusive everywhere.
-- Stack slots reused in place across iterations.
-- `fip` as a checkable property (FP²): every take's indicator is constant
-  true, and nothing allocates, dups or tests.
-- Idris's quantity 1 becomes the user's *demand*. It turns a failed fold
-  into a named rejection, instead of a silent runtime test.
+- No `inc`/`dec` for exclusive values: a drop is a free of the tree.
+- Loop-carried exclusivity. From the second iteration on the value is
+  fresh or reused, so peeling one iteration gives a test-free steady state.
+- Count-free types.
+- Stack slots reused in place (`promote-buffers-to-stack`'s cousin,
+  idr-stack).
+- `fip` as a checkable property (FP²).
+- For arrays, everything One-Shot and `linalg`/`vector` give, including
+  SIMD.
+- Idris's quantity 1 becomes the user's *demand*: a failed fold on a demanded
+  site is a named rejection, not a silent runtime test.
 
-**What is not adopted from bufferization, and why (§6.10).**
-- Its ownership `i1` means *responsibility to deallocate*. In a linear
-  owned stage every `own` value is responsible by construction, so that bit
-  has nothing to say. Ours means *exclusivity*.
-- Its function ABI is fixed ("arguments never owned"). Ours is inferred and
-  typed, as in Lean.
-- Its callee-writes/caller-copies boundary makes *eager* whole copies.
-  Persistent data wants Perceus's *lazy* path copying at non-exclusive
-  sites.
-- Its alias model has no buffers inside buffers. Boxes are graphs of cells,
-  so deep exclusivity has to be our own lattice, not One-Shot's alias sets.
+**Where a single upstream component could replace the residue.**
+- *If* boxes of a type are exclusive everywhere (count-free, §6.6) *and*
+  live in one arena per structure, then the arena is a flat buffer and
+  ownership-based deallocation frees it: the residue vanishes for that
+  type.
+- That is a representation choice: arenas for exclusive trees. It is
+  conjecture, and it belongs with the representation stream.
 
 ## The path to it
 
-Each step is useful alone, and each is verified before the next.
+Each step reuses the most upstream machinery available at that point, and is
+verified before the next.
 
 0. **Now, cheap.**
    - Add a regression test that `assert_linear` is rejected. Only
-     `believe_me` has one, and uniqueness depends on both (§7.1).
+     `believe_me` has one, and exclusivity depends on both (§7.1).
    - Record that borrowed parameters may escape through an inc (§7.9), so
-     that nobody builds "borrowed calls preserve uniqueness" on Borrow.cc
+     that nobody builds "borrowed calls preserve exclusivity" on Borrow.cc
      as it stands.
-1. **Owned-stage types** (mlir-ownership-types.md).
-   - `!idr.own`, plain `T` for borrowed, and `dup`/`drop`/`borrow`.
-   - Function types replace `idr.borrowed`.
-   - The verifier becomes linear use plus borrow liveness.
-   - `idr.stage` and `inOwnedStage` go.
-   - This removes the one global invariant a later pass could break
-     silently: which reference is duplicated where.
-2. **The exclusivity operand, intraprocedural.**
-   - `take`, `reset` and `drop` take an `i1`.
-   - Lowering is `excl ∨ idris_rt_is_unique(cell)`.
-   - Add `idr.exclusive` with its provenance folder, shallow at runtime and
-     deep when folded (§6.3), plus the canonicalization that deletes the
-     dead branch.
-   - Payoff: static reuse inside a function, including inlined callers such
-     as `bump (build n)` after inlining.
-3. **Deep provenance.**
-   - A field taken from a parent known exclusive *by folding* folds
-     exclusive.
-   - A constructor is exclusive when its box fields are.
-   - Payoff: recursion stays static once entered with an exclusive
-     argument.
+1. **Arrays on the tensor path, from their first line.** There are none
+   yet, so there is nothing to migrate.
+   - Array primitives are emitted as `tensor`/`linalg` ops.
+   - The pipeline gains One-Shot plus the deallocation pipeline for
+     functions that have tensors.
+   - This is the step with the largest upstream share and the largest
+     payoff (review-external-2 step 5).
+2. **Owned-stage types** (mlir-ownership-types.md).
+   - `!idr.own`, plain `T` for borrowed, `dup`/`drop`/`borrow`.
+   - Function types replace `idr.borrowed`; the verifier becomes
+     `LinearUses` plus borrow liveness; `idr.stage` goes.
+   - Borrow inference moves onto `AbstractSparseBackwardDataFlowAnalysis`
+     (mlir-idioms.md §2).
+   - Counting becomes conservative insertion plus canonicalization
+     patterns.
+3. **The exclusivity operand and the query, intraprocedural.**
+   - `take`/`reset`/`drop` lower to `excl ∨ idris_rt_is_unique`.
+   - `idr.exclusive` folds by provenance, deep when static (§6.2).
+   - Upstream canonicalization removes the dead `scf.if` branches.
+   - Payoff: static reuse inside functions and inlined callers.
 4. **Interprocedural.**
-   - An exclusivity lattice as a sparse forward analysis over the call
-     graph.
-   - Specialize the mixed call sites. idr-specialize skips lone scalars
-     today (Specialize/Pattern.h:83-85, `hasStructure`), so this needs one
-     rule: specialize on "all owned box arguments exclusive".
-   - Commit constant-true parameters and results into `!idr.uniq<T>`.
-   - Payoff: the README's static reuse across calls, checked by
-     `func.call`'s own verifier.
+   - The exclusivity lattice as a sparse forward analysis.
+   - One idr-specialize key for "all owned box arguments exclusive":
+     today it skips lone scalars (Specialize/Pattern.h:83-85).
+   - The commit into `!idr.uniq<T>`.
+   - Payoff: static reuse across calls, checked by `func.call`.
 5. **Properties, remarks and demand.**
-   - `idr-expect` gains `in-place=@f` and `fip=@f`.
-   - Every non-folded take gets a remark with its conflict triple.
-   - A demand option turns remarks into `unsupported (in-place): …`
-     rejections (§6.11).
-6. **Stack, regions and counts.**
-   - Reuse-equivalence edges in the escape summaries let stack cells be
-     reused in their frame.
-   - Loop peeling gives the steady state.
-   - A whole-program census makes never-shared types count-free.
-7. **Arrays through the tensor path.**
-   - Linear array primitives lower to `tensor.insert`/`tensor.extract`.
-   - Bulk operations go to `linalg`.
-   - One-Shot and ownership-based deallocation do the rest.
+   - `idr-expect in-place=@f` and `fip=@f`.
+   - Conflict remarks, and the demand option (§6.11).
+6. **Stack, loops and counts.**
+   - Reuse-equivalence edges in the escape summaries (One-Shot's
+     `BufferRelation::Equivalent`).
+   - Loop peeling for loop-carried exclusivity.
+   - A census of never-shared types for count-free representations, and
+     arenas as the bridge to ownership-based deallocation.
 ## 1. The semantics
 
 **Linearity is a property of the consumer, and it constrains the future.**
@@ -835,7 +819,33 @@ idris-mlir should keep forbidding it.
 | One-Shot in-place analysis: RaW conflicts over SSA use-def, DPS destinations | reuse tokens as destinations; conflicts reported as a (definition, reuse, later use) triple | adopt the reporting and the DPS view; the analysis is the exclusivity lattice, because buffers-in-buffers are outside One-Shot's alias model |
 | out-of-place means an eager copy of the whole buffer at the conflict | Perceus's lazy path copy at a non-exclusive take | keep ours for boxes (a tree insert copies a path, not a tree); use theirs for arrays |
 | `memref.alloca` has ownership false; `promote-buffers-to-stack` | stack cells fold false; idr-stack | same shape; relax with reuse-equivalence edges |
-| `TensorLikeType`/`BufferLikeType` interfaces (Bufferization/IR/BufferizationTypeInterfaces.td) let custom types enter One-Shot | Idris arrays as `tensor`s (or a TensorLike type) | adopt for arrays; not for boxes |
+| `TensorLikeType`/`BufferLikeType` interfaces (Bufferization/IR/BufferizationTypeInterfaces.td) let custom types enter One-Shot | Idris arrays as `tensor`s (or a TensorLike type) | adopt for arrays; not for boxes (below) |
+| One-Shot Module Bufferize, function boundaries | the exclusivity lattice over the call graph | theirs skips the boundaries of recursive functions (OneShotModuleBufferize.cpp:518-523), which is nearly all Idris data code; the DataFlow framework's solver does not |
+| a replaceable analysis (`AnalysisState::isInPlace`, Bufferization.md "Modular") | our lattice could be plugged in as the analysis | possible, but One-Shot's rewrite then inserts eager shallow copies for out-of-place operands, which is wrong for cell graphs; there is no gain without its rewrite |
+
+**Why boxes cannot take the bufferization path, precisely.** I evaluated the
+cheapest route: make `!idr.box` a `TensorLikeType` and the owned reference a
+`BufferLikeType`, then implement `BufferizableOpInterface` on
+`con`/`match`/`field`/`take`.
+
+- *Soundness needs aliases that are too coarse.* A field read must alias its
+  parent (`BufferRelation::Unknown`), and a constructor its box fields.
+  Otherwise, after `replicate 3 ys`, a write through one element is not
+  seen to conflict with a later read of another. That is sound, but it
+  unions whole structures into one alias set.
+- *Its out-of-place fix is a shallow copy.* `memCpyFn` copies one buffer,
+  so a callee writing a copied cell's children would corrupt the shared
+  original. A deep copy repairs soundness, at an asymptotic price for
+  persistent data.
+- *Its deallocation cannot see inside cells.* It is typed on
+  `BaseMemRefType` (OwnershipBasedBufferDeallocation.cpp:49), frees one
+  buffer at a time, and decides aliasing by comparing SSA-visible base
+  pointers. Releasing a dead cell's children needs their counts.
+- *Its module analysis stops at recursion.*
+
+What remains to reuse for boxes is its *mechanisms*: the foldable `i1`,
+conservative insertion then simplification patterns, DPS destinations, and
+the conflict report. Those are adopted above. The count is the residue.
 
 **The tensor path for arrays.** An Idris array API is value-semantic:
 `write : (1 a : Arr) -> Int -> t -> Arr` is `tensor.insert`, `read` is
@@ -953,14 +963,18 @@ Recommendation:
 
 ## 8. Test plan
 
-**Test API, stated once as properties (idr-expect):**
-- `in-place=@f`: every box built in f is a `reuse` of a `cell` (static) and
-  no op in f tests a count. It generalizes today's `reuses-in-place`.
+**Test API, stated once as properties (idr-expect).**
+- `in-place=@f`: every `take`/`reset` in f has an exclusivity operand that
+  folded to `true`, every box built in f is a `reuse` of a `cell`, and no
+  op in f tests a count. It generalizes today's `reuses-in-place`.
 - `fip=@f`: §6.6.
 - `counts-nothing=@f` (exists).
-- `unique-param=@f:i`: parameter i has type `uniq`.
-- A runtime allocation counter (`IDRIS_RT_LIVE` reports live cells only)
-  would let e2e tests assert "bump allocated nothing".
+- `exclusive-param=@f:i`: parameter i has type `!idr.uniq`.
+- For arrays, the upstream `one-shot-bufferize="test-analysis-only
+  print-conflicts"` annotations are the property: every operand in place,
+  or the expected conflict.
+- A runtime allocation counter would let e2e tests assert "bump allocated
+  nothing". `IDRIS_RT_LIVE` reports live cells only.
 
 **Must get static in-place code** (checked with `in-place`/`fip`, output
 compared with Chez):
@@ -981,7 +995,7 @@ compared with Chez):
 9. `g xs = f xs xs Refl`: erased mentions do not demote.
 
 **Must NOT be updated in place** (differential against Chez, plus
-`unique-param` expected to fail):
+`exclusive-param` expected to fail):
 1. Lin1: `bump ys` twice, then print ys, gives `[2,3,4] [2,3,4] [1,2,3]`.
 2. `twoTails` followed by bump on each copy.
 3. `bump (C n (C 2 (C 3 N)))`: a static tail is never written. A write
@@ -996,30 +1010,44 @@ compared with Chez):
 9. `assert_linear` and `believe_me`: rejected (EscapeHatch). Keep them
    rejected; the soundness of 1-8 depends on it.
 
+**Arrays, once they exist** (upstream conflicts are the oracle):
+- A must: a fold that writes each index of a fresh array has every
+  `tensor.insert` in place.
+- A must not: `let b = write a 0 1 in (read a 0, b)` has one conflict and
+  one copy, and the result equals Chez's.
+
 **Verifier negatives** (lit, `%status 1`):
-- `inc` of a `uniq`;
-- a `uniq` used twice on one path;
-- an `idr.constant` of `uniq` type;
+- an `!idr.own` used twice, or not at all, on one path;
+- a borrow used after its owner's consuming use;
+- an `idr.constant` of `!idr.uniq` type;
+- a `!idr.uniq` result returned from a `dup` result, whose provenance
+  cannot fold;
 - `reuse` of a `cell<24>` for a 32-byte constructor;
-- a `func.call` passing an owned value to a `uniq` parameter (MLIR's own
-  error);
-- a borrow used after its owner's consumption;
-- a `take` of `uniq` whose results are typed `token`.
+- a take typed as giving a `cell` whose exclusivity operand does not fold;
+- a `func.call` passing an `!idr.own` to an `!idr.uniq` parameter (MLIR's
+  own error).
 
 ## 9. Open questions
 
 - **Cover.** Is box-deep coverage right, or do real programs need
-  per-position covers (a unique spine of shared elements)? Measure on the
-  v3 corpus and the linear libraries.
-- **Stack and uniqueness.** Should uniqueness inference run before
-  idr-stack so they cooperate? That needs a reuse edge in the escape
-  summaries (§6.6).
-- **The shared mode.** Is `shared` (count ≥ 2 proved) worth a third mode,
-  or is uniq/dynamic enough?
+  per-position covers (an exclusive spine of shared elements)? Measure on
+  the v3 corpus and the linear libraries.
+- **Stack and exclusivity.** Should the exclusivity analysis run before
+  idr-stack so that they cooperate? That needs a reuse-equivalence edge in
+  the escape summaries (§6.6).
+- **The shared mode.** Is `shared` (count ≥ 2 proved) worth a third lattice
+  value, or is exclusive/unknown enough?
 - **The user-facing demand** for P3, given an unmodified Idris and a
   profile that rejects pragmas.
-- **Count-free representations.** Worth runtime support? That needs a
-  whole-program census of never-shared types.
+- **Arenas as the bridge.** Can count-free exclusive trees live in one
+  arena buffer each, so that ownership-based deallocation frees them and
+  the residue vanishes for those types? This needs the representation
+  stream, and a census of never-shared types.
+- **Specializing on exclusivity at the LLVM level.** Could LLVM's function
+  specialization on constant arguments (IPSCCP) do the cloning of step 4 if
+  the `i1` survived to LLVM? The MLIR-level commit into `!idr.uniq` is
+  still needed for the typed ABI and for the demand. Unverified whether it
+  is on at the pinned O3.
 - **Idris's own checker.** Any known Idris 2 linearity soundness bugs (for
   example around `with`, `case` inference of `UseUnknown`, or holes) would
   break A2-A5. The accepted subset excludes holes; the rest is unaudited.
