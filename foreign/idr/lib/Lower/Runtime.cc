@@ -98,6 +98,16 @@ void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, StringRef cau
   crash(b, loc, cause);
 }
 
+void Runtime::mayLoop(OpBuilder &b, Location loc) {
+  if (jit) {
+    call(b, loc, "idris_rt_eval_tick", Type(), ValueRange{});
+    return;
+  }
+  LLVM::InlineAsmOp::create(b, loc, TypeRange{}, ValueRange{}, "", "",
+                            /*has_side_effects=*/true, /*is_align_stack=*/false,
+                            LLVM::TailCallKind::None, LLVM::AsmDialectAttr(), ArrayAttr());
+}
+
 Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info) {
   Value cell = call(b, loc, jit ? "idris_rt_arena_alloc" : "idris_rt_cell",
                     ptrType(b.getContext()), i64Constant(b, loc, size));

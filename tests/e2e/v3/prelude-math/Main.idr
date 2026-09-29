@@ -5,10 +5,8 @@ module Main
 -- Mandelbrot set, and the basins of Newton's method for z^3 = 1, on a value
 -- read at runtime with the Prelude's getChar. Written the way an Idris
 -- programmer would, and diffed against the stock Chez backend.
--- `euclid` is partial, so a closed call of it is not evaluated:
--- `euclid (the Integer 48) 18` would leave an Integer at runtime
--- (profile/v3/reject/runtime-integer-partial), so it is called here on
--- runtime Ints only.
+-- `euclid` is called here on runtime Ints; a closed call of it, on
+-- Integers, is evaluated at compile time (profile/v3/accept/partial-integer).
 
 import Prelude
 

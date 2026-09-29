@@ -5,8 +5,11 @@
 // as the address space allows, with a guard below it, and writes each
 // result's attribute text to a pipe. A crash the runtime reports ends the
 // child; the calls before it have their results and the caller forks again
-// for the rest. Total code runs to completion: there is no fuel, no memory
-// cap and no time limit.
+// for the rest, and so does a call that spends its budget. A call of
+// total code runs to completion: there is no fuel, no memory cap and no time
+// limit. A call of code Idris does not prove terminating may never end, so
+// it runs metered: a budget of ticks, arena bytes and stack, counted, so the
+// same call spends the same on every machine.
 #pragma once
 
 #include "Eval/Jit.h"
@@ -32,6 +35,8 @@ struct Run {
     Crashed,
     // The machine refused memory or stack, or killed the child.
     Exhausted,
+    // A metered call spent its budget.
+    OverBudget,
     // Anything else: an internal error, described by `message`.
     Failed,
   };
@@ -42,10 +47,20 @@ struct Run {
   std::string message;
 };
 
+// What a metered call may spend: ticks (one where code that need not end
+// enters a function or goes round a loop), bytes of arena, bytes of stack.
+struct Budget {
+  uint64_t ticks;
+  uint64_t bytes;
+  uint64_t stack;
+};
+
 // Runs entries[first...] in a child. `words[i]` is the number of 8-byte
-// result slots entry i fills; `reify(i, slots)` turns them into the texts
-// of the results, in the child.
-Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words, size_t first,
+// result slots entry i fills; entry i runs within `budget` when
+// `metered[i]`; `reify(i, slots)` turns the slots into the texts of the
+// results, in the child.
+Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
+               llvm::ArrayRef<bool> metered, Budget budget, size_t first,
                llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)>
                    reify);
 

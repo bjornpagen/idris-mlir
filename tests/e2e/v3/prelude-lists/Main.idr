@@ -3,8 +3,10 @@ module Main
 -- The Prelude's lists and Foldable, the ordinary way: literals and ranges
 -- whose elements are computed at runtime, sum and product (through the
 -- named Additive and Multiplicative monoids), folds with lambdas, map,
--- filter, reverse, length, all, any and elem. Every list is built during
--- specialization; its elements run at runtime.
+-- filter, reverse, length, all, any and elem. Every list is built at
+-- compile time: a range, through the Prelude's partial `takeUntil`, by
+-- compile-time evaluation, the rest during specialization; the elements
+-- computed from the input run at runtime.
 
 import Prelude
 

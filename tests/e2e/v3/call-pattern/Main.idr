@@ -3,7 +3,7 @@ module Main
 -- Call-pattern specialization on literals: `ack` matches on `m`, and is
 -- called with the literal 3, so it is specialized for m = 3, 2 and 1, with
 -- n a runtime value; m = 0 is inlined where it is called. `count`, an IO
--- loop called with a literal, is partial, so its closed call is neither
+-- loop called with a literal, writes output, so its closed call is neither
 -- evaluated nor specialized: it runs as a loop. `countUp` counts down from
 -- the literal 1000 with a runtime accumulator; it is specialized on the
 -- counter, within the clone limit.

@@ -188,15 +188,11 @@ struct LowerCrash : IdrPattern<CrashOp> {
   }
 };
 
-// An effect no MLIR pass removes, and LLVM keeps too, so a loop that may
-// not terminate stays.
 struct LowerMayLoop : IdrPattern<MayLoopOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    LLVM::InlineAsmOp::create(rewriter, op.getLoc(), TypeRange{}, ValueRange{}, "", "",
-                              /*has_side_effects=*/true, /*is_align_stack=*/false,
-                              LLVM::TailCallKind::None, LLVM::AsmDialectAttr(), ArrayAttr());
+    runtime.mayLoop(rewriter, op.getLoc());
     rewriter.eraseOp(op);
     return success();
   }

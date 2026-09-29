@@ -1,14 +1,14 @@
 module Main
 
--- A closed call of a total function is evaluated at compile time, recursion
--- included: `power` recurses on a Nat, so `power (the Integer 2) 100` and
--- `power (the Integer 3) 20` are constants, and no Integer exists at
--- runtime. `fib` recurses on an Int, which Idris does not prove
--- terminating, so `fib 15`, `fib 27` and `fib n` are all calls at runtime:
--- partial code is never evaluated.
--- `printLn (euclid (the Integer 1071) 462)` is not here: `euclid` is
--- partial, so it is not evaluated and its Integer would exist at runtime.
--- It is the reject fixture profile/v3/reject/runtime-integer-partial.
+-- A closed call is evaluated at compile time, recursion included, whether
+-- or not Idris proves the function terminating. `power` recurses on a Nat,
+-- so `power (the Integer 2) 100` and `power (the Integer 3) 20` are
+-- constants, and no Integer exists at runtime. `fib` and `euclid` recurse
+-- on values Idris cannot see decrease, so they are partial, and their
+-- closed calls are evaluated too: `fib 15`, `fib 27` and
+-- `euclid (the Integer 1071) 462` are constants, and only `fib n` and
+-- `euclid (n * 462) 1071`, whose arguments come from the input, run at
+-- runtime.
 
 import Prelude
 
@@ -30,6 +30,7 @@ main = do
   printLn (fib 27)
   printLn (fib n)
   printLn (euclid (n * 462) 1071)
+  printLn (euclid (the Integer 1071) 462)
   printLn (power (the Integer 2) 100)
   printLn (cast {to = Int} (power (the Integer 3) 20 `mod` 1000))
   printLn (power (the Double 1.5) 10)

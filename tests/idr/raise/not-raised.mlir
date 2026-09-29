@@ -5,8 +5,8 @@
 // to terminate, so no op with an effect may lie between its call and the
 // apply (output in the first case, a division that may crash in the
 // second), and the apply must be in the call's block (the third: it runs
-// only in one region). A closed call of a pure, total callee is idr-eval's
-// (the fourth). A pure and total callee that cannot crash has nothing to
+// only in one region). A closed call of a pure, total callee is idr-eval's,
+// which runs it to the end (the fourth). A pure and total callee that cannot crash has nothing to
 // observe, so its call is raised even across output (the fifth), and the
 // raised call is where the apply was, after the output.
 // CHECK: idr.clone_counts = {pmk = 1 : i64}

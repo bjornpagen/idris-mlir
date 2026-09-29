@@ -20,9 +20,11 @@ Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else
 (inlining, specialization, compile-time evaluation, defunctionalization,
 loops and the heap-free profile's check) happens in MLIR. Compile-time
-evaluation is runtime evaluation run early: every closed call of total,
-pure code is evaluated by running the program's own lowered code with its
-own runtime, and partial code never is.
+evaluation is runtime evaluation run early: every closed call of pure code
+is evaluated by running the program's own lowered code with its own
+runtime. As in Idris's own evaluator, totality does not decide what is
+evaluated: total code runs to the end, and partial code runs within a
+budget, past which the call is left to run at runtime.
 
 ## Why not Lean 4
 
@@ -48,7 +50,7 @@ That promise, more than dependent types alone, is why this compiler exists.
 
 Programs are heap-free: after the documented pipeline (inlining with no
 threshold, known constructors, case-of-case, specialization on
-constant-like arguments, compile-time evaluation of total code, output
+constant-like arguments, compile-time evaluation of closed calls, output
 fusion, defunctionalization), nothing may allocate at runtime (a closure
 that remains, a list, string or `Integer` built at runtime), or
 compilation fails with an `unsupported (<reason>)` error, such as
@@ -73,8 +75,8 @@ compilation fails with an `unsupported (<reason>)` error, such as
   `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
   ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
   `traverse_`). `Integer`, `Nat`, lists and streams have runtime
-  representations, but may not allocate at runtime yet: a closed call of
-  total code is evaluated at compile time, and its result is static data. The pure
+  representations, but may not allocate at runtime yet: a closed call is
+  evaluated at compile time, and its result is static data. The pure
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),

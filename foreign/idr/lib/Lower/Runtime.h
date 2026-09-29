@@ -27,6 +27,12 @@ public:
   void crashIf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value condition,
                llvm::StringRef cause);
 
+  // Where code that need not end may go on: an effect no MLIR pass
+  // removes, and LLVM keeps too, so a loop that may not terminate stays. In
+  // JIT mode it is a tick of the evaluator's meter, which is what stops a
+  // metered call that does not end.
+  void mayLoop(mlir::OpBuilder &b, mlir::Location loc);
+
   // A new cell of `size` bytes with its header: count 1 and `info`.
   mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, unsigned size, uint32_t info);
   void store(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,

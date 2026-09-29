@@ -1,7 +1,12 @@
 // idr-eval: compile-time evaluation is runtime evaluation, run early. A
-// closed call of a pure, total function runs the program's own lowered code on
-// the same runtime, with no fuel, no memory cap and no time limit, and its
-// results replace it as constants.
+// closed call of a pure function runs the program's own lowered code on the
+// same runtime, and its results replace it as constants. Whether Idris
+// proves the code terminating decides only how it runs, as Idris's own
+// evaluator unfolds partial definitions as readily as total ones. A call of
+// total code ends, so it runs with no fuel, no memory cap and no time
+// limit. A call that reaches code Idris does not prove terminating may
+// not, so it runs metered, and one that spends its budget stays, to run at
+// runtime, as a call that crashes does.
 
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
@@ -38,24 +43,36 @@ namespace {
 // captures come before the arguments of its application.
 using Key = std::pair<Attribute, Attribute>;
 
+// What a metered call may spend. The ticks bound the loop iterations and
+// function entries of code Idris does not prove terminating: a loop that
+// never ends costs the compilation well under a second. The arena and the
+// stack bound its memory, far below what the machine allows a total call.
+constexpr idr::eval::Budget budget{
+    /*ticks=*/uint64_t{1} << 25,
+    /*bytes=*/uint64_t{1} << 28,
+    /*stack=*/uint64_t{1} << 28,
+};
+
 struct Outcome {
   SmallVector<Attribute> results;
-  bool crashed = false;
+  // The call crashed or spent its budget: it stays, to run at runtime.
+  bool stays = false;
 };
 
 struct Call {
   Operation *op;
   func::FuncOp callee;
   ArrayAttr args;
+  // It reaches code Idris does not prove terminating, so it runs metered.
+  bool metered;
 };
 
-bool evaluable(func::FuncOp fn) {
-  return fn && !fn.isExternal() && idr::isPure(fn) && idr::isTotal(fn);
-}
+bool evaluable(func::FuncOp fn) { return fn && !fn.isExternal() && idr::isPure(fn); }
 
 // A closed call: a func.call, or an idr.apply of a constant closure, whose
-// operands are all constants; its callee is pure and total, and so is every
-// label in the constants, through captures and fields.
+// operands are all constants; its callee is pure, and so is every label in
+// the constants, through captures and fields. It is metered unless all of
+// them are total.
 std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   SmallVector<Attribute> args;
   FlatSymbolRefAttr callee;
@@ -84,14 +101,16 @@ std::optional<Call> closedCall(Operation *op, SymbolTable &symbols) {
   auto fn = symbols.lookup<func::FuncOp>(callee.getAttr());
   if (!evaluable(fn))
     return std::nullopt;
-  bool labels = true;
+  bool labels = true, total = idr::isTotal(fn);
   for (Attribute arg : args)
     arg.walk([&](idr::ClosureAttr closure) {
-      labels &= evaluable(symbols.lookup<func::FuncOp>(closure.getCallee().getAttr()));
+      auto label = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr());
+      labels &= evaluable(label);
+      total &= labels && idr::isTotal(label);
     });
   if (!labels)
     return std::nullopt;
-  return Call{op, fn, ArrayAttr::get(op->getContext(), args)};
+  return Call{op, fn, ArrayAttr::get(op->getContext(), args), !total};
 }
 
 bool isLibrary(Location loc) {
@@ -151,8 +170,8 @@ private:
                    const llvm::MapVector<Key, SmallVector<Call>> &calls);
 
   // Results for the compilation, which the simplify loop runs round after
-  // round with this pass. A call that crashed is known too,
-  // so it is not run again.
+  // round with this pass. A call that stays is known too, so it is not run
+  // again.
   llvm::DenseMap<Key, Outcome> cache;
 };
 
@@ -174,7 +193,7 @@ void Eval::runOnOperation() {
   Dialect *dialect = getContext().getLoadedDialect<idr::IdrDialect>();
   for (const auto &[key, sites] : calls) {
     const Outcome &outcome = cache.find(key)->second;
-    if (outcome.crashed)
+    if (outcome.stays)
       continue;
     for (const Call &call : sites) {
       OpBuilder b(call.op);
@@ -263,6 +282,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   // Each call stores its results' components through a pointer, one 8-byte
   // slot each, behind a C function the JIT finds by name.
   SmallVector<size_t> words;
+  SmallVector<bool> metered;
   SmallVector<std::string> entries;
   OpBuilder b(ctx);
   b.setInsertionPointToEnd(lowered.getBody());
@@ -283,6 +303,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     }
     func::ReturnOp::create(b, loc);
     words.push_back(call.getNumResults());
+    metered.push_back(site(i).metered);
     entries.push_back(runName(i));
   }
   OpPassManager toLLVM(ModuleOp::getOperationName());
@@ -309,7 +330,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   };
   size_t next = 0;
   while (next < keys.size()) {
-    idr::eval::Run run = idr::eval::runInChild(jit->getEntries(), words, next, reify);
+    idr::eval::Run run = idr::eval::runInChild(jit->getEntries(), words, metered, budget, next, reify);
     for (idr::eval::Result &result : run.results) {
       Outcome outcome;
       for (const std::string &text : result.texts) {
@@ -340,12 +361,29 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
                                             .function(call.callee.getSymName()))
           << ("the call of @" + call.callee.getSymName() + " crashes, so it stays: " + run.message)
                  .str();
-      cache[keys[next++]].crashed = true;
+      cache[keys[next++]].stays = true;
       break;
     }
-    case idr::eval::Run::Status::Exhausted:
-      exhausted(site(next), run.message);
-      return failure();
+    case idr::eval::Run::Status::OverBudget:
+    case idr::eval::Run::Status::Exhausted: {
+      // A total call ends, so the machine's refusal to finish it stops the
+      // compilation. A metered call need not end, and what does not finish
+      // at compile time runs at runtime.
+      Call call = site(next);
+      if (!call.metered) {
+        exhausted(call, run.message);
+        return failure();
+      }
+      remark::missed(call.op->getLoc(), remark::RemarkOpts::name("Unfinished")
+                                            .category("idr-eval")
+                                            .function(call.callee.getSymName()))
+          << ("the call of @" + call.callee.getSymName() +
+              " reaches code Idris does not prove terminating and did not finish, so it "
+              "stays: " + run.message)
+                 .str();
+      cache[keys[next++]].stays = true;
+      break;
+    }
     case idr::eval::Run::Status::Failed:
       return internal(next, run.message);
     }

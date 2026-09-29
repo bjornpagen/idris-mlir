@@ -1,16 +1,15 @@
--- expect: runtime integer, line 13
+-- expect: runtime integer, line 12
 module Main
 
--- A closed call of a partial function is never evaluated: Idris does not
--- prove `euclid` terminating, so `euclid 1071 462` stays a call, and its
--- Integer would exist at runtime. The Integer operations are the
--- Prelude's (Integral Integer), reached from `euclid`, and the rejection
--- is reported at its body.
+-- A closed call of a partial function that never ends: compile-time
+-- evaluation stops `count 0` once it has spent its budget and leaves it to
+-- runtime, where its Integer would exist. The rejection is reported at its
+-- body.
 
 import Prelude
 
-euclid : Integral a => Eq a => a -> a -> a
-euclid a b = if b == 0 then a else euclid b (a `mod` b)
+count : Integer -> Integer
+count n = if n < 0 then n else count (n + 1)
 
 main : IO ()
-main = printLn (euclid (the Integer 1071) 462)
+main = printLn (count 0)
