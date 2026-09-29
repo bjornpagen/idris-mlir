@@ -17,6 +17,12 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-simplify",
       "idr-defunctionalize",
       "canonicalize",
+      // A cell that never leaves its frame goes on the stack before
+      // counting, which reuses only the cells of the heap. Counting runs on
+      // functional code, where recursion is still a call and a match's
+      // yield is its join point; every later step keeps its rule.
+      "idr-stack",
+      "idr-rc",
       "idr-tail-loops",
       "idr-lower",
       "canonicalize,cse",

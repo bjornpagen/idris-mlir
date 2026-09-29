@@ -4,9 +4,10 @@
 // that is dropped has its memory freed; a reset asks the runtime for the
 // cell; a reuse builds in the token, or in a new cell when it is null.
 // CHECK-LABEL: func.func private @counts(
-// CHECK: llvm.call @idris_rt_inc(%arg0) : (!llvm.ptr) -> ()
-// CHECK: llvm.call @idris_rt_dec(%arg1) : (!llvm.ptr) -> ()
-// CHECK: %[[B:.*]] = llvm.inttoptr %arg2 : i64 to !llvm.ptr
+// CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i8, %[[D:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
+// CHECK: llvm.call @idris_rt_inc(%[[S]]) : (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%[[D]]) : (!llvm.ptr) -> ()
+// CHECK: %[[B:.*]] = llvm.inttoptr %[[N]] : i64 to !llvm.ptr
 // CHECK: llvm.call @idris_rt_dec(%[[B]]) : (!llvm.ptr) -> ()
 // CHECK-LABEL: func.func private @unused(
 // An unused counted slot is empty.

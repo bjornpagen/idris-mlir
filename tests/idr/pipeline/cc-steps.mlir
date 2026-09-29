@@ -5,8 +5,10 @@
 // CHECK: 01-idr-simplify.mlir
 // CHECK-NEXT: 02-idr-defunctionalize.mlir
 // CHECK-NEXT: 03-canonicalize.mlir
-// CHECK-NEXT: 04-idr-tail-loops.mlir
-// CHECK-NEXT: 05-idr-lower.mlir
+// CHECK-NEXT: 04-idr-stack.mlir
+// CHECK-NEXT: 05-idr-rc.mlir
+// CHECK-NEXT: 06-idr-tail-loops.mlir
+// CHECK-NEXT: 07-idr-lower.mlir
 module attributes {idr.program} {
   func.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
