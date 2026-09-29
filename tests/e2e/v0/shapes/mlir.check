@@ -21,10 +21,10 @@
 // constructor, its fields the region's arguments; one on an Int matches
 // literals. keep and area are total. countdown recurses on an Int: Idris
 // does not prove it terminating, so it has no attributes.
-// CHECK-DAG: func.func private @Prog.keep(%{{[^:]+}}: !idr.erased {{.*}}, %{{[^:]+}}: i64 {{.*}}idr.total
-// CHECK-DAG: func.func private @Prog.area(%{{[^:]+}}: !idr.data<@Prog.Shape> {{.*}}idr.total
+// CHECK-DAG: func.func private @Prog.keep(%{{[^:]+}}: !idr.erased, %{{[^:]+}}: i64) -> i64 attributes {{[{][^}]*}}idr.total
+// CHECK-DAG: func.func private @Prog.area(%{{[^:]+}}: !idr.data<@Prog.Shape>) -> i64 attributes {{[{][^}]*}}idr.total
 // CHECK-DAG: idr.match %{{[^ ]+}} : !idr.data<@Prog.Shape> -> (i64) {
 // CHECK-DAG: case @Circle(%{{[^:]+}}: i64) {
 // CHECK-DAG: case @Rect(%{{[^:]+}}: i64, %{{[^:]+}}: i64) {
-// CHECK-DAG: func.func private @Prog.countdown(%{{[^:]+}}: i64 {{.*}}) -> i64 {{[{]$}}
+// CHECK-DAG: func.func private @Prog.countdown(%{{[^:]+}}: i64) -> i64 {{[{]$}}
 // CHECK-DAG: idr.match_lit %{{[^ ]+}} : i64 -> (i64) {
