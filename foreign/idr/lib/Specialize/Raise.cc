@@ -35,7 +35,7 @@ namespace idr::specialize {
 
 namespace {
 
-Attribute keyOf(const Consumer &c, func::FuncOp callee) {
+Attribute keyOf(Consumer c, func::FuncOp callee) {
   MLIRContext *ctx = callee.getContext();
   StringAttr name = callee.getSymNameAttr();
   unsigned arity = callee.getNumArguments();
