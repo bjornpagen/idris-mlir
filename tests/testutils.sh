@@ -1044,7 +1044,10 @@ fuzz_report() {
 # (`-- idris-differs:`), all of which are listed; and Chez prints what the
 # lower level prints, the host-dependent terms aside.
 two_levels() {
-  (cd "$root/tests/twolevels" && bounded "$idris2" --no-banner --no-color \
+  # The helper is an Idris backend built against the compiler's own modules,
+  # which takes about a minute: one step, but a larger one.
+  (step_limit=$(( 300 * time_scale ))
+   cd "$root/tests/twolevels" && bounded "$idris2" --no-banner --no-color \
      --build-dir "$work/twolevels-build" --build twolevels.ipkg) > "$work/twolevels.log" 2>&1
   tl_built=$?
   tl_helper=$work/twolevels-build/exec/twolevels
