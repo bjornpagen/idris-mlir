@@ -16,7 +16,8 @@
 // CHECK: llvm.call @idris_rt_crash
 // CHECK-NEXT: ub.unreachable
 // CHECK-LABEL: func.func private @Main.half(
-// CHECK: %[[Z:.*]] = arith.cmpi eq, %arg1, %{{.*}} : i64
+// CHECK-SAME: %{{[^:]+}}: i64, %[[B:[^:]+]]: i64
+// CHECK: %[[Z:.*]] = arith.cmpi eq, %[[B]], %{{.*}} : i64
 // CHECK: scf.if %[[Z]] {
 // CHECK: llvm.call @idris_rt_crash
 // CHECK: arith.divsi

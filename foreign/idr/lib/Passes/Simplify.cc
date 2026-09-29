@@ -1,9 +1,11 @@
 // idr-simplify: the simplify loop. One
 // round runs the passes of simplifyRound() in order; rounds repeat until one
 // leaves the module unchanged, so running the loop again changes nothing.
-// There is no bound on the number of rounds: the loop ends
-// because loop breakers stop inlining at every cycle, clones are bounded by
-// the clone limit, and every evaluation removes a call.
+// The loop ends because every member of a round is finite: loop breakers
+// stop inlining at every cycle, specialization makes finitely many clones,
+// and every evaluation removes a call. The round budget, `max-rounds`,
+// asserts it: a module that still changes after that many rounds is the
+// user error `unsupported (compile-time budget)`, not a hang.
 //
 // "Unchanged" is structural(), not OperationFingerPrint. OperationFingerPrint
 // hashes op pointers, and sccp replaces every constant value by a new
@@ -14,7 +16,13 @@
 // another order on every round. structural() hashes what an op is, not where
 // it lives: constants are hashed as their values at each use, and other
 // values by their position in the walk.
+//
+// The round's passes run in the loop's own pipeline, whose statistics the
+// pass manager never prints: the loop shows them as its own. After each
+// round a remark traces the module (functions, clones, ops) and the round's
+// wall time.
 
+#include "Support/PipelineStatistics.h"
 #include "idr/Idr.h"
 #include "idr/Passes.h"
 
@@ -23,10 +31,12 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/SHA1.h"
 
 #include <array>
+#include <chrono>
 #include <limits>
 
 using namespace mlir;
@@ -51,7 +61,10 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
   LogicalResult initialize(MLIRContext *) override {
     round = OpPassManager(ModuleOp::getOperationName());
-    return buildRound(round);
+    if (failed(buildRound(round)))
+      return failure();
+    statistics.declare(*this, round);
+    return success();
   }
 
   // The dialects a round's passes create must be loaded before any pass runs.
@@ -63,10 +76,14 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
+    llvm::scope_exit finish([&] { report(module); });
     std::array<uint8_t, 20> before = structural(module);
-    for (unsigned rounds = 1;; ++rounds) {
+    for (unsigned rounds = 1; rounds <= maxRounds; ++rounds) {
+      auto started = std::chrono::steady_clock::now();
       if (failed(runPipeline(round, module)))
         return signalPassFailure();
+      ++numRounds;
+      trace(module, rounds, std::chrono::steady_clock::now() - started);
       std::array<uint8_t, 20> after = structural(module);
       if (after == before) {
         remark::passed(module.getLoc(),
@@ -76,6 +93,41 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       }
       before = after;
     }
+    emitError(module.getLoc()) << "unsupported (compile-time budget): idr-simplify did not "
+                                  "reach a fixpoint in "
+                               << maxRounds << " rounds";
+    signalPassFailure();
+  }
+
+  // The remark after round `n`: what the module holds, and how long the
+  // round took.
+  static void trace(ModuleOp module, unsigned n, std::chrono::steady_clock::duration took) {
+    remark::detail::InFlightRemark out = remark::analysis(
+        module.getLoc(), remark::RemarkOpts::name("round").category("idr-simplify"));
+    // The walk costs as much as the module is large: only for a remark
+    // someone reads.
+    if (!out)
+      return;
+    unsigned functions = 0, clones = 0;
+    for (auto fn : module.getOps<func::FuncOp>()) {
+      ++functions;
+      if (fn->hasAttr("idr.origin"))
+        ++clones;
+    }
+    uint64_t ops = 0;
+    module.walk([&](Operation *) { ++ops; });
+    double ms = std::chrono::duration<double, std::milli>(took).count();
+    out << remark::metric("round", n) << remark::metric("functions", functions)
+        << remark::metric("clones", clones) << remark::metric("ops", ops)
+        << remark::metric("ms", llvm::formatv("{0:f3}", ms).str());
+  }
+
+  // The round's statistics, as the loop's own and as a remark.
+  void report(ModuleOp module) {
+    statistics.fold();
+    if (remark::detail::InFlightRemark out = remark::analysis(
+            module.getLoc(), remark::RemarkOpts::name("statistics").category("idr-simplify")))
+      statistics.addMetrics(out);
   }
 
   // The hash of the module's ops, their attributes, properties and types,
@@ -123,6 +175,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   }
 
   OpPassManager round;
+  idr::support::PipelineStatistics statistics;
 };
 
 } // namespace
@@ -147,14 +200,16 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 // region-branch canonicalization at the end of runOnOperation). symbol-dce
 // then removes the functions that only the emptied code referred to, which
 // the analysis would find unreachable in turn.
-SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned cloneLimit) {
-  if (inlineIterations == 0)
-    inlineIterations = std::numeric_limits<unsigned>::max();
+//
+// Specialization has no limit to pass: it is finite by construction, and its
+// budget is an assertion of its own.
+SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned) {
   return {
       "idr-loop-breakers",
       "idr-effects",
-      llvm::formatv("inline{{default-pipeline=canonicalize max-iterations={0}}", inlineIterations),
-      llvm::formatv("idr-specialize{{clone-limit={0}}", cloneLimit),
+      llvm::formatv("idr-inline{{default-pipeline=canonicalize max-iterations={0}}",
+                    inlineIterations),
+      "idr-specialize",
       "sccp",
       "canonicalize",
       "cse",

@@ -821,4 +821,134 @@ def Idr_ExitOp : Idr_IOOp<"exit"> {
   let assemblyFormat = "$code `,` $world attr-dict";
 }
 
+//===----------------------------------------------------------------------===//
+// Ownership (lib/Ownership)
+//===----------------------------------------------------------------------===//
+
+// idr-rc makes every reference explicit, and marks the module
+// `idr.stage = "owned"`: from then on the verifier checks that each
+// reference is consumed exactly once on every path. The ops below read and
+// write the counts in cell headers and may free cells, so no pass reorders,
+// merges or drops them.
+
+def Idr_TokenType : Idr_Type<"Token", "token"> {
+  let summary = "the memory of a cell whose fields idr.reset released, or null";
+}
+
+// The values that hold references: a string, a big (a small one holds
+// none), a box, a closure, and an unboxed sum with a slot of any of these.
+def Idr_CountedType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
+                                 Idr_BigType]>;
+
+// An op that exists only in the owned stage: before idr-rc nothing counts
+// references, so a pass that meets one knows the module's stage.
+class Idr_OwnedOp<string mnemonic, list<Trait> traits = []> : Idr_Op<mnemonic, traits> {
+  let hasVerifier = 1;
+}
+
+def Idr_IncOp : Idr_OwnedOp<"inc"> {
+  let summary = "adds a reference to a value";
+  let description = [{
+    Static data, a small big and an empty slot hold no count and are left
+    alone; an unboxed sum adds a reference to each of its slots.
+  }];
+  let arguments = (ins Arg<Idr_CountedType, "", [MemRead, MemWrite]>:$value);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
+def Idr_DecOp : Idr_OwnedOp<"dec"> {
+  let summary = "drops a reference to a value, and frees it with its last";
+  let description = [{
+    Freeing a cell drops its fields' references in turn. The dec of a token
+    frees the memory of its cell, whose fields idr.reset already released.
+  }];
+  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType]>, "",
+                           [MemRead, MemWrite, MemFree]>:$value);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
+// The box was built by `ctor`, which the match it is in has seen.
+def Idr_ResetOp : Idr_OwnedOp<"reset", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "drops a box, keeping its cell when that was its last reference";
+  let description = [{
+    When the box holds the only reference to its cell, its fields'
+    references are dropped and the token is the cell, to build another
+    constructor in; otherwise this is idr.dec and the token is null.
+  }];
+  let arguments = (ins Arg<Idr_BoxType, "", [MemRead, MemWrite, MemFree]>:$value,
+                       SymbolRefAttr:$ctor);
+  let results = (outs Idr_TokenType:$token);
+  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` type($token)";
+}
+
+def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
+  let arguments = (ins Arg<Idr_TokenType, "", [MemWrite]>:$token, SymbolRefAttr:$ctor,
+                       Variadic<AnyType>:$fields);
+  let results = (outs Res<Idr_BoxType, "", [MemAlloc]>:$result);
+  let assemblyFormat = [{
+    $token $ctor `(` $fields `)` attr-dict `:` functional-type($fields, $result)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Specialization keys (lib/Specialize)
+//===----------------------------------------------------------------------===//
+
+// idr-specialize keeps the key of each clone it makes as `idr.spec_key`, so
+// that its later runs share the clone. The labels in a key are names, not
+// symbol uses: a key keeps no function alive and refers to none.
+class Idr_KeyAttr<string name, string attrMnemonic> : AttrDef<Idr_Dialect, name> {
+  let mnemonic = attrMnemonic;
+}
+
+def Idr_KeyHoleAttr : Idr_KeyAttr<"KeyHole", "key_hole"> {
+  let summary = "a runtime leaf of a key: the clone's parameter that holds it";
+  let parameters = (ins "unsigned":$index);
+  let assemblyFormat = "`<` $index `>`";
+}
+
+def Idr_KeyConAttr : Idr_KeyAttr<"KeyCon", "key_con"> {
+  let summary = "a constructor `@data::@ctor` in a key, over the patterns of its fields";
+  let parameters = (ins "::mlir::StringAttr":$data, "::mlir::StringAttr":$ctor,
+                        "::mlir::ArrayAttr":$fields);
+  let assemblyFormat = "`<` $data `,` $ctor `,` $fields `>`";
+}
+
+def Idr_KeyClosureAttr : Idr_KeyAttr<"KeyClosure", "key_closure"> {
+  let summary = "a closure of `callee` in a key, over the patterns of its captures";
+  let parameters = (ins "::mlir::StringAttr":$callee, "::mlir::ArrayAttr":$captures);
+  let assemblyFormat = "`<` $callee `,` $captures `>`";
+}
+
+// A clone that specializes: the patterns of its origin's parameters, a key
+// hole, constructor or closure, or a constant.
+def Idr_SpecKeyAttr : Idr_KeyAttr<"SpecKey", "spec_key"> {
+  let summary = "the key of a clone that specializes";
+  let parameters = (ins "::mlir::StringAttr":$origin, "::mlir::ArrayAttr":$patterns);
+  let assemblyFormat = "`<` $origin `,` $patterns `>`";
+}
+
+// A clone made by raising, by its callee and what consumes the callee's
+// result. The callee's arity is part of the key: remove-dead-values may
+// erase parameters later, and the holes of a clone count them.
+def Idr_KeyApplyAttr : Idr_KeyAttr<"KeyApply", "key_apply"> {
+  let summary = "the key of a clone that applies its callee's result";
+  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity);
+  let assemblyFormat = "`<` $callee `,` $arity `>`";
+}
+
+def Idr_KeyApplyFieldAttr : Idr_KeyAttr<"KeyApplyField", "key_apply_field"> {
+  let summary = "the key of a clone that applies field `index` of `ctor` of its callee's result";
+  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity,
+                        "::mlir::StringAttr":$ctor, "unsigned":$index);
+  let assemblyFormat = "`<` $callee `,` $arity `,` $ctor `,` $index `>`";
+}
+
+def Idr_KeyWriteAttr : Idr_KeyAttr<"KeyWrite", "key_write"> {
+  let summary = "the key of a clone that writes its callee's result";
+  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity);
+  let assemblyFormat = "`<` $callee `,` $arity `>`";
+}
+
 #endif // IDR_OPS

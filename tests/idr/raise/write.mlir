@@ -12,10 +12,9 @@
 // call of it for the right subtree is raised across the output of the left
 // one. @label is partial, so output between its call and the write keeps
 // the pair, and so does a string with a second use.
-// CHECK: idr.clone_counts = {show = 1 : i64}
 // CHECK-LABEL: func.func private @print(
 // CHECK-SAME: %[[T:[a-z0-9_]+]]: !idr.box<@T> {idr.quantity = "w"}, %[[W:[a-z0-9_]+]]: !idr.world
-// CHECK-NEXT: %[[W1:.*]] = call @[[SHOW:show\$write\$[0-9]+]](%[[T]], %[[W]]) : (!idr.box<@T>, !idr.world) -> !idr.world
+// CHECK-NEXT: %[[W1:.*]] = call @[[SHOW:show\$raise\$[0-9]+]](%[[T]], %[[W]]) : (!idr.box<@T>, !idr.world) -> !idr.world
 // CHECK-NEXT: return %[[W1]]
 // CHECK-LABEL: func.func private @labelled(
 // CHECK: %[[S:.*]] = call @label(
@@ -25,8 +24,8 @@
 // CHECK-NEXT: idr.io.put_str %[[S2]]
 // CHECK-NEXT: idr.io.put_str %[[S2]]
 // CHECK: func.func private @[[SHOW]](
-// CHECK-SAME: %[[A:[a-z0-9_]+]]: !idr.box<@T> {idr.hole = 0 : i64, idr.quantity = "w"}, %[[V:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.world
-// CHECK-SAME: attributes {idr.effect = "effectful", idr.origin = "show", idr.spec_key = "write @show", idr.total}
+// CHECK-SAME: %[[A:[a-z0-9_]+]]: !idr.box<@T> {{.*}}, %[[V:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.world
+// CHECK-SAME: idr.effect = "effectful"{{.*}}idr.total
 // CHECK: idr.match %[[A]] : !idr.box<@T> -> (!idr.world) {
 // CHECK-NEXT: case @Leaf(%[[N:.*]]: i64) {
 // CHECK-NEXT: %[[V1:.*]] = idr.io.put_int signed %[[N]], %[[V]] : i64

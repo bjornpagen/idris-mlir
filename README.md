@@ -136,6 +136,9 @@ Everything is installed under `.toolchain/`; `make` alone lists the commands.
 - `runtime/`: the runtime every program links, and that folding and
   compile-time evaluation call.
 - `tests/`: golden tests (`tests/Main.idr`); `bench/`: benchmarks.
+- `tools/`: the toolchain's bootstrap and the compile chain;
+  `tools/bisect.sh SOURCE TAG` finds the action of TAG (an evaluation, a
+  clone) after which a program behaves differently than with `--no-eval`.
 - `upstream/`: upstream bugs we work around, written to be filed.
 - `PINS.md`: every pinned workaround and deviation.
 - `sources/`: vendored papers, upstream docs and source snapshots.

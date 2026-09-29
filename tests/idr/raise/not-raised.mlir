@@ -9,7 +9,6 @@
 // which runs it to the end (the fourth). A pure and total callee that cannot crash has nothing to
 // observe, so its call is raised even across output (the fifth), and the
 // raised call is where the apply was, after the output.
-// CHECK: idr.clone_counts = {pmk = 1 : i64}
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[F1:.*]] = call @mk(
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int
@@ -28,7 +27,7 @@
 // CHECK-NEXT: idr.io.put_int signed %[[R5]], %[[W3]]
 // CHECK-NOT: call @mk$raise
 // CHECK: func.func private @[[PMK]](
-// CHECK-SAME: attributes {idr.effect = "pure", idr.origin = "pmk", idr.spec_key = "raise @pmk", idr.total}
+// CHECK-SAME: idr.effect = "pure"{{.*}}idr.total
 // CHECK-NOT: func.func private @mk$raise
 module attributes {idr.program} {
   func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.effect = "pure", idr.total} {

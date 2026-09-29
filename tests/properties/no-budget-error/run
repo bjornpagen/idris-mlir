@@ -1,0 +1,7 @@
+#!/bin/sh
+# Every optimization is finite by construction, so no budget that asserts
+# it runs out: no e2e fixture, compiled with compile-time evaluation or
+# without, reports `compile-time budget` or outlives the step limit.
+test_limit=3600
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+property no-budget-error

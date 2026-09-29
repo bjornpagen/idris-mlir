@@ -1,0 +1,7 @@
+#!/bin/sh
+# A compilation depends on its input alone: compiled twice, every e2e
+# fixture that compiles emits the same module and dumps the same modules
+# after every step of the pipeline, byte for byte.
+test_limit=3600
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+property deterministic-dumps

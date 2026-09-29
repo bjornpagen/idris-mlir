@@ -1,0 +1,6 @@
+#!/bin/sh
+# Every benchmark of bench/ builds with this compiler and prints, on its
+# small input here (<name>.in), the output the stock Chez backend printed
+# (<name>.out).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+bench_smoke "$here"

@@ -6,8 +6,10 @@
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
 #   make build             the C++ dev preset and the Idris compiler; after any code change
-#   make test              tests/compiler, profile, e2e, determinism, registry and
-#                          toolchain; after compiler changes
+#   make test              tests/compiler, profile, e2e, determinism, registry,
+#                          toolchain, equivalence, fuzz, two-levels, properties
+#                          (what holds of every compilation) and bench (each
+#                          benchmark on a small input); after compiler changes
 #   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
 #                          contract changes
 #   make test-mlir-tools   tests/upstream, the upstream bugs still reproduce with the

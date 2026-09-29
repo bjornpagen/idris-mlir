@@ -115,7 +115,7 @@ profile_accept() {
   accept_stdout=$(header "$accept_main" stdout)
   accept_has_stdout=$?
   [ "$accept_has_exit" -eq 0 ] || [ "$accept_has_stdout" -eq 0 ] || return 0
-  run_program accept "$work/fixture/build/exec/Main" /dev/null
+  run_ours accept "$work/fixture/build/exec/Main" /dev/null
   if [ "$accept_has_exit" -eq 0 ]; then
     accept_exit=$(printf '%s' "$accept_exit" | tr -d ' \t')
     if [ "$ran" -eq "$accept_exit" ]; then

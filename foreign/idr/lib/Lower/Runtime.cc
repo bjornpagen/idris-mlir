@@ -109,11 +109,20 @@ void Runtime::mayLoop(OpBuilder &b, Location loc) {
 }
 
 Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info) {
-  Value cell = call(b, loc, jit ? "idris_rt_arena_alloc" : "idris_rt_cell",
-                    ptrType(b.getContext()), i64Constant(b, loc, size));
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, 1), cell);
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info), at(b, loc, cell, 4));
+  if (!jit)
+    return call(b, loc, "idris_rt_cell", ptrType(b.getContext()),
+                ValueRange{i64Constant(b, loc, size), i32Constant(b, loc, info)});
+  Value cell = call(b, loc, "idris_rt_arena_alloc", ptrType(b.getContext()),
+                    i64Constant(b, loc, size));
+  storeHeader(b, loc, cell, info);
   return cell;
+}
+
+// Count 0 in JIT mode: the arena's cells are persistent, as everything
+// compile-time evaluation makes.
+void Runtime::storeHeader(OpBuilder &b, Location loc, Value cell, uint32_t info) {
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, jit ? 0 : 1), cell);
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info), at(b, loc, cell, 4));
 }
 
 void Runtime::store(OpBuilder &b, Location loc, Value cell, ArrayRef<Slot> slots,
@@ -129,8 +138,37 @@ SmallVector<Value> Runtime::load(OpBuilder &b, Location loc, Value cell, ArrayRe
   return values;
 }
 
-Value Runtime::loadInfo(OpBuilder &b, Location loc, Value cell) {
-  return LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4));
+Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell) {
+  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4));
+  return LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, tagMask));
+}
+
+Value Runtime::null(OpBuilder &b, Location loc, Type component) {
+  if (isa<LLVM::LLVMPointerType>(component))
+    return LLVM::ZeroOp::create(b, loc, component);
+  return LLVM::ConstantOp::create(b, loc, component, b.getIntegerAttr(component, 0));
+}
+
+void Runtime::countEach(OpBuilder &b, Location loc, StringRef name, ValueRange components,
+                        ArrayRef<bool> counted) {
+  for (auto [component, isCounted] : llvm::zip_equal(components, counted)) {
+    if (!isCounted)
+      continue;
+    Value pointer = component;
+    if (!isa<LLVM::LLVMPointerType>(pointer.getType()))
+      pointer = LLVM::IntToPtrOp::create(b, loc, ptrType(b.getContext()), pointer);
+    call(b, loc, name, Type(), pointer);
+  }
+}
+
+void Runtime::inc(OpBuilder &b, Location loc, ValueRange components, ArrayRef<bool> counted) {
+  if (!jit)
+    countEach(b, loc, "idris_rt_inc", components, counted);
+}
+
+void Runtime::dec(OpBuilder &b, Location loc, ValueRange components, ArrayRef<bool> counted) {
+  if (!jit)
+    countEach(b, loc, "idris_rt_dec", components, counted);
 }
 
 LLVM::GlobalOp Runtime::global(OpBuilder &b, Location loc, StringRef prefix, Type type,
@@ -156,6 +194,21 @@ Value Runtime::pack(OpBuilder &b, Location loc, Type structType, ValueRange memb
   return value;
 }
 
+LLVM::GlobalOp Runtime::staticCell(
+    OpBuilder &b, Location loc, StringRef prefix, const Cell &cell, uint32_t info,
+    function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
+  auto structType = LLVM::LLVMStructType::getLiteral(b.getContext(), cell.members(b.getContext()));
+  return global(b, loc, prefix, structType, [&](OpBuilder &init) -> Value {
+    SmallVector<SmallVector<Value>> fields;
+    for (unsigned field = 0; field < cell.fields.size(); ++field)
+      fields.push_back(components(init, field));
+    SmallVector<Value> members{i32Constant(init, loc, 0), i32Constant(init, loc, info)};
+    for (auto [field, component] : cell.order)
+      members.push_back(fields[field][component]);
+    return pack(init, loc, structType, members);
+  });
+}
+
 // A string: the header (count 0: static data), the byte length and the
 // scalar count, which the runtime computes, then the bytes.
 Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
@@ -169,8 +222,9 @@ Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
     auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), members);
     bool ascii = idris_rt_ascii(bytes.data(), bytes.size());
     auto scalars = static_cast<int64_t>(idris_rt_utf8_count(bytes.data(), bytes.size()));
+    uint32_t info = cellInfo(ascii ? 1 : 0, 0, CellKind::String);
     auto global = this->global(b, loc, "__idr_str_", type, [&](OpBuilder &init) -> Value {
-      SmallVector<Value> values{i32Constant(init, loc, 0), i32Constant(init, loc, ascii ? 1 : 0),
+      SmallVector<Value> values{i32Constant(init, loc, 0), i32Constant(init, loc, info),
                                 i64Constant(init, loc, static_cast<int64_t>(bytes.size())),
                                 i64Constant(init, loc, scalars)};
       if (!bytes.empty())
@@ -218,7 +272,8 @@ Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
                                                  {i32, i32, i32, i32, ptrType(b.getContext())});
     auto global = this->global(b, loc, "__idr_big_", type, [&](OpBuilder &init) -> Value {
       return pack(init, loc, type,
-                  {i32Constant(init, loc, 0), i32Constant(init, loc, 0),
+                  {i32Constant(init, loc, 0),
+                   i32Constant(init, loc, cellInfo(0, 0, CellKind::Bignum)),
                    i32Constant(init, loc, static_cast<int64_t>(count)), i32Constant(init, loc, size),
                    addressOf(init, loc, limbsGlobal)});
     });
@@ -250,9 +305,12 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
     if (layout.tag)
       out.push_back(LLVM::ConstantOp::create(b, loc, layout.tag,
                                              b.getIntegerAttr(layout.tag, static_cast<int64_t>(ctor.getTag()))));
+    // A counted slot the constructor does not use is empty, so that
+    // counting the sum counts each of its slots.
     for (auto [slot, component] : llvm::enumerate(slots))
-      out.push_back(component ? component
-                              : LLVM::PoisonOp::create(b, loc, layout.slots[slot]).getResult());
+      out.push_back(component               ? component
+                    : layout.counted[slot] ? null(b, loc, layout.slots[slot])
+                                           : LLVM::PoisonOp::create(b, loc, layout.slots[slot]).getResult());
     return out;
   }
   auto key = std::make_pair(value, type);
@@ -262,30 +320,23 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
     if (auto con = dyn_cast<ConAttr>(value)) {
       CtorOp ctor = lookupCtor(module, con.getCtor());
       const Cell &cell = layouts.box(ctor);
-      auto structType = LLVM::LLVMStructType::getLiteral(b.getContext(), cell.members(b.getContext()));
-      cellGlobal = global(b, loc, "__idr_box_", structType, [&](OpBuilder &init) -> Value {
-        SmallVector<Value> members{i32Constant(init, loc, 0),
-                                   i32Constant(init, loc, static_cast<int64_t>(ctor.getTag()))};
-        for (auto [i, field] : llvm::enumerate(con.getFields()))
-          llvm::append_range(members,
-                             constant(init, loc, field, ctor.getFieldType(static_cast<unsigned>(i))));
-        return pack(init, loc, structType, members);
+      uint32_t info = cellInfo(static_cast<uint32_t>(ctor.getTag()), cell.objs, CellKind::Box);
+      cellGlobal = staticCell(b, loc, "__idr_box_", cell, info, [&](OpBuilder &init, unsigned i) {
+        return constant(init, loc, con.getFields()[i], ctor.getFieldType(i));
       });
     } else {
       auto closure = cast<ClosureAttr>(value);
       const Label &label = layouts.label(layouts.labelId(
           closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size())));
       const Cell &cell = layouts.closure(label);
-      auto structType = LLVM::LLVMStructType::getLiteral(b.getContext(), cell.members(b.getContext()));
-      cellGlobal = global(b, loc, "__idr_closure_", structType, [&](OpBuilder &init) -> Value {
-        SmallVector<Value> members{i32Constant(init, loc, 0),
-                                   i32Constant(init, loc, layouts.labelId(label)),
-                                   code(init, loc, label)};
-        for (auto [capture, captureType] :
-             llvm::zip_equal(closure.getCaptures(), label.captureTypes()))
-          llvm::append_range(members, constant(init, loc, capture, captureType));
-        return pack(init, loc, structType, members);
-      });
+      uint32_t info = cellInfo(layouts.labelId(label), cell.objs, CellKind::Closure);
+      cellGlobal = staticCell(b, loc, "__idr_closure_", cell, info,
+                              [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
+                                if (i == 0)
+                                  return {code(init, loc, label)};
+                                return constant(init, loc, closure.getCaptures()[i - 1],
+                                                label.captureTypes()[i - 1]);
+                              });
     }
     it = statics.try_emplace(key, cellGlobal).first;
   }
@@ -329,9 +380,15 @@ void Runtime::emitCode() {
     OpBuilder::InsertionGuard guard(b);
     Block *entry = fn.addEntryBlock();
     b.setInsertionPointToStart(entry);
+    // The closure keeps its captures, and the function takes each owned:
+    // one more reference each.
     SmallVector<Value> args;
-    for (const auto &capture : ArrayRef(cell.fields).drop_front())
-      llvm::append_range(args, load(b, loc, entry->getArgument(0), capture));
+    for (auto [capture, captureType] : llvm::zip_equal(ArrayRef(cell.fields).drop_front(),
+                                                       label.captureTypes())) {
+      SmallVector<Value> components = load(b, loc, entry->getArgument(0), capture);
+      inc(b, loc, components, layouts.counted(captureType));
+      llvm::append_range(args, components);
+    }
     llvm::append_range(args, entry->getArguments().drop_front());
     auto result = func::CallOp::create(b, loc, callee, args);
     func::ReturnOp::create(b, loc, result.getResults());

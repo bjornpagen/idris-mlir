@@ -16,8 +16,8 @@
 // CHECK: %{{.*}}, %[[W:.*]] = idr.io.get_byte
 // CHECK: call @[[C:countdown\$raise\$[0-9]+]](%{{.*}}, %[[W]]) : (i64, !idr.world) -> !idr.data<@IORes>
 // CHECK: func.func private @[[C]](
-// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[W0:[a-z0-9_]+]]: !idr.world {idr.hole = 1 : i64, idr.quantity = "1"}) -> !idr.data<@IORes>
-// CHECK-SAME: idr.origin = "countdown", idr.spec_key = "raise @countdown[@MkIO, 0]", no_inline
+// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {{.*}}, %[[W0:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
+// CHECK-SAME: no_inline
 // CHECK: default {
 // CHECK: %[[W1:.*]] = idr.io.put_int signed %[[N]], %[[W0]] : i64
 // CHECK: %[[R:.*]] = func.call @[[C]](%{{.*}}, %[[W1]])

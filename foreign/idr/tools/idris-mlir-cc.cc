@@ -4,13 +4,18 @@
 #include "idr/Idr.h"
 #include "idr/Target.h"
 
+#include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
+#include "mlir/Debug/CLOptionsSetup.h"
+#include "mlir/Debug/Counter.h"
 #include "mlir/IR/AsmState.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Remark/RemarkStreamer.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/Timing.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
@@ -18,6 +23,7 @@
 #include "mlir/Target/LLVMIR/Export.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Function.h"
@@ -30,6 +36,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/IRObjectFile.h"
+#include "llvm/Remarks/RemarkFormat.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -66,9 +73,19 @@ cl::opt<bool> checkOnly("check",
 // No compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
 cl::opt<std::string> remarks("remarks",
-                             cl::desc("Print the remarks of these categories (a regex), e.g. "
-                                      "idr-eval"),
+                             cl::desc("Print the remarks (passed, missed, failed and analysis) "
+                                      "of these categories (a regex), e.g. idr-eval"),
                              cl::init(""));
+cl::opt<std::string> remarksFile("remarks-file",
+                                 cl::desc("Write the remarks of the categories --remarks names, "
+                                          "or of every category without it, to this YAML file"),
+                                 cl::init(""));
+// Which actions -log-actions-to logs: otherwise every one, each pass
+// execution with the whole module.
+cl::list<std::string> logActionsTags(
+    "log-actions-tags",
+    cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-eval-call"),
+    cl::CommaSeparated);
 cl::opt<bool> timing("timing", cl::desc("Report the time of each pass and LLVM stage"),
                      cl::init(false));
 cl::opt<std::string> emitKind("emit", cl::desc("obj (default), asm, llvm or mlir"),
@@ -375,33 +392,71 @@ int run() {
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
 
-  if (!remarks.empty()) {
+  // --remarks prints the remarks of its categories, of every kind;
+  // --remarks-file streams them, or every remark, to a YAML file.
+  if (!remarks.empty() || !remarksFile.empty()) {
+    std::unique_ptr<mlir::remark::detail::MLIRRemarkStreamerBase> streamer;
+    if (!remarksFile.empty()) {
+      auto file = mlir::remark::detail::LLVMRemarkStreamer::createToFile(
+          remarksFile, llvm::remarks::Format::YAML);
+      if (mlir::failed(file)) {
+        llvm::errs() << "idris-mlir-cc: cannot write the remarks to " << remarksFile << "\n";
+        return usage;
+      }
+      streamer = std::move(*file);
+    }
     mlir::remark::RemarkCategories categories;
-    categories.passed = categories.missed = remarks.getValue();
+    categories.all = remarks.empty() ? std::string(".*") : remarks.getValue();
     if (mlir::failed(mlir::remark::enableOptimizationRemarks(
-            context, nullptr, std::make_unique<mlir::remark::RemarkEmittingPolicyAll>(),
-            categories, /*printAsEmitRemarks=*/true)))
+            context, std::move(streamer), std::make_unique<mlir::remark::RemarkEmittingPolicyAll>(),
+            categories, /*printAsEmitRemarks=*/!remarks.empty())))
       return usage;
   }
-  // --no-eval: the idr-eval pass, wherever a
-  // pipeline runs it, is skipped.
-  if (noEval)
-    context.registerActionHandler([](llvm::function_ref<void()> transform,
-                                     const mlir::tracing::Action &action) {
+  // MLIR's action handler: the debug counters (-mlir-debug-counter), or
+  // -log-actions-to and -profile-actions-to, which --log-actions-tags
+  // narrows. With no tag given every action is logged, which an empty
+  // filter would not do.
+  mlir::tracing::DebugConfig debugConfig = mlir::tracing::DebugConfig::createFromCLOptions();
+  mlir::tracing::TagBreakpointManager loggedTags;
+  for (const std::string &tag : logActionsTags)
+    loggedTags.addBreakpoint(tag);
+  if (!logActionsTags.empty())
+    debugConfig.addLogActionLocFilter(&loggedTags);
+  mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
+  // --no-eval: the idr-eval pass, wherever a pipeline runs it, is skipped;
+  // every other action goes on to the handler installed before, or runs.
+  if (noEval) {
+    mlir::MLIRContext::HandlerTy next = std::move(context.getActionHandler());
+    if (!next)
+      next = [](llvm::function_ref<void()> transform, const mlir::tracing::Action &) {
+        transform();
+      };
+    context.registerActionHandler([next = std::move(next)](llvm::function_ref<void()> transform,
+                                                           const mlir::tracing::Action &action) {
       if (action.getTag() == mlir::PassExecutionAction::tag &&
           static_cast<const mlir::PassExecutionAction &>(action).getPass().getArgument() ==
               "idr-eval")
         return;
-      transform();
+      next(transform, action);
     });
+  }
   mlir::DefaultTimingManager timings;
-  timings.setEnabled(timing);
+  mlir::applyDefaultTimingManagerCLOptions(timings);
+  if (timing)
+    timings.setEnabled(true);
   mlir::TimingScope rootTiming = timings.getRootScope();
+  // --stats, LLVM's own option: the statistics of every pass manager too.
+  bool statistics = llvm::AreStatisticsEnabled();
 
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
     mlir::PassManager pm(&context);
+    if (statistics)
+      pm.enableStatistics(mlir::PassDisplayMode::List);
+    // MLIR's pass manager options, on every pass manager.
+    if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
+      return usage;
     pm.enableTiming(rootTiming);
     if (mlir::failed(mlir::parsePassPipeline(step, pm))) {
       llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << step << "\n";
@@ -522,6 +577,21 @@ int runOnLargeStack() {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM init(argc, argv);
+  // MLIR's own options, as mlir-opt has them: the pass manager's (IR
+  // printing, statistics, crash reproducers), timing, the context's, the
+  // printer's, action logging and debug counters.
+  mlir::registerAsmPrinterCLOptions();
+  mlir::registerMLIRContextCLOptions();
+  mlir::registerPassManagerCLOptions();
+  mlir::registerDefaultTimingManagerCLOptions();
+  mlir::tracing::DebugConfig::registerCLOptions();
+  mlir::tracing::DebugCounter::registerCLOptions();
+  // LLVM's -stats, which LLVM prints at exit, also prints the statistics of
+  // each step's passes.
+  if (cl::Option *stats = cl::getRegisteredOptions().lookup("stats")) {
+    stats->setDescription("Print the statistics of every pass, and LLVM's at exit");
+    stats->setHiddenFlag(cl::NotHidden);
+  }
   // Functions and blocks not reached by fallthrough start on a
   // 64-byte line. The padding is never executed, and the hot code of a
   // program no longer moves when unrelated code changes size. Given first,

@@ -27,8 +27,8 @@ e2e_v0() {
   mkdir "$work/e2e"
   copy_fixture "$1" "$work/e2e"
   # shellcheck disable=SC2046 # the directives are words
-  compile_v0 "$work/e2e" $(mlir_directives "$1/mlir.check") || return
-  run_program prog "$work/e2e/build/exec/Prog" /dev/null small
+  compile_v0 "$work/e2e" $(module_directives "$1") || return
+  run_ours prog "$work/e2e/build/exec/Prog" /dev/null small
   if [ -f "$1/expected-crash" ]; then
     v0_cause=$(cat "$1/expected-crash")
     if [ "$ran" -eq 1 ]; then say "run: exit 1, a crash"; else say "run: exit $ran, but a crash exits 1"; fi
@@ -50,24 +50,19 @@ e2e_v0() {
     empty stdout "$work/prog.out"
     empty stderr "$work/prog.err"
   fi
-  heap_free "$work/e2e/build/exec/Prog.o" $v0_symbols
-  if [ -f "$1/mlir.check" ]; then
-    check_mlir "$1/mlir.check" "$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)" \
-      "$work/e2e/build/exec/Prog.dump"
-  fi
+  heap_free "$work/e2e/build/exec/Prog.o" "$here"
+  module_checks "$1" "$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)" \
+    "$work/e2e/build/exec/Prog.dump"
 }
 
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
 # stdin against its expected-stdout and expected-exit or expected-crash,
-# with its translate.check (on full Core, 01-translate.core) and mlir.check
-# (see check_mlir). The stock Chez
+# with the checks of its modules (module_checks). The stock Chez
 # backend compiles the same program, and must print the same stdout and
 # exit with the same status (chez_agrees); with `oracle-chez` it is the only
 # oracle of stdout. `packages` names installed packages it uses.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
-  io_version=$(cd "$io_fixture/.." && pwd)
-  io_version=${io_version##*/}
   io_stdin=/dev/null
   [ -f "$io_fixture/stdin" ] && io_stdin=$io_fixture/stdin
   io_expected_exit=0
@@ -76,10 +71,7 @@ e2e_io() {
   if [ -f "$io_fixture/packages" ]; then
     for io_package in $(cat "$io_fixture/packages"); do io_packages="$io_packages -p $io_package"; done
   fi
-  io_directives=$(mlir_directives "$io_fixture/mlir.check")
-  if [ -f "$io_fixture/translate.check" ]; then
-    io_directives="$io_directives --directive dump-core"
-  fi
+  io_directives=$(module_directives "$io_fixture")
   [ -f "$io_fixture/Oracle.idr" ] && check_oracle "$io_fixture"
 
   mkdir "$work/ours"
@@ -91,7 +83,7 @@ e2e_io() {
     return
   fi
   artifacts "$work/ours" prog.core prog.mlir prog.o prog
-  run_program ours "$work/ours/build/exec/prog" "$io_stdin" small
+  run_ours ours "$work/ours/build/exec/prog" "$io_stdin" small
   io_ours_status=$ran
 
   if [ -f "$io_fixture/expected-crash" ]; then
@@ -129,15 +121,29 @@ e2e_io() {
     show "$work/ours.err"
   fi
 
-  case $io_version in
-    v2|v3) heap_free "$work/ours/build/exec/prog.o" $v2_symbols ;;
-    *) heap_free "$work/ours/build/exec/prog.o" $v1_symbols ;;
-  esac
-  [ -f "$io_fixture/translate.check" ] &&
-    filecheck "$io_fixture/translate.check" "$work/ours/build/exec/prog.dump/01-translate.core"
-  [ -f "$io_fixture/mlir.check" ] &&
-    check_mlir "$io_fixture/mlir.check" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
+  heap_free "$work/ours/build/exec/prog.o" "$here"
+  module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
   # shellcheck disable=SC2086 # the packages are words
   chez_agrees "$io_fixture" "$io_stdin" "$io_crash" "$io_ours_status" $io_packages
+}
+
+# module_directives FIXTURE: the directives that the checks of the
+# fixture's modules need, one per line.
+module_directives() {
+  {
+    mlir_directives "$1/mlir.check"
+    expect_directives "$1/mlir.expect"
+    [ -f "$1/translate.check" ] && say '--directive dump-core'
+  } | sort -u
+}
+
+# module_checks FIXTURE EMITTED DUMPS: every check of the compilation's
+# modules that the fixture holds: translate.check, FileChecked on full Core
+# (01-translate.core); mlir.check (check_mlir); mlir.expect (check_expect).
+module_checks() {
+  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$3/01-translate.core"
+  [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
+  [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
+  return 0
 }

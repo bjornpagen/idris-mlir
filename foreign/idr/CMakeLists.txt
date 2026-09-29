@@ -49,21 +49,53 @@ add_library(idr_dialect STATIC
 	lib/Eval/Eval.cc
 	lib/Eval/Jit.cc
 	lib/Eval/Reify.cc
+	lib/Expect/Allocation.cc
+	lib/Expect/Breakers.cc
+	lib/Expect/Clones.cc
+	lib/Expect/Closures.cc
+	lib/Expect/Pass.cc
+	lib/Expect/Quantities.cc
 	lib/Fold/Fold.cc
+	lib/Inline/Inline.cc
 	lib/Lower.cc
+	lib/Lower/Counting.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Matches.cc
 	lib/Lower/Patterns.cc
 	lib/Lower/Runtime.cc
 	lib/Lower/Target.cc
+	lib/Ownership/Borrow.cc
+	lib/Ownership/Counting.cc
+	lib/Ownership/Counts.cc
+	lib/Ownership/Ops.cc
+	lib/Ownership/Rc.cc
+	lib/Ownership/ResetReuse.cc
+	lib/Ownership/Verify.cc
 	lib/Registration.cc
 	lib/Passes/CheckProfile.cc
 	lib/Passes/Defunctionalize.cc
 	lib/Passes/LoopBreakers.cc
 	lib/Passes/Prune.cc
 	lib/Passes/Simplify.cc
-	lib/Passes/Specialize.cc
 	lib/Passes/TailLoops.cc
+	lib/Specialize/BindingTimes.cc
+	lib/Specialize/Clones.cc
+	lib/Specialize/Facts.cc
+	lib/Specialize/Pass.cc
+	lib/Specialize/Pattern.cc
+	lib/Specialize/Quantity.cc
+	lib/Specialize/Raise.cc
+	lib/Specialize/Run.cc
+	lib/Specialize/RunsIO.cc
+	lib/Specialize/Specialize.cc
+	lib/Stack/Cell.cc
+	lib/Stack/Escape.cc
+	lib/Stack/Pass.cc
+	lib/Stack/Recursion.cc
+	lib/Stack/Tail.cc
+	lib/Canonicalize/Pass.cc
+	lib/Support/PatternCounts.cc
+	lib/Support/PipelineStatistics.cc
 )
 add_dependencies(idr_dialect idr_tablegen)
 # Generated code is included as system headers so the project's warnings
@@ -77,6 +109,12 @@ target_include_directories(idr_dialect PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
 target_compile_definitions(idr_dialect PUBLIC ${IDR_LLVM_DEFINITIONS})
+# PIN(llvm-force-enable-stats): every translation unit, the tools' too,
+# starts with this header, so that a pass statistic has the layout the MLIR
+# library gives it in every build type.
+target_compile_options(idr_dialect PUBLIC
+	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/Support/EnableStatistics.h"
+)
 target_link_libraries(idr_dialect
 	PUBLIC
 		MLIRAnalysis
@@ -123,11 +161,15 @@ target_link_libraries(idris-mlir-opt PRIVATE
 )
 
 add_executable(idris-mlir-cc tools/idris-mlir-cc.cc)
+# MLIRDebug: the action handlers (debug counters, action logging);
+# MLIRRemarkStreamer: --remarks-file.
 target_link_libraries(idris-mlir-cc PRIVATE
 	idr_dialect
+	MLIRDebug
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
 	MLIRRegisterAllPasses
+	MLIRRemarkStreamer
 	idris_mlir_language_profile
 )
 # The runtime archive whose bitcode joins every program, checked before

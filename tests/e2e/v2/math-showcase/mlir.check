@@ -1,8 +1,13 @@
 // input: after idr-tail-loops
-// The IO loops that print the Mandelbrot set return actions and call
-// themselves inside them. Once idr-defunctionalize has made their closures
-// sums over labels, and the matches on known labels are folded, they are
-// self tail calls, which idr-tail-loops turns into loops; a loop of a
-// function Idris does not prove terminating carries idr.may_loop.
-// CHECK-COUNT-2: scf.while
+// The IO loops that print the Mandelbrot set, mandel and mandelRow, return
+// actions and call themselves inside them. Once idr-defunctionalize has made
+// their closures sums over labels, and the matches on known labels are
+// folded, they are self tail calls, which idr-tail-loops turns into loops,
+// each carrying the world; as Idris does not prove them terminating, each
+// loop carries idr.may_loop.
+// CHECK: scf.while {{.*}}!idr.world
+// CHECK-NOT: scf.while
+// CHECK: idr.may_loop
+// CHECK: scf.while {{.*}}!idr.world
+// CHECK-NOT: scf.while
 // CHECK: idr.may_loop

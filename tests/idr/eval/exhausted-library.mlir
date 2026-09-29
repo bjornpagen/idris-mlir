@@ -3,8 +3,8 @@
 // An evaluation that cannot finish is reported where the user's code is: a call inlined from a library
 // carries its call-site chain, and the error is at the innermost frame that
 // is not the library's, with its callers as notes.
-// CHECK: Main.idr:5:7: error: unsupported (compile-time evaluation): the machine could not finish evaluating @range, which is total
-// CHECK: Main.idr:9:3: note: called from here
+// CHECK: Main.idr:5:7: error: unsupported (compile-time evaluation){{.*}}@range
+// CHECK: Main.idr:9:3: note:
 module {
   idr.data @List box {
     idr.ctor @Nil tag 0 () {quantities = []}

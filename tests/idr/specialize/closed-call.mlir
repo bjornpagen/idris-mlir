@@ -5,7 +5,6 @@
 // (specializing a partial callee that never ends would unroll it one clone
 // at a time). An erased argument is not a static value: it neither makes a
 // call specializable nor keeps a closed call from being closed.
-// CHECK-NOT: idr.clone_counts
 // CHECK-NOT: $spec$
 // CHECK-LABEL: func.func private @use(
 // CHECK: call @partial(%{{.*}}, %{{.*}}) : (i64, i64) -> i64

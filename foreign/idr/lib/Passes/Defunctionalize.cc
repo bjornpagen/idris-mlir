@@ -1097,7 +1097,10 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     solver.load<LabelAnalysis>(module);
     if (failed(solver.initializeAndRun(getOperation())))
       return signalPassFailure();
-    Converter(module, solver).run();
+    Converter converter(module, solver);
+    converter.run();
+    numSums += converter.converted.size();
+    numClosures += converter.keys.size() - converter.converted.size();
   }
 };
 

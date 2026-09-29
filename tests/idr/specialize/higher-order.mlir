@@ -2,11 +2,12 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
-// A closure passed to a recursive map. Its label is static and its capture
-// a runtime leaf: the clone of @map rebuilds the closure over a new
-// parameter, and the recursive call, which passes the same closure, calls
-// the clone itself. Nothing is left to specialize after that.
-// CHECK: idr.clone_counts = {map = 1 : i64}
+// A closure passed to a recursive map, whose function is a fixed
+// parameter. Its label is static and its capture a runtime leaf: the clone
+// of @map rebuilds the closure over a new parameter, and the recursive call,
+// which passes the same closure, has the clone's key and calls the clone
+// itself: one clone serves the whole recursion. A second run changes
+// nothing.
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @Nil tag 0 () {quantities = []}
@@ -47,11 +48,10 @@ module attributes {idr.program} {
     return %c : i64
   }
   // CHECK: func.func private @[[M]](
-  // CHECK-SAME: %[[A:.*]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}, %[[L:.*]]: !idr.box<@L> {idr.hole = 1 : i64, idr.quantity = "w"})
-  // CHECK-SAME: idr.origin = "map"
-  // CHECK-SAME: idr.spec_key = "{{.*}}closure{{.*}}@add{{.*}}"
+  // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[L:[a-z0-9_]+]]: !idr.box<@L>
   // CHECK-SAME: idr.total
   // CHECK: case @Cons(%[[H:.*]]: i64, %[[T:.*]]: !idr.box<@L>)
   // CHECK: func.call @add(%[[A]], %[[H]])
   // CHECK-NEXT: call @[[M]](%[[A]], %[[T]])
+  // CHECK-NOT: func.func private @map$spec$
 }

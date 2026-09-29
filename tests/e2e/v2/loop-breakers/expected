@@ -4,6 +4,6 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-FileCheck mlir.check: ok
+mlir.expect: holds
 chez: compile exit 0
 chez: same stdout and exit status

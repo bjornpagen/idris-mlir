@@ -1,0 +1,3 @@
+# A main : Int program only exits. The runtime writes a crash's message,
+# and at exit reads IDRIS_RT_LIVE, whether to report the cells still live.
+write _exit getenv

@@ -1,7 +1,0 @@
-// input: emitted
-// Emit marks loop breakers: one of the two functions
-// of the cycle, the first in program order, `even`, gets no_inline, and
-// only it.
-// CHECK-NOT: no_inline
-// CHECK: func.func private @Main.even({{.*}}attributes {{[{][^}]*}}no_inline
-// CHECK-NOT: no_inline

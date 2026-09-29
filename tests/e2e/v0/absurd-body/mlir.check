@@ -3,7 +3,8 @@
 // value of the result type is invented; the body returns ub.poison, which
 // is never reached (a function body never ends in ub.unreachable, which
 // the pinned inliner cannot inline). It never runs.
-// CHECK: func.func private @Prog.never(%{{[0-9]+}}: !idr.data<@Prog.Never> {idr.quantity = "w"}) -> i64
-// CHECK-NEXT: %[[P:[a-z0-9_]+]] = ub.poison : i64
-// CHECK-NEXT: func.return %[[P]] : i64
-// CHECK-NEXT: } loc("Prog.never"
+// CHECK-LABEL: func.func {{.*}}@Prog.never(
+// CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
+// CHECK: %[[P:[^ ]+]] = ub.poison : i64
+// CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
+// CHECK: func.return %[[P]] : i64

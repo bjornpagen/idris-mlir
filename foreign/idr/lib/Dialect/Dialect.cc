@@ -3,6 +3,8 @@
 
 #include "idr/Idr.h"
 
+#include "Ownership/Ownership.h"
+
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
@@ -373,6 +375,14 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.program as a unit attribute of the module");
     return verifyProgram(cast<ModuleOp>(op));
   }
+  // After idr-rc every reference is explicit, and consumed exactly once on
+  // every path (lib/Ownership).
+  if (key == ownership::stageAttr) {
+    auto stage = dyn_cast<StringAttr>(attr.getValue());
+    if (!isa<ModuleOp>(op) || !stage || stage.getValue() != ownership::ownedStage)
+      return op->emitOpError("expects idr.stage = \"owned\" on the module");
+    return ownership::verifyOwned(cast<ModuleOp>(op));
+  }
   // The facts of a function (lib/Facts): what Idris proves, whether it was
   // written in a library, and what idr-effects finds.
   if (key == "idr.total" || key == "idr.library" || key == "idr.may_crash") {
@@ -383,6 +393,14 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   if (key == "idr.effects") {
     if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))
       return op->emitOpError("expects idr.effects = #idr.effects<...> on a function");
+    return success();
+  }
+  // idr-stack's mark of a box whose cell never leaves its frame
+  // (lib/Stack/Pass.cc).
+  if (key == "idr.stack") {
+    auto con = dyn_cast<ConOp>(op);
+    if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
+      return op->emitOpError("expects idr.stack as a unit attribute of an idr.con of a box");
     return success();
   }
   if (key == "idr.effect") {
@@ -415,9 +433,16 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
              << (key == "idr.spec_caller" ? "call" : "function");
     return success();
   }
-  if (key == "idr.origin" || key == "idr.spec_key") {
+  if (key == "idr.origin") {
     if (!isa<func::FuncOp>(op) || !isa<StringAttr>(attr.getValue()))
-      return op->emitOpError("expects ") << key << " as a string attribute of a function";
+      return op->emitOpError("expects idr.origin as a string attribute of a function");
+    return success();
+  }
+  if (key == "idr.spec_key") {
+    Attribute value = attr.getValue();
+    if (!isa<func::FuncOp>(op) ||
+        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr, KeyWriteAttr, StringAttr>(value))
+      return op->emitOpError("expects idr.spec_key as the key of a clone");
     return success();
   }
   if (key == "idr.spec_stopped_at") {
@@ -442,6 +467,15 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
   // idr-specialize numbers a clone's parameters by the holes of its key.
   if (attr.getName().getValue() == "idr.hole" && fn && isa<IntegerAttr>(attr.getValue()))
     return success();
+  // idr-rc's parameters that the function borrows (lib/Ownership).
+  if (attr.getName().getValue() == ownership::borrowedAttr && fn) {
+    if (!isa<UnitAttr>(attr.getValue()) ||
+        !isa<StrType, BigType, BoxType, FnType, DataType>(fn.getArgumentTypes()[argIndex]))
+      return op->emitOpError("expects idr.borrowed as a unit attribute of a parameter that "
+                             "holds references, not of argument ")
+             << argIndex;
+    return success();
+  }
   // idr-effects marks a string the function writes before anything else.
   if (attr.getName().getValue() == "idr.writes_first" && fn && isa<UnitAttr>(attr.getValue()) &&
       isa<StrType>(fn.getArgumentTypes()[argIndex]))

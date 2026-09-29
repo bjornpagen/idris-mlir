@@ -10,7 +10,8 @@
 // CHECK-DAG: llvm.mlir.constant(dense<[-1, 1]> : tensor<2xi64>) : !llvm.array<2 x i64>
 // CHECK-DAG: llvm.mlir.constant(-2 : i32) : i32
 // CHECK-DAG: llvm.mlir.global private constant @[[B:__idr_big_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, i32, i32, ptr)>
-// CHECK-DAG: llvm.mlir.global private constant @[[BOX:__idr_box_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, i64, ptr)>
+// A box's counted fields come first.
+// CHECK-DAG: llvm.mlir.global private constant @[[BOX:__idr_box_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, ptr, i64)>
 // CHECK-DAG: llvm.mlir.global private constant @[[CL:__idr_closure_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, ptr, ptr)>
 // The string "hé!": not ASCII, 4 bytes, 3 scalars.
 // CHECK-DAG: %{{.*}} = llvm.mlir.constant("h\C3\A9!") : !llvm.array<4 x i8>

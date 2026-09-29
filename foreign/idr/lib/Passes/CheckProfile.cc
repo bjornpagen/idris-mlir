@@ -184,7 +184,8 @@ struct Checker {
     if (isBuilt<idr::StrType>(op))
       if (std::optional<Violation> v = builtString(op))
         return v;
-    if (!isa<idr::PutStrOp>(op) && !isBuilt<idr::StrType>(op) && !isPassing(op))
+    if (!isa<idr::PutStrOp, idr::IncOp, idr::DecOp>(op) && !isBuilt<idr::StrType>(op) &&
+        !isPassing(op))
       if (std::optional<Violation> v = stringPrimitive(op))
         return v;
     if (isBuilt<idr::BigType>(op))
@@ -247,6 +248,7 @@ struct CheckProfile : idr::impl::IdrCheckProfileBase<CheckProfile> {
   void runOnOperation() override {
     Checker checker(getOperation());
     WalkResult result = getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) {
+      ++numChecked;
       std::optional<Violation> violation = checker.check(op);
       if (!violation)
         return WalkResult::advance();

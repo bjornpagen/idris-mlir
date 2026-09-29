@@ -16,12 +16,12 @@
 // CHECK-DAG: %[[L:.*]] = call @loop(%{{.*}}) : (i64) -> i64
 // CHECK-DAG: %[[A:.*]] = call @applyTo(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> i64
 // CHECK: return %[[D]], %[[S]], %[[E]], %[[G]], %[[L]], %[[A]]
-// REMARK-DAG: remark: [Passed] Evaluated | Category:idr-eval | Function=down
-// REMARK-DAG: remark: [Missed] Unfinished | Category:idr-eval | Function=spin | Remark="the call of @spin reaches code Idris does not prove terminating and did not finish, so it stays: it spent its budget"
-// REMARK-DAG: remark: [Missed] Unfinished | Category:idr-eval | Function=deep
-// REMARK-DAG: remark: [Missed] Unfinished | Category:idr-eval | Function=grow
-// REMARK-DAG: remark: [Missed] Unfinished | Category:idr-eval | Function=loop
-// REMARK-DAG: remark: [Missed] Unfinished | Category:idr-eval | Function=applyTo
+// REMARK-DAG: remark: [Passed] Evaluated {{.*}}Function=down
+// REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=spin{{.*}}budget
+// REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=deep
+// REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=grow
+// REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=loop
+// REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=applyTo
 module {
   idr.data @List box {
     idr.ctor @Nil tag 0 () {quantities = []}

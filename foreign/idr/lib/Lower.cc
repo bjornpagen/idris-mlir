@@ -17,8 +17,9 @@ namespace {
 
 // The root, the only public function, becomes private, and
 // @main runs it. Its type is its kind: `() -> i64` returns the exit status
-// (its low 8 bits); an IO root takes the world, and main then writes
-// pending output and returns 0.
+// (its low 8 bits); an IO root takes the world, and main then returns 0.
+// Either way main ends in idris_rt_main_return, which writes pending
+// output and, when asked, how many cells are still live.
 FailureOr<func::FuncOp> findRoot(ModuleOp module) {
   SmallVector<func::FuncOp> roots;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -39,12 +40,11 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &
   b.setInsertionPointToStart(main.addEntryBlock());
   auto call = func::CallOp::create(b, loc, root, ValueRange{});
   Value status;
-  if (io) {
-    runtime.call(b, loc, "idris_rt_flush", Type(), ValueRange{});
+  if (io)
     status = arith::ConstantOp::create(b, loc, b.getI32IntegerAttr(0));
-  } else {
+  else
     status = arith::TruncIOp::create(b, loc, b.getI32Type(), call.getResult(0));
-  }
+  runtime.call(b, loc, "idris_rt_main_return", Type(), ValueRange{});
   func::ReturnOp::create(b, loc, status);
 }
 

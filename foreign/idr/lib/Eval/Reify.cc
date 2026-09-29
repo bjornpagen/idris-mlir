@@ -91,13 +91,15 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
   }
   const char *cell = pointer<char>(word);
   const auto *header = pointer<idris_rt_header>(word);
+  // The low 16 bits of the info word are a box's tag or a closure's label.
+  uint32_t tag = header->info & lower::tagMask;
   if (isa<BoxType>(type)) {
     DataOp decl = lookupData(layouts.getModule(), type);
-    CtorOp ctor = withTag(decl, header->info);
+    CtorOp ctor = withTag(decl, tag);
     return constructor(decl, ctor,
                        [&](unsigned field) { return read(cell, layouts.box(ctor).fields[field]); });
   }
-  const lower::Label &label = layouts.label(header->info);
+  const lower::Label &label = layouts.label(tag);
   const lower::Cell &layout = layouts.closure(label);
   SmallVector<Attribute> captures;
   for (auto [slots, captureType] :

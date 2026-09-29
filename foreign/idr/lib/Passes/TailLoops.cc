@@ -175,6 +175,7 @@ struct TailLoops : idr::impl::IdrTailLoopsBase<TailLoops> {
       if (fn.isExternal() || !reachesTailCall(fn.getBody().front(), fn))
         continue;
       Loop{fn, fn.getArgumentTypes(), fn.getResultTypes(), b}.build();
+      ++numLoops;
     }
   }
 };

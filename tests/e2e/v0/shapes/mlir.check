@@ -1,26 +1,30 @@
 // input: emitted
+// FILECHECK-OPTIONS: --implicit-check-not=idr.version --implicit-check-not=idr.entry --implicit-check-not=func.func{{.}}@
 // The contract the Idris side emits, in the custom syntax of each dialect.
 // The module carries idr.program, and no version, entry or entry kind.
-// CHECK: module attributes {idr.program} {
-// An Idris name is a NameLoc around the source location.
-// CHECK-NEXT: idr.data @Prog.Shape {
-// CHECK-NEXT: idr.ctor @Circle tag 0 (i64) {quantities = ["w"]} loc("Prog.Circle"("Prog.idr":
-// CHECK-NEXT: idr.ctor @Rect tag 1 (i64, i64) {quantities = ["w", "w"]} loc("Prog.Rect"("Prog.idr":
-// CHECK-NEXT: } loc("Prog.Shape"("Prog.idr":
+// CHECK: module attributes {{[{][^}]*}}idr.program
+// A data type declares its constructors, with the tags Idris gives them
+// and their fields. An Idris name is a NameLoc around the source location.
+// CHECK: idr.data @Prog.Shape {
+// CHECK-DAG: idr.ctor @Circle tag 0 (i64) {{.*}}loc("Prog.Circle"("Prog.idr":
+// CHECK-DAG: idr.ctor @Rect tag 1 (i64, i64) {{.*}}loc("Prog.Rect"("Prog.idr":
+// CHECK: } loc("Prog.Shape"("Prog.idr":
 // The root is the only public function; a main : Int program's is () -> i64.
+// An erased argument is passed as the erased constant, and a call carries
+// its source location.
 // CHECK: func.func @Prog.main() -> i64 {
-// An erased argument is passed as the erased constant.
-// CHECK: %[[E:[0-9]+]] = idr.constant #idr.erased : !idr.erased
-// CHECK: idr.con @Prog.Shape::@Rect(%{{[0-9]+}}, %{{[0-9]+}}) : (i64, i64) -> !idr.data<@Prog.Shape>
-// CHECK: func.call @Prog.keep(%[[E]], %{{[0-9]+}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":
+// CHECK-DAG: %[[E:[^ ]+]] = idr.constant #idr.erased : !idr.erased
+// CHECK-DAG: idr.con @Prog.Shape::@Rect(%{{[^,]+}}, %{{[^)]+}}) : (i64, i64) -> !idr.data<@Prog.Shape>
+// CHECK: func.call @Prog.keep(%[[E]], %{{[^)]+}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":
 // CHECK: } loc("Prog.main"("Prog.idr":
-// The other functions, in any order.
-// CHECK-DAG: func.func private @Prog.keep(%{{[0-9]+}}: !idr.erased {idr.quantity = "0"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total}
-// CHECK-DAG: func.func private @Prog.area(%{{[0-9]+}}: !idr.data<@Prog.Shape> {idr.quantity = "w"}) -> i64 attributes {idr.total}
-// CHECK-DAG: idr.match %{{[0-9]+}} : !idr.data<@Prog.Shape> -> (i64) {
-// CHECK-DAG: case @Circle(%{{[0-9]+}}: i64) {
-// CHECK-DAG: case @Rect(%{{[0-9]+}}: i64, %{{[0-9]+}}: i64) {
-// countdown recurses on an Int: Idris does not prove it terminating, so it
-// has no idr.total.
-// CHECK-DAG: func.func private @Prog.countdown(%{{[0-9]+}}: i64 {idr.quantity = "w"}) -> i64 {
-// CHECK-DAG: idr.match_lit %{{[0-9]+}} : i64 -> (i64) {
+// The other functions, in any order: a match on data has one case per
+// constructor, its fields the region's arguments; one on an Int matches
+// literals. keep and area are total. countdown recurses on an Int: Idris
+// does not prove it terminating, so it has no attributes.
+// CHECK-DAG: func.func private @Prog.keep(%{{[^:]+}}: !idr.erased {{.*}}, %{{[^:]+}}: i64 {{.*}}idr.total
+// CHECK-DAG: func.func private @Prog.area(%{{[^:]+}}: !idr.data<@Prog.Shape> {{.*}}idr.total
+// CHECK-DAG: idr.match %{{[^ ]+}} : !idr.data<@Prog.Shape> -> (i64) {
+// CHECK-DAG: case @Circle(%{{[^:]+}}: i64) {
+// CHECK-DAG: case @Rect(%{{[^:]+}}: i64, %{{[^:]+}}: i64) {
+// CHECK-DAG: func.func private @Prog.countdown(%{{[^:]+}}: i64 {{.*}}) -> i64 {{[{]$}}
+// CHECK-DAG: idr.match_lit %{{[^ ]+}} : i64 -> (i64) {

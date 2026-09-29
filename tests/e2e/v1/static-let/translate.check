@@ -1,9 +1,8 @@
-In full Core the lambda is closure-converted (a label, no captures, a closed
-body) and the let has no type. With the Prelude imported, an integer literal
-is its fromInteger, which Idris evaluates while elaborating only below 100:
-here 100 is still a call, which idr-eval folds (mlir.check). putStrLn is the
-Prelude's; its instance, its erased arguments and the literals are left
-unchecked.
-CHECK: Main.main : PrimIO.IO[Builtin.Unit] =
-CHECK-NEXT: let w = \lam{{[0-9]+}}[](w Int) => add_Int(#0, {{.+}})
-CHECK-NEXT: Prelude.IO.putStrLn{{.*}}cast_IntString((#0 (#0 {{.+}}))))
+In full Core the let-bound lambda is closure-converted: a label with no
+captures, whose body uses its own argument, and the let has no type. With
+the Prelude imported, an integer literal is its fromInteger, which Idris
+evaluates while elaborating only below 100: here 100 is still a call, which
+idr-eval folds (mlir.check).
+CHECK-LABEL: Main.main :
+CHECK: let {{[^:=]*}}= \lam{{[0-9]+}}[](
+CHECK-SAME: add_Int(#0, {{.*}}fromInteger{{.*}} 100

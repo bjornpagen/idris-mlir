@@ -10,15 +10,19 @@ using namespace mlir;
 
 namespace idr::lower {
 
-namespace {
+Value buildBox(OpBuilder &b, Location loc, Layouts &layouts, Runtime &runtime, CtorOp ctor,
+               Value cell, ArrayRef<ValueRange> fields) {
+  const Cell &layout = layouts.box(ctor);
+  if (!cell)
+    cell = runtime.allocate(b, loc, layout.size,
+                            cellInfo(static_cast<uint32_t>(ctor.getTag()), layout.objs,
+                                     CellKind::Box));
+  for (auto [slots, values] : llvm::zip_equal(layout.fields, fields))
+    runtime.store(b, loc, cell, slots, values);
+  return cell;
+}
 
-template <typename OpT>
-struct IdrPattern : OpConversionPattern<OpT> {
-  IdrPattern(const TypeConverter &converter, MLIRContext *ctx, Layouts &l, Runtime &r)
-      : OpConversionPattern<OpT>(converter, ctx), layouts(l), runtime(r) {}
-  Layouts &layouts;
-  Runtime &runtime;
-};
+namespace {
 
 SmallVector<Value> flatten(ArrayRef<ValueRange> operands) {
   SmallVector<Value> values;
@@ -31,9 +35,9 @@ Value constantI64(OpBuilder &b, Location loc, int64_t value) {
   return arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(value));
 }
 
-// An unboxed constructor is its tag and its components in their slots,
-// poison in the slots it does not use. A boxed one is a new cell holding its
-// tag and components.
+// An unboxed constructor is its tag and its components in their slots, an
+// empty value in the counted slots it does not use and poison in the
+// others. A boxed one is a new cell holding its tag and components.
 struct LowerCon : IdrPattern<ConOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ConOp op, OneToNOpAdaptor adaptor,
@@ -41,10 +45,7 @@ struct LowerCon : IdrPattern<ConOp> {
     Location loc = op.getLoc();
     CtorOp ctor = lookupCtor(op, op.getCtor());
     if (isa<BoxType>(op.getType())) {
-      const Cell &cell = layouts.box(ctor);
-      Value box = runtime.allocate(rewriter, loc, cell.size, static_cast<uint32_t>(ctor.getTag()));
-      for (auto [slots, values] : llvm::zip_equal(cell.fields, adaptor.getFields()))
-        runtime.store(rewriter, loc, box, slots, values);
+      Value box = buildBox(rewriter, loc, layouts, runtime, ctor, Value(), adaptor.getFields());
       rewriter.replaceOp(op, box);
       return success();
     }
@@ -59,8 +60,10 @@ struct LowerCon : IdrPattern<ConOp> {
       out.push_back(arith::ConstantOp::create(
           rewriter, loc, IntegerAttr::get(layout.tag, static_cast<int64_t>(ctor.getTag()))));
     for (auto [slot, value] : llvm::enumerate(slots))
-      out.push_back(value ? value
-                          : ub::PoisonOp::create(rewriter, loc, layout.slots[slot]).getResult());
+      out.push_back(value                  ? value
+                    : layout.counted[slot] ? runtime.null(rewriter, loc, layout.slots[slot])
+                                           : ub::PoisonOp::create(rewriter, loc, layout.slots[slot])
+                                                 .getResult());
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
@@ -75,7 +78,7 @@ struct LowerTag : IdrPattern<TagOp> {
     Location loc = op.getLoc();
     auto i64 = rewriter.getI64Type();
     if (isa<BoxType>(op.getValue().getType())) {
-      Value tag = runtime.loadInfo(rewriter, loc, adaptor.getValue().front());
+      Value tag = runtime.loadTag(rewriter, loc, adaptor.getValue().front());
       rewriter.replaceOpWithNewOp<arith::ExtUIOp>(op, i64, tag);
       return success();
     }
@@ -134,7 +137,8 @@ struct LowerClosure : IdrPattern<ClosureOp> {
     const Label &label = layouts.label(layouts.labelId(
         op.getCalleeAttr(), static_cast<unsigned>(op.getCaptures().size())));
     const Cell &cell = layouts.closure(label);
-    Value closure = runtime.allocate(rewriter, loc, cell.size, layouts.labelId(label));
+    Value closure = runtime.allocate(rewriter, loc, cell.size,
+                                     cellInfo(layouts.labelId(label), cell.objs, CellKind::Closure));
     runtime.store(rewriter, loc, closure, cell.fields.front(), runtime.code(rewriter, loc, label));
     for (auto [slots, values] :
          llvm::zip_equal(ArrayRef(cell.fields).drop_front(), adaptor.getCaptures()))
@@ -198,14 +202,19 @@ struct LowerMayLoop : IdrPattern<MayLoopOp> {
   }
 };
 
-// Poison of an idr type becomes poison of each component.
+// Poison of an idr type becomes poison of each component, but for the
+// counted ones, which are empty: poison may still be dropped, as what a
+// function nobody reads is passed, or what idr-tail-loops forwards on the
+// path it does not take.
 struct LowerPoison : IdrPattern<ub::PoisonOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ub::PoisonOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     SmallVector<Value> out;
-    for (Type type : layouts.components(op.getType()))
-      out.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
+    for (auto [type, isCounted] :
+         llvm::zip_equal(layouts.components(op.getType()), layouts.counted(op.getType())))
+      out.push_back(isCounted ? runtime.null(rewriter, op.getLoc(), type)
+                              : ub::PoisonOp::create(rewriter, op.getLoc(), type).getResult());
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
@@ -463,6 +472,7 @@ void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
+  populateCountingPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerClosure, LowerApply,
                LowerCrash, LowerMayLoop, LowerPoison, LowerSelect, LowerToChar,
                LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,

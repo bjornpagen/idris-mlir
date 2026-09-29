@@ -51,16 +51,23 @@ mlir_directives() {
   [ "$(mlir_input "$1")" = emitted ] || say '--directive dump-mlir'
 }
 
+# step_module STEP EMITTED DUMPS: the module of STEP, `emitted` (EMITTED) or
+# the first dump of that step in the directory DUMPS; nothing, and status
+# 1, when that step left no dump.
+step_module() {
+  if [ "$1" = emitted ]; then
+    say "$2"
+    return
+  fi
+  step_module_file=$(find "$3" -maxdepth 1 -type f -name "[0-9]*-$1.mlir" 2> /dev/null | sort | head -n 1)
+  [ -n "$step_module_file" ] && say "$step_module_file"
+}
+
 # check_mlir CHECK EMITTED DUMPS: FileCheck of CHECK on its input, the emitted
 # module EMITTED or a module of the directory DUMPS.
 check_mlir() {
   check_mlir_step=$(mlir_input "$1")
-  if [ "$check_mlir_step" = emitted ]; then
-    filecheck "$1" "$2"
-    return
-  fi
-  check_mlir_file=$(find "$3" -maxdepth 1 -type f -name "[0-9]*-$check_mlir_step.mlir" 2> /dev/null | sort | head -n 1)
-  if [ -z "$check_mlir_file" ]; then
+  if ! check_mlir_file=$(step_module "$check_mlir_step" "$2" "$3"); then
     say "${1##*/}: no module dumped after $check_mlir_step"
     ls "$3" 2> /dev/null | sed 's/^/  | /'
     return

@@ -28,19 +28,17 @@ SmallVector<Type> SumLayout::types() const {
 SmallVector<Type> Cell::members(MLIRContext *ctx) const {
   auto i32 = IntegerType::get(ctx, 32);
   SmallVector<Type> all{i32, i32};
-  for (const auto &field : fields)
-    for (const Slot &slot : field)
-      all.push_back(slot.type);
+  for (auto [field, component] : order)
+    all.push_back(fields[field][component].type);
   return all;
 }
 
 Layouts::Layouts(ModuleOp m) : module(m) {
   auto note = [&](FlatSymbolRefAttr callee, unsigned captures) {
     auto key = std::make_pair(Attribute(callee), captures);
-    if (labelIds.try_emplace(key, static_cast<unsigned>(labels.size())).second)
-      labels.push_back(
-          {callee, captures,
-           module.lookupSymbol<func::FuncOp>(callee.getAttr()).getFunctionType()});
+    auto fn = module.lookupSymbol<func::FuncOp>(callee.getAttr());
+    if (fn && labelIds.try_emplace(key, static_cast<unsigned>(labels.size())).second)
+      labels.push_back({callee, captures, fn.getFunctionType()});
   };
   module.walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (auto closure = dyn_cast<ClosureOp>(op))
@@ -58,7 +56,7 @@ unsigned Layouts::labelId(FlatSymbolRefAttr callee, unsigned captures) const {
 const SumLayout &Layouts::sum(StringAttr name) {
   auto it = sums.find(name);
   if (it != sums.end())
-    return it->second;
+    return *it->second;
   auto data = module.lookupSymbol<DataOp>(name);
   SumLayout layout;
   auto ctors = data.getCtors();
@@ -71,16 +69,19 @@ const SumLayout &Layouts::sum(StringAttr name) {
     SmallVector<bool> used(layout.slots.size(), false);
     SmallVector<SmallVector<unsigned>> perField;
     for (Attribute field : ctor.getFieldTypes()) {
+      Type fieldType = cast<TypeAttr>(field).getValue();
       SmallVector<unsigned> slots;
-      for (Type component : components(cast<TypeAttr>(field).getValue())) {
+      for (auto [component, isCounted] :
+           llvm::zip_equal(components(fieldType), counted(fieldType))) {
         auto chosen = static_cast<unsigned>(layout.slots.size());
         for (unsigned i = 0; i < layout.slots.size(); ++i)
-          if (!used[i] && layout.slots[i] == component) {
+          if (!used[i] && layout.slots[i] == component && layout.counted[i] == isCounted) {
             chosen = i;
             break;
           }
         if (chosen == layout.slots.size()) {
           layout.slots.push_back(component);
+          layout.counted.push_back(isCounted);
           used.push_back(false);
         }
         used[chosen] = true;
@@ -90,14 +91,16 @@ const SumLayout &Layouts::sum(StringAttr name) {
     }
     layout.fields[ctor.getSymName()] = std::move(perField);
   }
-  return sums.try_emplace(name, std::move(layout)).first->second;
+  auto &slot = sums[name];
+  slot = std::make_unique<SumLayout>(std::move(layout));
+  return *slot;
 }
 
 SmallVector<Type> Layouts::components(Type type) {
   MLIRContext *ctx = module.getContext();
   if (isa<ErasedType, WorldType>(type))
     return {};
-  if (isa<StrType, BoxType, FnType>(type))
+  if (isa<StrType, BoxType, FnType, TokenType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
   if (isa<BigType>(type))
     return {IntegerType::get(ctx, 64)};
@@ -106,19 +109,56 @@ SmallVector<Type> Layouts::components(Type type) {
   return {type};
 }
 
-Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned start) {
+SmallVector<bool> Layouts::counted(Type type) {
+  if (isa<ErasedType, WorldType>(type))
+    return {};
+  if (isa<StrType, BoxType, FnType, TokenType, BigType>(type))
+    return {true};
+  if (auto data = dyn_cast<DataType>(type)) {
+    const SumLayout &layout = sum(data.getName().getAttr());
+    SmallVector<bool> all;
+    if (layout.tag)
+      all.push_back(false);
+    all.append(layout.counted.begin(), layout.counted.end());
+    return all;
+  }
+  return {false};
+}
+
+Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading) {
   Cell cell;
-  unsigned at = start;
+  SmallVector<SmallVector<bool>> countedness;
   for (Type field : fieldTypes) {
     SmallVector<Slot> slots;
-    for (Type component : components(field)) {
-      unsigned size = sizeOf(component);
-      at = llvm::alignTo(at, size);
-      slots.push_back({component, at});
-      at += size;
-    }
+    for (Type component : components(field))
+      slots.push_back({component, 0});
     cell.fields.push_back(std::move(slots));
+    countedness.push_back(counted(field));
   }
+  unsigned at = 8;
+  auto place = [&](unsigned field, unsigned component) {
+    Slot &slot = cell.fields[field][component];
+    unsigned size = sizeOf(slot.type);
+    at = static_cast<unsigned>(llvm::alignTo(at, size));
+    slot.offset = at;
+    at += size;
+    cell.order.push_back({field, component});
+  };
+  auto fields = static_cast<unsigned>(fieldTypes.size());
+  for (unsigned f = 0; f < std::min(leading, fields); ++f)
+    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+      place(f, c);
+  // The object slots, each 8 bytes, so contiguous.
+  for (unsigned f = leading; f < fields; ++f)
+    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+      if (countedness[f][c]) {
+        place(f, c);
+        ++cell.objs;
+      }
+  for (unsigned f = leading; f < fields; ++f)
+    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+      if (!countedness[f][c])
+        place(f, c);
   cell.size = static_cast<unsigned>(llvm::alignTo(at, 8));
   return cell;
 }
@@ -126,21 +166,23 @@ Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned start) {
 const Cell &Layouts::box(CtorOp ctor) {
   auto it = boxes.find(ctor);
   if (it != boxes.end())
-    return it->second;
+    return *it->second;
   SmallVector<Type> fields;
   for (Attribute field : ctor.getFieldTypes())
     fields.push_back(cast<TypeAttr>(field).getValue());
-  return boxes.try_emplace(ctor, cellOf(fields, 8)).first->second;
+  auto cell = std::make_unique<Cell>(cellOf(fields, 0));
+  return *(boxes[ctor] = std::move(cell));
 }
 
 const Cell &Layouts::closure(const Label &label) {
   unsigned id = labelId(label);
   auto it = closures.find(id);
   if (it != closures.end())
-    return it->second;
+    return *it->second;
   SmallVector<Type> fields{LLVM::LLVMPointerType::get(module.getContext())};
   llvm::append_range(fields, label.captureTypes());
-  return closures.try_emplace(id, cellOf(fields, 8)).first->second;
+  auto cell = std::make_unique<Cell>(cellOf(fields, 1));
+  return *(closures[id] = std::move(cell));
 }
 
 } // namespace idr::lower

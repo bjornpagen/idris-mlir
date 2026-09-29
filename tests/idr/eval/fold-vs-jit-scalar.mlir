@@ -38,8 +38,8 @@ module {
     return %r : i8
   }
   // CHECK-LABEL: func.func @case0(
-  // CHECK-NEXT: %{{.*}} = arith.constant -4 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -4 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case0() -> i64 {
     %x0 = arith.constant -7 : i64
     %x1 = arith.constant 2 : i64
@@ -47,8 +47,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case1(
-  // CHECK-NEXT: %{{.*}} = arith.constant -3 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -3 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case1() -> i64 {
     %x0 = arith.constant 7 : i64
     %x1 = arith.constant -2 : i64
@@ -56,8 +56,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case2(
-  // CHECK-NEXT: %{{.*}} = arith.constant 4 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 4 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case2() -> i64 {
     %x0 = arith.constant -7 : i64
     %x1 = arith.constant -2 : i64
@@ -65,8 +65,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case3(
-  // CHECK-NEXT: %{{.*}} = arith.constant -9223372036854775808 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -9223372036854775808 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case3() -> i64 {
     %x0 = arith.constant -9223372036854775808 : i64
     %x1 = arith.constant -1 : i64
@@ -74,8 +74,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case4(
-  // CHECK-NEXT: %{{.*}} = arith.constant 1 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case4() -> i64 {
     %x0 = arith.constant -7 : i64
     %x1 = arith.constant 2 : i64
@@ -83,8 +83,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case5(
-  // CHECK-NEXT: %{{.*}} = arith.constant 1 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case5() -> i64 {
     %x0 = arith.constant -7 : i64
     %x1 = arith.constant -2 : i64
@@ -92,8 +92,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case6(
-  // CHECK-NEXT: %{{.*}} = arith.constant 1 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case6() -> i64 {
     %x0 = arith.constant 7 : i64
     %x1 = arith.constant -2 : i64
@@ -101,8 +101,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case7(
-  // CHECK-NEXT: %{{.*}} = arith.constant 0 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case7() -> i64 {
     %x0 = arith.constant -9223372036854775808 : i64
     %x1 = arith.constant -1 : i64
@@ -110,8 +110,8 @@ module {
     return %r : i64
   }
   // CHECK-LABEL: func.func @case8(
-  // CHECK-NEXT: %{{.*}} = arith.constant 35 : i8
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 35 : i8
+  // CHECK-NEXT: return %[[V]]
   func.func @case8() -> i8 {
     %x0 = arith.constant -6 : i8
     %x1 = arith.constant 7 : i8
@@ -119,8 +119,8 @@ module {
     return %r : i8
   }
   // CHECK-LABEL: func.func @case9(
-  // CHECK-NEXT: %{{.*}} = arith.constant 5 : i8
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 5 : i8
+  // CHECK-NEXT: return %[[V]]
   func.func @case9() -> i8 {
     %x0 = arith.constant -6 : i8
     %x1 = arith.constant 7 : i8
@@ -128,72 +128,72 @@ module {
     return %r : i8
   }
   // CHECK-LABEL: func.func @case10(
-  // CHECK-NEXT: %{{.*}} = arith.constant 65 : i32
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 65 : i32
+  // CHECK-NEXT: return %[[V]]
   func.func @case10() -> i32 {
     %x0 = arith.constant 65 : i64
     %r = func.call @to_char_s64(%x0) : (i64) -> i32
     return %r : i32
   }
   // CHECK-LABEL: func.func @case11(
-  // CHECK-NEXT: %{{.*}} = arith.constant 0 : i32
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i32
+  // CHECK-NEXT: return %[[V]]
   func.func @case11() -> i32 {
     %x0 = arith.constant 1114112 : i64
     %r = func.call @to_char_s64(%x0) : (i64) -> i32
     return %r : i32
   }
   // CHECK-LABEL: func.func @case12(
-  // CHECK-NEXT: %{{.*}} = arith.constant 0 : i32
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i32
+  // CHECK-NEXT: return %[[V]]
   func.func @case12() -> i32 {
     %x0 = arith.constant 55296 : i64
     %r = func.call @to_char_s64(%x0) : (i64) -> i32
     return %r : i32
   }
   // CHECK-LABEL: func.func @case13(
-  // CHECK-NEXT: %{{.*}} = arith.constant 0 : i32
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i32
+  // CHECK-NEXT: return %[[V]]
   func.func @case13() -> i32 {
     %x0 = arith.constant -1 : i64
     %r = func.call @to_char_s64(%x0) : (i64) -> i32
     return %r : i32
   }
   // CHECK-LABEL: func.func @case14(
-  // CHECK-NEXT: %{{.*}} = arith.constant 255 : i32
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 255 : i32
+  // CHECK-NEXT: return %[[V]]
   func.func @case14() -> i32 {
     %x0 = arith.constant -1 : i8
     %r = func.call @to_char_u8(%x0) : (i8) -> i32
     return %r : i32
   }
   // CHECK-LABEL: func.func @case15(
-  // CHECK-NEXT: %{{.*}} = arith.constant -2 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -2 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case15() -> i64 {
     %x0 = arith.constant -2.75 : f64
     %r = func.call @to_int_i64(%x0) : (f64) -> i64
     return %r : i64
   }
   // CHECK-LABEL: func.func @case16(
-  // CHECK-NEXT: %{{.*}} = arith.constant 7766279631452241920 : i64
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 7766279631452241920 : i64
+  // CHECK-NEXT: return %[[V]]
   func.func @case16() -> i64 {
     %x0 = arith.constant 1.0e+20 : f64
     %r = func.call @to_int_i64(%x0) : (f64) -> i64
     return %r : i64
   }
   // CHECK-LABEL: func.func @case17(
-  // CHECK-NEXT: %{{.*}} = arith.constant 44 : i8
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 44 : i8
+  // CHECK-NEXT: return %[[V]]
   func.func @case17() -> i8 {
     %x0 = arith.constant 300.5 : f64
     %r = func.call @to_int_i8(%x0) : (f64) -> i8
     return %r : i8
   }
   // CHECK-LABEL: func.func @case18(
-  // CHECK-NEXT: %{{.*}} = arith.constant 127 : i8
-  // CHECK-NEXT: return
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 127 : i8
+  // CHECK-NEXT: return %[[V]]
   func.func @case18() -> i8 {
     %x0 = arith.constant -129.0 : f64
     %r = func.call @to_int_i8(%x0) : (f64) -> i8

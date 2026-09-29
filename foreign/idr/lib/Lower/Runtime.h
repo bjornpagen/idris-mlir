@@ -37,14 +37,29 @@ public:
   // metered call that does not end.
   void mayLoop(mlir::OpBuilder &b, mlir::Location loc);
 
-  // A new cell of `size` bytes with its header: count 1 and `info`.
+  // A new cell of `size` bytes with its header: count 1 and `info`
+  // (idris_rt_cell), or in JIT mode an arena cell with count 0, which is
+  // never counted.
   mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, unsigned size, uint32_t info);
+  // Writes the header of a cell: count 1 and `info`.
+  void storeHeader(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, uint32_t info);
   void store(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,
              llvm::ArrayRef<Slot> slots, mlir::ValueRange values);
   llvm::SmallVector<mlir::Value> load(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,
                                       llvm::ArrayRef<Slot> slots);
-  // The i32 at offset 4 of a cell: a box's tag or a closure's label.
-  mlir::Value loadInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
+  // The tag of a cell: a box's constructor tag or a closure's label, the low
+  // 16 bits of its info word (offset 4).
+  mlir::Value loadTag(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
+
+  // One more, or one less, reference for each counted component of a value
+  // (idris_rt_inc, idris_rt_dec); `counted` says which components are. In
+  // JIT mode every cell is persistent, and both do nothing.
+  void inc(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange components,
+           llvm::ArrayRef<bool> counted);
+  void dec(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange components,
+           llvm::ArrayRef<bool> counted);
+  // The empty value of a counted component: a null pointer, or the word 0.
+  mlir::Value null(mlir::OpBuilder &b, mlir::Location loc, mlir::Type component);
 
   // The components of the constant `value` of type `type`:
   // scalars as LLVM constants, strings, bigs outside the small range, boxes
@@ -70,6 +85,16 @@ private:
   mlir::Value addressOf(mlir::OpBuilder &b, mlir::Location loc, mlir::LLVM::GlobalOp global);
   mlir::Value pack(mlir::OpBuilder &b, mlir::Location loc, mlir::Type structType,
                    mlir::ValueRange members);
+  // A cell as static data, count 0: its header, then the components of
+  // each field in the cell's address order.
+  mlir::LLVM::GlobalOp staticCell(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef prefix,
+                                  const Cell &cell, uint32_t info,
+                                  llvm::function_ref<llvm::SmallVector<mlir::Value>(
+                                      mlir::OpBuilder &, unsigned field)>
+                                      components);
+  // Calls `name` on the pointer of each counted component.
+  void countEach(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
+                 mlir::ValueRange components, llvm::ArrayRef<bool> counted);
 
   mlir::ModuleOp module;
   Layouts &layouts;

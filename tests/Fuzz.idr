@@ -2,7 +2,7 @@
 ||| over every primitive, each printed from `main`, which the harness
 ||| compiles three ways, with evaluation, with `--no-eval` and with the stock
 ||| Chez backend, and whose outputs must agree (tests/fuzz,
-||| `fuzz` in tests/testutils.sh).
+||| `fuzz` in tests/lib/fuzz.sh).
 |||
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||

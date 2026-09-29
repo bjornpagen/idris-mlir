@@ -12,6 +12,7 @@
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
 #include "Facts/Facts.h"
+#include "Support/Actions.h"
 
 #include "idr/Idr.h"
 
@@ -127,6 +128,8 @@ void Eval::runOnOperation() {
   for (const auto &entry : calls)
     if (!cache.contains(entry.first))
       fresh.push_back(entry.first);
+    else
+      ++numCacheHits;
   if (!fresh.empty() && failed(evaluate(module, fresh, calls)))
     return signalPassFailure();
 
@@ -135,14 +138,16 @@ void Eval::runOnOperation() {
     const Outcome &outcome = cache.find(key)->second;
     if (outcome.stays)
       continue;
-    for (const Call &call : sites) {
-      OpBuilder b(call.op);
-      SmallVector<Value> values;
-      for (auto [value, type] : llvm::zip_equal(outcome.results, call.op->getResultTypes()))
-        values.push_back(dialect->materializeConstant(b, value, type, call.op->getLoc())->getResult(0));
-      call.op->replaceAllUsesWith(values);
-      call.op->erase();
-    }
+    for (const Call &call : sites)
+      idr::perform<idr::EvalCallAction>(call.op, [&] {
+        OpBuilder b(call.op);
+        SmallVector<Value> values;
+        for (auto [value, type] : llvm::zip_equal(outcome.results, call.op->getResultTypes()))
+          values.push_back(dialect->materializeConstant(b, value, type, call.op->getLoc())->getResult(0));
+        call.op->replaceAllUsesWith(values);
+        call.op->erase();
+        ++numEvaluated;
+      });
   }
 }
 
@@ -302,6 +307,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
           << ("the call of @" + call.callee.getSymName() + " crashes, so it stays: " + run.message)
                  .str();
       cache[keys[next++]].stays = true;
+      ++numStayedCrash;
       break;
     }
     case idr::eval::Run::Status::OverBudget:
@@ -315,6 +321,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
               ", so it stays: " + run.message)
                  .str();
       cache[keys[next++]].stays = true;
+      ++numStayedBudget;
       break;
     }
     case idr::eval::Run::Status::Failed:

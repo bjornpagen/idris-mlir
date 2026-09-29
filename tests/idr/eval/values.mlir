@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
-// RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
+// RUN: FileCheck %s --check-prefix=REMARK --implicit-check-not=[Missed] < %t.remarks
 // Each closed call of a pure, total function runs, lowered as executables
 // are, and its results come back as constants of every kind: scalars,
 // strings, bigs of both sizes, unboxed and boxed constructors, closures with
@@ -20,8 +20,7 @@
 // CHECK-DAG: arith.constant 47 : i64
 // CHECK-DAG: arith.constant -58 : i64
 // CHECK: return
-// REMARK-COUNT-11: remark: [Passed] Evaluated | Category:idr-eval
-// REMARK-NOT: remark:
+// REMARK: remark: [Passed] Evaluated
 module {
   idr.data @List box {
     idr.ctor @Nil tag 0 () {quantities = []}

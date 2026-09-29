@@ -1,30 +1,30 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// A boxed constructor is a new cell: the runtime allocates it, then its
-// header (count 1, the tag) and its fields are stored at their offsets. A
-// match on a box reads the tag from the header, and each case its fields
-// from the cell. A closure's cell holds its label, the address of its code
-// and the captures; applying it calls the code with the closure first. The
-// code loads the captures and calls the function with them before the
+// A boxed constructor is a new cell: the runtime allocates it with its
+// header (count 1, the info word: tag 1, one object slot, kind box), and its
+// fields are stored at their offsets, the counted ones first. A match on a
+// box reads the tag from the low bits of the info word, and each case its
+// fields from the cell. A closure's cell holds its label, the address of its
+// code and the captures; applying it calls the code with the closure first.
+// The code loads the captures and calls the function with them before the
 // arguments.
 // CHECK-LABEL: func.func private @push(
-// CHECK: %[[SIZE:.*]] = llvm.mlir.constant(24 : i64) : i64
-// CHECK: %[[CELL:.*]] = llvm.call @idris_rt_cell(%[[SIZE]]) : (i64) -> !llvm.ptr
-// CHECK: llvm.store %{{.*}}, %[[CELL]] : i32, !llvm.ptr
-// CHECK: %[[INFO:.*]] = llvm.getelementptr %[[CELL]][4] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: llvm.store %{{.*}}, %[[INFO]] : i32, !llvm.ptr
-// CHECK: %[[HEAD:.*]] = llvm.getelementptr %[[CELL]][8] : (!llvm.ptr) -> !llvm.ptr, i8
+// CHECK-DAG: %[[SIZE:.*]] = llvm.mlir.constant(24 : i64) : i64
+// CHECK-DAG: %[[INFO:.*]] = llvm.mlir.constant(65537 : i32) : i32
+// CHECK: %[[CELL:.*]] = llvm.call @idris_rt_cell(%[[SIZE]], %[[INFO]]) : (i64, i32) -> !llvm.ptr
+// CHECK: %[[HEAD:.*]] = llvm.getelementptr %[[CELL]][16] : (!llvm.ptr) -> !llvm.ptr, i8
 // CHECK: llvm.store %arg0, %[[HEAD]] : i64, !llvm.ptr
-// CHECK: %[[TAIL:.*]] = llvm.getelementptr %[[CELL]][16] : (!llvm.ptr) -> !llvm.ptr, i8
+// CHECK: %[[TAIL:.*]] = llvm.getelementptr %[[CELL]][8] : (!llvm.ptr) -> !llvm.ptr, i8
 // CHECK: llvm.store %arg1, %[[TAIL]] : !llvm.ptr, !llvm.ptr
 // CHECK-LABEL: func.func private @first(
 // CHECK: %[[TAGP:.*]] = llvm.getelementptr %arg0[4] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: %[[TAG:.*]] = llvm.load %[[TAGP]] : !llvm.ptr -> i32
+// CHECK: %[[WORD:.*]] = llvm.load %[[TAGP]] : !llvm.ptr -> i32
+// CHECK: %[[TAG:.*]] = llvm.and %[[WORD]], %{{.*}} : i32
 // CHECK: arith.extui %[[TAG]] : i32 to i64
 // CHECK: scf.index_switch
-// CHECK: llvm.getelementptr %arg0[8] : (!llvm.ptr) -> !llvm.ptr, i8
+// CHECK: llvm.getelementptr %arg0[16] : (!llvm.ptr) -> !llvm.ptr, i8
 // CHECK: llvm.load %{{.*}} : !llvm.ptr -> i64
 // CHECK-LABEL: func.func private @adder(
-// CHECK: %[[C:.*]] = llvm.call @idris_rt_cell(%{{.*}}) : (i64) -> !llvm.ptr
+// CHECK: %[[C:.*]] = llvm.call @idris_rt_cell(%{{.*}}, %{{.*}}) : (i64, i32) -> !llvm.ptr
 // CHECK: %[[F:.*]] = constant @[[CODEFN:__idr_code_[0-9]+]] : (!llvm.ptr, i64) -> i64
 // CHECK: %[[FP:.*]] = builtin.unrealized_conversion_cast %[[F]] : (!llvm.ptr, i64) -> i64 to !llvm.ptr
 // CHECK: %[[CODE:.*]] = llvm.getelementptr %[[C]][8] : (!llvm.ptr) -> !llvm.ptr, i8

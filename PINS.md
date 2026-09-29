@@ -118,6 +118,27 @@ which the top-level CMake configure gate reads.
   `tests/upstream/inline-unreachable-terminator` fails then
 - upstream: upstream/inline-unreachable-terminator (not yet filed)
 
+## llvm-force-enable-stats
+
+- symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when
+  `NDEBUG` is defined (the release preset) and `LLVM_FORCE_ENABLE_STATS` is
+  0, but the pinned MLIR library is built with assertions, where it counts:
+  `Pass::Statistic`'s out-of-line constructor would write a counter into a
+  one-byte member, over what follows it in the pass. A plain
+  `-DLLVM_FORCE_ENABLE_STATS=1` does not help: `llvm/Config/llvm-config.h`
+  defines it to 0 unconditionally, after the command line
+- sites: foreign/idr/CMakeLists.txt (idr_dialect's compile options),
+  foreign/idr/lib/Support/EnableStatistics.h,
+  foreign/idr/lib/Support/PipelineStatistics.cc (the static_assert)
+- workaround: every translation unit of idr_dialect and the tools starts
+  with `lib/Support/EnableStatistics.h` (`-include`), which includes
+  `llvm-config.h` first and redefines `LLVM_FORCE_ENABLE_STATS` to 1, so
+  statistics count in every build type; a static_assert fails the build
+  where they would not
+- retire: when the pinned LLVM is built with `LLVM_FORCE_ENABLE_STATS`, or
+  a pass statistic's layout no longer depends on the includer's `NDEBUG`
+- upstream: none
+
 ## platform-gate-x86_64
 
 - symptom: cpp-starter's gate accepts arm64 only; this project runs on

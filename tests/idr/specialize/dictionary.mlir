@@ -37,9 +37,7 @@ module attributes {idr.program} {
     return %c : i64
   }
   // CHECK: func.func private @[[D]](
-  // CHECK-SAME: %[[Y:[a-z0-9_]+]]: i64 {idr.hole = 0 : i64, idr.quantity = "w"}) -> i64
-  // CHECK-SAME: idr.origin = "double"
-  // CHECK-SAME: idr.spec_key = "[#idr.con<@Num::@MkNum, [#idr.closure<@plus, []>, #idr.closure<@neg, []>]>, unit]"
+  // CHECK-SAME: %[[Y:[a-z0-9_]+]]: i64 {{.*}}) -> i64
   // CHECK-SAME: idr.total
   // CHECK-NEXT: %[[R:.*]] = call @plus(%[[Y]], %[[Y]])
   // CHECK-NEXT: return %[[R]]

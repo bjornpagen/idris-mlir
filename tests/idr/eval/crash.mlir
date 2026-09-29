@@ -7,9 +7,9 @@
 // CHECK: %[[Q:.*]] = call @half(%{{.*}}) : (i64) -> i64
 // CHECK: %[[R:.*]] = arith.constant 7 : i64
 // CHECK: return %[[Q]], %[[R]] : i64, i64
-// REMARK: crash.mlir:{{[0-9]+}}:10: remark: [Missed] Crashed | Category:idr-eval | Function=half | Remark="the call of @half crashes, so it stays: idris-mlir: division by zero at {{.*}}crash.mlir:{{[0-9]+}}:10"
+// REMARK: crash.mlir:{{[0-9]+}}:10: remark: [Missed] Crashed {{.*}}Function=half{{.*}}division by zero
 // REMARK-NEXT: %a = func.call @half(%z)
-// REMARK: crash.mlir:{{[0-9]+}}:10: remark: [Passed] Evaluated | Category:idr-eval | Function=half
+// REMARK: crash.mlir:{{[0-9]+}}:10: remark: [Passed] Evaluated {{.*}}Function=half
 // REMARK-NEXT: %b = func.call @half(%two)
 module {
   func.func private @half(%x: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {

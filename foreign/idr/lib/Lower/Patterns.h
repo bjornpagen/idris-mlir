@@ -19,4 +19,23 @@ void lowerMatches(mlir::ModuleOp module);
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                       Layouts &layouts, Runtime &runtime);
 
+// The patterns of the ops that count references (Counting.cc).
+void populateCountingPatterns(mlir::RewritePatternSet &patterns,
+                              const mlir::TypeConverter &converter, Layouts &layouts,
+                              Runtime &runtime);
+
+// The base of the patterns: the layouts and the runtime they lower with.
+template <typename OpT>
+struct IdrPattern : mlir::OpConversionPattern<OpT> {
+  IdrPattern(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx, Layouts &l, Runtime &r)
+      : mlir::OpConversionPattern<OpT>(converter, ctx), layouts(l), runtime(r) {}
+  Layouts &layouts;
+  Runtime &runtime;
+};
+
+// A box's cell: count 1 and its info word, then its fields' components
+// stored at their offsets.
+mlir::Value buildBox(mlir::OpBuilder &b, mlir::Location loc, Layouts &layouts, Runtime &runtime,
+                     CtorOp ctor, mlir::Value cell, llvm::ArrayRef<mlir::ValueRange> fields);
+
 } // namespace idr::lower

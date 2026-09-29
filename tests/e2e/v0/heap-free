@@ -1,0 +1,2 @@
+Every main : Int program computes on machine values and unboxed data: none
+allocates on the heap.

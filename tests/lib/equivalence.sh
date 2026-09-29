@@ -54,7 +54,7 @@ equivalent() {
       fi
       return
     fi
-    run_program "$eq_mode" "$eq_exe" "$eq_stdin" small
+    run_ours "$eq_mode" "$eq_exe" "$eq_stdin" small
     eval "eq_status_$eq_mode=\$ran"
   done
   if ! cmp -s "$work/eval.out" "$work/noeval.out"; then

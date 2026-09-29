@@ -1,0 +1,4 @@
+# even and odd call each other: Emit cuts their cycle with a loop breaker,
+# so that inlining the rest of the cycle into it ends. Which of the two it
+# is is Emit's choice.
+emitted: every-cycle-has-breaker

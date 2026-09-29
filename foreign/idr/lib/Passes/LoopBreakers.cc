@@ -78,6 +78,7 @@ struct LoopBreakers : idr::impl::IdrLoopBreakersBase<LoopBreakers> {
           continue;
         func::FuncOp breaker = choose(cycle, order);
         breaker.setNoInline(true);
+        ++numBreakers;
         marked = again = true;
       }
     }

@@ -45,7 +45,7 @@ two_levels() {
       show "$work/compile.out" "$work/compile.err"
       continue
     fi
-    run_program lower "$tl_dir/lower/build/exec/prog" /dev/null
+    run_ours lower "$tl_dir/lower/build/exec/prog" /dev/null
     say "$tl_corpus: run: exit $ran"
     empty "$tl_corpus: stderr" "$work/lower.err"
     (cd "$tl_dir/chez" && bounded "$idris2" --no-banner --no-color --no-prelude --cg chez \

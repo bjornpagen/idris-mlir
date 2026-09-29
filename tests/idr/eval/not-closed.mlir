@@ -5,7 +5,8 @@
 // proves the function terminating only decides whether the call runs
 // metered: partial.mlir.)
 // CHECK-LABEL: func.func @Prog.main(
-// CHECK: call @inc(%arg0)
+// CHECK-SAME: %[[N:[^:]+]]: i64
+// CHECK: call @inc(%[[N]])
 // CHECK: call @loud(%{{.*}})
 // CHECK: call @applyTo(%{{.*}})
 // CHECK: %[[OK:.*]] = arith.constant 4 : i64

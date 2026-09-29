@@ -78,11 +78,11 @@ llvm::DenseSet<StringAttr> addressTaken(ModuleOp module) {
 }
 
 // Passes poison for every parameter of an address-taken function that it
-// never reads. Returns whether a call changed.
-bool guardUnreadParameters(ModuleOp module) {
+// never reads. Returns the number of operands it replaced.
+unsigned guardUnreadParameters(ModuleOp module) {
   llvm::DenseSet<StringAttr> taken = addressTaken(module);
   SymbolTable symbols(module);
-  bool changed = false;
+  unsigned changed = 0;
   module.walk([&](func::CallOp call) {
     if (!taken.contains(call.getCalleeAttr().getAttr()))
       return;
@@ -97,7 +97,7 @@ bool guardUnreadParameters(ModuleOp module) {
       OpBuilder b(call);
       call.setOperand(param.getArgNumber(),
                       ub::PoisonOp::create(b, call.getLoc(), param.getType()));
-      changed = true;
+      ++changed;
     }
   });
   return changed;
@@ -105,7 +105,8 @@ bool guardUnreadParameters(ModuleOp module) {
 
 struct Prune : idr::impl::IdrPruneBase<Prune> {
   void runOnOperation() override {
-    bool guarded = guardUnreadParameters(getOperation());
+    unsigned guarded = guardUnreadParameters(getOperation());
+    numPoisoned += guarded;
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     loadBaselineAnalyses(solver);
     if (failed(solver.initializeAndRun(getOperation())))
@@ -128,6 +129,7 @@ struct Prune : idr::impl::IdrPruneBase<Prune> {
     });
     for (Block *block : unreachable)
       empty(*block);
+    numEmptied += unreachable.size();
     if (unreachable.empty() && !guarded)
       markAllAnalysesPreserved();
   }

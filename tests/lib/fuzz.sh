@@ -1,10 +1,10 @@
 # The fuzzer (tests/Fuzz.idr): generated closed expressions over every
 # primitive, computed three ways.
 
-# fuzz_run LABEL EXE: runs a program on empty stdin; a failure is a problem
-# of the current check.
+# fuzz_run LABEL EXE: runs a program on empty stdin, Chez's (LABEL chez) or
+# one of this compiler's; a failure is a problem of the current check.
 fuzz_run() {
-  run_program "$1" "$2" /dev/null
+  if [ "$1" = chez ]; then run_program "$1" "$2" /dev/null; else run_ours "$1" "$2" /dev/null; fi
   if [ "$ran" -ne 0 ] || [ -s "$work/$1.err" ]; then
     printf '%s\n' "$fuzz_seed: $1 exited $ran" >> "$work/fuzz.compiled"
     head -n 5 "$work/$1.err" | sed 's/^/  | /' >> "$work/fuzz.compiled"

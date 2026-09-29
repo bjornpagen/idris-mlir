@@ -19,8 +19,9 @@
 #     timing.sh        the record of every compilation's wall time
 #     compile.sh       compiling a program, and the artifacts it leaves
 #     run.sh           running a compiled program
-#     heap.sh          the undefined symbols of an object
+#     heap.sh          the C library calls an e2e program's object may make
 #     mlir.sh          FileCheck, and the module an mlir.check reads
+#     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     oracle.sh        Oracle.idr, and the generated semantics tests
 #     chez.sh          the stock Chez backend as an oracle
 #     e2e.sh           the end-to-end programs
@@ -31,6 +32,8 @@
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    Idris's evaluator against the compiled program
 #     idris-lex.sh     Idris source, code told from comments and strings
+#     properties.sh    what holds of every compilation, over the e2e fixtures
+#     bench.sh         the benchmarks, built and run on small inputs
 
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
@@ -60,8 +63,8 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing compile run heap mlir oracle chez e2e profile \
-                determinism lit equivalence fuzz two-levels idris-lex; do
+for lib_file in harness timing compile run heap mlir expect oracle chez e2e profile \
+                determinism lit equivalence fuzz two-levels idris-lex properties bench; do
   . "$root/tests/lib/$lib_file.sh"
 done
 unset lib_file
