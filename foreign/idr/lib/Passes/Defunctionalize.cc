@@ -16,13 +16,15 @@
 // field of a constructor) has the key of its type and the labels the
 // analysis found for it; a closure or constant used only where one larger
 // set is expected takes that set. A key is converted when its labels are
-// known, not empty and fit the type, and it is on no cycle of "a capture
-// of one of its labels holds, directly or through unboxed data, a value of
-// key K". Only such a cycle makes the sum infinite: a closure of type T
-// may capture another closure of type T when the captured one holds other
-// labels (a state monad's bind captures a bind of different lambdas).
-// A converted key's values belong to a new unboxed sum `@fn$<n>`, numbered
-// by first appearance in the module, with one constructor per
+// known, not empty and fit the type. Its values belong to a new sum
+// `@fn$<n>`, unboxed unless the key is on a cycle of "a capture of one of
+// its labels holds, directly or through unboxed data, a value of key K":
+// only such a cycle makes an unboxed sum infinite, and a box ends it, as a
+// recursive set of lambdas is a recursive datatype. A closure of type T may
+// capture another closure of type T without a cycle when the captured one
+// holds other labels (a state monad's bind captures a bind of different
+// lambdas). The sums are numbered by first appearance in the module, with
+// one constructor per
 // label whose fields are the label's captures, each with the key of that
 // capture (the label's entry argument): `idr.closure @f(...)` becomes
 // `idr.con @fn$n::@f(...)`, a closure constant the matching constructor
@@ -37,8 +39,8 @@
 // never reaches (the empty set) becomes `ub.poison`. A key stays a closure
 // when a value can reach it only as a closure, and then every label that
 // can reach it keeps the closure type's signature: its argument and result
-// slots of closure type stay closures too. idr-check-profile rejects the
-// closures that remain.
+// slots of closure type stay closures too: in a whole program that is only
+// a key whose labels the analysis cannot know.
 
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
