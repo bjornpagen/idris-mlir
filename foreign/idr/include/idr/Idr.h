@@ -123,6 +123,17 @@ Quantity quantityOf(mlir::Type type);
 // The type of the value itself: T for !idr.lin<T>, the type otherwise.
 mlir::Type unrestricted(mlir::Type type);
 
+// The value `value` was made from, seen through a linear position it only
+// passed: `lin.use (lin.enter %x)` is %x. What a value is (its constructor,
+// a field) does not change on the way; whether a read may take a linear
+// part of it is the reader's to decide.
+mlir::Value throughLinear(mlir::Value value);
+
+// Whether `value` has one use, and so has each value it was made from
+// through a linear position: a read of it is the only one, and may take
+// its linear parts.
+bool readOnce(mlir::Value value);
+
 } // namespace idr
 
 #include "idr/IdrDialect.h.inc"

@@ -385,28 +385,34 @@ LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
-// A field of a known constructor, built by idr.con or constant.
-OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
+// A field of a known constructor, built by idr.con or constant, also when
+// it passed a linear position on the way. A linear field moves out of the
+// constructor, so only the constructor's one read takes it: otherwise it
+// would be used twice.
+OpFoldResult FieldOp::fold(FoldAdaptor) {
   auto index = static_cast<unsigned>(getIndex());
-  if (auto con = getValue().getDefiningOp<ConOp>())
-    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr())
+  Value source = throughLinear(getValue());
+  if (auto con = source.getDefiningOp<ConOp>())
+    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr() &&
+        (!isa<LinType>(getType()) || readOnce(getValue())))
       return con.getFields()[index];
-  if (auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue()))
+  if (ConAttr con; matchPattern(source, m_Constant(&con)))
     if (con.getCtor().getLeafReference() == getCtorAttr().getAttr())
       return con.getFields()[index];
   return {};
 }
 
 // The tag of a known constructor, or 0 for a type of one constructor.
-OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
+OpFoldResult TagOp::fold(FoldAdaptor) {
   auto tag = [&](CtorOp ctor) -> OpFoldResult {
     if (!ctor)
       return {};
     return IntegerAttr::get(getType(), static_cast<int64_t>(ctor.getTag()));
   };
-  if (auto con = getValue().getDefiningOp<ConOp>())
+  Value source = throughLinear(getValue());
+  if (auto con = source.getDefiningOp<ConOp>())
     return tag(lookupCtor(*this, con.getCtor()));
-  if (auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue()))
+  if (ConAttr con; matchPattern(source, m_Constant(&con)))
     return tag(lookupCtor(*this, con.getCtor()));
   if (DataOp data = lookupData(*this, getValue().getType()))
     if (data.getCtors().size() == 1)
@@ -587,13 +593,17 @@ LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 // A constant constructor, or the constructor of the idr.con that built the
-// scrutinee.
+// scrutinee, also through a linear position.
 Region *MatchOp::getTakenRegion(Attribute value) {
   SymbolRefAttr ctor;
+  Value source = throughLinear(getScrutinee());
+  ConAttr constant;
   if (auto con = dyn_cast_or_null<ConAttr>(value))
     ctor = con.getCtor();
-  else if (auto built = getScrutinee().getDefiningOp<ConOp>())
+  else if (auto built = source.getDefiningOp<ConOp>())
     ctor = built.getCtor();
+  else if (matchPattern(source, m_Constant(&constant)))
+    ctor = constant.getCtor();
   if (!ctor)
     return nullptr;
   return takenRegion(*this, FlatSymbolRefAttr::get(ctor.getLeafReference()));

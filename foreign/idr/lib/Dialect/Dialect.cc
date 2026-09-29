@@ -146,6 +146,26 @@ Type idr::unrestricted(Type type) {
   return lin ? lin.getValue() : type;
 }
 
+Value idr::throughLinear(Value value) {
+  while (auto use = value.getDefiningOp<LinUseOp>()) {
+    auto enter = use.getLinear().getDefiningOp<LinEnterOp>();
+    if (!enter)
+      break;
+    value = enter.getValue();
+  }
+  return value;
+}
+
+bool idr::readOnce(Value value) {
+  while (value.hasOneUse()) {
+    Operation *def = value.getDefiningOp();
+    if (!isa_and_nonnull<LinUseOp, LinEnterOp>(def))
+      return true;
+    value = def->getOperand(0);
+  }
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // Lookup helpers
 //===----------------------------------------------------------------------===//

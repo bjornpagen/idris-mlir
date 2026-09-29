@@ -16,7 +16,7 @@ using namespace idr;
 LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
   auto type = dyn_cast<LinType>(field.getType());
   ConAttr con;
-  if (!type || !matchPattern(field.getValue(), m_Constant(&con)) ||
+  if (!type || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
       con.getCtor().getLeafReference() != field.getCtorAttr().getAttr())
     return failure();
   Attribute value = con.getFields()[static_cast<unsigned>(field.getIndex())];
