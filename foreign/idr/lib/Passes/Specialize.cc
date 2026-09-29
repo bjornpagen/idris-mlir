@@ -3,7 +3,8 @@
 //
 // An argument's pattern is its static shape: a constant is itself, an
 // `idr.con` or `idr.closure` is built over the patterns of its operands, and
-// anything else is a hole, a runtime leaf; so is a machine number (shape()). An erased argument is always a
+// anything else is a hole, a runtime leaf; so is a machine integer passed as
+// an argument itself (isLeaf()). An erased argument is always a
 // hole: erased is not constant. A call is specialized when some argument has
 // a static shape and some argument that is neither erased nor a world has a
 // runtime leaf; a closed call is idr-eval's. The clone substitutes each
@@ -160,12 +161,11 @@ bool isShapeOp(Value value) {
   return def && (def->hasTrait<OpTrait::ConstantLike>() || isa<idr::ConOp, idr::ClosureOp>(def));
 }
 
-// Whether a constant is a machine number: an integer of a fixed width, a
-// Char or a Double; not a big (a Nat or an Integer).
-bool machineNumber(Attribute pattern) {
-  if (auto integer = dyn_cast<IntegerAttr>(pattern))
-    return isa<IntegerType>(integer.getType());
-  return isa<FloatAttr>(pattern);
+// Whether a constant is a machine integer: of a fixed width (an Int, a Char),
+// not a big (a Nat or an Integer).
+bool machineInteger(Attribute pattern) {
+  auto integer = dyn_cast<IntegerAttr>(pattern);
+  return integer && isa<IntegerType>(integer.getType());
 }
 
 // Whether `value` is closed: a constant, or a constructor or closure of
@@ -178,19 +178,22 @@ bool closed(Value value) {
 }
 
 // Whether `value` is a runtime leaf of a shape: it is built by no shape op,
-// or it is a machine number. Specializing on a machine number only unrolls
-// (a loop counter would clone once per value), which LLVM's own
-// specialization of numeric constants weighs better; what this pass removes
-// is structure, closures and constructors. A Nat or an Integer stays static:
-// counting one down is how a vector's static length unrolls.
-bool isLeaf(Value value) {
+// or it is a machine integer passed as an argument itself (`top`): a loop
+// counter, which specializing would unroll once per value, and which LLVM's
+// own specialization of numeric constants weighs better; what this pass
+// removes is structure. A number inside a constructor or a closure is part
+// of that structure and stays static (the elements of a static list), and so
+// does a Nat or an Integer argument, whose countdown is how a vector's static
+// length unrolls, and a Double, an accumulator folded along a static spine.
+bool isLeaf(Value value, bool top) {
   Attribute constant;
-  return !isShapeOp(value) || (matchPattern(value, m_Constant(&constant)) && machineNumber(constant));
+  return !isShapeOp(value) ||
+         (top && matchPattern(value, m_Constant(&constant)) && machineInteger(constant));
 }
 
-Attribute shape(Value value, SmallVectorImpl<Value> &leaves) {
+Attribute shape(Value value, SmallVectorImpl<Value> &leaves, bool top) {
   MLIRContext *ctx = value.getContext();
-  if (isLeaf(value)) {
+  if (isLeaf(value, top)) {
     leaves.push_back(value);
     return UnitAttr::get(ctx);
   }
@@ -200,7 +203,7 @@ Attribute shape(Value value, SmallVectorImpl<Value> &leaves) {
     return constant;
   SmallVector<Attribute> parts;
   for (Value operand : def->getOperands())
-    parts.push_back(shape(operand, leaves));
+    parts.push_back(shape(operand, leaves, /*top=*/false));
   auto array = ArrayAttr::get(ctx, parts);
   bool whole = llvm::all_of(parts, isConstant);
   if (auto con = dyn_cast<idr::ConOp>(def))
@@ -220,7 +223,7 @@ Shape shape(Value value) {
     out.pattern = UnitAttr::get(value.getContext());
     return out;
   }
-  out.pattern = shape(value, out.leaves);
+  out.pattern = shape(value, out.leaves, /*top=*/true);
   return out;
 }
 
@@ -380,7 +383,7 @@ struct Specializer {
   // The static shape of `value` rebuilt at `b`, taking its runtime leaves
   // from `next` in the order shape() found them.
   template <typename It> Value rebuild(OpBuilder &b, Value value, It &next) {
-    if (isLeaf(value))
+    if (isLeaf(value, /*top=*/false))
       return *next++;
     Operation *def = value.getDefiningOp();
     IRMapping map;

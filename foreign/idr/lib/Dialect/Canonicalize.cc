@@ -138,13 +138,42 @@ bool feeds(Value value, Operation *consumer) {
          isa<PutStrOp, StrHeadOp>(consumer);
 }
 
-// Whether moving `op` cannot be observed: it has no effects, or it only
-// allocates (a string or a big it builds), which nothing can see.
-bool movable(Operation *op) {
-  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
-  return effects && llvm::all_of(*effects, [](const MemoryEffects::EffectInstance &effect) {
-           return isa<MemoryEffects::Allocate>(effect.getEffect());
-         });
+// Whether a call only computes: its callee is pure, as idr-effects found (a
+// call declares no effects of its own, so MLIR takes it to have any), and,
+// unless `partial`, total and unable to crash, so that whether it runs at all
+// cannot be observed either.
+bool computes(func::CallOp call, bool partial) {
+  auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
+  if (!callee)
+    return false;
+  auto effect = callee->getAttrOfType<StringAttr>("idr.effect");
+  return effect && effect.getValue() == "pure" &&
+         (partial || (callee->hasAttr("idr.total") && !callee->hasAttr("idr.may_crash")));
+}
+
+// Whether moving `op` cannot be observed: nothing in it has an effect but
+// allocation (a string or a big it builds, which nothing can see), and every
+// call in it only computes. With `partial`, a call may also fail to return
+// or crash: then `op` may move, but must still run on every path it ran on.
+bool movable(Operation *op, bool partial = false) {
+  WalkResult result = op->walk([&](Operation *inner) {
+    if (auto call = dyn_cast<func::CallOp>(inner))
+      return computes(call, partial) ? WalkResult::advance() : WalkResult::interrupt();
+    if (inner->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
+      return WalkResult::advance();
+    auto iface = dyn_cast<MemoryEffectOpInterface>(inner);
+    if (!iface)
+      return WalkResult::interrupt();
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    iface.getEffects(effects);
+    return llvm::all_of(effects,
+                        [](const MemoryEffects::EffectInstance &effect) {
+                          return isa<MemoryEffects::Allocate>(effect.getEffect());
+                        })
+               ? WalkResult::advance()
+               : WalkResult::interrupt();
+  });
+  return !result.wasInterrupted();
 }
 
 // Case-of-case: the single consumer of a result of a match,
@@ -258,7 +287,10 @@ private:
 // region that uses it, when there it meets a consumer that folds against it:
 // output of a string it builds, or a consumer a match of its moves into
 // (case-of-case). Only one region runs, so the value is still computed at most
-// once. The copies are bounded: each region past the first may receive at
+// once. A value that may not return or may crash moves only when every region
+// uses it and nothing with an effect lies between it and the match: every
+// path still computes it, before anything it could hide. The copies are
+// bounded: each region past the first may receive at
 // most kSinkBudget ops, so a large match is not copied into every case of
 // another. A constant stays where it is: the folder hoists constants back,
 // and each would undo the other.
@@ -291,12 +323,25 @@ struct SinkIntoRegions : OpRewritePattern<Match> {
 
 private:
   static bool sinkable(Operation *value, Operation *match) {
-    if (value->getNumResults() == 0 || value->hasTrait<OpTrait::ConstantLike>() || !movable(value))
+    if (value->getNumResults() == 0 || value->hasTrait<OpTrait::ConstantLike>())
       return false;
     if (!llvm::all_of(value->getUsers(), [&](Operation *user) {
           return user != match && match->isAncestor(user);
         }))
       return false;
+    if (!movable(value)) {
+      bool everyRegion = llvm::all_of(match->getRegions(), [&](Region &region) {
+        return llvm::any_of(value->getUsers(), [&](Operation *user) {
+          return region.isAncestor(user->getParentRegion());
+        });
+      });
+      bool nothingBetween = true;
+      for (Operation *between = value->getNextNode(); between != match;
+           between = between->getNextNode())
+        nothingBetween &= movable(between);
+      if (!everyRegion || !nothingBetween || !movable(value, /*partial=*/true))
+        return false;
+    }
     if (!llvm::any_of(value->getResults(), [](Value result) {
           return llvm::any_of(result.getUsers(), [&](Operation *user) { return meets(result, user); });
         }))
