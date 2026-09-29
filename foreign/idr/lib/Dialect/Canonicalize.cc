@@ -128,23 +128,14 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
 // Whether `consumer` folds or canonicalizes when its operand is `value`: a
 // constant, a constructor, a closure, or, for output and the first
 // character, a string builder.
-bool feeds(Value value, Operation *consumer, unsigned depth = 0) {
+bool feeds(Value value, Operation *consumer) {
   if (matchPattern(value, m_Constant()))
     return true;
   Operation *def = value.getDefiningOp();
   if (isa_and_nonnull<ConOp, ClosureOp>(def))
     return true;
-  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def))
-    return isa<PutStrOp, StrHeadOp>(consumer);
-  // A result of a nested match feeds the consumer when one of its regions
-  // does: the consumer moves in one match at a time.
-  auto result = dyn_cast<OpResult>(value);
-  if (depth >= 8 || !result || !isa<MatchOp, MatchLitOp>(result.getOwner()))
-    return false;
-  return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
-    auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
-    return yield && feeds(yield.getOperand(result.getResultNumber()), consumer, depth + 1);
-  });
+  return isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def) &&
+         isa<PutStrOp, StrHeadOp>(consumer);
 }
 
 // Whether a call only computes: its callee is pure, as idr-effects found (a
