@@ -102,6 +102,16 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
 }
 
+void eraseUnused(Value value) {
+  Operation *def = value.getDefiningOp();
+  if (!isa_and_nonnull<ConOp, ClosureOp, LinEnterOp>(def) || !def->use_empty())
+    return;
+  SmallVector<Value> parts(def->getOperands());
+  def->erase();
+  for (Value part : parts)
+    eraseUnused(part);
+}
+
 bool isClosed(Value value) {
   if (matchPattern(value, m_Constant()))
     return true;

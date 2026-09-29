@@ -244,7 +244,10 @@ LogicalResult Specializer::specialize(func::CallOp call) {
     auto replacement = func::CallOp::create(b, call.getLoc(), clone->fn, *operands);
     replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
     call.replaceAllUsesWith(replacement.getResults());
+    SmallVector<Value> old(call.getOperands());
     call.erase();
+    for (Value value : old)
+      eraseUnused(value);
   });
   return result;
 }

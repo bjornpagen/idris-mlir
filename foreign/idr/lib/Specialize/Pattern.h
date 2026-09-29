@@ -66,6 +66,11 @@ Pattern leafOf(mlir::Value value, unsigned index);
 // linear value, whose shape its one use keeps.
 Pattern shapeOf(mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
 
+// Erases the operations that built the shape of `value` once nothing uses
+// them. They hold its leaves, which the clone's call now takes itself: a
+// linear leaf used by both would be used twice.
+void eraseUnused(mlir::Value value);
+
 // Whether `value` is closed: a constant, or a constructor or closure of
 // closed values.
 bool isClosed(mlir::Value value);
