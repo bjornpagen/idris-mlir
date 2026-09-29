@@ -1,21 +1,33 @@
-// The stack slots of the cells idr-stack marks (Stack/Cell.h).
+// The cells idr-stack puts on the stack (Stack/Cell.h).
 
 #include "Stack/Cell.h"
+
+#include "idris_rt.h"
 
 using namespace mlir;
 
 namespace idr::stack {
 
-bool onStack(ConOp con) { return con->hasAttr(mark); }
-
-Value slot(OpBuilder &b, Location loc, ConOp con, unsigned size) {
-  OpBuilder::InsertionGuard guard(b);
-  b.setInsertionPointToStart(&con->getParentOfType<func::FuncOp>().getBody().front());
-  auto i64 = b.getI64Type();
-  Value one = LLVM::ConstantOp::create(b, loc, i64, b.getI64IntegerAttr(1));
-  return LLVM::AllocaOp::create(b, loc, LLVM::LLVMPointerType::get(b.getContext()),
-                                LLVM::LLVMArrayType::get(i64, size / 8), one,
-                                /*alignment=*/8);
+Value cell(OpBuilder &b, Location loc, ConOp con, lower::Layouts &layouts,
+           lower::Runtime &runtime) {
+  if (!con->hasAttr(mark) || runtime.isJit())
+    return {};
+  CtorOp ctor = lookupCtor(con, con.getCtor());
+  const lower::Cell &layout = layouts.box(ctor);
+  Value slot;
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(&con->getParentOfType<func::FuncOp>().getBody().front());
+    auto i64 = b.getI64Type();
+    Value one = LLVM::ConstantOp::create(b, loc, i64, b.getI64IntegerAttr(1));
+    slot = LLVM::AllocaOp::create(b, loc, LLVM::LLVMPointerType::get(b.getContext()),
+                                  LLVM::LLVMArrayType::get(i64, layout.size / 8), one,
+                                  /*alignment=*/8);
+  }
+  uint32_t info = lower::cellInfo(static_cast<uint32_t>(ctor.getTag()), layout.objs,
+                                  lower::CellKind::Box);
+  runtime.storeHeader(b, loc, slot, info | IDRIS_RT_STACK_CELL);
+  return slot;
 }
 
 } // namespace idr::stack
