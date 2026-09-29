@@ -54,7 +54,7 @@ private:
   mlir::FailureOr<mlir::func::CallOp> raise(mlir::func::CallOp call);
   std::optional<Consumer> consumerOf(mlir::func::CallOp call, mlir::func::FuncOp callee);
   mlir::FailureOr<mlir::func::FuncOp> makeRaised(mlir::func::FuncOp callee,
-                                                 mlir::func::CallOp call, const Consumer &c,
+                                                 mlir::func::CallOp call, Consumer c,
                                                  mlir::Attribute key);
 
   // Specialization (Specialize.cc).

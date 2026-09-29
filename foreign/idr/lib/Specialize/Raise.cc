@@ -106,7 +106,7 @@ void replaceOperand(Operation *op, unsigned index, ValueRange values) {
 // `result` is the call's result that `c` consumed, and `extra` stands for
 // the apply's arguments. `labels` gets the function each tail applies, null
 // where that is not known here.
-void push(Operation *term, unsigned index, const Consumer &c, Value result, ValueRange extra,
+void push(Operation *term, unsigned index, Consumer c, Value result, ValueRange extra,
           SmallVectorImpl<FlatSymbolRefAttr> &labels) {
   Operation *consumer = c.apply;
   Value value = term->getOperand(index);
@@ -180,7 +180,7 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
 }
 
 FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallOp call,
-                                                const Consumer &c, Attribute key) {
+                                                Consumer c, Attribute key) {
   MLIRContext *ctx = module.getContext();
   FailureOr<func::FuncOp> made = clones.copy(callee, clones.ownerOf(callee), "raise", call);
   if (failed(made))
