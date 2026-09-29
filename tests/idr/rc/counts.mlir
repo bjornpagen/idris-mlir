@@ -3,10 +3,13 @@
 // on every path is the owned stage's rule, which idris-mlir-opt verifies
 // after the pass; this test checks what the passes choose.
 
-// A map over a list builds each new cell in the one it matched: no cell is
-// allocated for the result.
+// A map over a list takes each cell apart where it matches it, the fields
+// moving out with no count changed, and builds the new cell in it: nothing
+// is counted, and no cell is allocated for the result.
 // CHECK-LABEL: func.func private @map(
-// CHECK: idr.reset
+// CHECK-NOT: idr.inc
+// CHECK: idr.take %{{.*}} @L::@C
+// CHECK-NOT: idr.inc
 // CHECK: idr.reuse
 // CHECK-NOT: idr.con
 // CHECK-LABEL: func.func private @sum(

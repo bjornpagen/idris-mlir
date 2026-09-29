@@ -58,6 +58,10 @@ public:
            llvm::ArrayRef<bool> counted);
   void dec(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange components,
            llvm::ArrayRef<bool> counted);
+  // Whether the cell holds the only reference to itself, where it may be
+  // reused: count 1, and not in a stack frame, whose cell a callee it was
+  // lent to must never take over.
+  mlir::Value exclusive(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
   // The empty value of a counted component: a null pointer, or the word 0.
   mlir::Value null(mlir::OpBuilder &b, mlir::Location loc, mlir::Type component);
 

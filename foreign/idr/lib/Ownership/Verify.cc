@@ -211,17 +211,18 @@ private:
   // The token of an idr.reuse comes from an idr.reset of a cell of the
   // same size.
   LogicalResult fits(ReuseOp reuse) {
-    auto reset = reuse.getToken().getDefiningOp<ResetOp>();
-    if (!reset)
-      return reuse.emitOpError("builds in a token that no idr.reset made");
-    CtorOp from = lookupCtor(reset, reset.getCtor());
+    Operation *made = reuse.getToken().getDefiningOp();
+    SymbolRefAttr cell = made ? made->getAttrOfType<SymbolRefAttr>("ctor") : nullptr;
+    if (!isa_and_nonnull<ResetOp, TakeOp>(made) || !cell)
+      return reuse.emitOpError("builds in a token that no idr.reset or idr.take made");
+    CtorOp from = lookupCtor(made, cell);
     CtorOp to = lookupCtor(reuse, reuse.getCtor());
     if (!from || !to)
       return success();
     unsigned have = layouts().box(from).size, need = layouts().box(to).size;
     if (have != need)
       return reuse.emitOpError("builds a cell of ")
-             << need << " bytes in the " << have << "-byte cell of " << reset.getCtor();
+             << need << " bytes in the " << have << "-byte cell of " << cell;
     return success();
   }
 

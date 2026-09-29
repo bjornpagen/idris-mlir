@@ -45,6 +45,7 @@ public:
     if (failed(check()))
       return failure();
     rewriteSelects();
+    takeApart();
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
         plan(arg, *block, nullptr);
@@ -95,6 +96,25 @@ private:
       }
       select.getResult().replaceAllUsesWith(match.getResult(0));
       select.erase();
+    }
+  }
+
+  // An owned scrutinee that dies where a case region begins is taken
+  // apart there: its fields move out of it instead of each taking one more
+  // reference while it drops its own.
+  void takeApart() {
+    SmallVector<MatchOp> matches;
+    fn.walk([&](MatchOp match) { matches.push_back(match); });
+    for (MatchOp match : matches) {
+      Value value = match.getScrutinee();
+      if (classOf(value) != Class::Owned || usedAfter(value, match))
+        continue;
+      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
+           ++index) {
+        Region &region = match.getCaseRegion(index);
+        if (!region.empty() && !usedIn(value, region) && !endsInCrash(region.front()))
+          takeAtEntry(match, index);
+      }
     }
   }
 

@@ -144,3 +144,56 @@ module attributes {idr.stage = "owned"} {
     return %r : !idr.box<@L>
   }
 }
+
+// -----
+
+// A take consumes its value and gives each field a reference of its own,
+// which is then consumed once like any other.
+module attributes {idr.stage = "owned"} {
+  idr.data @L box {
+    idr.ctor @N tag 0 () {quantities = []}
+    idr.ctor @C tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+  }
+  func.func private @head(%l: !idr.box<@L>) -> i64 {
+    %r = idr.match %l : !idr.box<@L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      %w, %h2, %t2 = idr.take %l @L::@C : !idr.box<@L> -> (!idr.token, i64, !idr.box<@L>)
+      idr.dec %w : !idr.token
+      idr.dec %t2 : !idr.box<@L>
+      idr.yield %h2 : i64
+    }
+    default {
+      idr.dec %l : !idr.box<@L>
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    }
+    return %r : i64
+  }
+}
+
+// -----
+
+module attributes {idr.stage = "owned"} {
+  idr.data @L box {
+    idr.ctor @N tag 0 () {quantities = []}
+    idr.ctor @C tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+  }
+  func.func private @head(%l: !idr.box<@L>) -> i64 {
+    %r = idr.match %l : !idr.box<@L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      // expected-note @+1 {{the value is defined here}}
+      %w, %h2, %t2 = idr.take %l @L::@C : !idr.box<@L> -> (!idr.token, i64, !idr.box<@L>)
+      idr.dec %w : !idr.token
+      // expected-error @+1 {{ends a path on which a value still holds a reference}}
+      idr.yield %h2 : i64
+    }
+    default {
+      idr.dec %l : !idr.box<@L>
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    }
+    return %r : i64
+  }
+}

@@ -143,6 +143,15 @@ Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell) {
   return LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, tagMask));
 }
 
+Value Runtime::exclusive(OpBuilder &b, Location loc, Value cell) {
+  Value count = LLVM::LoadOp::create(b, loc, b.getI32Type(), cell);
+  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4));
+  Value one = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, count, i32Constant(b, loc, 1));
+  Value stack = LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, IDRIS_RT_STACK_CELL));
+  Value heap = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, stack, i32Constant(b, loc, 0));
+  return LLVM::AndOp::create(b, loc, one, heap);
+}
+
 Value Runtime::null(OpBuilder &b, Location loc, Type component) {
   if (isa<LLVM::LLVMPointerType>(component))
     return LLVM::ZeroOp::create(b, loc, component);

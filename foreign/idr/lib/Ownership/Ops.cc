@@ -62,3 +62,28 @@ LogicalResult ReuseOp::verifySymbolUses(SymbolTableCollection &symbols) {
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   return success();
 }
+
+LogicalResult TakeOp::verify() { return inOwnedStage(*this); }
+
+Value TakeOp::getToken() {
+  return isa<BoxType>(getValue().getType()) ? getResult(0) : Value();
+}
+
+ResultRange TakeOp::getFields() {
+  return getResults().drop_front(isa<BoxType>(getValue().getType()) ? 1 : 0);
+}
+
+// A token for a box, then the constructor's fields.
+LogicalResult TakeOp::verifySymbolUses(SymbolTableCollection &symbols) {
+  CtorOp ctor = ctorOf(*this, symbols, getCtor(), getValue().getType());
+  if (!ctor)
+    return failure();
+  SmallVector<Type> expected;
+  if (isa<BoxType>(getValue().getType()))
+    expected.push_back(TokenType::get(getContext()));
+  llvm::append_range(expected, ctor.getFieldTypes().getAsValueRange<TypeAttr>());
+  if (!llvm::equal(expected, getResultTypes()))
+    return emitOpError("has results ") << getResultTypes() << ", but " << getCtor()
+                                       << " takes apart into " << TypeRange(expected);
+  return success();
+}

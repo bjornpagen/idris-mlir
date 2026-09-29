@@ -79,6 +79,7 @@ add_library(idr_dialect STATIC
 	lib/Ownership/Ops.cc
 	lib/Ownership/Rc.cc
 	lib/Ownership/ResetReuse.cc
+	lib/Ownership/Take.cc
 	lib/Ownership/Verify.cc
 	lib/Registration.cc
 	lib/Passes/CheckProfile.cc

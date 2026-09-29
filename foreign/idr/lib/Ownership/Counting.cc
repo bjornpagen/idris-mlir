@@ -57,6 +57,23 @@ bool isStatic(Value value) {
   return false;
 }
 
+bool usedAfter(Value value, Operation *op) {
+  Block *home = value.getParentBlock();
+  for (Operation *at = op; at; at = at->getParentOp()) {
+    Block *block = at->getBlock();
+    if (!block)
+      return false;
+    for (Operation *user : value.getUsers()) {
+      Operation *top = block->findAncestorOpInBlock(*user);
+      if (top && at->isBeforeInBlock(top))
+        return true;
+    }
+    if (block == home || isa<func::FuncOp>(block->getParentOp()))
+      return false;
+  }
+  return false;
+}
+
 bool isBorrowed(func::FuncOp fn, unsigned index) {
   return index < fn.getNumArguments() && fn.getArgAttr(index, borrowedAttr);
 }
@@ -76,7 +93,7 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
                                                                                 : Use::Consume;
   // A linear value moves into its one use and out of it again, with its
   // reference.
-  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, DecOp, LinEnterOp,
+  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
           LinUseOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;

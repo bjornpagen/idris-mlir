@@ -48,9 +48,17 @@ public:
       DataOp data = lookupData(match, box.getType());
       for (auto [index, name] : llvm::enumerate(match.getCases().getAsRange<FlatSymbolRefAttr>())) {
         CtorOp ctor = lookupCtor(data, name.getValue());
-        Region &region = match.getCaseRegion(static_cast<unsigned>(index));
-        if (ctor && !region.empty())
-          dies(box, ctor, region.front(), nullptr);
+        auto caseIndex = static_cast<unsigned>(index);
+        Region &region = match.getCaseRegion(caseIndex);
+        if (!ctor || region.empty())
+          continue;
+        // Dead from the region's start: its fields move out of it too.
+        Block &entry = region.front();
+        if (usersIn(box, entry, nullptr).empty())
+          reuseAt(ctor, entry, entry.begin(),
+                  [&] { return takeAtEntry(match, caseIndex).getToken(); });
+        else
+          dies(box, ctor, entry, nullptr);
       }
     }
     return {resets, reuses};
@@ -71,25 +79,6 @@ private:
         return false;
     }
     return true;
-  }
-
-  // Whether `value` is used after `op`: later in its block, or after an op
-  // that holds that block, up to the block that defines it.
-  static bool usedAfter(Value value, Operation *op) {
-    Block *home = value.getParentBlock();
-    for (Operation *at = op; at; at = at->getParentOp()) {
-      Block *block = at->getBlock();
-      if (!block)
-        return false;
-      for (Operation *user : value.getUsers()) {
-        Operation *top = block->findAncestorOpInBlock(*user);
-        if (top && at->isBeforeInBlock(top))
-          return true;
-      }
-      if (block == home || isa<func::FuncOp>(block->getParentOp()))
-        return false;
-    }
-    return false;
   }
 
   // The ops of `block` after `after` (from its start when null) that use
@@ -150,19 +139,29 @@ private:
     return false;
   }
 
+  // An idr.reset of `box` where it dies.
   void reset(Value box, CtorOp ctor, Block &block, Block::iterator at) {
+    reuseAt(ctor, block, at, [&] {
+      OpBuilder b(&block, at);
+      Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
+      auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
+                                     {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
+      return ResetOp::create(b, loc, TokenType::get(fn.getContext()), box, name).getResult();
+    });
+  }
+
+  // The constructors that fit a cell of `ctor` after `at` get it, from the
+  // token `token` makes there, if there are any.
+  void reuseAt(CtorOp ctor, Block &block, Block::iterator at, function_ref<Value()> token) {
     SmallVector<ConOp> found;
     if (!fits(layouts.box(ctor).size, block, at, found))
       return;
-    OpBuilder b(&block, at);
-    Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
-    auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
-                                   {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
-    Value token = ResetOp::create(b, loc, TokenType::get(fn.getContext()), box, name);
+    Value cell = token();
     ++resets;
+    OpBuilder b(fn.getContext());
     for (ConOp con : found) {
       b.setInsertionPoint(con);
-      auto reuse = ReuseOp::create(b, con.getLoc(), con.getType(), token, con.getCtor(),
+      auto reuse = ReuseOp::create(b, con.getLoc(), con.getType(), cell, con.getCtor(),
                                    con.getFields());
       reuse->setDiscardableAttrs(con->getDiscardableAttrDictionary());
       con.replaceAllUsesWith(reuse.getResult());

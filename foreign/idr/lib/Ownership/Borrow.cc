@@ -156,8 +156,8 @@ private:
     current = fn;
     ownedFields.clear();
     fn.walk([&](Operation *op) {
-      if (auto reset = dyn_cast<ResetOp>(op)) {
-        own(reset.getValue());
+      if (isa<ResetOp, TakeOp>(op)) {
+        own(op->getOperand(0));
       } else if (auto call = dyn_cast<func::CallOp>(op)) {
         func::FuncOp g = callee(call, symbols);
         auto it = g ? owned.find(g) : owned.end();

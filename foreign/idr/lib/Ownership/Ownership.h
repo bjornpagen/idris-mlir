@@ -57,6 +57,10 @@ private:
 // scrutinee of the match whose region binds it; null for any other value.
 mlir::Value readFrom(mlir::Value value);
 
+// Whether `value` is used after `op`: later in its block, or after an op
+// that holds that block, up to the block that defines it.
+bool usedAfter(mlir::Value value, mlir::Operation *op);
+
 // Whether the function borrows its parameter `index`.
 bool isBorrowed(mlir::func::FuncOp fn, unsigned index);
 
@@ -69,6 +73,10 @@ Use useOf(mlir::OpOperand &operand, mlir::SymbolTableCollection &symbols);
 
 // The function a call calls, or null.
 mlir::func::FuncOp callee(mlir::func::CallOp call, mlir::SymbolTableCollection &symbols);
+
+// Takes the scrutinee of `match` apart where its case region `index`
+// begins: an idr.take whose fields replace the region's arguments.
+TakeOp takeAtEntry(MatchOp match, unsigned index);
 
 // The passes of idr-rc, in the order it runs them (Rc.cc).
 

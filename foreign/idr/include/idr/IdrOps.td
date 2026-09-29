@@ -920,6 +920,30 @@ def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpIn
   }];
 }
 
+// Where a match region takes its scrutinee apart and the scrutinee dies:
+// the fields move out of it, so none is counted twice.
+def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "consumes a constructor value, each of its fields keeping a reference of its own";
+  let description = [{
+    The results are the fields of `ctor`, which built the value, each with
+    a reference of its own; for a box, a token comes first. When the box
+    held the only reference to its cell, the fields move out of it with no
+    count changed and the token is the cell, to build another constructor
+    in or to free; otherwise each field gets one more reference, the box
+    one fewer, and the token is null. An unboxed sum is its fields already,
+    so taking it apart changes no count.
+  }];
+  let arguments = (ins Arg<Idr_SumType, "", [MemRead, MemWrite, MemFree]>:$value,
+                       SymbolRefAttr:$ctor);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` `(` type($results) `)`";
+  let extraClassDeclaration = [{
+    // The token, for a box; null for an unboxed sum.
+    ::mlir::Value getToken();
+    ::mlir::ResultRange getFields();
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // Specialization keys (lib/Specialize)
 //===----------------------------------------------------------------------===//
