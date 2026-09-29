@@ -502,9 +502,5 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
              << argIndex;
     return success();
   }
-  // idr-effects marks a string the function writes before anything else.
-  if (attr.getName().getValue() == "idr.writes_first" && fn && isa<UnitAttr>(attr.getValue()) &&
-      isa<StrType>(fn.getArgumentTypes()[argIndex]))
-    return success();
   return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
 }

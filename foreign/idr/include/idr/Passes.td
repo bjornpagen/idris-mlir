@@ -7,7 +7,7 @@ include "mlir/Pass/PassBase.td"
 include "mlir/Rewrite/PassUtil.td"
 
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
-  let summary = "Compute idr.effects and idr.writes_first on every function";
+  let summary = "Compute idr.effects on every function";
   let description = [{
     `idr.effects = #idr.effects<io, crash>` says what a call of a function
     may do besides computing its results. `io`: it takes a world, as a
@@ -18,14 +18,6 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
     the constructors of idr-defunctionalize's sums of closures). A function
     without a body, and every function that reaches one or calls anything
     but a func.func, gets both. `#idr.effects<none>` is neither.
-
-    A string parameter gets `idr.writes_first` when the function, total and
-    unable to crash, with exactly one world parameter, writes that string
-    before anything else it does with the world: every use of the world
-    writes the string, or passes it to a call of the function itself whose
-    string is the parameter with strings appended, and the string has no
-    other use. Then `f(s, xs, w)` is `f("", xs, idr.io.put_str s, w)`, and
-    canonicalization writes a string built at runtime at the call.
   }];
   let statistics = [
     Statistic<"numIO", "io", "Functions that get io">,
