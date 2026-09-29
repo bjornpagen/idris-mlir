@@ -57,6 +57,10 @@ func.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i6
     %c = idr.constant "zero" : !idr.str
     idr.yield %c : !idr.str
   }
+  case 1 {
+    %c = idr.constant "one" : !idr.str
+    idr.yield %c : !idr.str
+  }
   default {
     idr.crash "no"
     ub.unreachable
@@ -78,6 +82,10 @@ func.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64
     %c = idr.constant "zero" : !idr.str
     idr.yield %c : !idr.str
   }
+  case 1 {
+    %c = idr.constant "one" : !idr.str
+    idr.yield %c : !idr.str
+  }
   default {
     idr.crash "no"
     ub.unreachable
@@ -94,6 +102,10 @@ func.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %c = idr.constant "zero" : !idr.str
+    idr.yield %c : !idr.str
+  }
+  case 1 {
+    %c = idr.constant "one" : !idr.str
     idr.yield %c : !idr.str
   }
   default {

@@ -20,7 +20,7 @@
 // CHECK-NEXT: return %[[R]]
 // CHECK: func.func private @[[SAME]](
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: !idr.data<@IO> {{.*}}, %[[Y:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
-// CHECK-SAME: idr.effects = #idr.effects<none>
+// CHECK-SAME: idr.effects = #idr.effects<io, crash>
 // CHECK-NOT: idr.total
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
 // CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
