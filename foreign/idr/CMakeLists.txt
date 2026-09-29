@@ -60,6 +60,7 @@ add_library(idr_dialect STATIC
 	lib/Expect/Breakers.cc
 	lib/Expect/Clones.cc
 	lib/Expect/Closures.cc
+	lib/Expect/Facts.cc
 	lib/Expect/Pass.cc
 	lib/Expect/Quantities.cc
 	lib/Fold/Fold.cc

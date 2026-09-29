@@ -386,7 +386,11 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         function;
       - `quantities-kept=<file>`: every parameter has a quantity, and every
         parameter and constructor field of the module in <file> (the
-        emitted module) has the quantity it has there.
+        emitted module) has the quantity it has there;
+      - `facts-as-marked`: every op marked `expect.facts = "..."` gets from
+        lib/Facts the answers the mark lists, of `drop move delay evaluate`
+        in that order: whether it may be dropped (an unused call), moved
+        across anything, delayed, and evaluated at compile time.
   }];
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,

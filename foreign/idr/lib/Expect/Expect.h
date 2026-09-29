@@ -37,4 +37,9 @@ mlir::LogicalResult oneClone(mlir::ModuleOp module, llvm::StringRef function);
 // module in the file the argument names has the quantity it has there.
 mlir::LogicalResult quantitiesKept(mlir::ModuleOp module, llvm::StringRef emitted);
 
+// What lib/Facts answers about each op marked `expect.facts = "..."` is
+// what the mark says: the questions answered yes, in the order `drop move
+// delay evaluate`.
+mlir::LogicalResult factsAsMarked(mlir::ModuleOp module, llvm::StringRef);
+
 } // namespace idr::expect

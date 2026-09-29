@@ -36,6 +36,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("every-cycle-has-breaker", everyCycleHasBreaker)
       .Case("one-clone", oneClone)
       .Case("quantities-kept", quantitiesKept)
+      .Case("facts-as-marked", factsAsMarked)
       .Default(nullptr);
 }
 
