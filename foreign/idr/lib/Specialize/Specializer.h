@@ -62,7 +62,6 @@ private:
   mlir::FailureOr<mlir::func::FuncOp> makeRaised(mlir::func::FuncOp callee,
                                                  mlir::func::CallOp call, const Consumer &c,
                                                  mlir::Attribute key);
-  bool runsIO(mlir::func::FuncOp fn);
 
   // Specialization (Specialize.cc).
   mlir::LogicalResult specialize(mlir::func::CallOp call);
@@ -72,8 +71,6 @@ private:
   mlir::ModuleOp module;
   CloneTable clones;
   BindingTimes times;
-  // Whether a call of each function may perform IO (runsIO()).
-  llvm::DenseMap<mlir::func::FuncOp, bool> performsIO;
   std::optional<mlir::FrozenRewritePatternSet> patterns;
   llvm::SmallVector<mlir::func::FuncOp> work;
 };

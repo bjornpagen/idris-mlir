@@ -32,7 +32,7 @@
 // a partial callee is raised, as idr-eval may leave it to runtime when it
 // does not finish within its budget.
 
-#include "Specialize/Facts.h"
+#include "Facts/Facts.h"
 #include "Specialize/Specializer.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -197,8 +197,7 @@ Quantity extraQuantity(const Consumer &c, unsigned i, Value operand,
 } // namespace
 
 std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp callee) {
-  if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() ||
-      llvm::any_of(callee.getArgumentTypes(), llvm::IsaPred<WorldType>))
+  if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() || facts::takesWorld(callee))
     return std::nullopt;
   Value value = call->getResult(0);
   Operation *user = *value.user_begin();
@@ -220,15 +219,14 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
   // closed call of partial code it evaluates only within a budget, so that
   // call is raised like any other; the raised call is closed too when the
   // consumer's operands are, and idr-eval evaluates it instead.
-  if (evaluatesToTheEnd(callee, call.getOperands()))
+  if (std::optional<facts::Evaluation> evaluation = facts::canEvaluate(call, clones.symbols());
+      evaluation && evaluation->total)
     return std::nullopt;
-  // A callee that always returns, cannot crash and performs no IO of its
-  // own may run later, after output between the call and its consumer.
-  bool unobservable =
-      isTotal(callee) && !mayCrash(callee) && (isPure(callee) || !runsIO(callee));
-  if (!unobservable)
+  // A call that only computes may run later, after anything between it and
+  // its consumer; any other only after ops that only compute.
+  if (!facts::canMoveAcross(call))
     for (Operation *op = call->getNextNode(); op != opOf(*c); op = op->getNextNode())
-      if (!isMemoryEffectFree(op))
+      if (!facts::canMoveAcross(op))
         return std::nullopt;
   return c;
 }
@@ -268,9 +266,10 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
                       parameterAttrs(ctx, extraQuantity(c, index, operand, functions), arity + index));
   }
   clones.add(key, clone);
-  // A clone that applies is total if its callee is and every tail applies a
-  // known closure of a total function; one that writes is effectful.
-  inheritFacts(clone, callee, functions, std::holds_alternative<Write>(c));
+  // A clone that applies does what its callee and the labels of its tails
+  // do (anything, where a label is not known); one that writes takes a
+  // world, so it performs IO.
+  facts::inherit(clone, callee, functions);
   canonicalize(clone);
   work.push_back(clone);
   ++stats.raised;

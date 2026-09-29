@@ -20,7 +20,7 @@
 // it is a closure: a closure static at a later call is new knowledge, where
 // data would re-abstract what the key already fixed.
 
-#include "Specialize/Facts.h"
+#include "Facts/Facts.h"
 #include "Specialize/Specializer.h"
 
 using namespace mlir;
@@ -229,7 +229,7 @@ LogicalResult Specializer::specialize(func::CallOp call) {
     SmallVector<FlatSymbolRefAttr> named;
     for (const Argument &arg : args)
       labels(arg.pattern, named);
-    inheritFacts(*made, callee, llvm::map_to_vector(named, [&](FlatSymbolRefAttr name) {
+    facts::inherit(*made, callee, llvm::map_to_vector(named, [&](FlatSymbolRefAttr name) {
                    return clones.symbols().lookup<func::FuncOp>(name.getAttr());
                  }));
     for (const Argument &arg : args)

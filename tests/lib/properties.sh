@@ -161,6 +161,20 @@ no_budget_error() {
   budget_kept "with --no-eval"
 }
 
+# quantities_kept: no step of the pipeline drops or widens a quantity Idris
+# proved: after each step, up to lowering, where quantities end with the
+# idr dialect, every parameter has its quantity, the one it has in the
+# emitted module (idr-expect's quantities-kept).
+quantities_kept() {
+  property_compile --directive dump-mlir || return 0
+  property_dumped || return 0
+  for qk_dump in "$property_emitted" "$property_dumps"/[0-9]*-*.mlir; do
+    case ${qk_dump##*/} in [0-9]*-idr-lower.mlir) break ;; esac
+    expect_holds "$qk_dump" "quantities-kept=$property_emitted" ||
+      property_fail "after ${qk_dump##*/}: quantities lost" "$work/expect.log"
+  done
+}
+
 # budget_kept MODE: the last compilation kept within its budgets.
 budget_kept() {
   if grep -qF 'compile-time budget' "$work/compile.out" "$work/compile.err"; then

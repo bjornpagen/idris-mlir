@@ -80,13 +80,11 @@ add_library(idr_dialect STATIC
 	lib/Passes/TailLoops.cc
 	lib/Specialize/BindingTimes.cc
 	lib/Specialize/Clones.cc
-	lib/Specialize/Facts.cc
 	lib/Specialize/Pass.cc
 	lib/Specialize/Pattern.cc
 	lib/Specialize/Quantity.cc
 	lib/Specialize/Raise.cc
 	lib/Specialize/Run.cc
-	lib/Specialize/RunsIO.cc
 	lib/Specialize/Specialize.cc
 	lib/Stack/Cell.cc
 	lib/Stack/Escape.cc
