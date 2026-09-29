@@ -104,16 +104,3 @@ func.func @of_constant_linear(%y: i64) -> i64 {
   %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
-
-// A closure that captures a linear value moves it into the call only when
-// this apply is its one use; applied twice, it stays a closure.
-// CHECK-LABEL: func.func @linear_capture_twice(
-// CHECK: idr.closure @once
-// CHECK: idr.apply
-// CHECK: idr.apply
-func.func @linear_capture_twice(%a: !idr.lin<i64>, %y: i64) -> (i64, i64) {
-  %c = idr.closure @once(%a) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
-  %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
-  %s = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
-  return %r, %s : i64, i64
-}

@@ -46,16 +46,13 @@ bool buildable(Attribute value, Type type) {
 // [caps]>` is `func.call @f(caps..., args...)`, as upstream's
 // CallIndirectOp::canonicalize turns an indirect call of a constant into a
 // direct call; `inline` does the rest. A closure made here moves its
-// captures into the call, so one that captures a linear value must die
-// here: this apply is its only use.
+// captures into the call; one that captures a linear value has this apply
+// as its one use, as the verifier requires.
 LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
   Value closureValue = closureOf(apply);
   FlatSymbolRefAttr callee;
   SmallVector<Value> operands;
   if (auto closure = closureValue.getDefiningOp<ClosureOp>()) {
-    bool linear = llvm::any_of(closure.getCaptures().getTypes(), llvm::IsaPred<LinType>);
-    if (linear && !closure->hasOneUse())
-      return failure();
     callee = closure.getCalleeAttr();
     llvm::append_range(operands, closure.getCaptures());
   } else if (ClosureAttr constant; matchPattern(closureValue, m_Constant(&constant))) {
