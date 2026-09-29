@@ -1,27 +1,26 @@
 module Main
 
--- Every iteration of `loop` builds a list whose shape depends on the
--- counter, so no specialization can know it, and passes it to `sumL`,
--- which only reads it. idr-stack keeps its cells in `loop`'s frame: the
--- loop allocates nothing on the heap, and every count balances.
+-- Every iteration of `loop` builds two lists and hands them to `walk`,
+-- which only reads them. `walk` takes its lists in turn, so neither of its
+-- parameters is the same or smaller in its recursive call, and no
+-- specialization knows their shapes: the cells stay to runtime. idr-stack
+-- keeps them in `loop`'s frame, so the loop allocates nothing on the heap,
+-- and every count still balances.
 
 import Prelude
 
 data L = Nil | Cons Int L
 
-sumL : L -> Int
-sumL Nil = 0
-sumL (Cons x xs) = x + sumL xs
-
-pick : Int -> Int -> L
-pick n k = if mod n 3 == 0 then Cons n Nil else Cons n (Cons k Nil)
+walk : L -> L -> Int
+walk Nil ys = 0
+walk (Cons x xs) ys = x + walk ys xs
 
 partial
 loop : Int -> Int -> Int
 loop 0 acc = acc
-loop n acc = loop (n - 1) (acc + sumL (pick n (mod n 7)))
+loop n acc = loop (n - 1) (acc + walk (Cons n (Cons 1 Nil)) (Cons (mod n 7) Nil))
 
--- Digits by putChar, so that printing allocates no string either.
+-- Digits by putChar, so that printing builds no string.
 partial
 digits : Int -> IO ()
 digits n = do

@@ -1,0 +1,9 @@
+compile: exit 0
+artifacts: prog.core prog.mlir prog.o prog
+run: exit status as expected
+stdout: compared with Chez's alone (oracle-chez)
+stderr: empty
+object: no undefined symbol outside the allowed set
+mlir.expect: holds
+chez: compile exit 0
+chez: same stdout and exit status

@@ -1,0 +1,3 @@
+# The hot loop's lists are on the stack: nothing in `loop` or `walk`
+# allocates on the heap once idr-stack has run.
+idr-stack: no-heap-allocation=@Main.loop
