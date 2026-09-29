@@ -33,7 +33,7 @@ unsigned holesOf(ArrayAttr patterns) {
 
 std::optional<Clone> CloneTable::parse(func::FuncOp fn) {
   Attribute key = fn->getAttr(kKeyAttr);
-  if (!isa_and_nonnull<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr, KeyWriteAttr>(key))
+  if (!isa_and_nonnull<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(key))
     return std::nullopt;
   Clone out{fn, key, {}};
   for (unsigned i = 0; i < fn.getNumArguments(); ++i) {

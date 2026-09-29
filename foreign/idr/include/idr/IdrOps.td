@@ -999,12 +999,6 @@ def Idr_KeyApplyFieldAttr : Idr_KeyAttr<"KeyApplyField", "key_apply_field"> {
   let assemblyFormat = "`<` $callee `,` $arity `,` $ctor `,` $index `>`";
 }
 
-def Idr_KeyWriteAttr : Idr_KeyAttr<"KeyWrite", "key_write"> {
-  let summary = "the key of a clone that writes its callee's result";
-  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity);
-  let assemblyFormat = "`<` $callee `,` $arity `>`";
-}
-
 //===----------------------------------------------------------------------===//
 // Linearity
 //===----------------------------------------------------------------------===//

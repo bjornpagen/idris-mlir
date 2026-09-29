@@ -1,24 +1,19 @@
-// Raising: the single consumer of a call's result moves into a clone of the
-// callee. Two consumers move:
-// - an apply, `idr.apply %r(xs)` or, for an action in a constructor
-//   (`MkIO f`), `idr.apply` of `idr.field %r[@C, i]` (arity raising): the
-//   clone takes xs too and returns what the apply returns;
-// - output, `idr.io.put_str %r, %w`: the clone takes the world, writes what
-//   the callee would return, and returns the next world.
-// In the clone, the consumer (with its projection) moves to every tail of the
-// body: the operand of its return and, through each match whose result
-// reaches the return and has no other use, the yields of its regions. There
-// an apply meets the `idr.con` and `idr.closure` the body built, and output
-// meets the string builders, which canonicalization then takes apart. The
-// clone is keyed by its callee and its consumer (a typed key per kind of
-// consumer), so that a call of the callee
-// in the clone whose result is consumed the same way, which inlining exposes
-// where an action recurs, becomes a self call, and idr-tail-loops makes a
-// tail call a loop. Its parameters are the callee's, then the consumer's
-// other operands. It is counted with the clones of its callee's owner, and it
-// keeps no_inline from a loop breaker: it is where the breaker's loop becomes
-// a self call. Its parameters are not its callee's, so it is the owner of its
-// own clones.
+// Raising: the single consumer of a call's result, an apply of it (of one
+// field of it, `idr.field %r[@C, i]`, for an action in a constructor such as
+// `MkIO f`, and through the one use of a linear value), moves into a clone
+// of the callee that takes the apply's arguments too and returns what the
+// apply returns (arity raising). In the clone, the apply (with its
+// projection) moves to every tail of the body: the operand of its return
+// and, through each match whose result reaches the return and has no other
+// use, the yields of its regions. There it meets the `idr.con` and
+// `idr.closure` the body built. The clone is keyed by its callee and its
+// consumer, so that a call of the callee in the clone whose result is
+// consumed the same way, which inlining exposes where an action recurs,
+// becomes a self call, and idr-tail-loops makes a tail call a loop. Its
+// parameters are the callee's, then the apply's arguments. It is counted
+// with the clones of its callee's owner, and it keeps no_inline from a loop
+// breaker: it is where the breaker's loop becomes a self call. Its
+// parameters are not its callee's, so it is the owner of its own clones.
 //
 // Raising moves the callee's body from the call to its consumer, so nothing
 // may run between them that could tell: the consumer and the projection are
@@ -40,40 +35,16 @@ namespace idr::specialize {
 
 namespace {
 
-template <typename... Cases> struct Match : Cases... {
-  using Cases::operator()...;
-};
-
-// The op that consumes the call's result: the apply or the output.
-Operation *opOf(const Consumer &c) {
-  return std::visit(Match{[](const Apply &a) -> Operation * { return a.apply; },
-                          [](const Write &w) -> Operation * { return w.write; }},
-                    c);
-}
-
-// The operands the clone takes after the callee's: the apply's arguments,
-// or the world that output takes.
-OperandRange extraOf(const Consumer &c) {
-  return std::visit(Match{[](Apply a) { return a.apply.getArgs(); },
-                          [](Write w) { return w.write->getOperands().drop_front(); }},
-                    c);
-}
-
 Attribute keyOf(const Consumer &c, func::FuncOp callee) {
   MLIRContext *ctx = callee.getContext();
   StringAttr name = callee.getSymNameAttr();
   unsigned arity = callee.getNumArguments();
-  return std::visit(
-      Match{[&](Apply a) -> Attribute {
-              // Whether a linear value is used on the way follows from the
-              // types, so the key need not say.
-              if (!a.field)
-                return KeyApplyAttr::get(ctx, name, arity);
-              return KeyApplyFieldAttr::get(ctx, name, arity, a.field.getCtorAttr().getAttr(),
-                                            static_cast<unsigned>(a.field.getIndex()));
-            },
-            [&](const Write &) -> Attribute { return KeyWriteAttr::get(ctx, name, arity); }},
-      c);
+  // Whether a linear value is used on the way follows from the types, so
+  // the key need not say.
+  if (!c.field)
+    return KeyApplyAttr::get(ctx, name, arity);
+  return KeyApplyFieldAttr::get(ctx, name, arity, c.field.getCtorAttr().getAttr(),
+                                static_cast<unsigned>(c.field.getIndex()));
 }
 
 // The function a tail value applies to after the projection `field` (none
@@ -133,11 +104,11 @@ void replaceOperand(Operation *op, unsigned index, ValueRange values) {
 // that value is made: through a match whose result it is and that has no
 // other use, in each region that yields; otherwise right before `term`.
 // `result` is the call's result that `c` consumed, and `extra` stands for
-// `extraOf(c)`. An apply appends to `labels` the function each tail
-// applies, null where that is not known here.
+// the apply's arguments. `labels` gets the function each tail applies, null
+// where that is not known here.
 void push(Operation *term, unsigned index, const Consumer &c, Value result, ValueRange extra,
           SmallVectorImpl<FlatSymbolRefAttr> &labels) {
-  Operation *consumer = opOf(c);
+  Operation *consumer = c.apply;
   Value value = term->getOperand(index);
   auto res = dyn_cast<OpResult>(value);
   Operation *match = res ? res.getOwner() : nullptr;
@@ -164,16 +135,12 @@ void push(Operation *term, unsigned index, const Consumer &c, Value result, Valu
   OpBuilder b(term);
   IRMapping map;
   map.map(result, value);
-  std::visit(Match{[&](Apply a) {
-                     labels.push_back(labelOf(value, a.field));
-                     if (a.field)
-                       b.clone(*a.field, map);
-                     if (a.use)
-                       b.clone(*a.use, map);
-                   },
-                   [](const Write &) {}},
-             c);
-  for (auto [operand, param] : llvm::zip(extraOf(c), extra))
+  labels.push_back(labelOf(value, c.field));
+  if (c.field)
+    b.clone(*c.field, map);
+  if (c.use)
+    b.clone(*c.use, map);
+  for (auto [operand, param] : llvm::zip(c.apply.getArgs(), extra))
     map.map(operand, param);
   replaceOperand(term, index, b.clone(*consumer, map)->getResults());
 }
@@ -187,20 +154,14 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
   auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
   Value value = call->getResult(0);
   Operation *user = next(value);
-  std::optional<Consumer> c;
-  if (auto write = dyn_cast<PutStrOp>(user); write && write.getStr() == value) {
-    c = Write{write};
-  } else {
-    auto field = dyn_cast<FieldOp>(user);
-    if (field)
-      user = next(value = field.getResult());
-    auto use = dyn_cast_or_null<LinUseOp>(user);
-    if (use)
-      user = next(value = use.getResult());
-    if (auto apply = dyn_cast_or_null<ApplyOp>(user); apply && apply.getCallee() == value)
-      c = Apply{field, use, apply};
-  }
-  if (!c || opOf(*c)->getBlock() != call->getBlock())
+  auto field = dyn_cast<FieldOp>(user);
+  if (field)
+    user = next(value = field.getResult());
+  auto use = dyn_cast_or_null<LinUseOp>(user);
+  if (use)
+    user = next(value = use.getResult());
+  auto apply = dyn_cast_or_null<ApplyOp>(user);
+  if (!apply || apply.getCallee() != value || apply->getBlock() != call->getBlock())
     return std::nullopt;
   // idr-eval evaluates this call to the end, and its consumer then folds. A
   // closed call of partial code it evaluates only within a budget, so that
@@ -212,10 +173,10 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
   // A call that only computes may run later, after anything between it and
   // its consumer; any other only after ops that only compute.
   if (!facts::canMoveAcross(call))
-    for (Operation *op = call->getNextNode(); op != opOf(*c); op = op->getNextNode())
+    for (Operation *op = call->getNextNode(); op != apply; op = op->getNextNode())
       if (!facts::canMoveAcross(op))
         return std::nullopt;
-  return c;
+  return Consumer{field, use, apply};
 }
 
 FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallOp call,
@@ -226,17 +187,17 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
     return failure();
   func::FuncOp clone = *made;
   clone.removeResAttrsAttr();
-  Operation *consumer = opOf(c);
+  OperandRange extra = c.apply.getArgs();
 
   unsigned arity = clone.getNumArguments();
-  SmallVector<unsigned> positions(extraOf(c).size(), arity);
-  SmallVector<Type> types(extraOf(c).getTypes());
+  SmallVector<unsigned> positions(extra.size(), arity);
+  SmallVector<Type> types(extra.getTypes());
   SmallVector<DictionaryAttr> attrs(positions.size(), DictionaryAttr());
   SmallVector<Location> locs;
-  for (Value operand : extraOf(c))
+  for (Value operand : extra)
     locs.push_back(operand.getLoc());
   (void)clone.insertArguments(positions, types, attrs, locs);
-  clone.setFunctionType(FunctionType::get(ctx, clone.getArgumentTypes(), consumer->getResultTypes()));
+  clone.setFunctionType(FunctionType::get(ctx, clone.getArgumentTypes(), c.apply.getResultTypes()));
 
   auto ret = cast<func::ReturnOp>(clone.getBody().front().getTerminator());
   SmallVector<FlatSymbolRefAttr> labels;
@@ -245,13 +206,12 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
     return name ? clones.symbols().lookup<func::FuncOp>(name.getAttr()) : func::FuncOp();
   });
 
-  // The consumer's operands keep their types, linear ones included.
+  // The apply's arguments keep their types, linear ones included.
   for (unsigned i = 0; i < clone.getNumArguments(); ++i)
     clone.setArgAttrs(i, parameterAttrs(ctx, i, clone.getArgAttrDict(i)));
   clones.add(key, clone);
-  // A clone that applies does what its callee and the labels of its tails
-  // do (anything, where a label is not known); one that writes takes a
-  // world, so it performs IO.
+  // The clone does what its callee and the labels of its tails do
+  // (anything, where a label is not known).
   facts::inherit(clone, callee, functions);
   canonicalize(clone);
   work.push_back(clone);
@@ -274,8 +234,8 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
     clone = clones.lookup(key);
   }
   SmallVector<std::optional<Value>> all(call.getOperands());
-  llvm::append_range(all, extraOf(*c));
-  Operation *consumer = opOf(*c);
+  llvm::append_range(all, c->apply.getArgs());
+  Operation *consumer = c->apply;
   func::FuncOp fn = clone->fn;
   std::optional<SmallVector<Value>> operands = operandsFor(*clone, all);
   if (!operands || TypeRange(fn.getResultTypes()) != consumer->getResultTypes())
@@ -285,12 +245,10 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
   replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
   consumer->replaceAllUsesWith(replacement.getResults());
   consumer->erase();
-  if (auto *a = std::get_if<Apply>(&*c)) {
-    if (a->use)
-      a->use.erase();
-    if (a->field)
-      a->field.erase();
-  }
+  if (c->use)
+    c->use.erase();
+  if (c->field)
+    c->field.erase();
   call.erase();
   return replacement;
 }

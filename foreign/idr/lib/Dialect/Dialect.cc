@@ -467,7 +467,7 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   if (key == "idr.spec_key") {
     Attribute value = attr.getValue();
     if (!isa<func::FuncOp>(op) ||
-        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr, KeyWriteAttr, StringAttr>(value))
+        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr, StringAttr>(value))
       return op->emitOpError("expects idr.spec_key as the key of a clone");
     return success();
   }

@@ -9,7 +9,6 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 
 #include <optional>
-#include <variant>
 
 namespace idr::specialize {
 
@@ -32,16 +31,12 @@ struct Statistics {
 
 // The single consumer of a call's result that raising moves into a clone of
 // the callee: an apply of the result, of one field of it, or of the one use
-// of either when it is linear (an action in `MkIO` is); or output of it.
-struct Apply {
+// of either when it is linear (an action in `MkIO` is).
+struct Consumer {
   FieldOp field; // null: the result itself is applied
   LinUseOp use;  // null: what is applied is not linear
   ApplyOp apply;
 };
-struct Write {
-  PutStrOp write;
-};
-using Consumer = std::variant<Apply, Write>;
 
 class Specializer {
 public:
