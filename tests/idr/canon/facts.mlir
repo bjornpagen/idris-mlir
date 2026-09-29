@@ -1,0 +1,210 @@
+// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// What canonicalization drops and moves follows the facts of the functions
+// called (idr.effects, idr.total) and of the closures they are given: an
+// unused call goes, and output moves across a call, only when the call
+// only computes.
+
+idr.data @Maybe {
+  idr.ctor @Nothing tag 0 () {quantities = []}
+  idr.ctor @Just tag 1 (i64) {quantities = ["w"]}
+}
+// A sum of closures as idr-defunctionalize makes it.
+idr.data @fn$0 {
+  idr.ctor @crashes tag 0 () {quantities = []}
+  idr.ctor @square tag 1 () {quantities = []}
+}
+
+func.func private @square(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+  %r = arith.muli %x, %x : i64
+  return %r : i64
+}
+func.func private @unknown(%x: i64) -> i64 attributes {idr.total} {
+  %r = arith.muli %x, %x : i64
+  return %r : i64
+}
+func.func private @partial(%x: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
+  %r = arith.muli %x, %x : i64
+  return %r : i64
+}
+func.func private @crashes(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<crash>} {
+  %r = idr.div signed %x, %x : i64
+  return %r : i64
+}
+// Its facts are those from before its closure became a sum, when it only
+// applied one: what the closure does counts where it is made.
+func.func private @run(%f: !idr.data<@fn$0>, %x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+  %r = idr.match %f : !idr.data<@fn$0> -> (i64) {
+  case @crashes() {
+    %c = func.call @crashes(%x) : (i64) -> i64
+    idr.yield %c : i64
+  }
+  case @square() {
+    %s = func.call @square(%x) : (i64) -> i64
+    idr.yield %s : i64
+  }
+  }
+  return %r : i64
+}
+func.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+  %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
+  return %r : i64
+}
+
+// A function without idr.effects may do anything; one without idr.total
+// may not return.
+// CHECK-LABEL: func.func @unused(
+// CHECK-SAME: %[[X:.*]]: i64)
+// CHECK-NEXT: call @unknown(%[[X]])
+// CHECK-NEXT: call @partial(%[[X]])
+// CHECK-NEXT: call @crashes(%[[X]])
+// CHECK-NEXT: return
+func.func @unused(%x: i64) {
+  %a = func.call @square(%x) : (i64) -> i64
+  %b = func.call @unknown(%x) : (i64) -> i64
+  %c = func.call @partial(%x) : (i64) -> i64
+  %d = func.call @crashes(%x) : (i64) -> i64
+  return
+}
+
+// A call is judged by the closures it is given too, as closures or as sums:
+// by their labels when they are made where the call is, and as anything
+// when they are not.
+// CHECK-LABEL: func.func @given(
+// CHECK-SAME: %[[F:[^:]*]]: !idr.data<@fn$0>, %[[G:[^:]*]]: !idr.fn<(i64) -> (i64)>, %[[X:.*]]: i64)
+// CHECK-DAG: %[[SC:.*]] = idr.constant #idr.con<@fn$0::@crashes, []> : !idr.data<@fn$0>
+// CHECK-DAG: %[[CC:.*]] = idr.constant #idr.closure<@crashes, []> : !idr.fn<(i64) -> (i64)>
+// CHECK: call @run(%[[SC]], %[[X]])
+// CHECK-NOT: call
+// CHECK: call @run(%[[F]], %[[X]])
+// CHECK-NOT: call
+// CHECK: call @applies(%[[CC]], %[[X]])
+// CHECK-NOT: call
+// CHECK: call @applies(%[[G]], %[[X]])
+// CHECK-NOT: call
+// CHECK: return
+func.func @given(%f: !idr.data<@fn$0>, %g: !idr.fn<(i64) -> (i64)>, %x: i64) {
+  %sc = idr.constant #idr.con<@fn$0::@crashes, []> : !idr.data<@fn$0>
+  %a = func.call @run(%sc, %x) : (!idr.data<@fn$0>, i64) -> i64
+  %ss = idr.con @fn$0::@square() : () -> !idr.data<@fn$0>
+  %b = func.call @run(%ss, %x) : (!idr.data<@fn$0>, i64) -> i64
+  %c = func.call @run(%f, %x) : (!idr.data<@fn$0>, i64) -> i64
+  %cc = idr.constant #idr.closure<@crashes, []> : !idr.fn<(i64) -> (i64)>
+  %d = func.call @applies(%cc, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+  %cs = idr.closure @square() : () -> !idr.fn<(i64) -> (i64)>
+  %e = func.call @applies(%cs, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+  %h = func.call @applies(%g, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+  return
+}
+
+// Case-of-case moves output into a match across a call that only
+// computes; the match itself may crash, so it cannot move down instead.
+// CHECK-LABEL: func.func @across_computing(
+// CHECK: idr.match_lit
+// CHECK-NEXT: case 0 {
+// CHECK-NEXT: idr.io.put_str
+func.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+  %s = idr.match_lit %n : i64 -> (!idr.str) {
+  case 0 {
+    %c = idr.constant "zero" : !idr.str
+    idr.yield %c : !idr.str
+  }
+  default {
+    idr.crash "no"
+    ub.unreachable
+  }
+  }
+  %q = func.call @square(%x) : (i64) -> i64
+  %w1 = idr.io.put_str %s, %w
+  return %w1, %q : !idr.world, i64
+}
+
+// Output stays after a call that may crash, or that applies a closure it
+// is given, which may.
+// CHECK-LABEL: func.func @across_crashing(
+// CHECK: call @crashes
+// CHECK-NEXT: idr.io.put_str
+func.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+  %s = idr.match_lit %n : i64 -> (!idr.str) {
+  case 0 {
+    %c = idr.constant "zero" : !idr.str
+    idr.yield %c : !idr.str
+  }
+  default {
+    idr.crash "no"
+    ub.unreachable
+  }
+  }
+  %q = func.call @crashes(%x) : (i64) -> i64
+  %w1 = idr.io.put_str %s, %w
+  return %w1, %q : !idr.world, i64
+}
+// CHECK-LABEL: func.func @across_given(
+// CHECK: call @applies
+// CHECK-NEXT: idr.io.put_str
+func.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+  %s = idr.match_lit %n : i64 -> (!idr.str) {
+  case 0 {
+    %c = idr.constant "zero" : !idr.str
+    idr.yield %c : !idr.str
+  }
+  default {
+    idr.crash "no"
+    ub.unreachable
+  }
+  }
+  %q = func.call @applies(%g, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+  %w1 = idr.io.put_str %s, %w
+  return %w1, %q : !idr.world, i64
+}
+
+// A match that may crash, which every region of a later match uses, moves
+// into each of them, where a match of it meets its constructor: it still
+// runs on every path, before anything it could hide.
+// CHECK-LABEL: func.func @delayed_crash(
+// CHECK-SAME: %[[C:[^:]*]]: i64, %[[N:[^:]*]]: i64)
+// CHECK-NOT: idr.match_lit %[[C]]
+// CHECK: idr.match_lit %[[N]]
+// CHECK-NEXT: case 0 {
+// CHECK: idr.crash
+// CHECK: default {
+// CHECK: idr.crash
+func.func @delayed_crash(%c: i64, %n: i64) -> i64 {
+  %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
+  case 0 {
+    %j = idr.con @Maybe::@Just(%n) : (i64) -> !idr.data<@Maybe>
+    idr.yield %j : !idr.data<@Maybe>
+  }
+  default {
+    idr.crash "no"
+    ub.unreachable
+  }
+  }
+  %r = idr.match_lit %n : i64 -> (i64) {
+  case 0 {
+    %a = idr.match %p : !idr.data<@Maybe> -> (i64) {
+    case @Nothing() {
+      %one = arith.constant 1 : i64
+      idr.yield %one : i64
+    }
+    case @Just(%y: i64) {
+      idr.yield %y : i64
+    }
+    }
+    idr.yield %a : i64
+  }
+  default {
+    %b = idr.match %p : !idr.data<@Maybe> -> (i64) {
+    case @Nothing() {
+      %two = arith.constant 2 : i64
+      idr.yield %two : i64
+    }
+    case @Just(%y: i64) {
+      %z = arith.addi %y, %y : i64
+      idr.yield %z : i64
+    }
+    }
+    idr.yield %b : i64
+  }
+  }
+  return %r : i64
+}

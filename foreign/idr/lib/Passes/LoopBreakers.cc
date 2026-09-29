@@ -16,6 +16,7 @@
 // function in module order that is not from a library; then the rest of the
 // cycle is cut the same way.
 
+#include "Facts/Facts.h"
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
 
@@ -30,17 +31,6 @@ namespace idr {
 
 namespace {
 
-// Whether `fn` was written in a library module (its location is
-// fused<"library">).
-bool isLibrary(func::FuncOp fn) {
-  Location loc = fn.getLoc();
-  if (auto named = dyn_cast<NameLoc>(loc))
-    loc = named.getChildLoc();
-  auto fused = dyn_cast<FusedLoc>(loc);
-  auto tag = fused ? dyn_cast_or_null<StringAttr>(fused.getMetadata()) : StringAttr();
-  return tag && tag.getValue() == "library";
-}
-
 // The breaker of a cycle: its newest clone, or else its first function in
 // module order that is not from a library, or else its first.
 func::FuncOp choose(ArrayRef<func::FuncOp> cycle,
@@ -52,7 +42,7 @@ func::FuncOp choose(ArrayRef<func::FuncOp> cycle,
       newest = fn;
     if (!first || at < order.lookup(first))
       first = fn;
-    if (!isLibrary(fn) && (!firstOwn || at < order.lookup(firstOwn)))
+    if (!idr::facts::isLibrary(fn) && (!firstOwn || at < order.lookup(firstOwn)))
       firstOwn = fn;
   }
   return newest ? newest : firstOwn ? firstOwn : first;

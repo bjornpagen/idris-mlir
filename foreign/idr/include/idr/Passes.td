@@ -6,13 +6,21 @@
 include "mlir/Pass/PassBase.td"
 
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
-  let summary = "Compute idr.effect, idr.may_crash and idr.writes_first on every function";
+  let summary = "Compute idr.effects and idr.writes_first on every function";
   let description = [{
-    A function is "effectful" if it reaches an idr.io op, directly, through
-    calls, or through the functions of the closures it creates; otherwise it
-    is "pure". It may crash (`idr.may_crash`) if it reaches an op that may
-    crash the same way. A call of a function without a body, or of anything
-    but a func.func, reaches both.
+    `idr.effects = #idr.effects<io, crash>` says what a call of a function
+    may do besides computing its results. `io`: it takes a world, as a
+    parameter or in data a parameter holds; worlds reach a function only
+    that way, so a function that only builds IO actions is not `io`.
+    `crash`: it reaches an op that may crash, through calls and through the
+    labels of the closures it makes (`idr.closure`, closure constants, and
+    the constructors of idr-defunctionalize's sums of closures). A function
+    without a body, and every function that reaches one or calls anything
+    but a func.func, gets both. `#idr.effects<none>` is neither.
+
+    Until idr-specialize reads `idr.effects`, the pass also writes the old
+    facts it reads: `idr.effect` ("effectful" when the function reaches an
+    idr.io op the same way, else "pure") and `idr.may_crash`.
 
     A string parameter gets `idr.writes_first` when the function, total and
     unable to crash, with exactly one world parameter, writes that string
@@ -22,6 +30,10 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
     other use. Then `f(s, xs, w)` is `f("", xs, idr.io.put_str s, w)`, and
     canonicalization writes a string built at runtime at the call.
   }];
+  let statistics = [
+    Statistic<"numIO", "io", "Functions that get io">,
+    Statistic<"numCrash", "crash", "Functions that get crash">,
+  ];
 }
 
 def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
@@ -49,21 +61,20 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
 }
 
 def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
-  let summary = "Evaluate closed calls of pure functions at compile time";
+  let summary = "Evaluate closed calls of functions that perform no IO at compile time";
   let description = [{
-    Every call whose operands are all constants, of a function that is pure
-    (and whose constant operands name only such functions), is run: the
-    round's calls are lowered with idr-lower in JIT mode, compiled once by
-    ORC's LLJIT and run in a child process, and each result replaces its
-    call as constants. A call that crashes stays. A call of total functions
-    only runs to completion: memory or stack the machine refuses is the
-    error `unsupported (compile-time evaluation)`, which names the call. A
-    call that reaches a function without `idr.total` runs metered, within a
-    budget of ticks (counted where such code enters a function or goes
-    round a loop), arena bytes and stack; if it spends the budget, or the
-    machine refuses it memory, it stays. Results are cached per callee and
+    Every call whose operands are all constants, of a function that has a
+    body and performs no IO (and whose constant operands name only such
+    functions as closures), is run: the round's calls are lowered with
+    idr-lower in JIT mode, compiled once by ORC's LLJIT and run in a child
+    process, and each result replaces its call as constants. Every call runs
+    metered, within a budget of ticks (counted where code enters a function
+    or goes round a loop), arena bytes and stack; a call that reaches only
+    total code gets a larger budget than one that reaches a function
+    without `idr.total`. A call that crashes, spends its budget, or is
+    refused memory by the machine stays. Results are cached per callee and
     arguments. Remarks: `Passed` with the wall time, `Missed` for a crash
-    and for a metered call that did not finish, in the category idr-eval.
+    and for a call that did not finish, in the category idr-eval.
   }];
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",

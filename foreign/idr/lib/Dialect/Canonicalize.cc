@@ -3,6 +3,7 @@
 // state: apply of a known closure, the region patterns of the matches, and
 // the removal of unused calls.
 
+#include "Facts/Facts.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/Matchers.h"
@@ -190,44 +191,6 @@ bool meetsInSomeRegion(OpResult result, Operation *consumer) {
   });
 }
 
-// Whether a call only computes: its callee is pure, as idr-effects found (a
-// call declares no effects of its own, so MLIR takes it to have any), and,
-// unless `partial`, total and unable to crash, so that whether it runs at all
-// cannot be observed either.
-bool computes(func::CallOp call, bool partial) {
-  auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
-  if (!callee)
-    return false;
-  auto effect = callee->getAttrOfType<StringAttr>("idr.effect");
-  return effect && effect.getValue() == "pure" &&
-         (partial || (callee->hasAttr("idr.total") && !callee->hasAttr("idr.may_crash")));
-}
-
-// Whether moving `op` cannot be observed: nothing in it has an effect but
-// allocation (a string or a big it builds, which nothing can see), and every
-// call in it only computes. With `partial`, a call may also fail to return
-// or crash: then `op` may move, but must still run on every path it ran on.
-bool movable(Operation *op, bool partial = false) {
-  WalkResult result = op->walk([&](Operation *inner) {
-    if (auto call = dyn_cast<func::CallOp>(inner))
-      return computes(call, partial) ? WalkResult::advance() : WalkResult::interrupt();
-    if (inner->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
-      return WalkResult::advance();
-    auto iface = dyn_cast<MemoryEffectOpInterface>(inner);
-    if (!iface)
-      return WalkResult::interrupt();
-    SmallVector<MemoryEffects::EffectInstance> effects;
-    iface.getEffects(effects);
-    return llvm::all_of(effects,
-                        [](const MemoryEffects::EffectInstance &effect) {
-                          return isa<MemoryEffects::Allocate>(effect.getEffect());
-                        })
-               ? WalkResult::advance()
-               : WalkResult::interrupt();
-  });
-  return !result.wasInterrupted();
-}
-
 // Case-of-case: the single consumer of a result of a match,
 // another match included, moves into every region that yields, when in at
 // least one of them it then meets a value it folds or canonicalizes against.
@@ -287,7 +250,7 @@ private:
       return false;
     for (Operation *between = op->getNextNode(); between != consumer;
          between = between->getNextNode())
-      if (!movable(between))
+      if (!facts::canMoveAcross(between))
         return false;
     return true;
   }
@@ -296,7 +259,7 @@ private:
   // allocation, and nothing between them uses its results. Its operands and the values its
   // regions use exist before it, so they exist before the consumer too.
   static bool canLower(Match op, Operation *consumer) {
-    if (!movable(op))
+    if (!facts::canMoveAcross(op))
       return false;
     return llvm::all_of(op->getUsers(), [&](Operation *user) {
       Operation *at = op->getBlock()->findAncestorOpInBlock(*user);
@@ -382,7 +345,7 @@ private:
           return user != match && match->isAncestor(user);
         }))
       return false;
-    if (!movable(value)) {
+    if (!facts::canMoveAcross(value)) {
       bool everyRegion = llvm::all_of(match->getRegions(), [&](Region &region) {
         return llvm::any_of(value->getUsers(), [&](Operation *user) {
           return region.isAncestor(user->getParentRegion());
@@ -391,8 +354,8 @@ private:
       bool nothingBetween = true;
       for (Operation *between = value->getNextNode(); between != match;
            between = between->getNextNode())
-        nothingBetween &= movable(between);
-      if (!everyRegion || !nothingBetween || !movable(value, /*partial=*/true))
+        nothingBetween &= facts::canMoveAcross(between);
+      if (!everyRegion || !nothingBetween || !facts::canDelay(value))
         return false;
     }
     if (!llvm::any_of(value->getResults(), [](Value result) {
@@ -516,50 +479,13 @@ void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRCont
 
 namespace {
 
-// Whether a value of `type` may hold a closure, in a field or a capture.
-bool mayHoldClosure(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
-  if (isa<FnType>(type))
-    return true;
-  DataOp data = lookupData(from, type);
-  if (!data || !seen.insert(type).second)
-    return false;
-  return llvm::any_of(data.getCtors(), [&](CtorOp ctor) {
-    return llvm::any_of(ctor.getFieldTypes().getAsValueRange<TypeAttr>(),
-                        [&](Type field) { return mayHoldClosure(from, field, seen); });
-  });
-}
-
-bool removable(func::FuncOp fn) { return fn && isPure(fn) && isTotal(fn) && !mayCrash(fn); }
-
-// A call passes on no effect through `value`: it holds no closure, or only
-// closures of functions whose calls could be removed too.
-bool passesNoEffect(Operation *call, Value value) {
-  llvm::SmallDenseSet<Type> seen;
-  if (!mayHoldClosure(call, value.getType(), seen))
-    return true;
-  Attribute constant;
-  if (!matchPattern(value, m_Constant(&constant)))
-    return false;
-  return !constant
-              .walk([&](ClosureAttr closure) {
-                return removable(SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-                           call, closure.getCallee()))
-                           ? WalkResult::advance()
-                           : WalkResult::interrupt();
-              })
-              .wasInterrupted();
-}
-
-// A call whose results are unused goes when its callee is pure, total and
-// cannot crash: it could only run, and a crash stays even when its result
-// is unused.
+// A call whose results are unused goes when it only computes: its callee
+// performs no IO, cannot crash and returns, and so do the closures it is
+// given. A crash stays even when its result is unused.
 struct RemoveUnusedCall : OpRewritePattern<func::CallOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(func::CallOp call, PatternRewriter &rewriter) const final {
-    if (!call->use_empty() ||
-        !removable(SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr())) ||
-        !llvm::all_of(call.getOperands(),
-                      [&](Value operand) { return passesNoEffect(call, operand); }))
+    if (!facts::canDrop(call))
       return failure();
     rewriter.eraseOp(call);
     return success();

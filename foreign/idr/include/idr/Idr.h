@@ -147,9 +147,10 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
-// The facts idr-effects computes on a function: whether it is
-// pure, and whether it may crash. Together with `idr.total` they decide
-// whether an unused call may be removed.
+// The old facts of a function, which idr-specialize reads until it asks
+// lib/Facts (Facts/Facts.h): pure when idr-effects found that it reaches no
+// IO op (a closure counts where it is made), able to crash unless
+// idr-effects found it cannot, and total as Idris proves (idr.total).
 bool isPure(mlir::func::FuncOp fn);
 bool mayCrash(mlir::func::FuncOp fn);
 bool isTotal(mlir::func::FuncOp fn);

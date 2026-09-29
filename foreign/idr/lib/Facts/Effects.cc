@@ -1,6 +1,23 @@
-// idr-effects: the facts idr.effect and idr.may_crash of every function.
+// idr-effects: `idr.effects` on every function (Facts.h reads it).
+//
+// A call of a function may perform IO when it takes a world, as a
+// parameter or in data one holds. That is a fact of its type: a world
+// reaches a function only through its parameters, since no op makes one
+// from nothing (no constant is a world, and a closure never captures one).
+// So a function that only builds IO actions, as a fold that makes
+// `a *> b` does, performs no IO; whoever runs an action gives it a world.
+//
+// A function may crash when it reaches an op that may crash, through the
+// functions it calls and the labels of the closures it makes: an
+// idr.closure, a closure constant, or a constructor of a sum of closures
+// that idr-defunctionalize made. A closure's crash counts where it is made,
+// not where it is applied: a call that passes one on is judged by what the
+// closure may do too (Facts.h, passed).
+//
+// A function without a body, and every function that reaches one or calls
+// anything but a func.func, may do both.
 
-#include "idr/Idr.h"
+#include "Facts/Facts.h"
 
 #include "llvm/ADT/SetVector.h"
 
@@ -13,43 +30,54 @@ namespace idr {
 
 namespace {
 
-struct Facts {
-  bool io = false;
+struct Found {
+  // It reaches a function without a body, or a call of something unknown.
+  bool unknown = false;
   bool crash = false;
-  // The functions this one reaches: those it calls, and those of the
-  // closures it creates, whose effects count where they are created.
+  // It reaches an IO op: idr.effect, the fact idr-specialize still reads.
+  bool io = false;
+  // The functions it calls and whose closures it makes.
   llvm::SetVector<func::FuncOp> reaches;
 };
 
-// What `fn` does itself, and which functions it reaches. A call of anything
-// but a func.func with a body does everything.
-Facts localFacts(func::FuncOp fn, SymbolTableCollection &symbols) {
-  Facts facts;
+// What `fn` does itself, and which functions it reaches.
+Found local(func::FuncOp fn, SymbolTableCollection &symbols) {
+  Found found;
   if (fn.isExternal()) {
-    facts.io = facts.crash = true;
-    return facts;
+    found.unknown = true;
+    return found;
   }
   auto reach = [&](Operation *from, SymbolRefAttr callee) {
-    auto target = symbols.lookupNearestSymbolFrom<func::FuncOp>(from, callee);
-    if (target)
-      facts.reaches.insert(target);
+    if (auto target = symbols.lookupNearestSymbolFrom<func::FuncOp>(from, callee))
+      found.reaches.insert(target);
     else
-      facts.io = facts.crash = true;
+      found.unknown = true;
+  };
+  auto reachLabel = [&](Operation *from, SymbolRefAttr ctor) {
+    if (StringAttr label = idr::facts::closureLabel(ctor))
+      reach(from, FlatSymbolRefAttr::get(label));
   };
   fn.getBody().walk([&](Operation *op) {
     if (op->hasTrait<idr::PerformsIO>())
-      facts.io = true;
+      found.io = true;
     if (auto mayCrash = dyn_cast<idr::MayCrashOpInterface>(op); mayCrash && mayCrash.getCrashCause())
-      facts.crash = true;
+      found.crash = true;
     if (auto call = dyn_cast<func::CallOp>(op))
       reach(op, call.getCalleeAttr());
     else if (auto closure = dyn_cast<idr::ClosureOp>(op))
       reach(op, closure.getCalleeAttr());
+    else if (auto con = dyn_cast<idr::ConOp>(op))
+      reachLabel(op, con.getCtor());
     else if (isa<CallOpInterface>(op) && !isa<idr::ApplyOp>(op))
-      facts.io = facts.crash = true;
-    op->getAttrDictionary().walk([&](idr::ClosureAttr closure) { reach(op, closure.getCallee()); });
+      found.unknown = true;
+    op->getAttrDictionary().walk([&](Attribute nested) {
+      if (auto closure = dyn_cast<idr::ClosureAttr>(nested))
+        reach(op, closure.getCallee());
+      else if (auto con = dyn_cast<idr::ConAttr>(nested))
+        reachLabel(op, con.getCtor());
+    });
   });
-  return facts;
+  return found;
 }
 
 // Whether `fn`, given the string `s` and the world `world`, writes `s` before
@@ -114,36 +142,56 @@ struct Effects : idr::impl::IdrEffectsBase<Effects> {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
     SymbolTableCollection symbols;
-    llvm::DenseMap<func::FuncOp, Facts> facts;
+    llvm::DenseMap<func::FuncOp, Found> facts;
     llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> reachedFrom;
     SmallVector<func::FuncOp> worklist;
     for (auto fn : module.getOps<func::FuncOp>()) {
-      Facts &local = facts[fn] = localFacts(fn, symbols);
-      for (func::FuncOp callee : local.reaches)
+      Found &found = facts[fn] = local(fn, symbols);
+      for (func::FuncOp callee : found.reaches)
         reachedFrom[callee].push_back(fn);
-      if (local.io || local.crash)
+      if (found.unknown || found.crash || found.io)
         worklist.push_back(fn);
     }
     // Each fact flows from a function to those that reach it.
     while (!worklist.empty()) {
       func::FuncOp callee = worklist.pop_back_val();
-      bool io = facts[callee].io, crash = facts[callee].crash;
+      const Found &from = facts[callee];
+      bool unknown = from.unknown, crash = from.crash, io = from.io;
       for (func::FuncOp caller : reachedFrom.lookup(callee)) {
-        Facts &grown = facts[caller];
-        bool changed = (io && !grown.io) || (crash && !grown.crash);
-        grown.io |= io;
+        Found &grown = facts[caller];
+        bool changed = (unknown && !grown.unknown) || (crash && !grown.crash) || (io && !grown.io);
+        grown.unknown |= unknown;
         grown.crash |= crash;
+        grown.io |= io;
         if (changed)
           worklist.push_back(caller);
       }
     }
-    for (auto &[fn, fact] : facts) {
-      fn->setAttr("idr.effect", StringAttr::get(ctx, fact.io ? "effectful" : "pure"));
-      if (fact.crash)
+    llvm::DenseMap<Type, bool> worlds;
+    auto takesWorld = [&](func::FuncOp fn) {
+      return llvm::any_of(fn.getArgumentTypes(), [&](Type type) {
+        auto [known, fresh] = worlds.try_emplace(type, false);
+        if (fresh)
+          known->second = idr::facts::mayHoldWorld(fn, type);
+        return known->second;
+      });
+    };
+    for (auto &[fn, found] : facts) {
+      bool io = found.unknown || takesWorld(fn);
+      bool crash = found.unknown || found.crash;
+      idr::Effect bits = idr::Effect::none;
+      if (io)
+        bits = bits | idr::Effect::io;
+      if (crash)
+        bits = bits | idr::Effect::crash;
+      fn->setAttr("idr.effects", idr::EffectAttr::get(ctx, bits));
+      fn->setAttr("idr.effect",
+                  StringAttr::get(ctx, found.unknown || found.io ? "effectful" : "pure"));
+      if (crash)
         fn->setAttr("idr.may_crash", UnitAttr::get(ctx));
       else
         fn->removeAttr("idr.may_crash");
-      markWritesFirst(fn, fact.crash);
+      markWritesFirst(fn, crash);
     }
   }
 

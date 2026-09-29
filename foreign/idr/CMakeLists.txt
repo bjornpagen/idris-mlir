@@ -39,8 +39,12 @@ llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linke
 add_library(idr_dialect STATIC
 	lib/Dialect/Canonicalize.cc
 	lib/Dialect/Dialect.cc
-	lib/Dialect/Effects.cc
 	lib/Dialect/Ops.cc
+	lib/Facts/Effects.cc
+	lib/Facts/Evaluate.cc
+	lib/Facts/Functions.cc
+	lib/Facts/Moves.cc
+	lib/Facts/Values.cc
 	lib/Eval/Child.cc
 	lib/Eval/Eval.cc
 	lib/Eval/Jit.cc

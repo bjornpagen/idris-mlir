@@ -79,8 +79,7 @@ uint64_t now() {
 struct Work {
   llvm::ArrayRef<Jit::Entry> entries;
   llvm::ArrayRef<size_t> words;
-  llvm::ArrayRef<bool> metered;
-  Budget budget;
+  llvm::ArrayRef<Budget> budgets;
   size_t first;
   llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)> reify;
   int out;
@@ -103,8 +102,8 @@ void *runCalls(void *argument) {
   for (size_t i = work.first; i < work.entries.size(); ++i) {
     llvm::SmallVector<uint64_t> slots(work.words[i]);
     uint64_t start = now();
-    if (work.metered[i])
-      idris_rt_eval_meter(work.budget.ticks, work.budget.bytes, work.budget.stack);
+    const Budget &budget = work.budgets[i];
+    idris_rt_eval_meter(budget.ticks, budget.bytes, budget.stack);
     work.entries[i](slots.data());
     idris_rt_eval_unmetered();
     uint64_t elapsed = now() - start;
@@ -174,7 +173,7 @@ llvm::SmallVector<Result> parse(llvm::StringRef records) {
 } // namespace
 
 Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
-               llvm::ArrayRef<bool> metered, Budget budget, size_t first,
+               llvm::ArrayRef<Budget> budgets, size_t first,
                llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)>
                    reify) {
   Run run;
@@ -184,7 +183,7 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
     run.message = "no pipe for the evaluation child: " + std::string(strerror(errno));
     return run;
   }
-  Work work{entries, words, metered, budget, first, reify, results[1]};
+  Work work{entries, words, budgets, first, reify, results[1]};
   pid_t pid = fork();
   if (pid == 0) {
     close(results[0]);

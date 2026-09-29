@@ -152,6 +152,30 @@ def Idr_CmpPredicate : I64EnumAttr<"CmpPredicate",
 }
 
 //===----------------------------------------------------------------------===//
+// Facts about functions (lib/Facts)
+//===----------------------------------------------------------------------===//
+
+// What a call of a function may do besides computing its results, as
+// idr-effects finds it: `io`, perform IO, which takes a world, so only a
+// function that takes one can, or anything at all, as a function without
+// a body may; `crash`, end the program with a crash. The attribute is
+// `idr.effects` on every function. Simplification only removes what a
+// function reaches, so a stale value says too much, never too little; a
+// function without it may do anything.
+def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
+      I32BitEnumAttrCaseNone<"none">,
+      I32BitEnumAttrCaseBit<"io", 0>,
+      I32BitEnumAttrCaseBit<"crash", 1>]> {
+  let cppNamespace = "::idr";
+  let separator = ", ";
+  let genSpecializedAttr = 0;
+}
+
+def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+//===----------------------------------------------------------------------===//
 // What an op declares once, for every pass to derive from (Idr.h)
 //===----------------------------------------------------------------------===//
 

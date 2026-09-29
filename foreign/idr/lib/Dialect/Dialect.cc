@@ -155,19 +155,6 @@ CtorOp idr::lookupCtor(Operation *from, SymbolRefAttr ctor) {
 }
 
 //===----------------------------------------------------------------------===//
-// The facts
-//===----------------------------------------------------------------------===//
-
-bool idr::isPure(func::FuncOp fn) {
-  auto effect = fn->getAttrOfType<StringAttr>("idr.effect");
-  return effect && effect.getValue() == "pure";
-}
-
-bool idr::mayCrash(func::FuncOp fn) { return fn->hasAttr("idr.may_crash"); }
-
-bool idr::isTotal(func::FuncOp fn) { return fn->hasAttr("idr.total"); }
-
-//===----------------------------------------------------------------------===//
 // The module
 //===----------------------------------------------------------------------===//
 
@@ -386,9 +373,16 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.program as a unit attribute of the module");
     return verifyProgram(cast<ModuleOp>(op));
   }
-  if (key == "idr.total" || key == "idr.may_crash") {
+  // The facts of a function (lib/Facts): what Idris proves, whether it was
+  // written in a library, and what idr-effects finds.
+  if (key == "idr.total" || key == "idr.library" || key == "idr.may_crash") {
     if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
       return op->emitOpError("expects ") << key << " as a unit attribute of a function";
+    return success();
+  }
+  if (key == "idr.effects") {
+    if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))
+      return op->emitOpError("expects idr.effects = #idr.effects<...> on a function");
     return success();
   }
   if (key == "idr.effect") {
