@@ -103,9 +103,20 @@ paths:
 	@if cmp -s '$(PATHS_MODULE).new' '$(PATHS_MODULE)'; then \
 	    rm '$(PATHS_MODULE).new'; else mv '$(PATHS_MODULE).new' '$(PATHS_MODULE)'; fi
 
+# Every test command rebuilds the runner while other runs may be using it.
+# So it is built aside, in build/stage, one build at a time, and installed
+# by renaming each file over the old one: a running runner keeps the files
+# it started with, which rewriting them in place would corrupt under it.
+RUNNER_FILES = runtests runtests_app/runtests.so runtests_app/runtests.ss \
+               runtests_app/libidris2_support.so runtests_app/compileChez
 runner:
 	@$(PINS) idris
-	cd $(ROOT)/tests && $(IDRIS2) --build tests.ipkg
+	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && flock build/.runner.lock sh -c ' \
+	  $(IDRIS2) --build-dir build/stage --build tests.ipkg || exit 1; \
+	  for file in $(RUNNER_FILES); do \
+	    cp -p build/stage/exec/$$file build/exec/$$file.new.$$$$ && \
+	      mv -f build/exec/$$file.new.$$$$ build/exec/$$file || exit 1; \
+	  done'
 
 check: runner
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite check $(GOLDEN)
