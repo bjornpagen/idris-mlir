@@ -78,7 +78,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     ModuleOp module = getOperation();
     llvm::scope_exit finish([&] { report(module); });
     std::array<uint8_t, 20> before = structural(module);
-    for (unsigned rounds = 1; rounds <= maxRounds; ++rounds) {
+    unsigned budget = maxRounds;
+    for (unsigned rounds = 1; rounds <= budget; ++rounds) {
       auto started = std::chrono::steady_clock::now();
       if (failed(runPipeline(round, module)))
         return signalPassFailure();
@@ -95,7 +96,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     }
     emitError(module.getLoc()) << "unsupported (compile-time budget): idr-simplify did not "
                                   "reach a fixpoint in "
-                               << maxRounds << " rounds";
+                               << budget << " rounds";
     signalPassFailure();
   }
 

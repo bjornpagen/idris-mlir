@@ -405,8 +405,9 @@ int run() {
       }
       streamer = std::move(*file);
     }
-    mlir::remark::RemarkCategories categories;
-    categories.all = remarks.empty() ? std::string(".*") : remarks.getValue();
+    // The engine filters only the kinds whose category is set.
+    std::string regex = remarks.empty() ? std::string(".*") : remarks.getValue();
+    mlir::remark::RemarkCategories categories{regex, regex, regex, regex, regex};
     if (mlir::failed(mlir::remark::enableOptimizationRemarks(
             context, std::move(streamer), std::make_unique<mlir::remark::RemarkEmittingPolicyAll>(),
             categories, /*printAsEmitRemarks=*/!remarks.empty())))
