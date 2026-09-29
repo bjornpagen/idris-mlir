@@ -353,6 +353,8 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
     Option<"reuse", "reuse", "bool", "true", "Reuse the cells of dead boxes">,
     Option<"borrow", "borrow", "bool", "true", "Infer borrowed parameters">,
   ];
+  // The sizes of cells, for reuse, are those of their LLVM layouts.
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
   let statistics = [
     Statistic<"numIncs", "incs", "idr.inc added">,
     Statistic<"numDecs", "decs", "idr.dec added">,

@@ -185,7 +185,7 @@ private:
     for (OpOperand &operand : op.getOpOperands()) {
       if (!counting.tracked(operand.get()))
         continue;
-      if (useOf(operand, symbols) == Use::Consume) {
+      if (useKind(operand) == Use::Consume) {
         if (failed(consume(op, operand.get())))
           return failure();
       } else {
@@ -206,6 +206,27 @@ private:
     if (auto reuse = dyn_cast<ReuseOp>(op))
       return fits(reuse);
     return success();
+  }
+
+  // What a use does, where a loop's terminator passes on a borrowed slot.
+  Use useKind(OpOperand &operand) {
+    Operation *op = operand.getOwner();
+    auto loop = dyn_cast_or_null<scf::WhileOp>(op->getParentOp());
+    if (loop && isa<scf::ConditionOp, scf::YieldOp>(op)) {
+      unsigned slot = operand.getOperandNumber() - (isa<scf::ConditionOp>(op) ? 1 : 0);
+      if (Value owner = slotOwner(loop, slot))
+        return Use::Borrow;
+    }
+    return useOf(operand, symbols);
+  }
+
+  // The borrowed value a slot of a loop carries on its first iteration, or
+  // null when the slot is owned.
+  Value slotOwner(scf::WhileOp loop, unsigned slot) {
+    auto it = loops.find(loop);
+    if (it == loops.end() || slot >= it->second.size())
+      return Value();
+    return it->second[slot];
   }
 
   // The token of an idr.reuse comes from an idr.reset of a cell of the
@@ -283,16 +304,29 @@ private:
     return true;
   }
 
-  // An scf.while of idr-tail-loops: the initial values are consumed, and
-  // each region takes its arguments owned and consumes what its terminator
-  // passes on, leaving the values from outside as it found them. The
-  // results and the after region's arguments that nothing uses are the
-  // payload of the path not taken, which is poison there.
+  // An scf.while of idr-tail-loops, which carries a function's parameters
+  // first, then its results. A slot whose first value is borrowed (a
+  // borrowed parameter) carries borrowed values, which live as long as that
+  // first one; every other slot's values are owned: the initial values are
+  // consumed, each region takes its arguments owned and consumes what its
+  // terminator passes on, and leaves the values from outside as it found
+  // them. The results and the after region's arguments that nothing uses
+  // are the payload of the path not taken, which is poison there.
   FailureOr<bool> walkLoop(scf::WhileOp loop) {
     Operation &op = *loop.getOperation();
-    for (Value init : loop.getInits())
-      if (failed(consume(op, init)))
+    SmallVector<Value> &owners = loops[loop];
+    for (Value init : loop.getInits()) {
+      bool borrowed = counting.tracked(init) && held.lookup(init) == 0 && alive(init);
+      owners.push_back(borrowed ? init : Value());
+      if (failed(borrowed ? use(op, init) : consume(op, init)))
         return failure();
+    }
+    auto slotType = [&](unsigned slot, Value value, bool after) {
+      if (Value owner = slotOwner(loop, slot))
+        define(value, 0, owner, /*borrowed=*/true);
+      else
+        define(value, after && value.use_empty() ? 0 : 1);
+    };
     size_t mark = log.size();
     bool exits = false;
     for (Region *region : {&loop.getBefore(), &loop.getAfter()}) {
@@ -302,7 +336,7 @@ private:
       bool after = region == &loop.getAfter();
       for (BlockArgument arg : block.getArguments())
         if (counting.tracked(arg))
-          define(arg, after && arg.use_empty() ? 0 : 1);
+          slotType(arg.getArgNumber(), arg, after);
       FailureOr<bool> reached = walk(block);
       if (failed(reached))
         return failure();
@@ -317,9 +351,9 @@ private:
       }
       undo(mark);
     }
-    for (Value result : loop.getResults())
+    for (OpResult result : loop.getResults())
       if (counting.tracked(result))
-        define(result, result.use_empty() ? 0 : 1);
+        slotType(result.getResultNumber(), result, /*after=*/true);
     return exits;
   }
 
@@ -329,6 +363,8 @@ private:
   llvm::DenseMap<Value, int> held;
   llvm::DenseMap<Value, Value> owners;
   SmallVector<Change> log;
+  // For each loop, the owner of each borrowed slot.
+  llvm::DenseMap<Operation *, SmallVector<Value>> loops;
 };
 
 } // namespace
