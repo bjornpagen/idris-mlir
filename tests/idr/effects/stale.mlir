@@ -6,8 +6,8 @@
 // when it is made there, and as anything when it is not.
 
 idr.data @fn$0 {
-  idr.ctor @crashes tag 0 () {quantities = []}
-  idr.ctor @square tag 1 () {quantities = []}
+  idr.ctor @crashes tag 0 ()
+  idr.ctor @square tag 1 ()
 }
 
 func.func private @square(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
