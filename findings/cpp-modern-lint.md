@@ -23,7 +23,7 @@ inheriting the root:
 | `src/` | every module: the passes, analyses, the driver | **dialect**: root + the dialect checks (section 3) |
 | `foreign/idr/` | TableGen input and glue: the hooks ODS declares, the `GEN_PASS_DEF` pass bases, DRR, `mlir_api` (the MLIR re-export module), the tools' `main` | **glue**: root + the glue checks |
 | `unsafe/` | fork, mmap, signals, pthreads, reading JIT memory: `Eval/Child.cc`, `Eval/Jit.cc`, `Eval/Reify.cc`, the large-stack thread of `idris-mlir-cc` | **quarantine**: root only (cpp-starter's own) |
-| `runtime/` | the C ABI runtime | **quarantine** + runtime options |
+| `runtime/` | the C ABI runtime | **quarantine**: the root only |
 
 Inheritance works as needed: a child `.clang-tidy` with
 `InheritParentConfig: true` keeps the parent's `CustomChecks`, adds its own,
@@ -32,8 +32,12 @@ and can disable a parent's check by name (tested,
 
 ## 2. The root `.clang-tidy` (quarantine profile, every zone)
 
-cpp-starter's `.clang-tidy` verbatim (`.clang-tidy:1-51`), with three
+cpp-starter's `.clang-tidy` verbatim (`.clang-tidy:1-51`), with four
 changes:
+
+- `misc-move-constructor-init` is gone from clang-tidy 23 (`--verify-config`:
+  "unknown check"); it is `performance-move-constructor-init` now, which
+  `performance-*` already enables.
 
 - `CheckedReturnTypes` is `^::std::expected$` only. That is the user's one
   return-value rule. `mlir::LogicalResult` and `mlir::FailureOr` need no
@@ -72,7 +76,6 @@ Checks: >
   bugprone-use-after-move,
   bugprone-unused-return-value,
   concurrency-*,
-  misc-move-constructor-init,
   misc-static-assert,
   misc-unused-using-decls,
   modernize-use-nullptr,
@@ -166,8 +169,14 @@ Why each part is as it is (tested on `lint2/t.cc` and on
 ## 3. `src/.clang-tidy`: the dialect profile
 
 cpp-starter's rules for `src/` (`AGENTS.md:365-383`) at the highest rung
-clang-tidy can reach. Everything below was tested on the fixture
-(`lint2/t.cc`), which each check flags exactly where intended.
+clang-tidy can reach. The three files of sections 2-4 were extracted from
+this document into a scratch tree (`scratchpad/research/cpp-modern/zones/`)
+and run on a fixture per zone: every custom check fires on its line and on
+nothing else, the glue's lambda exemption keeps the lambda handed to an
+MLIR-style template and reports the other, and `misc-use-internal-linkage`
+leaves module-linkage functions of a partition alone (tested on
+`zones/src/part.cc`). `--verify-config` knows every listed check (it does
+not know custom checks, which run only with the flag).
 
 ```yaml
 ---
@@ -407,14 +416,6 @@ CustomChecks:
       - BindName: c
         Message: "glue derives MLIR's bases only, never a project type"
         Level: Warning
-  - Name: glue-is-thin
-    Query: |
-      match functionDecl(isDefinition(), unless(isImplicit()), unless(isExpansionInSystemHeader()),
-        hasBody(compoundStmt(statementCountIs(0)))).bind("f")
-    Diagnostic:
-      - BindName: f
-        Message: "an empty glue function: delete it or forward to the module"
-        Level: Warning
 CheckOptions:
   readability-identifier-naming.FunctionCase: lower_case
   readability-identifier-naming.VariableCase: lower_case
@@ -422,10 +423,11 @@ CheckOptions:
 ...
 ```
 
-`glue-is-thin` is a placeholder for the rule "a hook forwards to a module
-function in one statement"; `statementCountIs(1)` on hooks can hold it once
-the glue exists. The glue also keeps the root's `noexcept-function`, so a
-glue function that is not a TableGen hook is `noexcept` like any other.
+The glue keeps the root's `noexcept-function`, so a glue function that is
+not a TableGen hook is `noexcept` like any other. The rule "a hook forwards
+to a module function in one statement" stays review: a trial check on empty
+bodies (`statementCountIs(0)`) also fired on empty overrides and empty
+lambdas handed to MLIR, so it is not proposed.
 
 ## 5. `unsafe/.clang-tidy` and `runtime/.clang-tidy`
 
@@ -434,21 +436,10 @@ profile, which "does not flag the raw pointers, ABI casts, or C APIs that
 define the reason those zones exist" (`AGENTS.md:346-352`), plus
 `noexcept-function` and `expected-ignored`.
 
-`runtime/` inherits the root and adds the one runtime rule:
-
-```yaml
----
-InheritParentConfig: true
-CustomChecks:
-  - Name: c-abi-noexcept
-    Query: |
-      match functionDecl(isExternC(), unless(isNoThrow()), unless(isExpansionInSystemHeader())).bind("f")
-    Diagnostic:
-      - BindName: f
-        Message: "every C entry point is declared IDRIS_RT_NOEXCEPT in idris_rt.h"
-        Level: Warning
-...
-```
+`runtime/` needs no file of its own: the root's `noexcept-function`
+already reports an `extern "C"` definition without `noexcept` (tested,
+`zones/runtime/fixture.cc`: `extern "C" int idris_rt_thing(int)` is
+reported, the `noexcept` one is not).
 
 `idris_rt.h` stays C (`link_check.c` includes it as C): its
 `IDRIS_RT_NORETURN` pattern (`idris_rt.h:18-23`) gains
