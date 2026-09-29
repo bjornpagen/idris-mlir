@@ -21,16 +21,12 @@
 // own clones.
 //
 // Raising moves the callee's body from the call to its consumer, so nothing
-// may run between them: the consumer and the projection are in the call's
-// block, and every op between the call and the consumer is free of memory
-// effects (a crash, output and an allocation are effects), or the callee is
-// total, cannot crash and is pure or performs no IO while it runs (it may
-// build actions that do, as a fold of `*>` does), so that when its body
-// runs cannot be observed. A callee that takes a world is never raised: its
-// body would take part in the world chain. A closed call of a pure, total
-// callee is idr-eval's, which runs it to the end, and is not raised; one of
-// a partial callee is raised, as idr-eval may leave it to runtime when it
-// does not finish within its budget.
+// may run between them that could tell: the consumer and the projection are
+// in the call's block, and either the call only computes (it performs no IO,
+// cannot crash and returns; building actions is no IO), or every op between
+// it and the consumer only computes. A callee that takes a world is never
+// raised: its body would take part in the world chain. A closed call that
+// idr-eval runs to the end is left to it.
 
 #include "Facts/Facts.h"
 #include "Specialize/Specializer.h"
