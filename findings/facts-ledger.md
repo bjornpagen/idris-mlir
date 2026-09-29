@@ -153,11 +153,12 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   ResetReuse.cc:19-25 describes the missing piece).
 - **How it could be derived:** review-external-2.md's plan (a call-graph
   fixpoint like Borrow.cc) is right. Two facts make it sharper:
-  - a q1 parameter's pattern variables are only as linear as their fields
-    (checked above), so uniqueness of a q1 list is of its first cell;
-    inference must propagate it field by field ("the tail of a unique cell
-    whose count is 1 is unique if the cell held the only reference to it"
-    is not a static fact);
+  - a q1 parameter's pattern variables get their fields' quantities
+    (checked above), so Idris's q1 on a list says nothing about its tail.
+    A tail is unique only if whatever built the list gave the cons a unique
+    tail, so inference must follow values into and out of constructor
+    fields (Clean's uniqueness propagation through data), not stop at
+    parameters;
   - the owned-stage verifier already counts references exactly on every
     path (Ownership/Verify.cc): a value produced by `idr.con`/`idr.reuse`
     and consumed before any `idr.inc` of it is unique by that same walk.
@@ -320,6 +321,16 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 ## Audit of the dialect: is every part load-bearing?
 
 "Consumed" means a pass or the verifier reads it and behaves differently.
+mlir-idioms.md §4 (written in parallel) reaches the same verdicts on the
+unprefixed-attribute hole, `RuntimeCallOpInterface`, the Crash and
+Divergence resources, the five range interfaces, `arg_attrs`, `tag` and
+`box`. Found here and not there: the ops with no producer (`io.get_char`,
+`io.exit`), `idr.origin` duplicating `spec_key`, `bindsField` admitting a
+binding Idris does not make, `Idr_CountedType` admitting `!idr.lin<i64>`,
+the second definition of "holds references" in the `idr.borrowed` rule,
+the stringly `closures` link, coverage encoded by absence, speculatability
+declared and never read, `FnType::getFunctionType` and `Facts.provenance`
+unused.
 
 ### Types
 
@@ -410,150 +421,219 @@ Missing: match exhaustiveness (cases ∪ default versus the constructors);
 `closures` constructors versus their functions; header packing limits
 (review-external.md); unknown non-`idr.` attributes on idr ops.
 
+## The global maximum: every Idris fact is a type that MLIR's own machinery reads
+
+The ledger's pattern is uniform: Idris proves a fact, the frontend reads
+part of it, and what reaches MLIR is either a constraint nothing optimizes
+with (`!idr.lin`), a discardable attribute read by a hand-written analysis
+of ours (`idr.total` via `Facts`), or nothing (sizes, bounds, indices,
+size-change, propositions). The global maximum is the opposite: each fact
+is a type (or a typed property of an op or function), every question a pass
+asks is answered by an interface derived from those types, and the passes
+that answer them are MLIR's: IntegerRangeAnalysis and
+ValueBoundsOpInterface, the DataFlow framework, CSE/LICM/DCE through
+MemoryEffectOpInterface, One-Shot Bufferize and ownership-based
+deallocation, linalg/scf/vector. Where ours duplicates one of them, ours
+goes. This extends representation.md (the representation layer: facts as
+types, one decision table, lowering only reads) and mlir-idioms.md (MLIR
+mechanisms), and puts the ledger's facts into both.
+
+| Idris fact | Its type in the IR | The MLIR machinery that consumes it | What of ours it deletes |
+|---|---|---|---|
+| quantity 0, indices (`Vect n`, `Fin n`) | a ghost: `!idr.erased<index>` that keeps the erased value's identity and type (conjecture: zero runtime components, verified to reach only ghost positions) | ValueBoundsOpInterface on idr ops (`idr.field @"::"[2]` of a vector with ghost `n` has ghost `n - 1`); `ValueBoundsConstraintSet` proves `Fin` accesses in bounds and folds matches the index decides | the `forced` guard (Cases.idr:91-95); per-length clones for static shapes |
+| Nat-likes, Fin, sizes | `!idr.nat` (a non-negative big), `!idr.fin` relative to a ghost bound, narrowed to `index`/`i64` where a range proves it (representation.md R1, R5, R13) | IntegerRangeAnalysis seeded from types (`setToEntryState` override, mlir-idioms 6.1); `int-range-optimizations`; `arith` with `overflow<nuw>` where proved | `CaseNat` special cases (Cases.idr:71-74, Bodies.idr:237-254), `big.pred`'s implicit precondition, BindingTimes' `subi` heuristic, `knownNonZero` |
+| totality, effects | properties of the function and of `!idr.fn` (`!idr.fn<(A) -> (R), #idr.effects<...>>`), not discardable attributes | MemoryEffectOpInterface answered from the callee's type: an external model on `func.call`, the op's own implementation on `idr.apply`; MLIR's CSE, LICM, DCE and remove-dead-values then treat pure total calls as pure; `will_return`/`memory_effects` on `llvm.func` | `Facts/Moves` (`canMoveAcross`, `canDelay`, `canDrop`), `RemoveUnusedCall`, the `PerformsIO` trait (with mlir-idioms 3.4's resource hierarchy) |
+| quantity 1, uniqueness | `!idr.lin<T>` (Idris's), `!idr.own<T>` and an `i1` exclusivity indicator after rc (mlir-ownership-types.md), inferred interprocedurally | the DataFlow framework (`AbstractSparseBackwardDataFlowAnalysis`, `setInterprocedural(true)`) for borrow and uniqueness inference; canonicalization folds constant indicators | Borrow.cc's fixpoint, Verify.cc's path interpreter, `idr.stage`, the runtime test where the indicator is `true` |
+| index-shaped data used by index (Vect, linear arrays) | `tensor<?xT>` whose dimension is the ghost length, chosen by one representation pass when the three proofs of representation.md R12 hold | linalg (`linalg.map`, `linalg.reduce`, `linalg.generic`) for structural recursion raised to it; One-Shot Bufferize for in-place (uniqueness feeds its writability); ownership-based deallocation; vectorization of static shapes (`Vect 3 Double` → `vector<3xf64>`) | idr-rc, reset/reuse and idr-stack for those types (buffer placement and `promote-buffers-to-stack` cover them) |
+| size-change graphs | a per-parameter descent property in the function's type (clones map it through their keys' holes) | a DataFlow analysis for binding times; raising of a self-recursion that descends one step per call to `scf.for` with a trip count ValueBounds can use | BindingTimes' abstract interpreter (BindingTimes.cc:102-162) |
+| data declarations, ConInfo, detag, newtype | identified recursive types that carry constructors and the layout decision (mlir-idioms 1.5; representation.md's `Rep` grammar), including nullable-pointer nullary constructors and the index pattern that selects each constructor | `DataLayoutTypeInterface` for sizes; folders read constructors off the type in O(1) | the symbol lookups mlir-idioms 1.5 counts (46), verifyProgram's type walk, the `box` flag, `tag` |
+| coverage | an exhaustive `idr.match` (every constructor a case or a region ending in `ub.unreachable`), verified | lowering to `cf.switch` with an unreachable default; LLVM `unreachable` | coverage by absence (Matches.cc:57-59) |
+| immutability of cells | a consequence of the types, stated at lowering | `invariant.group` loads with a launder at `idr.reuse`, `nonnull`, `dereferenceable`, `range` on tags (mlir-idioms 6.3) | nothing; LLVM gains load CSE across runtime calls |
+| propositions (LTE; not Elem) | computed by the frontend from `detagabbleBy`: a field whose value its indices determine is `!idr.erased` | ordinary DCE | the runtime big and closure in `Dec (LTE m n)` |
+| library knowledge (`%inline`, `%transform`, natHack) | function properties and registry hooks of kind Faster | the inliner's profitability callback reads the property before MLton's rule | nothing; adds |
+
 ## The 10 biggest unexploited facts, by payoff
 
-1. **Uniqueness (the caller half of linearity).** Payoff: the README's
-   promise, reuse without a test, no counts for values unique over their
-   life. Representation: a parameter/value type `!idr.uniq<T>` computed by a
-   call-graph fixpoint (review-external-2.md, steps 1-4), verified by the
-   owned-stage walk: a `!idr.uniq` value is made by `idr.con`/`idr.reuse`
-   or received as `!idr.uniq`, and is never `idr.inc`'d; `idr.reset`/
-   `idr.take` of it have no exclusivity test.
-2. **Nat-likes are naturals, and small.** Payoff: asymptotic. `plus`,
-   `mult`, `minus`, `natToInteger`, `compareNat` are O(n) recursions over
-   bigs today (list 01:181-196), where upstream rewrites them to O(1)
-   (Constructor.idr:81-93); every loop over a Nat calls the big runtime.
-   Representation: `!idr.nat` (non-negative; `pred` and zero tests inline on
-   the small word; `big.pred` defined by type), registry hooks for the
-   seven natHack functions (Faster kind, Chez-diffable), and for Fin and
-   lengths of in-memory structures a word type `!idr.index` (a Fin bounded by
-   a runtime length fits a word: the structure it indexes has that many
-   cells in memory).
-3. **Referential transparency of total, effect-free calls.** Payoff:
-   general; `length xs` four times on every path (list 01:609-623). MLIR's
-   CSE never merges `func.call`. Representation: calls of functions with
-   `#idr.effects<none>` and `idr.total` as an op whose memory effects are
-   derived from the callee's facts (or func.call's effects answered from the
-   callee through an interface), so CSE and LICM treat them as pure before
-   idr-rc.
-4. **Index-shaped vectors.** Payoff: numeric code; `Vect 3 Double` is three
-   linked cells with RC traffic (vect.ll:986-1060). Representation: keep the
-   length as a ghost operand of the type, `!idr.box<@Vect, n>` with `n` an
-   SSA ghost value (§2), so that a static `n` selects an unboxed product
-   `!idr.data<@Vect$3>` (no cells, no tags) and a runtime `n` may select a
-   contiguous layout when every use is index-compatible. AGENTS.md: indexed
-   does not imply contiguous; this makes it a choice the compiler proves.
-5. **Immutable cells, told to LLVM.** Payoff: load CSE across runtime calls
-   in tight loops. Idris values never change after construction except under
-   reuse, which writes a new value into a dead cell. Representation in the
-   lowering: `!invariant.group` loads with a `launder.invariant.group` at
-   `idr.reuse`; `nonnull` + `dereferenceable(cell size)` on box parameters
-   and match-bound pointers; `!range [0, n)` on tag loads; `noalias` on
-   fresh cells.
-6. **ConInfo layouts.** Payoff: a pointer compare instead of a load and
-   mask per match; one indirection less per recursive newtype.
-   Representation: a verified layout property on `idr.data`
-   (`#idr.layout<nullable @Nil>` for NIL/NOTHING-shaped boxes: the nullary
-   constructor is the null pointer; newtype-by for single-field
-   single-constructor recursive instances), read by Layouts.
-7. **Detagging by indices.** Payoff: no tag tests where an index decides the
-   constructor, and matches on erased indices with several alternatives
-   compile instead of being rejected (Cases.idr:91-95). Representation: the
-   data declaration carries, per constructor, the index pattern that selects
-   it (from `detagabbleBy`), and matches on the ghost index of fact 4 fold.
-8. **Size-change graphs, kept.** Payoff: BindingTimes becomes a read, its
-   unproved `arith.subi` heuristic goes, and total functions whose recursion
-   decreases a parameter get `mustprogress`/`willreturn` and a depth bound
-   the stack pass can use. Representation: a per-parameter `decreasing`
-   property in the function's type (a clone's parameters inherit it by the
-   key's holes), verified to stay on a parameter that recursive calls pass a
-   proper part of.
-9. **Propositions have no content.** Payoff: `Dec (LTE m n)` is a Bool,
-   `isLTE` does no big arithmetic, `No` holds no closure (list.mlir:46-48).
-   A type all of whose constructors are selected by its indices, with fields
-   that are themselves such types (LTE, not Elem: see Open questions), has
-   at most one value per index; with its indices erased it carries only its
-   tag. Representation:
-   the frontend computes it (from `detagabbleBy`, recursively) and emits the
-   field type as `!idr.erased` plus the tag, never `!idr.big`.
-10. **Totality and effects, told to LLVM; and library-asserted transforms.**
-    Payoff: modest per call, broad. Representation: lower `idr.total` +
-    `idr.effects<none>` to `willreturn mustprogress nounwind`; read
-    `%transform` rules from `Defs.transforms` into the registry as Faster
-    hooks (tail-recursive `length`, `map`, `filter`, `++`), diffed against
-    Chez like every hook.
+Each: the fact, what shows it is lost, the representation, and what
+consumes it.
+
+1. **Uniqueness, and ownership as types.** Lost: every reset tests the count
+   at runtime (list.ll:310-330), and Idris's linearity cannot supply it
+   alone, since a q1 value's ω fields are unrestricted (checked above).
+   Representation: `!idr.own<T>` with an `i1` exclusivity indicator
+   (mlir-ownership-types.md), uniqueness inferred by a sparse backward
+   interprocedural analysis on MLIR's DataFlow framework. Consumers:
+   canonicalization (constant indicators fold the test away), specialization
+   (callers passing `true` get test-free clones), and for arrays One-Shot
+   Bufferize (fact 2). The README's promise lives here.
+2. **Index-shaped data as tensors.** Lost: `Vect 3 Double` is three linked
+   cells, walked with tag loads, exclusivity tests and inc/dec
+   (vect.ll:986-1060). Representation: a representation pass chooses
+   `tensor<?xT>` (dimension = the ghost length) for an instance when
+   representation.md R12's proofs hold, and a static length gives
+   `tensor<3xT>`; structural recursions over it (map, zipWith, foldr, as
+   Data.Vect writes them) are raised to linalg. Consumers: One-Shot
+   Bufferize and its in-place analysis, ownership-based deallocation,
+   linalg vectorization. This is MLIR used as MLIR; nothing else in the
+   ledger pays as much on numeric code.
+3. **Nat-likes are naturals, and mostly small.** Lost: `plus`, `mult`,
+   `minus`, `natToInteger`, `compareNat` are O(n) recursions over bigs
+   (list 01:181-196; representation.md: `tri 500` overflows the stack),
+   because upstream's natHack (Constructor.idr:81-93) runs on CExp, which
+   the frontend does not read. Representation: `!idr.nat`; the natHack
+   functions as registry hooks to `idr.big` ops (a Faster hook, diffable
+   against Chez); `index`-width narrowing where IntegerRangeAnalysis proves
+   it. Consumers: IntegerRangeAnalysis, `int-range-optimizations`.
+4. **Effects and totality in the types.** Lost: `length xs` runs four times
+   on every path (list 01:609-623); nothing in MLIR knows a call is pure.
+   Representation: effects and totality as properties of `!idr.fn` and of
+   functions, answered by an external MemoryEffectOpInterface model on
+   `func.call` and `idr.apply`. Consumers: MLIR's CSE, LICM, DCE,
+   remove-dead-values; at the LLVM level `memory_effects` and
+   `will_return`. Our `Facts/Moves` and `RemoveUnusedCall` go.
+5. **Ghost indices.** Lost at Emit: every erased value is the one
+   `#idr.erased`, so "this is the length of that vector" is gone before any
+   pass runs (§2). Representation: `!idr.erased<index>` ghosts carrying
+   identity, related by ValueBoundsOpInterface implementations on the ops
+   that build and take apart indexed data. Consumers: ValueBounds (bounds
+   checks, `Fin` in range), match folding when an index decides the
+   constructor (`detagabbleBy`), fact 2's tensor dimensions. Conjecture: the
+   ghost must survive remove-dead-values, which drops unused parameters.
+6. **Data declarations that carry their layout.** Lost: ConInfo beyond
+   ZERO/SUCC, newtype-by, detag (§8). Representation: identified recursive
+   types with a verified layout (representation.md's layer; mlir-idioms
+   1.5), including nullable-pointer `Nil`/`Nothing` and newtypes erased
+   even when recursive. Consumer: `DataLayoutTypeInterface`, lowering as a
+   reader.
+7. **Immutable cells, told to LLVM.** Lost: the LLVM dialect module carries
+   no attribute (09 dumps: zero). Representation: at lowering,
+   `invariant.group` field loads with a launder at `idr.reuse`, `nonnull`
+   and `dereferenceable` on box pointers, `range` on tag loads.
+   Consumer: LLVM's GVN and LICM.
+8. **Size-change graphs.** Lost after the frontend's rejection check
+   (Recursion.idr:57). Representation: per-parameter descent in the
+   function's type. Consumers: a DataFlow binding-time analysis replacing
+   BindingTimes' interpreter; `scf.for` raising with trip counts; the
+   stack pass's depth bound.
+9. **Coverage, explicitly.** Lost: impossibility is absence
+   (Matches.cc:57-59), and unreachable regions become poison (§4).
+   Representation: exhaustive matches, verified, with impossible
+   constructors as `ub.unreachable` regions. Consumer: `cf.switch` with an
+   unreachable default, LLVM `unreachable`. Needs the upstream inliner bug
+   behind PINS inline-unreachable fixed or worked around at the top level
+   only.
+10. **Propositions and library knowledge.** Lost: `Dec (LTE m n)` carries a
+    runtime big and a closure (list.mlir:46-48); 469 `%inline` and 21
+    `%transform` in prelude and base are ignored. Representation: the
+    frontend erases fields its indices determine; `Inline`/`NoInline` as
+    function properties; `%transform` rules as registry hooks. Consumers:
+    DCE; the inliner's profitability callback.
+
+## The path to it
+
+Each step leaves the suites green and deletes what it replaces.
+
+1. **Cut the dead and the duplicated** (audit above; mlir-idioms §4): the
+   program-wide attribute rule, `io.get_char`/`io.exit` unless Emit gains
+   producers, `RuntimeCallOpInterface` made load-bearing or removed, the
+   resource hierarchy, `idr.origin`'s value, `tag`, `bindsField`'s extra
+   case, `Idr_CountedType` narrowed to counted types.
+2. **The natHack hooks** in the registry. Small, and removes the O(n)
+   arithmetic and the stack overflow now.
+3. **Effects and totality as types**, with the external effect model on
+   calls; delete `Facts/Moves` and `RemoveUnusedCall`; add LICM and
+   `int-range-optimizations` to the round.
+4. **Identified data types with typed constants** (mlir-idioms 1.4, 1.5):
+   the prerequisite for layouts, ghosts and exhaustive matches.
+5. **`!idr.nat`, ghost indices, ValueBounds on idr ops**; BindingTimes'
+   heuristic and `knownNonZero` go. Frontend: read `detagabbleBy`, compute
+   propositions.
+6. **Ownership as types and uniqueness inference** on the DataFlow
+   framework; the owned-stage interpreter, `idr.stage` and Borrow's
+   fixpoint go.
+7. **The representation pass** (representation.md), deciding layouts from
+   the facts, including `tensor` for index-shaped data; raising structural
+   recursion to linalg; One-Shot Bufferize, ownership-based deallocation
+   and vectorization for tensors, idr-rc for the boxes that remain.
+8. **LLVM facts at lowering** (can go any time after 4).
 
 ## Guards and special cases a better representation would remove
 
+Each with the representation, and the MLIR mechanism where one exists.
+
 - Translate/Cases.idr:71-74: a `BigT` match is a Nat match if any
-  alternative is a constructor, else a literal match. With `NatT` distinct
-  from `BigT`, the type decides. Same for Terms.idr:78-87 (`succArg`),
-  :226-236 (`natConstructor`), Emit/Bodies.idr:237-254 (`CaseNat`),
-  Lower/Predecessors.cc (pred as `big.sub` 1). Representation: `!idr.nat`.
+  alternative is a constructor, else a literal match. Same for
+  Terms.idr:78-87 (`succArg`), :226-236 (`natConstructor`),
+  Emit/Bodies.idr:237-254 (`CaseNat`), Lower/Predecessors.cc (pred as
+  `big.sub` 1). Representation: `!idr.nat`, whose type decides.
 - Specialize/BindingTimes.cc:121-127: an Int counted down by a positive
-  constant counts as decreasing, "unlike a Nat it may pass zero".
-  Representation: Idris's size-change fact on the parameter, or `!idr.nat`.
+  constant counts as decreasing, "unlike a Nat it may pass zero"; the whole
+  interpreter (:102-162) re-derives size-change. Representation: Idris's
+  descent facts in the function type; mechanism: the DataFlow framework.
 - Translate/Cases.idr:91-95: "a match on an erased value with more than one
-  alternative" is rejected. Representation: detagging relation (fact 7).
+  alternative" is rejected. Representation: ghost indices plus the detag
+  relation; mechanism: ValueBounds.
 - Translate/Recursion.idr:57, 113-134: reads `sizeChange` only to reject,
   then drops it. Representation: keep it (fact 8).
-- Dialect.cc:245-250: box-ness must agree between declaration and type.
-  Representation: one source (the type), or the declaration and a single
-  nominal type.
-- Ops.cc:164-176: tags must be 0..n-1 in order. Representation: derive the
-  tag from the position; drop the attribute.
-- Ownership/ResetReuse.cc:19-25 and Lower/Runtime.cc:147-154: the runtime
-  exclusivity test. Representation: `!idr.uniq<T>` (fact 1).
-- Ownership/Borrow.cc:53: a q1 parameter is forced owned. With `!idr.uniq`
-  the decision is typed; without it this is the only use of q1.
+- Dialect.cc:245-250 and Ops.cc:164-176: box-ness and tags must agree with
+  their copies. Representation: identified types that carry both once.
+- Ownership/ResetReuse.cc:19-25, Lower/Runtime.cc:147-154: the runtime
+  exclusivity test. Representation: the `i1` indicator of fact 1;
+  mechanism: canonicalization, and One-Shot Bufferize for tensors.
+- Ownership/Borrow.cc:53: a q1 parameter is forced owned, the only use of
+  q1 in any optimization. Representation: `!idr.own` in the signature;
+  mechanism: a sparse backward DataFlow analysis instead of the fixpoint
+  loop (Borrow.cc:57-61).
 - Ops.cc:791-810: a closure with a linear capture must be applied or entered
-  at once. Representation: `idr.closure` returns `!idr.lin<!idr.fn>` when
-  any capture is linear, and the ordinary linearity rule covers it.
+  at once. Representation: `idr.closure` returns `!idr.lin<!idr.fn>` when a
+  capture is linear, and the generic rule covers it.
 - Ops.cc:392-398, Canonicalize/Field.cc, Apply.cc:17-26,
-  Dialect.cc:149-171 (`throughLinear`, `readOnce`): every fold must see
-  through `lin.enter`/`lin.use` pairs. The pair exists so that a value's
-  linear journey stays visible (IdrOps.td:1025-1033). Conjecture: a
-  verifier rule on positions (a `!idr.lin` position may be filled by a
-  plain value, counted as that value's use) would let the pair ops go and
-  the helpers with them; it needs a proof that no pass can then duplicate
-  the value without the verifier noticing.
+  Dialect.cc:149-171 (`throughLinear`, `readOnce`): every fold sees through
+  `lin.enter`/`lin.use` pairs. Conjecture: a verifier rule on positions (a
+  `!idr.lin` position filled by a plain value counts as that value's use)
+  would let the pair ops and the helpers go; it needs a proof that no pass
+  can then duplicate the value unnoticed.
 - Ops.cc:20-46 (`knownNonZero`, `knownFinite`, `knownNonEmpty`): facts
-  recomputed by chasing definitions, constants only. Erased proofs that
-  would license the same conclusions (`NonZero y` in `divNatNZ`,
-  libs/base/Data/Nat.idr:53-61) are `!idr.erased` and carry nothing.
-  Representation (conjecture): a fact-carrying erased type,
-  `!idr.erased<#idr.nonzero<...>>`, whose presence folds the check.
+  recomputed by chasing definitions, constants only. Mechanism:
+  IntegerRangeAnalysis (non-zero is a range) and a DataFlow lattice for
+  non-empty strings. Erased proofs that would license the same (`NonZero y`
+  in `divNatNZ`, libs/base/Data/Nat.idr:53-61) are `!idr.erased` and carry
+  nothing; a ghost fact type is a conjecture worth a prototype.
 - Lower/Matches.cc:57-59: no default means the last case is the default.
-  Representation: exhaustive matches verified (cases ∪ default ⊇
-  constructors), with impossible constructors listed as such.
-- Facts/Functions/Of.cc:15-19: a function without `idr.effects` "may do
-  anything"; `partial` lives in a second attribute (`idr.total`),
-  combined by hand in Inherit.cc:9-19. Representation: one required
-  `#idr.facts<...>` on every function with a body, keeping provenance
-  (Idris's totality versus inferred effects) as a field, so absence is not a
-  state.
-- Dialect.cc:493 versus Counting.cc:9-38: two definitions of "holds
-  references". Representation: one predicate, used by both.
-- Facts.idr:24-36 and Programs.idr:62, 143: `Provenance` is written and
-  never read.
-- Inline.cc:36-38, 107-108: the size rule ignores 469 library `%inline`s.
-  Representation: carry Idris's `Inline`/`NoInline` flags as function
-  properties the inliner reads before its rule.
+  Representation: exhaustive matches (fact 9).
+- Facts/Functions/Of.cc:15-19, Inherit.cc:9-19: a function without
+  `idr.effects` "may do anything", and `partial` lives in a second
+  attribute combined by hand. Representation: effects and totality as one
+  typed property (fact 4); mechanism: MemoryEffectOpInterface.
+- Dialect.cc:493 against Counting.cc:9-38: two definitions of "holds
+  references". Representation: one type interface (mlir-idioms 3.5's
+  `RuntimeLayoutTypeInterface`).
+- Facts.idr:24-36, Programs.idr:62, 143: `Provenance` is written, never read.
+  Keep it as a field of the typed function property, or delete it.
+- Inline.cc:36-38, 107-108: the size rule ignores Idris's `%inline`.
+  Representation: `Inline`/`NoInline` as function properties read by the
+  profitability callback.
 
 ## Open questions
 
+- Fact 2 against AGENTS.md: "Idris does types; MLIR does programs" puts the
+  raising of Data.Vect's recursions to linalg on the MLIR side, fed by
+  facts from the frontend (ghost lengths, size-change, uniqueness). Is a
+  registry hook per Data.Vect function acceptable as a first step, or must
+  the raising be generic from the start? Generic is the maximum; hooks are
+  the path.
+- Tensors of dialect types are legal (`TensorType::isValidElementType`
+  admits non-builtin types, BuiltinTypes.cpp:433-439); memrefs of them need
+  `MemRefElementTypeInterface` on `!idr.box` and friends, so a `Vect n (List
+  a)` bufferizes only once the idr types implement it.
 - Would `!idr.nat` stay compatible with idr-eval's reification and the
   runtime's single representation of each integer (idris_rt.h:88-92)? The
   small word of a Nat is the same word; only the type changes, so probably.
-- Fact 4's ghost operands: MLIR has no ghost values; an erased SSA value of
-  a new type `!idr.ghost<!idr.nat>` that lowers to nothing is the nearest
-  fit. Does remove-dead-values drop ghost-only parameters that a later
-  specialization needs? It drops unused `!idr.erased` ones today.
-- Fact 9 needs care: a proposition's value is determined by its indices only
-  when every constructor is detaggable by indices at every level. `Elem x
-  xs` is not a proposition when `xs` has duplicates (two `There`/`Here`
-  paths), so its position is information; LTE is one. The frontend must
-  compute it, not assume it for every Nat-like type.
-- How much of fact 3 survives idr-rc? Merging two calls before counting
-  means the merged result gets one more `idr.inc`; cheap, but it should be
-  measured.
+- Ghost values: does remove-dead-values drop ghost-only parameters that a
+  later specialization needs? It drops unused `!idr.erased` ones today.
+- Fact 10's propositions: a value is determined by its indices only when
+  every constructor is detaggable by indices at every level. `Elem x xs` is
+  not (two paths when `xs` has duplicates), so its position is information;
+  LTE is. The frontend must compute it, never assume it of every Nat-like.
+- How much of fact 4 survives idr-rc? Merging two calls before counting
+  gives the merged result one more `idr.inc`; cheap, but to be measured.

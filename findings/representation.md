@@ -21,6 +21,20 @@ reproduced. "Conjecture" means not measured or not implemented anywhere.
 
 ## Short answer
 
+- **The global maximum** (next section). Every Idris type gets the most
+  precise representation its proved facts justify, and that
+  representation is an *MLIR* type that MLIR's own passes understand:
+  - `Fin` and small Nats are `index` with ranges;
+  - `Vect 3 Double` is `vector<3xf64>`;
+  - `Vect m (Vect n a)` is a dense `tensor`, which is regular *by type*;
+  - a symbolic `Vect n a` is `tensor<?xa>` whose `tensor.dim` is the
+    ghost `n`, so that `linalg`, One-Shot Bufferize and the vectorizer
+    do the work;
+  - recursive data is an identified recursive type that carries its
+    declaration and a verified packed layout.
+
+  The `idr` dialect keeps only what MLIR has no type for: sums,
+  recursive data, closures, bigs, strings, quantities and ghosts.
 - **Two layouts today, both chosen by structure, not by fact.**
   - Today there are two layouts:
     - an unboxed sum (`Sop`);
@@ -58,7 +72,138 @@ reproduced. "Conjecture" means not measured or not implemented anywhere.
     (uniqueness, not QTT linearity);
   - every consumer supported by the array at no worse complexity.
 
-  None of these follows from the type `Vect n a`.
+  A fourth condition (words for the length) always holds. None of these
+  follows from the type `Vect n a`. When they hold, the target is
+  `tensor<?xa>` with One-Shot Bufferize.
+
+## The global maximum
+
+The target, described first: the path to it follows.
+
+**The principle.**
+- Idris proves facts about every value: its quantity, its bounds, its
+  shape, its constructor, its uniqueness, its termination.
+- At the maximum, each fact is *in a type*, and that type is the most
+  precise MLIR representation the facts justify.
+- MLIR's existing passes then do the optimization, because they
+  understand the types: `vector` and `linalg` on arrays,
+  `int-range-optimizations` and `ValueBounds` on integers, One-Shot
+  Bufferize on in-place updates, and SROA-free SSA products.
+- The `idr` dialect owns only what MLIR has no type for:
+  - sums and recursive data;
+  - closures;
+  - bigs and strings;
+  - quantities (`!idr.lin`, `!idr.erased`) and ghosts.
+- A C compiler cannot reach this point. C arrays alias, C indices are
+  unchecked or checked at runtime, and C cannot tell a regular 2-D array
+  from an array of pointers. Idris proves all three, so the types can
+  state what C must leave to analysis.
+
+**The map at the maximum.** Each row gives the Idris type, the fact
+used, the MLIR type at the maximum, and the MLIR machinery that then
+works.
+
+| Idris | fact used | MLIR type at the maximum | MLIR machinery that then works |
+| --- | --- | --- | --- |
+| quantity-0 value | Q0 | nothing; a ghost `!idr.ghost<T>` SSA value when a fact mentions it | lowering deletes it; `ValueBounds` reads it |
+| `Int8`..`Bits64`, `Int` | width, wrapping | `iN` | `arith`, integer ranges |
+| `Char` | Unicode scalar | `i32` with range `[0,0x10FFFF] \ surrogates` in the type (`!idr.char`) | `int-range-optimizations`; niche for `Maybe Char` |
+| `Double` | none | `f64` | `math`, `vector` |
+| enums, `Bool` | nullary signature | `i1` / `iK` | `arith.select`, integer ranges |
+| `Nat`, range proved | ZERO/SUCC + size-change or a length bound | `index` (or `i64`) with `nuw` | `arith`/`index`, `scf.for`, LLVM SCEV |
+| `Nat`, unproved | ZERO/SUCC | `!idr.nat` (unsigned tagged big) with the Nat hack's operations | idr ops |
+| `Fin N`, N closed | constructor return indices | `index` with range `[0,N)` (`!idr.fin<N>` until lowering) | integer ranges |
+| `Fin n`, n symbolic | same, plus ghost `n` | `index` with a `ValueBounds` fact `< n` | bounds-check elimination against `tensor.dim` |
+| `Integer`, range proved | ranges | `i64`/`i128` | `arith` |
+| `Integer` | none | `!idr.big` | idr ops |
+| `Vect N a`, N closed, scalar `a` | closed index; coverage leaves only `::` | `vector<N x a>` | `vector` dialect: element-wise ops, `vector.reduction`, `vector.contract` |
+| `Vect M (Vect N a)`, closed | regular *by type* | `vector<MxNxa>` or `tensor<MxNxa>` | `vector.contract`, `linalg.matvec`/`matmul` |
+| `Vect n a`, n symbolic, R12's proofs hold | relevant length at construction, unique tails | `tensor<?xa>` with `tensor.dim = n` (ghost) | `linalg.map`/`generic`/`reduce` for `map`/`zipWith`/folds; One-Shot Bufferize to `memref`, in place when unique; vectorization |
+| `Vect m (Vect n a)`, symbolic | regular by type | `tensor<?x?xa>` | `linalg` |
+| record of k `Double`s, used lane-wise | one constructor, homogeneous fields | `vector<kxf64>` (else SSA products, as today) | `vector` |
+| non-recursive record or sum | signature | SSA products and sums (1:N), niche-packed | none needed: already registers |
+| known constructor (index-refined) | coverage | `!idr.con<@T::@C>`, an unboxed product | 1:N conversion |
+| recursive data | cycles | identified recursive `!idr.data<"T", [ctors], #idr.layout<...>>` carrying its declaration and a verified packed layout (pointer tags, immediates, niche) | O(1) folds and verifiers; head-test lowering |
+| proofs (`LTE`, `Elem`, `Dec`) | collapsible by indices | absent, or the tag only | none needed |
+| closures | label sets, totality, effects | defunctionalized sums (a singleton set is an environment product, Nat- or list-shaped sets are a counter or stack); `!idr.fn<(A)->(R), total, effects>` for unknown sets | CSE and LICM of applies; inlining |
+| `String` | immutability, ascii | `!idr.str<ascii?>`, a slice | O(1) tail and index |
+| lists produced and consumed at once | totality | none: fused away | specialization and supercompilation (another stream) |
+
+**Constants at the maximum are typed MLIR attributes.**
+- A closed `Vect 3 Double` literal is `arith.constant dense<[...]> :
+  vector<3xf64>`, and `mat` is `dense<...> : vector<3x3xf64>`.
+- A sum constant is `#idr.con<...> : !idr.data<"T", ...>`, typed
+  (mlir-idioms.md §1.4), so a `!idr.fin<5>` constant of 7 cannot verify.
+
+**Functions carry their facts at the maximum.**
+- These are all in types or verified properties, not discardable
+  attributes (mlir-idioms.md §5, facts-ledger.md item 8):
+  - totality;
+  - effects;
+  - per-parameter "decreasing", from Idris's size-change graphs;
+  - uniqueness (`!idr.uniq<T>`, facts-ledger.md item 1).
+- A total recursion that decreases a `Nat` by one down to `Z` is an
+  `scf.for` over `index`.
+
+**What this buys, concretely.**
+- **`tests/e2e/v3/vect`.**
+  - `dot v v` becomes `vector.reduction <add>` of an elementwise
+    `mulf`.
+  - `mulV mat v` becomes one `vector.contract`.
+  - No cells.
+- **`dot : Vect n Double -> Vect n Double -> Double` for a runtime `n`.**
+  - It becomes `linalg.dot` on two `tensor<?xf64>`, vectorized.
+  - There is no bounds check, because the lengths are the same ghost
+    `n`.
+  - There is no alias analysis, because tensors are values.
+- **In-place updates.**
+  - A function that updates a vector it owns uniquely (for example
+    `replaceAt : Fin n -> a -> Vect n a -> Vect n a` on a unique
+    argument) updates in place.
+  - This is One-Shot Bufferize's decision, fed with Idris's uniqueness.
+- **Complexity.** Every `Nat` loop is an `index` loop, with no GMP path
+  and no counting.
+
+## The path to the maximum
+
+Ordered so that each step is useful alone and prepares the next. The R
+numbers refer to the catalog below.
+
+1. **Stop diverging from the reference.**
+   - R1: the Nat hack's operations and `!idr.nat`.
+   - R2: the checked header.
+2. **Put the facts in types.** Nothing is decided yet.
+   - `!idr.nat`, `!idr.fin<N>` and `!idr.char`.
+   - Typed constants (mlir-idioms.md §1.4).
+   - Identified recursive `!idr.data` types that carry their declaration
+     (mlir-idioms.md §1.5). The layout then has a home on the type.
+   - Ghost indices (R11).
+   - Totality and effects on `!idr.fn`, and size-change facts as function
+     properties.
+   - Closed indices in instance keys (R6), with impossible constructors
+     dropped. This also gives known-constructor types (R9) and
+     collapsible proofs (R14).
+3. **One representation pass and its verifier.** This is `idr-represent`:
+   R3 (packing and pointer tags), R4 (boxing a feedback set, size
+   thresholds, niches), R7 (useless fields), R8 (closure shapes).
+   `Layouts` becomes a reader.
+4. **Numbers to MLIR's numbers.** This is `idr-narrow`:
+   - `IntegerRangeAnalysis`, seeded from types by overriding
+     `setToEntryState` (mlir-idioms.md §6.1);
+   - `ValueBoundsOpInterface` on `idr.fin.enter`;
+   - size-change facts.
+
+   Nat, Fin and Integer become `index`/`iN` with overflow flags (R5,
+   R13).
+5. **Closed-length vectors to `vector<N x a>`.** Closed-index instances
+   of a `Vect` over scalars lower to `vector`, and their recursions,
+   unrolled by specialization, fold into vector ops (R6).
+6. **Symbolic vectors to `tensor`.** Once uniqueness (facts-ledger.md
+   item 1) and R11 exist:
+   - the `Vect` instances that meet R12's proofs become `tensor<?xa>`;
+   - `map`, `zipWith` and folds are recognized as `linalg` ops;
+   - One-Shot Bufferize produces `memref`s, in place where unique.
+7. **Strings** (R10), and SOP returns into join points (R9).
 
 ## What idris-mlir decides today (evidence)
 
@@ -449,6 +594,10 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
   parsed nor built (`getChecked` reports the error). The DataOp verifier
   checks that the layout agrees with the constructors.
 - **Payoff.**
+  - mlir-idioms.md §1.2 reproduced the corruption: 256 counted fields
+    make `info = 1 << 24`, which the runtime reads as a closure with
+    objs = 0. It also gives the minimal fix (a checked `CellInfo`).
+    Step (a) here is that fix; step (b) removes the packing.
   - Frees can no longer be corrupted silently.
   - With (b), a free does one table load instead of shifts and masks.
   - The low bits of pointers become free for R3.
@@ -496,6 +645,10 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
     compare, and the static Nil cell and its count checks disappear.
   - `Maybe (List Int)` (a Sop) loses its tag byte: null is Nothing.
   - Unmeasured here. Chataing measures 20-30% for the analogous cases.
+  - facts-ledger.md item 6 proposes the `NIL`-shaped null case
+    (`#idr.layout<nullable @Nil>`). This entry generalizes it to every
+    head encoding, with the disjointness verifier that makes the
+    general case safe.
 - **Sound when.**
   - The heads are disjoint (verified).
   - Counting treats immediates as uncounted (it already does).
@@ -553,10 +706,19 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
     value.
   - A length of an in-memory structure fits a word.
 - **Representation.**
-  - A closed bound `Fin 5` becomes `iK` with K = bits(N-1).
-  - A Nat proved in range becomes i64, with `nuw`/`nsw` on its
+  - At the maximum, MLIR's `index`: a value that indexes is an index,
+    and `tensor.extract`/`vector.extract` take it directly.
+  - A closed bound `Fin 5` is `index` with the range `[0,5)`. It may be
+    stored as `iK`, with K = bits(N-1), inside cells.
+  - A Nat proved in range becomes `index`/`i64`, with `nuw`/`nsw` on its
     arithmetic (`Arith_IntegerOverflowFlags`).
-  - A symbolic bound gives a word plus a relation to `n`.
+  - A symbolic bound gives `index` plus a relation to `n`.
+  - `Char` likewise: `i32` with its scalar-value range stated by
+    `!idr.char`, not only when `to_char` produced it (mlir-idioms.md
+    §5.2).
+  - facts-ledger.md item 2 proposes the same `!idr.nat` and a
+    word-sized `!idr.index` for Fin and lengths. I agree; this entry adds
+    where the proofs come from and how the relation is stated.
 - **Decided by:**
   - the frontend for the types, since it sees the normalised `Fin 5`;
   - a dialect pass (`idr-narrow`) for Nat→word narrowing. It needs
@@ -589,19 +751,35 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
     value stays `!idr.nat`, whose small path already checks for
     overflow.
 
-### R6. Closed indices in instance keys: `Vect 3 Double` as three doubles
+### R6. Closed indices in instance keys: `Vect 3 Double` as `vector<3xf64>`
 
 - **Fact.**
   - The index is a closed normal form, a constant, unlike an erased
     variable.
   - Idris's coverage proves which constructors are possible at that
     index: `Nil : Vect Z a` is impossible at `Vect 3`.
+  - `Vect 3 (Vect 3 Double)` is regular by its type: every row has
+    length 3. This is the property Futhark must check dynamically
+    (Henriksen §2).
 - **Representation.**
-  - `Vect[3,Double]` has one constructor `::` with fields `f64` and
-    `Vect[2,Double]`. The chain has no cycle, so every instance is a
+  - Step 1: `Vect[3,Double]` has one constructor `::` with fields `f64`
+    and `Vect[2,Double]`. The chain has no cycle, so every instance is a
     Sop, and a single constructor needs no tag: three SSA doubles, no
-    cells.
-  - `mat : Vect 3 (Vect 3 Double)` is nine doubles.
+    cells. This needs nothing but instance keys.
+  - Step 2, the maximum:
+    - a closed-length `Vect` of scalars is `vector<N x a>`, and nested
+      closed `Vect`s are `vector<MxNxa>`;
+    - `zipWith (*)` is `arith.mulf` on vectors;
+    - `foldl (+)` is `vector.reduction <add>`;
+    - `mulV` is `vector.contract`;
+    - `index` with a closed `Fin` is `vector.extract`;
+    - literals are `dense<...>` constants.
+  - Over non-scalar elements, or past a size limit for registers, the
+    target is `tensor<N x ...>` or a products chain.
+  - The recursions (`zipWith`, `foldl` on `Vect[k]`) are unrolled by
+    per-index specialization into k scalar steps. A recognizer, or the
+    SLP vectorizer, then forms vector ops. Recognition by pattern is
+    conjecture. Building vectors directly (`vector.from_elements`) is not.
 - **Decided by** the frontend, in instance naming
   (`Types.idr:181-195,278-281`):
   - keep closed Nat indices below a threshold in the key;
@@ -609,10 +787,18 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
     instance's;
   - specialize functions per closed index, as for type parameters,
     under the existing instance budget (`Instances.idr:31`).
-- **IR.** No new type. A one-constructor `!idr.data<@Vect[3,Double]>`,
-  and the fact is in which instance it is. Constructor tags must become
-  layout-local: the DataOp verifier demands 0..n-1 in declaration order
-  (`Dialect/Ops.cc:164-176`), which a dropped constructor breaks.
+- **IR.**
+  - Step 1: no new type. A one-constructor
+    `!idr.data<@Vect[3,Double]>`, and the fact is in which instance it
+    is.
+  - Step 2: the builtin `vector<3xf64>`, whose shape *is* the closed
+    index, so it cannot be dropped.
+  - Constructor tags must become layout-local: the DataOp verifier
+    demands 0..n-1 in declaration order (`Dialect/Ops.cc:164-176`),
+    which a dropped constructor breaks.
+  - facts-ledger.md item 4 proposes a ghost length operand on the box
+    type. For a closed length, the builtin shape is that operand, and
+    MLIR already understands it.
 - **Payoff.**
   - In `tests/e2e/v3/vect`, `dot v v`, `mulV mat v` and `norm2` become
     straight-line floating-point code.
@@ -669,8 +855,13 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
     consumed LIFO is a stack.
 - **Decided by** the same representation pass. `idr-defunctionalize`
   keeps making sums (`Defunctionalize.cc:14-32`).
-- **IR.** The closure sum is an `idr.data` with a layout like any other.
-  Labels become per-sum constructor tags.
+- **IR.**
+  - The closure sum is an `idr.data` with a layout like any other, and
+    labels become per-sum constructor tags.
+  - For label sets that stay unknown, `!idr.fn` should carry totality
+    and effects in the type (mlir-idioms.md §5.5), so that an apply of an
+    unknown closure is not "may do anything" when every function of
+    that type is total and pure.
 - **Payoff.**
   - In the `vect` dump, `@fn$0` (`lam55 () | lam80(!idr.box<@fn$0>,
     !idr.data<@fn$1>)`, with `@fn$1` a single label capturing one f64)
@@ -755,20 +946,61 @@ semantics, then weighs payoff × generality against cost. Each entry gives:
 - **Payoff.** It enables R5 and R12 soundly.
 - **Sound when.** This is exactly the AGENTS rule.
 
-### R12. Contiguous `Vect`
+### R12. Contiguous `Vect`, as MLIR tensors
 
 See the proof obligations above.
-- **Representation.** A counted buffer cell holding the length and the
-  elements, plus slices for tails. Tuple elements are laid out as
-  structure of arrays (Futhark).
-- **Decided by** a dialect pass, once R5, R9 and R11 exist and uniqueness
-  is proved.
-- **IR.** A layout choice on the `Vect` instance, plus a verified
-  `ValueBounds` relation between the length and the `Fin` indices.
-- **Payoff.** Indexing becomes O(1), a numeric loop can be vectorized,
-  and there are n times fewer cells.
+- **Representation.**
+  - At the maximum, `tensor<?xa>`: value semantics, exactly Idris's
+    immutable vectors. Its `tensor.dim` is the ghost `n` (R11), so
+    `Fin n` indices are in bounds by a `ValueBounds` fact.
+  - `map`, `zipWith`, `foldl`/`foldr` and `replicate` become
+    `linalg.map`, `linalg.generic`, `linalg.reduce` and `linalg.fill`.
+  - A regular nested `Vect m (Vect n a)` is `tensor<?x?xa>`.
+  - Tuple elements become several tensors (structure of arrays,
+    Futhark).
+  - One-Shot Bufferize turns tensors into `memref`s. Its in-place
+    decisions are MLIR's version of "reuse when unique", fed with
+    Idris's uniqueness (facts-ledger.md item 1).
+  - Tails are `tensor.extract_slice`, a slice.
+  - The runtime representation is a counted buffer cell (length +
+    elements), which the memref descriptor points into.
+- **Decided by** a dialect pass, once R5, R9, R11 and uniqueness exist.
+  It checks R12's four proofs per instance and falls back to cells
+  otherwise.
+- **IR.**
+  - The instance's type is `tensor<?xa>`.
+  - The ghost `n` and the `ValueBounds` relations are explicit SSA.
+  - Conversions to and from the cell representation are explicit ops,
+    at the boundaries where the proofs stop.
+- **Payoff.**
+  - Indexing becomes O(1).
+  - Numeric loops are vectorized by MLIR's vectorizer.
+  - There are n times fewer cells.
+  - No bounds checks and no aliasing questions.
 - **Sound when.** Conditions 1-4 above. This entry is conjecture as to
-  how often real programs meet them.
+  how often real programs meet them. The linalg recognition of
+  Prelude recursions is conjecture as to difficulty.
+
+### R14. Collapsible families: proofs with no content
+
+- **Fact.** A family all of whose constructors are selected by its
+  indices has at most one value per index (Brady, McBride and McKinna's
+  collapsing). Examples: `LTE m n`, `So b`, a `Dec`'s evidence.
+  Idris's `detaggable` analysis finds some of them. Today many such
+  families are Nat-like to Idris, so they become `!idr.big`
+  (facts-ledger.md item 9: `Dec (LTE m n)`'s `Yes` holds a counted
+  integer).
+- **Representation.** Absent. A `Dec` of a collapsible proposition is
+  its tag, a Bool.
+- **Decided by** the frontend: this is a fact about Idris types.
+- **IR.** The field is `!idr.erased` (Idris's own quantity-0 notion
+  applies: the value is determined by compile-time information), plus
+  the tag.
+- **Payoff.** `isLTE` does no big arithmetic, and decision procedures
+  cost a comparison.
+- **Sound when.** Collapsibility is proved from the constructors'
+  indices, not assumed. `Elem`-like families that are not collapsible
+  stay represented (facts-ledger.md, "Open questions").
 
 ### R13. Integer as a word by range
 
@@ -792,7 +1024,10 @@ See the proof obligations above.
 **Three layers, each in its own place.**
 1. **Facts are types, written by the frontend.** "Idris does types."
    - `!idr.nat` versus `!idr.big`;
-   - `!idr.fin<N>`;
+   - `!idr.fin<N>` and `!idr.char`;
+   - identified recursive `!idr.data` types that carry their
+     declaration, so a layout is O(1) from the type (mlir-idioms.md
+     §1.5);
    - `!idr.lin<T>` and `!idr.erased` (already);
    - `!idr.con<@T::@C>`;
    - closed-index instances;
@@ -840,6 +1075,18 @@ See the proof obligations above.
      | `Vect n`, n symbolic | list cells | array (R12's four proofs) |
      | closure sum | as sums | counter, stack |
      | `String` | Ptr | slice, SSO, ascii, unique append |
+     | collapsible proof | Absent (tag only in a `Dec`) | none needed |
+
+   - The table's refined column targets MLIR's builtin types wherever
+     one exists:
+     - `Word` for an index is `index`;
+     - a closed-index product chain of scalars is `vector<N x a>`;
+     - an array is `tensor<?xa>` (bufferized later).
+
+     The `Rep` grammar then needs `Vector(shape, elt)` and
+     `Tensor(shape with ghost dims, elt)` next to `Product`. Those two
+     leave the idr dialect entirely at the representation pass. From
+     then on, MLIR's passes own them.
 3. **Mechanics only read.**
    - `Lower/Layout.cc` becomes a reader of the attribute.
    - A `RepresentationTypeInterface` on the idr types replaces the
@@ -896,7 +1143,19 @@ contradicts the facts does not verify.
    does (`bench/README.md`, "Caveats"). R1-R4 need a Nat benchmark, a
    list and tree benchmark, and a `Vect` benchmark before their payoffs
    can be stated as numbers.
-6. **Guarantees in types.** Should the compiler *guarantee* some
+6. **Where the builtin-type boundary goes.**
+   - When is a closed `Vect` a `vector<N x a>`, and when a
+     `tensor<N x a>` or a product chain? A `vector` is for register-sized
+     SIMD values, and large N spills.
+   - How does a value cross from the cell representation to a tensor
+     when R12's proofs hold only in part of a program? The conversion op
+     is explicit, but where to place it is an open design question.
+7. **Recognizing linalg ops.** Can Prelude recursions (`map`,
+   `zipWith`, folds on `Vect`) be recognized as `linalg` ops by their
+   structure, or does that need registry entries per function, like the
+   Nat hack? Registry entries are "faster, never different", and
+   diffable against Chez.
+8. **Guarantees in types.** Should the compiler *guarantee* some
    representations, in the README's sense of "guaranteed costs"?
    Examples:
    - `Fin N` indexing a contiguous `Vect` is check-free, or the program
