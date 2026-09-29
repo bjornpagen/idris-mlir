@@ -19,8 +19,9 @@ numbers.
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
   runtime's (`runtime/`), which folders and compile-time evaluation call
-  too. Compile-time evaluation runs total code always and partial code
-  never.
+  too. Compile-time evaluation follows upstream Idris 2: every closed call of
+  pure code is evaluated, total code to the end, partial code within a
+  budget, after which the call stays for runtime.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work.
