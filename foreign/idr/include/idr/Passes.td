@@ -6,13 +6,21 @@
 include "mlir/Pass/PassBase.td"
 
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
-  let summary = "Compute idr.effect and idr.may_crash on every function";
+  let summary = "Compute idr.effect, idr.may_crash and idr.writes_first on every function";
   let description = [{
     A function is "effectful" if it reaches an idr.io op, directly, through
     calls, or through the functions of the closures it creates; otherwise it
     is "pure". It may crash (`idr.may_crash`) if it reaches an op that may
     crash the same way. A call of a function without a body, or of anything
     but a func.func, reaches both.
+
+    A string parameter gets `idr.writes_first` when the function, total and
+    unable to crash, with exactly one world parameter, writes that string
+    before anything else it does with the world: every use of the world
+    writes the string, or passes it to a call of the function itself whose
+    string is the parameter with strings appended, and the string has no
+    other use. Then `f(s, xs, w)` is `f("", xs, idr.io.put_str s, w)`, and
+    canonicalization writes a string built at runtime at the call.
   }];
 }
 

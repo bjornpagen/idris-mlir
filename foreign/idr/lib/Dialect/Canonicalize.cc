@@ -138,6 +138,58 @@ bool feeds(Value value, Operation *consumer) {
          isa<PutStrOp, StrHeadOp>(consumer);
 }
 
+bool yieldsBuiltString(OpResult result);
+
+// Whether a region's `yield` of `value` gives output or the first character,
+// moved into the region, a string builder to meet: `value` is built there,
+// or is the result of a match in the region's block (where the consumer
+// lands, next to it) that yields a built string in turn.
+bool buildsString(YieldOp yield, Value value) {
+  Operation *def = value.getDefiningOp();
+  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def))
+    return true;
+  return isa_and_nonnull<MatchOp, MatchLitOp>(def) && def->getBlock() == yield->getBlock() &&
+         yieldsBuiltString(cast<OpResult>(value));
+}
+
+// Whether some region of the match that defines `result` yields a string that
+// output or the first character, moved in one match at a time, would meet
+// being built.
+//
+// Only these consumers look through nested matches. Each is a single op
+// without regions, so moving it into a match copies one op per region, and
+// the copies stop at the innermost matches: what is added is bounded by the
+// number of regions. A consumer with regions of its own, another match,
+// copied level after level would multiply its size by the number of leaves.
+//
+// The matches followed are nested, each in a region of the one before, so no
+// region is visited twice: the work is bounded by the size of the outermost
+// match.
+bool yieldsBuiltString(OpResult result) {
+  return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
+    auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
+    return yield && buildsString(yield, yield.getOperand(result.getResultNumber()));
+  });
+}
+
+// Whether `consumer`, moved into the region that ends in `yield`, meets there
+// the value yielded in place of `result`, or, for output and the first
+// character, a string being built in a match nested there.
+bool meetsInRegion(YieldOp yield, OpResult result, Operation *consumer) {
+  Value value = yield.getOperand(result.getResultNumber());
+  return feeds(value, consumer) ||
+         (isa<PutStrOp, StrHeadOp>(consumer) && buildsString(yield, value));
+}
+
+// Whether `consumer`, moved into every region of the match that defines
+// `result`, meets in some region a value it folds or canonicalizes against.
+bool meetsInSomeRegion(OpResult result, Operation *consumer) {
+  return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
+    auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
+    return yield && meetsInRegion(yield, result, consumer);
+  });
+}
+
 // Whether a call only computes: its callee is pure, as idr-effects found (a
 // call declares no effects of its own, so MLIR takes it to have any), and,
 // unless `partial`, total and unable to crash, so that whether it runs at all
@@ -213,11 +265,7 @@ private:
     Operation *consumer = *result.getUsers().begin();
     if (consumer->getBlock() != op->getBlock() || consumer->hasTrait<OpTrait::IsTerminator>())
       return nullptr;
-    bool feedsSome = llvm::any_of(op.getRegions(), [&](Region &region) {
-      auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
-      return yield && feeds(yield.getOperand(result.getResultNumber()), consumer);
-    });
-    return feedsSome ? consumer : nullptr;
+    return meetsInSomeRegion(result, consumer) ? consumer : nullptr;
   }
 
   // Whether `consumer` can move up to the match: its other operands, and the
@@ -363,12 +411,8 @@ private:
     if (feeds(value, user))
       return true;
     auto result = dyn_cast<OpResult>(value);
-    if (!result || !isa<MatchOp, MatchLitOp>(result.getOwner()))
-      return false;
-    return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
-      auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
-      return yield && feeds(yield.getOperand(result.getResultNumber()), user);
-    });
+    return result && isa<MatchOp, MatchLitOp>(result.getOwner()) &&
+           meetsInSomeRegion(result, user);
   }
 };
 
@@ -436,9 +480,25 @@ void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
 // Strings
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+// Writing the empty string writes nothing.
+struct PutStrOfEmpty : OpRewritePattern<PutStrOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(PutStrOp op, PatternRewriter &rewriter) const final {
+    StringAttr text;
+    if (!matchPattern(op.getStr(), m_Constant(&text)) || !text.getValue().empty())
+      return failure();
+    rewriter.replaceOp(op, op.getWorld());
+    return success();
+  }
+};
+
+} // namespace
+
 void PutStrOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<Idr_PutStrOfAppend, Idr_PutStrOfCons, Idr_PutStrOfFromChar, Idr_PutStrOfShowInt,
-              Idr_PutStrOfShowDouble>(context);
+              Idr_PutStrOfShowDouble, PutStrOfEmpty>(context);
 }
 
 void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
@@ -501,8 +561,52 @@ struct RemoveUnusedCall : OpRewritePattern<func::CallOp> {
   }
 };
 
+// A string that the callee writes before anything else it does with the world
+// (idr.writes_first, from idr-effects) is written by the caller instead, into
+// the world it passes, and the callee gets the empty string: a string built
+// at runtime is then written piece by piece where it is built, rather than
+// passed on. A recursion that appends to such a string before passing it to
+// itself writes each piece as it goes. A string that is a constant or a
+// parameter stays: nothing is built for it. Each rewrite leaves a constant
+// where a built string was, so it happens once per operand.
+struct WriteBeforeCall : OpRewritePattern<func::CallOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(func::CallOp call, PatternRewriter &rewriter) const final {
+    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
+    if (!callee || callee.getNumArguments() != call.getNumOperands())
+      return failure();
+    std::optional<unsigned> world;
+    for (auto [index, type] : llvm::enumerate(callee.getArgumentTypes()))
+      if (isa<WorldType>(type)) {
+        if (world)
+          return failure();
+        world = static_cast<unsigned>(index);
+      }
+    if (!world)
+      return failure();
+    for (unsigned index = 0; index < call.getNumOperands(); ++index) {
+      Operation *built = call.getOperand(index).getDefiningOp();
+      if (!built || built->hasTrait<OpTrait::ConstantLike>() ||
+          !callee.getArgAttr(index, "idr.writes_first"))
+        continue;
+      rewriter.setInsertionPoint(call);
+      Value text = call.getOperand(index);
+      Value before = call.getOperand(*world);
+      Value written = PutStrOp::create(rewriter, call.getLoc(), before.getType(), text, before);
+      Value empty = ConstantOp::create(rewriter, call.getLoc(), text.getType(),
+                                       rewriter.getStringAttr(""));
+      rewriter.modifyOpInPlace(call, [&] {
+        call->setOperand(index, empty);
+        call->setOperand(*world, written);
+      });
+      return success();
+    }
+    return failure();
+  }
+};
+
 } // namespace
 
 void IdrDialect::getCanonicalizationPatterns(RewritePatternSet &results) const {
-  results.add<RemoveUnusedCall>(getContext());
+  results.add<RemoveUnusedCall, WriteBeforeCall>(getContext());
 }
