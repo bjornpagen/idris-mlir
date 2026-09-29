@@ -1,0 +1,76 @@
+// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
+// The counting ops call the runtime on each counted component: a string's
+// pointer, a big's word (as a pointer), each counted slot of a sum. A token
+// that is dropped has its memory freed; a reset asks the runtime for the
+// cell; a reuse builds in the token, or in a new cell when it is null.
+// CHECK-LABEL: func.func private @counts(
+// CHECK: llvm.call @idris_rt_inc(%arg0) : (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%arg1) : (!llvm.ptr) -> ()
+// CHECK: %[[B:.*]] = llvm.inttoptr %arg2 : i64 to !llvm.ptr
+// CHECK: llvm.call @idris_rt_dec(%[[B]]) : (!llvm.ptr) -> ()
+// CHECK-LABEL: func.func private @unused(
+// An unused counted slot is empty.
+// CHECK: llvm.mlir.zero : !llvm.ptr
+// CHECK-LABEL: func.func private @drop(
+// CHECK: %[[T:.*]] = llvm.call @idris_rt_reset(%arg0) : (!llvm.ptr) -> !llvm.ptr
+// CHECK: llvm.call @idris_rt_free_cell(%[[T]]) : (!llvm.ptr) -> ()
+// CHECK-LABEL: func.func private @rebuild(
+// CHECK: %[[W:.*]] = llvm.call @idris_rt_reset(%arg0) : (!llvm.ptr) -> !llvm.ptr
+// CHECK: %[[NULL:.*]] = llvm.icmp "eq" %[[W]], %{{.*}} : !llvm.ptr
+// CHECK: scf.if %[[NULL]] -> (!llvm.ptr) {
+// CHECK: llvm.call @idris_rt_cell(
+// CHECK: } else {
+// CHECK: llvm.store %{{.*}}, %[[W]] : i32, !llvm.ptr
+module attributes {idr.program, idr.stage = "owned"} {
+  idr.data @L box {
+    idr.ctor @N tag 0 () {quantities = []}
+    idr.ctor @C tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+  }
+  idr.data @S {
+    idr.ctor @A tag 0 (!idr.str) {quantities = ["w"]}
+    idr.ctor @B tag 1 (i64) {quantities = ["w"]}
+  }
+  func.func private @counts(%s: !idr.str, %d: !idr.data<@S>, %b: !idr.big) -> (!idr.str, !idr.str) {
+    idr.inc %s : !idr.str
+    idr.dec %d : !idr.data<@S>
+    idr.dec %b : !idr.big
+    return %s, %s : !idr.str, !idr.str
+  }
+  func.func private @unused(%x: i64) -> !idr.data<@S> {
+    %d = idr.con @S::@B(%x) : (i64) -> !idr.data<@S>
+    return %d : !idr.data<@S>
+  }
+  func.func private @drop(%l: !idr.box<@L>) -> i64 {
+    %r = idr.match %l : !idr.box<@L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      %w = idr.reset %l @L::@C : !idr.box<@L> -> !idr.token
+      idr.dec %w : !idr.token
+      idr.yield %h : i64
+    }
+    default {
+      idr.dec %l : !idr.box<@L>
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    }
+    return %r : i64
+  }
+  func.func private @rebuild(%l: !idr.box<@L>) -> !idr.box<@L> {
+    %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      idr.inc %t : !idr.box<@L>
+      %w = idr.reset %l @L::@C : !idr.box<@L> -> !idr.token
+      %c = idr.reuse %w @L::@C(%h, %t) : (i64, !idr.box<@L>) -> !idr.box<@L>
+      idr.yield %c : !idr.box<@L>
+    }
+    default {
+      idr.yield %l : !idr.box<@L>
+    }
+    }
+    return %r : !idr.box<@L>
+  }
+  func.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}

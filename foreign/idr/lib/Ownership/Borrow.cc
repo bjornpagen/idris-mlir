@@ -13,7 +13,9 @@
 // cycle of calls, which would otherwise have to drop its reference after
 // the call, so that the call would no longer be a tail call.
 // The public root, and every function a closure names, keep their
-// parameters owned: their callers are not calls this pass sees.
+// parameters owned: their callers are not calls this pass sees. A
+// parameter of quantity 1 is owned too: Idris proved the function uses it
+// once, so it moves to that use and is never counted.
 
 #include "Ownership/Ownership.h"
 
@@ -27,6 +29,13 @@ using namespace mlir;
 namespace idr::ownership {
 
 namespace {
+
+// The quantity Idris gave the parameter. It moves into the type (a linear
+// value's own type) once the frontend emits one; this is its one reader.
+bool isLinear(func::FuncOp fn, unsigned index) {
+  auto quantity = fn.getArgAttrOfType<StringAttr>(index, "idr.quantity");
+  return quantity && quantity.getValue() == "1";
+}
 
 class Inference {
 public:
@@ -46,8 +55,9 @@ public:
       functions.push_back(fn);
       bool fixed = fn.isPublic() || named.contains(fn.getSymNameAttr());
       SmallVector<bool> params;
-      for (Type type : fn.getArgumentTypes())
-        params.push_back(fixed || !counting.counted(type));
+      for (auto [index, type] : llvm::enumerate(fn.getArgumentTypes()))
+        params.push_back(fixed || !counting.counted(type) ||
+                         isLinear(fn, static_cast<unsigned>(index)));
       owned[fn] = std::move(params);
     }
     findCycles();
