@@ -2,7 +2,7 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
-// RUN: idris-mlir-opt %s --idr-specialize --idr-expect=holds=one-clone=@map -o /dev/null
+// RUN: idris-mlir-opt %s --idr-specialize --symbol-dce --idr-expect=holds=one-clone=@map -o /dev/null
 // A closure passed to a recursive map, whose function is a fixed
 // parameter. Its label is static and its capture a runtime leaf: the clone
 // of @map rebuilds the closure over a new parameter, and the recursive call,
