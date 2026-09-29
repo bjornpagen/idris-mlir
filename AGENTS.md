@@ -29,6 +29,12 @@ numbers.
   not modify the user's global compiler installation or shell configuration.
 - Reject what the compiler cannot compile with an explicit `unsupported`
   error that names the reason; never miscompile silently.
+- No pass may drop what Idris proved: multiplicities, erasure, linearity.
+  They are what this compiler exists to exploit, so they live where MLIR
+  cannot lose them: in types (`!idr.erased` for quantity 0, `!idr.lin<T>`
+  for quantity 1), which every transformation must keep and the verifier
+  checks after every pass. A fact kept in a discardable attribute can be
+  dropped silently; do not keep one there.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
 - A workaround for upstream behaviour (LLVM, MLIR, Idris) needs a bug report
@@ -39,6 +45,9 @@ numbers.
 - Tests check behaviour: exit status, produced artifacts, the property a
   pass guarantees. Not clone numbers, function order or SSA names. A test
   that goes stale on an unrelated change was a bad test; fix or delete it.
+  A brittle test means a missing test API: instead of matching exact op
+  sequences, write the property once as an expressive check (a helper, a
+  verifier-style assertion pass) and state tests in its terms.
 - Checks: `make check` always. After compiler changes, run `make build` and
   `make test`. After C++ changes, also run `make test-idr`. After changing
   MLIR usage, also run `make test-mlir-tools`. Every command a test runs
