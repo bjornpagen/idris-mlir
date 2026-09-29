@@ -10,7 +10,15 @@ It builds on:
 - mlir-ownership-types.md, the owned stage as types, with a foldable
   indicator.
 
-It corrects both in places:
+Two other streams agree, and their evidence is not repeated here:
+- linear-libs.md found the contrib `newArray` leak independently (its
+  `h1`). It also took arrays through upstream One-Shot Bufferize: they
+  compile in place to C's machine code, except that the recursion
+  limitation leaves a `bufferization.clone`.
+- facts-ledger.md §3 also proposes a uniqueness type that propagates
+  through data.
+
+It corrects review-external-2.md and mlir-ownership-types.md in places:
 - deep versus shallow uniqueness (§6.2);
 - borrowed parameters that escape (§7.9);
 - the rejecting promise (§6.11);
@@ -841,7 +849,9 @@ cheapest route: make `!idr.box` a `TensorLikeType` and the owned reference a
   `BaseMemRefType` (OwnershipBasedBufferDeallocation.cpp:49), frees one
   buffer at a time, and decides aliasing by comparing SSA-visible base
   pointers. Releasing a dead cell's children needs their counts.
-- *Its module analysis stops at recursion.*
+- *Its module analysis stops at recursion.* linear-libs.md observed the
+  cost on arrays: a `bufferization.clone` on a recursive function's
+  base-case path.
 
 What remains to reuse for boxes is its *mechanisms*: the foldable `i1`,
 conservative insertion then simplification patterns, DPS destinations, and
