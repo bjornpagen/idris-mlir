@@ -8,7 +8,6 @@
 // so that what the key says and what the clone computes cannot differ.
 #pragma once
 
-#include "Specialize/Quantity.h"
 #include "idr/Idr.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -22,11 +21,10 @@ namespace idr::specialize {
 struct Pattern;
 
 // A runtime leaf: which leaf of its key it is, counting the key's holes in
-// order, and how often the clone may use it: the product of the quantities
-// on its way down from the parameter, through fields and captures.
+// order. How often the clone may use it is its type's to say: a leaf reached
+// through a linear parameter, field or capture has a linear type.
 struct Hole {
   unsigned index;
-  Quantity quantity;
 };
 
 struct Constant {
@@ -52,14 +50,14 @@ struct Pattern {
   bool isHole() const { return std::holds_alternative<Hole>(node); }
 };
 
-// The leaf `value`, used `quantity` times, as hole `index`.
-Pattern leafOf(mlir::Value value, unsigned index, Quantity quantity);
+// The leaf `value` as hole `index`.
+Pattern leafOf(mlir::Value value, unsigned index);
 
-// The pattern of `value`, which is used `quantity` times: its runtime
-// leaves are appended to `leaves`, and its holes numbered from the size
-// `leaves` had. Poison is no value, so it is a leaf, as is a value of erased
-// type: erased is not constant.
-Pattern shapeOf(mlir::Value value, Quantity quantity, llvm::SmallVectorImpl<mlir::Value> &leaves);
+// The pattern of `value`: its runtime leaves are appended to `leaves`, and
+// its holes numbered from the size `leaves` had. Poison is no value, so it
+// is a leaf, as is a value of erased type (erased is not constant) and a
+// linear value, whose shape its one use keeps.
+Pattern shapeOf(mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
 
 // Whether `value` is closed: a constant, or a constructor or closure of
 // closed values.

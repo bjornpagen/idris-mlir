@@ -64,12 +64,10 @@ Attribute keyOfConstant(Attribute value) {
   return value;
 }
 
-// The patterns of `values`, the `i`th used `quantityAt(i)` times.
-std::vector<Pattern> shapesOf(ValueRange values, llvm::function_ref<Quantity(unsigned)> quantityAt,
-                              SmallVectorImpl<Value> &leaves) {
+std::vector<Pattern> shapesOf(ValueRange values, SmallVectorImpl<Value> &leaves) {
   std::vector<Pattern> out;
-  for (auto [i, value] : llvm::enumerate(values))
-    out.push_back(shapeOf(value, quantityAt(static_cast<unsigned>(i)), leaves));
+  for (Value value : values)
+    out.push_back(shapeOf(value, leaves));
   return out;
 }
 
@@ -79,32 +77,22 @@ ArrayAttr keysOf(MLIRContext *ctx, const std::vector<Pattern> &parts) {
 
 } // namespace
 
-Pattern leafOf(Value value, unsigned index, Quantity quantity) {
-  return {Hole{index, quantity}, value.getType(), builtAt(value)};
+Pattern leafOf(Value value, unsigned index) {
+  return {Hole{index}, value.getType(), builtAt(value)};
 }
 
-Pattern shapeOf(Value value, Quantity quantity, SmallVectorImpl<Value> &leaves) {
+Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   Attribute known;
   if (constant(value, known))
     return {Constant{known}, value.getType(), builtAt(value)};
-  if (auto con = value.getDefiningOp<ConOp>()) {
-    auto field = [&](unsigned i) {
-      return quantity * quantityOf(con, con.getCtor(), i, con.getFields()[i].getType());
-    };
-    return {Con{con.getCtorAttr(), shapesOf(con.getFields(), field, leaves)}, value.getType(),
+  if (auto con = value.getDefiningOp<ConOp>())
+    return {Con{con.getCtorAttr(), shapesOf(con.getFields(), leaves)}, value.getType(),
             builtAt(value)};
-  }
-  if (auto closure = value.getDefiningOp<ClosureOp>()) {
-    auto label = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(closure,
-                                                                     closure.getCalleeAttr());
-    // The closure's verifier makes its captures the label's leading
-    // parameters.
-    auto capture = [&](unsigned i) { return quantity * quantityOf(label, i); };
-    return {Closure{closure.getCalleeAttr(), shapesOf(closure.getCaptures(), capture, leaves)},
+  if (auto closure = value.getDefiningOp<ClosureOp>())
+    return {Closure{closure.getCalleeAttr(), shapesOf(closure.getCaptures(), leaves)},
             value.getType(), builtAt(value)};
-  }
   leaves.push_back(value);
-  return leafOf(value, static_cast<unsigned>(leaves.size() - 1), quantity);
+  return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
 }
 
 bool isClosed(Value value) {

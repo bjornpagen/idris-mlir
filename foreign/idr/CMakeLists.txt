@@ -92,7 +92,6 @@ add_library(idr_dialect STATIC
 	lib/Specialize/Clones.cc
 	lib/Specialize/Pass.cc
 	lib/Specialize/Pattern.cc
-	lib/Specialize/Quantity.cc
 	lib/Specialize/Raise.cc
 	lib/Specialize/Run.cc
 	lib/Specialize/Specialize.cc

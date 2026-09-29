@@ -101,31 +101,20 @@ void substitute(func::FuncOp clone, ArrayRef<Argument> args, const Composed &key
   SmallVector<Type> types;
   SmallVector<DictionaryAttr> attrs;
   SmallVector<Location> locs;
-  SmallVector<Hole> leaves;
   for (unsigned p = 0; p < arity; ++p) {
     const Argument &arg = args[p];
     if (arg.pattern.isHole()) {
       positions.push_back(arity);
       types.push_back(clone.getArgument(p).getType());
-      attrs.push_back(parameterAttrs(ctx, clone.getArgAttrDict(p), key.held[p].front()));
+      attrs.push_back(parameterAttrs(ctx, key.held[p].front(), clone.getArgAttrDict(p)));
       locs.push_back(clone.getArgument(p).getLoc());
       continue;
     }
-    // The leaves in order, with the quantities their holes carry.
-    std::function<void(const Pattern &)> collect = [&](const Pattern &part) {
-      if (auto *hole = std::get_if<Hole>(&part.node))
-        leaves.push_back(*hole);
-      else if (auto *con = std::get_if<Con>(&part.node))
-        llvm::for_each(con->fields, collect);
-      else if (auto *closure = std::get_if<Closure>(&part.node))
-        llvm::for_each(closure->captures, collect);
-    };
-    leaves.clear();
-    collect(arg.pattern);
-    for (auto [leaf, hole] : llvm::zip(arg.leaves, leaves)) {
+    // A leaf keeps its type, and with it how often it may be used.
+    for (auto [leaf, hole] : llvm::zip(arg.leaves, key.held[p])) {
       positions.push_back(arity);
       types.push_back(leaf.getType());
-      attrs.push_back(parameterAttrs(ctx, hole.quantity, hole.index));
+      attrs.push_back(parameterAttrs(ctx, hole));
       locs.push_back(leaf.getLoc());
     }
   }
@@ -182,12 +171,11 @@ LogicalResult Specializer::specialize(func::CallOp call) {
     // A function made in this run has no binding times until the next.
     if (!time)
       return success();
-    Argument &arg = args.emplace_back(Argument{leafOf(operand, 0, quantityOf(callee, index)),
-                                               {operand}, *time});
+    Argument &arg = args.emplace_back(Argument{leafOf(operand, 0), {operand}, *time});
     if (!specializesOn(*time, own, operand.getType()))
       continue;
     SmallVector<Value> leaves;
-    Pattern shape = shapeOf(operand, quantityOf(callee, index), leaves);
+    Pattern shape = shapeOf(operand, leaves);
     // An unrolling parameter counts down scalars too (a Nat), but only as
     // far as the value is small.
     bool unrolls = *time == BindingTime::Decreasing || *time == BindingTime::Bounded;

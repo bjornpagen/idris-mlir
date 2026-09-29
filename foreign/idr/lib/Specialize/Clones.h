@@ -7,7 +7,6 @@
 // marks do not parse is no clone to the table, only a function.
 #pragma once
 
-#include "Specialize/Quantity.h"
 #include "idr/Idr.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -76,12 +75,8 @@ private:
 std::optional<llvm::SmallVector<mlir::Value>>
 operandsFor(const Clone &clone, llvm::ArrayRef<std::optional<mlir::Value>> holes);
 
-// The attributes of a new parameter of a clone: it holds `hole`, and is
-// used `quantity` times.
-mlir::DictionaryAttr parameterAttrs(mlir::MLIRContext *ctx, Quantity quantity, unsigned hole);
-
-// `from`, the attributes of a parameter a clone keeps, now holding `hole`.
-mlir::DictionaryAttr parameterAttrs(mlir::MLIRContext *ctx, mlir::DictionaryAttr from,
-                                    unsigned hole);
+// `from`, the attributes of a parameter of a clone, now holding `hole`.
+mlir::DictionaryAttr parameterAttrs(mlir::MLIRContext *ctx, unsigned hole,
+                                    mlir::DictionaryAttr from = {});
 
 } // namespace idr::specialize

@@ -169,27 +169,6 @@ void push(Operation *term, unsigned index, const Consumer &c, Value result, Valu
   replaceOperand(term, index, b.clone(*consumer, map)->getResults());
 }
 
-// How often a raised clone uses its parameter for the `i`th of `extra`,
-// operands of the consumer: output uses its world once; an apply passes its
-// argument to the label of each tail, so the quantity is theirs when they
-// agree, and any number of uses when a label is not known or they differ.
-Quantity extraQuantity(const Consumer &c, unsigned i, Value operand,
-                       ArrayRef<func::FuncOp> labels) {
-  if (std::holds_alternative<Write>(c) || labels.empty())
-    return quantityOf(Attribute(), operand.getType());
-  std::optional<Quantity> agreed;
-  size_t args = extraOf(c).size();
-  for (func::FuncOp label : labels) {
-    if (!label || label.getNumArguments() < args)
-      return Quantity::Many;
-    Quantity q = quantityOf(label, static_cast<unsigned>(label.getNumArguments() - args + i));
-    if (agreed && *agreed != q)
-      return Quantity::Many;
-    agreed = q;
-  }
-  return *agreed;
-}
-
 } // namespace
 
 std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp callee) {
@@ -254,13 +233,9 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
     return name ? clones.symbols().lookup<func::FuncOp>(name.getAttr()) : func::FuncOp();
   });
 
-  for (unsigned i = 0; i < arity; ++i)
-    clone.setArgAttrs(i, parameterAttrs(ctx, clone.getArgAttrDict(i), i));
-  for (auto [i, operand] : llvm::enumerate(extraOf(c))) {
-    unsigned index = static_cast<unsigned>(i);
-    clone.setArgAttrs(arity + index,
-                      parameterAttrs(ctx, extraQuantity(c, index, operand, functions), arity + index));
-  }
+  // The consumer's operands keep their types, linear ones included.
+  for (unsigned i = 0; i < clone.getNumArguments(); ++i)
+    clone.setArgAttrs(i, parameterAttrs(ctx, i, clone.getArgAttrDict(i)));
   clones.add(key, clone);
   // A clone that applies does what its callee and the labels of its tails
   // do (anything, where a label is not known); one that writes takes a

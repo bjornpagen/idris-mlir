@@ -113,8 +113,8 @@ private:
       } else if (Operation *def = value.getDefiningOp()) {
         if (auto field = dyn_cast<FieldOp>(def))
           out = Abstract::partOf(self(self, field.getValue()));
-        else if (def->getName().getStringRef() == "idr.big.pred" && def->getNumOperands() == 1)
-          out = Abstract::partOf(self(self, def->getOperand(0)));
+        else if (auto pred = dyn_cast<BigPredOp>(def))
+          out = Abstract::partOf(self(self, pred.getValue()));
       }
       known[value] = out;
       return out;

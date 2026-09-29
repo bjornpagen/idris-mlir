@@ -118,14 +118,7 @@ std::optional<SmallVector<Value>> operandsFor(const Clone &clone,
   return out;
 }
 
-DictionaryAttr parameterAttrs(MLIRContext *ctx, Quantity quantity, unsigned hole) {
-  return DictionaryAttr::get(
-      ctx, {NamedAttribute(StringAttr::get(ctx, "idr.quantity"), StringAttr::get(ctx, spell(quantity))),
-            NamedAttribute(StringAttr::get(ctx, kHoleAttr),
-                           IntegerAttr::get(IntegerType::get(ctx, 64), hole))});
-}
-
-DictionaryAttr parameterAttrs(MLIRContext *ctx, DictionaryAttr from, unsigned hole) {
+DictionaryAttr parameterAttrs(MLIRContext *ctx, unsigned hole, DictionaryAttr from) {
   NamedAttrList list(from);
   list.set(kHoleAttr, IntegerAttr::get(IntegerType::get(ctx, 64), hole));
   return list.getDictionary(ctx);
