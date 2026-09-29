@@ -1,11 +1,8 @@
 ||| The reasons the compiler gives for a rejection, as data, so a misspelt
 ||| reason is a type error, not a wrong message. Each is shown as the short
 ||| phrase of `unsupported (<phrase>): ...`. The frontend checks most of
-||| them; the ones checked on the optimized module (`RuntimeInteger`,
-||| `RuntimeData`, `StringPrimitive`, `RuntimeClosure`, `RuntimeLazy`,
-||| `RuntimeString`, `GrowingSpecialization`), `Evaluation` and
-||| `CompileBudget` come back from `idris-mlir-cc`, which names them by their
-||| phrase (`parseRule`).
+||| them; `Evaluation` and `CompileBudget` come back from `idris-mlir-cc`,
+||| which names them by their phrase (`parseRule`).
 module IdrisMLIR.Rule
 
 
@@ -16,12 +13,12 @@ import Data.List
 public export
 data Rule
   = ProgramShape | TrustedLibrary | WorldUse | IOPrimitive
-  | ValueType | RuntimeInteger
-  | DependentField | RuntimeData | DataType
+  | ValueType
+  | DependentField | DataType
   | DefinitionShape | Match | StaticArgument
   | Polymorphism | Laziness
   | Primitive | StringPrimitive
-  | RuntimeClosure | RuntimeLazy | RuntimeString | GrowingSpecialization
+  | RuntimeClosure
   | EscapeHatch | UserPragma
   | CompiledModule | IdentityHook | HookShape
   | Evaluation | CompileBudget
@@ -33,9 +30,7 @@ Show Rule where
   show WorldUse = "world"
   show IOPrimitive = "io primitive"
   show ValueType = "type"
-  show RuntimeInteger = "runtime integer"
   show DependentField = "dependent field"
-  show RuntimeData = "runtime data"
   show DataType = "data type"
   show DefinitionShape = "definition"
   show Match = "match"
@@ -45,9 +40,6 @@ Show Rule where
   show Primitive = "primitive"
   show StringPrimitive = "string primitive"
   show RuntimeClosure = "runtime closure"
-  show RuntimeLazy = "runtime lazy value"
-  show RuntimeString = "runtime string"
-  show GrowingSpecialization = "growing specialization"
   show EscapeHatch = "escape hatch"
   show UserPragma = "pragma"
   show CompiledModule = "compiled module"
@@ -59,10 +51,9 @@ Show Rule where
 ||| Every reason, to read one back from its phrase.
 allRules : List Rule
 allRules =
-  [ ProgramShape, TrustedLibrary, WorldUse, IOPrimitive, ValueType, RuntimeInteger
-  , DependentField, RuntimeData, DataType, DefinitionShape, Match, StaticArgument
-  , Polymorphism, Laziness, Primitive, StringPrimitive
-  , RuntimeClosure, RuntimeLazy, RuntimeString, GrowingSpecialization
+  [ ProgramShape, TrustedLibrary, WorldUse, IOPrimitive, ValueType
+  , DependentField, DataType, DefinitionShape, Match, StaticArgument
+  , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
   , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape, Evaluation
   , CompileBudget ]
 
