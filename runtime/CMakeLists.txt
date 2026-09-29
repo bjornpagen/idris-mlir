@@ -70,6 +70,7 @@ add_library(idris_rt STATIC
 	gmp.cc
 	io.cc
 	numbers.cc
+	rc.cc
 	strings.cc
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>

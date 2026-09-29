@@ -1,9 +1,10 @@
 // Standard output and input, exit and crash. Static storage and the stack
-// only: the only libc symbols are write, read and _exit.
+// only: the only libc symbols are write, read, _exit and getenv.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 
 namespace {
@@ -44,6 +45,27 @@ int32_t peek() {
   if (inputPosition < inputLength)
     return static_cast<unsigned char>(input[inputPosition]);
   return -1;
+}
+
+// The live cells on standard error when IDRIS_RT_LIVE is "1", in one write:
+// how a test sees that a program frees every cell it allocates. An
+// evaluation child counts nothing, and its standard error is the compiler's.
+void reportLiveCells() {
+  if (rt::arenaActive)
+    return;
+  const char *setting = getenv("IDRIS_RT_LIVE");
+  if (setting == nullptr || setting[0] != '1' || setting[1] != '\0')
+    return;
+  static constexpr char prefix[] = "idris-rt: live cells ";
+  constexpr size_t prefixLength = sizeof prefix - 1;
+  char line[prefixLength + rt::intTextMax + 1];
+  char *end = line + sizeof line;
+  end[-1] = '\n';
+  char *start = rt::formatUnsigned(idris_rt_live_cells(), end - 1) - prefixLength;
+  volatile char *to = start;
+  for (size_t i = 0; i < prefixLength; ++i)
+    to[i] = prefix[i];
+  rt::writeAll(2, start, static_cast<size_t>(end - start));
 }
 
 } // namespace
@@ -166,8 +188,13 @@ extern "C" int32_t idris_rt_io_get_char(void) {
   return value;
 }
 
-extern "C" void idris_rt_io_exit(int64_t code) {
+extern "C" void idris_rt_main_return(void) {
   idris_rt_flush();
+  reportLiveCells();
+}
+
+extern "C" void idris_rt_io_exit(int64_t code) {
+  idris_rt_main_return();
   _exit(static_cast<int>(code & 0xFF));
 }
 

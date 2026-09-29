@@ -1,0 +1,187 @@
+// Reference counting over the header's count, and freeing. An object that
+// dies releases its references from a worklist threaded through the dying
+// cells themselves, as Lean's runtime frees (lean_del_core), so freeing a
+// structure of any depth takes no recursion, no allocation and constant
+// stack.
+// PIN(runtime-quarantine) — see PINS.md
+
+#include "internal.h"
+
+namespace {
+
+constexpr uint32_t saturated = UINT32_MAX;
+
+// A pointer to an object, and not NULL or an odd word (a small big).
+bool isObject(const void *o) {
+  auto word = reinterpret_cast<uintptr_t>(o);
+  return word != 0 && (word & 1) == 0;
+}
+
+idris_rt_header *headerOf(void *o) { return static_cast<idris_rt_header *>(o); }
+
+// Neither persistent (0) nor saturated.
+bool isCounted(uint32_t count) { return count - 1 < saturated - 1; }
+
+bool isStack(uint32_t info) { return (info & IDRIS_RT_STACK_CELL) != 0; }
+
+// A cell a reset may hand back for reuse.
+bool isExclusive(const idris_rt_header *cell) {
+  return cell->count == 1 && !isStack(cell->info);
+}
+
+// The cells whose count reached 0 and whose references are still to be
+// released: a stack threaded through the cells. A dying cell's count and
+// tag are dead, 48 bits, which hold the next cell's address, since user-space
+// addresses on x86-64 Linux are below 2^47, heap and stack alike. Its objs,
+// kind and stack bit, which releasing it reads, stay.
+class Dying {
+public:
+  bool empty() const { return top == nullptr; }
+
+  void push(idris_rt_header *cell) {
+    auto next = reinterpret_cast<uintptr_t>(top);
+    cell->count = static_cast<uint32_t>(next);
+    cell->info = (cell->info & 0xFFFF0000u) | static_cast<uint32_t>(next >> 32);
+    top = cell;
+  }
+
+  idris_rt_header *pop() {
+    idris_rt_header *cell = top;
+    uintptr_t next = uintptr_t{cell->count} | uintptr_t{cell->info & 0xFFFFu} << 32;
+    top = reinterpret_cast<idris_rt_header *>(next);
+    return cell;
+  }
+
+private:
+  idris_rt_header *top = nullptr;
+};
+
+// Drops a reference that an object slot of a dying cell held. A cell whose
+// count reaches 0 joins the worklist instead of being released here.
+void drop(void *o, Dying &dying) {
+  if (!isObject(o))
+    return;
+  idris_rt_header *cell = headerOf(o);
+  uint32_t count = cell->count;
+  if (!isCounted(count))
+    return;
+  if (count == 1)
+    dying.push(cell);
+  else
+    cell->count = count - 1;
+}
+
+void **slotsAt(idris_rt_header *cell, size_t offset) {
+  return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
+}
+
+// Releases what a cell owns besides its memory: a box's or a closure's
+// object slots, a bignum's limbs. A string owns nothing else.
+void releaseOwned(idris_rt_header *cell, Dying &dying) {
+  uint32_t info = cell->info;
+  void **slots = nullptr;
+  switch (idris_rt_info_kind(info)) {
+  case IDRIS_RT_KIND_BOX:
+    slots = slotsAt(cell, sizeof(idris_rt_header));
+    break;
+  case IDRIS_RT_KIND_CLOSURE:
+    slots = slotsAt(cell, sizeof(idris_rt_header) + sizeof(void *));
+    break;
+  case IDRIS_RT_KIND_STRING:
+    return;
+  case IDRIS_RT_KIND_BIGNUM:
+    rt::clearBignum(static_cast<idris_rt_bignum *>(static_cast<void *>(cell)));
+    return;
+  default: {
+    static constexpr char message[] = "idris runtime: freeing a cell of no known kind\n";
+    idris_rt_crash(message, sizeof message - 1);
+  }
+  }
+  for (uint32_t i = 0, n = idris_rt_info_objs(info); i < n; ++i)
+    drop(slots[i], dying);
+}
+
+// A dead cell's memory is freed, but a stack cell's belongs to its frame:
+// there the count becomes 0, so the dead cell is inert.
+void freeDead(idris_rt_header *cell) {
+  if (isStack(cell->info))
+    cell->count = 0;
+  else
+    rt::freeCell(cell);
+}
+
+void releaseAll(Dying &dying) {
+  while (!dying.empty()) {
+    idris_rt_header *cell = dying.pop();
+    releaseOwned(cell, dying);
+    freeDead(cell);
+  }
+}
+
+// Out of line, so that the inlined decrement stays a test and a store.
+[[gnu::noinline]] void release(idris_rt_header *cell) {
+  Dying dying;
+  releaseOwned(cell, dying);
+  freeDead(cell);
+  releaseAll(dying);
+}
+
+} // namespace
+
+extern "C" void idris_rt_inc(void *o) {
+  if (!isObject(o))
+    return;
+  idris_rt_header *cell = headerOf(o);
+  if (isCounted(cell->count))
+    ++cell->count;
+}
+
+extern "C" void idris_rt_inc_n(void *o, uint32_t n) {
+  if (!isObject(o))
+    return;
+  idris_rt_header *cell = headerOf(o);
+  uint32_t count = cell->count;
+  if (!isCounted(count))
+    return;
+  uint64_t sum = uint64_t{count} + n;
+  cell->count = sum < saturated ? static_cast<uint32_t>(sum) : saturated;
+}
+
+extern "C" void idris_rt_dec(void *o) {
+  if (!isObject(o))
+    return;
+  idris_rt_header *cell = headerOf(o);
+  uint32_t count = cell->count;
+  if (!isCounted(count))
+    return;
+  if (count == 1)
+    release(cell);
+  else
+    cell->count = count - 1;
+}
+
+extern "C" bool idris_rt_is_unique(const void *o) {
+  return isObject(o) && isExclusive(static_cast<const idris_rt_header *>(o));
+}
+
+extern "C" void *idris_rt_reset(void *o) {
+  if (!isObject(o))
+    return nullptr;
+  idris_rt_header *cell = headerOf(o);
+  if (!isExclusive(cell)) {
+    idris_rt_dec(o);
+    return nullptr;
+  }
+  Dying dying;
+  releaseOwned(cell, dying);
+  releaseAll(dying);
+  return o;
+}
+
+extern "C" void idris_rt_free_cell(void *o) {
+  if (!isObject(o))
+    return;
+  idris_rt_header *cell = headerOf(o);
+  if (isCounted(cell->count) && !isStack(cell->info))
+    rt::freeCell(cell);
+}

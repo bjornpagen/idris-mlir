@@ -1,6 +1,9 @@
 #!/bin/sh
-# The runtime's big and string operations print what Chez computes, and the
-# casts from String follow the grammar of idris_rt.h.
+# The runtime's big and string operations print what Chez computes, the
+# casts from String follow the grammar of idris_rt.h, and every operation
+# returns a result its caller owns. Reference counting frees what it counts,
+# a structure of any depth on a small stack, and a program that returns or
+# exits reports its live cells when IDRIS_RT_LIVE is 1.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
 runtime=$root/build/dev/runtime/libidris_rt.a
@@ -19,9 +22,39 @@ for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
   if command -v "$chez_name" > /dev/null 2>&1; then chez=$chez_name; break; fi
 done
 build_test "$here/api.c" "$work/api" || exit 0
-"$work/api" > "$work/ours" 2> "$work/api.err"
+build_test "$here/rc.c" "$work/rc" || exit 0
+bounded "$work/api" > "$work/ours" 2> "$work/api.err"
 say "api: exit $?"
 cat "$work/api.err"
+
+# 256 KiB of stack: freeing the list of 10^7 cells by recursion would need
+# hundreds of megabytes.
+( ulimit -s 256 && IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/rc" ) \
+  > "$work/rc.out" 2> "$work/rc.err"
+say "rc: exit $?"
+cat "$work/rc.out" "$work/rc.err"
+
+# rc_mode MODE [SETTING]: rc MODE with IDRIS_RT_LIVE=SETTING, or with the
+# variable unset; its exit status, then every line of its stdout and stderr.
+rc_mode() {
+  if [ $# -gt 1 ]; then
+    ( IDRIS_RT_LIVE=$2 && export IDRIS_RT_LIVE && bounded "$work/rc" "$1" ) \
+      > "$work/mode.out" 2> "$work/mode.err"
+    say "rc $1, IDRIS_RT_LIVE=$2: exit $?"
+  else
+    ( unset IDRIS_RT_LIVE && bounded "$work/rc" "$1" ) > "$work/mode.out" 2> "$work/mode.err"
+    say "rc $1, IDRIS_RT_LIVE unset: exit $?"
+  fi
+  sed 's/^/  stdout | /' "$work/mode.out"
+  sed 's/^/  stderr | /' "$work/mode.err"
+}
+rc_mode leak 1
+rc_mode leak
+rc_mode leak yes
+rc_mode leak 11
+rc_mode exit 1
+rc_mode crash 1
+
 if [ -z "$chez" ]; then say "chez: not found"; exit 0; fi
 "$chez" --script "$here/chez.ss" > "$work/chez" 2> "$work/chez.err"
 say "chez: exit $?"

@@ -10,13 +10,25 @@
 namespace rt {
 
 // True in an evaluation child once idris_rt_eval_begin ran: every allocation
-// then comes from the arena, and nothing is freed.
+// then comes from the arena, every cell is persistent, and nothing is freed.
 extern bool arenaActive;
 
-// Memory for the runtime's own objects: from the arena in an evaluation
-// child, from snmalloc otherwise. Exhausted memory is a crash.
+// Raw memory, which is not a cell (GMP's limbs, scratch buffers): from the
+// arena in an evaluation child, from snmalloc otherwise. Exhausted memory is
+// a crash.
 void *allocate(size_t size);
 void release(void *block);
+
+// A cell of `size` bytes with the header {1, info}, counted as live; in an
+// evaluation child, from the arena with the header {0, info}: persistent, and
+// not counted. Exhausted memory is a crash.
+void *newCell(size_t size, uint32_t info);
+// Frees the memory of a counted heap cell and stops counting it; in an
+// evaluation child it does nothing, as the arena is never freed.
+void freeCell(void *cell);
+
+// Frees a bignum's limbs, and leaves its cell alone.
+void clearBignum(idris_rt_bignum *b);
 
 // Writes n bytes to fd, looping over partial writes; a failed write abandons
 // the rest.

@@ -53,11 +53,12 @@ struct Operand {
   mpz_srcptr get() const { return &view; }
 };
 
-// A new large big, initialized to 0, for a GMP operation to write.
+// A new large big, initialized to 0, for a GMP operation to write: a cell
+// the caller owns.
 idris_rt_bignum *fresh() {
   rt::gmpReady();
-  auto *b = static_cast<idris_rt_bignum *>(rt::allocate(sizeof(idris_rt_bignum)));
-  b->header = {1, 0};
+  auto *b = static_cast<idris_rt_bignum *>(
+      rt::newCell(sizeof(idris_rt_bignum), idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
   mpz_init(integer(b));
   return b;
 }
@@ -69,7 +70,7 @@ idris_rt_big finish(idris_rt_bignum *b) {
     long v = mpz_get_si(z);
     if (fits(v)) {
       mpz_clear(z);
-      rt::release(b);
+      rt::freeCell(b);
       return small(v);
     }
   }
@@ -265,9 +266,8 @@ extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
   return finish(b);
 }
 
+void rt::clearBignum(idris_rt_bignum *b) { mpz_clear(integer(b)); }
+
 extern "C" void idris_rt_big_release(idris_rt_big a) {
-  if (isSmall(a) || bignum(a)->header.count == 0)
-    return;
-  mpz_clear(integer(bignum(a)));
-  rt::release(bignum(a));
+  idris_rt_dec(reinterpret_cast<void *>(a));
 }

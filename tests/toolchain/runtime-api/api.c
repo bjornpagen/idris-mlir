@@ -1,7 +1,12 @@
 /* The runtime's string and big operations against Chez: `api` prints one
  * line per operation, and chez.ss prints what Chez computes for the same
  * operations, which the run script compares. Then the casts from String,
- * whose grammar is ours (idris_rt.h), are checked against a table. */
+ * whose grammar is ours (idris_rt.h), are checked against a table.
+ *
+ * Every operation borrows its arguments and returns an owned result, so
+ * each result is released once, when it has been printed, and each argument
+ * by whoever made it. Then no cell is live at the end, and no string or big
+ * is freed while something still uses it. */
 #include <stdio.h>
 #include <string.h>
 
@@ -21,39 +26,84 @@ enum { stringCount = sizeof strings / sizeof strings[0] };
 static const double doubles[] = {0.0, -0.0, 0.5, -0.5, 123.9, -123.9, 4.6e18, -1.5e19, 1e300, 2.5e-310};
 enum { doubleCount = sizeof doubles / sizeof doubles[0] };
 
-static void text(const char *s) { idris_rt_io_put_str(idris_rt_str_from_utf8(s, strlen(s))); }
-static void big(idris_rt_big b) { idris_rt_io_put_str(idris_rt_big_show(b)); }
+static void release(const idris_rt_str *s) { idris_rt_dec((void *)s); }
+
+/* The count of an object, and 0 for a small big. */
+static uint32_t countOf(const void *o) {
+  return ((uintptr_t)o & 1) != 0 ? 0 : ((const idris_rt_header *)o)->count;
+}
+
+static int borrowFailures = 0;
+
+/* Releases an argument its maker owns. The operations only borrowed it, so
+ * with every result they returned released, its count is what it was when it
+ * was made. */
+static void releaseArgument(const void *o, uint32_t made, const char *what) {
+  if (countOf(o) != made) {
+    fprintf(stderr, "FAIL an operation kept or dropped a reference to %s\n", what);
+    ++borrowFailures;
+  }
+  idris_rt_dec((void *)o);
+}
+static const idris_rt_str *make(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
+static void text(const char *s) {
+  const idris_rt_str *t = make(s);
+  idris_rt_io_put_str(t);
+  release(t);
+}
+/* Prints b, an operation's result, and releases it. */
+static void big(idris_rt_big b) {
+  const idris_rt_str *shown = idris_rt_big_show(b);
+  idris_rt_io_put_str(shown);
+  release(shown);
+  idris_rt_big_release(b);
+}
 static void line(void) { idris_rt_io_put_char('\n'); }
+/* Prints s, an operation's result, and releases it. */
 static void str(const idris_rt_str *s) {
   idris_rt_io_put_char('"');
   idris_rt_io_put_str(s);
   idris_rt_io_put_char('"');
+  release(s);
 }
-static const idris_rt_str *make(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
 
 static int failures = 0, checks = 0;
 
 static void expectInt(const char *s, int64_t want) {
-  int64_t got = idris_rt_str_to_int(make(s));
-  idris_rt_big b = idris_rt_big_from_str(make(s));
+  const idris_rt_str *m = make(s);
+  uint32_t made = countOf(m);
+  int64_t got = idris_rt_str_to_int(m);
+  idris_rt_big b = idris_rt_big_from_str(m);
   ++checks;
   if (got != want || idris_rt_big_to_int(b) != want) {
     fprintf(stderr, "FAIL to_int \"%s\": %lld\n", s, (long long)got);
     ++failures;
   }
+  idris_rt_big_release(b);
+  releaseArgument(m, made, s);
 }
 
 static void expectBig(const char *s, const char *want) {
-  const idris_rt_str *shown = idris_rt_big_show(idris_rt_big_from_str(make(s)));
+  const idris_rt_str *m = make(s);
+  uint32_t made = countOf(m);
+  idris_rt_big b = idris_rt_big_from_str(m);
+  uint32_t bigMade = countOf((void *)(uintptr_t)b);
+  const idris_rt_str *shown = idris_rt_big_show(b);
   ++checks;
   if (shown->bytes != strlen(want) || memcmp(idris_rt_str_bytes(shown), want, shown->bytes) != 0) {
     fprintf(stderr, "FAIL big_from_str \"%s\"\n", s);
     ++failures;
   }
+  release(shown);
+  releaseArgument((void *)(uintptr_t)b, bigMade, s);
+  releaseArgument(m, made, s);
 }
 
 static void expectDouble(const char *s, double want) {
-  double got = idris_rt_str_to_double(make(s));
+  const idris_rt_str *m = make(s);
+  uint32_t made = countOf(m);
+  double got = idris_rt_str_to_double(m);
+  releaseArgument(m, made, s);
   ++checks;
   if (memcmp(&got, &want, sizeof got) != 0 && !(got != got && want != want)) {
     fprintf(stderr, "FAIL to_double \"%s\"\n", s);
@@ -63,8 +113,14 @@ static void expectDouble(const char *s, double want) {
 
 int main(void) {
   idris_rt_big values[bigCount];
-  for (int i = 0; i < bigCount; ++i)
-    values[i] = idris_rt_big_from_str(make(bigs[i]));
+  uint32_t made[bigCount];
+  for (int i = 0; i < bigCount; ++i) {
+    const idris_rt_str *digits = make(bigs[i]);
+    uint32_t digitsMade = countOf(digits);
+    values[i] = idris_rt_big_from_str(digits);
+    made[i] = countOf((void *)(uintptr_t)values[i]);
+    releaseArgument(digits, digitsMade, bigs[i]);
+  }
   static const char *const names[] = {"add", "sub", "mul", "div", "mod", "and", "or", "xor"};
   idris_rt_big (*const ops[])(idris_rt_big, idris_rt_big) = {
       idris_rt_big_add, idris_rt_big_sub, idris_rt_big_mul, idris_rt_big_div,
@@ -100,6 +156,7 @@ int main(void) {
   }
   for (int i = 0; i < stringCount; ++i) {
     const idris_rt_str *s = make(strings[i]);
+    uint32_t sMade = countOf(s);
     int64_t n = idris_rt_str_length(s);
     text("length ");
     idris_rt_io_put_int_s(n);
@@ -129,13 +186,16 @@ int main(void) {
     line();
     for (int j = 0; j < stringCount; ++j) {
       const idris_rt_str *t = make(strings[j]);
+      uint32_t tMade = countOf(t);
       int32_t c = idris_rt_str_cmp(s, t);
       text("compare ");
       idris_rt_io_put_int_s(c < 0 ? -1 : c > 0 ? 1 : 0);
       text(" append ");
       str(idris_rt_str_append(s, t));
       line();
+      releaseArgument(t, tMade, strings[j]);
     }
+    releaseArgument(s, sMade, strings[i]);
   }
   static const int64_t ints[] = {0, 5, -5, INT64_MAX, INT64_MIN, 255};
   for (int i = 0; i < 6; ++i) {
@@ -148,6 +208,8 @@ int main(void) {
     line();
   }
   idris_rt_flush();
+  for (int i = 0; i < bigCount; ++i)
+    releaseArgument((void *)(uintptr_t)values[i], made[i], bigs[i]);
 
   expectInt("123", 123);
   expectInt("-45", -45);
@@ -193,5 +255,7 @@ int main(void) {
   expectDouble("0x10", 0.0);
   expectDouble("", 0.0);
   fprintf(stderr, "casts from String: %d of %d as idris_rt.h defines them\n", checks - failures, checks);
-  return failures == 0 ? 0 : 1;
+  uint64_t live = idris_rt_live_cells();
+  fprintf(stderr, "live cells once every result is released: %llu\n", (unsigned long long)live);
+  return failures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;
 }

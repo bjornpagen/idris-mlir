@@ -1,4 +1,5 @@
-// Allocation entry points over snmalloc, one per size class.
+// Allocation entry points over snmalloc, one per size class, and cells: the
+// memory the runtime counts while it lives.
 // snmalloc::alloc<S>() fixes the size class at
 // compile time, so after LTO an allocation inlines into generated code as a
 // thread-local free-list pop, and a free as a pagemap lookup and a push.
@@ -26,14 +27,26 @@ extern "C" void *idris_rt_alloc(size_t size) { return snmalloc::alloc(size); }
 
 extern "C" void idris_rt_free(void *block) { snmalloc::dealloc(block); }
 
+namespace {
+
+// The calling thread's live cells. Per thread, so that counting stays plain
+// arithmetic without a data race: a program has one thread, and the folders
+// may run on several in the compiler's tools, which never read the count.
+thread_local uint64_t liveCells = 0;
+
+[[noreturn]] void outOfMemory() {
+  static constexpr char message[] = "idris runtime: out of memory\n";
+  idris_rt_crash(message, sizeof message - 1);
+}
+
+} // namespace
+
 void *rt::allocate(size_t size) {
   if (arenaActive)
     return idris_rt_arena_alloc(size);
   void *block = idris_rt_alloc(size);
-  if (block == nullptr) {
-    static constexpr char message[] = "idris runtime: out of memory\n";
-    idris_rt_crash(message, sizeof message - 1);
-  }
+  if (block == nullptr)
+    outOfMemory();
   return block;
 }
 
@@ -42,4 +55,27 @@ void rt::release(void *block) {
     idris_rt_free(block);
 }
 
-extern "C" void *idris_rt_cell(size_t size) { return rt::allocate(size); }
+void *rt::newCell(size_t size, uint32_t info) {
+  if (arenaActive) {
+    auto *cell = static_cast<idris_rt_header *>(idris_rt_arena_alloc(size));
+    *cell = idris_rt_header{0, info};
+    return cell;
+  }
+  auto *cell = static_cast<idris_rt_header *>(idris_rt_alloc(size));
+  if (cell == nullptr)
+    outOfMemory();
+  *cell = idris_rt_header{1, info};
+  ++liveCells;
+  return cell;
+}
+
+void rt::freeCell(void *cell) {
+  if (arenaActive)
+    return;
+  --liveCells;
+  idris_rt_free(cell);
+}
+
+extern "C" void *idris_rt_cell(size_t size, uint32_t info) { return rt::newCell(size, info); }
+
+extern "C" uint64_t idris_rt_live_cells(void) { return liveCells; }

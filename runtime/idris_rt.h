@@ -22,17 +22,63 @@ extern "C" {
 #define IDRIS_RT_NORETURN _Noreturn
 #endif
 
-/* Every heap object starts with this header. A count of 0 marks static
- * data: constants in .rodata, never freed. The
- * second word depends on the object: a string's ASCII flag, a box's
- * constructor tag, a closure's label. */
+/* Every heap object starts with this header.
+ *
+ * count is how many owned references the object has, or one of two marks:
+ * - 0: persistent. Static data (constants in .rodata and .data), the results
+ *   of compile-time evaluation and the cells of its arena are never counted
+ *   and never freed, and everything a persistent object points to is
+ *   persistent too, so a persistent object needs no count at all.
+ * - 1 to UINT32_MAX - 1: owned references, counted with plain arithmetic,
+ *   since a program is single-threaded.
+ * - UINT32_MAX: saturated. A count that would overflow stops there, and the
+ *   object is never decremented or freed: an overflow leaks the object
+ *   instead of freeing it while it is still in use.
+ *
+ * info is tag | objs << 16 | kind << 24, with bit 31 marking a stack cell.
+ * Freeing reads only objs, kind and bit 31, so the runtime frees any cell
+ * without knowing its type.
+ * - tag (bits 0-15): a box's constructor tag, a closure's label, a string's
+ *   ASCII flag in bit 0 (set when every byte is ASCII); 0 for a bignum.
+ * - objs (bits 16-23): the number of 8-byte object slots. A box's are the
+ *   first objs slots right after the header; a closure's are the first objs
+ *   slots after its code pointer, which is at offset 8. Strings and bignums
+ *   have none.
+ * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
+ * idris_rt_info builds the word, and the accessors below take it apart.
+ * - bit 31: a stack cell, which the compiler builds in a frame; its memory
+ *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
+ *   When its count reaches 0 its object slots are released but its memory is
+ *   not freed, and the live-cell count does not change. A stack cell is
+ *   never exclusive (idris_rt_is_unique, idris_rt_reset): a callee it is lent
+ *   to could otherwise reuse its memory for a result that outlives the frame
+ *   holding it.
+ *
+ * An object slot holds a counted reference: a pointer to an object, NULL (an
+ * unused pointer slot of an unboxed sum), or an odd word (a small Integer or
+ * Nat, as idris_rt_big has them). A cell's other fields come after its object
+ * slots, so the slots are all the runtime needs to find. */
 typedef struct idris_rt_header {
   uint32_t count;
   uint32_t info;
 } idris_rt_header;
 
-/* A string: the header, whose info is 1 when every byte is ASCII,
- * the byte length, the number of scalar values, then the UTF-8 bytes. */
+#define IDRIS_RT_KIND_BOX 0u
+#define IDRIS_RT_KIND_CLOSURE 1u
+#define IDRIS_RT_KIND_STRING 2u
+#define IDRIS_RT_KIND_BIGNUM 3u
+#define IDRIS_RT_STACK_CELL 0x80000000u
+
+static inline uint32_t idris_rt_info(uint32_t tag, uint32_t objs, uint32_t kind) {
+  return tag | objs << 16 | kind << 24;
+}
+static inline uint32_t idris_rt_info_tag(uint32_t info) { return info & 0xFFFFu; }
+static inline uint32_t idris_rt_info_objs(uint32_t info) { return info >> 16 & 0xFFu; }
+static inline uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24 & 0x7Fu; }
+
+/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 1 when every byte is
+ * ASCII), the byte length, the number of scalar values, then the UTF-8
+ * bytes, in the same allocation. */
 typedef struct idris_rt_str {
   idris_rt_header header;
   uint64_t bytes;
@@ -45,8 +91,9 @@ typedef struct idris_rt_str {
  * each integer has one representation. */
 typedef int64_t idris_rt_big;
 
-/* A big outside the small range: the header, then a GMP integer whose limbs
- * GMP allocates (or, in static data, point to a constant limb array). The
+/* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), then
+ * a GMP integer whose limbs GMP allocates (or, in static data, point to a
+ * constant limb array); freeing a bignum frees its limbs. The
  * GMP integer is spelled out so that this header needs no gmp.h:
  * __mpz_struct is { int alloc; int size; mp_limb_t *d; }. */
 typedef struct idris_rt_bignum {
@@ -56,12 +103,14 @@ typedef struct idris_rt_bignum {
   uint64_t *limbs;
 } idris_rt_bignum;
 
-/* A box is the header, whose info is the constructor tag, then the
- * constructor's fields. A closure is the header, whose info
- * is the label (idr-lower numbers the functions closures name), then the
- * code pointer, then the captures. Their field layouts are idr-lower's. */
+/* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
+ * the constructor's fields, object slots first. A closure is the header (kind
+ * IDRIS_RT_KIND_CLOSURE, tagged with its label: idr-lower numbers the
+ * functions closures name), then the code pointer, then the captures, object
+ * slots first. Their field layouts are idr-lower's. */
 
-/* Allocation. The size classes with an allocate and a free entry
+/* Allocation of raw memory, which is not a cell: nothing counts it. The size
+ * classes with an allocate and a free entry
  * each: every snmalloc size class from 16 bytes to 1 KiB, with
  * SNMALLOC_MIN_ALLOC_STEP_SIZE=8, so a cell of an 8-byte header
  * and two fields takes exactly 24 bytes. alloc.cc checks that each is
@@ -84,14 +133,69 @@ IDRIS_RT_SIZE_CLASSES(IDRIS_RT_DECLARE_SIZE_CLASS)
 void *idris_rt_alloc(size_t size);
 void idris_rt_free(void *block);
 
-/* A cell of `size` bytes for a box or a closure that idr-lower builds; ends
- * the process with a crash when memory is exhausted. */
-void *idris_rt_cell(size_t size);
+/* Reference counting. Every entry point below takes NULL, an odd word and a
+ * persistent object too, and then does nothing (idris_rt_reset returns NULL,
+ * idris_rt_is_unique false): an object slot may hold any of them, so callers
+ * need no test first. */
 
-/* Standard output and input.
+/* A new cell of `size` bytes, a box or a closure that idr-lower builds (or,
+ * with the matching info, anything else the runtime frees): its header is
+ * count 1 and `info`, and it counts as a live cell. Exhausted memory ends
+ * the process with a crash. In compile-time evaluation's arena the cell is
+ * persistent (count 0) instead, and not a live cell. */
+void *idris_rt_cell(size_t size, uint32_t info);
+
+/* One more owned reference, or n more; a count that would reach UINT32_MAX
+ * saturates there. */
+void idris_rt_inc(void *o);
+void idris_rt_inc_n(void *o, uint32_t n);
+
+/* One owned reference less. At 0 the object is released: a box's or a
+ * closure's object slots lose a reference each, a bignum's limbs are freed,
+ * and then its memory is freed (a stack cell's is not). Objects that reach 0
+ * in turn are released the same way, from a worklist that runs through the
+ * dying cells themselves: no recursion and no allocation, so freeing takes
+ * constant stack however deep the structure is. */
+void idris_rt_dec(void *o);
+
+/* Whether o is exclusive: count 1, and not a stack cell. */
+bool idris_rt_is_unique(const void *o);
+
+/* When o is exclusive (count 1, and not a stack cell), releases what it owns
+ * (its object slots; a bignum's limbs) and returns o, whose memory the
+ * caller reuses for a cell of the same size, rewriting the header, or frees
+ * with idris_rt_free_cell. Otherwise drops one reference to o, as
+ * idris_rt_dec, and returns NULL, and the caller allocates a new cell. */
+void *idris_rt_reset(void *o);
+
+/* Frees the memory of a counted heap cell, and nothing else: the caller has
+ * already released what it owns (idris_rt_reset). A stack cell's memory is
+ * its frame's, so a stack cell is left alone too. */
+void idris_rt_free_cell(void *o);
+
+/* The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
+ * and has not freed yet, counted by the calling thread: a program is
+ * single-threaded, and in idris-mlir-cc each thread that folds counts only
+ * its own, with no atomic operation on the allocation path. */
+uint64_t idris_rt_live_cells(void);
+
+/* Ownership at the other entry points. A primitive (the string, big, output,
+ * show and parse operations below, which the folders call too) borrows its
+ * arguments: it neither releases nor keeps them. A primitive that returns an
+ * object returns an owned reference: a new object (count 1), a persistent
+ * one, or one of its arguments with one more reference. */
+
+/* Standard output and input. They borrow their arguments.
  * Output goes through one static buffer, flushed when it fills, before every
  * read, before exit and a crash's message, and when main returns. */
 void idris_rt_flush(void);
+/* What @main calls right before it returns: writes pending output, then,
+ * when the environment variable IDRIS_RT_LIVE is exactly "1", the line
+ * "idris-rt: live cells N\n" (N in decimal, idris_rt_live_cells) to standard
+ * error, so a test can check that a program frees every cell it allocates.
+ * idris_rt_io_exit does the same before it ends the process; a crash does
+ * not. Compile-time evaluation reports nothing. */
+void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c. */
 void idris_rt_io_put_char(int32_t c);
@@ -106,7 +210,8 @@ void idris_rt_io_put_double(double value);
 int32_t idris_rt_io_get_char(void);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
-/* Writes pending output, then ends the process with status code mod 256. */
+/* Writes pending output and, as idris_rt_main_return, the live cells, then
+ * ends the process with status code mod 256. */
 IDRIS_RT_NORETURN void idris_rt_io_exit(int64_t code);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status 1. */
@@ -121,8 +226,10 @@ int32_t idris_rt_double_head(double x);
 int32_t idris_rt_int_head_s(int64_t value);
 int32_t idris_rt_int_head_u(uint64_t value);
 
-/* Strings. Strings are immutable; each operation
- * returns a new string or a static one. Preconditions, which idr-lower
+/* Strings. Strings are immutable; each operation borrows its arguments and
+ * returns an owned string: a new one, a persistent one (the empty string), or
+ * an argument with one more reference (appending the empty string, reversing
+ * an empty one). Preconditions, which idr-lower
  * checks and crashes on before the call: idris_rt_str_index needs
  * 0 <= i < length, idris_rt_str_head and idris_rt_str_tail a nonempty
  * string. */
@@ -158,12 +265,14 @@ int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
  * the op's width. */
 double idris_rt_str_to_double(const idris_rt_str *s);
 int64_t idris_rt_str_to_int(const idris_rt_str *s);
-/* The string of n bytes of well-formed UTF-8 at p: a new string. */
+/* The string of n bytes of well-formed UTF-8 at p: a new string, or the
+ * persistent empty one. */
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
-/* The UTF-8 bytes of s. */
+/* The UTF-8 bytes of s, valid as long as s is. */
 const char *idris_rt_str_bytes(const idris_rt_str *s);
 
-/* Bigs: Integer, and the Nat-like types. Division and modulus
+/* Bigs: Integer, and the Nat-like types. Each operation borrows its
+ * arguments and returns an owned result: a small word, or a new bignum. Division and modulus
  * are Euclidean, as blodwen-euclidDiv and blodwen-euclidMod in the Chez
  * support code, which is also what Idris's evaluator computes;
  * the divisor is nonzero (idr-lower checks it first). The bitwise operations
@@ -188,13 +297,14 @@ int64_t idris_rt_big_to_int(idris_rt_big a);
 idris_rt_big idris_rt_big_from_double(double x);
 /* The double nearest to a, ties to even (Chez's exact->inexact). */
 double idris_rt_big_to_double(idris_rt_big a);
+/* A new string. */
 const idris_rt_str *idris_rt_big_show(idris_rt_big a);
 /* The integer cast of idris_rt_str_to_int, without the wrapping. */
 idris_rt_big idris_rt_big_from_str(const idris_rt_str *s);
 
-/* Freeing what an operation returned, for callers that own it: the compiler's
- * folders, which turn each result into an attribute. Static data is left
- * alone. */
+/* Dropping the reference an operation returned, for callers that own it and
+ * hold a string or a big rather than a pointer: the compiler's folders, which
+ * turn each result into an attribute. Both are idris_rt_dec. */
 void idris_rt_str_release(const idris_rt_str *s);
 void idris_rt_big_release(idris_rt_big a);
 
@@ -215,8 +325,12 @@ void idris_rt_gmp_init(void);
  * round in a child process, whose JITed code idr-lower wrote in JIT mode:
  * cells come from idris_rt_arena_alloc and a crash is idris_rt_eval_crash.
  * idris_rt_eval_begin, called once in the child, makes every other
- * allocation of the runtime use the arena too. The arena is never freed: the
- * child ends with the round, and memory management is not observable. */
+ * allocation of the runtime use the arena too, and every cell the runtime
+ * makes there (idris_rt_cell, strings, bignums) persistent: count 0, not a
+ * live cell, so counting does nothing in the child. A cell JIT-mode code
+ * takes from idris_rt_arena_alloc itself must be written with count 0 too.
+ * The arena is never freed: the child ends with the round, and memory
+ * management is not observable. */
 void idris_rt_eval_begin(int report_fd);
 void *idris_rt_arena_alloc(size_t size);
 /* Writes msg to the report descriptor, then ends the child with

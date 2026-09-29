@@ -1,8 +1,6 @@
 // Strings: UTF-8 bytes with
-// their scalar count and an ASCII flag, over simdutf. The operations that
-// allocate nothing (length, index, head, compare) are the ones a program may
-// run; the others build strings, which compile-time
-// evaluation and the folders run.
+// their scalar count and an ASCII flag, over simdutf. A string is one cell,
+// header, lengths and bytes together, so freeing it is freeing the cell.
 // PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md
 
 #include "internal.h"
@@ -30,9 +28,19 @@ const simdutf::implementation &implementation() {
   return *chosen;
 }
 
-constexpr idris_rt_str emptyString{{0, 1}, 0, 0};
+// The ASCII flag is the tag.
+constexpr uint32_t stringInfo(bool ascii) { return (ascii ? 1u : 0u) | IDRIS_RT_KIND_STRING << 24; }
 
-bool isAscii(const idris_rt_str *s) { return s->header.info != 0; }
+constexpr idris_rt_str emptyString{{0, stringInfo(true)}, 0, 0};
+
+bool isAscii(const idris_rt_str *s) { return (s->header.info & 1) != 0; }
+
+// An argument returned as the result, which the caller owns: one more
+// reference.
+const idris_rt_str *shared(const idris_rt_str *s) {
+  idris_rt_inc(const_cast<idris_rt_str *>(s));
+  return s;
+}
 
 bool isContinuation(char byte) { return (static_cast<unsigned char>(byte) & 0xC0) == 0x80; }
 
@@ -77,8 +85,8 @@ const idris_rt_str *slice(const idris_rt_str *s, uint64_t from, uint64_t to) {
 } // namespace
 
 idris_rt_str *rt::newString(uint64_t bytes, uint64_t scalars, bool ascii) {
-  auto *s = static_cast<idris_rt_str *>(rt::allocate(sizeof(idris_rt_str) + bytes));
-  s->header = {1, ascii ? 1u : 0u};
+  auto *s =
+      static_cast<idris_rt_str *>(rt::newCell(sizeof(idris_rt_str) + bytes, stringInfo(ascii)));
   s->bytes = bytes;
   s->scalars = scalars;
   return s;
@@ -112,9 +120,9 @@ extern "C" const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n) {
 
 extern "C" const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const idris_rt_str *b) {
   if (a->bytes == 0)
-    return b;
+    return shared(b);
   if (b->bytes == 0)
-    return a;
+    return shared(a);
   idris_rt_str *s =
       rt::newString(a->bytes + b->bytes, a->scalars + b->scalars, isAscii(a) && isAscii(b));
   memcpy(rt::mutableBytes(s), idris_rt_str_bytes(a), a->bytes);
@@ -184,7 +192,7 @@ extern "C" const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_
 
 extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
   if (s->bytes == 0)
-    return s;
+    return shared(s);
   idris_rt_str *result = rt::newString(s->bytes, s->scalars, isAscii(s));
   const char *from = idris_rt_str_bytes(s);
   char *to = rt::mutableBytes(result) + s->bytes;
@@ -215,6 +223,5 @@ extern "C" int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b
 }
 
 extern "C" void idris_rt_str_release(const idris_rt_str *s) {
-  if (s->header.count != 0)
-    rt::release(const_cast<idris_rt_str *>(s));
+  idris_rt_dec(const_cast<idris_rt_str *>(s));
 }
