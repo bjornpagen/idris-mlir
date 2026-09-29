@@ -41,8 +41,15 @@ struct Closure {
   std::vector<Pattern> captures;
 };
 
+// A value entered into a linear type (`idr.lin.enter`): rebuilt, it enters
+// again, so the clone keeps the quantity Idris proved.
+struct Linear {
+  // Exactly one: the pattern of the value that entered.
+  std::vector<Pattern> value;
+};
+
 struct Pattern {
-  std::variant<Hole, Constant, Con, Closure> node;
+  std::variant<Hole, Constant, Con, Closure, Linear> node;
   mlir::Type type;
   // Where the value was built: the ops that rebuild it are reported there.
   mlir::LocationAttr loc;

@@ -51,7 +51,7 @@ struct Composed {
 // binding time `time`: inside a chain of clones only on a closure, which is
 // new knowledge where data would re-abstract what the key already fixed.
 bool specializesOn(BindingTime time, bool intoClone, Type type) {
-  return time != BindingTime::Other && (!intoClone || isa<FnType>(type));
+  return time != BindingTime::Other && (!intoClone || isa<FnType>(unrestricted(type)));
 }
 
 // Appends argument `arg` to `out` as the key's next holes, and returns its

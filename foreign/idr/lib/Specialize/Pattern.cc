@@ -91,6 +91,13 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   if (auto closure = value.getDefiningOp<ClosureOp>())
     return {Closure{closure.getCalleeAttr(), shapesOf(closure.getCaptures(), leaves)},
             value.getType(), builtAt(value)};
+  if (auto enter = value.getDefiningOp<LinEnterOp>()) {
+    Pattern inner = shapeOf(enter.getValue(), leaves);
+    if (!inner.isHole())
+      return {Linear{{std::move(inner)}}, value.getType(), builtAt(value)};
+    // A leaf that entered is a leaf itself: the entry stays with the caller.
+    leaves.pop_back();
+  }
   leaves.push_back(value);
   return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
 }
@@ -105,7 +112,8 @@ bool isClosed(Value value) {
 bool hasStructure(const Pattern &pattern) {
   return std::visit(Match{[](const Hole &) { return false; },
                           [](const Constant &c) { return isa<ConAttr, ClosureAttr>(c.value); },
-                          [](const Con &) { return true; }, [](const Closure &) { return true; }},
+                          [](const Con &) { return true; }, [](const Closure &) { return true; },
+                          [](const Linear &l) { return hasStructure(l.value.front()); }},
                     pattern.node);
 }
 
@@ -118,7 +126,8 @@ void renumber(Pattern &pattern, unsigned &next) {
                    [&](Closure &closure) {
                      for (Pattern &capture : closure.captures)
                        renumber(capture, next);
-                   }},
+                   },
+                   [&](Linear &linear) { renumber(linear.value.front(), next); }},
              pattern.node);
 }
 
@@ -132,7 +141,8 @@ uint64_t unrollSize(const Pattern &pattern) {
   return std::visit(Match{[](const Hole &) { return uint64_t(0); },
                           [](const Constant &c) { return constantSize(c.value); },
                           [&](const Con &con) { return sum(con.fields); },
-                          [&](const Closure &closure) { return sum(closure.captures); }},
+                          [&](const Closure &closure) { return sum(closure.captures); },
+                          [](const Linear &linear) { return unrollSize(linear.value.front()); }},
                     pattern.node);
 }
 
@@ -148,7 +158,9 @@ Attribute keyOf(const Pattern &pattern) {
             [&](const Closure &closure) -> Attribute {
               return KeyClosureAttr::get(ctx, closure.callee.getAttr(),
                                          keysOf(ctx, closure.captures));
-            }},
+            },
+            // The type of the position says the value is linear.
+            [](const Linear &linear) { return keyOf(linear.value.front()); }},
       pattern.node);
 }
 
@@ -173,6 +185,10 @@ Value rebuild(OpBuilder &b, const Pattern &pattern, ArrayRef<Value> holes) {
             [&](const Closure &closure) -> Value {
               return ClosureOp::create(b, loc, pattern.type, closure.callee,
                                        rebuildAll(closure.captures));
+            },
+            [&](const Linear &linear) -> Value {
+              return LinEnterOp::create(b, loc, pattern.type,
+                                        rebuild(b, linear.value.front(), holes));
             }},
       pattern.node);
 }
@@ -191,7 +207,8 @@ void labels(const Pattern &pattern, SmallVectorImpl<FlatSymbolRefAttr> &out) {
                      out.push_back(closure.callee);
                      for (const Pattern &capture : closure.captures)
                        labels(capture, out);
-                   }},
+                   },
+                   [&](const Linear &linear) { labels(linear.value.front(), out); }},
              pattern.node);
 }
 

@@ -47,7 +47,6 @@ template <typename... Cases> struct Match : Cases... {
 // The op that consumes the call's result: the apply or the output.
 Operation *opOf(const Consumer &c) {
   return std::visit(Match{[](const Apply &a) -> Operation * { return a.apply; },
-                          [](const ApplyField &a) -> Operation * { return a.apply; },
                           [](const Write &w) -> Operation * { return w.write; }},
                     c);
 }
@@ -56,7 +55,6 @@ Operation *opOf(const Consumer &c) {
 // or the world that output takes.
 OperandRange extraOf(const Consumer &c) {
   return std::visit(Match{[](Apply a) { return a.apply.getArgs(); },
-                          [](ApplyField a) { return a.apply.getArgs(); },
                           [](Write w) { return w.write->getOperands().drop_front(); }},
                     c);
 }
@@ -66,8 +64,11 @@ Attribute keyOf(const Consumer &c, func::FuncOp callee) {
   StringAttr name = callee.getSymNameAttr();
   unsigned arity = callee.getNumArguments();
   return std::visit(
-      Match{[&](const Apply &) -> Attribute { return KeyApplyAttr::get(ctx, name, arity); },
-            [&](ApplyField a) -> Attribute {
+      Match{[&](Apply a) -> Attribute {
+              // Whether a linear value is used on the way follows from the
+              // types, so the key need not say.
+              if (!a.field)
+                return KeyApplyAttr::get(ctx, name, arity);
               return KeyApplyFieldAttr::get(ctx, name, arity, a.field.getCtorAttr().getAttr(),
                                             static_cast<unsigned>(a.field.getIndex()));
             },
@@ -75,9 +76,15 @@ Attribute keyOf(const Consumer &c, func::FuncOp callee) {
       c);
 }
 
-// The function a tail value applies to after the projection `field`, when
-// the value is a closure built here or a constant; null when not known.
+// The function a tail value applies to after the projection `field` (none
+// when null), when the value is a closure built here or a constant, seen
+// through its entry into a linear type; null when not known.
 FlatSymbolRefAttr labelOf(Value value, FieldOp field) {
+  auto seeThrough = [](Value v) {
+    auto enter = v.getDefiningOp<LinEnterOp>();
+    return enter ? enter.getValue() : v;
+  };
+  value = seeThrough(value);
   Attribute constant;
   (void)matchPattern(value, m_Constant(&constant));
   if (field) {
@@ -86,7 +93,7 @@ FlatSymbolRefAttr labelOf(Value value, FieldOp field) {
     if (auto con = value.getDefiningOp<ConOp>()) {
       if (con.getCtor().getLeafReference() != ctor || index >= con.getFields().size())
         return {};
-      value = con.getFields()[static_cast<unsigned>(index)];
+      value = seeThrough(con.getFields()[static_cast<unsigned>(index)]);
       constant = {};
       (void)matchPattern(value, m_Constant(&constant));
     } else if (auto data = dyn_cast_or_null<ConAttr>(constant)) {
@@ -157,10 +164,12 @@ void push(Operation *term, unsigned index, const Consumer &c, Value result, Valu
   OpBuilder b(term);
   IRMapping map;
   map.map(result, value);
-  std::visit(Match{[&](const Apply &) { labels.push_back(labelOf(value, {})); },
-                   [&](const ApplyField &a) {
+  std::visit(Match{[&](Apply a) {
                      labels.push_back(labelOf(value, a.field));
-                     b.clone(*a.field, map);
+                     if (a.field)
+                       b.clone(*a.field, map);
+                     if (a.use)
+                       b.clone(*a.use, map);
                    },
                    [](const Write &) {}},
              c);
@@ -174,19 +183,22 @@ void push(Operation *term, unsigned index, const Consumer &c, Value result, Valu
 std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp callee) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() || facts::takesWorld(callee))
     return std::nullopt;
+  // The only user of `v`, if it has one.
+  auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
   Value value = call->getResult(0);
-  Operation *user = *value.user_begin();
+  Operation *user = next(value);
   std::optional<Consumer> c;
-  if (auto field = dyn_cast<FieldOp>(user)) {
-    if (!field.getResult().hasOneUse())
-      return std::nullopt;
-    auto apply = dyn_cast<ApplyOp>(*field.getResult().user_begin());
-    if (apply && apply.getCallee() == field.getResult())
-      c = ApplyField{field, apply};
-  } else if (auto apply = dyn_cast<ApplyOp>(user); apply && apply.getCallee() == value) {
-    c = Apply{apply};
-  } else if (auto write = dyn_cast<PutStrOp>(user); write && write.getStr() == value) {
+  if (auto write = dyn_cast<PutStrOp>(user); write && write.getStr() == value) {
     c = Write{write};
+  } else {
+    auto field = dyn_cast<FieldOp>(user);
+    if (field)
+      user = next(value = field.getResult());
+    auto use = dyn_cast_or_null<LinUseOp>(user);
+    if (use)
+      user = next(value = use.getResult());
+    if (auto apply = dyn_cast_or_null<ApplyOp>(user); apply && apply.getCallee() == value)
+      c = Apply{field, use, apply};
   }
   if (!c || opOf(*c)->getBlock() != call->getBlock())
     return std::nullopt;
@@ -273,8 +285,12 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
   replacement->setDiscardableAttrs(call->getDiscardableAttrDictionary());
   consumer->replaceAllUsesWith(replacement.getResults());
   consumer->erase();
-  if (auto *a = std::get_if<ApplyField>(&*c))
-    a->field.erase();
+  if (auto *a = std::get_if<Apply>(&*c)) {
+    if (a->use)
+      a->use.erase();
+    if (a->field)
+      a->field.erase();
+  }
   call.erase();
   return replacement;
 }
