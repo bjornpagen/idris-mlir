@@ -58,6 +58,9 @@ Attribute Reifier::constructor(DataOp data, CtorOp ctor,
 
 Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
   MLIRContext *ctx = type.getContext();
+  // A linear field or capture holds its value as it is.
+  if (auto lin = dyn_cast<LinType>(type))
+    return value(lin.getValue(), words);
   if (isa<ErasedType>(type))
     return ErasedAttr::get(ctx);
   if (auto data = dyn_cast<DataType>(type)) {

@@ -280,8 +280,9 @@ LogicalResult verifyConstants(Operation *op, SymbolTableCollection &symbols,
     return op->emitOpError("has a constant with ")
            << values.size() << " fields or captures where " << types.size()
            << " are expected";
+  // A constant fills a linear field or capture as its plain value.
   for (auto [value, type] : llvm::zip(values, types))
-    if (failed(verifyConstant(op, symbols, value, type)))
+    if (failed(verifyConstant(op, symbols, value, unrestricted(type))))
       return failure();
   return success();
 }

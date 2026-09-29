@@ -131,6 +131,19 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
+// Linearity has no runtime form: entering and using a linear value is the
+// value itself.
+template <typename OpT>
+struct LowerLinear : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    ValueRange value = adaptor.getOperands().front();
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(value.begin(), value.end())});
+    return success();
+  }
+};
+
 // A new cell with the label, its code and the captures.
 struct LowerClosure : IdrPattern<ClosureOp> {
   using IdrPattern::IdrPattern;
@@ -479,7 +492,8 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerClosure, LowerApply,
                LowerCrash, LowerMayLoop, LowerPoison, LowerSelect, LowerToChar,
                LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,
-               LowerCompare<BigCmpOp>>(converter, ctx, layouts, runtime);
+               LowerCompare<BigCmpOp>, LowerLinear<LinEnterOp>, LowerLinear<LinUseOp>>(
+      converter, ctx, layouts, runtime);
   addRuntimeCalls<ToIntOp, DoubleHeadOp, IntHeadOp,
                   StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp, StrSubstrOp, StrReverseOp,
                   StrTailOp, StrLengthOp, StrIndexOp, StrHeadOp, StrToIntOp, StrToDoubleOp,

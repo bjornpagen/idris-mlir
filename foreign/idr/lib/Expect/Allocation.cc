@@ -19,9 +19,16 @@ constexpr StringRef property = "no-heap-allocation";
 std::optional<std::string> allocation(Operation *op) {
   if (isa<ClosureOp>(op))
     return "a closure of @" + cast<ClosureOp>(op).getCallee().str() + " is built";
-  if (auto effects = dyn_cast<MemoryEffectOpInterface>(op))
-    if (effects.hasEffect<MemoryEffects::Allocate>())
+  // idr.lin.enter and idr.lin.use allocate a new value, not memory.
+  if (auto effects = dyn_cast<MemoryEffectOpInterface>(op)) {
+    SmallVector<MemoryEffects::EffectInstance> all;
+    effects.getEffects(all);
+    if (llvm::any_of(all, [](const MemoryEffects::EffectInstance &effect) {
+          return isa<MemoryEffects::Allocate>(effect.getEffect()) &&
+                 effect.getResource() != LinResource::get();
+        }))
       return (op->getName().getStringRef() + " allocates").str();
+  }
   return std::nullopt;
 }
 

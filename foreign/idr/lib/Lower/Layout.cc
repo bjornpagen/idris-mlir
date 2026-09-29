@@ -98,6 +98,9 @@ const SumLayout &Layouts::sum(StringAttr name) {
 
 SmallVector<Type> Layouts::components(Type type) {
   MLIRContext *ctx = module.getContext();
+  // Linearity is a fact for the passes; at runtime the value is itself.
+  if (auto lin = dyn_cast<LinType>(type))
+    return components(lin.getValue());
   if (isa<ErasedType, WorldType>(type))
     return {};
   if (isa<StrType, BoxType, FnType, TokenType>(type))
@@ -110,6 +113,8 @@ SmallVector<Type> Layouts::components(Type type) {
 }
 
 SmallVector<bool> Layouts::counted(Type type) {
+  if (auto lin = dyn_cast<LinType>(type))
+    return counted(lin.getValue());
   if (isa<ErasedType, WorldType>(type))
     return {};
   if (isa<StrType, BoxType, FnType, TokenType, BigType>(type))
