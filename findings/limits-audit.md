@@ -118,8 +118,12 @@ reachable: an unboxed sum is inlined into every cell that holds it
 - **Experiment.** `labels/gen2.py 8193` makes 8193 functions of 8
   parameters, and one total `@pick` that builds a closure of each at 0–7
   captures (65544 labels) and returns the last. The expected wrong result is
-  `#idr.closure<@f0, [5 x7]>` instead of `@f8192`. See the result note at
-  the end: the run is dominated by S3-c.
+  `#idr.closure<@f0, [5 x7]>` instead of `@f8192`. **Not reached:** the run
+  was killed at the 20-minute timeout, still in the JIT's idr-lower
+  (`Runtime::emitCode` → `lookupSymbol`, S3-c). With 10 functions (80
+  labels) the result is correct, `#idr.closure<@f9, [5, 5, 5, 5, 5, 5, 5]>`.
+  So the miscompile follows from the code above, not from a run. Today the
+  quadratic lookups hide it behind a hang, and fixing S3-c exposes it.
 - **Fix:** global-maximum item 2. Map the code address to the label, and the
   label field disappears. With the field kept, `Layouts` must return
   `FailureOr` past 65536 labels, and the reifier must check `tag <
@@ -288,7 +292,8 @@ Measured:
   `verifyConstant`'s walk. n = 200000 did not finish in 600 s.
 - `labels/l65536.mlir` (65537 one-line functions) spent more than 8 minutes
   in the JIT's idr-lower, sampled in `Runtime::call → lookupSymbol` and
-  `mayLoop`.
+  `mayLoop`. `labels/m8193.mlir` (8193 functions, 65544 labels) was killed
+  after 20 minutes in `Runtime::emitCode → lookupSymbol`.
 
 **Fix.** `SymbolTableCollection` for the pass, declared once
 (mlir-idioms.md already asks for it elsewhere). With global-maximum item 1,

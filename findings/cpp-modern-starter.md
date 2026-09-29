@@ -277,7 +277,7 @@ idris-mlir's mandate extends that quarantine discipline to all code.
 | Module-ABI flags global | adopted | `CMakeLists.txt:87-91` |
 | `__cmake_cxx26` `CXX_EXTENSIONS OFF` | **missing**; tidy off only | `CMakeLists.txt:38-42`. Measured consequence: `build/dev`'s `std.pcm` is built `gnu++26`, and an importer compiled `-std=c++26` fails with "GNU extensions was enabled in precompiled file ... but is currently disabled". Turning `CXX_MODULE_STD` on needs cpp-starter's line |
 | Presets `dev`/`release`/`asan-ubsan`/`lint` | adopted | `CMakePresets.json` |
-| Quarantine `.clang-tidy` | 4 families only, no options | `.clang-tidy` (bugprone, analyzer, performance) |
+| Quarantine `.clang-tidy` | 3 check families (`bugprone-*`, `clang-analyzer-*`, `performance-*`), no options | `.clang-tidy` (bugprone, analyzer, performance) |
 | `unused-return-value` for `expected` | **missing** | same |
 | Dialect profile | **missing** | nothing is linted as dialect code |
 | Compile-fail tests | **missing** | no `compile_fail` |

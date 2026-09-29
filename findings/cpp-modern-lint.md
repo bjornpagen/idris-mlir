@@ -444,7 +444,7 @@ reported, the `noexcept` one is not).
 `idris_rt.h` stays C (`link_check.c` includes it as C): its
 `IDRIS_RT_NORETURN` pattern (`idris_rt.h:18-23`) gains
 `#define IDRIS_RT_NOEXCEPT noexcept` under `__cplusplus` and nothing in C.
-The runtime today is linted by nothing but the root's four families; with
+The runtime today is linted by the three families of today's root file; with
 this file it gets the quarantine profile like `unsafe/`.
 
 ## 6. The compiler rung
