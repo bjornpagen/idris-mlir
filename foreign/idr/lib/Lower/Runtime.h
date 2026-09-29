@@ -15,6 +15,10 @@ class Runtime {
 public:
   Runtime(mlir::ModuleOp m, Layouts &l, bool jitMode) : module(m), layouts(l), jit(jitMode) {}
 
+  // Whether the code is lowered for compile-time evaluation, where every
+  // cell comes from the arena and is never counted.
+  bool isJit() const { return jit; }
+
   // Calls the runtime function `name` with `args`, returning `result` (or
   // nothing when it is null). The declaration is added on first use.
   mlir::Value call(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
