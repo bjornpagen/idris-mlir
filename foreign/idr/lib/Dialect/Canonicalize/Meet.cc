@@ -11,6 +11,12 @@ using namespace idr;
 // A constant, a constructor, a closure, or, for output and the first
 // character, a string builder.
 bool canon::feeds(Value value, Operation *consumer) {
+  // A linear position the value only passes on the way changes nothing a
+  // consumer folds against: the consumer of a linear value is its use, and
+  // what reads the use sees through the pair.
+  value = throughLinear(value);
+  if (auto enter = value.getDefiningOp<LinEnterOp>())
+    value = enter.getValue();
   if (matchPattern(value, m_Constant()))
     return true;
   Operation *def = value.getDefiningOp();

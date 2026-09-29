@@ -33,6 +33,10 @@ struct Statistics {
 // the callee: an apply of the result, of one field of it, or of the one use
 // of either when it is linear (an action in `MkIO` is).
 struct Consumer {
+  // The pair that only moves the result into a linear position and out
+  // again before it is read, or null: a clone reads its tails directly.
+  LinEnterOp enter;
+  LinUseOp exit;
   FieldOp field; // null: the result itself is applied
   LinUseOp use;  // null: what is applied is not linear
   ApplyOp apply;

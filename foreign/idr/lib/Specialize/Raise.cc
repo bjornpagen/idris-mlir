@@ -1,6 +1,7 @@
 // Raising: the single consumer of a call's result, an apply of it (of one
 // field of it, `idr.field %r[@C, i]`, for an action in a constructor such as
-// `MkIO f`, and through the one use of a linear value), moves into a clone
+// `MkIO f`, and through the one use of a linear value; the result may first
+// pass a linear position, entered and used at once), moves into a clone
 // of the callee that takes the apply's arguments too and returns what the
 // apply returns (arity raising). In the clone, the apply (with its
 // projection) moves to every tail of the body: the operand of its return
@@ -136,6 +137,8 @@ void push(Operation *term, unsigned index, Consumer c, Value result, ValueRange 
   OpBuilder b(term);
   IRMapping map;
   map.map(result, value);
+  if (c.exit)
+    map.map(c.exit.getResult(), value);
   labels.push_back(labelOf(value, c.field));
   if (c.field)
     b.clone(*c.field, map);
@@ -155,7 +158,13 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
   auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
   Value value = call->getResult(0);
   Operation *user = next(value);
-  auto field = dyn_cast<FieldOp>(user);
+  auto enter = dyn_cast<LinEnterOp>(user);
+  auto exit = enter ? dyn_cast_or_null<LinUseOp>(next(enter.getResult())) : LinUseOp();
+  if (exit)
+    user = next(value = exit.getResult());
+  else
+    enter = nullptr;
+  auto field = dyn_cast_or_null<FieldOp>(user);
   if (field)
     user = next(value = field.getResult());
   auto use = dyn_cast_or_null<LinUseOp>(user);
@@ -177,7 +186,7 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
     for (Operation *op = call->getNextNode(); op != apply; op = op->getNextNode())
       if (!facts::canMoveAcross(op))
         return std::nullopt;
-  return Consumer{field, use, apply};
+  return Consumer{enter, exit, field, use, apply};
 }
 
 FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallOp call,
@@ -255,6 +264,10 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
       c->use.erase();
     if (c->field)
       c->field.erase();
+    if (c->exit) {
+      c->exit.erase();
+      c->enter.erase();
+    }
     call.erase();
     result = replacement;
   });
