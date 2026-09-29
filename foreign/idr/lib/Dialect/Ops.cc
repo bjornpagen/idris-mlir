@@ -180,19 +180,9 @@ Type CtorOp::getFieldType(unsigned index) {
 }
 
 LogicalResult CtorOp::verify() {
-  auto types = getFieldTypes();
-  auto quantities = getQuantities();
-  if (types.size() != quantities.size())
-    return emitOpError("needs one quantity per field");
-  for (auto [type, quantityAttr] : llvm::zip(types.getAsValueRange<TypeAttr>(), quantities)) {
-    StringRef quantity = cast<StringAttr>(quantityAttr).getValue();
+  for (Type type : getFieldTypes().getAsValueRange<TypeAttr>())
     if (!isFieldType(type))
       return emitOpError("has a field of unsupported type ") << type;
-    if (!llvm::is_contained({"0", "1", "w"}, quantity))
-      return emitOpError("has quantity '") << quantity << "'";
-    if ((quantity == "0") != isa<ErasedType>(type))
-      return emitOpError("must use quantity 0 exactly for !idr.erased fields");
-  }
   return success();
 }
 

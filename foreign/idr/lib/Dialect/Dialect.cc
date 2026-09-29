@@ -491,7 +491,8 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   return op->emitOpError("has an unknown idr attribute ") << attr.getName();
 }
 
-// `idr.quantity = "0" | "1" | "w"`, "0" exactly on !idr.erased.
+// A parameter's quantity is its type; the argument attributes are the
+// passes' own marks.
 LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
                                                    unsigned argIndex,
                                                    NamedAttribute attr) {
@@ -512,16 +513,5 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
   if (attr.getName().getValue() == "idr.writes_first" && fn && isa<UnitAttr>(attr.getValue()) &&
       isa<StrType>(fn.getArgumentTypes()[argIndex]))
     return success();
-  if (attr.getName().getValue() != "idr.quantity" || !fn)
-    return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
-  auto quantity = dyn_cast<StringAttr>(attr.getValue());
-  if (!quantity || !llvm::is_contained({"0", "1", "w"}, quantity.getValue()))
-    return op->emitOpError("expects idr.quantity = \"0\", \"1\" or \"w\" on argument ")
-           << argIndex;
-  Type type = fn.getArgumentTypes()[argIndex];
-  if ((quantity.getValue() == "0") != isa<ErasedType>(type))
-    return op->emitOpError("argument ")
-           << argIndex << " has quantity \"" << quantity.getValue() << "\" and type " << type
-           << "; quantity \"0\" is exactly for !idr.erased";
-  return success();
+  return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
 }

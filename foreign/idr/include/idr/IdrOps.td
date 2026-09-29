@@ -261,10 +261,11 @@ def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
   }];
 }
 
+// A field's quantity is its type: !idr.erased, !idr.lin<T> or T.
 def Idr_CtorOp : Idr_Op<"ctor", [Symbol, HasParent<"DataOp">]> {
   let summary = "declares one constructor of an idr.data type";
   let arguments = (ins SymbolNameAttr:$sym_name, I64Attr:$tag,
-                       TypeArrayAttr:$field_types, StrArrayAttr:$quantities);
+                       TypeArrayAttr:$field_types);
   let assemblyFormat = [{
     $sym_name `tag` $tag custom<FieldTypes>($field_types) attr-dict
   }];

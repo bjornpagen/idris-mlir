@@ -897,14 +897,10 @@ struct Converter {
       OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
       for (auto [tag, label] : llvm::enumerate(key.second.getAsRange<StringAttr>())) {
         func::FuncOp fn = module.function(label);
+        // The captures' types carry their quantities into the fields.
         ArrayRef<Type> types = captureTypes(label, key.first);
-        SmallVector<StringRef> quantities;
-        for (unsigned i = 0; i < types.size(); ++i) {
-          auto quantity = fn.getArgAttrOfType<StringAttr>(i, "idr.quantity");
-          quantities.push_back(quantity ? quantity.getValue() : "w");
-        }
         idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(static_cast<int64_t>(tag)),
-                            b.getTypeArrayAttr(types), b.getStrArrayAttr(quantities));
+                            b.getTypeArrayAttr(types));
       }
     }
   }

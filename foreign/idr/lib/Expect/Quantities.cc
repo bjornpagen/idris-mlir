@@ -1,6 +1,7 @@
-// quantities-kept: no pass drops or widens a quantity Idris proved. Every
-// parameter carries one, and a parameter or constructor field the emitted
-// module declared keeps the quantity it had there. A parameter is known by
+// quantities-kept: no pass drops or widens a quantity Idris proved. A
+// quantity is a type's (idr::quantityOf), so every parameter carries one; a
+// parameter or constructor field the emitted module declared keeps the
+// quantity it had there. A parameter is known by
 // its location: the parser gives each the position of its name in the file,
 // and passes copy locations with what they copy, so a parameter that was
 // renamed, cloned or moved is still found.
@@ -30,8 +31,23 @@ std::optional<std::pair<unsigned, unsigned>> position(Location loc) {
   return std::make_pair(file.getLine(), file.getColumn());
 }
 
-StringAttr quantity(func::FuncOp fn, unsigned index) {
-  return fn.getArgAttrOfType<StringAttr>(index, "idr.quantity");
+StringRef spelled(Quantity q) {
+  switch (q) {
+  case Quantity::Zero:
+    return "0";
+  case Quantity::One:
+    return "1";
+  case Quantity::Many:
+    return "w";
+  }
+  return "w";
+}
+
+SmallVector<Quantity> fieldQuantities(CtorOp ctor) {
+  SmallVector<Quantity> out;
+  for (Type type : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
+    out.push_back(quantityOf(type));
+  return out;
 }
 
 } // namespace
@@ -43,16 +59,16 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
   if (!reference)
     return fail(module.getLoc(), property) << "cannot read " << emitted;
 
-  std::map<std::pair<unsigned, unsigned>, StringAttr> proved;
+  std::map<std::pair<unsigned, unsigned>, Quantity> proved;
   for (auto fn : reference->getOps<func::FuncOp>())
     if (!fn.isExternal())
       for (BlockArgument arg : fn.getArguments())
         if (auto at = position(arg.getLoc()))
-          proved[*at] = quantity(fn, arg.getArgNumber());
-  llvm::StringMap<ArrayAttr> fields;
+          proved[*at] = quantityOf(arg.getType());
+  llvm::StringMap<SmallVector<Quantity>> fields;
   reference->walk([&](CtorOp ctor) {
     fields[(ctor->getParentOfType<DataOp>().getSymName() + "::" + ctor.getSymName()).str()] =
-        ctor.getQuantities();
+        fieldQuantities(ctor);
   });
 
   bool held = true;
@@ -60,19 +76,13 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
     if (fn.isExternal())
       continue;
     for (BlockArgument arg : fn.getArguments()) {
-      StringAttr now = quantity(fn, arg.getArgNumber());
-      if (!now) {
-        fail(arg.getLoc(), property) << "parameter " << arg.getArgNumber() << " of "
-                                     << where(fn) << " has no quantity";
-        held = false;
-        continue;
-      }
+      Quantity now = quantityOf(arg.getType());
       auto at = position(arg.getLoc());
       auto was = at ? proved.find(*at) : proved.end();
-      if (was != proved.end() && was->second && was->second != now) {
+      if (was != proved.end() && was->second != now) {
         fail(arg.getLoc(), property) << "parameter " << arg.getArgNumber() << " of " << where(fn)
-                                     << " has quantity " << now.getValue()
-                                     << ", and Idris proved " << was->second.getValue();
+                                     << " has quantity " << spelled(now)
+                                     << ", and Idris proved " << spelled(was->second);
         held = false;
       }
     }
@@ -81,7 +91,7 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
     std::string name =
         (ctor->getParentOfType<DataOp>().getSymName() + "::" + ctor.getSymName()).str();
     auto was = fields.find(name);
-    if (was != fields.end() && was->second != ctor.getQuantities()) {
+    if (was != fields.end() && was->second != fieldQuantities(ctor)) {
       fail(ctor.getLoc(), property) << "the fields of @" << name << " have other quantities than Idris proved";
       held = false;
     }
