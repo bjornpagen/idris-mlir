@@ -1,9 +1,9 @@
 // input: after idr-simplify
-// ack is partial (it recurses on Ints), and `ack 3 n` is not closed, but a
-// machine integer is no static shape: ack stays one function, which LLVM may
-// specialize on the constant. `count 3` is a closed call of an action that
-// writes output: it stays a call, of the clone that runs the action it
-// returns, which the world does not make open.
-// CHECK-DAG: func.func private @Main.ack(
+// FILECHECK-OPTIONS: --implicit-check-not=@Main.ack(
+// ack's m counts down from 3: every call of ack is a call of a clone for
+// one m, and no generic ack is left. countUp's counter starts too far up to
+// unroll. `count 3` is a call of the clone that runs the action it returns,
+// with the world.
+// CHECK-DAG: call @Main.ack$spec${{[0-9]+}}(%{{.*}}) : (i64) -> i64
+// CHECK-DAG: call @Main.countUp(
 // CHECK-DAG: call @Main.count$raise${{[0-9]+}}(%{{.*}}, %{{.*}}) : (i64, !idr.world)
-// CHECK-NOT: func.func private @Main.ack{{[^(]+}}(
