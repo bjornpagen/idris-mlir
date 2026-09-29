@@ -121,3 +121,74 @@ func.func private @f(%p: !idr.data<@P>) -> i64 {
   }
   return %r : i64
 }
+
+// -----
+
+// A closure holding a linear value is linear too: it is applied where it
+// is made, or entered into a linear type and used once from there.
+module attributes {idr.program} {
+func.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
+  %v = idr.lin.use %x : !idr.lin<i64>
+  %s = arith.addi %v, %y : i64
+  return %s : i64
+}
+func.func private @now(%x: !idr.lin<i64>, %y: i64) -> i64 {
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
+  %r = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
+  return %r : i64
+}
+func.func private @later(%x: !idr.lin<i64>) -> !idr.lin<!idr.fn<(i64) -> (i64)>> {
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
+  %e = idr.lin.enter %f : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  return %e : !idr.lin<!idr.fn<(i64) -> (i64)>>
+}
+func.func @root() -> i64 {
+  %z = arith.constant 0 : i64
+  return %z : i64
+}
+}
+
+// -----
+
+module attributes {idr.program} {
+func.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
+  %v = idr.lin.use %x : !idr.lin<i64>
+  %s = arith.addi %v, %y : i64
+  return %s : i64
+}
+func.func private @twice(%x: !idr.lin<i64>, %y: i64) -> i64 {
+  // expected-error @+1 {{captures a linear value, so its one use must apply it or enter it into a linear type}}
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
+  %a = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
+  %b = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
+  %s = arith.addi %a, %b : i64
+  return %s : i64
+}
+func.func @root() -> i64 {
+  %z = arith.constant 0 : i64
+  return %z : i64
+}
+}
+
+// -----
+
+module attributes {idr.program} {
+func.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
+  %v = idr.lin.use %x : !idr.lin<i64>
+  %s = arith.addi %v, %y : i64
+  return %s : i64
+}
+func.func private @keep(%f: !idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)> {
+  return %f : !idr.fn<(i64) -> (i64)>
+}
+func.func private @passed(%x: !idr.lin<i64>) -> !idr.fn<(i64) -> (i64)> {
+  // expected-error @+1 {{captures a linear value, so its one use must apply it or enter it into a linear type}}
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
+  %k = func.call @keep(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
+  return %k : !idr.fn<(i64) -> (i64)>
+}
+func.func @root() -> i64 {
+  %z = arith.constant 0 : i64
+  return %z : i64
+}
+}

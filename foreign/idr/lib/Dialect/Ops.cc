@@ -791,6 +791,21 @@ ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
 LogicalResult ClosureOp::verify() {
   if (llvm::any_of(getCaptures().getTypes(), llvm::IsaPred<WorldType>))
     return emitOpError("captures a world; a world passes only as an argument or result");
+  // A closure holding a linear value is used once as well: applied where
+  // it is made, or entered into a linear type, whose one use the linearity
+  // check then follows. Any other use could apply it twice.
+  if (llvm::none_of(getCaptures().getTypes(),
+                    [](Type type) { return quantityOf(type) == Quantity::One; }))
+    return success();
+  if (getResult().use_empty())
+    return success();
+  OpOperand &use = *getResult().getUses().begin();
+  auto apply = dyn_cast<ApplyOp>(use.getOwner());
+  bool linear = getResult().hasOneUse() &&
+                (isa<LinEnterOp>(use.getOwner()) || (apply && apply.getCallee() == getResult()));
+  if (!linear)
+    return emitOpError("captures a linear value, so its one use must apply it or enter it "
+                       "into a linear type");
   return success();
 }
 
