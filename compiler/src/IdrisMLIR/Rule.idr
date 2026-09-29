@@ -3,8 +3,9 @@
 ||| phrase of `unsupported (<phrase>): ...`. The frontend checks most of
 ||| them; the ones checked on the optimized module (`RuntimeInteger`,
 ||| `RuntimeData`, `StringPrimitive`, `RuntimeClosure`, `RuntimeLazy`,
-||| `RuntimeString`, `GrowingSpecialization`) and `Evaluation` come back from
-||| `idris-mlir-cc`, which names them by their phrase (`parseRule`).
+||| `RuntimeString`, `GrowingSpecialization`), `Evaluation` and
+||| `CompileBudget` come back from `idris-mlir-cc`, which names them by their
+||| phrase (`parseRule`).
 module IdrisMLIR.Rule
 
 
@@ -23,7 +24,7 @@ data Rule
   | RuntimeClosure | RuntimeLazy | RuntimeString | GrowingSpecialization
   | EscapeHatch | UserPragma
   | CompiledModule | IdentityHook | HookShape
-  | Evaluation
+  | Evaluation | CompileBudget
 
 export
 Show Rule where
@@ -53,6 +54,7 @@ Show Rule where
   show IdentityHook = "identity hook"
   show HookShape = "hook"
   show Evaluation = "compile-time evaluation"
+  show CompileBudget = "compile-time budget"
 
 ||| Every reason, to read one back from its phrase.
 allRules : List Rule
@@ -61,7 +63,8 @@ allRules =
   , DependentField, RuntimeData, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive
   , RuntimeClosure, RuntimeLazy, RuntimeString, GrowingSpecialization
-  , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape, Evaluation ]
+  , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape, Evaluation
+  , CompileBudget ]
 
 ||| A reason by its phrase, as `idris-mlir-cc` reports it.
 export
