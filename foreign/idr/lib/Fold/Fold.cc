@@ -280,6 +280,16 @@ OpFoldResult BigNegOp::fold(FoldAdaptor adaptor) {
   return scope.attr(idris_rt_big_neg(scope.big(a)));
 }
 
+// Zero has no predecessor: a constant zero is on a path the match before
+// it excludes, and stays as it is.
+OpFoldResult BigPredOp::fold(FoldAdaptor adaptor) {
+  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
+  if (!a || a.getValue() == "0")
+    return {};
+  Scope scope(getContext());
+  return scope.attr(idris_rt_big_sub(scope.big(a), idris_rt_big_from_int_s(1)));
+}
+
 OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {
   auto a = dyn_cast_or_null<BigAttr>(adaptor.getLhs()), b = dyn_cast_or_null<BigAttr>(adaptor.getRhs());
   if (!a || !b)

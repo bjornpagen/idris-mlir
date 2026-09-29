@@ -69,6 +69,7 @@ add_library(idr_dialect STATIC
 	lib/Lower/Layout.cc
 	lib/Lower/Matches.cc
 	lib/Lower/Patterns.cc
+	lib/Lower/Predecessors.cc
 	lib/Lower/Runtime.cc
 	lib/Lower/Target.cc
 	lib/Ownership/Borrow.cc

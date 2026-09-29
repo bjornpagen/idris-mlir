@@ -76,6 +76,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     idr::lower::Layouts layouts(module);
     idr::lower::Runtime runtime(module, layouts, jit);
     idr::lower::lowerMatches(module);
+    idr::lower::lowerPredecessors(module);
 
     TypeConverter converter;
     converter.addConversion([](Type type) { return type; });

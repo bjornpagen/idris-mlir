@@ -704,6 +704,18 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
   let assemblyFormat = "$value attr-dict";
 }
 
+// The frontend writes it where a match on a Nat-like value found it is not
+// zero, so the value visibly shrinks: the passes see structural descent,
+// not arithmetic. Lowering makes it big.sub of 1.
+def Idr_BigPredOp : Idr_Op<"big.pred", [Pure]> {
+  // Folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
+  let summary = "the predecessor of a big that is not zero";
+  let arguments = (ins Idr_BigType:$value);
+  let results = (outs Idr_BigType:$result);
+  let assemblyFormat = "$value attr-dict";
+}
+
 def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
@@ -875,8 +887,10 @@ def Idr_DecOp : Idr_OwnedOp<"dec"> {
   let description = [{
     Freeing a cell drops its fields' references in turn. The dec of a token
     frees the memory of its cell, whose fields idr.reset already released.
+    A linear value is used at most once, and may be dropped instead; it is
+    never given a second reference, so idr.inc does not take one.
   }];
-  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType]>, "",
+  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType, Idr_LinType]>, "",
                            [MemRead, MemWrite, MemFree]>:$value);
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
