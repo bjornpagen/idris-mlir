@@ -324,7 +324,7 @@ def Idr_FieldOp : Idr_Op<"field", [Pure,
   let assemblyFormat = [{
     $value `[` $ctor `,` $index `]` attr-dict `:` type($value) `->` type($result)
   }];
-  let hasFolder = 1;
+  let hasFolder = 1;  let hasCanonicalizeMethod = 1;
 }
 
 // The tag is in [0, n-1] for n constructors.

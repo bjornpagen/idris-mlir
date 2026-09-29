@@ -42,6 +42,7 @@ add_library(idr_dialect STATIC
 	lib/Dialect/Canonicalize/Apply.cc
 	lib/Dialect/Canonicalize/Calls.cc
 	lib/Dialect/Canonicalize/CaseOfCase.cc
+	lib/Dialect/Canonicalize/Field.cc
 	lib/Dialect/Canonicalize/Matches.cc
 	lib/Dialect/Canonicalize/Meet.cc
 	lib/Dialect/Canonicalize/Merge.cc
