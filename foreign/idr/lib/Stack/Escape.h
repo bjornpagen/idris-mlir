@@ -11,8 +11,10 @@
 //   - a value to the values MLIR says it is forwarded to (the successor
 //     inputs of a region branch: a match's result for a yield, an
 //     scf.while's arguments and results for its initial values and its
-//     terminators' operands), and to an arith.select's result, in the same
-//     mode;
+//     terminators' operands), to an arith.select's result, and into and out
+//     of a linear type (idr.lin.enter, idr.lin.use), in the same mode:
+//     linearity has no runtime form, and a value used once may still be
+//     used where it escapes;
 //   - a deep value to what reading it gives (idr.field, the arguments of a
 //     match's case regions), deep, and a deep box to its own reference;
 //   - a value stored in a constructor to the constructor's value, deep.

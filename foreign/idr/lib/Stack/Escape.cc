@@ -18,9 +18,16 @@ using Mode = Escapes::Mode;
 // A use that sends a reference where the analysis cannot follow it.
 constexpr std::nullopt_t lost = std::nullopt;
 
+// A type as it is at runtime: linearity has no runtime form.
+Type runtimeType(Type type) {
+  while (auto lin = dyn_cast<LinType>(type))
+    type = lin.getValue();
+  return type;
+}
+
 // The values whose references the analysis follows: boxes, and unboxed
 // sums, whose fields may hold boxes.
-bool holdsCells(Type type) { return isa<BoxType, DataType>(type); }
+bool holdsCells(Type type) { return isa<BoxType, DataType>(runtimeType(type)); }
 
 // The ops around `con` that may run it again in its frame, innermost first:
 // its loops, then its function. Nothing when the con is somewhere else than
@@ -57,7 +64,7 @@ RegionBranchSuccessorMapping forwardsOf(func::FuncOp fn) {
 } // namespace
 
 Escapes::Node Escapes::node(Value value, Mode mode) {
-  return {value, isa<BoxType>(value.getType()) ? mode : Mode::Deep};
+  return {value, isa<BoxType>(runtimeType(value.getType())) ? mode : Mode::Deep};
 }
 
 Escapes::Escapes(ModuleOp top) : module(top), symbols(top) {
@@ -171,8 +178,10 @@ Escapes::Flow Escapes::flow(OpOperand &use, Mode mode, const Frame &frame,
         return read(fields);
       })
       .Case([&](ConOp con) -> Flow { return SmallVector<Node, 2>{node(con, Mode::Deep)}; })
-      .Case([&](arith::SelectOp select) -> Flow {
-        return SmallVector<Node, 2>{node(select.getResult(), mode)};
+      // A select, and a move into or out of a linear type, pass the
+      // reference on unchanged.
+      .Case<arith::SelectOp, LinEnterOp, LinUseOp>([&](Operation *op) -> Flow {
+        return SmallVector<Node, 2>{node(op->getResult(0), mode)};
       })
       .Case([&](func::CallOp call) -> Flow {
         auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
