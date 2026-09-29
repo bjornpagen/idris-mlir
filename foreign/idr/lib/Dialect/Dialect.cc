@@ -147,13 +147,17 @@ Type idr::unrestricted(Type type) {
 }
 
 Value idr::throughLinear(Value value) {
-  while (auto use = value.getDefiningOp<LinUseOp>()) {
-    auto enter = use.getLinear().getDefiningOp<LinEnterOp>();
+  for (;;) {
+    if (auto enter = value.getDefiningOp<LinEnterOp>()) {
+      value = enter.getValue();
+      continue;
+    }
+    auto use = value.getDefiningOp<LinUseOp>();
+    auto enter = use ? use.getLinear().getDefiningOp<LinEnterOp>() : LinEnterOp();
     if (!enter)
-      break;
+      return value;
     value = enter.getValue();
   }
-  return value;
 }
 
 bool idr::readOnce(Value value) {
