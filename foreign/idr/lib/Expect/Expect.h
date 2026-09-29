@@ -51,6 +51,10 @@ mlir::LogicalResult factsAsMarked(mlir::ModuleOp module, llvm::StringRef);
 // idr.str.append, cons, from_char or show made.
 mlir::LogicalResult outputFused(mlir::ModuleOp module, llvm::StringRef);
 
+// The folders released every reference they took from the runtime: it holds
+// no live cell (on the calling thread).
+mlir::LogicalResult foldsBalanced(mlir::ModuleOp module, llvm::StringRef);
+
 // In the function the argument names, every box is built in the cell of
 // one that died (idr.reuse), and at least one is: no box gets a fresh cell.
 mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef function);

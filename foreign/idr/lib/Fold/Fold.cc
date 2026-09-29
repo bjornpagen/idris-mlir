@@ -9,22 +9,24 @@
 
 #include "idris_rt.h"
 
-#include "llvm/ADT/SmallPtrSet.h"
-
 using namespace mlir;
 
 namespace idr {
 
 namespace {
 
-// Runtime values made for one fold, freed together when it ends. An
-// operation may return one of its operands, so each is freed once.
+// The owned references one fold holds, released together when it ends.
+// Every runtime operation returns an owned reference, even when what it
+// returns is one of its arguments (appending the empty string gives the
+// other argument, with one more reference), so the scope keeps every
+// reference it is given, a repeated one as often as it was given, and
+// releases each once.
 class Scope {
 public:
   explicit Scope(MLIRContext *c) : ctx(c) {}
   ~Scope() {
-    for (const void *s : strings)
-      idris_rt_str_release(static_cast<const idris_rt_str *>(s));
+    for (const idris_rt_str *s : strings)
+      idris_rt_str_release(s);
     for (idris_rt_big b : bigs)
       idris_rt_big_release(b);
   }
@@ -38,12 +40,11 @@ public:
     return keep(idris_rt_big_from_str(str(StringAttr::get(ctx, value.getValue()))));
   }
   const idris_rt_str *keep(const idris_rt_str *s) {
-    strings.insert(s);
+    strings.push_back(s);
     return s;
   }
   idris_rt_big keep(idris_rt_big b) {
-    if (!llvm::is_contained(bigs, b))
-      bigs.push_back(b);
+    bigs.push_back(b);
     return b;
   }
   Attribute attr(const idris_rt_str *s) {
@@ -58,7 +59,7 @@ public:
 
 private:
   MLIRContext *ctx;
-  llvm::SmallPtrSet<const void *, 4> strings;
+  SmallVector<const idris_rt_str *> strings;
   SmallVector<idris_rt_big> bigs;
 };
 
@@ -123,7 +124,7 @@ OpFoldResult bigDivision(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp o
     return {};
   Scope scope(ctx);
   idris_rt_big divisor = scope.big(b);
-  if (idris_rt_big_cmp(divisor, idris_rt_big_from_int_s(0)) == 0)
+  if (idris_rt_big_cmp(divisor, scope.keep(idris_rt_big_from_int_s(0))) == 0)
     return {};
   return scope.attr(op(scope.big(a), divisor));
 }
@@ -287,7 +288,7 @@ OpFoldResult BigPredOp::fold(FoldAdaptor adaptor) {
   if (!a || a.getValue() == "0")
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_big_sub(scope.big(a), idris_rt_big_from_int_s(1)));
+  return scope.attr(idris_rt_big_sub(scope.big(a), scope.keep(idris_rt_big_from_int_s(1))));
 }
 
 OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {

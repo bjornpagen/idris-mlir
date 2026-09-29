@@ -47,6 +47,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("counts-nothing", countsNothing)
       .Case("facts-as-marked", factsAsMarked)
       .Case("output-fused", outputFused)
+      .Case("folds-balanced", foldsBalanced)
       .Default(nullptr);
 }
 

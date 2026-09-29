@@ -375,7 +375,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         across anything, delayed, and evaluated at compile time;
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
-        or `show` made.
+        or `show` made;
+      - `folds-balanced`: the folders released every reference they took
+        from the runtime, which holds no live cell (on the calling thread,
+        so run single-threaded).
   }];
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,

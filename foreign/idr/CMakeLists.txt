@@ -62,6 +62,7 @@ add_library(idr_dialect STATIC
 	lib/Expect/Closures.cc
 	lib/Expect/Counting.cc
 	lib/Expect/Facts.cc
+	lib/Expect/Folds.cc
 	lib/Expect/Output.cc
 	lib/Expect/Pass.cc
 	lib/Expect/Quantities.cc
