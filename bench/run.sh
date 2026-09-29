@@ -25,8 +25,11 @@ labels='this compiler|Idris Chez|MLton|clang -O2'
 #               the benchmark <generator> prints for <argument>, as the
 #               benchmarks game feeds fasta's output to k-nucleotide;
 # and optionally
-#   compare     "bytes" when every output must equal this compiler's byte
-#               for byte; otherwise they must print the same numbers.
+#   compare     "bytes" when every output must equal the reference byte
+#               for byte; otherwise they must print the same numbers;
+#   rejected    the reason this compiler gives for rejecting the program
+#               today; its column then reads n/a and the C version's output
+#               is the reference.
 # The C and SML versions are bench/c/<name>.c and bench/sml/<name>.sml; a
 # missing one is skipped. Every input is large enough that start-up does
 # not matter.
@@ -88,6 +91,7 @@ build() {
   missing=
   case $1 in
     'this compiler')
+      if [ -f "$bench/$name/rejected" ]; then missing=yes; return; fi
       idris_sources "$work/ours"
       compile_start=$(date +%s%N)
       bounded "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
@@ -199,15 +203,16 @@ for name in $names; do
     fi
   done
   reference="$work/this compiler.out"
-  [ -f "$reference" ] || die "$name: this compiler built nothing to compare with"
+  [ -f "$reference" ] || reference="$work/clang -O2.out"
+  [ -f "$reference" ] || die "$name: neither this compiler nor clang built anything to compare with"
   for label; do
     out=$work/$label.out
     [ -f "$out" ] || continue
     if { [ "$label" = 'Idris Chez' ] || [ "$compare" = bytes ]; } && ! cmp -s "$out" "$reference"; then
-      die "$name: $label's output differs from this compiler's: $(cmp "$out" "$reference" | head -n 1)"
+      die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
     fi
     agree "$out" "$reference" ||
-      die "$name: $label printed $(head -c 200 "$out"), this compiler $(head -c 200 "$reference")"
+      die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
   done
   echo "$name|$stdin$times" >> "$rows"
 done
