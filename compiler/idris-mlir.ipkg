@@ -18,9 +18,26 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Graph
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR
+        , IdrisMLIR.Emit.Breakers
+        , IdrisMLIR.Emit.Index
+        , IdrisMLIR.Emit.Monad
+        , IdrisMLIR.Emit.Types
+        , IdrisMLIR.Emit.Operations
+        , IdrisMLIR.Emit.Bodies
+        , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Paths
         , IdrisMLIR.Frontend.Resolve
+        , IdrisMLIR.Frontend.Translate.State
+        , IdrisMLIR.Frontend.Translate.Errors
+        , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Frontend.Translate.Types
+        , IdrisMLIR.Frontend.Translate.Instances
+        , IdrisMLIR.Frontend.Translate.Primitives
+        , IdrisMLIR.Frontend.Translate.Hooks
+        , IdrisMLIR.Frontend.Translate.Terms
+        , IdrisMLIR.Frontend.Translate.Cases
+        , IdrisMLIR.Frontend.Translate.Programs
         , IdrisMLIR.Frontend.Translate
         , IdrisMLIR.Frontend.Profile
 main = IdrisMLIR.Frontend.Main

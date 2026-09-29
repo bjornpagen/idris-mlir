@@ -2,7 +2,8 @@
 # Emit writes ops of the contract's dialects only: idr, func, arith, math
 # and ub (idris-mlir-cc parses with a registry
 # of exactly these and builtin). Every op name in the text Emit writes comes
-# from a string literal of compiler/src/IdrisMLIR/Emit.idr or MLIR.idr, as
+# from a string literal of compiler/src/IdrisMLIR/Emit.idr, its modules
+# (Emit/*.idr) or MLIR.idr, as
 # `<dialect>.<op>` or as a prefix `<dialect>.` that code completes; each
 # dialect named so must be one of the five. A literal that starts with `.`
 # and a lowercase letter would complete an op name without its dialect, and
@@ -15,7 +16,7 @@ cd "$root" || exit 1
 allowed_dialects=' idr func arith math ub '
 : > "$work/found"
 : > "$work/dialects"
-for file in compiler/src/IdrisMLIR/Emit.idr compiler/src/IdrisMLIR/MLIR.idr; do
+for file in compiler/src/IdrisMLIR/Emit.idr compiler/src/IdrisMLIR/Emit/*.idr compiler/src/IdrisMLIR/MLIR.idr; do
   idris_lex strings "$file" | awk -v file="$file" '
     {
       n = $0; sub(/:.*/, "", n); s = $0; sub(/^[0-9]*:/, "", s)
