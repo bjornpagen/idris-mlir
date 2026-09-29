@@ -100,12 +100,12 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   (verified above).
 - **Frontend reads:** yes, from the binder of the checked type:
   `useOf`/`binderOf` (Frontend/Resolve.idr:78-85) for parameters
-  (Translate/Instances.idr:382-409), fields (Translate/Types.idr:308-315),
-  arrows (Types.idr:252-258), lambdas and lets (Translate/Terms.idr:309-323).
-  Stored as `Binder = Gone | Held Use Ty` (Types.idr:117-118).
+  (Translate/Instances.idr:101-128), fields (Translate/Types.idr:308-315),
+  arrows (Types.idr:252-258), lambdas and lets (Translate/Terms.idr:111-125).
+  Stored as `Binder = Gone | Held Use Ty` (IdrisMLIR/Types.idr:117-118).
 - **Emit keeps:** in types. `Gone` → `!idr.erased`, `Held Once` →
   `!idr.lin<T>` (the world stays `!idr.world`, linear by rule),
-  `Held Many` → `T` (Emit/Types.idr:115-119, Emit/Monad.idr:244-247).
+  `Held Many` → `T` (Emit/Types.idr:36-40, Emit/Monad.idr:74-77).
   Moves between positions are `idr.lin.use`/`idr.lin.enter`
   (Emit/Operations.idr:47-55). Match scrutinees and results of regions and
   functions are always plain (Emit/Bodies.idr:51-54, 189), which matches
@@ -120,7 +120,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   (Borrow.cc:53). Counting ignores it (Counting.cc:9-13). idr-expect
   `quantities-kept` checks nothing widened.
 - **Lost at:** idr-lower, by design (Layout.cc:102, `LowerLinear`
-  Patterns.cc:144-150). Never earlier.
+  Patterns.cc:134-146). Never earlier.
 - **LLVM receives:** nothing. q1 removes no work anywhere (lmap above).
 
 ### 2. Erasure: `eraseArgs`/`safeErase` and `!idr.erased`
@@ -131,7 +131,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   `safeErase` = positions whose value is determined by a detaggable
   unerased argument (`detagSafe`, Utils.idr:19-35).
 - **Frontend reads:** the binder quantities directly (equivalent to
-  `eraseArgs`: Translate/Closed.idr:240-251, Instances.idr:391-394).
+  `eraseArgs`: Translate/Closed.idr:240-251, Instances.idr:110-113).
   `safeErase` is not read. Type arguments become compile-time `TypeParam`s;
   indices are erased from instance names (Types.idr:182-197, 280-283).
 - **Emit keeps:** `!idr.erased` parameters, fields and arguments, all the
@@ -170,13 +170,13 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   :1079) and Core/Coverage.idr; `impossible` clauses become `Impossible`
   leaves; uncovered leaves are `Unmatched`.
 - **Frontend reads:** termination by calling `checkTotal` again
-  (Translate/Programs.idr:184-189) into `Facts.terminating`
-  (Programs.idr:210; its `provenance` is written, never read);
-  `isCovering` into `Ctx.complete` (Programs.idr:200-203). `Impossible`,
+  (Translate/Programs.idr:36-41) into `Facts.terminating`
+  (Programs.idr:62; its `provenance` is written, never read);
+  `isCovering` into `Ctx.complete` (Programs.idr:52-55). `Impossible`,
   and `Unmatched` in a covering definition, become `Unreachable`; otherwise
   `Crash` (Translate/Cases.idr:33-49). Constructors the tree omits become
   alternatives of the same kind (Cases.idr:64-70).
-- **Emit keeps:** `idr.total` (Emit/Attributes.idr:73; inherited by lifted
+- **Emit keeps:** `idr.total` (Emit/Attributes.idr:32; inherited by lifted
   lambdas). Unreachable alternatives are left out of the match
   (Bodies.idr:57-60, 195-200); a literal match whose default is
   unreachable uses its last case as default (Bodies.idr:217-221). A crash
@@ -207,8 +207,8 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 - **Passes:** idr-specialize re-derives the same classes (fixed, decreasing,
   bounded) by abstract interpretation over `idr.field`, match arguments,
   `idr.big.pred`, and an unproved heuristic: an integer `arith.subi` by a
-  positive constant counts as decreasing (Specialize/BindingTimes.cc:163-223,
-  182-188).
+  positive constant counts as decreasing (Specialize/BindingTimes.cc:102-162,
+  121-127).
 - **LLVM receives:** nothing.
 
 ### 6. Dependent indices and proofs: Nat, Fin n, Vect n a, LTE, Elem, So
@@ -227,7 +227,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   Translate/Types.idr:207-234), and makes every Nat-like `BigT`
   (Types.idr:264-265): Fin's bound, Nat's non-negativity and the
   proof-ness of LTE/Elem are dropped here. Constructors become big literals
-  and `add 1` (Terms.idr:424-434); matches become `CaseNat`
+  and `add 1` (Terms.idr:226-236); matches become `CaseNat`
   (Cases.idr:97-133). Indices are erased from instances (Types.idr:182-197,
   276-283). `detagabbleBy` is not read (the `TCon` pattern at
   Types.idr:289 ignores it). natHack is not applied: the frontend reads TT,
@@ -246,9 +246,9 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 - **Idris computes:** instance search (Core/AutoSearch.idr:42) and
   `TypeFlags.uniqueAuto` (Context.idr:55-58).
 - **Frontend reads:** `uniqueAuto` to recognise dictionaries
-  (Types.idr:341-350); `classify` makes them compile-time `DictParam`s
-  keying the instance (Instances.idr:395-403); a runtime-chosen
-  implementation is rejected (:400-401); matches on dictionaries select now
+  (Translate/Types.idr:341-350); `classify` makes them compile-time `DictParam`s
+  keying the instance (Instances.idr:114-122); a runtime-chosen
+  implementation is rejected (:119-120); matches on dictionaries select now
   (Cases.idr:77, 137-159).
 - **Emit/passes/LLVM:** nothing left to keep: every method call is a direct
   call. Fully exploited.
@@ -260,7 +260,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   (`findNewtype`, :235-247, into `DCon newtypeArg`, Context.idr:94-103);
   detag positions (above); `mutwith`.
 - **Frontend reads:** ZERO/SUCC only. Recursion it computes itself, per
-  instance (Programs.idr:233-246), which is more precise than `mutwith`.
+  instance (Programs.idr:85-98), which is more precise than `mutwith`.
 - **Emit keeps:** `idr.data ... box` or unboxed.
 - **Passes:** the unboxed-sum layout makes enums a tag, unit a zero-slot
   value, records and non-recursive newtypes untagged (Layout.cc:56-97), so
@@ -278,7 +278,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
   transforms (TTImp/ProcessTransform.idr:18; Core/Context.idr:1019).
   prelude+base carry 469 `%inline`, 21 `%transform`, 0 `%spec`.
 - **Frontend reads:** none. User pragmas other than `%default` are rejected
-  (Frontend/Profile.idr:290-293).
+  (Frontend/Profile.idr:118-121).
 - **Passes:** idr-inline decides by MLton's size rule alone (Inline.cc:36-38,
   107-108); `no_inline` comes only from loop breakers.
   `%transform "tailRecLength" List.length = List.lengthTR`
@@ -290,7 +290,7 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 
 - **Idris:** `PrimType` (Core/TT/Primitive.idr); meaning is the runtime's.
 - **Frontend/Emit:** fixed widths with signedness on the op
-  (Types.idr:54-97; Operations.idr:120-203); wrapping arith without
+  (IdrisMLIR/Types.idr:54-97; Emit/Operations.idr:120-203); wrapping arith without
   overflow flags, which is right for Idris `Int`/`BitsN`; Char `i32`;
   Integer and every Nat-like `!idr.big`.
 - **Passes:** `InferIntRangeInterface` on `idr.tag`, `idr.to_char`,
@@ -306,8 +306,8 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 - **Idris:** `%World` (Core/TT/Primitive.idr:31, 51); `IO a = MkIO (1 _ :
   World -> IORes a)`.
 - **Frontend:** `WorldT`; the root written as world-passing code
-  (Programs.idr:256-292); forged worlds rejected (Profile.idr:392-395,
-  Terms.idr:303).
+  (Programs.idr:115-144); forged worlds rejected (Profile.idr:220-223,
+  Terms.idr:105).
 - **Emit:** `!idr.world` threaded through `idr.io.*`; IO actions are
   `!idr.lin<!idr.fn<(!idr.world) -> ...>>` fields of `MkIO`.
 - **Passes:** single use (Dialect.cc:397-420); `io` effects from types
@@ -349,10 +349,10 @@ Upstream paths are under `third_party/Idris2/src` unless they start with
 | `idr.program` | LB | triggers verifyProgram |
 | `idr.stage = "owned"` | LB | owned-stage verifier; one dialect, two semantics (review-external.md) |
 | `idr.total` | LB | `facts::of`, eval budget, tail loops, inherit |
-| `idr.library` | LB, barely | only LoopBreakers.cc:204 (breaker choice) |
+| `idr.library` | LB, barely | only LoopBreakers.cc:46 (breaker choice) |
 | `idr.effects` (on func) | LB | |
 | `idr.stack` | LB | ConOp effects (Ops.cc:339), ResetReuse, lowering |
-| `idr.origin` | half dead | its presence marks a clone (LoopBreakers.cc:200, Simplify.cc:115); its value is read only by idr-expect (Expect/Clones.cc:24) and duplicates `spec_key`'s origin; nothing checks the two agree |
+| `idr.origin` | half dead | its presence marks a clone (LoopBreakers.cc:42, Simplify.cc:115); its value is read only by idr-expect (Expect/Clones.cc:24) and duplicates `spec_key`'s origin; nothing checks the two agree |
 | `idr.clone`, `idr.hole` | LB | CloneTable (Clones.cc:35-41); a clone whose marks do not parse silently becomes "only a function" (Clones.h:5-7) |
 | `idr.borrowed` | LB | its verifier's type list (Dialect.cc:493) is a second definition of "holds references", differing from `Counting::counted` (Counting.cc:9-38) |
 | `no_inline` | LB | inliner, breakers |
@@ -370,7 +370,7 @@ Producers: Emit writes `data`, `ctor`, `constant`, `con`, `match`,
 
 | Op | Verdict | Notes |
 |---|---|---|
-| `idr.io.get_char`, `idr.io.exit` | **dead** | no producer: `IOOp = PutStr \| PutChar \| GetByte` (Types.idr:355-356); only tests and the lowering's list mention them (Lower/Patterns.cc:450). `io.exit` never returns yet yields a world |
+| `idr.io.get_char`, `idr.io.exit` | **dead** | no producer: `IOOp = PutStr \| PutChar \| GetByte` (IdrisMLIR/Types.idr:355-356); only tests and the lowering's list mention them (Lower/Patterns.cc:450). `io.exit` never returns yet yields a world |
 | `idr.tag` | internal | created only by idr-lower phase 1 (Lower/Matches.cc:64) and converted in phase 2; its range inference is unconsumed, its folder is reachable only through the conversion's fold-first attempt |
 | `idr.io.put_int`, `put_double`, `int_head`, `double_head` | LB | produced by canonicalization (Canonicalize.td:20-45) |
 | `idr.may_loop` | LB | tail loops; Facts (`partial`); lowering tick |
@@ -487,10 +487,10 @@ Missing: match exhaustiveness (cases ∪ default versus the constructors);
 
 - Translate/Cases.idr:71-74: a `BigT` match is a Nat match if any
   alternative is a constructor, else a literal match. With `NatT` distinct
-  from `BigT`, the type decides. Same for Terms.idr:276-285 (`succArg`),
-  :424-434 (`natConstructor`), Emit/Bodies.idr:237-254 (`CaseNat`),
+  from `BigT`, the type decides. Same for Terms.idr:78-87 (`succArg`),
+  :226-236 (`natConstructor`), Emit/Bodies.idr:237-254 (`CaseNat`),
   Lower/Predecessors.cc (pred as `big.sub` 1). Representation: `!idr.nat`.
-- Specialize/BindingTimes.cc:182-188: an Int counted down by a positive
+- Specialize/BindingTimes.cc:121-127: an Int counted down by a positive
   constant counts as decreasing, "unlike a Nat it may pass zero".
   Representation: Idris's size-change fact on the parameter, or `!idr.nat`.
 - Translate/Cases.idr:91-95: "a match on an erased value with more than one
