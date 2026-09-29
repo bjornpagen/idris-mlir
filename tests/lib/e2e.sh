@@ -50,7 +50,8 @@ e2e_v0() {
     empty stdout "$work/prog.out"
     empty stderr "$work/prog.err"
   fi
-  heap_free "$work/e2e/build/exec/Prog.o" "$here"
+  object_imports "$work/e2e/build/exec/Prog.o" "$here"
+  heap_free "$here" "$work/e2e/build/exec/Prog.dump"
   module_checks "$1" "$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)" \
     "$work/e2e/build/exec/Prog.dump"
 }
@@ -121,7 +122,8 @@ e2e_io() {
     show "$work/ours.err"
   fi
 
-  heap_free "$work/ours/build/exec/prog.o" "$here"
+  object_imports "$work/ours/build/exec/prog.o" "$here"
+  heap_free "$here" "$work/ours/build/exec/prog.dump"
   module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
   # shellcheck disable=SC2086 # the packages are words
@@ -129,9 +131,11 @@ e2e_io() {
 }
 
 # module_directives FIXTURE: the directives that the checks of the
-# fixture's modules need, one per line.
+# fixture's modules need, one per line; the mark heap-free is the test's
+# (heap_free).
 module_directives() {
   {
+    heap_directives "$here"
     mlir_directives "$1/mlir.check"
     expect_directives "$1/mlir.expect"
     [ -f "$1/translate.check" ] && say '--directive dump-core'

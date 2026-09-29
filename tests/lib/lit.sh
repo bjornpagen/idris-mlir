@@ -34,9 +34,17 @@ lit_status() {
   return 1
 }
 
+# lit_cc ARG... (`%cc`): the pinned C compiler, which links a program with
+# the libraries every program needs, as tools/compile.sh links one: GMP,
+# since the runtime frees a big's limbs.
+lit_cc() {
+  bounded "$pinned_cc" "$@" -lgmp
+}
+
 # lit FILE: the `// RUN:` lines of a dialect test, run as lit's internal
 # shell ran them, with no lit and no Python: %s is FILE, %t a path in the
-# work directory, %cc the pinned C compiler, and `%status N CMD` checks that
+# work directory, %cc the pinned C compiler linking a program as the chain
+# does (lit_cc), and `%status N CMD` checks that
 # CMD exits with status N. A line fails when any command of its pipelines
 # fails (pipefail); a trailing \ continues it on the next RUN line.
 # idris-mlir-opt, idris-mlir-cc and the pinned LLVM's FileCheck, not and
@@ -55,7 +63,7 @@ lit() {
     lit_n=$((lit_n + 1))
     lit_command=$(printf '%s\n' "$lit_line" | sed \
       -e "s|%status|lit_status|g" \
-      -e "s|%cc|$(sed_escape "$pinned_cc")|g" \
+      -e "s|%cc|lit_cc|g" \
       -e "s|%s|$(sed_escape "$lit_file")|g" \
       -e "s|%t|$(sed_escape "$work/t")|g" \
       -e 's/ | / | lit_stage /g' \

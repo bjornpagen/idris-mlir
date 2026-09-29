@@ -5,4 +5,5 @@ run: exit status as expected
 stdout: empty
 stderr: empty
 object: no undefined symbol outside the allowed set
+heap: nothing is allocated on the heap
 FileCheck mlir.check: ok
