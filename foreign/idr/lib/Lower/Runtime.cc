@@ -103,9 +103,9 @@ void Runtime::mayLoop(OpBuilder &b, Location loc) {
     call(b, loc, "idris_rt_eval_tick", Type(), ValueRange{});
     return;
   }
-  LLVM::InlineAsmOp::create(b, loc, TypeRange{}, ValueRange{}, "", "",
-                            /*has_side_effects=*/true, /*is_align_stack=*/false,
-                            LLVM::TailCallKind::None, LLVM::AsmDialectAttr(), ArrayAttr());
+  // A fence within the thread is an effect LLVM keeps, so the loop stays,
+  // and it emits no instruction.
+  LLVM::FenceOp::create(b, loc, LLVM::AtomicOrdering::seq_cst, "singlethread");
 }
 
 Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info) {
@@ -292,6 +292,8 @@ Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
 }
 
 SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value, Type type) {
+  // A linear value is the value itself at runtime.
+  type = unrestricted(type);
   if (isa<ErasedType, WorldType>(type))
     return {};
   if (auto text = dyn_cast<StringAttr>(value))

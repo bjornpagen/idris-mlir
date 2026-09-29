@@ -13,8 +13,8 @@
 #
 # Each step runs in SOURCE's directory and its output passes through. The
 # exit status is that of the step that failed, except that idris-mlir-cc's
-# user errors (3, a profile rejection; 4, an evaluation the machine cannot
-# finish) exit 1, as every other user error of the chain does; on success the
+# user error (3, a rejection) exits 1, as every other user error of the
+# chain does; on success the
 # executable's path is printed last. IDRIS_MLIR names the idris-mlir to run
 # (by default the one `make build` makes); the Idris environment is the
 # caller's, the Makefile's.
@@ -132,9 +132,8 @@ fi
 status=$?
 case $status in
   0) cat "$log/cc.err" >&2 ;;
-  3 | 4)
-    # A profile rejection (3) or an evaluation the machine cannot finish (4)
-    # is a user error. The frontend's --check already reports rejections at the
+  3)
+    # A rejection is a user error. The frontend's --check already reports rejections at the
     # user's code, so this is reached only when the full pipeline decides
     # otherwise; its first location is reported as Idris reports one.
     at=$(grep -m 1 -oE '[A-Za-z0-9_./-]+\.idr"?:[0-9]+:[0-9]+' "$log/cc.err" | tr -d '"')

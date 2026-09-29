@@ -1,8 +1,8 @@
 ||| The reasons the compiler gives for a rejection, as data, so a misspelt
 ||| reason is a type error, not a wrong message. Each is shown as the short
 ||| phrase of `unsupported (<phrase>): ...`. The frontend checks most of
-||| them; `Evaluation` and `CompileBudget` come back from `idris-mlir-cc`,
-||| which names them by their phrase (`parseRule`).
+||| them; `CompileBudget` comes back from `idris-mlir-cc`, which names it
+||| by its phrase (`parseRule`).
 module IdrisMLIR.Rule
 
 
@@ -21,7 +21,7 @@ data Rule
   | RuntimeClosure
   | EscapeHatch | UserPragma
   | CompiledModule | IdentityHook | HookShape
-  | Evaluation | CompileBudget
+  | CompileBudget
 
 export
 Show Rule where
@@ -45,7 +45,6 @@ Show Rule where
   show CompiledModule = "compiled module"
   show IdentityHook = "identity hook"
   show HookShape = "hook"
-  show Evaluation = "compile-time evaluation"
   show CompileBudget = "compile-time budget"
 
 ||| Every reason, to read one back from its phrase.
@@ -54,7 +53,7 @@ allRules =
   [ ProgramShape, TrustedLibrary, WorldUse, IOPrimitive, ValueType
   , DependentField, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
-  , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape, Evaluation
+  , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape
   , CompileBudget ]
 
 ||| A reason by its phrase, as `idris-mlir-cc` reports it.

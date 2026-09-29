@@ -1,11 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize | FileCheck %s
 // idr.may_loop, which idr-tail-loops puts in the loops of functions that
-// are not total, becomes an effect no MLIR pass removes and LLVM keeps: an
-// empty inline assembly with side effects. So an unused loop that may not
-// terminate stays.
+// are not total, becomes an effect no MLIR pass removes and LLVM keeps: a
+// fence within the thread, which emits no instruction. So an unused loop
+// that may not terminate stays.
 // CHECK-LABEL: func.func private @spin(
 // CHECK: scf.while
-// CHECK: llvm.inline_asm has_side_effects "", ""
+// CHECK: llvm.fence syncscope("singlethread") seq_cst
 module attributes {idr.program} {
   func.func private @spin(%n: i64) {
     %r = scf.while (%x = %n) : (i64) -> i64 {

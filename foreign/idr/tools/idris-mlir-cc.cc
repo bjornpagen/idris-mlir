@@ -110,10 +110,9 @@ cl::opt<std::string> runtimeArchive("runtime",
                                     cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
 
 // Exit statuses: an internal error or a
-// contract violation is 1, a usage error 2, a profile rejection (a user
-// error, `unsupported (<reason>)`) 3, and a total evaluation the machine
-// cannot finish 4.
-constexpr int ok = 0, failure = 1, usage = 2, rejected = 3, exhausted = 4;
+// contract violation is 1, a usage error 2, and a rejection (a user error,
+// `unsupported (<reason>)`) 3.
+constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 
 // Executables are static-PIE on musl, so code is compiled for the
 // musl triple, the one the runtime's bitcode carries.
@@ -320,18 +319,14 @@ void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
   }
 }
 
-// Which errors the passes reported: a profile rejection (`unsupported
-// (<reason>): ...`) and an evaluation the machine cannot finish (`unsupported
-// (compile-time evaluation): ...`) are the user's, each at the location of the user's code
-// the frontend reports; any other error is internal.
+// Which errors the passes reported: a rejection (`unsupported (<reason>):
+// ...`) is the user's, at the location of the user's code the frontend
+// reports; any other error is internal.
 struct Verdict {
   bool rejected = false;
-  bool exhausted = false;
 };
 
-int status(const Verdict &verdict) {
-  return verdict.exhausted ? exhausted : verdict.rejected ? rejected : failure;
-}
+int status(const Verdict &verdict) { return verdict.rejected ? rejected : failure; }
 
 int run() {
   mlir::registerAllPasses();
@@ -374,9 +369,7 @@ int run() {
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
     if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
       std::string message = diagnostic.str();
-      if (llvm::StringRef(message).starts_with("unsupported (compile-time evaluation)"))
-        verdict.exhausted = true;
-      else if (llvm::StringRef(message).starts_with("unsupported ("))
+      if (llvm::StringRef(message).starts_with("unsupported ("))
         verdict.rejected = true;
     }
     return mlir::failure();
@@ -466,7 +459,7 @@ int run() {
       return failure;
     }
     if (mlir::failed(pm.run(*module))) {
-      if (!verdict.rejected && !verdict.exhausted)
+      if (!verdict.rejected)
         llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step
                      << ") failed\n";
       return status(verdict);
