@@ -1,12 +1,12 @@
-// RUN: %status 1 idris-mlir-opt %s --idr-simplify="clone-limit=4" --idr-defunctionalize --canonicalize --idr-tail-loops --idr-check-profile -o %t.mlir 2> %t.err
-// RUN: FileCheck %s < %t.err
+// RUN: idris-mlir-opt %s --idr-simplify -o %t.mlir
+// RUN: FileCheck %s < %t.mlir
 // iter f n x = if n == 0 then f x else iter (\y => f y + 1) (n - 1) x:
-// the clone of @iter passes itself a larger closure, which contains its own:
-// specialization stops at once, and the closure that @iter
-// builds survives in the stopped callee, whose self tail call is a loop by
-// the time the profile is checked, which rejects it.
-// CHECK: Main.idr:8:3: error: unsupported (growing specialization){{.*}}@Main.after{{.*}}@Main.iter
-// CHECK-NOT: error:
+// the closure grows on every iteration, so f is no fixed parameter of
+// @iter, and the loop is not specialized on it however static the first
+// closure is: the simplify loop ends with one @iter, which takes closures.
+// CHECK-NOT: $spec$
+// CHECK: func.func private @Main.iter(%{{[a-z0-9_]+}}: !idr.fn<(i64) -> (i64)>
+// CHECK-NOT: $spec$
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64

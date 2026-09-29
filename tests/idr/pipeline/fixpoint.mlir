@@ -6,12 +6,12 @@
 // The simplify loop runs to a fixpoint, so running it again changes nothing:
 // its first round leaves the module as it was (up to where sccp puts the
 // constants, which it reverses on every run).
-// The closure passed to the recursive @pow is specialized away: the clone
+// The closure passed to the recursive @pow, a fixed parameter, is
+// specialized away: the clone
 // applies a constant closure, which becomes a direct call to @inc and is
 // inlined in the next round; @pow and @inc are then dead.
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
 // AGAIN-SAME: fixpoint: round 1 changed nothing
-// CHECK: idr.clone_counts = {pow = 1 : i64}
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: call @[[POW:pow\$spec\$[0-9]+]](
 // CHECK-NOT: func.func private @pow(

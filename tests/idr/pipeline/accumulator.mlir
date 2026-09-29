@@ -4,13 +4,13 @@
 // RUN: idris-mlir-opt %t.mlir --idr-simplify --remarks-filter="idr-(simplify|specialize)" > %t2.mlir 2> %t2.err
 // RUN: FileCheck %s --check-prefix=AGAIN < %t2.err
 // An accumulator through the whole simplify loop: @count is called with a
-// constant Integer accumulator and a counter read at runtime. The first call
-// is specialized on the accumulator (a machine number never is, but an
-// Integer is static); the clone's own call passes a new constant that @count
-// never branches on, so it is generalized to a runtime value and calls
-// @count again: one clone, no Missed remark, and a second run changes
-// nothing.
-// CHECK: idr.clone_counts = {count = 1 : i64}
+// constant Integer accumulator and a counter read at runtime. The
+// accumulator changes on every iteration, so it is no fixed parameter and
+// the call is not specialized on it: no clone, no remark, and a second run
+// changes nothing.
+// CHECK-NOT: $spec$
+// CHECK: call @count(
+// CHECK-NOT: $spec$
 // REMARK-NOT: [Missed]
 // AGAIN-NOT: [Missed]
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
