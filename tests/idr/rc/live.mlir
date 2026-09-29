@@ -1,6 +1,6 @@
 // RUN: idris-mlir-cc %s -o %t.o --no-eval
 // RUN: %cc %t.o -o %t
-// RUN: env IDRIS_RT_LIVE=1 %t 2> %t.err; test $? -eq 149
+// RUN: %status 149 env IDRIS_RT_LIVE=1 %t 2> %t.err
 // RUN: grep -qx 'idris-rt: live cells 0' %t.err
 // Every cell a program allocates is freed by the time it ends, whichever
 // way the counting went: a list mapped in place, a list read and then
