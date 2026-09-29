@@ -328,12 +328,17 @@ LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
 //===----------------------------------------------------------------------===//
 
 // A box's constructor allocates its cell, so CSE never merges two of them;
-// an unused one is still dead code (wouldOpBeTriviallyDead).
+// an unused one is still dead code (wouldOpBeTriviallyDead). A cell
+// idr-stack keeps in its frame (`idr.stack`) is stack memory, the resource
+// MLIR's allocas use.
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (isa<BoxType>(getType()))
-    effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0),
-                         SideEffects::DefaultResource::get());
+  if (!isa<BoxType>(getType()))
+    return;
+  SideEffects::DefaultResource *memory =
+      (*this)->hasAttr("idr.stack") ? SideEffects::AutomaticAllocationScopeResource::get()
+                                    : SideEffects::DefaultResource::get();
+  effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
 }
 
 Speculation::Speculatability ConOp::getSpeculatability() {
