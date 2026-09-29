@@ -15,6 +15,14 @@
 //
 // A box that is static, borrowed or built in the stack frame
 // (`idr.stack`) is left alone: its cell is not the program's to reuse.
+//
+// The reuse is best effort: idr.reset asks the runtime whether the cell is
+// exclusive. Where a box is proved unique, the test can go: a linear
+// parameter (quantity 1) whose every caller passes a cell it just built or
+// a unique value of its own. That is a fact about callers, not about the
+// binder, so it belongs on the parameter's type, computed over the call
+// graph like the borrowed parameters (Borrow.cc); a reset of such a value
+// would then be a reset without a test.
 
 #include "Ownership/Ownership.h"
 
