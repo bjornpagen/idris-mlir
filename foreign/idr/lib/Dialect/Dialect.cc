@@ -448,6 +448,10 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
   // idr-specialize numbers a clone's parameters by the holes of its key.
   if (attr.getName().getValue() == "idr.hole" && fn && isa<IntegerAttr>(attr.getValue()))
     return success();
+  // idr-effects marks a string the function writes before anything else.
+  if (attr.getName().getValue() == "idr.writes_first" && fn && isa<UnitAttr>(attr.getValue()) &&
+      isa<StrType>(fn.getArgumentTypes()[argIndex]))
+    return success();
   if (attr.getName().getValue() != "idr.quantity" || !fn)
     return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
   auto quantity = dyn_cast<StringAttr>(attr.getValue());
