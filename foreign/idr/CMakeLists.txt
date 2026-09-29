@@ -33,8 +33,10 @@ add_public_tablegen_target(idr_tablegen)
 
 # idris-mlir-cc links the runtime's bitcode into the program (Linker,
 # BitReader, Object) and internalizes it (IPO); idr-eval compiles
-# with ORC's LLJIT (OrcJIT) and the same pipeline (Passes).
-llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen passes linker bitreader object ipo orcjit)
+# with ORC's LLJIT (OrcJIT) and the same pipeline (Passes). The runtime's
+# bitcode carries inline assembly (CPU feature probes), which the object
+# emitter parses with the native target's assembly parser.
+llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader object ipo orcjit)
 
 add_library(idr_dialect STATIC
 	lib/Dialect/Canonicalize/Apply.cc

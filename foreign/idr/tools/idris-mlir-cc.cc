@@ -352,6 +352,8 @@ int run() {
   }
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
+  // The runtime linked into the program carries inline assembly.
+  llvm::InitializeNativeTargetAsmParser();
   llvm::Triple triple(targetTriple);
   std::string error;
   const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
