@@ -346,7 +346,10 @@ private:
   }
 
   unsigned count(Operation *op) {
-    unsigned total = static_cast<unsigned>(llvm::count(op->getOperands(), world));
+    // idr.inc takes a reference of its own to what a cell still holds; the
+    // value is not consumed. idr.dec is a consumption like any other.
+    unsigned total =
+        isa<IncOp>(op) ? 0u : static_cast<unsigned>(llvm::count(op->getOperands(), world));
     if (op->getNumRegions() == 0)
       return total;
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
