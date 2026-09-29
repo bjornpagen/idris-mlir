@@ -12,9 +12,11 @@ import IdrisMLIR.Ids
 %default total
 
 ------------------------------------------------------------------------------
--- Quantities and integer types
+-- Uses and integer types
 ------------------------------------------------------------------------------
 
+||| Idris's multiplicities as a type writes them, which the registry's
+||| shapes of library types compare.
 public export
 data Quantity = Q0 | Q1 | QW
 
@@ -30,6 +32,23 @@ Show Quantity where
   show Q0 = "0"
   show Q1 = "1"
   show QW = "w"
+
+||| How often a runtime value is used, as Idris proved: exactly once
+||| (multiplicity 1) or any number of times (ω). Multiplicity 0 binds no
+||| runtime value at all (`Binder`'s `Gone`).
+public export
+data Use = Once | Many
+
+export
+Eq Use where
+  Once == Once = True
+  Many == Many = True
+  _ == _ = False
+
+export
+Show Use where
+  show Once = "1"
+  show Many = "w"
 
 public export
 data IntTy = IdrisInt | SInt8 | SInt16 | SInt32 | SInt64 | UInt8 | UInt16 | UInt32 | UInt64
@@ -81,41 +100,81 @@ signed _ = True
 -- Types
 ------------------------------------------------------------------------------
 
-||| The types of Core. `BigT` is `Integer` and every `Nat`-like type;
-||| `FunT` and `LazyT` are closures; `DataT` is a data instance, whose
-||| declaration says whether it is an unboxed sum or a box.
+mutual
+  ||| The types of Core. `BigT` is `Integer` and every `Nat`-like type;
+  ||| `FunT` and `LazyT` are closures, `FunT` binding its argument as a
+  ||| lambda does; `DataT` is a data instance, whose declaration says
+  ||| whether it is an unboxed sum or a box.
+  public export
+  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | WorldT | ErasedT
+          | DataT DataId
+          | FunT Binder Ty
+          | LazyT Ty
+
+  ||| What a parameter, a lambda, an arrow or a constructor field binds:
+  ||| nothing at runtime (multiplicity 0), or a value of a type, used as
+  ||| Idris proved.
+  public export
+  data Binder = Gone | Held Use Ty
+
+||| The type of what a binder binds: an erased value when it binds nothing.
 public export
-data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | WorldT | ErasedT
-        | DataT DataId
-        | FunT Quantity Ty Ty
-        | LazyT Ty
+typeOf : Binder -> Ty
+typeOf Gone = ErasedT
+typeOf (Held _ t) = t
+
+mutual
+  sameTy : Ty -> Ty -> Bool
+  sameTy (IntT a) (IntT b) = a == b
+  sameTy CharT CharT = True
+  sameTy DoubleT DoubleT = True
+  sameTy StrT StrT = True
+  sameTy BigT BigT = True
+  sameTy WorldT WorldT = True
+  sameTy ErasedT ErasedT = True
+  sameTy (DataT a) (DataT b) = a == b
+  sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
+  sameTy (LazyT a) (LazyT b) = sameTy a b
+  sameTy _ _ = False
+
+  sameBinder : Binder -> Binder -> Bool
+  sameBinder Gone Gone = True
+  sameBinder (Held u t) (Held u' t') = u == u' && sameTy t t'
+  sameBinder _ _ = False
 
 export
 Eq Ty where
-  IntT a == IntT b = a == b
-  CharT == CharT = True
-  DoubleT == DoubleT = True
-  StrT == StrT = True
-  BigT == BigT = True
-  WorldT == WorldT = True
-  ErasedT == ErasedT = True
-  DataT a == DataT b = a == b
-  FunT q a r == FunT q' a' r' = q == q' && a == a' && r == r'
-  LazyT a == LazyT b = a == b
-  _ == _ = False
+  (==) = sameTy
+
+export
+Eq Binder where
+  (==) = sameBinder
+
+mutual
+  showTy : Ty -> String
+  showTy (IntT t) = show t
+  showTy CharT = "Char"
+  showTy DoubleT = "Double"
+  showTy StrT = "String"
+  showTy BigT = "Integer"
+  showTy WorldT = "%World"
+  showTy ErasedT = "Erased"
+  showTy (DataT d) = show d
+  showTy (FunT a r) = "((" ++ showBinder a ++ ") -> " ++ showTy r ++ ")"
+  showTy (LazyT a) = "Lazy (" ++ showTy a ++ ")"
+
+  ||| `0 Erased`, `1 T` or `w T`, as the Core dump writes a binder.
+  showBinder : Binder -> String
+  showBinder Gone = "0 Erased"
+  showBinder (Held u t) = show u ++ " " ++ showTy t
 
 export
 Show Ty where
-  show (IntT t) = show t
-  show CharT = "Char"
-  show DoubleT = "Double"
-  show StrT = "String"
-  show BigT = "Integer"
-  show WorldT = "%World"
-  show ErasedT = "Erased"
-  show (DataT d) = show d
-  show (FunT q a r) = "((" ++ show q ++ " _ : " ++ show a ++ ") -> " ++ show r ++ ")"
-  show (LazyT a) = "Lazy (" ++ show a ++ ")"
+  show = showTy
+
+export
+Show Binder where
+  show = showBinder
 
 ------------------------------------------------------------------------------
 -- Literals

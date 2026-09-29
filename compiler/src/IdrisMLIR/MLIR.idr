@@ -79,6 +79,8 @@ data MType = I Nat | F64
            | Data String | Boxed String
            | Fn (List MType) (List MType)
            | Str | Big | World | Erased
+           | ||| A value used exactly once.
+             Lin MType
 
 mutual
   export
@@ -92,6 +94,7 @@ mutual
   showType Big = "!idr.big"
   showType World = "!idr.world"
   showType Erased = "!idr.erased"
+  showType (Lin t) = "!idr.lin<" ++ showType t ++ ">"
 
   ||| Types separated by commas.
   export

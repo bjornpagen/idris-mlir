@@ -13,37 +13,51 @@ import Data.SortedMap
 
 %default total
 
-||| The contract type of a Core type.
-mtype : Index -> Ty -> E MType
-mtype ix (IntT t) = pure (I (width t))
-mtype ix CharT = pure (I 32)
-mtype ix DoubleT = pure F64
-mtype ix StrT = pure Str
-mtype ix BigT = pure Big
-mtype ix WorldT = pure World
-mtype ix ErasedT = pure Erased
-mtype ix (DataT d) = case lookup d ix.datas of
-  Just dt => pure (case dt.repr of
-                     Sop => Data (mangle d.name)
-                     Box => Boxed (mangle d.name))
-  Nothing => internal ("unknown data " ++ show d)
-mtype ix (FunT _ a r) = pure (Fn [!(mtype ix a)] [!(mtype ix r)])
-mtype ix (LazyT r) = pure (Fn [] [!(mtype ix r)])
+mutual
+  ||| The contract type of a Core type.
+  mtype : Index -> Ty -> E MType
+  mtype ix (IntT t) = pure (I (width t))
+  mtype ix CharT = pure (I 32)
+  mtype ix DoubleT = pure F64
+  mtype ix StrT = pure Str
+  mtype ix BigT = pure Big
+  mtype ix WorldT = pure World
+  mtype ix ErasedT = pure Erased
+  mtype ix (DataT d) = case lookup d ix.datas of
+    Just dt => pure (case dt.repr of
+                       Sop => Data (mangle d.name)
+                       Box => Boxed (mangle d.name))
+    Nothing => internal ("unknown data " ++ show d)
+  mtype ix (FunT a r) = pure (Fn [!(binderType ix a)] [!(mtype ix r)])
+  mtype ix (LazyT r) = pure (Fn [] [!(mtype ix r)])
+
+  ||| The contract type of what a binder binds: its quantity is in the
+  ||| type, where no pass can lose it.
+  binderType : Index -> Binder -> E MType
+  binderType ix Gone = pure Erased
+  binderType ix (Held u t) = case modeOf u t of
+    Plain => mtype ix t
+    Linear => Lin <$> mtype ix t
+
+||| The contract type of a value of type `t` held as `mode` says.
+heldType : Index -> Mode -> Ty -> E MType
+heldType ix Plain t = mtype ix t
+heldType ix Linear t = Lin <$> mtype ix t
 
 export
 typeText : Index -> Ty -> E String
 typeText ix t = showType <$> mtype ix t
 
-||| `"0"` exactly on an erased value.
 export
-quantityOf : Ty -> Quantity -> E Quantity
-quantityOf ErasedT _ = pure Q0
-quantityOf t Q0 = internal ("a quantity-0 binder of type " ++ show t)
-quantityOf _ q = pure q
+binderText : Index -> Binder -> E String
+binderText ix b = showType <$> binderType ix b
 
-||| A typed parameter with its quantity: `%3: i64 {idr.quantity = "w"}`.
+||| The contract type of a value as it is held.
+export
+valText : Index -> Val -> E String
+valText ix v = showType <$> heldType ix v.mode v.type
+
+||| A typed parameter: `%3: !idr.lin<i64>`.
 export
 param : Index -> Val -> E String
-param ix v = do
-  q <- quantityOf v.type v.quantity
-  pure (v.name ++ ": " ++ !(typeText ix v.type) ++ " {idr.quantity = " ++ quoted (show q) ++ "}")
+param ix v = pure (v.name ++ ": " ++ !(valText ix v))

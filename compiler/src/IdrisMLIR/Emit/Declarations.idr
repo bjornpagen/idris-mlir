@@ -35,10 +35,9 @@ dataDecl ix d = do
   where
     ctor : Con -> E Op
     ctor c = do
-      ts <- traverse (typeText ix . (.type)) c.fields
-      qs <- traverse (\f => quantityOf f.type f.quantity) c.fields
+      ts <- traverse (binderText ix) c.fields
       pure (Line ("idr.ctor " ++ symbol (mangle c.id.name) ++ " tag " ++ show c.tag ++
-                  " (" ++ joinBy ", " ts ++ ") {quantities = [" ++ joinBy ", " (map (quoted . show) qs) ++ "]}")
+                  " (" ++ joinBy ", " ts ++ ")")
                  (Named c.idrisName c.loc))
 
 ||| A function, and the functions lifted from it. Only the root is public.
@@ -48,8 +47,8 @@ function ix root f = do
   let sym = mangle f.id.name
   modify { owner := MkOwner sym f.idrisName (inherited f), lifted := [<] }
   ((params, res), ops) <- inFunction $ do
-    params <- traverse (\b => (\n => MkVal n b.type b.quantity) <$> fresh) f.params
-    res <- para alg' f.body (\i => index i params) (Just f.result)
+    params <- traverse (\b => (\n => MkVal n (typeOf b) (binderMode b)) <$> fresh) f.params
+    res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
     pure (params, res)
   rt <- typeText ix f.result
   header <- traverse (param ix) (toList params)
@@ -62,3 +61,5 @@ function ix root f = do
   where
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
     alg' = alg ix
+    plain' : E (Maybe Val) -> E (Maybe Val)
+    plain' = plain ix f.loc

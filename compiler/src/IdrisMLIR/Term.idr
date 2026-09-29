@@ -78,13 +78,6 @@ Ord a => Ord (Under k a) where
 -- Terms
 ------------------------------------------------------------------------------
 
-||| What a lambda or a constructor field binds: its quantity and type.
-public export
-record Binder where
-  constructor MkBinder
-  quantity : Quantity
-  type : Ty
-
 mutual
   public export
   data Term : Type -> Type where
@@ -99,11 +92,15 @@ mutual
     Call : Loc -> FnId -> List (Term a) -> Term a
     ||| A saturated constructor application; parameters are not fields.
     ConApp : Loc -> ConId -> List (Term a) -> Term a
-    ||| `let`, with its quantity. TTC does not keep let types:
-    ||| `Emit` synthesizes them.
-    Let : Loc -> Quantity -> Term a -> Term (Under 1 a) -> Term a
+    ||| `let`, with how its variable is used; an erased `let` binds the
+    ||| erased value. TTC does not keep let types: `Emit` synthesizes them.
+    Let : Loc -> Use -> Term a -> Term (Under 1 a) -> Term a
     Case : Loc -> a -> List (Alt a) -> Maybe (Term a) -> Term a
     CaseLit : Loc -> a -> List (Lit, Term a) -> Term a -> Term a
+    ||| A match on a `Nat`-like value: zero, or a successor, whose
+    ||| predecessor the second branch binds. The predecessor exists only
+    ||| there, where the value is not zero.
+    CaseNat : Loc -> a -> Term a -> Term (Under 1 a) -> Term a
     ||| A closure: its label, the captured variables, and a body closed over
     ||| them (`Free i` is capture `i`, `Bound 0` the parameter).
     Lam : {k : Nat} -> Loc -> Label -> Vect k a -> Binder -> Term (Under 1 (Fin k)) -> Term a
@@ -169,9 +166,10 @@ mutual
     EffectF : Loc -> IOOp -> List (f a) -> DataId -> TermF f a
     CallF : Loc -> FnId -> List (f a) -> TermF f a
     ConAppF : Loc -> ConId -> List (f a) -> TermF f a
-    LetF : Loc -> Quantity -> f a -> f (Under 1 a) -> TermF f a
+    LetF : Loc -> Use -> f a -> f (Under 1 a) -> TermF f a
     CaseF : Loc -> a -> List (AltF f a) -> Maybe (f a) -> TermF f a
     CaseLitF : Loc -> a -> List (Lit, f a) -> f a -> TermF f a
+    CaseNatF : Loc -> a -> f a -> f (Under 1 a) -> TermF f a
     LamF : {k : Nat} -> Loc -> Label -> Vect k a -> Binder -> f (Under 1 (Fin k)) -> TermF f a
     AppF : Loc -> f a -> f a -> TermF f a
     SuspendF : {k : Nat} -> Loc -> Label -> Vect k a -> f (Fin k) -> TermF f a
@@ -203,6 +201,7 @@ hmap h (ConAppF l c as) = ConAppF l c (map h as)
 hmap h (LetF l q v b) = LetF l q (h v) (h b)
 hmap h (CaseF l x alts d) = CaseF l x (map (\(MkAltF c fs b) => MkAltF c fs (h b)) alts) (map h d)
 hmap h (CaseLitF l x alts d) = CaseLitF l x (map (\(k, e) => (k, h e)) alts) (h d)
+hmap h (CaseNatF l x z s) = CaseNatF l x (h z) (h s)
 hmap h (LamF l lbl caps b body) = LamF l lbl caps b (h body)
 hmap h (AppF l f x) = AppF l (h f) (h x)
 hmap h (SuspendF l lbl caps body) = SuspendF l lbl caps (h body)
@@ -225,6 +224,7 @@ mutual
   para alg (Let l q v b) = alg (LetF l q (sub alg v) (sub alg b))
   para alg (Case l x alts d) = alg (CaseF l x (paraAlts alg alts) (paraMaybe alg d))
   para alg (CaseLit l x alts d) = alg (CaseLitF l x (paraLits alg alts) (sub alg d))
+  para alg (CaseNat l x z s) = alg (CaseNatF l x (sub alg z) (sub alg s))
   para alg (Lam l lbl caps b body) = alg (LamF l lbl caps b (sub alg body))
   para alg (App l f x) = alg (AppF l (sub alg f) (sub alg x))
   para alg (Suspend l lbl caps body) = alg (SuspendF l lbl caps (sub alg body))
@@ -296,13 +296,6 @@ delay l lbl body =
 -- Programs
 ------------------------------------------------------------------------------
 
-||| A constructor field: its quantity and type.
-public export
-record Field where
-  constructor MkField
-  quantity : Quantity
-  type : Ty
-
 public export
 record Con where
   constructor MkCon
@@ -310,7 +303,7 @@ record Con where
   ||| The Idris full name, for the constructor's location.
   idrisName : Shown
   tag : Nat
-  fields : List Field
+  fields : List Binder
   loc : Loc
 
 ||| How a data instance is represented: an unboxed sum, or a box when its
@@ -392,9 +385,13 @@ printer (CaseLitF _ x alts def) ix d =
   "case #" ++ show (ix x) ++ " of" ++
   concatMap (\(k, e) => "\n" ++ indent (S d) ++ show k ++ " => " ++ e ix (S (S d))) alts ++
   "\n" ++ indent (S d) ++ "_ => " ++ def ix (S (S d))
+printer (CaseNatF _ x z s) ix d =
+  "case #" ++ show (ix x) ++ " of" ++
+  "\n" ++ indent (S d) ++ "0 => " ++ z ix (S (S d)) ++
+  "\n" ++ indent (S d) ++ "S _ => " ++ s (under ix) (S (S d))
 printer (LamF _ lbl caps b body) ix d =
   "\\" ++ show lbl ++ "[" ++ joinBy ", " (map (\c => "#" ++ show (ix c)) (toList caps)) ++ "](" ++
-  show b.quantity ++ " " ++ show b.type ++ ") => " ++ body (under finToNat) d
+  show b ++ ") => " ++ body (under finToNat) d
 printer (AppF _ f x) ix d = "(" ++ f ix d ++ " " ++ x ix d ++ ")"
 printer (SuspendF _ lbl caps body) ix d =
   "delay " ++ show lbl ++ "[" ++ joinBy ", " (map (\c => "#" ++ show (ix c)) (toList caps)) ++ "] (" ++
@@ -418,8 +415,8 @@ showSource p = unlines (map dataDecl p.datas ++ map fnDecl p.fns ++ ["root " ++ 
     dataDecl : IdrisMLIR.Term.Data -> String
     dataDecl d = "data " ++ show d.id ++ repr d.repr ++
                  concatMap (\c => "\n  " ++ show c.id ++ " tag " ++ show c.tag ++ " (" ++
-                   joinBy ", " (map (\f => show f.quantity ++ " " ++ show f.type) c.fields) ++ ")") d.cons ++ "\n"
+                   joinBy ", " (map show c.fields) ++ ")") d.cons ++ "\n"
     fnDecl : TFn -> String
     fnDecl f = show f.id ++ " " ++
-               concatMap (\b => "(" ++ show b.quantity ++ " " ++ show b.type ++ ") ") (toList f.params) ++
+               concatMap (\b => "(" ++ show b ++ ") ") (toList f.params) ++
                ": " ++ show f.result ++ " =\n  " ++ showBody f.body 1 ++ "\n"

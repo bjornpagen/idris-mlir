@@ -64,24 +64,26 @@ closure fc loc b body = do
 
 ||| Eta-expands a known head applied to too few arguments:
 ||| `\x.. => head(args ++ xs)`.
-etaExpand : {auto s : Ref TState TS} -> Ord a => FC -> Loc -> List (Quantity, Ty) ->
+etaExpand : {auto s : Ref TState TS} -> Ord a => FC -> Loc -> List Binder ->
             ({0 b : Type} -> List (Term b) -> Term b) -> List (Term a) -> Core (Term a)
 etaExpand fc loc [] mk given = pure (mk given)
-etaExpand fc loc ((q, t) :: rest) mk given = do
-  let x = if q == Q0 then Erased loc else Var loc (Bound FZ)
-  body <- etaExpand fc loc rest mk (map (map Free) given ++ [x])
-  closure fc loc (MkBinder q (if q == Q0 then ErasedT else t)) body
+etaExpand fc loc (b :: rest) mk given = do
+  body <- etaExpand fc loc rest mk (map (map Free) given ++ [argument b])
+  closure fc loc b body
+  where
+    argument : Binder -> Term (Under 1 a)
+    argument Gone = Erased loc
+    argument (Held _ _) = Var loc (Bound FZ)
 
 ||| The position of a `Nat`-like successor's argument: its one argument of
 ||| runtime quantity (the others are erased indices, as `FS`'s).
-succArg : List (Quantity, PKind) -> Maybe Nat
+succArg : List PKind -> Maybe Nat
 succArg kinds = case mapMaybe runtime (zip [0 .. length kinds] kinds) of
   [i] => Just i
   _ => Nothing
   where
-    runtime : (Nat, Quantity, PKind) -> Maybe Nat
-    runtime (i, Q0, _) = Nothing
-    runtime (i, _, RuntimeParam _) = Just i
+    runtime : (Nat, PKind) -> Maybe Nat
+    runtime (i, ValueParam (Held _ _)) = Just i
     runtime _ = Nothing
 
 mutual
@@ -114,14 +116,13 @@ mutual
     loc <- toLoc (bestFC ctx fc)
     let env' = under [Runtime (Bound FZ) Nothing] env
     if isErased rig
-       then Let loc Q0 (Erased loc) <$> term ctx env' sc
-       else Let loc (quantity rig) <$> term ctx env val <*> term ctx env' sc
+       then Let loc Many (Erased loc) <$> term ctx env' sc
+       else Let loc (useOf rig) <$> term ctx env val <*> term ctx env' sc
   term ctx env (Bind fc x (Lam lfc rig _ ty) sc) = do
     loc <- toLoc (bestFC ctx fc)
-    t <- if isErased rig then pure ErasedT
-         else coreType (bestFC ctx fc) ctx.owner ValueType !(closeNormalise fc env ty)
-    body <- term ctx (under [Runtime (Bound FZ) (Just t)] env) sc
-    closure fc loc (MkBinder (quantity rig) t) body
+    b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType !(closeNormalise fc env ty))
+    body <- term ctx (under [Runtime (Bound FZ) (Just (typeOf b))] env) sc
+    closure fc loc b body
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
   term ctx env (TForce fc _ arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
   term ctx env (TDelayed fc _ _) = Erased <$> toLoc (bestFC ctx fc)
@@ -177,11 +178,11 @@ mutual
       applyAll loc f (x :: xs) = applyAll loc (App loc f !(term ctx env x)) xs
 
       -- Arguments: values of type parameters, erased ones, runtime ones.
-      arguments : Loc -> List (Quantity, PKind) -> List (TT vars) -> Core (List (Term a))
+      arguments : Loc -> List PKind -> List (TT vars) -> Core (List (Term a))
       arguments loc kinds xs = traverse arg (zip kinds xs)
         where
-          arg : ((Quantity, PKind), TT vars) -> Core (Term a)
-          arg ((_, RuntimeParam _), x) = term ctx env x
+          arg : (PKind, TT vars) -> Core (Term a)
+          arg (ValueParam (Held _ _), x) = term ctx env x
           arg _ = pure (Erased loc)
 
       isImplementation : TT vars -> Bool
@@ -196,7 +197,7 @@ mutual
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue
 
-      finish : Loc -> List (Quantity, PKind) -> List (Term a) ->
+      finish : Loc -> List PKind -> List (Term a) ->
                ({0 b : Type} -> List (Term b) -> Term b) -> List (TT vars) -> Core (Term a)
       finish loc kinds given mk extra = do
         let missing = drop (length given) kinds
@@ -205,22 +206,18 @@ mutual
            else do
              when (any isStatic missing) $
                reject afc ctx.owner StaticArgument "a partially applied type parameter or implementation"
-             etaExpand afc loc (map kindTy missing) mk given
+             etaExpand afc loc (map runtimeBinder missing) mk given
         where
-          isStatic : (Quantity, PKind) -> Bool
-          isStatic (_, TypeParam _) = True
-          isStatic (_, DictParam _) = True
-          isStatic _ = False
-          kindTy : (Quantity, PKind) -> (Quantity, Ty)
-          kindTy (q, RuntimeParam t) = (q, t)
-          kindTy (q, _) = (Q0, ErasedT)
+          isStatic : PKind -> Bool
+          isStatic (ValueParam _) = False
+          isStatic _ = True
 
       call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
       call fc loc name arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         let statics = map (\k => case k of
-                                    (_, TypeParam t) => Just t
-                                    (_, DictParam t) => Just t
+                                    TypeParam t => Just t
+                                    DictParam t => Just t
                                     _ => Nothing) kinds
         inst <- request fc ctx.owner name statics
         given <- arguments loc kinds (take arity xs)
@@ -228,7 +225,7 @@ mutual
 
       -- A constructor of a `Nat`-like type is big arithmetic: zero is 0,
       -- a successor adds 1.
-      natConstructor : FC -> Loc -> NatRole -> List (Quantity, PKind) -> List (Term a) ->
+      natConstructor : FC -> Loc -> NatRole -> List PKind -> List (Term a) ->
                        List (TT vars) -> Core (Term a)
       natConstructor fc loc Zero kinds given extra =
         finish loc kinds given (\_ => Literal loc (LBig 0)) extra
@@ -271,7 +268,7 @@ mutual
             Nothing => reject fc ctx.owner Primitive ("primitive " ++ show name)
             Just p => do
               args' <- traverse (term ctx env) (take arity xs)
-              let kinds = map (\t => (QW, RuntimeParam t)) (primArgs p)
+              let kinds = map (ValueParam . Held Many) (primArgs p)
               finish loc kinds args' (PrimApp loc p) (drop arity xs)
 
       ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term a)

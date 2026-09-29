@@ -60,18 +60,14 @@ translateInstance p = do
   loc <- toLoc fc
   tot <- isTotal fc p.name
   let facts = MkFacts (MkFact tot FromIdris)
-  update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds) (map binder (fromList kinds))
-                                              result body loc facts)
+  update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds)
+                                              (map runtimeBinder (fromList kinds)) result body loc facts)
                 , fnOrder $= (:< p.inst) }
   where
-    binder : (Quantity, PKind) -> Binder
-    binder (q, RuntimeParam t) = MkBinder q t
-    binder _ = MkBinder Q0 ErasedT
-    info : Fin k -> (Quantity, PKind) -> VarInfo (Fin k)
-    info i (_, TypeParam t) = TypeValue t
-    info i (_, DictParam t) = Static t
-    info i (_, RuntimeParam t) = Runtime i (Just t)
-    info i _ = Runtime i (Just ErasedT)
+    info : Fin k -> PKind -> VarInfo (Fin k)
+    info i (TypeParam t) = TypeValue t
+    info i (DictParam t) = Static t
+    info i (ValueParam b) = Runtime i (Just (typeOf b))
 
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
@@ -97,8 +93,8 @@ assemble root = do
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
   pure (MkSource datas fns root)
   where
-    dataField : Field -> Maybe DataId
-    dataField (MkField _ (DataT d)) = Just d
+    dataField : Binder -> Maybe DataId
+    dataField (Held _ (DataT d)) = Just d
     dataField _ = Nothing
 
 ||| A `main : Int` program: the root is `main` itself.
@@ -130,14 +126,14 @@ translateIOProgram fc main = do
     | _ => notIO
   let Just [mkIO] = (.cons) <$> lookup ioInst st.datas
     | _ => notIO
-  let [MkField _ action@(FunT _ WorldT res@(DataT _))] = mkIO.fields
+  let [action@(Held _ (FunT (Held _ WorldT) res@(DataT _)))] = mkIO.fields
     | _ => notIO
   loc <- toLoc (location !(lookupDef fc owner main))
   -- w is the parameter; `m` is main's value, and `f` its action.
   let body : Term (Fin 1)
-      body = Let loc QW (Call loc inst [])                                    -- m
+      body = Let loc Many (Call loc inst [])                                  -- m
                (Case loc (Bound FZ)
-                  [MkAlt mkIO.id [MkBinder QW action]                        -- f
+                  [MkAlt mkIO.id [action]                                    -- f
                      (App loc (Var loc (Bound FZ)) (Var loc (Free (Free FZ))))]
                   Nothing)
   let rootId = MkFnId "$idris-mlir.root"
@@ -145,4 +141,4 @@ translateIOProgram fc main = do
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`: its
   -- facts are the registry's, and it terminates when main does.
   let facts = MkFacts (MkFact mainFn.facts.terminating.holds FromRegistry)
-  pure ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [MkBinder Q1 WorldT] res body loc facts]) } src)
+  pure ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [Held Once WorldT] res body loc facts]) } src)

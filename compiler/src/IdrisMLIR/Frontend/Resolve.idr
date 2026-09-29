@@ -73,9 +73,16 @@ foreignHookOf n specs = map (mapFst (\(e, m) => mismatch e m)) (foreignHook (qna
 -- Shapes
 ------------------------------------------------------------------------------
 
+||| How a value bound with multiplicity 1 or ω is used.
 export
-quantity : RigCount -> Quantity
-quantity rig = if isErased rig then Q0 else if isLinear rig then Q1 else QW
+useOf : RigCount -> Use
+useOf rig = if isLinear rig then Once else Many
+
+||| The Core binder of an Idris binder of this multiplicity; the type of what
+||| it binds is computed only when it binds a runtime value.
+export
+binderOf : RigCount -> Lazy (Core Ty) -> Core Binder
+binderOf rig t = if isErased rig then pure Gone else Held (useOf rig) <$> t
 
 primTy : PrimType -> Maybe PrimTy
 primTy IntType = Just (IntP IdrisInt)
@@ -101,7 +108,10 @@ spine f as = (f, as)
 ||| describes (a variable, an erased or delayed term) is a hole.
 export
 shapeOf : Term vars -> Shape
-shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (quantity rig) (shapeOf a) (shapeOf sc)
+shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity rig) (shapeOf a) (shapeOf sc)
+  where
+    multiplicity : RigCount -> Quantity
+    multiplicity rig = if isErased rig then Q0 else if isLinear rig then Q1 else QW
 shapeOf (PrimVal _ (PrT t)) = maybe Hole Prim (primTy t)
 shapeOf (TType _ _) = TypeOfTypes
 shapeOf tm = case spine tm [] of

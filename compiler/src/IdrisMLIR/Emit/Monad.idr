@@ -64,11 +64,30 @@ collect act = do
   modify { ops := saved }
   pure (x, inner <>> [])
 
-||| A value in scope: its SSA name, its type and the quantity it is bound
-||| with.
+||| How the contract holds a value: as itself, or linear (`!idr.lin`), to be
+||| used exactly once.
+public export
+data Mode = Plain | Linear
+
+||| How a value used as `Use` says is held. The world is linear by its own
+||| type, so it is held as itself.
+export
+modeOf : Use -> Ty -> Mode
+modeOf Once WorldT = Plain
+modeOf Once _ = Linear
+modeOf Many _ = Plain
+
+||| How the value a binder binds is held: the erased value, which is never
+||| used, as itself.
+export
+binderMode : Binder -> Mode
+binderMode Gone = Plain
+binderMode (Held u t) = modeOf u t
+
+||| A value in scope: its SSA name, its type and how it is held.
 public export
 record Val where
   constructor MkVal
   name : String
   type : Ty
-  quantity : Quantity
+  mode : Mode

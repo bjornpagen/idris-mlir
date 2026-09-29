@@ -250,12 +250,12 @@ mutual
       IntegerType => pure BigT
       _ => reject fc owner rule (show t ++ " in a runtime position")
   coreType fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
-    at <- if isErased rig then pure ErasedT else coreType fc owner rule a
+    arg <- binderOf rig (coreType fc owner rule a)
     let rest = subst (Erased bfc Placeholder) sc
     when (not (isErased rig) && !(erasedOutsideIndices owner rest)) $
       reject fc owner rule "a function type that depends on its argument"
     rt <- coreType fc owner rule !(normaliseClosed rest)
-    pure (FunT (quantity rig) at rt)
+    pure (FunT arg rt)
   -- `Inf` is a suspension like `Lazy`.
   coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
   coreType fc owner rule tm = case spine tm [] of
@@ -302,17 +302,17 @@ mutual
     where
       ||| The constructor's arguments: a parameter is the instance's, anything
       ||| else is a field.
-      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm -> Core (List Field)
+      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm -> Core (List Binder)
       walk cname dfc targs (Just p :: ls) (Bind bfc _ (Pi {}) sc) =
         walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
       walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
-        t <- if isErased rig then pure ErasedT else do
-               a' <- normaliseClosed a
-               when !(erasedOutsideIndices cname a') $
-                 reject dfc cname DependentField "a field type that depends on another field"
-               coreType dfc cname DependentField a'
+        field <- binderOf rig $ do
+                   a' <- normaliseClosed a
+                   when !(erasedOutsideIndices cname a') $
+                     reject dfc cname DependentField "a field type that depends on another field"
+                   coreType dfc cname DependentField a'
         rest <- walk cname dfc targs ls (subst (Erased bfc Placeholder) sc)
-        pure (MkField (quantity rig) t :: rest)
+        pure (field :: rest)
       walk _ _ _ _ _ = pure []
 
       constructor : DataId -> List ClosedTerm -> List Nat -> Name -> Core Con

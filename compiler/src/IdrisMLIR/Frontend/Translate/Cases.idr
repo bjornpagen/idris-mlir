@@ -28,10 +28,7 @@ import Data.Vect
 ||| The variables a constructor alternative binds for its fields, in field
 ||| order: field `i` is `Bound i`.
 fieldInfos : {k : Nat} -> (bs : Vect k Binder) -> List (VarInfo (Under k a))
-fieldInfos bs = toList (zipWith (\i, b => Runtime (Bound i) (Just b.type)) range bs)
-
-toBinder : Field -> Binder
-toBinder f = MkBinder f.quantity f.type
+fieldInfos bs = toList (zipWith (\i, b => Runtime (Bound i) (Just (typeOf b))) range bs)
 
 ||| A leaf no input reaches: `Unreachable` in a covering definition
 ||| (Idris proved no input reaches it), a crash otherwise.
@@ -69,7 +66,7 @@ mutual
         let missing = case (def, lookup inst st.datas) of
                         (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
                         _ => []
-        let absurd = map (\c => MkAlt c.id (fromList (map toBinder c.fields)) (missingCase ctx loc)) missing
+        let absurd = map (\c => MkAlt c.id (fromList c.fields) (missingCase ctx loc)) missing
         pure (Case loc i (conAlts ++ absurd) def)
       -- A `Nat`-like value is a big: a match on its constructors is a
       -- match on zero.
@@ -97,26 +94,24 @@ mutual
       forced [DefaultCase rhs] = tree ctx env rhs
       forced _ = reject ctx.fc ctx.owner Match "a match on an erased value with more than one alternative"
 
-  ||| A match on a `Nat`-like value: a literal match on zero, whose default
-  ||| binds the predecessor. Each alternative is translated once, so every
-  ||| label stays unique.
+  ||| A match on a `Nat`-like value: zero, or a successor binding the
+  ||| predecessor. The default stands for whichever the tree leaves out.
+  ||| Each alternative is translated once, so every label stays unique.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
             Ctx -> List (VarInfo a) -> Loc -> a -> List (CaseAlt vars) -> Core (Term a)
   natCase ctx env loc x alts = do
     (zero, succ, def) <- natAlternatives ctx env loc x alts
     case (zero, succ, def) of
-      (Nothing, Nothing, Just d) => pure d
-      (Just z, Just s, _) => pure (CaseLit loc x [(LBig 0, z)] s)
-      (Just z, Nothing, d) => pure (CaseLit loc x [(LBig 0, z)] (fromMaybe (missingCase ctx loc) d))
-      (Nothing, Just s, d) => pure (CaseLit loc x [(LBig 0, fromMaybe (missingCase ctx loc) d)] s)
-      (Nothing, Nothing, Nothing) => pure (missingCase ctx loc)
+      (Nothing, Nothing, d) => pure (fromMaybe (missingCase ctx loc) d)
+      (z, s, d) => pure (CaseNat loc x (fromMaybe (fromMaybe (missingCase ctx loc) d) z)
+                                       (fromMaybe (maybe (missingCase ctx loc) (map Free) d) s))
 
   ||| The alternatives of a match on a `Nat`-like value: zero's, the
-  ||| successor's (the predecessor bound by a `let`, its erased arguments
-  ||| compile-time values), and the default.
+  ||| successor's (over the predecessor, its erased arguments compile-time
+  ||| values), and the default.
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
                     Ctx -> List (VarInfo a) -> Loc -> a -> List (CaseAlt vars) ->
-                    Core (Maybe (Term a), Maybe (Term a), Maybe (Term a))
+                    Core (Maybe (Term a), Maybe (Term (Under 1 a)), Maybe (Term a))
   natAlternatives ctx env loc x [] = pure (Nothing, Nothing, Nothing)
   natAlternatives ctx env loc x (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
@@ -131,9 +126,8 @@ mutual
                                           else Runtime (Bound FZ) (Just BigT))
                             args (isErased ++ replicate (length args) False)
         body <- tree ctx (under infos env) rhs
-        let pred = PrimApp loc (BigArith Sub) [Var loc x, Literal loc (LBig 1)]
         (z, _, d) <- natAlternatives ctx env loc x rest
-        pure (z, Just (Let loc QW pred body), d)
+        pure (z, Just body, d)
       Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
   natAlternatives ctx env loc x (DefaultCase rhs :: _) = pure (Nothing, Nothing, Just !(tree ctx env rhs))
   natAlternatives ctx env loc x (_ :: _) = internal ctx.fc "an unexpected alternative"
@@ -174,7 +168,7 @@ mutual
     st <- get TState
     let Just info = lookup cid st.cons
       | Nothing => internal ctx.fc ("unknown constructor " ++ cid.name ++ " of " ++ inst.name)
-    let bs = fromList (map toBinder info.con.fields)
+    let bs = fromList info.con.fields
     let bound = under (arrange info.layout info.params (fieldInfos bs)) env
     when (length info.layout /= length args) $
       reject ctx.fc ctx.owner CompiledModule ("constructor " ++ cid.name ++ " binds an unexpected number of arguments")

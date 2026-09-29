@@ -52,9 +52,15 @@ request fc owner n statics = do
 ||| Parameter classification after instantiation. A type parameter and an
 ||| implementation (an auto-implicit argument, such as an interface
 ||| constraint) are compile-time values: they key the instance
-||| and are erased at runtime.
+||| and are erased at runtime. Any other parameter binds as its binder says.
 public export
-data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ErasedParam | RuntimeParam Ty
+data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ValueParam Binder
+
+||| What a parameter binds at runtime: nothing for a compile-time value.
+export
+runtimeBinder : PKind -> Binder
+runtimeBinder (ValueParam b) = b
+runtimeBinder _ = Gone
 
 ||| A compile-time value of an argument, computed on demand: normalised for a
 ||| type, as written for an implementation. `dictionary` says the argument is
@@ -110,7 +116,7 @@ interfaceType ty = case spine ty [] of
 export
 classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-           Core (List (Quantity, PKind), ClosedTerm)
+           Core (List PKind, ClosedTerm)
 classify fc owner Z ty _ = pure ([], ty)
 classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
   a' <- normaliseClosed a
@@ -120,11 +126,11 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
          | _ => reject fc owner StaticArgument "a type argument that is not known statically"
        val <- v.normalised
        (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
-       pure ((Q0, TypeParam val) :: rest, res)
+       pure (TypeParam val :: rest, res)
      else if isErased rig
        then do
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
-         pure ((Q0, ErasedParam) :: rest, res)
+         pure (ValueParam Gone :: rest, res)
      else if isAuto pinfo || maybe False (.dictionary) (fst (nextStatic vals)) || !(interfaceType a')
        then do
          let (Just v, vals') = nextStatic vals
@@ -133,13 +139,13 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
          when (runtimeDependent val) $
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ showTT val)
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
-         pure ((Q0, DictParam val) :: rest, res)
+         pure (DictParam val :: rest, res)
        else do
          when !(erasedOutsideIndices owner a') $
            reject fc owner ValueType "a parameter type that depends on another argument"
          t <- coreType fc owner ValueType a'
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
-         pure ((quantity rig, RuntimeParam t) :: rest, res)
+         pure (ValueParam (Held (useOf rig) t) :: rest, res)
 classify fc owner (S k) ty vals = do
   ty' <- normaliseClosed ty
   case ty' of

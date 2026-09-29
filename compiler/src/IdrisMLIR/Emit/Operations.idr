@@ -24,7 +24,7 @@ value : Loc -> Ty -> String -> E Val
 value l t text = do
   r <- fresh
   append (Line (r ++ " = " ++ text) (At l))
-  pure (MkVal r t QW)
+  pure (MkVal r t Plain)
 
 ||| An operation without results.
 export
@@ -37,7 +37,22 @@ names vs = joinBy ", " (map (.name) vs)
 
 export
 types : Index -> List Val -> E String
-types ix vs = joinBy ", " <$> traverse (typeText ix . (.type)) vs
+types ix vs = joinBy ", " <$> traverse (valText ix) vs
+
+||| A value where the contract expects it held as `mode`. A linear value
+||| where a plain one is expected is used (`idr.lin.use`), its one use; a
+||| plain value in a linear position enters it (`idr.lin.enter`), as Idris
+||| lets any value fill a binder of quantity 1.
+export
+coerce : Index -> Loc -> Mode -> Val -> E Val
+coerce ix l mode v = case (v.mode, mode) of
+  (Linear, Plain) => value l v.type ("idr.lin.use " ++ v.name ++ " : " ++ !(valText ix v))
+  (Plain, Linear) => do
+    let entered = { mode := Linear } v
+    r <- fresh
+    append (Line (r ++ " = idr.lin.enter " ++ v.name ++ " : " ++ !(valText ix entered)) (At l))
+    pure ({ name := r } entered)
+  _ => pure v
 
 ||| A literal: integers and doubles are `arith.constant`,
 ||| strings and bigs `idr.constant`.
@@ -52,8 +67,7 @@ literal l (LBig n) = value l BigT ("idr.constant #idr.big<" ++ quoted (show n) +
 export
 erased : Loc -> E Val
 erased l = do
-  v <- value l ErasedT "idr.constant #idr.erased : !idr.erased"
-  pure ({ quantity := Q0 } v)
+  value l ErasedT "idr.constant #idr.erased : !idr.erased"
 
 ||| The word before an integer operand that says how to read it.
 signedness : IntTy -> String
@@ -191,8 +205,9 @@ prim l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length v
 ||| A constructor application (`idr.con`); a box's allocates.
 export
 con : Index -> Loc -> Con -> List Val -> E Val
-con ix l c vs = do
+con ix l c vs0 = do
   let t = DataT c.id.dataId
+  vs <- traverse (\(f, v) => coerce ix l (binderMode f) v) (zip c.fields vs0)
   res <- typeText ix t
   value l t ("idr.con " ++ symbol (mangle c.id.dataId.name) ++ "::" ++ symbol (mangle c.id.name) ++
              "(" ++ names vs ++ ") : (" ++ !(types ix vs) ++ ") -> " ++ res)
@@ -215,12 +230,12 @@ io ix l op vs res = do
     (GetByte, [w0]) => do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))
-      pure (MkVal (r ++ "#0") CharT QW, MkVal (r ++ "#1") WorldT Q1)
+      pure (MkVal (r ++ "#0") CharT Plain, MkVal (r ++ "#1") WorldT Plain)
     _ => internal ("io." ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where
     ||| The unit value of an IO result, built after the operation.
     withUnit : Con -> Val -> E (Val, Val)
-    withUnit mk w = case map (.type) mk.fields of
-      [DataT u, _] => pure (!(con ix l !(only ix u) []), { quantity := Q1 } w)
+    withUnit mk w = case map typeOf mk.fields of
+      [DataT u, _] => pure (!(con ix l !(only ix u) []), w)
       _ => internal (show res ++ " does not hold a unit value")

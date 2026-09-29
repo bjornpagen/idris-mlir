@@ -57,6 +57,7 @@ refs (ConAppF _ _ as) = mergeRefs as
 refs (LetF _ _ v b) = mergeRefs [v, b]
 refs (CaseF _ _ alts d) = mergeRefs (map (\(MkAltF _ _ b) => b) alts ++ toList d)
 refs (CaseLitF _ _ alts d) = mergeRefs (map snd alts ++ [d])
+refs (CaseNatF _ _ z s) = mergeRefs [z, s]
 refs (AppF _ f x) = mergeRefs [f, x]
 refs (ResumeF _ e) = e
 refs (UnreachableF _) = ([], [])

@@ -38,14 +38,20 @@ bind : Vect k Val -> (b -> Val) -> Under k b -> Val
 bind vs env (Bound i) = index i vs
 bind vs env (Free x) = env x
 
-||| Operands, left to right, each checked against the type
-||| its position expects; `Nothing` once one never returns.
-operands : (b -> Val) -> List (Sub Em b) -> List Ty -> E (Maybe (List Val))
-operands env [] _ = pure (Just [])
-operands env (a :: as) ts = do
-  Just v <- a.result env (head' ts)
+||| Operands, left to right, each checked against the type its position
+||| expects and held as it binds them; `Nothing` once one never returns.
+operands : Index -> Loc -> (b -> Val) -> List (Sub Em b) -> List Binder -> E (Maybe (List Val))
+operands ix l env [] _ = pure (Just [])
+operands ix l env (a :: as) slots = do
+  Just v <- a.result env (typeOf <$> head' slots)
     | Nothing => pure Nothing
-  map (map (v ::)) (operands env as (drop 1 ts))
+  v' <- coerce ix l (maybe Plain binderMode (head' slots)) v
+  map (map (v' ::)) (operands ix l env as (drop 1 slots))
+
+||| A value as a region or a function returns it: as itself, never linear.
+export
+plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
+plain ix l act = act >>= traverse (coerce ix l Plain)
 
 ||| Is a term a branch Idris proved impossible? It is left out.
 excluded : Sub Em b -> Bool
@@ -71,7 +77,7 @@ match ix l head regions =
       body <- traverse (close rt) regions
       r <- fresh
       append (Nest (r ++ " = " ++ head ++ " -> (" ++ rt ++ ") {") body "}" (Just (At l)))
-      pure (Just (MkVal r t QW))
+      pure (Just (MkVal r t Plain))
     Nothing => do
       body <- traverse (close "") regions
       append (Nest (head ++ " -> () {") body "}" (Just (At l)))
@@ -130,7 +136,7 @@ lifted ix l lbl caps ps expected body = do
   ((params, res), ops) <- inFunction $ do
     cs <- traverse renamed caps
     ps' <- traverse renamed ps
-    res <- body cs ps'
+    res <- plain ix l (body cs ps')
     pure (toList cs ++ toList ps', res)
   t <- case map (.type) res <|> expected of
          Just t => pure t
@@ -153,17 +159,17 @@ alg ix (VarF _ x) env _ = pure (Just (env x))
 alg ix (LiteralF l x) env _ = Just <$> literal l x
 alg ix (ErasedF l) env _ = Just <$> erased l
 alg ix (PrimAppF l p as) env _ = do
-  Just vs <- operands env as (primArgs p)
+  Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing
   Just <$> prim l p vs
 alg ix (EffectF l op as res) env _ = do
-  Just vs <- operands env as (ioArgs op ++ [WorldT])
+  Just vs <- operands ix l env as (map (Held Many) (ioArgs op ++ [WorldT]))
     | Nothing => pure Nothing
   Just <$> io ix l op vs res
 alg ix (CallF l fn as) env _ = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
-  Just vs <- operands env as (map (.type) (toList f.params))
+  Just vs <- operands ix l env as (toList f.params)
     | Nothing => pure Nothing
   rt <- typeText ix f.result
   Just <$> value l f.result ("func.call " ++ symbol (mangle fn.name) ++ "(" ++ names vs ++ ") : (" ++
@@ -171,16 +177,17 @@ alg ix (CallF l fn as) env _ = do
 alg ix (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
-  Just vs <- operands env as (map (.type) k.fields)
+  Just vs <- operands ix l env as k.fields
     | Nothing => pure Nothing
   Just <$> con ix l k vs
 -- A `let` binds an SSA value; its type is its value's.
-alg ix (LetF _ q v b) env expected = do
+alg ix (LetF l u v b) env expected = do
   Just x <- v.result env Nothing
     | Nothing => pure Nothing
-  b.result (bind [{ quantity := q } x] env) expected
+  x' <- coerce ix l (modeOf u x.type) x
+  b.result (bind [x'] env) expected
 alg ix (CaseF l x alts def) env expected = do
-  let scrut = env x
+  scrut <- coerce ix l Plain (env x)
   DataT d <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
   Just decl <- pure (lookup d ix.datas)
@@ -189,7 +196,7 @@ alg ix (CaseF l x alts def) env expected = do
   cases <- traverse alternative (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
-      (res, ops) <- collect (e.result env expected)
+      (res, ops) <- collect (plain ix l (e.result env expected))
       pure [MkRegion "default {" res ops]
     Nothing => pure []
   case cases ++ dflt of
@@ -200,12 +207,11 @@ alg ix (CaseF l x alts def) env expected = do
   where
     alternative : AltF (Sub Em) b -> E Region
     alternative (MkAltF c fs body) = do
-      vals <- traverse (\f => (\n => MkVal n f.type f.quantity) <$> fresh) fs
-      args <- traverse (\v => (\t => v.name ++ ": " ++ t) <$> typeText ix v.type) (toList vals)
-      (res, ops) <- collect (body.result (bind vals env) expected)
+      vals <- traverse (\f => (\n => MkVal n (typeOf f) (binderMode f)) <$> fresh) fs
+      args <- traverse (param ix) (toList vals)
+      (res, ops) <- collect (plain ix l (body.result (bind vals env) expected))
       pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
 alg ix (CaseLitF l x alts def) env expected = do
-  let scrut = env x
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible
   -- alternative stands for it.
@@ -220,32 +226,54 @@ alg ix (CaseLitF l x alts def) env expected = do
       pure Nothing
     ([], Just e) => e.result env expected
     (_, Just e) => do
+      scrut <- coerce ix l Plain (env x)
       st <- typeText ix scrut.type
       regions <- traverse (\(k, c) => do
-                             (res, ops) <- collect (c.result env expected)
+                             (res, ops) <- collect (plain ix l (c.result env expected))
                              pure (MkRegion ("case " ++ key k ++ " {") res ops)) cases
-      (res, ops) <- collect (e.result env expected)
+      (res, ops) <- collect (plain ix l (e.result env expected))
       match ix l ("idr.match_lit " ++ scrut.name ++ " : " ++ st) (regions ++ [MkRegion "default {" res ops])
+-- The predecessor exists only where the value is not zero: the successor's
+-- region computes it, and only it binds it.
+alg ix (CaseNatF l x z s) env expected =
+  case (excluded z, excluded s) of
+    (True, True) => do
+      statement l "ub.unreachable"
+      pure Nothing
+    (False, True) => z.result env expected
+    (True, False) => successor !(coerce ix l Plain (env x))
+    (False, False) => do
+      n <- coerce ix l Plain (env x)
+      (zr, zops) <- collect (plain ix l (z.result env expected))
+      (sr, sops) <- collect (plain ix l (successor n))
+      match ix l ("idr.match_lit " ++ n.name ++ " : !idr.big")
+            [MkRegion ("case " ++ key (LBig 0) ++ " {") zr zops, MkRegion "default {" sr sops]
+  where
+    successor : Val -> E (Maybe Val)
+    successor n = do
+      p <- value l BigT ("idr.big.pred " ++ n.name)
+      s.result (bind [p] env) expected
 alg ix (LamF l lbl caps b body) env expected = do
   let capVals = map env caps
   let result = case expected of
-                 Just (FunT _ _ r) => Just r
+                 Just (FunT _ r) => Just r
                  _ => Nothing
-  (sym, rt) <- lifted ix l lbl capVals [MkVal "" b.type b.quantity] result
+  (sym, rt) <- lifted ix l lbl capVals [MkVal "" (typeOf b) (binderMode b)] result
                  (\cs, [p] => body.result (bind [p] (\i => index i cs)) result)
-  let t = FunT b.quantity b.type rt
+  let t = FunT b rt
   Just <$> closure sym (toList capVals) t
   where
     closure : String -> List Val -> Ty -> E Val
     closure sym cs t = value l t ("idr.closure " ++ symbol sym ++ "(" ++ names cs ++ ") : (" ++
                                   !(types ix cs) ++ ") -> " ++ !(typeText ix t))
 alg ix (AppF l f x) env expected = do
-  Just fv <- f.result env Nothing
+  Just fv <- plain ix l (f.result env Nothing)
     | Nothing => pure Nothing
-  FunT _ a r <- pure fv.type
+  FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  Just xv <- x.result env (Just a)
+  Just xv <- x.result env (Just (typeOf a))
     | Nothing => pure Nothing
+  xv <- coerce ix l (binderMode a) xv
   Just <$> value l r ("idr.apply " ++ fv.name ++ "(" ++ xv.name ++ ") : " ++ !(typeText ix fv.type))
 alg ix (SuspendF l lbl caps body) env expected = do
   let capVals = map env caps
@@ -257,7 +285,7 @@ alg ix (SuspendF l lbl caps body) env expected = do
   Just <$> value l t ("idr.closure " ++ symbol sym ++ "(" ++ names (toList capVals) ++ ") : (" ++
                       !(types ix (toList capVals)) ++ ") -> " ++ !(typeText ix t))
 alg ix (ResumeF l e) env expected = do
-  Just ev <- e.result env Nothing
+  Just ev <- plain ix l (e.result env Nothing)
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
