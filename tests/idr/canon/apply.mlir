@@ -73,3 +73,47 @@ func.func @unknown(%c: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
   %r = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
+
+// An IO action is a linear closure: applying its one use, when it was
+// entered into its linear type from a known closure, calls the function.
+// CHECK-LABEL: func.func @of_linear(
+// CHECK-SAME: %[[X:.*]]: i64, %[[Y:.*]]: i64)
+// CHECK-NEXT: %[[R:.*]] = call @add(%[[X]], %[[Y]]) : (i64, i64) -> i64
+// CHECK-NEXT: return %[[R]]
+func.func @of_linear(%x: i64, %y: i64) -> i64 {
+  %c = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
+  %l = idr.lin.enter %c : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %f = idr.lin.use %l : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %r = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
+  return %r : i64
+}
+
+// A constant closure's capture fills a linear parameter entered into its
+// linear type.
+func.func private @once(%a: !idr.lin<i64>, %b: i64) -> i64 {
+  %x = idr.lin.use %a : !idr.lin<i64>
+  %r = arith.addi %x, %b : i64
+  return %r : i64
+}
+// CHECK-LABEL: func.func @of_constant_linear(
+// CHECK: %[[C:.*]] = arith.constant 5 : i64
+// CHECK: %[[L:.*]] = idr.lin.enter %[[C]] : !idr.lin<i64>
+// CHECK: call @once(%[[L]], %{{.*}})
+func.func @of_constant_linear(%y: i64) -> i64 {
+  %c = idr.constant #idr.closure<@once, [5 : i64]> : !idr.fn<(i64) -> (i64)>
+  %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
+  return %r : i64
+}
+
+// A closure that captures a linear value moves it into the call only when
+// this apply is its one use; applied twice, it stays a closure.
+// CHECK-LABEL: func.func @linear_capture_twice(
+// CHECK: idr.closure @once
+// CHECK: idr.apply
+// CHECK: idr.apply
+func.func @linear_capture_twice(%a: !idr.lin<i64>, %y: i64) -> (i64, i64) {
+  %c = idr.closure @once(%a) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
+  %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
+  %s = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
+  return %r, %s : i64, i64
+}
