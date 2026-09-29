@@ -208,11 +208,11 @@ SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned)
   return {
       "idr-loop-breakers",
       "idr-effects",
-      llvm::formatv("idr-inline{{default-pipeline=canonicalize max-iterations={0}}",
+      llvm::formatv("idr-inline{{default-pipeline=idr-canonicalize max-iterations={0}}",
                     inlineIterations),
       "idr-specialize",
       "sccp",
-      "canonicalize",
+      "idr-canonicalize",
       "cse",
       "idr-eval",
       "idr-prune",
