@@ -1,523 +1,532 @@
-# Architecture: is the optimizer the right frame?
+# Architecture: the optimizer's frame, its global maximum, and the path
 
 Stream "architecture". The question: is idris-mlir's optimizer architecture
-the right frame for whole-program, rich-data optimization, far more
-aggressive than MLton's, and what should change? The experiments behind the
-IR excerpts are in `findings/architecture-experiments.md` (commands,
-programs, timings). The MLIR mechanisms named here (DataFlow API,
-interfaces, the LLVM dialect's attributes, canonicalization rules) are
-treated in depth by the mlir-idioms stream (`findings/mlir-idioms.md`); this
-file says *which* mechanism fits *which* fact and stops there.
+the right frame for whole-program, rich-data optimization far more
+aggressive than MLton's, and what should change?
 
-Status of claims: **measured** (I ran it), **read** (file:line or paper
-section), **conjecture** (my judgment, not tested).
+The file has three parts:
 
-## Verdict in one paragraph
+- **the global maximum** (the target);
+- **the path** to it (ordered, with what each step deletes);
+- **the six answers with their evidence.**
 
-The outer frame is right and some of it is ahead of MLton: a whole program,
-quantities kept as types and re-verified after every pass, compile-time
-evaluation that runs the program's own lowered code, closure analysis
-already on MLIR's DataFlow framework, and a verifier for the owned stage.
-Three things are wrong with the inner frame.
+Experiments, commands and IR excerpts are in
+`findings/architecture-experiments.md`.
 
-1. **Facts are produced ad hoc, several times, and weaker than Idris knew
-   them.** There are six hand-written fixpoints, a weak duplicate of the
-   closure-label analysis, and range interfaces that nothing in the
-   pipeline runs. Size-change graphs, `Nat`'s arithmetic, case blocks being
-   continuations, and erased proofs are all known on the Idris side and
-   dropped before MLIR.
-2. **The simplify loop ends because the IR hash stops changing.** Every
-   blow-up in the history was patched with a budget. It should end by
-   construction, over a finite set of monotone decisions.
-3. **The whole-program transformations that matter most are missing.**
-   From MLton: contification, useless fields, type simplification. Beyond
-   MLton, and possible only with Idris's facts: uniqueness from linearity,
-   tail recursion modulo cons, and eager `Lazy` in total code.
+This file builds on the other streams and does not repeat them:
+- `mlir-idioms.md`: MLIR mechanisms we duplicate or misuse;
+- `mlir-ownership-types.md` and `memory-theory.md` §6: the owned stage and
+  uniqueness as types;
+- `representation.md`: Nat, Fin, packing, `Vect` as tensor or vector;
+- `facts-ledger.md`: where each Idris fact is lost.
 
-Equality saturation is **not** the fix for (2). The expensive fights were
-between expanding, interprocedural transformations, which is where
-e-graphs scale worst.
+It adds the frame they fit into: how facts are produced and consumed, how
+transformations are ordered and why they terminate, which MLIR machinery
+does the work, and where the measured failures come from.
 
----
+Status of claims:
+- **measured**: I ran it;
+- **read**: a file:line, or a paper section;
+- **conjecture**: my judgment, untested.
 
 ## The questions
 
-1. Which hand-written analyses should become MLIR dataflow lattices?
-2. Should the simplify group be equality saturation?
+1. Which hand-written analyses should become MLIR dataflow lattices (escape,
+   binding times, facts inference, ranges for Int/Nat/Fin)?
+2. Should the simplify group be equality saturation? An honest cost and
+   benefit, with the phase-ordering history as evidence.
 3. Whole-program optimization beyond MLton: what MLton does, and what Idris
-   facts add.
-4. What LLVM should receive from Idris facts, compared with what it gets
-   today (actual IR).
+   facts make possible.
+4. What LLVM should receive from Idris facts, against what it receives today
+   (actual IR).
 5. Is translation validation or verified rewriting feasible as a safety net?
 6. A proposed architecture, as data.
 
+## Verdict
+
+The outer frame is right, and parts of it are ahead of MLton:
+- the whole program is compiled at once;
+- quantities are types, re-verified after every pass;
+- compile-time evaluation runs the program's own lowered code;
+- closure analysis already runs on MLIR's DataFlow framework;
+- the owned stage has its own verifier.
+
+The inner frame is where the ceiling is:
+- **Facts are produced ad hoc, several times, and weaker than Idris knew
+  them.** There are six hand-written fixpoints and a weak duplicate of the
+  label analysis. The range interfaces are run by no pipeline step.
+  Size-change graphs, Nat arithmetic, case blocks as continuations, and
+  proofs are all dropped before MLIR.
+- **The simplify loop ends because an IR hash stops changing.** Every
+  blow-up in the history was patched with a budget.
+- **MLIR is used as a slightly better LLVM IR.** Our own passes do what
+  MLIR's solver, interfaces, canonicalizer, bufferization and loop
+  dialects would do.
+- **The transformations that matter most are missing.** Two failures are
+  measured:
+  - Nat arithmetic is quadratic: 39 s where Chez takes 0.1 s;
+  - a non-tail `map` over 400k elements segfaults.
+
+Equality saturation is not the fix. MLIR's DataFlow solver, with
+cooperating lattices, already is the "egglog half" worth having.
+
 ---
 
-## 1. Hand-written fixpoints, and which should be lattices
+## Part I. The global maximum
+
+One sentence: **Idris states every proved fact as IR structure. One MLIR
+DataFlowSolver of cooperating lattices infers the rest. Transformations are
+MLIR patterns, interfaces and upstream passes, each declared by the facts it
+consumes. Expanding decisions grow a finite lattice, so compilation
+terminates by construction. Array code leaves `idr` for
+tensor → bufferization → memref → linalg/affine/vector, so MLIR's own
+optimizers run on Idris programs. Every fact that a transformation relies on
+is checked locally by a verifier.**
+
+### I.1 The IR stack: the fact is in the type
+
+| Level | What lives there | Facts carried structurally | Owner |
+|---|---|---|---|
+| **Idris** (compiler/) | checking, monomorphisation, representation choice | proves everything below; drops nothing | Idris |
+| **idr, value stage** | identified recursive data types (mlir-idioms 1.5); `!idr.nat`; `Fin n`/small Nat as `index` with ranges; `Vect 3 Double` as `vector<3xf64>` (representation.md); `!idr.lin`/`!idr.erased`; ghost values for erased indices and proofs; `!idr.fn` carrying effects and totality (mlir-idioms 5.5); `idr.match`/`match_lit` binding the refined scrutinee (SSI); **join points** in place of case-block functions | quantity, totality, effects, size-change (on recursive calls), ranges by type, coverage (no default region when Idris proved the match complete) | Emit, then the `idr` passes |
+| **array stage** | `tensor<…>` + `linalg` for `Vect`s whose contiguity is proved (representation.md, "three proofs"); upstream `vector` | shapes are types; `tensor.dim` is the ghost `n` | MLIR upstream |
+| **owned stage** | `!idr.own`/`!idr.uniq`/`!idr.borrow`/`!idr.cell<N>` (memory-theory §6.2, mlir-ownership-types); `memref` after One-Shot Bufferize; frame cells as `alloca`-like ops (mlir-idioms 3.2) | ownership, uniqueness, frame-locality, all as types | `idr` passes plus bufferization |
+| **loops** | `scf.for` (counted recursion, raised by `populateUpliftWhileToForPatterns`, pinned: `SCF/Transforms/Patterns.h:81`); `scf.while` for the rest; `affine` where bounds are affine | trip counts from size-change plus Nat | MLIR upstream |
+| **LLVM** | `llvm` dialect with `nonnull`/`dereferenceable`/`align`/`range`/`noalias`/`will_return`/`invariant.group` (mlir-idioms 6.3) | every fact that survived, turned into its LLVM form; an `idr.*` attribute left over is an error | `idr-lower` |
+
+### I.2 Facts: one solver, cooperating lattices, one producer each
+
+MLIR's `DataFlowSolver` runs all loaded analyses to a joint fixpoint, and an
+analysis may read another's state with dependency tracking. SCCP and
+DeadCodeAnalysis already cooperate this way, and IntegerRangeAnalysis
+depends on DeadCodeAnalysis (`IntegerRangeAnalysis.h`: "a silent no-op if
+DeadCodeAnalysis is not loaded"). That is what egglog claims for Datalog
+("cooperating analyses, and lattice-based reasoning",
+`zhang-2023-egglog/abstract.tex`), without an e-graph.
+
+| Fact | Lattice | MLIR mechanism | Replaces (file:line) | Consumers |
+|---|---|---|---|---|
+| Reachability | executable/dead | upstream `DeadCodeAnalysis` | the analysis half of `idr-prune` | prune; every other analysis |
+| Constants and **shapes** (partially static values) | ⊥ / const / `ctor C[v…]` / `closure f[v…]` / ⊤, with depth widening (Lean's `maxValueDepth = 8`, `ElimDeadBranches.lean:21-43,141-175`) | a sparse forward analysis with `FieldAnchor`s; the idr folders give constants, as SCCP's do | `Pattern.cc`'s syntactic walk (`shapeOf`), the profitability oracle `Meet.cc:13-31`, `idr-prune`'s special cases | known-case, specialize keys, eval closedness, join-point copies |
+| Closure labels | sets of labels, ⊤ | already sparse forward, interprocedural (`Defunctionalize.cc:234-392`) | `Facts/Closures/Passed.cc:34-70`; `Stack/Recursion.cc:24-46` ("an apply calls every address-taken function") | defunctionalize, effects, escape, recursion |
+| Integer ranges | `IntegerValueRange` (widening at the pin) | upstream `IntegerRangeAnalysis`, subclassed: `setToEntryState` seeded from types (Nat ≥ 0, `Fin n`, Char, tags); `visitNonControlFlowArguments` for `match_lit` case arguments | nothing (none runs today); `knownNonZero`, which reads constants only (`Ops.cc:20-29`) | `populateIntRangeOptimizationsPatterns(patterns, solver)` (mlir-idioms 6.1); crash causes; bounds; LLVM `range` |
+| Effects (io, crash) per function | 4-point lattice on callables | a callable-anchored state in the same solver, reading labels at applies; exposed as `MemoryEffects` with the resource hierarchy (mlir-idioms 3.4) and an external model on `func.call` | `Facts/Infer/Infer.cc:78-88`; the isa chain in `Facts/Moves/Only.cc:16-41`; `RemoveUnusedCall` | upstream `cse`, `loop-invariant-code-motion`, `remove-dead-values` on pure calls; eval; raise |
+| Escape | none < contents < reference | sparse **backward**, interprocedural, shaped like upstream `LivenessAnalysis` (`LivenessAnalysis.h:78`) | `Stack/Escape.cc:70-93` (summary worklist), `:112-147` (reversed-graph reachability), `forwardsOf :56` (framework forwarding rebuilt by hand) | frame cells, uniqueness |
+| Useful fields | useless/useful per (data, ctor, field) | sparse backward with `FieldAnchor`s | nothing (MLton's `useless`) | useless-field and unused-constructor removal (representation.md R7) |
+| Uniqueness | unique/shared | inferred over the call graph; **carried as a type** in the owned stage (memory-theory §6.4) | the runtime test at every reset (`ResetReuse.cc:19-25`) | reset without a test, TRMC, One-Shot Bufferize's `writable` arguments, `noalias` |
+| Size-change | per recursive call: argument relation {<, =, ?} | **from Idris** (`GlobalDef.sizeChange`), emitted on the call; composed through inlining and cloning | `BindingTimes.cc:66-85,190-215` (abstract interpretation), and its hack `:121-126` | binding times, `scf.for` raising, branch weights, stack budgets |
+| Continuations | per function: its one continuation, or none (Fluet & Weeks) | the **frontend** knows it: case blocks are continuations by construction; contify for the rest | nothing; and the pinned inliner's A→B→A refusal (`Inliner.cpp:709-715`) blocks inlining instead | join points; reuse within one function |
+| Borrowed parameters | owned/borrowed | kept (Lean's algorithm, `Borrow.cc`); the result becomes a type (memory-theory §6.2) | nothing | rc |
+
+**Rule R1 (where a fact lives).**
+- A fact whose loss would be **unsound** lives in a type or an inherent op
+  property, and a **local** verifier rule checks it after every pass. The
+  global lattice only produces it:
+  - quantity (exists);
+  - uniqueness: every call site passes a unique value;
+  - frame-locality: a frame value reaches no return, capture or heap
+    field;
+  - borrowedness;
+  - a size-change edge: the argument passed is a field or predecessor of
+    the parameter.
+- A fact whose loss only **costs speed** may be discardable (totality).
+- A fact that **cannot be checked locally** (ranges, shapes) is never
+  stored. Its consumer rewrites the IR into an op that cannot express the
+  bad state: "parse, don't validate". A division proved non-zero becomes
+  `arith.divsi`, and a case proved impossible is deleted.
+
+This is CompCert's "verified validator" shape (`leroy-2009-compcert` §2.2):
+the checker is smaller than the transformation.
+
+### I.3 Transformations: declared by what they consume, MLIR-native where possible
+
+| Transformation | Consumes | Kind | Mechanism |
+|---|---|---|---|
+| folds, known constructor, field/tag of con, output fusion | shapes, constants | shrink | upstream **canonicalize**, with only convergent local patterns (MLIR's own contract, `docs/Canonicalization.md:44-60`); `createCanonicalizerPass` with a listener in place of our copy (mlir-idioms §2) |
+| range rewrites | ranges | shrink | `populateIntRangeOptimizationsPatterns` with our solver |
+| DCE, CSE, LICM of pure calls | effects via `MemoryEffects` | shrink | upstream `remove-dead-values`, `cse`, `loop-invariant-code-motion`, `symbol-dce` |
+| prune dead regions | reachability, shapes | shrink | patterns over solver state |
+| contify | continuations | shrink (removes a function) | Emit writes case blocks as regions or join points; a contify pass for the rest |
+| join-point specialization (replaces case-of-case copying and `Sink.cc`) | shapes at each jump | expand (decision) | a jump whose argument's shape makes the join body fold gets its own copy, at most one per (join, constructor) |
+| inline | size, loop breakers | expand (decision) | upstream `Inliner` with MLton's rule as the profitability callback (exists) |
+| specialize | shapes, size-change | expand (decision) | the clone table (exists), with keys from the shape lattice |
+| evaluate closed calls | effects, totality, shapes | shrink (a call becomes a constant) | `idr-eval` (JIT, exists); the cache of evaluated keys |
+| defunctionalize | labels | representation | exists |
+| useless fields, unused constructors, layout, Nat/Fin/Vect representation | useful fields; Idris | representation | representation.md |
+| TRMC (destination passing) | uniqueness of the fresh cell, size-change | representation | the hole is an owned-stage `!idr.cell` (memory-theory) |
+| recursion schemes over `Vect` → `linalg` | shapes (`Vect`), contiguity proofs, size-change | representation | registry entries first (`Data.Vect.map`/`zipWith`/`foldl`/`replicate`/`index`), then recognition by size-change |
+| counted recursion → `scf.for` | size-change (−1 per step to a base of 0), Nat | representation | `idr-tail-loops` emits the canonical `scf.while`; upstream uplift makes it `scf.for`; then `affine` where applicable |
+| bufferize arrays | uniqueness (`writable`) | ownership | upstream One-Shot Bufferize and ownership-based deallocation |
+| cells: frame, reset/reuse, borrow, counting | escape, uniqueness, borrowed | ownership | the owned stage as types, and bufferization-style simplification of `dup`/`drop` (mlir-ownership-types) |
+| lower | everything left | lowering | `idr-lower` sets LLVM attributes; an `idr.*` attribute that reaches it unconsumed is an error |
+
+### I.4 Termination by construction: the decision lattice
+
+- **Shrinking** patterns run to a greedy fixpoint. A measure decreases (op
+  count, redexes): MLton's shrinker, Lean's `simp`.
+- **Expanding** transformations never run "until the IR stops changing".
+  Each round:
+  1. solve the lattices;
+  2. grow the decision sets `D = (inline edges over origins, spec keys,
+     evaluated keys, join copies)`, which are monotone and never retracted;
+  3. materialize the new decisions;
+  4. shrink to a fixpoint.
+- The loop stops when `D` stops growing. `D` is finite:
+  - origins × origins for inlining;
+  - binding times × `kUnrollLimit` (`Specializer.h:18`) × `kClonesPerOwner`
+    (`Clones.h:22`) for keys;
+  - one evaluation per call key;
+  - (join, constructor) pairs for copies.
+- This is Kleene iteration on a finite-height lattice.
+  - `structural()` (`Simplify.cc:137-176`) and its reason for existing
+    (sccp's constant churn, `Simplify.cc:10-18`) become irrelevant.
+  - `max-rounds` stays as an assertion.
+  - Today's informal argument (`Simplify.cc:4-8`, "every member of a round
+    is finite") becomes the loop condition itself.
+
+### I.5 The phases, with legality by type
+
+1. **Emit.** Every Idris fact becomes IR structure (I.1).
+2. **Value stage.** The decision loop (I.4) over the solver (I.2), with the
+   shrinking and expanding transformations of I.3.
+3. **Representation, once.** Defunctionalize; useless fields; layout;
+   Vect/array → tensor/linalg; TRMC; counted loops.
+4. **Array pipeline, upstream.** Linalg fusion, tiling and vectorization;
+   One-Shot Bufferize; ownership-based deallocation; affine/scf; vector.
+5. **Owned stage.** Frame cells, uniqueness, borrow, dup/drop and reuse,
+   typed so that the stage *is* the types (mlir-ownership-types; the
+   dialect split review-external asked for then comes for free).
+6. **Lowering** with LLVM facts.
+
+### I.6 Validation built in
+
+- Verifier rules for every fact in a type (R1).
+- A `--validate` mode: differential execution of each changed function
+  before and after a pass, through the existing JIT (Part III §5).
+- Alive-style SMT checks, or LeanMLIR proofs, for the rule layer.
+
+### I.7 What we delete when we adopt MLIR's mechanism
+
+| Ours | Adopt | Evidence |
+|---|---|---|
+| hand fixpoints: escape, effects, `Passed.cc`, recursion's label guess | the DataFlowSolver (I.2) | Part III §1 |
+| `BindingTimes`'s re-derivation | Idris's size-change, emitted | `facts-ledger.md` §5 |
+| `Sink.cc` (`kSinkBudget`), duplication in `CaseOfCase.cc`, `Meet.cc` | join points plus canonicalize; the non-convergent patterns violate `Canonicalization.md:44-60` | Part III §2 |
+| `structural()` fixpoint | the decision lattice | I.4 |
+| `Canonicalize/Pass.cc` (a copy of the canonicalizer) | `createCanonicalizerPass` with a listener | mlir-idioms §2 |
+| `Passes/Scc.h` | `llvm::scc_iterator`, `CallGraph` | mlir-idioms §2 |
+| `Facts/Moves/Only.cc` isa chain, `PerformsIO`, `RemoveUnusedCall` | `MemoryEffects` with resources, and an external model on `func.call` | mlir-idioms 3.4 |
+| seven isa chains of "what happens to this operand" | one flow interface (`BufferViewFlowOpInterface`'s shape) | mlir-idioms §2 |
+| `idr.stack` discardable mark | frame cells as ops with `AutomaticAllocationScope` | mlir-idioms 3.2 |
+| `idr.stage` and the path-interpreting `Verify.cc` | owned-stage types | mlir-ownership-types |
+| Vect as a list of boxes, when contiguity is proved | tensor/linalg/bufferization | representation.md |
+| tail loops as bare `scf.while` | uplift to `scf.for`, then affine | I.3 |
+
+---
+
+## Part II. The path, ordered by evidence and leverage
+
+Each step names what it deletes. Measured failures come first.
+
+1. **Nat is a type, with its operations** (representation.md R1). Map the
+   natHack's five functions (`third_party/Idris2/src/Compiler/Opts/Constructor.idr:81-95`)
+   to big ops through the registry, and make `!idr.nat` non-negative so
+   ranges start at 0. **Measured quadratic today** (Part III §3.2).
+2. **Case blocks are continuations.** Emit writes them as regions or join
+   points, so the MLIR inliner's A→B→A refusal is never reached.
+   **Measured**: lost reuse and an unexploited case-of-case in `tree/`. The
+   refusal itself deserves an `upstream/` report if anything still relies
+   on the inliner there.
+3. **One solver.**
+   - Load DeadCode, the shape lattice, labels, IntegerRange (seeded, with
+     `match_lit` case arguments), and effects on callables.
+   - Port escape to backward sparse.
+   - Delete `Passed.cc`, the label guess in `Recursion.cc`, the
+     `Infer.cc` worklist, and `Pattern.cc`'s shape walk.
+   - Add `int-range-optimizations`.
+4. **Canonicalize convergent-only, plus join points.** Delete `Sink.cc`,
+   the duplication in `CaseOfCase.cc`, `Meet.cc`, and the canonicalizer
+   copy.
+5. **The decision-lattice loop.** Delete `structural()` as the loop
+   condition. **Size-change from Emit**; delete the derivation in
+   `BindingTimes.cc`.
+6. **Effects as MemoryEffects**, with resources and an external model on
+   `func.call`. Adopt upstream `cse`/`licm`/`remove-dead-values` for pure
+   calls; delete the isa chains and `RemoveUnusedCall`.
+7. **The owned stage as types** (memory-theory §6, mlir-ownership-types).
+   Uniqueness gives static reuse and `noalias`. **TRMC** then removes the
+   measured stack overflow.
+8. **Arrays.** Registry entries for `Data.Vect`'s recursion schemes to
+   `linalg` on `tensor`, under representation.md's contiguity proofs.
+   One-Shot Bufferize, with unique arguments `writable`. Counted recursion
+   to `scf.for`. Floating-point reductions keep Idris's order: no
+   reassociation, since Double reductions are not associative and the Chez
+   diff would catch the change. Integer (wrapping) reductions may
+   reassociate.
+9. **LLVM facts** in `idr-lower` (Part III §4).
+10. **`--validate`**, and verifier rules for each typed fact.
+
+---
+
+## Part III. The answers, with evidence
+
+### 1. Hand-written fixpoints, and which should be lattices
 
 The inventory, found by grepping `lib/` for worklists (**read**):
 
-| Fixpoint | Where | What it computes | Lattice | Fits MLIR DataFlow? |
-|---|---|---|---|---|
-| Escape, interprocedural | `Stack/Escape.cc:70-93` (parameter summaries, worklist over callers) | parameters whose references escape | per value: {none < contents escape < reference escapes} (the code's Shallow/Deep node pair, `Escape.h:63-64`) | **Yes**: a `SparseBackwardDataFlowAnalysis`, shaped like upstream `LivenessAnalysis` (`LivenessAnalysis.h:78`), which is backward, sparse and interprocedural. |
-| Escape, within a function | `Stack/Escape.cc:112-147` (reversed graph, backward reachability), `forwardsOf` `:56` | which nodes reach an escaping use | same | **Yes.** `forwardsOf` rebuilds by hand the region-branch forwarding the framework already does. The part that asks "does this con run again in its frame" (`repeating`, `Escape.cc:131-147` in the header comment, `Frame`) depends on the program point and stays a local check. |
-| Binding times | `Specialize/BindingTimes.cc:66-85` (abstract interpretation per (function, abstract arguments)), `:190-215` (per SCC) | fixed, decreasing, bounded or other, per parameter | `{Same(i), Smaller(i), Top}` per argument, context-sensitive | **No**, not as a derivation: MLIR's sparse framework is context-insensitive. Idris has already proved the fact: seed it from the size-change graphs (§3.2). |
-| Effects (`idr-effects`) | `Facts/Infer/Infer.cc:64-106` (worklist over reverse reach edges, `:78-88`) | io and crash per function | per function {none, crash, io, io+crash} | Better as one bottom-up pass over `CallGraph` SCCs than on the solver. The real defect is imprecision, not the algorithm: a closure's crash counts where it is *made* (`Infer.cc:41-58`) rather than where it is applied. With the label lattice it can count at the applies. |
-| What closures a value passes | `Facts/Closures/Passed.cc:34-70` | the effects of the labels a value may hold | a local backward walk; any block argument is ⊤ (`:67`) | **Delete.** It is a weak second producer of the fact `LabelAnalysis` already computes (`Passes/Defunctionalize.cc:234-392`). Consume that lattice instead. |
-| Recursion (idr-stack's budgets) | `Stack/Recursion.cc:24-46` | which functions may have several frames live | an apply calls *every* address-taken function (`:43-46`) | Consume the label lattice: an apply calls the labels its callee may hold. |
-| Borrowed parameters | `Ownership/Borrow.cc:57-61` (`do … while (changed)` over the module) | owned or borrowed, per parameter | a two-point lattice per parameter | Could be interprocedural backward dataflow. Lean's algorithm is fine, the verifier checks its output, and it runs once. **Keep.** |
-| Defunctionalization, keep or convert | `Passes/Defunctionalize.cc:822-845` | which slot keys stay closures | a two-point lattice per key (MLton's `TwoPointLattice` in `flatten.fun`) | Local to the pass. **Keep.** |
-| Closure labels | `Passes/Defunctionalize.cc:234-392` | the labels a `!idr.fn` may hold | sets of labels, ⊤ | **Already done right**: `SparseForwardDataFlowAnalysis`, interprocedural, with a `FieldAnchor` per (data, ctor, field) (`:123-131`). This is the template. |
-| Integer ranges | none | none | none | `TagOp`, `ToCharOp`, `DoubleHeadOp`, `IntHeadOp` and `StrLengthOp` implement `InferIntRangeInterface` (`Dialect/Ops.cc:442,861,883,889,903`), but **no pipeline step runs a range analysis** (`Registration.cc:15-31`, `Simplify.cc:207-222`). Only `tests/idr/fold/range.mlir` runs `--int-range-optimizations`. By the dialect's own standard these interfaces are not load-bearing. `knownNonZero` (`Ops.cc:20-29`), which decides whether `idr.div` may crash, looks only at constants. |
+| Fixpoint | Where | Lattice | Verdict |
+|---|---|---|---|
+| Escape, interprocedural | `Stack/Escape.cc:70-93` | per value: none < contents < reference (the Shallow/Deep pair, `Escape.h:63-64`) | **Sparse backward**, shaped like `LivenessAnalysis` |
+| Escape, within a function | `Stack/Escape.cc:112-147`; `forwardsOf :56` | same | Same analysis. `forwardsOf` rebuilds by hand the region-branch forwarding the framework already does. "Does this con run again in its frame" is point-sensitive: it stays a local check, or disappears once frame cells are ops scoped by `AutomaticAllocationScope` (mlir-idioms 3.2) |
+| Binding times | `Specialize/BindingTimes.cc:66-85` (per (function, abstract arguments)), `:190-215` (per SCC) | `{Same(i), Smaller(i), Top}`, context-sensitive | Not a DataFlow candidate: MLIR's sparse framework is context-insensitive. Take the fact from Idris, which proved it (§3.2) |
+| Effects | `Facts/Infer/Infer.cc:78-88` | 4-point per function | A callable-anchored state in the solver. Its defect is imprecision: a closure's crash counts where it is made (`Infer.cc:41-58`), not where it is applied |
+| What closures a value passes | `Facts/Closures/Passed.cc:34-70` | a local walk; any block argument is ⊤ (`:67`) | **Delete**: a weak duplicate of `LabelAnalysis` |
+| Recursion for stack budgets | `Stack/Recursion.cc:24-46` | an apply calls every address-taken function | Read the labels instead |
+| Borrowed parameters | `Ownership/Borrow.cc:57-61` | 2-point per parameter | Keep the algorithm (Lean's, verified downstream); its result becomes a type |
+| Defunctionalization, keep or convert | `Passes/Defunctionalize.cc:822-845` | 2-point per key (MLton's `TwoPointLattice`) | Local to the pass: keep |
+| Closure labels | `Passes/Defunctionalize.cc:234-392` | sets, ⊤ | **The template**: MLIR sparse forward, interprocedural, `FieldAnchor` |
+| Ranges | none | none | `InferIntRangeInterface` on five ops (`Ops.cc:442,861,883,889,903`) is read by no pipeline step (`Registration.cc:15-31`, `Simplify.cc:207-222`). Only `tests/idr/fold/range.mlir` runs it: decorative by the dialect's own standard |
 
-**What to do (Q1).**
+**Ranges.** Measured in `crash/`: in the default region of
+`match_lit n {0 …}`, the code tests `n == 0` three more times and guards the
+division with `select i1 %9, i64 1, i64 %4` (`crash.pre.ll`). LLVM removes
+all of it at O3.
 
-- **Escape** becomes a sparse backward lattice, modeled on `LivenessAnalysis`,
-  with field anchors like `Defunctionalize`'s. The loop-iteration condition
-  stays a local check on top. This is the same machinery the new
-  *uniqueness* fact needs (§6), so the two share it.
-- **Binding times** are not re-derived. Emit passes Idris's size-change
-  relation for each recursive call (§3.2), and the MLIR side only
-  *maintains* it through clones and inlining, by composing the relations.
-  Two hacks become unnecessary: `BindingTimes.cc:121-126`, which treats a
-  subtraction by a positive constant as decreasing, and commits
-  `3d02a0c`/`f748122`, which unroll an Int counter as a Nat.
-- **Effects** stay a function summary, computed over CallGraph SCCs, but
-  count closure effects at applies through the label lattice. Delete
-  `Passed.cc`.
-- **Ranges** get three changes:
-  - run MLIR's `IntegerRangeAnalysis`, whose widening already exists at the
-    pin (`IntegerRangeAnalysis.h`, the merge-count budget of
-    `IntegerValueRangeLattice::join`);
-  - add the idr knowledge it lacks: bind the scrutinee of `idr.match_lit` as
-    a case-region argument, so the default region of a `0` case knows
-    `x ≠ 0`. This is SSI live-range splitting (SSA book ch. 11, §11.1;
-    `idr.match` already does it for constructor fields). Then refine that
-    argument in a subclass's `visitNonControlFlowArguments`;
-  - give `Nat` a non-negative type (§3.2).
+The reason to have ranges *in idr* is the decisions LLVM never sees:
+- `knownNonZero` and the crash causes decide `crash`;
+- `crash` decides `canMoveAcross`, and with it raising and case-of-case
+  legality;
+- all of this happens before LLVM exists.
 
-  Consumers: `knownNonZero` and the crash causes, so a division the range
-  proves safe is rewritten into a plain `arith` division with no crash
-  path. That makes the function crash-free (`Facts/Moves`), which makes it
-  movable, droppable and raisable. The consumers must turn the fact into a
-  more precise op, not store it; see §6's rule.
+The SSI split is the representation fix (SSA book ch. 11, §11.1: live-range
+splitting "to build program representations that provide the static single
+information property"). `idr.match` already binds fields; `match_lit`
+should bind its refined scrutinee.
 
-Why bother at the MLIR level, when LLVM re-derives ranges? **Measured**: in
-`crash/`, the default region of `match_lit n {0 …}` tests `n == 0` three
-more times and guards the division with `select i1 %9, i64 1, i64 %4`
-(`crash.pre.ll`). LLVM removes all of it at O3. What LLVM cannot do is feed
-the fact back into *Idris-level* decisions: effects, raising, case-of-case
-legality, specialization keys and evaluation. Those happen before LLVM
-exists.
+### 2. Equality saturation for the simplify group? Cost and benefit
 
----
+**The fights in the history** (read, `git show`):
 
-## 2. Equality saturation for the simplify group? Cost and benefit
-
-### The phase-ordering fights in the history (read: `git show`)
-
-| Commit | What happened | Kind of interaction |
+| Commit | What happened | Kind |
 |---|---|---|
-| `5fbc601` → `f5730a2` | A positive supercompiler with a whistle (homeomorphic embedding) and generalization; deleted in the cutover | expanding: unfolding and generalization |
-| `cc3aebe` → `fc1d6f2` | "embedding for growth, stops that remember their key", then "the stopped, counted and historied specialization is gone", replaced by binding times | expanding: cloning |
-| `81b0fa5` | specializing on machine Ints: "one clone per value … until the machine ran out of memory" | expanding: cloning |
-| `9b58aaf` | case-of-case through nested matches: "grew the module past 15,000 lines within 2,000 rewrites without converging"; backed out | expanding: duplication inside canonicalize |
-| `8cee6a8` | sink into regions unbounded: "2,000 to 12,000 lines in 40 s", hence `kSinkBudget = 64` (`Sink.cc:26,80`) | expanding: duplication inside canonicalize |
-| `908df5f` | inliner bounded at 4 iterations: 279 s in idr-simplify, down to 39 s; sink's candidate walk down to 14 s | expanding (inline) against the round structure |
-| `2685edd`, `558250e` | clones close call cycles; the MLIR inliner unrolls them "round after round and the simplify loop never ended"; loop breakers every round; a structural hash because sccp reorders constants | expanding (clone, inline) and a fixpoint test on IR |
-| `7884dd8` | sccp, prune and remove-dead-values baked the one caller's constant into a raised clone; specialize re-specialized it: "call-pattern looped" | interprocedural constant propagation against cloning |
+| `5fbc601` → `f5730a2` | a positive supercompiler with a whistle (homeomorphic embedding) and generalization; deleted in the cutover | expanding: unfolding |
+| `cc3aebe` → `fc1d6f2` | "embedding for growth, stops that remember their key", replaced by binding times: "the stopped, counted and historied specialization is gone" | expanding: cloning |
+| `81b0fa5` | specializing on machine Ints, "one clone per value … until the machine ran out of memory" | expanding: cloning |
+| `9b58aaf` | case-of-case through nested matches "grew the module past 15,000 lines within 2,000 rewrites without converging"; backed out | expanding: duplication in canonicalize |
+| `8cee6a8` | sink into regions, unbounded: "2,000 to 12,000 lines in 40 s"; hence `kSinkBudget = 64` (`Sink.cc:26,80`) | expanding: duplication in canonicalize |
+| `908df5f` | inliner capped at 4 iterations: idr-simplify took 279 s, then 39 s; sink's candidate walk then 14 s | expanding against the round structure |
+| `2685edd`, `558250e` | clones close cycles, the inliner unrolls them, "the simplify loop never ended"; loop breakers every round; a structural hash because sccp reorders constants | expanding plus an IR-hash fixpoint |
+| `7884dd8` | sccp, prune and remove-dead-values baked the caller's constant into a raised clone; specialize re-specialized: "call-pattern looped" | interprocedural constants against cloning |
 | `77d9b14` | write raising removed along with the heap rejections | raise against canonicalize |
-| `3d02a0c`, `f748122` | Int counters unrolled as Nats, a binding-time special case | a fact re-derived by syntax |
+| `3d02a0c`, `f748122` | Int counters unrolled as Nats | a fact re-derived by syntax |
 
-**Read the table's last column.** Not one of these fights is between
-*local, shrinking* rewrites (fold, known constructor, field of con, output
-fusion), and those are the problem equality saturation solves ("when to
-apply which rewrite … is called the phase ordering problem", egg §2,
-`02-background.tex:344-352`). Every fight is between **expanding** or
-**interprocedural** transformations: unfolding, cloning, inlining,
-case-of-case duplication, and constant propagation across clones.
+Not one fight is between *local, shrinking* rewrites. Those are what
+e-graphs solve ("when to apply which rewrite … is called the phase ordering
+problem", egg `02-background.tex:344-352`). Every fight is between
+**expanding or interprocedural** transformations.
 
-### Benefits of an e-graph here (real, but narrow)
+**Benefits** (real, narrow):
+- order independence among local rewrites;
+- rules as data that can be checked (Ruler/Enumo, `pal-2023-ruler`
+  abstract; Alive, §5);
+- egglog's lattice analyses beside rewrites. That half we get from the
+  DataFlowSolver (I.2). egg's single, upward-only e-class analysis
+  (`zhang-2023-egglog/background.tex:360-365`) is too weak for ranges,
+  labels and uniqueness together.
 
-- Order independence among the local rewrites. Known-constructor against
-  output fusion against arithmetic folds would stop mattering.
-- Rules as data. They can be checked (Ruler/Enumo, `pal-2023-ruler`
-  abstract; Alive-style, §5) and enumerated.
-- egglog's design (`zhang-2023-egglog`, abstract and `background.tex:139-208`)
-  puts Datalog-style analyses with lattice merges beside the rewrites:
-  "facts as relations". This half of egglog is the valuable part for us,
-  and §1 and §6 take it with MLIR's DataFlow instead. Plain egg allows only
-  one upward-propagating e-class analysis (`background.tex:360-365`),
-  which is too weak for ranges plus labels plus uniqueness.
+**Costs:**
+1. **Scaling on functional terms.** "Even with efficient lambda calculus
+   encoding, unguided equality saturation can locate only the two simplest
+   of these optimizations … even with an hour of compilation time and 60GB
+   of RAM" (`koehler-2021-sketch-eqsat/main.tex:173`). Herbie had to cap
+   the e-graph's size and time (egg `06-case-studies.tex:30-50`). We would
+   be back to budgets.
+2. **Regions are binders.** The cost is either de Bruijn encodings
+   ("orders of magnitude", Koehler, abstract) or slotted e-graphs, which
+   are research-grade: the trace theorem "does not establish concrete
+   transition semantics … or refinement of the Java code"
+   (`wu-2026-slotted-egraphs/intro_compressed.tex`).
+3. **Linearity.** Congruence merges terms without regard to how many
+   times they occur. Extraction can use an `!idr.lin` value twice, or drop
+   it. Keeping quantities through extraction needs occurrence-aware (ILP)
+   extraction. I know of no solution (conjecture; the obstacle is
+   structural).
+4. **Effects.** World-threaded IO must stay a fixed skeleton. That is
+   Cranelift's aegraph design (not in `sources/`; conjecture that it
+   transfers), and it covers only pure straight-line code.
+5. **Extraction.** DAG extraction is NP-hard. Greedy extraction is exact
+   for tree costs only (egg `02-background.tex:395-400`).
+6. **Integration.** egglog is Rust.
 
-### Costs (why not for the simplify group)
+**Answer.** **No** for the simplify group. The history is cured
+structurally:
+- expanding transformations leave the greedy driver;
+- join points replace duplication;
+- the loop runs over decisions (I.4).
 
-1. **Scaling on functional terms.** Koehler et al.: "even with efficient
-   lambda calculus encoding, unguided equality saturation can locate only
-   the two simplest of these optimizations, the remaining five are
-   undiscovered even with an hour of compilation time and 60GB of RAM"
-   (`koehler-2021-sketch-eqsat/main.tex:173`). Our expanding transformations
-   (inline, clone, case-of-case) are exactly the rewrites that make e-graphs
-   explode. Herbie had to cap the e-graph's size and time (egg §6,
-   `06-case-studies.tex:30-50`). We would be back to budgets.
-2. **Regions are binders.** `idr.match` case regions bind fields, and a
-   function body binds parameters. E-graphs over binders need de Bruijn
-   encodings, which cost orders of magnitude (Koehler, abstract), or slotted
-   e-graphs. The slotted-e-graph work in `sources/`
-   (`wu-2026-slotted-egraphs`) proves a trace theorem that "does not
-   establish concrete transition semantics … or refinement of the Java
-   code" (`intro_compressed.tex`). That is research-grade.
-3. **Linearity.** An e-graph is hash-consed, and congruence merges terms
-   without regard to how many times they occur. Extraction can pick a term
-   that uses an `!idr.lin` value twice, or drops it. Keeping quantities
-   through extraction needs occurrence-aware (ILP) extraction. I know of no
-   solution (**conjecture**, but the obstacle is structural). AGENTS.md
-   forbids any pass that drops what Idris proved. The verifier would catch
-   a violation after extraction, but that is a failure, not an
-   optimization.
-4. **Effects and worlds.** World-threaded IO must stay a fixed skeleton,
-   with pure ops floating around it. That is Cranelift's "aegraph" design
-   (not in `sources/`; **conjecture** that it transfers), and it only
-   covers straight-line pure code.
-5. **Extraction.** DAG extraction with sharing is NP-hard; greedy per-class
-   extraction is exact only for tree costs (egg §2,
-   `02-background.tex:395-400`).
-6. **Integration.** egglog is Rust; binding it into MLIR is research work.
+**Maybe later**, a bounded e-graph for the region-free, effect-free
+peephole layer, with its rules checked à la Alive.
 
-### Answer (Q2)
+### 3. Whole-program optimization beyond MLton
 
-**No** for the simplify group. The cure for the history above is
-structural (§6):
+#### 3.1 MLton, and where we stand
 
-- move expanding transformations out of the greedy driver. `CaseOfCase.cc`
-  and `Sink.cc` already break MLIR's own contract for canonicalization:
-  "Repeated applications of patterns should converge", and "complicated
-  cost models don't belong to canonicalization"
-  (`mlir/docs/Canonicalization.md:44-60`);
-- replace case-of-case duplication with join points;
-- make the outer loop a fixpoint over monotone decisions.
-
-**Maybe later**, a bounded e-graph for the *region-free, effect-free
-peephole layer* (arith, bits, string and big ops, known-constructor on
-straight-line code), with rules checked à la Alive. That is an experiment,
-not an architecture.
-
----
-
-## 3. Whole-program optimization beyond MLton
-
-### 3.1 What MLton does, and where idris-mlir stands
-
-MLton's SSA pipeline is a **fixed sequence** of passes, each run a fixed
-number of times, with the order justified in comments. There is no global
+MLton's SSA pipeline is a **fixed sequence**: each pass runs a fixed number
+of times, and the order is justified in comments. There is no global
 fixpoint (`mlton/ssa/simplify.fun:44-120` at the snapshot's revision
-`aa2fd1ad`; `simplify.fun` is not in `sources/code/mlton`, so I fetched it
-to scratch). Lean's LCNF does the same, in three phases
-(base/mono/impure) with an `occurrence` count per pass
-(`Lean/Compiler/LCNF/Passes.lean:92-160`, fetched). Neither iterates the
-whole pipeline to a fixpoint.
+`aa2fd1ad`; not in `sources/code/mlton`, so I fetched it to scratch). Lean's
+LCNF likewise has fixed phases, base/mono/impure, with occurrence counts
+(`Lean/Compiler/LCNF/Passes.lean:92-160`, fetched).
 
-| MLton pass (from `simplify.fun`) | What it does | idris-mlir today |
+| MLton pass (`simplify.fun`) | What it does | idris-mlir |
 |---|---|---|
-| closure conversion with 0CFA (`closure-convert/`) | flow-directed defunctionalization | **parity**: `idr-defunctionalize`, keyed by (type, label set) |
-| `inlineLeaf` ×2, `inlineNonRecursive` | size rule | **ported**: `Inline.cc:36-38` (kLeafSize 40, kSmall 60, kProduct 320) |
-| `constantPropagation` (whole program, data too) | abstract values of constructors and globals | **stronger in one way**: `idr-eval` runs closed calls; `sccp` covers scalars; static shapes are recomputed syntactically by `Pattern.cc` |
-| `contify` ×3 (Fluet & Weeks, dominators; `contify.fun:9-12`) | a function with one continuation becomes a block | **missing**, see the measurement below |
-| `useless` (`useless.fun:10-25`) | fields and arguments whose values are never used | **missing for fields**; `remove-dead-values` covers arguments and results only |
-| `removeUnused` ×4 | unused functions, constructors, arguments | `symbol-dce` and `remove-dead-values` (with `idr-prune` working around two pinned bugs); no unused-constructor removal |
-| `simplifyTypes`, `splitTypes` ×2 | single-constructor types become tuples; types are split | **missing**: Emit decides box or sum by recursion alone (`Term.idr:309-310`) |
-| `flatten`, `localFlatten` ×3, `deepFlatten` | pass tuple components instead of the tuple | partial: unboxed sums are taken apart 1:n by the lowering |
-| `knownCase`, `redundantTests` (relational facts `x < y`, `redundant-tests.fun:9-60`) | case on a known constructor; tests implied by others | known constructor locally, and case-of-case; relational tests **missing** at idr (LLVM does some) |
-| `introduceLoops` ×3, `loopInvariant` ×3 | tail self calls become loops; LICM | self tail calls only (`idr-tail-loops`); LICM left to LLVM |
-| `commonArg`, `commonBlock`, `commonSubexp` | argument, block and value CSE | `cse`, and `Merge.cc` for identical regions |
-| packed representation (`backend/packed-representation.fun`) | tags in pointer bits, nullary constructors as immediates | a header word with the tag; nullary constructors are **static cells**, so testing for `Nil` loads memory (`load i32 … and 65535` in `total'`, `lists.pre.ll`) |
+| closure conversion, 0CFA (`closure-convert/`) | flow-directed defunctionalization | **parity** (`idr-defunctionalize`) |
+| `inlineLeaf` ×2, `inlineNonRecursive` | size rule | **ported** (`Inline.cc:36-38`) |
+| `constantPropagation` (data, globals) | abstract values | **stronger in part**: `idr-eval` runs closed calls; shapes are recomputed syntactically |
+| `contify` ×3 (`contify.fun:9-12`, Fluet & Weeks) | one continuation → a block | **missing** (measured below) |
+| `useless` (`useless.fun:10-25`) | unused fields and arguments | **missing for fields** |
+| `removeUnused` ×4 | unused functions, constructors, arguments | partial (`symbol-dce`, `remove-dead-values`); no constructors |
+| `simplifyTypes`, `splitTypes` | types simplified and split | **missing** (Emit boxes by recursion alone, `Term.idr:309-310`) |
+| `flatten`, `localFlatten` ×3, `deepFlatten` | tuples passed flat | partial (1:n lowering of sums) |
+| `knownCase`, `redundantTests` (relational, `redundant-tests.fun:9-60`) | known constructor; tests implied by others | known constructor yes; relational tests **missing** |
+| `introduceLoops` ×3, `loopInvariant` ×3 | tail loops; LICM | self tail calls only; LICM left to LLVM |
+| packed representation (`backend/packed-representation.fun`) | tags in pointers, nullary constructors as immediates | a header word; nullary constructors are static cells, so a `Nil` test loads memory (`load i32 … and 65535`, `lists.pre.ll`); representation.md R3 |
 
-**Measured: why contification matters.** In `tree/`, `insert x (Node l y r)
-= if x < y then Node (insert x l) y r else Node l y (insert x r)`
-elaborates to `insert` plus `case block 841 in insert`. After idr-simplify,
-`insert` is `no_inline` (the loop breaker) and still *calls* the case block,
-from both arms of a `match_lit` on `x < y`, passing constant `True`/`False`
-(`tree/dump/01-idr-simplify.mlir`). The case block is never inlined. The
-pinned MLIR inliner refuses any call whose callee calls the caller back,
-"A->B->A" (`mlir/lib/Transforms/Utils/Inliner.cpp:709-715`). The loop
-breaker does not help, because the refusal is the inliner's own and does
-not depend on `no_inline`. Commit `2685edd` cites the same lines. Three
-consequences:
+**Measured: contification.** `insert x (Node l y r) = if x < y then Node
+(insert x l) y r else Node l y (insert x r)` elaborates to `insert` plus
+`case block 841 in insert`. After idr-simplify:
+- `insert` is the loop breaker (`no_inline`) and calls the case block from
+  both arms of a `match_lit` on `x < y`, passing the constant `True` or
+  `False` (`tree/dump/01-idr-simplify.mlir`);
+- the case block is never inlined. The pinned inliner refuses a callee that
+  calls its caller back (`Inliner.cpp:709-715`); `no_inline` plays no part.
 
-- the Bool is materialized and matched again in the callee: case-of-case
-  paid for itself only on paper (`Meet.cc:13-25` predicted a fold that never
-  came);
+Consequences:
+- the Bool is built, then matched again in the callee. Case-of-case moved
+  the call because `Meet.cc:13-25` predicted a fold; no fold came;
 - **reuse is lost across the call**: `insert` resets the node's cell and
   frees it (`call void @idris_rt_free_cell(ptr %35)`), and the case block
-  allocates a fresh one (`tree.pre.ll`);
-- mutual tail recursion (`ev`/`od`, `mutual/`) stays two functions at the
-  MLIR level (`06-idr-tail-loops.mlir`). Constant stack depends on LLVM's
-  sibling-call optimization, which happens to hold here because all
-  arguments fit in registers (**measured**: 10^8 iterations ran).
+  allocates a new one (`tree.pre.ll`);
+- mutual tail recursion (`mutual/`, `ev`/`od`) stays two functions at the
+  MLIR level. Its constant stack depends on LLVM's sibling-call
+  optimization, which holds only because the arguments fit in registers
+  (measured: 10^8 iterations ran).
 
-An Idris case block is, by construction of the elaborator, a continuation of
-its parent. Contifying it, or emitting it as a region in the first place,
-makes the A→B→A cycle unrepresentable. MLton runs contify three times.
+An Idris case block *is* a continuation of its parent. Emitting it as one
+makes the cycle unrepresentable.
 
-### 3.2 What Idris facts add beyond MLton
+#### 3.2 What Idris facts add beyond MLton
 
-For each fact: what it enables, and whether we exploit it today.
-
-| Idris fact | Analysis or transformation it enables | Status and evidence |
+| Idris fact | What it enables | Status and evidence |
 |---|---|---|
-| **Quantity 1, plus the whole program** | *Uniqueness inference*. Linearity proves the callee uses a value once; whole-program flow proves every caller passes an unshared one. Then reset/reuse with no runtime test, and `noalias` for LLVM. MLton has neither half; Koka's FIP checks the callee statically but tests the caller at runtime (README). | Planned in `Ownership/ResetReuse.cc:19-25` ("belongs on the parameter's type, computed over the call graph"). Today every reuse tests at runtime: `icmp eq i32 %7, 1` plus a check of the static mark in `bump` (`lists.pre.ll`). |
-| **Quantity 1 and fresh cells** | *Tail recursion modulo cons* (destination passing): `bump (x :: xs) = f x :: bump xs` builds the cell first and passes the hole down, which gives a loop. Legal because the fresh cell is unshared until returned. MLton does not do this. | **Measured**: `bump` over 400,000 elements **segfaults** (stack overflow at the default 8 MiB), and 10^6 fails too; Chez gives the answer (`lists/`). With `ulimit -s unlimited` it succeeds. A silent crash is worse than a named `unsupported`. |
-| **Quantity 0** | erasure | Done (`!idr.erased`). **Beyond**: erased *proofs* are the richest facts and vanish entirely. `LTE i n`, `NonZero d`, `So (x < y)`, `Elem`, and `x = y` could survive as zero-width SSA facts that range analysis consumes and the lowering turns into nothing or `llvm.assume` (conjecture: design needed; see open questions). |
-| **Totality** (Idris-proved termination and coverage) | Speculation and hoisting of pure total calls (`Facts/Moves` already uses it); dropping dead calls; `willreturn`/`mustprogress` for LLVM; **eager evaluation of `Lazy`/`Delay` whose body is total, crash-free and cheap**. Strictness analysis becomes a cost question, not a divergence question, which GHC cannot say. Coverage gives exhaustive matches, so the last case is the default (done). | Eval budget by totality: done (`Eval.cc:52-68`). Eager `Lazy`: missing (conjecture that it pays on `Stream`/`Inf` and on the `if`/`&&` thunks that survive inlining). |
-| **Size-change graphs** (`GlobalDef.sizeChange`) | Binding times without re-derivation; which match region is the base case (branch weights); bounds on recursion depth when the decreasing argument is statically small (stack budgets for recursive functions, now a flat 64 bytes, `Stack/Pass.cc:38`) | Read by the frontend only for polymorphic recursion (`Frontend/Translate/Recursion.idr:1-7`, commit `6883563`), then **dropped**. `BindingTimes.cc` re-derives a weaker version from syntax. |
-| **Nat is a non-negative Integer**, with `plus`/`mult`/`minus`/`equalNat`/`compareNat` as Integer ops | Integer arithmetic instead of unary recursion; a range ≥ 0; small Nats unboxed | Upstream Idris does this for every backend with its "natHack" (`third_party/Idris2/src/Compiler/Opts/Constructor.idr:81-95`), at the CExp level, which this compiler does not consume. **Measured**: `count (S k) acc = count k (acc + 2)` calls the Prelude's recursive `plus` once per iteration. It takes 1.9 s, 8.0 s and 39.2 s for n = 10k, 20k and 40k (quadratic); Chez takes 0.11 s for 40k and 0.13 s for 10^7. `!idr.big` conflates Integer and Nat ("an Integer, or a Nat-like value (non-negative)", `IdrOps.td:79-81`). |
-| **Indices** (`Fin n`, `Vect n`) | ranges [0, n); no bounds checks; exact sizes; unrolling | When `n` is static, done: `index (toFin4 n) v` became a 4-way switch with no check (`vect.pre.ll`). When `n` is only known at runtime, `Fin n`'s bound is erased with `n`. |
-| **Linearity and totality together** | *Fusion/deforestation* of intermediate structures: a producer consumed once by a total consumer can be fused without duplicating work or changing termination | Missing: `upto`, `bump` and `total'` each materialize the list (`lists.pre.ll`). |
-| **Pure, total code is referentially transparent** | CSE of *calls* across the whole program, and memoization of closed calls (the eval cache, `Eval.cc`, is one) | Partial: `cse` works per region; no CSE of calls. |
+| **Quantity 1, plus the whole program** | uniqueness inference: reuse with no runtime test; `noalias`; One-Shot Bufferize's `writable` | planned in `ResetReuse.cc:19-25`; designed in memory-theory §6. Today `bump` tests `icmp eq i32 %7, 1` plus the static mark on every node (`lists.pre.ll`) |
+| **Fresh cell, plus a constructor around the recursive call** | TRMC / destination passing: `bump (x :: xs) = f x :: bump xs` becomes a loop that writes the hole | **Measured**: `bump` over 400,000 elements **segfaults** (8 MiB stack); 200,000 works; Chez handles 10^7 (`lists/`). A silent crash is worse than a named `unsupported` |
+| **Quantity 0** | erasure (done) | Beyond it: erased *proofs* (`LTE`, `NonZero`, `So`, `Elem`, `=`) could be ghost values that range analysis consumes (mlir-idioms 5.3; open) |
+| **Totality and coverage** | speculation and hoisting of pure calls; `willreturn`; complete matches; **eager `Lazy`** whose body is total, crash-free and cheap (strictness as a cost question, not a divergence question) | the eval budget by totality is done (`Eval.cc:52-68`); eager `Lazy` is missing (conjecture that it pays) |
+| **Size-change** | binding times, counted loops (`scf.for`), base-case branch weights, recursion-depth bounds for stack budgets (today a flat 64 bytes, `Stack/Pass.cc:38`) | read by the frontend only for polymorphic recursion (`Translate/Recursion.idr:1-7`, `6883563`), then dropped |
+| **Nat is a non-negative Integer**, and its operations are Integer's | O(1) arithmetic; range ≥ 0; `index` for small Nats | upstream's "natHack" does this for every backend at the CExp level (`Constructor.idr:81-95`); we read TT. **Measured**: `count (S k) acc = count k (acc + 2)` calls the Prelude's recursive `plus` every iteration. 1.9 s / 8.0 s / 39.2 s for n = 10k / 20k / 40k, where Chez takes 0.11 s for 40k and 0.13 s for 10^7 (`nat/`). `!idr.big` conflates Integer and Nat (`IdrOps.td:79-81`) |
+| **Indices** (`Fin n`, `Vect n`) | ranges; no bounds checks; exact sizes; `tensor.dim` | static `n` done: `index (toFin4 n) v` became a 4-way switch with no check (`vect.pre.ll`); symbolic `n` erased |
+| **Linearity plus totality** | fusion of producer and consumer, with no duplicated work and no change to termination; for `Vect`, linalg's elementwise fusion does it | missing: `upto`, `bump` and `total'` each build the list (`lists.pre.ll`) |
+| **Purity plus totality** | CSE and LICM of *calls* program-wide (upstream passes, once effects are `MemoryEffects`) | partial: `cse` within regions; `canDrop` only |
 
-**Answer (Q3).** Close the MLton gap first: contify (as an Emit-level
-representation or an MLIR pass), useless fields (a backward lattice with the
-same `FieldAnchor`), type simplification, and the Nat mapping. Then build the
-fact-driven transformations MLton cannot have: uniqueness, TRMC, eager
-`Lazy`, and fusion. Two of them are measured failures today (Nat is
-quadratic, deep non-tail recursion segfaults).
+### 4. What LLVM receives, and what it should
 
----
+**Measured**: the IR before O3 (`*.pre.ll`) and after O3 with the runtime
+linked (`*.O3.ll`, `Lower/Target.cc:28`). mlir-idioms 6.3 lists the LLVM
+dialect's attributes; here is the evidence and the fact behind each.
 
-## 4. What LLVM receives, and what it should
-
-**Measured**: the IR the translation produces before O3 (`*.pre.ll`), and
-after O3 (`*.O3.ll`, runtime linked, `Lower/Target.cc:28`).
-
-| LLVM fact | Today (cited IR) | What Idris fact justifies more | Honest value |
+| LLVM fact | Today | Idris fact that justifies it | Value |
 |---|---|---|---|
-| function attributes | none on generated functions (`define ptr @Main.bump(ptr %0)`); after O3 only `nounwind` (`attributes #0 = { nounwind }`, `lists.O3.ll`) | `idr.total` → `mustprogress willreturn`; `#idr.effects<none>` → `memory(...)` (reads of cells only) | LLVM cannot infer `willreturn` for recursive functions. Dead-call removal already happens in idr (`canDrop`), so the gain is small. |
-| `nonnull`, `dereferenceable(n)`, `align 8` on box pointers | none on parameters or results; LLVM inferred `nonnull` only on `idris_rt_cell` (`noundef nonnull ptr @idris_rt_cell()`) | representation: a box is never null (static cells for nullary constructors); the constructor's size from `Layouts` | Moderate: enables speculating loads. Note that the lowering uses `null` as a placeholder in phis (`phi ptr [ %15, %11 ], [ null, %10 ]`), so the attribute belongs on values, not on every phi. |
-| alignment of field loads | `load i64, ptr %12, align 4` for 8-byte-aligned cells (`lists.pre.ll`, `total'`) | Layout knows | Small but free. |
-| `noalias` | none | *not* `!idr.lin` (linear ≠ unique, AGENTS.md); **yes** for a proved-unique cell (§3.2) and the reuse token; `allockind("alloc")` on `idris_rt_cell` | Depends on uniqueness inference. |
-| TBAA | the generated code has none; the runtime, compiled from C++, has its own (`store i32 %sub…, ptr %0, … !tbaa !9816` next to untagged field loads in `bump`, `lists.O3.ll`) | the representation: header count (mutable), info word (immutable while a cell lives), fields by type | Moderate in loops that count (conjecture). Also, a cell's fields are immutable between construction and reset: `!invariant.group` on field loads, with `llvm.launder.invariant.group` at reuse, is exactly the C++ vptr pattern (conjecture: needs care). |
-| `range` metadata, `nsw`/`nuw` | none; the tag is masked (`and i32 %3, 65535`) | tag ∈ [0, #ctors); Char ≤ 0x10FFFF; Nat ≥ 0; `Fin n` < n. **Not** `nsw` on `Int`: Idris `Int` wraps, and the lowering is right to emit a plain `add` | Small for tags (LLVM sees the switch); real for Nat and Fin once they have types. |
-| crash paths | `declare void @idris_rt_crash(ptr, i64) #0` with `#0 = { noreturn }`; the call is followed by `br label %14` and a guard `select i1 %9, i64 1, i64 %4` before `sdiv` (`crash.pre.ll`; `Lower/Runtime.cc:94-99` lowers a crash as `scf.if` + call, `Lower/Patterns.cc:215-240`) | a crash does not return | Add `cold`. O3 already rewrites everything after a `noreturn` call to `unreachable`, and the O3 loop is clean (`crash.O3.ll`), so explicit branch weights on crash paths add little. |
-| branch weights | none | size-change: the region that recurses on a decreasing argument is the likely one; a reuse test on a value whose binder was linear is likely to succeed (a heuristic, not a proof) | Conjecture; measure before adding. |
-| `llvm.sideeffect` / `mustprogress` | partial loops carry `llvm.sideeffect` (`ack`, `readInt`'s `go`); total ones carry nothing; `main` makes no progress claim (commit `d26ffc5`) | totality | This one is right as is. |
+| function attributes | none on generated functions (`define ptr @Main.bump(ptr %0)`); after O3 only `nounwind` | totality + no crash → `will_return`/`mustprogress`; `#idr.effects<none>` → memory effects | small: LLVM cannot infer `willreturn` for recursive functions, but idr already drops dead pure calls |
+| `nonnull`/`dereferenceable`/`align 8` on boxes | none; O3 inferred `nonnull` only on `idris_rt_cell` | representation: a box is never null | moderate: speculative loads. The lowering puts `null` placeholders in phis (`phi ptr [ %15, %11 ], [ null, %10 ]`), so set the attributes on values |
+| field-load alignment | `load i64, ptr %12, align 4` on 8-aligned cells (`lists.pre.ll`) | the layout | small, free |
+| `noalias` | none | **proved uniqueness only**, not `!idr.lin` (AGENTS.md); `allockind("alloc")` on `idris_rt_cell` | after Part II step 7 |
+| TBAA / `invariant.group` | none in generated code; the linked runtime's own TBAA (`!tbaa !9816`) sits next to untagged field loads (`lists.O3.ll`) | cells are immutable between construction and reset: `invariant.group` plus a launder at reuse | conjecture; benchmark it |
+| `range`, `nsw`/`nuw` | none; the tag is masked (`and i32 %3, 65535`) | tags, Char, Nat ≥ 0, `Fin n` < n. **Not** `nsw` on `Int`: it wraps, and the plain `add` is right | small for tags, real for Nat and Fin |
+| crash paths | `declare void @idris_rt_crash(ptr, i64) #0 = { noreturn }`, followed by `br` and a guard `select` before `sdiv` (`crash.pre.ll`; `Lower/Runtime.cc:94-99`, `Lower/Patterns.cc:215-240`) | a crash does not return | add `cold`. O3 already turns what follows a noreturn call into `unreachable`, and the loop comes out clean (`crash.O3.ll`) |
+| branch weights | none | size-change (the recursive region is the likely one); a linear binder makes a successful reuse test likely (a heuristic) | conjecture; measure first |
+| `llvm.sideeffect` | only in partial loops (`ack`, `readInt`'s `go`) | totality | already right |
 
-**Answer (Q4).** The genuinely Idris-sourced facts worth sending are:
+**Answer.** Send:
+- `will_return` from totality;
+- `range` from Nat, Fin and tags;
+- `noalias` from proved uniqueness;
+- `nonnull`/`dereferenceable`/`align` from the layout;
+- `invariant.group` from immutability.
 
-- `willreturn`/`mustprogress` from totality;
-- `range` from Nat, Fin and tags, once they are types;
-- `noalias` from *proved uniqueness* (not from linearity);
-- `nonnull`/`dereferenceable`/`align` from the representation;
-- TBAA (or `invariant.group`) from cell immutability.
+Most of what LLVM "misses" it re-infers at O3, because the runtime is linked
+in. The larger gains are facts consumed *before* LLVM (§1, §3).
 
-Most of what LLVM "misses" today it re-infers at O3, because the runtime is
-linked into the module. The larger gain is facts consumed *before* LLVM,
-§1 and §3.
+### 5. Translation validation and verified rewriting
 
----
+1. **Local checkers for typed facts** (R1). The owned-stage verifier
+   (`Ownership/Verify.cc`, `Dialect.cc:436-441`) already works this way,
+   and memory-theory §6.4 does the same for uniqueness. Termination is
+   trusted from Idris; losing it only costs speed.
+2. **Differential execution through the existing JIT.** `idr-eval` already
+   lowers, JITs, meters and reifies in a child process. A `--validate` mode
+   runs each changed function before and after a pass on inputs enumerated
+   from its types, and compares the results. Totality makes the comparison
+   meaningful within the meter. This is bounded validation, like Alive2's:
+   it "misses bugs" but raises no false alarms (`lopes-2021-alive2`,
+   abstract). `tools/bisect.sh` and the action framework
+   (`Support/Actions.h`) already bisect to a single action; extend both to
+   every rewrite.
+3. **Verified local rules.**
+   - The rules in scope: the DRR patterns, the folders, known-constructor.
+   - The SMT theories: bitvectors, algebraic datatypes, and strings and
+     ints for strings and bigs.
+   - The track record: Alive checked 300 LLVM rules and found eight wrong
+     (`lopes-2015-alive`, abstract).
+   - Regions: LeanMLIR proves peephole rewriting sound over SSA with
+     regions (`bhat-2024-verifying-peephole`, abstract and §4.1).
+   - The cost: formal semantics of the `idr` ops, checked against the
+     runtime, which is their meaning.
+4. **Not feasible:** SMT validation of the whole program across inline,
+   clone, eval and defunctionalize. Alive2 is intraprocedural and bounded.
 
-## 5. Translation validation and verified rewrites as a safety net
+**Answer.** Items 1 and 2 are cheap; 2 is nearly free, because the JIT
+exists. Item 3 is moderate. Item 4 is not feasible.
 
-What is feasible, cheapest first:
+### 6. Architecture as data
 
-1. **Checkers for facts: infer globally, check locally.** The owned-stage
-   verifier (`Ownership/Verify.cc`, run after every pass once
-   `idr.stage = "owned"`, `Dialect.cc:436-441`) already follows CompCert's
-   pattern: a validator smaller than the transformation
-   (`leroy-2009-compcert`, §2.2: `Comp'(S) = … if Validate(S, C) …`). Make
-   it the rule for every fact that a transformation relies on. The fact
-   lives in a type (or an inherent op property) whose *local* verifier rule
-   is sound. The global lattice inference only produces it. This works for:
-   - quantity (done);
-   - uniqueness: every call passes a fresh cell or a unique value moved;
-   - frame-local cells: a frame-typed value never reaches a return, a
-     capture, a heap field or an unknown call, as OCaml's local mode does
-     (`lorenzen-2024-oxidizing-ocaml`, link only);
-   - a size-change edge: the argument is a field or a predecessor of the
-     parameter;
-   - effects: a local check, given the labels.
+This is Part I: the IR stack (I.1), the facts (I.2), the transformations
+(I.3), termination (I.4), the phases (I.5), validation (I.6), and the
+deletions (I.7).
 
-   It does **not** work for termination (trusted from Idris; losing it only
-   costs speed) or ranges (consume them immediately into precise ops).
-2. **Differential execution with the existing JIT.** `idr-eval` already
-   lowers, JITs, meters and reifies calls in a child process
-   (`Eval/*.cc`). A `--validate` mode can run a changed function before and
-   after a pass on inputs enumerated from its types (small data, random
-   machine numbers) and compare the reified results. Totality makes the
-   comparison meaningful within the meter. This is bounded validation in
-   Alive2's sense: it "misses bugs" but raises no false alarms
-   (`lopes-2021-alive2`, abstract). `tools/bisect.sh` and the MLIR action
-   framework (`Support/Actions.h`, `idr-eval-call`) already bisect to one
-   action. Extend both to every rewrite.
-3. **Verified local rules.** The DRR patterns (`Canonicalize.td`), the
-   folders and known-constructor are small enough for Alive-style SMT
-   checks. Arithmetic uses bitvectors; constructors and matches use the SMT
-   theory of algebraic datatypes; strings and bigs use Z3's theories, with
-   the runtime's C as the reference semantics. Alive translated 300 LLVM
-   rules and found eight wrong (`lopes-2015-alive`, abstract). Regions are
-   covered by LeanMLIR's peephole framework (`bhat-2024-verifying-peephole`,
-   abstract and §4.1), which proves rewriting sound over an SSA calculus
-   with regions. Cost: a formal semantics of the `idr` ops. The runtime is
-   their meaning, so the model must be checked against it (differential
-   testing again).
-4. **Not feasible**: whole-program SMT translation validation of
-   inline + clone + eval + defunctionalization. Alive2 is intraprocedural,
-   bounded and unrolls loops. Our transformations change call graphs.
-
-**Answer (Q5).** Feasible and cheap: (1) and (2), with (2) almost free
-because the JIT exists. Moderate: (3) for the rule layer. Not feasible: (4).
-The architecture below makes (1) structural.
+**Keep:**
+- quantities as types, re-verified after every pass;
+- `LabelAnalysis`, as the template;
+- `idr-eval`, both as an optimizer and as the validation oracle;
+- MLton's inline rule and the loop breakers;
+- the owned-stage verifier and `Borrow.cc`;
+- `idr-expect` properties, which become verifier rules wherever they are
+  facts (`reuses-in-place` → uniqueness).
 
 ---
-
-## 6. A proposed architecture, as data
-
-### The rules
-
-- **R1. A fact has one producer**, which is a lattice inference or Idris
-  itself. It lives in a **type or inherent property** when losing it would
-  be unsound, and there **a local verifier rule checks it** after every pass
-  (§5.1). A fact whose loss only costs speed (totality, `idr.stack`) may be
-  a discardable attribute. A fact that cannot be checked locally (ranges,
-  shapes) is **never stored**: its consumer rewrites the IR into an op that
-  cannot express the bad state ("parse, don't validate": a division proved
-  non-zero becomes `arith.divsi`, a case proved impossible is deleted).
-- **R2. A transformation declares the facts it needs**, whether it
-  *shrinks* (a measure strictly decreases) or *expands* (it consumes a
-  decision), and which facts it invalidates. A phase recomputes the
-  invalidated facts, as MLIR's analysis manager already does per pass.
-- **R3. Termination by construction.** Shrinking transformations run to a
-  greedy fixpoint (a measure decreases: MLton's shrinker, Lean's `simp`).
-  Expanding ones never run "until the IR stops changing". Each takes
-  decisions from a monotone, finite decision set, and the outer loop is
-  Kleene iteration on that set. `structural()` (`Simplify.cc:137-176`) and
-  the reason for it (sccp's constant churn, `Simplify.cc:10-18`) become
-  irrelevant; `max-rounds` stays as an assertion.
-
-### Facts
-
-| Fact | Lattice | Carrier | Producer (one) | Local checker | Consumers |
-|---|---|---|---|---|---|
-| Quantity | {0, 1, ω} | types `!idr.erased`, `!idr.lin<T>` | Idris (Emit) | verifier (exists) | rc, specialize, raise, defunctionalize |
-| Totality | {total, partial} | `idr.total` (loss-safe) | Idris | none (trusted) | eval budget, moves, LLVM `willreturn` |
-| Size-change | per call edge: {<, ≤, ?} per argument pair | inherent property of the recursive call, composed on clone and inline | Idris (`sizeChange`, which Emit emits) | the argument is a field or a predecessor of the parameter | binding times, branch weights, stack budget |
-| Labels | sets of functions, ⊤ | analysis state | `LabelAnalysis` (exists) | none (consumed by defunctionalize into sums) | defunctionalize, effects, escape, recursion |
-| Effects | {io, crash} per function | `#idr.effects` (recomputed; loss-safe) | CallGraph SCC fold over labels | a local recomputation | moves, raise, eval, case-of-case |
-| Shape (partially static value) | ⊥ / ctor C [v…] / closure f [v…] / constant / ⊤, with depth widening (Lean `ElimDeadBranches.lean:21-43,141-175`: `maxValueDepth = 8`) | analysis state | one sparse forward, interprocedural analysis with field anchors | none (consumed) | known-case, prune (dead regions), specialize keys (replacing `Pattern.cc`'s syntactic walk), eval closedness |
-| Range | intervals (`IntegerValueRange`) | analysis state; types for Nat (`≥ 0`) and Fin | `IntegerRangeAnalysis` + idr transfer functions + `match_lit` region arguments | none (consumed into precise ops) | division/index/crash rewriting, folds, LLVM `range` |
-| Escape | {none < contents < reference} | a frame-local mark in the **type** of the con's result (new), or `idr.stack` (today; loss-safe) | sparse backward analysis, shaped like LivenessAnalysis | a frame-typed value reaches no return, capture, heap field or unknown call | idr-stack, uniqueness |
-| Uniqueness | {unique, shared} per value and parameter | **type** (new) on parameters and results | forward/interprocedural: fresh con or call result, moved linearly; a parameter is unique when every caller passes a unique value | each call site passes a unique value | reset without test, TRMC, fusion, `noalias` |
-| Borrowed | {owned, borrowed} per parameter | `idr.borrowed` (verified by the owned stage) | Borrow.cc (exists) | owned-stage verifier (exists) | rc |
-| Useful field | {useless, useful} per (data, ctor, field) | analysis state | sparse backward with field anchors | none (consumed: the field is deleted) | useless-field removal |
-| Continuation | per function: the unique return continuation, or none (Fluet & Weeks) | none: consumed by contify | dominator analysis on the call graph | none | contify |
-
-### Transformations
-
-| Transformation | Needs | Kind | Termination measure / decision set |
-|---|---|---|---|
-| fold, known-case, field/tag of con, output fusion, DCE of calls, prune | shape, effects, ranges | shrink | op count, redexes |
-| contify (case blocks: best at Emit, as regions) | continuation | shrink | function count |
-| join points in place of case-of-case copying: the consumer becomes a join, each yield a jump; a jump whose shape is known gets its own copy of the join | shape | expand (decision) | set of (join, ctor) copies: finite |
-| inline (MLton's rule) | size, loop breakers | expand (decision) | set of (caller origin, callee) edges: finite |
-| specialize | shape, binding times from size-change | expand (decision) | set of keys: finite by binding times, `kUnrollLimit` (`Specializer.h:18`) and `kClonesPerOwner` (`Clones.h:22`) |
-| eval | effects, totality (budget), shape (closed) | shrink (call → constant) | cache of evaluated keys (exists) |
-| defunctionalize | labels | representation | once |
-| useless fields, simplify types, Nat mapping | useful field; Idris | representation | once |
-| TRMC, fusion | uniqueness, totality | representation | once per recursive function |
-| stack, reset/reuse, borrow, rc | escape, uniqueness, borrowed | ownership stage | once |
-| lower | ranges, totality, uniqueness, layout | lowering | once |
-
-### Phases (Lean's shape, with legality by phase)
-
-1. **Pure idr, Idris facts seeded.** Quantities, totality, size-change,
-   case blocks as regions, Nat as its own type.
-2. **Decision loop.** Compute labels, shape, ranges and effects. Grow the
-   decision sets {inline edges, spec keys, eval keys, join copies}.
-   Materialize them. Shrink to a fixpoint. Repeat while the decision sets
-   grow.
-3. **Representation, once.** Defunctionalize, useless fields, type
-   simplification, contify leftovers, TRMC and fusion.
-4. **Ownership, a separate stage, once.** Escape, then uniqueness, borrow,
-   rc, reset/reuse and tail loops. (review-external's point that the two
-   semantics should come from what is loaded, not from a module attribute,
-   applies here; see mlir-idioms.)
-5. **Lowering** with the LLVM facts of §4.
-
-### Delete
-
-- `Dialect/Canonicalize/Sink.cc` (and `kSinkBudget`), and the duplication in
-  `CaseOfCase.cc`: replaced by join points. The profitability oracle
-  `Meet.cc` goes with them. Its prediction was wrong in `tree/`.
-- `Facts/Closures/Passed.cc`: a weak duplicate of the label lattice.
-- `Stack/Recursion.cc`'s "an apply calls every address-taken function":
-  replaced by labels.
-- `BindingTimes.cc`'s re-derivation, including the subtraction hack
-  `:121-126`: seeded from size-change.
-- `Simplify.cc`'s `structural()` fixpoint test: replaced by decision-set
-  growth (keep it as a debug assertion if wanted).
-- The `InferIntRangeInterface` implementations stay only if a range
-  analysis runs in the pipeline. Otherwise they are decorative by the
-  dialect's own standard.
-
-### Keep
-
-- Quantities in types, and the verifier after every pass.
-- `LabelAnalysis` on MLIR DataFlow, as the template for every new lattice.
-- `idr-eval` (the JIT): both an optimizer and the validation oracle of §5.
-- MLton's inline rule and the loop breakers.
-- The owned-stage verifier (the model for R1's checkers) and Borrow.cc.
-- `idr-expect`'s property API, whose properties turn into verifier rules
-  where they are facts (`reuses-in-place` → uniqueness).
-
----
-
-## What it means for idris-mlir, concretely (ordered by evidence)
-
-1. **Map Nat's Prelude arithmetic to big ops** (the natHack's five
-   functions). Measured quadratic; a registry-sized change
-   (`Registry/Recognized.idr`). Give `Nat` its own type so the range ≥ 0
-   is carried.
-2. **Case blocks are continuations**: emit them as regions, or contify.
-   Measured lost reuse and an unexploited case-of-case in `tree/`; and the
-   A→B→A refusal in MLIR's inliner deserves an entry in `upstream/` if we
-   keep relying on the inliner for this.
-3. **TRMC for constructor-guarded recursion**. `bump` over 400k elements
-   segfaults; Chez does not.
-4. **Uniqueness as a type**, inferred over the call graph, checked locally
-   (`ResetReuse.cc:19-25` already says so): the README's promise.
-5. **Run range analysis**, with `match_lit` region arguments, feeding crash
-   causes and `knownNonZero`.
-6. **The decision-set loop, and join points** in place of `Sink.cc` and
-   case-of-case copying.
-7. **Size-change edges from Emit**, in place of re-deriving binding times.
-8. **LLVM facts**: `nonnull`/`dereferenceable`/`align` from the layout,
-   `range` for tags, Nat and Fin, `cold` on crash, `willreturn`/`mustprogress`
-   from totality, and `noalias` only after 4.
-9. **`--validate`**: differential execution of changed functions through
-   the JIT.
 
 ## Open questions
 
-- **Join points in MLIR.** A jump from inside nested `idr.match` regions to
-  a named continuation is non-local control flow that structured regions
-  forbid. Options: `rgn.val`/`rgn.run`-style region values
-  (`bhat-2022-lambda-ultimate-ssa`, §"The rgn Dialect", `paper.tex:1693-1714`),
-  unstructured blocks inside the function, or a yield that names its join.
-  Which one keeps `RegionBranchOpInterface` and the dataflow framework
-  working? (mlir-idioms.)
-- **Erased proofs as facts.** Which Idris propositions (LTE, NonZero, So,
-  Elem, `=`) are worth keeping as zero-width values after erasure, and how
-  does Emit recognize them robustly? `Registry/Recognized.idr` already
-  recognizes `Builtin.Equal`.
-- **Size-change across erasure.** Idris's `SCCall` matrices index *source*
-  arguments, implicit ones included. Emit needs the map to MLIR parameters
-  after erasure and monomorphization. Composition under inlining and
-  cloning is standard (Lee, Jones and Ben-Amram), but untested here.
-- **Does eager `Lazy` pay?** It needs a cost bound on the thunk body. A
-  total, crash-free body can still be expensive.
-- **The decision-set loop.** Does every interaction the current rounds find
-  (evaluation exposing specialization exposing evaluation) show up as
-  decision-set growth? The do-block case (`908df5f`) is internal to the
-  inliner and does. Unknown: `7884dd8`-style interactions through `sccp`.
-- **ackdyn** (MLton 2.3x faster, README): the O3 IR of `ack` is a tight
-  loop plus one recursive call (`ackdyn.O3.ll`). The difference is probably
+- **Join points in MLIR.** A jump from nested `idr.match` regions to a
+  named continuation is non-local, and structured regions forbid it. The
+  options:
+  - region values in the style of `rgn.val`/`rgn.run`
+    (`bhat-2022-lambda-ultimate-ssa/paper.tex:1693-1714`);
+  - blocks inside the function;
+  - a yield that names its join.
+
+  Which one keeps `RegionBranchOpInterface` and the solver working?
+- **Recognizing recursion schemes over `Vect`.** The registry first; then
+  when does size-change plus a TRMC shape justify a `linalg.generic`?
+  Floating-point order must be kept.
+- **Size-change across erasure.** Idris's `SCCall` matrices index source
+  arguments, implicit ones included. Emit needs a map to MLIR parameters
+  after erasure and monomorphisation. Composition is standard (Lee, Jones,
+  Ben-Amram), but untested here.
+- **The decision lattice.** Does every interaction today's rounds find
+  appear as growth of `D`? Unknown for `7884dd8`-style interactions through
+  sccp.
+- **Eager `Lazy`.** It needs a cost bound on the thunk body.
+- **ackdyn** (MLton 2.3x faster, per the README). The O3 IR of `ack` is a
+  tight loop plus one recursive call (`ackdyn.O3.ll`). The gap is likely
   frame and calling-convention cost, not the optimizer. Not investigated.
