@@ -111,7 +111,7 @@ DeadCodeAnalysis is not loaded"). That is what egglog claims for Datalog
 | Closure labels | sets of labels, ⊤ | already sparse forward, interprocedural (`Defunctionalize.cc:234-392`) | `Facts/Closures/Passed.cc:34-70`; `Stack/Recursion.cc:24-46` ("an apply calls every address-taken function") | defunctionalize, effects, escape, recursion |
 | Integer ranges | `IntegerValueRange` (widening at the pin) | upstream `IntegerRangeAnalysis`, subclassed: `setToEntryState` seeded from types (Nat ≥ 0, `Fin n`, Char, tags); `visitNonControlFlowArguments` for `match_lit` case arguments | nothing (none runs today); `knownNonZero`, which reads constants only (`Ops.cc:20-29`) | `populateIntRangeOptimizationsPatterns(patterns, solver)` (mlir-idioms 6.1); crash causes; bounds; LLVM `range` |
 | Effects (io, crash) per function | 4-point lattice on callables | a callable-anchored state in the same solver, reading labels at applies; exposed as `MemoryEffects` with the resource hierarchy (mlir-idioms 3.4) and an external model on `func.call` | `Facts/Infer/Infer.cc:78-88`; the isa chain in `Facts/Moves/Only.cc:16-41`; `RemoveUnusedCall` | upstream `cse`, `loop-invariant-code-motion`, `remove-dead-values` on pure calls; eval; raise |
-| Escape | none < contents < reference | sparse **backward**, interprocedural, shaped like upstream `LivenessAnalysis` (`LivenessAnalysis.h:78`) | `Stack/Escape.cc:70-93` (summary worklist), `:112-147` (reversed-graph reachability), `forwardsOf :56` (framework forwarding rebuilt by hand) | frame cells, uniqueness |
+| Escape | none < contents < reference | sparse **backward**, interprocedural, shaped like upstream `LivenessAnalysis` (`LivenessAnalysis.h:78`) | `Stack/Escape.cc:70-99` (summary worklist), `:112-147` (reversed-graph reachability), `forwardsOf :56` (framework forwarding rebuilt by hand) | frame cells, uniqueness |
 | Useful fields | useless/useful per (data, ctor, field) | sparse backward with `FieldAnchor`s | nothing (MLton's `useless`) | useless-field and unused-constructor removal (representation.md R7) |
 | Uniqueness | unique/shared | inferred over the call graph; **carried as a type** in the owned stage (memory-theory §6.4) | the runtime test at every reset (`ResetReuse.cc:19-25`) | reset without a test, TRMC, One-Shot Bufferize's `writable` arguments, `noalias` |
 | Size-change | per recursive call: argument relation {<, =, ?} | **from Idris** (`GlobalDef.sizeChange`), emitted on the call; composed through inlining and cloning | `BindingTimes.cc:66-85,190-215` (abstract interpretation), and its hack `:121-126` | binding times, `scf.for` raising, branch weights, stack budgets |
@@ -229,7 +229,7 @@ the checker is smaller than the transformation.
 Each step names what it deletes. Measured failures come first.
 
 1. **Nat is a type, with its operations** (representation.md R1). Map the
-   natHack's five functions (`third_party/Idris2/src/Compiler/Opts/Constructor.idr:81-95`)
+   natHack's five functions (`third_party/Idris2/src/Compiler/Opts/Constructor.idr:81-93`)
    to big ops through the registry, and make `!idr.nat` non-negative so
    ranges start at 0. **Measured quadratic today** (Part III §3.2).
 2. **Case blocks are continuations.** Emit writes them as regions or join
@@ -276,7 +276,7 @@ The inventory, found by grepping `lib/` for worklists (**read**):
 
 | Fixpoint | Where | Lattice | Verdict |
 |---|---|---|---|
-| Escape, interprocedural | `Stack/Escape.cc:70-93` | per value: none < contents < reference (the Shallow/Deep pair, `Escape.h:63-64`) | **Sparse backward**, shaped like `LivenessAnalysis` |
+| Escape, interprocedural | `Stack/Escape.cc:70-99` | per value: none < contents < reference (the Shallow/Deep pair, `Escape.h:63-64`) | **Sparse backward**, shaped like `LivenessAnalysis` |
 | Escape, within a function | `Stack/Escape.cc:112-147`; `forwardsOf :56` | same | Same analysis. `forwardsOf` rebuilds by hand the region-branch forwarding the framework already does. "Does this con run again in its frame" is point-sensitive: it stays a local check, or disappears once frame cells are ops scoped by `AutomaticAllocationScope` (mlir-idioms 3.2) |
 | Binding times | `Specialize/BindingTimes.cc:66-85` (per (function, abstract arguments)), `:190-215` (per SCC) | `{Same(i), Smaller(i), Top}`, context-sensitive | Not a DataFlow candidate: MLIR's sparse framework is context-insensitive. Take the fact from Idris, which proved it (§3.2) |
 | Effects | `Facts/Infer/Infer.cc:78-88` | 4-point per function | A callable-anchored state in the solver. Its defect is imprecision: a closure's crash counts where it is made (`Infer.cc:41-58`), not where it is applied |
@@ -424,7 +424,7 @@ makes the cycle unrepresentable.
 | **Quantity 0** | erasure (done) | Beyond it: erased *proofs* (`LTE`, `NonZero`, `So`, `Elem`, `=`) could be ghost values that range analysis consumes (mlir-idioms 5.3; open) |
 | **Totality and coverage** | speculation and hoisting of pure calls; `willreturn`; complete matches; **eager `Lazy`** whose body is total, crash-free and cheap (strictness as a cost question, not a divergence question) | the eval budget by totality is done (`Eval.cc:52-68`); eager `Lazy` is missing (conjecture that it pays) |
 | **Size-change** | binding times, counted loops (`scf.for`), base-case branch weights, recursion-depth bounds for stack budgets (today a flat 64 bytes, `Stack/Pass.cc:38`) | read by the frontend only for polymorphic recursion (`Translate/Recursion.idr:1-7`, `6883563`), then dropped |
-| **Nat is a non-negative Integer**, and its operations are Integer's | O(1) arithmetic; range ≥ 0; `index` for small Nats | upstream's "natHack" does this for every backend at the CExp level (`Constructor.idr:81-95`); we read TT. **Measured**: `count (S k) acc = count k (acc + 2)` calls the Prelude's recursive `plus` every iteration. 1.9 s / 8.0 s / 39.2 s for n = 10k / 20k / 40k, where Chez takes 0.11 s for 40k and 0.13 s for 10^7 (`nat/`). `!idr.big` conflates Integer and Nat (`IdrOps.td:79-81`) |
+| **Nat is a non-negative Integer**, and its operations are Integer's | O(1) arithmetic; range ≥ 0; `index` for small Nats | upstream's "natHack" does this for every backend at the CExp level (`Constructor.idr:81-93`); we read TT. **Measured**: `count (S k) acc = count k (acc + 2)` calls the Prelude's recursive `plus` every iteration. 1.9 s / 8.0 s / 39.2 s for n = 10k / 20k / 40k, where Chez takes 0.11 s for 40k and 0.13 s for 10^7 (`nat/`). `!idr.big` conflates Integer and Nat (`IdrOps.td:79-81`) |
 | **Indices** (`Fin n`, `Vect n`) | ranges; no bounds checks; exact sizes; `tensor.dim` | static `n` done: `index (toFin4 n) v` became a 4-way switch with no check (`vect.pre.ll`); symbolic `n` erased |
 | **Linearity plus totality** | fusion of producer and consumer, with no duplicated work and no change to termination; for `Vect`, linalg's elementwise fusion does it | missing: `upto`, `bump` and `total'` each build the list (`lists.pre.ll`) |
 | **Purity plus totality** | CSE and LICM of *calls* program-wide (upstream passes, once effects are `MemoryEffects`) | partial: `cse` within regions; `canDrop` only |
