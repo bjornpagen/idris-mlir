@@ -144,58 +144,6 @@ struct LowerLinear : IdrPattern<OpT> {
   }
 };
 
-// A new cell with the label, its code and the captures.
-struct LowerClosure : IdrPattern<ClosureOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ClosureOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    const Label &label = layouts.label(layouts.labelId(
-        op.getCalleeAttr(), static_cast<unsigned>(op.getCaptures().size())));
-    const Cell &cell = layouts.closure(label);
-    Value closure = runtime.allocate(rewriter, loc, cell.size,
-                                     cellInfo(layouts.labelId(label), cell.objs, CellKind::Closure));
-    runtime.store(rewriter, loc, closure, cell.fields.front(), runtime.code(rewriter, loc, label));
-    for (auto [slots, values] :
-         llvm::zip_equal(ArrayRef(cell.fields).drop_front(), adaptor.getCaptures()))
-      runtime.store(rewriter, loc, closure, slots, values);
-    rewriter.replaceOp(op, closure);
-    return success();
-  }
-};
-
-// A call of the closure's code with the closure and the
-// arguments.
-struct LowerApply : IdrPattern<ApplyOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ApplyOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value closure = adaptor.getCallee().front();
-    auto fn = cast<FnType>(op.getCallee().getType());
-    SmallVector<Type> inputs{closure.getType()}, results;
-    for (Type input : fn.getInputs())
-      llvm::append_range(inputs, layouts.components(input));
-    for (Type result : fn.getResults())
-      llvm::append_range(results, layouts.components(result));
-    auto type = rewriter.getFunctionType(inputs, results);
-    Value code = runtime.load(rewriter, loc, closure, {{closure.getType(), 8}}).front();
-    Value function = UnrealizedConversionCastOp::create(rewriter, loc, type, code).getResult(0);
-    SmallVector<Value> args{closure};
-    llvm::append_range(args, flatten(adaptor.getArgs()));
-    auto call = func::CallIndirectOp::create(rewriter, loc, function, args);
-    SmallVector<ValueRange> out;
-    ResultRange values = call.getResults();
-    for (Type result : fn.getResults()) {
-      size_t n = layouts.components(result).size();
-      out.push_back(values.take_front(n));
-      values = values.drop_front(n);
-    }
-    rewriter.replaceOpWithMultiple(op, out);
-    return success();
-  }
-};
-
 // The runtime's crash, which does not return; the
 // ub.unreachable after it stays.
 struct LowerCrash : IdrPattern<CrashOp> {
@@ -489,9 +437,8 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
                       Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
   populateCountingPatterns(patterns, converter, layouts, runtime);
-  patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerClosure, LowerApply,
-               LowerCrash, LowerMayLoop, LowerPoison, LowerSelect, LowerToChar,
-               LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,
+  patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
+               LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,
                LowerCompare<BigCmpOp>, LowerLinear<LinEnterOp>, LowerLinear<LinUseOp>>(
       converter, ctx, layouts, runtime);
   addRuntimeCalls<ToIntOp, DoubleHeadOp, IntHeadOp,

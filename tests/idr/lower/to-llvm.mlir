@@ -1,7 +1,9 @@
-// RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-lower=jit=true --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s
 // After idr-lower, upstream's conversions take the module to the LLVM
 // dialect alone: a closure's code becomes the address of its function, in
 // code and in a static closure alike, and no cast is left.
+// Closures are lowered by idr-eval's lowering (jit) alone: the program's
+// have all become sums.
 // CHECK-NOT: unrealized_conversion_cast
 // CHECK-NOT: func.
 // CHECK-DAG: llvm.mlir.global private constant @__idr_closure_{{[0-9]+}}()

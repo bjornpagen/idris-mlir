@@ -72,6 +72,7 @@ add_library(idr_dialect STATIC
 	lib/Fold/Fold.cc
 	lib/Inline/Inline.cc
 	lib/Lower.cc
+	lib/Lower/Closures.cc
 	lib/Lower/Counting.cc
 	lib/Lower/Layout.cc
 	lib/Lower/Matches.cc

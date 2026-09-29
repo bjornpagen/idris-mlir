@@ -23,6 +23,13 @@ void lowerPredecessors(mlir::ModuleOp module);
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                       Layouts &layouts, Runtime &runtime);
 
+// The patterns of closures (Closures.cc). Only idr-eval's lowering meets a
+// closure: it runs code before idr-defunctionalize has made every closure
+// of the program a sum.
+void populateClosurePatterns(mlir::RewritePatternSet &patterns,
+                             const mlir::TypeConverter &converter, Layouts &layouts,
+                             Runtime &runtime);
+
 // The patterns of the ops that count references (Counting.cc).
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, Layouts &layouts,

@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-lower=jit=true | FileCheck %s
 // A boxed constructor is a new cell: the runtime allocates it with its
 // header (count 1, the info word: tag 1, one object slot, kind box), and its
 // fields are stored at their offsets, the counted ones first. A match on a
@@ -7,6 +7,8 @@
 // code and the captures; applying it calls the code with the closure first.
 // The code loads the captures and calls the function with them before the
 // arguments.
+// Closures are lowered by idr-eval's lowering (jit) alone: the program's
+// have all become sums.
 // CHECK-LABEL: func.func private @push(
 // CHECK-DAG: %[[SIZE:.*]] = llvm.mlir.constant(24 : i64) : i64
 // CHECK-DAG: %[[INFO:.*]] = llvm.mlir.constant(65537 : i32) : i32

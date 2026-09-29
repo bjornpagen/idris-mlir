@@ -48,6 +48,21 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &
   func::ReturnOp::create(b, loc, status);
 }
 
+// idr-defunctionalize has made every closure of the program a sum: only
+// idr-eval lowers code that still builds, applies or holds a closure.
+LogicalResult checkNoClosures(ModuleOp module) {
+  WalkResult result = module.walk([](Operation *op) {
+    bool closure = isa<idr::ClosureOp, idr::ApplyOp>(op);
+    if (auto constant = dyn_cast<idr::ConstantOp>(op))
+      constant.getValue().walk([&](idr::ClosureAttr) { closure = true; });
+    if (!closure)
+      return WalkResult::advance();
+    op->emitError("internal error: idr-lower: a closure is left after idr-defunctionalize");
+    return WalkResult::interrupt();
+  });
+  return failure(result.wasInterrupted());
+}
+
 struct Lower : idr::impl::IdrLowerBase<Lower> {
   using IdrLowerBase::IdrLowerBase;
 
@@ -62,6 +77,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         return signalPassFailure();
       root = *found;
       io = llvm::any_of(root.getArgumentTypes(), llvm::IsaPred<idr::WorldType>);
+      if (failed(checkNoClosures(module)))
+        return signalPassFailure();
     }
     // Every evaluation is metered, total code with a larger budget, so every
     // function counts a tick when entered. idr-eval runs before idr-tail-loops
@@ -113,6 +130,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
     idr::lower::populatePatterns(patterns, converter, layouts, runtime);
+    if (jit)
+      idr::lower::populateClosurePatterns(patterns, converter, layouts, runtime);
 
     ConversionConfig config;
     config.allowPatternRollback = false;
