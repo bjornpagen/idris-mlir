@@ -1,7 +1,6 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=arith.addi
 // The let-bound lambda is an SSA value, a closure; both applications of it
-// are calls once it is known, inlined, and folded: f (f 1) is 201, written
-// as one constant.
-// CHECK: idr.constant "201\0A"
-// CHECK: idr.io.put_str
+// are calls once it is known, inlined and folded, so no addition is left
+// (and no closure: mlir.expect). The value, f (f 1), is the run's to check.
+// CHECK: idr.io.put_

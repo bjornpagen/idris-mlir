@@ -1,6 +1,6 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.fold3 --implicit-check-not=arith.addi
-// No dictionary exists: the frontend resolves them, and fold3's
-// call, closed and total, is gone: its value, 42, is a constant.
-// CHECK: idr.constant "42\0A"
-// CHECK: idr.io.put_str
+// No dictionary exists: the frontend resolves them, and fold3's call,
+// closed and total, is evaluated: neither it nor an addition is left. Its
+// value is the run's to check.
+// CHECK: idr.io.put_

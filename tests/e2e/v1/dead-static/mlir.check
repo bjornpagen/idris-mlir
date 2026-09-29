@@ -1,7 +1,6 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=arith.addi --implicit-check-not=never
 // The unused lambda and the unused action leave no code: an idr.closure and
-// an unused call of a pure, total function that cannot crash are dead,
-// and so is "never run".
-// CHECK: idr.constant "only this\0A"
-// CHECK: idr.io.put_str
+// an unused call of a pure, total function that cannot crash are dead, and
+// so is "never run". What is written is the run's to check.
+// CHECK: idr.io.put_
