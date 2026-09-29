@@ -9,10 +9,10 @@ prelude-input: same stdout and exit status
 prelude-io: same stdout and exit status
 prelude-lists: compiles only with evaluation: unsupported (runtime integer)
 prelude-math: same stdout and exit status
-prelude-show: same stdout and exit status
-prelude-traverse: same stdout and exit status
+prelude-show: compiles only with evaluation: unsupported (runtime data)
+prelude-traverse: compiles only with evaluation: unsupported (runtime closure)
 prelude-user-types: same stdout and exit status
 show-values: same stdout and exit status
 specialize-growing-accumulator: same stdout and exit status
 static-evaluation: same stdout and exit status
-vect: same stdout and exit status
+vect: compiles only with evaluation: unsupported (runtime integer)
