@@ -70,8 +70,8 @@ The idiomatic fix is the builtin module's own rule, applied to the program:
 
 Evidence:
 - `lib/Lower/Layout.h:21-23` computes `tag | objs << 16 | kind << 24` with no
-  range check. `Layout.cc:283-284` does `++cell.objs` with no bound.
-- `labelId` (`Layout.cc:177-179`) returns an unbounded module-wide count that
+  range check. `Layout.cc:159` does `++cell.objs` with no bound.
+- `labelId` (`Layout.cc:52-54`) returns an unbounded module-wide count that
   is used as a 16-bit tag.
 - Experiment (`fat.mlir`): a box constructor with 256 `!idr.str` fields, run
   through `--idr-lower`, calls `idris_rt_cell(..., 16777216)`, which is `1 << 24`.
@@ -301,9 +301,9 @@ silently.
 
 | We do by hand | MLIR has | Evidence | Weight |
 |---|---|---|---|
-| per-op "what happens to this operand" in 7 isa-chains | an op interface, or a custom **effect interface** with ODS operand decorators (`EffectOpInterfaceBase`, `SideEffect`: `SideEffectInterfaceBase.td:48,162`); bufferization's precedent `BufferViewFlowOpInterface` (dependencies operand → result or region argument) and `BufferizableOpInterface` (read, write, aliasing results: Bufferization.md "Extending One-Shot Bufferize") | `Ownership/Counting.cc:40-49` (readFrom), `:85-100` (useOf), `Borrow.cc:158-178`, `Stack/Escape.cc:169-200`, `Facts/Moves/Only.cc:17-44`, `Facts/Closures/Passed.cc`, `Dialect.cc:149-171` (throughLinear/readOnce) | high |
+| per-op "what happens to this operand" in 7 isa-chains | an op interface, or a custom **effect interface** with ODS operand decorators (`EffectOpInterfaceBase`, `SideEffect`: `SideEffectInterfaceBase.td:48,162`); bufferization's precedent `BufferViewFlowOpInterface` (dependencies operand → result or region argument) and `BufferizableOpInterface` (read, write, aliasing results: Bufferization.md "Extending One-Shot Bufferize") | `Ownership/Counting.cc:40-49` (readFrom), `:85-100` (useOf), `Borrow.cc:158-178`, `Stack/Escape.cc:169-200`, `Facts/Moves/Only.cc:16-41`, `Facts/Closures/Passed.cc`, `Dialect.cc:149-171` (throughLinear/readOnce) | high |
 | fixpoints: borrow inference re-walks every function until nothing changes (`Borrow.cc:57-61`); escape summaries (`Escape.cc:81-94`); effects (`Infer.cc:78-90`); binding times | the DataFlow framework: sparse *backward* interprocedural analyses (`AbstractSparseBackwardDataFlowAnalysis`, which LivenessAnalysis and remove-dead-values use), `DataFlowConfig().setInterprocedural(true)`; `CallGraph` + `llvm::scc_iterator` for bottom-up SCC order | Defunctionalize already does it right (`Passes/Defunctionalize.cc:117-400`, a custom lattice anchor); the others do not | medium: correctness today, uniformity tomorrow |
-| a fixed list of region ops per analysis: `isa<MatchOp, MatchLitOp, scf::WhileOp>` | `RegionBranchOpInterface`, which our matches implement fully (`Ops.cc:717-783`) | `Ownership/Verify.cc:253-261`, `Counts.cc:165-177`, `Escape.cc:36-51` | medium |
+| a fixed list of region ops per analysis: `isa<MatchOp, MatchLitOp, scf::WhileOp>` | `RegionBranchOpInterface`, which our matches implement fully (`Ops.cc:717-783`) | `Ownership/Verify.cc:253-261`, `Counts.cc:63-75`, `Escape.cc:36-51` | medium |
 | `Tarjan` in `Passes/Scc.h` | `llvm::scc_iterator` over a `GraphTraits` adapter | 60 lines | low |
 | two effect systems: MLIR `MemoryEffects` with idr resources, *and* `facts::Effects{io,crash,partial}` computed by `own()` with its own isa chain | one: effects on resources, read by resource. See 3.4 | `Facts/Moves/Only.cc`, `Idr.h:30-52` | medium |
 | `RemoveUnusedCall`, a dialect canonicalizer, because `func.call` has no effects | an **external model** of `MemoryEffectOpInterface` on `func::CallOp` (Interfaces.md "External Models"), from the callee's `idr.effects`, so that DCE, CSE and LICM treat pure total calls as pure. The caveat: the effect depends on a symbol lookup and on a cache attribute that must never under-state. The alternative is an `idr.call` of our own | `Dialect/Canonicalize/Calls.cc` | medium: CSE and LICM of pure calls is a real gain (conjecture) |
@@ -312,7 +312,7 @@ silently.
 | `InferIntRangeInterface` implemented on 5 ops, consumed by nothing | `int-range-optimizations`, `arith-unsigned-when-equivalent`, `arith-int-range-narrowing` (Arith `Passes.td:31-72`) | see 5.1: it works once run | high value, low cost |
 | a `ConfinedAttr`-able bound checked in C++ or nowhere | `ConfinedAttr<I64Attr, [IntNonNegative, IntMaxValue<N>]>` (Operations.md "Confining attributes", 295-343) | `idr.field` index, a box's constructor count | low |
 | `!idr.token`, whose producer is checked by `getDefiningOp` in the verifier | the builtin **`token` type** (LangRef "Token Type" 750-776, `docs/Tokens.md`): "you can always walk back from a use and say this token came from that specific op"; ODS adds `TokenProducerTrait` and `TokenConsumerTrait`; tokens cannot be forwarded | `Ownership/Verify.cc:237-251` reads `made->getAttrOfType<SymbolRefAttr>("ctor")` by string name | medium: the check becomes structural |
-| `idr.stack`'s slot built in the entry block, with the loop-iteration rule in the escape analysis | `AutomaticAllocationScopeResource`, the `AutomaticAllocationScope` trait, and `memref.alloca_scope` (`MemRefOps.td:422`) delimit an alloca's lifetime structurally | `Stack/Cell.cc`, `Escape.h:98-106` | medium (3.3) |
+| `idr.stack`'s slot built in the entry block, with the loop-iteration rule in the escape analysis | `AutomaticAllocationScopeResource`, the `AutomaticAllocationScope` trait, and `memref.alloca_scope` (`MemRefOps.td:422`) delimit an alloca's lifetime structurally | `Stack/Cell.cc`, `Escape.h:31-39` | medium (3.3) |
 
 Already idiomatic, keep:
 - **Actions and debug counters**: `Support/Actions.h`, and `--no-eval` as an
@@ -350,13 +350,13 @@ Already idiomatic, keep:
 
 **3.2 The stack mark changes an op's meaning through a discardable attribute.**
 - `ConOp::getEffects` picks its resource from `hasAttr("idr.stack")`
-  (`Ops.cc:334-342`). `ResetReuse.cc:74,123` and `Stack/Cell.cc:198` read the
+  (`Ops.cc:334-342`). `ResetReuse.cc:74,123` and `Stack/Cell.cc:13` read the
   same string.
 - A pattern that rebuilds an `idr.con` drops the mark. That is safe today
   (heap instead of stack).
 - The mark's soundness also depends on no later pass inlining or duplicating
   the con into a loop or another frame. The escape analysis bakes in
-  `idr-tail-loops`' future behaviour (`Escape.h:98-106`). That is pass-order
+  `idr-tail-loops`' future behaviour (`Escape.h:31-39`). That is pass-order
   coupling held in an attribute.
 - Representation: placement as IR, the way `memref.alloca` and `memref.alloc`
   are two ops. A `%slot = idr.frame_cell @T::@C` in the entry block (the
@@ -498,7 +498,7 @@ Each of these is a place where Idris knows more than the IR keeps.
    total and pure. Putting effects and totality in `!idr.fn` would let
    `canMoveAcross` and `canEvaluate` judge an apply by its type.
 6. **`Lazy` and `Inf` are `!idr.fn<() -> (a)>`** (`IdrOps.td:60`,
-   `Emit/Types.idr:31`). Delay and codata are indistinguishable from a
+   `Emit/Types.idr:32`). Delay and codata are indistinguishable from a
    nullary closure. Whether that loses optimizations (memoization,
    productivity) is an open question.
 
@@ -552,7 +552,7 @@ See 1.3 and `mlir-ownership-types.md`. In short:
 
 - Grepping `lib/Lower` for noalias, nonnull, range, tbaa, invariant,
   dereferenceable or alias scopes finds nothing. The only function attribute
-  set is `noreturn` on the crash helpers (`Runtime.cc:62-66`).
+  set is `noreturn` on the crash helpers (`Runtime.cc:67-70`).
 - The pinned LLVM dialect has what we need:
   - argument and result attributes (`LLVMDialect.td:42-70`): `llvm.noalias`,
     `llvm.nonnull`, `llvm.dereferenceable`, `llvm.align`, `llvm.noundef`,
