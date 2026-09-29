@@ -1024,8 +1024,12 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 
 // The two ops that move a value into and out of a linear type. Each makes
 // a new value, allocated on a resource of its own: an allocation is never
-// merged with another and is removed when unused, and no fold undoes the
-// pair, so the quantity stays where Idris put it. Both lower to nothing.
+// merged with another (two entries of one value stay two linear values) and
+// is removed when unused. Both lower to nothing. An entry used at once, or
+// a use entered at once, is the value itself: nothing ran in the linear
+// position, and each value that remains keeps its type, so the fold loses
+// no quantity. What is left of a binder once inlining has joined its two
+// sides is such a pair, and it would hide the value from every fold.
 
 // Idris lets any value fill a quantity-1 binder: what enters is used once
 // from then on.
@@ -1036,6 +1040,7 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [
   let arguments = (ins AnyType:$value);
   let results = (outs Res<Idr_LinType, "", [MemAlloc<Idr_LinResource>]>:$result);
   let assemblyFormat = "$value attr-dict `:` qualified(type($result))";
+  let hasFolder = 1;
 }
 
 // The one use of a linear value, where it becomes an ordinary one.
@@ -1046,6 +1051,7 @@ def Idr_LinUseOp : Idr_Op<"lin.use", [
   let arguments = (ins Idr_LinType:$linear);
   let results = (outs Res<AnyType, "", [MemAlloc<Idr_LinResource>]>:$result);
   let assemblyFormat = "$linear attr-dict `:` qualified(type($linear))";
+  let hasFolder = 1;
 }
 
 #endif // IDR_OPS

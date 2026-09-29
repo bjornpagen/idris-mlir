@@ -406,6 +406,20 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   return {};
 }
 
+// The value an entry used at once held, and the linear value a use entered
+// at once was.
+OpFoldResult LinUseOp::fold(FoldAdaptor) {
+  if (auto enter = getLinear().getDefiningOp<LinEnterOp>())
+    return enter.getValue();
+  return {};
+}
+
+OpFoldResult LinEnterOp::fold(FoldAdaptor) {
+  if (auto use = getValue().getDefiningOp<LinUseOp>())
+    return use.getLinear();
+  return {};
+}
+
 // The tag of a known constructor, or 0 for a type of one constructor.
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   auto tag = [&](CtorOp ctor) -> OpFoldResult {
