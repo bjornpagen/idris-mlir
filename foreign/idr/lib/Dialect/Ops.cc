@@ -389,21 +389,25 @@ LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // it passed a linear position on the way. A linear field moves out of the
 // constructor, so only the constructor's one read takes it: otherwise it
 // would be used twice.
-OpFoldResult FieldOp::fold(FoldAdaptor) {
+OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
     if (con.getCtor().getLeafReference() == getCtorAttr().getAttr() &&
         (!isa<LinType>(getType()) || readOnce(getValue())))
       return con.getFields()[index];
-  if (ConAttr con; matchPattern(source, m_Constant(&con)))
-    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr())
-      return con.getFields()[index];
+  // The constant is the operand's, as folding or constant propagation knows
+  // it, or the one it passed a linear position from.
+  auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
+  if (!con)
+    matchPattern(source, m_Constant(&con));
+  if (con && con.getCtor().getLeafReference() == getCtorAttr().getAttr())
+    return con.getFields()[index];
   return {};
 }
 
 // The tag of a known constructor, or 0 for a type of one constructor.
-OpFoldResult TagOp::fold(FoldAdaptor) {
+OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   auto tag = [&](CtorOp ctor) -> OpFoldResult {
     if (!ctor)
       return {};
@@ -412,7 +416,8 @@ OpFoldResult TagOp::fold(FoldAdaptor) {
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
     return tag(lookupCtor(*this, con.getCtor()));
-  if (ConAttr con; matchPattern(source, m_Constant(&con)))
+  auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
+  if (con || matchPattern(source, m_Constant(&con)))
     return tag(lookupCtor(*this, con.getCtor()));
   if (DataOp data = lookupData(*this, getValue().getType()))
     if (data.getCtors().size() == 1)
