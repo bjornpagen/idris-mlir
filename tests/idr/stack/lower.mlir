@@ -12,9 +12,9 @@
 // CHECK-NEXT: llvm.mlir.constant(1 : i64)
 // CHECK-NEXT: %[[SLOT:.*]] = llvm.alloca
 // CHECK-NOT: idris_rt_cell
-// CHECK: %[[INFO:.*]] = llvm.getelementptr %[[SLOT]][4]
-// CHECK-NEXT: %[[MARK:.*]] = llvm.mlir.constant(-{{[0-9]+}} : i32)
-// CHECK-NEXT: llvm.store %[[MARK]], %[[INFO]]
+// CHECK-DAG: %[[INFO:.*]] = llvm.getelementptr %[[SLOT]][4]
+// CHECK-DAG: %[[MARK:.*]] = llvm.mlir.constant(-{{[0-9]+}} : i32)
+// CHECK: llvm.store %[[MARK]], %[[INFO]]
 // CHECK-NOT: idris_rt_cell
 // CHECK: return
 

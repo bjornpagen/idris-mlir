@@ -5,8 +5,9 @@
 // idr-tail-loops makes self tail calls loops, and after it the marks are
 // the same: a cell only read in its iteration is marked (@perIteration);
 // one that the next iteration receives (@carried), or that leaves the loop
-// as its result (@exits), is not. Any call of a con's own function counts
-// as a next iteration, even one not in tail position (@selfNonTail). A
+// as its result (@exits), is not. A call of the con's own function that is
+// not in tail position runs a new frame with slots of its own, so passing
+// the cell to it is like passing it to any call (@selfNonTail). A
 // cell built before a loop may go round it and out of it, as long as it is
 // only read (@outside); returned from the loop's result, it escapes
 // (@outsideReturned).
@@ -23,8 +24,7 @@
 // CHECK-NOT: idr.stack
 // CHECK: return
 // CHECK-LABEL: func.func private @selfNonTail(
-// CHECK-NOT: idr.stack
-// CHECK: return
+// CHECK: idr.con @List::@Cons(%{{[^)]*}}) {idr.stack} :
 // CHECK-LABEL: func.func private @outside(
 // CHECK: idr.con @List::@Cons(%{{[^)]*}}) {idr.stack} :
 // CHECK: scf.while
