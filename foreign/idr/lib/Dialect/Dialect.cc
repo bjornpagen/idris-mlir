@@ -121,8 +121,29 @@ LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 bool idr::isFieldType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
+  if (auto lin = dyn_cast<LinType>(type))
+    return isFieldType(lin.getValue());
   return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, WorldType,
              ErasedType>(type);
+}
+
+// A linear value of a runtime type: the erased value is never used, and
+// the world is linear already.
+LogicalResult LinType::verify(function_ref<InFlightDiagnostic()> emitError, Type value) {
+  if (isa<LinType, ErasedType, WorldType>(value) || !isFieldType(value))
+    return emitError() << "expects !idr.lin of a runtime type other than the world, got " << value;
+  return success();
+}
+
+idr::Quantity idr::quantityOf(Type type) {
+  if (isa<ErasedType>(type))
+    return Quantity::Zero;
+  return isa<LinType, WorldType>(type) ? Quantity::One : Quantity::Many;
+}
+
+Type idr::unrestricted(Type type) {
+  auto lin = dyn_cast<LinType>(type);
+  return lin ? lin.getValue() : type;
 }
 
 //===----------------------------------------------------------------------===//
@@ -161,6 +182,8 @@ CtorOp idr::lookupCtor(Operation *from, SymbolRefAttr ctor) {
 //===----------------------------------------------------------------------===//
 
 namespace {
+
+LogicalResult verifyLinearity(FunctionOpInterface fn);
 
 // Runs before the ops inside the module are verified, so it assumes nothing
 // that their verifiers check.
@@ -254,11 +277,14 @@ LogicalResult verifyProgram(ModuleOp module) {
   for (auto data : module.getOps<DataOp>())
     if (failed(visit(data)))
       return failure();
+  for (auto fn : module.getOps<FunctionOpInterface>())
+    if (failed(verifyLinearity(fn)))
+      return failure();
   return success();
 }
 
 //===----------------------------------------------------------------------===//
-// World linearity
+// Linearity: worlds and !idr.lin values
 //===----------------------------------------------------------------------===//
 
 // Whether each region of `branch` returns straight to it, so that at most
@@ -271,13 +297,13 @@ bool exclusiveRegions(RegionBranchOpInterface branch) {
   });
 }
 
-// The uses of one world value, counted on the worst path. The regions of a
-// match, and of any op whose regions exclude each other, are alternative
+// The uses of one linear value, counted on the worst path. The regions of
+// a match, and of any op whose regions exclude each other, are alternative
 // paths; a region that may run repeatedly counts twice. A region of several
 // blocks, which the contract does not produce, counts every use in it.
-class WorldUses {
+class LinearUses {
 public:
-  explicit WorldUses(Value value) : world(value) {
+  explicit LinearUses(Value value) : world(value) {
     Region *home = world.getParentRegion();
     for (OpOperand &use : world.getUses())
       for (Operation *op = use.getOwner(); op; op = op->getParentOp()) {
@@ -299,7 +325,7 @@ public:
     });
   }
 
-  // The first op after which the world has been used twice, if any.
+  // The first op after which the value has been used twice, if any.
   Operation *secondUse() {
     unsigned total = 0;
     for (Operation *op : top) {
@@ -341,12 +367,16 @@ private:
   llvm::DenseMap<Block *, SmallVector<Operation *>> byBlock;
 };
 
-LogicalResult verifyWorlds(FunctionOpInterface fn) {
+// Every value of quantity 1, a world or an !idr.lin, is used at most once
+// on every path. Its types say where it may go; this says how often.
+LogicalResult verifyLinearity(FunctionOpInterface fn) {
   auto check = [&](Value value) -> LogicalResult {
-    if (!isa<WorldType>(value.getType()))
+    if (quantityOf(value.getType()) != Quantity::One)
       return success();
-    if (Operation *op = WorldUses(value).secondUse())
-      return op->emitOpError("uses a world that is already used on the same path");
+    if (Operation *op = LinearUses(value).secondUse())
+      return op->emitOpError(isa<WorldType>(value.getType())
+                                 ? "uses a world that is already used on the same path"
+                                 : "uses a linear value that is already used on the same path");
     return success();
   };
   WalkResult result = fn->walk([&](Block *block) -> WalkResult {
@@ -458,8 +488,7 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
   return op->emitOpError("has an unknown idr attribute ") << attr.getName();
 }
 
-// `idr.quantity = "0" | "1" | "w"`, "0" exactly on !idr.erased. Every
-// argument carries one, so the first also checks the function's worlds.
+// `idr.quantity = "0" | "1" | "w"`, "0" exactly on !idr.erased.
 LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
                                                    unsigned argIndex,
                                                    NamedAttribute attr) {
@@ -491,7 +520,5 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
     return op->emitOpError("argument ")
            << argIndex << " has quantity \"" << quantity.getValue() << "\" and type " << type
            << "; quantity \"0\" is exactly for !idr.erased";
-  if (argIndex == 0)
-    return verifyWorlds(fn);
   return success();
 }

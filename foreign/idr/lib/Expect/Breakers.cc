@@ -31,7 +31,8 @@ LogicalResult everyCycleHasBreaker(ModuleOp module, StringRef) {
        idr::passes::stronglyConnected<func::FuncOp>(inlinable, refers)) {
     if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
       continue;
-    InFlightDiagnostic error = fail(cycle.front().getLoc(), "every-cycle-has-breaker")
+    func::FuncOp first = cycle.front();
+    InFlightDiagnostic error = fail(first.getLoc(), "every-cycle-has-breaker")
                                << "no loop breaker in the cycle of";
     for (func::FuncOp fn : cycle)
       error << " @" << fn.getSymName();
