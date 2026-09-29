@@ -19,21 +19,18 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 bench=$root/bench
 labels='this compiler|Idris Chez|MLton|clang -O2'
 
-# The input of each benchmark: large enough that start-up does not matter.
-input() {
-  case $1 in
-    nbody) echo 5000000 ;;
-    mandelbrot) echo 2000 ;;
-    fib) echo 38 ;;
-    tak) echo 18 ;;
-    collatz) echo 3000000 ;;
-    ack) echo 10 ;;
-    ackdyn) echo 10 ;;
-    harmonic) echo 200000000 ;;
-    *) return 1 ;;
-  esac
-}
-all='nbody mandelbrot fib tak collatz ack ackdyn harmonic'
+# A benchmark is a directory bench/<name>/ holding Main.idr and one of
+#   input       its stdin, given literally (a number, usually);
+#   input-from  "<generator> <argument>": its stdin is what the C version of
+#               the benchmark <generator> prints for <argument>, as the
+#               benchmarks game feeds fasta's output to k-nucleotide;
+# and optionally
+#   compare     "bytes" when every output must equal this compiler's byte
+#               for byte; otherwise they must print the same numbers.
+# The C and SML versions are bench/c/<name>.c and bench/sml/<name>.sml; a
+# missing one is skipped. Every input is large enough that start-up does
+# not matter.
+all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
 
 die() {
   echo "$*" >&2
@@ -104,14 +101,15 @@ build() {
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     MLton)
-      if [ -z "$mlton" ]; then missing=yes; return; fi
+      if [ -z "$mlton" ] || [ ! -f "$bench/sml/$name.sml" ]; then missing=yes; return; fi
       cat "$bench/sml/common.sml" "$bench/sml/$name.sml" > "$work/$name.sml"
       # Idris's Int is 64 bits; MLton's default int is 32.
       bounded "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
         > "$work/build.log" 2>&1 && cmd=$work/$name-mlton
       ;;
     'clang -O2')
-      bounded "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" > "$work/build.log" 2>&1 &&
+      if [ ! -f "$bench/c/$name.c" ]; then missing=yes; return; fi
+      bounded "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac
@@ -169,10 +167,24 @@ rows=$tmp/rows
 compiles=$tmp/compiles
 : > "$compiles"
 for name in $names; do
-  stdin=$(input "$name") || die "unknown benchmark: $name"
+  [ -f "$bench/$name/Main.idr" ] || die "unknown benchmark: $name"
   work=$tmp/$name
   mkdir "$work"
-  printf '%s' "$stdin" > "$work/stdin"
+  if [ -f "$bench/$name/input" ]; then
+    stdin=$(cat "$bench/$name/input")
+    printf '%s' "$stdin" > "$work/stdin"
+  elif [ -f "$bench/$name/input-from" ]; then
+    stdin=$(cat "$bench/$name/input-from")
+    set -- $stdin
+    bounded "$pinned_cc" -O2 "$bench/c/$1.c" -o "$work/generator" -lm ||
+      die "$name: the generator $1 failed to build"
+    printf '%s' "$2" | bounded "$work/generator" > "$work/stdin" ||
+      die "$name: the generator $1 failed"
+  else
+    die "$name: no input or input-from"
+  fi
+  compare=numbers
+  [ -f "$bench/$name/compare" ] && compare=$(cat "$bench/$name/compare")
   times=
   IFS='|'
   set -- $labels
@@ -191,11 +203,11 @@ for name in $names; do
   for label; do
     out=$work/$label.out
     [ -f "$out" ] || continue
-    if [ "$label" = 'Idris Chez' ] && ! cmp -s "$out" "$reference"; then
-      die "$name: Chez printed $(cat "$out"), this compiler $(cat "$reference")"
+    if { [ "$label" = 'Idris Chez' ] || [ "$compare" = bytes ]; } && ! cmp -s "$out" "$reference"; then
+      die "$name: $label's output differs from this compiler's: $(cmp "$out" "$reference" | head -n 1)"
     fi
     agree "$out" "$reference" ||
-      die "$name: $label printed $(cat "$out"), this compiler $(cat "$reference")"
+      die "$name: $label printed $(head -c 200 "$out"), this compiler $(head -c 200 "$reference")"
   done
   echo "$name|$stdin$times" >> "$rows"
 done
