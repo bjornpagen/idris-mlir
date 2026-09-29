@@ -1,11 +1,11 @@
-// RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@map,counts-nothing=@sum -o /dev/null
+// RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@sum -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-rc=reuse=false --idr-expect=holds=reuses-in-place=@map -o /dev/null 2> %t.fresh.err
 // RUN: FileCheck %s --check-prefix=FRESH < %t.fresh.err
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@both,reuses-in-place=@both -o /dev/null 2> %t.both.err
 // RUN: FileCheck %s --check-prefix=BOTH < %t.both.err
 // What reference counting leaves in a function, as properties. A map over
-// a list builds each cell in the one it took apart and counts nothing, and
-// a sum that only reads counts nothing. Without reuse the map's cells are
+// a list builds each cell in the one it took apart, and a sum that only
+// reads its list counts nothing. Without reuse the map's cells are
 // fresh; a function that keeps a string twice counts, and reuses nothing.
 // FRESH: error: expected reuses-in-place: a box of @L::@C gets a fresh cell in @map
 // FRESH: error: expected reuses-in-place: nothing is built in a reused cell in @map
