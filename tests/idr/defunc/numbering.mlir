@@ -8,13 +8,13 @@
 // i64 -> i64 first (the result of @Main.onlyB), then {@Main.zneg} of
 // i1 -> i1, then {@Main.a, @Main.b} of i64 -> i64 (the argument of
 // @Main.use). Two runs print the same module.
-// CHECK: idr.data @fn$0 {
+// CHECK: idr.data @fn$0 closures {
 // CHECK-NEXT: idr.ctor @Main.b tag 0 ()
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$1 {
+// CHECK-NEXT: idr.data @fn$1 closures {
 // CHECK-NEXT: idr.ctor @Main.zneg tag 0 ()
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.data @fn$2 {
+// CHECK-NEXT: idr.data @fn$2 closures {
 // CHECK-NEXT: idr.ctor @Main.a tag 0 ()
 // CHECK-NEXT: idr.ctor @Main.b tag 1 ()
 // CHECK-NEXT: }

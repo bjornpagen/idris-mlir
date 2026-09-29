@@ -11,7 +11,7 @@ idr.data @IORes {
 }
 // A sum of closures as idr-defunctionalize makes it: one constructor per
 // label, named after its function.
-idr.data @fn$0 {
+idr.data @fn$0 closures {
   idr.ctor @divides tag 0 ()
   idr.ctor @pure tag 1 ()
 }

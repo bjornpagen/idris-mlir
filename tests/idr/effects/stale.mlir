@@ -5,7 +5,7 @@
 // the facts were found counts at the call it is given to, by its label
 // when it is made there, and as anything when it is not.
 
-idr.data @fn$0 {
+idr.data @fn$0 closures {
   idr.ctor @crashes tag 0 ()
   idr.ctor @square tag 1 ()
 }

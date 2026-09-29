@@ -4,7 +4,7 @@
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @later tag 0 (i64)
 // CHECK-NEXT: idr.ctor @now tag 1 ()
 // CHECK: idr.data @Box {

@@ -4,8 +4,8 @@
 // captures a closure of its own type, so no unboxed sum over labels stands
 // for them: their keys become boxed sums. The unrelated closure type in the
 // same module is still an unboxed sum. No closure is left.
-// CHECK-DAG: idr.data @[[F0:fn\$[0-9]+]] {
-// CHECK-DAG: idr.data @{{fn\$[0-9]+}} box {
+// CHECK-DAG: idr.data @[[F0:fn\$[0-9]+]] closures {
+// CHECK-DAG: idr.data @{{fn\$[0-9]+}} box closures {
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: idr.closure
 // CHECK-NOT: idr.apply

@@ -8,16 +8,16 @@
 // tick, so the labels never lead back to seq: each (T, labels) gets its own
 // sum, and no closure is left. Keying by the type alone would have called T
 // infinite.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.tick tag 0 ()
 // CHECK-NEXT: }
-// CHECK: idr.data @[[F1:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F1:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.twice tag 0 (!idr.data<@[[F0]]>, !idr.data<@[[F0]]>)
 // CHECK-NEXT: }
-// CHECK: idr.data @[[F2:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F2:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.loop tag 0 (i64)
 // CHECK-NEXT: }
-// CHECK: idr.data @[[F3:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F3:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.done tag 0 ()
 // CHECK-NEXT: idr.ctor @Main.seq tag 1 (!idr.data<@[[F1]]>, !idr.data<@[[F2]]>)
 // CHECK-NEXT: }

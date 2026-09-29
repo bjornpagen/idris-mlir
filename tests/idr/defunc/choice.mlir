@@ -5,7 +5,7 @@
 // closure type becomes a sum with a constructor per label, whose fields are
 // the captures, and the application a match that calls the label. What is
 // left is no closure.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @add tag 0 (i64)
 // CHECK-NEXT: idr.ctor @dbl tag 1 ()
 // CHECK-NEXT: }

@@ -4,7 +4,7 @@
 // suspends a computation that captures the suspension below, so the Lazy
 // type's key is on a cycle: it becomes a boxed sum, a suspension a cell,
 // and forcing a match that calls the suspended function.
-// CHECK: idr.data @[[F:fn\$[0-9]+]] box {
+// CHECK: idr.data @[[F:fn\$[0-9]+]] box closures {
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: idr.closure
 // CHECK-LABEL: func.func private @Main.later(

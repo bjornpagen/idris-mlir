@@ -7,13 +7,13 @@
 // value moves into a slot with more labels, at the calls of @Main.use and
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.inc tag 0 ()
 // CHECK-NEXT: }
-// CHECK: idr.data @[[F1:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F1:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.add tag 0 (i64)
 // CHECK-NEXT: }
-// CHECK: idr.data @[[F2:fn\$[0-9]+]] {
+// CHECK: idr.data @[[F2:fn\$[0-9]+]] closures {
 // CHECK-NEXT: idr.ctor @Main.add tag 0 (i64)
 // CHECK-NEXT: idr.ctor @Main.inc tag 1 ()
 // CHECK-NEXT: }

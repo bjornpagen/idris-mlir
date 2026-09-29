@@ -6,8 +6,8 @@
 // but each holds the other: a cycle, which no unboxed sum can stand for.
 // Both become boxed sums, whose cells end the cycle, and no closure is
 // left.
-// CHECK-DAG: idr.data @[[Q:fn\$[0-9]+]] box {
-// CHECK-DAG: idr.data @[[P:fn\$[0-9]+]] box {
+// CHECK-DAG: idr.data @[[Q:fn\$[0-9]+]] box closures {
+// CHECK-DAG: idr.data @[[P:fn\$[0-9]+]] box closures {
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: idr.closure
 // CHECK-NOT: idr.apply
