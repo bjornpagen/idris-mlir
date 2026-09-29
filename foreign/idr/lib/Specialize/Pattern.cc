@@ -4,6 +4,8 @@
 
 #include "mlir/IR/Matchers.h"
 
+#include "llvm/ADT/SetVector.h"
+
 using namespace mlir;
 
 namespace idr::specialize {
@@ -102,14 +104,26 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
 }
 
-void eraseUnused(Value value) {
-  Operation *def = value.getDefiningOp();
-  if (!isa_and_nonnull<ConOp, ClosureOp, LinEnterOp>(def) || !def->use_empty())
-    return;
-  SmallVector<Value> parts(def->getOperands());
-  def->erase();
-  for (Value part : parts)
-    eraseUnused(part);
+void eraseUnused(ArrayRef<Value> values) {
+  auto shapeOp = [](Value value) -> Operation * {
+    Operation *def = value.getDefiningOp();
+    return isa_and_nonnull<ConOp, ClosureOp, LinEnterOp>(def) ? def : nullptr;
+  };
+  // The operations, not the values: a value passed twice names one
+  // operation, which is erased once.
+  llvm::SetVector<Operation *> candidates;
+  for (Value value : values)
+    if (Operation *def = shapeOp(value))
+      candidates.insert(def);
+  while (!candidates.empty()) {
+    Operation *op = candidates.pop_back_val();
+    if (!op->use_empty())
+      continue;
+    for (Value part : op->getOperands())
+      if (Operation *def = shapeOp(part))
+        candidates.insert(def);
+    op->erase();
+  }
 }
 
 bool usedOnce(Value value) {

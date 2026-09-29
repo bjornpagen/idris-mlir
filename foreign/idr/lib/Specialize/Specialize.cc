@@ -251,8 +251,7 @@ LogicalResult Specializer::specialize(func::CallOp call) {
     call.replaceAllUsesWith(replacement.getResults());
     SmallVector<Value> old(call.getOperands());
     call.erase();
-    for (Value value : old)
-      eraseUnused(value);
+    eraseUnused(old);
   });
   return result;
 }

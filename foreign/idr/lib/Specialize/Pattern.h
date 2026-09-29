@@ -66,10 +66,10 @@ Pattern leafOf(mlir::Value value, unsigned index);
 // linear value, whose shape its one use keeps.
 Pattern shapeOf(mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
 
-// Erases the operations that built the shape of `value` once nothing uses
-// them. They hold its leaves, which the clone's call now takes itself: a
-// linear leaf used by both would be used twice.
-void eraseUnused(mlir::Value value);
+// Erases the operations that built the shapes of `values` once nothing
+// uses them. They hold the leaves, which the clone's call now takes itself:
+// a linear leaf used by both would be used twice.
+void eraseUnused(llvm::ArrayRef<mlir::Value> values);
 
 // Whether the shape of `value` has no use but the one that reads it: each
 // operation that built it is used once. A call on such a shape takes its
