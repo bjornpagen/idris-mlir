@@ -67,7 +67,7 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
           proved[*at] = quantityOf(arg.getType());
   llvm::StringMap<SmallVector<Quantity>> fields;
   reference->walk([&](CtorOp ctor) {
-    fields[(ctor->getParentOfType<DataOp>().getSymName() + "::" + ctor.getSymName()).str()] =
+    fields[(ctor->getParentOfType<DataOp>().getSymName() + "::@" + ctor.getSymName()).str()] =
         fieldQuantities(ctor);
   });
 
@@ -89,7 +89,7 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
   }
   module.walk([&](CtorOp ctor) {
     std::string name =
-        (ctor->getParentOfType<DataOp>().getSymName() + "::" + ctor.getSymName()).str();
+        (ctor->getParentOfType<DataOp>().getSymName() + "::@" + ctor.getSymName()).str();
     auto was = fields.find(name);
     if (was != fields.end() && was->second != fieldQuantities(ctor)) {
       fail(ctor.getLoc(), property) << "the fields of @" << name << " have other quantities than Idris proved";
