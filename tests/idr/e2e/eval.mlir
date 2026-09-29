@@ -4,25 +4,23 @@
 // RUN: %t | FileCheck %s
 // RUN: idris-mlir-cc %s -o %t.mlir --emit=mlir
 // RUN: FileCheck %s --check-prefix=EVALUATED < %t.mlir
-// RUN: %status 3 idris-mlir-cc %s -o %t-no-eval.o --no-eval --remarks=idr-eval 2> %t-no-eval.err
-// RUN: FileCheck %s --check-prefix=REJECTED < %t-no-eval.err
-// RUN: not ls %t-no-eval.o
-// RUN: %status 3 idris-mlir-cc %s --no-eval --check
+// RUN: idris-mlir-cc %s -o %t-no-eval.o --no-eval --remarks=idr-eval 2> %t-no-eval.err
+// RUN: FileCheck %s --check-prefix=RUNTIME --allow-empty < %t-no-eval.err
+// RUN: %cc %t-no-eval.o -o %t-no-eval
+// RUN: %t-no-eval | FileCheck %s
+// RUN: idris-mlir-cc %s --no-eval --check
 // A closed call of a pure, total function is evaluated at compile time: the
 // program's own lowering runs in the JIT, and the results, among them a
 // string built by the runtime, are static data in the executable, which
 // prints them. With --no-eval nothing is evaluated (no remark), and the
-// string would be built at runtime, which the heap-free profile rejects:
-// status 3, with the rule, at the op, and no output, with or without
-// --check.
+// string is built at runtime, on the heap: the program prints the same.
 // CHECK: 3628800 x-x-x
 // REMARK: remark: [Passed] Evaluated | Category:idr-eval | Function=fact
 // REMARK: remark: [Passed] Evaluated | Category:idr-eval | Function=dashes
 // EVALUATED-NOT: @fact
 // EVALUATED-NOT: @dashes
 // EVALUATED: "x-x-x"
-// REJECTED-NOT: remark
-// REJECTED: eval.mlir:{{[0-9]+}}:{{[0-9]+}}: error: unsupported (runtime string)
+// RUNTIME-NOT: remark
 module attributes {idr.program} {
   func.func private @fact(%n: i64) -> i64 attributes {idr.total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {

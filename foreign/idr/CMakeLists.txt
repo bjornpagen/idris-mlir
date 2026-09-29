@@ -83,7 +83,6 @@ add_library(idr_dialect STATIC
 	lib/Ownership/Take.cc
 	lib/Ownership/Verify.cc
 	lib/Registration.cc
-	lib/Passes/CheckProfile.cc
 	lib/Passes/Defunctionalize.cc
 	lib/Passes/LoopBreakers.cc
 	lib/Passes/Prune.cc

@@ -2,7 +2,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t2.mlir
 // RUN: diff %t.mlir %t2.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-check-profile
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // The sums are numbered by the first appearance of their (type, labels) in
 // the module, not grouped by type or ordered by name: {@Main.b} of
 // i64 -> i64 first (the result of @Main.onlyB), then {@Main.zneg} of

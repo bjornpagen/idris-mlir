@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-check-profile
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // Values of one closure type with different sets of labels: mkInc returns
 // only @Main.inc and mkAdd only @Main.add, while @Main.use and the join of
 // the match take either. Each (type, labels) is its own sum, and where a

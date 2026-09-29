@@ -18,7 +18,6 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-defunctionalize",
       "canonicalize",
       "idr-tail-loops",
-      "idr-check-profile",
       "idr-lower",
       "canonicalize,cse",
       "convert-scf-to-cf,convert-to-llvm,reconcile-unrealized-casts",

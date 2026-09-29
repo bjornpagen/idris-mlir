@@ -1,10 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-check-profile
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A function picked at runtime between two labels, one with a capture: the
 // closure type becomes a sum with a constructor per label, whose fields are
 // the captures, and the application a match that calls the label. What is
-// left allocates nothing, so the profile accepts it.
+// left is no closure.
 // CHECK: idr.data @[[F0:fn\$[0-9]+]] {
 // CHECK-NEXT: idr.ctor @add tag 0 (i64)
 // CHECK-NEXT: idr.ctor @dbl tag 1 ()

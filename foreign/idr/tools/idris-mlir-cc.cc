@@ -65,10 +65,10 @@ namespace {
 
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
 cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
-// Check the program against the profile, and write nothing.
+// Run the idr steps, whose user errors are rejections, and write nothing.
 cl::opt<bool> checkOnly("check",
-                        cl::desc("Stop after idr-check-profile and write nothing (exit status 3 "
-                                 "names a profile rejection)"),
+                        cl::desc("Stop before idr-lower and write nothing (exit status 3 "
+                                 "names a rejection)"),
                         cl::init(false));
 // No compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
@@ -452,6 +452,8 @@ int run() {
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
+    if (checkOnly && stepName(step) == "idr-lower")
+      return ok;
     mlir::PassManager pm(&context);
     if (statistics)
       pm.enableStatistics(mlir::PassDisplayMode::List);
@@ -471,8 +473,6 @@ int run() {
     }
     if (!dump(*module, index, stepName(step)))
       return failure;
-    if (checkOnly && step == "idr-check-profile")
-      return ok;
   }
   if (emitKind == "mlir")
     return writeOutput([&](llvm::raw_ostream &os) {

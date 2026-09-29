@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-check-profile
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A state monad's shape (tests/e2e/v1/state-monad):
 // run n = if n == 0 then done else seq twice (loop n), where every value is
 // a state transformer of the one type T = i64 -> i64. seq's closure

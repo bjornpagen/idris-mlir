@@ -10,7 +10,7 @@
 // RUN: %status 1 idris-mlir-cc %t.foreign.mlir -o %t.keep.o
 // RUN: grep -qx old %t.keep.o
 // Usage errors are status 2: neither -o nor --check, or both. --check runs
-// the pipeline through idr-check-profile and writes nothing. The program is
+// the pipeline up to idr-lower and writes nothing. The program is
 // parsed with exactly the contract's dialects, so an op of any other (here
 // scf) fails to parse: status 1, and no output; an output file
 // that already exists is left untouched.

@@ -314,10 +314,10 @@ private:
   // are the payload of the path not taken, which is poison there.
   FailureOr<bool> walkLoop(scf::WhileOp loop) {
     Operation &op = *loop.getOperation();
-    SmallVector<Value> &owners = loops[loop];
+    SmallVector<Value> &slots = loops[loop];
     for (Value init : loop.getInits()) {
       bool borrowed = counting.tracked(init) && held.lookup(init) == 0 && alive(init);
-      owners.push_back(borrowed ? init : Value());
+      slots.push_back(borrowed ? init : Value());
       if (failed(borrowed ? use(op, init) : consume(op, init)))
         return failure();
     }

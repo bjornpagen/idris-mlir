@@ -254,17 +254,6 @@ def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
   ];
 }
 
-def IdrCheckProfile : Pass<"idr-check-profile", "::mlir::ModuleOp"> {
-  let summary = "Reject what would allocate at runtime";
-  let description = [{
-    Reports the first violation in op order as `unsupported (<reason>): ...`
-    at the innermost user location, and fails.
-  }];
-  let statistics = [
-    Statistic<"numChecked", "checked", "Operations checked">,
-  ];
-}
-
 def IdrCanonicalize : Pass<"idr-canonicalize"> {
   let summary = "canonicalize, with the rewrites of each pattern counted";
   let description = [{

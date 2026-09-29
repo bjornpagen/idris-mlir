@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-check-profile
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.

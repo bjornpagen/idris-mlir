@@ -1,4 +1,0 @@
-compile: exit 1
-unsupported (runtime string): the only error
-line: as the header says
-artifacts: none

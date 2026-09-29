@@ -12,14 +12,14 @@ backend.
 Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation, representations)
   → idr dialect (C++) → the simplify loop: inline, specialize, evaluate at compile time
     by running the program's own code in a JIT, to a fixpoint
-  → defunctionalize, loops, the heap-free check → idr-lower → LLVM O3 with the runtime
+  → defunctionalize, reference counting, loops → idr-lower → LLVM O3 with the runtime
   → object → lld links a static-PIE executable on musl
 ```
 
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else
 (inlining, specialization, compile-time evaluation, defunctionalization,
-loops and the heap-free profile's check) happens in MLIR. Compile-time
+reference counting and loops) happens in MLIR. Compile-time
 evaluation is runtime evaluation run early: every closed call of pure code
 is evaluated by running the program's own lowered code with its own
 runtime. As in Idris's own evaluator, totality does not decide what is
@@ -43,18 +43,21 @@ the same size will be updated in place with no runtime test, or the program
 will not compile, with a named reason. The promise will be
 carried as ownership types in the `idr` MLIR dialect, and MLIR's verifier
 will check it again after every pass instead of trusting the frontend.
-None of this is implemented yet: today's programs are heap-free (below).
+Today the counting underneath is in place (below); the static promise is not.
 That promise, more than dependent types alone, is why this compiler exists.
 
 ## What compiles today
 
-Programs are heap-free: after the documented pipeline (inlining with no
-threshold, known constructors, case-of-case, specialization on
-constant-like arguments, compile-time evaluation of closed calls, output
-fusion, defunctionalization), nothing may allocate at runtime (a closure
-that remains, a list, string or `Integer` built at runtime), or
-compilation fails with an `unsupported (<reason>)` error, such as
-`unsupported (runtime string)`, at the source location.
+Values that remain at runtime after the pipeline (inlining, known
+constructors, case-of-case, specialization, compile-time evaluation of
+closed calls, defunctionalization) live in cells on the heap, with
+explicit reference counts: `idr-rc` reuses the cell of a value that dies
+for a constructor of the same size, borrows the parameters a function only
+reads, and adds each increment and decrement, and the verifier checks
+after every later pass that every reference is consumed exactly once on
+every path. Cells that never leave their frame are on the stack. Run with
+`IDRIS_RT_LIVE=1`, a program reports on standard error how many cells are
+still live when it ends: none.
 - **v0:** a single `--no-prelude` module with `main : Int` (the exit status):
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
@@ -75,14 +78,14 @@ compilation fails with an `unsupported (<reason>)` error, such as
   `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
   ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
   `traverse_`). `Integer`, `Nat`, lists and streams have runtime
-  representations, but may not allocate at runtime yet: a closed call is
+  representations, built at runtime on the heap; a closed call is
   evaluated at compile time, and its result is static data. The pure
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),
   [complex numbers through the Prelude](tests/e2e/v3/prelude-math).
 
-On the heap-free programs it can compile, the output is faster than MLton's
+On the programs of the benchmarks, the output is faster than MLton's
 on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
 4.2x (and 65x where call-pattern specialization removes most of the work),
 and within reach of gcc -O2. On deep non-tail recursion with no constant
