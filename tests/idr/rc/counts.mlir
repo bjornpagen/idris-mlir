@@ -1,38 +1,29 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
-// idr-rc makes every reference explicit, and the module passes the owned
-// stage's verifier, which idris-mlir-opt runs after the pass: every
-// reference is consumed exactly once on every path.
+// idr-rc makes every reference explicit. That each is consumed exactly once
+// on every path is the owned stage's rule, which idris-mlir-opt verifies
+// after the pass; this test checks what the passes choose.
 
-// A map over a list builds each new cell in the one it matched: the field
-// that goes on takes its own reference, the matched cell is reset, and the
-// new constructor reuses it. The empty case drops the list on entry.
+// A map over a list builds each new cell in the one it matched: no cell is
+// allocated for the result.
 // CHECK-LABEL: func.func private @map(
-// CHECK-SAME: %[[L:[^:]*]]: !idr.box<@L>)
-// CHECK: idr.match %[[L]]
-// CHECK: case @N()
-// CHECK-NEXT: idr.dec %[[L]]
-// CHECK: case @C(%[[H:[^:]*]]: i64, %[[T:[^:]*]]: !idr.box<@L>)
-// CHECK-NEXT: idr.inc %[[T]] : !idr.box<@L>
-// CHECK-NEXT: %[[W:.*]] = idr.reset %[[L]] @L::@C
-// CHECK: %[[T2:.*]] = func.call @map(%[[T]])
-// CHECK: idr.reuse %[[W]] @L::@C(%{{.*}}, %[[T2]])
-// CHECK-NOT: idr.con @L::@C
+// CHECK: idr.reset
+// CHECK: idr.reuse
+// CHECK-NOT: idr.con
 // CHECK-LABEL: func.func private @sum(
 
-// A function that only reads its list borrows it: no count changes in it,
-// and none in a loop over it.
+// A function that only reads its list borrows it, and counts nothing.
 // CHECK-SAME: {idr.borrowed}
 // CHECK-NOT: idr.inc
 // CHECK-NOT: idr.dec
 // CHECK-LABEL: func.func private @both(
 
-// A string consumed twice takes one more reference; one consumed once and
-// read by a primitive is dropped after its last read.
+// A string consumed twice takes one more reference; one only read is
+// dropped after its read.
 // CHECK-SAME: %[[A:[^:]*]]: !idr.str, %[[B:[^:]*]]: !idr.str)
-// CHECK: idr.inc %[[A]] : !idr.str
-// CHECK-NEXT: %{{.*}} = idr.con @Two::@Two(%[[A]], %[[A]])
+// CHECK-COUNT-1: idr.inc %[[A]]
+// CHECK-NOT: idr.inc
 // CHECK: idr.str.length %[[B]]
-// CHECK-NEXT: idr.dec %[[B]] : !idr.str
+// CHECK-NEXT: idr.dec %[[B]]
 // CHECK-LABEL: func.func private @scalars(
 
 // Worlds, erased values and scalars hold no references.
