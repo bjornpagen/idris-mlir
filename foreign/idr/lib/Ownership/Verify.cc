@@ -217,6 +217,9 @@ private:
       if (Value owner = slotOwner(loop, slot))
         return Use::Borrow;
     }
+    if (isa<YieldOp>(op) && op->getParentOp() &&
+        passedOn.count(op->getParentOp()->getResult(operand.getOperandNumber())))
+      return Use::Borrow;
     return useOf(operand, symbols);
   }
 
@@ -298,10 +301,29 @@ private:
       }
     for (auto &[value, references] : after)
       set(value, references);
-    for (Value result : op.getResults())
-      if (counting.tracked(result))
+    for (Value result : op.getResults()) {
+      if (!counting.tracked(result))
+        continue;
+      auto it = passedOn.find(result);
+      if (it != passedOn.end())
+        define(result, 0, it->second, /*borrowed=*/true);
+      else
         define(result, 1);
+    }
     return true;
+  }
+
+  // A borrowed slot's value reaches the loop's scf.condition through the
+  // matches idr-tail-loops builds on the way, which pass it on borrowed.
+  void passOn(Value value, Value owner) {
+    auto result = dyn_cast<OpResult>(value);
+    if (!result || !isa<MatchOp, MatchLitOp>(result.getOwner()))
+      return;
+    passedOn[value] = owner;
+    for (Region &region : result.getOwner()->getRegions())
+      if (!region.empty())
+        if (auto yield = dyn_cast<YieldOp>(region.front().getTerminator()))
+          passOn(yield.getOperand(result.getResultNumber()), owner);
   }
 
   // An scf.while of idr-tail-loops, which carries a function's parameters
@@ -321,6 +343,11 @@ private:
       if (failed(borrowed ? use(op, init) : consume(op, init)))
         return failure();
     }
+    if (!loop.getBefore().empty())
+      if (auto condition = dyn_cast<scf::ConditionOp>(loop.getBefore().front().getTerminator()))
+        for (auto [slot, value] : llvm::enumerate(condition.getArgs()))
+          if (Value owner = slotOwner(loop, static_cast<unsigned>(slot)))
+            passOn(value, owner);
     auto slotType = [&](unsigned slot, Value value, bool after) {
       if (Value owner = slotOwner(loop, slot))
         define(value, 0, owner, /*borrowed=*/true);
@@ -365,6 +392,8 @@ private:
   SmallVector<Change> log;
   // For each loop, the owner of each borrowed slot.
   llvm::DenseMap<Operation *, SmallVector<Value>> loops;
+  // The match results that pass a borrowed slot on, with its owner.
+  llvm::DenseMap<Value, Value> passedOn;
 };
 
 } // namespace
