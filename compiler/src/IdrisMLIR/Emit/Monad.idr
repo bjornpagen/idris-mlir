@@ -2,6 +2,7 @@
 ||| functions lifted so far, and fresh SSA names.
 module IdrisMLIR.Emit.Monad
 
+import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
 import IdrisMLIR.Types
@@ -12,13 +13,14 @@ import Data.SnocList
 %default total
 
 ||| The function being written: its symbol (which names the functions
-||| lifted from it), its Idris name and whether Idris proved it terminating.
+||| lifted from it), its Idris name and what the functions lifted from it
+||| state as it does.
 public export
 record Owner where
   constructor MkOwner
   symbol : String
   idrisName : Shown
-  terminating : Bool
+  inherited : List FnAttr
 
 public export
 record ES where

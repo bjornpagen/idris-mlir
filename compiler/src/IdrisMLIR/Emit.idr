@@ -17,6 +17,7 @@
 ||| returns.
 module IdrisMLIR.Emit
 
+import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Declarations
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
@@ -33,7 +34,7 @@ export
 emit : Source -> Either String String
 emit src = do
   let ix = index src
-  let start = MkES 0 [<] [<] (MkOwner "" (shown "") False)
+  let start = MkES 0 [<] [<] (MkOwner "" (shown "") [])
   (_, ops) <- runStateT start $ do
     datas <- traverse (dataDecl ix) src.datas
     fns <- traverse (function ix src.root) src.fns

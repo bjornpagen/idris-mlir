@@ -18,6 +18,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Graph
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR
+        , IdrisMLIR.Emit.Attributes
         , IdrisMLIR.Emit.Breakers
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad

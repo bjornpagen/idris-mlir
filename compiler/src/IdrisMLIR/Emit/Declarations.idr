@@ -2,6 +2,7 @@
 ||| functions lifted from it.
 module IdrisMLIR.Emit.Declarations
 
+import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Bodies
 import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
@@ -45,7 +46,7 @@ export
 function : Index -> FnId -> TFn -> E (List Op)
 function ix root f = do
   let sym = mangle f.id.name
-  modify { owner := MkOwner sym f.idrisName f.facts.terminating.holds, lifted := [<] }
+  modify { owner := MkOwner sym f.idrisName (inherited f), lifted := [<] }
   ((params, res), ops) <- inFunction $ do
     params <- traverse (\b => (\n => MkVal n b.type b.quantity) <$> fresh) f.params
     res <- para alg' f.body (\i => index i params) (Just f.result)
@@ -54,7 +55,7 @@ function ix root f = do
   header <- traverse (param ix) (toList params)
   let visibility = if f.id == root then "" else "private "
   let fn = Nest ("func.func " ++ visibility ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes f.facts.terminating.holds (contains (FnNode f.id) ix.breakers) ++ " {")
+                 attributes (inherited f ++ [NoInline | contains (FnNode f.id) ix.breakers]) ++ " {")
                 (epilogue f.loc rt res ops) "}" (Just (Named f.idrisName f.loc))
   inner <- gets (.lifted)
   pure (fn :: (inner <>> []))

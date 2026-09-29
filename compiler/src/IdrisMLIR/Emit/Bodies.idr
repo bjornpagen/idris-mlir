@@ -2,6 +2,7 @@
 ||| matches as regions and its lambdas as lifted functions.
 module IdrisMLIR.Emit.Bodies
 
+import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
@@ -102,15 +103,6 @@ inFunction act = do
   modify { next := st.next, ops := st.ops }
   pure (x, inner <>> [])
 
-||| The attributes of a function: `idr.total` when Idris proved it
-||| terminating, `no_inline` on a loop breaker.
-export
-attributes : Bool -> Bool -> String
-attributes terminates breaker =
-  case the (List String) ((if terminates then ["idr.total"] else []) ++ (if breaker then ["no_inline"] else [])) of
-    [] => ""
-    as => " attributes {" ++ joinBy ", " as ++ "}"
-
 ||| The end of a function's body, of result type `rt`: its value, returned.
 ||| A body that never returns ends in `ub.unreachable` inside its regions
 ||| only; at the top level a poison value is returned in its place, because
@@ -146,7 +138,7 @@ lifted ix l lbl caps ps expected body = do
   rt <- typeText ix t
   header <- traverse (param ix) params
   let fn = Nest ("func.func private " ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes own.terminating (contains (LamNode lbl) ix.breakers) ++ " {")
+                 attributes (own.inherited ++ [NoInline | contains (LamNode lbl) ix.breakers]) ++ " {")
                 (epilogue l rt res ops) "}" (Just (Named own.idrisName l))
   modify { lifted $= (:< fn) }
   pure (sym, t)
