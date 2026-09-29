@@ -32,9 +32,10 @@ unsigned holesOf(ArrayAttr patterns) {
 } // namespace
 
 std::optional<Clone> CloneTable::parse(func::FuncOp fn) {
-  Attribute key = fn->getAttr(kKeyAttr);
-  if (!isa_and_nonnull<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(key))
+  auto clone = fn->getAttrOfType<CloneAttr>(kCloneAttr);
+  if (!clone)
     return std::nullopt;
+  Attribute key = clone.getKey();
   Clone out{fn, key, {}};
   for (unsigned i = 0; i < fn.getNumArguments(); ++i) {
     auto hole = fn.getArgAttrOfType<IntegerAttr>(i, kHoleAttr);
@@ -57,7 +58,7 @@ CloneTable::CloneTable(ModuleOp root) : module(root), table(root) {
       keyOf.try_emplace(fn.getOperation(), clone->key);
       byKey.try_emplace(clone->key, std::move(*clone));
     }
-    if (fn->hasAttr(kKeyAttr))
+    if (fn->hasAttr(kCloneAttr))
       if (auto named = parseName(fn.getSymName())) {
         unsigned &count = counts[named->first];
         count = std::max(count, named->second);
@@ -99,7 +100,7 @@ FailureOr<func::FuncOp> CloneTable::copy(func::FuncOp from, StringAttr owner, St
 }
 
 const Clone &CloneTable::add(Attribute key, func::FuncOp fn) {
-  fn->setAttr(kKeyAttr, key);
+  fn->setAttr(kCloneAttr, CloneAttr::get(fn.getContext(), FlatSymbolRefAttr::get(fn.getSymNameAttr()), key));
   std::optional<Clone> clone = parse(fn);
   assert(clone && "idr-specialize: a clone whose parameters hold no holes in order");
   keyOf[fn.getOperation()] = key;

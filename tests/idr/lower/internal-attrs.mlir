@@ -8,7 +8,7 @@
 // CHECK: llvm.call @f(
 // CHECK-NOT: idr.
 module attributes {idr.program} {
-  func.func private @f(%a: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.origin = "g", idr.spec_key = #idr.key_apply<"g", 1>} {
+  func.func private @f(%a: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.origin = "g", idr.clone = #idr.clone<@f, #idr.key_apply<"g", 1>>} {
     return %a : i64
   }
   func.func private @g(%x: i64) -> i64 attributes {idr.total} {

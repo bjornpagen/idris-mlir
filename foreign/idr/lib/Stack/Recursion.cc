@@ -19,12 +19,13 @@ llvm::DenseSet<Operation *> recursiveFunctions(ModuleOp module) {
     if (!fn.isExternal())
       fns.push_back(fn);
 
-  // What an idr.apply may call: every function whose address is taken.
+  // What an idr.apply may call: every function whose address is taken. A
+  // clone names itself (idr.clone), which takes no address.
   SetVector<Operation *> labels;
   if (std::optional<SymbolTable::UseRange> uses =
           SymbolTable::getSymbolUses(&module.getBodyRegion()))
     for (const SymbolTable::SymbolUse &use : *uses)
-      if (!isa<func::CallOp>(use.getUser()))
+      if (!isa<func::CallOp, func::FuncOp>(use.getUser()))
         if (auto fn = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference());
             fn && !fn.isExternal())
           labels.insert(fn);

@@ -1,10 +1,10 @@
 // The clones of a module by key.
 //
-// A clone keeps its key as `idr.spec_key`, a typed attribute, and each of
-// its parameters the hole of the key it holds as `idr.hole`, so that the
-// next run shares the clone after remove-dead-values has erased parameters
-// it never reads. A clone is parsed once, when the table meets it; one whose
-// marks do not parse is no clone to the table, only a function.
+// A clone keeps its key as `idr.clone`, a typed attribute that names the
+// clone too, and each of its parameters the hole of the key it holds as
+// `idr.hole`, so that the next run shares the clone. A clone is parsed
+// once, when the table meets it; one whose marks do not parse is no clone
+// to the table, only a function.
 #pragma once
 
 #include "idr/Idr.h"
@@ -21,7 +21,7 @@ namespace idr::specialize {
 // that makes this many has found a set that is not.
 constexpr unsigned kClonesPerOwner = 1024;
 
-inline constexpr llvm::StringLiteral kKeyAttr = "idr.spec_key";
+inline constexpr llvm::StringLiteral kCloneAttr = "idr.clone";
 inline constexpr llvm::StringLiteral kHoleAttr = "idr.hole";
 
 // A clone as the table knows it: its key, and the hole each parameter

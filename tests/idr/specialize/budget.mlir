@@ -22,7 +22,7 @@ module attributes {idr.program} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  func.func private @apply$spec$1024(%x: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.origin = "apply", idr.spec_key = #idr.spec_key<"apply", [#idr.key_closure<"neg", []>, #idr.key_hole<0>]>, idr.total} {
+  func.func private @apply$spec$1024(%x: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.origin = "apply", idr.clone = #idr.clone<@apply$spec$1024, #idr.spec_key<"apply", [#idr.key_closure<"neg", []>, #idr.key_hole<0>]>>, idr.total} {
     %y = func.call @neg(%x) : (i64) -> i64
     return %y : i64
   }

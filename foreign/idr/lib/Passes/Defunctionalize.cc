@@ -220,8 +220,9 @@ struct Module {
     });
     if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(op.getOperation()))
       for (const SymbolTable::SymbolUse &use : *uses)
-        if (!isa<func::CallOp, idr::ClosureOp, idr::ConstantOp, idr::ConOp, idr::FieldOp,
-                 idr::MatchOp>(use.getUser()))
+        // A clone names itself (idr.clone); no closure escapes there.
+        if (!isa<func::CallOp, func::FuncOp, idr::ClosureOp, idr::ConstantOp, idr::ConOp,
+                 idr::FieldOp, idr::MatchOp>(use.getUser()))
           escaping.insert(use.getSymbolRef().getRootReference());
   }
 };

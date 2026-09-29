@@ -467,11 +467,12 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
       return op->emitOpError("expects idr.origin as a string attribute of a function");
     return success();
   }
-  if (key == "idr.spec_key") {
-    Attribute value = attr.getValue();
-    if (!isa<func::FuncOp>(op) ||
-        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(value))
-      return op->emitOpError("expects idr.spec_key as the key of a clone");
+  if (key == "idr.clone") {
+    auto fn = dyn_cast<func::FuncOp>(op);
+    auto clone = dyn_cast<CloneAttr>(attr.getValue());
+    if (!fn || !clone || clone.getFunction().getAttr() != fn.getSymNameAttr() ||
+        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(clone.getKey()))
+      return op->emitOpError("expects idr.clone to name the function and its key");
     return success();
   }
   return op->emitOpError("has an unknown idr attribute ") << attr.getName();

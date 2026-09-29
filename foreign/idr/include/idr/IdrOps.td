@@ -1005,6 +1005,19 @@ def Idr_KeyApplyFieldAttr : Idr_KeyAttr<"KeyApplyField", "key_apply_field"> {
   let assemblyFormat = "`<` $callee `,` $arity `,` $ctor `,` $index `>`";
 }
 
+// A clone: the function every call of its key calls, those idr-specialize
+// makes in later rounds too. So the clone names itself: MLIR's
+// interprocedural analyses take a reference that is no call for callers
+// they cannot see, and fold nothing its present callers pass into its body
+// (sccp), prune nothing only they leave unreachable (dead code), and keep
+// its parameters (remove-dead-values), which later callers fill.
+def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
+  let mnemonic = "clone";
+  let summary = "a clone, named, and the key it is the function of";
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$function, "::mlir::Attribute":$key);
+  let assemblyFormat = "`<` $function `,` $key `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // Linearity
 //===----------------------------------------------------------------------===//
