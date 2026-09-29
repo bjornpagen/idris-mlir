@@ -432,8 +432,11 @@ struct Converter {
   llvm::DenseMap<Operation *, SmallVector<Key>> results;
   llvm::DenseMap<std::tuple<StringAttr, StringAttr, unsigned>, Key> fields;
   // Every key by first appearance, with its sum once numbered.
-  llvm::MapVector<Key, idr::DataType> keys;
+  // The sum of each converted key: unboxed, or boxed when the key is on a
+  // cycle of captures, which only a heap cell can end.
+  llvm::MapVector<Key, Type> keys;
   llvm::DenseSet<Key> converted;
+  llvm::DenseSet<Key> cyclic;
 
   SmallVector<Sink> sinks;
   SmallVector<Flow> flows;
@@ -613,7 +616,7 @@ struct Converter {
   void order() {
     auto note = [&](const Key &key) {
       if (key.first)
-        keys.insert({key, idr::DataType()});
+        keys.insert({key, Type()});
     };
     module.op->walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (auto ctor = dyn_cast<idr::CtorOp>(op)) {
@@ -767,15 +770,12 @@ struct Converter {
         }
       }
     }
-    llvm::DenseSet<Key> cyclic;
     for (const SmallVector<Key> &component : passes::stronglyConnected<Key>(
              candidates, [&](Key key) { return edges.lookup(key); }))
       if (component.size() > 1 || llvm::is_contained(edges.lookup(component.front()),
                                                       component.front()))
         cyclic.insert(component.begin(), component.end());
-    for (const Key &key : candidates)
-      if (!cyclic.contains(key))
-        converted.insert(key);
+    converted.insert(candidates.begin(), candidates.end());
 
     bool changed = true;
     auto keep = [&](const Key &key) {
@@ -835,21 +835,24 @@ struct Converter {
 
     unsigned n = 0;
     for (auto &[key, sum] : keys)
-      if (isConverted(key))
-        sum = idr::DataType::get(ctx, FlatSymbolRefAttr::get(ctx, ("fn$" + Twine(n++)).str()));
+      if (isConverted(key)) {
+        auto name = FlatSymbolRefAttr::get(ctx, ("fn$" + Twine(n++)).str());
+        sum = cyclic.contains(key) ? Type(idr::BoxType::get(ctx, name))
+                                   : Type(idr::DataType::get(ctx, name));
+      }
   }
 
   //===--------------------------------------------------------------------===//
   // Rewriting
   //===--------------------------------------------------------------------===//
 
-  idr::DataType sumOf(const Key &key) {
-    return isConverted(key) ? keys.lookup(key) : idr::DataType();
+  Type sumOf(const Key &key) {
+    return isConverted(key) ? keys.lookup(key) : Type();
   }
 
   // The type of a slot of `key`: its sum, or the closure type unchanged.
   Type typeOf(const Key &key) {
-    if (idr::DataType sum = sumOf(key))
+    if (Type sum = sumOf(key))
       return sum;
     return key.first;
   }
@@ -887,7 +890,8 @@ struct Converter {
     for (auto &[key, sum] : keys) {
       if (!sum)
         continue;
-      auto data = idr::DataOp::create(b, module.op.getLoc(), sum.getName().getAttr(), UnitAttr());
+      auto data = idr::DataOp::create(b, module.op.getLoc(), idr::getSumName(sum).getAttr(),
+                                      isa<idr::BoxType>(sum) ? b.getUnitAttr() : UnitAttr());
       OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
       for (auto [tag, label] : llvm::enumerate(key.second.getAsRange<StringAttr>())) {
         func::FuncOp fn = module.function(label);
@@ -906,8 +910,9 @@ struct Converter {
   // `label` with `captures` as a value of `key`.
   Value build(OpBuilder &b, Location loc, StringAttr label, const Key &key, ValueRange captures) {
     auto callee = FlatSymbolRefAttr::get(label);
-    if (idr::DataType sum = sumOf(key))
-      return idr::ConOp::create(b, loc, sum, SymbolRefAttr::get(sum.getName().getAttr(), {callee}),
+    if (Type sum = sumOf(key))
+      return idr::ConOp::create(b, loc, sum,
+                                SymbolRefAttr::get(idr::getSumName(sum).getAttr(), {callee}),
                                 captures);
     return idr::ClosureOp::create(b, loc, key.first, callee, captures);
   }
@@ -991,9 +996,9 @@ struct Converter {
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
         captures.push_back(convert(capture, argument(label, static_cast<unsigned>(i))));
       auto array = ArrayAttr::get(ctx, captures);
-      if (idr::DataType sum = sumOf(slot))
-        return idr::ConAttr::get(ctx, SymbolRefAttr::get(sum.getName().getAttr(), {closure.getCallee()}),
-                                 array);
+      if (Type sum = sumOf(slot))
+        return idr::ConAttr::get(
+            ctx, SymbolRefAttr::get(idr::getSumName(sum).getAttr(), {closure.getCallee()}), array);
       return idr::ClosureAttr::get(ctx, closure.getCallee(), array);
     }
     if (auto con = dyn_cast<idr::ConAttr>(attr)) {
