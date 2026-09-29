@@ -382,6 +382,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         functions that may be inlined has a `no_inline` function;
       - `one-clone=@f`: every call of @f or of a clone of it calls one
         function;
+      - `reuses-in-place=@f`: in @f every box is built in a reused cell
+        (idr.reuse), and at least one is;
+      - `counts-nothing=@f`: no idr.inc or idr.dec in @f;
       - `quantities-kept=<file>`: every parameter has a quantity, and every
         parameter and constructor field of the module in <file> (the
         emitted module) has the quantity it has there;

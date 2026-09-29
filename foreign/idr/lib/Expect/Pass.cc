@@ -24,6 +24,13 @@ std::string where(Operation *op) {
   return fn ? ("@" + fn.getSymName()).str() : std::string("the module");
 }
 
+func::FuncOp named(ModuleOp module, StringRef function, StringRef property) {
+  auto fn = SymbolTable(module).lookup<func::FuncOp>(function.ltrim('@'));
+  if (!fn)
+    fail(module.getLoc(), property) << "no function " << (function.empty() ? "named" : function);
+  return fn;
+}
+
 } // namespace idr::expect
 
 namespace {
@@ -36,6 +43,8 @@ idr::expect::Check lookup(StringRef name) {
       .Case("every-cycle-has-breaker", everyCycleHasBreaker)
       .Case("one-clone", oneClone)
       .Case("quantities-kept", quantitiesKept)
+      .Case("reuses-in-place", reusesInPlace)
+      .Case("counts-nothing", countsNothing)
       .Case("facts-as-marked", factsAsMarked)
       .Default(nullptr);
 }

@@ -14,6 +14,11 @@ mlir::InFlightDiagnostic fail(mlir::Location loc, llvm::StringRef property);
 // The name of the function that holds `op`, for an error's text.
 std::string where(mlir::Operation *op);
 
+// The function `function` (`@f`) names, or null after the error that
+// `property` names none.
+mlir::func::FuncOp named(mlir::ModuleOp module, llvm::StringRef function,
+                         llvm::StringRef property);
+
 // Every property takes the module and the text after `=` in its request
 // (empty when there is none), and fails when it reported an error.
 using Check = mlir::LogicalResult (*)(mlir::ModuleOp module, llvm::StringRef argument);
@@ -41,5 +46,13 @@ mlir::LogicalResult quantitiesKept(mlir::ModuleOp module, llvm::StringRef emitte
 // what the mark says: the questions answered yes, in the order `drop move
 // delay evaluate`.
 mlir::LogicalResult factsAsMarked(mlir::ModuleOp module, llvm::StringRef);
+
+// In the function the argument names, every box is built in the cell of
+// one that died (idr.reuse), and at least one is: no box gets a fresh cell.
+mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef function);
+
+// The function the argument names counts no reference: no idr.inc, no
+// idr.dec.
+mlir::LogicalResult countsNothing(mlir::ModuleOp module, llvm::StringRef function);
 
 } // namespace idr::expect
