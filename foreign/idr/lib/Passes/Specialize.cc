@@ -85,15 +85,16 @@
 // may run between them: the consumer and the projection are in the call's
 // block, and every op between the call and the consumer is free of memory
 // effects (a crash, output and an allocation are effects), or the callee is
-// pure and total and cannot crash, so that when its body runs cannot be
-// observed. A callee that takes a world is never raised: its body would take
-// part in the world chain. A closed call of a pure, total callee is
-// idr-eval's, which runs it to the end, and is not raised; one of a partial
-// callee is raised, as idr-eval may leave it to runtime when it does not
-// finish within its budget. A clone that applies is total if its callee
-// is and every tail applies a known closure of a total function, and is pure
-// and may crash as its callee and those functions; a clone that writes is
-// total and may crash as its callee, and is effectful.
+// total, cannot crash and is pure or performs no IO while it runs (it may
+// build actions that do, as a fold of `*>` does), so that when its body
+// runs cannot be observed. A callee that takes a world is never raised: its
+// body would take part in the world chain. A closed call of a pure, total
+// callee is idr-eval's, which runs it to the end, and is not raised; one of
+// a partial callee is raised, as idr-eval may leave it to runtime when it
+// does not finish within its budget. A clone that applies is total if its
+// callee is and every tail applies a known closure of a total function, and
+// is pure and may crash as its callee and those functions; a clone that
+// writes is total and may crash as its callee, and is effectful.
 
 #include "idr/Idr.h"
 
@@ -106,6 +107,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/Support/FormatVariadic.h"
 
 using namespace mlir;
@@ -301,6 +303,8 @@ struct Specializer {
   llvm::DenseMap<StringAttr, ArrayAttr> parsed;
   // The clones made by arity raising, by their idr.spec_key.
   llvm::DenseMap<StringAttr, func::FuncOp> raised;
+  // Whether a call of each function may perform IO (runsIO()).
+  llvm::DenseMap<func::FuncOp, bool> performsIO;
   SmallVector<func::FuncOp> work;
   bool changed = false;
 
@@ -730,9 +734,85 @@ struct Specializer {
     }
   };
 
+  // Whether a call of `fn` may perform IO while it runs. idr.effect cannot
+  // say: idr-effects counts the effects of a closure where it is created,
+  // so a function that only builds IO actions (a fold that makes `a *> b`
+  // of each element, `pure ()` at the end) is effectful, although calling
+  // it performs nothing, and nothing its caller does can be reordered with
+  // it. Here a closure counts where it is applied instead: a function runs
+  // IO if it has an IO op, calls a function that runs IO, or applies a
+  // closure that is not built here or whose function runs IO. A function
+  // that does none of these performs no IO whatever its arguments are.
+  //
+  // The facts of the functions `fn` reaches are found together, as a
+  // greatest fixpoint, so that a cycle of calls none of which does IO
+  // does none. A fact stays true for the rest of the run: specialization
+  // and raising only make an applied closure more known.
+  bool runsIO(func::FuncOp fn) {
+    if (auto known = performsIO.find(fn); known != performsIO.end())
+      return known->second;
+    struct Local {
+      bool io = false;
+      SmallVector<func::FuncOp> reaches;
+    };
+    llvm::MapVector<func::FuncOp, Local> found;
+    SmallVector<func::FuncOp> stack{fn};
+    while (!stack.empty()) {
+      func::FuncOp f = stack.pop_back_val();
+      if (performsIO.count(f) || found.count(f))
+        continue;
+      Local &local = found[f];
+      auto reach = [&](FlatSymbolRefAttr name) {
+        auto target = symbols.lookup<func::FuncOp>(name.getAttr());
+        if (!target) {
+          local.io = true;
+          return;
+        }
+        local.reaches.push_back(target);
+        stack.push_back(target);
+      };
+      if (f.isExternal()) {
+        local.io = true;
+        continue;
+      }
+      f.getBody().walk([&](Operation *op) {
+        if (op->hasTrait<idr::PerformsIO>()) {
+          local.io = true;
+        } else if (auto call = dyn_cast<func::CallOp>(op)) {
+          reach(call.getCalleeAttr());
+        } else if (auto apply = dyn_cast<idr::ApplyOp>(op)) {
+          idr::ClosureAttr constant;
+          if (auto closure = apply.getCallee().getDefiningOp<idr::ClosureOp>())
+            reach(closure.getCalleeAttr());
+          else if (matchPattern(apply.getCallee(), m_Constant(&constant)))
+            reach(constant.getCallee());
+          else
+            local.io = true;
+        } else if (isa<CallOpInterface>(op)) {
+          local.io = true;
+        }
+      });
+    }
+    // The facts spread from the functions that run IO to those that reach
+    // them, until nothing changes.
+    auto io = [&](func::FuncOp f) {
+      auto known = performsIO.find(f);
+      return known != performsIO.end() ? known->second : found.find(f)->second.io;
+    };
+    for (bool grew = true; grew;) {
+      grew = false;
+      for (auto &[f, local] : found)
+        if (!local.io && llvm::any_of(local.reaches, io))
+          local.io = grew = true;
+    }
+    for (auto &[f, local] : found)
+      performsIO[f] = local.io;
+    return performsIO.lookup(fn);
+  }
+
   // The consumer of `call`'s result, if moving the callee's body from the
   // call to it cannot be observed.
-  static std::optional<Consumer> consumer(func::CallOp call, func::FuncOp callee) {
+  std::optional<Consumer> consumer(func::CallOp call, func::FuncOp callee) {
     if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() ||
         llvm::any_of(callee.getArgumentTypes(), llvm::IsaPred<idr::WorldType>))
       return std::nullopt;
@@ -757,7 +837,11 @@ struct Specializer {
     if (finishes &&
         llvm::all_of(call.getOperands(), [](Value v) { return matchPattern(v, m_Constant()); }))
       return std::nullopt;
-    if (!finishes || idr::mayCrash(callee))
+    // A callee that always returns, cannot crash and performs no IO of its
+    // own may run later, after output between the call and its consumer.
+    bool unobservable = idr::isTotal(callee) && !idr::mayCrash(callee) &&
+                        (idr::isPure(callee) || !runsIO(callee));
+    if (!unobservable)
       for (Operation *op = call->getNextNode(); op != user; op = op->getNextNode())
         if (!isMemoryEffectFree(op))
           return std::nullopt;

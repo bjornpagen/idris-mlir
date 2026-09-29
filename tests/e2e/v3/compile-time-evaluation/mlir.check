@@ -1,13 +1,14 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=idr.big.
 // Every closed call is evaluated, of the total `power` and of the partial
-// `fib` and `euclid` alike: their results are the constants written, and no
-// Integer operation is left. Only `fib n` stays a call, its argument read at
-// runtime.
-// CHECK-DAG: idr.constant "610\0A"
-// CHECK-DAG: idr.constant "196418\0A"
-// CHECK-DAG: idr.constant "21\0A"
-// CHECK-DAG: idr.constant "1267650600228229401496703205376\0A"
-// CHECK-DAG: idr.constant "401\0A"
-// CHECK-DAG: idr.constant "57.6650390625\0A"
+// `fib` and `euclid` alike: their results are the constants written, as text
+// or as a number an output op formats, whichever inlining and output fusion
+// leave, and no Integer operation is left. Only `fib n` stays a call, its
+// argument read at runtime.
+// CHECK-DAG: {{idr.constant "610\\0A"|arith.constant 610 : i64}}
+// CHECK-DAG: {{idr.constant "196418\\0A"|arith.constant 196418 : i64}}
+// CHECK-DAG: {{idr.constant "21\\0A"|arith.constant 21 : i64}}
+// CHECK-DAG: idr.constant "1267650600228229401496703205376{{(\\0A)?}}"
+// CHECK-DAG: {{idr.constant "401\\0A"|arith.constant 401 : i64}}
+// CHECK-DAG: {{idr.constant "57.6650390625\\0A"|arith.constant 57.6650390625 : f64}}
 // CHECK-DAG: call @Main.fib(%{{.*}}) : (i64) -> i64

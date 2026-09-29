@@ -27,6 +27,7 @@
 #include "llvm/Support/SHA1.h"
 
 #include <array>
+#include <limits>
 
 using namespace mlir;
 
@@ -128,6 +129,17 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
 // The passes of one round, as textual pipelines, in order.
 //
+// The inliner simplifies each function and inlines the calls that exposes
+// until an iteration inlines nothing, not a fixed number of times (upstream's
+// default is 4): unfolding a sequence of n actions, as a `do` block of n
+// statements is (each `>>` applies the closure of the rest), takes n
+// iterations, each of which canonicalizes the function, while each round
+// runs every pass on the whole module; with a bound, the loop took a round
+// for every statement or two, each as long as the program is large. The
+// iterations end as the rounds do: every cycle of references keeps a loop
+// breaker, and inlining and canonicalization only copy references that
+// exist, so no iteration closes a new cycle.
+//
 // idr-prune runs right before remove-dead-values: at llvmorg-23.1.2,
 // remove-dead-values erases the arguments of a function that dead-code
 // analysis never reaches, while ops there still use them, and then folds
@@ -136,6 +148,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 // then removes the functions that only the emptied code referred to, which
 // the analysis would find unreachable in turn.
 SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned cloneLimit) {
+  if (inlineIterations == 0)
+    inlineIterations = std::numeric_limits<unsigned>::max();
   return {
       "idr-loop-breakers",
       "idr-effects",
