@@ -2,7 +2,8 @@
 ||| own `Test.Golden`, as third_party/Idris2/tests/Main.idr.
 |||
 ||| A test is a directory with a POSIX-sh `run` script and an `expected`
-||| file. The runner calls `./run` in that directory with the idris-mlir
+||| file. The runner (Runner.idr, each test in a process of its own) calls
+||| `./run` in that directory with the idris-mlir
 ||| under test as `$1` and IDRIS_MLIR_ROOT set to the repository root, and
 ||| compares its stdout with `expected`. `run` prints the exit status of what
 ||| it runs and the artifacts that must exist, so every test checks both by
@@ -41,6 +42,7 @@ import Test.Golden
 
 import Fuzz
 import Lock
+import Runner
 import Sem
 import TwoLevels
 
@@ -158,7 +160,11 @@ runSuites prog args = do
   -- Run anywhere but tests/, the pools are empty; that must not pass.
   when (all (null . testCases) pools) $
     die "no tests found: run the runner in tests/, through make"
-  if listing then listPools opts pools else runnerWith opts pools
+  -- Accepting new output asks at each failure, one test at a time, which
+  -- only Test.Golden's runner does.
+  if listing then listPools opts pools
+    else if opts.interactive then runnerWith opts pools
+    else runPools opts pools
 
 main : IO ()
 main = do

@@ -17,7 +17,9 @@
 #   make compile SRC=Prog.idr OUT=prog
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #
-# The test commands run tests/Main.idr, a golden runner on Test.Golden. They
+# The test commands run tests/Main.idr, a golden runner that runs each test
+# in a process of its own; the whole run ends after 4 hours (times
+# time_scale), so that nothing can hold the tree for ever. They
 # take only='NAME...' and except='NAME...' (substrings of test paths such as
 # e2e/v1/hello), threads=N (default: the number of CPUs),
 # INTERACTIVE=--interactive (offer to accept new output) and time_scale=N
@@ -57,6 +59,8 @@ INTERACTIVE ?=
 time_scale ?= 1
 export IDRIS_MLIR_TIME_SCALE := $(time_scale)
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
+# A runner that hangs fails instead of holding the tree's lock.
+RUN_TESTS = timeout -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \
         runner compile bench
@@ -104,19 +108,19 @@ runner:
 	cd $(ROOT)/tests && $(IDRIS2) --build tests.ipkg
 
 check: runner
-	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite check $(GOLDEN)
+	cd $(ROOT)/tests && $(RUN_TESTS) --suite check $(GOLDEN)
 
 test: runner
 	@$(PINS) built llvm sysroot
-	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test $(GOLDEN)
+	cd $(ROOT)/tests && $(RUN_TESTS) --suite test $(GOLDEN)
 
 test-idr: runner
 	@$(PINS) built llvm test-tools sysroot
-	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-idr $(GOLDEN)
+	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-idr $(GOLDEN)
 
 test-mlir-tools: runner
 	@$(PINS) llvm sysroot
-	cd $(ROOT)/tests && $(RUNNER) $(COMPILER) --suite test-mlir-tools $(GOLDEN)
+	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-mlir-tools $(GOLDEN)
 
 compile:
 	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Prog.idr OUT=prog' >&2; exit 2; }

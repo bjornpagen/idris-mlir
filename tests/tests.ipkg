@@ -6,6 +6,7 @@ depends = contrib, test
 sourcedir = "."
 modules = Fuzz
         , Lock
+        , Runner
         , Sem
         , TwoLevels
 main = Main

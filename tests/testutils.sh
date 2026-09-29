@@ -54,9 +54,15 @@ fi
 time_scale=${IDRIS_MLIR_TIME_SCALE:-1}
 step_limit=$(( ${step_limit:-60} * time_scale ))
 test_limit=$(( ${test_limit:-300} * time_scale ))
+# The output is bounded too, at 256 KiB, since the runner reads all of it:
+# a longer one is cut, and says so, which fails the test.
 if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
-  IDRIS_MLIR_TEST_DEADLINE=$test_limit timeout -k 10 "$test_limit" sh "$0" "$@"
+  deadline_output=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-output.XXXXXX") || exit 1
+  IDRIS_MLIR_TEST_DEADLINE=$test_limit timeout -k 10 "$test_limit" sh "$0" "$@" > "$deadline_output"
   deadline_status=$?
+  head -c 262144 "$deadline_output"
+  [ "$(wc -c < "$deadline_output")" -le 262144 ] || printf '\n%s\n' "test: output cut at 256 KiB"
+  rm -f "$deadline_output"
   case $deadline_status in
     124 | 137) printf '%s\n' "test: timed out after ${test_limit}s" ;;
   esac
