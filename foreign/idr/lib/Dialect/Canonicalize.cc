@@ -301,12 +301,16 @@ struct SinkIntoRegions : OpRewritePattern<Match> {
     this->setDebugName("idr-sink-into-regions");
   }
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
+    // The candidates are the ops before the match in its block. Visiting the
+    // values its regions use instead would walk all of its nested regions
+    // each time the match is revisited, and the rewrite driver revisits a
+    // match whenever anything inside it changes: in a function whose matches
+    // nest dozens deep, as case-of-case makes them, that dominated
+    // compilation.
     Operation *value = nullptr;
-    visitUsedValuesDefinedAbove(op->getRegions(), [&](OpOperand *use) {
-      Operation *def = use->get().getDefiningOp();
-      if (!value && def && def->getBlock() == op->getBlock() && sinkable(def, op))
+    for (Operation *def = op->getPrevNode(); def && !value; def = def->getPrevNode())
+      if (sinkable(def, op))
         value = def;
-    });
     if (!value)
       return failure();
     for (Region &region : op->getRegions()) {
@@ -323,7 +327,8 @@ struct SinkIntoRegions : OpRewritePattern<Match> {
 
 private:
   static bool sinkable(Operation *value, Operation *match) {
-    if (value->getNumResults() == 0 || value->hasTrait<OpTrait::ConstantLike>())
+    if (value->getNumResults() == 0 || value->use_empty() ||
+        value->hasTrait<OpTrait::ConstantLike>())
       return false;
     if (!llvm::all_of(value->getUsers(), [&](Operation *user) {
           return user != match && match->isAncestor(user);
