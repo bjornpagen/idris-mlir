@@ -45,7 +45,6 @@ extern "C" {
  *   slots after its code pointer, which is at offset 8. Strings and bignums
  *   have none.
  * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
- * idris_rt_info builds the word, and the accessors below take it apart.
  * - bit 31: a stack cell, which the compiler builds in a frame; its memory
  *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
  *   When its count reaches 0 its object slots are released but its memory is
@@ -53,6 +52,7 @@ extern "C" {
  *   never exclusive (idris_rt_is_unique, idris_rt_reset): a callee it is lent
  *   to could otherwise reuse its memory for a result that outlives the frame
  *   holding it.
+ * idris_rt_info builds the word, and the accessors below take it apart.
  *
  * An object slot holds a counted reference: a pointer to an object, NULL (an
  * unused pointer slot of an unboxed sum), or an odd word (a small Integer or
