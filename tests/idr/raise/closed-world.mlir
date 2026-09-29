@@ -14,15 +14,15 @@
 // CHECK-NOT: $spec$
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 () {quantities = []}
+    idr.ctor @MkUnit tag 0 ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world) {quantities = ["w", "1"]}
+    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) {quantities = ["1"]}
+    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
   }
-  func.func private @countdown(%n: i64 {idr.quantity = "w"}) -> !idr.data<@IO> attributes {no_inline} {
+  func.func private @countdown(%n: i64) -> !idr.data<@IO> attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
     case 0 {
       %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
@@ -39,13 +39,13 @@ module attributes {idr.program} {
     }
     return %r : !idr.data<@IO>
   }
-  func.func private @next(%n: i64 {idr.quantity = "w"}, %u: !idr.data<@Unit> {idr.quantity = "w"}) -> !idr.data<@IO> {
+  func.func private @next(%n: i64, %u: !idr.data<@Unit>) -> !idr.data<@IO> {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
     %a = func.call @countdown(%m) : (i64) -> !idr.data<@IO>
     return %a : !idr.data<@IO>
   }
-  func.func private @bind(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)> {idr.quantity = "1"}, %k: !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)> {idr.quantity = "1"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @bind(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, %k: !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %r = idr.apply %a(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %u = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
@@ -54,18 +54,18 @@ module attributes {idr.program} {
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
-  func.func private @put(%n: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> {
+  func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> {
     %n = arith.constant 3 : i64
     %a = func.call @countdown(%n) : (i64) -> !idr.data<@IO>
     %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>

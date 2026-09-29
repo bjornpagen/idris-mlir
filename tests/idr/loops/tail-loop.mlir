@@ -8,7 +8,7 @@
 // when nothing uses its result. A call that is not in tail position stays.
 
 // CHECK-LABEL: func.func private @count(
-// CHECK-SAME: %[[ACC:[a-z0-9_]+]]: i64 {idr.quantity = "w"}, %[[N:[a-z0-9_]+]]: i64 {idr.quantity = "w"}) -> i64
+// CHECK-SAME: %[[ACC:[a-z0-9_]+]]: i64, %[[N:[a-z0-9_]+]]: i64) -> i64
 // CHECK-NEXT: %[[L:.*]]:3 = scf.while (%[[A:.*]] = %[[ACC]], %[[M:.*]] = %[[N]]) : (i64, i64) -> (i64, i64, i64) {
 // CHECK-NOT: idr.may_loop
 // CHECK: %[[P:.*]]:4 = idr.match_lit %[[M]] : i64 -> (i1, i64, i64, i64) {
@@ -46,7 +46,7 @@
 // KEPT-NOT: scf.while
 // KEPT: call @fib
 module attributes {idr.program} {
-  func.func private @count(%acc: i64 {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @count(%acc: i64, %n: i64) -> i64 attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -62,13 +62,13 @@ module attributes {idr.program} {
     return %r : i64
   }
   // spin x = spin (x + 1)
-  func.func private @spin(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @spin(%x: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     %r = func.call @spin(%y) : (i64) -> i64
     return %r : i64
   }
-  func.func private @fib(%n: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @fib(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %n : i64

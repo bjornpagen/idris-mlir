@@ -20,12 +20,12 @@
 // CHECK: arith.addi
 // CHECK: call @[[POW]](
 module attributes {idr.program} {
-  func.func private @inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @inc(%x: i64) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  func.func private @pow(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64
@@ -40,7 +40,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>

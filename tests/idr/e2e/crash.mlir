@@ -22,7 +22,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %s = idr.constant "before\n" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1

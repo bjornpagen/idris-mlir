@@ -8,10 +8,10 @@
 // CHECK: llvm.call @f(
 // CHECK-NOT: idr.
 module attributes {idr.program, idr.clone_counts = {f = 1 : i64}} {
-  func.func private @f(%a: i64 {idr.quantity = "w", idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.origin = "g", idr.spec_key = "[unit]"} {
+  func.func private @f(%a: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.origin = "g", idr.spec_key = "[unit]"} {
     return %a : i64
   }
-  func.func private @g(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @g(%x: i64) -> i64 attributes {idr.total} {
     %r = func.call @f(%x) {idr.spec_caller = {g = "[unit]"}, idr.spec_stopped, idr.spec_stopped_at = "[unit]"} : (i64) -> i64
     return %r : i64
   }

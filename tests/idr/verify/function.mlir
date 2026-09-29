@@ -1,21 +1,8 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
-// expected-error @+1 {{argument 0 has quantity "w" and type '!idr.erased'; quantity "0" is exactly for !idr.erased}}
-func.func private @f(%e: !idr.erased {idr.quantity = "w"}) {
-  return
-}
-
-// -----
-
-// expected-error @+1 {{argument 1 has quantity "0" and type 'i64'; quantity "0" is exactly for !idr.erased}}
-func.func private @f(%e: !idr.erased {idr.quantity = "0"}, %x: i64 {idr.quantity = "0"}) {
-  return
-}
-
-// -----
-
-// expected-error @+1 {{expects idr.quantity = "0", "1" or "w" on argument 0}}
-func.func private @f(%x: i64 {idr.quantity = "2"}) {
+// A parameter's quantity is its type.
+// expected-error @+1 {{has an unknown idr argument attribute "idr.quantity"}}
+func.func private @f(%x: i64 {idr.quantity = "1"}) {
   return
 }
 
@@ -35,15 +22,15 @@ func.func private @f() attributes {idr.total = 1 : i64} {
 
 // -----
 
-// expected-error @+1 {{expects idr.effect = "pure" or "effectful" on a function}}
-func.func private @f() attributes {idr.effect = "io"} {
+// expected-error @+1 {{expects idr.effects = #idr.effects<...> on a function}}
+func.func private @f() attributes {idr.effects = "io"} {
   return
 }
 
 // -----
 
-// expected-error @+1 {{expects idr.may_crash as a unit attribute of a function}}
-func.func private @f() attributes {idr.may_crash = "yes"} {
+// expected-error @+1 {{expects idr.library as a unit attribute of a function}}
+func.func private @f() attributes {idr.library = "yes"} {
   return
 }
 
@@ -58,8 +45,8 @@ func.func private @f() {
 // -----
 
 // The facts a function may carry.
-func.func private @f(%e: !idr.erased {idr.quantity = "0"}, %x: i64 {idr.quantity = "1"},
-                     %y: i64 {idr.quantity = "w"})
-    attributes {idr.total, idr.effect = "pure", idr.may_crash, no_inline} {
+func.func private @f(%e: !idr.erased, %x: i64,
+                     %y: i64)
+    attributes {idr.total, idr.library, idr.effects = #idr.effects<io, crash>, no_inline} {
   return
 }

@@ -8,7 +8,7 @@
 // CHECK: call @count(%{{.*}}, %{{.*}}) : (i64, !idr.big) -> i64
 // CHECK-NOT: $spec$
 module attributes {idr.program} {
-  func.func private @count(%acc: i64 {idr.quantity = "w"}, %n: !idr.big {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @count(%acc: i64, %n: !idr.big) -> i64 attributes {idr.total} {
     %r = idr.match_lit %n : !idr.big -> (i64) {
     case #idr.big<"0"> {
       idr.yield %acc : i64
@@ -24,7 +24,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @use(%acc: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @use(%acc: i64) -> i64 attributes {idr.total} {
     %c100 = idr.constant #idr.big<"100"> : !idr.big
     %r = func.call @count(%acc, %c100) : (i64, !idr.big) -> i64
     return %r : i64

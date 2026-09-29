@@ -5,7 +5,7 @@
 func.func private @g(%w: !idr.world) -> !idr.world {
   return %w : !idr.world
 }
-func.func private @f(%w: !idr.world {idr.quantity = "1"}) {
+func.func private @f(%w: !idr.world) {
   // expected-error @+1 {{captures a world; a world passes only as an argument or result}}
   %c = idr.closure @g(%w) : (!idr.world) -> !idr.fn<() -> (!idr.world)>
   return
@@ -16,7 +16,7 @@ func.func private @f(%w: !idr.world {idr.quantity = "1"}) {
 func.func private @g(%w: !idr.world) -> !idr.world {
   return %w : !idr.world
 }
-func.func private @f(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+func.func private @f(%w: !idr.world) -> !idr.world {
   %c = idr.closure @g() : () -> !idr.fn<(!idr.world) -> (!idr.world)>
   %r = idr.apply %c(%w) : !idr.fn<(!idr.world) -> (!idr.world)>
   return %r : !idr.world

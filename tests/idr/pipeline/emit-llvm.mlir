@@ -10,7 +10,7 @@
 // CHECK-NEXT: br label %[[L]]
 // CHECK-NOT: mustprogress
 module attributes {idr.program} {
-  func.func private @Prog.spin(%n: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @Prog.spin(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.addi %n, %c1 : i64
     %r = func.call @Prog.spin(%m) : (i64) -> i64

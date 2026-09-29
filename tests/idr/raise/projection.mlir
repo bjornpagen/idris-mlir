@@ -9,7 +9,7 @@
 // what a tail applies is not known here (@same returns its parameter), the
 // clone applies the field it reads, and is not total.
 // CHECK-LABEL: func.func private @twice(
-// CHECK-SAME: %[[IO:[a-z0-9_]+]]: !idr.data<@IO> {idr.quantity = "w"}, %[[V:[a-z0-9_]+]]: !idr.world
+// CHECK-SAME: %[[IO:[a-z0-9_]+]]: !idr.data<@IO>, %[[V:[a-z0-9_]+]]: !idr.world
 // CHECK-NEXT: %[[S:.*]] = call @[[SAME:same\$raise\$[0-9]+]](%[[IO]], %[[V]])
 // CHECK-NEXT: return %[[S]]
 // CHECK-LABEL: func.func @Main.main(
@@ -20,14 +20,14 @@
 // CHECK-NEXT: return %[[R]]
 // CHECK: func.func private @[[SAME]](
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: !idr.data<@IO> {{.*}}, %[[Y:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
-// CHECK-SAME: idr.effect = "pure"
+// CHECK-SAME: idr.effects = #idr.effects<none>
 // CHECK-NOT: idr.total
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
 // CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
 // CHECK-NEXT: return %[[Z]]
 // CHECK: func.func private @[[GREET]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[B:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
-// CHECK-SAME: idr.effect = "effectful"{{.*}}idr.total
+// CHECK-SAME: idr.effects = #idr.effects<io>{{.*}}idr.total
 // CHECK: case 0 {
 // CHECK-NEXT: %[[D:.*]] = func.call @done(%[[B]])
 // CHECK-NEXT: idr.yield %[[D]] : !idr.data<@IORes>
@@ -36,26 +36,26 @@
 // CHECK-NEXT: idr.yield %[[P]] : !idr.data<@IORes>
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 () {quantities = []}
+    idr.ctor @MkUnit tag 0 ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world) {quantities = ["w", "1"]}
+    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) {quantities = ["1"]}
+    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
   }
-  func.func private @put(%n: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.effect = "effectful", idr.total} {
+  func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>, idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.effect = "pure", idr.total} {
+  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<none>, idr.total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @greet(%n: i64 {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.effect = "effectful", idr.total} {
+  func.func private @greet(%n: i64) -> !idr.data<@IO> attributes {idr.effects = #idr.effects<io>, idr.total} {
     %done = idr.constant #idr.con<@IO::@MkIO, [#idr.closure<@done, []>]> : !idr.data<@IO>
     %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
     case 0 {
@@ -69,16 +69,16 @@ module attributes {idr.program} {
     }
     return %r : !idr.data<@IO>
   }
-  func.func private @same(%io: !idr.data<@IO> {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.effect = "pure", idr.total} {
+  func.func private @same(%io: !idr.data<@IO>) -> !idr.data<@IO> attributes {idr.effects = #idr.effects<none>, idr.total} {
     return %io : !idr.data<@IO>
   }
-  func.func private @twice(%io: !idr.data<@IO> {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.effect = "pure", idr.total} {
+  func.func private @twice(%io: !idr.data<@IO>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<none>, idr.total} {
     %a = func.call @same(%io) : (!idr.data<@IO>) -> !idr.data<@IO>
     %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.effect = "effectful"} {
+  func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %a = func.call @greet(%n) : (i64) -> !idr.data<@IO>

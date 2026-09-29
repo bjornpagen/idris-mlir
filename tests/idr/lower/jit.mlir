@@ -18,7 +18,7 @@
 // CHECK-NOT: func.func @main
 module {
   idr.data @Pair box {
-    idr.ctor @P tag 0 (i64, i64) {quantities = ["w", "w"]}
+    idr.ctor @P tag 0 (i64, i64)
   }
   func.func private @pair(%a: i64, %b: i64) -> !idr.box<@Pair> {
     %p = idr.con @Pair::@P(%a, %b) : (i64, i64) -> !idr.box<@Pair>

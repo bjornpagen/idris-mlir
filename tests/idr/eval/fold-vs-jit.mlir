@@ -10,163 +10,163 @@
 // their boundary, Euclidean division of negative bigs, correctly rounded
 // casts, and non-ASCII strings.
 module {
-  func.func private @append(%a0: !idr.str, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @append(%a0: !idr.str, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.append %a0, %a1
     return %r : !idr.str
   }
-  func.func private @cons(%a0: i32, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @cons(%a0: i32, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.cons %a0, %a1
     return %r : !idr.str
   }
-  func.func private @from_char(%a0: i32) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @from_char(%a0: i32) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.from_char %a0
     return %r : !idr.str
   }
-  func.func private @show_s8(%a0: i8) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @show_s8(%a0: i8) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.show signed %a0 : i8
     return %r : !idr.str
   }
-  func.func private @show_u8(%a0: i8) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @show_u8(%a0: i8) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.show %a0 : i8
     return %r : !idr.str
   }
-  func.func private @show_s64(%a0: i64) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @show_s64(%a0: i64) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.show signed %a0 : i64
     return %r : !idr.str
   }
-  func.func private @show_f64(%a0: f64) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @show_f64(%a0: f64) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.show %a0 : f64
     return %r : !idr.str
   }
-  func.func private @substr(%a0: !idr.str, %a1: i64, %a2: i64) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @substr(%a0: !idr.str, %a1: i64, %a2: i64) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.substr %a0, %a1, %a2
     return %r : !idr.str
   }
-  func.func private @reverse(%a0: !idr.str) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @reverse(%a0: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.reverse %a0
     return %r : !idr.str
   }
-  func.func private @tail(%a0: !idr.str) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @tail(%a0: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.tail %a0
     return %r : !idr.str
   }
-  func.func private @length(%a0: !idr.str) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @length(%a0: !idr.str) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.length %a0
     return %r : i64
   }
-  func.func private @index(%a0: !idr.str, %a1: i64) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @index(%a0: !idr.str, %a1: i64) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.index %a0, %a1
     return %r : i32
   }
-  func.func private @head(%a0: !idr.str) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @head(%a0: !idr.str) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.head %a0
     return %r : i32
   }
-  func.func private @cmp_lt(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @cmp_lt(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.cmp lt %a0, %a1
     return %r : i1
   }
-  func.func private @cmp_gte(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @cmp_gte(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.cmp gte %a0, %a1
     return %r : i1
   }
-  func.func private @cmp_eq(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @cmp_eq(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.cmp eq %a0, %a1
     return %r : i1
   }
-  func.func private @to_int16(%a0: !idr.str) -> i16 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_int16(%a0: !idr.str) -> i16 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.to_int signed %a0 : i16
     return %r : i16
   }
-  func.func private @to_int64(%a0: !idr.str) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_int64(%a0: !idr.str) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.to_int signed %a0 : i64
     return %r : i64
   }
-  func.func private @to_double(%a0: !idr.str) -> f64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_double(%a0: !idr.str) -> f64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.to_double %a0
     return %r : f64
   }
-  func.func private @big_add(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_add(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.add %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_sub(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_sub(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.sub %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_mul(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_mul(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.mul %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_div(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_div(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.div %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_mod(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_mod(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.mod %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_and(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_and(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.and %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_or(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_or(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.or %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_xor(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_xor(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.xor %a0, %a1
     return %r : !idr.big
   }
-  func.func private @big_neg(%a0: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_neg(%a0: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.neg %a0
     return %r : !idr.big
   }
-  func.func private @big_cmp_gt(%a0: !idr.big, %a1: !idr.big) -> i1 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_cmp_gt(%a0: !idr.big, %a1: !idr.big) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.cmp gt %a0, %a1
     return %r : i1
   }
-  func.func private @big_cmp_lte(%a0: !idr.big, %a1: !idr.big) -> i1 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_cmp_lte(%a0: !idr.big, %a1: !idr.big) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.cmp lte %a0, %a1
     return %r : i1
   }
-  func.func private @big_from_u64(%a0: i64) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_from_u64(%a0: i64) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.from_int %a0 : i64
     return %r : !idr.big
   }
-  func.func private @big_from_s8(%a0: i8) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_from_s8(%a0: i8) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.from_int signed %a0 : i8
     return %r : !idr.big
   }
-  func.func private @big_to_i32(%a0: !idr.big) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_to_i32(%a0: !idr.big) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.to_int %a0 : i32
     return %r : i32
   }
-  func.func private @big_from_double(%a0: f64) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_from_double(%a0: f64) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.from_double %a0
     return %r : !idr.big
   }
-  func.func private @big_to_double(%a0: !idr.big) -> f64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_to_double(%a0: !idr.big) -> f64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.to_double %a0
     return %r : f64
   }
-  func.func private @big_show(%a0: !idr.big) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_show(%a0: !idr.big) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.show %a0
     return %r : !idr.str
   }
-  func.func private @big_from_str(%a0: !idr.str) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @big_from_str(%a0: !idr.str) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.from_str %a0
     return %r : !idr.big
   }
-  func.func private @double_head(%a0: f64) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @double_head(%a0: f64) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.double_head %a0
     return %r : i32
   }
-  func.func private @int_head_s32(%a0: i32) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @int_head_s32(%a0: i32) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.int_head signed %a0 : i32
     return %r : i32
   }
-  func.func private @int_head_u8(%a0: i8) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @int_head_u8(%a0: i8) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.int_head %a0 : i8
     return %r : i32
   }

@@ -1,5 +1,5 @@
 // input: emitted
-// Quantities: an erased argument stays a parameter of type !idr.erased
-// with quantity "0", and a linear one has quantity "1".
-// CHECK-DAG: func.func private @Prog.clamp(%{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: i64 {idr.quantity = "w"}, %{{[0-9]+}}: !idr.erased {idr.quantity = "0"}) -> i64
-// CHECK-DAG: func.func private @Prog.linearId(%{{[0-9]+}}: i64 {idr.quantity = "1"}) -> i64
+// Quantities are types: an erased argument stays a parameter of type
+// !idr.erased, and a linear one has type !idr.lin<T>.
+// CHECK-DAG: func.func private @Prog.clamp(%{{[0-9]+}}: i64, %{{[0-9]+}}: i64, %{{[0-9]+}}: !idr.erased) -> i64
+// CHECK-DAG: func.func private @Prog.linearId(%{{[0-9]+}}: !idr.lin<i64>) -> i64

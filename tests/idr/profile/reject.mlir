@@ -8,10 +8,10 @@
 // CHECK-NOT: error:
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
   }
-  func.func private @one(%n: i64 {idr.quantity = "w"}) -> !idr.box<@L> {
+  func.func private @one(%n: i64) -> !idr.box<@L> {
     %nil = idr.constant #idr.con<@L::@Nil, []> : !idr.box<@L>
     %l = idr.con @L::@Cons(%n, %nil) : (i64, !idr.box<@L>) -> !idr.box<@L> loc("Main.idr":3:7)
     return %l : !idr.box<@L>
@@ -28,11 +28,11 @@ module attributes {idr.program} {
 // CHECK: Main.idr:4:9: error: unsupported (runtime closure): function value built at runtime: a closure of @add that no finite choice of functions stands for
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @add(%a: i64, %x: i64) -> i64 {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @adder(%n: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> {
+  func.func private @adder(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)> loc("Main.idr":4:9)
     return %f : !idr.fn<(i64) -> (i64)>
   }
@@ -48,11 +48,11 @@ module attributes {idr.program} {
 // CHECK: Main.idr:5:2: error: unsupported (runtime lazy value): Lazy value built at runtime: a suspension of @sq whose captures are not known at compile time
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func private @sq(%a: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @sq(%a: i64) -> i64 {
     %y = arith.muli %a, %a : i64
     return %y : i64
   }
-  func.func private @delay(%n: i64 {idr.quantity = "w"}) -> !idr.fn<() -> (i64)> {
+  func.func private @delay(%n: i64) -> !idr.fn<() -> (i64)> {
     %f = idr.closure @sq(%n) : (i64) -> !idr.fn<() -> (i64)> loc("Main.idr":5:2)
     return %f : !idr.fn<() -> (i64)>
   }
@@ -68,12 +68,12 @@ module attributes {idr.program} {
 // CHECK: Main.idr:8:3: error: unsupported (growing specialization): function value grows: a closure of @twice is built in or passed to @iter, whose specialization stopped
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func private @twice(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @twice(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %z = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
     return %z : i64
   }
-  func.func private @iter(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.spec_stopped} {
+  func.func private @iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {idr.spec_stopped} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
@@ -101,12 +101,12 @@ module attributes {idr.program} {
 // CHECK: Main.idr:9:9: error: unsupported (runtime string): string built at runtime: the result of idr.str.cons is passed to func.call instead of being written by output
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func private @greet(%s: !idr.str {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func private @greet(%s: !idr.str, %w: !idr.world) -> !idr.world {
     %w1 = idr.io.put_str %s, %w
     %w2 = func.call @greet(%s, %w1) : (!idr.str, !idr.world) -> !idr.world
     return %w2 : !idr.world
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %bang = idr.constant "!" : !idr.str
     %s = idr.str.cons %c, %bang loc("Main.idr":9:9)
@@ -122,7 +122,7 @@ module attributes {idr.program} {
 // CHECK: Main.idr:12:4: error: unsupported (string primitive): idr.match_lit of a string built at runtime by idr.str.from_char
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %s = idr.str.from_char %c loc("Main.idr":11:4)
     %r = idr.match_lit %s : !idr.str -> (i32) {
@@ -146,7 +146,7 @@ module attributes {idr.program} {
 // CHECK: Main.idr:13:1: error: unsupported (runtime integer): Integer computed at runtime by idr.big.from_int, which may allocate
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %b = idr.big.from_int signed %n : i64 loc("Main.idr":13:1)

@@ -23,14 +23,14 @@
 // REMARK: remark: [Passed] Evaluated
 module {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
   }
   idr.data @Shape {
-    idr.ctor @Dot tag 0 () {quantities = []}
-    idr.ctor @Rect tag 1 (f64, !idr.erased, !idr.str) {quantities = ["w", "0", "w"]}
+    idr.ctor @Dot tag 0 ()
+    idr.ctor @Rect tag 1 (f64, !idr.erased, !idr.str)
   }
-  func.func private @fact(%n: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @fact(%n: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64
@@ -46,7 +46,7 @@ module {
     }
     return %r : i64
   }
-  func.func private @bigFact(%n: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @bigFact(%n: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : !idr.big -> (!idr.big) {
     case #idr.big<"0"> {
       %one = idr.constant #idr.big<"1"> : !idr.big
@@ -62,28 +62,28 @@ module {
     }
     return %r : !idr.big
   }
-  func.func private @narrow(%n: i64) -> i8 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @narrow(%n: i64) -> i8 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = arith.trunci %n : i64 to i8
     return %r : i8
   }
-  func.func private @nan(%x: f64) -> f64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @nan(%x: f64) -> f64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = arith.divf %x, %x : f64
     return %r : f64
   }
-  func.func private @twice(%s: !idr.str) -> !idr.str attributes {idr.total, idr.effect = "pure"} {
+  func.func private @twice(%s: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.append %s, %s
     return %r : !idr.str
   }
-  func.func private @negate(%b: !idr.big) -> !idr.big attributes {idr.total, idr.effect = "pure"} {
+  func.func private @negate(%b: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.neg %b
     return %r : !idr.big
   }
   func.func private @rect(%w: f64, %e: !idr.erased, %s: !idr.str) -> !idr.data<@Shape>
-      attributes {idr.total, idr.effect = "pure"} {
+      attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.con @Shape::@Rect(%w, %e, %s) : (f64, !idr.erased, !idr.str) -> !idr.data<@Shape>
     return %r : !idr.data<@Shape>
   }
-  func.func private @range(%n: i64) -> !idr.box<@List> attributes {idr.total, idr.effect = "pure"} {
+  func.func private @range(%n: i64) -> !idr.box<@List> attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : i64 -> (!idr.box<@List>) {
     case 0 {
       %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
@@ -100,17 +100,17 @@ module {
     return %r : !idr.box<@List>
   }
   func.func private @addTo(%k: !idr.big, %s: !idr.data<@Shape>, %x: i64) -> i64
-      attributes {idr.total, idr.effect = "pure"} {
+      attributes {idr.total, idr.effects = #idr.effects<none>} {
     %i = idr.big.to_int %k : i64
     %r = arith.addi %i, %x : i64
     return %r : i64
   }
   func.func private @adder(%k: !idr.big, %s: !idr.data<@Shape>) -> !idr.fn<(i64) -> (i64)>
-      attributes {idr.total, idr.effect = "pure"} {
+      attributes {idr.total, idr.effects = #idr.effects<none>} {
     %c = idr.closure @addTo(%k, %s) : (!idr.big, !idr.data<@Shape>) -> !idr.fn<(i64) -> (i64)>
     return %c : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @applyInside(%x: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @applyInside(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %k = idr.constant #idr.big<"-100"> : !idr.big
     %dot = idr.con @Shape::@Dot() : () -> !idr.data<@Shape>
     %c = idr.closure @addTo(%k, %dot) : (!idr.big, !idr.data<@Shape>) -> !idr.fn<(i64) -> (i64)>

@@ -8,14 +8,14 @@
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
 // CHECK: idr.data @[[F0:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @Main.inc tag 0 () {quantities = []}
+// CHECK-NEXT: idr.ctor @Main.inc tag 0 ()
 // CHECK-NEXT: }
 // CHECK: idr.data @[[F1:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @Main.add tag 0 (i64) {quantities = ["w"]}
+// CHECK-NEXT: idr.ctor @Main.add tag 0 (i64)
 // CHECK-NEXT: }
 // CHECK: idr.data @[[F2:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @Main.add tag 0 (i64) {quantities = ["w"]}
-// CHECK-NEXT: idr.ctor @Main.inc tag 1 () {quantities = []}
+// CHECK-NEXT: idr.ctor @Main.add tag 0 (i64)
+// CHECK-NEXT: idr.ctor @Main.inc tag 1 ()
 // CHECK-NEXT: }
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: func.func private @Main.mkInc()
@@ -47,12 +47,12 @@
 // CHECK-NEXT: %[[K:.*]] = idr.match %[[A]] : !idr.data<@[[F1]]> -> (!idr.data<@[[F2]]>) {
 // CHECK: idr.yield %[[K]] : !idr.data<@[[F2]]>
 module attributes {idr.program} {
-  func.func private @Main.inc(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @Main.inc(%x: i64) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  func.func private @Main.add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @Main.add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
@@ -60,15 +60,15 @@ module attributes {idr.program} {
     %f = idr.closure @Main.inc() : () -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @Main.mkAdd(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  func.func private @Main.mkAdd(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
     %f = idr.closure @Main.add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @Main.use(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {idr.total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %i = func.call @Main.mkInc() : () -> !idr.fn<(i64) -> (i64)>

@@ -15,13 +15,13 @@ module attributes {idr.program} {
     %c1 = arith.constant 1 : i64
     return %c1 : i64
   }
-  func.func private @Main.force(%l: !idr.fn<() -> (i64)> {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @Main.force(%l: !idr.fn<() -> (i64)>) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64
     %v = idr.apply %l() : !idr.fn<() -> (i64)>
     %r = arith.addi %v, %c1 : i64
     return %r : i64
   }
-  func.func private @Main.later(%n: i64 {idr.quantity = "w"}) -> !idr.fn<() -> (i64)> {
+  func.func private @Main.later(%n: i64) -> !idr.fn<() -> (i64)> {
     %r = idr.match_lit %n : i64 -> (!idr.fn<() -> (i64)>) {
     case 0 {
       %f = idr.closure @Main.one() : () -> !idr.fn<() -> (i64)>
@@ -37,7 +37,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.fn<() -> (i64)>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %l = func.call @Main.later(%n) : (i64) -> !idr.fn<() -> (i64)>

@@ -9,8 +9,8 @@
 // REMARK: [Missed] Unfinished {{.*}}Function=range{{.*}}within the budget of total code
 module {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
   }
   func.func @Prog.main() -> !idr.box<@List> {
     %n = arith.constant 1000000000 : i64

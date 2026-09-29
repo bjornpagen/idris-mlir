@@ -5,13 +5,13 @@
 // only computes.
 
 idr.data @Maybe {
-  idr.ctor @Nothing tag 0 () {quantities = []}
-  idr.ctor @Just tag 1 (i64) {quantities = ["w"]}
+  idr.ctor @Nothing tag 0 ()
+  idr.ctor @Just tag 1 (i64)
 }
 // A sum of closures as idr-defunctionalize makes it.
 idr.data @fn$0 {
-  idr.ctor @crashes tag 0 () {quantities = []}
-  idr.ctor @square tag 1 () {quantities = []}
+  idr.ctor @crashes tag 0 ()
+  idr.ctor @square tag 1 ()
 }
 
 func.func private @square(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {

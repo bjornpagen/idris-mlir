@@ -16,7 +16,7 @@
 // RDV-NOT: @g
 // RDV-LABEL: func.func @Main.main(
 module attributes {idr.program} {
-  func.func private @g(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @g(%x: i64) -> i64 {
     %r = idr.match_lit %x : i64 -> (i64) {
     case 7 {
       idr.crash "seven"

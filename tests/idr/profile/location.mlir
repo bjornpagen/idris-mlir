@@ -6,7 +6,7 @@
 // CHECK: Main.idr:11:3: error: unsupported (runtime integer): Integer computed at runtime by idr.big.from_int, which may allocate (in Prelude/Cast.idr:83:1)
 // CHECK-NEXT: Main.idr:20:1: note: called from here
 module attributes {idr.program} {
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %b = idr.big.from_int signed %n : i64 loc(callsite(fused<"library">["Prelude/Cast.idr":83:1] at callsite("Main.idr":11:3 at "Main.idr":20:1)))
@@ -22,11 +22,11 @@ module attributes {idr.program} {
 // CHECK: Main.idr:30:1: error: unsupported (runtime string)
 // CHECK-NOT: error:
 module attributes {idr.program} {
-  func.func private @show(%x: i64 {idr.quantity = "w"}) -> !idr.str {
+  func.func private @show(%x: i64) -> !idr.str {
     %s = idr.str.show signed %x : i64 loc("Main.idr":30:1)
     return %s : !idr.str
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %b = idr.big.from_int signed %n : i64 loc("Main.idr":31:1)

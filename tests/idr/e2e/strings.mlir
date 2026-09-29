@@ -37,7 +37,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %s = func.call @word(%c) : (i32) -> !idr.str
     %n = idr.str.length %s

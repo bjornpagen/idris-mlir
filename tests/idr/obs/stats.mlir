@@ -34,7 +34,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %ten = arith.constant 10 : i64
     %f = func.call @fact(%ten) : (i64) -> i64
     %w1 = idr.io.put_int signed %f, %w : i64

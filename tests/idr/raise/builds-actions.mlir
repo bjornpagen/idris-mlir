@@ -20,38 +20,38 @@
 // CHECK: func.func private @actions$raise$[[N]](
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 () {quantities = []}
+    idr.ctor @MkUnit tag 0 ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world) {quantities = ["w", "1"]}
+    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) {quantities = ["1"]}
+    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
   }
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
   }
-  func.func private @put(%n: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
   // Runs %a, then %b.
-  func.func private @then(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)> {idr.quantity = "1"}, %b: !idr.data<@IO> {idr.quantity = "1"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @then(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, %b: !idr.data<@IO>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %r = idr.apply %a(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
     %f = idr.field %b[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
-  func.func private @actions(%xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.total} {
+  func.func private @actions(%xs: !idr.box<@L>) -> !idr.data<@IO> attributes {idr.total} {
     %io = idr.match %xs : !idr.box<@L> -> (!idr.data<@IO>) {
     case @Nil() {
       %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
@@ -68,14 +68,14 @@ module attributes {idr.program} {
     }
     return %io : !idr.data<@IO>
   }
-  func.func private @mixed(%g: !idr.fn<(i64) -> (!idr.data<@IO>)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.total} {
+  func.func private @mixed(%g: !idr.fn<(i64) -> (!idr.data<@IO>)>, %n: i64) -> !idr.data<@IO> attributes {idr.total} {
     %b = idr.apply %g(%n) : !idr.fn<(i64) -> (!idr.data<@IO>)>
     %p = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %k = idr.closure @then(%p, %b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.data<@IO>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %a = idr.con @IO::@MkIO(%k) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
     return %a : !idr.data<@IO>
   }
-  func.func private @run(%xs: !idr.box<@L> {idr.quantity = "w"}, %g: !idr.fn<(i64) -> (!idr.data<@IO>)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @run(%xs: !idr.box<@L>, %g: !idr.fn<(i64) -> (!idr.data<@IO>)>, %n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %b = func.call @mixed(%g, %n) : (!idr.fn<(i64) -> (!idr.data<@IO>)>, i64) -> !idr.data<@IO>
     %a = func.call @actions(%xs) : (!idr.box<@L>) -> !idr.data<@IO>
     %w1 = idr.io.put_int signed %n, %w : i64

@@ -13,8 +13,8 @@
 // TIMING-DAG: LLVM
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.str, !idr.box<@List>) {quantities = ["w", "w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.str, !idr.box<@List>)
   }
   func.func private @name(%n: i64) -> !idr.str attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
@@ -76,7 +76,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.world
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %five = arith.constant 5 : i64
     %l = func.call @range(%five) : (i64) -> !idr.box<@List>
     %w1 = func.call @walk(%l, %w) : (!idr.box<@List>, !idr.world) -> !idr.world

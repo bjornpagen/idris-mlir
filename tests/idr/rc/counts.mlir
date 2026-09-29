@@ -35,11 +35,11 @@
 // CHECK: return
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @N tag 0 () {quantities = []}
-    idr.ctor @C tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @N tag 0 ()
+    idr.ctor @C tag 1 (i64, !idr.box<@L>)
   }
   idr.data @Two {
-    idr.ctor @Two tag 0 (!idr.str, !idr.str) {quantities = ["w", "w"]}
+    idr.ctor @Two tag 0 (!idr.str, !idr.str)
   }
   func.func private @map(%l: !idr.box<@L>) -> !idr.box<@L> {
     %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
@@ -74,12 +74,12 @@ module attributes {idr.program} {
     %n = idr.str.length %b
     return %p, %n : !idr.data<@Two>, i64
   }
-  func.func private @scalars(%w: !idr.world {idr.quantity = "1"}, %e: !idr.erased {idr.quantity = "0"},
+  func.func private @scalars(%w: !idr.world, %e: !idr.erased,
                              %x: i64) -> !idr.world {
     %w2 = idr.io.put_int signed %x, %w : i64
     return %w2 : !idr.world
   }
-  func.func @root(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @root(%w: !idr.world) -> !idr.world {
     %c = idr.constant "x" : !idr.str
     %p:2 = func.call @both(%c, %c) : (!idr.str, !idr.str) -> (!idr.data<@Two>, i64)
     %l = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>

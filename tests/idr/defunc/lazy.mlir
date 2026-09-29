@@ -5,10 +5,10 @@
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.
 // CHECK: idr.data @[[F0:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @later tag 0 (i64) {quantities = ["w"]}
-// CHECK-NEXT: idr.ctor @now tag 1 () {quantities = []}
+// CHECK-NEXT: idr.ctor @later tag 0 (i64)
+// CHECK-NEXT: idr.ctor @now tag 1 ()
 // CHECK: idr.data @Box {
-// CHECK-NEXT: idr.ctor @MkBox tag 0 (!idr.data<@[[F0]]>) {quantities = ["w"]}
+// CHECK-NEXT: idr.ctor @MkBox tag 0 (!idr.data<@[[F0]]>)
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[L:.*]] = idr.field %{{.*}}[@MkBox, 0] : !idr.data<@Box> -> !idr.data<@[[F0]]>
@@ -19,17 +19,17 @@
 // CHECK-NEXT: call @now() : () -> i64
 module attributes {idr.program} {
   idr.data @Box {
-    idr.ctor @MkBox tag 0 (!idr.fn<() -> (i64)>) {quantities = ["w"]}
+    idr.ctor @MkBox tag 0 (!idr.fn<() -> (i64)>)
   }
   func.func private @now() -> i64 attributes {idr.total} {
     %c = arith.constant 7 : i64
     return %c : i64
   }
-  func.func private @later(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @later(%x: i64) -> i64 attributes {idr.total} {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %s = idr.match_lit %n : i64 -> (!idr.fn<() -> (i64)>) {

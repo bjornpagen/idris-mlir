@@ -31,27 +31,27 @@
 // ROUNDS: fixpoint: round {{[1-3]}} changed nothing
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 () {quantities = []}
+    idr.ctor @MkUnit tag 0 ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world) {quantities = ["w", "1"]}
+    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) {quantities = ["1"]}
+    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
   }
-  func.func private @put(%s: !idr.str {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @put(%s: !idr.str, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_str %s, %w
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
   // io_bind: runs %a, applies %k to its value and runs the action that gives.
-  func.func private @bind(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)> {idr.quantity = "1"}, %k: !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)> {idr.quantity = "1"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func private @bind(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, %k: !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %r = idr.apply %a(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %u = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
@@ -61,7 +61,7 @@ module attributes {idr.program} {
     return %s : !idr.data<@IORes>
   }
   // The continuation of `>>`: forces the delayed rest of the block.
-  func.func private @seq(%rest: !idr.fn<() -> (!idr.data<@IO>)> {idr.quantity = "w"}, %u: !idr.data<@Unit> {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.total} {
+  func.func private @seq(%rest: !idr.fn<() -> (!idr.data<@IO>)>, %u: !idr.data<@Unit>) -> !idr.data<@IO> attributes {idr.total} {
     %io = idr.apply %rest() : !idr.fn<() -> (!idr.data<@IO>)>
     return %io : !idr.data<@IO>
   }
@@ -210,10 +210,10 @@ module attributes {idr.program} {
     %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
-  func.func private @const(%io: !idr.data<@IO> {idr.quantity = "w"}, %u: !idr.data<@Unit> {idr.quantity = "w"}) -> !idr.data<@IO> attributes {idr.total} {
+  func.func private @const(%io: !idr.data<@IO>, %u: !idr.data<@Unit>) -> !idr.data<@IO> attributes {idr.total} {
     return %io : !idr.data<@IO>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.data<@IORes> attributes {idr.total} {
+  func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %io = func.call @s1() : () -> !idr.data<@IO>
     %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>

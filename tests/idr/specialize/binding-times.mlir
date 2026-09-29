@@ -23,10 +23,10 @@
 // CHECK-DAG: remark: @twice: free, free
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
   }
-  func.func private @map(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.box<@L> {
+  func.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %xs : !idr.box<@L> -> (!idr.box<@L>) {
     case @Nil() {
       idr.yield %xs : !idr.box<@L>
@@ -40,7 +40,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@L>
   }
-  func.func private @count(%acc: i64 {idr.quantity = "w"}, %n: !idr.big {idr.quantity = "w"}) -> i64 {
+  func.func private @count(%acc: i64, %n: !idr.big) -> i64 {
     %r = idr.match_lit %n : !idr.big -> (i64) {
     case #idr.big<"0"> {
       idr.yield %acc : i64
@@ -56,12 +56,12 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @twice(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @twice(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %z = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
     return %z : i64
   }
-  func.func private @iter(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
@@ -77,7 +77,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @walk(%xs: !idr.box<@L> {idr.quantity = "w"}, %flag: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @walk(%xs: !idr.box<@L>, %flag: i64) -> i64 {
     %r = idr.match_lit %flag : i64 -> (i64) {
     case 0 {
       %c1 = arith.constant 1 : i64
@@ -100,7 +100,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @even(%xs: !idr.box<@L> {idr.quantity = "w"}) -> i1 {
+  func.func private @even(%xs: !idr.box<@L>) -> i1 {
     %r = idr.match %xs : !idr.box<@L> -> (i1) {
     case @Nil() {
       %t = arith.constant true
@@ -113,16 +113,16 @@ module attributes {idr.program} {
     }
     return %r : i1
   }
-  func.func private @odd(%xs: !idr.box<@L> {idr.quantity = "w"}) -> i1 {
+  func.func private @odd(%xs: !idr.box<@L>) -> i1 {
     %t = idr.field %xs[@Cons, 1] : !idr.box<@L> -> !idr.box<@L>
     %y = func.call @even(%t) : (!idr.box<@L>) -> i1
     return %y : i1
   }
-  func.func private @loop(%n: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> {
+  func.func private @loop(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %k = idr.closure @again(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %k : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @again(%n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @again(%n: i64, %x: i64) -> i64 {
     %k = func.call @loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %y = idr.apply %k(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64

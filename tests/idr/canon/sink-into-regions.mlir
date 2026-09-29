@@ -3,8 +3,8 @@
 // use moves into each region that uses it; there it meets its consumer.
 
 idr.data @Bool {
-  idr.ctor @False tag 0 () {quantities = []}
-  idr.ctor @True tag 1 () {quantities = []}
+  idr.ctor @False tag 0 ()
+  idr.ctor @True tag 1 ()
 }
 
 // putStr (show x) in both regions of a match on b: the string moves into

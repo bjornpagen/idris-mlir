@@ -9,20 +9,20 @@
 // CHECK-LABEL: module attributes {idr.program}
 module attributes {idr.program} {
   // CHECK: idr.data @Main.Shape {
-  // CHECK-NEXT: idr.ctor @Circle tag 0 (f64) {quantities = ["w"]}
-  // CHECK-NEXT: idr.ctor @Rect tag 1 (f64, f64) {quantities = ["w", "w"]}
-  // CHECK-NEXT: idr.ctor @Proven tag 2 (!idr.erased, i64) {quantities = ["0", "1"]}
+  // CHECK-NEXT: idr.ctor @Circle tag 0 (f64)
+  // CHECK-NEXT: idr.ctor @Rect tag 1 (f64, f64)
+  // CHECK-NEXT: idr.ctor @Proven tag 2 (!idr.erased, i64)
   idr.data @Main.Shape {
-    idr.ctor @Circle tag 0 (f64) {quantities = ["w"]}
-    idr.ctor @Rect tag 1 (f64, f64) {quantities = ["w", "w"]}
-    idr.ctor @Proven tag 2 (!idr.erased, i64) {quantities = ["0", "1"]}
+    idr.ctor @Circle tag 0 (f64)
+    idr.ctor @Rect tag 1 (f64, f64)
+    idr.ctor @Proven tag 2 (!idr.erased, i64)
   }
   // CHECK: idr.data @List box {
-  // CHECK-NEXT: idr.ctor @Nil tag 0 () {quantities = []}
-  // CHECK-NEXT: idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+  // CHECK-NEXT: idr.ctor @Nil tag 0 ()
+  // CHECK-NEXT: idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>)
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>)
   }
   // CHECK: idr.data @Fields {
   // CHECK-NEXT: idr.ctor @All tag 0 (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
@@ -30,18 +30,18 @@ module attributes {idr.program} {
     idr.ctor @All tag 0 (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world,
                          !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
                          !idr.data<@Main.Shape>, !idr.box<@List>)
-        {quantities = ["w", "w", "w", "w", "w", "w", "w", "1", "w", "w", "w", "w"]}
+       
   }
 
-  func.func private @inc(%k: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @inc(%k: i64, %x: i64) -> i64 {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
 
   // CHECK-LABEL: func.func private @values
-  func.func private @values(%x: i64 {idr.quantity = "w"}, %d: f64 {idr.quantity = "w"},
-                            %s: !idr.data<@Main.Shape> {idr.quantity = "w"},
-                            %l: !idr.box<@List> {idr.quantity = "w"})
+  func.func private @values(%x: i64, %d: f64,
+                            %s: !idr.data<@Main.Shape>,
+                            %l: !idr.box<@List>)
       -> (i64, f64, i64, i64) attributes {idr.total} {
     // CHECK: idr.constant #idr.con<@Main.Shape::@Rect, [1.000000e+00, 2.000000e+00]> : !idr.data<@Main.Shape>
     %c0 = idr.constant #idr.con<@Main.Shape::@Rect, [1.0 : f64, 2.0 : f64]> : !idr.data<@Main.Shape>
@@ -71,10 +71,10 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func private @matches
-  func.func private @matches(%s: !idr.data<@Main.Shape> {idr.quantity = "w"},
-                             %n: i64 {idr.quantity = "w"}, %c: i32 {idr.quantity = "w"},
-                             %b: i1 {idr.quantity = "w"}, %t: !idr.str {idr.quantity = "w"},
-                             %g: !idr.big {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"})
+  func.func private @matches(%s: !idr.data<@Main.Shape>,
+                             %n: i64, %c: i32,
+                             %b: i1, %t: !idr.str,
+                             %g: !idr.big, %w: !idr.world)
       -> (f64, !idr.world) {
     // CHECK: %{{.*}}:2 = idr.match %{{.*}} : !idr.data<@Main.Shape> -> (f64, !idr.world) {
     // CHECK-NEXT: case @Circle(%[[R:.*]]: f64) {
@@ -179,7 +179,7 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func private @closures
-  func.func private @closures(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @closures(%x: i64) -> i64 {
     // CHECK: %[[C:.*]] = idr.closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> (i64)>
     %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     // CHECK: idr.apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> (i64)>
@@ -190,8 +190,8 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func private @scalars
-  func.func private @scalars(%x: i64 {idr.quantity = "w"}, %y: i8 {idr.quantity = "w"},
-                             %d: f64 {idr.quantity = "w"}) {
+  func.func private @scalars(%x: i64, %y: i8,
+                             %d: f64) {
     // CHECK: idr.div signed %{{.*}}, %{{.*}} : i64
     %a = idr.div signed %x, %x : i64
     // CHECK: idr.mod %{{.*}}, %{{.*}} : i8
@@ -212,9 +212,9 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func private @strings
-  func.func private @strings(%s: !idr.str {idr.quantity = "w"}, %c: i32 {idr.quantity = "w"},
-                             %x: i64 {idr.quantity = "w"}, %y: i8 {idr.quantity = "w"},
-                             %d: f64 {idr.quantity = "w"}) {
+  func.func private @strings(%s: !idr.str, %c: i32,
+                             %x: i64, %y: i8,
+                             %d: f64) {
     // CHECK: idr.str.append %{{.*}}, %{{.*}}
     %a = idr.str.append %s, %s
     // CHECK: idr.str.cons %{{.*}}, %{{.*}}
@@ -259,8 +259,8 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func private @bigs
-  func.func private @bigs(%a: !idr.big {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"},
-                          %d: f64 {idr.quantity = "w"}, %s: !idr.str {idr.quantity = "w"}) {
+  func.func private @bigs(%a: !idr.big, %x: i64,
+                          %d: f64, %s: !idr.str) {
     // CHECK: idr.big.add %{{.*}}, %{{.*}}
     %0 = idr.big.add %a, %a
     // CHECK: idr.big.sub
@@ -297,7 +297,7 @@ module attributes {idr.program} {
   }
 
   // CHECK-LABEL: func.func @Main.main
-  func.func @Main.main(%w0: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.total} {
+  func.func @Main.main(%w0: !idr.world) -> !idr.world attributes {idr.total} {
     %s = idr.constant "hi" : !idr.str
     %c = arith.constant 65 : i32
     %n = arith.constant -1 : i64

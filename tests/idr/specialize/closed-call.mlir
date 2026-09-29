@@ -12,18 +12,18 @@
 // CHECK: call @erasing(%{{.*}}, %{{.*}}) : (!idr.erased, i64) -> i64
 // CHECK: call @erasing(%{{.*}}, %{{.*}}) : (!idr.erased, i64) -> i64
 module attributes {idr.program} {
-  func.func private @partial(%a: i64 {idr.quantity = "w"}, %b: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @partial(%a: i64, %b: i64) -> i64 {
     %c = func.call @partial(%b, %a) : (i64, i64) -> i64
     return %c : i64
   }
-  func.func private @total(%a: i64 {idr.quantity = "w"}, %b: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @total(%a: i64, %b: i64) -> i64 attributes {idr.total} {
     %c = arith.addi %a, %b : i64
     return %c : i64
   }
-  func.func private @erasing(%e: !idr.erased {idr.quantity = "0"}, %b: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @erasing(%e: !idr.erased, %b: i64) -> i64 attributes {idr.total} {
     return %b : i64
   }
-  func.func private @use(%n: i64 {idr.quantity = "w"}, %e: !idr.erased {idr.quantity = "0"}) -> i64 attributes {idr.total} {
+  func.func private @use(%n: i64, %e: !idr.erased) -> i64 attributes {idr.total} {
     %c3 = arith.constant 3 : i64
     %c4 = arith.constant 4 : i64
     %erased = idr.constant #idr.erased : !idr.erased

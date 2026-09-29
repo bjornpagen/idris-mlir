@@ -18,19 +18,19 @@
 // CHECK: call @sub(
 // CHECK-NOT: func.func private @apply$spec$
 module attributes {idr.program} {
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @sub(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @sub(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  func.func private @apply(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @apply(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {idr.total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  func.func private @use(%n: i64 {idr.quantity = "w"}, %m: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @use(%n: i64, %m: i64, %x: i64) -> i64 attributes {idr.total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %g = idr.closure @add(%m) : (i64) -> !idr.fn<(i64) -> (i64)>
     %h = idr.closure @sub(%n) : (i64) -> !idr.fn<(i64) -> (i64)>

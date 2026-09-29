@@ -3,7 +3,7 @@
 // form.
 
 idr.data @T {
-  idr.ctor @A tag 0 () {quantities = []}
+  idr.ctor @A tag 0 ()
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{expects one region per case and at most one default}}
@@ -20,7 +20,7 @@ func.func @f(%v: !idr.data<@T>) {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 () {quantities = []}
+  idr.ctor @A tag 0 ()
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{expects constructor names as cases, got 0 : i64}}
@@ -33,7 +33,7 @@ func.func @f(%v: !idr.data<@T>) {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 () {quantities = []}
+  idr.ctor @A tag 0 ()
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{expects a default region without arguments}}

@@ -12,7 +12,7 @@
 // REMARK: crash.mlir:{{[0-9]+}}:10: remark: [Passed] Evaluated {{.*}}Function=half
 // REMARK-NEXT: %b = func.call @half(%two)
 module {
-  func.func private @half(%x: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @half(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %c = arith.constant 14 : i64
     %q = idr.div signed %c, %x : i64
     return %q : i64

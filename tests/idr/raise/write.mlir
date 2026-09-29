@@ -13,7 +13,7 @@
 // one. @label is partial, so output between its call and the write keeps
 // the pair, and so does a string with a second use.
 // CHECK-LABEL: func.func private @print(
-// CHECK-SAME: %[[T:[a-z0-9_]+]]: !idr.box<@T> {idr.quantity = "w"}, %[[W:[a-z0-9_]+]]: !idr.world
+// CHECK-SAME: %[[T:[a-z0-9_]+]]: !idr.box<@T>, %[[W:[a-z0-9_]+]]: !idr.world
 // CHECK-NEXT: %[[W1:.*]] = call @[[SHOW:show\$raise\$[0-9]+]](%[[T]], %[[W]]) : (!idr.box<@T>, !idr.world) -> !idr.world
 // CHECK-NEXT: return %[[W1]]
 // CHECK-LABEL: func.func private @labelled(
@@ -25,7 +25,7 @@
 // CHECK-NEXT: idr.io.put_str %[[S2]]
 // CHECK: func.func private @[[SHOW]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: !idr.box<@T> {{.*}}, %[[V:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.world
-// CHECK-SAME: idr.effect = "effectful"{{.*}}idr.total
+// CHECK-SAME: idr.effects = #idr.effects<io>{{.*}}idr.total
 // CHECK: idr.match %[[A]] : !idr.box<@T> -> (!idr.world) {
 // CHECK-NEXT: case @Leaf(%[[N:.*]]: i64) {
 // CHECK-NEXT: %[[V1:.*]] = idr.io.put_int signed %[[N]], %[[V]] : i64
@@ -40,10 +40,10 @@
 // CHECK-NOT: idr.str
 module attributes {idr.program} {
   idr.data @T box {
-    idr.ctor @Leaf tag 0 (i64) {quantities = ["w"]}
-    idr.ctor @Node tag 1 (!idr.box<@T>, !idr.box<@T>) {quantities = ["w", "w"]}
+    idr.ctor @Leaf tag 0 (i64)
+    idr.ctor @Node tag 1 (!idr.box<@T>, !idr.box<@T>)
   }
-  func.func private @show(%t: !idr.box<@T> {idr.quantity = "w"}) -> !idr.str attributes {idr.effect = "pure", idr.total} {
+  func.func private @show(%t: !idr.box<@T>) -> !idr.str attributes {idr.effects = #idr.effects<none>, idr.total} {
     %open = idr.constant "(" : !idr.str
     %space = idr.constant " " : !idr.str
     %close = idr.constant ")" : !idr.str
@@ -64,16 +64,16 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func private @print(%t: !idr.box<@T> {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.effect = "effectful", idr.total} {
+  func.func private @print(%t: !idr.box<@T>, %w: !idr.world) -> !idr.world attributes {idr.effects = #idr.effects<io>, idr.total} {
     %s = func.call @show(%t) : (!idr.box<@T>) -> !idr.str
     %w1 = idr.io.put_str %s, %w
     return %w1 : !idr.world
   }
-  func.func private @label(%n: i64 {idr.quantity = "w"}) -> !idr.str attributes {idr.effect = "pure"} {
+  func.func private @label(%n: i64) -> !idr.str attributes {idr.effects = #idr.effects<none>} {
     %s = idr.str.show signed %n : i64
     return %s : !idr.str
   }
-  func.func private @labelled(%n: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.effect = "effectful"} {
+  func.func private @labelled(%n: i64, %w: !idr.world) -> !idr.world attributes {idr.effects = #idr.effects<io>} {
     %s = func.call @label(%n) : (i64) -> !idr.str
     %w1 = idr.io.put_int signed %n, %w : i64
     %w2 = idr.io.put_str %s, %w1
@@ -82,7 +82,7 @@ module attributes {idr.program} {
     %w4 = idr.io.put_str %s2, %w3
     return %w4 : !idr.world
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.effect = "effectful"} {
+  func.func @Main.main(%w: !idr.world) -> !idr.world attributes {idr.effects = #idr.effects<io>} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %w2 = func.call @labelled(%n, %w1) : (i64, !idr.world) -> !idr.world

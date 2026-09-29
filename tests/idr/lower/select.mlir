@@ -7,8 +7,8 @@
 // CHECK-DAG: arith.select %[[C]], %{{.*}}, %{{.*}} : i64
 module attributes {idr.program} {
   idr.data @T {
-    idr.ctor @A tag 0 (i64) {quantities = ["w"]}
-    idr.ctor @B tag 1 () {quantities = []}
+    idr.ctor @A tag 0 (i64)
+    idr.ctor @B tag 1 ()
   }
   func.func private @pick(%c: i1, %x: !idr.data<@T>, %y: !idr.data<@T>) -> !idr.data<@T> {
     %r = arith.select %c, %x, %y : !idr.data<@T>

@@ -21,7 +21,7 @@
 // CHECK: llvm.call @idris_rt_main_return() : () -> ()
 // CHECK: return %[[Z]] : i32
 module attributes {idr.program} {
-  func.func @Prog.r(%w: !idr.world {idr.quantity = "1"}) -> (i32, !idr.world) {
+  func.func @Prog.r(%w: !idr.world) -> (i32, !idr.world) {
     %s = idr.constant "h\C3\A9llo\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_char %w1

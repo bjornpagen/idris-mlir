@@ -6,10 +6,10 @@
 // evaluated and runs.
 module attributes {idr.program} {
   idr.data @Shape {
-    idr.ctor @Circle tag 0 (i64) {quantities = ["w"]}
-    idr.ctor @Rect tag 1 (i64, i64, !idr.erased) {quantities = ["w", "w", "0"]}
+    idr.ctor @Circle tag 0 (i64)
+    idr.ctor @Rect tag 1 (i64, i64, !idr.erased)
   }
-  func.func private @area(%s: !idr.data<@Shape> {idr.quantity = "w"}) -> i64 {
+  func.func private @area(%s: !idr.data<@Shape>) -> i64 {
     %r = idr.match %s : !idr.data<@Shape> -> (i64) {
     case @Circle(%x: i64) {
       %c3 = arith.constant 3 : i64

@@ -5,35 +5,35 @@
 // the second evaluates the call through the JIT, running the op's lowering.
 // Both must give the constants the CHECK lines hold (Euclidean division, MIN div -1, wrapping truncation of doubles, invalid scalars).
 module {
-  func.func private @div_s64(%a0: i64, %a1: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @div_s64(%a0: i64, %a1: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.div signed %a0, %a1 : i64
     return %r : i64
   }
-  func.func private @mod_s64(%a0: i64, %a1: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @mod_s64(%a0: i64, %a1: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.mod signed %a0, %a1 : i64
     return %r : i64
   }
-  func.func private @div_u8(%a0: i8, %a1: i8) -> i8 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @div_u8(%a0: i8, %a1: i8) -> i8 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.div %a0, %a1 : i8
     return %r : i8
   }
-  func.func private @mod_u8(%a0: i8, %a1: i8) -> i8 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @mod_u8(%a0: i8, %a1: i8) -> i8 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.mod %a0, %a1 : i8
     return %r : i8
   }
-  func.func private @to_char_s64(%a0: i64) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_char_s64(%a0: i64) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.to_char signed %a0 : i64
     return %r : i32
   }
-  func.func private @to_char_u8(%a0: i8) -> i32 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_char_u8(%a0: i8) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.to_char %a0 : i8
     return %r : i32
   }
-  func.func private @to_int_i64(%a0: f64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_int_i64(%a0: f64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.to_int %a0 : i64
     return %r : i64
   }
-  func.func private @to_int_i8(%a0: f64) -> i8 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @to_int_i8(%a0: f64) -> i8 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.to_int %a0 : i8
     return %r : i8
   }

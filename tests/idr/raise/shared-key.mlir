@@ -9,7 +9,7 @@
 // argument shares the clone too: a machine number is no structure to
 // specialize on.
 // CHECK-LABEL: func.func private @use(
-// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.quantity = "w"}, %[[X:[a-z0-9_]+]]: i64 {idr.quantity = "w"})
+// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: call @[[G:g\$raise\$[0-9]+]](%[[N]], %[[X]])
 // CHECK-NEXT: call @[[F:f\$raise\$[0-9]+]](%[[N]], %[[X]])
 // CHECK-NEXT: call @[[F]](%[[X]], %[[N]])
@@ -27,31 +27,31 @@
 // CHECK-NOT: func.func private @f$raise$
 module attributes {idr.program} {
   idr.data @Pair {
-    idr.ctor @MkPair tag 0 (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) {quantities = ["w", "w"]}
+    idr.ctor @MkPair tag 0 (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)
   }
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @sub(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @sub(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  func.func private @f(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  func.func private @f(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
     %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @g(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  func.func private @g(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
     %f = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @pair(%a: i64 {idr.quantity = "w"}) -> !idr.data<@Pair> attributes {idr.total} {
+  func.func private @pair(%a: i64) -> !idr.data<@Pair> attributes {idr.total} {
     %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     %g = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     %p = idr.con @Pair::@MkPair(%f, %g) : (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) -> !idr.data<@Pair>
     return %p : !idr.data<@Pair>
   }
-  func.func private @use(%n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @use(%n: i64, %x: i64) -> i64 attributes {idr.total} {
     %c3 = arith.constant 3 : i64
     %g1 = func.call @g(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %r1 = idr.apply %g1(%x) : !idr.fn<(i64) -> (i64)>

@@ -41,7 +41,7 @@ module attributes {idr.program} {
     %z = arith.muli %k, %c : i8
     return %y, %z : f64, i8
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %thirty = arith.constant 30 : i64
     %f = func.call @fib(%thirty) : (i64) -> i64
     %w1 = idr.io.put_int signed %f, %w : i64

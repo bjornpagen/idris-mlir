@@ -8,10 +8,10 @@
 // runtime.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
   }
-  func.func private @sum(%xs: !idr.box<@L> {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @sum(%xs: !idr.box<@L>) -> i64 attributes {idr.total} {
     %r = idr.match %xs : !idr.box<@L> -> (i64) {
     case @Nil() {
       %z = arith.constant 0 : i64
@@ -30,7 +30,7 @@ module attributes {idr.program} {
   // CHECK-NOT: idr.con
   // CHECK: call @[[S1:sum\$spec\$[0-9]+]](%[[N]]) : (i64) -> i64
   // CHECK-NEXT: return
-  func.func private @use(%n: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @use(%n: i64) -> i64 attributes {idr.total} {
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
     %nil = idr.con @L::@Nil() : () -> !idr.box<@L>

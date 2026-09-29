@@ -4,11 +4,11 @@
 // is dead code. An unboxed constructor is Pure: equal ones merge.
 
 idr.data @P {
-  idr.ctor @MkP tag 0 (i64, i64) {quantities = ["w", "w"]}
+  idr.ctor @MkP tag 0 (i64, i64)
 }
 idr.data @L box {
-  idr.ctor @Nil tag 0 () {quantities = []}
-  idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+  idr.ctor @Nil tag 0 ()
+  idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
 }
 
 // CHECK-LABEL: func.func @merged(

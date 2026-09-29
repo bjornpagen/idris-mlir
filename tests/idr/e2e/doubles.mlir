@@ -25,7 +25,7 @@ module attributes {idr.program} {
   func.func private @pass(%x: f64) -> f64 {
     return %x : f64
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %t = arith.constant 1125899906842624.25 : f64
     %w1 = func.call @line(%t, %w) : (f64, !idr.world) -> !idr.world
     %s = arith.constant 4.9406564584124654e-324 : f64

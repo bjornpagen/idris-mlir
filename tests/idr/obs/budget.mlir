@@ -16,7 +16,7 @@ module attributes {idr.program} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func @Prog.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %t = func.call @twice(%n) : (i64) -> i64

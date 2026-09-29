@@ -10,16 +10,16 @@
 // nothing.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
   }
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
   // CHECK-LABEL: func.func private @map(
   // CHECK: call @map(
-  func.func private @map(%f: !idr.fn<(i64) -> (i64)> {idr.quantity = "w"}, %xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.box<@L> attributes {idr.total} {
+  func.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> attributes {idr.total} {
     %r = idr.match %xs : !idr.box<@L> -> (!idr.box<@L>) {
     case @Nil() {
       %n = idr.con @L::@Nil() : () -> !idr.box<@L>
@@ -35,10 +35,10 @@ module attributes {idr.program} {
     return %r : !idr.box<@L>
   }
   // CHECK-LABEL: func.func private @use(
-  // CHECK-SAME: %[[N:.*]]: i64 {idr.quantity = "w"}, %[[XS:.*]]: !idr.box<@L> {idr.quantity = "w"})
+  // CHECK-SAME: %[[N:.*]]: i64, %[[XS:.*]]: !idr.box<@L>)
   // CHECK: %[[R:.*]] = call @[[M:map\$spec\$[0-9]+]](%[[N]], %[[XS]])
   // CHECK-NEXT: return %[[R]]
-  func.func private @use(%n: i64 {idr.quantity = "w"}, %xs: !idr.box<@L> {idr.quantity = "w"}) -> !idr.box<@L> attributes {idr.total} {
+  func.func private @use(%n: i64, %xs: !idr.box<@L>) -> !idr.box<@L> attributes {idr.total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %r = func.call @map(%f, %xs) : (!idr.fn<(i64) -> (i64)>, !idr.box<@L>) -> !idr.box<@L>
     return %r : !idr.box<@L>

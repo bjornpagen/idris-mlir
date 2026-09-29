@@ -1,8 +1,8 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64) {quantities = ["w"]}
-  idr.ctor @B tag 1 () {quantities = []}
+  idr.ctor @A tag 0 (i64)
+  idr.ctor @B tag 1 ()
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{has two cases for @B}}
@@ -20,7 +20,7 @@ func.func @f(%v: !idr.data<@T>) {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64) {quantities = ["w"]}
+  idr.ctor @A tag 0 (i64)
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{has a case for @C, which is not a constructor of '!idr.data<@T>'}}
@@ -35,7 +35,7 @@ func.func @f(%v: !idr.data<@T>) {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64) {quantities = ["w"]}
+  idr.ctor @A tag 0 (i64)
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{case @A must take the constructor's fields [i64]}}
@@ -50,7 +50,7 @@ func.func @f(%v: !idr.data<@T>) {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64) {quantities = ["w"]}
+  idr.ctor @A tag 0 (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i64 {
   %r = idr.match %v : !idr.data<@T> -> (i64) {
@@ -66,7 +66,7 @@ func.func @f(%v: !idr.data<@T>) -> i64 {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64) {quantities = ["w"]}
+  idr.ctor @A tag 0 (i64)
 }
 func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{region #0 must end in idr.yield or ub.unreachable}}

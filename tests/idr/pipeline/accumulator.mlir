@@ -16,7 +16,7 @@
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
 // AGAIN-SAME: fixpoint: round 1 changed nothing
 module attributes {idr.program} {
-  func.func private @count(%acc: !idr.big {idr.quantity = "w"}, %n: i64 {idr.quantity = "w"}) -> !idr.big attributes {idr.total} {
+  func.func private @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {
     case 0 {
       idr.yield %acc : !idr.big
@@ -32,7 +32,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.big
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %zero = idr.constant #idr.big<"0"> : !idr.big

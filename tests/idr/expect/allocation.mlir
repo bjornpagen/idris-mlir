@@ -12,11 +12,11 @@
 // ALL-NOT: error:
 module {
   idr.data @Pair {
-    idr.ctor @MkPair tag 0 (i64, i64) {quantities = ["w", "w"]}
+    idr.ctor @MkPair tag 0 (i64, i64)
   }
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
   }
   func.func @scalar(%x: i64) -> !idr.data<@Pair> {
     %p = idr.con @Pair::@MkPair(%x, %x) : (i64, i64) -> !idr.data<@Pair>

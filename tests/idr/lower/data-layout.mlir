@@ -22,14 +22,14 @@
 // CHECK: call @f(%[[ONE]], %[[FIVE]], %[[U1]], %[[U2]])
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (i64, i8) {quantities = ["w", "w"]}
+    idr.ctor @MkP tag 0 (i64, i8)
   }
   idr.data @S {
-    idr.ctor @A tag 0 () {quantities = []}
-    idr.ctor @B tag 1 (i32, !idr.erased) {quantities = ["w", "0"]}
-    idr.ctor @C tag 2 (!idr.data<@P>) {quantities = ["1"]}
+    idr.ctor @A tag 0 ()
+    idr.ctor @B tag 1 (i32, !idr.erased)
+    idr.ctor @C tag 2 (!idr.data<@P>)
   }
-  func.func private @f(%s: !idr.data<@S> {idr.quantity = "w"}) -> i64 {
+  func.func private @f(%s: !idr.data<@S>) -> i64 {
     %r = idr.match %s : !idr.data<@S> -> (i64) {
     case @A() {
       %z = arith.constant 0 : i64

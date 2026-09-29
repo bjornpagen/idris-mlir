@@ -11,28 +11,28 @@
 
 module attributes {idr.program} {
   idr.data @Maybe {
-    idr.ctor @Nothing tag 0 () {quantities = []}
-    idr.ctor @Just tag 1 (i64) {quantities = ["w"]}
+    idr.ctor @Nothing tag 0 ()
+    idr.ctor @Just tag 1 (i64)
   }
-  func.func private @inc(%k: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64
+  func.func private @inc(%k: i64, %x: i64) -> i64
       attributes {idr.total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
-  func.func private @fail(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @fail(%x: i64) -> i64 {
     idr.crash "unhandled input for fail"
     %never = ub.poison : i64
     return %never : i64
   }
   // RDV-LABEL: func.func private @get(
-  // RDV-SAME: %{{.*}}: !idr.data<@Maybe> {idr.quantity = "w"}, %[[D:.*]]: i64 {idr.quantity = "w"}) -> i64 {
+  // RDV-SAME: %{{.*}}: !idr.data<@Maybe>, %[[D:.*]]: i64) -> i64 {
   // RDV: %[[R:.*]] = idr.match %{{.*}} : !idr.data<@Maybe> -> (i64) {
   // RDV: idr.apply
   // RDV: default {
   // RDV-NEXT: call @fail()
   // RDV: return %[[R]] : i64
-  func.func private @get(%m: !idr.data<@Maybe> {idr.quantity = "w"}, %d: i64 {idr.quantity = "w"},
-                         %unused: i64 {idr.quantity = "w"}) -> (i64, i64) {
+  func.func private @get(%m: !idr.data<@Maybe>, %d: i64,
+                         %unused: i64) -> (i64, i64) {
     %r, %s = idr.match %m : !idr.data<@Maybe> -> (i64, i64) {
     case @Just(%x: i64) {
       %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -62,7 +62,7 @@ module attributes {idr.program} {
 // -----
 
 module {
-  func.func private @fail(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @fail(%x: i64) -> i64 {
     idr.crash "unhandled input for fail"
     %never = ub.poison : i64
     return %never : i64
@@ -75,7 +75,7 @@ module {
   // RDV-LABEL: func.func @crash_inlined
   // RDV: default {
   // RDV-NEXT: call @fail()
-  func.func @crash_inlined(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func @crash_inlined(%x: i64) -> i64 {
     %r = idr.match_lit %x : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64

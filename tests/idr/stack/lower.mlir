@@ -37,8 +37,8 @@
 // JIT: idris_rt_arena_alloc
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
   }
   func.func private @head(%l: !idr.box<@List>) -> i64 {
     %r = idr.match %l : !idr.box<@List> -> (i64) {

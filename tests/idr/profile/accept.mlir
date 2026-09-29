@@ -8,22 +8,22 @@
 // CHECK-LABEL: func.func @Main.main(
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (!idr.erased, i64, !idr.box<@L>) {quantities = ["0", "w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (!idr.erased, i64, !idr.box<@L>)
   }
   idr.data @Holder {
-    idr.ctor @Hold tag 0 (!idr.big) {quantities = ["w"]}
+    idr.ctor @Hold tag 0 (!idr.big)
   }
-  func.func private @inc(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @inc(%x: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  func.func private @len(%s: !idr.str {idr.quantity = "w"}) -> i64 {
+  func.func private @len(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
   }
-  func.func private @pass(%b: !idr.big {idr.quantity = "w"}) -> !idr.data<@Holder> {
+  func.func private @pass(%b: !idr.big) -> !idr.data<@Holder> {
     %h = idr.con @Holder::@Hold(%b) : (!idr.big) -> !idr.data<@Holder>
     return %h : !idr.data<@Holder>
   }
@@ -34,7 +34,7 @@ module attributes {idr.program} {
     %l = idr.con @L::@Cons(%e, %c1, %nil) : (!idr.erased, i64, !idr.box<@L>) -> !idr.box<@L>
     return %l : !idr.box<@L>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %big = idr.constant #idr.big<"123456789012345678901234567890"> : !idr.big
     %h = func.call @pass(%big) : (!idr.big) -> !idr.data<@Holder>

@@ -27,22 +27,22 @@
 // CHECK-NEXT: idr.io.put_int signed %[[R5]], %[[W3]]
 // CHECK-NOT: call @mk$raise
 // CHECK: func.func private @[[PMK]](
-// CHECK-SAME: idr.effect = "pure"{{.*}}idr.total
+// CHECK-SAME: idr.effects = #idr.effects<none>{{.*}}idr.total
 // CHECK-NOT: func.func private @mk$raise
 module attributes {idr.program} {
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.effect = "pure", idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.effects = #idr.effects<none>, idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @mk(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.effect = "pure"} {
+  func.func private @mk(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.effects = #idr.effects<none>} {
     %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @pmk(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.effect = "pure", idr.total} {
+  func.func private @pmk(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.effects = #idr.effects<none>, idr.total} {
     %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.effect = "effectful", idr.may_crash} {
+  func.func @Main.main(%w: !idr.world) -> !idr.world attributes {idr.effects = #idr.effects<io, crash>} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %c7 = arith.constant 7 : i64

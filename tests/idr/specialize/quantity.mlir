@@ -10,9 +10,9 @@
 // CHECK: func.func private @[[F]](%{{[a-z0-9_]+}}: !idr.lin<i64> {{.*}}, %{{[a-z0-9_]+}}: i64 {{.*}}, %{{[a-z0-9_]+}}: !idr.world
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (!idr.lin<i64>, i64) {quantities = ["1", "w"]}
+    idr.ctor @MkP tag 0 (!idr.lin<i64>, i64)
   }
-  func.func private @first(%p: !idr.data<@P> {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.total} {
+  func.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {idr.total} {
     %w1 = idr.match %p : !idr.data<@P> -> (!idr.world) {
     case @MkP(%a: !idr.lin<i64>, %b: i64) {
       %x = idr.lin.use %a : !idr.lin<i64>
@@ -22,12 +22,12 @@ module attributes {idr.program} {
     }
     return %w1 : !idr.world
   }
-  func.func private @use(%a: !idr.lin<i64> {idr.quantity = "1"}, %b: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world attributes {idr.total} {
+  func.func private @use(%a: !idr.lin<i64>, %b: i64, %w: !idr.world) -> !idr.world attributes {idr.total} {
     %p = idr.con @P::@MkP(%a, %b) : (!idr.lin<i64>, i64) -> !idr.data<@P>
     %r = func.call @first(%p, %w) : (!idr.data<@P>, !idr.world) -> !idr.world
     return %r : !idr.world
   }
-  func.func @Main.main(%a: !idr.lin<i64> {idr.quantity = "1"}, %b: i64 {idr.quantity = "w"}, %w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%a: !idr.lin<i64>, %b: i64, %w: !idr.world) -> !idr.world {
     %r = func.call @use(%a, %b, %w) : (!idr.lin<i64>, i64, !idr.world) -> !idr.world
     return %r : !idr.world
   }

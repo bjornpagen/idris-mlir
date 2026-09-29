@@ -12,7 +12,7 @@
 // CHECK-LABEL: func.func private @pick(
 // CHECK-SAME: -> !idr.fn<(i64) -> (i64)> attributes {idr.total}
 // CHECK-LABEL: func.func private @use(
-// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {idr.quantity = "w"}, %[[X:[a-z0-9_]+]]: i64 {idr.quantity = "w"})
+// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: %[[Y:.*]] = arith.addi %[[X]]
 // CHECK-NEXT: %[[R:.*]] = call @[[PICK:pick\$raise\$[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
@@ -30,15 +30,15 @@
 // CHECK: return %[[M]] : i64
 // CHECK-NOT: idr.apply
 module attributes {idr.program} {
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @sub(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @sub(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  func.func private @pick(%a: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  func.func private @pick(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
     %r = idr.match_lit %a : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %f = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -51,7 +51,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @use(%n: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @use(%n: i64, %x: i64) -> i64 attributes {idr.total} {
     %f = func.call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

@@ -27,7 +27,7 @@ module attributes {idr.program} {
 
 module attributes {idr.program} {
   // expected-error @+1 {{is the root, so its type must be () -> i64 or (!idr.world) -> (...), not '(i64) -> i64'}}
-  func.func @a(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func @a(%x: i64) -> i64 {
     return %x : i64
   }
 }
@@ -45,7 +45,7 @@ module attributes {idr.program} {
 // -----
 
 module attributes {idr.program} {
-  func.func @a(%w: !idr.world {idr.quantity = "1"}) -> (i64, !idr.world) {
+  func.func @a(%w: !idr.world) -> (i64, !idr.world) {
     %c = arith.constant 0 : i64
     return %c, %w : i64, !idr.world
   }
@@ -57,10 +57,10 @@ module attributes {idr.program} {
 module attributes {idr.program} {
   // expected-error @+1 {{contains itself through unboxed sums; a recursive type must be declared box}}
   idr.data @T {
-    idr.ctor @A tag 0 (!idr.data<@U>) {quantities = ["w"]}
+    idr.ctor @A tag 0 (!idr.data<@U>)
   }
   idr.data @U {
-    idr.ctor @B tag 0 (!idr.data<@T>) {quantities = ["w"]}
+    idr.ctor @B tag 0 (!idr.data<@T>)
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
@@ -73,14 +73,14 @@ module attributes {idr.program} {
 // Every cycle passes through a box.
 module attributes {idr.program} {
   idr.data @T {
-    idr.ctor @A tag 0 (!idr.data<@U>) {quantities = ["w"]}
+    idr.ctor @A tag 0 (!idr.data<@U>)
   }
   idr.data @U {
-    idr.ctor @B tag 0 (!idr.box<@L>) {quantities = ["w"]}
+    idr.ctor @B tag 0 (!idr.box<@L>)
   }
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (!idr.data<@T>, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (!idr.data<@T>, !idr.box<@L>)
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
@@ -93,14 +93,14 @@ module attributes {idr.program} {
 // A box declaration's values are !idr.box.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 () {quantities = []}
+    idr.ctor @Nil tag 0 ()
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
   // expected-error @+1 {{uses '!idr.data<@L>', but @L is declared box, so its values are !idr.box}}
-  func.func private @b(%l: !idr.data<@L> {idr.quantity = "w"}) {
+  func.func private @b(%l: !idr.data<@L>) {
     return
   }
 }
@@ -109,14 +109,14 @@ module attributes {idr.program} {
 
 module attributes {idr.program} {
   idr.data @T {
-    idr.ctor @A tag 0 () {quantities = []}
+    idr.ctor @A tag 0 ()
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
   // expected-error @+1 {{uses '!idr.box<@T>', but @T is declared unboxed, so its values are !idr.data}}
-  func.func private @b(%t: !idr.box<@T> {idr.quantity = "w"}) {
+  func.func private @b(%t: !idr.box<@T>) {
     return
   }
 }

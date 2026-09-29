@@ -4,8 +4,8 @@
 // region's arguments become the constructor's fields.
 
 idr.data @Shape {
-  idr.ctor @Circle tag 0 (f64) {quantities = ["w"]}
-  idr.ctor @Rect tag 1 (f64, f64) {quantities = ["w", "w"]}
+  idr.ctor @Circle tag 0 (f64)
+  idr.ctor @Rect tag 1 (f64, f64)
 }
 
 // CHECK-LABEL: func.func @of_con(

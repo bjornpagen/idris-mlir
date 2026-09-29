@@ -13,7 +13,7 @@ func.func private @delayed(%a: i64) -> i64 {
   return %r : i64
 }
 idr.data @S {
-  idr.ctor @MkS tag 0 (i64, !idr.str) {quantities = ["w", "w"]}
+  idr.ctor @MkS tag 0 (i64, !idr.str)
 }
 func.func private @pick(%s: !idr.data<@S>, %t: !idr.str, %n: i64) -> i64 {
   return %n : i64

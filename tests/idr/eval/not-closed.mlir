@@ -12,15 +12,15 @@
 // CHECK: %[[OK:.*]] = arith.constant 4 : i64
 // CHECK: return {{.*}}%[[OK]]
 module {
-  func.func private @inc(%x: i64) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @inc(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %r = arith.addi %x, %one : i64
     return %r : i64
   }
-  func.func private @loud(%x: i64) -> i64 attributes {idr.total, idr.effect = "effectful"} {
+  func.func private @loud(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<io>} {
     return %x : i64
   }
-  func.func private @applyTo(%f: !idr.fn<(i64) -> (i64)>) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @applyTo(%f: !idr.fn<(i64) -> (i64)>) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %r = idr.apply %f(%one) : !idr.fn<(i64) -> (i64)>
     return %r : i64

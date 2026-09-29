@@ -6,16 +6,16 @@
 // the captures, and the application a match that calls the label. What is
 // left allocates nothing, so the profile accepts it.
 // CHECK: idr.data @[[F0:fn\$[0-9]+]] {
-// CHECK-NEXT: idr.ctor @add tag 0 (i64) {quantities = ["w"]}
-// CHECK-NEXT: idr.ctor @dbl tag 1 () {quantities = []}
+// CHECK-NEXT: idr.ctor @add tag 0 (i64)
+// CHECK-NEXT: idr.ctor @dbl tag 1 ()
 // CHECK-NEXT: }
 // CHECK-NOT: !idr.fn
 module attributes {idr.program} {
-  func.func private @add(%a: i64 {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @dbl(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.total} {
+  func.func private @dbl(%x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
@@ -23,7 +23,7 @@ module attributes {idr.program} {
   // CHECK-SAME: -> !idr.data<@[[F0]]>
   // CHECK: idr.con @[[F0]]::@add(%{{.*}}) : (i64) -> !idr.data<@[[F0]]>
   // CHECK: idr.con @[[F0]]::@dbl() : () -> !idr.data<@[[F0]]>
-  func.func private @pick(%n: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  func.func private @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %c1 = arith.constant 1 : i64
@@ -46,7 +46,7 @@ module attributes {idr.program} {
   // CHECK: case @dbl() {
   // CHECK-NEXT: %[[S:.*]] = {{(func.)?}}call @dbl(%[[N]]) : (i64) -> i64
   // CHECK-NEXT: idr.yield %[[S]] : i64
-  func.func @Main.main(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_char %w
     %n = arith.extui %c : i32 to i64
     %f = call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>

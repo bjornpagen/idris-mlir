@@ -10,15 +10,15 @@
 // CHECK-LABEL: func.func private @f$spec$2(
 // CHECK-SAME: no_inline
 module attributes {idr.program} {
-  func.func private @f(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @f(%x: i64) -> i64 {
     %r = func.call @f$spec$1(%x) : (i64) -> i64
     return %r : i64
   }
-  func.func private @f$spec$1(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.origin = "f"} {
+  func.func private @f$spec$1(%x: i64) -> i64 attributes {idr.origin = "f"} {
     %r = func.call @f$spec$2(%x) : (i64) -> i64
     return %r : i64
   }
-  func.func private @f$spec$2(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.origin = "f"} {
+  func.func private @f$spec$2(%x: i64) -> i64 attributes {idr.origin = "f"} {
     %r = func.call @f$spec$1(%x) : (i64) -> i64
     return %r : i64
   }
@@ -38,12 +38,12 @@ module attributes {idr.program} {
 // CHECK-LABEL: func.func private @loop$lam0(
 // CHECK-SAME: no_inline
 module attributes {idr.program} {
-  func.func private @loop$lam0(%c: i64 {idr.quantity = "w"}) -> !idr.fn<(i64) -> (i64)> {
+  func.func private @loop$lam0(%c: i64) -> !idr.fn<(i64) -> (i64)> {
     %k = idr.constant #idr.closure<@loop$lam0, []> : !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>
     %f = idr.closure @step(%k) : (!idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @step(%k: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)> {idr.quantity = "w"}, %x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @step(%k: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>, %x: i64) -> i64 {
     return %x : i64
   }
   func.func @Main.main() -> i64 {
@@ -63,11 +63,11 @@ module attributes {idr.program} {
 // CHECK-LABEL: func.func private @Main.back(
 // CHECK-SAME: no_inline
 module attributes {idr.program} {
-  func.func private @Lib.go(%x: i64 {idr.quantity = "w"}) -> i64 attributes {idr.library} {
+  func.func private @Lib.go(%x: i64) -> i64 attributes {idr.library} {
     %r = func.call @Main.back(%x) : (i64) -> i64
     return %r : i64
   }
-  func.func private @Main.back(%x: i64 {idr.quantity = "w"}) -> i64 {
+  func.func private @Main.back(%x: i64) -> i64 {
     %r = func.call @Lib.go(%x) : (i64) -> i64
     return %r : i64
   }

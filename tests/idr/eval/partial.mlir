@@ -24,10 +24,10 @@
 // REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=applyTo
 module {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil tag 0 ()
+    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
   }
-  func.func private @down(%n: i64) -> i64 attributes {idr.effect = "pure"} {
+  func.func private @down(%n: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %v = arith.constant 42 : i64
@@ -42,27 +42,27 @@ module {
     }
     return %r : i64
   }
-  func.func private @spin(%x: i64) -> i64 attributes {idr.effect = "pure"} {
+  func.func private @spin(%x: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %y = arith.addi %x, %one : i64
     %r = func.call @spin(%y) : (i64) -> i64
     return %r : i64
   }
-  func.func private @deep(%x: i64) -> i64 attributes {idr.effect = "pure"} {
+  func.func private @deep(%x: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %y = arith.addi %x, %one : i64
     %r = func.call @deep(%y) : (i64) -> i64
     %s = arith.muli %r, %x : i64
     return %s : i64
   }
-  func.func private @grow(%x: i64) -> !idr.box<@List> attributes {idr.effect = "pure"} {
+  func.func private @grow(%x: i64) -> !idr.box<@List> attributes {idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %y = arith.addi %x, %one : i64
     %rest = func.call @grow(%y) : (i64) -> !idr.box<@List>
     %c = idr.con @List::@Cons(%x, %rest) : (i64, !idr.box<@List>) -> !idr.box<@List>
     return %c : !idr.box<@List>
   }
-  func.func private @loop(%x: i64) -> i64 attributes {idr.effect = "pure"} {
+  func.func private @loop(%x: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
     %r = scf.while (%i = %x) : (i64) -> i64 {
       idr.may_loop
       %go = arith.constant true
@@ -75,7 +75,7 @@ module {
     }
     return %r : i64
   }
-  func.func private @applyTo(%f: !idr.fn<(i64) -> (i64)>) -> i64 attributes {idr.total, idr.effect = "pure"} {
+  func.func private @applyTo(%f: !idr.fn<(i64) -> (i64)>) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %one = arith.constant 1 : i64
     %r = idr.apply %f(%one) : !idr.fn<(i64) -> (i64)>
     return %r : i64
