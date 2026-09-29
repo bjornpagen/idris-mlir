@@ -210,7 +210,7 @@ the generated corpus is the map of what the compiler does not yet accept.
 | O3 | **`--disable=P,…`**: any optional pass skipped | the same handler, keyed by pass argument, over a declared set of optional passes | small change |
 | O4 | **counter windows** | `-mlir-debug-counter=TAG-skip=a,TAG-count=b` for a random window: every subset of actions is a valid compilation | yes, for 4 tags |
 | O5 | `idr-rc{reuse=false borrow=false}` | pass options exist (`Passes.td:334-335`) | needs a driver flag |
-| O6 | **O0**: contract → `idr-lower` with no simplify loop | a pipeline variant | needs a flag; separates frontend bugs (Chez ≠ O0) from pass bugs (O0 ≠ O3) |
+| O6 | **O0**: contract → `idr-lower` with no simplify loop | a pipeline variant | **works today from outside the driver** (section 9): idris-mlir-opt with the steps after `idr-simplify`, mlir-translate, clang with `build/dev/runtime/libidris_rt.a`; a driver flag would make it one command. Separates frontend bugs (Chez ≠ O0) from pass bugs (O0 ≠ full) |
 | O7 | Idris's evaluator | the two-levels helper on a closed variant (stdin replaced by its literals) | helper exists |
 | O8 | live cells 0 | `IDRIS_RT_LIVE=1` | yes |
 | O9 | **checked runtime** | a second runtime archive (`idris-mlir-cc --runtime=`, which exists) that quarantines freed cells and poisons them, and traps an inc, dec or read of a poisoned header | new, small |
@@ -222,10 +222,14 @@ the pass's definition, not in a list in the driver: a pass is optional when
 skipping it leaves a module that every later step accepts. Today:
 `idr-inline`, `idr-specialize`, `sccp`, `idr-canonicalize`, `cse`,
 `idr-eval`, `symbol-dce`, `canonicalize`, `idr-stack`, and `idr-tail-loops`
-(which only changes stack depth). Not optional: `idr-prune` before
-`remove-dead-values` (it is the PINS.md workaround, so skipping it crashes
-upstream code), `idr-defunctionalize` only if runtime closures lower without
-it (to check), `idr-rc`, `idr-lower`. The driver already intercepts
+(which only changes stack depth). **Measured** on one program (section 9's
+O0 pipeline, run with idris-mlir-opt): dropping `idr-stack`,
+`idr-tail-loops` or `canonicalize`, or setting `idr-rc{reuse=false
+borrow=false}`, still lowers, links and prints the same, with 0 live cells.
+Not optional: `idr-prune` before `remove-dead-values` (it is the PINS.md
+workaround, so skipping it crashes upstream code); `idr-defunctionalize`
+(**measured**: without it `idr-lower` stops with "internal error: a closure
+is left after idr-defunctionalize"); `idr-rc`; `idr-lower`. The driver already intercepts
 `PassExecutionAction` for `idr-eval`; generalizing it to a list is ten
 lines. The same handler lets the long mode pick a random subset per program.
 
@@ -275,7 +279,13 @@ to consume the same resources, which the listing can report too.
 registered (`tools/idris-mlir-reduce.cc`); the dialect provides no
 `DialectReductionPatternInterface` patterns
 (`mlir/include/mlir/Reducer/DialectReductionPatternInterface.td`), so it
-can only delete ops. Patterns to add: replace an op by `idr.constant` of its
+can only delete ops. **Measured**: on the 1479-line module of section 9's
+crash, `idris-mlir-reduce --reduction-tree='traversal-mode=0 test=…'` ran 6
+minutes and then aborted: a candidate lost the terminator of an `idr.match`
+region ("region #1 must end in idr.yield or ub.unreachable") and the tool
+crashed instead of rejecting the candidate. Deleting ops is not a valid
+reduction step for a dialect whose regions have required terminators.
+Patterns to add: replace an op by `idr.constant` of its
 result type; a match by one of its regions; a call by a constant; a
 closure by a known label. With them the reducer respects types and
 quantities at the IR level too. Note the tester convention: mlir-reduce
