@@ -2,9 +2,9 @@ module Main
 
 -- Closed calls of partial functions, each of which diverges on a path the
 -- call does not take: `safeDiv x 0` spins forever, and `collatz` is not
--- known to terminate for every start. Partial code is never evaluated at
--- compile time, so compiling them terminates, and the program computes
--- what the source says, at runtime.
+-- known to terminate for every start. Both calls end, so they are evaluated
+-- at compile time, as Idris's own evaluator would reduce them, and the
+-- program prints constants.
 
 import Prelude
 

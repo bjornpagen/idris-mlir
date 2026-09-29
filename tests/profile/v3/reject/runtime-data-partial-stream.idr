@@ -1,13 +1,14 @@
--- expect: runtime data, line 12
+-- expect: runtime data, line 13
 module Main
 
--- A closed call of a partial function is never evaluated: the Prelude
--- declares `takeBefore` covering, so the list it takes from the stream
--- would be built at runtime. The list is built in the Prelude; the
--- rejection is reported at the user's definition that reached it, `main`,
--- as runtime-integer-prelude is.
+-- A stream consumer the Prelude declares covering, `takeBefore`, in a
+-- closed call that never ends: no element of the stream passes 40, so
+-- compile-time evaluation stops the call once it has spent its budget, and
+-- leaves it to runtime, where the list it takes would be built. The list is
+-- built in the Prelude; the rejection is reported at the user's definition
+-- that reached it, `main`, as runtime-integer-prelude is.
 
 import Prelude
 
 main : IO ()
-main = printLn (sum (takeBefore (> 40) (countFrom (the Int 1) (* 2))))
+main = printLn (sum (takeBefore (> 40) (countFrom (the Int 1) (* 1))))

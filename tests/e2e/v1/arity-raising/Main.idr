@@ -5,8 +5,8 @@ import Prelude
 -- countdown returns an action. Arity raising: idr-specialize moves the
 -- apply that runs the action into a clone of countdown, where it meets the
 -- closures the body built, so no closure is left and the loop takes the
--- world as an argument. The count comes from stdin, and countdown recurses
--- on an Int, so it is not evaluated at compile time.
+-- world as an argument. The count comes from stdin, so the call is not
+-- evaluated at compile time.
 countdown : Int -> IO ()
 countdown 0 = putStrLn "liftoff"
 countdown n = do

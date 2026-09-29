@@ -1,10 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// A closed call is never specialized: one to a total function is left to
-// idr-eval, and one to a function without idr.total is left alone (partial
-// code is never evaluated, and specializing it would unroll it one clone at a
-// time). An erased argument is not a static value: it neither makes a call
-// specializable nor keeps a closed call from being closed.
+// A closed call is never specialized, whether or not its callee has
+// idr.total: it is idr-eval's, and what idr-eval leaves runs as it is
+// (specializing a partial callee that never ends would unroll it one clone
+// at a time). An erased argument is not a static value: it neither makes a
+// call specializable nor keeps a closed call from being closed.
 // CHECK-NOT: idr.clone_counts
 // CHECK-NOT: $spec$
 // CHECK-LABEL: func.func private @use(

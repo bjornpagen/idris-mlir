@@ -17,9 +17,9 @@
 |||   function, which idr-eval runs at compile time, and which --no-eval
 |||   leaves to runtime.
 ||| - `r<n>`, with its leaves behind `hide<T> 1`, a partial identity (it
-|||   recurses on an Int, so Idris does not prove it terminating): partial
-|||   code is never evaluated, so the expression is computed at
-|||   runtime in every build.
+|||   recurses on an Int, so Idris does not prove it terminating): a closed
+|||   call of partial code, which idr-eval runs metered, and which --no-eval
+|||   leaves to runtime.
 |||
 ||| The three lines of a case must print the same value, in every build, and
 ||| each line the same as Chez prints. A case whose value goes through the

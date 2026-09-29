@@ -223,10 +223,22 @@ void *idris_rt_arena_alloc(size_t size);
  * IDRIS_RT_EVAL_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_eval_crash(const char *msg, size_t len);
 
-/* The exit statuses of an evaluation child: its calls crashed, or the
- * machine refused memory. */
+/* A call of code Idris does not prove terminating runs metered: from
+ * idris_rt_eval_meter until idris_rt_eval_unmetered, it may take `ticks`
+ * ticks, allocate `bytes` bytes of arena and use `stack` bytes of stack
+ * below the caller of idris_rt_eval_meter, or the child ends with
+ * IDRIS_RT_EVAL_OVER_BUDGET. idris_rt_eval_tick, which JIT-mode code calls
+ * where such code may loop or recurse, counts a tick and checks the stack;
+ * unmetered it does nothing. */
+void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes, uint64_t stack);
+void idris_rt_eval_unmetered(void);
+void idris_rt_eval_tick(void);
+
+/* The exit statuses of an evaluation child: its calls crashed, the
+ * machine refused memory, or a metered call spent its budget. */
 #define IDRIS_RT_EVAL_CRASHED 3
 #define IDRIS_RT_EVAL_EXHAUSTED 4
+#define IDRIS_RT_EVAL_OVER_BUDGET 6
 
 #ifdef __cplusplus
 }

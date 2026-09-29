@@ -88,7 +88,9 @@
 // pure and total and cannot crash, so that when its body runs cannot be
 // observed. A callee that takes a world is never raised: its body would take
 // part in the world chain. A closed call of a pure, total callee is
-// idr-eval's, and is not raised. A clone that applies is total if its callee
+// idr-eval's, which runs it to the end, and is not raised; one of a partial
+// callee is raised, as idr-eval may leave it to runtime when it does not
+// finish within its budget. A clone that applies is total if its callee
 // is and every tail applies a known closure of a total function, and is pure
 // and may crash as its callee and those functions; a clone that writes is
 // total and may crash as its callee, and is effectful.
@@ -747,12 +749,15 @@ struct Specializer {
     bool writes = !field && isa<idr::PutStrOp>(user) && cast<idr::PutStrOp>(user).getStr() == value;
     if ((!applies && !writes) || user->getBlock() != call->getBlock())
       return std::nullopt;
-    bool evaluable = idr::isPure(callee) && idr::isTotal(callee);
-    // idr-eval evaluates this call, and its consumer then folds.
-    if (evaluable &&
+    bool finishes = idr::isPure(callee) && idr::isTotal(callee);
+    // idr-eval evaluates this call to the end, and its consumer then folds.
+    // A closed call of partial code it evaluates only within a budget, so
+    // that call is raised like any other; the raised call is closed too when
+    // the consumer's operands are, and idr-eval evaluates it instead.
+    if (finishes &&
         llvm::all_of(call.getOperands(), [](Value v) { return matchPattern(v, m_Constant()); }))
       return std::nullopt;
-    if (!evaluable || idr::mayCrash(callee))
+    if (!finishes || idr::mayCrash(callee))
       for (Operation *op = call->getNextNode(); op != user; op = op->getNextNode())
         if (!isMemoryEffectFree(op))
           return std::nullopt;

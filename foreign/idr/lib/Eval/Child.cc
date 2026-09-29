@@ -79,6 +79,8 @@ uint64_t now() {
 struct Work {
   llvm::ArrayRef<Jit::Entry> entries;
   llvm::ArrayRef<size_t> words;
+  llvm::ArrayRef<bool> metered;
+  Budget budget;
   size_t first;
   llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)> reify;
   int out;
@@ -101,7 +103,10 @@ void *runCalls(void *argument) {
   for (size_t i = work.first; i < work.entries.size(); ++i) {
     llvm::SmallVector<uint64_t> slots(work.words[i]);
     uint64_t start = now();
+    if (work.metered[i])
+      idris_rt_eval_meter(work.budget.ticks, work.budget.bytes, work.budget.stack);
     work.entries[i](slots.data());
+    idris_rt_eval_unmetered();
     uint64_t elapsed = now() - start;
     llvm::SmallVector<std::string> texts = work.reify(i, slots);
     std::string record = (llvm::Twine(elapsed) + " " + llvm::Twine(texts.size()) + "\n").str();
@@ -168,7 +173,8 @@ llvm::SmallVector<Result> parse(llvm::StringRef records) {
 
 } // namespace
 
-Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words, size_t first,
+Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
+               llvm::ArrayRef<bool> metered, Budget budget, size_t first,
                llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)>
                    reify) {
   Run run;
@@ -178,7 +184,7 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
     run.message = "no pipe for the evaluation child: " + std::string(strerror(errno));
     return run;
   }
-  Work work{entries, words, first, reify, results[1]};
+  Work work{entries, words, metered, budget, first, reify, results[1]};
   pid_t pid = fork();
   if (pid == 0) {
     close(results[0]);
@@ -213,6 +219,10 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
     case IDRIS_RT_EVAL_EXHAUSTED:
       run.status = Run::Status::Exhausted;
       run.message = "the machine refused memory or stack";
+      return run;
+    case IDRIS_RT_EVAL_OVER_BUDGET:
+      run.status = Run::Status::OverBudget;
+      run.message = "it spent its budget";
       return run;
     default:
       run.status = Run::Status::Failed;

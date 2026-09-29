@@ -1,0 +1,6 @@
+// input: after idr-simplify
+// FILECHECK-OPTIONS: --implicit-check-not=@Main.collatz
+// `spin 0` stays a call; `collatz 97 0`, which ends, is a constant.
+// CHECK-LABEL: func.func @"$36$idris$45$mlir.root"(
+// CHECK-DAG: call @Main.spin(
+// CHECK-DAG: idr.constant "118\0A"

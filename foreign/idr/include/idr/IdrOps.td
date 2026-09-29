@@ -391,9 +391,11 @@ def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>]> {
 }
 
 // Created by idr-tail-loops in loops of functions that are
-// not total, never written by Emit. MLIR deletes a region op without effects
-// even if it never finishes; this op's effect keeps such a loop, and orders
-// it with output as a crash is.
+// not total, and by idr-lower in JIT mode on entry to them, where it is the
+// tick that lets idr-eval stop a call that does not end; never written by
+// Emit. MLIR deletes a region op without effects even if it never finishes;
+// this op's effect keeps such a loop, and orders it with output as a crash
+// is.
 def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
     MemWrite<Idr_DivergenceResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "marks one iteration of a loop that may not terminate";

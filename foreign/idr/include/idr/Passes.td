@@ -24,7 +24,9 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     the runtime's C functions. Constants become static data. The root, the
     only public function, becomes private, and @main runs it. In JIT mode,
     used by idr-eval, cells come from the evaluation arena, a crash reports
-    to the evaluator, and no @main is made.
+    to the evaluator, code that need not end ticks the evaluator's meter
+    (at `idr.may_loop` and on entry to every function without `idr.total`),
+    and no @main is made.
   }];
   let options = [
     Option<"jit", "jit", "bool", "false",
@@ -39,17 +41,21 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
 }
 
 def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
-  let summary = "Evaluate closed calls of pure, total functions at compile time";
+  let summary = "Evaluate closed calls of pure functions at compile time";
   let description = [{
     Every call whose operands are all constants, of a function that is pure
-    and total (and whose constant operands name only such functions), is run:
-    the round's calls are lowered with idr-lower in JIT mode, compiled once
-    by ORC's LLJIT and run in a child process, and each result replaces its
-    call as constants. A call that crashes stays. Memory or stack the
-    machine refuses is the error `unsupported (compile-time evaluation)`,
-    which names the call. Results are
-    cached per callee and arguments. Remarks: `Passed` with the wall time,
-    `Missed` for a crash, in the category idr-eval.
+    (and whose constant operands name only such functions), is run: the
+    round's calls are lowered with idr-lower in JIT mode, compiled once by
+    ORC's LLJIT and run in a child process, and each result replaces its
+    call as constants. A call that crashes stays. A call of total functions
+    only runs to completion: memory or stack the machine refuses is the
+    error `unsupported (compile-time evaluation)`, which names the call. A
+    call that reaches a function without `idr.total` runs metered, within a
+    budget of ticks (counted where such code enters a function or goes
+    round a loop), arena bytes and stack; if it spends the budget, or the
+    machine refuses it memory, it stays. Results are cached per callee and
+    arguments. Remarks: `Passed` with the wall time, `Missed` for a crash
+    and for a metered call that did not finish, in the category idr-eval.
   }];
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
