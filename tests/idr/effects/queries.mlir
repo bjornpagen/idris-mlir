@@ -33,6 +33,12 @@ func.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attribut
   return %r : i64
 }
 func.func private @external(i64) -> i64
+// An IO action, or any closure Idris proved is used once, is linear.
+func.func private @applies_once(%f: !idr.lin<!idr.fn<(i64) -> (i64)>>, %x: i64) -> i64 attributes {idr.total} {
+  %g = idr.lin.use %f : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %r = idr.apply %g(%x) : !idr.fn<(i64) -> (i64)>
+  return %r : i64
+}
 
 func.func @main(%x: i64, %y: i64, %w: !idr.world, %g: !idr.fn<(i64) -> (i64)>) -> !idr.world {
   %three = arith.constant 3 : i64
@@ -50,6 +56,10 @@ func.func @main(%x: i64, %y: i64, %w: !idr.world, %g: !idr.fn<(i64) -> (i64)>) -
   %made = idr.closure @square() : () -> !idr.fn<(i64) -> (i64)>
   %j = func.call @applies(%made, %x) {expect.facts = "drop move delay"} : (!idr.fn<(i64) -> (i64)>, i64) -> i64
   %k = func.call @applies(%g, %x) {expect.facts = ""} : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+  %lsq = idr.lin.enter %sq : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %l = func.call @applies_once(%lsq, %x) {expect.facts = "drop move delay"} : (!idr.lin<!idr.fn<(i64) -> (i64)>>, i64) -> i64
+  %lcr = idr.lin.enter %cr : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %m = func.call @applies_once(%lcr, %x) {expect.facts = "delay"} : (!idr.lin<!idr.fn<(i64) -> (i64)>>, i64) -> i64
   %q = idr.div signed %x, %y {expect.facts = "delay"} : i64
   %r = idr.div signed %x, %three {expect.facts = "move delay"} : i64
   %n = idr.match_lit %x : i64 -> (i64) attributes {expect.facts = "delay"} {

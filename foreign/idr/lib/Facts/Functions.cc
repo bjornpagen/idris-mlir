@@ -8,6 +8,7 @@ using namespace idr;
 namespace {
 
 bool holdsWorld(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
+  type = unrestricted(type);
   if (isa<WorldType>(type))
     return true;
   DataOp data = lookupData(from, type);

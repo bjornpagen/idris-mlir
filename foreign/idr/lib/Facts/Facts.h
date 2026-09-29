@@ -38,7 +38,7 @@ Effects of(mlir::func::FuncOp fn);
 void record(mlir::func::FuncOp fn, Effects effects);
 
 // Whether a value of `type` may hold a world: a world, or data with a field
-// that may. A closure never captures one, so a world reaches a function
+// that may; a linear value holds what its value does. A closure never captures one, so a world reaches a function
 // only through its parameters.
 bool mayHoldWorld(mlir::Operation *from, mlir::Type type);
 
@@ -51,7 +51,8 @@ bool takesWorld(mlir::func::FuncOp fn);
 mlir::StringAttr closureLabel(mlir::SymbolRefAttr ctor);
 
 // Whether a value of `type` may hold a closure: a closure, a sum of
-// closures that idr-defunctionalize made, or data with a field that may.
+// closures that idr-defunctionalize made, or data with a field that may; a
+// linear value holds what its value does.
 bool mayHoldClosure(mlir::Operation *from, mlir::Type type);
 
 // What code given `value` may do by applying the closures it holds: what

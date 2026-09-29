@@ -15,6 +15,7 @@ namespace {
 bool isClosureSum(StringRef name) { return name.starts_with("fn$"); }
 
 bool holdsClosure(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
+  type = unrestricted(type);
   if (isa<FnType>(type))
     return true;
   FlatSymbolRefAttr name = getSumName(type);
@@ -62,7 +63,8 @@ bool facts::mayHoldClosure(Operation *from, Type type) {
 }
 
 // A value made here, as a constant, a closure or a constructor, holds the
-// closures it is made of; any other value may hold any.
+// closures it is made of, and a value moved into or out of a linear type
+// the closures of what it moved; any other value may hold any.
 facts::Effects facts::passed(Operation *from, Value value) {
   Effects out;
   SmallVector<Value> work{value};
@@ -80,6 +82,14 @@ facts::Effects facts::passed(Operation *from, Value value) {
     if (auto closure = dyn_cast_or_null<ClosureOp>(def)) {
       out |= label(from, closure.getCalleeAttr().getAttr());
       llvm::append_range(work, closure.getCaptures());
+      continue;
+    }
+    if (auto enter = dyn_cast_or_null<LinEnterOp>(def)) {
+      work.push_back(enter.getValue());
+      continue;
+    }
+    if (auto use = dyn_cast_or_null<LinUseOp>(def)) {
+      work.push_back(use.getLinear());
       continue;
     }
     if (auto con = dyn_cast_or_null<ConOp>(def)) {
