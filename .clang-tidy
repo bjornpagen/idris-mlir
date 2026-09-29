@@ -1,0 +1,8 @@
+# The checks of the lint preset, which runs clang-tidy on every translation
+# unit and fails on any finding: bugs the compiler's warnings miss, and
+# needless copies.
+Checks: >-
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*

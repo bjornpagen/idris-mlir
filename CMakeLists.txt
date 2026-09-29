@@ -35,6 +35,12 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
 
 project(idris_mlir LANGUAGES C CXX)
 
+# project() makes libc++'s std module an ordinary target of this build; the
+# lint graph checks our code, not libc++'s.
+if(TARGET __cmake_cxx26)
+	set_target_properties(__cmake_cxx26 PROPERTIES CXX_CLANG_TIDY "")
+endif()
+
 # PIN(platform-gate-x86_64): cpp-starter's platforms plus Linux x86_64
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	set(IDRIS_MLIR_LINUX TRUE)

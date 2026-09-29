@@ -52,7 +52,9 @@ struct LinResource : mlir::SideEffects::Resource::Base<LinResource> {
 };
 
 // The traits below carry what IdrOps.td declares about an op, so that each
-// fact is written once, next to the op, and every pass derives from it.
+// fact is written once, next to the op, and every pass derives from it. A
+// trait exists only as a base of its op: the op's mlir::Op base constructs
+// it, and nothing else may.
 
 // The runtime function the op lowers to, named after the op:
 // `idr.str.append` calls `idris_rt_str_append` (`Idr_CallsRuntime`).
@@ -68,11 +70,21 @@ public:
     }();
     return helper;
   }
+
+private:
+  CallsRuntime() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
 };
 
 // An idr.io op (`Idr_PerformsIO`), what idr-effects looks for.
 template <typename ConcreteType>
-class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {};
+class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {
+private:
+  PerformsIO() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
 
 // An op that may crash writes the crash resource and the IO
 // resource, and is speculatable exactly when it can neither crash nor
@@ -100,6 +112,10 @@ template <bool Allocates> struct MayCrash {
     }
 
   private:
+    Impl() = default;
+    friend ConcreteType;
+    template <typename, template <typename> class...> friend class mlir::Op;
+
     ConcreteType self() { return *static_cast<ConcreteType *>(this); }
   };
 };
