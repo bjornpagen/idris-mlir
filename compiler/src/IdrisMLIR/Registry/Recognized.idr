@@ -25,17 +25,17 @@ rewriting = Pi Q0 TypeOfTypes (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 equal (
 
 ||| `replace` and `rewrite__impl`, which `rewrite` elaborates to.
 identity : String -> Entry
-identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument [FeTr7]
+identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument [IdentityHook]
 
 ||| A world operation of `PrimIO`, reachable only through the program root.
 rootOnly : String -> Shape -> Entry
-rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden ProfIO3) [ProfIO3]
+rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden WorldUse) [WorldUse]
 
 ||| An escape hatch as the user can write it. Idris evaluates
 ||| `prim__believe_me` applied to a constructor while elaborating, so it can
 ||| vanish from TT; the source is scanned instead.
 spelling : String -> Entry
-spelling s = MkEntry (Spelling s) Written (Forbidden ProfEsc1) [ProfEsc1]
+spelling s = MkEntry (Spelling s) Written (Forbidden EscapeHatch) [EscapeHatch]
 
 ||| The table.
 export

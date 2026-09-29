@@ -50,7 +50,7 @@ remove path = ignore (coreLift (removeFile path))
 validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core ()
 validated fc = case !validate of
   Valid => pure ()
-  Wrong at owner msg => reject at owner HookShape1 msg
+  Wrong at owner msg => reject at owner HookShape msg
   NoSuchEntry name => internal fc ("the directive break-shape=" ++ name ++ " names no entry of the registry")
 
 ||| Is a definition the head of the term Idris hands an IO backend?
@@ -141,7 +141,7 @@ record Rejection where
   message : String
   at : Maybe Place
 
-||| The first `unsupported (<RULE>): ...` in the text, and its location: on
+||| The first `unsupported (<reason>): ...` in the text, and its location: on
 ||| its line, or else anywhere in the text.
 rejection : String -> Maybe Rejection
 rejection text = do
@@ -172,7 +172,7 @@ record Definition where
 reportRejection : {auto s : Ref TState TS} -> FC -> Source -> Rejection -> Core a
 reportRejection fc src r = do
   let Just rule = parseRule r.rule
-    | Nothing => internal fc ("idris-mlir-cc reported an unknown rule: " ++ r.rule)
+    | Nothing => internal fc ("idris-mlir-cc reported an unknown reason: " ++ r.rule)
   case r.at of
     Nothing => reject fc (show src.root) rule r.message
     Just p => do
@@ -216,7 +216,7 @@ ccVerdict fc src artifacts (status, text) =
       traverse_ remove artifacts
       case rejection text of
         Just r => reportRejection fc src r
-        Nothing => internal fc ("idris-mlir-cc reported a user error without naming a rule:\n" ++ text)
+        Nothing => internal fc ("idris-mlir-cc reported a user error without naming a reason:\n" ++ text)
     else do
       traverse_ remove artifacts
       internal fc ("idris-mlir-cc failed with status " ++ show status ++ ":\n" ++ text)
@@ -247,16 +247,16 @@ compileModule c _ source = do
     [] => pure ()
     ((m, _, _) :: _) => do
       at <- map snd . head' <$> imports ident source
-      reject (fromMaybe fc at) (show ident) ProfProg1
+      reject (fromMaybe fc at) (show ident) ProgramShape
              ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
   -- Idris's entry convention, from the registry.
   let main = toName (intEntry (modulePath ident))
   Just def <- lookupCtxtExact main (gamma defs)
-    | Nothing => reject fc (show ident) ProfProg2 "the module does not define main"
+    | Nothing => reject fc (show ident) ProgramShape "the module does not define main"
   ty <- normalise defs Env.Nil (type def)
   case ty of
     PrimVal _ (PrT IntType) => pure ()
-    _ => reject (location def) (show main) ProfProg2 "main must have type Int"
+    _ => reject (location def) (show main) ProgramShape "main must have type Int"
   checkReachable fc [main]
   prog <- translateIntProgram main
   (dir, _) <- dumpDir (corePath `dropExt` ".core")
@@ -302,15 +302,15 @@ compileIO c _ tmpDir outputDir tm outfile = do
   traverse_ remove [corePath, mlirPath, objPath, base]
   defs <- get Ctxt
   Just (perform, main) <- pure (rootName tm)
-    | Nothing => throw (GenericMsg EmptyFC "mlir backend: unsupported (FE-ENTRY-4): an unexpected root term")
+    | Nothing => throw (GenericMsg EmptyFC "mlir backend: unsupported (program): an unexpected root term")
   Just mainDef <- lookupCtxtExact main (gamma defs)
-    | Nothing => throw (GenericMsg EmptyFC "mlir backend: unsupported (FE-ENTRY-4): main is missing")
+    | Nothing => throw (GenericMsg EmptyFC "mlir backend: unsupported (program): main is missing")
   let fc = location mainDef
   main <- toFullNames main
   s <- newRef TState (initState fc)
   validated fc
   unless (programRoot (hooksOf !(toFullNames perform))) $
-    reject fc "main" FeEntry4 "the root is not unsafePerformIO main"
+    reject fc "main" ProgramShape "the root is not unsafePerformIO main"
   -- Every module is trusted or a user module with source.
   let mainIdent = case !(toFullNames main) of
                     NS ns _ => nsAsModuleIdent ns
@@ -328,12 +328,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
       is <- imports m p
       for_ is $ \(target, at) =>
         unless (covers Trusted (moduleOrigin (forget (split (== '.') target))) || elem target userNames) $
-          reject at (show m) ProfProg4
+          reject at (show m) ProgramShape
                  ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
     Nothing => pure ()
   for_ sources $ \(m, path) => case path of
     Just p => checkPragmas m p
-    Nothing => reject fc "main" ProfProg4
+    Nothing => reject fc "main" ProgramShape
                  ("loads " ++ show m ++ ", which is neither a user module nor a trusted module")
   checkReachable fc [main]
   prog <- translateIOProgram fc main
@@ -364,7 +364,7 @@ compileProgram c s tmpDir outputDir tm outfile =
 executeProgram : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
                  String -> ClosedTerm -> Core ()
 executeProgram _ _ _ _ =
-  throw (GenericMsg EmptyFC "mlir backend: unsupported (FE-ENTRY-5): --exec is not supported")
+  throw (GenericMsg EmptyFC "mlir backend: unsupported (program): --exec is not supported")
 
 backend : Codegen
 backend = MkCG compileProgram executeProgram (Just compileModule) (Just "mlir")

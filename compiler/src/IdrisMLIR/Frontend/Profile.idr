@@ -100,7 +100,7 @@ checkPragmas ident path = do
     | Left err => throw (FileErr path err)
   case lex text of
     Left (_, l, col, _) =>
-      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) ProfPrag1
+      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) UserPragma
              "the source could not be lexed"
     Right (_, toks) => traverse_ check toks
   where
@@ -118,8 +118,8 @@ checkPragmas ident path = do
     check tok = case tok.val of
       -- %default only sets the totality Idris requires.
       Pragma "default" => pure ()
-      Pragma p => reject (at tok) (show ident) ProfPrag1 ("the pragma %" ++ p)
-      HoleIdent h => reject (at tok) (show ident) ProfEsc1 ("the hole ?" ++ h)
+      Pragma p => reject (at tok) (show ident) UserPragma ("the pragma %" ++ p)
+      HoleIdent h => reject (at tok) (show ident) EscapeHatch ("the hole ?" ++ h)
       Ident n => spelled tok n
       DotSepIdent _ n => spelled tok n
       _ => pure ()
@@ -193,24 +193,24 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
                       ((u, _) :: _) => show u
                       [] => key
         when (isEscapeHatch def) $
-          reject (userFC here) owner ProfEsc1 ("the escape hatch " ++ key ++ via here)
+          reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
         case definition def of
-          Builtin BelieveMe => reject (userFC here) owner ProfEsc1 ("believe_me" ++ via here)
-          Builtin Crash => reject (userFC here) owner ProfEsc1 ("idris_crash" ++ via here)
-          Hole {} => reject (userFC here) owner ProfEsc1 ("the hole " ++ key ++ via here)
+          Builtin BelieveMe => reject (userFC here) owner EscapeHatch ("believe_me" ++ via here)
+          Builtin Crash => reject (userFC here) owner EscapeHatch ("idris_crash" ++ via here)
+          Hole {} => reject (userFC here) owner EscapeHatch ("the hole " ++ key ++ via here)
           -- Only the IO primitives the registry lists may be reached: an
           -- `%extern` one by its name, a `%foreign` one by its spec.
           ExternDef _ =>
             unless (isJust (ioCallOf (hooksOf full))) $
-              reject (userFC here) owner ProfEsc1 ("%extern " ++ key ++ via here)
+              reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
           ForeignDef _ specs => case foreignHookOf full specs of
             Just (Right _) => pure ()
-            Just (Left wrong) => reject (userFC here) key HookShape1 wrong
-            Nothing => reject (userFC here) owner ProfEsc1 ("%foreign " ++ key ++ via here)
+            Just (Left wrong) => reject (userFC here) key HookShape wrong
+            Nothing => reject (userFC here) owner EscapeHatch ("%foreign " ++ key ++ via here)
           _ => pure ()
         -- A trusted module admits only some of its definitions.
         when (trusted && not (admits origin (qname (enclosing full)))) $
-          reject (userFC here) owner ProfLib1 (key ++ " is not admitted from its trusted module" ++ via here)
+          reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
         refs <- traverse toFullNames (refsOf def)
         -- User code may not use what the registry forbids, nor forge a world.
         unless trusted $ do
@@ -219,7 +219,7 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             Nothing => pure ()
           case definition def of
             PMDef _ _ tree _ _ =>
-              when (treeMentionsWorld tree) $ reject (location def) key ProfIO3 "uses %MkWorld"
+              when (treeMentionsWorld tree) $ reject (location def) key WorldUse "uses %MkWorld"
             _ => pure ()
         -- A library's own totality assertions are trusted.
         let refs' = if trusted then filter (not . assertion . qname) refs else refs

@@ -52,13 +52,13 @@ io a = Head (Def (MkQName ["PrimIO"] "IO")) [a]
 programRoot : Entry
 programRoot = MkEntry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
                       (Typed (Pi Q0 TypeOfTypes (Pi QW (io Hole) Hole)))
-                      ProgramRoot [FeEntry4]
+                      ProgramRoot [ProgramShape]
 
 ||| An IO primitive of `Prelude.IO`, by its spec, with the name that
 ||| declares it and its type.
 ioPrimitive : Spec -> String -> Shape -> IOOp -> Entry
 ioPrimitive spec name shape op =
-  MkEntry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall op) [ProfIO4]
+  MkEntry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall op) [IOPrimitive]
 
 ||| The table: Idris's backend contract as the compiler implements it.
 export
