@@ -251,9 +251,13 @@ def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
 def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
     NoRegionArguments, SingleBlock, NoTerminator, HasParent<"::mlir::ModuleOp">]> {
   let summary = "declares a monomorphic data type, unboxed or boxed";
-  let arguments = (ins SymbolNameAttr:$sym_name, UnitAttr:$box);
+  // `closures`: a sum idr-defunctionalize made of closures, one constructor
+  // per label, named after the label's function, whose fields are its
+  // captures: a value of it is a closure.
+  let arguments = (ins SymbolNameAttr:$sym_name, UnitAttr:$box, UnitAttr:$closures);
   let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = "$sym_name (`box` $box^)? attr-dict-with-keyword $body";
+  let assemblyFormat =
+      "$sym_name (`box` $box^)? (`closures` $closures^)? attr-dict-with-keyword $body";
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::llvm::SmallVector<class CtorOp> getCtors();

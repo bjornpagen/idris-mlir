@@ -9,21 +9,13 @@ using namespace idr;
 
 namespace {
 
-// idr-defunctionalize names each sum it makes of closures `fn$<n>`, with
-// one constructor per label, named after the label's function; a value of
-// one is a closure.
-bool isClosureSum(StringRef name) { return name.starts_with("fn$"); }
-
 bool holdsClosure(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
   type = unrestricted(type);
   if (isa<FnType>(type))
     return true;
-  FlatSymbolRefAttr name = getSumName(type);
-  if (!name)
-    return false;
-  if (isClosureSum(name.getValue()))
-    return true;
   DataOp data = lookupData(from, type);
+  if (data && data.getClosures())
+    return true;
   if (!data || !seen.insert(type).second)
     return false;
   return llvm::any_of(data.getCtors(), [&](CtorOp ctor) {
@@ -44,7 +36,7 @@ facts::Effects inConstant(Operation *from, Attribute constant) {
     if (auto closure = dyn_cast<ClosureAttr>(nested))
       out |= label(from, closure.getCallee().getAttr());
     else if (auto con = dyn_cast<ConAttr>(nested))
-      if (StringAttr name = facts::closureLabel(con.getCtor()))
+      if (StringAttr name = facts::closureLabel(from, con.getCtor()))
         out |= label(from, name);
   });
   return out;
@@ -52,9 +44,10 @@ facts::Effects inConstant(Operation *from, Attribute constant) {
 
 } // namespace
 
-StringAttr facts::closureLabel(SymbolRefAttr ctor) {
-  return isClosureSum(ctor.getRootReference().getValue()) ? ctor.getLeafReference()
-                                                          : StringAttr();
+StringAttr facts::closureLabel(Operation *from, SymbolRefAttr ctor) {
+  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
+      from, FlatSymbolRefAttr::get(ctor.getRootReference()));
+  return data && data.getClosures() ? ctor.getLeafReference() : StringAttr();
 }
 
 bool facts::mayHoldClosure(Operation *from, Type type) {
@@ -93,7 +86,7 @@ facts::Effects facts::passed(Operation *from, Value value) {
       continue;
     }
     if (auto con = dyn_cast_or_null<ConOp>(def)) {
-      if (StringAttr name = closureLabel(con.getCtor()))
+      if (StringAttr name = closureLabel(from, con.getCtor()))
         out |= label(from, name);
       llvm::append_range(work, con.getFields());
       continue;

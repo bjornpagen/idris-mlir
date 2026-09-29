@@ -57,7 +57,7 @@ Found local(func::FuncOp fn, SymbolTableCollection &symbols) {
       found.reached = found.reached | unknown;
   };
   auto reachLabel = [&](Operation *from, SymbolRefAttr ctor) {
-    if (StringAttr label = idr::facts::closureLabel(ctor))
+    if (StringAttr label = idr::facts::closureLabel(from, ctor))
       reach(from, FlatSymbolRefAttr::get(label));
   };
   fn.getBody().walk([&](Operation *op) {

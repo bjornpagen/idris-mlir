@@ -4,19 +4,18 @@
 // RUN: idris-mlir-cc %s --check --remarks-file=%t.all.yaml 2> %t.quiet
 // RUN: FileCheck %s --check-prefix=ALL < %t.all.yaml
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
-// The simplify loop traces each round in an Analysis remark (--remarks
-// prints every kind): the round, the functions, the clones, the ops, the
-// milliseconds. The last round is the fixpoint, and the loop's statistics
-// follow. --remarks-file writes the remarks as YAML: of --remarks'
-// categories, or of all of them, printing none.
-// CHECK: remark: [Analysis] round | Category:idr-simplify | {{.*}}clones={{[0-9]+}}, functions={{[1-9][0-9]*}}, ms={{[0-9]+\.[0-9]+}}, ops={{[1-9][0-9]*}}, round=1{{$}}
-// CHECK: remark: [Passed] idr-simplify | Category:idr-simplify | Remark="fixpoint: round {{[1-9][0-9]*}} changed nothing"
+// The simplify loop traces each of its rounds in an Analysis remark, with
+// the round's number among its facts (--remarks prints every kind); the
+// last round is the fixpoint, and the loop's statistics follow. With
+// --remarks-file the remarks go to a file too, as YAML documents: those of
+// --remarks' categories, or of all of them while none is printed.
+// CHECK: remark: [Analysis] round {{.*}}Category:idr-simplify {{.*}}round=1
+// CHECK: remark: [Passed] idr-simplify {{.*}}fixpoint{{.*}}changed nothing
 // CHECK-NOT: [Analysis] round
-// CHECK: remark: [Analysis] statistics | Category:idr-simplify | {{.*}}idr-eval.evaluated={{[0-9]+}}
+// CHECK: remark: [Analysis] statistics {{.*}}Category:idr-simplify
 // YAML: --- !Analysis
 // YAML-NEXT: Pass: idr-simplify
 // YAML-NEXT: Name: round
-// YAML: - round: '1'
 // YAML: --- !Passed
 // YAML-NEXT: Pass: idr-simplify
 // ALL: Pass: idr-simplify

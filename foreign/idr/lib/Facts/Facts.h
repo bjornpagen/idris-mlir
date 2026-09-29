@@ -45,10 +45,10 @@ bool mayHoldWorld(mlir::Operation *from, mlir::Type type);
 // Whether `fn` takes a world, in a parameter or in data one holds.
 bool takesWorld(mlir::func::FuncOp fn);
 
-// The label that `ctor` names when it builds a closure: the sums of
-// closures that idr-defunctionalize makes (`@fn$<n>`) have one constructor
-// per label, named after its function. Null for any other constructor.
-mlir::StringAttr closureLabel(mlir::SymbolRefAttr ctor);
+// The label that `ctor` names when it builds a closure: a constructor of a
+// sum of closures (an `idr.data ... closures`), named after its label's
+// function. Null for any other constructor.
+mlir::StringAttr closureLabel(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
 // Whether a value of `type` may hold a closure: a closure, a sum of
 // closures that idr-defunctionalize made, or data with a field that may; a

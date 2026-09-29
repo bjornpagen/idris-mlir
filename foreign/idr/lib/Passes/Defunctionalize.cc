@@ -913,7 +913,8 @@ struct Converter {
       if (!sum)
         continue;
       auto data = idr::DataOp::create(b, module.op.getLoc(), idr::getSumName(sum).getAttr(),
-                                      isa<idr::BoxType>(sum) ? b.getUnitAttr() : UnitAttr());
+                                      isa<idr::BoxType>(sum) ? b.getUnitAttr() : UnitAttr(),
+                                      b.getUnitAttr());
       OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
       for (auto [tag, label] : llvm::enumerate(key.second.getAsRange<StringAttr>())) {
         func::FuncOp fn = module.function(label);

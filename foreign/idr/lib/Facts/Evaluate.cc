@@ -50,7 +50,7 @@ std::optional<facts::Evaluation> facts::canEvaluate(Operation *op, SymbolTable &
       if (auto closure = dyn_cast<ClosureAttr>(nested))
         runners.push_back(symbols.lookup<func::FuncOp>(closure.getCallee().getAttr()));
       else if (auto con = dyn_cast<ConAttr>(nested))
-        if (StringAttr name = closureLabel(con.getCtor()))
+        if (StringAttr name = closureLabel(op, con.getCtor()))
           runners.push_back(symbols.lookup<func::FuncOp>(name));
     });
   if (!llvm::all_of(runners, runs))
