@@ -194,3 +194,182 @@ exclusivity is decided once: statically by One-Shot, or at a single thaw.
   `tensor.extract`/`insert` (Tensor/Transforms/RuntimeOpVerification.cpp:249-251),
   `memref.load`/`store`/atomics (MemRef/Transforms/RuntimeOpVerification.cpp:397-405),
   and linalg.
+
+## Second run: E8–E16
+
+The files are in `$S/x/`. Pipelines are spelled out once below; "One-Shot"
+means `--one-shot-bufferize="bufferize-function-boundaries
+function-boundary-type-conversion=identity-layout-map"`.
+
+### E8. Counted elements need only the element interface (`ptrelt*.mlir`)
+
+- `tensor<?x!llvm.ptr>` asserts in One-Shot exactly like E4's idr and
+  emitc types: `!llvm.ptr` does not implement `MemRefElementTypeInterface`
+  in the pinned tree. Only `!ptr.ptr` and an AMDGPU type do
+  (`grep MemRefElementTypeInterface include/`).
+- `ptrelt2.mlir` is the same function over `!ptr.ptr<#ptr.generic_space>`:
+  `%old = tensor.extract`, a call that releases it, `tensor.insert`. It
+  bufferizes in place to `memref.load` / call / `memref.store` on `%arg0`,
+  and the return is annotated `__equivalent_func_args__ = [0]`.
+- So an array of counted references needs nothing from MLIR but the
+  interface on the element type. What the old element's release means is
+  ours to state (here: a call), and it survives bufferization unchanged.
+- With the built `idris-mlir-opt` (`box-tensor.mlir`, `lin-tensor.mlir`):
+  `tensor<?x!idr.str>` parses; `memref<?x!idr.str>` is "invalid memref
+  element type"; `!idr.lin<tensor<?xi64>>` is rejected by `LinType::verify`
+  ("expects !idr.lin of a runtime type other than the world"), because
+  `isFieldType` (Dialect.cc:121-128) has no array types.
+
+### E9. Arrays as counted runtime objects through MLIR's allocation hooks (`hooks.mlir`, `rt.c`)
+
+Pipeline: One-Shot with `buffer-alignment=0`, `--buffer-deallocation-pipeline
+--canonicalize --cse --convert-linalg-to-loops --expand-strided-metadata
+--lower-affine --finalize-memref-to-llvm="use-generic-functions"
+--convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts`, then
+`mlir-translate --mlir-to-llvmir`, then the pinned musl `clang -O2` with a
+40-line C runtime.
+
+The runtime's `_mlir_memref_to_llvm_alloc` returns the data of an object with
+a 16-byte header (count, info, byte length); `_mlir_memref_to_llvm_free` drops
+one reference and frees at zero. A C function `keep` stands for a cell: it
+takes a reference of its own, and `drop_kept` drops it later.
+
+| function | what it does | allocs / frees after it |
+|---|---|---|
+| `fill_sum(1000)` | fill in place, sum | 1 / 1 |
+| `shared(1000)` | reads the old tensor after an insert | 3 / 3 (2 for it: the copy) |
+| `escape(1000)` | stores the buffer in the "cell" | 4 / 3: alive after the function's own release |
+| `drop_kept()` | the cell dies | 4 / 4, 5 releases |
+
+- Output: `fill_sum 332833500`, `shared 14`, `escape 7`.
+- `keep` asserts that the memref's allocated and aligned pointers are equal
+  with `buffer-alignment=0`: one pointer is the whole object, so a cell
+  needs one object slot for an array.
+- Conclusion: every buffer MLIR allocates can be a counted runtime object,
+  with no pattern of ours. A `memref.dealloc` is then "release one
+  reference", and lifetimes compose with the cells' counts.
+
+### E10. The recursion gap has two halves (`readrec.mlir`, `e5-rec.mlir`, `e5-fixed.mlir`)
+
+**Read-only recursion copies at the call site (`readrec.mlir`).** `@sum`
+recursively reads its tensor. `@main` calls it twice on `%t`, then writes
+`%t`.
+- One-Shot puts `memref.alloc` + `memref.copy` before **each** call: two
+  whole-array copies.
+- The callee never writes. But its boundary is not analyzed
+  (OneShotModuleBufferize.cpp:510-523), so `CallOpInterface` answers "read
+  and written" (FuncBufferizableOpInterfaceImpl.cpp:171-173, 186-188).
+- A binary search written recursively and called n times is O(n²), and it
+  is silent.
+
+**A writer's result is not known equivalent (`e5-rec.mlir`, quicksort's shape).**
+- One-Shot plus `--canonicalize --drop-equivalent-buffer-results` keeps
+  `@rec : (index, index, memref) -> memref`. The result is `scf.if` over
+  `%arg2` and a call result, and `DropEquivalentBufferResults` compares
+  return operands with block arguments syntactically, modulo casts only
+  (DropEquivalentBufferResults.cpp:65-75, 114).
+- The full deallocation pipeline then adds `bufferization.clone` on the
+  base-case path, plus a `dealloc_helper` call with five heap arrays in
+  `@main`.
+- `e5-fixed.mlir` is the same program with the result dropped by hand, which
+  is what a greatest fixpoint over the SCC would conclude. The deallocation
+  pipeline leaves one `memref.alloc`, one `memref.dealloc`, no clone and no
+  helper.
+
+### E11. Bounds checks: static length folds in MLIR, symbolic does not (`static.mlir`)
+
+`--canonicalize --cse --loop-invariant-code-motion --cse
+--int-range-optimizations --canonicalize`:
+- `@f` over `tensor<12xi64>`: both `i < dim` and `i >= 0` fold, and the
+  `scf.if` is gone.
+- `@g` over `tensor<?xi64>`, a loop `for i in [0, dim)`: `cmpi slt %i, %dim`
+  stays, although the loop's upper bound is the very SSA value it compares
+  against. IntegerRangeAnalysis is not relational.
+
+### E12. ValueBounds proves the relational fact, but nothing folds a compare with it (`vb3`–`vb7`)
+
+The only upstream consumer that fits is
+`transform.affine.simplify_min_max_affine_ops`. The pass
+`affine-simplify-with-bounds` handles `affine.delinearize_index` /
+`linearize_index` only (SimplifyAffineWithBounds.cpp:8-10). So the fact is
+tested through a clamp, `affine.min(i, dim)`, which folds to `i` exactly
+when ValueBounds proves `i < dim`:
+- `vb4.mlir`: in a loop over `[0, dim)`, `min(i, dim)` becomes `i`. Proved.
+  (`vb3.mlir`, `min(i, dim - 1)`, does not fold, because the helper asks a
+  strict `<`; that is a property of the helper, not of the fact.)
+- `vb5.mlir`: the same loop with the tensor threaded through `iter_args`
+  (as linear Idris code threads it) and the length read from the iteration
+  argument does **not** fold. `vb6.mlir`, with `linalg.fill` (a DPS op) in
+  place of `tensor.insert`: it does not fold either.
+- `vb7.mlir`: with `tensor.insert_slice` in place of `tensor.insert`,
+  `--scf-for-loop-canonicalization` rewrites `tensor.dim %iter_arg` to
+  `tensor.dim %init`, and then the clamp folds.
+- The cause is that `isShapePreserving` (LoopCanonicalization.cpp:38-60)
+  follows `tensor.insert_slice` and nested `scf.for` only, not
+  `tensor.insert` or other destination-style ops.
+- Also: there is no ValueBounds model for `arith.index_cast`. The arith
+  models (Arith/IR/ValueBoundsOpInterfaceImpl.cpp:20-400) cover constant,
+  `extsi`, add, sub, mul, the divisions and remainders, select, min and
+  max. `cmpi slt` of two
+  `index_cast`s is not canonicalized to an `index` compare (`ic.mlir`). An
+  Idris `Int` check therefore never reaches the domain where ValueBounds
+  works.
+
+### E13. spectral-norm's A·v vectorizes over rows and keeps IEEE order (`spectral.mlir`)
+
+- The kernel is a `linalg.generic` with maps `(i,j)->(j)` and `(i,j)->(i)`,
+  and iterators `[parallel, reduction]`. `A(i,j)` is computed in the body
+  from `linalg.index`.
+- Transform script: `tile_using_for [4, 1]`, then `vectorize vector_sizes
+  [4, 1]`.
+- Result: an outer loop over rows by 4, an inner sequential loop over `j`,
+  and one `arith.addf` on `vector<4xf64>` per `j`, with a masked tail.
+- Each lane is one row's sum, added in the scalar program's order, so the
+  output is bit-identical without reassociation. Idris `Double` is IEEE with
+  no fast-math, so vectorizing the reduction dimension would not be allowed.
+
+### E14. reverse-complement's kernel vectorizes to gathers (`revcomp.mlir`)
+
+- `out[i] = table[in[n-1-i]]` as a `linalg.generic` with `tensor.extract` in
+  the body.
+- Transform script: tile by 16, then `vectorize ... {vectorize_nd_extract}`.
+- Both the reversed read and the table lookup become `vector.gather` (masked).
+- The reversed contiguous read is not recognized as a `transfer_read`
+  plus a reverse shuffle, and x86 has no byte gather. For this kernel,
+  LLVM's loop vectorizer (reverse consecutive access) is the better
+  backend; linalg buys fusion with the line re-wrap, not codegen.
+
+### E15. Upstream API a workaround can use
+
+- `analyzeModuleOp`, `insertTensorCopies(op, analysisState, state)` and
+  `bufferizeModuleOp` are public (OneShotModuleBufferize.h:28-56,
+  Transforms.h:76-86). A driver can therefore run analysis, inspect
+  `OneShotAnalysisState::isInPlace`, and then rewrite.
+- `FuncAnalysisState` is a public `OneShotAnalysisState::Extension` with
+  public maps (FuncBufferizableOpInterfaceImpl.h:36-77):
+  - `equivalentFuncArgs`, `aliasingReturnVals`, `readBbArgs`,
+    `writtenBbArgs`;
+  - `analyzedFuncOps`.
+- `analyzeModuleOp` never touches the `analyzedFuncOps` entry of a function
+  in a call cycle (:510-523). A summary seeded there before the call is what
+  `CallOpInterface` reads (FuncBufferizableOpInterfaceImpl.cpp:171-200).
+  That is the hook for a fixpoint that uses public API only.
+- The `bufferization.access` argument attribute is read only by
+  `funcOpBbArgReadWriteAnalysis` (OneShotModuleBufferize.cpp:249-255), which
+  never runs for functions in a call cycle. So it cannot carry a summary.
+- `finalize-memref-to-llvm` has no lowering for `memref.realloc`;
+  `expand-realloc` turns it into alloc + copy + dealloc.
+- `memref.copy` lowers to `llvm.memcpy` for identity layouts
+  (MemRefToLLVM.cpp:1139-1190), which is undefined on overlap. R6RS
+  `bytevector-copy!`, which Chez's `blodwen-buffer-copydata` uses, is
+  defined on overlap.
+
+### E16. The idr pipeline order today
+
+`Registration.cc:16-29`:
+`idr-simplify, idr-defunctionalize, canonicalize, idr-stack, idr-rc,
+idr-tail-loops, idr-lower, ...`. Counting "runs on functional code, where
+recursion is still a call"; idr-rc refuses regions other than matches
+(Counts.cc:67-71). So there are no loops before counting, and
+bufferization placed before counting sees recursion, not `scf.for`. That is
+why the recursion gap (E10) is on the main path, not a corner.
