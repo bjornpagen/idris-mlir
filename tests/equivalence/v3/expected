@@ -1,18 +1,18 @@
 call-pattern: same stdout and exit status
 choice: same stdout and exit status
-compile-time-evaluation: compiles only with evaluation: unsupported (runtime integer)
+compile-time-evaluation: same stdout and exit status
 missing-case: same stdout and exit status
 partial-divergent-call: same stdout and exit status
 partial-untaken-divergence: same stdout and exit status
 prelude: same stdout and exit status
 prelude-input: same stdout and exit status
 prelude-io: same stdout and exit status
-prelude-lists: compiles only with evaluation: unsupported (runtime integer)
+prelude-lists: same stdout and exit status
 prelude-math: same stdout and exit status
-prelude-show: compiles only with evaluation: unsupported (runtime data)
-prelude-traverse: compiles only with evaluation: unsupported (runtime closure)
+prelude-show: same stdout and exit status
+prelude-traverse: same stdout and exit status
 prelude-user-types: same stdout and exit status
 show-values: same stdout and exit status
 specialize-growing-accumulator: same stdout and exit status
 static-evaluation: same stdout and exit status
-vect: compiles only with evaluation: unsupported (runtime integer)
+vect: same stdout and exit status
