@@ -139,6 +139,23 @@ which the top-level CMake configure gate reads.
   `tests/upstream/inline-unreachable-terminator` fails then
 - upstream: upstream/inline-unreachable-terminator (not yet filed)
 
+## linarray-escape
+
+- symptom: contrib's `Data.Linear.Array.newArray` lets its continuation
+  return the linear array (or a closure over it), so a "linear" array can be
+  shared and written through two handles
+  (`upstream/idris-linarray-escape`)
+- decision: idris-mlir optimizes linear libraries as if they had the fixed
+  signature (the continuation returns `!*`), since that is what they mean.
+  It never takes uniqueness from a library signature: the compiler proves
+  exclusivity itself (bufferization's in-place analysis for arrays, the
+  exclusivity analysis for cells). A program that uses the leak is rejected
+  with `unsupported (uniqueness)` or keeps a copy, never miscompiled
+- retire: when upstream fixes the signature,
+  `tests/upstream/idris-linarray-escape` fails; then delete this entry, the
+  report and the test
+- upstream: upstream/idris-linarray-escape (not yet filed)
+
 ## llvm-force-enable-stats
 
 - symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when
