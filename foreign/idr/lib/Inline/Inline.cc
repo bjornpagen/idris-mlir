@@ -6,8 +6,10 @@
 // ops always is, a larger one only while its copies stay within kProduct
 // ops. Its calls are its call sites and the closures that name it, since
 // each closure becomes a call where it is applied. A function on a cycle of
-// calls never is: inlining would unroll the cycle; the loop breakers keep
-// the cycles through closures no_inline. The decisions are taken once,
+// calls never is, since inlining it would unroll the cycle; the cycles are
+// those that remain once the loop breakers (no_inline) cut every cycle of
+// references, so that the other functions of a loop inline into its breaker
+// and its recursion becomes a self call. The decisions are taken once,
 // before anything is inlined, from the callees up, a callee that will be
 // inlined counting with its size where it is called.
 
@@ -63,7 +65,7 @@ Decisions decide(ModuleOp module) {
           return;
         }
         ++calls[target];
-        if (!llvm::is_contained(callees[fn], target))
+        if (!target.getNoInline() && !llvm::is_contained(callees[fn], target))
           callees[fn].push_back(target);
         return;
       }
