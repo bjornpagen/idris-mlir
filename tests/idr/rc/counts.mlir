@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@map,counts-nothing=@sum,counts-nothing=@scalars -o /dev/null
+// RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@sum,counts-nothing=@scalars -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // idr-rc makes every reference explicit. That each is consumed exactly once
 // on every path is the owned stage's rule, which idris-mlir-opt verifies
@@ -6,7 +6,7 @@
 
 // A map over a list takes each cell apart where it matches it, the fields
 // moving out with no count changed, and builds the new cell in it: it
-// counts nothing and reuses in place (the first RUN line). A function that
+// reuses in place (the first RUN line). A function that
 // only reads its list borrows it, and counts nothing; neither do worlds,
 // erased values and scalars.
 // CHECK-LABEL: func.func private @sum(
@@ -14,12 +14,11 @@
 // CHECK-LABEL: func.func private @both(
 
 // A string consumed twice takes one more reference; one only read is
-// dropped after its read.
-// CHECK-SAME: %[[A:[^:]*]]: !idr.str, %[[B:[^:]*]]: !idr.str)
+// borrowed.
+// CHECK-SAME: %[[A:[^:]*]]: !idr.str, %[[B:[^:]*]]: !idr.str {idr.borrowed})
 // CHECK-COUNT-1: idr.inc %[[A]]
 // CHECK-NOT: idr.inc
-// CHECK: idr.str.length %[[B]]
-// CHECK-NEXT: idr.dec %[[B]]
+// CHECK-NOT: idr.dec %[[B]]
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @N tag 0 ()

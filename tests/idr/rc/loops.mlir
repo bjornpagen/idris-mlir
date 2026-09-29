@@ -43,7 +43,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func @root(%w: !idr.world {idr.quantity = "1"}) -> !idr.world {
+  func.func @root(%w: !idr.world) -> !idr.world {
     %l = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
     %z = arith.constant 0 : i64
     %n = func.call @sumAcc(%z, %l) : (i64, !idr.box<@L>) -> i64

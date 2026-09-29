@@ -29,9 +29,10 @@ def Idr_Dialect : Dialect {
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
   // Constants of scalars, calls from closures, and regions ending in
-  // ub.unreachable.
+  // ub.unreachable; and the layouts of cells, whose sizes the owned stage
+  // checks, which are LLVM's.
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::func::FuncDialect",
-                           "::mlir::ub::UBDialect"];
+                           "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect"];
 }
 
 //===----------------------------------------------------------------------===//
