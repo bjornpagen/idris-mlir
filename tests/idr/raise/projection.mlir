@@ -42,7 +42,7 @@ module attributes {idr.program} {
     idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
+    idr.ctor @MkIO tag 0 (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
   func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>, idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64
@@ -63,7 +63,8 @@ module attributes {idr.program} {
     }
     default {
       %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %io = idr.con @IO::@MkIO(%k) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+      %io = idr.con @IO::@MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
       idr.yield %io : !idr.data<@IO>
     }
     }
@@ -74,7 +75,8 @@ module attributes {idr.program} {
   }
   func.func private @twice(%io: !idr.data<@IO>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<none>, idr.total} {
     %a = func.call @same(%io) : (!idr.data<@IO>) -> !idr.data<@IO>
-    %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }
@@ -82,7 +84,8 @@ module attributes {idr.program} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %a = func.call @greet(%n) : (i64) -> !idr.data<@IO>
-    %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }

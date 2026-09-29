@@ -37,7 +37,7 @@ module attributes {idr.program} {
     idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>)
+    idr.ctor @MkIO tag 0 (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
   func.func private @put(%s: !idr.str, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_str %s, %w
@@ -51,12 +51,15 @@ module attributes {idr.program} {
     return %r : !idr.data<@IORes>
   }
   // io_bind: runs %a, applies %k to its value and runs the action that gives.
-  func.func private @bind(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, %k: !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
-    %r = idr.apply %a(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+  func.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, %k: !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
+    %a_use = idr.lin.use %a : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %r = idr.apply %a_use(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %u = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
-    %io = idr.apply %k(%u) : !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %k_use = idr.lin.use %k : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %io = idr.apply %k_use(%u) : !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
+    %f_lin = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
@@ -70,8 +73,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s2() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s2() -> !idr.data<@IO> attributes {idr.total} {
@@ -79,8 +85,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s3() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s3() -> !idr.data<@IO> attributes {idr.total} {
@@ -88,8 +97,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s4() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s4() -> !idr.data<@IO> attributes {idr.total} {
@@ -97,8 +109,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s5() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s5() -> !idr.data<@IO> attributes {idr.total} {
@@ -106,8 +121,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s6() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s6() -> !idr.data<@IO> attributes {idr.total} {
@@ -115,8 +133,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s7() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s7() -> !idr.data<@IO> attributes {idr.total} {
@@ -124,8 +145,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s8() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s8() -> !idr.data<@IO> attributes {idr.total} {
@@ -133,8 +157,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s9() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s9() -> !idr.data<@IO> attributes {idr.total} {
@@ -142,8 +169,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s10() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s10() -> !idr.data<@IO> attributes {idr.total} {
@@ -151,8 +181,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s11() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s11() -> !idr.data<@IO> attributes {idr.total} {
@@ -160,8 +193,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s12() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s12() -> !idr.data<@IO> attributes {idr.total} {
@@ -169,8 +205,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s13() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s13() -> !idr.data<@IO> attributes {idr.total} {
@@ -178,8 +217,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s14() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s14() -> !idr.data<@IO> attributes {idr.total} {
@@ -187,8 +229,11 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s15() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s15() -> !idr.data<@IO> attributes {idr.total} {
@@ -196,18 +241,25 @@ module attributes {idr.program} {
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %t = idr.closure @s16() : () -> !idr.fn<() -> (!idr.data<@IO>)>
     %c = idr.closure @seq(%t) : (!idr.fn<() -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %c) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %c_lin = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %c_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @s16() -> !idr.data<@IO> attributes {idr.total} {
     %str = idr.constant "16\0A" : !idr.str
     %p = idr.closure @put(%str) : (!idr.str) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %d = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %e = idr.con @IO::@MkIO(%d) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %d_lin = idr.lin.enter %d : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %e = idr.con @IO::@MkIO(%d_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     %t = idr.closure @const(%e) : (!idr.data<@IO>) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %b = idr.closure @bind(%p, %t) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %io = idr.con @IO::@MkIO(%b) : (!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>) -> !idr.data<@IO>
+    %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %t_lin = idr.lin.enter %t : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
+    %b = idr.closure @bind(%p_lin, %t_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %b_lin = idr.lin.enter %b : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %io = idr.con @IO::@MkIO(%b_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
     return %io : !idr.data<@IO>
   }
   func.func private @const(%io: !idr.data<@IO>, %u: !idr.data<@Unit>) -> !idr.data<@IO> attributes {idr.total} {
@@ -215,7 +267,8 @@ module attributes {idr.program} {
   }
   func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %io = func.call @s1() : () -> !idr.data<@IO>
-    %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
+    %f_lin = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }
