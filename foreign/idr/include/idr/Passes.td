@@ -372,7 +372,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `facts-as-marked`: every op marked `expect.facts = "..."` gets from
         lib/Facts the answers the mark lists, of `drop move delay evaluate`
         in that order: whether it may be dropped (an unused call), moved
-        across anything, delayed, and evaluated at compile time.
+        across anything, delayed, and evaluated at compile time;
+      - `output-fused`: no string is built only to be written: no
+        `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
+        or `show` made.
   }];
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,

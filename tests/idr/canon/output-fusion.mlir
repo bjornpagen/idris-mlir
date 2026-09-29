@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=output-fused -o /dev/null
 // A string built only to be written is written piece by piece, in the
 // same order, through the world.
 

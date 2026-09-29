@@ -47,6 +47,10 @@ mlir::LogicalResult quantitiesKept(mlir::ModuleOp module, llvm::StringRef emitte
 // delay evaluate`.
 mlir::LogicalResult factsAsMarked(mlir::ModuleOp module, llvm::StringRef);
 
+// No string is built only to be written: idr.io.put_str never writes what
+// idr.str.append, cons, from_char or show made.
+mlir::LogicalResult outputFused(mlir::ModuleOp module, llvm::StringRef);
+
 // In the function the argument names, every box is built in the cell of
 // one that died (idr.reuse), and at least one is: no box gets a fresh cell.
 mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef function);

@@ -46,6 +46,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("reuses-in-place", reusesInPlace)
       .Case("counts-nothing", countsNothing)
       .Case("facts-as-marked", factsAsMarked)
+      .Case("output-fused", outputFused)
       .Default(nullptr);
 }
 
