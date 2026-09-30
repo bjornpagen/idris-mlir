@@ -1,0 +1,25 @@
+#!/bin/sh
+# The upstream bug upstream/bytecode-deferred-quadratic still reproduces
+# with the pinned mlir-opt: reading an array attribute nested 4 times as
+# deep from bytecode takes far more than 4 times as long. When this fails,
+# the bug is fixed: the PINS.md entry bytecode-deferred-quadratic, the
+# report and this test go, and compile-time evaluation may send nested
+# attributes again (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+ulimit -s unlimited 2> /dev/null || ulimit -s 4194304
+milliseconds() {
+  sh "$root/upstream/bytecode-deferred-quadratic/nested.sh" "$1" > "$work/n$1.mlir"
+  bounded "$llvm_bin/mlir-opt" "$work/n$1.mlir" --emit-bytecode -o "$work/n$1.mlirbc" || return 1
+  start=$(date +%s%N)
+  bounded "$llvm_bin/mlir-opt" "$work/n$1.mlirbc" --emit-bytecode -o /dev/null || return 1
+  end=$(date +%s%N)
+  echo $(( (end - start) / 1000000 ))
+}
+small=$(milliseconds 8000) && large=$(milliseconds 32000) || { say "mlir-opt failed"; exit 0; }
+# Linear reading takes about 4 times as long for 4 times the depth;
+# quadratic, 16 times.
+if [ "$large" -gt $((small * 8)) ]; then
+  say "deep: still reproduces (4 times the depth takes more than 8 times as long)"
+else
+  say "deep: no longer reproduces (${small} ms, then ${large} ms)"
+fi

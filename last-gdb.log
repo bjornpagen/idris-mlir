@@ -1,23 +1,12 @@
-Breakpoint 1 at 0x8000: file /home/user/idris-mlir/runtime/alloc.cc, line 75.
-Breakpoint 2 at 0x10d00: file /home/user/idris-mlir/runtime/rc.cc, line 17.
-Breakpoint 3 at 0x11e00: file /home/user/idris-mlir/runtime/rc.cc, line 17.
-Breakpoint 4 at 0x11000: file /home/user/idris-mlir/runtime/alloc.cc, line 70.
-Breakpoint 5 at 0x10d40: file /home/user/idris-mlir/runtime/rc.cc, line 123.
-[New LWP 24638]
-[LWP 24638 exited]
-[Inferior 1 (process 24635) exited normally]
+Breakpoint 1 at 0xe840: file /home/user/idris-mlir/runtime/alloc.cc, line 70.
+Breakpoint 2 at 0xe580: file /home/user/idris-mlir/runtime/rc.cc, line 123.
+[New LWP 18064]
+[LWP 18064 exited]
+[Inferior 1 (process 18061) exited normally]
 Num     Type           Disp Enb Address            What
-1       breakpoint     keep y   0x00007ffff7fe9000 in snmalloc::ThreadAlloc::get() at /home/user/idris-mlir/runtime/alloc.cc:75
-	breakpoint already hit 386469 times
-	ignore next 1999613531 hits
-2       breakpoint     keep y   0x00007ffff7ff1d00 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
-	breakpoint already hit 119221 times
-	ignore next 1999880779 hits
-3       breakpoint     keep y   0x00007ffff7ff2e00 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
-	ignore next 2000000000 hits
-4       breakpoint     keep y   0x00007ffff7ff2000 in rt::freeCell(void*) at /home/user/idris-mlir/runtime/alloc.cc:70
-	breakpoint already hit 386469 times
-	ignore next 1999613531 hits
-5       breakpoint     keep y   0x00007ffff7ff1d40 in (anonymous namespace)::Dying::push(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:123
-	breakpoint already hit 19999 times
-	ignore next 1999980001 hits
+1       breakpoint     keep y   0x00007ffff7ff1840 in rt::freeCell(void*) at /home/user/idris-mlir/runtime/alloc.cc:70
+	breakpoint already hit 4112 times
+	ignore next 1999995888 hits
+2       breakpoint     keep y   0x00007ffff7ff1580 in (anonymous namespace)::Dying::push(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:123
+	breakpoint already hit 645 times
+	ignore next 1999999355 hits

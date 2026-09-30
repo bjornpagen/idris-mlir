@@ -104,13 +104,73 @@ paramLayout params ty =
     markerOf (Ref _ _ (MN "idris-mlir-binder" k)) = Just (cast k)
     markerOf _ = Nothing
 
+||| The parameters of a type constructor: Idris's, and those its own
+||| reading of the constructors' types misses because a type hides its
+||| binders behind a definition (`a -@ LList a -@ LList a`, where Idris sees
+||| only an application of `-@`). On the normalised types, as Idris does: a
+||| position is a parameter when every occurrence of the type, as a field's
+||| result and as the constructor's, has there the same binder of the
+||| constructor, and no earlier position has it too. Such an argument is
+||| never refined by a match, so reading it as a parameter changes nothing
+||| Idris proved.
+dataParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
+dataParams def = case definition def of
+  TCon arity params _ _ _ cons _ => do
+    let idris = filter (\i => elem i params) [0 .. minus arity 1]
+    if length idris == arity then pure idris else do
+      defs <- get Ctxt
+      tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)
+      found <- case sequence tys of
+        Just ts@(_ :: _) => do
+          sets <- traverse (\t => uniform <$> (normaliseClosed t >>= toFullNames)) ts
+          pure (filter (\i => all (elem i) sets) [0 .. minus arity 1])
+        _ => pure []
+      pure (filter (\i => elem i idris || elem i found) [0 .. minus arity 1])
+  _ => pure []
+  where
+    markerOf : ClosedTerm -> Maybe Nat
+    markerOf (Ref _ _ (MN "idris-mlir-binder" k)) = Just (cast k)
+    markerOf _ = Nothing
+    -- The arguments of an occurrence of the type, as binders; only a
+    -- binder's first position counts.
+    binders : List ClosedTerm -> List (Maybe Nat)
+    binders = go []
+      where
+        go : List Nat -> List ClosedTerm -> List (Maybe Nat)
+        go seen [] = []
+        go seen (a :: as) = case markerOf a of
+          Just k => if elem k seen then Nothing :: go seen as else Just k :: go (k :: seen) as
+          Nothing => Nothing :: go seen as
+    -- The occurrence of the type that a type returns, under its binders.
+    occurrence : ClosedTerm -> Maybe (List ClosedTerm)
+    occurrence (Bind bfc _ (Pi {}) sc) = occurrence (subst (Erased bfc Placeholder) sc)
+    occurrence tm = case spine tm [] of
+      (Ref _ _ n, args) => if n == fullname def then Just args else Nothing
+      _ => Nothing
+    merge : List (Maybe Nat) -> List (Maybe Nat) -> List (Maybe Nat)
+    merge = zipWith (\a, b => if a == b then a else Nothing)
+    -- The parameter positions one constructor allows.
+    uniform : ClosedTerm -> List Nat
+    uniform ty = go 0 Nothing ty
+      where
+        positions : List (Maybe Nat) -> List Nat
+        positions ms = mapMaybe (\(i, m) => map (const i) m) (zip [0 .. length ms] ms)
+        add : Maybe (List (Maybe Nat)) -> ClosedTerm -> Maybe (List (Maybe Nat))
+        add acc t = case occurrence t of
+          Just args => Just (maybe (binders args) (\ms => merge ms (binders args)) acc)
+          Nothing => acc
+        go : Nat -> Maybe (List (Maybe Nat)) -> ClosedTerm -> List Nat
+        go i acc (Bind _ _ (Pi _ _ _ a) sc) = go (S i) (add acc a) (subst (marker i) sc)
+        go i acc ret = maybe [] positions (add acc ret)
+
 ||| The positions of a type constructor's arguments that are types: its
 ||| parameters whose kind is a universe. Only they tell instances apart;
 ||| every other argument (an index, or a value parameter such as `Equal`'s
 ||| `x`) is compile-time information.
 typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
 typeParams def = case definition def of
-  TCon arity params _ _ _ _ _ => do
+  TCon arity _ _ _ _ _ _ => do
+    params <- dataParams def
     defs <- get Ctxt
     -- A record's parameter kinds may be solved metavariables.
     ty <- normaliseHoles defs [] (type def)
@@ -286,13 +346,14 @@ mutual
     -- An instance being registered is referred to by its own fields when
     -- it is recursive; `assemble` makes it a box.
     if isJust (lookup inst st.datas) || contains inst st.building then pure inst else do
-      TCon arity params _ _ _ datacons _ <- pure (definition def)
+      TCon arity _ _ _ _ datacons _ <- pure (definition def)
         | _ => reject fc owner ValueType (tname ++ " is not a data type")
+      params <- dataParams def
       let Just datacons = datacons
         | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
       put TState ({ building $= insert inst } st)
       loc <- toLoc (location def)
-      let ps = filter (\i => elem i params) [0 .. minus arity 1]
+      let ps = params
       conList <- traverse (constructor inst args ps) datacons
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
       update TState { building $= delete inst

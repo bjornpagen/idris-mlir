@@ -11,7 +11,7 @@
 // stays a big, with its fast path inline.
 // TAGGED: error: expected word-loop: @parity computes on bigs in each of its loops
 // COUNT: error: expected word-loop: @count computes on bigs in each of its loops
-module attributes {idr.program} {
+module {
   func.func private @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {idr.total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {
     case #idr.big<"0"> {

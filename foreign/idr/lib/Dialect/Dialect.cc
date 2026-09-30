@@ -428,7 +428,11 @@ private:
 // on every path. Its types say where it may go; this says how often.
 LogicalResult verifyLinearity(FunctionOpInterface fn) {
   auto check = [&](Value value) -> LogicalResult {
-    if (quantityOf(value.getType()) != Quantity::One)
+    // A poison is no value: it stands where a path that is never taken
+    // needs one (the payload a loop yields on the path that does not use
+    // it), so taking it twice takes nothing. Constant hoisting may put one
+    // outside a loop, where every use inside repeats.
+    if (quantityOf(value.getType()) != Quantity::One || value.getDefiningOp<ub::PoisonOp>())
       return success();
     if (Operation *op = LinearUses(value).secondUse())
       return op->emitOpError(isa<WorldType>(value.getType())

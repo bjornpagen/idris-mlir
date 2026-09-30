@@ -17,6 +17,7 @@
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -52,6 +53,15 @@ public:
     }
     IntegerRangeAnalysis::setToEntryState(lattice);
   }
+
+  // Poison is no value: every range holds of it, so it adds nothing to the
+  // range of a merge it flows into, as on the path out of a loop.
+  LogicalResult visitOperation(Operation *op, ArrayRef<const IntegerValueRangeLattice *> operands,
+                               ArrayRef<IntegerValueRangeLattice *> results) override {
+    if (isa<ub::PoisonOp>(op))
+      return success();
+    return IntegerRangeAnalysis::visitOperation(op, operands, results);
+  }
 };
 
 LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
@@ -68,6 +78,9 @@ public:
   explicit Facts(DataFlowSolver &s) : solver(s) {}
 
   Bounds of(Value value) const {
+    // Poison may be taken to be any value, so a small one.
+    if (value.getDefiningOp<ub::PoisonOp>())
+      return {0, 0};
     if (auto it = made.find(value); it != made.end())
       return it->second;
     auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
@@ -94,6 +107,8 @@ public:
   // or its value converted.
   Value word(OpBuilder &b, Location loc, Value value) {
     auto i64 = b.getI64Type();
+    if (value.getDefiningOp<ub::PoisonOp>())
+      return ub::PoisonOp::create(b, loc, i64);
     if (auto from = value.getDefiningOp<BigFromIntOp>()) {
       Value source = from.getValue();
       if (source.getType() == i64)
@@ -353,6 +368,9 @@ bool descends(Value value, BlockArgument arg, scf::WhileOp loop, unsigned depth 
   if (depth > 64)
     return false;
   if (value == arg)
+    return true;
+  // What is yielded on the path out of the loop, and never comes back.
+  if (value.getDefiningOp<ub::PoisonOp>())
     return true;
   if (auto pred = value.getDefiningOp<BigPredOp>())
     return descends(pred.getValue(), arg, loop, depth + 1);

@@ -20,8 +20,6 @@
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/Bytecode/BytecodeReader.h"
-#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/Pass/PassManager.h"
@@ -78,17 +76,13 @@ constexpr Meter totalCode{
 // stake, only the size and the speed.
 constexpr uint64_t resultBytes = uint64_t{1} << 20;
 
-// The attribute of the module the child sends a call's results in.
-constexpr llvm::StringLiteral resultsName = "eval.results";
-
 // The table of the address of each label's code, by label number, which the
 // reifier reads a closure's label from: a closure is a code pointer and
 // captures, nothing more.
 constexpr llvm::StringLiteral codesName = "__idr_codes";
 
-// What the child sends for a call: "results" and the results in bytecode,
-// which keeps shared parts shared, or "too-large" or "unreadable" and why
-// not.
+// What the child sends for a call: "results" and the results
+// (encodeResults), or "too-large" or "unreadable" and why not.
 constexpr llvm::StringLiteral sentResults = "results";
 constexpr llvm::StringLiteral sentTooLarge = "too-large";
 constexpr llvm::StringLiteral sentUnreadable = "unreadable";
@@ -323,13 +317,10 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
                                                                        : sentUnreadable)
                   .str(),
               values.error().message};
-    OwningOpRef<ModuleOp> holder = ModuleOp::create(UnknownLoc::get(ctx));
-    (*holder)->setAttr(resultsName, ArrayAttr::get(ctx, *values));
-    std::string bytes;
-    llvm::raw_string_ostream os(bytes);
-    if (failed(writeBytecodeToFile(*holder, os)))
-      return {sentUnreadable.str(), "the results have no bytecode"};
-    return {sentResults.str(), std::move(bytes)};
+    std::expected<std::string, std::string> bytes = idr::eval::encodeResults(*values, ctx);
+    if (!bytes)
+      return {sentUnreadable.str(), bytes.error()};
+    return {sentResults.str(), std::move(*bytes)};
   };
   size_t next = 0;
   while (next < keys.size()) {
@@ -349,16 +340,11 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
       }
       if (result.texts[0] != sentResults)
         return internal(next, "cannot read back the results: " + result.texts[1]);
-      Block holder;
-      if (failed(readBytecodeFile(llvm::MemoryBufferRef(result.texts[1], "idr-eval results"),
-                                  &holder, ParserConfig(ctx, /*verifyAfterParse=*/false))))
-        return internal(next, "cannot read back the results' bytecode");
-      auto values = holder.empty() ? ArrayAttr()
-                                   : holder.front().getAttrOfType<ArrayAttr>(resultsName);
+      auto values = idr::eval::decodeResults(result.texts[1], ctx);
       if (!values)
-        return internal(next, "the results' bytecode holds no results");
+        return internal(next, "cannot read back the results: " + values.error());
       Outcome outcome;
-      outcome.results = llvm::to_vector(values.getValue());
+      outcome.results = std::move(*values);
       remark::passed(call.op->getLoc(), remark::RemarkOpts::name("Evaluated")
                                             .category("idr-eval")
                                             .function(call.callee.getSymName()))

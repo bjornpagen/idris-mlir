@@ -174,6 +174,23 @@ which the top-level CMake configure gate reads.
   `tests/upstream/recursive-attribute-parser` fails then
 - upstream: upstream/recursive-attribute-parser (not yet filed)
 
+## bytecode-deferred-quadratic
+
+- symptom: MLIR's bytecode reader reads an attribute nested n deep in time
+  quadratic in n (4.5 s for a builtin array 32,000 deep, 0.18 s from
+  text). Compile-time evaluation's results are as deep as the program's
+  values: a computed list of 20,000 elements took 45 s to read back
+- sites: foreign/idr/lib/Eval/Reify.cc (`encodeResults`, `decodeResults`)
+- workaround: the evaluation child sends a call's results as bytecode of
+  a flat table of their distinct parts, each after the parts it holds,
+  which it names by position; the compiler rebuilds the constants from the
+  table in order. No attribute in the table is nested more than a few
+  levels, and a shared part is in it once
+- retire: when the bytecode reader resolves deferred entries in linear
+  time; `tests/upstream/bytecode-deferred-quadratic` fails then. The table
+  may stay regardless, as it keeps sharing without the reader's help
+- upstream: upstream/bytecode-deferred-quadratic (not yet filed)
+
 ## linarray-escape
 
 - symptom: contrib's `Data.Linear.Array.newArray` lets its continuation

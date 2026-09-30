@@ -60,4 +60,16 @@ private:
   llvm::DenseMap<std::pair<uint64_t, mlir::Type>, mlir::Attribute> seen;
 };
 
+// The results of a call as the child sends them to the compiler: MLIR
+// bytecode of a flat table of their distinct parts, each part after the
+// parts it holds, which it names by position. A constructor or closure
+// part is [its constructor or function, the positions of its fields or
+// captures]; any other part is the constant itself. The table is as deep
+// as one part whatever the depth of the results, so it is read in time
+// linear in its size, and a part shared by many is in it once.
+std::expected<std::string, std::string> encodeResults(llvm::ArrayRef<mlir::Attribute> values,
+                                                     mlir::MLIRContext *ctx);
+std::expected<llvm::SmallVector<mlir::Attribute>, std::string>
+decodeResults(llvm::StringRef bytes, mlir::MLIRContext *ctx);
+
 } // namespace idr::eval
