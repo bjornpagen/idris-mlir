@@ -16,6 +16,9 @@ Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation,
   → object → lld links a static-PIE executable on musl
 ```
 
+Targets: x86_64 Linux (musl, static PIE) today; arm64 macOS is the next
+first-class target, and the code is written for both (AGENTS.md).
+
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else
 (inlining, specialization, compile-time evaluation, defunctionalization,
