@@ -58,10 +58,47 @@ public:
           reuseAt(ctor, entry, entry.begin(),
                   [&] { return takeAtEntry(match, caseIndex).getToken(); });
         else
-          dies(box, ctor, entry, nullptr, entry);
+          dies(box, ctor, entry, nullptr, &entry);
       }
     }
+    readBoxes();
     return {takes, reuses};
+  }
+
+  // A box that no match takes apart, whose every use reads a field of one
+  // constructor (a nested pattern reads the fields of a box an outer one
+  // matched): a read directly in a block proves the constructor from there
+  // on, so the box dies in that block as a matched one does.
+  void readBoxes() {
+    SmallVector<std::pair<Value, FieldOp>> boxes;
+    auto consider = [&](Value box) {
+      if (!isa<BoxType>(box.getType()) || box.use_empty() || !reusable(box))
+        return;
+      FieldOp first;
+      for (Operation *user : box.getUsers()) {
+        auto read = dyn_cast<FieldOp>(user);
+        if (!read || (first && read.getCtorAttr() != first.getCtorAttr()))
+          return;
+        if (!first || (read->getBlock() == first->getBlock() && read->isBeforeInBlock(first)))
+          first = read;
+      }
+      Block *block = first->getBlock();
+      for (Operation *user : box.getUsers()) {
+        Operation *top = block->findAncestorOpInBlock(*user);
+        if (!top || top->isBeforeInBlock(first))
+          return;
+      }
+      boxes.emplace_back(box, first);
+    };
+    fn.walk([&](Operation *op) {
+      for (Value result : op->getResults())
+        consider(result);
+    });
+    for (auto [box, first] : boxes) {
+      auto name = SymbolRefAttr::get(getSumName(box.getType()).getAttr(), {first.getCtorAttr()});
+      if (CtorOp ctor = lookupCtor(first, name))
+        dies(box, ctor, *first->getBlock(), nullptr, nullptr);
+    }
   }
 
 private:
@@ -95,10 +132,11 @@ private:
     return users;
   }
 
-  // D: `box`, built by `ctor`, whose fields `fields` binds, is dead in
+  // D: `box`, built by `ctor`, whose fields `fields` binds (when a match
+  // region binds them), is dead in
   // `block` after `after`, which is outside the block's region; find where
   // it dies on each path.
-  void dies(Value box, CtorOp ctor, Block &block, Operation *after, Block &fields) {
+  void dies(Value box, CtorOp ctor, Block &block, Operation *after, Block *fields) {
     SmallVector<Operation *> users = usersIn(box, block, after);
     if (users.empty()) {
       takeAt(box, ctor, block, block.begin(), fields);
@@ -155,21 +193,24 @@ private:
 
   // An idr.take of `box` where it dies, whose fields replace the reads of
   // the box's fields after it: the arguments of `fields`, and idr.field.
-  void takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, Block &fields) {
+  void takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, Block *fields) {
     reuseAt(ctor, block, at, [&] {
       OpBuilder b(&block, at);
       Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
       auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
                                      {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
       SmallVector<Type> results{TokenType::get(fn.getContext())};
-      llvm::append_range(results, fields.getArgumentTypes());
+      for (unsigned index = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); index < e;
+           ++index)
+        results.push_back(ctor.getFieldType(index));
       auto take = TakeOp::create(b, loc, results, box, name);
       auto later = [&](OpOperand &use) {
         Operation *top = block.findAncestorOpInBlock(*use.getOwner());
         return top && take->isBeforeInBlock(top);
       };
-      for (auto [field, taken] : llvm::zip_equal(fields.getArguments(), take.getFields()))
-        field.replaceUsesWithIf(taken, later);
+      if (fields)
+        for (auto [field, taken] : llvm::zip_equal(fields->getArguments(), take.getFields()))
+          field.replaceUsesWithIf(taken, later);
       for (Operation *user : llvm::make_early_inc_range(box.getUsers()))
         if (auto read = dyn_cast<FieldOp>(user); read && read.getCtor() == ctor.getSymName())
           read.getResult().replaceUsesWithIf(

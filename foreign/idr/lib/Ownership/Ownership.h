@@ -78,6 +78,11 @@ mlir::func::FuncOp callee(mlir::func::CallOp call, mlir::SymbolTableCollection &
 // begins: an idr.take whose fields replace the region's arguments.
 TakeOp takeAtEntry(MatchOp match, unsigned index);
 
+// Takes the unboxed sum `value`, built by `ctor` whose fields have
+// `fieldTypes`, apart where it is defined, and gives each of its field
+// reads the field taken.
+TakeOp takeFields(mlir::Value value, mlir::SymbolRefAttr ctor, mlir::ArrayRef<mlir::Type> fieldTypes);
+
 // The passes of idr-rc, in the order it runs them (Rc.cc).
 
 // Beans' reset/reuse insertion: in a case region of a match on a box that

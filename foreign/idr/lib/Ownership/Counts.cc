@@ -105,6 +105,7 @@ private:
   // apart there: its fields move out of it instead of each taking one more
   // reference while it drops its own.
   void takeApart() {
+    takeReadSums();
     SmallVector<MatchOp> matches;
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
@@ -117,6 +118,44 @@ private:
         if (!region.empty() && !usedIn(value, region) && !endsInCrash(region.front()))
           takeAtEntry(match, index);
       }
+    }
+  }
+
+  // An owned unboxed sum whose every use reads a field of one constructor
+  // (a function's result of a record, a pair, an IORes) is its fields
+  // already: they move out where it is defined, and the fields no one reads
+  // are dropped there, instead of each field read taking a reference while
+  // the sum drops all of its own.
+  void takeReadSums() {
+    SmallVector<Value> sums;
+    auto consider = [&](Value value) {
+      if (!isa<DataType>(value.getType()) || value.use_empty())
+        return;
+      auto first = dyn_cast<FieldOp>(*value.getUsers().begin());
+      if (!first || !llvm::all_of(value.getUsers(), [&](Operation *user) {
+            auto read = dyn_cast<FieldOp>(user);
+            return read && read.getCtorAttr() == first.getCtorAttr();
+          }))
+        return;
+      if (classOf(value) == Class::Owned)
+        sums.push_back(value);
+    };
+    fn.walk([&](Operation *op) {
+      for (Value result : op->getResults())
+        consider(result);
+    });
+    for (Value value : sums) {
+      auto read = cast<FieldOp>(*value.getUsers().begin());
+      auto ctor = SymbolRefAttr::get(getSumName(value.getType()).getAttr(), {read.getCtorAttr()});
+      CtorOp decl = lookupCtor(read, ctor);
+      if (!decl)
+        continue;
+      classes.erase(value);
+      SmallVector<Type> fields;
+      for (unsigned index = 0, e = static_cast<unsigned>(decl.getFieldTypes().size()); index < e;
+           ++index)
+        fields.push_back(decl.getFieldType(index));
+      takeFields(value, ctor, fields);
     }
   }
 

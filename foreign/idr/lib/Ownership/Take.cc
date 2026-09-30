@@ -1,4 +1,5 @@
-// Taking a scrutinee apart where a case region begins.
+// Taking a value apart: a scrutinee where a case region begins, and an
+// unboxed sum whose only uses read its fields.
 
 #include "Ownership/Ownership.h"
 
@@ -19,6 +20,23 @@ TakeOp takeAtEntry(MatchOp match, unsigned index) {
   auto take = TakeOp::create(b, match.getLoc(), results, value, ctor);
   for (auto [field, taken] : llvm::zip_equal(block.getArguments(), take.getFields()))
     field.replaceAllUsesWith(taken);
+  return take;
+}
+
+TakeOp takeFields(Value value, SymbolRefAttr ctor, ArrayRef<Type> fieldTypes) {
+  OpBuilder b(value.getContext());
+  if (Operation *def = value.getDefiningOp())
+    b.setInsertionPointAfter(def);
+  else
+    b.setInsertionPointToStart(cast<BlockArgument>(value).getOwner());
+  auto take = TakeOp::create(b, value.getLoc(), fieldTypes, value, ctor);
+  for (OpOperand &use : llvm::make_early_inc_range(value.getUses())) {
+    auto read = dyn_cast<FieldOp>(use.getOwner());
+    if (!read)
+      continue;
+    read.getResult().replaceAllUsesWith(take.getFields()[read.getIndex()]);
+    read.erase();
+  }
   return take;
 }
 

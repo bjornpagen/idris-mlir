@@ -9,11 +9,11 @@ using namespace idr;
 
 namespace {
 
-// The value `field` reads field `index` of, when it reads one of `ctor` and
-// the constructor is its one reader. A case region's argument is such a
-// read of the match's scrutinee.
+// The value `field` reads field `index` of, when it reads one of `ctor`,
+// and, for a linear field, the constructor is its one reader. A case
+// region's argument is such a read of the match's scrutinee.
 Value readOf(Value field, StringAttr ctor, unsigned index) {
-  if (!field.hasOneUse())
+  if (quantityOf(field.getType()) == Quantity::One && !field.hasOneUse())
     return {};
   if (auto read = field.getDefiningOp<FieldOp>())
     return read.getCtorAttr().getAttr() == ctor && read.getIndex() == index ? read.getValue()
@@ -48,9 +48,10 @@ bool knownCtor(Value value, CtorOp ctor, Operation *at) {
 }
 
 // `con C(field x[C, 0], ..., field x[C, k])` is x, when x is known to be C
-// and the constructor is the one reader of each field. The reads then die
-// with it, so each field of x, linear ones included, is still taken once:
-// by what takes x in the constructor's place. A field of quantity 0 holds
+// and the constructor is the one reader of each linear field. Those reads
+// then die with it, so each linear field of x is still taken once: by what
+// takes x in the constructor's place. Any other field is a value, which
+// other readers may share with x. A field of quantity 0 holds
 // nothing at runtime and nothing can inspect it, so whatever erased value
 // the constructor puts there, x's is as good: a rebuilt node whose indices
 // Idris recomputed is still the node.

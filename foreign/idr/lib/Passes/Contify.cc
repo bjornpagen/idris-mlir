@@ -10,11 +10,15 @@
 // constructor the case block builds, and case-of-case moves the call into
 // both arms of the parent's matches, after which it has two calls and is
 // no longer a continuation of anything.
-// Inlining the one call is always a gain: no code is copied, and the call
-// goes. So this runs before the simplify loop, on the module Emit wrote,
-// where every case block still has its one call. It uses inlineCall rather
-// than the inliner, whose policy over the call graph is what refuses these
-// callees.
+// Inlining the one call copies no code, and the call goes. So this runs
+// before the simplify loop, on the module Emit wrote, where every case block
+// still has its one call. It uses inlineCall rather than the inliner, whose
+// policy over the call graph is what refuses these callees. A callee that
+// does not call its caller back is left to that inliner, which weighs it
+// among the rest: inlined here, a helper called once (a balance of a tree),
+// or a case block of one of two mutually recursive functions, makes its
+// caller too large to inline into the other, and the cells one takes apart
+// can no longer be reused by the constructors the other builds.
 //
 // A function with a second call, a call of its own, or a use that is not a
 // call (a closure names it) is left alone: it is not a continuation. Each
@@ -71,13 +75,22 @@ struct Contify : idr::impl::IdrContifyBase<Contify> {
     // changes.
     for (bool changed = true; changed;) {
       changed = false;
+      // Which symbols each function uses, as the sweep begins.
+      llvm::DenseMap<StringAttr, llvm::SmallDenseSet<StringAttr, 4>> callees;
+      for (auto &[symbol, ops] : users)
+        for (Operation *user : ops)
+          if (auto caller = user->getParentOfType<func::FuncOp>())
+            callees[caller.getSymNameAttr()].insert(cast<StringAttr>(symbol));
       for (auto fn : llvm::make_early_inc_range(module.getOps<func::FuncOp>())) {
         auto found = users.find(fn.getSymNameAttr());
         if (found == users.end())
           continue;
         func::CallOp call = continuationCall(fn, found->second);
-        if (!call || failed(inlineCall(interface, config.getCloneCallback(), call, fn,
-                                       &fn.getBody(), /*shouldCloneInlinedRegion=*/false)))
+        if (!call ||
+            !callees.lookup(fn.getSymNameAttr())
+                 .contains(call->getParentOfType<func::FuncOp>().getSymNameAttr()) ||
+            failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+                              /*shouldCloneInlinedRegion=*/false)))
           continue;
         call.erase();
         users.erase(found);
