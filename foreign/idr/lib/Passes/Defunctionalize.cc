@@ -175,6 +175,8 @@ struct Module {
   SmallVector<idr::ApplyOp> applies;
   // Functions referenced other than by a call, closure or constant.
   llvm::DenseSet<StringAttr> escaping;
+  // holdsClosure's answers, by constructor constant.
+  llvm::DenseMap<Attribute, bool> closureFree;
 
   idr::CtorOp ctor(StringAttr data, StringAttr name) {
     auto decl = symbols.lookup<idr::DataOp>(data);
@@ -189,10 +191,30 @@ struct Module {
     return decl ? decl.getFieldType(index) : Type();
   }
 
+  // Whether a closure is inside the constant `attr`. Constants of
+  // compile-time evaluation share their parts, so a tree may have far more
+  // paths than distinct parts: each part is looked at once, and the walks
+  // below skip a part with no closure in it.
+  bool holdsClosure(Attribute attr) {
+    if (isa<idr::ClosureAttr>(attr))
+      return true;
+    auto con = dyn_cast<idr::ConAttr>(attr);
+    if (!con)
+      return false;
+    auto [it, inserted] = closureFree.try_emplace(attr, false);
+    if (!inserted)
+      return it->second;
+    bool holds = llvm::any_of(con.getFields(), [&](Attribute field) { return holdsClosure(field); });
+    closureFree[attr] = holds;
+    return holds;
+  }
+
   // Calls `visit(closure, type)` for each closure attribute inside `attr`, a
   // constant of type `type`.
   void closuresIn(Attribute attr, Type type,
                   function_ref<void(idr::ClosureAttr, Type)> visit) {
+    if (!holdsClosure(attr))
+      return;
     if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
       visit(closure, type);
       func::FuncOp fn = function(closure.getCallee().getAttr());
@@ -444,6 +466,9 @@ struct Converter {
   llvm::DenseMap<Value, Key> values;
   llvm::DenseMap<Operation *, SmallVector<Key>> results;
   llvm::DenseMap<std::tuple<StringAttr, StringAttr, unsigned>, Key> fields;
+  // A shared part of a constant, in a slot, is sourced and converted once.
+  llvm::DenseSet<std::pair<Attribute, Key>> sourced;
+  llvm::DenseMap<std::pair<Attribute, Key>, Attribute> convertedParts;
   // Every key by first appearance, with its sum once numbered.
   // The sum of each converted key: unboxed, or boxed when the key is on a
   // cycle of captures, which only a heap cell can end.
@@ -659,6 +684,8 @@ struct Converter {
   // The labels of the closures stored in constant `attr`, in a slot of
   // `slot` (a null key where the slot is not a closure).
   void constantSources(Attribute attr, const Key &slot) {
+    if (!module.holdsClosure(attr) || !sourced.insert({attr, slot}).second)
+      return;
     if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
       StringAttr label = closure.getCallee().getAttr();
       sources.push_back({label, slot});
@@ -1016,6 +1043,17 @@ struct Converter {
   // Constant `attr` in a slot of `slot`, with its closures of converted
   // keys as constructors.
   Attribute convert(Attribute attr, const Key &slot) {
+    if (!module.holdsClosure(attr))
+      return attr;
+    auto memo = convertedParts.find({attr, slot});
+    if (memo != convertedParts.end())
+      return memo->second;
+    Attribute result = convertParts(attr, slot);
+    convertedParts[{attr, slot}] = result;
+    return result;
+  }
+
+  Attribute convertParts(Attribute attr, const Key &slot) {
     if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
       StringAttr label = closure.getCallee().getAttr();
       SmallVector<Attribute> captures;

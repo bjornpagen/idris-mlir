@@ -4,8 +4,9 @@
 // their closures sums over labels, and the matches on known labels are
 // folded, they are self tail calls, which idr-tail-loops turns into loops,
 // each carrying the world; as Idris does not prove them terminating, a loop
-// carries idr.may_loop. Other loops may come between.
-// CHECK: scf.while {{.*}}!idr.world
+// carries idr.may_loop. A counted one becomes an scf.for. Other loops may
+// come between.
+// CHECK: scf.{{while|for}} {{.*}}!idr.world
 // CHECK: idr.may_loop
-// CHECK: scf.while {{.*}}!idr.world
+// CHECK: scf.{{while|for}} {{.*}}!idr.world
 // CHECK: idr.may_loop

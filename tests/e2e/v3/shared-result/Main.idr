@@ -13,11 +13,13 @@ mk : Nat -> T
 mk Z = L
 mk (S k) = let t = mk k in N t t
 
-depth : T -> Int
-depth L = 0
-depth (N l _) = 1 + depth l
+-- The walk goes left or right by the input, so the tree is needed at
+-- runtime: evaluation cannot fold it away.
+walk : Char -> T -> Int
+walk c L = 0
+walk c (N l r) = 1 + walk c (if c == 'a' then l else r)
 
 main : IO ()
 main = do
   c <- getChar
-  printLn (depth (if c == 'a' then L else mk 40))
+  printLn (walk c (mk 40))
