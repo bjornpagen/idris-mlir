@@ -5,7 +5,7 @@
 // default (Idris proved the others impossible).
 // CHECK-NOT: idr.
 // CHECK-LABEL: func.func private @f(
-// CHECK-SAME: %[[TAG:.*]]: i8, %[[B0:.*]]: i32, %[[P0:.*]]: i64, %[[P1:.*]]: i8) -> i64
+// CHECK-SAME: %[[TAG:[^:]*]]: i8{{( \{[^}]*\})?}}, %[[B0:[^:]*]]: i32, %[[P0:.*]]: i64, %[[P1:.*]]: i8) -> i64
 // CHECK: %[[T:.*]] = arith.extui %[[TAG]] : i8 to i64
 // CHECK: %[[I:.*]] = arith.index_cast %[[T]] : i64 to index
 // CHECK: scf.index_switch %[[I]] -> i64

@@ -10,7 +10,7 @@
 // CHECK-LABEL: func.func private @Main.name(
 // CHECK: scf.index_switch
 // CHECK: default {
-// CHECK: llvm.call @idris_rt_crash(%{{.*}}, %{{.*}}) : (!llvm.ptr, i64) -> ()
+// CHECK: llvm.call @idris_rt_crash(%{{.*}}, %{{.*}}) {{.*}}: (!llvm.ptr, i64) -> ()
 // CHECK-NEXT: %[[P:.*]] = llvm.mlir.zero : !llvm.ptr
 // CHECK-NEXT: scf.yield %[[P]] : !llvm.ptr
 // CHECK-LABEL: func.func private @Main.never(

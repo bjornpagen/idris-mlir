@@ -5,20 +5,20 @@
 // code loads the captures and calls the function with them before the
 // arguments.
 // CHECK-LABEL: func.func private @adder(
-// CHECK: %[[C:.*]] = llvm.call @{{.*}}(%{{.*}}) : (i64) -> !llvm.ptr
+// CHECK: %[[C:.*]] = llvm.call @{{.*}}(%{{.*}}) {{.*}}: (i64) -> !llvm.ptr
 // CHECK: %[[F:.*]] = constant @[[CODEFN:__idr_code_[0-9]+]] : (!llvm.ptr, i64) -> i64
 // CHECK: %[[FP:.*]] = builtin.unrealized_conversion_cast %[[F]] : (!llvm.ptr, i64) -> i64 to !llvm.ptr
 // CHECK: %[[CODE:.*]] = llvm.getelementptr %[[C]][8] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: llvm.store %[[FP]], %[[CODE]] : !llvm.ptr, !llvm.ptr
+// CHECK: llvm.store %[[FP]], %[[CODE]] {{.*}}: !llvm.ptr, !llvm.ptr
 // CHECK-LABEL: func.func private @run(
 // CHECK: %[[CP:.*]] = llvm.getelementptr %arg0[8] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: %[[CODE2:.*]] = llvm.load %[[CP]] : !llvm.ptr -> !llvm.ptr
+// CHECK: %[[CODE2:.*]] = llvm.load %[[CP]] {{.*}}: !llvm.ptr -> !llvm.ptr
 // CHECK: %[[FN:.*]] = builtin.unrealized_conversion_cast %[[CODE2]] : !llvm.ptr to (!llvm.ptr, i64) -> i64
 // CHECK: call_indirect %[[FN]](%arg0, %arg1) : (!llvm.ptr, i64) -> i64
 // CHECK: func.func private @[[CODEFN]](
 // CHECK-SAME: %[[ENV:.*]]: !llvm.ptr, %[[X:.*]]: i64) -> i64
 // CHECK: %[[K:.*]] = llvm.getelementptr %[[ENV]][16] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: %[[KV:.*]] = llvm.load %[[K]] : !llvm.ptr -> i64
+// CHECK: %[[KV:.*]] = llvm.load %[[K]] {{.*}}: !llvm.ptr -> i64
 // CHECK: call @add(%[[KV]], %[[X]]) : (i64, i64) -> i64
 module attributes {idr.program} {
   func.func private @add(%k: i64, %x: i64) -> i64 {

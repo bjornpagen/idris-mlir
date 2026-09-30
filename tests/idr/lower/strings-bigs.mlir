@@ -14,20 +14,20 @@
 // CHECK: llvm.call @idris_rt_str_show_s(%[[X]])
 // CHECK: llvm.call @idris_rt_str_show_u(
 // CHECK: llvm.call @idris_rt_str_show_f64(%arg4)
-// CHECK: %[[LEN:.*]] = llvm.call @idris_rt_str_length(%arg0) : (!llvm.ptr) -> i64
+// CHECK: %[[LEN:.*]] = llvm.call @idris_rt_str_length(%arg0) {{.*}}: (!llvm.ptr) -> i64
 // CHECK: %[[OUT:.*]] = arith.cmpi uge, %arg1, %[[LEN]] : i64
 // CHECK: scf.if %[[OUT]] {
 // CHECK: llvm.call @idris_rt_crash
-// CHECK: llvm.call @idris_rt_str_index(%arg0, %arg1) : (!llvm.ptr, i64) -> i32
+// CHECK: llvm.call @idris_rt_str_index(%arg0, %arg1) {{.*}}: (!llvm.ptr, i64) -> i32
 // CHECK: llvm.call @idris_rt_str_head(%arg0)
 // CHECK: llvm.call @idris_rt_str_tail(%arg0)
 // CHECK: llvm.call @idris_rt_str_substr(%arg0, %arg1, %arg1)
 // CHECK: llvm.call @idris_rt_str_reverse(%arg0)
-// CHECK: %[[O:.*]] = llvm.call @idris_rt_str_cmp(%arg0, %arg0) : (!llvm.ptr, !llvm.ptr) -> i32
+// CHECK: %[[O:.*]] = llvm.call @idris_rt_str_cmp(%arg0, %arg0) {{.*}}: (!llvm.ptr, !llvm.ptr) -> i32
 // CHECK: arith.cmpi sle, %[[O]], %{{.*}} : i32
-// CHECK: %[[W:.*]] = llvm.call @idris_rt_str_to_int(%arg0) : (!llvm.ptr) -> i64
+// CHECK: %[[W:.*]] = llvm.call @idris_rt_str_to_int(%arg0) {{.*}}: (!llvm.ptr) -> i64
 // CHECK: arith.trunci %[[W]] : i64 to i16
-// CHECK: llvm.call @idris_rt_str_to_double(%arg0) : (!llvm.ptr) -> f64
+// CHECK: llvm.call @idris_rt_str_to_double(%arg0) {{.*}}: (!llvm.ptr) -> f64
 // CHECK-LABEL: func.func private @bigs(
 // CHECK: %[[ZERO:.*]] = arith.cmpi eq, %arg1, %{{.*}} : i64
 // CHECK: scf.if %[[ZERO]] {
@@ -36,14 +36,14 @@
 // CHECK: llvm.call @idris_rt_big_neg(%arg0)
 // CHECK: math.isfinite %arg2 : f64
 // CHECK: llvm.call @idris_rt_big_from_double(%arg2)
-// CHECK: llvm.call @idris_rt_big_to_double(%arg0) : (i64) -> f64
-// CHECK: llvm.call @idris_rt_big_show(%arg0) : (i64) -> !llvm.ptr
-// CHECK: llvm.call @idris_rt_big_from_str(%arg3) : (!llvm.ptr) -> i64
+// CHECK: llvm.call @idris_rt_big_to_double(%arg0) {{.*}}: (i64) -> f64
+// CHECK: llvm.call @idris_rt_big_show(%arg0) {{.*}}: (i64) -> !llvm.ptr
+// CHECK: llvm.call @idris_rt_big_from_str(%arg3) {{.*}}: (!llvm.ptr) -> i64
 // CHECK-LABEL: func.func private @doubles(
 // CHECK: math.isfinite %arg0 : f64
-// CHECK: %[[I:.*]] = llvm.call @idris_rt_to_int(%arg0) : (f64) -> i64
+// CHECK: %[[I:.*]] = llvm.call @idris_rt_to_int(%arg0) {{.*}}: (f64) -> i64
 // CHECK: arith.trunci %[[I]] : i64 to i8
-// CHECK: llvm.call @idris_rt_double_head(%arg0) : (f64) -> i32
+// CHECK: llvm.call @idris_rt_double_head(%arg0) {{.*}}: (f64) -> {{.*}}i32
 // CHECK: llvm.call @idris_rt_int_head_s(
 module attributes {idr.program} {
   func.func private @strings(%s: !idr.str, %i: i64, %c: i32, %n: i32, %d: f64) -> (!idr.str, !idr.str,

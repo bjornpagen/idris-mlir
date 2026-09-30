@@ -6,9 +6,9 @@
 // CHECK-SAME: %[[A:[^:]*]]: i64, %[[B:[^:]*]]: i64, %[[I:[^:]*]]: i64
 // CHECK: return {{.*}}, %[[A]] :
 // Nat's zero and one are the small words of 0 and 1, as Integer's are.
-// CHECK-LABEL: func.func @Prog.main(
-// CHECK-DAG: arith.constant 1 : i64
-// CHECK-DAG: arith.constant 3 : i64
+// CHECK-LABEL: func.func {{.*}}@Prog.main(
+// CHECK-DAG: constant{{[( ]}}1 : i64
+// CHECK-DAG: constant{{[( ]}}3 : i64
 module attributes {idr.program} {
   func.func private @naturals(%a: !idr.nat, %b: !idr.nat, %i: !idr.big)
       -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big) {

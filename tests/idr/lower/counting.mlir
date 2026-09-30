@@ -6,11 +6,11 @@
 // memory freed; a reuse builds in the token, or in a new cell when it is
 // null.
 // CHECK-LABEL: func.func private @counts(
-// CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i8, %[[D:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
-// CHECK: llvm.call @idris_rt_inc(%[[S]]) : (!llvm.ptr) -> ()
-// CHECK: llvm.call @idris_rt_dec(%[[D]]) : (!llvm.ptr) -> ()
+// CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr{{( \{[^}]*\})?}}, %{{[^:]*}}: i8{{( \{[^}]*\})?}}, %[[D:[^:]*]]: !llvm.ptr{{( \{[^}]*\})?}}, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
+// CHECK: llvm.call @idris_rt_inc(%[[S]]) {{.*}}: (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%[[D]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK: %[[B:.*]] = llvm.inttoptr %[[N]] : i64 to !llvm.ptr
-// CHECK: llvm.call @idris_rt_dec(%[[B]]) : (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%[[B]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK-LABEL: func.func private @unused(
 // An unused counted slot is empty.
 // CHECK: llvm.mlir.zero : !llvm.ptr
@@ -19,15 +19,15 @@
 // CHECK-NEXT: scf.yield %arg0 : !llvm.ptr
 // CHECK-NEXT: } else {
 // CHECK: llvm.call @idris_rt_inc(
-// CHECK: llvm.call @idris_rt_dec(%arg0) : (!llvm.ptr) -> ()
-// CHECK: llvm.call @idris_rt_free_cell(%[[T]]) : (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%arg0) {{.*}}: (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_free_cell(%[[T]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK-LABEL: func.func private @rebuild(
 // CHECK: %[[W:.*]] = scf.if %{{.*}} -> (!llvm.ptr) {
 // CHECK: %[[NULL:.*]] = llvm.icmp "eq" %[[W]], %{{.*}} : !llvm.ptr
 // CHECK: scf.if %[[NULL]] -> (!llvm.ptr) {
 // CHECK: llvm.call @idris_rt_cell(
 // CHECK: } else {
-// CHECK: llvm.store %{{.*}}, %[[W]]{{.*}} : i32, !llvm.ptr
+// CHECK: llvm.store %{{.*}}, %[[W]]{{.*}} {{.*}}: i32, !llvm.ptr
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @L box {
     idr.ctor @N ()

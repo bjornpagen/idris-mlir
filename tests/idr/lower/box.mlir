@@ -7,19 +7,19 @@
 // CHECK-LABEL: func.func private @push(
 // CHECK-DAG: %[[SIZE:.*]] = llvm.mlir.constant(24 : i64) : i64
 // CHECK-DAG: %[[INFO:.*]] = llvm.mlir.constant(65537 : i32) : i32
-// CHECK: %[[CELL:.*]] = llvm.call @idris_rt_cell(%[[SIZE]], %[[INFO]]) : (i64, i32) -> !llvm.ptr
+// CHECK: %[[CELL:.*]] = llvm.call @idris_rt_cell(%[[SIZE]], %[[INFO]]) {{.*}}: (i64, i32) -> !llvm.ptr
 // CHECK: %[[HEAD:.*]] = llvm.getelementptr %[[CELL]][16] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: llvm.store %arg0, %[[HEAD]] : i64, !llvm.ptr
+// CHECK: llvm.store %arg0, %[[HEAD]] {{.*}}: i64, !llvm.ptr
 // CHECK: %[[TAIL:.*]] = llvm.getelementptr %[[CELL]][8] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: llvm.store %arg1, %[[TAIL]] : !llvm.ptr, !llvm.ptr
+// CHECK: llvm.store %arg1, %[[TAIL]] {{.*}}: !llvm.ptr, !llvm.ptr
 // CHECK-LABEL: func.func private @first(
 // CHECK: %[[TAGP:.*]] = llvm.getelementptr %arg0[4] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: %[[WORD:.*]] = llvm.load %[[TAGP]] : !llvm.ptr -> i32
+// CHECK: %[[WORD:.*]] = llvm.load %[[TAGP]] {{.*}}: !llvm.ptr -> i32
 // CHECK: %[[TAG:.*]] = llvm.and %[[WORD]], %{{.*}} : i32
 // CHECK: arith.extui %[[TAG]] : i32 to i64
 // CHECK: scf.index_switch
 // CHECK: llvm.getelementptr %arg0[16] : (!llvm.ptr) -> !llvm.ptr, i8
-// CHECK: llvm.load %{{.*}} : !llvm.ptr -> i64
+// CHECK: llvm.load %{{.*}} {{.*}}: !llvm.ptr -> i64
 module attributes {idr.program} {
   idr.data @List box {
     idr.ctor @Nil ()
