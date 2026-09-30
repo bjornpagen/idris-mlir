@@ -3,7 +3,7 @@
 // function, where the field read of it folds.
 
 idr.data @P {
-  idr.ctor @MkP tag 0 (i64, i64)
+  idr.ctor @MkP (i64, i64)
 }
 
 // CHECK-LABEL: func.func private @second

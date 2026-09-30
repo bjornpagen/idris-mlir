@@ -33,8 +33,8 @@
 // CHECK: return
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   func.func private @sum(%l: !idr.box<@List>) -> i64 {
     %r = idr.match %l : !idr.box<@List> -> (i64) {

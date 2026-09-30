@@ -23,8 +23,8 @@
 // CHECK-DAG: remark: @twice: free, free
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@L>)
   }
   func.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %xs : !idr.box<@L> -> (!idr.box<@L>) {

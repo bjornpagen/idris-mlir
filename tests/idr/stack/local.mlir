@@ -28,7 +28,7 @@
 // CHECK: return
 module attributes {idr.program} {
   idr.data @P box {
-    idr.ctor @MkP tag 0 (i64, i64)
+    idr.ctor @MkP (i64, i64)
   }
   func.func private @read(%a: i64, %b: i64) -> i64 {
     %p = idr.con @P::@MkP(%a, %b) : (i64, i64) -> !idr.box<@P>

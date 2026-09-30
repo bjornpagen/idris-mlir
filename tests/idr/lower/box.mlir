@@ -22,8 +22,8 @@
 // CHECK: llvm.load %{{.*}} : !llvm.ptr -> i64
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   func.func private @push(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
     %c = idr.con @List::@Cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>

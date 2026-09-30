@@ -13,8 +13,8 @@
 // ESCAPES: error: expected no-heap-allocation: idr.con allocates in @escapes
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 () {quantities = []}
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>) {quantities = ["w", "w"]}
+    idr.ctor @Nil () {quantities = []}
+    idr.ctor @Cons (i64, !idr.box<@List>) {quantities = ["w", "w"]}
   }
   func.func private @head(%l: !idr.box<@List>) -> i64 {
     %r = idr.match %l : !idr.box<@List> -> (i64) {

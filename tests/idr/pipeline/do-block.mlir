@@ -33,13 +33,13 @@
 // ROUNDS: fixpoint: round {{[1-3]}} changed nothing
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 ()
+    idr.ctor @MkUnit ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
+    idr.ctor @MkIORes (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
+    idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
   func.func private @put(%s: !idr.str, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_str %s, %w

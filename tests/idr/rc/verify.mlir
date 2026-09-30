@@ -92,7 +92,7 @@ module attributes {idr.stage = "owned"} {
 // reference of its own.
 module attributes {idr.stage = "owned"} {
   idr.data @P {
-    idr.ctor @P tag 0 (!idr.str)
+    idr.ctor @P (!idr.str)
   }
   func.func private @field(%p: !idr.data<@P>) -> !idr.str {
     %s = idr.field %p[@P, 0] : !idr.data<@P> -> !idr.str
@@ -106,7 +106,7 @@ module attributes {idr.stage = "owned"} {
 
 module attributes {idr.stage = "owned"} {
   idr.data @P {
-    idr.ctor @P tag 0 (!idr.str)
+    idr.ctor @P (!idr.str)
   }
   func.func private @field(%p: !idr.data<@P>) -> i64 {
     // expected-note @+1 {{the value is defined here}}
@@ -123,9 +123,9 @@ module attributes {idr.stage = "owned"} {
 // A reuse builds in a cell of its own size.
 module attributes {idr.stage = "owned"} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
-    idr.ctor @One tag 2 (i64)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
+    idr.ctor @One (i64)
   }
   func.func private @swap(%l: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
@@ -151,8 +151,8 @@ module attributes {idr.stage = "owned"} {
 // which is then consumed once like any other.
 module attributes {idr.stage = "owned"} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
   }
   func.func private @head(%l: !idr.box<@L>) -> i64 {
     %r = idr.match %l : !idr.box<@L> -> (i64) {
@@ -176,8 +176,8 @@ module attributes {idr.stage = "owned"} {
 
 module attributes {idr.stage = "owned"} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
   }
   func.func private @head(%l: !idr.box<@L>) -> i64 {
     %r = idr.match %l : !idr.box<@L> -> (i64) {

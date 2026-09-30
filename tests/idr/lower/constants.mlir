@@ -30,12 +30,12 @@
 // CHECK-DAG: llvm.mlir.poison : i64
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   idr.data @Num {
-    idr.ctor @I tag 0 (i64)
-    idr.ctor @D tag 1 (f64)
+    idr.ctor @I (i64)
+    idr.ctor @D (f64)
   }
   func.func private @k(%s: !idr.str, %x: i64) -> i64 {
     return %x : i64

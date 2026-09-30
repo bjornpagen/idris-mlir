@@ -6,7 +6,7 @@
 // implementation.
 module attributes {idr.program} {
   idr.data @Num {
-    idr.ctor @MkNum tag 0 (!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)
+    idr.ctor @MkNum (!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)
   }
   func.func private @plus(%a: i64, %b: i64) -> i64 attributes {idr.total} {
     %c = arith.addi %a, %b : i64

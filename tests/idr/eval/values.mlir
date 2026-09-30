@@ -23,12 +23,12 @@
 // REMARK: remark: [Passed] Evaluated
 module {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   idr.data @Shape {
-    idr.ctor @Dot tag 0 ()
-    idr.ctor @Rect tag 1 (f64, !idr.erased, !idr.str)
+    idr.ctor @Dot ()
+    idr.ctor @Rect (f64, !idr.erased, !idr.str)
   }
   func.func private @fact(%n: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : i64 -> (i64) {

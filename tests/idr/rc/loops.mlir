@@ -13,8 +13,8 @@
 // CHECK: scf.while
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @N tag 0 () {quantities = []}
-    idr.ctor @C tag 1 (i64, !idr.box<@L>) {quantities = ["w", "w"]}
+    idr.ctor @N () {quantities = []}
+    idr.ctor @C (i64, !idr.box<@L>) {quantities = ["w", "w"]}
   }
   func.func private @sumAcc(%acc: i64, %l: !idr.box<@L>) -> i64 attributes {idr.total} {
     %r = idr.match %l : !idr.box<@L> -> (i64) {

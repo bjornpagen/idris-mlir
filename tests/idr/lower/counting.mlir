@@ -24,12 +24,12 @@
 // CHECK: llvm.store %{{.*}}, %[[W]] : i32, !llvm.ptr
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
   }
   idr.data @S {
-    idr.ctor @A tag 0 (!idr.str)
-    idr.ctor @B tag 1 (i64)
+    idr.ctor @A (!idr.str)
+    idr.ctor @B (i64)
   }
   func.func private @counts(%s: !idr.str, %d: !idr.data<@S>, %b: !idr.big) -> (!idr.str, !idr.str) {
     idr.inc %s : !idr.str

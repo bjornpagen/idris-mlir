@@ -3,15 +3,15 @@
 // constructors fold.
 
 idr.data @S {
-  idr.ctor @A tag 0 ()
-  idr.ctor @B tag 1 (i64, !idr.str)
+  idr.ctor @A ()
+  idr.ctor @B (i64, !idr.str)
 }
 idr.data @One {
-  idr.ctor @Only tag 0 (i64)
+  idr.ctor @Only (i64)
 }
 idr.data @L box {
-  idr.ctor @Nil tag 0 ()
-  idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
+  idr.ctor @Nil ()
+  idr.ctor @Cons (i64, !idr.box<@L>)
 }
 
 // CHECK-LABEL: func.func @constant_con

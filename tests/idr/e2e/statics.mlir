@@ -13,8 +13,8 @@
 // TIMING-DAG: LLVM
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.str, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.str, !idr.box<@List>)
   }
   func.func private @name(%n: i64) -> !idr.str attributes {idr.total} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {

@@ -13,11 +13,11 @@
 // BOTH-DAG: error: expected reuses-in-place: nothing is built in a reused cell in @both
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
   }
   idr.data @Two {
-    idr.ctor @Two tag 0 (!idr.str, !idr.str)
+    idr.ctor @Two (!idr.str, !idr.str)
   }
   func.func private @map(%l: !idr.box<@L>) -> !idr.box<@L> {
     %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>

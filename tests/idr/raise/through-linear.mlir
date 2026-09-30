@@ -9,10 +9,10 @@
 // CHECK: call @{{greet\$raise\$[0-9]+}}(
 module attributes {idr.program} {
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (i64, !idr.world)
+    idr.ctor @MkIORes (i64, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
+    idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
   func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64

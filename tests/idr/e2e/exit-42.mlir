@@ -6,8 +6,8 @@
 // evaluated and runs.
 module attributes {idr.program} {
   idr.data @Shape {
-    idr.ctor @Circle tag 0 (i64)
-    idr.ctor @Rect tag 1 (i64, i64, !idr.erased)
+    idr.ctor @Circle (i64)
+    idr.ctor @Rect (i64, i64, !idr.erased)
   }
   func.func private @area(%s: !idr.data<@Shape>) -> i64 {
     %r = idr.match %s : !idr.data<@Shape> -> (i64) {

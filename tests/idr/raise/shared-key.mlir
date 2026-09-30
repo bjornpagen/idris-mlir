@@ -27,7 +27,7 @@
 // CHECK-NOT: func.func private @f$raise$
 module attributes {idr.program} {
   idr.data @Pair {
-    idr.ctor @MkPair tag 0 (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)
+    idr.ctor @MkPair (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)
   }
   func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64

@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%x: i32) -> !idr.data<@T> {
   // expected-error @+1 {{field has type 'i32', expected 'i64'}}
@@ -12,7 +12,7 @@ func.func @f(%x: i32) -> !idr.data<@T> {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%x: i64) -> !idr.data<@T> {
   // expected-error @+1 {{refers to an unknown constructor @T::@B}}
@@ -23,7 +23,7 @@ func.func @f(%x: i64) -> !idr.data<@T> {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%x: i64) -> !idr.data<@T> {
   // expected-error @+1 {{expects 1 fields}}
@@ -34,7 +34,7 @@ func.func @f(%x: i64) -> !idr.data<@T> {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%x: i64) -> !idr.data<@T> {
   // expected-error @+1 {{expects a constructor reference @T::@C}}
@@ -46,7 +46,7 @@ func.func @f(%x: i64) -> !idr.data<@T> {
 
 // A box's values are !idr.box.
 idr.data @L box {
-  idr.ctor @Nil tag 0 ()
+  idr.ctor @Nil ()
 }
 func.func @f() -> !idr.data<@L> {
   // expected-error @+1 {{builds @L::@Nil but has type '!idr.data<@L>'}}
@@ -57,7 +57,7 @@ func.func @f() -> !idr.data<@L> {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 ()
+  idr.ctor @A ()
 }
 func.func @f() -> !idr.box<@T> {
   // expected-error @+1 {{builds @T::@A but has type '!idr.box<@T>'}}
@@ -68,7 +68,7 @@ func.func @f() -> !idr.box<@T> {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i64 {
   // expected-error @+1 {{field index out of range}}
@@ -79,7 +79,7 @@ func.func @f(%v: !idr.data<@T>) -> i64 {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i32 {
   // expected-error @+1 {{result type does not match the field type}}
@@ -90,7 +90,7 @@ func.func @f(%v: !idr.data<@T>) -> i32 {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64)
+  idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i64 {
   // expected-error @+1 {{refers to an unknown constructor @B}}
@@ -149,7 +149,7 @@ func.func @f() {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64, !idr.str)
+  idr.ctor @A (i64, !idr.str)
 }
 func.func @f() {
   // expected-error @+1 {{has a constant 1 : i32 where 'i64' is expected}}
@@ -160,7 +160,7 @@ func.func @f() {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 (i64, !idr.str)
+  idr.ctor @A (i64, !idr.str)
 }
 func.func @f() {
   // expected-error @+1 {{has a constant with 1 fields or captures where 2 are expected}}
@@ -173,7 +173,7 @@ func.func @f() {
 // Values inside a constant are written without their types, but for
 // integers and doubles.
 idr.data @T {
-  idr.ctor @A tag 0 (!idr.str)
+  idr.ctor @A (!idr.str)
 }
 func.func @f() {
   // expected-error @+1 {{has a constant "x" : !idr.str where '!idr.str' is expected}}
@@ -184,7 +184,7 @@ func.func @f() {
 // -----
 
 idr.data @T {
-  idr.ctor @A tag 0 ()
+  idr.ctor @A ()
 }
 func.func @f() {
   // expected-error @+1 {{has a constant of an unknown constructor @T::@B}}

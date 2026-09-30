@@ -37,13 +37,13 @@
 // CHECK-NEXT: idr.yield %[[P]] : !idr.data<@IORes>
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 ()
+    idr.ctor @MkUnit ()
   }
   idr.data @IORes {
-    idr.ctor @MkIORes tag 0 (!idr.data<@Unit>, !idr.world)
+    idr.ctor @MkIORes (!idr.data<@Unit>, !idr.world)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
+    idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
   func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>, idr.total} {
     %w1 = idr.io.put_int signed %n, %w : i64

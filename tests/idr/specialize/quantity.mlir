@@ -10,7 +10,7 @@
 // CHECK: func.func private @[[F]](%{{[a-z0-9_]+}}: !idr.lin<i64> {{.*}}, %{{[a-z0-9_]+}}: i64 {{.*}}, %{{[a-z0-9_]+}}: !idr.world
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (!idr.lin<i64>, i64)
+    idr.ctor @MkP (!idr.lin<i64>, i64)
   }
   func.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {idr.total} {
     %w1 = idr.match %p : !idr.data<@P> -> (!idr.world) {

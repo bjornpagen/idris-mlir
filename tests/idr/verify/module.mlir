@@ -57,10 +57,10 @@ module attributes {idr.program} {
 module attributes {idr.program} {
   // expected-error @+1 {{contains itself through unboxed sums; a recursive type must be declared box}}
   idr.data @T {
-    idr.ctor @A tag 0 (!idr.data<@U>)
+    idr.ctor @A (!idr.data<@U>)
   }
   idr.data @U {
-    idr.ctor @B tag 0 (!idr.data<@T>)
+    idr.ctor @B (!idr.data<@T>)
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
@@ -73,14 +73,14 @@ module attributes {idr.program} {
 // Every cycle passes through a box.
 module attributes {idr.program} {
   idr.data @T {
-    idr.ctor @A tag 0 (!idr.data<@U>)
+    idr.ctor @A (!idr.data<@U>)
   }
   idr.data @U {
-    idr.ctor @B tag 0 (!idr.box<@L>)
+    idr.ctor @B (!idr.box<@L>)
   }
   idr.data @L box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (!idr.data<@T>, !idr.box<@L>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (!idr.data<@T>, !idr.box<@L>)
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
@@ -93,7 +93,7 @@ module attributes {idr.program} {
 // A box declaration's values are !idr.box.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 ()
+    idr.ctor @Nil ()
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64
@@ -109,7 +109,7 @@ module attributes {idr.program} {
 
 module attributes {idr.program} {
   idr.data @T {
-    idr.ctor @A tag 0 ()
+    idr.ctor @A ()
   }
   func.func @a() -> i64 {
     %c = arith.constant 0 : i64

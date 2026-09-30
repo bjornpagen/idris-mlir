@@ -15,7 +15,7 @@
 // CHECK-NEXT: -42 65535 255 1.5 1e22 +inf.0
 module attributes {idr.program} {
   idr.data @Unit {
-    idr.ctor @MkUnit tag 0 ()
+    idr.ctor @MkUnit ()
   }
   func.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) attributes {idr.total} {
     %s = idr.constant "hello " : !idr.str

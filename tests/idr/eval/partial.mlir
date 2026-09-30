@@ -24,8 +24,8 @@
 // REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=applyTo
 module {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   func.func private @down(%n: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
     %r = idr.match_lit %n : i64 -> (i64) {

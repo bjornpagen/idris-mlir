@@ -11,8 +11,8 @@
 
 module attributes {idr.program} {
   idr.data @Maybe {
-    idr.ctor @Nothing tag 0 ()
-    idr.ctor @Just tag 1 (i64)
+    idr.ctor @Nothing ()
+    idr.ctor @Just (i64)
   }
   func.func private @inc(%k: i64, %x: i64) -> i64
       attributes {idr.total} {

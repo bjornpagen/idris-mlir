@@ -5,7 +5,7 @@
 
 module attributes {idr.program} {
 idr.data @Box {
-  idr.ctor @MkBox tag 0 (!idr.lin<i64>)
+  idr.ctor @MkBox (!idr.lin<i64>)
 }
 func.func private @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
@@ -88,7 +88,7 @@ func.func private @f(%w: !idr.lin<!idr.world>) {
 // argument may be the field's type or its linear type.
 module attributes {idr.program} {
 idr.data @P {
-  idr.ctor @MkP tag 0 (i64, !idr.lin<i64>)
+  idr.ctor @MkP (i64, !idr.lin<i64>)
 }
 func.func private @fst(%p: !idr.lin<!idr.data<@P>>) -> i64 {
   %v = idr.lin.use %p : !idr.lin<!idr.data<@P>>
@@ -109,7 +109,7 @@ func.func @root() -> i64 {
 // -----
 
 idr.data @P {
-  idr.ctor @MkP tag 0 (i64)
+  idr.ctor @MkP (i64)
 }
 func.func private @f(%p: !idr.data<@P>) -> i64 {
   // expected-error @+1 {{case @MkP must take the constructor's fields}}

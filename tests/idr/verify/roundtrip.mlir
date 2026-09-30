@@ -9,25 +9,25 @@
 // CHECK-LABEL: module attributes {idr.program}
 module attributes {idr.program} {
   // CHECK: idr.data @Main.Shape {
-  // CHECK-NEXT: idr.ctor @Circle tag 0 (f64)
-  // CHECK-NEXT: idr.ctor @Rect tag 1 (f64, f64)
-  // CHECK-NEXT: idr.ctor @Proven tag 2 (!idr.erased, i64)
+  // CHECK-NEXT: idr.ctor @Circle (f64)
+  // CHECK-NEXT: idr.ctor @Rect (f64, f64)
+  // CHECK-NEXT: idr.ctor @Proven (!idr.erased, i64)
   idr.data @Main.Shape {
-    idr.ctor @Circle tag 0 (f64)
-    idr.ctor @Rect tag 1 (f64, f64)
-    idr.ctor @Proven tag 2 (!idr.erased, i64)
+    idr.ctor @Circle (f64)
+    idr.ctor @Rect (f64, f64)
+    idr.ctor @Proven (!idr.erased, i64)
   }
   // CHECK: idr.data @List box {
-  // CHECK-NEXT: idr.ctor @Nil tag 0 ()
-  // CHECK-NEXT: idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>)
+  // CHECK-NEXT: idr.ctor @Nil ()
+  // CHECK-NEXT: idr.ctor @"$58$$58$" (i64, !idr.box<@List>)
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @"$58$$58$" tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @"$58$$58$" (i64, !idr.box<@List>)
   }
   // CHECK: idr.data @Fields {
-  // CHECK-NEXT: idr.ctor @All tag 0 (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
+  // CHECK-NEXT: idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
   idr.data @Fields {
-    idr.ctor @All tag 0 (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world,
+    idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world,
                          !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
                          !idr.data<@Main.Shape>, !idr.box<@List>)
        

@@ -3,9 +3,9 @@
 // the default, and without a default, cases that do the same become it.
 
 idr.data @C {
-  idr.ctor @R tag 0 ()
-  idr.ctor @G tag 1 (i64)
-  idr.ctor @B tag 2 ()
+  idr.ctor @R ()
+  idr.ctor @G (i64)
+  idr.ctor @B ()
 }
 
 // CHECK-LABEL: func.func @into_default(

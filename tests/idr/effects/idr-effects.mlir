@@ -7,13 +7,13 @@
 // that reaches one, does both. Running the pass again changes nothing.
 
 idr.data @IORes {
-  idr.ctor @MkIORes tag 0 (i64, !idr.world)
+  idr.ctor @MkIORes (i64, !idr.world)
 }
 // A sum of closures as idr-defunctionalize makes it: one constructor per
 // label, named after its function.
 idr.data @fn$0 closures {
-  idr.ctor @divides tag 0 ()
-  idr.ctor @pure tag 1 ()
+  idr.ctor @divides ()
+  idr.ctor @pure ()
 }
 
 // CHECK-LABEL: func.func private @pure(

@@ -30,11 +30,11 @@
 // CHECK: return
 module attributes {idr.program} {
   idr.data @List box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@List>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@List>)
   }
   idr.data @Pair {
-    idr.ctor @MkPair tag 0 (!idr.box<@List>, i64)
+    idr.ctor @MkPair (!idr.box<@List>, i64)
   }
   func.func private @head(%l: !idr.box<@List>) -> i64 {
     %r = idr.match %l : !idr.box<@List> -> (i64) {

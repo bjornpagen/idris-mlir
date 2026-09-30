@@ -3,8 +3,8 @@
 // from the same outer value is that value (upstream's region patterns).
 
 idr.data @B {
-  idr.ctor @F tag 0 ()
-  idr.ctor @T tag 1 ()
+  idr.ctor @F ()
+  idr.ctor @T ()
 }
 
 // CHECK-LABEL: func.func @unused(

@@ -5,10 +5,10 @@
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.
 // CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @later tag 0 (i64)
-// CHECK-NEXT: idr.ctor @now tag 1 ()
+// CHECK-NEXT: idr.ctor @later (i64)
+// CHECK-NEXT: idr.ctor @now ()
 // CHECK: idr.data @Box {
-// CHECK-NEXT: idr.ctor @MkBox tag 0 (!idr.data<@[[F0]]>)
+// CHECK-NEXT: idr.ctor @MkBox (!idr.data<@[[F0]]>)
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[L:.*]] = idr.field %{{.*}}[@MkBox, 0] : !idr.data<@Box> -> !idr.data<@[[F0]]>
@@ -19,7 +19,7 @@
 // CHECK-NEXT: call @now() : () -> i64
 module attributes {idr.program} {
   idr.data @Box {
-    idr.ctor @MkBox tag 0 (!idr.fn<() -> (i64)>)
+    idr.ctor @MkBox (!idr.fn<() -> (i64)>)
   }
   func.func private @now() -> i64 attributes {idr.total} {
     %c = arith.constant 7 : i64

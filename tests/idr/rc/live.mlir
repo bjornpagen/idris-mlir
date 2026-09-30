@@ -8,8 +8,8 @@
 // afterwards, and lists of which only the head is used.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @N tag 0 ()
-    idr.ctor @C tag 1 (i64, !idr.box<@L>)
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
   }
   func.func private @build(%n: i64) -> !idr.box<@L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<@L>) {

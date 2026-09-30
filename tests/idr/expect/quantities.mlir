@@ -13,7 +13,7 @@
 // FIELD: error: expected quantities-kept: the fields of @Handle::@MkHandle have other quantities than Idris proved
 module {
   idr.data @Handle {
-    idr.ctor @MkHandle tag 0 (!idr.lin<i64>, i64)
+    idr.ctor @MkHandle (!idr.lin<i64>, i64)
   }
   func.func private @consume(%h: !idr.lin<i64>) -> i64 {
     %z = arith.constant 0 : i64

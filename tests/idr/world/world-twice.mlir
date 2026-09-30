@@ -53,8 +53,8 @@ func.func @root() -> i64 {
 module attributes {idr.program} {
 // A use in a region of a match, then one after the match, is one path.
 idr.data @B {
-  idr.ctor @F tag 0 ()
-  idr.ctor @T tag 1 ()
+  idr.ctor @F ()
+  idr.ctor @T ()
 }
 func.func private @f(%b: !idr.data<@B>,
                      %w: !idr.world) -> !idr.world {

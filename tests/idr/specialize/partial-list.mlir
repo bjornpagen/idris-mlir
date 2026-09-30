@@ -8,8 +8,8 @@
 // runtime.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@L>)
   }
   func.func private @sum(%xs: !idr.box<@L>) -> i64 attributes {idr.total} {
     %r = idr.match %xs : !idr.box<@L> -> (i64) {

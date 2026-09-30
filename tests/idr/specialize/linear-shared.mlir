@@ -10,7 +10,7 @@
 // CHECK-NOT: $spec$
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (!idr.lin<i64>, i64)
+    idr.ctor @MkP (!idr.lin<i64>, i64)
   }
   func.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {idr.total} {
     %w1 = idr.match %p : !idr.data<@P> -> (!idr.world) {

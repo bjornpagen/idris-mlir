@@ -9,7 +9,7 @@
 // CHECK: func.func private @[[S]](
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (i64, i64)
+    idr.ctor @MkP (i64, i64)
   }
   func.func private @sum(%p: !idr.data<@P>, %q: !idr.data<@P>) -> i64 {
     %a = idr.field %p[@MkP, 0] : !idr.data<@P> -> i64

@@ -11,8 +11,8 @@
 // nothing.
 module attributes {idr.program} {
   idr.data @L box {
-    idr.ctor @Nil tag 0 ()
-    idr.ctor @Cons tag 1 (i64, !idr.box<@L>)
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i64, !idr.box<@L>)
   }
   func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %a, %x : i64

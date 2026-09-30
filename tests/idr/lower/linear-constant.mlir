@@ -8,11 +8,11 @@
 // CHECK: return %{{.*}}, %{{.*}}, %{{.*}} : i8, i64, i64
 module attributes {idr.program} {
   idr.data @Step {
-    idr.ctor @Done tag 0 (i64)
-    idr.ctor @Bind tag 1 (i64, i64)
+    idr.ctor @Done (i64)
+    idr.ctor @Bind (i64, i64)
   }
   idr.data @IO {
-    idr.ctor @MkIO tag 0 (!idr.lin<!idr.data<@Step>>)
+    idr.ctor @MkIO (!idr.lin<!idr.data<@Step>>)
   }
   func.func private @action() -> !idr.data<@IO> {
     %c = idr.constant #idr.con<@IO::@MkIO, [#idr.con<@Step::@Bind, [2, 3]>]> : !idr.data<@IO>

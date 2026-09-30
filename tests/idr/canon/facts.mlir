@@ -5,8 +5,8 @@
 // path.
 
 idr.data @Maybe {
-  idr.ctor @Nothing tag 0 ()
-  idr.ctor @Just tag 1 (i64)
+  idr.ctor @Nothing ()
+  idr.ctor @Just (i64)
 }
 func.func private @square(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
   %r = arith.muli %x, %x : i64

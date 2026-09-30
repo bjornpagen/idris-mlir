@@ -3,9 +3,9 @@
 // upstream's integer range optimizations use.
 
 idr.data @T {
-  idr.ctor @A tag 0 ()
-  idr.ctor @B tag 1 ()
-  idr.ctor @C tag 2 ()
+  idr.ctor @A ()
+  idr.ctor @B ()
+  idr.ctor @C ()
 }
 
 // CHECK-LABEL: func.func @ranges(

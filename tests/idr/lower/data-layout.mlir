@@ -22,12 +22,12 @@
 // CHECK: call @f(%[[ONE]], %[[FIVE]], %[[U1]], %[[U2]])
 module attributes {idr.program} {
   idr.data @P {
-    idr.ctor @MkP tag 0 (i64, i8)
+    idr.ctor @MkP (i64, i8)
   }
   idr.data @S {
-    idr.ctor @A tag 0 ()
-    idr.ctor @B tag 1 (i32, !idr.erased)
-    idr.ctor @C tag 2 (!idr.data<@P>)
+    idr.ctor @A ()
+    idr.ctor @B (i32, !idr.erased)
+    idr.ctor @C (!idr.data<@P>)
   }
   func.func private @f(%s: !idr.data<@S>) -> i64 {
     %r = idr.match %s : !idr.data<@S> -> (i64) {

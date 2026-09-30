@@ -6,8 +6,8 @@
 // A data type declares its constructors, with the tags Idris gives them
 // and their fields. An Idris name is a NameLoc around the source location.
 // CHECK: idr.data @Prog.Shape {
-// CHECK-DAG: idr.ctor @Circle tag 0 (i64) {{.*}}loc("Prog.Circle"("Prog.idr":
-// CHECK-DAG: idr.ctor @Rect tag 1 (i64, i64) {{.*}}loc("Prog.Rect"("Prog.idr":
+// CHECK-DAG: idr.ctor @Circle (i64) {{.*}}loc("Prog.Circle"("Prog.idr":
+// CHECK-DAG: idr.ctor @Rect (i64, i64) {{.*}}loc("Prog.Rect"("Prog.idr":
 // CHECK: } loc("Prog.Shape"("Prog.idr":
 // The root is the only public function; a main : Int program's is () -> i64.
 // An erased argument is passed as the erased constant, and a call carries

@@ -2,11 +2,11 @@
 // Worlds used once on each path are accepted.
 
 idr.data @B {
-  idr.ctor @F tag 0 ()
-  idr.ctor @T tag 1 ()
+  idr.ctor @F ()
+  idr.ctor @T ()
 }
 idr.data @IORes {
-  idr.ctor @MkIORes tag 0 (i64, !idr.world)
+  idr.ctor @MkIORes (i64, !idr.world)
 }
 
 // A chain of IO ops.

@@ -4,11 +4,11 @@
 // canonicalizes against.
 
 idr.data @Maybe {
-  idr.ctor @Nothing tag 0 ()
-  idr.ctor @Just tag 1 (i64)
+  idr.ctor @Nothing ()
+  idr.ctor @Just (i64)
 }
 idr.data @P {
-  idr.ctor @MkP tag 0 (i64, i64)
+  idr.ctor @MkP (i64, i64)
 }
 
 // putStr (maybe "none" show m): each region writes its own string, and
