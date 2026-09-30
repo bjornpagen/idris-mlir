@@ -65,7 +65,7 @@ bool usedAfter(mlir::Value value, mlir::Operation *op);
 bool isBorrowed(mlir::func::FuncOp fn, unsigned index);
 
 // What a use does with a reference: consumes one, or only needs the value to
-// be alive. Returns, yields, constructors, closures, resets, reuses, decs,
+// be alive. Returns, yields, constructors, closures, takes, reuses, decs,
 // arguments of owned parameters and the arguments of an apply consume;
 // everything else borrows, the closure an apply calls included.
 enum class Use { Consume, Borrow };
@@ -81,9 +81,9 @@ TakeOp takeAtEntry(MatchOp match, unsigned index);
 // The passes of idr-rc, in the order it runs them (Rc.cc).
 
 // Beans' reset/reuse insertion: in a case region of a match on a box that
-// is dead there, the box's cell is reset where it dies and reused by the
-// first constructor of a cell of the same size on each path after it.
-// Returns the number of resets and of reuses.
+// is dead there, the box is taken apart where it dies and its cell reused
+// by the first constructor of a cell of the same size on each path after
+// it. Returns the number of takes and of reuses.
 std::pair<unsigned, unsigned> insertResetReuse(mlir::func::FuncOp fn, lower::Layouts &layouts);
 
 // Lean's borrow inference: which parameters of the module's functions can

@@ -24,19 +24,32 @@ bool isCounted(uint32_t count) { return count - 1 < saturated - 1; }
 
 bool isStack(uint32_t info) { return (info & IDRIS_RT_STACK_CELL) != 0; }
 
-// A cell a reset may hand back for reuse.
+// A cell whose fields may move out of it, and whose memory may be reused.
 bool isExclusive(const idris_rt_header *cell) {
   return cell->count == 1 && !isStack(cell->info);
 }
 
+// The bits of a stack address, per target: user space ends below 2^47 on
+// Linux on x86-64 (only an mmap that asks for a higher address gets one,
+// and no stack does) and on macOS on arm64. Another target states its own
+// after checking its address space; it does not inherit these.
+#if defined(__linux__) && defined(__x86_64__)
+constexpr unsigned stackAddressBits = 47;
+#elif defined(__APPLE__) && defined(__aarch64__)
+constexpr unsigned stackAddressBits = 47;
+#else
+#error "the dying list keeps a stack cell's address: state this target's stackAddressBits"
+#endif
+
 // The cells whose count reached 0 and whose references are still to be
 // released: a stack threaded through the cells. A dying cell's count and
 // tag are dead, 48 bits, which hold the next cell's address: a heap cell's
-// has no more bits than the allocator's pagemap covers, and a stack cell's
-// is below 2^47, where Linux on x86-64 puts every stack. Its objs, kind and
+// has no more bits than the allocator's pagemap covers (alloc.cc), and a
+// stack cell's no more than the target's stacks (above). Its objs, kind and
 // stack bit, which releasing it reads, stay.
 class Dying {
   static_assert(rt::heapAddressBits <= 32 + 16, "a heap address fits a count and a tag");
+  static_assert(stackAddressBits <= 32 + 16, "a stack address fits a count and a tag");
 
 public:
   bool empty() const { return top == nullptr; }
@@ -134,20 +147,6 @@ extern "C" void idris_rt_dec(void *o) {
 
 extern "C" bool idris_rt_is_unique(const void *o) {
   return isObject(o) && isExclusive(static_cast<const idris_rt_header *>(o));
-}
-
-extern "C" void *idris_rt_reset(void *o) {
-  if (!isObject(o))
-    return nullptr;
-  idris_rt_header *cell = headerOf(o);
-  if (!isExclusive(cell)) {
-    idris_rt_dec(o);
-    return nullptr;
-  }
-  Dying dying;
-  releaseOwned(cell, dying);
-  releaseAll(dying);
-  return o;
 }
 
 extern "C" void idris_rt_free_cell(void *o) {

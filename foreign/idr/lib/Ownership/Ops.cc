@@ -41,15 +41,10 @@ LogicalResult inOwnedStage(Operation *op) {
 
 LogicalResult IncOp::verify() { return inOwnedStage(*this); }
 LogicalResult DecOp::verify() { return inOwnedStage(*this); }
-LogicalResult ResetOp::verify() { return inOwnedStage(*this); }
 LogicalResult ReuseOp::verify() { return inOwnedStage(*this); }
 
-LogicalResult ResetOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  return success(ctorOf(*this, symbols, getCtor(), getValue().getType()) != nullptr);
-}
-
 // The fields are the constructor's, as idr.con's. That the cell fits is the
-// owned stage's rule, which knows the reset the token comes from.
+// owned stage's rule, which knows the take the token comes from.
 LogicalResult ReuseOp::verifySymbolUses(SymbolTableCollection &symbols) {
   CtorOp ctor = ctorOf(*this, symbols, getCtor(), getType());
   if (!ctor)

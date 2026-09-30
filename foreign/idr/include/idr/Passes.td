@@ -350,8 +350,9 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
     Runs on functional code, after the simplify group and
     idr-defunctionalize and before idr-tail-loops, in Lean's order:
       - reset/reuse: in a case region of a match on a box that dies there,
-        the first constructor on each path after its death with a cell of
-        the same size is built in its cell (`idr.reset`, `idr.reuse`);
+        the box is taken apart where it dies (`idr.take`), and the first
+        constructor on each path after that with a cell of the same size
+        is built in its cell (`idr.reuse`);
       - borrow inference: a parameter that never needs a reference of its
         own gets `idr.borrowed`, and its callers keep theirs;
       - explicit counting: every other reference is consumed exactly once
@@ -370,8 +371,8 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
   let statistics = [
     Statistic<"numIncs", "incs", "idr.inc added">,
     Statistic<"numDecs", "decs", "idr.dec added">,
-    Statistic<"numResets", "resets", "idr.reset added">,
-    Statistic<"numReuses", "reuses", "Constructors built in a reset cell">,
+    Statistic<"numTakes", "takes", "Dead boxes taken apart for their cells">,
+    Statistic<"numReuses", "reuses", "Constructors built in a taken cell">,
     Statistic<"numBorrowed", "borrowed", "Parameters borrowed">,
   ];
 }
@@ -397,11 +398,11 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
       - `counts-nothing=@f`: no idr.inc or idr.dec in @f;
-      - `resets-unshared`, `resets-unshared=@f`: every take and reset of a
-        box, anywhere or in @f, tests a cell that its function never gives
-        a second reference (an idr.inc of the box or of a value it was read
+      - `resets-unshared`, `resets-unshared=@f`: every take of a box,
+        anywhere or in @f, tests a cell that its function never gives a
+        second reference (an idr.inc of the box or of a value it was read
         from);
-      - `reuses-every-cell=@f`: every cell a take or reset in @f yields
+      - `reuses-every-cell=@f`: every cell a take in @f yields
         for a constructor with fields is reused, and none is freed;
       - `contified`: no private function is called once, from another
         function, and used nowhere else;

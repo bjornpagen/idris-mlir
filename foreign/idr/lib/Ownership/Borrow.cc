@@ -5,7 +5,7 @@
 //
 // Every parameter starts borrowed and becomes owned, until nothing changes
 // in the module, when it or a field read from it
-//   - is reset (its cell is reused only if it is owned);
+//   - is taken apart (its cell is reused only if it is owned);
 //   - is passed to an owned parameter of a call;
 //   - is itself stored in a constructor or a closure, or passed to the
 //     function of a closure, which takes every argument owned;
@@ -157,7 +157,7 @@ private:
     current = fn;
     ownedFields.clear();
     fn.walk([&](Operation *op) {
-      if (isa<ResetOp, TakeOp>(op)) {
+      if (isa<TakeOp>(op)) {
         own(op->getOperand(0));
       } else if (auto call = dyn_cast<func::CallOp>(op)) {
         func::FuncOp g = callee(call, symbols);

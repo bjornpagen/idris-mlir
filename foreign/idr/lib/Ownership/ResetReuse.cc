@@ -7,24 +7,22 @@
 // dies on each path of the region: after its last use there, or, when that
 // use is a match, inside each of that match's regions. A last use that
 // consumes the box (a call, a constructor) is where it dies, and its cell
-// goes with it: nothing is reset on that path. There S looks ahead
-// on the same path for the first constructor of a box with a cell of the
-// same size, going into the regions of the matches it meets, and builds it
-// in the dead box's cell instead: idr.reset where the box dies, idr.reuse
-// for the constructor. idr.rc then drops the token on the paths that do not
+// goes with it: nothing is taken on that path. There S looks ahead on the
+// same path for the first constructor of a box with a cell of the same
+// size, going into the regions of the matches it meets, and builds it in
+// the dead box's cell instead: idr.take where the box dies, idr.reuse for
+// the constructor. idr.rc then drops the token on the paths that do not
 // reuse it. Inner matches are done first, so that their scrutinees, which
 // die later, get the constructors built after them.
 //
+// The take moves the box's fields out of its cell, so the region's reads
+// of a field after that point become the take's results: the field keeps
+// the box's reference instead of taking one of its own where the region
+// reads it, only for the box to drop it again when it dies. Reads before
+// the take are borrowed from the box, which is still alive there.
+//
 // A box that is static, borrowed or built in the stack frame
 // (`idr.stack`) is left alone: its cell is not the program's to reuse.
-//
-// The reuse is best effort: idr.reset asks the runtime whether the cell is
-// exclusive. Where a box is proved unique, the test can go: a linear
-// parameter (quantity 1) whose every caller passes a cell it just built or
-// a unique value of its own. That is a fact about callers, not about the
-// binder, so it belongs on the parameter's type, computed over the call
-// graph like the borrowed parameters (Borrow.cc); a reset of such a value
-// would then be a reset without a test.
 
 #include "Ownership/Ownership.h"
 
@@ -60,10 +58,10 @@ public:
           reuseAt(ctor, entry, entry.begin(),
                   [&] { return takeAtEntry(match, caseIndex).getToken(); });
         else
-          dies(box, ctor, entry, nullptr);
+          dies(box, ctor, entry, nullptr, entry);
       }
     }
-    return {resets, reuses};
+    return {takes, reuses};
   }
 
 private:
@@ -97,19 +95,20 @@ private:
     return users;
   }
 
-  // D: `box`, built by `ctor`, is dead in `block` after `after`, which is
-  // outside the block's region; find where it dies on each path.
-  void dies(Value box, CtorOp ctor, Block &block, Operation *after) {
+  // D: `box`, built by `ctor`, whose fields `fields` binds, is dead in
+  // `block` after `after`, which is outside the block's region; find where
+  // it dies on each path.
+  void dies(Value box, CtorOp ctor, Block &block, Operation *after, Block &fields) {
     SmallVector<Operation *> users = usersIn(box, block, after);
     if (users.empty()) {
-      reset(box, ctor, block, block.begin());
+      takeAt(box, ctor, block, block.begin(), fields);
       return;
     }
     Operation *last = users.back();
     if (last->hasTrait<OpTrait::IsTerminator>())
       return;
     // A last use that consumes the box moves its reference on, and the box
-    // dies in it. A reset after it would keep a second reference alive
+    // dies in it. A take after it would keep a second reference alive
     // across the use, so that whoever receives the box finds its cell
     // shared and copies it. Borrow inference runs later, so every call may
     // still consume its arguments here.
@@ -118,10 +117,10 @@ private:
     if (last->getNumRegions() != 0) {
       for (Region &region : last->getRegions())
         if (!region.empty())
-          dies(box, ctor, region.front(), nullptr);
+          dies(box, ctor, region.front(), nullptr, fields);
       return;
     }
-    reset(box, ctor, block, std::next(last->getIterator()));
+    takeAt(box, ctor, block, std::next(last->getIterator()), fields);
   }
 
   bool consumes(Value box, Operation *op) {
@@ -154,14 +153,28 @@ private:
     return false;
   }
 
-  // An idr.reset of `box` where it dies.
-  void reset(Value box, CtorOp ctor, Block &block, Block::iterator at) {
+  // An idr.take of `box` where it dies, whose fields replace the reads of
+  // the box's fields after it: the arguments of `fields`, and idr.field.
+  void takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, Block &fields) {
     reuseAt(ctor, block, at, [&] {
       OpBuilder b(&block, at);
       Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
       auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
                                      {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
-      return ResetOp::create(b, loc, TokenType::get(fn.getContext()), box, name).getResult();
+      SmallVector<Type> results{TokenType::get(fn.getContext())};
+      llvm::append_range(results, fields.getArgumentTypes());
+      auto take = TakeOp::create(b, loc, results, box, name);
+      auto later = [&](OpOperand &use) {
+        Operation *top = block.findAncestorOpInBlock(*use.getOwner());
+        return top && take->isBeforeInBlock(top);
+      };
+      for (auto [field, taken] : llvm::zip_equal(fields.getArguments(), take.getFields()))
+        field.replaceUsesWithIf(taken, later);
+      for (Operation *user : llvm::make_early_inc_range(box.getUsers()))
+        if (auto read = dyn_cast<FieldOp>(user); read && read.getCtor() == ctor.getSymName())
+          read.getResult().replaceUsesWithIf(
+              take.getFields()[static_cast<unsigned>(read.getIndex())], later);
+      return take.getToken();
     });
   }
 
@@ -172,7 +185,7 @@ private:
     if (!fits(layouts.box(ctor).size, block, at, found))
       return;
     Value cell = token();
-    ++resets;
+    ++takes;
     OpBuilder b(fn.getContext());
     for (ConOp con : found) {
       b.setInsertionPoint(con);
@@ -188,7 +201,7 @@ private:
   func::FuncOp fn;
   lower::Layouts &layouts;
   SymbolTableCollection symbols;
-  unsigned resets = 0, reuses = 0;
+  unsigned takes = 0, reuses = 0;
 };
 
 } // namespace

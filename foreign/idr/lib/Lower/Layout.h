@@ -6,6 +6,8 @@
 
 #include "idris_rt.h"
 
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
+
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
 
@@ -65,27 +67,24 @@ struct Slot {
   unsigned offset;
 };
 
-// A box or a closure: a cell is the 8-byte header (idris_rt_header: the
-// count, then the info word), then its components. The counted components
-// come first, 8 bytes each, as the runtime's object slots: right after the
-// header in a box, after the code pointer (offset 8) in a closure. The
-// others follow at their natural alignment, as a C struct or an LLVM struct
-// of the same members in address order lays them out.
+// A box or a closure: a cell is the header (idris_rt_header: the count,
+// then the info word, IDRIS_RT_WORD_BYTES together), then its components.
+// The counted components come first, one pointer-sized word each, as the
+// runtime's object slots: right after the header in a box, after the code
+// pointer in a closure. The others follow, each at the size and alignment
+// the target's data layout gives its type. A cell starts and ends on a
+// word boundary.
 struct Cell {
-  // For each field (of a constructor) or capture (of a closure, after the
-  // code pointer), the slots of its components.
+  // For each field (of a constructor) or capture (of a closure, the code
+  // pointer first), the slots of its components.
   llvm::SmallVector<llvm::SmallVector<Slot>> fields;
-  unsigned size = 8;
+  unsigned size = IDRIS_RT_WORD_BYTES;
   // The number of object slots.
   unsigned objs = 0;
   // Every component, (field, component) in address order.
   llvm::SmallVector<std::pair<unsigned, unsigned>> order;
   // The header's info word, which counts the object slots.
   CellInfo info;
-
-  // The members of the LLVM struct with this layout: i32, i32, then each
-  // component in address order.
-  llvm::SmallVector<mlir::Type> members(mlir::MLIRContext *ctx) const;
 };
 
 // A closure label: a function with the number of leading
@@ -102,11 +101,18 @@ struct Label {
 
 class Layouts {
 public:
-  // The layouts of the values of `m`. Every cell's header is decided here,
-  // once: when a box type or a cell has more than its header can describe,
-  // each such one gets an `unsupported (layout)` error and the result is a
-  // failure.
+  // The layouts of the values of `m`, for the target its data layout
+  // describes (dlti.dl_spec; MLIR's defaults without one). Every cell's
+  // header is decided here, once: when a box type or a cell has more than
+  // its header can describe, each such one gets an `unsupported (layout)`
+  // error and the result is a failure. A target whose pointers are not the
+  // runtime's words gets `unsupported (target)`.
   static mlir::FailureOr<Layouts> of(mlir::ModuleOp m);
+
+  // The bytes a component of type `component` takes in a cell, and the
+  // alignment it is placed at, as the target lays it out.
+  unsigned sizeOf(mlir::Type component) const;
+  unsigned alignmentOf(mlir::Type component) const;
 
   // The runtime components of a value type: none for !idr.erased and
   // !idr.world, the slots of an unboxed sum, one pointer for strings, boxes,
@@ -146,6 +152,7 @@ private:
          llvm::function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info);
 
   mlir::ModuleOp module;
+  mlir::DataLayout target;
   // Each layout has its own allocation, so that a reference to one stays
   // valid while others are computed.
   llvm::DenseMap<mlir::StringAttr, std::unique_ptr<SumLayout>> sums;

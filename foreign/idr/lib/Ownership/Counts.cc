@@ -13,10 +13,12 @@
 //     needed after the match, and a region that ends in a crash is left
 //     alone;
 //   - a borrowed value gets an idr.inc before each use that consumes;
-//   - a field of an owned value takes a reference of its own, with an
-//     idr.inc where it is read, so that the value it comes from can die
-//     right after (Beans: `let y = proj x; inc y`). A field of a borrowed
-//     value is borrowed, and a field of a static value is static.
+//   - a field is borrowed when every use of it comes while the value it is
+//     read from is still alive: a borrowed parameter, or an owned value
+//     that is used again after it. Otherwise it takes a reference of its
+//     own, with an idr.inc where it is read, so that the value it comes
+//     from can die before it (Beans: `let y = proj x; inc y`). A field of a
+//     static value is static.
 // Every drop of a region's entry comes after the idr.inc of its fields, so
 // the fields survive their scrutinee. Nothing is placed after a call whose
 // arguments it consumes, so a self tail call stays one.
@@ -128,7 +130,8 @@ private:
       return known->second;
     Class result = Class::Owned;
     if (Value from = readFrom(value)) {
-      result = classOf(from) == Class::Owned ? Class::Owned : Class::Borrowed;
+      if (llvm::all_of(value.getUsers(), [&](Operation *user) { return aliveAt(from, user); }))
+        result = Class::Borrowed;
     } else if (auto arg = dyn_cast<BlockArgument>(value);
                arg && arg.getOwner()->getParentOp() == fn.getOperation()) {
       if (isBorrowed(fn, arg.getArgNumber()))
@@ -136,6 +139,23 @@ private:
     }
     classes[value] = result;
     return result;
+  }
+
+  // Whether `value` still holds a reference, or lives as long as the call,
+  // for all of `op`: an owned value is used again after it, and a borrowed
+  // one is read from a value that is alive there, or is a parameter.
+  bool aliveAt(Value value, Operation *op) {
+    switch (classOf(value)) {
+    case Class::Untracked:
+    case Class::Static:
+      return true;
+    case Class::Owned:
+      return usedAfter(value, op);
+    case Class::Borrowed:
+      break;
+    }
+    Value from = readFrom(value);
+    return !from || aliveAt(from, op);
   }
 
   void plan(Value value, Block &block, Operation *def) {

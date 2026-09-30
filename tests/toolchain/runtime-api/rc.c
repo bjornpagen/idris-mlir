@@ -1,6 +1,6 @@
 /* Reference counting against cells built by hand as idr-lower lays them out:
  * counts, saturation, freeing (a structure of any depth, under the small
- * stack the run script gives), reset, stack cells, and the live-cell count.
+ * stack the run script gives), reuse, stack cells, and the live-cell count.
  * A failed check prints a line to standard error. The summary goes through
  * the runtime's output buffer, which idris_rt_main_return must flush; then
  * main returns as @main does.
@@ -63,12 +63,11 @@ static void noOps(void) {
     idris_rt_inc(o);
     idris_rt_dec(o);
     idris_rt_dec(o);
-    check(idris_rt_reset(o) == NULL, "reset of NULL, a small big or static data is NULL");
     check(!idris_rt_is_unique(o), "NULL, a small big or static data is not exclusive");
     idris_rt_free_cell(o);
   }
   check(persistentCons.header.count == 0 && persistentNil.count == 0,
-        "static data keeps count 0 through inc, dec, reset and free_cell");
+        "static data keeps count 0 through inc, dec and free_cell");
   check(persistentCons.header.info == (1u | 1u << 16) && persistentCons.head == 7,
         "static data is not written");
   check(live() == before, "NULL, small bigs and static data are not live cells");
@@ -105,7 +104,6 @@ static void saturation(void) {
   idris_rt_dec(c);
   check(count(c) == UINT32_MAX, "a saturated count never changes");
   check(!idris_rt_is_unique(c), "a saturated cell is not exclusive");
-  check(idris_rt_reset(c) == NULL && count(c) == UINT32_MAX, "reset of a saturated cell is NULL");
   idris_rt_free_cell(c);
   check(live() == before + 1, "a saturated cell is never freed");
   /* A saturated cell leaks by design; this test takes it back. */
@@ -256,45 +254,39 @@ static void stringsAndBignums(void) {
   check(live() == before, "a box releases the bignum and the string it owns");
 }
 
-static void resets(void) {
+/* What idr.take and idr.reuse do with a cell whose box dies: when it is
+ * exclusive its fields move out with their references and its memory is
+ * rewritten in place, or freed alone when nothing reuses it. */
+static void tokens(void) {
   uint64_t before = live();
   void *unique = cons(1, NULL), *shared = cons(2, NULL);
   idris_rt_inc(shared);
   void *fields[] = {unique, shared};
   void *cell = con(2, 2, fields, 0);
-  void *token = idris_rt_reset(cell);
-  check(token == cell && count(token) == 1, "reset of an exclusive cell returns it");
-  check(live() == before + 2, "reset releases the cell's slots and keeps its memory");
-  check(count(shared) == 1, "reset drops the references its slots held");
+  check(idris_rt_is_unique(cell), "a new cell is exclusive");
+  /* The fields move out, and the moved references are dropped. */
+  idris_rt_dec(unique);
+  idris_rt_dec(shared);
+  check(live() == before + 2 && count(shared) == 1, "the moved fields keep their references");
   /* Reuse: a cell of the same size with a new header and fields. */
-  header(token)->info = box(9, 1);
-  *slot(token, 8) = shared;
-  *slot(token, 16) = NULL;
-  idris_rt_dec(token);
+  header(cell)->info = box(9, 1);
+  *slot(cell, 8) = shared;
+  *slot(cell, 16) = NULL;
+  idris_rt_dec(cell);
   check(live() == before, "a reused cell is an ordinary cell");
 
   void *other[] = {cons(3, NULL), NULL};
-  token = idris_rt_reset(con(2, 2, other, 0));
-  check(token != NULL && live() == before + 1, "reset of another exclusive cell");
-  idris_rt_free_cell(token);
-  check(live() == before, "free_cell frees a token nobody reuses");
+  cell = con(2, 2, other, 0);
+  idris_rt_dec(other[0]);
+  idris_rt_free_cell(cell);
+  check(live() == before, "free_cell frees a cell whose fields moved out");
 
   void *twice = cons(4, NULL);
   idris_rt_inc(twice);
-  check(idris_rt_reset(twice) == NULL, "reset of a shared cell is NULL");
-  check(count(twice) == 1 && live() == before + 1, "reset of a shared cell drops a reference");
+  check(!idris_rt_is_unique(twice), "a cell with two references is not exclusive");
   idris_rt_dec(twice);
-
-  idris_rt_big max = idris_rt_big_from_int_u(UINT64_MAX);
-  idris_rt_big big = idris_rt_big_neg(max);
-  idris_rt_big_release(max);
-  token = idris_rt_reset((void *)(uintptr_t)big);
-  check(token == (void *)(uintptr_t)big, "reset of an exclusive bignum returns it, limbs freed");
-  idris_rt_free_cell(token);
-  token = idris_rt_reset((void *)text("reset"));
-  check(token != NULL, "reset of an exclusive string returns it");
-  idris_rt_free_cell(token);
-  check(live() == before, "the tokens are freed");
+  idris_rt_dec(twice);
+  check(live() == before, "a shared cell is freed with its last reference");
 }
 
 static void stackCells(void) {
@@ -309,9 +301,10 @@ static void stackCells(void) {
   check(live() == before + 2, "a stack cell is not a live cell");
   check(!idris_rt_is_unique(&frame), "a stack cell is never exclusive");
   idris_rt_inc(&frame);
-  check(idris_rt_reset(&frame) == NULL && frame.header.count == 1,
-        "reset of a shared stack cell drops a reference");
-  check(idris_rt_reset(&frame) == NULL, "reset of a stack cell at count 1 is NULL");
+  idris_rt_dec(&frame);
+  check(frame.header.count == 1 && !idris_rt_is_unique(&frame),
+        "a stack cell at count 1 is not exclusive either");
+  idris_rt_dec(&frame);
   check(frame.header.count == 0 && frame.plain == 99,
         "a stack cell at count 0 is inert, and its memory is its frame's");
   check(live() == before + 1 && count(shared) == 1, "a dead stack cell released its slots");
@@ -369,7 +362,7 @@ int main(int argc, char **argv) {
   trees();
   closures();
   stringsAndBignums();
-  resets();
+  tokens();
   stackCells();
   check(live() == 0, "nothing is live at the end");
   report();

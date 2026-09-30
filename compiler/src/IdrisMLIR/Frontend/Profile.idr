@@ -185,13 +185,21 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
       let key = show full
       if contains key seen then go seen rest else do
         -- Where the definition comes from, as the registry classifies it.
-        origin <- (.origin) <$> toLoc (location def)
+        loc <- toLoc (location def)
+        let origin = loc.origin
         let trusted = covers Trusted origin
         -- Primitives have no location; errors name the user definition.
         let here = if trusted || isNothing (isNonEmptyFC (location def)) then path else (full, location def) :: path
         let owner = case here of
                       ((u, _) :: _) => show u
                       [] => key
+        -- A trusted library may load a module outside the table (base's
+        -- `Data.IORef` loads `System.Concurrency`); what decides is whether
+        -- the program reaches it.
+        case origin of
+          Untrusted => reject (userFC path) (maybe key (show . fst) (head' path)) TrustedLibrary
+                         (key ++ " is in " ++ show loc.place ++ ", which is not a trusted library module" ++ via path)
+          _ => pure ()
         when (isEscapeHatch def) $
           reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
         case definition def of

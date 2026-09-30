@@ -129,6 +129,11 @@ cl::opt<bool> printTargetTriple("print-target-triple",
                                 cl::desc("Print the target triple executables are linked for, "
                                          "and exit"),
                                 cl::init(false));
+// What other compilers need to compile for the same machine, bench/run.sh's
+// C versions among them: the CPU --cpu selects, `native` resolved.
+cl::opt<bool> printTargetCpu("print-target-cpu",
+                             cl::desc("Print the CPU code is compiled for, and exit"),
+                             cl::init(false));
 
 std::string stepName(llvm::StringRef step) {
   std::string name = step.split(',').first.str();
@@ -675,6 +680,11 @@ int main(int argc, char **argv) {
     return usage;
   if (printTargetTriple) {
     llvm::outs() << targetTriple << "\n";
+    return ok;
+  }
+  if (printTargetCpu) {
+    llvm::outs() << (targetCpu == "native" ? llvm::sys::getHostCPUName().str() : targetCpu)
+                 << "\n";
     return ok;
   }
   return runOnLargeStack();

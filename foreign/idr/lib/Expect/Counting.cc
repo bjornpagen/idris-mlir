@@ -47,10 +47,6 @@ LogicalResult countsNothing(ModuleOp module, StringRef function) {
   return success(held);
 }
 
-} // namespace idr::expect
-
-namespace idr::expect {
-
 namespace {
 
 // Whether the function gives `value` a second reference: an idr.inc of it,
@@ -96,8 +92,6 @@ LogicalResult resetsUnshared(ModuleOp module, StringRef function) noexcept {
       Value cell;
       if (auto take = dyn_cast<TakeOp>(op); take && take.getToken())
         cell = take.getValue();
-      else if (auto reset = dyn_cast<ResetOp>(op))
-        cell = reset.getValue();
       if (!cell || !givenSecondReference(cell))
         return;
       fail(op->getLoc(), property) << op->getName() << " in " << where(op)
@@ -114,14 +108,10 @@ LogicalResult reusesEveryCell(ModuleOp module, StringRef function) noexcept {
     return failure();
   bool held = true;
   fn.walk([&](DecOp dec) {
-    Operation *def = dec.getValue().getDefiningOp();
-    SymbolRefAttr ctor;
-    if (auto take = dyn_cast_or_null<TakeOp>(def))
-      ctor = take.getCtor();
-    else if (auto reset = dyn_cast_or_null<ResetOp>(def))
-      ctor = reset.getCtor();
-    if (!ctor)
+    auto take = dec.getValue().getDefiningOp<TakeOp>();
+    if (!take)
       return;
+    SymbolRefAttr ctor = take.getCtor();
     // A constructor without fields is a static cell, never the program's
     // to reuse.
     if (CtorOp decl = lookupCtor(dec, ctor); decl && decl.getFieldTypes().empty())

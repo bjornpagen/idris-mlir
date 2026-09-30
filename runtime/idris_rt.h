@@ -41,16 +41,16 @@ extern "C" {
  * - tag (bits 0-15): a box's constructor tag, a string's ASCII flag in bit 0
  *   (set only when every byte is ASCII); 0 for a closure, whose code pointer
  *   says what it is, and for a bignum.
- * - objs (bits 16-23): the number of 8-byte object slots. A box's are the
- *   first objs slots right after the header; a closure's are the first objs
- *   slots after its code pointer, which is at offset 8. Strings and bignums
- *   have none.
+ * - objs (bits 16-23): the number of object slots, one word
+ *   (IDRIS_RT_WORD_BYTES) each. A box's are the first objs slots right after
+ *   the header; a closure's are the first objs slots after its code pointer,
+ *   which is right after the header. Strings and bignums have none.
  * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
  * - bit 31: a stack cell, which the compiler builds in a frame; its memory
  *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
  *   When its count reaches 0 its object slots are released but its memory is
  *   not freed, and the live-cell count does not change. A stack cell is
- *   never exclusive (idris_rt_is_unique, idris_rt_reset): a callee it is lent
+ *   never exclusive (idris_rt_is_unique): a callee it is lent
  *   to could otherwise reuse its memory for a result that outlives the frame
  *   holding it.
  * idris_rt_info builds the word, and the accessors below take it apart. It
@@ -67,6 +67,26 @@ typedef struct idris_rt_header {
   uint32_t count;
   uint32_t info;
 } idris_rt_header;
+
+/* A word: a pointer, an object slot, the header. The compiler places object
+ * slots by the target's data layout and rejects a target whose pointers are
+ * not words of this size, so every target the runtime is built for must
+ * have them: x86_64 Linux and arm64 macOS are both LP64. */
+#define IDRIS_RT_WORD_BYTES 8u
+#ifdef __cplusplus
+#define IDRIS_RT_STATIC_ASSERT static_assert
+#define IDRIS_RT_ALIGNOF alignof
+#else
+#define IDRIS_RT_STATIC_ASSERT _Static_assert
+#define IDRIS_RT_ALIGNOF _Alignof
+#endif
+IDRIS_RT_STATIC_ASSERT(sizeof(void *) == IDRIS_RT_WORD_BYTES &&
+                           IDRIS_RT_ALIGNOF(void *) == IDRIS_RT_WORD_BYTES,
+                       "an object slot is a pointer of one word");
+IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
+                       "the header is one word, so the object slots after it are aligned");
+#undef IDRIS_RT_ALIGNOF
+#undef IDRIS_RT_STATIC_ASSERT
 
 #define IDRIS_RT_KIND_BOX 0u
 #define IDRIS_RT_KIND_CLOSURE 1u
@@ -150,8 +170,8 @@ void *idris_rt_alloc(size_t size);
 void idris_rt_free(void *block);
 
 /* Reference counting. Every entry point below takes NULL, an odd word and a
- * persistent object too, and then does nothing (idris_rt_reset returns NULL,
- * idris_rt_is_unique false): an object slot may hold any of them, so callers
+ * persistent object too, and then does nothing (idris_rt_is_unique returns
+ * false): an object slot may hold any of them, so callers
  * need no test first. */
 
 /* A new cell of `size` bytes, a box or a closure that idr-lower builds (or,
@@ -176,16 +196,11 @@ void idris_rt_dec(void *o);
 /* Whether o is exclusive: count 1, and not a stack cell. */
 bool idris_rt_is_unique(const void *o);
 
-/* When o is exclusive (count 1, and not a stack cell), releases what it owns
- * (its object slots; a bignum's limbs) and returns o, whose memory the
- * caller reuses for a cell of the same size, rewriting the header, or frees
- * with idris_rt_free_cell. Otherwise drops one reference to o, as
- * idris_rt_dec, and returns NULL, and the caller allocates a new cell. */
-void *idris_rt_reset(void *o);
-
 /* Frees the memory of a counted heap cell, and nothing else: the caller has
- * already released what it owns (idris_rt_reset). A stack cell's memory is
- * its frame's, so a stack cell is left alone too. */
+ * already moved out what it owns, having found it exclusive
+ * (idris_rt_is_unique), and reuses the memory of such a cell for one of the
+ * same size, rewriting the header, or frees it here. A stack cell's memory
+ * is its frame's, so a stack cell is left alone too. */
 void idris_rt_free_cell(void *o);
 
 /* The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
@@ -232,28 +247,27 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * CPU without the features the program was compiled to use. */
 #define IDRIS_RT_CRASHED 1
 
-/* The CPU features a program may be compiled to use and idris_rt_start
- * tests: those of the x86-64 microarchitecture levels v2, v3 and v4 above
- * the baseline. Each is X(bit, LLVM feature name, cpuid leaf, cpuid register
- * (0 to 3: eax, ebx, ecx, edx), bit in that register, register state it
- * needs saved: 0 none, 1 AVX, 2 AVX-512). idr-lower sets a bit for each
- * feature the module's target enables. */
+/* The processor features a program may be compiled to use and
+ * idris_rt_start tests, per target. Each is X(bit, name), the name being
+ * LLVM's, which __builtin_cpu_supports also knows; idr-lower sets a bit for
+ * each one the module's target enables. On x86-64 they are those of the
+ * microarchitecture levels v2, v3 and v4 above the baseline; a CPU named
+ * with --cpu may enable more, which are not tested. */
+#if defined(__x86_64__)
 #define IDRIS_RT_CPU_FEATURES(X)                                               \
-  X(0, "cx16", 1, 2, 13, 0) X(1, "popcnt", 1, 2, 23, 0)                        \
-  X(2, "sse3", 1, 2, 0, 0) X(3, "sse4.1", 1, 2, 19, 0)                         \
-  X(4, "sse4.2", 1, 2, 20, 0) X(5, "ssse3", 1, 2, 9, 0)                        \
-  X(6, "sahf", 0x80000001, 2, 0, 0) X(7, "avx", 1, 2, 28, 1)                   \
-  X(8, "avx2", 7, 1, 5, 1) X(9, "bmi", 7, 1, 3, 0) X(10, "bmi2", 7, 1, 8, 0)   \
-  X(11, "f16c", 1, 2, 29, 1) X(12, "fma", 1, 2, 12, 1)                         \
-  X(13, "lzcnt", 0x80000001, 2, 5, 0) X(14, "movbe", 1, 2, 22, 0)              \
-  X(15, "xsave", 1, 2, 26, 0) X(16, "avx512f", 7, 1, 16, 2)                    \
-  X(17, "avx512bw", 7, 1, 30, 2) X(18, "avx512cd", 7, 1, 28, 2)                \
-  X(19, "avx512dq", 7, 1, 17, 2) X(20, "avx512vl", 7, 1, 31, 2)
+  X(0, "cx16") X(1, "popcnt") X(2, "sse3") X(3, "sse4.1") X(4, "sse4.2")       \
+  X(5, "ssse3") X(6, "sahf") X(7, "avx") X(8, "avx2") X(9, "bmi")              \
+  X(10, "bmi2") X(11, "f16c") X(12, "fma") X(13, "lzcnt") X(14, "movbe")       \
+  X(15, "xsave") X(16, "avx512f") X(17, "avx512bw") X(18, "avx512cd")          \
+  X(19, "avx512dq") X(20, "avx512vl")
+#else
+#error "idris_rt.h: no list of processor features for this target"
+#endif
 
 /* The program's entry, which @main calls with the program and the
  * IDRIS_RT_CPU_FEATURES bits its target enables. When the CPU lacks one of
  * them, it names them and ends the process with IDRIS_RT_CRASHED before the
- * program runs; it is compiled for the x86-64 baseline, and idris-mlir-cc
+ * program runs; it is compiled for the target's baseline, and idris-mlir-cc
  * keeps it there. Otherwise it runs body on a reserved stack
  * (idris_rt_run_on_stack) of a gibibyte, or of the stack limit when that is
  * larger; when that stack runs out, the output written so far is flushed,

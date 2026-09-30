@@ -289,7 +289,7 @@ Value WhileDo::in(Value value, Scope scope) {
       return value;
     if (scope == Scope::Before)
       return value;
-    slot = static_cast<unsigned>(carried.size() + (it - passed.begin()));
+    slot = static_cast<unsigned>(carried.size()) + static_cast<unsigned>(it - passed.begin());
   }
   switch (scope) {
   case Scope::Before:
@@ -315,7 +315,7 @@ Value WhileDo::continues() {
     if (auto extended = x.getDefiningOp<arith::ExtUIOp>();
         extended && extended.getIn().getType().isInteger(1) && k.getValue().ule(1)) {
       x = extended.getIn();
-      k = b.getIntegerAttr(x.getType(), k.getValue().getZExtValue());
+      k = b.getIntegerAttr(x.getType(), k.getValue().trunc(1));
     }
     if (x.getType().isInteger(1)) {
       bool whenSet = (predicate == arith::CmpIPredicate::eq) == k.getValue().isOne();

@@ -93,7 +93,7 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
                                                                                 : Use::Consume;
   // A linear value moves into its one use and out of it again, with its
   // reference; so does a natural into the Integer it is.
-  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
+  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
           LinUseOp, NatToBigOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;

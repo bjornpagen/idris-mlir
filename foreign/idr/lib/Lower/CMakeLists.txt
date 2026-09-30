@@ -1,5 +1,6 @@
 # Lower, as plain translation units: not yet a module.
 target_sources(idr_dialect PRIVATE
+	Bigs.cc
 	Closures.cc
 	Counting.cc
 	Facts.cc

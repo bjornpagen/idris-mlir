@@ -4,12 +4,17 @@
 ||| registry compares.
 module IdrisMLIR.Frontend.Resolve
 
+import Core.Binary
 import Core.Context
 import Core.Core
+import Core.Directory
 import Core.Env
 import Core.Normalise
 import Core.Options
 import Core.TT
+import Idris.Version
+import Libraries.Data.Version
+import Libraries.Utils.Path
 
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
@@ -48,10 +53,33 @@ export
 moduleIdent : List String -> ModuleIdent
 moduleIdent path = unsafeFoldModuleIdent (reverse path)
 
-||| Where the code of a module comes from (the registry's library table).
+||| Where Idris found the TTC it loaded a module from. The module it
+||| elaborates from source is in no TTC, and is the project's.
+homeOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Home
+homeOf ident = do
+  defs <- get Ctxt
+  case lookup ident (map (\(file, (m, _, _)) => (m, file)) defs.allImported) of
+    Nothing => pure Project
+    Just file => do
+      let own = ModuleIdent.toPath ident <.> "ttc"
+      bdir <- ttcBuildDirectory
+      global <- pkgGlobalDirectory
+      pure $ if dropBase bdir file == Just own then Project else
+        case map splitPath (dropBase global file) of
+          Just (dir :: _) =>
+            -- An installed package's directory is its name and the
+            -- version it was installed with, which is the pinned Idris's.
+            let suffix = "-" ++ showVersion False version in
+            if isSuffixOf suffix dir && dropBase (global </> dir </> show ttcVersion) file == Just own
+               then Installed (substr 0 (length dir `minus` length suffix) dir)
+               else Elsewhere
+          _ => Elsewhere
+
+||| Where the code of a module comes from (the registry's library table),
+||| by the package Idris loaded it from, never by its name alone.
 export
-originOf : ModuleIdent -> Origin
-originOf ident = moduleOrigin (modulePath ident)
+originOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Origin
+originOf ident = pure (moduleOrigin !(homeOf ident) (modulePath ident))
 
 ------------------------------------------------------------------------------
 -- Hooks

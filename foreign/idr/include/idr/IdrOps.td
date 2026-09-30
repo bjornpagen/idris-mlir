@@ -320,8 +320,11 @@ def Idr_CtorOp : Idr_Op<"ctor", [Symbol, HasParent<"DataOp">]> {
 // Values
 //===----------------------------------------------------------------------===//
 
+// A constant big or natural has its value's range (lib/Dialect/BigRanges.cc);
+// any other constant is not an integer, and has none.
 def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "a constant: a constructor, closure, string, big or the erased value";
   let arguments = (ins AnyAttr:$value);
   let results = (outs AnyType:$result);
@@ -701,8 +704,8 @@ def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
 //===----------------------------------------------------------------------===//
 
 // An op that makes a big allocates its result (MemAlloc).
-class Idr_BigBinaryOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime]> {
+class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
+    : Idr_Op<"big." # mnemonic, !listconcat([Idr_CallsRuntime], traits)> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs";
@@ -715,7 +718,8 @@ class Idr_BigBinaryOp<string mnemonic, string what>
 // Integers or naturals, and give what they take: Nat's plus and mult are
 // these ops. The type is written only for naturals: `: !idr.nat`.
 class Idr_BigNaturalOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs", "result"]>]> {
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs", "result"]>,
+                                 DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs or two naturals";
@@ -725,7 +729,7 @@ class Idr_BigNaturalOp<string mnemonic, string what>
 }
 
 def Idr_BigAddOp : Idr_BigNaturalOp<"add", "the sum">;
-def Idr_BigSubOp : Idr_BigBinaryOp<"sub", "the difference">;
+def Idr_BigSubOp : Idr_BigBinaryOp<"sub", "the difference", [DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>;
 def Idr_BigMulOp : Idr_BigNaturalOp<"mul", "the product">;
 def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
@@ -764,7 +768,8 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
 // so the value visibly shrinks: the passes see structural descent, not
 // arithmetic. That the operand is not zero is also why the result is
 // natural.
-def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime]> {
+def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the predecessor of a natural that is not zero";
@@ -776,7 +781,7 @@ def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime]> {
 // Two naturals compare as the Integers they are: Nat's equalNat and
 // compareNat are this op. The type is written only for naturals.
 def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
-    AllTypesMatch<["lhs", "rhs"]>]> {
+    AllTypesMatch<["lhs", "rhs"]>, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "compares two bigs or two naturals";
@@ -789,7 +794,7 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
 // A natural as the Integer it is (Nat's natToInteger): the same big under
 // another type. It costs nothing at runtime, and hands its operand's
 // reference to its result.
-def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure]> {
+def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let hasFolder = 1;
   let summary = "a natural as an Integer";
   let arguments = (ins Idr_NatType:$value);
@@ -800,7 +805,7 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure]> {
 // The only op that makes a natural of an Integer, so the one that must
 // keep it non-negative: a negative Integer is 0, as Nat's integerToNat
 // and minus (the difference of the Integers, clamped) say.
-def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime]> {
+def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "an Integer as a natural, 0 if it is negative";
@@ -809,24 +814,30 @@ def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime]> {
   let assemblyFormat = "$value attr-dict";
 }
 
-def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
+// An integer as an Integer, or, read as unsigned, as a natural: an unsigned
+// integer is never negative, so the verifier admits a natural result only
+// for one (idr-narrow writes it where a natural leaves a word).
+def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "an integer as a big";
+  let hasVerifier = 1;
+  let summary = "an integer as a big or, unsigned, as a natural";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
-  let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
+  let results = (outs Res<Idr_BigOrNat, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
     custom<Signedness>($is_signed) `` $value attr-dict `:` type($value)
+    custom<Natural>(type($result))
   }];
 }
 
-def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime]> {
+// A natural's value is its Integer's, so both convert alike.
+def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "a big as an integer, wrapped to its width";
-  let arguments = (ins Idr_BigType:$value);
+  let summary = "a big or a natural as an integer, wrapped to its width";
+  let arguments = (ins Idr_BigOrNat:$value);
   let results = (outs Idr_Int:$result);
-  let assemblyFormat = "$value attr-dict `:` type($result)";
+  let assemblyFormat = "$value attr-dict `:` type($result) custom<Natural>(type($value))";
 }
 
 def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
@@ -931,7 +942,7 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 // merges or drops them.
 
 def Idr_TokenType : Idr_Type<"Token", "token"> {
-  let summary = "the memory of a cell whose fields idr.reset released, or null";
+  let summary = "the memory of a cell whose fields idr.take moved out, or null";
 }
 
 // The values that hold references: a string, a big or natural (a small one
@@ -966,26 +977,12 @@ def Idr_DecOp : Idr_OwnedOp<"dec"> {
   let summary = "drops a reference to a value, and frees it with its last";
   let description = [{
     Freeing a cell drops its fields' references in turn. The dec of a token
-    frees the memory of its cell, whose fields idr.reset already released.
+    frees the memory of its cell, whose fields idr.take already moved out.
     A linear value is used at most once, and may be dropped instead.
   }];
   let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType]>, "",
                            [MemRead, MemWrite, MemFree]>:$value);
   let assemblyFormat = "$value attr-dict `:` type($value)";
-}
-
-// The box was built by `ctor`, which the match it is in has seen.
-def Idr_ResetOp : Idr_OwnedOp<"reset", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
-  let summary = "drops a box, keeping its cell when that was its last reference";
-  let description = [{
-    When the box holds the only reference to its cell, its fields'
-    references are dropped and the token is the cell, to build another
-    constructor in; otherwise this is idr.dec and the token is null.
-  }];
-  let arguments = (ins Arg<Idr_BoxType, "", [MemRead, MemWrite, MemFree]>:$value,
-                       SymbolRefAttr:$ctor);
-  let results = (outs Idr_TokenType:$token);
-  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` type($token)";
 }
 
 def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
@@ -998,8 +995,8 @@ def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpIn
   }];
 }
 
-// Where a match region takes its scrutinee apart and the scrutinee dies:
-// the fields move out of it, so none is counted twice.
+// Where a match's scrutinee dies in one of its case regions, which knows
+// the constructor: the fields move out of it, so none is counted twice.
 def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "consumes a constructor value, each of its fields keeping a reference of its own";
   let description = [{

@@ -35,8 +35,8 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
       if (failed(layouts))
         return signalPassFailure();
       for (func::FuncOp fn : functions) {
-        auto [resets, reuses] = own::insertResetReuse(fn, *layouts);
-        numResets += resets;
+        auto [takes, reuses] = own::insertResetReuse(fn, *layouts);
+        numTakes += takes;
         numReuses += reuses;
       }
     }

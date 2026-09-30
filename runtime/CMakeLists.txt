@@ -20,15 +20,14 @@ endforeach()
 
 # The runtime's profile, in every configuration:
 # - optimized, since optnone bitcode would stay unoptimized in programs;
-# - the x86-64 baseline plus CMPXCHG16B, which snmalloc requires: idris-mlir-cc
+# - the target's baseline (its entry in CMakeLists.txt): idris-mlir-cc
 #   raises every runtime function to the program's CPU;
 # - fat LTO objects: bitcode for programs, native code for idris-mlir-cc;
 # - no FP contraction.
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
-	-march=x86-64
-	-mcx16
+	${IDRIS_MLIR_RUNTIME_BASELINE}
 	-flto=full
 	-ffat-lto-objects
 	-ffp-contract=off
@@ -70,6 +69,8 @@ add_library(idris_rt STATIC
 	gmp.cc
 	io.cc
 	numbers.cc
+	platform_posix.cc
+	${IDRIS_MLIR_RUNTIME_CPU_TEST}
 	rc.cc
 	start.cc
 	strings.cc

@@ -324,6 +324,12 @@ OpFoldResult BigFromIntOp::fold(FoldAdaptor adaptor) {
 }
 
 OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
+  // An integer made a big and back at its own width is itself, whichever
+  // way it was read: idr-narrow leaves these pairs where a word meets a
+  // word.
+  if (auto from = getValue().getDefiningOp<BigFromIntOp>())
+    if (from.getValue().getType() == getType())
+      return from.getValue();
   auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
   if (!a)
     return {};

@@ -232,13 +232,13 @@ private:
     return it->second[slot];
   }
 
-  // The token of an idr.reuse comes from an idr.reset of a cell of the
+  // The token of an idr.reuse comes from an idr.take of a cell of the
   // same size.
   LogicalResult fits(ReuseOp reuse) {
     Operation *made = reuse.getToken().getDefiningOp();
     SymbolRefAttr cell = made ? made->getAttrOfType<SymbolRefAttr>("ctor") : nullptr;
-    if (!isa_and_nonnull<ResetOp, TakeOp>(made) || !cell)
-      return reuse.emitOpError("builds in a token that no idr.reset or idr.take made");
+    if (!isa_and_nonnull<TakeOp>(made) || !cell)
+      return reuse.emitOpError("builds in a token that no idr.take made");
     CtorOp from = lookupCtor(made, cell);
     CtorOp to = lookupCtor(reuse, reuse.getCtor());
     if (!from || !to)

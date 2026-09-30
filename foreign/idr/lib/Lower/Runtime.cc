@@ -47,10 +47,12 @@ Value at(OpBuilder &b, Location loc, Value cell, unsigned offset) {
                              ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(offset)});
 }
 
-// The alignment of the word at `offset` in a cell, which is 8-aligned: LLVM
-// would otherwise take the alignment of the type from a data layout that
-// the translation does not have yet.
-unsigned alignAt(unsigned offset) { return static_cast<unsigned>(llvm::MinAlign(8, offset)); }
+// The alignment of the component at `offset` in a cell, which is
+// word-aligned: LLVM would otherwise take the alignment of the type from a
+// data layout that the translation does not have yet.
+unsigned alignAt(unsigned offset) {
+  return static_cast<unsigned>(llvm::MinAlign(IDRIS_RT_WORD_BYTES, offset));
+}
 
 } // namespace
 
@@ -207,7 +209,7 @@ LLVM::GlobalOp Runtime::global(OpBuilder &b, Location loc, StringRef prefix, Typ
   b.setInsertionPointToStart(module.getBody());
   std::string name = (prefix + Twine(globals++)).str();
   auto global = LLVM::GlobalOp::create(b, loc, type, /*isConstant=*/true, LLVM::Linkage::Private,
-                                       name, Attribute(), /*alignment=*/8);
+                                       name, Attribute(), /*alignment=*/IDRIS_RT_WORD_BYTES);
   b.createBlock(&global.getInitializerRegion());
   LLVM::ReturnOp::create(b, loc, init(b));
   return global;
@@ -227,15 +229,40 @@ Value Runtime::pack(OpBuilder &b, Location loc, Type structType, ValueRange memb
 LLVM::GlobalOp Runtime::staticCell(
     OpBuilder &b, Location loc, StringRef prefix, const Cell &cell,
     function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
-  auto structType = LLVM::LLVMStructType::getLiteral(b.getContext(), cell.members(b.getContext()));
+  // A packed struct with the padding as bytes of its own, so that LLVM puts
+  // each component at the offset the layout chose, whatever data layout the
+  // translation is given.
+  MLIRContext *ctx = b.getContext();
+  auto i32 = b.getI32Type();
+  SmallVector<Type> members{i32, i32};
+  // For each member, the component it holds, or none for padding.
+  SmallVector<std::optional<std::pair<unsigned, unsigned>>> holds{std::nullopt, std::nullopt};
+  unsigned at = sizeof(idris_rt_header);
+  auto padTo = [&](unsigned offset) {
+    if (offset > at) {
+      members.push_back(LLVM::LLVMArrayType::get(b.getI8Type(), offset - at));
+      holds.push_back(std::nullopt);
+    }
+    at = offset;
+  };
+  for (auto [field, component] : cell.order) {
+    const Slot &slot = cell.fields[field][component];
+    padTo(slot.offset);
+    members.push_back(slot.type);
+    holds.push_back(std::make_pair(field, component));
+    at += layouts.sizeOf(slot.type);
+  }
+  padTo(cell.size);
+  auto structType = LLVM::LLVMStructType::getLiteral(ctx, members, /*isPacked=*/true);
   return global(b, loc, prefix, structType, [&](OpBuilder &init) -> Value {
     SmallVector<SmallVector<Value>> fields;
     for (unsigned field = 0; field < cell.fields.size(); ++field)
       fields.push_back(components(init, field));
-    SmallVector<Value> members{i32Constant(init, loc, 0), i32Constant(init, loc, cell.info.word())};
-    for (auto [field, component] : cell.order)
-      members.push_back(fields[field][component]);
-    return pack(init, loc, structType, members);
+    SmallVector<Value> values{i32Constant(init, loc, 0), i32Constant(init, loc, cell.info.word())};
+    for (auto [type, held] : llvm::drop_begin(llvm::zip_equal(members, holds), 2))
+      values.push_back(held ? fields[held->first][held->second]
+                            : LLVM::ZeroOp::create(init, loc, type).getResult());
+    return pack(init, loc, structType, values);
   });
 }
 

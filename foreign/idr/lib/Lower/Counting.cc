@@ -1,6 +1,6 @@
 // Lowering of the ops that count references: calls of the runtime, which
 // LTO inlines. In JIT mode every cell is persistent, so counting does
-// nothing, and a reset never yields a cell.
+// nothing, and a take never yields a cell.
 
 #include "Lower/Patterns.h"
 
@@ -35,22 +35,6 @@ struct LowerDec : IdrPattern<DecOp> {
       runtime.dec(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(type));
     }
     rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// The cell when the box held its last reference, else null.
-struct LowerReset : IdrPattern<ResetOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ResetOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Type ptr = LLVM::LLVMPointerType::get(rewriter.getContext());
-    Value token = runtime.isJit()
-                      ? runtime.null(rewriter, loc, ptr)
-                      : runtime.call(rewriter, loc, "idris_rt_reset", ptr,
-                                     adaptor.getValue().front());
-    rewriter.replaceOp(op, token);
     return success();
   }
 };
@@ -139,8 +123,8 @@ struct LowerTake : IdrPattern<TakeOp> {
 
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerInc, LowerDec, LowerReset, LowerReuse, LowerTake>(converter, patterns.getContext(),
-                                                           layouts, runtime);
+  patterns.add<LowerInc, LowerDec, LowerReuse, LowerTake>(converter, patterns.getContext(),
+                                                          layouts, runtime);
 }
 
 } // namespace idr::lower

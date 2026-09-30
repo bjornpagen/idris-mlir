@@ -291,7 +291,14 @@ struct LowerToChar : IdrPattern<ToCharOp> {
 // says. Ops whose result width varies get the result modulo 2^64 and
 // truncate it.
 template <typename OpT>
-constexpr bool returnsWord = llvm::is_one_of<OpT, ToIntOp, StrToIntOp, BigToIntOp>::value;
+constexpr bool returnsWord = llvm::is_one_of<OpT, ToIntOp, StrToIntOp>::value;
+
+// The ops whose small case is inline (Bigs.cc), which call the runtime only
+// on their cold path.
+template <typename OpT>
+constexpr bool smallCaseInline = llvm::is_one_of<OpT, BigAddOp, BigSubOp, BigMulOp, BigPredOp,
+                                                 BigCmpOp, NatFromBigOp, BigFromIntOp,
+                                                 BigToIntOp>::value;
 
 template <typename OpT>
 std::optional<bool> signedness(OpT op) {
@@ -418,7 +425,7 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
   }
 };
 
-// str.cmp and big.cmp: the runtime's three-way comparison against 0.
+// str.cmp: the runtime's three-way comparison against 0.
 template <typename OpT>
 struct LowerCompare : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -455,7 +462,7 @@ template <typename... Ops>
 void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
                      Layouts &layouts, Runtime &runtime) {
   auto add = [&]<typename OpT>() {
-    if constexpr (!OpT::template hasTrait<CallsRuntime>())
+    if constexpr (!OpT::template hasTrait<CallsRuntime>() || smallCaseInline<OpT>)
       return;
     else if constexpr (requires(OpT op) { op.getPredicate(); })
       patterns.add<LowerCompare<OpT>>(converter, patterns.getContext(), layouts, runtime);
@@ -471,6 +478,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
                       Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
   populateCountingPatterns(patterns, converter, layouts, runtime);
+  populateBigPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
                LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
                LowerAsItself<LinEnterOp>, LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(

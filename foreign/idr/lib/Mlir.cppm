@@ -660,7 +660,6 @@ using idr::readOnce;
 using idr::registerIdr;
 using idr::registerIdrPasses;
 using idr::registerIdrPipeline;
-using idr::ResetOp;
 using idr::ReuseOp;
 using idr::SpecKeyAttr;
 using idr::StrAppendOp;

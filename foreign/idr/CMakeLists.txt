@@ -149,6 +149,7 @@ endif()
 target_compile_definitions(idris-mlir-cc PRIVATE
 	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
 	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
+	"IDRIS_MLIR_TARGET_CPU=\"${IDRIS_MLIR_TARGET_CPU}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 

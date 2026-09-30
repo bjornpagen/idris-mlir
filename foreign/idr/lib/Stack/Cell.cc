@@ -18,11 +18,10 @@ Value cell(OpBuilder &b, Location loc, ConOp con, lower::Layouts &layouts,
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(&con->getParentOfType<func::FuncOp>().getBody().front());
-    auto i64 = b.getI64Type();
-    Value one = LLVM::ConstantOp::create(b, loc, i64, b.getI64IntegerAttr(1));
+    Value one = LLVM::ConstantOp::create(b, loc, b.getI64Type(), b.getI64IntegerAttr(1));
     slot = LLVM::AllocaOp::create(b, loc, LLVM::LLVMPointerType::get(b.getContext()),
-                                  LLVM::LLVMArrayType::get(i64, layout.size / 8), one,
-                                  /*alignment=*/8);
+                                  LLVM::LLVMArrayType::get(b.getI8Type(), layout.size), one,
+                                  /*alignment=*/IDRIS_RT_WORD_BYTES);
   }
   runtime.storeHeader(b, loc, slot, layout.info.onStack());
   return slot;

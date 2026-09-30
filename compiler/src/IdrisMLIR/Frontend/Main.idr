@@ -272,6 +272,10 @@ compileModule c _ source = do
 -- IO programs
 ------------------------------------------------------------------------------
 
+isUser : Origin -> Bool
+isUser User = True
+isUser _ = False
+
 rootName : ClosedTerm -> Maybe (Name, Name)
 rootName tm = case go tm [] of
     (Ref _ _ f, args) => case reverse args of
@@ -301,6 +305,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
   let objPath = base ++ ".o"
   traverse_ remove [corePath, mlirPath, objPath, base]
   defs <- get Ctxt
+  -- Idris runs `-o` even after an elaboration error, on what the failed
+  -- module left, once it has reported the error. Only when every module
+  -- built does it reload the main module from its TTC, as the module of no
+  -- name; without it there is no program, and nothing more to say.
+  unless (any (\(_, (m, _, _)) => null (unsafeUnfoldModuleIdent m)) defs.allImported) $
+    coreLift (exitWith (ExitFailure 1))
   Just (perform, main) <- pure (rootName tm)
     | Nothing => throw (GenericMsg EmptyFC "mlir backend: unsupported (program): an unexpected root term")
   Just mainDef <- lookupCtxtExact main (gamma defs)
@@ -311,30 +321,33 @@ compileIO c _ tmpDir outputDir tm outfile = do
   validated fc
   unless (programRoot (hooksOf !(toFullNames perform))) $
     reject fc "main" ProgramShape "the root is not unsafePerformIO main"
-  -- Every module is trusted or a user module with source.
+  -- Every module of the project's is one with source, whose pragmas are
+  -- checked. The main TTC's entry has no name. Library modules outside the
+  -- table may be loaded, but not reached (checkReachable).
   let mainIdent = case !(toFullNames main) of
                     NS ns _ => nsAsModuleIdent ns
                     _ => moduleIdent mainModule
-  let mods = mainIdent :: map (\(_, (m, _, _)) => m) defs.allImported
-  let user = filter (\m => not (covers Trusted (originOf m) || null (unsafeUnfoldModuleIdent m))) mods
+  let mods = mainIdent :: filter (not . null . unsafeUnfoldModuleIdent) (map (\(_, (m, _, _)) => m) defs.allImported)
+  user <- filterM (\m => isUser <$> originOf m) (nub mods)
   sources <- for user $ \m => do
     path <- catch (Just <$> nsToSource fc m) (\_ => pure Nothing)
     pure (m, path)
   let userNames = map (show . fst) (filter (isJust . snd) sources)
-  -- An import of a module that is neither a user module nor trusted, at the
-  -- import itself.
+  -- The user's own imports are of user modules or trusted ones, rejected
+  -- at the import itself.
   for_ sources $ \(m, path) => case path of
     Just p => do
       is <- imports m p
-      for_ is $ \(target, at) =>
-        unless (covers Trusted (moduleOrigin (forget (split (== '.') target))) || elem target userNames) $
+      for_ is $ \(target, at) => do
+        trusted <- covers Trusted <$> originOf (moduleIdent (forget (split (== '.') target)))
+        unless (trusted || elem target userNames) $
           reject at (show m) ProgramShape
                  ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
     Nothing => pure ()
   for_ sources $ \(m, path) => case path of
     Just p => checkPragmas m p
     Nothing => reject fc "main" ProgramShape
-                 ("loads " ++ show m ++ ", which is neither a user module nor a trusted module")
+                 ("loads " ++ show m ++ ", a module of the project whose source is missing")
   checkReachable fc [main]
   prog <- translateIOProgram fc main
   (dir, dumpMlir) <- dumpDir base

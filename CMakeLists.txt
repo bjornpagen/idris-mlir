@@ -81,6 +81,26 @@ if(IDRIS_MLIR_LINUX AND NOT CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-musl$")
 	message(FATAL_ERROR "Linux builds target musl through the pinned sysroot; configure with a preset (got target '${CMAKE_CXX_COMPILER_TARGET}')")
 endif()
 
+# The target programs are compiled for is decided here and nowhere else. The
+# preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
+# built for too; its entry below adds the CPU programs are compiled for by
+# default, the baseline runtime code is compiled for (idris-mlir-cc raises
+# it to the program's CPU), and the runtime's test of the processor.
+# idris-mlir-cc writes the triple and CPU on every module as its
+# #llvm.target, with LLVM's data layout, and every later step reads them
+# there.
+if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-")
+	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
+	# (2013) and AMD's Zen, and an executable names what an older one lacks.
+	# snmalloc needs CMPXCHG16B, which the baseline lacks.
+	# PIN(runtime-cx16) — see PINS.md
+	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
+	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST cpu_x86_64.cc)
+else()
+	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it a default CPU, a runtime baseline and a processor test in CMakeLists.txt")
+endif()
+
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

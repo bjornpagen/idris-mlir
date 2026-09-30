@@ -40,7 +40,7 @@ export
 toLoc : {auto c : Ref Ctxt Defs} -> FC -> Core Loc
 toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
   file <- catch (nsToSource fc ident) (\_ => pure "")
-  pure (MkLoc (originOf ident) (shown (show ident)) file sl sc el ec)
+  pure (MkLoc !(originOf ident) (shown (show ident)) file sl sc el ec)
 toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
 toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
   toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))

@@ -4,6 +4,7 @@
 
 #include "idris_rt.h"
 
+#include <bit>
 #include <cstring>
 
 using namespace mlir;
@@ -12,21 +13,14 @@ namespace idr::eval {
 
 namespace {
 
-uint64_t readWord(const char *at, Type type) {
-  unsigned bytes = 8;
-  if (auto integer = dyn_cast<IntegerType>(type))
-    bytes = static_cast<unsigned>(llvm::PowerOf2Ceil((integer.getWidth() + 7) / 8));
-  uint64_t word = 0;
-  std::memcpy(&word, at, bytes);
-  return word;
-}
+// A component narrower than a word is read into the low bytes of one, which
+// holds its value only on a little-endian machine; the JIT runs the code on
+// this one.
+static_assert(std::endian::native == std::endian::little);
 
 template <typename T> const T *pointer(uint64_t word) {
   return reinterpret_cast<const T *>(static_cast<uintptr_t>(word));
 }
-
-// Where a closure keeps its code pointer (idris_rt.h).
-constexpr unsigned codeOffset = 8;
 
 } // namespace
 
@@ -61,8 +55,11 @@ Attribute Reifier::refuse(Unread::Why why, std::string message) {
 
 SmallVector<uint64_t> Reifier::read(const char *cell, ArrayRef<lower::Slot> slots) {
   SmallVector<uint64_t> words;
-  for (const lower::Slot &slot : slots)
-    words.push_back(readWord(cell + slot.offset, slot.type));
+  for (const lower::Slot &slot : slots) {
+    uint64_t word = 0;
+    std::memcpy(&word, cell + slot.offset, layouts.sizeOf(slot.type));
+    words.push_back(word);
+  }
   return words;
 }
 
@@ -162,14 +159,16 @@ Attribute Reifier::object(Type type, uint64_t word) {
       return {};
     return constructor(decl, ctor, [&](unsigned field) { return read(cell, layout.fields[field]); });
   }
-  // A closure: its code says which label it is of.
+  // A closure: its code says which label it is of. Every closure keeps its
+  // code in the same place, right after the header.
   uint64_t code = 0;
-  std::memcpy(&code, cell + codeOffset, sizeof code);
+  std::memcpy(&code, cell + sizeof(idris_rt_header), sizeof(void *));
   auto found = codes.find(code);
   if (found == codes.end())
     return refuse(Unread::Why::Unreadable, "the code of a closure is no label's");
   const lower::Label &label = layouts.label(found->second);
   const lower::Cell &layout = layouts.closure(label);
+  assert(layout.fields.front().front().offset == sizeof(idris_rt_header));
   if (!spend(layout.size))
     return {};
   SmallVector<Attribute> captures;

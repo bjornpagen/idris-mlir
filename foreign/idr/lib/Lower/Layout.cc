@@ -6,17 +6,6 @@ using namespace mlir;
 
 namespace idr::lower {
 
-namespace {
-
-// The size and alignment of a component: a scalar or a pointer.
-unsigned sizeOf(Type type) {
-  if (auto integer = dyn_cast<IntegerType>(type))
-    return static_cast<unsigned>(llvm::PowerOf2Ceil((integer.getWidth() + 7) / 8));
-  return 8;
-}
-
-} // namespace
-
 std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) noexcept {
   if (tag >= IDRIS_RT_TAG_LIMIT)
     return std::unexpected(("its tag is " + Twine(tag) + ", and a cell's tag is below " +
@@ -49,15 +38,15 @@ SmallVector<Type> SumLayout::types() const {
   return all;
 }
 
-SmallVector<Type> Cell::members(MLIRContext *ctx) const {
-  auto i32 = IntegerType::get(ctx, 32);
-  SmallVector<Type> all{i32, i32};
-  for (auto [field, component] : order)
-    all.push_back(fields[field][component].type);
-  return all;
+unsigned Layouts::sizeOf(Type component) const {
+  return static_cast<unsigned>(target.getTypeSize(component).getFixedValue());
 }
 
-Layouts::Layouts(ModuleOp m) : module(m) {
+unsigned Layouts::alignmentOf(Type component) const {
+  return static_cast<unsigned>(target.getTypeABIAlignment(component));
+}
+
+Layouts::Layouts(ModuleOp m) : module(m), target(m) {
   SymbolTable symbols(module);
   auto note = [&](FlatSymbolRefAttr callee, unsigned captures) {
     auto key = std::make_pair(Attribute(callee), captures);
@@ -76,6 +65,16 @@ Layouts::Layouts(ModuleOp m) : module(m) {
 
 FailureOr<Layouts> Layouts::of(ModuleOp m) {
   Layouts layouts(m);
+  // The runtime frees a cell by its object slots, which it reads as
+  // pointers of the target it is compiled for, one word each; the layouts
+  // must place them as it reads them.
+  Type pointer = LLVM::LLVMPointerType::get(m.getContext());
+  if (layouts.sizeOf(pointer) != IDRIS_RT_WORD_BYTES ||
+      layouts.alignmentOf(pointer) != IDRIS_RT_WORD_BYTES)
+    return m.emitError() << "unsupported (target): its pointers take " << layouts.sizeOf(pointer)
+                         << " bytes at an alignment of " << layouts.alignmentOf(pointer)
+                         << ", and the runtime's object slots are words of "
+                         << IDRIS_RT_WORD_BYTES;
   bool fits = true;
   for (auto data : m.getOps<DataOp>()) {
     if (!data.getBox())
@@ -218,20 +217,19 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
   }
   SmallVector<std::pair<unsigned, unsigned>> order;
   unsigned objs = 0;
-  unsigned at = 8;
+  unsigned at = sizeof(idris_rt_header);
   auto place = [&](unsigned field, unsigned component) {
     Slot &slot = fields[field][component];
-    unsigned size = sizeOf(slot.type);
-    at = static_cast<unsigned>(llvm::alignTo(at, size));
+    at = static_cast<unsigned>(llvm::alignTo(at, alignmentOf(slot.type)));
     slot.offset = at;
-    at += size;
+    at += sizeOf(slot.type);
     order.push_back({field, component});
   };
   auto count = static_cast<unsigned>(fieldTypes.size());
   for (unsigned f = 0; f < std::min(leading, count); ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       place(f, c);
-  // The object slots, each 8 bytes, so contiguous.
+  // The object slots, each a word, so contiguous.
   for (unsigned f = leading; f < count; ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       if (countedness[f][c]) {
@@ -245,8 +243,8 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
   std::expected<CellInfo, std::string> header = info(objs);
   if (!header)
     return std::unexpected(std::move(header.error()));
-  return Cell{std::move(fields), static_cast<unsigned>(llvm::alignTo(at, 8)), objs, std::move(order),
-              *header};
+  return Cell{std::move(fields), static_cast<unsigned>(llvm::alignTo(at, IDRIS_RT_WORD_BYTES)), objs,
+              std::move(order), *header};
 }
 
 } // namespace idr::lower

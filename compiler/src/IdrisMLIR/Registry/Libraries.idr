@@ -8,24 +8,30 @@ import IdrisMLIR.Registry.Name
 
 %default total
 
-||| The areas of the base library that the profile trusts, by
-||| their top namespace.
+||| The areas of a trusted package that the profile trusts, by their top
+||| namespace.
 public export
 data Area = Data | Control | Decidable | Syntax
 
-||| The libraries the compiler knows, by namespace: `Builtin` and `PrimIO`,
-||| the Prelude's modules, and base's trusted areas. A module of another
-||| package under `Data`, or a user module named so, is base to the table;
-||| the table does not know other packages yet.
+||| The libraries the compiler knows: `Builtin` and `PrimIO`, the Prelude's
+||| modules, and the trusted areas of the packages base and linear.
 public export
-data Lib = Builtin | PrimIO | Prelude | Base Area
+data Lib = Builtin | PrimIO | Prelude | Base Area | Linear Area
+
+||| Where Idris found the TTC of a module: in the project's own build
+||| directory, built from the user's source; in the pinned installation's
+||| package of that name; or anywhere else. A module's name says nothing
+||| about which of these it is, so trust never follows from a name.
+public export
+data Home = Project | Installed String | Elsewhere
 
 ||| Where code comes from. The registry computes it once, when TT is
 ||| translated, and every location carries it (`Loc`), so no pass reads a
-||| namespace. Code in no module (a primitive, a location Idris does not
-||| have) is `Generated`.
+||| namespace. `Untrusted` is library code outside the table: a program
+||| may load it, but not reach it. Code in no module (a primitive, a
+||| location Idris does not have) is `Generated`.
 public export
-data Origin = User | Library Lib | Generated
+data Origin = User | Library Lib | Untrusted | Generated
 
 ||| What the compiler asks of a library.
 public export
@@ -56,6 +62,7 @@ row Builtin  = MkRow        True    True     True       True
 row PrimIO   = MkRow        True    False    True       True
 row Prelude  = MkRow        True    True     False      True
 row (Base _) = MkRow        True    True     False      False
+row (Linear _) = MkRow      True    True     False      False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
@@ -70,19 +77,27 @@ covers : Purpose -> Origin -> Bool
 covers p (Library l) = column p (row l)
 covers _ _ = False
 
-||| The origin of the code in a module, by the module's path, outermost
-||| first. `Builtin` and `PrimIO` are exactly those modules; the Prelude and
-||| base's areas are their namespaces.
+||| A trusted area, by its top namespace.
+area : String -> Maybe Area
+area "Data" = Just Data
+area "Control" = Just Control
+area "Decidable" = Just Decidable
+area "Syntax" = Just Syntax
+area _ = Nothing
+
+||| The origin of the code in a module, by where its TTC is and the
+||| module's path, outermost first. The Prelude package holds `Builtin`,
+||| `PrimIO` and the Prelude; a trusted area of base or linear is its top
+||| namespace within that package.
 export
-moduleOrigin : List String -> Origin
-moduleOrigin ["Builtin"] = Library Builtin
-moduleOrigin ["PrimIO"] = Library PrimIO
-moduleOrigin ("Prelude" :: _) = Library Prelude
-moduleOrigin ("Data" :: _) = Library (Base Data)
-moduleOrigin ("Control" :: _) = Library (Base Control)
-moduleOrigin ("Decidable" :: _) = Library (Base Decidable)
-moduleOrigin ("Syntax" :: _) = Library (Base Syntax)
-moduleOrigin _ = User
+moduleOrigin : Home -> List String -> Origin
+moduleOrigin Project _ = User
+moduleOrigin (Installed "prelude") ["Builtin"] = Library Builtin
+moduleOrigin (Installed "prelude") ["PrimIO"] = Library PrimIO
+moduleOrigin (Installed "prelude") ("Prelude" :: _) = Library Prelude
+moduleOrigin (Installed "base") (top :: _) = maybe Untrusted (Library . Base) (area top)
+moduleOrigin (Installed "linear") (top :: _) = maybe Untrusted (Library . Linear) (area top)
+moduleOrigin _ _ = Untrusted
 
 ------------------------------------------------------------------------------
 -- Policy by definition
