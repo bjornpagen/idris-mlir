@@ -41,6 +41,7 @@ bool isBig(Type type) { return isa<BigType, NatType>(type); }
 // its type; a natural's type proves more, that it is at least 0.
 class NaturalRanges : public IntegerRangeAnalysis {
 public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NaturalRanges)
   using IntegerRangeAnalysis::IntegerRangeAnalysis;
 
   void setToEntryState(IntegerValueRangeLattice *lattice) override {

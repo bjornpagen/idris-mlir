@@ -142,15 +142,20 @@ private:
   }
 
   // Whether `value` still holds a reference, or lives as long as the call,
-  // for all of `op`: an owned value is used again after it, and a borrowed
-  // one is read from a value that is alive there, or is a parameter.
+  // where `op` uses what was read from it: an owned value is used again
+  // after `op`, and a borrowed one is read from a value that is alive
+  // there, or is a parameter. A match uses its scrutinee as it starts, so
+  // a use of the value in one of its regions keeps it alive there too.
   bool aliveAt(Value value, Operation *op) {
     switch (classOf(value)) {
     case Class::Untracked:
     case Class::Static:
       return true;
     case Class::Owned:
-      return usedAfter(value, op);
+      return usedAfter(value, op) ||
+             (op->getNumRegions() != 0 && llvm::any_of(value.getUsers(), [&](Operation *user) {
+                return op->isProperAncestor(user);
+              }));
     case Class::Borrowed:
       break;
     }

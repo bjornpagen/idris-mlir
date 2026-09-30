@@ -27,7 +27,7 @@
 // CHECK: br i1 {{.*}}, !prof
 // CHECK: call {{.*}} @idris_rt_big_add(
 // CHECK: ret
-module attributes {idr.program} {
+module {
   func.func @sum(%x: i32, %y: i32) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int signed %y : i32

@@ -1,6 +1,21 @@
-Breakpoint 1 at 0xec40: file /home/user/idris-mlir/runtime/rc.cc, line 109.
-[Inferior 1 (process 29597) exited normally]
+Breakpoint 1 at 0x7bc0: file /home/user/idris-mlir/runtime/alloc.cc, line 75.
+Breakpoint 2 at 0x108c0: file /home/user/idris-mlir/runtime/rc.cc, line 17.
+Breakpoint 3 at 0x119c0: file /home/user/idris-mlir/runtime/rc.cc, line 17.
+Breakpoint 4 at 0x10bc0: file /home/user/idris-mlir/runtime/alloc.cc, line 70.
+Breakpoint 5 at 0x10900: file /home/user/idris-mlir/runtime/rc.cc, line 123.
+[New LWP 24512]
+[LWP 24512 exited]
+[Inferior 1 (process 24509) exited normally]
 Num     Type           Disp Enb Address            What
-1       breakpoint     keep y   0x00007ffff7fefc40 in (anonymous namespace)::Dying::push(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:109
-	breakpoint already hit 5458 times
-	ignore next 1999994542 hits
+1       breakpoint     keep y   0x00007ffff7fe8bc0 in snmalloc::ThreadAlloc::get() at /home/user/idris-mlir/runtime/alloc.cc:75
+	breakpoint already hit 20000 times
+	ignore next 1999980000 hits
+2       breakpoint     keep y   0x00007ffff7ff18c0 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
+	ignore next 2000000000 hits
+3       breakpoint     keep y   0x00007ffff7ff29c0 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
+	ignore next 2000000000 hits
+4       breakpoint     keep y   0x00007ffff7ff1bc0 in rt::freeCell(void*) at /home/user/idris-mlir/runtime/alloc.cc:70
+	breakpoint already hit 20000 times
+	ignore next 1999980000 hits
+5       breakpoint     keep y   0x00007ffff7ff1900 in (anonymous namespace)::Dying::push(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:123
+	ignore next 2000000000 hits

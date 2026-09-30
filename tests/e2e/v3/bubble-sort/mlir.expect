@@ -1,0 +1,5 @@
+# Idris makes the `if` of `bubble` a case block, which calls `bubble` back;
+# idr-contify makes it part of `bubble` again, so each cell `bubble` takes
+# apart is the one it builds its result in, and none is freed.
+idr-contify: contified
+idr-rc: resets-unshared reuses-every-cell=@Main.bubble

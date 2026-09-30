@@ -7,7 +7,7 @@
 // CHECK: idr.constant "x" : !idr.str
 // CHECK-LABEL: func.func @numbers(
 // CHECK: idr.big.cmp lt
-module attributes {idr.program} {
+module {
   func.func @text() -> !idr.str {
     %0 = idr.constant "x" : !idr.str
     return %0 : !idr.str

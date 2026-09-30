@@ -1,0 +1,20 @@
+million: exit 0
+  stdout | 42
+million, IDRIS_RT_STACK=8388608: exit 1
+  stdout | 42
+  stderr | idris-mlir: stack exhausted
+deep, IDRIS_RT_STACK=16777216: exit 1
+  stdout | 42
+  stderr | idris-mlir: stack exhausted
+255: exit 255
+  stdout | 42
+256: exit 1
+  stdout | 42
+  stderr | idris-mlir: main returned 256, which is not an exit status (0 to 255)
+negative: exit 1
+  stdout | 42
+  stderr | idris-mlir: main returned -1, which is not an exit status (0 to 255)
+million, IDRIS_RT_STACK=12x: exit 1
+  stderr | idris-mlir: IDRIS_RT_STACK is not a number of bytes above 0
+cpu: exit 1
+  stderr | idris-mlir: this processor lacks, which the program was compiled to use (idris-mlir-cc --cpu)
