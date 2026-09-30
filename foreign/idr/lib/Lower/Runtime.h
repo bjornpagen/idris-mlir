@@ -6,6 +6,9 @@
 #include "Lower/Layout.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/IR/SymbolTable.h"
+
+#include "llvm/ADT/SetVector.h"
 
 #include <string>
 
@@ -106,7 +109,10 @@ private:
   unsigned globals = 0;
   llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, mlir::LLVM::GlobalOp> statics;
   llvm::StringMap<mlir::LLVM::GlobalOp> messages;
-  llvm::SmallVector<unsigned> usedCode;
+  llvm::SetVector<unsigned> usedCode;
+  // The module's symbols, looked up once per name: idr-lower asks for them
+  // per op, and a module can hold many thousands.
+  mlir::SymbolTableCollection symbols;
 };
 
 // The name of the code of the label numbered `id`.

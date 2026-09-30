@@ -139,9 +139,14 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	idris_mlir_language_profile
 )
 # The runtime archive whose bitcode joins every program, checked before
-# idris-mlir-cc is built. --runtime overrides the path.
+# idris-mlir-cc is built. --runtime overrides the path. Programs are compiled
+# for the triple the runtime is built for: the preset's compiler target.
+if(NOT CMAKE_CXX_COMPILER_TARGET)
+	message(FATAL_ERROR "CMAKE_CXX_COMPILER_TARGET names the target programs are compiled for; use a preset")
+endif()
 target_compile_definitions(idris-mlir-cc PRIVATE
 	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
+	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 

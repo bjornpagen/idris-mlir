@@ -29,7 +29,7 @@ const simdutf::implementation &implementation() {
 }
 
 // The ASCII flag is the tag.
-constexpr uint32_t stringInfo(bool ascii) { return (ascii ? 1u : 0u) | IDRIS_RT_KIND_STRING << 24; }
+constexpr uint32_t stringInfo(bool ascii) { return idris_rt_info(ascii ? 1u : 0u, 0, IDRIS_RT_KIND_STRING); }
 
 constexpr idris_rt_str emptyString{{0, stringInfo(true)}, 0, 0};
 

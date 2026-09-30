@@ -123,7 +123,7 @@ bool idr::isFieldType(Type type) {
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
   if (auto lin = dyn_cast<LinType>(type))
     return isFieldType(lin.getValue());
-  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, WorldType,
+  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType, WorldType,
              ErasedType>(type);
 }
 
@@ -229,6 +229,33 @@ LogicalResult verifyProgram(ModuleOp module) {
     return roots.front().emitOpError("is the root, so its type must be () -> i64 or "
                                      "(!idr.world) -> (...), not ")
            << root;
+
+  // Every attribute in the program is read by someone: an inherent one by
+  // its op, a discardable one by its dialect or by one of our tools.
+  WalkResult named = module.walk([&](Operation *op) -> WalkResult {
+    if (op != module.getOperation() && failed(verifyDiscardableAttrs(op)))
+      return WalkResult::interrupt();
+    auto fn = dyn_cast<FunctionOpInterface>(op);
+    if (!fn)
+      return WalkResult::advance();
+    auto check = [&](ArrayRef<DictionaryAttr> dicts, StringRef what) -> LogicalResult {
+      for (auto [index, dict] : llvm::enumerate(dicts))
+        for (NamedAttribute attr : dict ? dict.getValue() : ArrayRef<NamedAttribute>())
+          if (!attr.getNameDialect())
+            return fn->emitOpError("has the attribute ")
+                   << attr.getName() << " on " << what << " " << index
+                   << ", which no dialect defines";
+      return success();
+    };
+    SmallVector<DictionaryAttr> args, results;
+    fn.getAllArgAttrs(args);
+    fn.getAllResultAttrs(results);
+    if (failed(check(args, "argument")) || failed(check(results, "result")))
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  if (named.wasInterrupted())
+    return failure();
 
   llvm::DenseMap<StringAttr, DataOp> datas;
   for (auto data : module.getOps<DataOp>())
@@ -425,56 +452,95 @@ LogicalResult verifyLinearity(FunctionOpInterface fn) {
 // The dialect's attributes on other ops
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+// A rule for one of the dialect's discardable attributes: where it may sit
+// and what its value may be.
+struct KnownAttr {
+  llvm::StringLiteral name;
+  LogicalResult (*verify)(Operation *op, NamedAttribute attr);
+};
+
+LogicalResult unitOfFunction(Operation *op, NamedAttribute attr) {
+  if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
+    return op->emitOpError("expects ") << attr.getName() << " as a unit attribute of a function";
+  return success();
+}
+
+// Every discardable attribute the dialect defines. The verifier asks the
+// dialect about every attribute named `idr.*`, so a name missing here is
+// rejected, not ignored.
+constexpr KnownAttr kKnownAttrs[] = {
+    {"idr.program",
+     [](Operation *op, NamedAttribute attr) -> LogicalResult {
+       if (!isa<ModuleOp>(op) || !isa<UnitAttr>(attr.getValue()))
+         return op->emitOpError("expects idr.program as a unit attribute of the module");
+       return verifyProgram(cast<ModuleOp>(op));
+     }},
+    // After idr-rc every reference is explicit, and consumed exactly once on
+    // every path (lib/Ownership).
+    {ownership::stageAttr,
+     [](Operation *op, NamedAttribute attr) -> LogicalResult {
+       auto stage = dyn_cast<StringAttr>(attr.getValue());
+       if (!isa<ModuleOp>(op) || !stage || stage.getValue() != ownership::ownedStage)
+         return op->emitOpError("expects idr.stage = \"owned\" on the module");
+       return ownership::verifyOwned(cast<ModuleOp>(op));
+     }},
+    // The facts of a function (lib/Facts): what Idris proves, whether it was
+    // written in a library, and what idr-effects finds.
+    {"idr.total", unitOfFunction},
+    {"idr.library", unitOfFunction},
+    {"idr.effects",
+     [](Operation *op, NamedAttribute attr) -> LogicalResult {
+       if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))
+         return op->emitOpError("expects idr.effects = #idr.effects<...> on a function");
+       return success();
+     }},
+    // idr-stack's mark of a box whose cell never leaves its frame
+    // (lib/Stack/Pass.cc).
+    {"idr.stack",
+     [](Operation *op, NamedAttribute attr) -> LogicalResult {
+       auto con = dyn_cast<ConOp>(op);
+       if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
+         return op->emitOpError("expects idr.stack as a unit attribute of an idr.con of a box");
+       return success();
+     }},
+    // What idr-specialize keeps on a clone between its runs
+    // (lib/Specialize): its key, which also says what it was cloned from.
+    {"idr.clone",
+     [](Operation *op, NamedAttribute attr) -> LogicalResult {
+       auto fn = dyn_cast<func::FuncOp>(op);
+       auto clone = dyn_cast<CloneAttr>(attr.getValue());
+       if (!fn || !clone || clone.getFunction().getAttr() != fn.getSymNameAttr() ||
+           !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(clone.getKey()))
+         return op->emitOpError("expects idr.clone to name the function and its key");
+       return success();
+     }},
+};
+
+// The discardable attributes of no dialect that our own tools read. MLIR
+// verifies a discardable attribute only through the dialect its name
+// starts with, so any other name would be accepted and read by no one.
+constexpr llvm::StringLiteral kOutsideDialects[] = {
+    // What a test states lib/Facts answers about an op (idr-expect's
+    // facts-as-marked).
+    "expect.facts",
+};
+
+} // namespace
+
+LogicalResult idr::verifyDiscardableAttrs(Operation *op) {
+  for (NamedAttribute attr : op->getDiscardableAttrs())
+    if (!attr.getNameDialect() && !llvm::is_contained(kOutsideDialects, attr.getName().getValue()))
+      return op->emitOpError("has the attribute ")
+             << attr.getName() << ", which no dialect defines";
+  return success();
+}
+
 LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute attr) {
-  StringRef key = attr.getName().getValue();
-  if (key == "idr.program") {
-    if (!isa<ModuleOp>(op) || !isa<UnitAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.program as a unit attribute of the module");
-    return verifyProgram(cast<ModuleOp>(op));
-  }
-  // After idr-rc every reference is explicit, and consumed exactly once on
-  // every path (lib/Ownership).
-  if (key == ownership::stageAttr) {
-    auto stage = dyn_cast<StringAttr>(attr.getValue());
-    if (!isa<ModuleOp>(op) || !stage || stage.getValue() != ownership::ownedStage)
-      return op->emitOpError("expects idr.stage = \"owned\" on the module");
-    return ownership::verifyOwned(cast<ModuleOp>(op));
-  }
-  // The facts of a function (lib/Facts): what Idris proves, whether it was
-  // written in a library, and what idr-effects finds.
-  if (key == "idr.total" || key == "idr.library") {
-    if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
-      return op->emitOpError("expects ") << key << " as a unit attribute of a function";
-    return success();
-  }
-  if (key == "idr.effects") {
-    if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.effects = #idr.effects<...> on a function");
-    return success();
-  }
-  // idr-stack's mark of a box whose cell never leaves its frame
-  // (lib/Stack/Pass.cc).
-  if (key == "idr.stack") {
-    auto con = dyn_cast<ConOp>(op);
-    if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.stack as a unit attribute of an idr.con of a box");
-    return success();
-  }
-  // What idr-specialize keeps on a clone between its runs (lib/Specialize):
-  // the function it was first cloned from, and its key.
-  if (key == "idr.origin") {
-    if (!isa<func::FuncOp>(op) || !isa<StringAttr>(attr.getValue()))
-      return op->emitOpError("expects idr.origin as a string attribute of a function");
-    return success();
-  }
-  if (key == "idr.clone") {
-    auto fn = dyn_cast<func::FuncOp>(op);
-    auto clone = dyn_cast<CloneAttr>(attr.getValue());
-    if (!fn || !clone || clone.getFunction().getAttr() != fn.getSymNameAttr() ||
-        !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(clone.getKey()))
-      return op->emitOpError("expects idr.clone to name the function and its key");
-    return success();
-  }
+  for (const KnownAttr &known : kKnownAttrs)
+    if (attr.getName().getValue() == known.name)
+      return known.verify(op, attr);
   return op->emitOpError("has an unknown idr attribute ") << attr.getName();
 }
 
@@ -490,7 +556,7 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
   // idr-rc's parameters that the function borrows (lib/Ownership).
   if (attr.getName().getValue() == ownership::borrowedAttr && fn) {
     if (!isa<UnitAttr>(attr.getValue()) ||
-        !isa<StrType, BigType, BoxType, FnType, DataType>(fn.getArgumentTypes()[argIndex]))
+        !isa<StrType, BigType, NatType, BoxType, FnType, DataType>(fn.getArgumentTypes()[argIndex]))
       return op->emitOpError("expects idr.borrowed as a unit attribute of a parameter that "
                              "holds references, not of argument ")
              << argIndex;

@@ -47,6 +47,11 @@ Value at(OpBuilder &b, Location loc, Value cell, unsigned offset) {
                              ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(offset)});
 }
 
+// The alignment of the word at `offset` in a cell, which is 8-aligned: LLVM
+// would otherwise take the alignment of the type from a data layout that
+// the translation does not have yet.
+unsigned alignAt(unsigned offset) { return static_cast<unsigned>(llvm::MinAlign(8, offset)); }
+
 } // namespace
 
 std::string crashMessage(Location loc, StringRef cause) {
@@ -57,13 +62,20 @@ std::string crashMessage(Location loc, StringRef cause) {
 std::string codeName(unsigned id) { return ("__idr_code_" + Twine(id)).str(); }
 
 Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, ValueRange args) {
-  auto callee = module.lookupSymbol<LLVM::LLVMFuncOp>(name);
+  auto callee = symbols.lookupSymbolIn<LLVM::LLVMFuncOp>(module, b.getStringAttr(name));
   if (!callee) {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(module.getBody());
     Type returns = result ? result : LLVM::LLVMVoidType::get(b.getContext());
     auto type = LLVM::LLVMFunctionType::get(returns, llvm::to_vector(args.getTypes()));
     callee = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
+    symbols.getSymbolTable(module).insert(callee);
+    // The C ABI has the caller extend an argument narrower than 32 bits, and
+    // the runtime's narrow parameters are unsigned (a byte): without
+    // zeroext, JIT-compiled code would pass garbage in the upper bits.
+    for (auto [i, arg] : llvm::enumerate(args.getTypes()))
+      if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
+        callee.setArgAttr(i, LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
     // A crash does not return, which lets LLVM treat what follows as
     // unreachable without the runtime's bitcode (JIT mode has none).
     if (name == "idris_rt_crash" || name == "idris_rt_eval_crash")
@@ -89,6 +101,13 @@ void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
   Value ptr = addressOf(b, loc, message);
   Value len = i64Constant(b, loc, static_cast<int64_t>(text.size()));
   call(b, loc, jit ? "idris_rt_eval_crash" : "idris_rt_crash", Type(), ValueRange{ptr, len});
+  // The call is cold, and what leads only to it: LLVM lays the crash
+  // checks out of the way of the paths that run. The call site says so
+  // itself, since linking the runtime replaces the declaration's
+  // attributes by the definition's.
+  auto call = cast<LLVM::CallOp>(*std::prev(b.getInsertionPoint()));
+  call.setCold(true);
+  call.setNoreturn(true);
 }
 
 void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, StringRef cause) {
@@ -122,31 +141,32 @@ Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info
 // Count 0 in JIT mode: the arena's cells are persistent, as everything
 // compile-time evaluation makes.
 void Runtime::storeHeader(OpBuilder &b, Location loc, Value cell, uint32_t info) {
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, jit ? 0 : 1), cell);
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info), at(b, loc, cell, 4));
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, jit ? 0 : 1), cell, alignAt(0));
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info), at(b, loc, cell, 4), alignAt(4));
 }
 
 void Runtime::store(OpBuilder &b, Location loc, Value cell, ArrayRef<Slot> slots,
                     ValueRange values) {
   for (auto [slot, value] : llvm::zip_equal(slots, values))
-    LLVM::StoreOp::create(b, loc, value, at(b, loc, cell, slot.offset));
+    LLVM::StoreOp::create(b, loc, value, at(b, loc, cell, slot.offset), alignAt(slot.offset));
 }
 
 SmallVector<Value> Runtime::load(OpBuilder &b, Location loc, Value cell, ArrayRef<Slot> slots) {
   SmallVector<Value> values;
   for (const Slot &slot : slots)
-    values.push_back(LLVM::LoadOp::create(b, loc, slot.type, at(b, loc, cell, slot.offset)));
+    values.push_back(LLVM::LoadOp::create(b, loc, slot.type, at(b, loc, cell, slot.offset),
+                                          alignAt(slot.offset)));
   return values;
 }
 
 Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell) {
-  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4));
+  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4), alignAt(4));
   return LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, tagMask));
 }
 
 Value Runtime::exclusive(OpBuilder &b, Location loc, Value cell) {
-  Value count = LLVM::LoadOp::create(b, loc, b.getI32Type(), cell);
-  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4));
+  Value count = LLVM::LoadOp::create(b, loc, b.getI32Type(), cell, alignAt(0));
+  Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4), alignAt(4));
   Value one = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, count, i32Constant(b, loc, 1));
   Value stack = LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, IDRIS_RT_STACK_CELL));
   Value heap = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, stack, i32Constant(b, loc, 0));
@@ -306,7 +326,7 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
   if (auto data = dyn_cast<DataType>(type)) {
     auto con = cast<ConAttr>(value);
     const SumLayout &layout = layouts.sum(data.getName().getAttr());
-    CtorOp ctor = lookupCtor(module, con.getCtor());
+    auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
     SmallVector<Value> slots(layout.slots.size());
     const auto &fields = layout.fields.find(ctor.getSymName())->second;
     for (auto [i, field] : llvm::enumerate(con.getFields()))
@@ -330,7 +350,7 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
   if (it == statics.end()) {
     LLVM::GlobalOp cellGlobal;
     if (auto con = dyn_cast<ConAttr>(value)) {
-      CtorOp ctor = lookupCtor(module, con.getCtor());
+      auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
       const Cell &cell = layouts.box(ctor);
       uint32_t info = cellInfo(static_cast<uint32_t>(ctor.getTag()), cell.objs, CellKind::Box);
       cellGlobal = staticCell(b, loc, "__idr_box_", cell, info, [&](OpBuilder &init, unsigned i) {
@@ -369,8 +389,7 @@ FunctionType Runtime::codeType(const Label &label) {
 // cast between the two disappears then (reconcile-unrealized-casts).
 Value Runtime::code(OpBuilder &b, Location loc, const Label &label) {
   unsigned id = layouts.labelId(label);
-  if (!llvm::is_contained(usedCode, id))
-    usedCode.push_back(id);
+  usedCode.insert(id);
   Value function = func::ConstantOp::create(b, loc, codeType(label), codeName(id));
   return UnrealizedConversionCastOp::create(b, loc, ptrType(b.getContext()), function)
       .getResult(0);
@@ -384,10 +403,11 @@ void Runtime::emitCode() {
   for (unsigned id : usedCode) {
     const Label &label = layouts.label(id);
     const Cell &cell = layouts.closure(label);
-    auto callee = module.lookupSymbol<func::FuncOp>(label.callee.getAttr());
+    auto callee = symbols.lookupSymbolIn<func::FuncOp>(module, label.callee);
     Location loc = callee.getLoc();
     FunctionType type = codeType(label);
     auto fn = func::FuncOp::create(b, loc, codeName(id), type);
+    symbols.getSymbolTable(module).insert(fn);
     fn.setPrivate();
     OpBuilder::InsertionGuard guard(b);
     Block *entry = fn.addEntryBlock();

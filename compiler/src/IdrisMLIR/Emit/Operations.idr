@@ -63,6 +63,7 @@ literal l (LChar c) = value l CharT ("arith.constant " ++ show c ++ " : i32")
 literal l (LDouble d) = value l DoubleT ("arith.constant " ++ floatLiteral d ++ " : f64")
 literal l (LStr s) = value l StrT ("idr.constant " ++ utf8 s ++ " : !idr.str")
 literal l (LBig n) = value l BigT ("idr.constant #idr.big<" ++ quoted (show n) ++ "> : !idr.big")
+literal l (LNat n) = value l NatT ("idr.constant #idr.big<" ++ quoted (show n) ++ "> : !idr.nat")
 
 export
 erased : Loc -> E Val
@@ -200,6 +201,12 @@ prim l (FromBig SChar) [b] = do
   value l CharT ("idr.to_char signed " ++ m.name ++ " : i64")
 prim l BigShow [b] = value l StrT ("idr.big.show " ++ b.name)
 prim l BigRead [s] = value l BigT ("idr.big.from_str " ++ s.name)
+prim l NatAdd [a, b] = value l NatT ("idr.big.add " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
+prim l NatMul [a, b] = value l NatT ("idr.big.mul " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
+prim l (NatCompare c) [a, b] =
+  extend l !(value l (IntT IdrisInt) ("idr.big.cmp " ++ show c ++ " " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat"))
+prim l NatToBig [n] = value l BigT ("idr.nat.to_big " ++ n.name)
+prim l NatFromBig [b] = value l NatT ("idr.nat.from_big " ++ b.name)
 prim l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
 ||| A constructor application (`idr.con`); a box's allocates.
@@ -226,7 +233,10 @@ io ix l op vs res = do
   mk <- only ix res
   (x, w) <- case (op, vs) of
     (PutStr, [s, w0]) => withUnit mk !(value l WorldT ("idr.io.put_str " ++ s.name ++ ", " ++ w0.name))
-    (PutChar, [c, w0]) => withUnit mk !(value l WorldT ("idr.io.put_char " ++ c.name ++ ", " ++ w0.name))
+    -- C's putchar writes its argument as an unsigned char: the low byte.
+    (PutChar, [c, w0]) => do
+      b <- value l (IntT UInt8) ("arith.trunci " ++ c.name ++ " : i32 to i8")
+      withUnit mk !(value l WorldT ("idr.io.put_byte " ++ b.name ++ ", " ++ w0.name))
     (GetByte, [w0]) => do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))

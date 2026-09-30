@@ -5,7 +5,9 @@
 // In a case region of a match on a box that is dead after the match, the
 // box's constructor is known, so is its cell's size. D finds where the box
 // dies on each path of the region: after its last use there, or, when that
-// use is a match, inside each of that match's regions. There S looks ahead
+// use is a match, inside each of that match's regions. A last use that
+// consumes the box (a call, a constructor) is where it dies, and its cell
+// goes with it: nothing is reset on that path. There S looks ahead
 // on the same path for the first constructor of a box with a cell of the
 // same size, going into the regions of the matches it meets, and builds it
 // in the dead box's cell instead: idr.reset where the box dies, idr.reuse
@@ -106,6 +108,13 @@ private:
     Operation *last = users.back();
     if (last->hasTrait<OpTrait::IsTerminator>())
       return;
+    // A last use that consumes the box moves its reference on, and the box
+    // dies in it. A reset after it would keep a second reference alive
+    // across the use, so that whoever receives the box finds its cell
+    // shared and copies it. Borrow inference runs later, so every call may
+    // still consume its arguments here.
+    if (consumes(box, last))
+      return;
     if (last->getNumRegions() != 0) {
       for (Region &region : last->getRegions())
         if (!region.empty())
@@ -113,6 +122,12 @@ private:
       return;
     }
     reset(box, ctor, block, std::next(last->getIterator()));
+  }
+
+  bool consumes(Value box, Operation *op) {
+    return llvm::any_of(op->getOpOperands(), [&](OpOperand &operand) {
+      return operand.get() == box && useOf(operand, symbols) == Use::Consume;
+    });
   }
 
   // S: the first constructor on each path from `at` whose cell fits, or
@@ -172,6 +187,7 @@ private:
 
   func::FuncOp fn;
   lower::Layouts &layouts;
+  SymbolTableCollection symbols;
   unsigned resets = 0, reuses = 0;
 };
 

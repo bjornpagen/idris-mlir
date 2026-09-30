@@ -112,7 +112,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     unsigned functions = 0, clones = 0;
     for (auto fn : module.getOps<func::FuncOp>()) {
       ++functions;
-      if (fn->hasAttr("idr.origin"))
+      if (fn->hasAttr("idr.clone"))
         ++clones;
     }
     uint64_t ops = 0;
@@ -212,6 +212,7 @@ SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned)
                     inlineIterations),
       "idr-specialize",
       "sccp",
+      "int-range-optimizations",
       "idr-canonicalize",
       "cse",
       "idr-eval",

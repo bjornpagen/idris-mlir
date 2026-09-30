@@ -63,4 +63,12 @@ mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef functio
 // idr.dec.
 mlir::LogicalResult countsNothing(mlir::ModuleOp module, llvm::StringRef function);
 
+// Every recursion reachable from the function the argument names became a
+// loop: none of the functions it may call is on a cycle of references.
+mlir::LogicalResult constantStack(mlir::ModuleOp module, llvm::StringRef function);
+
+// The function the argument names loops, and each of its loops is an
+// scf.for, whose trip count is known before it starts.
+mlir::LogicalResult countedLoop(mlir::ModuleOp module, llvm::StringRef function);
+
 } // namespace idr::expect

@@ -1,7 +1,10 @@
 // idr-lower: idr to func, arith, math, scf, ub and llvm. The layouts,
 // runtime calls, static data and patterns it uses are in Lower/.
 
+#include "Lower/Facts.h"
 #include "Lower/Patterns.h"
+
+#include "idris_rt.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
@@ -16,10 +19,14 @@ namespace idr {
 namespace {
 
 // The root, the only public function, becomes private, and
-// @main runs it. Its type is its kind: `() -> i64` returns the exit status
-// (its low 8 bits); an IO root takes the world, and main then returns 0.
-// Either way main ends in idris_rt_main_return, which writes pending
-// output and, when asked, how many cells are still live.
+// @__idr_main runs it. Its type is its kind: `() -> i64` returns the exit
+// status, which is the value mod 256, as Chez's exitWith gives it (libc's
+// exit keeps the low 8 bits: exitWith (ExitFailure 256) exits 0); an IO root
+// takes the world, and the status is then 0. Either way @__idr_main ends in
+// idris_rt_main_return, which writes pending output and, when asked, how
+// many cells are still live. @main hands @__idr_main to the runtime's entry,
+// idris_rt_start, which runs it on a reserved stack once the CPU has shown
+// it has the features the module's target enables.
 FailureOr<func::FuncOp> findRoot(ModuleOp module) {
   SmallVector<func::FuncOp> roots;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -31,13 +38,33 @@ FailureOr<func::FuncOp> findRoot(ModuleOp module) {
   return roots.front();
 }
 
+// The IDRIS_RT_CPU_FEATURES bits of the features the module's target
+// enables. A module with no target states no requirement.
+uint64_t requiredCpuFeatures(ModuleOp module) {
+  auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
+  LLVM::TargetFeaturesAttr features = target ? target.getFeatures() : nullptr;
+  uint64_t bits = 0;
+  if (!features)
+    return bits;
+#define IDR_REQUIRED_FEATURE(bit, name, ...)                                                    \
+  if (features.contains("+" name))                                                             \
+    bits |= uint64_t{1} << (bit);
+  IDRIS_RT_CPU_FEATURES(IDR_REQUIRED_FEATURE)
+#undef IDR_REQUIRED_FEATURE
+  return bits;
+}
+
 void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &runtime) {
   root.setPrivate();
-  OpBuilder b(module.getContext());
+  MLIRContext *ctx = module.getContext();
+  OpBuilder b(ctx);
   b.setInsertionPointToEnd(module.getBody());
   Location loc = root.getLoc();
-  auto main = func::FuncOp::create(b, loc, "main", b.getFunctionType({}, {b.getI32Type()}));
-  b.setInsertionPointToStart(main.addEntryBlock());
+  FunctionType bodyType = b.getFunctionType({}, {b.getI32Type()});
+  auto body = func::FuncOp::create(b, loc, "__idr_main", bodyType);
+  body.setPrivate();
+  auto main = func::FuncOp::create(b, loc, "main", bodyType);
+  b.setInsertionPointToStart(body.addEntryBlock());
   auto call = func::CallOp::create(b, loc, root, ValueRange{});
   Value status;
   if (io)
@@ -46,6 +73,19 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &
     status = arith::TruncIOp::create(b, loc, b.getI32Type(), call.getResult(0));
   runtime.call(b, loc, "idris_rt_main_return", Type(), ValueRange{});
   func::ReturnOp::create(b, loc, status);
+
+  // The body is a function value until convert-to-llvm makes it a pointer;
+  // the cast between the two disappears then.
+  b.setInsertionPointToStart(main.addEntryBlock());
+  Value function = func::ConstantOp::create(b, loc, bodyType, body.getSymName());
+  Value pointer =
+      UnrealizedConversionCastOp::create(b, loc, LLVM::LLVMPointerType::get(ctx), function)
+          .getResult(0);
+  Value cpu = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(
+                                                    static_cast<int64_t>(requiredCpuFeatures(module))));
+  Value started =
+      runtime.call(b, loc, "idris_rt_start", b.getI32Type(), ValueRange{pointer, cpu});
+  func::ReturnOp::create(b, loc, started);
 }
 
 // idr-defunctionalize has made every closure of the program a sum: only
@@ -92,8 +132,12 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         }
     idr::lower::Layouts layouts(module);
     idr::lower::Runtime runtime(module, layouts, jit);
+    idr::lower::Facts facts(module);
+    // The parameters' idr attributes have served their purpose. They go
+    // before the conversion, which splits a parameter into its components
+    // and would leave its attributes where the parameter was.
+    module.walk([](func::FuncOp fn) { fn.removeArgAttrsAttr(); });
     idr::lower::lowerMatches(module);
-    idr::lower::lowerPredecessors(module);
 
     TypeConverter converter;
     converter.addConversion([](Type type) { return type; });
@@ -146,8 +190,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     auto isIdr = [](NamedAttribute attr) { return attr.getName().strref().starts_with("idr."); };
     module->setDiscardableAttrs(llvm::to_vector(llvm::make_filter_range(
         module->getDiscardableAttrs(), [&](NamedAttribute a) { return !isIdr(a); })));
-    // Calls carry idr-specialize's own (idr.spec_caller, idr.spec_stopped)
-    // too, which the verifier accepts only on func.call.
+    // So have those of the functions (their facts and a clone's key), and
+    // the marks of their parameters.
     module.walk([&](Operation *op) {
       if (op == module.getOperation())
         return;
@@ -155,15 +199,12 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         if (isIdr(attr))
           op->removeDiscardableAttr(attr.getName());
     });
-    module.walk([&](func::FuncOp fn) {
-      for (unsigned i = 0; i < fn.getNumArguments(); ++i)
-        if (DictionaryAttr attrs = fn.getArgAttrDict(i))
-          for (NamedAttribute attr : llvm::to_vector(attrs))
-            if (isIdr(attr))
-              fn.removeArgAttr(i, attr.getName());
-    });
-    if (!jit)
+    // In JIT mode closures call functions through pointers, and no call in
+    // sight shows what they pass; the facts are the executable's.
+    if (!jit) {
+      facts.apply(layouts);
       emitMain(module, root, io, runtime);
+    }
   }
 };
 

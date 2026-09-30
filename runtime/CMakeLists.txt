@@ -71,6 +71,7 @@ add_library(idris_rt STATIC
 	io.cc
 	numbers.cc
 	rc.cc
+	start.cc
 	strings.cc
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>

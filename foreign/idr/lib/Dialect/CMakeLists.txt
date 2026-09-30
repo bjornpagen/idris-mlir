@@ -5,6 +5,7 @@ target_sources(idr_dialect PRIVATE
 	Canonicalize/Apply.cc
 	Canonicalize/Calls.cc
 	Canonicalize/CaseOfCase.cc
+	Canonicalize/Con.cc
 	Canonicalize/Field.cc
 	Canonicalize/Matches.cc
 	Canonicalize/Meet.cc

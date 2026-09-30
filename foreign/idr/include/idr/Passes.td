@@ -168,6 +168,24 @@ def IdrInline : Pass<"idr-inline", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrContify : Pass<"idr-contify", "::mlir::ModuleOp"> {
+  let summary = "Inline each function called once from another function";
+  let description = [{
+    A private function whose one use is a `func.call` from another function
+    is a continuation of that function: Idris makes one of every `case` and
+    `if` on a clause's right-hand side (a case block). It is inlined there
+    with MLIR's `inlineCall` and erased, which copies nothing, and which the
+    inliner refuses when the case block calls its parent back. It runs
+    before the simplify loop, so that the cell a function takes apart and
+    the constructor its case block builds meet in one function, where
+    idr-rc reuses the one for the other. A function called twice, one that
+    calls itself, and one a closure names are left alone.
+  }];
+  let statistics = [
+    Statistic<"numContified", "contified", "Functions inlined into their one caller">,
+  ];
+}
+
 def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
   let summary = "Replace closures of known labels by sums";
   let description = [{
@@ -192,12 +210,20 @@ def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
   let description = [{
     A function that calls itself in tail position, directly or through the
     regions of matches whose results it returns, becomes one `scf.while`.
-    A function without `idr.total` gets `idr.may_loop` in its loop.
+    When its body ends in a match with one region that calls and one that
+    returns, the loop is in while-do form: the before region computes the
+    decision, the after region is the calling region, the returning region
+    follows the loop, arguments the call passes unchanged are not carried,
+    and code that holds no reference and depends on nothing the loop
+    changes runs once, before it. Upstream's uplift then makes a loop that
+    counts to a bound an `scf.for`. A function without `idr.total` gets
+    `idr.may_loop` in its loop.
   }];
   let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::ub::UBDialect",
                            "::mlir::arith::ArithDialect"];
   let statistics = [
     Statistic<"numLoops", "loops", "Functions whose self tail calls became a loop">,
+    Statistic<"numCounted", "counted", "Loops that became scf.for">,
   ];
 }
 
@@ -284,7 +310,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing";
   let description = [{
     Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
-    idr-canonicalize, cse, idr-eval, idr-prune, symbol-dce,
+    int-range-optimizations, idr-canonicalize, cse, idr-eval, idr-prune, symbol-dce,
     remove-dead-values and symbol-dce, again and again, until a round
     leaves the module unchanged, up to where constants are. Every member
     of the round is finite, so the rounds end; `max-rounds` asserts it: a
@@ -376,6 +402,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
         or `show` made;
+      - `constant-stack=@f`: no function @f may call, @f included, is on a
+        cycle of references: every recursion from @f became a loop;
+      - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
       - `folds-balanced`: the folders released every reference they took
         from the runtime, which holds no live cell (on the calling thread,
         so run single-threaded).

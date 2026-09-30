@@ -19,3 +19,10 @@ ioCallOf : List Hook -> Maybe IOOp
 ioCallOf [] = Nothing
 ioCallOf (IOCall op :: _) = Just op
 ioCallOf (_ :: hs) = ioCallOf hs
+
+||| What a function on naturals means, if it is one the registry knows.
+export
+natOperationOf : List Hook -> Maybe NatMeaning
+natOperationOf [] = Nothing
+natOperationOf (NatOperation m :: _) = Just m
+natOperationOf (_ :: hs) = natOperationOf hs

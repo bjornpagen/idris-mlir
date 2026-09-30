@@ -31,10 +31,13 @@ bool isExclusive(const idris_rt_header *cell) {
 
 // The cells whose count reached 0 and whose references are still to be
 // released: a stack threaded through the cells. A dying cell's count and
-// tag are dead, 48 bits, which hold the next cell's address, since user-space
-// addresses on x86-64 Linux are below 2^47, heap and stack alike. Its objs,
-// kind and stack bit, which releasing it reads, stay.
+// tag are dead, 48 bits, which hold the next cell's address: a heap cell's
+// has no more bits than the allocator's pagemap covers, and a stack cell's
+// is below 2^47, where Linux on x86-64 puts every stack. Its objs, kind and
+// stack bit, which releasing it reads, stay.
 class Dying {
+  static_assert(rt::heapAddressBits <= 32 + 16, "a heap address fits a count and a tag");
+
 public:
   bool empty() const { return top == nullptr; }
 
@@ -114,17 +117,14 @@ void releaseAll(Dying &dying) {
 
 } // namespace
 
-extern "C" void idris_rt_inc(void *o) { idris_rt_inc_n(o, 1); }
-
-extern "C" void idris_rt_inc_n(void *o, uint32_t n) {
+// A saturated count is not counted, so an increment reaches UINT32_MAX at
+// most and stays there.
+extern "C" void idris_rt_inc(void *o) {
   if (!isObject(o))
     return;
   idris_rt_header *cell = headerOf(o);
-  uint32_t count = cell->count;
-  if (!isCounted(count))
-    return;
-  uint64_t sum = uint64_t{count} + n;
-  cell->count = sum < saturated ? static_cast<uint32_t>(sum) : saturated;
+  if (isCounted(cell->count))
+    ++cell->count;
 }
 
 extern "C" void idris_rt_dec(void *o) {

@@ -68,9 +68,9 @@ mutual
                         _ => []
         let absurd = map (\c => MkAlt c.id (fromList c.fields) (missingCase ctx loc)) missing
         pure (Case loc i (conAlts ++ absurd) def)
-      -- A `Nat`-like value is a big: a match on its constructors is a
+      -- A `Nat`-like value is a natural: a match on its constructors is a
       -- match on zero.
-      Just (Runtime i (Just BigT)) =>
+      Just (Runtime i (Just NatT)) =>
         if any isConCase alts then natCase ctx env loc i alts else literals loc i
       Just (Runtime i (Just _)) => literals loc i
       -- A match on an implementation selects its alternative now.
@@ -123,7 +123,7 @@ mutual
         pure (Just z, s, d)
       Just Succ => do
         let infos = zipWith (\_, e => if e then TypeValue (Erased ctx.fc Placeholder)
-                                          else Runtime (Bound FZ) (Just BigT))
+                                          else Runtime (Bound FZ) (Just NatT))
                             args (isErased ++ replicate (length args) False)
         body <- tree ctx (under infos env) rhs
         (z, _, d) <- natAlternatives ctx env loc x rest

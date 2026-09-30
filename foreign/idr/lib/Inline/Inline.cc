@@ -116,6 +116,21 @@ Decisions decide(ModuleOp module) {
 struct Inline : idr::impl::IdrInlineBase<Inline> {
   using IdrInlineBase::IdrInlineBase;
 
+  // The default pipeline is parsed once, here, so that a pipeline that does
+  // not parse fails the pass instead of running nothing on every function.
+  LogicalResult initialize(MLIRContext *ctx) override {
+    std::string text = defaultPipeline;
+    std::string error;
+    llvm::raw_string_ostream os(error);
+    OpPassManager parsed;
+    if (failed(parsePassPipeline(text, parsed, os)))
+      return emitError(UnknownLoc::get(ctx))
+             << "idr-inline: the default pipeline \"" << text
+             << "\" does not parse: " << StringRef(error).trim();
+    pipeline = std::move(parsed);
+    return success();
+  }
+
   void runOnOperation() override {
     ModuleOp module = getOperation();
     Decisions decisions = decide(module);
@@ -123,11 +138,9 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     numLeaves += decisions.leaves;
 
     InlinerConfig config;
-    std::string pipeline = defaultPipeline;
-    config.setDefaultPipeline([pipeline](OpPassManager &pm) {
-      if (!pipeline.empty())
-        (void)parsePassPipeline(pipeline, pm);
-    });
+    // The inliner hands a pass manager anchored on the function's op; the
+    // parsed pipeline, anchored on any op, runs there.
+    config.setDefaultPipeline([this](OpPassManager &pm) { pm = pipeline; });
     unsigned iterations = maxIterations;
     config.setMaxInliningIterations(iterations ? iterations
                                                : std::numeric_limits<unsigned>::max());
@@ -142,9 +155,11 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       signalPassFailure();
   }
 
+  // A pipeline that does not parse loads nothing, and initialize reports
+  // it.
   void getDependentDialects(DialectRegistry &registry) const override {
     OpPassManager pm(func::FuncOp::getOperationName());
-    if (succeeded(parsePassPipeline(defaultPipeline, pm)))
+    if (succeeded(parsePassPipeline(defaultPipeline, pm, llvm::nulls())))
       pm.getDependentDialects(registry);
   }
 
@@ -153,6 +168,8 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
   static LogicalResult runPipelineHelper(Pass &pass, OpPassManager &pipeline, Operation *op) {
     return static_cast<Inline &>(pass).runPipeline(pipeline, op);
   }
+
+  OpPassManager pipeline;
 };
 
 } // namespace

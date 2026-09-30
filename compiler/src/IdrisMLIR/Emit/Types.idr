@@ -21,6 +21,7 @@ mutual
   mtype ix DoubleT = pure F64
   mtype ix StrT = pure Str
   mtype ix BigT = pure Big
+  mtype ix NatT = pure Natural
   mtype ix WorldT = pure World
   mtype ix ErasedT = pure Erased
   mtype ix (DataT d) = case lookup d ix.datas of

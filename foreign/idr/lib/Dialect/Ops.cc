@@ -66,6 +66,20 @@ void printSignedness(OpAsmPrinter &printer, Operation *, UnitAttr isSigned) {
     printer << "signed ";
 }
 
+// `: !idr.nat` on a big op that computes on naturals; nothing on one that
+// computes on Integers, which most do.
+ParseResult parseNatural(OpAsmParser &parser, Type &type) {
+  if (succeeded(parser.parseOptionalColon()))
+    return parser.parseType(type);
+  type = BigType::get(parser.getContext());
+  return success();
+}
+
+void printNatural(OpAsmPrinter &printer, Operation *, Type type) {
+  if (isa<NatType>(type))
+    printer << ": " << type;
+}
+
 // The field types of a constructor: `(i64, f64)`.
 ParseResult parseFieldTypes(OpAsmParser &parser, ArrayAttr &fieldTypes) {
   SmallVector<Attribute> types;
@@ -218,6 +232,9 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   }
   return (isa<ClosureAttr>(value) && isa<FnType>(type)) ||
          (isa<BigAttr>(value) && isa<BigType>(type)) ||
+         // A natural constant is never negative: the type proves it.
+         (isa<BigAttr>(value) && isa<NatType>(type) &&
+          !cast<BigAttr>(value).getValue().starts_with("-")) ||
          (isa<ErasedAttr>(value) && isa<ErasedType>(type)) ||
          (isa<StringAttr>(value) && isa<StrType>(type));
 }
@@ -248,7 +265,8 @@ LogicalResult ConstantOp::verify() {
   if (!isBuildableWith(getValue(), getType()))
     return emitOpError("cannot hold ")
            << getValue() << " as " << getType()
-           << "; it holds constructors, closures, strings, bigs and the erased value, "
+           << "; it holds constructors, closures, strings, bigs, naturals that are not "
+              "negative and the erased value, "
               "untyped, and integers and doubles are arith.constant";
   return success();
 }
@@ -364,12 +382,6 @@ LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
-OpFoldResult ConOp::fold(FoldAdaptor adaptor) {
-  if (llvm::is_contained(adaptor.getFields(), Attribute()))
-    return {};
-  return ConAttr::get(getContext(), getCtor(), ArrayAttr::get(getContext(), adaptor.getFields()));
-}
-
 LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto data =
       symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getValue().getType()));
@@ -412,10 +424,32 @@ OpFoldResult LinUseOp::fold(FoldAdaptor) {
   return {};
 }
 
+// Only when the entry is the use's one reader: a match that read the used
+// value and a region that enters it again would otherwise both use the
+// linear value on one path.
 OpFoldResult LinEnterOp::fold(FoldAdaptor) {
   if (auto use = getValue().getDefiningOp<LinUseOp>())
-    return use.getLinear();
+    if (use.getResult().hasOneUse())
+      return use.getLinear();
   return {};
+}
+
+// A linear value has the range of the value that entered it. MLIR's range
+// analysis has no range for a value whose type is not an integer, so the
+// linear value a parameter or a region binds has none; its use then has
+// every value of its type, where an entry's use waits for the entry's.
+void LinEnterOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                               SetIntLatticeFn setResultRange) {
+  if (!ranges.front().isUninitialized())
+    setResultRange(getResult(), ranges.front());
+}
+
+void LinUseOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                             SetIntLatticeFn setResultRange) {
+  if (!ranges.front().isUninitialized())
+    setResultRange(getResult(), ranges.front());
+  else if (!getLinear().getDefiningOp<LinEnterOp>())
+    setResultRange(getResult(), IntegerValueRange::getMaxRange(getResult()));
 }
 
 // The tag of a known constructor, or 0 for a type of one constructor.
@@ -654,7 +688,7 @@ ParseResult MatchLitOp::parse(OpAsmParser &parser, OperationState &result) {
         return failure();
       return Attribute(parser.getBuilder().getStringAttr(bytes));
     }
-    if (!isa<BigType>(type))
+    if (!isa<BigType, NatType>(type))
       return parser.emitError(parser.getCurrentLocation(), "a literal match on ")
              << type << " has no keys";
     BigAttr big;
@@ -694,6 +728,10 @@ LogicalResult MatchLitOp::verify() {
                      })
                      .Case([&](StrType) { return isa<StringAttr>(key); })
                      .Case([&](BigType) { return isa<BigAttr>(key); })
+                     .Case([&](NatType) {
+                       auto big = dyn_cast<BigAttr>(key);
+                       return big && !big.getValue().starts_with("-");
+                     })
                      .Default([](Type) { return false; });
     if (!typed)
       return emitOpError("has a key ") << key << " that is not a literal of " << type;

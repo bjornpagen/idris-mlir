@@ -104,7 +104,7 @@ SmallVector<Type> Layouts::components(Type type) {
     return {};
   if (isa<StrType, BoxType, FnType, TokenType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
-  if (isa<BigType>(type))
+  if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
   if (auto data = dyn_cast<DataType>(type))
     return sum(data.getName().getAttr()).types();
@@ -115,7 +115,7 @@ SmallVector<bool> Layouts::counted(Type type) {
   type = unrestricted(type);
   if (isa<ErasedType, WorldType>(type))
     return {};
-  if (isa<StrType, BoxType, FnType, TokenType, BigType>(type))
+  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
   if (auto data = dyn_cast<DataType>(type)) {
     const SumLayout &layout = sum(data.getName().getAttr());

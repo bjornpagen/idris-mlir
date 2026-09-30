@@ -27,6 +27,11 @@ void *newCell(size_t size, uint32_t info);
 // has, and stops counting it.
 void freeCell(void *cell);
 
+// No heap address the allocator hands out has more bits than this: its
+// pagemap covers no more (alloc.cc checks snmalloc against it). The dying
+// list in rc.cc keeps an address in that many bits.
+constexpr unsigned heapAddressBits = 48;
+
 // Frees a bignum's limbs, and leaves its cell alone.
 void clearBignum(idris_rt_bignum *b);
 

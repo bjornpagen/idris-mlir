@@ -151,13 +151,15 @@ mutual
       -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
-      PMDef _ params _ _ _ =>
-        if identityOnLast (hooksOf full) && length args >= length params
-           then do
-             let (now, rest) = splitAt (length params) args
-             v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
-             applyAll loc v rest
-           else call fc loc full (length params) (type def) args
+      PMDef _ params _ _ _ => case natOperationOf (hooksOf full) of
+        Just m => natOperation fc loc m (length params) (type def) args
+        Nothing =>
+          if identityOnLast (hooksOf full) && length args >= length params
+             then do
+               let (now, rest) = splitAt (length params) args
+               v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
+               applyAll loc v rest
+             else call fc loc full (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
@@ -223,17 +225,55 @@ mutual
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst) (drop arity xs)
 
-      -- A constructor of a `Nat`-like type is big arithmetic: zero is 0,
-      -- a successor adds 1.
+      -- A function on naturals, as the primitives it means (the registry's
+      -- `NatOperation`); partially applied, it is eta-expanded like a call.
+      natOperation : FC -> Loc -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      natOperation fc loc m arity ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        given <- arguments loc kinds (take arity xs)
+        case m of
+          Primitive p => finish loc kinds given (PrimApp loc p) (drop arity xs)
+          Clamped p =>
+            finish loc kinds given
+                   (\ns => PrimApp loc NatFromBig [PrimApp loc p (map (\n => PrimApp loc NatToBig [n]) ns)])
+                   (drop arity xs)
+          Tested c q => do
+            toBool <- libraryCall fc loc q
+            finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) ns]) (drop arity xs)
+          OnIntegers q => do
+            f <- libraryCall fc loc q
+            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig [n]) ns)) (drop arity xs)
+
+      -- A call of a monomorphic library function the registry names, on
+      -- runtime arguments: saturated, and the ones past its arity applied.
+      libraryCall : FC -> Loc -> QName -> Core ({0 b : Type} -> List (Term b) -> Term b)
+      libraryCall fc loc q = do
+        def <- lookupDef fc ctx.owner (toName q)
+        let PMDef _ params _ _ _ = definition def
+          | _ => reject fc (show q) HookShape "the registry names a library function that is not a definition"
+        let arity = length params
+        (kinds, _) <- classify fc ctx.owner arity (type def) (replicate arity Nothing)
+        let True = all isRuntime kinds
+          | False => reject fc (show q) HookShape "the registry names a library function with compile-time arguments"
+        inst <- request fc ctx.owner (fullname def) (replicate arity Nothing)
+        pure (\ns => let (now, rest) = splitAt arity ns in
+                     foldl (App loc) (Call loc inst now) rest)
+        where
+          isRuntime : PKind -> Bool
+          isRuntime (ValueParam _) = True
+          isRuntime _ = False
+
+      -- A constructor of a `Nat`-like type is a natural: zero is 0, a
+      -- successor adds 1.
       natConstructor : FC -> Loc -> NatRole -> List PKind -> List (Term a) ->
                        List (TT vars) -> Core (Term a)
       natConstructor fc loc Zero kinds given extra =
-        finish loc kinds given (\_ => Literal loc (LBig 0)) extra
+        finish loc kinds given (\_ => Literal loc (LNat 0)) extra
       natConstructor fc loc Succ kinds given extra = do
         let Just i = succArg kinds
           | Nothing => internal fc "a successor without one runtime argument"
         finish loc kinds given
-               (\xs => PrimApp loc (BigArith Add) (Data.List.take 1 (drop i xs) ++ [Literal loc (LBig 1)])) extra
+               (\xs => PrimApp loc NatAdd (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
 
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term a)
       constructor fc loc def arity xs = do

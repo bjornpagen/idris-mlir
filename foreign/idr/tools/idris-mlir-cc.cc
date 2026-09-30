@@ -21,10 +21,12 @@
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Target/LLVMIR/Transforms/Passes.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -56,8 +58,9 @@
 #include <string>
 #include <vector>
 
-#include <pthread.h>
-#include <sys/mman.h>
+#include "idris_rt.h"
+
+#include <unistd.h>
 
 namespace cl = llvm::cl;
 
@@ -96,7 +99,8 @@ cl::opt<std::string> dumpAfter("dump-after",
 cl::opt<std::string> dumpDir("dump-dir", cl::desc("Directory for --dump-after files"),
                              cl::init("."));
 // x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since
-// Haswell (2013) and AMD's Zen. `native` is the machine that compiles,
+// Haswell (2013) and AMD's Zen, and an executable says so by name on an
+// older one (idris_rt_start). `native` is the machine that compiles,
 // `x86-64` the baseline.
 cl::opt<std::string> targetCpu("cpu",
                                cl::desc("Target CPU: x86-64-v3 (default), native, x86-64, "
@@ -115,8 +119,15 @@ cl::opt<std::string> runtimeArchive("runtime",
 constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 
 // Executables are static-PIE on musl, so code is compiled for the
-// musl triple, the one the runtime's bitcode carries.
-constexpr llvm::StringLiteral targetTriple = "x86_64-unknown-linux-musl";
+// triple the runtime is built for (the CMake preset's compiler target),
+// which its bitcode carries. The module records it with the CPU as its
+// #llvm.target; the -o flow and tools/compile.sh link for the triple
+// --print-target-triple prints.
+constexpr llvm::StringLiteral targetTriple = IDRIS_MLIR_TARGET_TRIPLE;
+cl::opt<bool> printTargetTriple("print-target-triple",
+                                cl::desc("Print the target triple executables are linked for, "
+                                         "and exit"),
+                                cl::init(false));
 
 std::string stepName(llvm::StringRef step) {
   std::string name = step.split(',').first.str();
@@ -225,12 +236,47 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
   return true;
 }
 
+// The functions the runtime marks with the annotation "idris-rt-baseline"
+// (the CPU test at a program's entry), which stay compiled for the x86-64
+// baseline whatever the program's CPU: they run before anything shows that
+// the CPU has more.
+void readBaseline(const llvm::Module &member, llvm::StringSet<> &names) {
+  const llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations");
+  auto *entries = annotations && annotations->hasInitializer()
+                      ? llvm::dyn_cast<llvm::ConstantArray>(annotations->getInitializer())
+                      : nullptr;
+  if (!entries)
+    return;
+  for (const llvm::Use &entry : entries->operands()) {
+    auto *fields = llvm::dyn_cast<llvm::ConstantStruct>(entry.get());
+    if (!fields || fields->getNumOperands() < 2)
+      continue;
+    auto *function = llvm::dyn_cast<llvm::Function>(fields->getOperand(0)->stripPointerCasts());
+    auto *text = llvm::dyn_cast<llvm::GlobalVariable>(fields->getOperand(1)->stripPointerCasts());
+    auto *data = text && text->hasInitializer()
+                     ? llvm::dyn_cast<llvm::ConstantDataArray>(text->getInitializer())
+                     : nullptr;
+    if (function && data && data->isCString() && data->getAsCString() == "idris-rt-baseline")
+      names.insert(function->getName());
+  }
+}
+
 // The runtime is constant-initialized, and its `used` markers exist
 // for separate compilation only. LinkOnlyNeeded always links appending
 // globals, so constructors would run in every program, and `used` would keep
 // dead runtime code (and its libc calls) in every executable: constructors are
-// rejected, `used` markers dropped.
-bool prepareMember(llvm::Module &member, llvm::StringRef name) {
+// rejected, `used` markers dropped. Annotations are read into `baseline`,
+// then dropped too.
+bool prepareMember(llvm::Module &member, llvm::StringRef name, llvm::StringSet<> &baseline) {
+  if (member.getTargetTriple().str() != targetTriple) {
+    llvm::errs() << "idris-mlir-cc: runtime member " << name << " is compiled for "
+                 << member.getTargetTriple().str() << ", and programs for " << targetTriple
+                 << "\n";
+    return false;
+  }
+  readBaseline(member, baseline);
+  if (llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations"))
+    annotations->eraseFromParent();
   // An empty list of constructors, which clang writes for some translation
   // units, lists none.
   for (llvm::StringRef array : {"llvm.global_ctors", "llvm.global_dtors"})
@@ -261,7 +307,7 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
 // an error, and that module is linked once with LinkOnlyNeeded: only what the
 // program reaches joins it, and each file-local global is copied at most
 // once, so no runtime state is ever split in two.
-bool linkRuntime(llvm::Module &program) {
+bool linkRuntime(llvm::Module &program, llvm::StringSet<> &baseline) {
   if (runtimeArchive.empty())
     return true;
   auto archiveBuffer = llvm::MemoryBuffer::getFile(runtimeArchive, /*IsText=*/false,
@@ -285,7 +331,7 @@ bool linkRuntime(llvm::Module &program) {
                    << llvm::toString(module.takeError()) << "\n";
       return false;
     }
-    if (!prepareMember(**module, member.name))
+    if (!prepareMember(**module, member.name, baseline))
       return false;
     if (runtimeLinker.linkInModule(std::move(*module))) {
       llvm::errs() << "idris-mlir-cc: runtime member " << member.name
@@ -303,11 +349,14 @@ bool linkRuntime(llvm::Module &program) {
 // Runtime code was compiled for the x86-64 baseline, plus the
 // features a function asks for itself (a simdutf kernel's AVX2, say). It takes
 // the program's CPU and keeps every feature it asked for, so it inlines into
-// program code and no function loses an instruction it relies on.
-void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
+// program code and no function loses an instruction it relies on; the
+// baseline functions keep the baseline.
+void retarget(llvm::Module &module, const llvm::TargetMachine &machine,
+              const llvm::StringSet<> &baseline) {
   std::string cpuFeatures = machine.getTargetFeatureString().str();
   for (llvm::Function &function : module) {
-    if (function.isDeclaration() || !function.hasFnAttribute("target-cpu"))
+    if (function.isDeclaration() || !function.hasFnAttribute("target-cpu") ||
+        baseline.contains(function.getName()))
       continue;
     std::string features = function.getFnAttribute("target-features").getValueAsString().str();
     if (!cpuFeatures.empty())
@@ -327,6 +376,25 @@ struct Verdict {
 };
 
 int status(const Verdict &verdict) { return verdict.rejected ? rejected : failure; }
+
+// The module's target, #llvm.target, which every step reads: idr-eval's JIT
+// compiles for its CPU, so what compile-time evaluation spends does not
+// depend on the machine that compiles; idr-lower tells the runtime's entry
+// which of its features to test; the object code is compiled for it. LLVM
+// fills in the CPU's features and the data layout (dlti.dl_spec).
+mlir::LogicalResult setTarget(mlir::ModuleOp module, const Cpu &cpu) {
+  mlir::MLIRContext *ctx = module.getContext();
+  ctx->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+  auto features = cpu.features.empty() ? mlir::LLVM::TargetFeaturesAttr()
+                                       : mlir::LLVM::TargetFeaturesAttr::get(ctx, cpu.features);
+  module->setAttr(mlir::LLVM::LLVMDialect::getTargetAttrName(),
+                  mlir::LLVM::TargetAttr::get(ctx, mlir::StringAttr::get(ctx, targetTriple),
+                                              mlir::StringAttr::get(ctx, cpu.name), features));
+  mlir::PassManager pm(ctx);
+  pm.addPass(mlir::LLVM::createLLVMTargetToTargetFeatures());
+  pm.addPass(mlir::LLVM::createLLVMTargetToDataLayout());
+  return pm.run(module);
+}
 
 int run() {
   mlir::registerAllPasses();
@@ -386,6 +454,10 @@ int run() {
   mlir::registerBuiltinDialectTranslation(everything);
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
+  if (mlir::failed(setTarget(*module, *cpu))) {
+    llvm::errs() << "idris-mlir-cc: internal error: the module's target could not be set\n";
+    return failure;
+  }
 
   // --remarks prints the remarks of its categories, of every kind;
   // --remarks-file streams them, or every remark, to a YAML file.
@@ -480,9 +552,17 @@ int run() {
   // Step 11: LLVM IR, joined with the runtime into one module; every symbol
   // but main internalized; LLVM's O3 pipeline; object code for the CPU.
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
+  auto moduleTarget =
+      (*module)->getAttrOfType<mlir::LLVM::TargetAttr>(mlir::LLVM::LLVMDialect::getTargetAttrName());
+  if (!moduleTarget) {
+    llvm::errs() << "idris-mlir-cc: internal error: the module lost its #llvm.target\n";
+    return failure;
+  }
+  std::string features =
+      moduleTarget.getFeatures() ? moduleTarget.getFeatures().getFeaturesString() : "";
   std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, cpu->name, cpu->features, idr::targetOptions(), llvm::Reloc::PIC_, std::nullopt,
-      llvm::CodeGenOptLevel::Aggressive));
+      triple, moduleTarget.getChip().getValue(), features, idr::targetOptions(), llvm::Reloc::PIC_,
+      std::nullopt, llvm::CodeGenOptLevel::Aggressive));
   if (!machine) {
     llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
                  << "\n";
@@ -501,9 +581,10 @@ int run() {
   llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
   llvmModule->setPIELevel(llvm::PIELevel::Large);
 
-  if (!linkRuntime(*llvmModule))
+  llvm::StringSet<> baseline;
+  if (!linkRuntime(*llvmModule, baseline))
     return failure;
-  retarget(*llvmModule, *machine);
+  retarget(*llvmModule, *machine, baseline);
   // The program is whole, so nothing but the process entry is
   // visible outside it; O3 then removes what main does not reach.
   llvm::internalizeModule(*llvmModule,
@@ -533,40 +614,33 @@ int run() {
              : failure;
 }
 
-// The compilation runs on a stack reserved as large as the address space
-// allows, committed as it is touched: MLIR's parser, printer and walks
-// recurse over nested constants, and compile-time evaluation builds them as
-// large as the program's own values (no limits but the machine's).
+// The compilation runs on the runtime's reserved-stack runner, on a stack
+// as large as the address space allows, committed as it is touched: MLIR's
+// parser, printer and walks recurse over nested constants, and compile-time
+// evaluation builds them as large as the program's own values (no limits
+// but the machine's). PIN(mlir-recursion) — see PINS.md
 struct Compilation {
   int status = failure;
 };
 
-void *compile(void *argument) {
-  static_cast<Compilation *>(argument)->status = run();
-  return nullptr;
+void compile(void *argument) { static_cast<Compilation *>(argument)->status = run(); }
+
+// From the signal handler: only write and _exit.
+[[noreturn]] void compilationExhausted() {
+  static constexpr char message[] =
+      "idris-mlir-cc: internal error: the compilation exhausted its stack\n";
+  (void)!write(2, message, sizeof message - 1);
+  _exit(failure);
 }
 
 int runOnLargeStack() {
   Compilation compilation;
-  constexpr size_t guard = size_t{1} << 20;
-  for (size_t size = size_t{1} << 44; size >= size_t{1} << 26; size >>= 1) {
-    void *base = mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (base == MAP_FAILED)
-      continue;
-    pthread_attr_t attributes;
-    pthread_t thread;
-    if (mprotect(base, guard, PROT_NONE) != 0 || pthread_attr_init(&attributes) != 0 ||
-        pthread_attr_setstack(&attributes, static_cast<char *>(base) + guard, size - guard) != 0 ||
-        pthread_create(&thread, &attributes, compile, &compilation) != 0 ||
-        pthread_join(thread, nullptr) != 0) {
-      munmap(base, size);
-      continue;
-    }
-    return compilation.status;
+  if (idris_rt_run_on_stack(compile, &compilation, size_t{1} << 44, size_t{1} << 20,
+                            compilationExhausted) != 0) {
+    llvm::errs() << "idris-mlir-cc: no stack could be reserved for the compilation\n";
+    return failure;
   }
-  llvm::errs() << "idris-mlir-cc: no stack could be reserved for the compilation\n";
-  return failure;
+  return compilation.status;
 }
 
 } // namespace
@@ -598,5 +672,9 @@ int main(int argc, char **argv) {
   if (!cl::ParseCommandLineOptions(static_cast<int>(args.size()), args.data(),
                                    "idris-mlir-cc: idr to object code\n", &llvm::errs()))
     return usage;
+  if (printTargetTriple) {
+    llvm::outs() << targetTriple << "\n";
+    return ok;
+  }
   return runOnLargeStack();
 }

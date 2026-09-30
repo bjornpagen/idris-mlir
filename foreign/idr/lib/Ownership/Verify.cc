@@ -211,8 +211,8 @@ private:
   // What a use does, where a loop's terminator passes on a borrowed slot.
   Use useKind(OpOperand &operand) {
     Operation *op = operand.getOwner();
-    auto loop = dyn_cast_or_null<scf::WhileOp>(op->getParentOp());
-    if (loop && isa<scf::ConditionOp, scf::YieldOp>(op)) {
+    Operation *loop = op->getParentOp();
+    if (isa_and_nonnull<scf::WhileOp, scf::ForOp>(loop) && isa<scf::ConditionOp, scf::YieldOp>(op)) {
       unsigned slot = operand.getOperandNumber() - (isa<scf::ConditionOp>(op) ? 1 : 0);
       if (Value owner = slotOwner(loop, slot))
         return Use::Borrow;
@@ -225,7 +225,7 @@ private:
 
   // The borrowed value a slot of a loop carries on its first iteration, or
   // null when the slot is owned.
-  Value slotOwner(scf::WhileOp loop, unsigned slot) {
+  Value slotOwner(Operation *loop, unsigned slot) {
     auto it = loops.find(loop);
     if (it == loops.end() || slot >= it->second.size())
       return Value();
@@ -257,6 +257,8 @@ private:
       return walkMatch(op, match.getScrutinee());
     if (auto loop = dyn_cast<scf::WhileOp>(op))
       return walkLoop(loop);
+    if (auto loop = dyn_cast<scf::ForOp>(op))
+      return walkFor(loop);
     return op.emitOpError("has regions, which the owned stage does not know how to count");
   }
 
@@ -382,6 +384,51 @@ private:
       if (counting.tracked(result))
         slotType(result.getResultNumber(), result, /*after=*/true);
     return exits;
+  }
+
+  // An scf.for that idr-tail-loops made of a counted scf.while: its slots
+  // are the iteration arguments, borrowed or owned as a while loop's, and
+  // its body is the after region, which always reaches its yield or ends
+  // the program.
+  FailureOr<bool> walkFor(scf::ForOp loop) {
+    Operation &op = *loop.getOperation();
+    for (Value bound : {loop.getLowerBound(), loop.getUpperBound(), loop.getStep()})
+      if (failed(use(op, bound)))
+        return failure();
+    SmallVector<Value> &slots = loops[loop];
+    for (Value init : loop.getInitArgs()) {
+      bool borrowed = counting.tracked(init) && held.lookup(init) == 0 && alive(init);
+      slots.push_back(borrowed ? init : Value());
+      if (failed(borrowed ? use(op, init) : consume(op, init)))
+        return failure();
+    }
+    auto slotType = [&](unsigned slot, Value value, bool result) {
+      if (Value owner = slotOwner(loop, slot))
+        define(value, 0, owner, /*borrowed=*/true);
+      else
+        define(value, result && value.use_empty() ? 0 : 1);
+    };
+    size_t mark = log.size();
+    Block &body = *loop.getBody();
+    for (BlockArgument arg : loop.getRegionIterArgs())
+      if (counting.tracked(arg))
+        slotType(arg.getArgNumber() - loop.getNumInductionVars(), arg, /*result=*/false);
+    FailureOr<bool> reached = walk(body);
+    if (failed(reached))
+      return failure();
+    if (*reached) {
+      if (failed(settled(body, body.back())))
+        return failure();
+      auto changes = changesSince(mark);
+      if (!changes.empty())
+        return fail(op, changes.front().first,
+                    "changes the references of a value from outside the loop in its body");
+    }
+    undo(mark);
+    for (OpResult result : loop.getResults())
+      if (counting.tracked(result))
+        slotType(result.getResultNumber(), result, /*result=*/true);
+    return true;
   }
 
   Counting &counting;

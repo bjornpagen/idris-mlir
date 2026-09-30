@@ -92,9 +92,6 @@ FailureOr<func::FuncOp> CloneTable::copy(func::FuncOp from, StringAttr owner, St
   func::FuncOp clone = from.clone();
   clone.setSymName((owner.getValue() + "$" + kind + "$" + Twine(n)).str());
   clone.setPrivate();
-  // What the other passes know a clone by: the loop breakers pick the
-  // newest in a cycle.
-  clone->setAttr("idr.origin", owner);
   table.insert(clone, module.getBody()->end());
   return clone;
 }

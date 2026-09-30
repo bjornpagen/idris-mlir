@@ -1,4 +1,4 @@
-// Standard output and input, exit and crash. Static storage and the stack
+// Standard output and input, and crash. Static storage and the stack
 // only: the only libc symbols are write, read, _exit and getenv.
 // PIN(runtime-quarantine) — see PINS.md
 
@@ -123,6 +123,11 @@ extern "C" void idris_rt_io_put_char(int32_t c) {
   putBytes(bytes, rt::encodeUtf8(c, bytes));
 }
 
+extern "C" void idris_rt_io_put_byte(uint8_t byte) {
+  auto c = static_cast<char>(byte);
+  putBytes(&c, 1);
+}
+
 extern "C" void idris_rt_io_put_int_s(int64_t value) {
   char text[rt::intTextMax];
   char *end = text + sizeof text;
@@ -150,58 +155,15 @@ extern "C" int32_t idris_rt_io_get_byte(void) {
   return b;
 }
 
-// The first byte decides the length and the range of the second byte
-// (Unicode's table of well-formed byte sequences); a byte outside it ends a
-// maximal invalid subsequence, which is not consumed.
-extern "C" int32_t idris_rt_io_get_char(void) {
-  int32_t b0 = peek();
-  if (b0 < 0)
-    return 0;
-  ++inputPosition;
-  if (b0 < 0x80)
-    return b0;
-  int32_t n;
-  int32_t value;
-  if (b0 >= 0xC2 && b0 <= 0xDF) {
-    n = 2;
-    value = b0 & 0x1F;
-  } else if (b0 >= 0xE0 && b0 <= 0xEF) {
-    n = 3;
-    value = b0 & 0x0F;
-  } else if (b0 >= 0xF0 && b0 <= 0xF4) {
-    n = 4;
-    value = b0 & 0x07;
-  } else {
-    return 0xFFFD;
-  }
-  int32_t low = b0 == 0xE0 ? 0xA0 : b0 == 0xF0 ? 0x90 : 0x80;
-  int32_t high = b0 == 0xED ? 0x9F : b0 == 0xF4 ? 0x8F : 0xBF;
-  for (int32_t k = 1; k < n; ++k) {
-    int32_t b = peek();
-    if (b < low || b > high)
-      return 0xFFFD;
-    ++inputPosition;
-    value = (value << 6) | (b & 0x3F);
-    low = 0x80;
-    high = 0xBF;
-  }
-  return value;
-}
-
 extern "C" void idris_rt_main_return(void) {
   idris_rt_flush();
   reportLiveCells();
 }
 
-extern "C" void idris_rt_io_exit(int64_t code) {
-  idris_rt_main_return();
-  _exit(static_cast<int>(code & 0xFF));
-}
-
 extern "C" void idris_rt_crash(const char *msg, size_t len) {
   idris_rt_flush();
   rt::writeAll(2, msg, len);
-  _exit(1);
+  _exit(IDRIS_RT_CRASHED);
 }
 
 extern "C" int32_t idris_rt_int_head_s(int64_t value) {

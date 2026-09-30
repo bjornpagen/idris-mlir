@@ -155,6 +155,24 @@ showShape = showAt False
 -- Hooks
 ------------------------------------------------------------------------------
 
+||| What a function on naturals computes, as primitives on the representation
+||| of `Nat`, a big that is never negative: the meaning Idris's own backends
+||| give the Prelude's `Nat` functions instead of their unary recursions.
+public export
+data NatMeaning
+  = ||| The primitive of the arguments: `plus` is `NatAdd`.
+    Primitive Prim
+  | ||| The primitive of the arguments' Integers, then the natural of its
+    ||| Integer: `minus` is the difference, clamped at 0.
+    Clamped Prim
+  | ||| The comparison of the arguments, as the library function that makes
+    ||| a `Bool` of an `Int` gives it: `equalNat` is `intToBool` of `NatCompare
+    ||| CEq`.
+    Tested Cmp QName
+  | ||| The library function on Integers, of the arguments' Integers:
+    ||| `compareNat` is `compareInteger`.
+    OnIntegers QName
+
 ||| What the compiler does with a definition it knows: one constructor per
 ||| behaviour. Passes match on hooks, never on names, and each hook's
 ||| handler lives with the pass that meets it.
@@ -172,6 +190,10 @@ data Hook
     ||| main`, which the compiler writes as world-passing code. Handler:
     ||| `Frontend.Main.compileIO`.
     ProgramRoot
+  | ||| A function on naturals whose calls compute what it means on the
+    ||| representation of `Nat`, in constant time and stack, instead of its
+    ||| unary recursion. Handler: `Frontend.Translate.application`.
+    NatOperation NatMeaning
   | ||| Rejected where the user's code uses it, under the rule named:
     ||| a definition the user's definitions refer to, or a spelling in the
     ||| user's source. Handler:
@@ -195,6 +217,7 @@ kind : Hook -> Kind
 kind (IOCall _) = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
+kind (NatOperation _) = Faster
 kind (Forbidden _) = Stricter
 
 ------------------------------------------------------------------------------

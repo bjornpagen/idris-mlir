@@ -1,15 +1,38 @@
-// Strongly connected components (Tarjan), for the passes that must find the
-// cycles of a graph: idr-defunctionalize (closure types that contain
-// themselves) and idr-loop-breakers (cycles of references among functions).
+// Strongly connected components, for the passes that must find the cycles
+// of a graph: idr-defunctionalize (closure types that contain themselves),
+// idr-loop-breakers and idr-inline (cycles of references among functions),
+// and the analyses that go through a call graph callees first. The graphs
+// are the passes' own (a reference by a closure is an edge, a loop breaker
+// is none), not MLIR's CallGraph, so they are handed to LLVM's iterative
+// Tarjan (scc_iterator) as a graph of indices: a call chain of any depth
+// takes no recursion.
 #pragma once
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <algorithm>
+#include <vector>
+
+namespace idr::passes::detail {
+
+// A node of the graph LLVM walks, with its successors.
+struct Vertex {
+  llvm::SmallVector<const Vertex *> successors;
+};
+
+} // namespace idr::passes::detail
+
+template <> struct llvm::GraphTraits<const idr::passes::detail::Vertex *> {
+  using NodeRef = const idr::passes::detail::Vertex *;
+  using ChildIteratorType = llvm::SmallVector<NodeRef>::const_iterator;
+  static NodeRef getEntryNode(NodeRef vertex) { return vertex; }
+  static ChildIteratorType child_begin(NodeRef vertex) { return vertex->successors.begin(); }
+  static ChildIteratorType child_end(NodeRef vertex) { return vertex->successors.end(); }
+};
 
 namespace idr::passes {
 
@@ -21,40 +44,30 @@ template <typename Node>
 llvm::SmallVector<llvm::SmallVector<Node>>
 stronglyConnected(llvm::ArrayRef<Node> nodes,
                   llvm::function_ref<llvm::SmallVector<Node>(Node)> successors) {
-  llvm::DenseSet<Node> inGraph(nodes.begin(), nodes.end());
-  llvm::DenseMap<Node, unsigned> index, low;
-  llvm::SmallVector<Node> stack;
-  llvm::DenseSet<Node> onStack;
+  llvm::SmallVector<Node> order;
+  llvm::DenseMap<Node, unsigned> index;
+  for (Node node : nodes)
+    if (index.try_emplace(node, order.size()).second)
+      order.push_back(node);
+  // One more vertex, the root, precedes every node in order, so that one
+  // walk from it visits them all; nothing reaches it, so its component is
+  // itself, and the last.
+  std::vector<detail::Vertex> vertices(order.size() + 1);
+  const detail::Vertex *root = &vertices.back();
+  for (auto [at, node] : llvm::enumerate(order)) {
+    vertices.back().successors.push_back(&vertices[at]);
+    for (Node next : successors(node))
+      if (auto found = index.find(next); found != index.end())
+        vertices[at].successors.push_back(&vertices[found->second]);
+  }
   llvm::SmallVector<llvm::SmallVector<Node>> components;
-  unsigned counter = 0;
-  auto visit = [&](auto &self, Node v) -> void {
-    index[v] = counter;
-    low[v] = counter++;
-    stack.push_back(v);
-    onStack.insert(v);
-    for (Node w : successors(v)) {
-      if (!inGraph.contains(w))
-        continue;
-      if (!index.count(w)) {
-        self(self, w);
-        low[v] = std::min(low[v], low[w]);
-      } else if (onStack.contains(w)) {
-        low[v] = std::min(low[v], index[w]);
-      }
-    }
-    if (low[v] != index[v])
-      return;
+  for (auto it = llvm::scc_begin(root); !it.isAtEnd(); ++it) {
+    if ((*it).front() == root)
+      continue;
     llvm::SmallVector<Node> &component = components.emplace_back();
-    Node w;
-    do {
-      w = stack.pop_back_val();
-      onStack.erase(w);
-      component.push_back(w);
-    } while (w != v);
-  };
-  for (Node v : nodes)
-    if (!index.count(v))
-      visit(visit, v);
+    for (const detail::Vertex *vertex : *it)
+      component.push_back(order[static_cast<size_t>(vertex - vertices.data())]);
+  }
   return components;
 }
 

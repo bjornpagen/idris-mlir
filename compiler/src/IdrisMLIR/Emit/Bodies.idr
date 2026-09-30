@@ -104,6 +104,7 @@ key (LInt t n) = show (twos (width t) n)
 key (LChar c) = show c
 key (LStr s) = utf8 s
 key (LBig n) = "#idr.big<" ++ quoted (show n) ++ ">"
+key (LNat n) = "#idr.big<" ++ quoted (show n) ++ ">"
 key (LDouble d) = floatLiteral d
 
 ||| Starts a function: its own SSA numbers and operations, the owner's
@@ -256,12 +257,12 @@ alg ix own (CaseNatF l x z s) env expected =
       n <- coerce ix l Plain (env x)
       (zr, zops) <- collect (plain ix l (z.result env expected))
       (sr, sops) <- collect (plain ix l (successor n))
-      match ix l ("idr.match_lit " ++ n.name ++ " : !idr.big")
-            [MkRegion ("case " ++ key (LBig 0) ++ " {") zr zops, MkRegion "default {" sr sops]
+      match ix l ("idr.match_lit " ++ n.name ++ " : !idr.nat")
+            [MkRegion ("case " ++ key (LNat 0) ++ " {") zr zops, MkRegion "default {" sr sops]
   where
     successor : Val -> E (Maybe Val)
     successor n = do
-      p <- value l BigT ("idr.big.pred " ++ n.name)
+      p <- value l NatT ("idr.big.pred " ++ n.name)
       s.result (bind [p] env) expected
 alg ix own (LamF l lbl caps b body) env expected = do
   let capVals = map env caps

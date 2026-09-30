@@ -13,6 +13,9 @@
 
 #include <snmalloc/snmalloc.h>
 
+static_assert(snmalloc::DefaultPal::address_bits <= rt::heapAddressBits,
+              "every heap address fits the bits the dying list keeps");
+
 #define IDRIS_RT_DEFINE_SIZE_CLASS(S)                                                     \
   static_assert(snmalloc::sizeclass_to_size(snmalloc::size_to_sizeclass_const(S)) == (S), \
                 "each entry is exactly one snmalloc size class");                         \

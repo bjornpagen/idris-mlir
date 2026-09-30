@@ -205,9 +205,9 @@ shortName (NS _ n) = shortName n
 shortName n = show n
 
 ||| The role Idris gives a constructor of a `Nat`-like type
-||| (`TTImp.ProcessData.calcNaty`): the type is `BigT`, zero is `0`, and the
-||| successor adds one. Idris counts only runtime arguments, so `Fin` is one
-||| too.
+||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
+||| successor adds one, as Idris's own backends represent every such type.
+||| Idris counts only runtime arguments, so `Fin` is one too.
 public export
 data NatRole = Zero | Succ
 
@@ -262,7 +262,7 @@ mutual
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       if !(natLike def)
-         then pure BigT
+         then pure NatT
          else DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
@@ -322,8 +322,17 @@ mutual
         DCon tag arity _ <- pure (definition def)
           | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
         loc <- toLoc (location def)
-        let layout = paramLayout ps (type def)
-        fields <- walk cname (location def) targs layout (type def)
+        -- The type as written may hide its binders behind a definition
+        -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
+        -- with the quantity that makes a field linear.
+        ty <- normaliseClosed (type def)
+        let layout = paramLayout ps ty
+        -- Every match binds `arity` arguments: a layout of another length
+        -- would misplace every field after the first difference.
+        when (length layout /= arity) $
+          internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
+                                   show (length layout))
+        fields <- walk cname (location def) targs layout ty
         let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) fields loc
         update TState { cons $= insert con.id (MkConLayout targs layout con) }
         pure con

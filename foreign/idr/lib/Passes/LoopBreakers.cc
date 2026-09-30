@@ -39,7 +39,7 @@ func::FuncOp choose(ArrayRef<func::FuncOp> cycle,
   func::FuncOp newest, first, firstOwn;
   for (func::FuncOp fn : cycle) {
     unsigned at = order.lookup(fn);
-    if (fn->hasAttr("idr.origin") && (!newest || order.lookup(newest) < at))
+    if (fn->hasAttr("idr.clone") && (!newest || order.lookup(newest) < at))
       newest = fn;
     if (!first || at < order.lookup(first))
       first = fn;

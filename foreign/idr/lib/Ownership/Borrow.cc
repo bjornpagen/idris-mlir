@@ -9,6 +9,7 @@
 //   - is passed to an owned parameter of a call;
 //   - is itself stored in a constructor or a closure, or passed to the
 //     function of a closure, which takes every argument owned;
+//   - is returned, or yielded by a match, whose results are owned;
 // and when an owned value is passed to it by a tail call from the same
 // cycle of calls, which would otherwise have to drop its reference after
 // the call, so that the call would no longer be a tail call.
@@ -174,6 +175,12 @@ private:
       } else if (isa<ConOp, ClosureOp, ReuseOp>(op)) {
         for (Value operand : op->getOperands())
           ownIfParam(operand);
+      } else if (isa<func::ReturnOp, YieldOp>(op)) {
+        // Borrowed, a returned parameter would need a reference of its own
+        // to leave the call with, and the caller's value would be shared
+        // from then on.
+        for (Value operand : op->getOperands())
+          own(operand);
       }
     });
   }

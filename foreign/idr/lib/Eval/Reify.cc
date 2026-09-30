@@ -88,7 +88,7 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
     const auto *s = pointer<idris_rt_str>(word);
     return StringAttr::get(ctx, StringRef(idris_rt_str_bytes(s), s->bytes));
   }
-  if (isa<BigType>(type)) {
+  if (isa<BigType, NatType>(type)) {
     const idris_rt_str *text = idris_rt_big_show(static_cast<idris_rt_big>(word));
     return BigAttr::get(ctx, StringRef(idris_rt_str_bytes(text), text->bytes));
   }

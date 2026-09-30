@@ -1,0 +1,4 @@
+// The hooks fire: no function on naturals the registry knows is called, so
+// none is translated. Their calls are primitives on naturals.
+// CHECK-NOT: Prelude.Types.{{natToInteger|integerToNat|prim__integerToNat|plus|mult|minus|equalNat|compareNat}}
+// CHECK-NOT: Data.Nat.{{lte|gte|lt|gt}}

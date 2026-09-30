@@ -1,0 +1,7 @@
+#!/bin/sh
+# A positive test of the registry's NatOperation hooks: the functions on
+# naturals compute on Nat's representation. translate.check finds none of
+# them translated in full Core, and the program prints what the Chez
+# backend prints.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+e2e_io .

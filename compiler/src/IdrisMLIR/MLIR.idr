@@ -79,6 +79,8 @@ data MType = I Nat | F64
            | Data String | Boxed String
            | Fn (List MType) (List MType)
            | Str | Big | World | Erased
+           | ||| A natural: a big that is never negative.
+             Natural
            | ||| A value used exactly once.
              Lin MType
 
@@ -92,6 +94,7 @@ mutual
   showType (Fn as rs) = "!idr.fn<(" ++ showTypes as ++ ") -> (" ++ showTypes rs ++ ")>"
   showType Str = "!idr.str"
   showType Big = "!idr.big"
+  showType Natural = "!idr.nat"
   showType World = "!idr.world"
   showType Erased = "!idr.erased"
   showType (Lin t) = "!idr.lin<" ++ showType t ++ ">"

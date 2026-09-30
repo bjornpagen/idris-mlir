@@ -48,6 +48,8 @@ idr::expect::Check lookup(StringRef name) {
       .Case("facts-as-marked", factsAsMarked)
       .Case("output-fused", outputFused)
       .Case("folds-balanced", foldsBalanced)
+      .Case("constant-stack", constantStack)
+      .Case("counted-loop", countedLoop)
       .Default(nullptr);
 }
 

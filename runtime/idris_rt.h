@@ -38,8 +38,9 @@ extern "C" {
  * info is tag | objs << 16 | kind << 24, with bit 31 marking a stack cell.
  * Freeing reads only objs, kind and bit 31, so the runtime frees any cell
  * without knowing its type.
- * - tag (bits 0-15): a box's constructor tag, a closure's label, a string's
- *   ASCII flag in bit 0 (set when every byte is ASCII); 0 for a bignum.
+ * - tag (bits 0-15): a box's constructor tag, a string's ASCII flag in bit 0
+ *   (set only when every byte is ASCII); 0 for a closure, whose code pointer
+ *   says what it is, and for a bignum.
  * - objs (bits 16-23): the number of 8-byte object slots. A box's are the
  *   first objs slots right after the header; a closure's are the first objs
  *   slots after its code pointer, which is at offset 8. Strings and bignums
@@ -52,7 +53,11 @@ extern "C" {
  *   never exclusive (idris_rt_is_unique, idris_rt_reset): a callee it is lent
  *   to could otherwise reuse its memory for a result that outlives the frame
  *   holding it.
- * idris_rt_info builds the word, and the accessors below take it apart.
+ * idris_rt_info builds the word, and the accessors below take it apart. It
+ * does not check its arguments: idr-lower builds every word it writes
+ * through its CellInfo, which exists only for a tag below IDRIS_RT_TAG_LIMIT
+ * and an object count below IDRIS_RT_OBJS_LIMIT, so that no field of a word
+ * the compiler writes overflows into the next.
  *
  * An object slot holds a counted reference: a pointer to an object, NULL (an
  * unused pointer slot of an unboxed sum), or an odd word (a small Integer or
@@ -69,15 +74,27 @@ typedef struct idris_rt_header {
 #define IDRIS_RT_KIND_BIGNUM 3u
 #define IDRIS_RT_STACK_CELL 0x80000000u
 
-static inline uint32_t idris_rt_info(uint32_t tag, uint32_t objs, uint32_t kind) {
+#define IDRIS_RT_TAG_LIMIT 0x10000u
+#define IDRIS_RT_OBJS_LIMIT 0x100u
+
+/* Constant words are built at compile time in C++ too. */
+#ifdef __cplusplus
+#define IDRIS_RT_INFO_FUNCTION constexpr
+#else
+#define IDRIS_RT_INFO_FUNCTION static inline
+#endif
+IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info(uint32_t tag, uint32_t objs, uint32_t kind) {
   return tag | objs << 16 | kind << 24;
 }
-static inline uint32_t idris_rt_info_tag(uint32_t info) { return info & 0xFFFFu; }
-static inline uint32_t idris_rt_info_objs(uint32_t info) { return info >> 16 & 0xFFu; }
-static inline uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24 & 0x7Fu; }
+IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_tag(uint32_t info) { return info & (IDRIS_RT_TAG_LIMIT - 1u); }
+IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_objs(uint32_t info) { return info >> 16 & (IDRIS_RT_OBJS_LIMIT - 1u); }
+IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24 & 0x7Fu; }
+#undef IDRIS_RT_INFO_FUNCTION
 
-/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 1 when every byte is
- * ASCII), the byte length, the number of scalar values, then the UTF-8
+/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 1 only when every
+ * byte is ASCII: a slice keeps the flag of the string it is cut from, so an
+ * ASCII slice of another string may have 0, and the flag only picks a fast
+ * path), the byte length, the number of scalar values, then the UTF-8
  * bytes, in the same allocation. */
 typedef struct idris_rt_str {
   idris_rt_header header;
@@ -105,9 +122,8 @@ typedef struct idris_rt_bignum {
 
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
  * the constructor's fields, object slots first. A closure is the header (kind
- * IDRIS_RT_KIND_CLOSURE, tagged with its label: idr-lower numbers the
- * functions closures name), then the code pointer, then the captures, object
- * slots first. Their field layouts are idr-lower's. */
+ * IDRIS_RT_KIND_CLOSURE, tag 0), then the code pointer, then the captures,
+ * object slots first. Their field layouts are idr-lower's. */
 
 /* Allocation of raw memory, which is not a cell: nothing counts it. The size
  * classes with an allocate and a free entry
@@ -145,10 +161,9 @@ void idris_rt_free(void *block);
  * persistent (count 0) instead, and not a live cell. */
 void *idris_rt_cell(size_t size, uint32_t info);
 
-/* One more owned reference, or n more; a count that would reach UINT32_MAX
- * saturates there. */
+/* One more owned reference; a count that would reach UINT32_MAX saturates
+ * there. */
 void idris_rt_inc(void *o);
-void idris_rt_inc_n(void *o, uint32_t n);
 
 /* One owned reference less. At 0 the object is released: a box's or a
  * closure's object slots lose a reference each, a bignum's limbs are freed,
@@ -187,35 +202,76 @@ uint64_t idris_rt_live_cells(void);
 
 /* Standard output and input. They borrow their arguments.
  * Output goes through one static buffer, flushed when it fills, before every
- * read, before exit and a crash's message, and when main returns. */
+ * read, before a crash's message, and when main returns. */
 void idris_rt_flush(void);
 /* What @main calls right before it returns: writes pending output, then,
  * when the environment variable IDRIS_RT_LIVE is exactly "1", the line
  * "idris-rt: live cells N\n" (N in decimal, idris_rt_live_cells) to standard
  * error, so a test can check that a program frees every cell it allocates.
- * idris_rt_io_exit does the same before it ends the process; a crash does
- * not. Compile-time evaluation reports nothing. */
+ * A crash reports nothing, and neither does compile-time evaluation. */
 void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c. */
 void idris_rt_io_put_char(int32_t c);
+/* One byte, as C's putchar writes its argument: the Prelude's putChar. */
+void idris_rt_io_put_byte(uint8_t byte);
 /* The decimal text of a signed or an unsigned integer, which idr-lower
  * extends to 64 bits as its type's signedness says. */
 void idris_rt_io_put_int_s(int64_t value);
 void idris_rt_io_put_int_u(uint64_t value);
 /* The text of a double, as Chez writes it. */
 void idris_rt_io_put_double(double value);
-/* One UTF-8 encoded scalar value: '\0' at the end of input, U+FFFD for each
- * maximal invalid subsequence. */
-int32_t idris_rt_io_get_char(void);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
-/* Writes pending output and, as idris_rt_main_return, the live cells, then
- * ends the process with status code mod 256. */
-IDRIS_RT_NORETURN void idris_rt_io_exit(int64_t code);
 /* Writes pending output, then the len bytes of msg to standard error, then
- * ends the process with status 1. */
+ * ends the process with status IDRIS_RT_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
+
+/* The exit status of a program that the runtime ends with a message on
+ * standard error ("idris-mlir: <cause>"): a crash, the stack running out, a
+ * CPU without the features the program was compiled to use. */
+#define IDRIS_RT_CRASHED 1
+
+/* The CPU features a program may be compiled to use and idris_rt_start
+ * tests: those of the x86-64 microarchitecture levels v2, v3 and v4 above
+ * the baseline. Each is X(bit, LLVM feature name, cpuid leaf, cpuid register
+ * (0 to 3: eax, ebx, ecx, edx), bit in that register, register state it
+ * needs saved: 0 none, 1 AVX, 2 AVX-512). idr-lower sets a bit for each
+ * feature the module's target enables. */
+#define IDRIS_RT_CPU_FEATURES(X)                                               \
+  X(0, "cx16", 1, 2, 13, 0) X(1, "popcnt", 1, 2, 23, 0)                        \
+  X(2, "sse3", 1, 2, 0, 0) X(3, "sse4.1", 1, 2, 19, 0)                         \
+  X(4, "sse4.2", 1, 2, 20, 0) X(5, "ssse3", 1, 2, 9, 0)                        \
+  X(6, "sahf", 0x80000001, 2, 0, 0) X(7, "avx", 1, 2, 28, 1)                   \
+  X(8, "avx2", 7, 1, 5, 1) X(9, "bmi", 7, 1, 3, 0) X(10, "bmi2", 7, 1, 8, 0)   \
+  X(11, "f16c", 1, 2, 29, 1) X(12, "fma", 1, 2, 12, 1)                         \
+  X(13, "lzcnt", 0x80000001, 2, 5, 0) X(14, "movbe", 1, 2, 22, 0)              \
+  X(15, "xsave", 1, 2, 26, 0) X(16, "avx512f", 7, 1, 16, 2)                    \
+  X(17, "avx512bw", 7, 1, 30, 2) X(18, "avx512cd", 7, 1, 28, 2)                \
+  X(19, "avx512dq", 7, 1, 17, 2) X(20, "avx512vl", 7, 1, 31, 2)
+
+/* The program's entry, which @main calls with the program and the
+ * IDRIS_RT_CPU_FEATURES bits its target enables. When the CPU lacks one of
+ * them, it names them and ends the process with IDRIS_RT_CRASHED before the
+ * program runs; it is compiled for the x86-64 baseline, and idris-mlir-cc
+ * keeps it there. Otherwise it returns what body returns, which body runs
+ * on a reserved stack (idris_rt_run_on_stack) of a gibibyte, or of the
+ * stack limit when that is larger; when that stack runs out, the output
+ * written so far is flushed, "idris-mlir: stack exhausted" is written to
+ * standard error, and the process ends with IDRIS_RT_CRASHED. */
+int32_t idris_rt_start(int32_t (*body)(void), uint64_t cpu);
+
+/* The reserved-stack runner, which programs, idris-mlir-cc and compile-time
+ * evaluation's child share: runs fn(arg) on a new thread whose stack is
+ * reserved address space, committed as it is touched, of the largest size
+ * from `most` bytes down by halves to 64 MiB that the machine grants, with
+ * `guard` inaccessible bytes below it. A fault on the guard is the stack
+ * running out: exhausted() runs, on a signal stack of its own, and must end
+ * the process with only async-signal-safe calls. Any other fault gets the
+ * action it had before. One runner runs at a time in a process. Returns 0
+ * once fn has returned, or -1 when no stack could be reserved. */
+int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
+                          void (*exhausted)(void));
 
 /* Doubles. x truncated toward zero, modulo 2^64; x is
  * finite (idr-lower checks it first). */
@@ -287,6 +343,11 @@ idris_rt_big idris_rt_big_and(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_or(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_xor(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_neg(idris_rt_big a);
+/* a - 1, for a natural that is not zero (idr.big.pred). */
+idris_rt_big idris_rt_big_pred(idris_rt_big a);
+/* An Integer as a natural: 0 if it is negative, else itself
+ * (idr.nat.from_big, Idris's integerToNat). */
+idris_rt_big idris_rt_nat_from_big(idris_rt_big a);
 /* Negative, zero or positive as a < b, a = b or a > b. */
 int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_from_int_s(int64_t value);

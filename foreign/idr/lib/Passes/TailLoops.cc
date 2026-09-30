@@ -5,9 +5,23 @@
 // `func.return`, or before the `idr.yield` of a match region whose match is
 // itself in tail position, and that terminator passes on exactly its results.
 //
-// A function with such a call becomes one `scf.while` over its arguments A.
-// Its before region is the old body. Every tail position of the body now
-// yields a payload (continue : i1, A, R):
+// Most such functions decide once per call whether to go round again: their
+// body ends in a match whose results it returns, one region of which ends in
+// the self tail call and the other reaches none. That function becomes the
+// loop MLIR expects, in while-do form:
+//   - the before region is the body up to the decision, and ends in
+//     `scf.condition(continue)` over the arguments that change;
+//   - the after region is the region that calls, its call's arguments
+//     yielded as the next ones;
+//   - the region that exits follows the loop, on the loop's results.
+// Arguments the call passes unchanged are not carried at all, and code that
+// depends on nothing the loop changes runs once, before it. A loop that
+// counts up to a bound is then exactly what upstream's uplift recognizes,
+// and becomes an scf.for with a trip count.
+//
+// Any other function with a self tail call becomes one `scf.while` over its
+// arguments A whose before region is the old body. Every tail position of
+// the body then yields a payload (continue : i1, A, R):
 //   - a self tail call yields (true, its arguments, poison R);
 //   - any other result yields (false, poison A, the results R);
 // the matches on the way yield the payload of their regions, and the region
@@ -19,11 +33,15 @@
 // otherwise be trivially dead upstream. Nothing here adds a
 // progress guarantee.
 
+#include "Ownership/Ownership.h"
 #include "idr/Idr.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 
 using namespace mlir;
 
@@ -41,11 +59,11 @@ bool passesOnPrevious(Operation *terminator) {
 }
 
 bool isSelfCall(Operation *op, func::FuncOp fn) {
-  auto call = dyn_cast<func::CallOp>(op);
+  auto call = dyn_cast_or_null<func::CallOp>(op);
   return call && call.getCallee() == fn.getSymName();
 }
 
-bool isTailMatch(Operation *op) { return isa<idr::MatchOp, idr::MatchLitOp>(op); }
+bool isTailMatch(Operation *op) { return isa_and_nonnull<idr::MatchOp, idr::MatchLitOp>(op); }
 
 // Whether the block, which ends in a tail position, reaches a self tail call.
 bool reachesTailCall(Block &block, func::FuncOp fn) {
@@ -62,6 +80,8 @@ bool reachesTailCall(Block &block, func::FuncOp fn) {
   });
 }
 
+// The general loop: the whole body in the before region, with a payload at
+// every tail position.
 struct Loop {
   func::FuncOp fn;
   TypeRange args;
@@ -168,14 +188,339 @@ struct Loop {
   }
 };
 
+// The body of a function that decides once per call whether to go round
+// again: the match whose results it returns, the region of it that ends in
+// the self tail call, and the one that reaches none.
+struct Decision {
+  Operation *match;
+  Region *loops;
+  Region *exits;
+};
+
+std::optional<Decision> decisionOf(func::FuncOp fn) {
+  Operation *ret = fn.getBody().front().getTerminator();
+  if (!passesOnPrevious(ret) || !isTailMatch(ret->getPrevNode()))
+    return std::nullopt;
+  Operation *match = ret->getPrevNode();
+  if (match->getNumRegions() != 2)
+    return std::nullopt;
+  Decision decision{match, nullptr, nullptr};
+  for (Region &region : match->getRegions()) {
+    if (region.empty())
+      return std::nullopt;
+    Operation *end = region.front().getTerminator();
+    if (isa<idr::YieldOp>(end) && passesOnPrevious(end) && isSelfCall(end->getPrevNode(), fn))
+      decision.loops = &region;
+    else if (!reachesTailCall(region.front(), fn))
+      decision.exits = &region;
+  }
+  if (!decision.loops || !decision.exits)
+    return std::nullopt;
+  // The loop tests an integer against the one key of its case, or the
+  // constructor of a value.
+  if (auto lit = dyn_cast<idr::MatchLitOp>(match))
+    if (!isa<IntegerType>(lit.getScrutinee().getType()) || lit.getCases().size() != 1)
+      return std::nullopt;
+  return decision;
+}
+
+// The loop of a function whose body is a decision (decisionOf).
+class WhileDo {
+public:
+  WhileDo(func::FuncOp fn, Decision decision, idr::ownership::Counting &counting, OpBuilder &b)
+      : fn(fn), decision(decision), counting(counting), b(b) {}
+
+  // Builds the loop, or leaves the function as it was and fails when what
+  // the regions need from the body cannot pass from one iteration to the
+  // next as plain values: values that hold no reference.
+  FailureOr<scf::WhileOp> build();
+
+private:
+  // The value `scope` sees for `value` of the body: the before region's
+  // argument, the after region's, or the loop's result.
+  enum class Scope { Before, After, Exit };
+  Value in(Value value, Scope scope);
+  // Where `scope`'s code begins: the before or after block, or the
+  // function's block after the loop.
+  Block *blockOf(Scope scope);
+  // The `i1` that holds when the decision takes the region that loops,
+  // built at the end of the before block.
+  Value continues();
+  // Moves the ops of `region` to the end of `scope`'s block, its arguments
+  // (a case's fields) read from the scrutinee, and returns its terminator.
+  Operation *inlineRegion(Region &region, Scope scope);
+
+  func::FuncOp fn;
+  Decision decision;
+  idr::ownership::Counting &counting;
+  OpBuilder &b;
+  scf::WhileOp loop;
+  // The arguments that change from one call to the next, by position.
+  SmallVector<unsigned> carried;
+  // What the body computes before the decision and the regions use: carried
+  // by the loop after the arguments.
+  SmallVector<Value> passed;
+};
+
+Block *WhileDo::blockOf(Scope scope) {
+  switch (scope) {
+  case Scope::Before:
+    return loop.getBeforeBody();
+  case Scope::After:
+    return loop.getAfterBody();
+  case Scope::Exit:
+    return loop->getBlock();
+  }
+  llvm_unreachable("a scope");
+}
+
+Value WhileDo::in(Value value, Scope scope) {
+  Block &entry = fn.getBody().front();
+  auto arg = dyn_cast<BlockArgument>(value);
+  unsigned slot;
+  if (arg && arg.getOwner() == &entry) {
+    const auto *it = llvm::find(carried, arg.getArgNumber());
+    if (it == carried.end())
+      return value;
+    slot = static_cast<unsigned>(it - carried.begin());
+  } else {
+    const auto *it = llvm::find(passed, value);
+    if (it == passed.end())
+      return value;
+    if (scope == Scope::Before)
+      return value;
+    slot = static_cast<unsigned>(carried.size() + (it - passed.begin()));
+  }
+  switch (scope) {
+  case Scope::Before:
+    return loop.getBeforeArguments()[slot];
+  case Scope::After:
+    return loop.getAfterArguments()[slot];
+  case Scope::Exit:
+    return loop.getResult(slot);
+  }
+  llvm_unreachable("a scope");
+}
+
+Value WhileDo::continues() {
+  Operation *match = decision.match;
+  bool loopsFirst = decision.loops->getRegionNumber() == 0;
+  Location loc = match->getLoc();
+  b.setInsertionPointToEnd(loop.getBeforeBody());
+  // `(x == k) == loopsFirst`: region 0 is the case k, region 1 the default.
+  auto test = [&](Value x, IntegerAttr k) -> Value {
+    auto predicate = loopsFirst ? arith::CmpIPredicate::eq : arith::CmpIPredicate::ne;
+    // A test of a flag is the flag, or the comparison it holds, turned
+    // around.
+    if (auto extended = x.getDefiningOp<arith::ExtUIOp>();
+        extended && extended.getIn().getType().isInteger(1) && k.getValue().ule(1)) {
+      x = extended.getIn();
+      k = b.getIntegerAttr(x.getType(), k.getValue().getZExtValue());
+    }
+    if (x.getType().isInteger(1)) {
+      bool whenSet = (predicate == arith::CmpIPredicate::eq) == k.getValue().isOne();
+      if (whenSet)
+        return x;
+      if (auto compare = x.getDefiningOp<arith::CmpIOp>())
+        return arith::CmpIOp::create(b, loc, arith::invertPredicate(compare.getPredicate()),
+                                     compare.getLhs(), compare.getRhs());
+    }
+    Value key = arith::ConstantOp::create(b, loc, k);
+    return arith::CmpIOp::create(b, loc, predicate, x, key);
+  };
+  if (auto lit = dyn_cast<idr::MatchLitOp>(match))
+    return test(in(lit.getScrutinee(), Scope::Before), cast<IntegerAttr>(lit.getCases()[0]));
+  // Region 0 is the case of a constructor; region 1 is the default, or the
+  // last case, which idr-lower also takes for any constructor Idris proved
+  // impossible.
+  auto sum = cast<idr::MatchOp>(match);
+  Value scrutinee = in(sum.getScrutinee(), Scope::Before);
+  auto name = cast<FlatSymbolRefAttr>(sum.getCases()[0]).getAttr();
+  auto ctors = idr::lookupData(sum, scrutinee.getType()).getCtors();
+  auto ctor = llvm::find_if(ctors, [&](idr::CtorOp c) { return c.getSymNameAttr() == name; });
+  Value tag = idr::TagOp::create(b, loc, scrutinee);
+  return test(tag, b.getI64IntegerAttr(ctor - ctors.begin()));
+}
+
+Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
+  Block &from = region.front();
+  Block *to = blockOf(scope);
+  // Uses of the body's values in the region see this scope's.
+  region.walk([&](Operation *op) {
+    for (OpOperand &operand : op->getOpOperands())
+      operand.set(in(operand.get(), scope));
+  });
+  if (auto sum = dyn_cast<idr::MatchOp>(decision.match); sum && from.getNumArguments() != 0) {
+    auto ctor = cast<FlatSymbolRefAttr>(sum.getCases()[region.getRegionNumber()]);
+    Value scrutinee = in(sum.getScrutinee(), scope);
+    idr::CtorOp decl = idr::lookupCtor(idr::lookupData(sum, scrutinee.getType()), ctor.getValue());
+    b.setInsertionPointToEnd(to);
+    for (BlockArgument field : from.getArguments()) {
+      Type type = decl.getFieldType(field.getArgNumber());
+      Value value = idr::FieldOp::create(b, field.getLoc(), type, scrutinee, ctor,
+                                         b.getI64IntegerAttr(field.getArgNumber()));
+      if (type != field.getType())
+        value = idr::LinEnterOp::create(b, field.getLoc(), field.getType(), value);
+      field.replaceAllUsesWith(value);
+    }
+  }
+  to->getOperations().splice(to->end(), from.getOperations());
+  return to->getTerminator();
+}
+
+FailureOr<scf::WhileOp> WhileDo::build() {
+  Block &entry = fn.getBody().front();
+  Operation *match = decision.match;
+  auto call = cast<func::CallOp>(decision.loops->front().getTerminator()->getPrevNode());
+  for (BlockArgument arg : entry.getArguments())
+    if (call.getOperand(arg.getArgNumber()) != arg)
+      carried.push_back(arg.getArgNumber());
+
+  // The body before the decision: what depends only on arguments that do
+  // not change, and holds no reference, runs once before the loop; the rest
+  // runs in every iteration.
+  SmallVector<Operation *> hoisted, repeated;
+  llvm::SmallPtrSet<Operation *, 16> outside;
+  auto invariant = [&](Value value) {
+    if (auto arg = dyn_cast<BlockArgument>(value))
+      return arg.getOwner() == &entry && !llvm::is_contained(carried, arg.getArgNumber());
+    return outside.contains(value.getDefiningOp());
+  };
+  for (Operation &op : llvm::make_range(entry.begin(), match->getIterator())) {
+    bool once = op.getNumRegions() == 0 && isMemoryEffectFree(&op) &&
+                llvm::all_of(op.getOperands(), invariant) &&
+                llvm::none_of(op.getResults(), [&](Value r) { return counting.tracked(r); });
+    if (once)
+      outside.insert(&op);
+    (once ? hoisted : repeated).push_back(&op);
+  }
+  // What the regions use of the repeated part passes from the before
+  // region to the rest as a plain value, one that holds no reference; the
+  // scrutinee of a match on a constructor too, whose fields the regions
+  // read.
+  llvm::SetVector<Value> needed;
+  for (Region *region : {decision.loops, decision.exits})
+    region->walk([&](Operation *op) {
+      for (Value operand : op->getOperands())
+        if (Operation *def = operand.getDefiningOp();
+            def && def->getBlock() == &entry && !outside.contains(def))
+          needed.insert(operand);
+    });
+  if (auto sum = dyn_cast<idr::MatchOp>(match))
+    if (Operation *def = sum.getScrutinee().getDefiningOp(); def && !outside.contains(def))
+      needed.insert(sum.getScrutinee());
+  if (llvm::any_of(needed, [&](Value value) { return counting.tracked(value); }))
+    return failure();
+  passed = needed.takeVector();
+
+  Location loc = fn.getLoc();
+  SmallVector<Type> types;
+  SmallVector<Value> initValues;
+  for (unsigned index : carried) {
+    types.push_back(entry.getArgument(index).getType());
+    initValues.push_back(entry.getArgument(index));
+  }
+  SmallVector<Type> through(types);
+  for (Value value : passed)
+    through.push_back(value.getType());
+  b.setInsertionPoint(match);
+  loop = scf::WhileOp::create(b, loc, through, initValues);
+  SmallVector<Location> locs(through.size(), loc);
+  Block *before = b.createBlock(&loop.getBefore(), {}, types, ArrayRef(locs).take_front(types.size()));
+  b.createBlock(&loop.getAfter(), {}, through, locs);
+  for (Operation *op : repeated) {
+    op->moveBefore(before, before->end());
+    op->walk([&](Operation *inner) {
+      for (OpOperand &operand : inner->getOpOperands())
+        operand.set(in(operand.get(), Scope::Before));
+    });
+  }
+  Value go = continues();
+  SmallVector<Value> forwarded(loop.getBeforeArguments());
+  llvm::append_range(forwarded, passed);
+  scf::ConditionOp::create(b, match->getLoc(), go, forwarded);
+
+  // The region that loops: its call's arguments are the next iteration's.
+  Operation *yield = inlineRegion(*decision.loops, Scope::After);
+  auto next = cast<func::CallOp>(yield->getPrevNode());
+  b.setInsertionPoint(yield);
+  SmallVector<Value> values;
+  for (unsigned index : carried)
+    values.push_back(next.getOperand(index));
+  scf::YieldOp::create(b, yield->getLoc(), values);
+  yield->erase();
+  next.erase();
+  if (!fn->hasAttr("idr.total")) {
+    b.setInsertionPointToStart(loop.getAfterBody());
+    idr::MayLoopOp::create(b, loc);
+  }
+
+  // The region that exits runs after the loop; the function returns what
+  // it yields.
+  // The region's ops go after the return, which then makes way for them.
+  Operation *ret = entry.getTerminator();
+  Operation *exit = inlineRegion(*decision.exits, Scope::Exit);
+  ret->erase();
+  if (auto result = dyn_cast<idr::YieldOp>(exit)) {
+    b.setInsertionPoint(result);
+    func::ReturnOp::create(b, result.getLoc(), result.getResults());
+    result.erase();
+  }
+  match->erase();
+  // What only the decision read (a flag widened for it, a comparison
+  // turned around) is left over.
+  for (Operation &op : llvm::make_early_inc_range(llvm::reverse(before->without_terminator())))
+    if (isOpTriviallyDead(&op))
+      op.erase();
+  return loop;
+}
+
+// Whether `op`, in a loop, may run once before it instead: it has no
+// effect, cannot fail, and holds no reference, so no count changes
+// whichever iteration's copy it is.
+bool invariantCode(Operation *op, idr::ownership::Counting &counting) {
+  return isMemoryEffectFree(op) && isSpeculatable(op) &&
+         llvm::none_of(op->getResults(), [&](Value result) { return counting.tracked(result); });
+}
+
 struct TailLoops : idr::impl::IdrTailLoopsBase<TailLoops> {
   void runOnOperation() override {
     OpBuilder b(&getContext());
+    idr::ownership::Counting counting(getOperation());
+    SmallVector<scf::WhileOp> loops;
     for (auto fn : getOperation().getOps<func::FuncOp>()) {
       if (fn.isExternal() || !reachesTailCall(fn.getBody().front(), fn))
         continue;
-      Loop{fn, fn.getArgumentTypes(), fn.getResultTypes(), b}.build();
       ++numLoops;
+      if (std::optional<Decision> decision = decisionOf(fn)) {
+        FailureOr<scf::WhileOp> loop = WhileDo(fn, *decision, counting, b).build();
+        if (succeeded(loop)) {
+          loops.push_back(*loop);
+          continue;
+        }
+      }
+      Loop{fn, fn.getArgumentTypes(), fn.getResultTypes(), b}.build();
+    }
+    // Code that the loop does not change moves out of it, and a loop that
+    // counts to a bound becomes an scf.for.
+    for (scf::WhileOp loop : loops)
+      moveLoopInvariantCode(
+          loop.getLoopRegions(),
+          [&](Value value, Region *) { return loop.isDefinedOutsideOfLoop(value); },
+          [&](Operation *op, Region *) { return invariantCode(op, counting); },
+          [&](Operation *op, Region *) { loop.moveOutOfLoop(op); });
+    RewritePatternSet uplift(&getContext());
+    scf::populateUpliftWhileToForPatterns(uplift);
+    FrozenRewritePatternSet frozen(std::move(uplift));
+    for (scf::WhileOp loop : loops) {
+      bool erased = false;
+      if (failed(applyOpPatternsGreedily({loop.getOperation()}, frozen,
+                                         GreedyRewriteConfig().enableFolding(false).setStrictness(
+                                             GreedyRewriteStrictness::ExistingOps),
+                                         /*changed=*/nullptr, &erased)))
+        return signalPassFailure();
+      if (erased)
+        ++numCounted;
     }
   }
 };

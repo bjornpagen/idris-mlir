@@ -15,10 +15,6 @@ namespace idr::lower {
 // unreachable. The structural conversion of scf then takes the types apart.
 void lowerMatches(mlir::ModuleOp module);
 
-// Also phase 1: idr.big.pred becomes idr.big.sub of 1, which the runtime
-// computes (Predecessors.cc).
-void lowerPredecessors(mlir::ModuleOp module);
-
 // Phase 2: the patterns that convert each idr op and type.
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                       Layouts &layouts, Runtime &runtime);

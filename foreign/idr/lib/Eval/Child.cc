@@ -11,6 +11,7 @@
 #include <csignal>
 #include <cstring>
 #include <ctime>
+#include <optional>
 #include <pthread.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -146,28 +147,56 @@ std::string readAll(int fd) {
   }
 }
 
-// The records, as far as they are complete.
-llvm::SmallVector<Result> parse(llvm::StringRef records) {
+// The complete records at the start of the bytes the child wrote, and
+// whether they are all of it: every line of a record ends in its newline,
+// and every text is as long as its length says, so a record cut short is
+// never read as a shorter one.
+struct Records {
   llvm::SmallVector<Result> results;
-  while (!records.empty()) {
-    auto [head, rest] = records.split('\n');
-    auto [time, count] = head.split(' ');
-    Result result;
-    unsigned texts = 0;
-    if (time.getAsInteger(10, result.nanoseconds) || count.getAsInteger(10, texts))
-      return results;
-    for (unsigned t = 0; t < texts; ++t) {
-      auto [length, body] = rest.split('\n');
-      size_t n = 0;
-      if (length.getAsInteger(10, n) || body.size() < n)
-        return results;
-      result.texts.push_back(body.take_front(n).str());
-      rest = body.drop_front(n);
-    }
-    results.push_back(std::move(result));
-    records = rest;
+  bool complete = true;
+};
+
+// The next line of `rest`, without its newline, if it has one.
+std::optional<llvm::StringRef> takeLine(llvm::StringRef &rest) {
+  size_t end = rest.find('\n');
+  if (end == llvm::StringRef::npos)
+    return std::nullopt;
+  llvm::StringRef line = rest.take_front(end);
+  rest = rest.drop_front(end + 1);
+  return line;
+}
+
+std::optional<Result> takeRecord(llvm::StringRef &rest) {
+  std::optional<llvm::StringRef> head = takeLine(rest);
+  if (!head)
+    return std::nullopt;
+  auto [time, count] = head->split(' ');
+  Result result;
+  unsigned texts = 0;
+  if (time.getAsInteger(10, result.nanoseconds) || count.getAsInteger(10, texts))
+    return std::nullopt;
+  for (unsigned t = 0; t < texts; ++t) {
+    std::optional<llvm::StringRef> length = takeLine(rest);
+    size_t n = 0;
+    if (!length || length->getAsInteger(10, n) || rest.size() < n)
+      return std::nullopt;
+    result.texts.push_back(rest.take_front(n).str());
+    rest = rest.drop_front(n);
   }
-  return results;
+  return result;
+}
+
+Records parse(llvm::StringRef bytes) {
+  Records records;
+  while (!bytes.empty()) {
+    std::optional<Result> result = takeRecord(bytes);
+    if (!result) {
+      records.complete = false;
+      return records;
+    }
+    records.results.push_back(std::move(*result));
+  }
+  return records;
 }
 
 } // namespace
@@ -199,12 +228,22 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
     run.message = "no evaluation child: " + std::string(strerror(errno));
     return run;
   }
-  run.results = parse(readAll(results[0]));
+  Records records = parse(readAll(results[0]));
+  run.results = std::move(records.results);
   std::string reported = readAll(report[0]);
   close(results[0]);
   close(report[0]);
   int status = 0;
   while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+  }
+  // A child that was killed may have been writing a record, and the call
+  // it is about did not finish; any other child writes whole records or
+  // none, so a record cut short is an internal error.
+  bool killed = WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL;
+  if (!records.complete && !killed) {
+    run.status = Run::Status::Failed;
+    run.message = "the evaluation child's results end in a record cut short";
+    return run;
   }
   if (WIFEXITED(status)) {
     switch (WEXITSTATUS(status)) {
@@ -229,7 +268,7 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
       return run;
     }
   }
-  if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL) {
+  if (killed) {
     run.status = Run::Status::Exhausted;
     run.message = "the evaluation was killed, as the kernel kills a process when memory runs out";
     return run;

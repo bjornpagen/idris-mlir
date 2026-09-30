@@ -132,9 +132,9 @@ struct LowerConstant : IdrPattern<ConstantOp> {
 };
 
 // Linearity has no runtime form: entering and using a linear value is the
-// value itself.
+// value itself. Nor has non-negativity: a natural is the Integer it is.
 template <typename OpT>
-struct LowerLinear : IdrPattern<OpT> {
+struct LowerAsItself : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
@@ -428,7 +428,15 @@ struct LowerCompare : IdrPattern<OpT> {
 template <typename... Ops>
 void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
                      Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerRuntimeCall<Ops>...>(converter, patterns.getContext(), layouts, runtime);
+  auto add = [&]<typename OpT>() {
+    if constexpr (!OpT::template hasTrait<CallsRuntime>())
+      return;
+    else if constexpr (requires(OpT op) { op.getPredicate(); })
+      patterns.add<LowerCompare<OpT>>(converter, patterns.getContext(), layouts, runtime);
+    else
+      patterns.add<LowerRuntimeCall<OpT>>(converter, patterns.getContext(), layouts, runtime);
+  };
+  (add.template operator()<Ops>(), ...);
 }
 
 } // namespace
@@ -438,17 +446,15 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   MLIRContext *ctx = patterns.getContext();
   populateCountingPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
-               LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>, LowerCompare<StrCmpOp>,
-               LowerCompare<BigCmpOp>, LowerLinear<LinEnterOp>, LowerLinear<LinUseOp>>(
+               LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
+               LowerAsItself<LinEnterOp>, LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(
       converter, ctx, layouts, runtime);
-  addRuntimeCalls<ToIntOp, DoubleHeadOp, IntHeadOp,
-                  StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp, StrSubstrOp, StrReverseOp,
-                  StrTailOp, StrLengthOp, StrIndexOp, StrHeadOp, StrToIntOp, StrToDoubleOp,
-                  BigAddOp, BigSubOp, BigMulOp, BigDivOp, BigModOp, BigAndOp, BigOrOp, BigXorOp,
-                  BigNegOp, BigFromIntOp, BigToIntOp, BigFromDoubleOp, BigToDoubleOp, BigShowOp,
-                  BigFromStrOp,
-                  PutStrOp, PutCharOp, PutIntOp, PutDoubleOp, GetCharOp, GetByteOp, ExitOp>(
-      patterns, converter, layouts, runtime);
+  // Every op with the trait, which declares the op's runtime call: the op
+  // list is the dialect's own.
+  addRuntimeCalls<
+#define GET_OP_LIST
+#include "idr/IdrOps.cc.inc"
+      >(patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::lower

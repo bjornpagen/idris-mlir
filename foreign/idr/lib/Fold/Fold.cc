@@ -288,7 +288,21 @@ OpFoldResult BigPredOp::fold(FoldAdaptor adaptor) {
   if (!a || a.getValue() == "0")
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_big_sub(scope.big(a), scope.keep(idris_rt_big_from_int_s(1))));
+  return scope.attr(idris_rt_big_pred(scope.big(a)));
+}
+
+// The constant is the same value under the other type, which the
+// constant that materializes it takes from the op's result.
+OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
+  return dyn_cast_or_null<BigAttr>(adaptor.getValue());
+}
+
+OpFoldResult NatFromBigOp::fold(FoldAdaptor adaptor) {
+  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
+  if (!a)
+    return {};
+  Scope scope(getContext());
+  return scope.attr(idris_rt_nat_from_big(scope.big(a)));
 }
 
 OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {

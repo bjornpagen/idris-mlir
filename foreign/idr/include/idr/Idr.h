@@ -77,6 +77,25 @@ private:
   template <typename, template <typename> class...> friend class mlir::Op;
 };
 
+// Whether each discardable attribute of `op` names the dialect that
+// verifies it, or is one of the few names of no dialect that our own tools
+// read. MLIR asks a dialect only about the attributes named with its
+// prefix, so any other name would be accepted and read by no one.
+mlir::LogicalResult verifyDiscardableAttrs(mlir::Operation *op);
+
+// Every idr op (`Idr_KnownAttributes`): its discardable attributes are
+// known ones.
+template <typename ConcreteType>
+class KnownAttributes : public mlir::OpTrait::TraitBase<ConcreteType, KnownAttributes> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) { return verifyDiscardableAttrs(op); }
+
+private:
+  KnownAttributes() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
+
 // An idr.io op (`Idr_PerformsIO`), what idr-effects looks for.
 template <typename ConcreteType>
 class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {

@@ -77,8 +77,24 @@ def Idr_StrType : Idr_Type<"Str", "str"> {
 }
 
 def Idr_BigType : Idr_Type<"Big", "big"> {
-  let summary = "an Integer, or a Nat-like value (non-negative)";
+  let summary = "an Integer";
 }
+
+// Nat, and every type Idris shapes like it (a nullary constructor and a
+// unary successor, Fin among them): a big at runtime, never negative. Every
+// op that produces one keeps it non-negative (a sum, a product, a
+// predecessor of a value that is not zero), and the only way in from an
+// Integer, idr.nat.from_big, clamps, so the type itself proves the range.
+// Integer range analysis is to seed [0, +inf) from this type in its entry
+// state (setToEntryState), for block arguments and results it cannot see
+// computed.
+def Idr_NatType : Idr_Type<"Nat", "nat"> {
+  let summary = "a natural number: a non-negative big";
+}
+
+// The values a big op computes on: an Integer, or a natural where the
+// operation keeps naturals natural.
+def Idr_BigOrNat : AnyTypeOf<[Idr_BigType, Idr_NatType]>;
 
 def Idr_WorldType : Idr_Type<"World", "world"> {
   let summary = "the IO world token";
@@ -198,25 +214,21 @@ def Idr_IOResource : Resource<"::idr::IOResource">;
 def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
 def Idr_LinResource : Resource<"::idr::LinResource">;
 
+// Every discardable attribute of an idr op is one the dialect defines, or
+// one our own tools read.
+def Idr_KnownAttributes : NativeOpTrait<"KnownAttributes"> {
+  let cppNamespace = "::idr";
+}
+
 class Idr_Op<string mnemonic, list<Trait> traits = []>
-    : Op<Idr_Dialect, mnemonic, traits>;
+    : Op<Idr_Dialect, mnemonic, !listconcat(traits, [Idr_KnownAttributes])>;
 
 // The op lowers to a call of the runtime's C function named after it:
-// `idr.str.append` calls `idris_rt_str_append`.
-def Idr_RuntimeCallOpInterface : OpInterface<"RuntimeCallOpInterface"> {
-  let cppNamespace = "::idr";
-  let description = "An op whose lowering calls a runtime function.";
-  let methods = [
-    InterfaceMethod<"The runtime function the lowering calls.",
-                    "::llvm::StringRef", "getHelper">,
-  ];
-}
-
-def Idr_CallsRuntimeTrait : NativeOpTrait<"CallsRuntime"> {
+// `idr.str.append` calls `idris_rt_str_append`. Lowering gives every op
+// with this trait that pattern.
+def Idr_CallsRuntime : NativeOpTrait<"CallsRuntime"> {
   let cppNamespace = "::idr";
 }
-
-def Idr_CallsRuntime : TraitList<[Idr_CallsRuntimeTrait, Idr_RuntimeCallOpInterface]>;
 
 // An op that may end the program. Its cause is the text of the crash
 // message; its effects and speculatability follow.
@@ -376,8 +388,9 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
 }
 
 def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
-  let summary = "branches on the value of an integer, string or big";
-  let arguments = (ins AnyTypeOf<[AnySignlessInteger, Idr_StrType, Idr_BigType]>:$scrutinee,
+  let summary = "branches on the value of an integer, string, big or natural";
+  let arguments = (ins AnyTypeOf<[Idr_Int, Idr_StrType, Idr_BigType,
+                                  Idr_NatType]>:$scrutinee,
                        ArrayAttr:$cases);
 }
 
@@ -456,9 +469,8 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 
 class Idr_DivisionOp<string mnemonic, bit isQuotient>
     : Idr_Op<mnemonic, [SameOperandsAndResultType, Idr_MayCrash<>]> {
-  let arguments = (ins UnitAttr:$is_signed, AnySignlessInteger:$lhs,
-                       AnySignlessInteger:$rhs);
-  let results = (outs AnySignlessInteger:$result);
+  let arguments = (ins UnitAttr:$is_signed, Idr_Int:$lhs, Idr_Int:$rhs);
+  let results = (outs Idr_Int:$result);
   let assemblyFormat = [{
     custom<Signedness>($is_signed) `` $lhs `,` $rhs attr-dict `:` type($result)
   }];
@@ -487,7 +499,7 @@ def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
 def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "an integer as a Char: itself if a scalar value, else 0";
-  let arguments = (ins UnitAttr:$is_signed, AnySignlessInteger:$value);
+  let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
   let results = (outs I32:$result);
   let assemblyFormat = [{
     custom<Signedness>($is_signed) `` $value attr-dict `:` type($value)
@@ -500,7 +512,7 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
 def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
   let summary = "a Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
-  let results = (outs AnySignlessInteger:$result);
+  let results = (outs Idr_Int:$result);
   let assemblyFormat = "$value attr-dict `:` type($result)";
   let hasFolder = 1;
 }
@@ -678,9 +690,22 @@ class Idr_BigBinaryOp<string mnemonic, string what>
   let assemblyFormat = "$lhs `,` $rhs attr-dict";
 }
 
-def Idr_BigAddOp : Idr_BigBinaryOp<"add", "the sum">;
+// The sum and the product of two naturals are natural, so these take
+// Integers or naturals, and give what they take: Nat's plus and mult are
+// these ops. The type is written only for naturals: `: !idr.nat`.
+class Idr_BigNaturalOp<string mnemonic, string what>
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs", "result"]>]> {
+  // Folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
+  let summary = what # " of two bigs or two naturals";
+  let arguments = (ins Idr_BigOrNat:$lhs, Idr_BigOrNat:$rhs);
+  let results = (outs Res<Idr_BigOrNat, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<Natural>(type($result))";
+}
+
+def Idr_BigAddOp : Idr_BigNaturalOp<"add", "the sum">;
 def Idr_BigSubOp : Idr_BigBinaryOp<"sub", "the difference">;
-def Idr_BigMulOp : Idr_BigBinaryOp<"mul", "the product">;
+def Idr_BigMulOp : Idr_BigNaturalOp<"mul", "the product">;
 def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
 def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
@@ -714,26 +739,53 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
   let assemblyFormat = "$value attr-dict";
 }
 
-// The frontend writes it where a match on a Nat-like value found it is not
-// zero, so the value visibly shrinks: the passes see structural descent,
-// not arithmetic. Lowering makes it big.sub of 1.
-def Idr_BigPredOp : Idr_Op<"big.pred", [Pure]> {
+// The frontend writes it where a match on a natural found it is not zero,
+// so the value visibly shrinks: the passes see structural descent, not
+// arithmetic. That the operand is not zero is also why the result is
+// natural.
+def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "the predecessor of a big that is not zero";
-  let arguments = (ins Idr_BigType:$value);
+  let summary = "the predecessor of a natural that is not zero";
+  let arguments = (ins Idr_NatType:$value);
+  let results = (outs Idr_NatType:$result);
+  let assemblyFormat = "$value attr-dict";
+}
+
+// Two naturals compare as the Integers they are: Nat's equalNat and
+// compareNat are this op. The type is written only for naturals.
+def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
+    AllTypesMatch<["lhs", "rhs"]>]> {
+  // Folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
+  let summary = "compares two bigs or two naturals";
+  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigOrNat:$lhs,
+                       Idr_BigOrNat:$rhs);
+  let results = (outs I1:$result);
+  let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict custom<Natural>(type($lhs))";
+}
+
+// A natural as the Integer it is (Nat's natToInteger): the same big under
+// another type. It costs nothing at runtime, and hands its operand's
+// reference to its result.
+def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure]> {
+  let hasFolder = 1;
+  let summary = "a natural as an Integer";
+  let arguments = (ins Idr_NatType:$value);
   let results = (outs Idr_BigType:$result);
   let assemblyFormat = "$value attr-dict";
 }
 
-def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime]> {
+// The only op that makes a natural of an Integer, so the one that must
+// keep it non-negative: a negative Integer is 0, as Nat's integerToNat
+// and minus (the difference of the Integers, clamped) say.
+def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "compares two bigs";
-  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigType:$lhs,
-                       Idr_BigType:$rhs);
-  let results = (outs I1:$result);
-  let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict";
+  let summary = "an Integer as a natural, 0 if it is negative";
+  let arguments = (ins Idr_BigType:$value);
+  let results = (outs Res<Idr_NatType, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$value attr-dict";
 }
 
 def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime]> {
@@ -817,15 +869,24 @@ def Idr_PutStrOp : Idr_IOOp<"put_str"> {
   let hasCanonicalizer = 1;
 }
 
+// The UTF-8 encoding of a character: what writing a one-character string
+// writes, which output fusion makes of put_str.
 def Idr_PutCharOp : Idr_IOOp<"put_char"> {
   let arguments = (ins I32:$ch, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$ch `,` $world attr-dict";
 }
 
+// One byte. The Prelude's putChar is C's putchar, which writes its argument
+// converted to an unsigned char, so the frontend truncates the character.
+def Idr_PutByteOp : Idr_IOOp<"put_byte"> {
+  let arguments = (ins I8:$byte, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = "$byte `,` $world attr-dict";
+}
+
 def Idr_PutIntOp : Idr_IOOp<"put_int"> {
-  let arguments = (ins UnitAttr:$is_signed, AnySignlessInteger:$value,
-                       Idr_WorldType:$world);
+  let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = [{
     custom<Signedness>($is_signed) `` $value `,` $world attr-dict `:` type($value)
@@ -838,23 +899,11 @@ def Idr_PutDoubleOp : Idr_IOOp<"put_double"> {
   let assemblyFormat = "$value `,` $world attr-dict";
 }
 
-def Idr_GetCharOp : Idr_IOOp<"get_char"> {
-  let arguments = (ins Idr_WorldType:$world);
-  let results = (outs I32:$ch, Idr_WorldType:$next);
-  let assemblyFormat = "$world attr-dict";
-}
-
 // One byte of input, or 255 at its end.
 def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs I32:$ch, Idr_WorldType:$next);
   let assemblyFormat = "$world attr-dict";
-}
-
-def Idr_ExitOp : Idr_IOOp<"exit"> {
-  let arguments = (ins I64:$code, Idr_WorldType:$world);
-  let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "$code `,` $world attr-dict";
 }
 
 //===----------------------------------------------------------------------===//
@@ -871,12 +920,17 @@ def Idr_TokenType : Idr_Type<"Token", "token"> {
   let summary = "the memory of a cell whose fields idr.reset released, or null";
 }
 
-// The values that hold references: a string, a big (a small one holds
-// none), a box, a closure, and an unboxed sum with a slot of any of these;
+// The values that hold references: a string, a big or natural (a small one
+// holds none), a box, a closure, and an unboxed sum with a slot of any of these;
 // linear or not, since a linear field read from a cell that lives on needs
 // a reference of its own.
-def Idr_CountedType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
-                                 Idr_BigType, Idr_LinType]>;
+def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
+                                      Idr_BigType, Idr_NatType]>;
+def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
+    Type<And<[CPred<"::llvm::isa<::idr::LinType>($_self)">,
+              SubstLeaves<"$_self", "::llvm::cast<::idr::LinType>($_self).getValue()",
+                          Idr_CountedValueType.predicate>]>,
+         "a linear value that holds references">]>;
 
 // An op that exists only in the owned stage: before idr-rc nothing counts
 // references, so a pass that meets one knows the module's stage.
@@ -1036,9 +1090,12 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 
 // Idris lets any value fill a quantity-1 binder: what enters is used once
 // from then on.
+// Neither hides the value from an analysis: the integer range of what
+// enters is that of what is used.
 def Idr_LinEnterOp : Idr_Op<"lin.enter", [
     TypesMatchWith<"the operand is the linear type's value", "result", "value",
-                   "::llvm::cast<LinType>($_self).getValue()">]> {
+                   "::llvm::cast<LinType>($_self).getValue()">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "a value handed to a linear position";
   let arguments = (ins AnyType:$value);
   let results = (outs Res<Idr_LinType, "", [MemAlloc<Idr_LinResource>]>:$result);
@@ -1049,7 +1106,8 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [
 // The one use of a linear value, where it becomes an ordinary one.
 def Idr_LinUseOp : Idr_Op<"lin.use", [
     TypesMatchWith<"the result is the linear type's value", "linear", "result",
-                   "::llvm::cast<LinType>($_self).getValue()">]> {
+                   "::llvm::cast<LinType>($_self).getValue()">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "the one use of a linear value";
   let arguments = (ins Idr_LinType:$linear);
   let results = (outs Res<AnyType, "", [MemAlloc<Idr_LinResource>]>:$result);

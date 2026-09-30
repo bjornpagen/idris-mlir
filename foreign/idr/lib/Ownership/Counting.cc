@@ -10,7 +10,7 @@ bool Counting::counted(Type type) {
   // A linear value is counted as the value it is; its quantity decides
   // only how it is used.
   type = unrestricted(type);
-  if (isa<StrType, BigType, BoxType, FnType, TokenType>(type))
+  if (isa<StrType, BigType, NatType, BoxType, FnType, TokenType>(type))
     return true;
   auto data = dyn_cast<DataType>(type);
   if (!data)
@@ -92,9 +92,9 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
     return operand.get() == apply.getCallee() && operand.getOperandNumber() == 0 ? Use::Borrow
                                                                                 : Use::Consume;
   // A linear value moves into its one use and out of it again, with its
-  // reference.
+  // reference; so does a natural into the Integer it is.
   if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ResetOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
-          LinUseOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
+          LinUseOp, NatToBigOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;
 }

@@ -14,6 +14,9 @@ void idr::registerIdr(DialectRegistry &registry) {
 // The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
+      // Before the simplify loop, while each case block still has the one
+      // call its parent makes: case-of-case would copy that call.
+      "idr-contify",
       "idr-simplify",
       "idr-defunctionalize",
       "canonicalize",

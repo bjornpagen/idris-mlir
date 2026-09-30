@@ -4,7 +4,7 @@
 ||| and MLIR removes abstraction. A data
 ||| instance records its representation where it is declared (`Term.Data`),
 ||| so `DataT` names the instance and nothing more. Types Idris flags
-||| `ZERO`/`SUCC` are not data at all: they are `BigT`.
+||| `ZERO`/`SUCC` are not data at all: they are `NatT`.
 module IdrisMLIR.Types
 
 import IdrisMLIR.Ids
@@ -101,12 +101,13 @@ signed _ = True
 ------------------------------------------------------------------------------
 
 mutual
-  ||| The types of Core. `BigT` is `Integer` and every `Nat`-like type;
-  ||| `FunT` and `LazyT` are closures, `FunT` binding its argument as a
+  ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
+  ||| `Nat`-like type, an integer that is never negative, the same
+  ||| big at runtime; `FunT` and `LazyT` are closures, `FunT` binding its argument as a
   ||| lambda does; `DataT` is a data instance, whose declaration says
   ||| whether it is an unboxed sum or a box.
   public export
-  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | WorldT | ErasedT
+  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT | ErasedT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
@@ -130,6 +131,7 @@ mutual
   sameTy DoubleT DoubleT = True
   sameTy StrT StrT = True
   sameTy BigT BigT = True
+  sameTy NatT NatT = True
   sameTy WorldT WorldT = True
   sameTy ErasedT ErasedT = True
   sameTy (DataT a) (DataT b) = a == b
@@ -157,6 +159,7 @@ mutual
   showTy DoubleT = "Double"
   showTy StrT = "String"
   showTy BigT = "Integer"
+  showTy NatT = "Nat"
   showTy WorldT = "%World"
   showTy ErasedT = "Erased"
   showTy (DataT d) = show d
@@ -180,8 +183,10 @@ Show Binder where
 -- Literals
 ------------------------------------------------------------------------------
 
+||| `LNat` is a natural, never negative: a `Nat`-like value.
 public export
 data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double | LBig Integer
+         | LNat Nat
 
 export
 Eq Lit where
@@ -190,6 +195,7 @@ Eq Lit where
   LStr a == LStr b = a == b
   LDouble a == LDouble b = a == b
   LBig a == LBig b = a == b
+  LNat a == LNat b = a == b
   _ == _ = False
 
 export
@@ -199,6 +205,7 @@ Show Lit where
   show (LStr s) = show s
   show (LDouble d) = prim__cast_DoubleString d ++ ":Double"
   show (LBig n) = show n ++ ":Integer"
+  show (LNat n) = show n ++ ":Nat"
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -236,6 +243,14 @@ data Prim
     FromStr Scalar
   | BigArith ArithOp | BigNegate | BigCompare Cmp
   | ToBig Scalar | FromBig Scalar | BigShow | BigRead
+  | ||| The arithmetic of naturals that stays natural: the sum and the
+    ||| product.
+    NatAdd | NatMul
+  | NatCompare Cmp
+  | ||| A natural as the Integer it is.
+    NatToBig
+  | ||| An Integer as a natural, 0 if it is negative.
+    NatFromBig
 
 export
 Show ArithOp where
@@ -310,6 +325,11 @@ Show Prim where
   show (FromBig s) = "cast_Integer" ++ show s
   show BigShow = "cast_IntegerString"
   show BigRead = "cast_StringInteger"
+  show NatAdd = "add_Nat"
+  show NatMul = "mul_Nat"
+  show (NatCompare op) = show op ++ "_Nat"
+  show NatToBig = "cast_NatInteger"
+  show NatFromBig = "cast_IntegerNat"
 
 public export
 scalarTy : Scalar -> Ty
@@ -345,6 +365,11 @@ primArgs (ToBig s) = [scalarTy s]
 primArgs (FromBig _) = [BigT]
 primArgs BigShow = [BigT]
 primArgs BigRead = [StrT]
+primArgs NatAdd = [NatT, NatT]
+primArgs NatMul = [NatT, NatT]
+primArgs (NatCompare _) = [NatT, NatT]
+primArgs NatToBig = [NatT]
+primArgs NatFromBig = [BigT]
 
 ------------------------------------------------------------------------------
 -- IO
