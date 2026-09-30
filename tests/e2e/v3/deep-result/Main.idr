@@ -11,12 +11,12 @@ build 0 = []
 build n = n :: build (n - 1)
 
 walk : Int -> Int -> List Int -> (Int, Int)
-walk count total [] = (count, total)
-walk count total (x :: xs) = walk (count + 1) (total + x) xs
+walk count acc [] = (count, acc)
+walk count acc (x :: xs) = walk (count + 1) (acc + x) xs
 
 main : IO ()
 main = do
   c <- getChar
-  let (count, total) = walk 0 0 (if c == 'a' then [] else build 20000)
+  let (count, sum) = walk 0 0 (if c == 'a' then [] else build 20000)
   printLn count
-  printLn total
+  printLn sum

@@ -418,7 +418,7 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
     if (con.getCtor().getLeafReference() == getCtorAttr().getAttr() &&
-        (!isa<LinType>(getType()) || readOnce(getValue())))
+        (quantityOf(getType()) != Quantity::One || readOnce(getValue())))
       return con.getFields()[index];
   // The constant is the operand's, as folding or constant propagation knows
   // it, or the one it passed a linear position from.

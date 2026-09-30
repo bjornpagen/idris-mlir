@@ -4,6 +4,7 @@ interface-option-monad: same stdout and exit status
 interface-ring-power: same stdout and exit status
 interface-state-monad: same stdout and exit status
 loop-breakers: same stdout and exit status
+mandelbrot-pbm: same stdout and exit status
 math-showcase: same stdout and exit status
 nbody: same stdout and exit status
 string-functions: same stdout and exit status

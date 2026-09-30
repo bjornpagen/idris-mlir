@@ -218,7 +218,12 @@ SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned)
       "idr-eval",
       "idr-prune",
       "symbol-dce",
-      "remove-dead-values",
+      // Without its own canonicalization, which runs region-branch patterns
+      // on the matches alone: a field one of them folds leaves the
+      // constructor it read dead but in place, still holding a world or a
+      // linear value that the fold's user now holds too. The next round's
+      // canonicalization runs on everything and erases what is dead.
+      "remove-dead-values{canonicalize=false}",
       "symbol-dce",
   };
 }
