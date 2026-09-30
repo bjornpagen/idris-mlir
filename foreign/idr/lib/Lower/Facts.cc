@@ -23,8 +23,9 @@ SmallVector<NamedAttribute> cellFacts(Builder &b) {
 // The facts of each component of a value of `type`, in order: a cell's
 // pointer, and an unboxed sum's tag, which is below its number of
 // constructors.
-SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNull,
-                                                        Layouts &layouts, Builder &b) {
+SmallVector<SmallVector<NamedAttribute>>
+componentFacts(Type type, bool mayBeNull, Layouts &layouts,
+               const llvm::DenseMap<StringAttr, uint64_t> &constructors, Builder &b) {
   SmallVector<SmallVector<NamedAttribute>> facts(layouts.components(type).size());
   if (isCell(type)) {
     if (!mayBeNull)
@@ -38,10 +39,9 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNul
   if (!layout.tag)
     return facts;
   unsigned width = layout.tag.getIntOrFloatBitWidth();
-  auto count = static_cast<uint64_t>(
-      layouts.getModule().lookupSymbol<DataOp>(data.getName().getAttr()).getCtors().size());
+  uint64_t count = constructors.lookup(data.getName().getAttr());
   // A tag type that the constructors fill has no range to state.
-  if (count < (uint64_t{1} << width))
+  if (count != 0 && count < (uint64_t{1} << width))
     facts.front().push_back(b.getNamedAttr(
         LLVM::LLVMDialect::getRangeAttrName(),
         LLVM::ConstantRangeAttr::get(b.getContext(), width, 0, static_cast<int64_t>(count))));
@@ -53,6 +53,8 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNul
 Facts::Facts(ModuleOp m) : module(m) {
   for (auto fn : module.getOps<func::FuncOp>())
     signatures[fn] = fn.getFunctionType();
+  for (auto data : module.getOps<DataOp>())
+    constructors[data.getSymNameAttr()] = static_cast<uint64_t>(data.getCtors().size());
   SymbolTable symbols(module);
   module.walk([&](func::CallOp call) {
     auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
@@ -75,7 +77,7 @@ void Facts::apply(Layouts &layouts) {
     for (auto [index, type] : llvm::enumerate(before.getInputs())) {
       bool mayBeNull = poisoned.contains({fn, static_cast<unsigned>(index)});
       for (const SmallVector<NamedAttribute> &facts :
-           componentFacts(type, mayBeNull, layouts, b)) {
+           componentFacts(type, mayBeNull, layouts, constructors, b)) {
         for (const NamedAttribute &fact : facts)
           fn.setArgAttr(at, fact.getName(), fact.getValue());
         ++at;

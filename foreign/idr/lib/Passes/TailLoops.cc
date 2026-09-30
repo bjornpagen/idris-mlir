@@ -478,10 +478,13 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   exit->erase();
   match->erase();
   // What only the decision read (a flag widened for it, a comparison
-  // turned around) is left over.
-  for (Operation &op : llvm::make_early_inc_range(llvm::reverse(before->without_terminator())))
-    if (isOpTriviallyDead(&op))
-      op.erase();
+  // turned around) is left over. The ops are listed first: a reverse
+  // iterator refers to the op after the one it yields, which may go too.
+  SmallVector<Operation *> body =
+      llvm::map_to_vector(before->without_terminator(), [](Operation &op) { return &op; });
+  for (Operation *op : llvm::reverse(body))
+    if (isOpTriviallyDead(op))
+      op->erase();
   return loop;
 }
 

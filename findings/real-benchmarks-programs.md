@@ -8,7 +8,10 @@ rerun. Scratch copies are under
 
 ## Two reproducers of one bug: a linear scrutinee used whole after a match
 
-Both typecheck and run on Chez. Through `tools/compile.sh` both fail with
+Both typecheck and run on Chez. (Update: with the programs built at
+`061b98d`, the last consistent toolchain, `lincase` compiles and prints 65;
+`lincase2`, `linrb` and `linrb-shared` still fail as described here.) At the
+time of the first run, through `tools/compile.sh` both failed with
 `internal error: idris-mlir-cc failed with status 1: ... 'idr.match' op uses
 a linear value that is already used on the same path`. This is the same
 error `bench/gate/linear/linrb` hits (at its `balance1` and at its
@@ -275,4 +278,121 @@ main : IO ()
 main = do
   n <- readInt
   printLn (count (makeTree n (MkRoot E)))
+```
+
+## tmap-fip and tmap-std: FP² §3's tree map
+
+100 maps of `(+1)` over a balanced tree of n leaves, then a sum (n = 100 000
+prints 5010050000). tmap-fip is FP²'s zipper walk; tmap-std is the ordinary
+recursive map, identical below its `tmap`. The suite's claim (real-benchmarks.md §5,
+program 5) is that the compiler turns tmap-std into tmap-fip.
+
+```idris
+module Main
+
+-- FP2's tmap (section 3), fully in-place: a zipper walk down the left spines
+-- and back up, each Bin matched paired with a BinL, each BinL with a BinR,
+-- each BinR with a Bin. On a unique tree nothing is allocated and the stack
+-- stays flat. 100 maps over a tree of n leaves, then a sum.
+
+import Prelude
+
+data Tree = Tip Int | Bin Tree Tree
+
+data Zip = Top | BinL Zip Tree | BinR Tree Zip
+
+mutual
+  down : Tree -> Zip -> Tree
+  down (Bin l r) z = down l (BinL z r)
+  down (Tip x) z = app (Tip (x + 1)) z
+
+  app : Tree -> Zip -> Tree
+  app t Top = t
+  app t (BinR l up) = app (Bin l t) up
+  app t (BinL up r) = down r (BinR t up)
+
+tmap : Tree -> Tree
+tmap t = down t Top
+
+build : Int -> Int -> Tree
+build lo hi = if lo >= hi then Tip lo else let mid = (lo + hi) `div` 2 in Bin (build lo mid) (build (mid + 1) hi)
+
+total' : Tree -> Int -> Int
+total' (Tip x) acc = acc + x
+total' (Bin l r) acc = total' r (total' l acc)
+
+iter : Int -> Tree -> Tree
+iter k t = if k <= 0 then t else iter (k - 1) (tmap t)
+
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
+main : IO ()
+main = do
+  n <- readInt
+  printLn (total' (iter 100 (build 1 n)) 0)
+```
+
+tmap-std differs only in its header and `tmap`:
+
+```idris
+module Main
+
+-- FP2's tmap (section 3), the standard recursive map: in place on a unique
+-- tree with reuse, but the stack grows with the depth. 100 maps over a tree
+-- of n leaves, then a sum.
+
+import Prelude
+
+data Tree = Tip Int | Bin Tree Tree
+
+tmap : Tree -> Tree
+tmap (Tip x) = Tip (x + 1)
+tmap (Bin l r) = Bin (tmap l) (tmap r)
+```
+
+The Koka versions (`src/kk/tmapfip.kk`; tmapstd.kk has the recursive `tmap`
+instead of `down`/`app`) share the same `build`, `total`, `iter` and `main`:
+
+```koka
+import std/os/readline
+type tree
+  Tip(x : int)
+  Bin(l : tree, r : tree)
+type tzipper
+  Top
+  BinL(up : tzipper, right : tree)
+  BinR(left : tree, up : tzipper)
+fip fun down( t : tree, z : tzipper ) : div tree
+  match t
+    Bin(l, r) -> down(l, BinL(z, r))
+    Tip(x) -> app(Tip(x + 1), z)
+fip fun app( t : tree, z : tzipper ) : div tree
+  match z
+    Top -> t
+    BinR(l, up) -> app(Bin(l, t), up)
+    BinL(up, r) -> down(r, BinR(t, up))
+fun tmap( t : tree ) : div tree
+  down(t, Top)
+fun build( lo : int, hi : int ) : div tree
+  if lo >= hi then Tip(lo) else
+    val mid = (lo + hi) / 2
+    Bin(build(lo, mid), build(mid + 1, hi))
+
+fun total( t : tree, acc : int ) : div int
+  match t
+    Tip(x) -> acc + x
+    Bin(l, r) -> total(r, total(l, acc))
+
+fun iter( k : int, t : tree ) : div tree
+  if k <= 0 then t else iter(k - 1, tmap(t))
+
+pub fun main()
+  val n = trim(readline()).parse-int.default(100000)
+  println(total(iter(100, build(1, n)), 0))
 ```

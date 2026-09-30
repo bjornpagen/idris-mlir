@@ -327,7 +327,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
   let mainIdent = case !(toFullNames main) of
                     NS ns _ => nsAsModuleIdent ns
                     _ => moduleIdent mainModule
-  let mods = mainIdent :: filter (not . null . unsafeUnfoldModuleIdent) (map (\(_, (m, _, _)) => m) defs.allImported)
+  let mods = mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
   user <- filterM (\m => isUser <$> originOf m) (nub mods)
   sources <- for user $ \m => do
     path <- catch (Just <$> nsToSource fc m) (\_ => pure Nothing)

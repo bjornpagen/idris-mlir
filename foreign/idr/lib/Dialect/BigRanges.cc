@@ -110,11 +110,10 @@ void setBounds(Value result, Bounds bounds, SetIntRangeFn setResultRange) {
 } // namespace
 
 void ConstantOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  // Any other constant is not an integer: it has no range to state.
   auto big = dyn_cast<BigAttr>(getValue());
-  if (!big || !isa<BigType, NatType>(unrestricted(getType()))) {
-    setResultRange(getResult(), ConstantIntRanges::maxRange(0));
+  if (!big || !isa<BigType, NatType>(unrestricted(getType())))
     return;
-  }
   int64_t value = 0;
   // A value outside i64 is outside the small range too.
   Bounds bounds;

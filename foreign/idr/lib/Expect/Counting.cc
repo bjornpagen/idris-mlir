@@ -109,7 +109,7 @@ LogicalResult reusesEveryCell(ModuleOp module, StringRef function) noexcept {
   bool held = true;
   fn.walk([&](DecOp dec) {
     auto take = dec.getValue().getDefiningOp<TakeOp>();
-    if (!take)
+    if (!take || dec.getValue() != take.getToken())
       return;
     SymbolRefAttr ctor = take.getCtor();
     // A constructor without fields is a static cell, never the program's

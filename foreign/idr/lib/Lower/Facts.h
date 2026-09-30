@@ -29,6 +29,9 @@ private:
   mlir::ModuleOp module;
   llvm::DenseMap<mlir::Operation *, mlir::FunctionType> signatures;
   llvm::DenseSet<std::pair<mlir::Operation *, unsigned>> poisoned;
+  // How many constructors each data type has, read before the conversion
+  // erases the declarations.
+  llvm::DenseMap<mlir::StringAttr, uint64_t> constructors;
 };
 
 } // namespace idr::lower

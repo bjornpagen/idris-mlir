@@ -117,7 +117,10 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Main.main(%xs: !idr.box<@List>, %w: !idr.world) -> (i64, i64, i64, !idr.world) {
+  func.func @Main.main(%w: !idr.world) -> (i64, i64, i64, !idr.world) {
+    %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
+    %c7 = arith.constant 7 : i64
+    %xs = idr.con @List::@Cons(%c7, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
     %c0 = arith.constant 0 : i64
     %c9 = arith.constant 9 : i64
     %a = func.call @count(%c0, %c9) : (i64, i64) -> i64
