@@ -832,6 +832,19 @@ def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime, DeclareOpInterf
   }];
 }
 
+// The big or natural of a word proved to fit the small range: idr-narrow
+// writes it where a web of values it proved small meets a big. A small holds
+// no reference and allocates nothing, so counting has nothing to do for it.
+// A word outside the small range has no big here, as an overflowing nsw add
+// has no sum: the pass that writes the op is the proof.
+def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let hasFolder = 1;
+  let summary = "the small big or natural of a word that fits";
+  let arguments = (ins I64:$value);
+  let results = (outs Idr_BigOrNat:$result);
+  let assemblyFormat = "$value attr-dict `:` type($result)";
+}
+
 // A natural's value is its Integer's, so both convert alike.
 def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).

@@ -211,6 +211,11 @@ void BigFromIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   setBounds(getResult(), idr::ranges::ofInteger(ranges[0], getIsSigned()), setResultRange);
 }
 
+void BigSmallOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+                                   SetIntRangeFn setResultRange) {
+  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], /*isSigned=*/true), setResultRange);
+}
+
 // The value, wrapped to the width: exact when every value fits the width.
 void BigToIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                    SetIntRangeFn setResultRange) {

@@ -7,6 +7,7 @@ module Main
 -- from the input, so all of it is computed at runtime.
 
 import Prelude
+import Data.Nat
 
 pow : Nat -> Nat -> Nat
 pow b Z = 1

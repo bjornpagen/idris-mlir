@@ -579,6 +579,7 @@ using idr::BigCmpOp;
 using idr::BigDivOp;
 using idr::BigFromDoubleOp;
 using idr::BigFromIntOp;
+using idr::BigSmallOp;
 using idr::BigFromStrOp;
 using idr::BigModOp;
 using idr::BigMulOp;

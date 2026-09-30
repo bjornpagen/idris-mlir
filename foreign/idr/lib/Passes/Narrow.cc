@@ -10,6 +10,7 @@
 // a web fold away.
 
 #include "Dialect/BigRanges.h"
+#include "Ownership/Ownership.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
@@ -75,7 +76,23 @@ LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
 // makes, which stand for values it analysed.
 class Facts {
 public:
-  explicit Facts(DataFlowSolver &s) : solver(s) {}
+  Facts(DataFlowSolver &s, bool counted) : solver(s), counted(counted) {}
+
+  // Whether the big `value` holds a reference of its own, which a word
+  // taking its place in a consuming use leaves it to drop: once counting
+  // ran, one the program computed or an owned parameter, not a constant, a
+  // field read or a borrowed parameter. A loop's argument is the loop's,
+  // narrowed with it.
+  bool owned(Value value) const {
+    if (!counted || ownership::isStatic(value) || ownership::readFrom(value))
+      return false;
+    if (auto arg = dyn_cast<BlockArgument>(value)) {
+      auto fn = dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
+      return fn && arg.getOwner()->isEntryBlock() &&
+             !ownership::isBorrowed(fn, arg.getArgNumber());
+    }
+    return true;
+  }
 
   Bounds of(Value value) const {
     // Poison may be taken to be any value, so a small one.
@@ -112,6 +129,8 @@ public:
       converted_.push_back(poison);
       return ub::PoisonOp::create(b, loc, i64);
     }
+    if (auto small = value.getDefiningOp<BigSmallOp>())
+      return small.getValue();
     if (auto from = value.getDefiningOp<BigFromIntOp>()) {
       Value source = from.getValue();
       if (source.getType() == i64)
@@ -124,12 +143,10 @@ public:
     return converted;
   }
 
-  // The big of type `type` whose value is `word`, with the bounds `bounds`.
-  // A natural is its word read as unsigned, which it is never below 0 to
-  // tell apart.
+  // The big of type `type` whose value is `word`, with the bounds `bounds`,
+  // which prove it small: it holds no reference, so counting skips it.
   Value big(OpBuilder &b, Location loc, Type type, Value word, Bounds bounds) {
-    bool isSigned = !isa<NatType>(type);
-    Value value = BigFromIntOp::create(b, loc, type, isSigned ? b.getUnitAttr() : UnitAttr(), word);
+    Value value = BigSmallOp::create(b, loc, type, word);
     made[value] = bounds;
     converted_.push_back(value.getDefiningOp());
     return value;
@@ -140,6 +157,7 @@ public:
 
 private:
   DataFlowSolver &solver;
+  bool counted;
   DenseMap<Value, Bounds> made;
   SmallVector<Operation *> converted_;
 };
@@ -246,8 +264,14 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
         replaceBig(rewriter, facts, op, value);
         return true;
       })
+      // The Integer a natural is takes the natural's reference; the word
+      // takes none, so the natural drops it.
       .Case([&](NatToBigOp retype) {
-        replaceBig(rewriter, facts, op, word(retype.getValue()));
+        Value natural = retype.getValue();
+        Value value = word(natural);
+        if (facts.owned(natural))
+          DecOp::create(rewriter, loc, natural);
+        replaceBig(rewriter, facts, op, value);
         return true;
       })
       .Case([&](BigToIntOp toInt) {
@@ -257,9 +281,12 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
         rewriter.replaceOp(op, value);
         return true;
       })
-      // A small big holds no count.
+      // A big the pass made of a word holds no count. Any other big
+      // proved small keeps its count ops: counting still tracks it (a call's
+      // result, a parameter), and on a small they do nothing at runtime.
       .Case<IncOp, DecOp>([&](Operation *) {
-        if (!isBig(op->getOperand(0).getType()))
+        Value value = op->getOperand(0);
+        if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>())
           return false;
         rewriter.eraseOp(op);
         return true;
@@ -287,11 +314,17 @@ void narrowResult(RewriterBase &rewriter, Facts &facts, OpResult result) {
   rewriter.replaceAllUsesExcept(result, big, big.getDefiningOp());
 }
 
-// Passes the word of operand `index` of `op` instead of the big.
+// Passes the word of operand `index` of `op` instead of the big. The
+// operands narrowed here are consumed where they are passed (a loop's
+// start, a yield), so a big that held a reference drops it there: counting
+// ran before, and the word takes nothing.
 void passWord(RewriterBase &rewriter, Facts &facts, Operation *op, unsigned index) {
   rewriter.setInsertionPoint(op);
-  Value word = facts.word(rewriter, op->getLoc(), op->getOperand(index));
+  Value big = op->getOperand(index);
+  Value word = facts.word(rewriter, op->getLoc(), big);
   rewriter.modifyOpInPlace(op, [&] { op->setOperand(index, word); });
+  if (facts.owned(big))
+    DecOp::create(rewriter, op->getLoc(), big);
 }
 
 // The values that flow around loops and out of merges, where every value
@@ -430,7 +463,7 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), init);
   Value mask = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(ranges::smallMax));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
-  Value start = BigFromIntOp::create(rewriter, loc, nat, UnitAttr(), masked);
+  Value start = BigSmallOp::create(rewriter, loc, nat, masked);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
   scf::YieldOp::create(rewriter, loc, copy->getResults());
@@ -446,11 +479,13 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
+    auto stage = module->getAttrOfType<StringAttr>(ownership::stageAttr);
+    bool counted = stage && stage.getValue() == ownership::ownedStage;
     {
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
       if (failed(runSolver(solver, module)))
         return signalPassFailure();
-      Facts facts(solver);
+      Facts facts(solver, counted);
       SmallVector<std::pair<scf::WhileOp, unsigned>> versions;
       module.walk([&](scf::WhileOp loop) {
         if (std::optional<unsigned> index = descendingArgument(loop, facts))
@@ -464,7 +499,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     if (failed(runSolver(solver, module)))
       return signalPassFailure();
-    Facts facts(solver);
+    Facts facts(solver, counted);
     // The joints first, while every value is still the one analysed; then
     // the ops, whose operands may by then be the bigs of words.
     SmallVector<Operation *> joints, ops;
@@ -485,10 +520,11 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingAndNewOps);
     (void)applyOpPatternsGreedily(facts.converted(), FrozenRewritePatternSet(), config);
-    // A versioned loop's start, once its copy took the word.
-    module.walk([&](BigFromIntOp from) {
-      if (isOpTriviallyDead(from))
-        rewriter.eraseOp(from);
+    // A versioned loop's start, once its copy took the word, and a big
+    // made of a word that every reader now takes as the word.
+    module.walk([&](Operation *op) {
+      if (isa<BigSmallOp, BigFromIntOp>(op) && isOpTriviallyDead(op))
+        rewriter.eraseOp(op);
     });
   }
 };

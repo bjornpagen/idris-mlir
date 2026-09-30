@@ -51,7 +51,7 @@ Value readFrom(Value value) {
 bool isStatic(Value value) {
   for (; value; value = readFrom(value)) {
     Operation *def = value.getDefiningOp();
-    if (def && (def->hasTrait<OpTrait::ConstantLike>() || isa<ub::PoisonOp>(def)))
+    if (def && (def->hasTrait<OpTrait::ConstantLike>() || isa<ub::PoisonOp, BigSmallOp>(def)))
       return true;
   }
   return false;

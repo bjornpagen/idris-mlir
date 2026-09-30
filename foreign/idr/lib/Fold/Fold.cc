@@ -323,6 +323,14 @@ OpFoldResult BigFromIntOp::fold(FoldAdaptor adaptor) {
                                   : idris_rt_big_from_int_u(static_cast<uint64_t>(value)));
 }
 
+OpFoldResult BigSmallOp::fold(FoldAdaptor adaptor) {
+  auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  if (!n)
+    return {};
+  Scope scope(getContext());
+  return scope.attr(idris_rt_big_from_int_s(n.getValue().getSExtValue()));
+}
+
 OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   // An integer made a big and back at its own width is itself, whichever
   // way it was read: idr-narrow leaves these pairs where a word meets a
@@ -330,6 +338,9 @@ OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   if (auto from = getValue().getDefiningOp<BigFromIntOp>())
     if (from.getValue().getType() == getType())
       return from.getValue();
+  if (auto small = getValue().getDefiningOp<BigSmallOp>())
+    if (small.getValue().getType() == getType())
+      return small.getValue();
   auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
   if (!a)
     return {};

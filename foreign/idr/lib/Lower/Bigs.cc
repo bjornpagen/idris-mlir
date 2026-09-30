@@ -216,6 +216,20 @@ struct LowerBigFromInt : IdrPattern<BigFromIntOp> {
   }
 };
 
+// The small big of a word that fits: its value doubled plus one.
+struct LowerBigSmall : IdrPattern<BigSmallOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(BigSmallOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value one = constantI64(rewriter, loc, 1);
+    Value twice = arith::ShLIOp::create(rewriter, loc, adaptor.getValue(), one,
+                                        arith::IntegerOverflowFlags::nsw);
+    rewriter.replaceOp(op, arith::OrIOp::create(rewriter, loc, twice, one));
+    return success();
+  }
+};
+
 // A big as an integer, wrapped to its width: a small one is its value, the
 // word shifted right; the runtime gives a GMP integer's low 64 bits.
 struct LowerBigToInt : IdrPattern<BigToIntOp> {
@@ -243,7 +257,7 @@ struct LowerBigToInt : IdrPattern<BigToIntOp> {
 void populateBigPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                          Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerBigArith<BigAddOp>, LowerBigArith<BigSubOp>, LowerBigArith<BigMulOp>,
-               LowerBigPred, LowerNatFromBig, LowerBigCmp, LowerBigFromInt, LowerBigToInt>(
+               LowerBigPred, LowerNatFromBig, LowerBigCmp, LowerBigFromInt, LowerBigSmall, LowerBigToInt>(
       converter, patterns.getContext(), layouts, runtime);
 }
 
