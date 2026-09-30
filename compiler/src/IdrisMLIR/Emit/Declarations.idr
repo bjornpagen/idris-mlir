@@ -36,7 +36,7 @@ dataDecl ix d = do
     ctor : Con -> E Op
     ctor c = do
       ts <- traverse (binderText ix) c.fields
-      pure (Line ("idr.ctor " ++ symbol (mangle c.id.name) ++ " tag " ++ show c.tag ++
+      pure (Line ("idr.ctor " ++ symbol (mangle c.id.name) ++
                   " (" ++ joinBy ", " ts ++ ")")
                  (Named c.idrisName c.loc))
 

@@ -917,12 +917,11 @@ struct Converter {
                                       isa<idr::BoxType>(sum) ? b.getUnitAttr() : UnitAttr(),
                                       b.getUnitAttr());
       OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
-      for (auto [tag, label] : llvm::enumerate(key.second.getAsRange<StringAttr>())) {
+      for (auto label : key.second.getAsRange<StringAttr>()) {
         func::FuncOp fn = module.function(label);
         // The captures' types carry their quantities into the fields.
         ArrayRef<Type> types = captureTypes(label, key.first);
-        idr::CtorOp::create(inner, fn.getLoc(), label, b.getI64IntegerAttr(static_cast<int64_t>(tag)),
-                            b.getTypeArrayAttr(types));
+        idr::CtorOp::create(inner, fn.getLoc(), label, b.getTypeArrayAttr(types));
       }
     }
   }

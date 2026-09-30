@@ -162,21 +162,19 @@ Type DataOp::getValueType() {
 }
 
 LogicalResult DataOp::verify() {
-  uint64_t expected = 0;
-  for (Operation &op : getBody().front()) {
-    auto ctor = dyn_cast<CtorOp>(op);
-    if (!ctor)
+  for (Operation &op : getBody().front())
+    if (!isa<CtorOp>(op))
       return op.emitOpError("is not allowed inside idr.data");
-    if (ctor.getTag() != expected)
-      return ctor.emitOpError("has tag ")
-             << ctor.getTag() << "; tags must be 0..n-1 in order";
-    ++expected;
-  }
   return success();
 }
 
 Type CtorOp::getFieldType(unsigned index) {
   return cast<TypeAttr>(getFieldTypes()[index]).getValue();
+}
+
+unsigned CtorOp::getTag() {
+  Block *body = (*this)->getBlock();
+  return static_cast<unsigned>(std::distance(body->begin(), (*this)->getIterator()));
 }
 
 LogicalResult CtorOp::verify() {

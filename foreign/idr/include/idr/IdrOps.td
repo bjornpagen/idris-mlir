@@ -266,17 +266,20 @@ def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
   }];
 }
 
-// A field's quantity is its type: !idr.erased, !idr.lin<T> or T.
+// A field's quantity is its type: !idr.erased, !idr.lin<T> or T. A
+// constructor's tag is its position in its declaration, so no attribute
+// restates it.
 def Idr_CtorOp : Idr_Op<"ctor", [Symbol, HasParent<"DataOp">]> {
   let summary = "declares one constructor of an idr.data type";
-  let arguments = (ins SymbolNameAttr:$sym_name, I64Attr:$tag,
-                       TypeArrayAttr:$field_types);
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeArrayAttr:$field_types);
   let assemblyFormat = [{
-    $sym_name `tag` $tag custom<FieldTypes>($field_types) attr-dict
+    $sym_name custom<FieldTypes>($field_types) attr-dict
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::Type getFieldType(unsigned index);
+    // The tag: the position among the constructors of the declaration.
+    unsigned getTag();
   }];
 }
 
