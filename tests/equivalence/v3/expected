@@ -4,12 +4,14 @@ cfold: same stdout and exit status
 choice: same stdout and exit status
 compile-time-evaluation: same stdout and exit status
 deep-result: same stdout and exit status
+lambda-terminates: same stdout and exit status
 layout-255-counted-fields: same stdout and exit status
 linear-catch-all: same stdout and exit status
 linear-library-lists: same stdout and exit status
 linear-lollipop: same stdout and exit status
 linear-nested-match: same stdout and exit status
 loads-untrusted-unreached: same stdout and exit status
+map-deep: same stdout and exit status
 missing-case: same stdout and exit status
 nat-large: same stdout and exit status
 nat-loop: same stdout and exit status
