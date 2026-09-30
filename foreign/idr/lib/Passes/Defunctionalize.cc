@@ -152,12 +152,10 @@ struct FieldLabels : AnalysisState {
 // The module's closures, gathered once
 //===----------------------------------------------------------------------===//
 
+// The sum a value of `type`, at any grade, belongs to.
 StringAttr dataName(Type type) {
-  if (auto data = dyn_cast<idr::DataType>(type))
-    return data.getName().getAttr();
-  if (auto box = dyn_cast<idr::BoxType>(type))
-    return box.getName().getAttr();
-  return {};
+  FlatSymbolRefAttr name = idr::getSumName(type);
+  return name ? name.getAttr() : StringAttr();
 }
 
 // Whether a slot of `type` holds a closure: a closure, or a linear one,
@@ -954,13 +952,19 @@ struct Converter {
   }
 
   // `label` with `captures` as a value of `key`.
+  // The captures are held as the function's parameters, which the closure
+  // or the sum's constructor takes them as: a capture a match bound at a
+  // plain grade enters its linear type again.
   Value build(OpBuilder &b, Location loc, StringAttr label, const Key &key, ValueRange captures) {
     auto callee = FlatSymbolRefAttr::get(label);
+    SmallVector<Value> held;
+    for (auto [capture, type] : llvm::zip(captures, captureTypes(label, key.first)))
+      held.push_back(idr::heldAs(b, loc, capture, type));
     if (Type sum = sumOf(key))
       return idr::ConOp::create(b, loc, sum,
                                 SymbolRefAttr::get(idr::getSumName(sum).getAttr(), {callee}),
-                                captures);
-    return idr::ClosureOp::create(b, loc, key.first, callee, captures);
+                                held);
+    return idr::ClosureOp::create(b, loc, key.first, callee, held);
   }
 
   // Where the program builds a closure of `label`: a closure a coercion
@@ -998,13 +1002,22 @@ struct Converter {
                                       unsigned(cases.size()));
     for (auto [label, region] :
          llvm::zip(from.second.getAsRange<StringAttr>(), match.getRegions())) {
-      ArrayRef<Type> types = captureTypes(label, from.first);
+      SmallVector<Type> types = boundCaptureTypes(label, from.first, value.getType());
       Block *block = b.createBlock(&region, region.end(), types,
                                    SmallVector<Location>(types.size(), loc));
       Location at = isConverted(to) ? loc : closureLoc(label, loc);
       idr::YieldOp::create(b, loc, build(b, at, label, to, block->getArguments()));
     }
     return match.getResult(0);
+  }
+
+  // The types a match on a closure sum of `type` binds the captures of
+  // `label` at: the fields at the sum's grade.
+  SmallVector<Type> boundCaptureTypes(StringAttr label, idr::FnType type, Type scrutinee) {
+    SmallVector<Type> types;
+    for (Type capture : captureTypes(label, type))
+      types.push_back(idr::fieldType(scrutinee, capture));
+    return types;
   }
 
   // A call returns its callee's result, then moves it into its own slot.
@@ -1100,10 +1113,12 @@ struct Converter {
     for (auto [label, region] :
          llvm::zip(callee.second.getAsRange<StringAttr>(), match.getRegions())) {
       func::FuncOp fn = module.function(label);
-      ArrayRef<Type> types = captureTypes(label, callee.first);
+      SmallVector<Type> types = boundCaptureTypes(label, callee.first, closure.getType());
       Block *block = b.createBlock(&region, region.end(), types,
                                    SmallVector<Location>(types.size(), apply.getLoc()));
-      SmallVector<Value> operands(block->getArguments());
+      SmallVector<Value> operands;
+      for (auto [capture, type] : llvm::zip(block->getArguments(), captureTypes(label, callee.first)))
+        operands.push_back(idr::heldAs(b, apply.getLoc(), capture, type));
       for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
         operands.push_back(isClosureType(inputs[i])
                                ? coerce(b, apply.getLoc(), arg, values.lookup(arg),

@@ -83,10 +83,20 @@ binderMode : Binder -> Mode
 binderMode Gone = Plain
 binderMode (Held u t) = modeOf u t
 
-||| A value in scope: its SSA name, its type and how it is held.
+||| A value in scope: its SSA name, its type and how it is held; or, with
+||| `rebuild`, a constructor a match took apart, which a reference builds
+||| again from its fields as the region holds them. A match uses a linear
+||| scrutinee, so a variable naming it inside a case region names the
+||| constructor of the fields the region bound; its `name` is then a key no
+||| operation defines, which `matched` (Bodies) renames by.
 public export
 record Val where
   constructor MkVal
   name : String
   type : Ty
   mode : Mode
+  rebuild : Maybe (ConId, List Val)
+
+export
+val : String -> Ty -> Mode -> Val
+val name type mode = MkVal name type mode Nothing

@@ -53,14 +53,31 @@ export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Plain)
 
-||| The scope of a match's regions. A match uses a linear scrutinee once,
+mutual
+  ||| `v`, with every value named as `before` is, itself or a field of a
+  ||| rebuilt constructor, replaced by `after`.
+  renamed : (before, after : Val) -> Val -> Val
+  renamed before after (MkVal n t m r) =
+    if n == before.name then after else MkVal n t m (renamedIn before after r)
+
+  renamedIn : (before, after : Val) -> Maybe (ConId, List Val) -> Maybe (ConId, List Val)
+  renamedIn before after Nothing = Nothing
+  renamedIn before after (Just (c, fs)) = Just (c, renamedAll before after fs)
+
+  renamedAll : (before, after : Val) -> List Val -> List Val
+  renamedAll before after [] = []
+  renamedAll before after (v :: vs) = renamed before after v :: renamedAll before after vs
+
+||| The scope of a match's regions. A match takes a linear scrutinee apart,
 ||| so inside the regions every variable that named it (a catch-all's, or an
-||| outer clause's after a nested match) names the used value instead, which
-||| `coerce` enters again where a linear position needs it. SSA names are
-||| unique within a function, so the name says which variables those are.
+||| outer clause's after a nested match) names what stands for it there:
+||| the value the default region gets back, or the constructor rebuilt from
+||| the fields a case bound. SSA names are unique within a function, so the
+||| name says which variables those are; the fields of a rebuilt
+||| constructor are renamed the same way, as an inner match takes them
+||| apart in turn.
 matched : Val -> Val -> (b -> Val) -> b -> Val
-matched before after env y =
-  let v = env y in if v.name == before.name then after else v
+matched before after env y = renamed before after (env y)
 
 ||| Is a term a branch Idris proved impossible? It is left out.
 excluded : Sub Em b -> Bool
@@ -86,7 +103,7 @@ match ix l head regions =
       body <- traverse (close rt) regions
       r <- fresh
       append (Nest (r ++ " = " ++ head ++ " -> (" ++ rt ++ ") {") body "}" (Just (At l)))
-      pure (Just (MkVal r t Plain))
+      pure (Just (val r t Plain))
     Nothing => do
       body <- traverse (close "") regions
       append (Nest (head ++ " -> () {") body "}" (Just (At l)))
@@ -165,7 +182,7 @@ lifted ix own l lbl caps ps expected body = do
 ||| The algebra: one layer of `Term` to its emitter.
 export
 alg : {0 b : Type} -> Index -> Owner -> TermF (Sub Em) b -> Em b
-alg ix own (VarF _ x) env _ = pure (Just (env x))
+alg ix own (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix own (LiteralF l x) env _ = Just <$> literal l x
 alg ix own (ErasedF l) env _ = Just <$> erased l
 alg ix own (PrimAppF l p as) env _ = do
@@ -196,19 +213,28 @@ alg ix own (LetF l u v b) env expected = do
     | Nothing => pure Nothing
   x' <- coerce ix l (modeOf u x.type) x
   b.result (bind [x'] env) expected
+-- A match takes its scrutinee at its grade: a linear one is used by the
+-- match, whose cases bind the fields as the constructor holds them and
+-- whose default gets the value back; a plain one is read, its fields plain
+-- (the product of the quantities, as Idris binds pattern variables).
 alg ix own (CaseF l x alts def) env expected = do
-  scrut <- coerce ix l Plain (env x)
-  let inner = matched (env x) scrut env
+  let before = env x
+  scrut <- force ix l before
   DataT d <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
   Just decl <- pure (lookup d ix.datas)
     | Nothing => internal ("a match on " ++ show d ++ ", which is not declared")
-  st <- typeText ix scrut.type
-  cases <- traverse (alternative inner) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
+  st <- valText ix scrut
+  cases <- traverse (alternative before scrut) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
+      (header, inner) <- case scrut.mode of
+        Linear => do
+          back <- (\r => val r scrut.type Linear) <$> fresh
+          pure ("default(" ++ !(param ix back) ++ ") {", matched before back env)
+        Plain => pure ("default {", env)
       (res, ops) <- collect (plain ix l (e.result inner expected))
-      pure [MkRegion "default {" res ops]
+      pure [MkRegion header res ops]
     Nothing => pure []
   case cases ++ dflt of
     [] => do
@@ -216,10 +242,18 @@ alg ix own (CaseF l x alts def) env expected = do
       pure Nothing
     regions => match ix l ("idr.match " ++ scrut.name ++ " : " ++ st) regions
   where
-    alternative : (b -> Val) -> AltF (Sub Em) b -> E Region
-    alternative inner (MkAltF c fs body) = do
-      vals <- traverse (\f => (\n => MkVal n (typeOf f) (binderMode f)) <$> fresh) fs
+    alternative : Val -> Val -> AltF (Sub Em) b -> E Region
+    alternative before scrut (MkAltF c fs body) = do
+      let held = case scrut.mode of
+                   Linear => binderMode
+                   Plain => const Plain
+      vals <- traverse (\f => (\n => val n (typeOf f) (held f)) <$> fresh) fs
       args <- traverse (param ix) (toList vals)
+      -- Inside a case of a linear scrutinee, the scrutinee is the
+      -- constructor of the fields the case bound.
+      inner <- case scrut.mode of
+        Linear => (\key => matched before (MkVal key scrut.type Plain (Just (c, toList vals))) env) <$> fresh
+        Plain => pure env
       (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
       pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
 alg ix own (CaseLitF l x alts def) env expected = do
@@ -237,7 +271,7 @@ alg ix own (CaseLitF l x alts def) env expected = do
       pure Nothing
     ([], Just e) => e.result env expected
     (_, Just e) => do
-      scrut <- coerce ix l Plain (env x)
+      scrut <- coerce ix l Plain !(force ix l (env x))
       let inner = matched (env x) scrut env
       st <- typeText ix scrut.type
       regions <- traverse (\(k, c) => do
@@ -253,9 +287,9 @@ alg ix own (CaseNatF l x z s) env expected =
       statement l "ub.unreachable"
       pure Nothing
     (False, True) => z.result env expected
-    (True, False) => successor !(coerce ix l Plain (env x))
+    (True, False) => successor !(coerce ix l Plain !(force ix l (env x)))
     (False, False) => do
-      n <- coerce ix l Plain (env x)
+      n <- coerce ix l Plain !(force ix l (env x))
       (zr, zops) <- collect (plain ix l (z.result env expected))
       (sr, sops) <- collect (plain ix l (successor n))
       match ix l ("idr.match_lit " ++ n.name ++ " : !idr.nat")
@@ -266,11 +300,11 @@ alg ix own (CaseNatF l x z s) env expected =
       p <- value l NatT ("idr.big.pred " ++ n.name)
       s.result (bind [p] env) expected
 alg ix own (LamF l lbl caps b body) env expected = do
-  let capVals = map env caps
+  capVals <- traverse (force ix l . env) caps
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
-  (sym, rt) <- lifted ix own l lbl capVals [MkVal "" (typeOf b) (binderMode b)] result
+  (sym, rt) <- lifted ix own l lbl capVals [val "" (typeOf b) (binderMode b)] result
                  (\cs, [p] => body.result (bind [p] (\i => index i cs)) result)
   let t = FunT b rt
   Just <$> closure sym (toList capVals) t
@@ -288,7 +322,7 @@ alg ix own (AppF l f x) env expected = do
   xv <- coerce ix l (binderMode a) xv
   Just <$> value l r ("idr.apply " ++ fv.name ++ "(" ++ xv.name ++ ") : " ++ !(typeText ix fv.type))
 alg ix own (SuspendF l lbl caps body) env expected = do
-  let capVals = map env caps
+  capVals <- traverse (force ix l . env) caps
   let result = case expected of
                  Just (LazyT r) => Just r
                  _ => Nothing

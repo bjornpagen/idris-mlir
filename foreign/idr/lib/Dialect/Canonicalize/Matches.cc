@@ -31,14 +31,30 @@ struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
   }
 };
 
-// A case region's arguments are its constructor's fields.
+// A case region's arguments are its constructor's fields, read from the
+// value the scrutinee entered its grade from and held as the region binds
+// them; the default region's argument is the scrutinee itself.
 Value readField(OpBuilder &builder, Location loc, Value value) {
   auto arg = cast<BlockArgument>(value);
   auto match = cast<MatchOp>(arg.getOwner()->getParentOp());
-  auto ctor = cast<FlatSymbolRefAttr>(
-      match.getCases()[arg.getOwner()->getParent()->getRegionNumber()]);
-  return FieldOp::create(builder, loc, arg.getType(), match.getScrutinee(), ctor,
-                         builder.getI64IntegerAttr(arg.getArgNumber()));
+  unsigned region = arg.getOwner()->getParent()->getRegionNumber();
+  if (region >= match.getCases().size())
+    return match.getScrutinee();
+  auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region]);
+  Value source = throughLinear(match.getScrutinee());
+  CtorOp decl = lookupCtor(lookupData(match, source.getType()), ctor.getValue());
+  Value field = FieldOp::create(builder, loc, decl.getFieldType(arg.getArgNumber()), source, ctor,
+                                builder.getI64IntegerAttr(arg.getArgNumber()));
+  return heldAs(builder, loc, field, arg.getType());
+}
+
+// A match on a linear value takes it apart, and stays: the value has no
+// other reader to read its fields from. One whose value entered its grade
+// from a plain value reads that value's fields.
+LogicalResult readsPlainValue(Operation *op) {
+  auto match = dyn_cast<MatchOp>(op);
+  return success(!match ||
+                 quantityOf(throughLinear(match.getScrutinee()).getType()) != Quantity::One);
 }
 
 // Upstream's region patterns, as scf.index_switch uses them: results no
@@ -47,10 +63,10 @@ Value readField(OpBuilder &builder, Location loc, Value value) {
 // arguments become idr.field reads that fold.
 template <typename Match>
 void populate(RewritePatternSet &results, MLIRContext *context,
-              NonSuccessorInputReplacementBuilderFn replacement) {
+              NonSuccessorInputReplacementBuilderFn replacement, PatternMatcherFn applies) {
   populateRegionBranchOpInterfaceCanonicalizationPatterns(results, Match::getOperationName());
   populateRegionBranchOpInterfaceInliningPattern(results, Match::getOperationName(),
-                                                 replacement);
+                                                 replacement, applies);
   canon::addMerge<Match>(results, context);
   canon::addCaseOfCase<Match>(results, context);
   canon::addSink<Match>(results, context);
@@ -59,11 +75,12 @@ void populate(RewritePatternSet &results, MLIRContext *context,
 } // namespace
 
 void MatchOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  populate<MatchOp>(results, context, readField);
+  populate<MatchOp>(results, context, readField, readsPlainValue);
 }
 
 void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                              MLIRContext *context) {
-  populate<MatchLitOp>(results, context, mlir::detail::defaultReplBuilderFn);
+  populate<MatchLitOp>(results, context, mlir::detail::defaultReplBuilderFn,
+                       mlir::detail::defaultMatcherFn);
   results.add<DropEmptyStringCase>(context);
 }

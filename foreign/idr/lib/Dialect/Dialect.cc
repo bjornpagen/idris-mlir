@@ -276,6 +276,31 @@ Type idr::atQuantity(Type type, Quantity quantity) {
   return graded({quantity, gradeOf(type).permission}, unrestricted(type));
 }
 
+Quantity idr::times(Quantity a, Quantity b) {
+  if (a == Quantity::Zero || b == Quantity::Zero)
+    return Quantity::Zero;
+  if (a == Quantity::One)
+    return b;
+  if (b == Quantity::One)
+    return a;
+  return Quantity::Many;
+}
+
+Type idr::fieldType(Type scrutinee, Type field) {
+  if (isWorld(field))
+    return field;
+  return graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::None},
+                unrestricted(field));
+}
+
+Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
+  if (value.getType() == type)
+    return value;
+  if (quantityOf(type) == Quantity::One)
+    return LinEnterOp::create(b, loc, type, value);
+  return LinUseOp::create(b, loc, type, value);
+}
+
 // The spellings: !idr.lin<T> is (1, ·) of T, !idr.own<T> is (ω, own) of
 // T, !idr.erased is (0, ·) of no carrier, !idr.world is (1, ·) of the
 // world; any other grade is written out as !idr.q. The world's carrier is

@@ -11,7 +11,10 @@ namespace {
 
 // The value `field` reads field `index` of, when it reads one of `ctor`,
 // and, for a linear field, the constructor is its one reader. A case
-// region's argument is such a read of the match's scrutinee.
+// region's argument is such a read of the match's scrutinee, unless the
+// match took a linear scrutinee apart: that value is used, and the
+// constructor rebuilt from its fields is a new one (in its cell, once the
+// owned stage reuses it).
 Value readOf(Value field, StringAttr ctor, unsigned index) {
   if (quantityOf(field.getType()) == Quantity::One && !field.hasOneUse())
     return {};
@@ -20,7 +23,8 @@ Value readOf(Value field, StringAttr ctor, unsigned index) {
                                                                            : Value();
   auto arg = dyn_cast<BlockArgument>(field);
   auto match = arg ? dyn_cast_or_null<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
-  if (!match || arg.getArgNumber() != index)
+  if (!match || arg.getArgNumber() != index ||
+      quantityOf(match.getScrutinee().getType()) == Quantity::One)
     return {};
   unsigned region = arg.getOwner()->getParent()->getRegionNumber();
   if (region >= match.getCases().size() ||

@@ -47,7 +47,7 @@ function ix root f = do
   let sym = mangle f.id.name
   modify { lifted := [<] }
   ((params, res), ops) <- inFunction $ do
-    params <- traverse (\b => (\n => MkVal n (typeOf b) (binderMode b)) <$> fresh) f.params
+    params <- traverse (\b => (\n => val n (typeOf b) (binderMode b)) <$> fresh) f.params
     res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
     pure (params, res)
   rt <- typeText ix f.result

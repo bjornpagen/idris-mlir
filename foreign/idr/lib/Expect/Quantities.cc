@@ -59,12 +59,13 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
   if (!reference)
     return fail(module.getLoc(), property) << "cannot read " << emitted;
 
+  // Every block argument: a parameter, or a field a match's region binds.
   std::map<std::pair<unsigned, unsigned>, Quantity> proved;
-  for (auto fn : reference->getOps<func::FuncOp>())
-    if (!fn.isExternal())
-      for (BlockArgument arg : fn.getArguments())
-        if (auto at = position(arg.getLoc()))
-          proved[*at] = quantityOf(arg.getType());
+  reference->walk([&](Block *block) {
+    for (BlockArgument arg : block->getArguments())
+      if (auto at = position(arg.getLoc()))
+        proved[*at] = quantityOf(arg.getType());
+  });
   llvm::StringMap<SmallVector<Quantity>> fields;
   reference->walk([&](CtorOp ctor) {
     fields[(ctor->getParentOfType<DataOp>().getSymName() + "::@" + ctor.getSymName()).str()] =
@@ -72,21 +73,24 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
   });
 
   bool held = true;
-  for (auto fn : module.getOps<func::FuncOp>()) {
-    if (fn.isExternal())
-      continue;
-    for (BlockArgument arg : fn.getArguments()) {
+  module.walk([&](Block *block) {
+    Operation *parent = block->getParentOp();
+    auto fn = dyn_cast<func::FuncOp>(parent);
+    if (!fn)
+      fn = parent->getParentOfType<func::FuncOp>();
+    for (BlockArgument arg : block->getArguments()) {
       Quantity now = quantityOf(arg.getType());
       auto at = position(arg.getLoc());
       auto was = at ? proved.find(*at) : proved.end();
       if (was != proved.end() && was->second != now) {
-        fail(arg.getLoc(), property) << "parameter " << arg.getArgNumber() << " of " << where(fn)
-                                     << " has quantity " << spelled(now)
-                                     << ", and Idris proved " << spelled(was->second);
+        fail(arg.getLoc(), property)
+            << (parent == fn ? "parameter " : "bound field ") << arg.getArgNumber() << " of "
+            << where(fn) << " has quantity " << spelled(now) << ", and Idris proved "
+            << spelled(was->second);
         held = false;
       }
     }
-  }
+  });
   module.walk([&](CtorOp ctor) {
     std::string name =
         (ctor->getParentOfType<DataOp>().getSymName() + "::@" + ctor.getSymName()).str();

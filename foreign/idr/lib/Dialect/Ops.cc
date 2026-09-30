@@ -588,8 +588,8 @@ void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResu
 
 namespace {
 
-// Parses `{ case <key> <region> ... default <region> }`; `parseCase` parses
-// a key and its region.
+// Parses `{ case <key> <region> ... default[(<args>)] <region> }`;
+// `parseCase` parses a key and its region.
 ParseResult parseMatchBody(OpAsmParser &parser, OperationState &result,
                            function_ref<ParseResult(Region &)> parseCase) {
   if (parser.parseLBrace())
@@ -597,9 +597,13 @@ ParseResult parseMatchBody(OpAsmParser &parser, OperationState &result,
   while (succeeded(parser.parseOptionalKeyword("case")))
     if (parseCase(*result.addRegion()))
       return failure();
-  if (succeeded(parser.parseOptionalKeyword("default")) &&
-      parser.parseRegion(*result.addRegion()))
-    return failure();
+  if (succeeded(parser.parseOptionalKeyword("default"))) {
+    SmallVector<OpAsmParser::Argument> args;
+    if (parser.parseArgumentList(args, OpAsmParser::Delimiter::OptionalParen,
+                                 /*allowType=*/true) ||
+        parser.parseRegion(*result.addRegion(), args))
+      return failure();
+  }
   return parser.parseRBrace();
 }
 
@@ -634,8 +638,15 @@ void printMatch(Match op, OpAsmPrinter &printer, function_ref<void(unsigned)> pr
   }
   if (Region *fallback = op.getDefaultRegion()) {
     printer.printNewline();
-    printer << "default ";
-    printer.printRegion(*fallback);
+    printer << "default";
+    if (fallback->getNumArguments() != 0) {
+      printer << '(';
+      llvm::interleaveComma(fallback->getArguments(), printer,
+                            [&](BlockArgument arg) { printer.printRegionArgument(arg); });
+      printer << ')';
+    }
+    printer << ' ';
+    printer.printRegion(*fallback, /*printEntryBlockArgs=*/false);
   }
   printer.printNewline();
   printer << '}';
@@ -715,19 +726,17 @@ LogicalResult MatchOp::verify() {
     if (!seen.insert(name).second)
       return emitOpError("has two cases for ") << name;
   }
-  if (Region *fallback = getDefaultRegion(); fallback && fallback->getNumArguments())
-    return emitOpError("expects a default region without arguments");
+  if (Region *fallback = getDefaultRegion()) {
+    TypeRange args = fallback->getArgumentTypes();
+    if (args.size() > 1 || (args.size() == 1 && args.front() != getScrutinee().getType()))
+      return emitOpError("expects a default region without arguments, or one that takes the "
+                         "scrutinee back at its type");
+  }
   return verifyMatchRegions(*this);
 }
 
-// A region argument binds its field as the field's type says, or linearly:
-// matching a linear value binds each of its fields linearly.
-static bool bindsField(Type arg, Type field) {
-  return arg == field || (isLinear(arg) && unrestricted(arg) == field);
-}
-
 // Each case is a constructor of the scrutinee's type, and its region's
-// arguments are that constructor's fields.
+// arguments are that constructor's fields at the scrutinee's grade.
 LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto data =
       symbols.lookupNearestSymbolFrom<DataOp>(*this, getSumName(getScrutinee().getType()));
@@ -736,12 +745,13 @@ LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
     if (!ctor)
       return emitOpError("has a case for ")
              << name << ", which is not a constructor of " << getScrutinee().getType();
+    SmallVector<Type> expected;
+    for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
+      expected.push_back(fieldType(getScrutinee().getType(), field));
     TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
-    if (args.size() != ctor.getFieldTypes().size() ||
-        !llvm::all_of(llvm::zip(args, ctor.getFieldTypes().getAsValueRange<TypeAttr>()),
-                      [](auto pair) { return bindsField(std::get<0>(pair), std::get<1>(pair)); }))
-      return emitOpError("case ") << name << " must take the constructor's fields "
-                                  << ctor.getFieldTypes();
+    if (args != TypeRange(expected))
+      return emitOpError("case ") << name << " must take the constructor's fields at the "
+                                  << "scrutinee's grade, " << expected;
   }
   return success();
 }

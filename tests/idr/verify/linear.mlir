@@ -84,18 +84,38 @@ func.func private @f(%w: !idr.lin<!idr.world>) {
 
 // -----
 
-// Matching binds the fields of a value used once as used once: a region
-// argument may be the field's type or its linear type.
+// A match takes a linear value apart, as its one use, and binds each
+// field at the product of the value's quantity and the field's: of a
+// linear value, as the constructor holds the field; of a value used many
+// times, as used many times. A default region gets a linear value it did
+// not take apart back.
 module attributes {idr.program} {
 idr.data @P {
   idr.ctor @MkP (i64, !idr.lin<i64>)
+  idr.ctor @Empty ()
 }
-func.func private @fst(%p: !idr.lin<!idr.data<@P>>) -> i64 {
-  %v = idr.lin.use %p : !idr.lin<!idr.data<@P>>
-  %r = idr.match %v : !idr.data<@P> -> (i64) {
-  case @MkP(%a: !idr.lin<i64>, %b: !idr.lin<i64>) {
-    %x = idr.lin.use %a : !idr.lin<i64>
+func.func private @snd(%p: !idr.lin<!idr.data<@P>>) -> i64 {
+  %r = idr.match %p : !idr.lin<!idr.data<@P>> -> (i64) {
+  case @MkP(%a: i64, %b: !idr.lin<i64>) {
+    %x = idr.lin.use %b : !idr.lin<i64>
     idr.yield %x : i64
+  }
+  default(%q: !idr.lin<!idr.data<@P>>) {
+    %s = func.call @snd(%q) : (!idr.lin<!idr.data<@P>>) -> i64
+    idr.yield %s : i64
+  }
+  }
+  return %r : i64
+}
+func.func private @shared(%p: !idr.data<@P>) -> i64 {
+  %r = idr.match %p : !idr.data<@P> -> (i64) {
+  case @MkP(%a: i64, %b: i64) {
+    %x = arith.addi %b, %b : i64
+    idr.yield %x : i64
+  }
+  default {
+    %z = arith.constant 0 : i64
+    idr.yield %z : i64
   }
   }
   return %r : i64
@@ -109,12 +129,31 @@ func.func @root() -> i64 {
 // -----
 
 idr.data @P {
-  idr.ctor @MkP (i64)
+  idr.ctor @MkP (!idr.lin<i64>)
 }
 func.func private @f(%p: !idr.data<@P>) -> i64 {
-  // expected-error @+1 {{case @MkP must take the constructor's fields}}
+  // expected-error @+1 {{case @MkP must take the constructor's fields at the scrutinee's grade, 'i64'}}
   %r = idr.match %p : !idr.data<@P> -> (i64) {
-  case @MkP(%a: !idr.lin<i32>) {
+  case @MkP(%a: !idr.lin<i64>) {
+    %z = arith.constant 0 : i64
+    idr.yield %z : i64
+  }
+  }
+  return %r : i64
+}
+
+// -----
+
+idr.data @P {
+  idr.ctor @MkP (i64)
+}
+func.func private @f(%p: !idr.lin<!idr.data<@P>>) -> i64 {
+  // expected-error @+1 {{expects a default region without arguments, or one that takes the scrutinee back at its type}}
+  %r = idr.match %p : !idr.lin<!idr.data<@P>> -> (i64) {
+  case @MkP(%a: i64) {
+    idr.yield %a : i64
+  }
+  default(%q: !idr.data<@P>) {
     %z = arith.constant 0 : i64
     idr.yield %z : i64
   }

@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
@@ -233,6 +234,21 @@ bool isOwned(mlir::Type type);
 mlir::Type owned(mlir::Type type);
 mlir::Type view(mlir::Type type);
 mlir::Type atQuantity(mlir::Type type, Quantity quantity);
+
+// Idris's product of quantities: 0 absorbs, 1 is the unit, and ω·ω is ω.
+Quantity times(Quantity a, Quantity b);
+
+// The type at which a region of a match binds a field of its scrutinee:
+// the field's value at the product of the scrutinee's quantity and the
+// field's, as Idris binds a pattern variable (a linear field of a value
+// used many times is used many times; a field of a linear value is used as
+// the field says). The world, which is only ever at its own grade, stays
+// the world.
+mlir::Type fieldType(mlir::Type scrutinee, mlir::Type field);
+
+// `value` held as `type`, its own type at another quantity: entered into a
+// linear type, or used out of one; itself when the types agree.
+mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 // The result is the operand's value at whatever grade the result has: an
 // op that computes a new value of its operands' type, which the owned

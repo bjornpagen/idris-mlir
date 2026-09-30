@@ -38,7 +38,7 @@ idr.data @T {
   idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) {
-  // expected-error @+1 {{case @A must take the constructor's fields [i64]}}
+  // expected-error @+1 {{case @A must take the constructor's fields at the scrutinee's grade, 'i64'}}
   idr.match %v : !idr.data<@T> -> () {
   case @A(%x: i32) {
     idr.yield

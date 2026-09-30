@@ -1151,10 +1151,21 @@ on.
      erased value's carrier is `none`, the world's its token, which never
      appears at another grade), V1 as `QType::verify`, and the helpers
      `gradeOf`, `graded`, `isLinear`, `isWorld`, `isErased`. Emit and the
-     tests are unchanged, through the spellings. V5 (the match at its
-     scrutinee's grade) waits for the owned grades: today's `lin.use`
-     before a match is what lets idr-rc take the scrutinee apart, and
-     under V5 the take is the match.
+     tests are unchanged, through the spellings.
+   - **Landed 2026-09-30 (V5):** `idr.match` takes its scrutinee at its
+     grade, and each case binds the constructor's fields at
+     `u_scrutinee · u_field` (`idr::fieldType`, Idris's `rigMult`; the
+     world stays at its own grade). Emit no longer uses a linear scrutinee
+     before the match: the match is the use. What a region needs of the
+     whole value it gets honestly: the default region takes a linear
+     scrutinee back as its argument (`default(%t: !idr.lin<T>)`), and a
+     variable naming the scrutinee inside a case names the constructor
+     rebuilt from the fields the case bound (`Val.rebuild` in Emit), which
+     the owned stage builds in the cell the match took apart. Record eta
+     does not fold through a match on a linear value, and the region
+     inlining pattern leaves a match on a linear value whose source is not
+     a plain value: the match is the take. `quantities-kept` checks bound
+     fields as it checks parameters. The `bindsField` guard is gone.
    - `QType` with `Grade`; the spellings `lin`, `erased` and `world` kept as
      sugar; V1-V5 and V9 as one verifier.
    - The match takes its scrutinee at its grade.

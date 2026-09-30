@@ -161,6 +161,10 @@ def Idr_NatValue : Idr_AtAnyGrade<"::idr::NatType", "a natural at any grade">;
 def Idr_BigOrNatValue : Idr_AtAnyGrade<"::idr::BigType, ::idr::NatType", "an Integer or a natural at any grade">;
 def Idr_BoxValue : Idr_AtAnyGrade<"::idr::BoxType", "a box at any grade">;
 def Idr_SumValue : Idr_AtAnyGrade<"::idr::DataType, ::idr::BoxType", "a constructor value at any grade">;
+// A constructor value at any quantity that holds no reference of its own:
+// what a match takes apart, whose regions bind its fields at its grade.
+def Idr_SumView : Type<And<[Idr_SumValue.predicate, CPred<"!::idr::isOwned($_self)">]>,
+                       "a constructor value at any quantity, not owned", "::mlir::Type">;
 
 // The result is the operand's value, at whatever grade the result has.
 def Idr_ResultCarriesOperand : NativeOpTrait<"ResultCarriesOperand"> {
@@ -484,8 +488,15 @@ class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
 
 def Idr_MatchOp : Idr_MatchOpBase<"match", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
-  let summary = "branches on the constructor of a sum or box";
-  let arguments = (ins Idr_SumType:$scrutinee, ArrayAttr:$cases);
+  let summary = "branches on the constructor of a sum or box, taking it apart at its grade";
+  let description = [{
+    The scrutinee is taken at its grade: a linear one is used by the match,
+    and each case binds the constructor's fields at the product of the
+    scrutinee's quantity and the field's, as Idris binds pattern variables.
+    The default region binds nothing, or takes a scrutinee no case took
+    apart back at its type.
+  }];
+  let arguments = (ins Idr_SumView:$scrutinee, ArrayAttr:$cases);
 }
 
 // A condition (i1) too: idr-rc makes a select of counted values a match

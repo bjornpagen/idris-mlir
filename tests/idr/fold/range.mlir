@@ -57,8 +57,8 @@ idr.data @L box {
 
 // CHECK-LABEL: func.func @field(
 // CHECK: arith.addi
-func.func @field(%acc: i64, %l: !idr.box<@L>) -> i64 {
-  %r = idr.match %l : !idr.box<@L> -> (i64) {
+func.func @field(%acc: i64, %l: !idr.lin<!idr.box<@L>>) -> i64 {
+  %r = idr.match %l : !idr.lin<!idr.box<@L>> -> (i64) {
   case @Nil() {
     idr.yield %acc : i64
   }

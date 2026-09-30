@@ -14,9 +14,8 @@ module attributes {idr.program} {
   }
   func.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {idr.total} {
     %w1 = idr.match %p : !idr.data<@P> -> (!idr.world) {
-    case @MkP(%a: !idr.lin<i64>, %b: i64) {
-      %x = idr.lin.use %a : !idr.lin<i64>
-      %v = idr.io.put_int signed %x, %w : i64
+    case @MkP(%a: i64, %b: i64) {
+      %v = idr.io.put_int signed %a, %w : i64
       idr.yield %v : !idr.world
     }
     }

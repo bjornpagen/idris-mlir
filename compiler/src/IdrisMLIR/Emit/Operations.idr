@@ -24,7 +24,7 @@ value : Loc -> Ty -> String -> E Val
 value l t text = do
   r <- fresh
   append (Line (r ++ " = " ++ text) (At l))
-  pure (MkVal r t Plain)
+  pure (val r t Plain)
 
 ||| An operation without results.
 export
@@ -219,6 +219,22 @@ con ix l c vs0 = do
   value l t ("idr.con " ++ symbol (mangle c.id.dataId.name) ++ "::" ++ symbol (mangle c.id.name) ++
              "(" ++ names vs ++ ") : (" ++ !(types ix vs) ++ ") -> " ++ res)
 
+mutual
+  ||| The value a variable names: itself, or the constructor a match took
+  ||| apart, built again from its fields as the region holds them
+  ||| (`Val.rebuild`); in the owned stage the cell it came from is reused.
+  export
+  force : Index -> Loc -> Val -> E Val
+  force ix l (MkVal n t m Nothing) = pure (MkVal n t m Nothing)
+  force ix l (MkVal n t m (Just (c, fs))) = do
+    Just k <- pure (lookup c ix.cons)
+      | Nothing => internal ("the constructor " ++ show c ++ ", which is not declared")
+    con ix l k !(forceAll ix l fs)
+
+  forceAll : Index -> Loc -> List Val -> E (List Val)
+  forceAll ix l [] = pure []
+  forceAll ix l (v :: vs) = (::) <$> force ix l v <*> forceAll ix l vs
+
 ||| The one constructor of a data instance.
 only : Index -> DataId -> E Con
 only ix d = case (.cons) <$> lookup d ix.datas of
@@ -237,7 +253,7 @@ io ix l op vs res = do
     (GetByte, [w0]) => do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))
-      pure (MkVal (r ++ "#0") CharT Plain, MkVal (r ++ "#1") WorldT Plain)
+      pure (val (r ++ "#0") CharT Plain, val (r ++ "#1") WorldT Plain)
     _ => internal ("io." ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where

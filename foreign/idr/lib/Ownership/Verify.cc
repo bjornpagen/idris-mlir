@@ -182,11 +182,13 @@ private:
     if (auto select = dyn_cast<arith::SelectOp>(op); select && tracked(select))
       return op.emitOpError("selects between values that hold references; in the owned "
                             "stage a match does");
-    // A view of an owned value: the one read of it that is not a use.
-    if (auto borrow = dyn_cast<BorrowOp>(op)) {
-      if (failed(use(op, borrow.getValue())))
+    // A view of an owned value: the one read of it that is not a use. A
+    // view at another quantity (entered into a linear type, or used out of
+    // one) is a view of the same value.
+    if (isa<BorrowOp>(op) || (isa<LinEnterOp, LinUseOp>(op) && isView(op.getOperand(0)))) {
+      if (failed(use(op, op.getOperand(0))))
         return failure();
-      define(borrow.getResult(), 0, borrow.getValue(), /*borrowed=*/true);
+      define(op.getResult(0), 0, op.getOperand(0), /*borrowed=*/true);
       return success();
     }
     // What the op borrows must be alive for all of it, after what it

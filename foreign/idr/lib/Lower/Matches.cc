@@ -27,19 +27,20 @@ void moveRegion(RewriterBase &rewriter, Region &from, Region &to, TypeRange resu
   rewriter.replaceOpWithNewOp<scf::YieldOp>(terminator, poison);
 }
 
-// A case region's fields become idr.field reads of the scrutinee at its
-// start; a field the region binds linearly enters its linear type.
-void readFields(RewriterBase &rewriter, Region &region, Value scrutinee, FlatSymbolRefAttr ctor) {
+// A case region's fields become idr.field reads of the scrutinee's value
+// at its start, each held as the region binds it; the default region gets
+// the scrutinee back.
+void readFields(RewriterBase &rewriter, Region &region, Value value, FlatSymbolRefAttr ctor) {
   Block &block = region.front();
   rewriter.setInsertionPointToStart(&block);
-  CtorOp decl = lookupCtor(lookupData(region.getParentOp(), scrutinee.getType()), ctor.getValue());
+  CtorOp decl = ctor ? lookupCtor(lookupData(region.getParentOp(), value.getType()), ctor.getValue())
+                     : CtorOp();
   for (BlockArgument field : block.getArguments()) {
-    Type type = decl.getFieldType(field.getArgNumber());
-    Value value = FieldOp::create(rewriter, field.getLoc(), type, scrutinee, ctor,
-                                  rewriter.getI64IntegerAttr(field.getArgNumber()));
-    if (type != field.getType())
-      value = LinEnterOp::create(rewriter, field.getLoc(), field.getType(), value);
-    rewriter.replaceAllUsesWith(field, value);
+    Value read = value;
+    if (ctor)
+      read = FieldOp::create(rewriter, field.getLoc(), decl.getFieldType(field.getArgNumber()),
+                             value, ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
+    rewriter.replaceAllUsesWith(field, heldAs(rewriter, field.getLoc(), read, field.getType()));
   }
   block.eraseArguments(0, block.getNumArguments());
 }
@@ -48,14 +49,19 @@ void readFields(RewriterBase &rewriter, Region &region, Value scrutinee, FlatSym
 // Idris proved the other constructors impossible, its last case.
 void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   Location loc = op.getLoc();
-  Value scrutinee = op.getScrutinee();
+  // A linear scrutinee is used here, once, and its regions read the value.
+  rewriter.setInsertionPoint(op);
+  Value scrutinee =
+      heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
   DataOp data = lookupData(op, scrutinee.getType());
   auto names = llvm::to_vector(op.getCases().getAsRange<FlatSymbolRefAttr>());
   for (auto [i, name] : llvm::enumerate(names))
     readFields(rewriter, op.getCaseRegion(static_cast<unsigned>(i)), scrutinee, name);
   unsigned cases = static_cast<unsigned>(names.size());
   Region *fallback = op.getDefaultRegion();
-  if (!fallback)
+  if (fallback)
+    readFields(rewriter, *fallback, scrutinee, FlatSymbolRefAttr());
+  else
     fallback = &op.getCaseRegion(--cases);
   SmallVector<int64_t> tags;
   for (unsigned i = 0; i < cases; ++i)

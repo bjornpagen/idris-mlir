@@ -349,19 +349,24 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
       operand.set(in(operand.get(), scope));
   });
   if (auto sum = dyn_cast<idr::MatchOp>(decision.match); sum && from.getNumArguments() != 0) {
-    auto ctor = cast<FlatSymbolRefAttr>(sum.getCases()[region.getRegionNumber()]);
     Value scrutinee = in(sum.getScrutinee(), scope);
-    idr::CtorOp decl = idr::lookupCtor(idr::lookupData(sum, scrutinee.getType()), ctor.getValue());
     b.setInsertionPointToEnd(to);
+    unsigned index = region.getRegionNumber();
+    // The default region has the scrutinee itself back.
+    FlatSymbolRefAttr ctor;
+    idr::CtorOp decl;
+    if (index < sum.getCases().size()) {
+      ctor = cast<FlatSymbolRefAttr>(sum.getCases()[index]);
+      decl = idr::lookupCtor(idr::lookupData(sum, scrutinee.getType()), ctor.getValue());
+    }
     for (BlockArgument field : from.getArguments()) {
       if (field.use_empty())
         continue;
-      Type type = decl.getFieldType(field.getArgNumber());
-      Value value = idr::FieldOp::create(b, field.getLoc(), type, scrutinee, ctor,
-                                         b.getI64IntegerAttr(field.getArgNumber()));
-      if (type != field.getType())
-        value = idr::LinEnterOp::create(b, field.getLoc(), field.getType(), value);
-      field.replaceAllUsesWith(value);
+      Value value = scrutinee;
+      if (ctor)
+        value = idr::FieldOp::create(b, field.getLoc(), decl.getFieldType(field.getArgNumber()),
+                                     scrutinee, ctor, b.getI64IntegerAttr(field.getArgNumber()));
+      field.replaceAllUsesWith(idr::heldAs(b, field.getLoc(), value, field.getType()));
     }
   }
   to->getOperations().splice(to->end(), from.getOperations());
@@ -419,13 +424,14 @@ FailureOr<scf::WhileOp> WhileDo::build() {
     return failure();
   // The before region passes every argument it has on to the rest, as the
   // uplift expects. A world or linear argument that the decision's code
-  // already takes would then be taken twice.
+  // already takes, or that the decision itself takes apart, would then be
+  // taken twice.
   auto takenBefore = [&](unsigned index) {
     BlockArgument arg = entry.getArgument(index);
     return idr::quantityOf(arg.getType()) == idr::Quantity::One &&
            llvm::any_of(arg.getUsers(), [&](Operation *user) {
              Operation *top = entry.findAncestorOpInBlock(*user);
-             return top && top->isBeforeInBlock(match);
+             return top && (top == match || top->isBeforeInBlock(match));
            });
   };
   if (llvm::any_of(carried, takenBefore))
