@@ -21,7 +21,7 @@ data Rule
   | RuntimeClosure
   | EscapeHatch | UserPragma
   | CompiledModule | IdentityHook | HookShape
-  | CompileBudget
+  | CompileBudget | Layout
 
 export
 Show Rule where
@@ -46,6 +46,7 @@ Show Rule where
   show IdentityHook = "identity hook"
   show HookShape = "hook"
   show CompileBudget = "compile-time budget"
+  show Layout = "layout"
 
 ||| Every reason, to read one back from its phrase.
 allRules : List Rule
@@ -54,7 +55,7 @@ allRules =
   , DependentField, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
   , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape
-  , CompileBudget ]
+  , CompileBudget, Layout ]
 
 ||| A reason by its phrase, as `idris-mlir-cc` reports it.
 export
