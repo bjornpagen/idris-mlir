@@ -63,6 +63,19 @@ mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef functio
 // idr.dec.
 mlir::LogicalResult countsNothing(mlir::ModuleOp module, llvm::StringRef function);
 
+// Every take and reset of a box, in the function the argument names or
+// in every function, tests a cell that its function never gives a second
+// reference: no idr.inc of the box or of a value it was read from.
+mlir::LogicalResult resetsUnshared(mlir::ModuleOp module, llvm::StringRef function) noexcept;
+
+// In the function the argument names, every cell a take or reset yields
+// for a constructor with fields is reused: no idr.dec frees one.
+mlir::LogicalResult reusesEveryCell(mlir::ModuleOp module, llvm::StringRef function) noexcept;
+
+// No private function is called once, from another function, and nothing
+// else: every continuation was inlined into the function it continues.
+mlir::LogicalResult contified(mlir::ModuleOp module, llvm::StringRef) noexcept;
+
 // Every recursion reachable from the function the argument names became a
 // loop: none of the functions it may call is on a cycle of references.
 mlir::LogicalResult constantStack(mlir::ModuleOp module, llvm::StringRef function);

@@ -154,8 +154,10 @@ case $status in
     ;;
 esac
 # The link of the -o flow (Frontend/Main.idr): a static-PIE
-# executable on musl, by lld, with GMP; musl's libc.a holds libm.
-"$pinned_cc" --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
+# executable on musl, by lld, with GMP; musl's libc.a holds libm. The
+# triple is the one idris-mlir-cc compiled the object for.
+triple=$("$idris_mlir_cc" --print-target-triple) || failed 1
+"$pinned_cc" --target="$triple" -fuse-ld=lld -static-pie \
   -Wl,--gc-sections -Wl,--icf=all "$object" -o "$output" -lgmp
 status=$?
 [ "$status" -eq 0 ] || failed "$status"

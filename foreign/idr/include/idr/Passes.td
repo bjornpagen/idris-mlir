@@ -392,6 +392,14 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
       - `counts-nothing=@f`: no idr.inc or idr.dec in @f;
+      - `resets-unshared`, `resets-unshared=@f`: every take and reset of a
+        box, anywhere or in @f, tests a cell that its function never gives
+        a second reference (an idr.inc of the box or of a value it was read
+        from);
+      - `reuses-every-cell=@f`: every cell a take or reset in @f yields
+        for a constructor with fields is reused, and none is freed;
+      - `contified`: no private function is called once, from another
+        function, and used nowhere else;
       - `quantities-kept=<file>`: every parameter has a quantity, and every
         parameter and constructor field of the module in <file> (the
         emitted module) has the quantity it has there;

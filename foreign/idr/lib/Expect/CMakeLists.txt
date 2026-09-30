@@ -4,6 +4,7 @@ target_sources(idr_dialect PRIVATE
 	Breakers.cc
 	Clones.cc
 	Closures.cc
+	Continuations.cc
 	Counting.cc
 	Facts.cc
 	Folds.cc

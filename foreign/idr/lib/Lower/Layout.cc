@@ -17,6 +17,30 @@ unsigned sizeOf(Type type) {
 
 } // namespace
 
+std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) noexcept {
+  if (tag >= IDRIS_RT_TAG_LIMIT)
+    return std::unexpected(("its tag is " + Twine(tag) + ", and a cell's tag is below " +
+                            Twine(IDRIS_RT_TAG_LIMIT))
+                               .str());
+  if (objs >= IDRIS_RT_OBJS_LIMIT)
+    return std::unexpected(("it holds " + Twine(objs) +
+                            " counted references (strings, boxed values, closures, "
+                            "Integers, Nats), and a cell holds at most " +
+                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
+                               .str());
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag), static_cast<uint32_t>(objs),
+                                IDRIS_RT_KIND_BOX));
+}
+
+std::expected<CellInfo, std::string> CellInfo::closure(uint64_t objs) noexcept {
+  if (objs >= IDRIS_RT_OBJS_LIMIT)
+    return std::unexpected(("its captures hold " + Twine(objs) +
+                            " counted references, and a cell holds at most " +
+                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
+                               .str());
+  return CellInfo(idris_rt_info(0, static_cast<uint32_t>(objs), IDRIS_RT_KIND_CLOSURE));
+}
+
 SmallVector<Type> SumLayout::types() const {
   SmallVector<Type> all;
   if (tag)
@@ -34,9 +58,10 @@ SmallVector<Type> Cell::members(MLIRContext *ctx) const {
 }
 
 Layouts::Layouts(ModuleOp m) : module(m) {
+  SymbolTable symbols(module);
   auto note = [&](FlatSymbolRefAttr callee, unsigned captures) {
     auto key = std::make_pair(Attribute(callee), captures);
-    auto fn = module.lookupSymbol<func::FuncOp>(callee.getAttr());
+    auto fn = symbols.lookup<func::FuncOp>(callee.getAttr());
     if (fn && labelIds.try_emplace(key, static_cast<unsigned>(labels.size())).second)
       labels.push_back({callee, captures, fn.getFunctionType()});
   };
@@ -47,6 +72,57 @@ Layouts::Layouts(ModuleOp m) : module(m) {
       note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()));
     });
   });
+}
+
+FailureOr<Layouts> Layouts::of(ModuleOp m) {
+  Layouts layouts(m);
+  bool fits = true;
+  for (auto data : m.getOps<DataOp>()) {
+    if (!data.getBox())
+      continue;
+    SmallVector<CtorOp> ctors = data.getCtors();
+    // A box's tag is in its header, which has room for this many
+    // constructors; an unboxed sum's tag slot is as wide as its count needs.
+    if (ctors.size() > IDRIS_RT_TAG_LIMIT) {
+      data.emitError() << "unsupported (layout): the boxed type @" << data.getSymName() << " has "
+                       << ctors.size() << " constructors, and a boxed type has at most "
+                       << IDRIS_RT_TAG_LIMIT;
+      fits = false;
+      continue;
+    }
+    for (auto [tag, ctor] : llvm::enumerate(ctors)) {
+      SmallVector<Type> fields;
+      for (Attribute field : ctor.getFieldTypes())
+        fields.push_back(cast<TypeAttr>(field).getValue());
+      std::expected<Cell, std::string> cell =
+          layouts.cellOf(fields, 0, [&](unsigned objs) { return CellInfo::box(tag, objs); });
+      if (!cell) {
+        ctor.emitError() << "unsupported (layout): a cell of the constructor @" << ctor.getSymName()
+                         << " cannot be built: " << cell.error();
+        fits = false;
+        continue;
+      }
+      layouts.boxes[ctor] = std::make_unique<Cell>(std::move(*cell));
+    }
+  }
+  SymbolTable symbols(m);
+  for (auto [id, label] : llvm::enumerate(layouts.labels)) {
+    SmallVector<Type> fields{LLVM::LLVMPointerType::get(m.getContext())};
+    llvm::append_range(fields, label.captureTypes());
+    std::expected<Cell, std::string> cell =
+        layouts.cellOf(fields, 1, [](unsigned objs) { return CellInfo::closure(objs); });
+    if (!cell) {
+      symbols.lookup(label.callee.getAttr())->emitError()
+          << "unsupported (layout): a closure of @" << label.callee.getValue() << " with "
+          << label.captures << " captures cannot be built: " << cell.error();
+      fits = false;
+      continue;
+    }
+    layouts.closures[static_cast<unsigned>(id)] = std::make_unique<Cell>(std::move(*cell));
+  }
+  if (!fits)
+    return failure();
+  return layouts;
 }
 
 unsigned Layouts::labelId(FlatSymbolRefAttr callee, unsigned captures) const {
@@ -128,64 +204,49 @@ SmallVector<bool> Layouts::counted(Type type) {
   return {false};
 }
 
-Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading) {
-  Cell cell;
+std::expected<Cell, std::string>
+Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
+                function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info) {
+  SmallVector<SmallVector<Slot>> fields;
   SmallVector<SmallVector<bool>> countedness;
   for (Type field : fieldTypes) {
     SmallVector<Slot> slots;
     for (Type component : components(field))
       slots.push_back({component, 0});
-    cell.fields.push_back(std::move(slots));
+    fields.push_back(std::move(slots));
     countedness.push_back(counted(field));
   }
+  SmallVector<std::pair<unsigned, unsigned>> order;
+  unsigned objs = 0;
   unsigned at = 8;
   auto place = [&](unsigned field, unsigned component) {
-    Slot &slot = cell.fields[field][component];
+    Slot &slot = fields[field][component];
     unsigned size = sizeOf(slot.type);
     at = static_cast<unsigned>(llvm::alignTo(at, size));
     slot.offset = at;
     at += size;
-    cell.order.push_back({field, component});
+    order.push_back({field, component});
   };
-  auto fields = static_cast<unsigned>(fieldTypes.size());
-  for (unsigned f = 0; f < std::min(leading, fields); ++f)
-    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+  auto count = static_cast<unsigned>(fieldTypes.size());
+  for (unsigned f = 0; f < std::min(leading, count); ++f)
+    for (unsigned c = 0; c < fields[f].size(); ++c)
       place(f, c);
   // The object slots, each 8 bytes, so contiguous.
-  for (unsigned f = leading; f < fields; ++f)
-    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+  for (unsigned f = leading; f < count; ++f)
+    for (unsigned c = 0; c < fields[f].size(); ++c)
       if (countedness[f][c]) {
         place(f, c);
-        ++cell.objs;
+        ++objs;
       }
-  for (unsigned f = leading; f < fields; ++f)
-    for (unsigned c = 0; c < cell.fields[f].size(); ++c)
+  for (unsigned f = leading; f < count; ++f)
+    for (unsigned c = 0; c < fields[f].size(); ++c)
       if (!countedness[f][c])
         place(f, c);
-  cell.size = static_cast<unsigned>(llvm::alignTo(at, 8));
-  return cell;
-}
-
-const Cell &Layouts::box(CtorOp ctor) {
-  auto it = boxes.find(ctor);
-  if (it != boxes.end())
-    return *it->second;
-  SmallVector<Type> fields;
-  for (Attribute field : ctor.getFieldTypes())
-    fields.push_back(cast<TypeAttr>(field).getValue());
-  auto cell = std::make_unique<Cell>(cellOf(fields, 0));
-  return *(boxes[ctor] = std::move(cell));
-}
-
-const Cell &Layouts::closure(const Label &label) {
-  unsigned id = labelId(label);
-  auto it = closures.find(id);
-  if (it != closures.end())
-    return *it->second;
-  SmallVector<Type> fields{LLVM::LLVMPointerType::get(module.getContext())};
-  llvm::append_range(fields, label.captureTypes());
-  auto cell = std::make_unique<Cell>(cellOf(fields, 1));
-  return *(closures[id] = std::move(cell));
+  std::expected<CellInfo, std::string> header = info(objs);
+  if (!header)
+    return std::unexpected(std::move(header.error()));
+  return Cell{std::move(fields), static_cast<unsigned>(llvm::alignTo(at, 8)), objs, std::move(order),
+              *header};
 }
 
 } // namespace idr::lower
