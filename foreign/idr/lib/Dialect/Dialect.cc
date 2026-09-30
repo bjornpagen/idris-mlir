@@ -466,7 +466,8 @@ struct KnownAttr {
 
 LogicalResult unitOfFunction(Operation *op, NamedAttribute attr) {
   if (!isa<func::FuncOp>(op) || !isa<UnitAttr>(attr.getValue()))
-    return op->emitOpError("expects ") << attr.getName() << " as a unit attribute of a function";
+    return op->emitOpError("expects ")
+           << attr.getName().getValue() << " as a unit attribute of a function";
   return success();
 }
 

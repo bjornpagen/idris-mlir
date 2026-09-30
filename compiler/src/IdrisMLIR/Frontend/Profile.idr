@@ -17,6 +17,7 @@ import Parser.Lexer.Source
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries

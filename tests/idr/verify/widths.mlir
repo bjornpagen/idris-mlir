@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // The integers of Idris are 8, 16, 32 and 64 bits wide, and so is every
-// integer an idr op computes on; only what counts references is counted.
+// integer an idr op computes on (idr.match_lit also branches on a
+// condition); only what counts references is counted.
 
 func.func private @f(%a: i7, %b: i7) -> i7 {
   // expected-error @+1 {{but got 'i7'}}
@@ -30,23 +31,6 @@ func.func private @f(%a: i1, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{but got 'i1'}}
   %w1 = idr.io.put_int unsigned %a, %w : i1
   return %w1 : !idr.world
-}
-
-// -----
-
-func.func private @f(%b: i1) -> i64 {
-  // expected-error @+1 {{but got 'i1'}}
-  %r = idr.match_lit %b : i1 -> (i64) {
-  case 0 {
-    %z = arith.constant 0 : i64
-    idr.yield %z : i64
-  }
-  default {
-    %o = arith.constant 1 : i64
-    idr.yield %o : i64
-  }
-  }
-  return %r : i64
 }
 
 // -----

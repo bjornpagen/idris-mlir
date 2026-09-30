@@ -67,7 +67,8 @@ namespace cl = llvm::cl;
 
 namespace {
 
-cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"), cl::Required);
+// Required unless a --print option asks only what the build decided.
+cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"));
 cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
 // Run the idr steps, whose user errors are rejections, and write nothing.
 cl::opt<bool> checkOnly("check",
@@ -685,6 +686,10 @@ int main(int argc, char **argv) {
     llvm::outs() << (targetCpu == "native" ? llvm::sys::getHostCPUName().str() : targetCpu)
                  << "\n";
     return ok;
+  }
+  if (inputPath.empty()) {
+    llvm::errs() << "idris-mlir-cc: no input file (see --help)\n";
+    return usage;
   }
   return runOnLargeStack();
 }

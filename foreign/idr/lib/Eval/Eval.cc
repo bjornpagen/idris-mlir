@@ -186,12 +186,6 @@ ModuleOp Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
   OpBuilder b(ctx);
   b.setInsertionPointToEnd(module.getBody());
   ModuleOp copy = ModuleOp::create(b, module.getLoc());
-  // The copy is cloned out of the module to read its layouts, and they must
-  // be the ones the JIT's code is built with: those of the program's data
-  // layout.
-  for (NamedAttribute attr : module->getAttrs())
-    if (isa<DataLayoutSpecInterface>(attr.getValue()))
-      copy->setAttr(attr.getName(), attr.getValue());
   b.setInsertionPointToEnd(copy.getBody());
   for (auto data : module.getOps<idr::DataOp>())
     b.clone(*data);
@@ -241,7 +235,13 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   ModuleOp lowered = scratch(module, keys, calls);
   llvm::scope_exit erase([&] { lowered.erase(); });
   // The layouts of the values, read before idr-lower takes the types apart.
+  // The clone is out of the program, so it takes the program's data layout
+  // with it: idr-lower builds the JIT's code in the scratch module, inside
+  // the program, by that layout.
   OwningOpRef<ModuleOp> pristine = lowered.clone();
+  for (NamedAttribute attr : module->getAttrs())
+    if (isa<DataLayoutSpecInterface>(attr.getValue()))
+      (*pristine)->setAttr(attr.getName(), attr.getValue());
   FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(*pristine);
   if (failed(layouts))
     return failure();

@@ -411,9 +411,11 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
   let arguments = (ins Idr_SumType:$scrutinee, ArrayAttr:$cases);
 }
 
+// A condition (i1) too: idr-rc makes a select of counted values a match
+// on its condition, so that each branch consumes what it yields.
 def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
-  let summary = "branches on the value of an integer, string, big or natural";
-  let arguments = (ins AnyTypeOf<[Idr_Int, Idr_StrType, Idr_BigType,
+  let summary = "branches on the value of a condition, integer, string, big or natural";
+  let arguments = (ins AnyTypeOf<[I1, Idr_Int, Idr_StrType, Idr_BigType,
                                   Idr_NatType]>:$scrutinee,
                        ArrayAttr:$cases);
 }

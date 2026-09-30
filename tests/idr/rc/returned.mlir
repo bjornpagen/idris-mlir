@@ -27,7 +27,8 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@L>
   }
-  func.func @root(%w: !idr.world, %x: i64) -> !idr.world {
+  func.func @root(%w: !idr.world) -> !idr.world {
+    %x = arith.constant 7 : i64
     %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
     %l = idr.con @L::@C(%x, %n) : (i64, !idr.box<@L>) -> !idr.box<@L>
     %p = func.call @pick(%l, %x) : (!idr.box<@L>, i64) -> !idr.box<@L>

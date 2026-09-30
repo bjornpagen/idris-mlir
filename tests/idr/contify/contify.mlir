@@ -46,8 +46,9 @@ module attributes {idr.program} {
     %y = func.call @lonely(%x) : (i64) -> i64
     return %y : i64
   }
-  func.func @root(%w: !idr.world, %n: i64) -> !idr.world {
+  func.func @root(%w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : i64
+    %n = arith.constant 7 : i64
     %t = func.call @twice(%n) : (i64) -> i64
     %f = idr.closure @named() : () -> !idr.fn<(i64) -> (i64)>
     %g = func.call @named(%t) : (i64) -> i64

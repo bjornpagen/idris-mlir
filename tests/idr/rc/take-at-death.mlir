@@ -47,7 +47,8 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@List>
   }
-  func.func @root(%w: !idr.world, %x: i64) -> !idr.world {
+  func.func @root(%w: !idr.world) -> !idr.world {
+    %x = arith.constant 7 : i64
     %leaf = idr.constant #idr.con<@T::@L, []> : !idr.box<@T>
     %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
     %t = idr.con @T::@N(%leaf, %x, %leaf) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
