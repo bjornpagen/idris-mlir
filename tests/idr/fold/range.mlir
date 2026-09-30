@@ -47,3 +47,26 @@ func.func @linear(%t: !idr.data<@T>) -> i1 {
   %a = arith.cmpi ult, %u, %three : i64
   return %a : i1
 }
+
+// A linear field a match binds is a value the analysis never saw computed:
+// it may be any i64, and arithmetic on it keeps its own width.
+idr.data @L box {
+  idr.ctor @Nil ()
+  idr.ctor @Cons (!idr.lin<i64>, !idr.lin<!idr.box<@L>>)
+}
+
+// CHECK-LABEL: func.func @field(
+// CHECK: arith.addi
+func.func @field(%acc: i64, %l: !idr.box<@L>) -> i64 {
+  %r = idr.match %l : !idr.box<@L> -> (i64) {
+  case @Nil() {
+    idr.yield %acc : i64
+  }
+  case @Cons(%h: !idr.lin<i64>, %t: !idr.lin<!idr.box<@L>>) {
+    %x = idr.lin.use %h : !idr.lin<i64>
+    %s = arith.addi %acc, %x : i64
+    idr.yield %s : i64
+  }
+  }
+  return %r : i64
+}

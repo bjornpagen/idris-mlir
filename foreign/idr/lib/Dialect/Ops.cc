@@ -1,5 +1,6 @@
 // The idr ops: syntax, verifiers, folders and interfaces.
 
+#include "Dialect/BigRanges.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/Builders.h"
@@ -451,18 +452,51 @@ OpFoldResult LinEnterOp::fold(FoldAdaptor) {
 // analysis has no range for a value whose type is not an integer, so the
 // linear value a parameter or a region binds has none; its use then has
 // every value of its type, where an entry's use waits for the entry's.
+namespace {
+
+// The range of any value of `type`, whose grade is no part of it: an
+// integer's full width, a big's no bound, a natural's at least 0; none for a
+// type without integers.
+std::optional<IntegerValueRange> anyValue(Type type) {
+  while (auto lin = dyn_cast<LinType>(type))
+    type = lin.getValue();
+  if (isa<BigType, NatType>(type))
+    return IntegerValueRange(
+        ranges::rangeOf(isa<NatType>(type) ? ranges::natural() : ranges::Bounds{}));
+  if (type.isIntOrIndex())
+    return IntegerValueRange(ConstantIntRanges::maxRange(
+        type.isIndex() ? IndexType::kInternalStorageBitWidth : type.getIntOrFloatBitWidth()));
+  return std::nullopt;
+}
+
+// A linear value's range is its value's, which the grade must not hide. A
+// linear value the analysis never saw computed (a field a match binds)
+// starts at a range of the linear type, which states no width; it stands
+// for any value.
+void passRange(Value result, const IntegerValueRange &range, SetIntLatticeFn setResultRange) {
+  std::optional<IntegerValueRange> any = anyValue(result.getType());
+  if (!any)
+    return;
+  if (!range.isUninitialized() &&
+      range.getValue().umin().getBitWidth() == any->getValue().umin().getBitWidth())
+    setResultRange(result, range);
+  else
+    setResultRange(result, *any);
+}
+
+} // namespace
+
 void LinEnterOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
                                                SetIntLatticeFn setResultRange) {
   if (!ranges.front().isUninitialized())
-    setResultRange(getResult(), ranges.front());
+    passRange(getResult(), ranges.front(), setResultRange);
 }
 
 void LinUseOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
                                              SetIntLatticeFn setResultRange) {
-  if (!ranges.front().isUninitialized())
-    setResultRange(getResult(), ranges.front());
-  else if (!getLinear().getDefiningOp<LinEnterOp>())
-    setResultRange(getResult(), IntegerValueRange::getMaxRange(getResult()));
+  if (ranges.front().isUninitialized() && getLinear().getDefiningOp<LinEnterOp>())
+    return;
+  passRange(getResult(), ranges.front(), setResultRange);
 }
 
 // The tag of a known constructor, or 0 for a type of one constructor.
@@ -487,8 +521,9 @@ OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
 void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
   DataOp data = lookupData(*this, getValue().getType());
   size_t count = data ? data.getCtors().size() : 0;
-  setResultRange(getResult(), count == 0 ? ConstantIntRanges::maxRange(64)
-                                         : nonNegative(64, 0, count - 1));
+  unsigned width = getType().getIntOrFloatBitWidth();
+  setResultRange(getResult(), count == 0 ? ConstantIntRanges::maxRange(width)
+                                         : nonNegative(width, 0, count - 1));
 }
 
 //===----------------------------------------------------------------------===//
