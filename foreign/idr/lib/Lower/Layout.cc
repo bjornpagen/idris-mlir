@@ -177,7 +177,8 @@ SmallVector<Type> Layouts::components(Type type) {
   type = unrestricted(type);
   if (isa<ErasedType, WorldType>(type))
     return {};
-  if (isa<StrType, BoxType, FnType, TokenType>(type))
+  // A destination is the address of a field's word.
+  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
   if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
@@ -192,6 +193,8 @@ SmallVector<bool> Layouts::counted(Type type) {
     return {};
   if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
+  if (isa<DestType>(type))
+    return {false};
   if (auto data = dyn_cast<DataType>(type)) {
     const SumLayout &layout = sum(data.getName().getAttr());
     SmallVector<bool> all;
@@ -236,10 +239,19 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
         place(f, c);
         ++objs;
       }
+  // The other components, the most aligned first, so that the small ones
+  // (the tags of unboxed sums, characters, booleans) share a word instead
+  // of each taking one: the order of fields in the source is not a layout.
+  SmallVector<std::pair<unsigned, unsigned>> others;
   for (unsigned f = leading; f < count; ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       if (!countedness[f][c])
-        place(f, c);
+        others.push_back({f, c});
+  llvm::stable_sort(others, [&](std::pair<unsigned, unsigned> a, std::pair<unsigned, unsigned> b) {
+    return alignmentOf(fields[a.first][a.second].type) > alignmentOf(fields[b.first][b.second].type);
+  });
+  for (auto [f, c] : others)
+    place(f, c);
   std::expected<CellInfo, std::string> header = info(objs);
   if (!header)
     return std::unexpected(std::move(header.error()));

@@ -231,6 +231,12 @@ missing.
 
      Either way the cell drops to 40 bytes. §4, point 2, has the rule this
      needs.
+     - **Measured (2026-09-30):** the tags were already one byte each; the
+       48 came from placing the non-counted components in source order
+       (`Color` at 24, the key aligned to 32, `Bool` at 40). A cell now
+       places them most aligned first, and the node is 40 bytes with no
+       change to the types. Koka's 33 needs the tag-in-header move or a
+       packed word.
   3. **The recursion shape.** `ins` is not tail-recursive. Koka compiles it
      with TRMC (`kk_rbtree__trmc_ins`): its path is written top down,
      without a stack frame per level.
