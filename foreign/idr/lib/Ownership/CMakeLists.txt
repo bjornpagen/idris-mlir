@@ -3,6 +3,7 @@ target_sources(idr_dialect PRIVATE
 	Borrow.cc
 	Counting.cc
 	Counts.cc
+	Exclusive.cc
 	Ops.cc
 	Rc.cc
 	ResetReuse.cc

@@ -450,12 +450,14 @@ def Idr_DestOfOp : Idr_Op<"dest.of", [Pure,
   let hasVerifier = 1;
 }
 
+// The value is what the destination holds, owned or exclusive.
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
-    TypesMatchWith<"the value is what the destination holds, owned", "dest", "value",
-                   "::idr::owned(::llvm::cast<::idr::DestType>($_self).getValue())">]> {
+    PredOpTrait<"the value is what the destination holds, owned",
+      And<[CPred<"::idr::isOwned($value.getType())">,
+           CPred<"::idr::view($value.getType()) == ::llvm::cast<::idr::DestType>($dest.getType()).getValue()">]>>]> {
   let summary = "writes the value of a pending field, consuming its reference";
   let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);
-  let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest)";
+  let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest) `,` type($value)";
 }
 
 //===----------------------------------------------------------------------===//
@@ -1089,18 +1091,21 @@ class Idr_OwnedOp<string mnemonic, list<Trait> traits = []> : Idr_Op<mnemonic, t
   let hasVerifier = 1;
 }
 
-def Idr_DupOp : Idr_OwnedOp<"dup", [
-    TypesMatchWith<"the result owns the value", "value", "result", "::idr::owned($_self)">]> {
+def Idr_DupOp : Idr_OwnedOp<"dup"> {
   let summary = "a reference of its own to a value that holds none";
   let description = [{
     The value is a view: what it holds lives on, and the result holds one
     more reference to it. Static data, a small big and an empty slot hold
     no count and are left alone; an unboxed sum adds a reference to each of
-    its slots.
+    its slots. The result is owned, or exclusive (`-> !idr.excl<T>`) when
+    the value is an atom, a constant nullary constructor, which is in every
+    exclusive tree.
   }];
   let arguments = (ins Arg<Idr_ViewType, "", [MemRead, MemWrite]>:$value);
   let results = (outs Idr_OwnType:$result);
-  let assemblyFormat = "$value attr-dict `:` type($value)";
+  let assemblyFormat = [{
+    $value attr-dict `:` type($value) custom<OwnedResult>(type($result), ref(type($value)))
+  }];
 }
 
 def Idr_DropOp : Idr_OwnedOp<"drop"> {
@@ -1127,6 +1132,19 @@ def Idr_BorrowOp : Idr_Op<"borrow", [Pure,
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
 
+// An owned value given on as owned, whatever it alone reached: an
+// exclusive value (`!idr.excl<T>`, which idr-rc proves) given to a position
+// that takes an owned one, or a value some view of which took a reference
+// of its own (idr.dup) before this, its consuming use. Nothing at runtime.
+def Idr_ShareOp : Idr_Op<"share", [Pure,
+    TypesMatchWith<"the result is the value with its exclusivity forgotten", "value", "result",
+                   "::idr::owned(::idr::view($_self))">]> {
+  let summary = "gives an owned value on as owned, whatever it alone reached";
+  let arguments = (ins Idr_OwnType:$value);
+  let results = (outs Idr_OwnType:$result);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
 // A token is always owned: idr.take makes it, idr.reuse or idr.drop
 // consumes it.
 def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
@@ -1141,7 +1159,7 @@ def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpIn
                        Variadic<AnyType>:$fields);
   let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    $token $ctor `(` $fields `)` attr-dict `:` functional-type($fields, $result)
+    $token $ctor `(` $fields `)` attr-dict `:` functional-type(operands, $result)
   }];
 }
 

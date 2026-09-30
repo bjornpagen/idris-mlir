@@ -53,6 +53,12 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
       numDups += counts->first;
       numDrops += counts->second;
     }
+    // With every reference explicit, which values hold the only one to
+    // their cells is provenance.
+    FailureOr<unsigned> exclusive = own::inferExclusive(module);
+    if (failed(exclusive))
+      return signalPassFailure();
+    numExclusive += *exclusive;
   }
 };
 

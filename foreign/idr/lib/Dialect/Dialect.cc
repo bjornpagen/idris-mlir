@@ -276,6 +276,8 @@ Type idr::atQuantity(Type type, Quantity quantity) {
   return graded({quantity, gradeOf(type).permission}, unrestricted(type));
 }
 
+bool idr::isExclusive(Type type) { return gradeOf(type).permission == Permission::Excl; }
+
 Quantity idr::times(Quantity a, Quantity b) {
   if (a == Quantity::Zero || b == Quantity::Zero)
     return Quantity::Zero;
@@ -322,6 +324,13 @@ Type IdrDialect::parseType(DialectAsmParser &parser) const {
     return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
                              Grade{Quantity::Many, Permission::Own}, value);
   }
+  if (succeeded(parser.parseOptionalKeyword("excl"))) {
+    Type value;
+    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
+      return {};
+    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
+                             Grade{Quantity::Many, Permission::Excl}, value);
+  }
   if (succeeded(parser.parseOptionalKeyword("erased")))
     return erased(ctx);
   if (succeeded(parser.parseOptionalKeyword("world")))
@@ -346,6 +355,8 @@ void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
       printer << "lin<" << q.getValue() << '>';
     } else if (q.getGrade() == Grade{Quantity::Many, Permission::Own}) {
       printer << "own<" << q.getValue() << '>';
+    } else if (q.getGrade() == Grade{Quantity::Many, Permission::Excl}) {
+      printer << "excl<" << q.getValue() << '>';
     } else {
       printer << "q";
       q.print(printer);

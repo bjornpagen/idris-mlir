@@ -63,6 +63,11 @@ mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef functio
 // idr.drop.
 mlir::LogicalResult countsNothing(mlir::ModuleOp module, llvm::StringRef function);
 
+// The function the argument names tests no count and no null: every take
+// in it is of an exclusive value, every reuse builds in an exclusive
+// cell, and there is at least one take.
+mlir::LogicalResult testsNothing(mlir::ModuleOp module, llvm::StringRef function);
+
 // Every take of a box, in the function the argument names or
 // in every function, tests a cell that its function never gives a second
 // reference: no idr.dup of a view of the box or of a value it was read from.

@@ -21,6 +21,10 @@
 // CHECK: llvm.call @idris_rt_inc(
 // CHECK: llvm.call @idris_rt_dec(%arg0) {{.*}}: (!llvm.ptr) -> ()
 // CHECK: llvm.call @idris_rt_free_cell(%[[T]]) {{.*}}: (!llvm.ptr) -> ()
+// A reference to static data (a constant box, a constant string) runs
+// nothing: static data holds no count.
+// CHECK-LABEL: func.func private @static(
+// CHECK-NOT: llvm.call @idris_rt_inc
 // CHECK-LABEL: func.func private @rebuild(
 // CHECK: %[[W:.*]] = scf.if %{{.*}} -> (!llvm.ptr) {
 // CHECK: %[[NULL:.*]] = llvm.icmp "eq" %[[W]], %{{.*}} : !llvm.ptr
@@ -64,12 +68,29 @@ module attributes {idr.program, idr.stage = "owned"} {
     }
     return %r : i64
   }
+  func.func private @static(%x: i64) -> (!idr.own<!idr.box<@L>>, !idr.own<!idr.str>) {
+    %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
+    %s = idr.constant "static" : !idr.str
+    %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<@L>>) {
+    case 0 {
+      %o = idr.dup %n : !idr.box<@L>
+      idr.yield %o : !idr.own<!idr.box<@L>>
+    }
+    default {
+      %o = idr.dup %n : !idr.box<@L>
+      %c = idr.con @L::@C(%x, %o) : (i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
+      idr.yield %c : !idr.own<!idr.box<@L>>
+    }
+    }
+    %t = idr.dup %s : !idr.str
+    return %r, %t : !idr.own<!idr.box<@L>>, !idr.own<!idr.str>
+  }
   func.func private @rebuild(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<@L>>
     %r = idr.match %v : !idr.box<@L> -> (!idr.own<!idr.box<@L>>) {
     case @C(%h: i64, %t: !idr.box<@L>) {
       %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
-      %c = idr.reuse %w#0 @L::@C(%w#1, %w#2) : (i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
+      %c = idr.reuse %w#0 @L::@C(%w#1, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
       idr.yield %c : !idr.own<!idr.box<@L>>
     }
     default {

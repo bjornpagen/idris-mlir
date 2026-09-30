@@ -221,6 +221,20 @@ deriv's shared subterms (33.6k).
 
 ### 2.1 The analysis, prototyped on MLIR's DataFlow framework
 
+**Landed 2026-09-30** as `Ownership/Exclusive.cc`, with the differences
+the typed owned stage made: the lattice is `Unknown < Exclusive < Shared`
+without the cover (a nullary constructor's token is shared instead; the
+cover is still to come); the taint set is exact SSA provenance, since a
+reference is duplicated only by `idr.dup`, and what remains of it is
+`idr.share` inserted at the consuming use of a value some view of which
+was duplicated; the solver loads `DeadCodeAnalysis` and a constant lattice
+that knows no constant, not `SparseConstantPropagation`, so that no region
+is left ungraded because a fixture passes a constant; the commit writes
+`!idr.excl<T>` (the `Excl` permission of the graded type) into values and
+function types and shares an exclusive value into every owned position.
+Step 2 (§3) landed with it: the take of an exclusive value tests nothing,
+and the reuse of an exclusive token stores the header with no null test.
+
 `ExclusiveAnalysis` is a
 `dataflow::SparseForwardDataFlowAnalysis<ExclusiveLattice>`.
 - It is loaded with `DeadCodeAnalysis` and `SparseConstantPropagation`

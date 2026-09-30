@@ -35,6 +35,12 @@ Type movedField(Operation *op, Type field) {
   return counting.counted(field) ? owned(field) : field;
 }
 
+// Whether a value of `type` moves where `expected` is taken: the same
+// type, or an exclusive value where an owned one is.
+bool movesAs(Type type, Type expected) {
+  return type == expected || (isOwned(expected) && isOwned(type) && view(type) == view(expected));
+}
+
 LogicalResult inOwnedStage(Operation *op) {
   auto module = op->getParentOfType<ModuleOp>();
   auto stage = module ? module->getAttrOfType<StringAttr>(ownership::stageAttr) : StringAttr();
@@ -46,7 +52,13 @@ LogicalResult inOwnedStage(Operation *op) {
 
 } // namespace
 
-LogicalResult DupOp::verify() { return inOwnedStage(*this); }
+// The result is the value, owned.
+LogicalResult DupOp::verify() {
+  if (view(getType()) != getValue().getType())
+    return emitOpError("has result ") << getType() << ", which is not " << getValue().getType()
+                                      << " owned";
+  return inOwnedStage(*this);
+}
 LogicalResult DropOp::verify() { return inOwnedStage(*this); }
 LogicalResult ReuseOp::verify() { return inOwnedStage(*this); }
 
@@ -61,7 +73,7 @@ LogicalResult ReuseOp::verifySymbolUses(SymbolTableCollection &symbols) {
   if (types.size() != getFields().size())
     return emitOpError("expects ") << types.size() << " fields";
   for (auto [field, value] : llvm::zip(types.getAsValueRange<TypeAttr>(), getFields()))
-    if (Type expected = movedField(*this, field); expected != value.getType())
+    if (Type expected = movedField(*this, field); !movesAs(value.getType(), expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   if (!isOwned(getType()))
     return emitOpError("builds a cell, which holds a reference: the result is owned");
@@ -89,7 +101,9 @@ LogicalResult TakeOp::verifySymbolUses(SymbolTableCollection &symbols) {
     expected.push_back(owned(TokenType::get(getContext())));
   for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
     expected.push_back(movedField(*this, field));
-  if (!llvm::equal(expected, getResultTypes()))
+  if (expected.size() != getNumResults() ||
+      !llvm::all_of(llvm::zip(getResultTypes(), expected),
+                    [](auto pair) { return movesAs(std::get<0>(pair), std::get<1>(pair)); }))
     return emitOpError("has results ") << getResultTypes() << ", but " << getCtor()
                                        << " takes apart into " << TypeRange(expected);
   return success();

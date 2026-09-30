@@ -624,6 +624,8 @@ using idr::graded;
 using idr::isErased;
 using idr::isLinear;
 using idr::isWorld;
+using idr::isExclusive;
+using idr::ShareOp;
 using idr::fieldType;
 using idr::heldAs;
 using idr::times;

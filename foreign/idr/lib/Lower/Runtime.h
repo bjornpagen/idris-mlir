@@ -70,6 +70,9 @@ public:
   mlir::Value exclusive(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
   // The empty value of a counted component: a null pointer, or the word 0.
   mlir::Value null(mlir::OpBuilder &b, mlir::Location loc, mlir::Type component);
+  // Whether a lowered component is static data, which holds no count: the
+  // address of a global, or a constant word.
+  static bool isStatic(mlir::Value component);
 
   // The components of the constant `value` of type `type`:
   // scalars as LLVM constants, strings, bigs outside the small range, boxes

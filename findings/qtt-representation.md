@@ -1229,8 +1229,39 @@ on.
      - the compile time of verification on the largest bench module is no
        worse.
 6. **Exclusivity and the census.**
-   - The `i1` indicator, the DataFlow lattice and the `excl` commit
-     (memory-theory steps 3-4), seeded by the census of §2.6.
+   - **Landed 2026-09-30 (the grade, the analysis, the untested take):**
+     `!idr.excl<T>` is the permission `Excl` of the graded type, an owned
+     value that holds the only reference to every cell of its cell graph.
+     `idr-rc` infers it after counting (`Ownership/Exclusive.cc`):
+     `ExclusiveAnalysis`, a `SparseForwardDataFlowAnalysis` on MLIR's
+     solver with the lattice `Unknown < Exclusive < Shared`, optimistic as
+     SCCP is, with `DeadCodeAnalysis` for reachability and a constant
+     lattice that knows no constant (a region only a constant would skip
+     is the canonicalizer's to fold, not the solver's to leave ungraded).
+     Provenance is the rule: a constructor of exclusive box fields, the
+     fields and token a take of an exclusive value gives (the token of a
+     nullary constructor stays shared: its cell may be the atom), a call
+     every return of which is exclusive, a parameter every caller passes
+     exclusive. A dup is shared unless of an atom; a stack cell, a share
+     and anything from outside the module are shared. `idr.share` gives an
+     exclusive value on as owned (identity at lowering) and is inserted
+     where an exclusive value meets an owned position and, before the
+     solver, at the consuming use of a value some view of which was
+     duplicated (here, or in a callee that borrows it). The commit writes
+     the grade into value and function types; a linear value of an
+     exclusive one is `!idr.q<(1, excl), T>`. The verifier holds the two
+     rules the grade needs: no dup of a view rooted at an exclusive value,
+     and an exclusive constructor's box fields exclusive. `idr-lower`
+     takes an exclusive value apart with no count test and builds in an
+     exclusive token with no null test. `tests-nothing=@f` states the
+     property, and rbtree's `ins` holds it: every take and reuse in it is
+     exclusive, and the gate's rbtree (n = 4 200 000) runs in 0.84 s
+     where it ran 1.37 s after TRMC (same machine, 4 cores, load about
+     1.5). A dup of static data now runs nothing (the lowering read the
+     constant through the no-rollback driver's replaced value). Not yet:
+     the per-constructor cover (cfold), cloning a function for its
+     exclusive call sites, `noalias` from `excl`, freeing an exclusive
+     tree without reading its counts.
    - Demand remarks for census types.
    - *Load:* static reuse.
    - *Proof:*

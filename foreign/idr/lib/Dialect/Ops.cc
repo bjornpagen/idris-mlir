@@ -91,6 +91,20 @@ void printNatural(OpAsmPrinter &printer, Operation *, Type type) {
   printResultAtGrade(printer, type, BigType::get(type.getContext()));
 }
 
+// The result of a dup: the value owned, unless written, `-> T`, at another
+// owned grade.
+ParseResult parseOwnedResult(OpAsmParser &parser, Type &type, Type value) {
+  if (succeeded(parser.parseOptionalArrow()))
+    return parser.parseType(type);
+  type = owned(value);
+  return success();
+}
+
+void printOwnedResult(OpAsmPrinter &printer, Operation *, Type type, Type value) {
+  if (type != owned(value))
+    printer << " -> " << type;
+}
+
 // The result of an op on naturals or bigs: its operands' type unless
 // written, `-> T`, at another grade.
 ParseResult parseNaturalResult(OpAsmParser &parser, Type &type, Type operand) {
@@ -445,10 +459,10 @@ LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto types = ctor.getFieldTypes();
   if (types.size() != getFields().size())
     return emitOpError("expects ") << types.size() << " fields";
-  // In the owned stage a field that holds references is owned: it moves
-  // into the cell.
+  // In the owned stage a field that holds references is owned (or
+  // exclusive): it moves into the cell.
   for (auto [expected, value] : llvm::zip(types.getAsValueRange<TypeAttr>(), getFields()))
-    if (expected != value.getType() && owned(expected) != value.getType())
+    if (expected != value.getType() && !(isOwned(value.getType()) && view(value.getType()) == expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   return success();
 }

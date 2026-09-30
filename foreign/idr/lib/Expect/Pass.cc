@@ -45,6 +45,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("quantities-kept", quantitiesKept)
       .Case("reuses-in-place", reusesInPlace)
       .Case("counts-nothing", countsNothing)
+      .Case("tests-nothing", testsNothing)
       .Case("resets-unshared", resetsUnshared)
       .Case("reuses-every-cell", reusesEveryCell)
       .Case("contified", contified)

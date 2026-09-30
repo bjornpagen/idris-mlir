@@ -148,7 +148,7 @@ module attributes {idr.stage = "owned"} {
     case @C(%h: i64, %t: !idr.box<@L>) {
       %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
       // expected-error @+1 {{builds a cell of 16 bytes in the 24-byte cell of @L::@C}}
-      %o = idr.reuse %w#0 @L::@One(%w#1) : (i64) -> !idr.own<!idr.box<@L>>
+      %o = idr.reuse %w#0 @L::@One(%w#1) : (!idr.own<!idr.token>, i64) -> !idr.own<!idr.box<@L>>
       idr.drop %w#2 : !idr.own<!idr.box<@L>>
       idr.yield %o : !idr.own<!idr.box<@L>>
     }

@@ -428,7 +428,15 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
         reference): `idr.dup` takes a reference of its own from a view
         before a use that consumes one, `idr.drop` gives one up after the
         last use, and `idr.borrow` makes the view an owned value is read
-        through.
+        through;
+      - exclusivity: an owned value that holds the only reference to every
+        cell it reaches (a constructor of exclusive fields, a field an
+        exclusive value was taken apart into, a parameter every caller
+        passes exclusive, a result every return makes exclusive; never a
+        dup, a constant other than a nullary one, or a stack cell) gets the
+        grade `!idr.excl<T>`, on which a take needs no count test and a
+        reuse no null test; where it meets an owned position it is shared
+        into it (`idr.share`).
     The module then gets `idr.stage = "owned"`, whose rule the verifier
     checks after every later pass.
   }];
@@ -444,6 +452,7 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
     Statistic<"numTakes", "takes", "Dead boxes taken apart for their cells">,
     Statistic<"numReuses", "reuses", "Constructors built in a taken cell">,
     Statistic<"numBorrowed", "borrowed", "Parameters borrowed">,
+    Statistic<"numExclusive", "exclusive", "Values that hold the only reference to their cells">,
   ];
 }
 
@@ -468,6 +477,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
       - `counts-nothing=@f`: no idr.dup or idr.drop in @f;
+      - `tests-nothing=@f`: every take in @f is of an exclusive value and
+        every reuse builds in an exclusive cell, so no count or null is
+        tested; and there is at least one take;
       - `resets-unshared`, `resets-unshared=@f`: every take of a box,
         anywhere or in @f, tests a cell that its function never gives a
         second reference (an idr.dup of a view of the box or of a value it

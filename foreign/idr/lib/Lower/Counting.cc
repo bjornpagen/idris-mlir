@@ -4,8 +4,6 @@
 
 #include "Lower/Patterns.h"
 
-#include "mlir/IR/Matchers.h"
-
 using namespace mlir;
 
 namespace idr::lower {
@@ -13,14 +11,18 @@ namespace idr::lower {
 namespace {
 
 // One more reference for each counted component. Static data holds no
-// count, so a reference to a constant is the constant: nothing runs.
+// count, so a reference to it is its address: nothing runs. The value is
+// read as lowered, since the constant that made it static is gone by now.
 struct LowerDup : IdrPattern<DupOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DupOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    if (!matchPattern(op.getValue(), m_Constant()))
-      runtime.inc(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(op.getValue().getType()));
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
+    ValueRange components = adaptor.getValue();
+    SmallVector<bool> counted = layouts.counted(op.getValue().getType());
+    for (auto [i, component] : llvm::enumerate(components))
+      counted[i] = counted[i] && !Runtime::isStatic(component);
+    runtime.inc(rewriter, op.getLoc(), components, counted);
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(components)});
     return success();
   }
 };
@@ -55,19 +57,25 @@ struct LowerReuse : IdrPattern<ReuseOp> {
     CellInfo info = layout.info;
     Value token = adaptor.getToken().front();
     Type ptr = token.getType();
-    Value empty = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq, token,
-                                       runtime.null(rewriter, loc, ptr));
-    auto choose = scf::IfOp::create(rewriter, loc, TypeRange{ptr}, empty, /*withElseRegion=*/true);
-    {
+    Value where;
+    if (isExclusive(op.getToken().getType())) {
+      // An exclusive token is the cell, certainly: no test.
+      runtime.storeHeader(rewriter, loc, token, info);
+      where = token;
+    } else {
+      Value empty = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq, token,
+                                         runtime.null(rewriter, loc, ptr));
+      auto choose =
+          scf::IfOp::create(rewriter, loc, TypeRange{ptr}, empty, /*withElseRegion=*/true);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(choose.thenBlock());
       scf::YieldOp::create(rewriter, loc, runtime.allocate(rewriter, loc, layout.size, info));
       rewriter.setInsertionPointToStart(choose.elseBlock());
       runtime.storeHeader(rewriter, loc, token, info);
       scf::YieldOp::create(rewriter, loc, token);
+      where = choose.getResult(0);
     }
-    Value cell = buildBox(rewriter, loc, layouts, runtime, ctor, choose.getResult(0),
-                          adaptor.getFields());
+    Value cell = buildBox(rewriter, loc, layouts, runtime, ctor, where, adaptor.getFields());
     rewriter.replaceOp(op, cell);
     return success();
   }
@@ -101,14 +109,17 @@ struct LowerTake : IdrPattern<TakeOp> {
       out.push_back(runtime.load(rewriter, loc, cell, slots));
       llvm::append_range(components, out.back());
     }
-    SmallVector<bool> counted;
-    for (Type fieldType : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-      llvm::append_range(counted, layouts.counted(fieldType));
-    Type ptr = cell.getType();
-    auto choose = scf::IfOp::create(rewriter, loc, TypeRange{ptr},
-                                    runtime.exclusive(rewriter, loc, cell),
-                                    /*withElseRegion=*/true);
-    {
+    Value token = cell;
+    // An exclusive value alone reaches its cell: its fields move out, and
+    // the cell is the token, with no test.
+    if (!isExclusive(op.getValue().getType())) {
+      SmallVector<bool> counted;
+      for (Type fieldType : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
+        llvm::append_range(counted, layouts.counted(fieldType));
+      Type ptr = cell.getType();
+      auto choose = scf::IfOp::create(rewriter, loc, TypeRange{ptr},
+                                      runtime.exclusive(rewriter, loc, cell),
+                                      /*withElseRegion=*/true);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(choose.thenBlock());
       scf::YieldOp::create(rewriter, loc, cell);
@@ -116,9 +127,20 @@ struct LowerTake : IdrPattern<TakeOp> {
       runtime.inc(rewriter, loc, components, counted);
       runtime.dec(rewriter, loc, cell, {true});
       scf::YieldOp::create(rewriter, loc, runtime.null(rewriter, loc, ptr));
+      token = choose.getResult(0);
     }
-    out.insert(out.begin(), SmallVector<Value>{choose.getResult(0)});
+    out.insert(out.begin(), SmallVector<Value>{token});
     rewriter.replaceOpWithMultiple(op, std::move(out));
+    return success();
+  }
+};
+
+// Forgetting exclusivity has no runtime form: the value is itself.
+struct LowerShare : IdrPattern<ShareOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ShareOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
     return success();
   }
 };
@@ -137,7 +159,7 @@ struct LowerBorrow : IdrPattern<BorrowOp> {
 
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerDup, LowerDrop, LowerBorrow, LowerReuse, LowerTake>(
+  patterns.add<LowerDup, LowerDrop, LowerBorrow, LowerShare, LowerReuse, LowerTake>(
       converter, patterns.getContext(), layouts, runtime);
 }
 

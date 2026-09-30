@@ -47,6 +47,33 @@ LogicalResult countsNothing(ModuleOp module, StringRef function) {
   return success(held);
 }
 
+LogicalResult testsNothing(ModuleOp module, StringRef function) {
+  constexpr StringRef property = "tests-nothing";
+  func::FuncOp fn = named(module, function, property);
+  if (!fn)
+    return failure();
+  bool held = true, taken = false;
+  fn.walk([&](Operation *op) {
+    Value cell;
+    if (auto take = dyn_cast<TakeOp>(op)) {
+      taken = true;
+      cell = take.getValue();
+    } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
+      cell = reuse.getToken();
+    }
+    if (!cell || isExclusive(cell.getType()))
+      return;
+    fail(op->getLoc(), property) << op->getName() << " in " << where(op) << " tests a value of "
+                                 << cell.getType() << ", which is not exclusive";
+    held = false;
+  });
+  if (!taken) {
+    fail(fn.getLoc(), property) << "nothing is taken apart in " << where(fn);
+    held = false;
+  }
+  return success(held);
+}
+
 namespace {
 
 // Whether the function gives `value` a second reference: an idr.dup of a

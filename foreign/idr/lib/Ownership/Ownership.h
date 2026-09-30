@@ -34,6 +34,11 @@ inline constexpr llvm::StringLiteral ownedStage = "owned";
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
 
+// Whether `view` is an atom: a constant nullary constructor, a static cell
+// with no fields that no count reaches and nothing reuses, which is in
+// every exclusive tree.
+bool isAtom(mlir::Value view);
+
 // Which types hold references. An unboxed sum does when a field of one of
 // its constructors does; the answers are computed once per module.
 class Counting {
@@ -105,6 +110,12 @@ void ownSignatures(mlir::ModuleOp module, Counting &counting);
 // incs and decs added, or failure after reporting what it cannot count.
 mlir::FailureOr<std::pair<unsigned, unsigned>> insertCounts(mlir::func::FuncOp fn,
                                                             Counting &counting);
+
+// Exclusivity (Exclusive.cc): the owned values that hold the only
+// reference to every cell they reach get the excl grade, and an exclusive
+// value given to an owned position is shared into it (idr.share). Returns
+// how many values are exclusive.
+mlir::FailureOr<unsigned> inferExclusive(mlir::ModuleOp module);
 
 // The verifier of the owned stage (Verify.cc): every reference is consumed
 // exactly once on every path, no value is used after its last reference is

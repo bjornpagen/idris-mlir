@@ -235,6 +235,11 @@ mlir::Type owned(mlir::Type type);
 mlir::Type view(mlir::Type type);
 mlir::Type atQuantity(mlir::Type type, Quantity quantity);
 
+// Whether a value holds the only reference to every cell of its cell
+// graph (the excl permission), which idr-rc proves and writes into the
+// type: taking it apart needs no count test, and its cells no null test.
+bool isExclusive(mlir::Type type);
+
 // Idris's product of quantities: 0 absorbs, 1 is the unit, and ω·ω is ω.
 Quantity times(Quantity a, Quantity b);
 

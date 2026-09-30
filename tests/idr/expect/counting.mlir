@@ -34,6 +34,22 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@L>
   }
+  func.func private @build(%n: i64) -> !idr.box<@L> {
+    %r = idr.match_lit %n : i64 -> (!idr.box<@L>) {
+    case 0 {
+      %e = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
+      idr.yield %e : !idr.box<@L>
+    }
+    default {
+      %one = arith.constant 1 : i64
+      %m = arith.subi %n, %one : i64
+      %t = func.call @build(%m) : (i64) -> !idr.box<@L>
+      %c = idr.con @L::@C(%n, %t) : (i64, !idr.box<@L>) -> !idr.box<@L>
+      idr.yield %c : !idr.box<@L>
+    }
+    }
+    return %r : !idr.box<@L>
+  }
   func.func private @sum(%l: !idr.box<@L>, %acc: i64) -> i64 {
     %r = idr.match %l : !idr.box<@L> -> (i64) {
     case @N() {
@@ -55,7 +71,8 @@ module attributes {idr.program} {
   func.func @root(%w: !idr.world) -> !idr.world {
     %c = idr.constant "x" : !idr.str
     %p:2 = func.call @both(%c, %c) : (!idr.str, !idr.str) -> (!idr.data<@Two>, i64)
-    %l = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
+    %c3 = arith.constant 3 : i64
+    %l = func.call @build(%c3) : (i64) -> !idr.box<@L>
     %m = func.call @map(%l) : (!idr.box<@L>) -> !idr.box<@L>
     %z = arith.constant 0 : i64
     %s = func.call @sum(%m, %z) : (!idr.box<@L>, i64) -> i64

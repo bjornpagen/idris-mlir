@@ -90,6 +90,24 @@ private:
   // field, a small big).
   bool tracked(Value value) { return isOwned(value.getType()) && !isStatic(value); }
 
+  // The owned value a view was read from: through views, fields (idr.field,
+  // the fields a match's region binds) and changes of quantity.
+  static Value viewRoot(Value value) {
+    for (;;) {
+      if (auto arg = dyn_cast<BlockArgument>(value)) {
+        auto match = dyn_cast<MatchOp>(arg.getOwner()->getParentOp());
+        if (!match)
+          return value;
+        value = match.getScrutinee();
+        continue;
+      }
+      Operation *def = value.getDefiningOp();
+      if (!isa_and_nonnull<BorrowOp, FieldOp, LinEnterOp, LinUseOp>(def))
+        return value;
+      value = def->getOperand(0);
+    }
+  }
+
   // Whether `value` is a view: it holds references but not one of its own.
   bool isView(Value value) {
     return counting.counted(value.getType()) && !isOwned(value.getType()) && !isStatic(value);
@@ -182,6 +200,28 @@ private:
     if (auto select = dyn_cast<arith::SelectOp>(op); select && tracked(select))
       return op.emitOpError("selects between values that hold references; in the owned "
                             "stage a match does");
+    // An exclusive value alone reaches its cells: no view of it (or of
+    // what was read from it) takes a reference of its own, and an
+    // exclusive constructor is built of exclusive fields, on the heap.
+    if (auto dup = dyn_cast<DupOp>(op)) {
+      Value root = viewRoot(dup.getValue());
+      if (isExclusive(root.getType()))
+        for (OpOperand &use : root.getUses())
+          if (!isa<ShareOp>(use.getOwner()) && useOf(use, symbols) == Use::Consume)
+            return fail(op, root, "takes a reference to a view of an exclusive value, which "
+                                  "is then consumed as exclusive (idr.share gives it on as "
+                                  "owned)");
+    }
+    if (isa<ConOp, ReuseOp>(op) && isExclusive(op.getResult(0).getType())) {
+      if (op.hasAttr("idr.stack"))
+        return op.emitOpError("builds an exclusive value in the stack frame, whose cell is lent");
+      for (Value field : op.getOperands()) {
+        auto dup = field.getDefiningOp<DupOp>();
+        if (isOwned(field.getType()) && !isExclusive(field.getType()) &&
+            isa<BoxType, DataType>(unrestricted(field.getType())) && !(dup && isAtom(dup.getValue())))
+          return fail(op, field, "builds an exclusive value of a field that may be shared");
+      }
+    }
     // A view of an owned value: the one read of it that is not a use. A
     // view at another quantity (entered into a linear type, or used out of
     // one) is a view of the same value.

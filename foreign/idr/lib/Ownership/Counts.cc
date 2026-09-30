@@ -89,7 +89,7 @@ public:
         b.setInsertionPointAfter(def);
       else
         b.setInsertionPointToStart(cast<BlockArgument>(field).getOwner());
-      auto dup = DupOp::create(b, field.getLoc(), field);
+      auto dup = DupOp::create(b, field.getLoc(), owned(field.getType()), field);
       field.replaceAllUsesExcept(dup.getResult(), dup);
       classes.erase(field);
       ++incs;
@@ -413,7 +413,7 @@ private:
             break;
           if (operand.get() != value || useOf(operand, symbols) != Use::Consume)
             continue;
-          operand.set(DupOp::create(b, loc, seen).getResult());
+          operand.set(DupOp::create(b, loc, owned(seen.getType()), seen).getResult());
           --count;
         }
       }

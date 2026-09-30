@@ -99,7 +99,8 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
   // reference; so does a natural into the Integer it is, and a value
   // written to a destination into the cell.
   if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DropOp, LinEnterOp,
-          LinUseOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
+          LinUseOp, ShareOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp,
+          scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;
 }

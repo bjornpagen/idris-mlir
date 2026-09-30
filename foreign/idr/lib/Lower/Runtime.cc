@@ -227,6 +227,11 @@ Value Runtime::addressOf(OpBuilder &b, Location loc, LLVM::GlobalOp global) {
   return LLVM::AddressOfOp::create(b, loc, global);
 }
 
+bool Runtime::isStatic(Value component) {
+  Operation *def = component.getDefiningOp();
+  return def && (isa<LLVM::AddressOfOp>(def) || def->hasTrait<OpTrait::ConstantLike>());
+}
+
 Value Runtime::pack(OpBuilder &b, Location loc, Type structType, ValueRange members) {
   Value value = LLVM::PoisonOp::create(b, loc, structType);
   for (auto [i, member] : llvm::enumerate(members))
