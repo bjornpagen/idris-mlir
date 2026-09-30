@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// String and big ops call the runtime function named after them. Where an
+// String and big ops call the runtime function named after them; those of
+// bigs whose small case is inline (big-fast-path.mlir) call it only on
+// their cold path, and are not checked here. Where an
 // op may crash, the lowering checks first: an index out of range, the head
 // or tail of "", a big divisor of 0 (the small word 1), a non-finite Double.
 // Casts to integers get the value modulo 2^64 and truncate it; show picks
@@ -27,19 +29,11 @@
 // CHECK: arith.trunci %[[W]] : i64 to i16
 // CHECK: llvm.call @idris_rt_str_to_double(%arg0) : (!llvm.ptr) -> f64
 // CHECK-LABEL: func.func private @bigs(
-// CHECK: llvm.call @idris_rt_big_add(%arg0, %arg1) : (i64, i64) -> i64
-// CHECK: %[[ONE:.*]] = arith.constant 1 : i64
-// CHECK: %[[ZERO:.*]] = arith.cmpi eq, %arg1, %[[ONE]] : i64
+// CHECK: %[[ZERO:.*]] = arith.cmpi eq, %arg1, %{{.*}} : i64
 // CHECK: scf.if %[[ZERO]] {
 // CHECK: llvm.call @idris_rt_big_div(%arg0, %arg1)
 // CHECK: llvm.call @idris_rt_big_mod(%arg0, %arg1)
 // CHECK: llvm.call @idris_rt_big_neg(%arg0)
-// CHECK: llvm.call @idris_rt_big_cmp(%arg0, %arg1)
-// CHECK: arith.cmpi sgt
-// CHECK: %[[U:.*]] = arith.extui %{{.*}} : i8 to i64
-// CHECK: llvm.call @idris_rt_big_from_int_u(%[[U]])
-// CHECK: %[[B:.*]] = llvm.call @idris_rt_big_to_int(%arg0) : (i64) -> i64
-// CHECK: arith.trunci %[[B]] : i64 to i32
 // CHECK: math.isfinite %arg2 : f64
 // CHECK: llvm.call @idris_rt_big_from_double(%arg2)
 // CHECK: llvm.call @idris_rt_big_to_double(%arg0) : (i64) -> f64

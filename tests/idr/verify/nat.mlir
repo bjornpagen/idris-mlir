@@ -13,7 +13,7 @@ func.func @negative_constant() -> !idr.nat {
 // The difference of two naturals may be negative: it is Integer's.
 func.func @difference(%a: !idr.nat) -> !idr.nat {
   // expected-error @+1 {{must be}}
-  %d = idr.big.sub %a, %a : !idr.nat
+  %d = "idr.big.sub"(%a, %a) : (!idr.nat, !idr.nat) -> !idr.nat
   return %d : !idr.nat
 }
 
@@ -40,6 +40,15 @@ func.func @integer_predecessor(%a: !idr.big) -> !idr.big {
 func.func @unclamped(%a: !idr.big) -> !idr.nat {
   // expected-error @+1 {{must be a natural number}}
   %n = "idr.nat.to_big"(%a) : (!idr.big) -> !idr.nat
+  return %n : !idr.nat
+}
+
+// -----
+
+// An integer becomes a natural only read as unsigned, which it then is.
+func.func @signed_word(%x: i64) -> !idr.nat {
+  // expected-error @+1 {{makes a natural of a signed integer}}
+  %n = idr.big.from_int signed %x : i64 : !idr.nat
   return %n : !idr.nat
 }
 

@@ -27,6 +27,9 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-stack",
       "idr-rc",
       "idr-tail-loops",
+      // On loops, which it versions, and after counting, whose counts of
+      // the bigs it proves small it removes.
+      "idr-narrow",
       "idr-lower",
       "canonicalize,cse",
       "convert-scf-to-cf,convert-to-llvm,reconcile-unrealized-casts",

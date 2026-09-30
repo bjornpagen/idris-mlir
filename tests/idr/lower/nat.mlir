@@ -1,15 +1,9 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s --implicit-check-not=idr.
-// A natural is the big it is: the same word at runtime, whose operations
-// are the runtime's big ones. The sum, the product and the comparison of
-// naturals call the big functions; the predecessor and the clamp from an
-// Integer call the runtime's own; a natural as an Integer is itself.
+// A natural is the big it is: the same word at runtime, so a natural as an
+// Integer is its operand itself. Its ops have their small case inline, and
+// call the runtime's big functions on the cold path (big-fast-path.mlir).
 // CHECK-LABEL: func.func private @naturals(
 // CHECK-SAME: %[[A:[^:]*]]: i64, %[[B:[^:]*]]: i64, %[[I:[^:]*]]: i64
-// CHECK: llvm.call @idris_rt_big_add(%[[A]], %[[B]]) : (i64, i64) -> i64
-// CHECK: llvm.call @idris_rt_big_mul(%[[A]], %[[B]]) : (i64, i64) -> i64
-// CHECK: llvm.call @idris_rt_big_cmp(%[[A]], %[[B]])
-// CHECK: llvm.call @idris_rt_big_pred(%[[A]]) : (i64) -> i64
-// CHECK: llvm.call @idris_rt_nat_from_big(%[[I]]) : (i64) -> i64
 // CHECK: return {{.*}}, %[[A]] :
 // Nat's zero and one are the small words of 0 and 1, as Integer's are.
 // CHECK-LABEL: func.func @Prog.main(
