@@ -413,6 +413,19 @@ FailureOr<scf::WhileOp> WhileDo::build() {
       needed.insert(sum.getScrutinee());
   if (llvm::any_of(needed, [&](Value value) { return counting.tracked(value); }))
     return failure();
+  // The before region passes every argument it has on to the rest, as the
+  // uplift expects. A world or linear argument that the decision's code
+  // already takes would then be taken twice.
+  auto takenBefore = [&](unsigned index) {
+    BlockArgument arg = entry.getArgument(index);
+    return idr::quantityOf(arg.getType()) == idr::Quantity::One &&
+           llvm::any_of(arg.getUsers(), [&](Operation *user) {
+             Operation *top = entry.findAncestorOpInBlock(*user);
+             return top && top->isBeforeInBlock(match);
+           });
+  };
+  if (llvm::any_of(carried, takenBefore))
+    return failure();
   passed = needed.takeVector();
 
   Location loc = fn.getLoc();

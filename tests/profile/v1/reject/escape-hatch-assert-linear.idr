@@ -1,4 +1,4 @@
--- expect: escape hatch, line 9
+-- expect: escape hatch, line 8
 module Main
 
 import Prelude

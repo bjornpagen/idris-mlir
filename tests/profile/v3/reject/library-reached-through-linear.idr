@@ -1,4 +1,4 @@
--- expect: library, line 13
+-- expect: library, line 10
 -- packages: linear
 module Main
 

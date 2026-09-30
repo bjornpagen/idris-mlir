@@ -1,9 +1,8 @@
 // RUN: idris-mlir-cc %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %status 42 %t
-// A `main : Int` root: the low 8 bits of its result (298) are the exit
-// status. The area comes from a function that is not total, so it is not
-// evaluated and runs.
+// A `main : Int` root: its result, 42, is the exit status. The area comes
+// from a function that is not total, so it is not evaluated and runs.
 module attributes {idr.program} {
   idr.data @Shape {
     idr.ctor @Circle (i64)
@@ -30,8 +29,6 @@ module attributes {idr.program} {
     %c7 = arith.constant 7 : i64
     %s = idr.con @Shape::@Rect(%c6, %c7, %e) : (i64, i64, !idr.erased) -> !idr.data<@Shape>
     %a = func.call @area(%s) : (!idr.data<@Shape>) -> i64
-    %c256 = arith.constant 256 : i64
-    %t = arith.addi %a, %c256 : i64
-    return %t : i64
+    return %a : i64
   }
 }

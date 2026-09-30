@@ -75,6 +75,16 @@ target_include_directories(idr_dialect PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
 target_compile_definitions(idr_dialect PUBLIC ${IDR_LLVM_DEFINITIONS})
+# The target entry's triple and default CPU (CMakeLists.txt), which
+# idr-target writes on every module and idris-mlir-cc prints. Programs are
+# compiled for the triple the runtime is built for.
+if(NOT CMAKE_CXX_COMPILER_TARGET)
+	message(FATAL_ERROR "CMAKE_CXX_COMPILER_TARGET names the target programs are compiled for; use a preset")
+endif()
+target_compile_definitions(idr_dialect PUBLIC
+	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
+	"IDRIS_MLIR_TARGET_CPU=\"${IDRIS_MLIR_TARGET_CPU}\""
+)
 # PIN(llvm-force-enable-stats): every translation unit, the tools' too,
 # starts with this header, so that a pass statistic has the layout the MLIR
 # library gives it in every build type.
@@ -107,6 +117,7 @@ target_link_libraries(idr_dialect
 		MLIRConvertToLLVMPass
 		MLIRReconcileUnrealizedCasts
 		MLIRTargetLLVMIRExport
+		MLIRTargetLLVMIRTransforms
 		MLIRBuiltinToLLVMIRTranslation
 		MLIRLLVMToLLVMIRTranslation
 		${IDR_LLVM_CODEGEN_LIBS}
@@ -141,15 +152,9 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	idris_mlir_language_profile
 )
 # The runtime archive whose bitcode joins every program, checked before
-# idris-mlir-cc is built. --runtime overrides the path. Programs are compiled
-# for the triple the runtime is built for: the preset's compiler target.
-if(NOT CMAKE_CXX_COMPILER_TARGET)
-	message(FATAL_ERROR "CMAKE_CXX_COMPILER_TARGET names the target programs are compiled for; use a preset")
-endif()
+# idris-mlir-cc is built. --runtime overrides the path.
 target_compile_definitions(idris-mlir-cc PRIVATE
 	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
-	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
-	"IDRIS_MLIR_TARGET_CPU=\"${IDRIS_MLIR_TARGET_CPU}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 

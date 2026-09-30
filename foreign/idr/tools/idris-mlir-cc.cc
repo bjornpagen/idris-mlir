@@ -21,7 +21,6 @@
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
-#include "mlir/Target/LLVMIR/Transforms/Passes.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
@@ -383,22 +382,13 @@ struct Verdict {
 
 int status(const Verdict &verdict) { return verdict.rejected ? rejected : failure; }
 
-// The module's target, #llvm.target, which every step reads: idr-eval's JIT
+// The module's target (idr-target), which every step reads: idr-eval's JIT
 // compiles for its CPU, so what compile-time evaluation spends does not
 // depend on the machine that compiles; idr-lower tells the runtime's entry
-// which of its features to test; the object code is compiled for it. LLVM
-// fills in the CPU's features and the data layout (dlti.dl_spec).
+// which of its features to test; the object code is compiled for it.
 mlir::LogicalResult setTarget(mlir::ModuleOp module, const Cpu &cpu) {
-  mlir::MLIRContext *ctx = module.getContext();
-  ctx->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-  auto features = cpu.features.empty() ? mlir::LLVM::TargetFeaturesAttr()
-                                       : mlir::LLVM::TargetFeaturesAttr::get(ctx, cpu.features);
-  module->setAttr(mlir::LLVM::LLVMDialect::getTargetAttrName(),
-                  mlir::LLVM::TargetAttr::get(ctx, mlir::StringAttr::get(ctx, targetTriple),
-                                              mlir::StringAttr::get(ctx, cpu.name), features));
-  mlir::PassManager pm(ctx);
-  pm.addPass(mlir::LLVM::createLLVMTargetToTargetFeatures());
-  pm.addPass(mlir::LLVM::createLLVMTargetToDataLayout());
+  mlir::PassManager pm(module.getContext());
+  pm.addPass(idr::createIdrTarget(idr::IdrTargetOptions{cpu.name, cpu.features}));
   return pm.run(module);
 }
 

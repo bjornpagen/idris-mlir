@@ -5,10 +5,30 @@
 // RUN: FileCheck %s < %t.out
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input as bytes, then 255 at the end. The object
-// needs nothing from the C library but write and read, and getenv, which
-// asks at exit whether to report the cells still live.
-// EXT: getenv
+// needs nothing but write and read; getenv, which asks at exit whether to
+// report the cells still live; and what the runtime's entry uses: the
+// processor's features (compiler-rt's __cpu_*), and the reserved stack the
+// program runs on (address space, a thread, a signal handler), which
+// IDRIS_RT_STACK may size.
+// EXT: __cpu_features2
+// EXT-NEXT: __cpu_indicator_init
+// EXT-NEXT: __cpu_model
+// EXT-NEXT: _exit
+// EXT-NEXT: getenv
+// EXT-NEXT: getrlimit
+// EXT-NEXT: mmap
+// EXT-NEXT: mprotect
+// EXT-NEXT: munmap
+// EXT-NEXT: pthread_attr_destroy
+// EXT-NEXT: pthread_attr_init
+// EXT-NEXT: pthread_attr_setstack
+// EXT-NEXT: pthread_create
+// EXT-NEXT: pthread_join
 // EXT-NEXT: read
+// EXT-NEXT: sigaction
+// EXT-NEXT: sigaltstack
+// EXT-NEXT: sigemptyset
+// EXT-NEXT: sysconf
 // EXT-NEXT: write
 // EXT-NOT: {{.}}
 // CHECK: hello x y

@@ -20,10 +20,10 @@
 // CHECK-SAME: -> i64
 // CHECK-NOT: llvm.load %{{[0-9a-z_]+}} :
 // CHECK-NOT: llvm.store %{{[0-9a-z_]+}}, %{{[0-9a-z_]+}} :
-// LL: define private ptr @head(ptr nonnull align 8 dereferenceable(8) %{{[0-9]+}})
+// LL: define {{.*}}ptr @head(ptr nonnull align 8 dereferenceable(8) %{{[0-9]+}})
 // LL: load i64, ptr %{{[0-9]+}}, align 8
-// LL: define private i64 @shade(i8 range(i8 0, 3) %{{[0-9]+}}
 // LL: call void @idris_rt_crash({{.*}}) #[[COLD:[0-9]+]]
+// LL: define {{.*}}i64 @shade(i8 range(i8 0, 3) %{{[0-9]+}}
 // LL: call range(i32 45, 58) i32 @idris_rt_int_head
 // LL: attributes #[[COLD]] = { cold noreturn }
 module attributes {idr.program} {

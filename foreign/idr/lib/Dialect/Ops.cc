@@ -247,9 +247,15 @@ ParseResult ConstantOp::parse(OpAsmParser &parser, OperationState &result) {
   if (parser.parseAttribute(value))
     return failure();
   auto typed = dyn_cast<TypedAttr>(value);
-  if (!typed || isa<NoneType>(typed.getType()))
+  if (!typed)
     return parser.emitError(loc, "expects a value followed by `:` and its type");
-  result.addTypes(typed.getType());
+  Type type = typed.getType();
+  // The parser hands the type after an attribute to the attribute's own
+  // parser, but not the type after an alias of one (a large constant is
+  // printed as an alias), which is then left for us.
+  if (isa<NoneType>(type) && (parser.parseOptionalColon() || parser.parseType(type)))
+    return parser.emitError(loc, "expects a value followed by `:` and its type");
+  result.addTypes(type);
   result.getOrAddProperties<Properties>().value = untyped(value);
   return parser.parseOptionalAttrDict(result.attributes);
 }

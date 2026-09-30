@@ -7,4 +7,5 @@ target_sources(idr_dialect PRIVATE
 	Prune.cc
 	Simplify.cc
 	TailLoops.cc
+	Target.cc
 )

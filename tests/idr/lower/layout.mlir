@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics --idr-lower="jit=true" -o /dev/null
-// RUN: awk 'BEGIN { print "idr.data @Many box {"; for (i = 0; i < 65537; i++) print "  idr.ctor @C" i " ()"; print "}" }' > %t.many.mlir
+// RUN: awk 'BEGIN { print "idr.data @Many box {"; for (i = 0; i < 65537; i++) print "  idr.ctor @C" i " ()"; print "}"; print "func.func @Prog.main() -> i64 {"; print "  %z = arith.constant 0 : i64"; print "  return %z : i64"; print "}" }' > %t.many.mlir
 // RUN: not idris-mlir-opt %t.many.mlir --idr-lower 2>&1 | FileCheck %s --check-prefix=MANY
-// RUN: awk 'BEGIN { print "idr.data @Most box {"; for (i = 0; i < 65536; i++) print "  idr.ctor @C" i " ()"; print "}" }' > %t.most.mlir
+// RUN: awk 'BEGIN { print "idr.data @Most box {"; for (i = 0; i < 65536; i++) print "  idr.ctor @C" i " ()"; print "}"; print "func.func @Prog.main() -> i64 {"; print "  %z = arith.constant 0 : i64"; print "  return %z : i64"; print "}" }' > %t.most.mlir
 // RUN: idris-mlir-opt %t.most.mlir --idr-lower -o /dev/null
 // A cell's header holds its tag in 16 bits and its number of object slots
 // (counted references) in 8. What fits is lowered; what does not is

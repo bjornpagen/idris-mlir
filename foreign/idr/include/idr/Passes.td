@@ -25,6 +25,25 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
+  let summary = "Give the module its target: triple, CPU, features, data layout";
+  let description = [{
+    Writes the build's target triple and the CPU on the module as its
+    `#llvm.target`, then lets LLVM fill in the CPU's features and the data
+    layout (`dlti.dl_spec`). Every later step reads the target there:
+    idr-eval's JIT compiles for it, idr-lower tells the runtime's entry which
+    features to test, and idris-mlir-cc compiles the object for it. The
+    triple and the default CPU are the build's target entry (CMakeLists.txt).
+  }];
+  let options = [
+    Option<"cpu", "cpu", "std::string", "IDRIS_MLIR_TARGET_CPU",
+           "The CPU, an LLVM name for one of the triple's">,
+    Option<"features", "features", "std::string", "\"\"",
+           "Features beyond the CPU's, as LLVM writes them (+avx2,-fma)">,
+  ];
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
+}
+
 def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   let summary = "Lower idr to func, arith, math, scf, ub and llvm";
   let description = [{
