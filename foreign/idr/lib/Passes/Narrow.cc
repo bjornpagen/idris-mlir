@@ -107,8 +107,11 @@ public:
   // or its value converted.
   Value word(OpBuilder &b, Location loc, Value value) {
     auto i64 = b.getI64Type();
-    if (value.getDefiningOp<ub::PoisonOp>())
+    if (auto poison = value.getDefiningOp<ub::PoisonOp>()) {
+      // The big poison goes once nothing reads it.
+      converted_.push_back(poison);
       return ub::PoisonOp::create(b, loc, i64);
+    }
     if (auto from = value.getDefiningOp<BigFromIntOp>()) {
       Value source = from.getValue();
       if (source.getType() == i64)
