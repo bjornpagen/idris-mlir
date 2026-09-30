@@ -1,7 +1,7 @@
-||| Strongly connected components of a finite graph, in a deterministic
-||| order, so the output does not depend on map iteration. Two users: which
-||| data instances are recursive (a box, `Term.Repr`) and the loop breakers
-||| of the call graph.
+||| Reachability and strongly connected components of a finite graph, in a
+||| deterministic order, so the output does not depend on map iteration.
+||| Users: which data instances are recursive (a box, `Term.Repr`), and the
+||| loop breakers and the terminating lifted functions of the call graph.
 module IdrisMLIR.Graph
 
 import Data.List
@@ -11,6 +11,7 @@ import Data.SortedSet
 %default total
 
 ||| The nodes reachable from `n` in one or more steps, within `set`.
+export
 reach : Ord k => Nat -> (k -> List k) -> SortedSet k -> k -> SortedSet k
 reach fuel next set n = walk fuel empty (step n)
   where

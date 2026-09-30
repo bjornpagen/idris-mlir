@@ -18,6 +18,8 @@ record Index where
   cons : SortedMap ConId Con
   fns : SortedMap FnId TFn
   breakers : SortedSet Node
+  ||| The lifted functions that terminate.
+  terminating : SortedSet Node
 
 export
 index : Source -> Index
@@ -25,4 +27,8 @@ index src =
   MkIndex (fromList (map (\d => (d.id, d)) src.datas))
           (fromList (concatMap (\d => map (\c => (c.id, c)) d.cons) src.datas))
           (fromList (map (\f => (f.id, f)) src.fns))
-          (breakers src.fns)
+          (breakers graph)
+          (terminating graph)
+  where
+    graph : CallGraph
+    graph = callGraph src.fns

@@ -209,6 +209,25 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
+// The elimination of a value that begins at one of its uses: an apply of
+// the value, or of one field of it (an action in `MkIO f`), each read
+// through the one use of a linear value, where the value may first pass a
+// linear position entered and used at once. Each step is the one use of
+// the step before, so the apply is all the use does with the value. It is
+// what raising moves into a clone of a callee whose result it eliminates,
+// where it meets the closure each tail builds; so a call's result that has
+// one is worth moving to where the elimination is.
+struct Elimination {
+  // The pair that only moves the value into a linear position and out
+  // again before it is read, or null.
+  LinEnterOp enter;
+  LinUseOp exit;
+  FieldOp field; // null: the value itself is applied
+  LinUseOp use;  // null: what is applied is not linear
+  ApplyOp apply;
+};
+std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
+
 // Registers the idr dialect, and (once per process) its passes and the named
 // pipeline `idr-pipeline`.
 void registerIdr(mlir::DialectRegistry &registry);

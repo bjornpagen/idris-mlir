@@ -155,25 +155,10 @@ void push(Operation *term, unsigned index, Consumer c, Value result, ValueRange 
 std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp callee) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() || facts::takesWorld(callee))
     return std::nullopt;
-  // The only user of `v`, if it has one.
-  auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
-  Value value = call->getResult(0);
-  Operation *user = next(value);
-  auto enter = dyn_cast<LinEnterOp>(user);
-  auto exit = enter ? dyn_cast_or_null<LinUseOp>(next(enter.getResult())) : LinUseOp();
-  if (exit)
-    user = next(value = exit.getResult());
-  else
-    enter = nullptr;
-  auto field = dyn_cast_or_null<FieldOp>(user);
-  if (field)
-    user = next(value = field.getResult());
-  auto use = dyn_cast_or_null<LinUseOp>(user);
-  if (use)
-    user = next(value = use.getResult());
-  auto apply = dyn_cast_or_null<ApplyOp>(user);
-  if (!apply || apply.getCallee() != value || apply->getBlock() != call->getBlock())
+  std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
+  if (!e || e->apply->getBlock() != call->getBlock())
     return std::nullopt;
+  ApplyOp apply = e->apply;
   // idr-eval evaluates this call to the end, and its consumer then folds. A
   // closed call of partial code it evaluates only within a budget, so that
   // call is raised like any other; the raised call is closed too when the
@@ -187,7 +172,7 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
     for (Operation *op = call->getNextNode(); op != apply; op = op->getNextNode())
       if (!facts::canMoveAcross(op))
         return std::nullopt;
-  return Consumer{enter, exit, field, use, apply};
+  return e;
 }
 
 FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallOp call,

@@ -1,7 +1,9 @@
-||| The loop breakers of the emitted module's call graph: the functions
-||| marked `no_inline`, so that inlining never unrolls a cycle.
+||| The emitted module's call graph, and what is read off it: the loop
+||| breakers (the functions marked `no_inline`, so that inlining never
+||| unrolls a cycle) and the lifted functions that terminate.
 module IdrisMLIR.Emit.Breakers
 
+import IdrisMLIR.Facts
 import IdrisMLIR.Graph
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -63,27 +65,43 @@ refs (ResumeF _ e) = e
 refs (UnreachableF _) = ([], [])
 refs (CrashF _ _) = ([], [])
 
-||| The loop breakers, as in GHC ("Secrets of the Glasgow
-||| Haskell Compiler inliner", Peyton Jones and Marlow), on full Core's call
-||| graph, where a function refers to what it calls and to the closures it
-||| builds: enough functions that every cycle through two or more contains
-||| one. In each cycle the breaker is the first function in program order
-||| that is not from a library the registry breaks last (*Break last*), or
-||| the first function if all are; then the rest of the cycle is cut the
-||| same way. Program order is each instance, then the functions lifted from
-||| it by label.
+||| The call graph of the emitted module, where a function refers to what
+||| it calls and to the closures it builds. Program order is each instance,
+||| then the functions lifted from it by label.
+public export
+record CallGraph where
+  constructor MkCallGraph
+  edges : SortedMap Node (List Node)
+  order : List Node
+  ||| The nodes from a library the registry breaks last (*Break last*).
+  library : SortedSet Node
+  ||| The instances Idris reports terminating.
+  proved : SortedSet Node
+
 export
-breakers : List TFn -> SortedSet Node
-breakers fns =
+callGraph : List TFn -> CallGraph
+callGraph fns =
   let perFn = map (\f => (f, cata refs f.body)) fns
       nodes = concatMap (\(f, (here, below)) => (FnNode f.id, here) :: sortBy (\a, b => compare (fst a) (fst b)) below) perFn
-      edges = the (SortedMap Node (List Node)) (fromList nodes)
-      library = the (SortedSet Node)
-                  (fromList (concatMap (\(f, (_, below)) =>
-                               if covers BreakLast f.loc.origin then FnNode f.id :: map fst below else [])
-                             perFn))
-      order = map fst nodes
-  in SortedSet.fromList (within (\n => fromMaybe [] (lookup n edges)) library (length order) order)
+  in MkCallGraph (fromList nodes) (map fst nodes)
+       (fromList (concatMap (\(f, (_, below)) =>
+                    if covers BreakLast f.loc.origin then FnNode f.id :: map fst below else [])
+                  perFn))
+       (fromList [FnNode f.id | f <- fns, f.facts.terminating.holds])
+
+||| The references of a node.
+next : CallGraph -> Node -> List Node
+next g n = fromMaybe [] (lookup n g.edges)
+
+||| The loop breakers, as in GHC ("Secrets of the Glasgow
+||| Haskell Compiler inliner", Peyton Jones and Marlow), on full Core's call
+||| graph: enough functions that every cycle through two or more contains
+||| one. In each cycle the breaker is the first function in program order
+||| that is not from a library the registry breaks last, or the first
+||| function if all are; then the rest of the cycle is cut the same way.
+export
+breakers : CallGraph -> SortedSet Node
+breakers g = SortedSet.fromList (within (next g) g.library (length g.order) g.order)
   where
     within : (Node -> List Node) -> SortedSet Node -> Nat -> List Node -> List Node
     within next library Z _ = []
@@ -94,3 +112,24 @@ breakers fns =
         cut c = case find (not . (`contains` library)) c <|> head' c of
           Just b => b :: within next library k (delete b c)
           Nothing => []
+
+||| The lifted functions that terminate. Idris reports termination per
+||| definition, and counts a lambda's calls as its definition's; so a lambda
+||| terminates when every instance it reaches, through the lambdas on the
+||| way, is reported terminating, its own definition included when it
+||| reaches that. A lambda that reaches none only computes. What a lambda
+||| would copy from its definition instead is weaker: one partial call
+||| elsewhere in the definition would make every lambda of it partial.
+export
+terminating : CallGraph -> SortedSet Node
+terminating g =
+  SortedSet.fromList [n | n <- g.order, isLambda n, holds (reach (length g.order) through (SortedSet.fromList g.order) n)]
+  where
+    isLambda : Node -> Bool
+    isLambda (LamNode _) = True
+    isLambda (FnNode _) = False
+    through : Node -> List Node
+    through n@(LamNode _) = next g n
+    through (FnNode _) = []
+    holds : SortedSet Node -> Bool
+    holds reached = all (\n => isLambda n || contains n g.proved) (SortedSet.toList reached)

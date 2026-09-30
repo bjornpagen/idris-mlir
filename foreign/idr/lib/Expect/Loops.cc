@@ -10,15 +10,15 @@ using namespace mlir;
 namespace idr::expect {
 namespace {
 
-// The functions `op` refers to: by calls, and by closures that name them.
-SmallVector<func::FuncOp> references(Operation *op, SymbolTable &symbols) {
+// The functions the body of `fn` refers to: by calls, and by closures that
+// name them. What the function's own attributes name (the clone it is)
+// is provenance, not a call.
+SmallVector<func::FuncOp> references(func::FuncOp fn, SymbolTable &symbols) {
   SmallVector<func::FuncOp> out;
-  op->walk([&](Operation *inner) {
-    if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(inner))
-      for (const SymbolTable::SymbolUse &use : *uses)
-        if (auto target = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference()))
-          out.push_back(target);
-  });
+  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&fn.getBody()))
+    for (const SymbolTable::SymbolUse &use : *uses)
+      if (auto target = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference()))
+        out.push_back(target);
   return out;
 }
 

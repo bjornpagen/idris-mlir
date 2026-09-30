@@ -153,7 +153,8 @@ lifted ix own l lbl caps ps expected body = do
   rt <- typeText ix t
   header <- traverse (param ix) params
   let fn = Nest ("func.func private " ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (own.inherited ++ [NoInline | contains (LamNode lbl) ix.breakers]) ++ " {")
+                 attributes (own.inherited ++ [Total | contains (LamNode lbl) ix.terminating] ++
+                             [NoInline | contains (LamNode lbl) ix.breakers]) ++ " {")
                 (epilogue l rt res ops) "}" (Just (Named own.idrisName l))
   modify { lifted $= (:< fn) }
   pure (sym, t)

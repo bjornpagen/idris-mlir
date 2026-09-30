@@ -1,8 +1,9 @@
 // A value computed in the match's block that only the match's regions use
 // moves into each region that uses it, when there it meets a consumer that
-// folds against it: output of a string it builds, or a consumer a match of
-// its moves into (case-of-case). Only one region runs, so the value is
-// still computed at most once.
+// folds against it: output of a string it builds, a consumer a match of
+// its moves into (case-of-case), or an apply that eliminates the result of
+// a call, which raising then moves into the callee. Only one region runs,
+// so the value is still computed at most once.
 //
 // A value that only computes may run on fewer paths. One that may crash or
 // not return moves only when every region uses it and every op between it
@@ -25,15 +26,15 @@ namespace {
 
 constexpr int64_t kSinkBudget = 64;
 
-// Whether `user` folds or canonicalizes against `value` once they meet:
-// what feeds() says for a value an op builds, and for a match's result, a
-// consumer that case-of-case would move into the match.
-bool meets(Value value, Operation *user) {
-  if (canon::feeds(value, user))
+// Whether the user holding `use` folds or canonicalizes against `value`
+// once they meet: what feeds() says for a value an op builds, and for a
+// match's result, a consumer that case-of-case would move into the match.
+bool meets(Value value, OpOperand &use) {
+  if (canon::feeds(value, use))
     return true;
   auto result = dyn_cast<OpResult>(value);
   return result && isa<MatchOp, MatchLitOp>(result.getOwner()) &&
-         canon::meetsInSomeRegion(result, user);
+         canon::meetsInSomeRegion(result, use.getOwner());
 }
 
 // The regions of `match` in which `value` is used.
@@ -72,7 +73,7 @@ bool sinkable(Operation *value, Operation *match) {
   if (!movesInto(value, match, regions))
     return false;
   if (!llvm::any_of(value->getResults(), [](Value result) {
-        return llvm::any_of(result.getUsers(), [&](Operation *user) { return meets(result, user); });
+        return llvm::any_of(result.getUses(), [&](OpOperand &use) { return meets(result, use); });
       }))
     return false;
   int64_t size = 0;

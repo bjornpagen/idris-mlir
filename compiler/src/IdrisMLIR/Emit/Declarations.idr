@@ -54,7 +54,7 @@ function ix root f = do
   header <- traverse (param ix) (toList params)
   let visibility = if f.id == root then "" else "private "
   let fn = Nest ("func.func " ++ visibility ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (inherited f ++ [NoInline | contains (FnNode f.id) ix.breakers]) ++ " {")
+                 attributes (own f ++ [NoInline | contains (FnNode f.id) ix.breakers]) ++ " {")
                 (epilogue f.loc rt res ops) "}" (Just (Named f.idrisName f.loc))
   inner <- gets (.lifted)
   pure (fn :: (inner <>> []))

@@ -15,7 +15,8 @@ data FnAttr
     ||| user's code that reached it. Passes read this, never the location,
     ||| which is for messages only.
     Library
-  | ||| Idris proved it terminating.
+  | ||| It terminates: Idris proved it, or it is lifted from a function
+    ||| and everything it reaches is proved.
     Total
   | ||| A loop breaker: inlining it could unroll a cycle.
     NoInline
@@ -26,10 +27,15 @@ name Total = "idr.total"
 name NoInline = "no_inline"
 
 ||| What a function states that the functions lifted from it state too:
-||| their code is its code.
+||| their code is its code. Whether each terminates is its own.
 export
 inherited : TFn -> List FnAttr
-inherited f = [Library | inLibrary f.loc] ++ [Total | f.facts.terminating.holds]
+inherited f = [Library | inLibrary f.loc]
+
+||| What a function states of itself.
+export
+own : TFn -> List FnAttr
+own f = inherited f ++ [Total | f.facts.terminating.holds]
 
 ||| The attribute dictionary of a function header, if it has any.
 export

@@ -23,8 +23,9 @@ Match rebuildMatch(mlir::PatternRewriter &rewriter, Match op, mlir::TypeRange ty
   return fresh;
 }
 
-// Whether `consumer` folds or canonicalizes when its operand is `value`.
-bool feeds(mlir::Value value, mlir::Operation *consumer);
+// Whether the consumer holding `use` folds or canonicalizes, or is raised,
+// once the operand it holds there is `value`.
+bool feeds(mlir::Value value, mlir::OpOperand &use);
 
 // Whether `consumer`, moved into every region of the match that defines
 // `result`, meets in some region a value it folds or canonicalizes against.
