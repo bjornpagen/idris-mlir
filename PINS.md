@@ -121,6 +121,20 @@ which the top-level CMake configure gate reads.
   fails)
 - upstream: upstream/remove-dead-values-address-taken (not yet filed)
 
+## uplift-final-counter
+
+- symptom: at llvmorg-23.1.2, `scf::upliftWhileToForLoop`
+  (`populateUpliftWhileToForPatterns`) replaces the `scf.while` result of
+  the counter with its value in the last iteration, one step short of the
+  value the loop ends with, and below the lower bound when the loop runs
+  no iteration
+- sites: foreign/idr/lib/Passes/TailLoops.cc (`counterUsedAfter`)
+- workaround: `idr-tail-loops` uplifts a counted loop only when nothing
+  uses the value its counter ends with; any other stays an `scf.while`
+- retire: when the uplift gives the value the loop ends with
+  (`tests/upstream/uplift-final-counter` fails)
+- upstream: upstream/uplift-final-counter (not yet filed)
+
 ## inline-unreachable
 
 - symptom: the upstream inliner's default `handleTerminator`

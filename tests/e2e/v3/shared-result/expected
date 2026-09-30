@@ -1,0 +1,9 @@
+compile: exit 0
+artifacts: prog.core prog.mlir prog.o prog
+run: exit status as expected
+stdout: as expected
+stderr: empty
+object: no undefined symbol outside the allowed set
+FileCheck mlir.check: ok
+chez: compile exit 0
+chez: same stdout and exit status

@@ -41,7 +41,7 @@ namespace {
 // they are found.
 llvm::MapVector<Attribute, SmallVector<Operation *, 1>> usersBySymbol(ModuleOp module) noexcept {
   llvm::MapVector<Attribute, SmallVector<Operation *, 1>> users;
-  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(module.getBodyRegion()))
+  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&module.getBodyRegion()))
     for (const SymbolTable::SymbolUse &use : *uses)
       users[use.getSymbolRef().getRootReference()].push_back(use.getUser());
   return users;

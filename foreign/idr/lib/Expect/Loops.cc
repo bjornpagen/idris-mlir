@@ -45,7 +45,8 @@ LogicalResult constantStack(ModuleOp module, StringRef function) {
        idr::passes::stronglyConnected<func::FuncOp>(reached, refers)) {
     if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
       continue;
-    InFlightDiagnostic error = fail(cycle.front().getLoc(), property)
+    func::FuncOp first = cycle.front();
+    InFlightDiagnostic error = fail(first.getLoc(), property)
                                << "the stack grows with the recursion of";
     for (func::FuncOp fn : cycle)
       error << " @" << fn.getSymName();

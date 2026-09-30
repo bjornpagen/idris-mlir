@@ -2,8 +2,9 @@
 // idris-mlir-cc runs MLIR single-threaded; elsewhere a module pass runs
 // alone, so any threads of MLIR's pool wait idle, holding no lock the child
 // needs, when it forks. The child runs the calls on a stack reserved as large
-// as the address space allows, with a guard below it, and writes each
-// result's attribute text to a pipe. A crash the runtime reports ends the
+// as the address space allows, with a guard below it, and writes what it
+// reads of each call's results to a pipe, as byte strings the caller
+// chooses. A crash the runtime reports ends the
 // child; the calls before it have their results and the caller forks again
 // for the rest, and so does a call that spends its budget. Every call runs
 // metered, within a budget of ticks, arena bytes and stack of its own,
@@ -19,7 +20,7 @@
 
 namespace idr::eval {
 
-// The attribute texts of one call's results and how long the call ran.
+// What the child read of one call's results, and how long the call ran.
 struct Result {
   uint64_t nanoseconds = 0;
   llvm::SmallVector<std::string> texts;
@@ -55,8 +56,8 @@ struct Budget {
 
 // Runs entries[first...] in a child. `words[i]` is the number of 8-byte
 // result slots entry i fills; entry i runs within `budgets[i]`;
-// `reify(i, slots)` turns the slots into the texts of the results, in the
-// child.
+// `reify(i, slots)` turns the slots into the byte strings sent for them, in
+// the child.
 Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
                llvm::ArrayRef<Budget> budgets, size_t first,
                llvm::function_ref<llvm::SmallVector<std::string>(size_t, llvm::ArrayRef<uint64_t>)>

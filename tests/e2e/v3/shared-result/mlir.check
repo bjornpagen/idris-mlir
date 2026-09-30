@@ -1,0 +1,5 @@
+// input: after idr-simplify
+// `mk 40` is evaluated: no call of it is left, and the constant is printed
+// once per distinct large part.
+// CHECK: #[[P:idr_value[0-9]*]] = #idr.con<@{{.*}}::@{{.*}}N, [#[[C:idr_value[0-9]*]], #[[C]]]>
+// CHECK-NOT: call @Main.mk
