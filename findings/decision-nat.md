@@ -1,4 +1,4 @@
-# Decision: the representation of Nat
+# Decision: the representation of Nat and Integer
 
 Nat is the most common number in Idris code: lengths, indices, `Fin`,
 counters, fuel. It has to cost what a machine word costs wherever the
@@ -53,6 +53,48 @@ two tiers.
 - The runtime's functions stay the one meaning (AGENTS.md). Folders call
   them, and the inline path is only their small case, restated.
 
+## Integer gets the same treatment
+
+Integer is Nat without the lower bound, so both types go through one
+machinery with equal sophistication: the same range interface, the same
+narrowing pass, the same inline fast path and the same loop versioning.
+
+- Integer's ranges come from:
+  - constants;
+  - bounded ops on bounded operands;
+  - casts from `Int` or `Bits*`, which are exactly their width's range;
+  - `natToInteger` of a bounded Nat;
+  - loop counters that are only ever incremented or decremented within
+    bounds.
+- An Integer proved to fit is a plain `i64` with `nsw`.
+- Nat only adds the lower bound 0, seeded from its type.
+
+## One hop to the digits
+
+- **Today a big outside the small range costs two dependent loads:** the
+  word, then the cell, then GMP's separately allocated limbs (`limbs` in
+  `idris_rt_bignum`).
+- **Bigs are immutable, so the limbs belong inline:**
+  - the cell is the header, the size, then the limbs;
+  - reads are a zero-cost `mpz_roinit_n` view of the cell;
+  - results are computed into a stack `mpz`, or with `mpn_` directly into
+    a cell of the exact size, and allocated once.
+- **The chain gets shorter:** word → cell holding the digits, one hop,
+  contiguous, so the adjacent-line prefetcher covers the digits.
+- **References stay raw, canonical, untagged addresses:**
+  - an even word is exactly the cell's address;
+  - no high-bit tags, no compression, no NaN-boxing;
+  - that is the form a hardware pointer prefetcher recognizes. Apple's
+    data-memory-dependent prefetcher (M1–M3) and Intel's (Raptor Lake)
+    both prefetch values that look like pointers into the heap.
+  - Our tag lives only in bit 0 of small values, which are never mistaken
+    for pointers.
+  - It's an invariant of the layout, with a `static_assert` next to the
+    packing.
+- **Scope:** we target x86-64 Linux only, so Apple's DMP is not in play
+  today. The layout keeps it applicable if an aarch64-apple target is
+  added.
+
 ## Why not the alternatives
 
 - **An unsigned small form for Nat:** it buys one bit and makes
@@ -70,3 +112,7 @@ two tiers.
   loop.
 - The ir property holds: a counted-down loop has no tag test inside.
 - A Nat past 2^62 still prints right, through GMP.
+- Integer's proofs match Nat's: an Integer loop from `cast` of an `Int` bound runs
+  untagged.
+- A large big's digits are one load from its word (no `limbs` pointer
+  in the cell).
