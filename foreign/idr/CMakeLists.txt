@@ -171,6 +171,14 @@ set_target_properties(idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce
 	CXX_MODULE_STD OFF
 )
 set_target_properties(idr_dialect PROPERTIES CXX_SCAN_FOR_MODULES ON)
+
+# Every plain unit reaches idr/Idr.h, which parses most of MLIR's headers:
+# 18 of a unit's 22 seconds. Precompiled once, a unit takes 4. Module units
+# parse their headers in their global module fragment, where a
+# precompiled header does not belong.
+target_precompile_headers(idr_dialect PRIVATE include/idr/Idr.h)
+file(GLOB_RECURSE IDR_MODULE_UNITS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lib/*.cppm)
+set_source_files_properties(${IDR_MODULE_UNITS} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce PROPERTIES
 	CXX_SCAN_FOR_MODULES OFF
 )

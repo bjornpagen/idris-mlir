@@ -12,4 +12,5 @@ target_sources(idr_dialect PRIVATE
 	Output.cc
 	Pass.cc
 	Quantities.cc
+	Words.cc
 )

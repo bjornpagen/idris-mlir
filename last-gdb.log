@@ -1,21 +1,6 @@
-Breakpoint 1 at 0xae00: file /home/user/idris-mlir/runtime/alloc.cc, line 72.
-Breakpoint 2 at 0x13b00: file /home/user/idris-mlir/runtime/rc.cc, line 17.
-Breakpoint 3 at 0x14c00: file /home/user/idris-mlir/runtime/rc.cc, line 17.
-Breakpoint 4 at 0x13e00: file /home/user/idris-mlir/runtime/alloc.cc, line 67.
-Breakpoint 5 at 0x13b40: file /home/user/idris-mlir/runtime/rc.cc, line 109.
-[Inferior 1 (process 25618) exited normally]
+Breakpoint 1 at 0xec40: file /home/user/idris-mlir/runtime/rc.cc, line 109.
+[Inferior 1 (process 29597) exited normally]
 Num     Type           Disp Enb Address            What
-1       breakpoint     keep y   0x00007ffff7fe6e00 in snmalloc::ThreadAlloc::get() at /home/user/idris-mlir/runtime/alloc.cc:72
-	breakpoint already hit 119240 times
-	ignore next 1999880760 hits
-2       breakpoint     keep y   0x00007ffff7fefb00 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
-	breakpoint already hit 99240 times
-	ignore next 1999900760 hits
-3       breakpoint     keep y   0x00007ffff7ff0c00 in (anonymous namespace)::isObject(void const*) at /home/user/idris-mlir/runtime/rc.cc:17
-	ignore next 2000000000 hits
-4       breakpoint     keep y   0x00007ffff7fefe00 in rt::freeCell(void*) at /home/user/idris-mlir/runtime/alloc.cc:67
-	breakpoint already hit 119240 times
-	ignore next 1999880760 hits
-5       breakpoint     keep y   0x00007ffff7fefb40 in (anonymous namespace)::release(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:109
-	breakpoint already hit 99241 times
-	ignore next 1999900759 hits
+1       breakpoint     keep y   0x00007ffff7fefc40 in (anonymous namespace)::Dying::push(idris_rt_header*) at /home/user/idris-mlir/runtime/rc.cc:109
+	breakpoint already hit 5458 times
+	ignore next 1999994542 hits

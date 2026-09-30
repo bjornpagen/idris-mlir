@@ -53,6 +53,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("folds-balanced", foldsBalanced)
       .Case("constant-stack", constantStack)
       .Case("counted-loop", countedLoop)
+      .Case("word-loop", wordLoop)
       .Default(nullptr);
 }
 

@@ -84,4 +84,8 @@ mlir::LogicalResult constantStack(mlir::ModuleOp module, llvm::StringRef functio
 // scf.for, whose trip count is known before it starts.
 mlir::LogicalResult countedLoop(mlir::ModuleOp module, llvm::StringRef function);
 
+// Some loop of the function the argument names computes on words alone: no
+// value in it is a big or a natural (idr-narrow).
+mlir::LogicalResult wordLoop(mlir::ModuleOp module, llvm::StringRef function);
+
 } // namespace idr::expect
