@@ -1,14 +1,15 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// The attributes idr-specialize keeps on a clone (its key, its origin and
-// the holes its parameters hold): idr-lower drops them with the rest of the
-// idr attributes, so what LLVM gets carries none.
+// The attributes idr-specialize keeps on a clone (its key, which names
+// what it was cloned from, and the holes its parameters hold): idr-lower
+// drops them with the rest of the idr attributes, so what LLVM gets carries
+// none.
 // CHECK-LABEL: llvm.func @f(
 // CHECK-LABEL: llvm.func @g(
 // CHECK: llvm.call @f(
 // CHECK-NOT: idr.
 module attributes {idr.program} {
-  func.func private @f(%a: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.origin = "g", idr.clone = #idr.clone<@f, #idr.key_apply<"g", 1>>} {
+  func.func private @f(%a: i64 {idr.hole = 0 : i64}) -> i64 attributes {idr.total, idr.clone = #idr.clone<@f, #idr.key_apply<"g", 1>>} {
     return %a : i64
   }
   func.func private @g(%x: i64) -> i64 attributes {idr.total} {

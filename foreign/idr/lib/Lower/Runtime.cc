@@ -75,7 +75,7 @@ Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, Val
     // zeroext, JIT-compiled code would pass garbage in the upper bits.
     for (auto [i, arg] : llvm::enumerate(args.getTypes()))
       if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
-        callee.setArgAttr(i, LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
+        callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
     // A crash does not return, which lets LLVM treat what follows as
     // unreachable without the runtime's bitcode (JIT mode has none).
     if (name == "idris_rt_crash" || name == "idris_rt_eval_crash")

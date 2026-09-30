@@ -13,7 +13,7 @@
 // CHECK-NEXT: idr.io.put_int
 // CHECK: arith.subi %[[K]]
 module attributes {idr.program} {
-  func.func private @count$raise$1(%k: i64 {idr.hole = 0 : i64}, %w: !idr.world {idr.hole = 1 : i64}) -> !idr.world attributes {idr.origin = "count", idr.clone = #idr.clone<@count$raise$1, #idr.key_apply<"count", 1>>} {
+  func.func private @count$raise$1(%k: i64 {idr.hole = 0 : i64}, %w: !idr.world {idr.hole = 1 : i64}) -> !idr.world attributes {idr.clone = #idr.clone<@count$raise$1, #idr.key_apply<"count", 1>>} {
     %r = idr.match_lit %k : i64 -> (!idr.world) {
     case 0 {
       %w1 = idr.io.put_int signed %k, %w : i64

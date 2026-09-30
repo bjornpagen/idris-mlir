@@ -7,7 +7,6 @@
  *
  *   rc          every check, then idris_rt_main_return
  *   rc leak     one cell left live, then idris_rt_main_return
- *   rc exit     two cells left live, then idris_rt_io_exit(3)
  *   rc crash    one cell left live, then idris_rt_crash */
 #include <stdio.h>
 #include <string.h>
@@ -62,7 +61,6 @@ static void noOps(void) {
   for (size_t i = 0; i < sizeof values / sizeof values[0]; ++i) {
     void *o = values[i];
     idris_rt_inc(o);
-    idris_rt_inc_n(o, 5);
     idris_rt_dec(o);
     idris_rt_dec(o);
     check(idris_rt_reset(o) == NULL, "reset of NULL, a small big or static data is NULL");
@@ -82,11 +80,9 @@ static void balance(void) {
   check(count(c) == 1 && header(c)->info == box(7, 0), "a new cell has count 1 and its info");
   check(live() == before + 1, "a new cell is live");
   check(idris_rt_is_unique(c), "a new cell is exclusive");
-  idris_rt_inc(c);
-  idris_rt_inc(c);
-  idris_rt_inc_n(c, 5);
-  idris_rt_inc_n(c, 0);
-  check(count(c) == 8, "inc and inc_n add to the count");
+  for (int i = 0; i < 7; ++i)
+    idris_rt_inc(c);
+  check(count(c) == 8, "inc adds to the count");
   check(!idris_rt_is_unique(c), "a shared cell is not exclusive");
   for (int i = 0; i < 7; ++i)
     idris_rt_dec(c);
@@ -105,7 +101,6 @@ static void saturation(void) {
   idris_rt_inc(c);
   check(count(c) == UINT32_MAX, "inc reaches the saturated count");
   idris_rt_inc(c);
-  idris_rt_inc_n(c, 1000);
   idris_rt_dec(c);
   idris_rt_dec(c);
   check(count(c) == UINT32_MAX, "a saturated count never changes");
@@ -113,14 +108,6 @@ static void saturation(void) {
   check(idris_rt_reset(c) == NULL && count(c) == UINT32_MAX, "reset of a saturated cell is NULL");
   idris_rt_free_cell(c);
   check(live() == before + 1, "a saturated cell is never freed");
-  header(c)->count = 5;
-  idris_rt_inc_n(c, UINT32_MAX - 7);
-  check(count(c) == UINT32_MAX - 2, "inc_n below the saturation point counts");
-  idris_rt_inc_n(c, 4);
-  check(count(c) == UINT32_MAX, "inc_n past UINT32_MAX saturates");
-  header(c)->count = UINT32_MAX - 1;
-  idris_rt_inc_n(c, UINT32_MAX);
-  check(count(c) == UINT32_MAX, "inc_n that overflows 32 bits saturates");
   /* A saturated cell leaks by design; this test takes it back. */
   header(c)->count = 1;
   idris_rt_dec(c);
@@ -363,11 +350,6 @@ int main(int argc, char **argv) {
     idris_rt_cell(16, box(0, 0));
     idris_rt_main_return();
     return 0;
-  }
-  if (strcmp(mode, "exit") == 0) {
-    idris_rt_cell(16, box(0, 0));
-    idris_rt_io_put_str(text("pending output\n"));
-    idris_rt_io_exit(3);
   }
   if (strcmp(mode, "crash") == 0) {
     idris_rt_cell(16, box(0, 0));

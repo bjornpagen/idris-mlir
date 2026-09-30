@@ -23,7 +23,7 @@ module attributes {idr.program} {
     return %r : i64
   }
   func.func @Main.main(%w: !idr.world) -> !idr.world {
-    %c, %w1 = idr.io.get_char %w
+    %c, %w1 = idr.io.get_byte %w
     %b = arith.extui %c : i32 to i64
     %r = func.call @use(%b, %b) : (i64, i64) -> i64
     %w2 = idr.io.put_int signed %r, %w1 : i64

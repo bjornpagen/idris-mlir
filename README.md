@@ -58,7 +58,8 @@ after every later pass that every reference is consumed exactly once on
 every path. Cells that never leave their frame are on the stack. Run with
 `IDRIS_RT_LIVE=1`, a program reports on standard error how many cells are
 still live when it ends: none.
-- **v0:** a single `--no-prelude` module with `main : Int` (the exit status):
+- **v0:** a single `--no-prelude` module with `main : Int` (the exit status,
+  0 to 255; any other value ends the program as a crash that names it):
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
 - **v1:** `main : IO ()` programs over several modules: `do`,

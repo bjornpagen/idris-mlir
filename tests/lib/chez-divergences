@@ -1,0 +1,5 @@
+# Where this compiler and the stock Chez backend knowingly differ, and why
+# this compiler's behaviour is the one Idris means. One class per line: its
+# name, then its reason. A fixture that shows one names the class in its
+# chez-differs and holds what Chez prints in chez-stdout (chez_agrees).
+put-char-utf8 A Char is a Unicode scalar value, so putChar writes its UTF-8 encoding; Chez passes it to C's putchar, which writes its low byte, so from 128 on the bytes differ.

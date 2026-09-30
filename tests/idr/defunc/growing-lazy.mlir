@@ -38,7 +38,7 @@ module attributes {idr.program} {
     return %r : !idr.fn<() -> (i64)>
   }
   func.func @Main.main(%w: !idr.world) -> !idr.world {
-    %c, %w1 = idr.io.get_char %w
+    %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %l = func.call @Main.later(%n) : (i64) -> !idr.fn<() -> (i64)>
     %s = idr.apply %l() : !idr.fn<() -> (i64)>

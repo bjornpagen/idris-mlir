@@ -233,10 +233,7 @@ io ix l op vs res = do
   mk <- only ix res
   (x, w) <- case (op, vs) of
     (PutStr, [s, w0]) => withUnit mk !(value l WorldT ("idr.io.put_str " ++ s.name ++ ", " ++ w0.name))
-    -- C's putchar writes its argument as an unsigned char: the low byte.
-    (PutChar, [c, w0]) => do
-      b <- value l (IntT UInt8) ("arith.trunci " ++ c.name ++ " : i32 to i8")
-      withUnit mk !(value l WorldT ("idr.io.put_byte " ++ b.name ++ ", " ++ w0.name))
+    (PutChar, [c, w0]) => withUnit mk !(value l WorldT ("idr.io.put_char " ++ c.name ++ ", " ++ w0.name))
     (GetByte, [w0]) => do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))

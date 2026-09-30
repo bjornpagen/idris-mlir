@@ -347,6 +347,29 @@ Value crashCondition(ToIntOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Va
   return notFinite(b, loc, args[0]);
 }
 
+// The range an op states for its result whatever its operands are, as
+// LLVM's `range`: the runtime keeps the op's meaning, so the call's result
+// is in it too. An op whose range depends on its operands states nothing
+// here, since every operand is taken to be any value.
+std::optional<LLVM::ConstantRangeAttr> statedRange(Operation *op) {
+  auto ranged = dyn_cast<InferIntRangeInterface>(op);
+  if (!ranged || op->getNumResults() != 1)
+    return std::nullopt;
+  auto operands = llvm::map_to_vector(op->getOperands(), [](Value operand) {
+    return IntegerValueRange::getMaxRange(operand);
+  });
+  std::optional<ConstantIntRanges> stated;
+  ranged.inferResultRangesFromOptional(operands, [&](Value, const IntegerValueRange &range) {
+    if (!range.isUninitialized())
+      stated = range.getValue();
+  });
+  // LLVM's range is half-open, so a range up to the type's largest value
+  // is one LLVM cannot state, and says nothing worth stating.
+  if (!stated || stated->umax().isMaxValue())
+    return std::nullopt;
+  return LLVM::ConstantRangeAttr::get(op->getContext(), stated->umin(), stated->umax() + 1);
+}
+
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -378,9 +401,14 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
     if constexpr (returnsWord<OpT>)
       result = rewriter.getI64Type();
     Value value = this->runtime.call(rewriter, loc, name, result, args);
-    if constexpr (returnsWord<OpT>)
+    if constexpr (returnsWord<OpT>) {
       if (results.front() != value.getType())
         value = arith::TruncIOp::create(rewriter, loc, results.front(), value);
+    } else if (std::optional<LLVM::ConstantRangeAttr> range = statedRange(op)) {
+      auto call = value.getDefiningOp<LLVM::CallOp>();
+      call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
+          rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
+    }
     SmallVector<SmallVector<Value>> out;
     for (Type type : op->getResultTypes())
       out.push_back(this->layouts.components(type).empty() ? SmallVector<Value>{}

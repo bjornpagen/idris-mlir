@@ -38,7 +38,7 @@ module attributes {idr.program} {
     return %r : i64
   }
   func.func @Prog.main(%w: !idr.world) -> !idr.world {
-    %c, %w1 = idr.io.get_char %w
+    %c, %w1 = idr.io.get_byte %w
     %s = func.call @word(%c) : (i32) -> !idr.str
     %n = idr.str.length %s
     %w2 = idr.io.put_int signed %n, %w1 : i64

@@ -16,8 +16,9 @@ compile_v0() {
 }
 
 # e2e_v0 FIXTURE: a `main : Int` program, Prog.idr, whose exit status is
-# its Oracle.idr's literal mod 256 or its expected-exit, or which crashes
-# with its expected-crash.
+# its Oracle.idr's literal or its expected-exit, or which crashes with its
+# expected-crash. A value outside 0 to 255 is no exit status, and the
+# program that returns one crashes.
 e2e_v0() {
   v0_expected=
   if [ -f "$1/Oracle.idr" ]; then
@@ -41,11 +42,10 @@ e2e_v0() {
     fi
   else
     [ -n "$v0_expected" ] || v0_expected=$(first_word "$1/expected-exit")
-    v0_status=$(( (v0_expected % 256 + 256) % 256 ))
-    if [ "$ran" -eq "$v0_status" ]; then
+    if [ "$ran" -eq "$v0_expected" ]; then
       say "run: exit status as expected"
     else
-      say "run: exit $ran, expected $v0_expected mod 256 = $v0_status"
+      say "run: exit $ran, expected $v0_expected"
     fi
     empty stdout "$work/prog.out"
     empty stderr "$work/prog.err"

@@ -12,9 +12,6 @@ rc leak, IDRIS_RT_LIVE=1: exit 0
 rc leak, IDRIS_RT_LIVE unset: exit 0
 rc leak, IDRIS_RT_LIVE=yes: exit 0
 rc leak, IDRIS_RT_LIVE=11: exit 0
-rc exit, IDRIS_RT_LIVE=1: exit 3
-  stdout | pending output
-  stderr | idris-rt: live cells 2
 rc crash, IDRIS_RT_LIVE=1: exit 1
   stderr | crashed
 chez: exit 0

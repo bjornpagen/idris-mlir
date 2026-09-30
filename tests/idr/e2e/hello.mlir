@@ -1,17 +1,17 @@
 // RUN: idris-mlir-cc %s -o %t.o
 // RUN: llvm-nm --undefined-only --format=just-symbols %t.o | FileCheck %s --check-prefix=EXT
 // RUN: %cc %t.o -o %t
-// RUN: echo -n "xé" | %t > %t.out
+// RUN: echo -n "xy" | %t > %t.out
 // RUN: FileCheck %s < %t.out
 // An IO root: output through the runtime's buffer, flushed before reading
-// and when main returns; input decoded as UTF-8, then bytes, then 255 at the
-// end. The object needs nothing from the C library but write and read,
-// and getenv, which asks at exit whether to report the cells still live.
+// and when main returns; input as bytes, then 255 at the end. The object
+// needs nothing from the C library but write and read, and getenv, which
+// asks at exit whether to report the cells still live.
 // EXT: getenv
 // EXT-NEXT: read
 // EXT-NEXT: write
 // EXT-NOT: {{.}}
-// CHECK: hello x é
+// CHECK: hello x y
 // CHECK-NEXT: -42 65535 255 1.5 1e22 +inf.0
 module attributes {idr.program} {
   idr.data @Unit {
@@ -20,11 +20,11 @@ module attributes {idr.program} {
   func.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) attributes {idr.total} {
     %s = idr.constant "hello " : !idr.str
     %w1 = idr.io.put_str %s, %w
-    %c, %w2 = idr.io.get_char %w1
+    %c, %w2 = idr.io.get_byte %w1
     %w3 = idr.io.put_char %c, %w2
     %sp = arith.constant 32 : i32
     %w4 = idr.io.put_char %sp, %w3
-    %d, %w5 = idr.io.get_char %w4
+    %d, %w5 = idr.io.get_byte %w4
     %w6 = idr.io.put_char %d, %w5
     %nl = arith.constant 10 : i32
     %w7 = idr.io.put_char %nl, %w6

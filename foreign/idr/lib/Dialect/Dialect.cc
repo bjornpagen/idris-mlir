@@ -14,6 +14,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <functional>
+#include <string_view>
 
 using namespace mlir;
 using namespace idr;
@@ -469,11 +470,12 @@ LogicalResult unitOfFunction(Operation *op, NamedAttribute attr) {
   return success();
 }
 
-// Every discardable attribute the dialect defines. The verifier asks the
-// dialect about every attribute named `idr.*`, so a name missing here is
+// Where each of the dialect's discardable attributes may sit, and what its
+// value may be, by the names its declaration gives them. The verifier asks
+// the dialect about every attribute named `idr.*`, so a name missing here is
 // rejected, not ignored.
 constexpr KnownAttr kKnownAttrs[] = {
-    {"idr.program",
+    {IdrDialect::ProgramAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        if (!isa<ModuleOp>(op) || !isa<UnitAttr>(attr.getValue()))
          return op->emitOpError("expects idr.program as a unit attribute of the module");
@@ -481,7 +483,7 @@ constexpr KnownAttr kKnownAttrs[] = {
      }},
     // After idr-rc every reference is explicit, and consumed exactly once on
     // every path (lib/Ownership).
-    {ownership::stageAttr,
+    {IdrDialect::StageAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        auto stage = dyn_cast<StringAttr>(attr.getValue());
        if (!isa<ModuleOp>(op) || !stage || stage.getValue() != ownership::ownedStage)
@@ -490,9 +492,9 @@ constexpr KnownAttr kKnownAttrs[] = {
      }},
     // The facts of a function (lib/Facts): what Idris proves, whether it was
     // written in a library, and what idr-effects finds.
-    {"idr.total", unitOfFunction},
-    {"idr.library", unitOfFunction},
-    {"idr.effects",
+    {IdrDialect::TotalAttrHelper::getNameStr(), unitOfFunction},
+    {IdrDialect::LibraryAttrHelper::getNameStr(), unitOfFunction},
+    {IdrDialect::EffectsAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))
          return op->emitOpError("expects idr.effects = #idr.effects<...> on a function");
@@ -500,7 +502,7 @@ constexpr KnownAttr kKnownAttrs[] = {
      }},
     // idr-stack's mark of a box whose cell never leaves its frame
     // (lib/Stack/Pass.cc).
-    {"idr.stack",
+    {IdrDialect::StackAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        auto con = dyn_cast<ConOp>(op);
        if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
@@ -509,7 +511,7 @@ constexpr KnownAttr kKnownAttrs[] = {
      }},
     // What idr-specialize keeps on a clone between its runs
     // (lib/Specialize): its key, which also says what it was cloned from.
-    {"idr.clone",
+    {IdrDialect::CloneAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        auto fn = dyn_cast<func::FuncOp>(op);
        auto clone = dyn_cast<CloneAttr>(attr.getValue());
@@ -519,6 +521,12 @@ constexpr KnownAttr kKnownAttrs[] = {
        return success();
      }},
 };
+
+// The ownership passes name the attributes they write themselves.
+static_assert(std::string_view(ownership::stageAttr) ==
+              std::string_view(IdrDialect::StageAttrHelper::getNameStr()));
+static_assert(std::string_view(ownership::borrowedAttr) ==
+              std::string_view(IdrDialect::BorrowedAttrHelper::getNameStr()));
 
 // The discardable attributes of no dialect that our own tools read. MLIR
 // verifies a discardable attribute only through the dialect its name
@@ -532,10 +540,21 @@ constexpr llvm::StringLiteral kOutsideDialects[] = {
 } // namespace
 
 LogicalResult idr::verifyDiscardableAttrs(Operation *op) {
-  for (NamedAttribute attr : op->getDiscardableAttrs())
-    if (!attr.getNameDialect() && !llvm::is_contained(kOutsideDialects, attr.getName().getValue()))
+  // Another dialect verifies only the attributes it knows it reads, and
+  // accepts the rest of its prefix; none of them is read on an idr op or a
+  // function of a program, so these carry only the dialect's own.
+  bool ours = isa_and_present<IdrDialect>(op->getDialect()) || isa<FunctionOpInterface>(op);
+  for (NamedAttribute attr : op->getDiscardableAttrs()) {
+    if (llvm::is_contained(kOutsideDialects, attr.getName().getValue()))
+      continue;
+    Dialect *dialect = attr.getNameDialect();
+    if (!dialect)
       return op->emitOpError("has the attribute ")
              << attr.getName() << ", which no dialect defines";
+    if (ours && !isa<IdrDialect>(dialect))
+      return op->emitOpError("has the attribute ")
+             << attr.getName() << ", which nothing reads on it";
+  }
   return success();
 }
 
@@ -553,10 +572,11 @@ LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
                                                    NamedAttribute attr) {
   auto fn = dyn_cast<FunctionOpInterface>(op);
   // idr-specialize numbers a clone's parameters by the holes of its key.
-  if (attr.getName().getValue() == "idr.hole" && fn && isa<IntegerAttr>(attr.getValue()))
+  if (attr.getName().getValue() == HoleAttrHelper::getNameStr() && fn &&
+      isa<IntegerAttr>(attr.getValue()))
     return success();
   // idr-rc's parameters that the function borrows (lib/Ownership).
-  if (attr.getName().getValue() == ownership::borrowedAttr && fn) {
+  if (attr.getName().getValue() == BorrowedAttrHelper::getNameStr() && fn) {
     if (!isa<UnitAttr>(attr.getValue()) ||
         !isa<StrType, BigType, NatType, BoxType, FnType, DataType>(fn.getArgumentTypes()[argIndex]))
       return op->emitOpError("expects idr.borrowed as a unit attribute of a parameter that "

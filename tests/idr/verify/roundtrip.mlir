@@ -323,7 +323,6 @@ module attributes {idr.program} {
     %c = arith.constant 65 : i32
     %n = arith.constant -1 : i64
     %d = arith.constant 1.5 : f64
-    %z = arith.constant 0 : i64
     // CHECK: idr.io.put_str %{{.*}}, %{{.*}}
     %w1 = idr.io.put_str %s, %w0
     // CHECK: idr.io.put_char %{{.*}}, %{{.*}}
@@ -332,12 +331,8 @@ module attributes {idr.program} {
     %w3 = idr.io.put_int signed %n, %w2 : i64
     // CHECK: idr.io.put_double %{{.*}}, %{{.*}}
     %w4 = idr.io.put_double %d, %w3
-    // CHECK: %{{.*}}, %{{.*}} = idr.io.get_char %{{.*}}
-    %ch, %w5 = idr.io.get_char %w4
     // CHECK: %{{.*}}, %{{.*}} = idr.io.get_byte %{{.*}}
-    %by, %w6 = idr.io.get_byte %w5
-    // CHECK: idr.io.exit %{{.*}}, %{{.*}}
-    %w7 = idr.io.exit %z, %w6
-    return %w7 : !idr.world
+    %by, %w5 = idr.io.get_byte %w4
+    return %w5 : !idr.world
   }
 }

@@ -52,7 +52,7 @@ module attributes {idr.program} {
     return %y : i64
   }
   func.func @Main.main(%w: !idr.world) -> !idr.world {
-    %c, %w1 = idr.io.get_char %w
+    %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %fb = func.call @Main.onlyB() : () -> !idr.fn<(i64) -> (i64)>
     %fa = idr.closure @Main.a() : () -> !idr.fn<(i64) -> (i64)>

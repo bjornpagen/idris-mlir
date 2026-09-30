@@ -14,11 +14,11 @@ module attributes {idr.program} {
     %r = func.call @f$spec$1(%x) : (i64) -> i64
     return %r : i64
   }
-  func.func private @f$spec$1(%x: i64) -> i64 attributes {idr.origin = "f"} {
+  func.func private @f$spec$1(%x: i64) -> i64 {
     %r = func.call @f$spec$2(%x) : (i64) -> i64
     return %r : i64
   }
-  func.func private @f$spec$2(%x: i64) -> i64 attributes {idr.origin = "f"} {
+  func.func private @f$spec$2(%x: i64) -> i64 {
     %r = func.call @f$spec$1(%x) : (i64) -> i64
     return %r : i64
   }

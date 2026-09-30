@@ -74,8 +74,28 @@ module attributes {idr.program} {
 
 // -----
 
+// Another dialect's attribute is read by no one on an idr op or on a
+// function of a program.
+func.func private @f(%a: i64, %b: i64) -> i64 {
+  // expected-error @+1 {{has the attribute "arith.fastmath", which nothing reads on it}}
+  %q = idr.div signed %a, %b {arith.fastmath = #arith.fastmath<fast>} : i64
+  return %q : i64
+}
+
+// -----
+
+module attributes {idr.program} {
+  // expected-error @+1 {{has the attribute "llvm.emit_c_interface", which nothing reads on it}}
+  func.func @main() -> i64 attributes {llvm.emit_c_interface} {
+    %c = arith.constant 0 : i64
+    return %c : i64
+  }
+}
+
+// -----
+
 // What the verifier accepts: the dialect's own attributes where they
-// belong, another dialect's, and the marks idr-expect reads.
+// belong, and the marks idr-expect reads.
 module attributes {idr.program} {
   func.func private @f(%x: i64 {idr.hole = 0 : i64}) -> i64
       attributes {idr.total, idr.effects = #idr.effects<none>,
@@ -83,7 +103,7 @@ module attributes {idr.program} {
     %d = idr.div signed %x, %x {expect.facts = "delay"} : i64
     return %d : i64
   }
-  func.func @main() -> i64 attributes {llvm.emit_c_interface} {
+  func.func @main() -> i64 {
     %c = arith.constant 0 : i64
     %r = func.call @f(%c) {expect.facts = "delay"} : (i64) -> i64
     return %r : i64

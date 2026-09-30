@@ -97,8 +97,8 @@ size_t programStack() {
 }
 
 struct Program {
-  int32_t (*body)(void);
-  int32_t status;
+  int64_t (*body)(void);
+  int64_t status;
 };
 
 void runProgram(void *argument) {
@@ -228,7 +228,8 @@ extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most,
   return -1;
 }
 
-extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int32_t idris_rt_start(int32_t (*body)(void), uint64_t cpu) {
+extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int32_t
+idris_rt_start(int64_t (*body)(void), uint64_t cpu) {
   checkCpu(cpu);
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,
@@ -236,5 +237,24 @@ extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int32_t idris
     static constexpr char message[] = "idris-mlir: no stack could be reserved for the program\n";
     idris_rt_crash(message, sizeof message - 1);
   }
-  return program.status;
+  // A parent sees only the low 8 bits of an exit status, so 256 would read
+  // as success and -1 as 255. A status outside 0 to 255 is one the process
+  // cannot report, and ends it as a crash that says so.
+  if (program.status < 0 || program.status > 255) {
+    static constexpr char prefix[] = "idris-mlir: main returned ";
+    static constexpr char suffix[] = ", which is not an exit status (0 to 255)\n";
+    char message[sizeof prefix - 1 + rt::intTextMax + sizeof suffix - 1];
+    char number[rt::intTextMax];
+    char *digits = rt::formatSigned(program.status, number + sizeof number);
+    size_t n = 0;
+    auto append = [&](const char *text, size_t length) {
+      for (size_t i = 0; i < length; ++i)
+        message[n++] = text[i];
+    };
+    append(prefix, sizeof prefix - 1);
+    append(digits, static_cast<size_t>(number + sizeof number - digits));
+    append(suffix, sizeof suffix - 1);
+    idris_rt_crash(message, n);
+  }
+  return static_cast<int32_t>(program.status);
 }

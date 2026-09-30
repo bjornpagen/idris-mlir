@@ -8,6 +8,8 @@
 // that some call passes poison may be null, and gets no pointer facts.
 // Every load and store of a cell states its alignment, which the cell's
 // layout knows. A crash is a cold call, so LLVM lays it out of the way.
+// The range an op states for its result is the runtime's promise too, so a
+// runtime call's result says it: an Int's text starts with '-' or a digit.
 // CHECK-LABEL: func.func private @head(
 // CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-SAME: -> (!llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull})
@@ -22,6 +24,7 @@
 // LL: load i64, ptr %{{[0-9]+}}, align 8
 // LL: define private i64 @shade(i8 range(i8 0, 3) %{{[0-9]+}}
 // LL: call void @idris_rt_crash({{.*}}) #[[COLD:[0-9]+]]
+// LL: call range(i32 45, 58) i32 @idris_rt_int_head
 // LL: attributes #[[COLD]] = { cold noreturn }
 module attributes {idr.program} {
   idr.data @List box {
@@ -52,6 +55,11 @@ module attributes {idr.program} {
     %t = idr.tag %c : !idr.data<@Colour>
     return %t : i64
   }
+  func.func private @sign(%x: i64) -> i64 {
+    %h = idr.int_head signed %x : i64
+    %w = arith.extui %h : i32 to i64
+    return %w : i64
+  }
   func.func private @unread(%l: !idr.box<@List>, %n: i64) -> i64 {
     return %n : i64
   }
@@ -64,6 +72,7 @@ module attributes {idr.program} {
     %s = func.call @shade(%red) : (!idr.data<@Colour>) -> i64
     %p = ub.poison : !idr.box<@List>
     %u = func.call @unread(%p, %s) : (!idr.box<@List>, i64) -> i64
-    return %u : i64
+    %g = func.call @sign(%u) : (i64) -> i64
+    return %g : i64
   }
 }

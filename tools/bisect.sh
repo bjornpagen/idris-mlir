@@ -98,7 +98,7 @@ outcome() {
       "$(grep -m 1 'error' "$work/$outcome_name.cc")" > "$work/$outcome_name.outcome"
     return
   fi
-  if ! bounded "$pinned_cc" --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
+  if ! bounded "$pinned_cc" --target="$("$idris_mlir_cc" --print-target-triple)" -fuse-ld=lld -static-pie \
       -Wl,--gc-sections -Wl,--icf=all "$work/$outcome_name.o" -o "$work/$outcome_name" -lgmp \
       > "$work/$outcome_name.ld" 2>&1; then
     printf 'the link fails\n' > "$work/$outcome_name.outcome"

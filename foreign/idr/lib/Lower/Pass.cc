@@ -20,13 +20,12 @@ namespace {
 
 // The root, the only public function, becomes private, and
 // @__idr_main runs it. Its type is its kind: `() -> i64` returns the exit
-// status, which is the value mod 256, as Chez's exitWith gives it (libc's
-// exit keeps the low 8 bits: exitWith (ExitFailure 256) exits 0); an IO root
-// takes the world, and the status is then 0. Either way @__idr_main ends in
-// idris_rt_main_return, which writes pending output and, when asked, how
-// many cells are still live. @main hands @__idr_main to the runtime's entry,
-// idris_rt_start, which runs it on a reserved stack once the CPU has shown
-// it has the features the module's target enables.
+// status; an IO root takes the world, and the status is then 0. Either way
+// @__idr_main ends in idris_rt_main_return, which writes pending output
+// and, when asked, how many cells are still live. @main hands @__idr_main to
+// the runtime's entry, idris_rt_start, which runs it on a reserved stack
+// once the CPU has shown it has the features the module's target enables,
+// and which ends a status outside 0 to 255 as a crash.
 FailureOr<func::FuncOp> findRoot(ModuleOp module) {
   SmallVector<func::FuncOp> roots;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -60,17 +59,14 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, idr::lower::Runtime &
   OpBuilder b(ctx);
   b.setInsertionPointToEnd(module.getBody());
   Location loc = root.getLoc();
-  FunctionType bodyType = b.getFunctionType({}, {b.getI32Type()});
+  FunctionType bodyType = b.getFunctionType({}, {b.getI64Type()});
   auto body = func::FuncOp::create(b, loc, "__idr_main", bodyType);
   body.setPrivate();
-  auto main = func::FuncOp::create(b, loc, "main", bodyType);
+  auto main = func::FuncOp::create(b, loc, "main", b.getFunctionType({}, {b.getI32Type()}));
   b.setInsertionPointToStart(body.addEntryBlock());
   auto call = func::CallOp::create(b, loc, root, ValueRange{});
-  Value status;
-  if (io)
-    status = arith::ConstantOp::create(b, loc, b.getI32IntegerAttr(0));
-  else
-    status = arith::TruncIOp::create(b, loc, b.getI32Type(), call.getResult(0));
+  Value status = io ? arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0)).getResult()
+                    : call.getResult(0);
   runtime.call(b, loc, "idris_rt_main_return", Type(), ValueRange{});
   func::ReturnOp::create(b, loc, status);
 
@@ -117,6 +113,13 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         return signalPassFailure();
       root = *found;
       io = llvm::any_of(root.getArgumentTypes(), llvm::IsaPred<idr::WorldType>);
+      FunctionType kind = root.getFunctionType();
+      if (!io && (kind.getNumInputs() != 0 || kind.getNumResults() != 1 ||
+                  !kind.getResult(0).isInteger(64))) {
+        root.emitError("internal error: idr-lower: the root neither takes the world nor is "
+                       "`() -> i64`");
+        return signalPassFailure();
+      }
       if (failed(checkNoClosures(module)))
         return signalPassFailure();
     }

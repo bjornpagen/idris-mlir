@@ -33,3 +33,17 @@ func.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
   %g = arith.cmpi sge, %len, %z : i64
   return %a, %b, %c, %e, %f, %g : i1, i1, i1, i1, i1, i1
 }
+
+// A grade is no barrier to the analysis: a linear tag entered and used has
+// the tag's range.
+// CHECK-LABEL: func.func @linear(
+// CHECK: %[[TRUE:.*]] = arith.constant true
+// CHECK: return %[[TRUE]]
+func.func @linear(%t: !idr.data<@T>) -> i1 {
+  %three = arith.constant 3 : i64
+  %tag = idr.tag %t : !idr.data<@T>
+  %l = idr.lin.enter %tag : !idr.lin<i64>
+  %u = idr.lin.use %l : !idr.lin<i64>
+  %a = arith.cmpi ult, %u, %three : i64
+  return %a : i1
+}

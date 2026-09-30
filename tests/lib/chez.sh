@@ -6,7 +6,9 @@
 # OPTIONs, such as `-p PACKAGE`) and run on STDIN prints what this
 # compiler's build printed, $work/ours.out, and exits with its STATUS. CRASH
 # is the cause of an expected crash, or empty; a crash's message is not
-# compared, nor its exit status.
+# compared, nor its exit status. A fixture whose chez-differs names a class
+# of tests/lib/chez-divergences is where the two knowingly differ: Chez
+# must print its chez-stdout, and this compiler something else.
 chez_agrees() {
   chez_fixture=$1
   chez_stdin=$2
@@ -25,6 +27,10 @@ chez_agrees() {
   fi
   run_program chez "$work/chez/build/exec/prog" "$chez_stdin"
   chez_status=$ran
+  if [ -f "$chez_fixture/chez-differs" ]; then
+    chez_differs "$chez_fixture"
+    return
+  fi
   chez_same=no
   if cmp -s "$work/ours.out" "$work/chez.out"; then
     chez_same=yes
@@ -75,5 +81,28 @@ chez_agrees() {
     say "chez: same stdout and exit status"
   else
     say "chez: same stdout, but Chez exited $chez_status and this compiler $chez_ours_status"
+  fi
+}
+
+# chez_differs FIXTURE: the known difference FIXTURE/chez-differs names,
+# after chez_agrees ran both programs: the class is one that
+# tests/lib/chez-divergences lists with its reason, Chez printed exactly
+# FIXTURE/chez-stdout, this compiler printed something else, and both
+# exited the same way.
+chez_differs() {
+  chez_class=$(first_word "$1/chez-differs")
+  if ! grep -q "^$chez_class " "$root/tests/lib/chez-divergences"; then
+    say "chez: chez-differs names $chez_class, which tests/lib/chez-divergences does not list"
+    return
+  fi
+  if ! cmp -s "$1/chez-stdout" "$work/chez.out"; then
+    say "chez: stdout differs from chez-stdout (< chez-stdout, > Chez)"
+    diff "$1/chez-stdout" "$work/chez.out" | head -n 20 | sed 's/^/  | /'
+  elif cmp -s "$work/ours.out" "$work/chez.out"; then
+    say "chez: same stdout, so chez-differs ($chez_class) no longer holds"
+  elif [ "$chez_status" -ne "$chez_ours_status" ]; then
+    say "chez: stdout differs as $chez_class says, but Chez exited $chez_status and this compiler $chez_ours_status"
+  else
+    say "chez: stdout differs as $chez_class says, and the exit status is the same"
   fi
 }

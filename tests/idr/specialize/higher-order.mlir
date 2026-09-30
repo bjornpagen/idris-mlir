@@ -45,7 +45,7 @@ module attributes {idr.program} {
     return %r : !idr.box<@L>
   }
   func.func @Main.main(%w: !idr.world) -> !idr.world {
-    %c, %w1 = idr.io.get_char %w
+    %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %xs = func.call @read(%n) : (i64) -> !idr.box<@L>
     %r = func.call @use(%n, %xs) : (i64, !idr.box<@L>) -> !idr.box<@L>

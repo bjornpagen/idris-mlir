@@ -123,11 +123,6 @@ extern "C" void idris_rt_io_put_char(int32_t c) {
   putBytes(bytes, rt::encodeUtf8(c, bytes));
 }
 
-extern "C" void idris_rt_io_put_byte(uint8_t byte) {
-  auto c = static_cast<char>(byte);
-  putBytes(&c, 1);
-}
-
 extern "C" void idris_rt_io_put_int_s(int64_t value) {
   char text[rt::intTextMax];
   char *end = text + sizeof text;

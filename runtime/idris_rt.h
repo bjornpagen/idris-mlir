@@ -211,10 +211,10 @@ void idris_rt_flush(void);
  * A crash reports nothing, and neither does compile-time evaluation. */
 void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
-/* The UTF-8 encoding of the character c. */
+/* The UTF-8 encoding of the character c: the Prelude's putChar. A Char is
+ * a Unicode scalar value, so c is written whole, where the stock Chez
+ * backend's putchar writes its low byte. */
 void idris_rt_io_put_char(int32_t c);
-/* One byte, as C's putchar writes its argument: the Prelude's putChar. */
-void idris_rt_io_put_byte(uint8_t byte);
 /* The decimal text of a signed or an unsigned integer, which idr-lower
  * extends to 64 bits as its type's signedness says. */
 void idris_rt_io_put_int_s(int64_t value);
@@ -254,12 +254,14 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * IDRIS_RT_CPU_FEATURES bits its target enables. When the CPU lacks one of
  * them, it names them and ends the process with IDRIS_RT_CRASHED before the
  * program runs; it is compiled for the x86-64 baseline, and idris-mlir-cc
- * keeps it there. Otherwise it returns what body returns, which body runs
- * on a reserved stack (idris_rt_run_on_stack) of a gibibyte, or of the
- * stack limit when that is larger; when that stack runs out, the output
- * written so far is flushed, "idris-mlir: stack exhausted" is written to
- * standard error, and the process ends with IDRIS_RT_CRASHED. */
-int32_t idris_rt_start(int32_t (*body)(void), uint64_t cpu);
+ * keeps it there. Otherwise it runs body on a reserved stack
+ * (idris_rt_run_on_stack) of a gibibyte, or of the stack limit when that is
+ * larger; when that stack runs out, the output written so far is flushed,
+ * "idris-mlir: stack exhausted" is written to standard error, and the
+ * process ends with IDRIS_RT_CRASHED. What body returns is the exit status:
+ * it returns a status from 0 to 255, and ends the process as a crash that
+ * names any other value, which no parent could tell from its low 8 bits. */
+int32_t idris_rt_start(int64_t (*body)(void), uint64_t cpu);
 
 /* The reserved-stack runner, which programs, idris-mlir-cc and compile-time
  * evaluation's child share: runs fn(arg) on a new thread whose stack is

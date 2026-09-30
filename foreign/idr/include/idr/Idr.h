@@ -171,12 +171,14 @@ bool readOnce(mlir::Value value);
 
 } // namespace idr
 
-#include "idr/IdrDialect.h.inc"
-
+// The attributes come first: the dialect's helpers for its discardable
+// attributes read them by their types.
 #include "idr/IdrEnums.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "idr/IdrAttrs.h.inc"
+
+#include "idr/IdrDialect.h.inc"
 
 #include "idr/IdrInterfaces.h.inc"
 

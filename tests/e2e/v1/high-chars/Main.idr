@@ -2,11 +2,11 @@ module Main
 
 import Prelude
 
--- The Prelude's putChar is C's putchar: it writes the character's low byte,
--- so 'È' (200) is the one byte c8 and 'λ' (955) the byte bb, as with the
--- reference, while a string is written in UTF-8. The byte on stdin, ca, is
--- read back as the character 202 and written as that byte again, and a
--- character computed at runtime from it is written the same way.
+-- A Char is a Unicode scalar value, and putChar writes its UTF-8 encoding,
+-- as putStr writes a string's: 'È' (200) is c3 88 and 'λ' (955) is ce bb.
+-- The stock Chez backend writes the low byte instead (chez-differs). The
+-- byte ca on stdin is read back as the character 202, and characters
+-- computed at runtime from it are written the same way.
 main : IO ()
 main = do
   putChar (chr 128)

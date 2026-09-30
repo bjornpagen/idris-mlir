@@ -2,8 +2,8 @@
 # The runtime's big and string operations print what Chez computes, the
 # casts from String follow the grammar of idris_rt.h, and every operation
 # returns a result its caller owns. Reference counting frees what it counts,
-# a structure of any depth on a small stack, and a program that returns or
-# exits reports its live cells when IDRIS_RT_LIVE is 1.
+# a structure of any depth on a small stack, and a program that returns
+# reports its live cells when IDRIS_RT_LIVE is 1.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
 runtime=$root/build/dev/runtime/libidris_rt.a
@@ -52,7 +52,6 @@ rc_mode leak 1
 rc_mode leak
 rc_mode leak yes
 rc_mode leak 11
-rc_mode exit 1
 rc_mode crash 1
 
 if [ -z "$chez" ]; then say "chez: not found"; exit 0; fi

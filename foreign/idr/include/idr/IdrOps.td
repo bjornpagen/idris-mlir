@@ -28,6 +28,27 @@ def Idr_Dialect : Dialect {
   // The module's and the functions' rules.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
+  // Every discardable attribute of the dialect, which its verifier knows
+  // by these names and rejects any other `idr.*` (lib/Dialect/Dialect.cc
+  // says where each may sit). A fact Idris proved is never one of these:
+  // it is a type.
+  let discardableAttrs = (ins
+    // The module is a whole program (verifyProgram).
+    "::mlir::UnitAttr":$program,
+    // The ownership stage: "owned" after idr-rc (lib/Ownership).
+    "::mlir::StringAttr":$stage,
+    // A function's facts: total, written in a library, its effects.
+    "::mlir::UnitAttr":$total,
+    "::mlir::UnitAttr":$library,
+    "::idr::EffectAttr":$effects,
+    // idr-stack's box whose cell never leaves its frame.
+    "::mlir::UnitAttr":$stack,
+    // idr-specialize's clone: its name and its key.
+    "::idr::CloneAttr":$clone,
+    // Parameters: a clone's hole, and a parameter idr-rc borrows.
+    "::mlir::IntegerAttr":$hole,
+    "::mlir::UnitAttr":$borrowed
+  );
   // Constants of scalars, calls from closures, and regions ending in
   // ub.unreachable; and the layouts of cells, whose sizes the owned stage
   // checks, which are LLVM's.
@@ -869,20 +890,13 @@ def Idr_PutStrOp : Idr_IOOp<"put_str"> {
   let hasCanonicalizer = 1;
 }
 
-// The UTF-8 encoding of a character: what writing a one-character string
-// writes, which output fusion makes of put_str.
+// The UTF-8 encoding of a character, which is a Unicode scalar value: the
+// Prelude's putChar, and what writing a one-character string writes, which
+// output fusion makes of put_str.
 def Idr_PutCharOp : Idr_IOOp<"put_char"> {
   let arguments = (ins I32:$ch, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$ch `,` $world attr-dict";
-}
-
-// One byte. The Prelude's putChar is C's putchar, which writes its argument
-// converted to an unsigned char, so the frontend truncates the character.
-def Idr_PutByteOp : Idr_IOOp<"put_byte"> {
-  let arguments = (ins I8:$byte, Idr_WorldType:$world);
-  let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "$byte `,` $world attr-dict";
 }
 
 def Idr_PutIntOp : Idr_IOOp<"put_int"> {
