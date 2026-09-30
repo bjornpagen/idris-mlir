@@ -41,13 +41,19 @@ empty() {
   if [ -s "$2" ]; then say "$1: not empty"; show "$2"; else say "$1: empty"; fi
 }
 
-# copy_fixture FIXTURE DEST: a fixture file, or the files of a fixture
-# directory but the golden test's own.
+# copy_fixture FIXTURE DEST: a fixture file, or the files and module
+# directories of a fixture directory but the golden test's own and a build
+# left in it.
 copy_fixture() {
   if [ -d "$1" ]; then
     for copy_file in "$1"/* "$1"/.[!.]*; do
+      case ${copy_file##*/} in run|expected|output|build) continue ;; esac
+      # A module in a namespace is a file in its directory (Data/Evil.idr).
+      if [ -d "$copy_file" ]; then
+        cp -Rp "$copy_file" "$2/"
+        continue
+      fi
       [ -f "$copy_file" ] || continue
-      case ${copy_file##*/} in run|expected|output) continue ;; esac
       cp -p "$copy_file" "$2/"
     done
   else
