@@ -225,25 +225,6 @@ mutual
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst) (drop arity xs)
 
-      -- A function on naturals, as the primitives it means (the registry's
-      -- `NatOperation`); partially applied, it is eta-expanded like a call.
-      natOperation : FC -> Loc -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      natOperation fc loc m arity ty xs = do
-        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
-        given <- arguments loc kinds (take arity xs)
-        case m of
-          Primitive p => finish loc kinds given (PrimApp loc p) (drop arity xs)
-          Clamped p =>
-            finish loc kinds given
-                   (\ns => PrimApp loc NatFromBig [PrimApp loc p (map (\n => PrimApp loc NatToBig [n]) ns)])
-                   (drop arity xs)
-          Tested c q => do
-            toBool <- libraryCall fc loc q
-            finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) ns]) (drop arity xs)
-          OnIntegers q => do
-            f <- libraryCall fc loc q
-            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig [n]) ns)) (drop arity xs)
-
       -- A call of a monomorphic library function the registry names, on
       -- runtime arguments: saturated, and the ones past its arity applied.
       libraryCall : FC -> Loc -> QName -> Core ({0 b : Type} -> List (Term b) -> Term b)
@@ -262,6 +243,25 @@ mutual
           isRuntime : PKind -> Bool
           isRuntime (ValueParam _) = True
           isRuntime _ = False
+
+      -- A function on naturals, as the primitives it means (the registry's
+      -- `NatOperation`); partially applied, it is eta-expanded like a call.
+      natOperation : FC -> Loc -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      natOperation fc loc m arity ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        given <- arguments loc kinds (take arity xs)
+        case m of
+          Primitive p => finish loc kinds given (PrimApp loc p) (drop arity xs)
+          Clamped p =>
+            finish loc kinds given
+                   (\ns => PrimApp loc NatFromBig [PrimApp loc p (map (\n => PrimApp loc NatToBig [n]) ns)])
+                   (drop arity xs)
+          Tested c q => do
+            toBool <- libraryCall fc loc q
+            finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) ns]) (drop arity xs)
+          OnIntegers q => do
+            f <- libraryCall fc loc q
+            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig [n]) ns)) (drop arity xs)
 
       -- A constructor of a `Nat`-like type is a natural: zero is 0, a
       -- successor adds 1.
