@@ -77,7 +77,7 @@ func.func @root() -> i64 {
 
 // -----
 
-// expected-error @+1 {{expects !idr.lin of a runtime type other than the world, got '!idr.world'}}
+// expected-error @+1 {{expects a grade of a plain type, got one of '!idr.world'}}
 func.func private @f(%w: !idr.lin<!idr.world>) {
   return
 }

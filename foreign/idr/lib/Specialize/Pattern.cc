@@ -19,7 +19,7 @@ template <typename... Cases> struct Match : Cases... {
 // A constant that stands for a value: poison stands for none, and erased is
 // not constant.
 bool constant(Value value, Attribute &out) {
-  return !isa<ErasedType>(value.getType()) && matchPattern(value, m_Constant(&out)) &&
+  return !isErased(value.getType()) && matchPattern(value, m_Constant(&out)) &&
          !isa<ub::PoisonAttrInterface>(out);
 }
 

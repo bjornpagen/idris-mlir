@@ -91,7 +91,7 @@ unsigned guardUnreadParameters(ModuleOp module) {
       return;
     for (BlockArgument param : callee.getArguments()) {
       Value operand = call.getOperand(param.getArgNumber());
-      if (!param.use_empty() || isa<idr::WorldType, idr::ErasedType>(param.getType()) ||
+      if (!param.use_empty() || idr::isWorld(param.getType()) || idr::isErased(param.getType()) ||
           operand.getDefiningOp<ub::PoisonOp>())
         continue;
       OpBuilder b(call);

@@ -236,7 +236,7 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
          // A natural constant is never negative: the type proves it.
          (isa<BigAttr>(value) && isa<NatType>(type) &&
           !cast<BigAttr>(value).getValue().starts_with("-")) ||
-         (isa<ErasedAttr>(value) && isa<ErasedType>(type)) ||
+         (isa<ErasedAttr>(value) && isErased(type)) ||
          (isa<StringAttr>(value) && isa<StrType>(type));
 }
 
@@ -458,8 +458,7 @@ namespace {
 // integer's full width, a big's no bound, a natural's at least 0; none for a
 // type without integers.
 std::optional<IntegerValueRange> anyValue(Type type) {
-  while (auto lin = dyn_cast<LinType>(type))
-    type = lin.getValue();
+  type = unrestricted(type);
   if (isa<BigType, NatType>(type))
     return IntegerValueRange(
         ranges::rangeOf(isa<NatType>(type) ? ranges::natural() : ranges::Bounds{}));
@@ -667,8 +666,7 @@ LogicalResult MatchOp::verify() {
 // A region argument binds its field as the field's type says, or linearly:
 // matching a linear value binds each of its fields linearly.
 static bool bindsField(Type arg, Type field) {
-  auto lin = dyn_cast<LinType>(arg);
-  return arg == field || (lin && lin.getValue() == field);
+  return arg == field || (isLinear(arg) && unrestricted(arg) == field);
 }
 
 // Each case is a constructor of the scrutinee's type, and its region's
@@ -873,7 +871,7 @@ ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
 // Worlds pass only as arguments and results, never
 // in a closure.
 LogicalResult ClosureOp::verify() {
-  if (llvm::any_of(getCaptures().getTypes(), llvm::IsaPred<WorldType>))
+  if (llvm::any_of(getCaptures().getTypes(), isWorld))
     return emitOpError("captures a world; a world passes only as an argument or result");
   // A closure holding a linear value is used once as well: applied where
   // it is made, or entered into a linear type, whose one use the linearity

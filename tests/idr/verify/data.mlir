@@ -8,7 +8,7 @@ idr.data @T {
 // -----
 
 idr.data @T {
-  // expected-error @+1 {{expects !idr.lin of a runtime type other than the world, got '!idr.erased'}}
+  // expected-error @+1 {{expects a grade of a plain type, got one of '!idr.erased'}}
   idr.ctor @A (!idr.lin<!idr.erased>)
 }
 

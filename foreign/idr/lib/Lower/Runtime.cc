@@ -346,9 +346,9 @@ Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
 
 SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value, Type type) {
   // A linear value is the value itself at runtime.
-  type = unrestricted(type);
-  if (isa<ErasedType, WorldType>(type))
+  if (isErased(type) || isWorld(type))
     return {};
+  type = unrestricted(type);
   if (auto text = dyn_cast<StringAttr>(value))
     return {string(b, loc, text.getValue())};
   if (auto number = dyn_cast<BigAttr>(value))

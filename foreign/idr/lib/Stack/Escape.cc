@@ -19,11 +19,7 @@ using Mode = Escapes::Mode;
 constexpr std::nullopt_t lost = std::nullopt;
 
 // A type as it is at runtime: linearity has no runtime form.
-Type runtimeType(Type type) {
-  while (auto lin = dyn_cast<LinType>(type))
-    type = lin.getValue();
-  return type;
-}
+Type runtimeType(Type type) { return unrestricted(type); }
 
 // The values whose references the analysis follows: boxes, and unboxed
 // sums, whose fields may hold boxes.

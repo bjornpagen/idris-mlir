@@ -1145,6 +1145,16 @@ on.
    - *Proof:* an `idr` lit test where a `Char` range crosses a linear
      parameter and `int-range-optimizations` folds the `cmpi` behind it.
 2. **One graded type** (Part 3).
+   - **Landed 2026-09-30 (the type):** `!idr.q<GRADE, T>` with
+     `idr::Grade` (quantity, permission), the spellings `!idr.lin<T>`,
+     `!idr.erased` and `!idr.world` parsed and printed by the dialect (the
+     erased value's carrier is `none`, the world's its token, which never
+     appears at another grade), V1 as `QType::verify`, and the helpers
+     `gradeOf`, `graded`, `isLinear`, `isWorld`, `isErased`. Emit and the
+     tests are unchanged, through the spellings. V5 (the match at its
+     scrutinee's grade) waits for the owned grades: today's `lin.use`
+     before a match is what lets idr-rc take the scrutinee apart, and
+     under V5 the take is the match.
    - `QType` with `Grade`; the spellings `lin`, `erased` and `world` kept as
      sugar; V1-V5 and V9 as one verifier.
    - The match takes its scrutinee at its grade.

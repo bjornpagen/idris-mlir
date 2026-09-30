@@ -112,7 +112,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
       if (failed(found))
         return signalPassFailure();
       root = *found;
-      io = llvm::any_of(root.getArgumentTypes(), llvm::IsaPred<idr::WorldType>);
+      io = llvm::any_of(root.getArgumentTypes(), idr::isWorld);
       FunctionType kind = root.getFunctionType();
       if (!io && (kind.getNumInputs() != 0 || kind.getNumResults() != 1 ||
                   !kind.getResult(0).isInteger(64))) {

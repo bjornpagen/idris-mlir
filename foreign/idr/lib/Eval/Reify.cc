@@ -90,10 +90,10 @@ Attribute Reifier::constructor(DataOp data, CtorOp ctor,
 Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
   MLIRContext *ctx = type.getContext();
   // A linear field or capture holds its value as it is.
-  if (auto lin = dyn_cast<LinType>(type))
-    return value(lin.getValue(), words);
-  if (isa<ErasedType>(type))
+  if (isErased(type))
     return ErasedAttr::get(ctx);
+  if (auto q = dyn_cast<QType>(type))
+    return value(q.getValue(), words);
   if (auto data = dyn_cast<DataType>(type)) {
     const lower::SumLayout &layout = layouts.sum(data.getName().getAttr());
     size_t n = layout.types().size();

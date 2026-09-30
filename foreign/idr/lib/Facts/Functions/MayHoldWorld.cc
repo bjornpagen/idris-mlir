@@ -9,9 +9,9 @@ using namespace idr;
 namespace {
 
 bool holdsWorld(Operation *from, Type type, llvm::SmallDenseSet<Type> &seen) {
-  type = unrestricted(type);
-  if (isa<WorldType>(type))
+  if (isWorld(type))
     return true;
+  type = unrestricted(type);
   DataOp data = lookupData(from, type);
   if (!data || !seen.insert(type).second)
     return false;

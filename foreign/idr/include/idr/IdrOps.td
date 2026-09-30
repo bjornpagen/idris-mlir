@@ -20,7 +20,12 @@ def Idr_Dialect : Dialect {
   let name = "idr";
   let cppNamespace = "::idr";
   let summary = "Monomorphic Idris programs: data, closures, matches, strings and bigs";
-  let useDefaultTypePrinterParser = 1;
+  // The types are printed and parsed by hand: the grades have spellings.
+  let useDefaultTypePrinterParser = 0;
+  let extraClassDeclaration = [{
+    ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
+    void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
+  }];
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;
   // The pattern that removes unused calls of func.call.
@@ -89,10 +94,6 @@ def Idr_FnType : Idr_Type<"Fn", "fn"> {
   }];
 }
 
-def Idr_ErasedType : Idr_Type<"Erased", "erased"> {
-  let summary = "a quantity-0 value with no runtime representation";
-}
-
 def Idr_StrType : Idr_Type<"Str", "str"> {
   let summary = "a string (UTF-8)";
 }
@@ -117,22 +118,36 @@ def Idr_NatType : Idr_Type<"Nat", "nat"> {
 // operation keeps naturals natural.
 def Idr_BigOrNat : AnyTypeOf<[Idr_BigType, Idr_NatType]>;
 
-def Idr_WorldType : Idr_Type<"World", "world"> {
+// The carrier of the world: the IO world token, which only ever appears
+// at grade (1, ·), spelled !idr.world.
+def Idr_WorldCarrier : Idr_Type<"World", "world"> {
   let summary = "the IO world token";
 }
 
-// A quantity lives in the type, where no pass can drop it: !idr.erased is
-// quantity 0, !idr.lin<T> (and the world, linear by its own rule) quantity
-// 1, and every other type any number of uses. A value of !idr.lin<T> is
-// used at most once on every path; its one use is idr.lin.use, or a
-// position that is linear itself (a parameter, a field, a capture or a
-// result of type !idr.lin<T>).
-def Idr_LinType : Idr_Type<"Lin", "lin"> {
-  let summary = "the value of a binder Idris proved is used exactly once";
-  let parameters = (ins "::mlir::Type":$value);
-  let assemblyFormat = "`<` $value `>`";
+// A grade lives in the type, where no pass can drop it. It is a pair
+// (u, p) (idr::Grade): u is the quantity Idris proved, 0, 1 or ω, and p is
+// what the value owns, · (nothing to say), borrow, own or excl. A plain
+// type T is (ω, ·) and is never written as !idr.q. The spellings:
+// !idr.erased is (0, ·) of no carrier (the value has no runtime
+// representation), !idr.lin<T> is (1, ·) of T, and !idr.world is (1, ·)
+// of the world. A value of quantity 1 is used at most once on every path;
+// its one use is idr.lin.use, or a position that is linear itself (a
+// parameter, a field, a capture or a result of the same type).
+def Idr_QType : Idr_Type<"Q", "q"> {
+  let summary = "a value at a grade: its quantity and what it owns";
+  let parameters = (ins TypeParameter<"::idr::Grade", "the grade">:$grade,
+                        "::mlir::Type":$value);
   let genVerifyDecl = 1;
+  let hasCustomAssemblyFormat = 1;
 }
+
+// The positions that take a grade: the world, and a linear value other
+// than the world (one that entered its grade, and is used out of it).
+def Idr_WorldType : Type<CPred<"::idr::isWorld($_self)">, "the world", "::idr::QType"> {
+  let builderCall = "::idr::world($_builder.getContext())";
+}
+def Idr_LinType : Type<CPred<"::idr::isLinear($_self)">,
+                       "a value of quantity 1 other than the world", "::idr::QType">;
 
 def Idr_SumType : AnyTypeOf<[Idr_DataType, Idr_BoxType]>;
 def Idr_Int : AnyTypeOf<[I8, I16, I32, I64]>;
@@ -1014,8 +1029,8 @@ def Idr_TokenType : Idr_Type<"Token", "token"> {
 def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
                                       Idr_BigType, Idr_NatType]>;
 def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
-    Type<And<[CPred<"::llvm::isa<::idr::LinType>($_self)">,
-              SubstLeaves<"$_self", "::llvm::cast<::idr::LinType>($_self).getValue()",
+    Type<And<[CPred<"::idr::isLinear($_self)">,
+              SubstLeaves<"$_self", "::idr::unrestricted($_self)",
                           Idr_CountedValueType.predicate>]>,
          "a linear value that holds references">]>;
 
@@ -1167,7 +1182,7 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 // enters is that of what is used.
 def Idr_LinEnterOp : Idr_Op<"lin.enter", [
     TypesMatchWith<"the operand is the linear type's value", "result", "value",
-                   "::llvm::cast<LinType>($_self).getValue()">,
+                   "::idr::unrestricted($_self)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "a value handed to a linear position";
   let arguments = (ins AnyType:$value);
@@ -1179,7 +1194,7 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [
 // The one use of a linear value, where it becomes an ordinary one.
 def Idr_LinUseOp : Idr_Op<"lin.use", [
     TypesMatchWith<"the result is the linear type's value", "linear", "result",
-                   "::llvm::cast<LinType>($_self).getValue()">,
+                   "::idr::unrestricted($_self)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "the one use of a linear value";
   let arguments = (ins Idr_LinType:$linear);

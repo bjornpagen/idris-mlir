@@ -27,6 +27,26 @@
 
 namespace idr {
 
+// A grade: what Idris proved of a value, kept in its type where no pass
+// can drop it. The quantity is the number of uses Idris allows, 0, 1 or
+// ω (Quantity); the permission is what the value owns, nothing to say (·),
+// a borrow, one reference of its own, or an exclusive cell graph, which the
+// owned stage decides. A plain type T is the grade (ω, ·).
+enum class Quantity : uint8_t { Zero, One, Many };
+enum class Permission : uint8_t { None, Borrow, Own, Excl };
+
+struct Grade {
+  Quantity quantity = Quantity::Many;
+  Permission permission = Permission::None;
+  bool operator==(const Grade &) const = default;
+  bool plain() const { return quantity == Quantity::Many && permission == Permission::None; }
+};
+
+inline llvm::hash_code hash_value(Grade grade) {
+  return llvm::hash_combine(static_cast<unsigned>(grade.quantity),
+                            static_cast<unsigned>(grade.permission));
+}
+
 // The resource that a possible crash writes to.
 struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
   llvm::StringRef getName() const final { return "idr.crash"; }
@@ -152,7 +172,6 @@ bool isFieldType(mlir::Type type);
 
 // How often a value may be used, as its type says: never (!idr.erased),
 // exactly once (!idr.lin<T> and the world), or any number of times.
-enum class Quantity : uint8_t { Zero, One, Many };
 Quantity quantityOf(mlir::Type type);
 
 // The type of the value itself: T for !idr.lin<T>, the type otherwise.
@@ -184,6 +203,29 @@ bool readOnce(mlir::Value value);
 
 #define GET_TYPEDEF_CLASSES
 #include "idr/IdrTypes.h.inc"
+
+namespace idr {
+
+// The grade of a type: its own for !idr.q, (ω, ·) for a plain type.
+Grade gradeOf(mlir::Type type);
+
+// The type `value` at `grade`, in canonical form: `value` itself at
+// (ω, ·), and never a grade of a graded type.
+mlir::Type graded(Grade grade, mlir::Type value);
+
+// The spellings: !idr.lin<T>, !idr.erased and !idr.world.
+mlir::Type linear(mlir::Type value);
+mlir::Type erased(mlir::MLIRContext *ctx);
+mlir::Type world(mlir::MLIRContext *ctx);
+
+// Whether a type is a linear value other than the world (one that entered
+// its grade and is used out of it), which its grade says; or the world or
+// the erased value, which their carriers say, graded or stripped.
+bool isLinear(mlir::Type type);
+bool isWorld(mlir::Type type);
+bool isErased(mlir::Type type);
+
+} // namespace idr
 
 #define GET_OP_CLASSES
 #include "idr/IdrOps.h.inc"

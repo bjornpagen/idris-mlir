@@ -122,20 +122,182 @@ LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 }
 
 bool idr::isFieldType(Type type) {
+  if (isWorld(type) || isErased(type))
+    return true;
+  type = unrestricted(type);
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  if (auto lin = dyn_cast<LinType>(type))
-    return isFieldType(lin.getValue());
-  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType, WorldType,
-             ErasedType>(type);
+  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType>(type);
 }
 
-// A linear value of a runtime type: the erased value is never used, and
-// the world is linear already.
-LogicalResult LinType::verify(function_ref<InFlightDiagnostic()> emitError, Type value) {
-  if (isa<LinType, ErasedType, WorldType>(value) || !isFieldType(value))
-    return emitError() << "expects !idr.lin of a runtime type other than the world, got " << value;
+//===----------------------------------------------------------------------===//
+// Grades
+//===----------------------------------------------------------------------===//
+
+// The canonical forms: a plain type is (ω, ·) and is never written as a
+// grade; a grade is of a carrier, never of a grade; nothing is owned at
+// quantity 0; the erased value, of no carrier, is at quantity 0; the world
+// is at (1, ·) only; a linear value has a runtime type.
+LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Grade grade,
+                            Type value) {
+  if (grade.plain())
+    return emitError() << "expects a grade other than (w, .), which is the plain type";
+  if (isa<QType>(value))
+    return emitError() << "expects a grade of a plain type, got one of " << value;
+  if (grade.quantity == Quantity::Zero && grade.permission != Permission::None)
+    return emitError() << "expects nothing owned at quantity 0";
+  if (isa<NoneType>(value) != (grade.quantity == Quantity::Zero))
+    return emitError() << "expects the erased value, and only it, at quantity 0";
+  if (isa<WorldType>(value)) {
+    if (grade != Grade{Quantity::One, Permission::None})
+      return emitError() << "expects the world at quantity 1, owning nothing";
+    return success();
+  }
+  if (grade.quantity != Quantity::Zero && !isFieldType(value))
+    return emitError() << "expects a grade of a runtime type, got " << value;
   return success();
+}
+
+namespace {
+
+constexpr StringRef quantityNames[] = {"0", "1", "w"};
+constexpr StringRef permissionNames[] = {"", "borrow", "own", "excl"};
+
+// The generic spelling of a grade: the quantity, then the permission when
+// there is one to say: `1`, `w own`, `1 excl`.
+void printGrade(AsmPrinter &printer, Grade grade) {
+  printer << quantityNames[static_cast<unsigned>(grade.quantity)];
+  if (grade.permission != Permission::None)
+    printer << ' ' << permissionNames[static_cast<unsigned>(grade.permission)];
+}
+
+std::optional<Grade> parseGrade(AsmParser &parser) {
+  Grade grade;
+  uint64_t number = 0;
+  StringRef word;
+  OptionalParseResult parsed = parser.parseOptionalInteger(number);
+  if (parsed.has_value() && succeeded(*parsed) && number <= 1) {
+    grade.quantity = number == 0 ? Quantity::Zero : Quantity::One;
+  } else if (!parsed.has_value() && succeeded(parser.parseOptionalKeyword("w"))) {
+    grade.quantity = Quantity::Many;
+  } else {
+    parser.emitError(parser.getCurrentLocation(), "expects a quantity 0, 1 or w");
+    return std::nullopt;
+  }
+  if (succeeded(parser.parseOptionalKeyword(&word))) {
+    auto permission = llvm::find(permissionNames, word);
+    if (permission == std::end(permissionNames)) {
+      parser.emitError(parser.getCurrentLocation(), "expects a permission borrow, own or excl");
+      return std::nullopt;
+    }
+    grade.permission = static_cast<Permission>(permission - std::begin(permissionNames));
+  }
+  return grade;
+}
+
+} // namespace
+
+// `!idr.q<GRADE, T>`, the generic spelling; `!idr.q<0>` for the erased
+// value. The spellings lin, erased and world are the dialect's to parse
+// and print.
+Type QType::parse(AsmParser &parser) {
+  if (parser.parseLess())
+    return {};
+  std::optional<Grade> grade = parseGrade(parser);
+  if (!grade)
+    return {};
+  Type value = NoneType::get(parser.getContext());
+  if (succeeded(parser.parseOptionalComma()) && parser.parseType(value))
+    return {};
+  if (parser.parseGreater())
+    return {};
+  return QType::getChecked([&] { return parser.emitError(parser.getCurrentLocation()); },
+                           parser.getContext(), *grade, value);
+}
+
+void QType::print(AsmPrinter &printer) const {
+  printer << '<';
+  printGrade(printer, getGrade());
+  if (!isa<NoneType>(getValue()))
+    printer << ", " << getValue();
+  printer << '>';
+}
+
+Grade idr::gradeOf(Type type) {
+  auto q = dyn_cast<QType>(type);
+  return q ? q.getGrade() : Grade{};
+}
+
+Type idr::graded(Grade grade, Type value) {
+  if (auto q = dyn_cast<QType>(value))
+    value = q.getValue();
+  return grade.plain() ? value : QType::get(value.getContext(), grade, value);
+}
+
+Type idr::linear(Type value) { return graded({Quantity::One, Permission::None}, value); }
+
+Type idr::erased(MLIRContext *ctx) {
+  return graded({Quantity::Zero, Permission::None}, NoneType::get(ctx));
+}
+
+Type idr::world(MLIRContext *ctx) {
+  return graded({Quantity::One, Permission::None}, WorldType::get(ctx));
+}
+
+// The world and the erased value are known by their carriers, graded or
+// not: a carrier that a grade was stripped from (unrestricted) is still
+// the value it is.
+bool idr::isWorld(Type type) { return isa<WorldType>(unrestricted(type)); }
+
+bool idr::isErased(Type type) { return isa<NoneType>(unrestricted(type)); }
+
+bool idr::isLinear(Type type) {
+  return gradeOf(type).quantity == Quantity::One && !isWorld(type);
+}
+
+// The spellings: !idr.lin<T> is (1, ·) of T, !idr.erased is (0, ·) of no
+// carrier, !idr.world is (1, ·) of the world; any other grade is written
+// out as !idr.q. The world's carrier is never written by itself.
+Type IdrDialect::parseType(DialectAsmParser &parser) const {
+  llvm::SMLoc loc = parser.getCurrentLocation();
+  MLIRContext *ctx = parser.getContext();
+  if (succeeded(parser.parseOptionalKeyword("lin"))) {
+    Type value;
+    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
+      return {};
+    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
+                             Grade{Quantity::One, Permission::None}, value);
+  }
+  if (succeeded(parser.parseOptionalKeyword("erased")))
+    return erased(ctx);
+  if (succeeded(parser.parseOptionalKeyword("world")))
+    return world(ctx);
+  // The generated parser reads the mnemonic itself.
+  StringRef mnemonic;
+  Type type;
+  OptionalParseResult result = generatedTypeParser(parser, &mnemonic, type);
+  if (result.has_value())
+    return type;
+  parser.emitError(loc) << "unknown type `" << mnemonic << "` in dialect `idr`";
+  return {};
+}
+
+void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
+  if (auto q = dyn_cast<QType>(type)) {
+    if (isWorld(q)) {
+      printer << "world";
+    } else if (isErased(q) && q.getGrade().permission == Permission::None) {
+      printer << "erased";
+    } else if (isLinear(q) && q.getGrade().permission == Permission::None) {
+      printer << "lin<" << q.getValue() << '>';
+    } else {
+      printer << "q";
+      q.print(printer);
+    }
+    return;
+  }
+  if (failed(generatedTypePrinter(type, printer)))
+    llvm_unreachable("a type of the idr dialect");
 }
 
 // A destination is one word of a cell that a box's reference fills: a
@@ -148,14 +310,12 @@ LogicalResult DestType::verify(function_ref<InFlightDiagnostic()> emitError, Typ
 
 // A destination is written exactly once, so it is used exactly once.
 idr::Quantity idr::quantityOf(Type type) {
-  if (isa<ErasedType>(type))
-    return Quantity::Zero;
-  return isa<LinType, WorldType, DestType>(type) ? Quantity::One : Quantity::Many;
+  return isa<DestType>(type) ? Quantity::One : gradeOf(type).quantity;
 }
 
 Type idr::unrestricted(Type type) {
-  auto lin = dyn_cast<LinType>(type);
-  return lin ? lin.getValue() : type;
+  auto q = dyn_cast<QType>(type);
+  return q ? q.getValue() : type;
 }
 
 Value idr::throughLinear(Value value) {
@@ -258,7 +418,7 @@ LogicalResult verifyProgram(ModuleOp module) {
   Builder b(module.getContext());
   bool intRoot = root.getInputs().empty() && root.getNumResults() == 1 &&
                  root.getResult(0) == b.getI64Type();
-  bool ioRoot = root.getInputs().size() == 1 && isa<WorldType>(root.getInput(0));
+  bool ioRoot = root.getInputs().size() == 1 && isWorld(root.getInput(0));
   if (!intRoot && !ioRoot)
     return roots.front().emitOpError("is the root, so its type must be () -> i64 or "
                                      "(!idr.world) -> (...), not ")
@@ -466,7 +626,7 @@ LogicalResult verifyLinearity(FunctionOpInterface fn) {
     if (quantityOf(value.getType()) != Quantity::One || value.getDefiningOp<ub::PoisonOp>())
       return success();
     if (Operation *op = LinearUses(value).secondUse())
-      return op->emitOpError(isa<WorldType>(value.getType())
+      return op->emitOpError(isWorld(value.getType())
                                  ? "uses a world that is already used on the same path"
                                  : "uses a linear value that is already used on the same path");
     return success();

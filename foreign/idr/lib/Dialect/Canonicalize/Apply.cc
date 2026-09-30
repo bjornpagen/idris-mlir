@@ -30,7 +30,7 @@ Value closureOf(ApplyOp apply) {
 Value materialize(PatternRewriter &rewriter, Location loc, Attribute value, Type type) {
   Dialect *dialect = rewriter.getContext()->getLoadedDialect<IdrDialect>();
   Value plain = dialect->materializeConstant(rewriter, value, unrestricted(type), loc)->getResult(0);
-  if (!isa<LinType>(type))
+  if (!isLinear(type))
     return plain;
   return LinEnterOp::create(rewriter, loc, type, plain);
 }

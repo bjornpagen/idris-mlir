@@ -174,9 +174,9 @@ const SumLayout &Layouts::sum(StringAttr name) {
 SmallVector<Type> Layouts::components(Type type) {
   MLIRContext *ctx = module.getContext();
   // Linearity is a fact for the passes; at runtime the value is itself.
-  type = unrestricted(type);
-  if (isa<ErasedType, WorldType>(type))
+  if (isErased(type) || isWorld(type))
     return {};
+  type = unrestricted(type);
   // A destination is the address of a field's word.
   if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
@@ -188,9 +188,9 @@ SmallVector<Type> Layouts::components(Type type) {
 }
 
 SmallVector<bool> Layouts::counted(Type type) {
-  type = unrestricted(type);
-  if (isa<ErasedType, WorldType>(type))
+  if (isErased(type) || isWorld(type))
     return {};
+  type = unrestricted(type);
   if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
   if (isa<DestType>(type))

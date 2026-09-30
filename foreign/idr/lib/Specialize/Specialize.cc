@@ -160,7 +160,7 @@ void count(Statistics &stats, BindingTime time) {
 LogicalResult Specializer::specialize(func::CallOp call) {
   auto callee = clones.symbols().lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
   if (!callee || callee.isExternal() || llvm::all_of(call.getOperands(), [](Value v) {
-        return isa<ErasedType, WorldType>(v.getType()) || isClosed(v);
+        return isErased(v.getType()) || isWorld(v.getType()) || isClosed(v);
       }))
     return success();
   const Clone *own = clones.specialization(callee);
@@ -185,7 +185,7 @@ LogicalResult Specializer::specialize(func::CallOp call) {
       continue;
     // A linear leaf moves into the clone's call, so the shape that held it
     // must die with the call it feeds: else the leaf is used twice.
-    if (llvm::any_of(leaves, [](Value leaf) { return isa<LinType>(leaf.getType()); }) &&
+    if (llvm::any_of(leaves, [](Value leaf) { return isLinear(leaf.getType()); }) &&
         !usedOnce(operand))
       continue;
     arg.pattern = std::move(shape);

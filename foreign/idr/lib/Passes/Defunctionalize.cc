@@ -906,7 +906,7 @@ struct Converter {
     if (!key.first)
       return type;
     Type slot = typeOf(key);
-    return isa<idr::LinType>(type) ? Type(idr::LinType::get(ctx, slot)) : slot;
+    return idr::isLinear(type) ? idr::linear(slot) : slot;
   }
 
   // The types of the captures of `label` as a closure of `type`, as
@@ -982,10 +982,10 @@ struct Converter {
       return value;
     // A linear value is used once, rebuilt, and enters the other linear
     // slot.
-    if (auto linear = dyn_cast<idr::LinType>(value.getType())) {
-      Value used = idr::LinUseOp::create(b, loc, linear.getValue(), value);
+    if (idr::isLinear(value.getType())) {
+      Value used = idr::LinUseOp::create(b, loc, idr::unrestricted(value.getType()), value);
       Value moved = coerce(b, loc, used, from, to);
-      return idr::LinEnterOp::create(b, loc, idr::LinType::get(ctx, moved.getType()), moved);
+      return idr::LinEnterOp::create(b, loc, idr::linear(moved.getType()), moved);
     }
     assert(canCoerce(from, to) && "idr-defunctionalize: a move it did not decide");
     if (isEmpty(from))

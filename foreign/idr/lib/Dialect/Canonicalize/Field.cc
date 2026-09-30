@@ -14,9 +14,9 @@ using namespace idr;
 // into the linear type instead, one entry per read, which the one use of
 // the field then takes apart.
 LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
-  auto type = dyn_cast<LinType>(field.getType());
+  Type type = field.getType();
   ConAttr con;
-  if (!type || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
+  if (!isLinear(type) || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
       con.getCtor().getLeafReference() != field.getCtorAttr().getAttr())
     return failure();
   Attribute value = con.getFields()[static_cast<unsigned>(field.getIndex())];
