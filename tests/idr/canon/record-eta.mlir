@@ -4,6 +4,7 @@
 // RUN: FileCheck %s --check-prefix=SHARED < %t.shared.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@unknown -o /dev/null 2> %t.unknown.err
 // RUN: FileCheck %s --check-prefix=UNKNOWN < %t.unknown.err
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@reindex -o /dev/null
 // Record eta: a constructor rebuilt from the fields of a value of that
 // constructor, each read once, is the value. An IO fold returns the IORes
 // of its recursive call rebuilt from its fields, the world among them, so
@@ -12,6 +13,8 @@
 // stays under the rebuilt constructor, and the stack grows with the list.
 // SHARED: error: expected constant-stack: the stack grows with the recursion of @shared
 // UNKNOWN: error: expected constant-stack: the stack grows with the recursion of @unknown
+// A node rebuilt in the case that matched it is the node, whatever erased
+// indices the rebuild passes: they hold nothing, so it allocates nothing.
 module {
   idr.data @Unit {
     idr.ctor @MkUnit ()
@@ -22,6 +25,10 @@ module {
   idr.data @List box {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)
+  }
+  idr.data @RB box {
+    idr.ctor @E ()
+    idr.ctor @TB (!idr.erased, !idr.box<@RB>, i64, !idr.box<@RB>)
   }
   idr.data @Pair {
     idr.ctor @Left (i64, i64)
@@ -112,6 +119,20 @@ module {
     }
     }
     return %r : !idr.data<@Pair>
+  }
+
+  func.func private @reindex(%t: !idr.box<@RB>) -> !idr.box<@RB> {
+    %e = idr.constant #idr.erased : !idr.erased
+    %r = idr.match %t : !idr.box<@RB> -> (!idr.box<@RB>) {
+    case @E() {
+      idr.yield %t : !idr.box<@RB>
+    }
+    case @TB(%n: !idr.erased, %l: !idr.box<@RB>, %x: i64, %rr: !idr.box<@RB>) {
+      %again = idr.con @RB::@TB(%e, %l, %x, %rr) : (!idr.erased, !idr.box<@RB>, i64, !idr.box<@RB>) -> !idr.box<@RB>
+      idr.yield %again : !idr.box<@RB>
+    }
+    }
+    return %r : !idr.box<@RB>
   }
 
   func.func @Prog.main(%xs: !idr.box<@List>, %w: !idr.world) -> (!idr.data<@IORes>, !idr.data<@Pair>, i64, !idr.data<@Pair>, !idr.data<@Pair>) {

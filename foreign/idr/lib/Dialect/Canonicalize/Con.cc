@@ -50,20 +50,23 @@ bool knownCtor(Value value, CtorOp ctor, Operation *at) {
 // `con C(field x[C, 0], ..., field x[C, k])` is x, when x is known to be C
 // and the constructor is the one reader of each field. The reads then die
 // with it, so each field of x, linear ones included, is still taken once:
-// by what takes x in the constructor's place.
+// by what takes x in the constructor's place. A field of quantity 0 holds
+// nothing at runtime and nothing can inspect it, so whatever erased value
+// the constructor puts there, x's is as good: a rebuilt node whose indices
+// Idris recomputed is still the node.
 Value eta(ConOp con) {
   auto fields = con.getFields();
-  if (fields.empty())
-    return {};
   StringAttr name = con.getCtor().getLeafReference();
   Value source;
   for (auto [index, field] : llvm::enumerate(fields)) {
+    if (quantityOf(field.getType()) == Quantity::Zero)
+      continue;
     Value read = readOf(field, name, static_cast<unsigned>(index));
     if (!read || (source && read != source))
       return {};
     source = read;
   }
-  if (source.getType() != con.getType())
+  if (!source || source.getType() != con.getType())
     return {};
   CtorOp ctor = lookupCtor(con, con.getCtor());
   if (!ctor || !knownCtor(source, ctor, con))

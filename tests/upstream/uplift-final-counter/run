@@ -1,28 +1,18 @@
 #!/bin/sh
 # The upstream bug upstream/uplift-final-counter still reproduces with the
-# pinned MLIR: the uplift of a loop that counts to 10 returns 9. No mlir-opt
-# pass runs the uplift, so the reproducer is built against the pinned MLIR
-# libraries. When this fails, the bug is fixed: let idr-tail-loops uplift
-# every counted loop (delete counterUsedAfter), and delete the PINS.md entry
-# uplift-final-counter, the report and this test (upstream/README.md).
-test_limit=600
+# pinned MLIR: the uplift of a loop that counts to 10 returns 9. The pinned
+# mlir-opt has no test passes, so idris-mlir-opt runs upstream's test pass
+# of the same name. When this fails, the bug is fixed: let idr-tail-loops
+# uplift every counted loop (delete counterUsedAfter), and delete the
+# PINS.md entry uplift-final-counter, idris-mlir-opt's copy of the test
+# pass, the report and this test (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-report=$root/upstream/uplift-final-counter
-prefix=$(dirname "$llvm_bin")
-bounded "$llvm_bin/clang++" -std=c++17 -fno-rtti -O0 -I"$prefix/include" \
-  "$report/uplift.cpp" -o "$work/uplift" \
-  -Wl,--start-group "$prefix"/lib/libMLIR*.a "$prefix"/lib/libLLVM*.a -Wl,--end-group \
-  > "$work/build.log" 2>&1
-built=$?
-if [ "$built" -ne 0 ]; then
-  say "uplift: the reproducer did not build (exit $built)"
-  sed 's/^/  | /' "$work/build.log" | head -n 20
-  exit 0
-fi
-bounded "$work/uplift" "$report/counter.mlir" > "$work/out.mlir" 2>&1
-if grep -q 'arith.constant 9 : index' "$work/out.mlir"; then
+"$idris_mlir_opt" "$root/upstream/uplift-final-counter/counter.mlir" \
+  --test-scf-uplift-while-to-for > "$work/out.mlir" 2>&1
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'arith.constant 9 : index' "$work/out.mlir"; then
   say "uplift: still reproduces (the loop that ends at 10 returns 9)"
 else
-  say "uplift: no longer reproduces"
+  say "uplift: no longer reproduces (exit $status)"
   sed 's/^/  | /' "$work/out.mlir"
 fi

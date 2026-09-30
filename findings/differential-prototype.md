@@ -8,27 +8,41 @@ belongs in Idris, in `tests/`.
 ## How to run it
 
 ```sh
+# the compiler under test: a clean build of one commit in $here/tree
+# (tree.commit names it; only .toolchain is a symlink to the repository's)
 # one program: generate, build 5 ways, compare, one verdict line
-./run1.sh SEED [vect]
-# a batch, three at a time
-seq 1 100 | xargs -P 3 -I{} ./run1.sh {}
-# reduce a failure (PREDICATE exits 0 while the candidate is interesting)
-python3 reduce.py runs/SEED-plain/Main.idr reduced.idr ./pred-null.sh
+./run4.sh SEED [vect]
+# a batch, three at a time (jobs4.txt: "SEED MODE" per line)
+xargs -P 3 -L 1 ./run4.sh < jobs4.txt > batch4.log
+# judge the raw verdicts against the allowlist
+python3 classify.py runs4
+# reduce a failure (PREDICATE exits 0 while the candidate is interesting;
+# FIXED is the number of leading statements of main to keep)
+FIXED=0 python3 reduce.py IN.idr OUT.idr './pred.sh "null operand" "--directive no-eval"'
+# keep the contract text of a build that fails (for idris-mlir-opt experiments)
+./keep.sh IN.idr DIR [--directive no-eval]
+# a candidate fix: the contract text through a patched idris-mlir-cc, linked, run, against Chez
+CC_FIX=fix/idris-mlir-cc-w ./fixcheck.sh IN.idr eval|noeval [-p base]
 ```
 
 Builds per program: Chez (the reference and the type checker), idris-mlir
 with evaluation, with `--directive no-eval`, the quantity-weakened variant
-(every `(1 _ : T)` rewritten to `T`, section 8.2 of the main file), and O0
-(the contract text through the steps after `idr-simplify` only, with
-idris-mlir-opt, then mlir-translate and clang against
-`build/dev/runtime/libidris_rt.a`). Every idris-mlir build runs with
-`IDRIS_RT_LIVE=1` and must report 0 live cells. Verdicts: `OK`,
-`REJECT-IDRIS` (the generator's fault), `REJECT-OURS` (`unsupported (…)`),
-`CRASH-COMPILE`, `DIFF-CHEZ`, `DIFF-NOEVAL`, `DIFF-WEAK`, `DIFF-O0`,
-`O0-FAILS`, `LIVE`, `RUNFAIL`.
+(every `(1 _ : T)` rewritten to `T`, section 8.2 of the main file; skipped
+when the program has no linear binder), and O0 (the contract text through
+the pipeline's steps after `idr-simplify` only, with idris-mlir-opt, then
+mlir-translate and clang against the runtime archive). Every idris-mlir
+build runs with `IDRIS_RT_LIVE=1` and must report 0 live cells. A run that
+dies of SIGSEGV is rerun under `ulimit -s unlimited` so the classifier can
+tell stack exhaustion from a crash. Raw verdicts: `OK`, `REJECT-IDRIS` (the
+generator's fault), `REJECT-OURS` (`unsupported (…)`), `CRASH-COMPILE`,
+`DIFF-CHEZ`, `DIFF-NOEVAL`, `DIFF-WEAK`, `DIFF-O0`, `O0-FAILS`, `LIVE`,
+`RUNFAIL`. The first failing build decides the verdict, so a program that
+crashes the eval build is not also run through the others.
 
-Seeds run before the weakened and O0 builds were added (the first ~25) have
-only the Chez, eval and no-eval builds.
+`classify.py` turns them into AGREE, GEN (discarded), REJECT(reason),
+KNOWN(id), QUIRK(id), LIMIT(id), O0GAP and BUG(signature), with the
+allowlist `known.tsv` as data: every known divergence is one line with its
+reason, never a special case in code.
 
 ## What the generator does
 
@@ -505,19 +519,23 @@ if __name__ == "__main__":
     sys.stdout.write(g.program(vect))
 ```
 
-## run1.sh
+## run4.sh
 
 ```sh
 #!/bin/sh
-# run1.sh SEED [vect]: one generated program, three builds, one verdict line.
+# run4.sh SEED [vect]: one generated program, five builds, one verdict line.
+# run1.sh plus: build outputs are deleted on exit (disk), Chez gets 60 s, and
+# the compiler is a clean build of one commit in $here/tree (no tree lock needed).
 # Verdicts: OK, REJECT-IDRIS (the generator's fault), REJECT-OURS <reason>,
 # CRASH-COMPILE, DIFF-CHEZ, DIFF-NOEVAL, LIVE, RUNFAIL.
 here=/tmp/claude-0/-home-user-idris-mlir/9e6c7b10-225a-5a6c-bf9d-31a304a4cdcc/scratchpad/research/differential
-repo=/home/user/idris-mlir
+repo=$here/tree
 export IDRIS2_PREFIX=$repo/.toolchain/idris2 PATH=$repo/.toolchain/idris2/bin:$PATH IDRIS_MLIR_ROOT=$repo
 seed=$1
 mode=${2:-plain}
-d=$here/runs/$seed-$mode
+d=$here/runs4/$seed-$mode
+cleanup() { rm -rf "$d"/*/build "$d"/o0prog "$d"/o0.ll "$d"/o0.mlir; }
+trap cleanup EXIT
 rm -rf "$d"; mkdir -p "$d/eval" "$d/noeval" "$d/chez"
 pk=
 [ "$mode" = vect ] && pk="-p base"
@@ -532,9 +550,13 @@ mkdir -p "$d/weak"; sed 's/(1 _ : \([^)]*\))/\1/g' "$d/Main.idr" > "$d/weak/Main
   verdict REJECT-IDRIS "$(grep -m1 -E 'Error|error' "$d/chez.log")"
 [ -x "$d/chez/build/exec/prog" ] || verdict REJECT-IDRIS "$(grep -m1 -E 'Error|error' "$d/chez.log")"
 for m in eval noeval weak; do
+  if [ $m = weak ] && cmp -s "$d/weak/Main.idr" "$d/Main.idr"; then
+    # Nothing to weaken: the variant is the eval build.
+    rm -rf "$d/weak"; cp -a "$d/eval" "$d/weak"; echo same > "$d/weak.log"; continue
+  fi
   dir=
   [ $m = noeval ] && dir="--directive no-eval"
-  flock -s $repo/build/.tree.lock timeout 600 $repo/tools/compile.sh --io $pk $dir "$d/$m/Main.idr" prog > "$d/$m.log" 2>&1
+  timeout 600 $repo/tools/compile.sh --io $pk $dir "$d/$m/Main.idr" prog > "$d/$m.log" 2>&1
   st=$?
   if [ $st -ne 0 ]; then
     if grep -q 'unsupported (' "$d/$m.log"; then
@@ -555,10 +577,17 @@ if timeout 600 $repo/build/dev/foreign/idr/idris-mlir-opt --mlir-disable-threadi
 else
   o0=no
 fi
-timeout 20 "$d/chez/build/exec/prog" < "$d/stdin" > "$d/chez.out" 2> "$d/chez.err"; cs=$?
+timeout 60 "$d/chez/build/exec/prog" < "$d/stdin" > "$d/chez.out" 2> "$d/chez.err"; cs=$?
 for m in eval noeval weak; do
-  IDRIS_RT_LIVE=1 timeout 20 "$d/$m/build/exec/prog" < "$d/stdin" > "$d/$m.out" 2> "$d/$m.err"; echo $? > "$d/$m.status"
+  IDRIS_RT_LIVE=1 timeout 60 "$d/$m/build/exec/prog" < "$d/stdin" > "$d/$m.out" 2> "$d/$m.err"; echo $? > "$d/$m.status"
 done
+# A SIGSEGV is rerun with no stack limit: the classifier's stack-exhausted test.
+for m in eval noeval weak; do
+  if [ "$(cat "$d/$m.status")" -eq 139 ]; then
+    (ulimit -s unlimited; IDRIS_RT_LIVE=1 timeout 60 "$d/$m/build/exec/prog" < "$d/stdin" > "$d/$m.unl.out" 2> "$d/$m.unl.err"; echo $? > "$d/$m.unl.status")
+  fi
+done
+echo $cs > "$d/chez.status"
 es=$(cat "$d/eval.status"); ns=$(cat "$d/noeval.status")
 if ! cmp -s "$d/eval.out" "$d/chez.out" || [ "$es" -ne "$cs" ]; then
   verdict DIFF-CHEZ "eval exit $es chez exit $cs"
@@ -573,7 +602,7 @@ for m in eval noeval weak; do
   grep -q '^idris-rt: live cells 0$' "$d/$m.err" || verdict LIVE "$m $(head -c 200 "$d/$m.err")"
 done
 if [ $o0 = yes ]; then
-  IDRIS_RT_LIVE=1 timeout 20 "$d/o0prog" < "$d/stdin" > "$d/o0.out" 2> "$d/o0.err"; os=$?
+  IDRIS_RT_LIVE=1 timeout 60 "$d/o0prog" < "$d/stdin" > "$d/o0.out" 2> "$d/o0.err"; os=$?
   if ! cmp -s "$d/o0.out" "$d/chez.out" || [ "$os" -ne "$cs" ]; then
     verdict DIFF-O0 "o0 exit $os chez exit $cs"
   fi
@@ -583,6 +612,113 @@ else
 fi
 [ "$cs" -eq 0 ] || verdict RUNFAIL "all exit $cs"
 verdict OK "$(wc -l < "$d/eval.out") lines"
+```
+
+## classify.py
+
+```python
+#!/usr/bin/env python3
+"""classify.py RUNS_DIR: the runner's raw verdicts, judged against known.tsv.
+
+Classes: AGREE, GEN (Idris rejected the generator's program: discarded),
+REJECT(reason), KNOWN(id), QUIRK(id), LIMIT(id), BUG(raw verdict).
+Chez is the reference only where no allowlist entry says its behaviour is an
+implementation detail or a resource limit."""
+import collections, glob, os, re, sys
+
+here = os.path.dirname(os.path.abspath(__file__))
+allow = []
+for line in open(os.path.join(here, "known.tsv")):
+    if line.startswith("#") or not line.strip():
+        continue
+    i, cls, where, rx, reason = line.rstrip("\n").split("\t")
+    allow.append((i, cls, where, re.compile(rx), reason))
+
+
+def rd(p):
+    try:
+        return open(p, errors="replace").read()
+    except OSError:
+        return None
+
+
+def classify(d):
+    v = (rd(os.path.join(d, "verdict")) or "").split()
+    if len(v) < 3:
+        return "INCOMPLETE", ""
+    raw, rest = v[2], " ".join(v[3:])
+    if raw == "OK":
+        return "AGREE", ""
+    if raw == "REJECT-IDRIS":
+        return "GEN", rest
+    if raw == "REJECT-OURS":
+        return "REJECT", rest
+    if raw == "O0-FAILS":
+        # O0 is this prototype's own pipeline (no idr-simplify): a gap there
+        # is a finding about optionality, not a miscompilation.
+        return "O0GAP", rest
+    logs = "".join(rd(p) or "" for p in glob.glob(os.path.join(d, "*.log")))
+    src = rd(os.path.join(d, "Main.idr")) or ""
+    for i, cls, where, rx, reason in allow:
+        text = {"log": logs, "source": src}.get(where)
+        if text is None:
+            text = rd(os.path.join(d, where)) or ""
+        if where == "eval.status":
+            continue  # tested below, with its confirmation
+        if rx.search(text):
+            return f"{cls.upper()}({i})", rest
+    # stack exhausted: a SIGSEGV that an unlimited stack turns into Chez's answer
+    chez = rd(os.path.join(d, "chez.out"))
+    segv = [m for m in ("eval", "noeval", "weak")
+            if (rd(os.path.join(d, f"{m}.status")) or "").strip() == "139"]
+    if segv and all(rd(os.path.join(d, f"{m}.unl.out")) == chez and
+                    (rd(os.path.join(d, f"{m}.unl.status")) or "").strip() ==
+                    (rd(os.path.join(d, "chez.status")) or "0").strip()
+                    for m in segv):
+        return "LIMIT(stack-exhausted)", rest
+    # A crash's signature: the first diagnostic of the failing build, with
+    # locations and SSA names dropped, so one bug is one row.
+    m = re.search(r"(?m)^(?:\S+\.idr:\d+:\d+|<unknown>:0): error: (?:loc\([^\n]*?\): )?([^\n]*)", logs)
+    sig = re.sub(r"%\w+", "%", m.group(1))[:90] if m else ""
+    return f"BUG({raw})", (sig or rest)
+
+
+def main():
+    runs = sys.argv[1]
+    counts = collections.Counter()
+    rows = []
+    for d in sorted(glob.glob(os.path.join(runs, "*")),
+                    key=lambda p: (os.path.basename(p).split("-")[1],
+                                   int(os.path.basename(p).split("-")[0]))):
+        c, why = classify(d)
+        counts[c.split("(")[0] if c.startswith("REJECT") else c] += 1
+        rows.append((os.path.basename(d), c, why))
+    for r in rows:
+        if r[1] != "AGREE":
+            print("\t".join(r))
+    print("---")
+    for c, n in counts.most_common():
+        print(f"{n:4d} {c}")
+    print(f"{sum(counts.values()):4d} total")
+
+
+main()
+```
+
+## known.tsv
+
+```
+# The oracle's allowlist: every known divergence, as data, with its reason.
+# id	class	matches	regex	reason
+# class: known  = our bug, already filed; the verdict is KNOWN(id), not BUG.
+#        quirk  = Chez's behaviour is an implementation detail, not Idris's meaning;
+#                 the verdict is QUIRK(id) and the line is not compared.
+#        limit  = a resource limit, not a meaning; the verdict is LIMIT(id).
+# matches: log = any build log; eval.err etc. = that stream; chez.status = Chez's exit.
+linear-catchall	known	log	uses a linear value that is already used on the same path	a case on a linear binder whose default region names the scrutinee (uniqueness-pipeline.md 6.5 D5); being fixed
+put-char-high	quirk	source	putChar[^\n]*chr[^\n]*(12[89]|1[3-9][0-9]|2[0-5][0-9])	Idris's Char is a code point; Chez writes one byte (latin-1), we write UTF-8; the Prelude leaves the encoding to the backend
+chez-timeout	limit	chez.status	^124$	the reference did not finish within 60 s, so there is no reference answer
+stack-exhausted	limit	eval.status	^139$	SIGSEGV from an 8 MiB C stack under non-tail recursion that Chez's growable stack absorbs; confirmed per case by rerunning under `ulimit -s unlimited`
 ```
 
 ## reduce.py
@@ -595,6 +731,7 @@ balanced parenthesised subterms, each replaced by a literal of a guessed type
 (only kept when the predicate, which type checks first, still holds).
 PREDICATE is a shell command run with the candidate's path; exit 0 = still
 interesting."""
+import os
 import re
 import subprocess
 import sys
@@ -630,7 +767,7 @@ decls, stmts = chunks(text)
 changed = True
 while changed:
     changed = False
-    for i in range(len(stmts) - 1, 5, -1):
+    for i in range(len(stmts) - 1, int(os.environ.get("FIXED", "6")) - 1, -1):
         c = stmts[:i] + stmts[i + 1:]
         if interesting(join(decls, c)):
             stmts = c
@@ -668,7 +805,7 @@ for sweep in range(3):
             break
         a, b = spans[i]
         done = False
-        for rep in ["0", "[]", "n1", "Lf"]:
+        for rep in ["0", "[]", "n1", "Lf", "a", "b", "x"]:
             c = text[:a] + rep + text[b:]
             if len(c) < len(text) and interesting(c):
                 text = c
@@ -682,17 +819,103 @@ for sweep in range(3):
 open(out, "w").write(text)
 ```
 
-## pred-null.sh
+## pred.sh, keep.sh
 
 ```sh
 #!/bin/sh
-# interesting: the program type checks and --no-eval hits the null operand.
-repo=/home/user/idris-mlir
-export IDRIS2_PREFIX=$repo/.toolchain/idris2 PATH=$repo/.toolchain/idris2/bin:$PATH
-d=$(mktemp -d /tmp/claude-0/-home-user-idris-mlir/9e6c7b10-225a-5a6c-bf9d-31a304a4cdcc/scratchpad/research/differential/red.XXXX)
-cp "$1" "$d/Main.idr"
-cd "$d"
-flock -s $repo/build/.tree.lock timeout 300 $repo/tools/compile.sh --io --directive no-eval Main.idr prog > log 2>&1
-grep -q 'null operand found' log; s=$?
-cd /; rm -rf "$d"; exit $s
+# pred.sh 'REGEX' 'FLAGS' FILE: interesting when the scratch build's log of FILE matches REGEX.
+D=/tmp/claude-0/-home-user-idris-mlir/9e6c7b10-225a-5a6c-bf9d-31a304a4cdcc/scratchpad/research/differential
+export IDRIS2_PREFIX=$D/tree/.toolchain/idris2 PATH=$D/tree/.toolchain/idris2/bin:$PATH IDRIS_MLIR_ROOT=$D/tree
+w=$(mktemp -d $D/recheck/p.XXXX); cp "$3" $w/Main.idr; cd $w
+timeout 300 $D/tree/tools/compile.sh --io $2 Main.idr prog > log 2>&1
+grep -qE "$1" log; s=$?
+cd /; rm -rf $w; exit $s
 ```
+
+```sh
+#!/bin/sh
+# keep.sh FILE DIR [compile flags]: compile with the scratch build and keep build/exec/prog.mlir
+# although the build fails (unlink made a no-op under strace).
+D=/tmp/claude-0/-home-user-idris-mlir/9e6c7b10-225a-5a6c-bf9d-31a304a4cdcc/scratchpad/research/differential
+export IDRIS2_PREFIX=$D/tree/.toolchain/idris2 PATH=$D/tree/.toolchain/idris2/bin:$PATH IDRIS_MLIR_ROOT=$D/tree
+f=$1; w=$2; shift 2
+rm -rf $w; mkdir -p $w; cp "$f" $w/Main.idr; cd $w
+timeout 600 strace -f -o /dev/null -e trace=unlink,unlinkat -e inject=unlink,unlinkat:retval=0 $D/tree/tools/compile.sh --io "$@" Main.idr prog > log 2>&1
+tail -3 log
+```
+
+## fixcheck.sh, and the candidate fixes it tested
+
+`fix/idris-mlir-cc` and `fix/idris-mlir-cc-w` are the scratch build's
+idris-mlir-cc relinked with one or two recompiled objects (`llvm-ar r` into
+a copy of `libidr_dialect.a`, then ninja's own link command with the copy),
+so the scratch build itself is never changed.
+
+```sh
+#!/bin/sh
+# fixcheck.sh FILE MODE(eval|noeval) [-p base]: the program's contract text through the
+# patched idris-mlir-cc (symbol-dce before idr-prune), linked and run, against Chez.
+D=/tmp/claude-0/-home-user-idris-mlir/9e6c7b10-225a-5a6c-bf9d-31a304a4cdcc/scratchpad/research/differential
+export IDRIS2_PREFIX=$D/tree/.toolchain/idris2 PATH=$D/tree/.toolchain/idris2/bin:$PATH IDRIS_MLIR_ROOT=$D/tree
+f=$1; mode=$2; shift 2
+w=$(mktemp -d $D/recheck/f.XXXX)
+fl=; ne=; [ "$mode" = noeval ] && { fl="--directive no-eval"; ne=--no-eval; }
+$D/keep.sh "$f" $w/k $fl "$@" > /dev/null
+cp "$f" $w/Main.idr; cd $w
+timeout 300 idris2 --no-banner --no-color --no-prelude "$@" --cg chez -o cprog Main.idr > chez.log 2>&1
+echo 123 > in; timeout 60 build/exec/cprog < in > c.out 2>&1; cs=$?
+if ! timeout 600 ${CC_FIX:-$D/fix/idris-mlir-cc} k/build/exec/prog.mlir -o p.o $ne > cc.log 2>&1; then echo "FIXED CC FAILS: $(grep -m1 error cc.log | cut -c1-120)"; cd /; rm -rf $w; exit 1; fi
+$D/tree/.toolchain/llvm-musl/bin/clang --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie p.o -o p -lgmp > ld.log 2>&1 || { echo "LINK FAILS $(head -2 ld.log)"; cd /; rm -rf $w; exit 1; }
+IDRIS_RT_LIVE=1 timeout 60 ./p < in > o.out 2> o.err; os=$?
+if cmp -s c.out o.out && [ $cs = $os ]; then echo "FIXED AGREES ($(wc -l < o.out) lines) $(tail -1 o.err)"; else echo "FIXED DIFFERS chez $cs ours $os"; fi
+cd /; rm -rf $w
+```
+
+```diff
+--- tree/foreign/idr/lib/Passes/Simplify.cc	2026-09-30 01:58:49.885033222 +0000
++++ fix/Simplify.cc	2026-09-30 03:33:37.187041942 +0000
+@@ -215,9 +215,9 @@
+       "idr-canonicalize",
+       "cse",
+       "idr-eval",
+-      "idr-prune",
+       "symbol-dce",
+-      "remove-dead-values",
++      "idr-prune",
++      "remove-dead-values{canonicalize=false}",
+       "symbol-dce",
+   };
+ }
+--- tree/foreign/idr/lib/Passes/Prune.cc	2026-09-30 00:44:45.000000000 +0000
++++ fix/Prune.cc	2026-09-30 03:32:17.547550848 +0000
+@@ -105,8 +105,14 @@
+ 
+ struct Prune : idr::impl::IdrPruneBase<Prune> {
+   void runOnOperation() override {
+-    unsigned guarded = guardUnreadParameters(getOperation());
+-    numPoisoned += guarded;
++    // Emptying code removes calls, and passing poison removes uses, and
++    // either can leave more to do: repeat until nothing changes, the state
++    // remove-dead-values will see.
++    unsigned emptied = 0, guarded = 0;
++    for (bool again = true; again;) {
++    unsigned guardedNow = guardUnreadParameters(getOperation());
++    numPoisoned += guardedNow;
++    guarded += guardedNow;
+     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
+     loadBaselineAnalyses(solver);
+     if (failed(solver.initializeAndRun(getOperation())))
+@@ -130,7 +136,10 @@
+     for (Block *block : unreachable)
+       empty(*block);
+     numEmptied += unreachable.size();
+-    if (unreachable.empty() && !guarded)
++    emptied += unreachable.size();
++    again = !unreachable.empty() || guardedNow != 0;
++    }
++    if (emptied == 0 && !guarded)
+       markAllAnalysesPreserved();
+   }
+ };
+```
+

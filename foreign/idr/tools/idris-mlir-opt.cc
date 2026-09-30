@@ -11,11 +11,31 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <unistd.h>
 
 namespace {
+
+// Upstream's test pass of the same name, which the pinned mlir-opt, built
+// without MLIR's test passes, lacks: tests/upstream/uplift-final-counter
+// runs upstream's reproducer through it. PIN(uplift-final-counter)
+struct UpliftWhileToFor
+    : mlir::PassWrapper<UpliftWhileToFor, mlir::OperationPass<void>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(UpliftWhileToFor)
+  llvm::StringRef getArgument() const final { return "test-scf-uplift-while-to-for"; }
+  llvm::StringRef getDescription() const final {
+    return "Apply upstream's scf.while to scf.for uplift patterns";
+  }
+  void runOnOperation() override {
+    mlir::RewritePatternSet patterns(&getContext());
+    mlir::scf::populateUpliftWhileToForPatterns(patterns);
+    if (mlir::failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns))))
+      signalPassFailure();
+  }
+};
 
 struct Invocation {
   int argc;
@@ -27,6 +47,7 @@ void optMain(void *argument) {
   auto &invocation = *static_cast<Invocation *>(argument);
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
+  mlir::PassRegistration<UpliftWhileToFor>();
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);

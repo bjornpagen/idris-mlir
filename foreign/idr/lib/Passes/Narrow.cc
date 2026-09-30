@@ -485,6 +485,11 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingAndNewOps);
     (void)applyOpPatternsGreedily(facts.converted(), FrozenRewritePatternSet(), config);
+    // A versioned loop's start, once its copy took the word.
+    module.walk([&](BigFromIntOp from) {
+      if (isOpTriviallyDead(from))
+        rewriter.eraseOp(from);
+    });
   }
 };
 

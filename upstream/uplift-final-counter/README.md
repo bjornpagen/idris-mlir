@@ -9,10 +9,8 @@ its `scf.condition` forwards when the condition is false: for
 
 ## Reproduce
 
-No `mlir-opt` pass runs the uplift outside MLIR's test passes, so the
-reproducer is a small program against the MLIR libraries (`uplift.cpp`)
-that applies the patterns, with the greedy driver's folding, to
-`counter.mlir`:
+MLIR's own test pass runs the uplift (`mlir/test/lib/Dialect/SCF/TestUpliftWhileToFor.cpp`),
+with the greedy driver's folding, on `counter.mlir`:
 
 ```mlir
 func.func @count() -> index {
@@ -32,10 +30,10 @@ func.func @count() -> index {
 ```
 
 ```sh
-clang++ -std=c++17 -fno-rtti -I<prefix>/include uplift.cpp -o uplift \
-  -Wl,--start-group <prefix>/lib/libMLIR*.a <prefix>/lib/libLLVM*.a -Wl,--end-group
-./uplift counter.mlir
+mlir-opt --test-scf-uplift-while-to-for counter.mlir
 ```
+
+(`mlir-opt` from a build with `MLIR_INCLUDE_TESTS=ON`.)
 
 The result returns `arith.constant 9 : index`. The loop ends with `i = 10`.
 With a lower bound at or above the upper bound the loop runs no iteration
