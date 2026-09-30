@@ -78,7 +78,10 @@ still live when it ends: none.
   `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
   ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
   `traverse_`). `Integer`, `Nat`, lists and streams have runtime
-  representations, built at runtime on the heap; a closed call is
+  representations, built at runtime on the heap; a `Nat` is a big integer
+  that is never negative, and the Prelude's arithmetic and comparisons on
+  it are the runtime's, as in Idris's own backends
+  ([naturals](tests/registry/nat-operations)); a closed call is
   evaluated at compile time, and its result is static data. The pure
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See

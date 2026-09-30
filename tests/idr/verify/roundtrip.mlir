@@ -279,8 +279,6 @@ module attributes {idr.program} {
     %7 = idr.big.xor %a, %a
     // CHECK: idr.big.neg %{{.*}}
     %8 = idr.big.neg %a
-    // CHECK: idr.big.pred %{{.*}}
-    %pred = idr.big.pred %a
     // CHECK: idr.big.cmp gte %{{.*}}, %{{.*}}
     %9 = idr.big.cmp gte %a, %a
     // CHECK: idr.big.from_int signed %{{.*}} : i64
@@ -295,6 +293,27 @@ module attributes {idr.program} {
     %14 = idr.big.show %a
     // CHECK: idr.big.from_str %{{.*}}
     %15 = idr.big.from_str %s
+    return
+  }
+
+  // The big ops that keep naturals natural write the type; the others take
+  // and give Integers only.
+  // CHECK-LABEL: func.func private @naturals
+  func.func private @naturals(%n: !idr.nat, %a: !idr.big) {
+    // CHECK: idr.constant #idr.big<"3"> : !idr.nat
+    %three = idr.constant #idr.big<"3"> : !idr.nat
+    // CHECK: idr.big.add %{{.*}}, %{{.*}} : !idr.nat
+    %0 = idr.big.add %n, %three : !idr.nat
+    // CHECK: idr.big.mul %{{.*}}, %{{.*}} : !idr.nat
+    %1 = idr.big.mul %n, %n : !idr.nat
+    // CHECK: idr.big.cmp lt %{{.*}}, %{{.*}} : !idr.nat
+    %2 = idr.big.cmp lt %n, %three : !idr.nat
+    // CHECK: idr.big.pred %{{.*}}
+    %3 = idr.big.pred %n
+    // CHECK: idr.nat.to_big %{{.*}}
+    %4 = idr.nat.to_big %n
+    // CHECK: idr.nat.from_big %{{.*}}
+    %5 = idr.nat.from_big %a
     return
   }
 
