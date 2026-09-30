@@ -2,9 +2,12 @@
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), by MLton (bench/sml) and by
 # the pinned clang -O2 (bench/c; static PIE on musl, as our programs), on the
-# same input. Prints a Markdown table of the best
-# of several wall-clock times, and checks that the outputs agree; then the
-# wall-clock time this compiler took to compile each program.
+# same input. clang compiles for the ISA this compiler targets, x86-64-v3,
+# and without floating-point contraction, which this compiler never does:
+# the columns compare compilers, not instruction sets or rounding. Prints a
+# Markdown table of the best of several wall-clock times, and checks that
+# the outputs agree; then the wall-clock time this compiler took to compile
+# each program.
 #
 #     bench/run.sh [--runs N] [name ...]
 #
@@ -113,7 +116,8 @@ build() {
       ;;
     'clang -O2')
       if [ ! -f "$bench/c/$name.c" ]; then missing=yes; return; fi
-      bounded "$pinned_cc" -O2 "$bench/c/$name.c" -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
+      bounded "$pinned_cc" -O2 -march=x86-64-v3 -ffp-contract=off "$bench/c/$name.c" \
+        -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac
