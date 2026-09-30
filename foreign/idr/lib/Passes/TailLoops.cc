@@ -483,6 +483,22 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   return loop;
 }
 
+// Whether the value a counted loop's counter ends with is used after it.
+// Upstream's uplift gives that value as the counter of the last iteration,
+// one step short of what the loop ends with (PINS.md:
+// uplift-final-counter), so such a loop stays an scf.while.
+bool counterUsedAfter(scf::WhileOp loop) {
+  Block *before = loop.getBeforeBody();
+  auto compare = dyn_cast<arith::CmpIOp>(before->front());
+  if (!compare)
+    return false;
+  for (Value side : {compare.getLhs(), compare.getRhs()})
+    if (auto arg = dyn_cast<BlockArgument>(side); arg && arg.getOwner() == before)
+      if (!loop.getResult(arg.getArgNumber()).use_empty())
+        return true;
+  return false;
+}
+
 // Whether `op`, in a loop, may run once before it instead: it has no
 // effect, cannot fail, and holds no reference, so no count changes
 // whichever iteration's copy it is.
@@ -521,6 +537,8 @@ struct TailLoops : idr::impl::IdrTailLoopsBase<TailLoops> {
     scf::populateUpliftWhileToForPatterns(uplift);
     FrozenRewritePatternSet frozen(std::move(uplift));
     for (scf::WhileOp loop : loops) {
+      if (counterUsedAfter(loop))
+        continue;
       bool erased = false;
       if (failed(applyOpPatternsGreedily({loop.getOperation()}, frozen,
                                          GreedyRewriteConfig().enableFolding(false).setStrictness(

@@ -28,42 +28,64 @@ LocationAttr builtAt(Value value) {
   return def ? LocationAttr(def->getLoc()) : LocationAttr(value.getLoc());
 }
 
-uint64_t constantSize(Attribute value) {
-  // A chain of clones counts a big down by one at a time; past this it is
-  // too long to unroll anyway, so the exact count does not matter.
-  constexpr uint64_t countless = uint64_t(1) << 32;
-  auto sum = [](ArrayAttr parts) {
+// A chain of clones counts a big down by one at a time; past this it is
+// too long to unroll anyway, so the exact count does not matter.
+constexpr uint64_t countless = uint64_t(1) << 32;
+
+// The size of `value` as a tree, up to countless. A constant that
+// compile-time evaluation made shares its parts, so each part is measured
+// once, in `sizes`, however often it occurs.
+uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &sizes) {
+  if (auto known = sizes.find(value); known != sizes.end())
+    return known->second;
+  auto sum = [&](ArrayAttr parts) {
     uint64_t size = 1;
     for (Attribute part : parts)
-      size += constantSize(part);
+      size = std::min(countless, size + constantSize(part, sizes));
     return size;
   };
-  if (auto con = dyn_cast<ConAttr>(value))
-    return sum(con.getFields());
-  if (auto closure = dyn_cast<ClosureAttr>(value))
-    return sum(closure.getCaptures());
-  if (auto big = dyn_cast<BigAttr>(value)) {
+  uint64_t size = 0;
+  if (auto con = dyn_cast<ConAttr>(value)) {
+    size = sum(con.getFields());
+  } else if (auto closure = dyn_cast<ClosureAttr>(value)) {
+    size = sum(closure.getCaptures());
+  } else if (auto big = dyn_cast<BigAttr>(value)) {
     StringRef digits = big.getValue();
     digits.consume_front("-");
     uint64_t n = 0;
-    return digits.size() > 9 || digits.getAsInteger(10, n) ? countless : n;
+    size = digits.size() > 9 || digits.getAsInteger(10, n) ? countless : n;
   }
-  return 0;
+  return sizes[value] = size;
+}
+
+uint64_t constantSize(Attribute value) {
+  llvm::DenseMap<Attribute, uint64_t> sizes;
+  return constantSize(value, sizes);
 }
 
 // A constant as a key: constructors and closures as the nodes they fold
-// from.
-Attribute keyOfConstant(Attribute value) {
+// from. Each shared part is keyed once, in `keys`.
+Attribute keyOfConstant(Attribute value, llvm::DenseMap<Attribute, Attribute> &keys) {
+  if (Attribute known = keys.lookup(value))
+    return known;
   MLIRContext *ctx = value.getContext();
-  auto keys = [&](ArrayAttr parts) {
-    return ArrayAttr::get(ctx, llvm::map_to_vector(parts, keyOfConstant));
+  auto keysOf = [&](ArrayAttr parts) {
+    return ArrayAttr::get(ctx, llvm::map_to_vector(parts, [&](Attribute part) {
+                            return keyOfConstant(part, keys);
+                          }));
   };
+  Attribute key = value;
   if (auto con = dyn_cast<ConAttr>(value))
-    return KeyConAttr::get(ctx, con.getCtor().getRootReference(), con.getCtor().getLeafReference(),
-                           keys(con.getFields()));
-  if (auto closure = dyn_cast<ClosureAttr>(value))
-    return KeyClosureAttr::get(ctx, closure.getCallee().getAttr(), keys(closure.getCaptures()));
-  return value;
+    key = KeyConAttr::get(ctx, con.getCtor().getRootReference(), con.getCtor().getLeafReference(),
+                          keysOf(con.getFields()));
+  else if (auto closure = dyn_cast<ClosureAttr>(value))
+    key = KeyClosureAttr::get(ctx, closure.getCallee().getAttr(), keysOf(closure.getCaptures()));
+  return keys[value] = key;
+}
+
+Attribute keyOfConstant(Attribute value) {
+  llvm::DenseMap<Attribute, Attribute> keys;
+  return keyOfConstant(value, keys);
 }
 
 std::vector<Pattern> shapesOf(ValueRange values, SmallVectorImpl<Value> &leaves) {

@@ -172,4 +172,13 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   return result;
 }
 
+const void *Jit::address(llvm::StringRef name) const {
+  auto found = jit->lookup(name);
+  if (!found) {
+    llvm::consumeError(found.takeError());
+    return nullptr;
+  }
+  return found->toPtr<const void *>();
+}
+
 } // namespace idr::eval

@@ -275,26 +275,32 @@ OpFoldResult ConstantOp::fold(FoldAdaptor) { return getValue(); }
 
 namespace {
 
+// The constants and types already checked: a constant that compile-time
+// evaluation made shares its parts, and each is checked once.
+using Checked = llvm::DenseSet<std::pair<Attribute, Type>>;
+
 // That `value` is a constant of `type`, recursively through fields and
 // captures, with every symbol resolved.
 LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
-                             Attribute value, Type type);
+                             Attribute value, Type type, Checked &checked);
 
 LogicalResult verifyConstants(Operation *op, SymbolTableCollection &symbols,
-                              ArrayAttr values, TypeRange types) {
+                              ArrayAttr values, TypeRange types, Checked &checked) {
   if (values.size() != types.size())
     return op->emitOpError("has a constant with ")
            << values.size() << " fields or captures where " << types.size()
            << " are expected";
   // A constant fills a linear field or capture as its plain value.
   for (auto [value, type] : llvm::zip(values, types))
-    if (failed(verifyConstant(op, symbols, value, unrestricted(type))))
+    if (failed(verifyConstant(op, symbols, value, unrestricted(type), checked)))
       return failure();
   return success();
 }
 
 LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
-                             Attribute value, Type type) {
+                             Attribute value, Type type, Checked &checked) {
+  if (!checked.insert({value, type}).second)
+    return success();
   if (auto scalar = dyn_cast<TypedAttr>(value);
       scalar && isa<IntegerAttr, FloatAttr>(value) && scalar.getType() == type &&
       isFieldType(type))
@@ -310,7 +316,7 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
     if (!ctor)
       return op->emitOpError("has a constant of an unknown constructor ") << con.getCtor();
     SmallVector<Type> fields(ctor.getFieldTypes().getAsValueRange<TypeAttr>());
-    return verifyConstants(op, symbols, con.getFields(), fields);
+    return verifyConstants(op, symbols, con.getFields(), fields, checked);
   }
   if (auto closure = dyn_cast<ClosureAttr>(value)) {
     auto fn = symbols.lookupNearestSymbolFrom<func::FuncOp>(op, closure.getCallee());
@@ -328,7 +334,7 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
              << closure.getCallee() << ", of type " << expected << ", where " << type
              << " is expected";
     return verifyConstants(op, symbols, closure.getCaptures(),
-                           inputs.take_front(captures));
+                           inputs.take_front(captures), checked);
   }
   return success();
 }
@@ -336,7 +342,8 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols,
 } // namespace
 
 LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  return verifyConstant(*this, symbols, getValue(), getType());
+  Checked checked;
+  return verifyConstant(*this, symbols, getValue(), getType(), checked);
 }
 
 //===----------------------------------------------------------------------===//

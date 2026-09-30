@@ -11,6 +11,7 @@
 
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
+#include "Lower/Runtime.h"
 #include "Support/Actions.h"
 
 #include "idr/Idr.h"
@@ -19,7 +20,8 @@
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/AsmParser/AsmParser.h"
+#include "mlir/Bytecode/BytecodeReader.h"
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/Pass/PassManager.h"
@@ -68,6 +70,27 @@ constexpr Meter totalCode{
     {/*ticks=*/uint64_t{1} << 31, /*bytes=*/uint64_t{1} << 32, /*stack=*/uint64_t{1} << 30},
     "did not finish within the budget of total code",
 };
+
+// A result is worth its call when its constants take at most this much
+// static data. A larger one would make the executable larger than running
+// the call does, and its compilation slower: the call stays, to run at
+// runtime, as upstream Idris runs its calls there. The value is never at
+// stake, only the size and the speed.
+constexpr uint64_t resultBytes = uint64_t{1} << 20;
+
+// The attribute of the module the child sends a call's results in.
+constexpr llvm::StringLiteral resultsName = "eval.results";
+
+// The table of the address of each label's code, by label number, which the
+// reifier reads a closure's label from: a closure is a code pointer and
+// captures, nothing more.
+constexpr llvm::StringLiteral codesName = "__idr_codes";
+
+// What the child sends for a call: "results" and the results in bytecode,
+// which keeps shared parts shared, or "too-large" or "unreadable" and why
+// not.
+constexpr llvm::StringLiteral sentResults = "results";
+constexpr llvm::StringLiteral sentTooLarge = "too-large";
 
 struct Outcome {
   SmallVector<Attribute> results;
@@ -212,7 +235,9 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   llvm::scope_exit erase([&] { lowered.erase(); });
   // The layouts of the values, read before idr-lower takes the types apart.
   OwningOpRef<ModuleOp> pristine = lowered.clone();
-  idr::lower::Layouts layouts(*pristine);
+  FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(*pristine);
+  if (failed(layouts))
+    return failure();
   SmallVector<SmallVector<Type>> resultTypes;
   for (size_t i = 0; i < keys.size(); ++i)
     resultTypes.push_back(
@@ -258,34 +283,75 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   toLLVM.addPass(createReconcileUnrealizedCastsPass());
   if (failed(runPipeline(toLLVM, lowered)))
     return internal(0, "lowering the round's calls to the LLVM dialect failed");
+  if (unsigned labels = layouts->numLabels()) {
+    SymbolTable symbols(lowered);
+    Location loc = lowered.getLoc();
+    auto type = LLVM::LLVMArrayType::get(ptr, labels);
+    auto table = LLVM::GlobalOp::create(b, loc, type, /*isConstant=*/true, LLVM::Linkage::External,
+                                        codesName, Attribute(), /*alignment=*/8);
+    OpBuilder::InsertionGuard guard(b);
+    b.createBlock(&table.getInitializerRegion());
+    Value codes = LLVM::ZeroOp::create(b, loc, type);
+    for (unsigned id = 0; id < labels; ++id)
+      if (auto code = symbols.lookup<LLVM::LLVMFuncOp>(idr::lower::codeName(id)))
+        codes = LLVM::InsertValueOp::create(b, loc, codes, LLVM::AddressOfOp::create(b, loc, code),
+                                            static_cast<int64_t>(id));
+    LLVM::ReturnOp::create(b, loc, codes);
+  }
   std::string why;
   std::unique_ptr<idr::eval::Jit> jit = idr::eval::Jit::compile(lowered, entries, why);
   if (!jit)
     return internal(0, "the JIT: " + why);
 
-  idr::eval::Reifier reifier(layouts);
-  auto reify = [&](size_t i, ArrayRef<uint64_t> slots) {
-    SmallVector<std::string> texts;
-    for (Type type : resultTypes[i]) {
-      std::string text;
-      llvm::raw_string_ostream os(text);
-      reifier.value(type, slots).print(os);
-      texts.push_back(std::move(text));
-    }
-    return texts;
+  llvm::DenseMap<uint64_t, unsigned> codes;
+  if (const auto *table = static_cast<const uint64_t *>(jit->address(codesName)))
+    for (unsigned id = 0; id < layouts->numLabels(); ++id)
+      if (table[id] != 0)
+        codes[table[id]] = id;
+  idr::eval::Reifier reifier(*layouts, std::move(codes), resultBytes);
+  auto reify = [&](size_t i, ArrayRef<uint64_t> slots) -> SmallVector<std::string> {
+    auto values = reifier.results(resultTypes[i], slots);
+    if (!values)
+      return {(values.error().why == idr::eval::Unread::Why::TooLarge ? sentTooLarge
+                                                                       : StringRef("unreadable"))
+                  .str(),
+              values.error().message};
+    OwningOpRef<ModuleOp> holder = ModuleOp::create(UnknownLoc::get(ctx));
+    (*holder)->setAttr(resultsName, ArrayAttr::get(ctx, *values));
+    std::string bytes;
+    llvm::raw_string_ostream os(bytes);
+    if (failed(writeBytecodeToFile(*holder, os)))
+      return {"unreadable", "the results have no bytecode"};
+    return {sentResults.str(), std::move(bytes)};
   };
   size_t next = 0;
   while (next < keys.size()) {
     idr::eval::Run run = idr::eval::runInChild(jit->getEntries(), words, budgets, next, reify);
     for (idr::eval::Result &result : run.results) {
-      Outcome outcome;
-      for (const std::string &text : result.texts) {
-        Attribute value = parseAttribute(text, ctx);
-        if (!value)
-          return internal(next, "cannot read back the result " + text);
-        outcome.results.push_back(value);
-      }
       Call call = site(next);
+      if (result.texts.size() != 2)
+        return internal(next, "the evaluation child sent no results");
+      if (result.texts[0] == sentTooLarge) {
+        remark::missed(call.op->getLoc(), remark::RemarkOpts::name("TooLarge")
+                                              .category("idr-eval")
+                                              .function(call.callee.getSymName()))
+            << ("the call of @" + call.callee.getSymName() + " stays: " + result.texts[1]).str();
+        cache[keys[next++]].stays = true;
+        ++numStayedLarge;
+        continue;
+      }
+      if (result.texts[0] != sentResults)
+        return internal(next, "cannot read back the results: " + result.texts[1]);
+      Block holder;
+      if (failed(readBytecodeFile(llvm::MemoryBufferRef(result.texts[1], "idr-eval results"),
+                                  &holder, ParserConfig(ctx, /*verifyAfterParse=*/false))))
+        return internal(next, "cannot read back the results' bytecode");
+      auto values = holder.empty() ? ArrayAttr()
+                                   : holder.front().getAttrOfType<ArrayAttr>(resultsName);
+      if (!values)
+        return internal(next, "the results' bytecode holds no results");
+      Outcome outcome;
+      outcome.results = llvm::to_vector(values.getValue());
       remark::passed(call.op->getLoc(), remark::RemarkOpts::name("Evaluated")
                                             .category("idr-eval")
                                             .function(call.callee.getSymName()))

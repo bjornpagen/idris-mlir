@@ -25,14 +25,39 @@ template <typename T> const T *pointer(uint64_t word) {
   return reinterpret_cast<const T *>(static_cast<uintptr_t>(word));
 }
 
-CtorOp withTag(DataOp data, uint64_t tag) {
-  for (CtorOp ctor : data.getCtors())
-    if (ctor.getTag() == tag)
-      return ctor;
-  return {};
-}
+// Where a closure keeps its code pointer (idris_rt.h).
+constexpr unsigned codeOffset = 8;
 
 } // namespace
+
+std::expected<SmallVector<Attribute>, Unread> Reifier::results(ArrayRef<Type> types,
+                                                               ArrayRef<uint64_t> slots) {
+  spent = 0;
+  unread.reset();
+  SmallVector<Attribute> values;
+  for (Type type : types) {
+    Attribute value = this->value(type, slots);
+    if (!value)
+      return std::unexpected(std::move(*unread));
+    values.push_back(value);
+  }
+  return values;
+}
+
+bool Reifier::spend(uint64_t bytes) {
+  spent += bytes;
+  if (spent <= budget)
+    return true;
+  refuse(Unread::Why::TooLarge,
+         ("its results take more than " + Twine(budget) + " bytes of static data").str());
+  return false;
+}
+
+Attribute Reifier::refuse(Unread::Why why, std::string message) {
+  if (!unread)
+    unread = Unread{why, std::move(message)};
+  return {};
+}
 
 SmallVector<uint64_t> Reifier::read(const char *cell, ArrayRef<lower::Slot> slots) {
   SmallVector<uint64_t> words;
@@ -49,7 +74,10 @@ Attribute Reifier::constructor(DataOp data, CtorOp ctor,
   for (unsigned i = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); i < e; ++i) {
     SmallVector<uint64_t> words = fields(i);
     ArrayRef<uint64_t> rest = words;
-    values.push_back(value(ctor.getFieldType(i), rest));
+    Attribute value = this->value(ctor.getFieldType(i), rest);
+    if (!value)
+      return {};
+    values.push_back(value);
   }
   auto name = SymbolRefAttr::get(data.getSymNameAttr(),
                                  {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
@@ -69,7 +97,12 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
     ArrayRef<uint64_t> mine = words.take_front(n);
     words = words.drop_front(n);
     DataOp decl = lookupData(layouts.getModule(), type);
-    CtorOp ctor = layout.tag ? withTag(decl, mine.front()) : decl.getCtors().front();
+    SmallVector<CtorOp> ctors = decl.getCtors();
+    uint64_t tag = layout.tag ? mine.front() : 0;
+    if (tag >= ctors.size())
+      return refuse(Unread::Why::Unreadable,
+                    ("a value of @" + decl.getSymName() + " has tag " + Twine(tag)).str());
+    CtorOp ctor = ctors[tag];
     return constructor(decl, ctor, [&](unsigned field) {
       SmallVector<uint64_t> out;
       for (unsigned slot : layout.fields.find(ctor.getSymName())->second[field])
@@ -84,32 +117,70 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
                                         /*implicitTrunc=*/true));
   if (isa<Float64Type>(type))
     return FloatAttr::get(type, llvm::bit_cast<double>(word));
+  // A small big is its word, which nothing shares.
+  if (isa<BigType, NatType>(type) && (word & 1) != 0)
+    return object(type, word);
+  auto key = std::make_pair(word, type);
+  if (Attribute known = seen.lookup(key))
+    return known;
+  Attribute read = object(type, word);
+  if (read)
+    seen[key] = read;
+  return read;
+}
+
+Attribute Reifier::object(Type type, uint64_t word) {
+  MLIRContext *ctx = type.getContext();
   if (isa<StrType>(type)) {
     const auto *s = pointer<idris_rt_str>(word);
+    if (!spend(sizeof(idris_rt_str) + s->bytes))
+      return {};
     return StringAttr::get(ctx, StringRef(idris_rt_str_bytes(s), s->bytes));
   }
   if (isa<BigType, NatType>(type)) {
+    if ((word & 1) == 0) {
+      const auto *number = pointer<idris_rt_bignum>(word);
+      int64_t size = number->size;
+      if (!spend(sizeof(idris_rt_bignum) + 8 * static_cast<uint64_t>(size < 0 ? -size : size)))
+        return {};
+    }
     const idris_rt_str *text = idris_rt_big_show(static_cast<idris_rt_big>(word));
     return BigAttr::get(ctx, StringRef(idris_rt_str_bytes(text), text->bytes));
   }
   const char *cell = pointer<char>(word);
   const auto *header = pointer<idris_rt_header>(word);
-  // The low 16 bits of the info word are a box's tag or a closure's label.
-  uint32_t tag = header->info & lower::tagMask;
   if (isa<BoxType>(type)) {
     DataOp decl = lookupData(layouts.getModule(), type);
-    CtorOp ctor = withTag(decl, tag);
-    return constructor(decl, ctor,
-                       [&](unsigned field) { return read(cell, layouts.box(ctor).fields[field]); });
+    SmallVector<CtorOp> ctors = decl.getCtors();
+    uint32_t tag = idris_rt_info_tag(header->info);
+    if (tag >= ctors.size())
+      return refuse(Unread::Why::Unreadable,
+                    ("a cell of @" + decl.getSymName() + " has tag " + Twine(tag)).str());
+    CtorOp ctor = ctors[tag];
+    const lower::Cell &layout = layouts.box(ctor);
+    if (!spend(layout.size))
+      return {};
+    return constructor(decl, ctor, [&](unsigned field) { return read(cell, layout.fields[field]); });
   }
-  const lower::Label &label = layouts.label(tag);
+  // A closure: its code says which label it is of.
+  uint64_t code = 0;
+  std::memcpy(&code, cell + codeOffset, sizeof code);
+  auto found = codes.find(code);
+  if (found == codes.end())
+    return refuse(Unread::Why::Unreadable, "the code of a closure is no label's");
+  const lower::Label &label = layouts.label(found->second);
   const lower::Cell &layout = layouts.closure(label);
+  if (!spend(layout.size))
+    return {};
   SmallVector<Attribute> captures;
   for (auto [slots, captureType] :
        llvm::zip_equal(ArrayRef(layout.fields).drop_front(), label.captureTypes())) {
     SmallVector<uint64_t> components = read(cell, slots);
     ArrayRef<uint64_t> rest = components;
-    captures.push_back(value(captureType, rest));
+    Attribute capture = value(captureType, rest);
+    if (!capture)
+      return {};
+    captures.push_back(capture);
   }
   return ClosureAttr::get(ctx, label.callee, ArrayAttr::get(ctx, captures));
 }

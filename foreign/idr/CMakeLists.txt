@@ -87,6 +87,8 @@ target_link_libraries(idr_dialect
 		MLIRIR
 		MLIRPass
 		MLIRParser
+		MLIRBytecodeReader
+		MLIRBytecodeWriter
 		MLIRTransforms
 		MLIRFuncDialect
 		MLIRFuncTransforms

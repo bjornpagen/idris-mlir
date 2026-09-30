@@ -26,6 +26,8 @@ public:
                                       std::string &error);
 
   llvm::ArrayRef<Entry> getEntries() const { return entries; }
+  // The address of the global `name` defines, or null when it defines none.
+  const void *address(llvm::StringRef name) const;
 
 private:
   std::unique_ptr<llvm::orc::LLJIT> jit;

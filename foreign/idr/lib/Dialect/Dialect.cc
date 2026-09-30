@@ -3,6 +3,7 @@
 
 #include "idr/Idr.h"
 
+#include "Dialect/Sharing.h"
 #include "Ownership/Ownership.h"
 
 #include "mlir/IR/Builders.h"
@@ -56,6 +57,7 @@ void IdrDialect::initialize() {
 #include "idr/IdrOps.cc.inc"
       >();
   addInterfaces<IdrInliner>();
+  addSharingInterfaces(*this);
 }
 
 // idr.constant for the dialect's values and strings, and

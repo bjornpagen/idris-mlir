@@ -5,23 +5,59 @@
 
 #include "Lower/Layout.h"
 
+#include <expected>
+#include <string>
+
 namespace idr::eval {
+
+// Why the results of a call were not read back.
+struct Unread {
+  enum class Why {
+    // They take more static data than a result may.
+    TooLarge,
+    // The memory holds what no layout describes: an internal error.
+    Unreadable,
+  };
+  Why why;
+  std::string message;
+};
 
 class Reifier {
 public:
-  explicit Reifier(lower::Layouts &l) : layouts(l) {}
+  // `codes` maps the address of the code of each label's closures to the
+  // label's number; the results of one call may take `budget` bytes of
+  // static data.
+  Reifier(lower::Layouts &l, llvm::DenseMap<uint64_t, unsigned> codes, uint64_t budget)
+      : layouts(l), codes(std::move(codes)), budget(budget) {}
 
-  // The value of type `type` whose components are the next words of
-  // `words`, each an 8-byte slot holding one component; advances `words`.
-  mlir::Attribute value(mlir::Type type, llvm::ArrayRef<uint64_t> &words);
+  // The values of `types` whose components are the words of `slots`, one
+  // 8-byte slot each, or why they are not read.
+  std::expected<llvm::SmallVector<mlir::Attribute>, Unread>
+  results(llvm::ArrayRef<mlir::Type> types, llvm::ArrayRef<uint64_t> slots);
 
 private:
+  // The value of type `type` whose components are the next words of
+  // `words`; advances `words`. Null once `unread` says why not.
+  mlir::Attribute value(mlir::Type type, llvm::ArrayRef<uint64_t> &words);
+  // The value in the cell or string `word` points to (or, for a big, the
+  // word itself), read once however many values share it.
+  mlir::Attribute object(mlir::Type type, uint64_t word);
   // The components of `slots` in the cell at `cell`, one word each.
   llvm::SmallVector<uint64_t> read(const char *cell, llvm::ArrayRef<lower::Slot> slots);
   mlir::Attribute constructor(DataOp data, CtorOp ctor,
                               llvm::function_ref<llvm::SmallVector<uint64_t>(unsigned field)> fields);
+  // Counts `bytes` more of static data against the budget.
+  bool spend(uint64_t bytes);
+  mlir::Attribute refuse(Unread::Why why, std::string message);
 
   lower::Layouts &layouts;
+  llvm::DenseMap<uint64_t, unsigned> codes;
+  uint64_t budget;
+  uint64_t spent = 0;
+  std::optional<Unread> unread;
+  // The values read, by address and type: the results of a round share
+  // cells, and so do the constants read from them.
+  llvm::DenseMap<std::pair<uint64_t, mlir::Type>, mlir::Attribute> seen;
 };
 
 } // namespace idr::eval

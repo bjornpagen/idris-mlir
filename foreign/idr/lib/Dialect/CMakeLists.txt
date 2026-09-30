@@ -2,6 +2,7 @@
 # DRR patterns): TableGen declares them in the global module, so they are
 # plain translation units for good.
 target_sources(idr_dialect PRIVATE
+	Sharing.cc
 	Canonicalize/Apply.cc
 	Canonicalize/Calls.cc
 	Canonicalize/CaseOfCase.cc

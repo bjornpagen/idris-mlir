@@ -60,9 +60,12 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
     or goes round a loop), arena bytes and stack; a call that reaches only
     total code gets a larger budget than one that reaches a function
     without `idr.total`. A call that crashes, spends its budget, or is
-    refused memory by the machine stays. Results are cached per callee and
-    arguments. Remarks: `Passed` with the wall time, `Missed` for a crash
-    and for a call that did not finish, in the category idr-eval.
+    refused memory by the machine stays, and so does one whose results
+    would take more than 1 MiB of static data. The results come back as
+    MLIR bytecode, read once per cell, so parts they share stay shared.
+    Results are cached per callee and arguments. Remarks: `Passed` with the
+    wall time, `Missed` for a crash, for a call that did not finish and
+    for results too large, in the category idr-eval.
     Replacing one call by its results is the action `idr-eval-call`.
   }];
   let statistics = [
@@ -70,6 +73,8 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
     Statistic<"numStayedCrash", "stayed-crash", "Calls that crash, left to run at runtime">,
     Statistic<"numStayedBudget", "stayed-budget",
               "Metered calls that did not finish, left to run at runtime">,
+    Statistic<"numStayedLarge", "stayed-large",
+              "Calls whose results are too large to be worth it, left to run at runtime">,
     Statistic<"numCacheHits", "cache-hits",
               "Closed calls whose outcome an earlier run of the pass knew">,
   ];
