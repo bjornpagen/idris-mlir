@@ -2,8 +2,9 @@
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), by MLton (bench/sml) and by
 # the pinned clang -O2 (bench/c; static PIE on musl, as our programs), on the
-# same input. clang compiles for the ISA this compiler targets, x86-64-v3,
-# and without floating-point contraction, which this compiler never does:
+# same input. clang compiles for the CPU this compiler targets (idris-mlir-cc
+# --print-target-cpu), and without floating-point contraction, which this
+# compiler never does:
 # the columns compare compilers, not instruction sets or rounding. Prints a
 # Markdown table of the best of several wall-clock times, and checks that
 # the outputs agree; then the wall-clock time this compiler took to compile
@@ -55,6 +56,11 @@ bounded() {
   esac
   return "$bounded_status"
 }
+
+# The CPU is decided in one place, idris-mlir-cc, and clang is told it as
+# LLVM's target CPU, which every target takes; the driver's spellings
+# differ by architecture (-march on x86-64, -mcpu on arm64).
+target_cpu=$("$idris_mlir_cc" --print-target-cpu) || die "idris-mlir-cc names no target CPU; run make build"
 
 runs=5
 names=
@@ -116,7 +122,8 @@ build() {
       ;;
     'clang -O2')
       if [ ! -f "$bench/c/$name.c" ]; then missing=yes; return; fi
-      bounded "$pinned_cc" -O2 -march=x86-64-v3 -ffp-contract=off "$bench/c/$name.c" \
+      bounded "$pinned_cc" -O2 -Xclang -target-cpu -Xclang "$target_cpu" -ffp-contract=off \
+        "$bench/c/$name.c" \
         -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
