@@ -1,5 +1,6 @@
 // The evaluation child: fork, a guarded stack as large as the
-// address space allows, and the results pipe.
+// address space allows (the runtime's reserved-stack runner), and the
+// results pipe.
 
 #include "Eval/Child.h"
 
@@ -12,8 +13,6 @@
 #include <cstring>
 #include <ctime>
 #include <optional>
-#include <pthread.h>
-#include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -21,44 +20,16 @@ namespace idr::eval {
 
 namespace {
 
-// The child's stack: `size` bytes at `base`, the lowest `guard` of them
-// inaccessible. Pages are committed when first touched.
-struct Stack {
-  char *base = nullptr;
-  size_t size = 0;
-  size_t guard = size_t{1} << 24;
-};
+// The child's stack: at most 2^46 bytes of address space, committed as it is
+// touched, above a guard of 16 MiB. A metered call's stack budget ends it
+// before the guard; a fault on the guard is the machine's limit, exhaustion.
+constexpr size_t stackMost = size_t{1} << 46;
+constexpr size_t stackGuard = size_t{1} << 24;
 
 // The child's own failure, an internal error.
 constexpr int childFailed = 5;
 
-// Where a fault means the stack is exhausted; read by the signal handler.
-uintptr_t guardLow = 0;
-uintptr_t guardHigh = 0;
-
-bool reserve(Stack &stack) {
-  for (size_t size = size_t{1} << 46; size >= size_t{1} << 26; size >>= 1) {
-    void *base = mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (base == MAP_FAILED)
-      continue;
-    stack.base = static_cast<char *>(base);
-    stack.size = size;
-    return mprotect(base, stack.guard, PROT_NONE) == 0;
-  }
-  return false;
-}
-
-// A fault on the guard is exhaustion; any other fault is an internal error, so
-// the handler steps aside and the fault repeats with the default action.
-void onFault(int signal, siginfo_t *info, void *) {
-  auto address = reinterpret_cast<uintptr_t>(info->si_addr);
-  if (address >= guardLow && address < guardHigh)
-    _exit(IDRIS_RT_EVAL_EXHAUSTED);
-  struct sigaction fallback{};
-  fallback.sa_handler = SIG_DFL;
-  sigaction(signal, &fallback, nullptr);
-}
+[[noreturn]] void stackExhausted() { _exit(IDRIS_RT_EVAL_EXHAUSTED); }
 
 void writeAll(int fd, llvm::StringRef bytes) {
   while (!bytes.empty()) {
@@ -88,18 +59,8 @@ struct Work {
 
 // Each call's record: "<nanoseconds> <count>\n", then "<length>\n<text>" per
 // result.
-void *runCalls(void *argument) {
+void runCalls(void *argument) {
   auto &work = *static_cast<Work *>(argument);
-  static char alternate[1 << 16];
-  stack_t altStack{};
-  altStack.ss_sp = alternate;
-  altStack.ss_size = sizeof alternate;
-  sigaltstack(&altStack, nullptr);
-  struct sigaction action{};
-  action.sa_sigaction = onFault;
-  action.sa_flags = SA_SIGINFO | SA_ONSTACK;
-  sigaction(SIGSEGV, &action, nullptr);
-  sigaction(SIGBUS, &action, nullptr);
   for (size_t i = work.first; i < work.entries.size(); ++i) {
     llvm::SmallVector<uint64_t> slots(work.words[i]);
     uint64_t start = now();
@@ -114,22 +75,11 @@ void *runCalls(void *argument) {
       record += (llvm::Twine(text.size()) + "\n" + text).str();
     writeAll(work.out, record);
   }
-  return nullptr;
 }
 
 [[noreturn]] void child(Work &work, int report) {
   idris_rt_eval_begin(report);
-  Stack stack;
-  if (!reserve(stack))
-    _exit(IDRIS_RT_EVAL_EXHAUSTED);
-  guardLow = reinterpret_cast<uintptr_t>(stack.base);
-  guardHigh = guardLow + stack.guard;
-  pthread_attr_t attributes;
-  pthread_t thread;
-  if (pthread_attr_init(&attributes) != 0 ||
-      pthread_attr_setstack(&attributes, stack.base + stack.guard, stack.size - stack.guard) != 0 ||
-      pthread_create(&thread, &attributes, runCalls, &work) != 0 ||
-      pthread_join(thread, nullptr) != 0)
+  if (idris_rt_run_on_stack(runCalls, &work, stackMost, stackGuard, stackExhausted) != 0)
     _exit(IDRIS_RT_EVAL_EXHAUSTED);
   _exit(0);
 }

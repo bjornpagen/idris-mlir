@@ -7,11 +7,14 @@
 
 #include "idris_rt.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
 
 #include <cmath>
 #include <cstring>
@@ -73,6 +76,16 @@ llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols()
 
 std::string describe(llvm::Error error) { return llvm::toString(std::move(error)); }
 
+// The #llvm.target of the module or of the first module around it that has
+// one: the program being evaluated.
+mlir::LLVM::TargetAttr targetOf(mlir::Operation *op) {
+  for (; op; op = op->getParentOp())
+    if (auto target = op->getAttrOfType<mlir::LLVM::TargetAttr>(
+            mlir::LLVM::LLVMDialect::getTargetAttrName()))
+      return target;
+  return {};
+}
+
 } // namespace
 
 std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::string> names,
@@ -84,6 +97,29 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
     error = describe(builder.takeError());
     return nullptr;
   }
+  // The code runs here, but is compiled for the program's CPU, not this
+  // machine's: its frames, and so what a call spends of its stack budget and
+  // whether it is evaluated, are then the same on every machine. A module
+  // with no target (a test's) is compiled for the x86-64 baseline.
+  mlir::LLVM::TargetAttr target = targetOf(module);
+  std::string features =
+      target && target.getFeatures() ? target.getFeatures().getFeaturesString() : "";
+  // Code for a CPU with more than this one would stop on an illegal
+  // instruction in the child.
+  llvm::StringMap<bool> host = llvm::sys::getHostCPUFeatures();
+  std::string lacking;
+  for (const std::string &feature : llvm::SubtargetFeatures(features).getFeatures())
+    if (auto it = host.find(llvm::StringRef(feature).drop_front()); feature.starts_with("+") &&
+                                                                     it != host.end() && !it->second)
+      lacking += " " + feature.substr(1);
+  if (!lacking.empty()) {
+    error = "compile-time evaluation runs code for " + target.getChip().str() +
+            ", and this machine lacks" + lacking +
+            " (compile with --cpu=native, or --no-eval)";
+    return nullptr;
+  }
+  builder->setCPU(target ? target.getChip().str() : "x86-64");
+  builder->getFeatures() = llvm::SubtargetFeatures(features);
   builder->setCodeGenOptLevel(llvm::CodeGenOptLevel::Aggressive);
   builder->getOptions() = targetOptions();
   auto machine = builder->createTargetMachine();

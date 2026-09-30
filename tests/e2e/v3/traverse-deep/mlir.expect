@@ -1,0 +1,3 @@
+# Every recursion of the program is a loop once idr-tail-loops has run:
+# the stack stays constant whatever the input.
+idr-tail-loops: constant-stack=@$36$idris$45$mlir.root

@@ -4,23 +4,45 @@
 
 #include "idr/Idr.h"
 
+#include "idris_rt.h"
+
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
 
+#include <expected>
 #include <memory>
+#include <string>
 
 namespace idr::lower {
 
-// The second word of a cell's header: tag | objs << 16 | kind << 24. The
-// tag is a box's constructor tag, a closure's label or a string's ASCII
-// flag; objs is the number of 8-byte object slots (the counted references,
-// which the runtime releases when it frees the cell); bit 31 marks a cell
-// in a stack frame.
-enum class CellKind : uint32_t { Box = 0, Closure = 1, String = 2, Bignum = 3 };
-constexpr uint32_t tagMask = 0xFFFF;
-inline uint32_t cellInfo(uint32_t tag, unsigned objs, CellKind kind) {
-  return tag | objs << 16 | static_cast<uint32_t>(kind) << 24;
-}
+// The info word of a cell's header, which the runtime reads to free the cell
+// (idris_rt_info: the tag, the number of object slots, the kind). A CellInfo
+// exists only for a tag and an object count that fit their fields, so a word
+// whose fields overflow into each other cannot be written; the factories say
+// why when they do not fit.
+class CellInfo {
+public:
+  static std::expected<CellInfo, std::string> box(uint64_t tag, uint64_t objs) noexcept;
+  // A closure's code pointer says what it is, so its tag is 0.
+  static std::expected<CellInfo, std::string> closure(uint64_t objs) noexcept;
+  static constexpr CellInfo string(bool ascii) noexcept {
+    return CellInfo(idris_rt_info(ascii ? 1u : 0u, 0, IDRIS_RT_KIND_STRING));
+  }
+  static constexpr CellInfo bignum() noexcept {
+    return CellInfo(idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM));
+  }
+
+  constexpr uint32_t word() const noexcept { return bits; }
+  // The word of the same cell in a stack frame.
+  constexpr uint32_t onStack() const noexcept { return bits | IDRIS_RT_STACK_CELL; }
+
+private:
+  constexpr explicit CellInfo(uint32_t word) noexcept : bits(word) {}
+  uint32_t bits;
+};
+
+// The tag of a box, the low bits of its info word (idris_rt_info_tag).
+constexpr uint32_t tagMask = IDRIS_RT_TAG_LIMIT - 1;
 
 // An unboxed sum spread over scalar slots. A slot that holds a counted
 // component in one constructor (a pointer to a cell, or a big) holds one in
@@ -58,6 +80,8 @@ struct Cell {
   unsigned objs = 0;
   // Every component, (field, component) in address order.
   llvm::SmallVector<std::pair<unsigned, unsigned>> order;
+  // The header's info word, which counts the object slots.
+  CellInfo info;
 
   // The members of the LLVM struct with this layout: i32, i32, then each
   // component in address order.
@@ -78,7 +102,11 @@ struct Label {
 
 class Layouts {
 public:
-  explicit Layouts(mlir::ModuleOp m);
+  // The layouts of the values of `m`. Every cell's header is decided here,
+  // once: when a box type or a cell has more than its header can describe,
+  // each such one gets an `unsupported (layout)` error and the result is a
+  // failure.
+  static mlir::FailureOr<Layouts> of(mlir::ModuleOp m);
 
   // The runtime components of a value type: none for !idr.erased and
   // !idr.world, the slots of an unboxed sum, one pointer for strings, boxes,
@@ -93,8 +121,8 @@ public:
   const SumLayout &sum(mlir::StringAttr name);
 
   // The cell of a boxed constructor, and of a closure of `label`.
-  const Cell &box(CtorOp ctor);
-  const Cell &closure(const Label &label);
+  const Cell &box(CtorOp ctor) const { return *boxes.find(ctor)->second; }
+  const Cell &closure(const Label &label) const { return *closures.find(labelId(label))->second; }
 
   // The labels closures of this module use (idr.closure ops and
   // #idr.closure constants, nested ones included), numbered in the order a
@@ -109,8 +137,13 @@ public:
   mlir::ModuleOp getModule() const { return module; }
 
 private:
-  // A cell whose first `leading` fields come first, before the object slots.
-  Cell cellOf(llvm::ArrayRef<mlir::Type> fieldTypes, unsigned leading);
+  explicit Layouts(mlir::ModuleOp m);
+
+  // A cell whose first `leading` fields come first, before the object
+  // slots, with the header `info` gives for its number of object slots.
+  std::expected<Cell, std::string>
+  cellOf(llvm::ArrayRef<mlir::Type> fieldTypes, unsigned leading,
+         llvm::function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info);
 
   mlir::ModuleOp module;
   // Each layout has its own allocation, so that a reference to one stays
