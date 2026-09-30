@@ -51,7 +51,7 @@ Value readFrom(Value value) {
 bool isStatic(Value value) {
   for (; value; value = readFrom(value)) {
     Operation *def = value.getDefiningOp();
-    if (def && (def->hasTrait<OpTrait::ConstantLike>() || isa<ub::PoisonOp, BigSmallOp>(def)))
+    if (def && (def->hasTrait<OpTrait::ConstantLike>() || isa<ub::PoisonOp, BigSmallOp, PendingOp>(def)))
       return true;
   }
   return false;
@@ -92,9 +92,10 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
     return operand.get() == apply.getCallee() && operand.getOperandNumber() == 0 ? Use::Borrow
                                                                                 : Use::Consume;
   // A linear value moves into its one use and out of it again, with its
-  // reference; so does a natural into the Integer it is.
+  // reference; so does a natural into the Integer it is, and a value
+  // written to a destination into the cell.
   if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
-          LinUseOp, NatToBigOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
+          LinUseOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;
 }

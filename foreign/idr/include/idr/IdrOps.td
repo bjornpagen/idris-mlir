@@ -378,6 +378,53 @@ def Idr_TagOp : Idr_Op<"tag", [Pure,
 }
 
 //===----------------------------------------------------------------------===//
+// Destinations (lib/Passes/Trmc.cc)
+//===----------------------------------------------------------------------===//
+
+// A recursion that returns a constructor around its own result, `Cons x
+// (copy xs)`, builds the constructor first, without that field, and gives
+// the field to the recursive call as a destination to write once it has
+// the value: a cell's field is then written top down and the recursion is
+// a tail call, so idr-tail-loops makes it a loop.
+
+def Idr_DestType : Idr_Type<"Dest", "dest"> {
+  let summary = "a field of a cell built without it, to be written exactly once";
+  let parameters = (ins "::mlir::Type":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def Idr_PendingOp : Idr_Op<"dest.pending", [Pure]> {
+  let summary = "the operand of a constructor for a field it is built without";
+  let description = [{
+    No value: the field is written later, through the destination
+    `idr.dest.of` names. A constructor with a pending field is never
+    static, and nothing reads the field before it is written.
+  }];
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
+}
+
+def Idr_DestOfOp : Idr_Op<"dest.of", [Pure,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "the destination that is a pending field of a cell just built";
+  let arguments = (ins Idr_BoxType:$value, FlatSymbolRefAttr:$ctor, I64Attr:$index);
+  let results = (outs Idr_DestType:$result);
+  let assemblyFormat = [{
+    $value `[` $ctor `,` $index `]` attr-dict `:` type($value) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+def Idr_DestWriteOp : Idr_Op<"dest.write", [
+    TypesMatchWith<"the value is what the destination holds", "dest", "value",
+                   "::llvm::cast<::idr::DestType>($_self).getValue()">]> {
+  let summary = "writes the value of a pending field, consuming its reference";
+  let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);
+  let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest)";
+}
+
+//===----------------------------------------------------------------------===//
 // Matches
 //===----------------------------------------------------------------------===//
 

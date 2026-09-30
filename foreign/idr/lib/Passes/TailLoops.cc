@@ -373,10 +373,16 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
 FailureOr<scf::WhileOp> WhileDo::build() {
   Block &entry = fn.getBody().front();
   Operation *match = decision.match;
+  // An argument the call passes unchanged is not carried, unless the call
+  // consumes a reference of it: then each iteration takes one, which the
+  // yield to the next must consume as the call did.
   auto call = cast<func::CallOp>(decision.loops->front().getTerminator()->getPrevNode());
-  for (BlockArgument arg : entry.getArguments())
-    if (call.getOperand(arg.getArgNumber()) != arg)
-      carried.push_back(arg.getArgNumber());
+  for (BlockArgument arg : entry.getArguments()) {
+    unsigned index = arg.getArgNumber();
+    bool consumed = counting.tracked(arg) && !idr::ownership::isBorrowed(fn, index);
+    if (call.getOperand(index) != arg || consumed)
+      carried.push_back(index);
+  }
 
   // The body before the decision: what depends only on arguments that do
   // not change, and holds no reference, runs once before the loop; the rest

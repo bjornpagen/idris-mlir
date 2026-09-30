@@ -161,6 +161,14 @@ SmallVector<Value> Runtime::load(OpBuilder &b, Location loc, Value cell, ArrayRe
   return values;
 }
 
+Value Runtime::address(OpBuilder &b, Location loc, Value cell, Slot slot) {
+  return at(b, loc, cell, slot.offset);
+}
+
+void Runtime::storeWord(OpBuilder &b, Location loc, Value address, Value value) {
+  LLVM::StoreOp::create(b, loc, value, address, IDRIS_RT_WORD_BYTES);
+}
+
 Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell) {
   Value info = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4), alignAt(4));
   return LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, tagMask));

@@ -50,6 +50,10 @@ public:
              llvm::ArrayRef<Slot> slots, mlir::ValueRange values);
   llvm::SmallVector<mlir::Value> load(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,
                                       llvm::ArrayRef<Slot> slots);
+  // The address of a word of a cell: a destination.
+  mlir::Value address(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, Slot slot);
+  // Writes a word at an address `address` gave.
+  void storeWord(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address, mlir::Value value);
   // The tag of a box: the low bits of its info word (offset 4).
   mlir::Value loadTag(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
 

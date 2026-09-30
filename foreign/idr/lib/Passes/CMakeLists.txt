@@ -8,4 +8,5 @@ target_sources(idr_dialect PRIVATE
 	Simplify.cc
 	TailLoops.cc
 	Target.cc
+	Trmc.cc
 )

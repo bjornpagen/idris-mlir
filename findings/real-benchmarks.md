@@ -234,11 +234,18 @@ missing.
   3. **The recursion shape.** `ins` is not tail-recursive. Koka compiles it
      with TRMC (`kk_rbtree__trmc_ins`): its path is written top down,
      without a stack frame per level.
-     - TRMC is in architecture.md.
      - fbip-rb is the same insert as a loop and runs 1.7x faster with the
-       same cells. That is the evidence that the shape, and not
-       allocation, is the remaining gap. It is conjecture until TRMC is
-       applied to rbtree itself.
+       same cells. That was the evidence that the shape, and not
+       allocation, was the remaining gap.
+     - **Measured, idr-trmc (2026-09-30):** `ins` returns a constructor
+       around its own result in 12 of its tails (two clones), which now
+       build the constructor first and pass the pending field as a
+       destination to a clone that returns nothing; idr-tail-loops makes
+       the clone a loop. rbtree went from 1.71–1.78 s to 1.36–1.39 s user
+       on the same container (n = 4.2M), against Koka's 1.05 s. The tails
+       that rebalance (`balanceLeft (ins l k v) …`) inspect the result and
+       stay calls, as in Koka. The rest of the gap is the cell size, point
+       2, and the count test, point 1.
 - **Claim for the suite:**
   - at most 1.05 cells per insert;
   - no failed uniqueness test;

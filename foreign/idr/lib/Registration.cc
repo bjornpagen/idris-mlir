@@ -26,6 +26,7 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // yield is its join point; every later step keeps its rule.
       "idr-stack",
       "idr-rc",
+      "idr-trmc",
       "idr-tail-loops",
       // On loops, which it versions, and after counting, whose counts of
       // the bigs it proves small it removes.

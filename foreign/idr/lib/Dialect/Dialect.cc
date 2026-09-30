@@ -138,10 +138,19 @@ LogicalResult LinType::verify(function_ref<InFlightDiagnostic()> emitError, Type
   return success();
 }
 
+// A destination is one word of a cell that a box's reference fills: a
+// field of box type.
+LogicalResult DestType::verify(function_ref<InFlightDiagnostic()> emitError, Type value) {
+  if (!isa<BoxType>(value))
+    return emitError() << "expects !idr.dest of a box type, got " << value;
+  return success();
+}
+
+// A destination is written exactly once, so it is used exactly once.
 idr::Quantity idr::quantityOf(Type type) {
   if (isa<ErasedType>(type))
     return Quantity::Zero;
-  return isa<LinType, WorldType>(type) ? Quantity::One : Quantity::Many;
+  return isa<LinType, WorldType, DestType>(type) ? Quantity::One : Quantity::Many;
 }
 
 Type idr::unrestricted(Type type) {

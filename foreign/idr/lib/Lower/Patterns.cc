@@ -142,6 +142,44 @@ struct LowerAsItself : IdrPattern<OpT> {
   }
 };
 
+// A pending field is stored as poison: it is written through its
+// destination before anything reads it.
+struct LowerPending : IdrPattern<PendingOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(PendingOp op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Value> out;
+    for (Type type : layouts.components(op.getType()))
+      out.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
+    rewriter.replaceOpWithMultiple(op, {out});
+    return success();
+  }
+};
+
+// A destination is the address of its field's word in the cell.
+struct LowerDestOf : IdrPattern<DestOfOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(DestOfOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    CtorOp ctor = lookupCtor(lookupData(op, op.getValue().getType()), op.getCtor());
+    const auto &slots = layouts.box(ctor).fields[static_cast<unsigned>(op.getIndex())];
+    rewriter.replaceOp(op, runtime.address(rewriter, op.getLoc(), adaptor.getValue().front(),
+                                           slots.front()));
+    return success();
+  }
+};
+
+struct LowerDestWrite : IdrPattern<DestWriteOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(DestWriteOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    runtime.storeWord(rewriter, op.getLoc(), adaptor.getDest().front(),
+                      adaptor.getValue().front());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // The runtime's crash, which does not return; the
 // ub.unreachable after it stays.
 struct LowerCrash : IdrPattern<CrashOp> {
@@ -481,7 +519,8 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateBigPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
                LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
-               LowerAsItself<LinEnterOp>, LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(
+               LowerPending, LowerDestOf, LowerDestWrite, LowerAsItself<LinEnterOp>,
+               LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(
       converter, ctx, layouts, runtime);
   // Every op with the trait, which declares the op's runtime call: the op
   // list is the dialect's own.
