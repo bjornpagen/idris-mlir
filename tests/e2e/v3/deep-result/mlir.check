@@ -1,0 +1,3 @@
+// input: after idr-simplify
+// `build 20000` is evaluated: no call of it is left.
+// CHECK-NOT: call @Main.build

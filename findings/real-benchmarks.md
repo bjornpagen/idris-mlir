@@ -1,699 +1,744 @@
 # Real benchmarks: beating Lean and Koka on their own programs
 
 Stream "real-benchmarks". The programs this stream wrote are quoted in full
-in `real-benchmarks-programs.md`. The scripts, raw result files and builds
-are in `scratchpad/research/real-benchmarks/`:
-- `cpu.sh` does interleaved timing;
+in `real-benchmarks-programs.md`. The scripts, raw result files, builds and
+IR dumps are in `scratchpad/research/real-benchmarks/`:
+- `cpu.sh` does interleaved CPU timing;
 - `dyn2.sh` counts runtime entries through gdb;
 - `cg.sh` counts callgrind calls for Koka, Lean and C;
-- the `results-*` files hold the raw results.
+- the raw results are in `results-*.tsv` and `results-*.txt`, all of them
+  in `results-all.tsv`.
 
-This file builds on `uniqueness-pipeline.md` (defects D1 to D4 in reuse
-placement, and uniqueness inference on DataFlow), `representation.md` (R1
-to R14) and `decision-nat.md`, and does not repeat them. It adds:
-- the benchmark-level numbers against Koka and Lean;
-- what each program needs;
-- the suite that should gate the work.
+This file builds on:
+- `uniqueness-pipeline.md`: the reuse-placement defects D1 to D4, and
+  uniqueness inference;
+- `representation.md`: R1 to R14;
+- `decision-nat.md`.
+
+It adds three things: numbers against Koka and Lean on their own programs,
+what each program needs, and the suite that should gate the work.
 
 ## The questions
 
-1. On the Perceus and Counting Immutable Beans programs, how do we compare
-   with Koka, Lean, MLton, C and Chez today? That covers time, memory, and
-   allocation and reuse per operation.
+1. On the Perceus and Counting Immutable Beans programs, where do we stand
+   against Koka, Lean, MLton, C and Chez at HEAD? I measure time, memory,
+   and allocation and reuse per operation.
 2. For each program: what does it stress, which Idris fact could make us
    win, and what is missing?
 3. What do FP²'s fully-in-place (fip) programs add?
-4. Which 10 to 15 programs should form the real-programs suite, each with
-   a claim that can be checked? And what does `bench/` need to run it
-   routinely?
+4. Which 10 to 15 programs should form the real-programs suite, each with a
+   checked claim? What does `bench/` need to run the suite routinely?
+
+## What "at HEAD" means here
+
+Other agents rebuilt the shared tree several times while I measured, so
+"HEAD" moved under me. Three builds were measured:
+
+| label | built | tree | what it covers |
+|---|---|---|---|
+| **new** | 02:38 UTC | `bd274ba` + 4 uncommitted files | rbtree, rbtree-ck, cfold, nqueens, rbidx, linrb, linrb-shared, lincase, lincase2, qsort and unionfind (both rejected) |
+| **new** | 02:59 UTC | `6f9a9af` + 6 uncommitted files | deriv, binarytrees, fbip-rb, tmap-fip, tmap-std and the idiomatic variants. In the 02:38 build, `idris-mlir-cc` crashed on these (SIGILL, status 132) |
+| **old** | 00:50 UTC | `061b98d` | C++ side from 21:15, frontend from 00:46 |
+
+- The "new" builds already contain `bd274ba`'s change: `idr.reset` is gone,
+  and a take moves the fields at the box's death point.
+- The "old" binaries are measured in the same interleaved rounds, so they
+  show what that change did.
+- HEAD was `6451a70` when I finished (03:20).
+
+Between 01:50 and 02:37 no consistent toolchain existed:
+- the frontend and `idris-mlir-cc` came from different builds, and
+  disagreed on the syntax of `idr.ctor … tag 0 ()`;
+- `idris-mlir-cc` and the runtime archive disagreed on
+  `llvm.global.annotations`;
+- the committed frontend did not typecheck at `de2fc32` or `bd274ba`
+  (`Frontend/Translate/Terms.idr:241` and `Frontend/Main.idr:330`), as I
+  checked with a build in scratch.
+
+`results-build*.txt` records each build's tree, and §6 item 7 proposes the
+guard this needs.
 
 ## The answer in one page
 
-**At HEAD, nothing can be measured.** Other agents are changing the
-ownership passes and Nat right now, and no toolchain in the tree is
-consistent.
+**Allocation: the uniqueness facts now pay off, and we match Koka and C.**
+Cells allocated per insert, or per map for tmap. Lower is better:
 
-- At `a886f5c` (01:52 UTC) the shared build's `idris-mlir-cc` dated from
-  21:15, but the runtime archive had just been rebuilt. Every program
-  failed with `runtime member start.cc.o defines the appending global
-  llvm.global.annotations`.
-- At `de2fc32` (02:28) `idris-mlir-cc` had been relinked (02:27), but the
-  frontend `compiler/build/exec/idris-mlir` still dated from 00:46. Every
-  program failed with `prog.mlir:3:21: error: expected '('` on
-  `idr.ctor @MkUnit tag 0 ()`, because the two sides disagree on the
-  syntax.
-- I built the committed frontend in scratch at `de2fc32` and again at
-  `bd274ba`. It does not typecheck:
-  - at `de2fc32`, `Frontend/Translate/Terms.idr:241` has an undefined
-    `libraryCall`;
-  - at `bd274ba`, `Frontend/Main.idr:330` has an unsolved hole.
+| program | ours, old | **ours, new** | Koka | Lean | C |
+|---|---:|---:|---:|---:|---:|
+| rbtree (n = 20 000) | 18.7 | **1.00** | 1.01 | 21.3 | 1.00 |
+| rbtree-ck | 19.1 | **4.86** | 4.89 | 21.5 | 4.86 |
+| linrb (quantity-1 tree) | does not compile | **1.00** | 1.01 | 14.9 | – |
+| linrb-shared | does not compile | 19.3 (correct) | 19.6 | – | – |
+| fbip-rb (FP²) | 20.3 | **1.00** | 1.01 (fip) | – | – |
+| tmap-fip and tmap-std (per map) | – | **0** | 0 | – | – |
+| rbidx (typed rbtree) | 6.0 | **17.8** (regression) | – | – | – |
 
-So the numbers below come from the **last consistent toolchain**. Its
-C++ side (`idris-mlir-cc`, the passes and the runtime) was built at 21:15.
-The frontend was built at 00:46. The programs were built with it at 00:50,
-when HEAD was `061b98d`. All the logs are in `results-build*.txt`. Neither
-`idr.reset` → `idr.take` (committed in `bd274ba`) nor the Nat
-representation is in these binaries. `run-head2.sh` reruns everything
-unchanged once the tree builds.
+- **rbtree:** at `061b98d`, 89% of our runtime uniqueness tests found the
+  cell shared, and we copied the path as Lean does. At the new build we
+  allocate exactly one cell per insert, as Koka and C do.
+- **rbtree-ck:** our 97 292 cells equal C's 97 294, and Koka allocates 97 967.
+- **linrb:** compiles now. linrb-shared is compiled correctly, not
+  rejected, and pays the same cliff as Koka.
+- **rbidx has regressed,** and the cause is found (§2.2): `idr-stack`
+  puts a rebuilt cell on the stack, and a stack cell cannot be reused.
 
-**Where we stand** (CPU seconds, best of 5, rounds interleaved; `lower` is
-better; the input sizes are the papers'):
+**Time.** CPU seconds, best of the interleaved rounds of one run, on a
+machine with load 8 to 10 (§1). The ratio is ours ÷ the better of Koka and
+Lean in the same run:
 
-| program | ours | Koka | Lean | MLton | C | Chez | ours ÷ best(Koka, Lean) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| rbtree | 4.94 | **1.53** | 3.39 | 9.09 | 1.95 | 3.74 | **3.24** (lose) |
-| rbtree-ck | 7.28 | **3.77** | 6.95 | 12.16 | 4.53 | 12.13 | **1.93** (lose) |
-| deriv | 1.73 | 3.28 | 1.81 | **1.60** | 4.03 | 5.37 | 0.96 (win) |
-| nqueens | **1.03** | 1.25 | 3.11 | 1.40 | 1.40 | 18.31 | 0.82 (win) |
-| cfold | 0.37 | **0.25** | 0.46 | 0.54 | 0.54 | 0.97 | **1.46** (lose) |
-| binarytrees | **7.92** | 16.64 | 9.25 | 10.22 | 25.30 | 61.59 | 0.86 (win) |
-| qsort | rejected | 36.39 | 2.79 | 1.88 | **1.38** | 18.62 | n/a |
-| unionfind | rejected | 3.11 | 2.93 | 0.44 | **0.17** | 3.71 | n/a |
-| fbip-rb (FP²) | **1.86** | 1.97 (fip) | – | – | – | 3.59 | 0.95 vs Koka fip |
-| rbidx (typed rbtree) | **2.39** | 1.53 (std rbtree) | 3.39 | – | – | – | 1.56 vs Koka's rbtree |
+| program | ours, new | ours, old | Koka | Lean | MLton | C | Chez | ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| rbtree | 2.11 | 5.02 | **1.14** | 3.40 | 9.21 | 1.94 | 4.55 | **1.84** (lose) |
+| rbtree-ck | 4.43 | 7.18 | **3.03** | 6.35 | 13.82 | 4.64 | 17.07 | **1.46** (lose) |
+| linrb | 2.06 | – | **1.13** | 3.45 | – | – | 4.87 | **1.82** (lose) |
+| linrb-shared | 4.16 | – | 4.31 | 4.08 | – | – | – | 1.02 |
+| fbip-rb | **1.25** | 1.96 | 1.43 (fip); 1.14 (std) | – | – | 2.00 | 3.85 | 0.88 against fip, 1.09 against std |
+| tmap-fip (n = 10^6) | **1.57** | – | 1.82 | – | – | – | 25.1 | 0.86 |
+| tmap-std (n = 10^6) | 1.75 | – | **1.47** | – | – | – | – | 1.19 (lose) |
+| cfold | 0.36 | 0.42 | **0.28** | 0.40 | 0.60 | 0.64 | 1.01 | **1.31** (lose) |
+| deriv | 1.80 | 1.91 | **1.54** | 3.13 | 1.85 | 4.25 | 6.31 | 1.17 (lose; noisy) |
+| nqueens | **1.03** | 1.02 | 1.21 | 3.20 | 1.46 | 1.45 | 18.03 | 0.85 (win) |
+| binarytrees | **8.01** | 8.17 | 17.12 | 9.70 | 10.23 | 26.66 | 65.45 | 0.83 (win) |
+| rbidx | 4.48 | 2.37 | 1.64 (rbtree) | 3.45 | – | – | 3.95 | 2.74 (regression) |
+| qsort | rejected | rejected | 36.97 | 2.85 | 1.97 | **1.42** | 18.83 | n/a |
+| unionfind | rejected | rejected | 3.82 | 2.97 | 0.43 | **0.17** | 3.88 | n/a |
 
-- **We already win** four of the suite's programs:
-  - `nqueens` and `binarytrees` against both Koka and Lean;
-  - `deriv` against both, narrowly against Lean;
-  - FP²'s `fbip-rb` against Koka's fip version.
-- **We lose** where the benchmark exists to test reuse:
-  - `rbtree` (3.2x Koka);
-  - `rbtree-ck` (1.9x);
-  - `cfold` (1.5x).
-- **We cannot compile** Lean's two array programs.
+- **What the new build won.** Reuse took rbtree from 5.02 s to 2.11 s,
+  rbtree-ck from 7.18 to 4.43 and fbip-rb from 1.96 to 1.25.
+  - We now beat Lean on every program we compile.
+  - We beat C on rbtree-ck (malloc'd copy-on-write), on nqueens and on
+    binarytrees, and we tie C on rbtree.
+  - We beat Koka on the fip programs (fbip-rb and tmap-fip), on nqueens
+    and on binarytrees.
+- **Why rbtree still loses to Koka, though allocation is equal.** The
+  remaining 1.8x is not reuse. Two differences are measured, and which one
+  dominates is not established:
+  1. **Cell size:** 48 bytes per node against Koka's 33 (193 MiB against
+     132 MiB for 4.2M nodes).
+  2. **Recursion shape:** Koka's `ins` is tail-recursive modulo cons (its
+     profile shows `kk_rbtree__trmc_ins`) and builds the path top down.
+     Ours recurses and returns through every level.
 
-**The mechanism of the losses is measured, and it is reuse.** Counts per
-insert, n = 20 000:
+  fbip-rb, the same insert written as a loop over a zipper, runs in 1.25 s
+  with the same cells. That is within 1.09x of Koka, which points at the
+  recursion shape.
+- **We cannot compile** Lean's two array programs (rejected with
+  `unsupported`, as AGENTS.md asks).
+- **Idiomatic Idris got fast.** These use Nat, Integer and ranges instead
+  of `Int` (§2.9). Against Chez:
 
-| per insert | ours rbtree | ours fbip-rb | ours rbidx | Koka rbtree | Koka fbip | Lean rbtree | C rbtree |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| cells allocated | 18.7 | 20.3 | 6.0 | **1.01** | **1.01** | 21.3 | 1.00 |
-| reset tests | 17.8 | – (inlined) | 0 | – | – | – | – |
-| … that found the cell shared | **15.8 (89%)** | | | | | | |
-| decs (out of line) | 19.8 | | 5.0 | | | | |
+  | variant | before | now | Chez |
+  |---|---:|---:|---:|
+  | binarytrees at depth 12 | 6.6 s | **0.01 s** | 0.14 s |
+  | deriv with `Integer` | 13.2 s, 3.5 GB | **2.08 s**, 425 MB | 5.16 s |
 
-- Koka and C allocate one cell per insert, which is the ideal.
-- Lean allocates about 21 per insert: its reset frees the cell instead of
-  reusing it (bench/gate/README.md, experiment 2).
-- We allocate 18.7 per insert. 89% of our runtime uniqueness tests find
-  the cell shared, so we copy the path, as Lean does.
-- This is uniqueness-pipeline.md's D1 at benchmark scale: a reset placed
-  after a consuming use, so the callee sees count 2. It measured 78% failures
-  at n = 10^5 with a different binary.
-- Even without reuse, **our allocator makes path copying cheap**. We copy
-  18.7 cells per insert and are still only 1.46x Lean. Our fbip-rb copies 20
-  per insert and still beats Koka's fully-in-place version. So once reuse
-  works, the rbtree family should go below Koka. That is conjecture until
-  measured: the static-reuse half of it is what the suite must prove.
-
-**The representation lever is visible even before reuse works.** rbidx is
-rbtree with its invariants in its type:
-- the colour is the constructor;
-- the black height is an erased index;
-- a balance has no Leaf case.
-
-It runs in 2.39 s against rbtree's 4.94 s. Its cells take 43 bytes per
-node against 53 (173 against 212 MiB), and it allocates 6.0 cells per
-insert against 18.7, with no reuse at all.
+  The Nat work landed between the two builds.
 
 ## 1. How it was measured
 
-- **Machine:** 4 cores of a Xeon at 2.80 GHz, shared with six other
-  agents' builds (load 2.8 to 6.9 during the main run, 00:52 to 01:08
-  UTC).
+- **Machine:** 4 cores of a Xeon at 2.80 GHz, shared with six other agents'
+  builds. The load average was 7.4 to 10 during every run.
 - **Time:**
-  - `cpu.sh` reports CPU time (user + sys, from `wait4`'s rusage), which
-    load inflates less than wall time.
-  - Every compiler's run is interleaved in each round, best of 5; Chez runs
-    once.
+  - `cpu.sh` reports CPU time (user + sys, from `wait4`'s rusage).
+  - It interleaves every compiler in each round and keeps each one's best.
   - The stack is unlimited and `LEAN_STACK_SIZE_KB` is 4 GiB, as in the gate.
-  - Outputs are compared by md5 against the first label. All agreed.
-- **A quieter cross-check** (`results-q.tsv`, 23:22 UTC, binaries from the
-  same C++ build), which agrees on every ratio:
-  - rbtree: ours 3.83, Koka 1.32, Lean 2.60, rbidx 1.79, fbip 1.50,
-    Koka fip 1.80;
-  - cfold: 0.31, 0.21, 0.28;
-  - deriv: 1.31, 2.21, 1.36;
-  - nqueens: 0.93, 0.92, 2.00.
+  - Every output is checked by md5 against the reference. All of them
+    agreed.
+- **Which run each row of the table comes from:**
+  - the focused runs (`t-*`, 5 to 9 rounds, 03:25 to 03:40) for rbtree,
+    fbip-rb, linrb, cfold, rbtree-ck, deriv and nqueens;
+  - `results-head3.tsv` (3 rounds) for tmap, linrb-shared and binarytrees;
+  - `results-head2.tsv` (3 rounds) for the old column, rbidx, qsort and
+    unionfind.
+- **Noise is large, and it is not uniform across compilers.**
+  - Koka's deriv ranged over 1.54 to 4.13 s in today's runs, and Lean's
+    rbtree-ck over 5.5 to 12.5 s. Koka's rbtree-ck was 2.11 s wall on the
+    quiet machine of the gate's first run (bench/gate/README.md).
+  - Memory-bound programs suffer most from the other agents' builds.
+  - Trust a ratio within one run, and trust the allocation counts, which
+    do not depend on load.
+  - `results-q.tsv` is a quieter run (23:22, older binaries). Its ratios are
+    rbtree 2.9x Koka at 18.7 cells per insert, and cfold 1.49x Koka.
 - **Our allocation counts:** gdb breakpoint hit counts on the out-of-line
   runtime entries (`dyn2.sh`).
-  - `idris_rt_cell` counts allocations, `rt::freeCell` frees, and
-    `idris_rt_reset` uniqueness tests.
-  - The not-exclusive outcome of a reset is counted by a breakpoint on the
-    target of the `count != 1` branch in `idris_rt_reset` (`runtime/rc.cc`,
-    the function that `bd274ba` deleted).
-  - Every count is printed with the number of static call sites, because an
-    entry that LTO inlines counts nothing. That is why binarytrees, and
-    nqueens's allocations, have no count.
-- **Why not callgrind on ours:** snmalloc aborts under valgrind with
-  "Failed to initialise snmalloc", so our binaries cannot be counted that
-  way. A routine suite needs runtime counters (§6).
-- **Koka, Lean and C counts:** callgrind call counts (`cg.sh`).
-  - Koka: `mi_theap_wmalloc_small` and `mi_free_small_nonnull`.
-  - Lean: `mi_malloc_small`, minus the 10 143 allocations Lean's start-up
-    makes with input 0.
+  - `idris_rt_cell` counts cells allocated, `rt::freeCell` cells freed,
+    `idris_rt_free_cell` tokens freed without reuse, and `idris_rt_dec` the
+    out-of-line decrements.
+  - For the old binaries, the not-exclusive outcome of `idris_rt_reset` is
+    counted as well: that function existed until `bd274ba`.
+  - Each count is printed with its number of static call sites, because an
+    entry that LTO inlines counts nothing. That is why binarytrees and
+    nqueens have no allocation count.
+- **Why not callgrind on ours:** snmalloc aborts under valgrind ("Failed
+  to initialise snmalloc").
+- **Koka, Lean and C counts:** callgrind (`cg.sh`).
+  - Koka: `mi_theap_wmalloc_small` and `mi_free_small_nonnull`, minus the
+    150 allocations of its start-up.
+  - Lean: `mi_malloc_small`, minus the 10 143 of its start-up.
   - C: `malloc` and `free`.
 - **C** is the gate's: GCC -O2 (bench/gate/README.md). `bench/run.sh` has
-  used clang for x86-64-v3 since `01fb73a`; the two should agree (§6).
+  used clang for x86-64-v3 since `01fb73a`.
+- **Every one of our programs ends with `idris-rt: live cells 0`**
+  (`IDRIS_RT_LIVE=1`), in both builds.
 
 ### Allocation counts, all programs (small inputs)
 
-| program (input) | ours cells | Koka | Lean (minus start-up) | C | notes on ours |
-|---|---:|---:|---:|---:|---|
-| rbtree (20 000) | 374 648 | 20 229 | 426 446 | 20 002 | 356 469 resets, 316 490 shared; 99 240 tokens freed unused |
-| rbtree-ck (20 000) | 381 014 | 97 967 | 430 435 | 97 294 | 356 456 resets, 320 477 shared |
-| fbip-rb (20 000) | 406 450 | 20 284 (fip) | – | – | no out-of-line reset; takes inlined |
-| rbidx (20 000) | 119 240 | – | – | – | no reset, no take |
-| cfold (14) | 46 147 | 49 408 | 46 143 | 32 769 | 10 378 resets, all exclusive; 20 756 tokens freed unused |
-| deriv (5) | 2 327 | 3 090 | 2 683 | 3 687 | fewest of all: closed terms are static cells |
-| nqueens (8) | 4 112 (frees) | 4 305 | 4 100 | 4 115 | allocation inlined |
-| binarytrees (12) | inlined | 676 244 | 334 528 | 674 480 | allocation and free both inlined |
-
-Every one of our programs ends with `idris-rt: live cells 0`
-(`IDRIS_RT_LIVE=1`), so the counting frees everything.
+| program (input) | ours, old | ours, new | Koka | Lean | C | notes on ours, new |
+|---|---:|---:|---:|---:|---:|---|
+| rbtree (20 000) | 374 648 | **20 000** | 20 079 | 426 446 | 20 002 | no out-of-line dec; no token freed unused |
+| rbtree-ck (20 000) | 381 014 | **97 292** | 97 817 | 430 435 | 97 294 | |
+| linrb (20 000) | – | **20 000** | 20 109 | 298 407 | – | |
+| linrb-shared (20 000) | – | 386 469 | 392 842 | – | – | 119 221 decs; correct output |
+| fbip-rb (20 000) | 406 450 | **20 000** | 20 134 (fip) | – | – | |
+| tmap-fip and tmap-std (10 000 leaves, 100 maps) | – | **19 999** | 20 050 | – | – | only the build: 0 per map |
+| rbidx (20 000) | 119 240 | 356 488 | – | – | – | 217 268 out-of-line releases |
+| cfold (14) | 46 147 | 46 147 | 49 258 | 46 143 | 32 769 | 31 134 tokens freed unused (old: 20 756) |
+| deriv (5) | 2 327 | 2 327 | 2 940 | 2 683 | 3 687 | closed terms are static cells |
+| nqueens (8) | 4 112 frees | 4 112 frees | 4 155 | 4 100 | 4 115 | allocation inlined |
+| binarytrees (12) | inlined | inlined | 676 094 | 334 528 | 674 480 | |
 
 ## 2. The programs, one by one
 
-The table's "Idris fact" column is what the program needs and what Koka and
-Lean do not have. "Missing" says what stops us from using it today.
+For each program: what it stresses, where we stand, the **Idris fact** (what
+we know that Koka and Lean do not, or know only dynamically), and what is
+missing.
 
-### rbtree (Perceus `rbtree.kk`, Lean `rbmap.lean`)
+### 2.1 rbtree (Perceus `rbtree.kk`, Lean `rbmap.lean`)
 
 - **Stresses:** n inserts into a tree nobody shares. Every cell on the
-  path can be updated in place, so the ideal is one allocation per insert,
-  for the new leaf's node. Koka and C reach it.
-- **Today:**
-  - 3.24x Koka and 1.46x Lean;
-  - 18.7 cells and 17.8 uniqueness tests per insert, 89% of which fail;
-  - 53 bytes per node against Koka's 33 and C's 48.
+  insertion path can be updated in place, so the ideal is one allocation
+  per insert: the new leaf.
+- **Now:**
+  - 1.00 cell per insert, as Koka and C;
+  - 2.11 s: 1.84x Koka, 1.09x C, 0.62x Lean;
+  - 48 bytes per node against Koka's 33.
+  - At `061b98d` it was 18.7 cells per insert, and 89% of the uniqueness
+    tests failed. That was D1 of uniqueness-pipeline.md, which the new
+    build fixed.
 - **Idris facts:**
-  1. **Uniqueness of the tree, inferred.** `makeTree` passes `t` to
-     `insert` once and never again. The source binds at quantity ω, so Idris
-     proves nothing. The compiler must infer it over the call graph, and a
-     unique scrutinee then needs a take without a test
+  1. **Uniqueness of the tree.** `makeTree` passes `t` to `insert` once and
+     never again. The source binds at quantity ω, so Idris proves nothing;
+     the compiler must infer uniqueness over the call graph
      (uniqueness-pipeline.md steps 1 and 2).
-  2. **`Color` and `Bool` are closed finite types.** After monomorphisation
-     a `Node` field of type `Color` has two values. Our cell spends a word
-     on each, where 1 bit each is enough.
-     - Two-valued fields can go into the constructor tag: split `Node` into
-       `NodeRed` and `NodeBlack`, which is what rbidx does by hand.
-     - Or they can be packed into one word, or into the header's spare bits.
-     - Either way the cell drops to 40 bytes. rbidx measures what this is
-       worth: 173 MiB against 212, and 2.39 s against 4.94 (§2.2 has the
-       caveats).
-  3. **`isRed l` followed by `ins l` is a match on a field of a unique
-     cell.** With the field moved out by a take, the inner match can reuse
-     it too. Koka does this.
-- **Missing:**
-  - D1 to D4 (uniqueness-pipeline.md), as the 89% shows;
-  - the untested take for proved-unique values;
-  - finite-field packing, which is not in representation.md's catalogue.
-    The nearest entries are R3, which packs constructors, and R7, which
-    removes useless fields.
+     - What this buys now is removing the per-take count test, not the
+       allocations. The test is inlined, so its cost is not measured here.
+     - Koka keeps the test, so this is the step that goes *past* Koka.
+  2. **`Color` and `Bool` are closed finite types.** A `Node` field of type
+     `Color` has two values, yet the cell spends a word on each. Two fixes:
+     - put two-valued fields into the constructor tag (`Node Red …` becomes
+       `NodeRed …`, which rbidx does by hand);
+     - or pack them into one word.
+
+     Either way the cell drops to 40 bytes. §4, point 2, has the rule this
+     needs.
+  3. **The recursion shape.** `ins` is not tail-recursive. Koka compiles it
+     with TRMC (`kk_rbtree__trmc_ins`): its path is written top down,
+     without a stack frame per level.
+     - TRMC is in architecture.md.
+     - fbip-rb is the same insert as a loop and runs 1.7x faster with the
+       same cells. That is the evidence that the shape, and not
+       allocation, is the remaining gap. It is conjecture until TRMC is
+       applied to rbtree itself.
 - **Claim for the suite:**
   - at most 1.05 cells per insert;
   - no failed uniqueness test;
-  - no count test at all on the build path;
-  - at most Koka's time.
+  - no count test on the build path;
+  - time at most Koka's.
 
-### rbidx: rbtree with its invariants in its type
+### 2.2 rbidx: rbtree with its invariants in its type
 
 The program is in real-benchmarks-programs.md.
 
-- **Stresses:** the same workload. The colour is the constructor, the black
-  height `n` is erased, and a red node's children are black by type. The
-  balance functions have no `Leaf` case and no mixed-height cases: the
-  checker rejects them when they are written.
-- **Today:**
-  - 2.39 s, which is 2.07x faster than our rbtree and 1.42x faster than
-    Lean's rbtree;
-  - 1.56x Koka's rbtree;
-  - 43 bytes per node and 6.0 cells per insert;
-  - no reuse at all: the binary contains no reset, and no take shows up
-    in the counts.
-- **Caveat:** rbidx is also a different algorithm (Okasaki with
-  existential wrappers, no `isRed` tests). Part of the 2x is fewer matches,
-  not only smaller cells. To separate the two, the suite needs rbtree with
-  only the colour moved into the constructor (§5, program 2b).
+- **Stresses:** the same workload.
+  - The colour is the constructor.
+  - The black height is an erased index.
+  - A red node's children are black by type.
+  - The balance functions have no `Leaf` case and no mixed-height cases:
+    the checker rejects them when they are written.
+- **Old:**
+  - 2.37 s with no reuse at all: 6.0 cells per insert and 43 bytes per node;
+  - 2.1x faster than our old rbtree;
+  - faster than Lean's rbtree.
+- **New: a regression**, to 4.48 s and 17.8 cells per insert. The dump of
+  `idr-rc` (`dump/rbidx/build/exec/prog.dump/06-idr-rc.mlir`) shows the
+  cause. In `insAny`'s `TB` case:
+
+  ```mlir
+  %4:8 = idr.take %arg2 @RB::@TB : ... -> (!idr.token, ...)
+  idr.dec %4#0 : !idr.token                       // the TB cell is freed
+  %5 = idr.con @RB::@TB(%0, %0, %0, %4#4, %4#5, %4#6, %4#7) {idr.stack}
+  %6 = func.call @Main.insB$spec$1(%0, %5, %arg3)
+  ```
+
+  `insAny (TB l x vx r) k v = unAny (insB (TB l x vx r) k v)` rebuilds the
+  node it matched. Three things then go wrong:
+  - `idr-stack` puts the rebuilt `TB` in the stack frame, because the cell
+    itself does not escape `insB`; only its fields do.
+  - The reuse pass leaves stack cells alone
+    (`ResetReuse.cc`: "A box that is … built in the stack frame
+    (`idr.stack`) is left alone").
+  - So `insB` cannot reuse the cell it matches, and allocates, on every
+    black node of the path.
+
+  The pass order causes this: `idr-stack` (step 5) decides before `idr-rc`
+  (step 6) can pair the token with the rebuild.
+- **The representation fix:** after a match, rebuilding the same
+  constructor from exactly the bound fields *is* the scrutinee.
+  - A canonicalization `idr.con @C(fields bound by case @C of x) → x`
+    removes the take, the free, the stack cell and the allocation at once.
+  - real-benchmarks-programs.md proposed the same rewrite for the linear
+    case.
+  - It is a fact of the match, not of ownership, so it belongs before
+    `idr-stack`.
+- **Also here:** `idr.field %anyRB[@MkAny, 1]; idr.inc; idr.dec %anyRB`
+  appears 27 times. It reads a field out of a dying register sum
+  (`AnyRB`, `Almost`) instead of moving it. That is D2's pattern on
+  `!idr.data`: IdrOps.td's `idr.take` already covers unboxed sums ("taking
+  it apart changes no count").
 - **Idris facts:**
-  - indices at quantity 0 (`!idr.erased`): the height costs nothing;
-  - the colour as the tag: no field and no load;
-  - coverage: impossible cases are unwritable, so the code is smaller;
-  - the wrappers `AnyRB`, `Almost` and `Root` are `idr.data`, which live
-    in registers, never in cells.
-- **Missing:** reuse. We do not know why a matched `TB` cell is not reused
-  for the `TR`/`TB` built in `balL`/`balR`. Both are same-size constructors
-  of the same type (open question 1).
-  - A plausible cause: the scrutinee reaches `balL` inside an `Almost`
-    (an `idr.data` value), and the reuse pass only considers a match on a
-    box whose own value dies (`ResetReuse.cc`, `run`).
-  - Once the matched box sits inside a register sum, the inner match is on
-    a field of a value that is not a box, and nothing tracks the field's
-    cell.
+  - the indices at quantity 0 (`!idr.erased`), so the height costs nothing;
+  - the colour as the tag;
+  - coverage, which leaves out the impossible cases;
+  - the wrappers are `idr.data`, which live in registers.
 - **Claim:**
-  - at most rbtree's allocations with full reuse;
+  - at most rbtree's cells, which is 1.00 per insert;
   - 40 bytes per node;
-  - strictly faster than Koka's rbtree;
+  - time strictly below Koka's rbtree;
   - "the type is the representation", measured.
 
-### linrb and linrb-shared (gate experiment 4)
+### 2.3 linrb and linrb-shared (gate experiment 4)
 
-- **Stresses:** the same insert with every tree bound at quantity 1. The
-  shared variant keeps one tree for one more step, which Idris accepts,
-  because a shared value may be passed to a quantity-1 parameter.
-- **Today:** neither compiles. With the 00:46 frontend, Emit produces a
-  module that `idr-simplify`'s verifier rejects: "'idr.match' op uses a
-  linear value that is already used on the same path". That is an internal
-  error, neither a compilation nor an `unsupported` rejection, so it
-  violates AGENTS.md.
-  - Of the two reproducers in real-benchmarks-programs.md, `lincase` (a
-    catch-all naming the scrutinee) now compiles and prints 65, like Chez.
-  - `lincase2` (nested patterns) still fails with the same error.
-  - The other compilers, from the earlier run (`results-cpu.tsv`), with
-    shared ÷ unique:
-
-    | | unique (s) | shared (s) | shared ÷ unique |
-    |---|---:|---:|---:|
-    | Koka | 1.04 | 2.94 | 2.8 |
-    | Lean | 3.02 | 3.32 | 1.1 |
-    | Chez | 2.67 | 2.76 | 1.0 |
-
-  - Koka and Lean compile the shared variant silently.
-- **Idris fact:** `!idr.lin`. A quantity-1 parameter is used once, so every
-  take on it is exclusive, *if every caller passes a unique value*.
-  - That condition is a fact about the call sites, not about the binder
-    (AGENTS.md: "a linear binder does not imply unique heap ownership").
+- **Stresses:** the same insert, with every tree bound at quantity 1.
+  - The shared variant keeps one tree for one more step. Idris accepts
+    that, because a shared value may be passed to a quantity-1 parameter.
+- **Old:** neither compiled. `idr-simplify`'s verifier rejected Emit's
+  module with "'idr.match' op uses a linear value that is already used on
+  the same path".
+- **New:** both compile, and so do both reproducers of
+  real-benchmarks-programs.md (`lincase` prints 65 and `lincase2` 55,
+  as on Chez).
+  - linrb allocates 1.00 cell per insert, runs in 2.06 s (1.82x Koka's
+    linrb) and never calls `idris_rt_dec` out of line.
+  - linrb-shared is compiled *correctly*: it copies the path, at 19.3 cells
+    per insert against Koka's 19.6. Its 4.16 s is 2.0x linrb in the same run,
+    the same cliff Koka shows (4.31 s against 1.80 s, 2.4x).
+- **Idris fact:** `!idr.lin`. A quantity-1 parameter is used once, so a
+  take on it needs no test, *if every caller passes a unique value*.
+  - That is a fact about the call sites, not about the binder (AGENTS.md:
+    "a linear binder does not imply unique heap ownership").
   - linrb-shared is the test that the compiler respects the condition.
 - **Missing:**
-  - a fix for lincase2 (real-benchmarks-programs.md: after a match on a
-    linear scrutinee, the whole value is the constructor rebuilt from its
-    fields);
-  - the call-site uniqueness check that rejects linrb-shared, or compiles
-    it with a tested take.
+  - linrb's time equals rbtree's (2.06 against 2.11), so quantity 1 buys
+    nothing yet;
+  - the untested take for a linear parameter whose callers are all unique;
+  - a report that names linrb-shared's call site as the one that costs
+    the copy. The gate wanted a rejection; compiling it correctly is also
+    sound, and the report is what makes the cliff visible, which Koka and
+    Lean do not do.
 - **Claim:**
-  - linrb compiles with no inc, no dec test and no count test on the tree;
-  - one cell per insert;
-  - faster than Koka's linrb (1.04 s);
-  - linrb-shared is rejected with `unsupported` naming its call site, or
-    compiled correctly with tested takes. The choice between them is the
-    open question of uniqueness-pipeline.md §4.
+  - linrb: no inc, no dec test and no count test on the tree; one cell per
+    insert; time below Koka's linrb;
+  - linrb-shared: correct output, and a compile-time report naming its call
+    site. Or `unsupported` naming the call site; never an internal error.
 
-### fbip-rb (FP² / Koka `samples/basic/rbtree-fbip.kk`)
+### 2.4 fbip-rb (FP², Koka's `samples/basic/rbtree-fbip.kk`)
 
 - **Stresses:** insertion that walks down building a zipper out of the
-  cells it takes apart, then rebuilds the tree in them. Every constructor
-  built has the size of one just matched: `Node`, `NodeR` and `NodeL` all
-  have five fields. With unique cells, only the new leaf's node is
-  allocated. Koka checks this statically (`fip`/`fbip`) and allocates 1.01
-  cells per insert.
-- **Today:**
-  - 1.86 s, which beats Koka's own fip version (1.97 s) and Chez (3.59 s);
-  - but 20.3 cells per insert against Koka's 1.01.
-  - So our speed comes from cheap allocation and a tail-recursive shape,
-    not from reuse. Koka's *std* rbtree (1.53 s) is faster than both fip
-    versions.
+  cells it takes apart, then rebuilds the tree in them.
+  - Every constructor built has the size of one just matched: `Node`,
+    `NodeR` and `NodeL` all have five fields.
+  - With unique cells, only the new leaf's node is allocated.
+  - Koka checks this statically (`fip`/`fbip`).
+- **New:** 1.00 cell per insert and 1.25 s.
+  - That beats Koka's own fip version (1.43 s), C (2.00 s) and Chez (3.85 s).
+  - It is within 1.09x of Koka's std rbtree (1.14 s).
+  - It runs under an 8 MiB stack at n = 10^6.
+- **Old:** 1.96 s, with 20.3 cells per insert.
 - **Idris facts:**
   - uniqueness, inferred as for rbtree;
   - reuse across types: a `Tree` cell becomes a `Zipper` cell of the same
-    size. Our reuse pairs by size (`ResetReuse.cc`: "a box with a cell of
-    the same size"), so this is allowed in principle.
-  - The 22:27 dump has 11 `idr.reuse` ops after `idr-rc`. The runtime count
-    shows the tokens are null, which is the same D1/D3 failure.
+    size, and our pass pairs by size.
+
+  No annotation is needed: we get from the ordinary program what FP² asks
+  the programmer to prove.
 - **Claim:**
   - at most 1.05 cells per insert;
-  - stack depth independent of n (run under `ulimit -s 8192` with n = 4.2M);
-  - at most Koka fip's time, and at most Koka std's.
-- **Why it matters beyond rbtree:** FP² writes a program so that the
-  *programmer* proves it in place. We should get the same from the
-  ordinary program (rbtree) by inference, plus a report where inference
-  fails. fbip-rb is then the upper bound that rbtree must reach.
+  - an 8 MiB stack at n = 4.2M;
+  - time at most Koka fip's, and within 1.1x of Koka std's.
+  - It is also the target for rbtree: TRMC on rbtree should reach it.
 
-### rbtree-ck (Perceus `rbtree-ck.kk`, Lean `rbmap_checkpoint.lean`)
+### 2.5 tmap-fip and tmap-std (FP² §3)
 
-- **Stresses:** the same inserts, keeping every fifth tree. Four inserts in
-  five run on a tree that is unique again once the checkpoint's list has
-  taken its copy. Koka and C allocate 4.9 cells per insert.
-- **Today:** 1.93x Koka and 1.05x Lean. We allocate 19.1 cells per insert,
-  as in plain rbtree: the same failures, plus the real sharing.
-- **Idris facts:** none that prove uniqueness, which is the point of this
-  program. It is the **control**: whatever makes rbtree static must leave
-  rbtree-ck correct and keep runtime tests exactly where cells are shared.
-  The tests are Perceus's dynamic reuse, which uniqueness-pipeline.md §7
-  keeps next to static reuse.
-- **Claim:**
-  - at most Koka's 4.9 cells per insert;
-  - the same output;
-  - at most Koka's time;
-  - `live cells 0`.
+Both were written for this stream, in Idris and Koka (sources in
+real-benchmarks-programs.md). Each does 100 maps of `(+1)` over a balanced
+tree of n leaves, then a sum.
 
-### deriv (Perceus `deriv.kk`, Lean `deriv.lean`)
+- **New:**
+  - both allocate only the initial tree (2n−1 cells), so 0 cells per map,
+    as Koka does;
+  - both run under an 8 MiB stack at n = 10^6. The tree is balanced, so this
+    is not yet a stack test; a degenerate tree would be.
+  - At n = 10^6:
 
-- **Stresses:** symbolic terms with shared subterms (`d x (Mul f g)` uses
-  `f` and `g` twice). It needs cheap sharing, not reuse.
-- **Today:**
-  - 1.73 s: 0.53x Koka and 0.96x Lean, but 1.08x MLton;
-  - the fewest cells of all: 2 327, against 3 090 for Koka and 3 687 for C.
-- **Idris facts:**
-  - closed terms are static cells (count 0);
-  - `d "x"`'s string literal is a closed argument that specialization
-    ("finite specialization") can fix;
-  - every closed call of total code is evaluated at compile time (AGENTS.md).
-- **Missing:** the last 8% against MLton is not traced here. A guess is the
-  `String` compare in `d x (Var y)` (`x == y` on every `Var`), which
-  specialization on `x = "x"` would turn into a compare with a constant.
-- **Claim:**
-  - at most Koka's allocations;
-  - faster than MLton;
-  - no count operation on static cells.
-
-### nqueens (Perceus `nqueens.kk`)
-
-- **Stresses:** lists of lists that share their tails. Nothing can be
-  reused: every solution list is shared by its extensions.
-- **Today:**
-  - 1.03 s: 0.82x Koka and 0.33x Lean;
-  - frees equal C's (4 112 against 4 115);
-  - 94 MiB, the least of all.
-- **Idris facts:**
-  - `safe` only reads its list, so it borrows it;
-  - `Int` elements are unboxed in the cons cell.
-- **Claim (control):** we stay at most Koka's time and C's allocations.
-
-### cfold (Perceus `cfold.kk`, Lean `const_fold.lean`)
-
-- **Stresses:**
-  - building a term of depth 20, then reassociating and folding it;
-  - `reassoc`'s right spine recurses 2^19 deep.
-  - `e` is used by `eval e` (which only reads it) and then by `reassoc e`,
-    its last use. From there on it is unique, and `reassoc` and `cfold` can
-    reuse every `Add`/`Mul` cell.
-- **Today:**
-  - 0.37 s: 1.46x Koka and 0.80x Lean;
-  - 46 147 cells, fewer than Koka's 49 408, but C needs only 32 769;
-  - 10 378 resets, all of them exclusive, but 20 756 tokens freed unused:
-    two thirds of the cells taken apart are not rebuilt in place.
-- **Why the tokens go unused:** in `cfold`, `Add e1 e2` becomes `Val (a+b)`,
-  a constructor of another size, or it becomes `Add` in the `Val a` branch
-  only after the inner `case`. Koka also reuses by size, yet allocates more
-  than we do. So our allocation count is not what makes us slower; the time
-  goes elsewhere (not traced: the deep recursion's frames, or the counts).
-- **Idris facts:**
-  - `eval` borrows, so `e`'s reference count is 1 when `reassoc` starts;
-    that is uniqueness after the last borrowed use;
-  - `Expr` is total and finite, so a take of a unique `Add` whose `Val`
-    result is smaller can keep the cell, when the size classes allow it,
-    instead of freeing it and allocating a new one.
-- **Claim:**
-  - at most C's cell count;
-  - at most Koka's time;
-  - recursion depth 2^19 without an unlimited stack. The frames are the
-    evaluation contexts of FP² §2.5 ("Stack Safe FIP"). TRMC (architecture.md) or an explicit
-    zipper would bound them; this is where Koka's TRMC wins.
-
-### binarytrees (Benchmarks Game; Lean `binarytrees.st.lean`)
-
-- **Stresses:** allocate a tree, walk it, free it, many times, beside one
-  long-lived tree.
-- **Today:**
-  - 7.92 s: 0.86x Lean, 0.78x MLton, 0.48x Koka and 0.31x C (glibc
-    malloc);
-  - 110 MiB, the least;
-  - allocation and free are both inlined, so the fast path is a
-    snmalloc free-list pop and push (runtime/alloc.cc:1-6).
-- **Idris facts:**
-  - `check (make' i d)`: the tree is built and consumed at once, and no
-    reference survives `check`;
-  - `make'` and `check` are total and pure.
-  - So the whole tree can live in a region freed in one step, or
-    `check ∘ make'` can be fused: it computes the node count, which depends
-    only on `d`.
-  - Fusing is legal, but it would defeat the benchmark. The honest claim is
-    the region.
-- **Claim:**
-  - stay ahead of Lean and MLton;
-  - freeing a checked tree costs O(1), not O(nodes). Measure it as frees
-    per iteration with runtime counters.
-
-### qsort (Lean `qsort.lean`) and unionfind (Lean `unionfind.lean`)
-
-- **Stresses:**
-  - qsort updates arrays in place (Bits32);
-  - unionfind keeps an array of two-`Int` records and compresses paths.
-  - Both are written with base's `Data.IOArray.Prims`, because
-    `Data.IOArray` boxes every element in a `Just`.
-- **Today, both are rejected:**
-  - qsort: `Main.mkRandomArray: unsupported (escape hatch): %extern
-    Data.IOArray.Prims.prim__newArray`;
-  - unionfind: `unsupported (program): imports System, which is neither a
-    user module nor a trusted module`, because of `exitWith`.
-  - The rejections are explicit, as AGENTS.md asks.
-  - The field for comparison:
-
-    | | qsort (s) | unionfind (s) |
+    | | fip | std |
     |---|---:|---:|
-    | C | 1.38 | 0.17 |
-    | MLton | 1.88 | 0.44 |
-    | Lean | 2.79 | 2.93 |
-    | Koka | 36.4 | 3.11 |
+    | ours | **1.57 s** | 1.75 s |
+    | Koka | 1.82 s | **1.47 s** |
+    | Chez | 25.1 s | – |
 
-    Koka has no mutable array, so its vector is copied.
-- **Idris facts:**
-  - elements of closed scalar type are unboxed: `Bits32` as `i32`, and
-    `NodeData` as two `i64` inline;
-  - indices below the length can be `Fin n`, which removes the bounds
-    check (representation.md R5);
-  - a pure array that is threaded uniquely is updated in place (the
-    tensor → bufferization path of decision-linear-libraries.md and
-    mutable-buffers.md).
-- **Missing:** a registry meaning for the array primitives (mutable-buffers.md
-  and linear-libs.md) and for `System.exitWith`.
-- **Claim:**
-  - qsort: IOArray and pure `Fin` versions both within 1.1x of C.
-    Lean's pure-`Array` qsort is the one to beat.
-  - unionfind: within 1.5x of C, which is 6x ahead of Lean and Koka.
-
-### Idiomatic variants (earlier run, `results-cpu.tsv` and `results-q.tsv`)
-
-These are the same workloads written the way an Idris programmer writes
-them: Nat, Integer, ranges, `sum`/`map`, contrib's `SortedMap`. They
-measure what idiomatic Idris costs, which the Int versions hide.
-
-| variant | ours | Chez | notes |
-|---|---:|---:|---|
-| binarytrees, Nat and ranges | 172 s (depth 14) | 0.11 s | superlinear: 6.6 s at depth 12. Chez is fast partly because upstream CSE shares `make d`. The rest is not traced. |
-| deriv, Integer | 13.2 s, 3.5 GB | 2.9 s, 0.8 GB | |
-| cfold, Integer and Nat | 0.35 s | 0.76 s | win |
-| nqueens, Nat and `length` | 25.0 s | 68.9 s | win against Chez, but 25x our Int version |
-| binarytrees with a depth-indexed `PTree d` | 8.7 s | 15.3 s | win |
-| rbtree via `Data.SortedMap` | rejected | – | `unsupported (runtime closure): an implementation chosen at runtime` in `Data.SortedMap.Dependent.insert` |
-
-decision-nat.md (being implemented now) targets the first three. The
-suite must hold at least one idiomatic program, or the Int versions will
-flatter us.
-
-## 3. FP²'s fully-in-place programs
-
-FP² (Lorenzen, Leijen, Swierstra, ICFP 2023) §6, Fig. 10 benchmarks five
-programs: rbtree, ftree, msort, qsort and tmap. Each does 100 iterations
-over 100 000-element structures. The paper finds that fip is faster than
-std; that std-reuse (Koka's default) is close to fip; and that both are
-near C++.
-
-- **fbip-rb** is §2.1 above.
-- **tmap (§3)**: I wrote it for this stream, in Idris and Koka (fip and
-  std). The sources are in `src/tmap-{fip,std}/Main.idr` and
-  `src/kk/tmap{fip,std}.kk`, 100 maps over a tree of n leaves.
-
-  | n | Koka fip | Koka std | Chez fip | Chez std |
-  |---:|---:|---:|---:|---:|
-  | 100 000 | 0.11 s | 0.08 s | 2.28 s | 1.39 s |
-  | 1 000 000 | 1.78 s | 1.57 s | 25.1 s | – |
-
-  - All print 5010050000.
-  - Koka's checker accepted `fip` for `down`/`app` once they were declared
-    `div`: they are mutually recursive and not structurally decreasing.
-  - Ours could not be built on any tree state today (above).
-- **The claim this program carries:** tmap-std compiles to what tmap-fip
-  is: no allocation and a flat stack on a unique tree.
+- **The claim this pair carries:** tmap-std should compile to what tmap-fip
+  is.
   - FP² §3.1 shows that the fip version *is* the defunctionalized CPS form
-    of the std version. The zipper constructors are the closures of
+    of the std version: the zipper constructors are the closures of
     `tmap(l, f, fn(l') …)`.
   - We already defunctionalize (`Defunctionalize.cc`), and TRMC is in
     architecture.md.
-  - What is left is the side condition of FP²'s TRMReC translation: each
-    zipper constructor fits in a cell the recursion just freed. Size
-    arithmetic over known constructors makes that decidable at compile
-    time.
-  - Idris facts: uniqueness for the reuse; totality, so that the transformed
-    loop is the same function.
-- **msort and qsort (§4.2):** in-place list sorts through a partition type
-  (`Sub`/`One`/`End`, `Cons2`/`Nil2`) that holds n elements in the n cells
-  of the input list. They are worth adding because reuse happens across
-  *three* types of equal cell size. Not ported here.
-- **ftree (§4.3)** and **splay trees (§1)**: splay is the paper's opening
-  example, where lookup restructures the tree. Porting them is left for
-  later; ftree needs the unboxed tuples and "atoms" of §1.2.
+  - FP²'s side condition (each zipper constructor fits a cell the recursion
+    just freed) is size arithmetic over known constructors, so it is
+    decidable at compile time.
+  - Idris facts: uniqueness for the reuse; totality, so that the
+    transformed loop computes the same function.
+  - Today our std is 1.11x our fip, and 1.19x Koka's std.
+
+### 2.6 rbtree-ck (Perceus `rbtree-ck.kk`, Lean `rbmap_checkpoint.lean`)
+
+- **Stresses:** the same inserts, keeping every fifth tree. The tree is
+  unique again once the checkpoint list has its copy.
+- **New:**
+  - 4.86 cells per insert, the same as C and fewer than Koka (4.89);
+  - 4.43 s: 1.46x Koka (3.03 s), 0.95x C and about 0.7x Lean.
+  - In the three-round run, where Koka's best was 5.08 s, we beat Koka.
+    The noise is that large.
+- **Idris facts:** none that prove uniqueness, which is the point. This is
+  the **control**:
+  - whatever makes rbtree static must leave rbtree-ck correct;
+  - the runtime tests must stay exactly where cells are shared. That is
+    Perceus's dynamic reuse, which uniqueness-pipeline.md §7 keeps next to
+    static reuse.
+- **Claim:**
+  - at most C's cells per insert;
+  - the same output;
+  - time at most Koka's;
+  - `live cells 0`.
+
+### 2.7 deriv, nqueens and cfold (Perceus / Beans)
+
+These three are sharing-dominated. Ours and old differ little on them.
+
+**deriv**
+- **Stresses:** shared subterms. We allocate the fewest cells of anyone
+  (2 327 against Koka's 2 940 and C's 3 687), because closed terms are
+  static cells.
+- **Time:** 1.80 s, 1.17x Koka's best (1.54 s). Koka ranged from 1.54 to
+  4.13 s over today's runs; ours from 1.79 to 1.85.
+- **Idris facts:**
+  - every closed call of total code is evaluated at compile time;
+  - specialization on the literal `"x"` would turn `x == y` in `d x (Var y)`
+    into a compare with a constant. This is not traced.
+- **Claim:** cells at most Koka's; time below MLton's.
+
+**nqueens**
+- **Stresses:** lists of lists that share their tails; nothing can be
+  reused.
+- **Time:** 1.03 s, which beats Koka (1.21 s) and C (1.45 s). It also uses
+  the least memory (94 MiB).
+- **Idris facts:** `safe` borrows its list, and `Int` elements are unboxed
+  in the cons cell.
+- **Claim (control):** time at most Koka's; frees at most C's.
+
+**cfold**
+- **Stresses:** a term of depth 20, reassociated and folded; `reassoc`
+  recurses 2^19 deep.
+  - `e` is read by `eval e`, then consumed by `reassoc e`. After the
+    borrow ends it is unique, and every `Add`/`Mul` cell can be reused.
+- **Time:** 0.36 s, 1.31x Koka and 0.90x Lean. We allocate 46 147 cells,
+  fewer than Koka's 49 258.
+- **Where the reuse goes:** 31 134 tokens are freed unused, up from 20 756.
+  Two thirds of the cells taken apart are not rebuilt in place, because
+  `Add e1 e2` becomes `Val (a+b)`, a smaller constructor. So the loss to
+  Koka is not allocation. It is conjecture that it is the 2^19-deep
+  recursion's frames, where Koka's TRMC applies to `appendAdd`'s spine.
+- **Idris facts:**
+  - `eval` borrows, so `e` is unique when `reassoc` starts;
+  - `Expr` is closed, so a token of a larger cell may hold a smaller
+    constructor if the size classes allow it.
+- **Claim:**
+  - cells at most C's;
+  - time at most Koka's;
+  - depth 2^19 under an 8 MiB stack. The frames are FP² §2.5's evaluation
+    contexts ("Stack Safe FIP"); TRMC or a zipper bounds them.
+
+### 2.8 binarytrees (Benchmarks Game; Lean `binarytrees.st.lean`)
+
+- **Stresses:** allocate, walk and free a tree many times, beside one
+  long-lived tree.
+- **Time:** 8.01 s. That is 0.83x Lean, 0.78x MLton, 0.47x Koka and 0.30x
+  C (glibc malloc). It uses 110 MiB, the least.
+- **Why:** allocation and free are both inlined, as a snmalloc free-list
+  pop and push (runtime/alloc.cc:1-6).
+- **Idris facts:** in `check (make' i d)` the tree is built and consumed at
+  once; no reference survives `check`, and both functions are total and
+  pure. So the tree could live in a region freed in one step. Fusing
+  `check ∘ make'` would also be legal, but it would defeat the benchmark.
+- **Claim:**
+  - ahead of Lean and MLton;
+  - O(1) frees per checked tree, measured with runtime counters (§6).
+
+### 2.9 qsort and unionfind (Lean `qsort.lean`, `unionfind.lean`)
+
+- **Stresses:**
+  - qsort updates `Bits32` arrays in place;
+  - unionfind keeps an array of two-`Int` records and compresses paths.
+  - Both use base's `Data.IOArray.Prims`, because `Data.IOArray` boxes
+    every element in a `Just`.
+- **Both are rejected**, in the old and the new build:
+  - qsort: `Main.mkRandomArray: unsupported (escape hatch): %extern
+    Data.IOArray.Prims.prim__newArray`;
+  - unionfind: `unsupported (program): imports System, which is neither a
+    user module nor a trusted module`, for `exitWith`.
+  - The field:
+
+    | | qsort | unionfind |
+    |---|---:|---:|
+    | C | 1.42 s | 0.17 s |
+    | MLton | 1.97 s | 0.43 s |
+    | Lean | 2.85 s | 2.97 s |
+    | Koka | 36.97 s | 3.82 s |
+
+    Koka's vector is copied: it has no mutable array.
+- **Idris facts:**
+  - elements of closed scalar type are unboxed: `Bits32` as `i32`, and
+    `NodeData` as two inline `i64`;
+  - in-bounds indices can be `Fin n`, so no bounds check
+    (representation.md R5);
+  - a uniquely threaded pure array is updated in place, through the
+    tensor → bufferization path (mutable-buffers.md,
+    decision-linear-libraries.md).
+- **Missing:** registry meanings for the array primitives and for
+  `System.exitWith`.
+- **Claim:**
+  - qsort within 1.1x of C, both in its IOArray form and in a pure `Fin`
+    form;
+  - unionfind within 1.5x of C, which is 17x ahead of Lean.
+
+### 2.10 Idiomatic variants
+
+The same workloads, written as an Idris programmer writes them: Nat,
+Integer, ranges, `sum`/`map`, and contrib's `SortedMap`.
+
+| variant | ours, old | ours, new | Chez, same run |
+|---|---:|---:|---:|
+| binarytrees with Nat and ranges, depth 12 | 6.6 s | **0.010 s** | 0.137 s |
+| … at depth 21 | – | 10.8 s, 366 MiB | 11.6 s |
+| deriv with `Integer` | 13.2 s, 3.5 GB | **2.08 s**, 425 MiB | 5.16 s |
+| cfold with Integer and Nat | 0.35 s | 0.37 s | 1.03 s |
+| nqueens with Nat and `length` | 25.0 s | 23.5 s | 92.3 s |
+| binarytrees with a depth-indexed `PTree d` | 8.7 s | 5.6 s | 13.3 s |
+| rbtree via `Data.SortedMap` | rejected | rejected | – |
+
+- **The Nat work fixed the collapse:** binarytrees and deriv.
+- **What remains:**
+  - idiomatic nqueens is still 23x our `Int` version;
+  - idiomatic binarytrees at depth 21 is 1.35x the `Int` one, with 3.3x
+    its memory;
+  - contrib's `SortedMap` is rejected: `unsupported (runtime closure): an
+    implementation chosen at runtime` in `Data.SortedMap.Dependent.insert`.
+- **Why the suite needs idiomatic programs:** the `Int` versions flatter us.
+
+## 3. FP²'s fully-in-place programs
+
+FP² (Lorenzen, Leijen and Swierstra, ICFP 2023) §6, Fig. 10 benchmarks
+five programs: rbtree, ftree, msort, qsort and tmap. Each does 100
+iterations over structures of 100 000 elements. The paper finds three
+things:
+- fip is faster than std;
+- std-reuse (Koka's default) is close to fip;
+- both are near C++.
+
+We now have two of the five:
+- **fbip-rb** (§2.4): we beat Koka's fip version.
+- **tmap** (§2.5): we beat Koka's fip version, and lose 1.19x to its std
+  version.
+
+The other three are not ported yet:
+- **msort and qsort (§4.2)** are in-place list sorts through a partition
+  type (`Sub`/`One`/`End`, `Cons2`/`Nil2`) that holds n elements in the n
+  cells of the input list. They test reuse across *three* types of equal
+  cell size.
+- **ftree (§4.3)** and **splay trees (§1)** need FP²'s unboxed tuples and
+  "atoms" (§1.2): nullary constructors that give a reuse credit. We should
+  derive those from the constructor sizes rather than ask for them.
 
 ## 4. What the measurements say about the design
 
-1. **Reuse is the whole gap on rbtree, rbtree-ck and fbip-rb, and it is
-   placement, not proof.**
-   - 89% of our tests fail on a tree that is unique by construction. Lean
-     loses the same way, for a different reason (it frees the reset cell).
-   - Fixing D1 to D4 turns the dynamic test into Koka's behaviour.
-   - uniqueness-pipeline.md's static proof then removes the test.
-   - Koka never removes it, so that is the step that beats Koka rather than
-     matching it.
-2. **Cell size is the second lever, and Idris knows the finite types.**
-   - rbtree spends 53 bytes per node on five fields, two of which carry one
-     bit each.
-   - A representation rule is missing from representation.md: a field whose
-     type is closed and finite after monomorphisation (an enum like `Color`
-     or `Bool`, or a `Fin k` with small k) is packed. One option splits the
-     constructor by the field's value (`Node Red …` → `NodeRed …`), so the
-     field becomes part of the tag, which the match already reads. The
-     other packs the field into one word with its siblings.
-   - The first option is rbidx, done by the compiler. It is sound because
-     the field's value set is closed and the tag space is known (R3's
-     disjointness verifier covers it).
-   - The layout attribute (R2/R3) would hold it, so nothing is stored in a
-     discardable attribute.
-3. **Where we win, we win on allocation cost, not on facts.** In
-   binarytrees, nqueens and deriv:
+1. **Reuse placement was the whole gap on the reuse benchmarks, and the new
+   build closed it.** Allocation now equals Koka's and C's on rbtree,
+   rbtree-ck, linrb, fbip-rb and tmap.
+   - What is left is not allocation. rbtree's 1.84x against Koka comes
+     from cell size and recursion shape, and fbip-rb's 1.25 s shows the
+     shape is worth about 1.7x.
+   - So the next levers are:
+     - TRMC (architecture.md);
+     - finite-field packing (point 2 below);
+     - static uniqueness, which removes the per-take test that Koka keeps,
+       and is the step that goes past Koka (uniqueness-pipeline.md).
+2. **Cell size: Idris knows the finite types, and representation.md has no
+   rule for them.**
+   - The rule: a field whose type is closed and finite after
+     monomorphisation (an enum like `Color` or `Bool`, or `Fin k` for
+     small k) is packed. There are two ways to pack it:
+     - split the constructor by the field's value (`Node Red …` becomes
+       `NodeRed …`), so the field becomes part of the tag the match
+       already reads;
+     - or pack it with its siblings into one word.
+   - It is sound because the value set is closed, and R3's head-shape
+     verifier covers the tag space.
+   - It lives in the layout attribute (R2/R3), never in a discardable
+     attribute.
+   - rbtree's cell would go from 48 to 40 bytes.
+3. **Rebuilding what was just matched must be the identity.** rbidx's
+   regression (§2.2) is a missing canonicalization, not a missing analysis.
+   `idr.con @C(the fields case @C bound from x)` is `x`. It removes a take,
+   a free, a stack cell and an allocation per black node.
+   - It is the same rewrite real-benchmarks-programs.md proposed for
+     linear scrutinees.
+   - It belongs before `idr-stack`, whose choice otherwise pre-empts reuse.
+   - More generally: `idr-stack` (step 5) runs before `idr-rc` (step 6), so
+     a cell that could be reused may be put on the stack first. When a
+     cell is both stackable and a reuse target, reuse should win.
+4. **Where we win on sharing-dominated programs, we win on allocation
+   cost, not on facts.** In deriv, nqueens and binarytrees:
    - allocation is inlined;
    - frees are iterative;
    - closed terms are static.
 
-   None of the Idris-specific facts (linearity, erasure, indices, totality)
-   is used yet. The suite has to separate these, which is why every
-   program's claim names its fact.
-4. **Correctness gaps block the flagship.**
-   - linrb, the program the memory gate was designed around, does not
-     compile (lincase2's error).
-   - Lean's two array programs are rejected.
-   - contrib's `SortedMap` is rejected.
-   - These are the first work items, before any speed claim.
+   None of linearity, erasure, indices or totality is used yet. The suite
+   separates these cases by naming each program's fact.
 
 ## 5. The proposed real-programs suite
 
-Fifteen programs. Each makes one claim that a machine checks. The time
-criterion is always against `min(Koka, Lean)` on the same machine and
-input, in the same interleaved rounds.
+Fifteen programs, each with one claim that a machine checks. Time is always
+against `min(Koka, Lean)` in the same interleaved run. Allocation is
+checked against a fixed number.
 
-| # | program | source | Idris fact it exploits | claim (checked) |
-|---|---|---|---|---|
-| 1 | rbtree | Perceus / Beans | uniqueness inferred over the call graph | ≤ 1.05 cells per insert; 0 failed uniqueness tests; time ≤ Koka |
-| 2 | rbidx | this stream | erased indices (`!idr.erased`); colour as the tag; coverage | 40 B/node; cells ≤ rbtree's; time < Koka's rbtree |
-| 2b | rbtree-split | rbtree with `NodeRed`/`NodeBlack` | closed finite field → tag (the new packing rule) | the compiler's split of #1 equals the hand split: same cells per insert, same bytes per node |
-| 3 | linrb | gate experiment 4 | `!idr.lin` on a unique call chain | 0 inc, 0 dec test, 0 count test on the tree; 1 cell per insert; time < Koka (1.04 s) |
-| 3b | linrb-shared | gate experiment 4 | call-site uniqueness | `unsupported` naming the call site (or a correct tested build); never an internal error |
-| 4 | fbip-rb | FP² / Koka sample | uniqueness; reuse across `Tree` and `Zipper` cells of the same size | ≤ 1.05 cells per insert; runs at `ulimit -s 8192`; time ≤ Koka fip |
-| 5 | tmap-std and tmap-fip | FP² §3 | uniqueness; totality; defunctionalized CPS | both 0 cells per map and a flat stack; tmap-std within 1.1x of tmap-fip; ≤ Koka |
-| 6 | msort-fip | FP² §4.2 | uniqueness; equal-size reuse across three types | 0 cells after the input list; ≤ Koka fip |
-| 7 | rbtree-ck | Perceus / Beans | none: the sharing control | ≤ 4.9 cells per insert (Koka's and C's); time ≤ Koka; output identical |
-| 8 | deriv | Perceus / Beans | closed terms static; compile-time evaluation; specialization on the literal | cells ≤ Koka's; time < MLton |
-| 9 | nqueens | Perceus | borrowing; unboxed `Int` fields (the control for shared tails) | time ≤ Koka; frees ≤ C's |
-| 10 | cfold | Perceus / Beans | uniqueness after the last borrowed use | cells ≤ C's; time ≤ Koka; depth 2^19 under an 8 MiB stack |
-| 11 | binarytrees | Benchmarks Game / Beans | purity + non-escape → region | time ≤ Lean and MLton; O(1) frees per checked tree |
-| 12 | qsort | Beans (IOArray form + pure `Fin` form) | unboxed `Bits32`; `Fin n` bounds; unique array → in place | compiles; within 1.1x of C in both forms |
-| 13 | unionfind | Beans | record of two `Int`s unboxed in the array; `Fin` indices | compiles; within 1.5x of C |
-| 14 | sortedmap | contrib `Data.SortedMap` | monomorphised `Ord` dictionary (a closed instance) | compiles; within 1.5x of #1 |
-| 15 | idiom-binarytrees | binarytrees with `Nat` and ranges | Nat as a word where its range is proved (decision-nat) | within 1.2x of #11; no worse than Chez |
+| # | program | source | Idris fact it exploits | claim (checked) | today |
+|---|---|---|---|---|---|
+| 1 | rbtree | Perceus / Beans | uniqueness inferred over the call graph | ≤ 1.05 cells per insert; 0 failed takes; 0 count tests on the path; time ≤ Koka | cells ✓; time 1.84x |
+| 2 | rbidx | this stream | erased indices (`!idr.erased`); colour as the tag; coverage | ≤ rbtree's cells; 40 B/node; time < Koka's rbtree | regressed (§2.2) |
+| 2b | rbtree-split | rbtree with the colour moved into the constructor (`NodeRed`/`NodeBlack`) | a closed finite field packed into the tag (§4, point 2) | the compiler's packing of #1 equals the hand split: same cells, same bytes per node | new |
+| 3 | linrb | gate experiment 4 | `!idr.lin` with unique callers | 0 inc, 0 dec test, 0 count test on the tree; 1 cell per insert; time < Koka | cells ✓; time 1.82x |
+| 3b | linrb-shared | gate experiment 4 | call-site uniqueness | correct output and a report naming the call site (or `unsupported`); never an internal error | correct, no report |
+| 4 | fbip-rb | FP² / Koka sample | uniqueness; reuse across `Tree` and `Zipper` cells of the same size | ≤ 1.05 cells per insert; 8 MiB stack at n = 4.2M; time ≤ Koka fip | ✓ (0.88x) |
+| 5 | tmap-std and tmap-fip | FP² §3 | uniqueness; totality; defunctionalized CPS | 0 cells per map; flat stack on a degenerate tree; std within 1.05x of fip; ≤ Koka | cells ✓; std 1.19x Koka std |
+| 6 | msort-fip | FP² §4.2 | uniqueness; reuse across three types of equal size | 0 cells after the input list; ≤ Koka fip | to port |
+| 7 | rbtree-ck | Perceus / Beans | none: the sharing control | ≤ C's cells per insert (4.86); output identical; time ≤ Koka | cells ✓; time 1.46x (noisy) |
+| 8 | deriv | Perceus / Beans | static closed terms; compile-time evaluation; specialization on the literal | cells ≤ Koka's; time < MLton | cells ✓; time ≈ MLton |
+| 9 | nqueens | Perceus | borrowing; unboxed `Int` fields; the control for shared tails | time ≤ Koka; frees ≤ C's | ✓ |
+| 10 | cfold | Perceus / Beans | uniqueness after the last borrowed use | cells ≤ C's; time ≤ Koka; depth 2^19 under an 8 MiB stack | 1.31x; cells 1.4x C |
+| 11 | binarytrees | Benchmarks Game / Beans | purity and non-escape, so a region | time ≤ Lean and MLton; O(1) frees per checked tree | time ✓ |
+| 12 | qsort | Beans (IOArray form and pure `Fin` form) | unboxed `Bits32`; `Fin n` bounds; a unique array is updated in place | compiles; within 1.1x of C in both forms | rejected |
+| 13 | unionfind | Beans | a record of two `Int`s unboxed in the array; `Fin` indices | compiles; within 1.5x of C | rejected |
+| 14 | sortedmap | contrib `Data.SortedMap` | monomorphised `Ord` dictionary (a closed instance) | compiles; within 1.5x of #1 | rejected |
+| 15 | idiom-nqueens | nqueens with Nat, `length` and ranges | Nat as a word where its range is proved (decision-nat) | within 1.5x of #9 | 23x |
 
-- Programs 1 to 6 are the static-reuse claims, the reason this compiler
-  exists.
-- 7 to 10 are the controls that reuse must not break. They are also where
-  we already win, so they catch regressions.
-- 11 to 15 are the representation and coverage claims.
-- Programs 2b, 5, 6, 14 and 15 are new. 5's sources exist (§3); 2b is a
-  ten-line edit of rbtree; 6 is a port of FP² §4.2; 14 and 15 exist in
-  scratch (`idiom/`).
+- **Programs 1 to 6** are the static-reuse and representation claims, the
+  reason this compiler exists.
+- **Programs 7 to 11** are controls that must not regress. We already win
+  most of them.
+- **Programs 12 to 15** are coverage: what an Idris programmer writes has to
+  compile and be fast.
+- **New programs:**
+  - 2b is a ten-line edit of rbtree;
+  - 5 exists (`src/tmap-*`, `src/kk/`);
+  - 6 is a port of FP² §4.2;
+  - 14 and 15 exist in scratch (`idiom/`).
+  - 5 also needs a degenerate-tree input for the stack claim, because a
+    balanced tree only recurses to depth 20.
 
 ## 6. What bench/ needs to run it routinely
 
 1. **An `ours` column in the gate's suite.**
    - `bench/gate/run.sh suite` builds Chez, MLton, C, Koka and Lean
      (`lib.sh` `build_chez` … `build_lean`), but never this compiler. Only
-     the hand-lowered prototypes of experiments 2 to 4 stand for it.
-   - Add `build_ours` (`tools/compile.sh Main.idr prog`, under
-     `flock -s build/.tree.lock`).
-   - Add a verdict per program: time against `min(Koka, Lean)`.
+     the hand-lowered prototypes of experiments 2 to 4 stand in for it.
+   - Add `build_ours`: `tools/compile.sh Main.idr prog`, under
+     `flock -s build/.tree.lock`.
+   - Add a verdict per program: the time against `min(Koka, Lean)`.
    - `bench/run.sh` already has "this compiler", but no Koka or Lean. The
      simplest merge is `bench/run.sh --suite gate`, sourcing `gate/lib.sh`'s
      builders.
-2. **Runtime counters, not gdb.**
-   - Add a stats variant of the runtime archive: counters for
+2. **Runtime counters, instead of gdb.**
+   - Add a stats variant of the runtime archive, counting:
      - cells allocated and freed;
      - takes found exclusive and found shared;
-     - incs, decs, and tokens freed unused;
+     - incs and decs;
+     - tokens freed unused;
      - maximum stack depth.
-   - Compile it separately, so timing builds carry no counter.
-   - Print it at exit as `IDRIS_RT_LIVE` does today (runtime/io.cc).
+   - Compile it separately, so the timing builds carry no counter, and
+     print the counts at exit as `IDRIS_RT_LIVE` does (runtime/io.cc).
    - `idris-mlir-cc --runtime=<archive>` already selects an archive
-     (idris-mlir-cc.cc:112). A `--directive rt-stats` in `tools/compile.sh`
+     (idris-mlir-cc.cc:112); a `--directive rt-stats` in `tools/compile.sh`
      would pass it.
-   - Today these counts need gdb on out-of-line entries, which misses
-     whatever LTO inlines and takes minutes. Callgrind cannot run our
-     binaries (snmalloc does not initialise under valgrind).
-   - The gate's own prototype has exactly this switch (`IDR_GATE_STATS`,
-     bench/gate/README.md).
+   - Today the counts need gdb on out-of-line entries: it misses what LTO
+     inlines, and takes minutes at n = 20 000. Callgrind cannot run our
+     binaries at all.
+   - The gate's prototype had exactly this switch (`IDR_GATE_STATS`).
 3. **Static counts next to the dynamic ones.** `idris-mlir-cc --stats`
    exists (idris-mlir-cc.cc:517). Record:
-   - `numReuses` and `numIncs` (Passes.td:396-399 at bd274ba);
-   - the stack cells (`numCells`, Passes.td:282).
+   - `numReuses` and `numIncs` (Passes.td:396-399 at `bd274ba`);
+   - `numCells`, the stack cells (Passes.td:282).
 
-   A claim like "0 count tests on linrb" is then checked statically and
-   dynamically.
-4. **A `claim` file per program**, in the style of `bench/<name>/input`
-   and `rejected`. It holds the checked properties as data, for example:
+   With both, a claim like "linrb: 0 count tests on the tree" is checked
+   statically and dynamically.
+4. **A `claim` file per program**, beside `bench/<name>/input` and
+   `rejected`. It holds the properties as data, for example:
 
    ```
    cells-per-op <= 1.05
    failed-takes = 0
    stack 8192
-   rejects linrb-shared
    ```
 
-   The runner evaluates it against the counters, so each claim is written
-   once, not re-encoded in a script. This is AGENTS.md's "expressive
-   check", at the benchmark level.
+   The runner evaluates them against the counters. The claim is then
+   written once, not re-encoded in a script. This is AGENTS.md's
+   "expressive check", at the benchmark level.
 5. **CPU time and interleaving.**
    - The machine is shared, and wall-clock best-of-5 (`tools/measure.c`)
-     swings 2x under load.
+     swings 2x or more under load.
    - Report user + sys from `wait4`'s rusage, which `measure.c` already
      calls.
    - Interleave the compilers within each round, as `cpu.sh` does.
-6. **One C compiler.** The gate builds C with GCC -O2; `bench/run.sh` uses
-   clang for x86-64-v3 since `01fb73a`. The C column should mean the same
-   thing in both.
-7. **A toolchain consistency check before measuring.**
-   - Today's failure mode was two halves of the compiler built from
-     different trees:
-     - the frontend at 00:46 and `idris-mlir-cc` at 02:27 disagree on
-       `idr.ctor`'s syntax;
-     - `idris-mlir-cc` at 21:15 and the runtime at 01:52 disagree on
-       `llvm.global.annotations`.
-   - The runner should record both binaries' build times and the commit,
-     and refuse to report when they are from different builds.
+   - Take the best of at least 5 rounds; for memory-bound programs, give
+     the spread too.
+   - Time criteria only mean something on a quiet machine. Allocation
+     criteria mean something on any machine, so gate on those first.
+6. **One C compiler.** The gate uses GCC -O2 and `bench/run.sh` uses clang
+   x86-64-v3; the C column should mean the same thing in both.
+7. **A toolchain-consistency check before measuring.**
+   - Today's failure was two halves of the compiler built from different
+     trees. For 45 minutes every program failed with an internal error
+     that says nothing about the program.
+   - The runner should record the commit, the dirty-file count, and the
+     build times of the frontend, `idris-mlir-cc` and the runtime archive.
+     It should refuse to report when those come from different builds.
+   - The coordinator killed one unlocked `make build` during this stream.
+     It was not mine: this stream only ran `tools/compile.sh` and read-only
+     tools under `flock -s`.
 
 ## Open questions
 
-1. Why does rbidx reuse nothing (no reset in the binary and 6.0 cells per
-   insert)? Is it the `Almost`/`AnyRB` register sums hiding the matched
-   box's death? To answer, dump `idr-rc` on rbidx with a working tree.
-2. Why do fbip-rb's 11 `idr.reuse` sites (22:27 dump) reach runtime with
-   null tokens? Is it the same D1/D3, or the zipper being passed to
-   `balanceRed` as a borrowed parameter?
-3. cfold: we allocate fewer cells than Koka and are 1.46x slower. Where does
-   the time go? The deep recursion's frames, counts on the `Val` path, or
-   `max`?
-4. The idiomatic binarytrees is superlinear (6.6 s at depth 12, 172 s at
-   depth 14). Is that Nat alone (decision-nat.md), or also the missing CSE
-   that upstream does on CExp? We consume TT, so upstream's CSE never runs
-   for us, and an MLIR `cse` over pure calls would recover it.
-5. Should the finite-field packing rule split constructors, or pack fields
-   into a word?
-   - Splitting multiplies the constructors, and so the match arms. That is
-     free for a match already on the tag, but code grows for functions
-     that ignore the colour.
-   - rbtree-split (#2b) against a packed-word variant would decide it.
+1. **rbtree against Koka at equal allocation.** Which part of the remaining
+   1.84x is cell size (48 against 33 bytes) and which is the recursion
+   shape (TRMC)? Two measurements would answer it: rbtree-split (#2b), and
+   rbtree with TRMC applied to `ins`.
+2. **The per-take test.** With static uniqueness it goes away. How much is
+   it worth on rbtree? It is inlined, so measuring it needs the stats
+   runtime or a build without the test.
+3. **cfold.** We allocate fewer cells than Koka and still run 1.31x
+   slower. Is it the 2^19-deep recursion, or the counts on the `Val` path?
+4. **Stack against reuse.** Should `idr-stack` run after reuse pairing, or
+   leave a cell that a later match will take? The canonicalization of §4, point 3,
+   fixes rbidx either way, but the ordering question is general.
+5. **linrb-shared.** Should it be rejected (the gate's plan), or compiled
+   with a report of the call site? Both are sound. The report keeps Idris's
+   acceptance of the program; the rejection is simpler to test.

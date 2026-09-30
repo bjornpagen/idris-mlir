@@ -8,9 +8,9 @@ rerun. Scratch copies are under
 
 ## Two reproducers of one bug: a linear scrutinee used whole after a match
 
-Both typecheck and run on Chez. (Update: with the programs built at
-`061b98d`, the last consistent toolchain, `lincase` compiles and prints 65;
-`lincase2`, `linrb` and `linrb-shared` still fail as described here.) At the
+Both typecheck and run on Chez. (Update: at `061b98d` `lincase` compiled and
+printed 65 while `lincase2`, `linrb` and `linrb-shared` still failed; at the
+02:38 build of `bd274ba` all four compile and print Chez's output.) At the
 time of the first run, through `tools/compile.sh` both failed with
 `internal error: idris-mlir-cc failed with status 1: ... 'idr.match' op uses
 a linear value that is already used on the same path`. This is the same
