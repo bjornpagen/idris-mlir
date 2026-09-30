@@ -5,11 +5,11 @@
 // a function of its own, a case block, which its parent calls once. The
 // case block is a continuation of its parent, and it often calls the parent
 // back, as recursion through an `if` does. MLIR's inliner refuses such a
-// callee, one that calls its caller (Inliner.cpp:709-715), so the parent
-// and the case block stay two functions. Then a cell the parent takes apart
-// cannot be reused by the constructor the case block builds, and
-// case-of-case moves the call into both arms of the parent's matches, after
-// which it has two calls and is no longer a continuation of anything.
+// callee, one that calls its caller, so the parent and the case block stay
+// two functions. Then a cell the parent takes apart cannot be reused by the
+// constructor the case block builds, and case-of-case moves the call into
+// both arms of the parent's matches, after which it has two calls and is
+// no longer a continuation of anything.
 // Inlining the one call is always a gain: no code is copied, and the call
 // goes. So this runs before the simplify loop, on the module Emit wrote,
 // where every case block still has its one call. It uses inlineCall rather

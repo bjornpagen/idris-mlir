@@ -185,6 +185,12 @@ ModuleOp Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
   OpBuilder b(ctx);
   b.setInsertionPointToEnd(module.getBody());
   ModuleOp copy = ModuleOp::create(b, module.getLoc());
+  // The copy is cloned out of the module to read its layouts, and they must
+  // be the ones the JIT's code is built with: those of the program's data
+  // layout.
+  for (NamedAttribute attr : module->getAttrs())
+    if (isa<DataLayoutSpecInterface>(attr.getValue()))
+      copy->setAttr(attr.getName(), attr.getValue());
   b.setInsertionPointToEnd(copy.getBody());
   for (auto data : module.getOps<idr::DataOp>())
     b.clone(*data);
