@@ -53,6 +53,15 @@ export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Plain)
 
+||| The scope of a match's regions. A match uses a linear scrutinee once,
+||| so inside the regions every variable that named it (a catch-all's, or an
+||| outer clause's after a nested match) names the used value instead, which
+||| `coerce` enters again where a linear position needs it. SSA names are
+||| unique within a function, so the name says which variables those are.
+matched : Val -> Val -> (b -> Val) -> b -> Val
+matched before after env y =
+  let v = env y in if v.name == before.name then after else v
+
 ||| Is a term a branch Idris proved impossible? It is left out.
 excluded : Sub Em b -> Bool
 excluded s = case s.term of
@@ -187,15 +196,16 @@ alg ix own (LetF l u v b) env expected = do
   b.result (bind [x'] env) expected
 alg ix own (CaseF l x alts def) env expected = do
   scrut <- coerce ix l Plain (env x)
+  let inner = matched (env x) scrut env
   DataT d <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
   Just decl <- pure (lookup d ix.datas)
     | Nothing => internal ("a match on " ++ show d ++ ", which is not declared")
   st <- typeText ix scrut.type
-  cases <- traverse alternative (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
+  cases <- traverse (alternative inner) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
-      (res, ops) <- collect (plain ix l (e.result env expected))
+      (res, ops) <- collect (plain ix l (e.result inner expected))
       pure [MkRegion "default {" res ops]
     Nothing => pure []
   case cases ++ dflt of
@@ -204,11 +214,11 @@ alg ix own (CaseF l x alts def) env expected = do
       pure Nothing
     regions => match ix l ("idr.match " ++ scrut.name ++ " : " ++ st) regions
   where
-    alternative : AltF (Sub Em) b -> E Region
-    alternative (MkAltF c fs body) = do
+    alternative : (b -> Val) -> AltF (Sub Em) b -> E Region
+    alternative inner (MkAltF c fs body) = do
       vals <- traverse (\f => (\n => MkVal n (typeOf f) (binderMode f)) <$> fresh) fs
       args <- traverse (param ix) (toList vals)
-      (res, ops) <- collect (plain ix l (body.result (bind vals env) expected))
+      (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
       pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
 alg ix own (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
@@ -226,11 +236,12 @@ alg ix own (CaseLitF l x alts def) env expected = do
     ([], Just e) => e.result env expected
     (_, Just e) => do
       scrut <- coerce ix l Plain (env x)
+      let inner = matched (env x) scrut env
       st <- typeText ix scrut.type
       regions <- traverse (\(k, c) => do
-                             (res, ops) <- collect (plain ix l (c.result env expected))
+                             (res, ops) <- collect (plain ix l (c.result inner expected))
                              pure (MkRegion ("case " ++ key k ++ " {") res ops)) cases
-      (res, ops) <- collect (plain ix l (e.result env expected))
+      (res, ops) <- collect (plain ix l (e.result inner expected))
       match ix l ("idr.match_lit " ++ scrut.name ++ " : " ++ st) (regions ++ [MkRegion "default {" res ops])
 -- The predecessor exists only where the value is not zero: the successor's
 -- region computes it, and only it binds it.
