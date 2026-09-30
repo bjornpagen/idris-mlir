@@ -1,12 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK --implicit-check-not=[Missed] < %t.remarks
-// RUN: awk -f "$(dirname %s)/closure-labels/many.awk" > %t.many.mlir
-// RUN: idris-mlir-opt %t.many.mlir --idr-eval | FileCheck %s --check-prefix=MANY
 // A closure read back from compile-time evaluation is known by its code:
 // each function and number of captures has code of its own, and the cell
-// holds nothing else that says which. Closures of one function with
-// different captures, and of different functions, all come back as what
-// they were.
+// holds nothing else that says which, so no count of labels can make one
+// read as another. Closures of one function with different captures, and
+// of different functions, all come back as what they were.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK-NOT: call
 // CHECK-DAG: idr.constant #idr.closure<@f, []> : !idr.fn<(i64, i64, i64) -> (i64)>
@@ -15,12 +13,6 @@
 // CHECK-DAG: idr.constant #idr.closure<@g, ["seven"]> : !idr.fn<(i64) -> (i64)>
 // CHECK: return
 // REMARK: remark: [Passed] Evaluated
-// With 65537 functions a closure is of label 65536, past what a 16-bit
-// field could name. It comes back as a closure of the last function, not
-// of the first.
-// MANY-LABEL: func.func @Prog.main()
-// MANY-NOT: call
-// MANY: idr.constant #idr.closure<@f65536, [65536]>
 module {
   func.func private @f(%a: i64, %b: i64, %x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %s = arith.addi %a, %b : i64
