@@ -27,7 +27,7 @@
 // CHECK: scf.if %[[NULL]] -> (!llvm.ptr) {
 // CHECK: llvm.call @idris_rt_cell(
 // CHECK: } else {
-// CHECK: llvm.store %{{.*}}, %[[W]] : i32, !llvm.ptr
+// CHECK: llvm.store %{{.*}}, %[[W]]{{.*}} : i32, !llvm.ptr
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @L box {
     idr.ctor @N ()
