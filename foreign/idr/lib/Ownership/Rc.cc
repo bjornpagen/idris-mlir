@@ -31,9 +31,11 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
       if (!fn.isExternal())
         functions.push_back(fn);
     if (reuse) {
-      idr::lower::Layouts layouts(module);
+      FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(module);
+      if (failed(layouts))
+        return signalPassFailure();
       for (func::FuncOp fn : functions) {
-        auto [resets, reuses] = own::insertResetReuse(fn, layouts);
+        auto [resets, reuses] = own::insertResetReuse(fn, *layouts);
         numResets += resets;
         numReuses += reuses;
       }

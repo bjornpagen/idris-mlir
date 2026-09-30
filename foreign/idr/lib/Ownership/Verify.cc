@@ -24,7 +24,7 @@ namespace {
 class Checker {
 public:
   Checker(Counting &counting, SymbolTableCollection &symbols,
-          function_ref<lower::Layouts &()> layouts)
+          function_ref<lower::Layouts *()> layouts)
       : counting(counting), symbols(symbols), layouts(layouts) {}
 
   LogicalResult check(func::FuncOp fn) {
@@ -243,7 +243,11 @@ private:
     CtorOp to = lookupCtor(reuse, reuse.getCtor());
     if (!from || !to)
       return success();
-    unsigned have = layouts().box(from).size, need = layouts().box(to).size;
+    // Without layouts, which say why, there is nothing to compare.
+    lower::Layouts *cells = layouts();
+    if (!cells)
+      return failure();
+    unsigned have = cells->box(from).size, need = cells->box(to).size;
     if (have != need)
       return reuse.emitOpError("builds a cell of ")
              << need << " bytes in the " << have << "-byte cell of " << cell;
@@ -433,7 +437,7 @@ private:
 
   Counting &counting;
   SymbolTableCollection &symbols;
-  function_ref<lower::Layouts &()> layouts;
+  function_ref<lower::Layouts *()> layouts;
   llvm::DenseMap<Value, int> held;
   llvm::DenseMap<Value, Value> owners;
   SmallVector<Change> log;
@@ -449,11 +453,11 @@ LogicalResult verifyOwned(ModuleOp module) {
   Counting counting(module);
   SymbolTableCollection symbols;
   // Only a reuse needs the sizes of cells.
-  std::optional<lower::Layouts> cells;
-  auto layouts = [&]() -> lower::Layouts & {
+  std::optional<FailureOr<lower::Layouts>> cells;
+  auto layouts = [&]() -> lower::Layouts * {
     if (!cells)
-      cells.emplace(module);
-    return *cells;
+      cells.emplace(lower::Layouts::of(module));
+    return succeeded(*cells) ? &**cells : nullptr;
   };
   for (auto fn : module.getOps<func::FuncOp>()) {
     if (fn.isExternal())

@@ -128,10 +128,10 @@ void Runtime::mayLoop(OpBuilder &b, Location loc) {
   LLVM::CallIntrinsicOp::create(b, loc, b.getStringAttr("llvm.sideeffect"), ValueRange{});
 }
 
-Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info) {
+Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, CellInfo info) {
   if (!jit)
     return call(b, loc, "idris_rt_cell", ptrType(b.getContext()),
-                ValueRange{i64Constant(b, loc, size), i32Constant(b, loc, info)});
+                ValueRange{i64Constant(b, loc, size), i32Constant(b, loc, info.word())});
   Value cell = call(b, loc, "idris_rt_arena_alloc", ptrType(b.getContext()),
                     i64Constant(b, loc, size));
   storeHeader(b, loc, cell, info);
@@ -140,9 +140,9 @@ Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, uint32_t info
 
 // Count 0 in JIT mode: the arena's cells are persistent, as everything
 // compile-time evaluation makes.
-void Runtime::storeHeader(OpBuilder &b, Location loc, Value cell, uint32_t info) {
+void Runtime::storeHeader(OpBuilder &b, Location loc, Value cell, CellInfo info) {
   LLVM::StoreOp::create(b, loc, i32Constant(b, loc, jit ? 0 : 1), cell, alignAt(0));
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info), at(b, loc, cell, 4), alignAt(4));
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, info.word()), at(b, loc, cell, 4), alignAt(4));
 }
 
 void Runtime::store(OpBuilder &b, Location loc, Value cell, ArrayRef<Slot> slots,
@@ -225,14 +225,14 @@ Value Runtime::pack(OpBuilder &b, Location loc, Type structType, ValueRange memb
 }
 
 LLVM::GlobalOp Runtime::staticCell(
-    OpBuilder &b, Location loc, StringRef prefix, const Cell &cell, uint32_t info,
+    OpBuilder &b, Location loc, StringRef prefix, const Cell &cell,
     function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
   auto structType = LLVM::LLVMStructType::getLiteral(b.getContext(), cell.members(b.getContext()));
   return global(b, loc, prefix, structType, [&](OpBuilder &init) -> Value {
     SmallVector<SmallVector<Value>> fields;
     for (unsigned field = 0; field < cell.fields.size(); ++field)
       fields.push_back(components(init, field));
-    SmallVector<Value> members{i32Constant(init, loc, 0), i32Constant(init, loc, info)};
+    SmallVector<Value> members{i32Constant(init, loc, 0), i32Constant(init, loc, cell.info.word())};
     for (auto [field, component] : cell.order)
       members.push_back(fields[field][component]);
     return pack(init, loc, structType, members);
@@ -252,7 +252,7 @@ Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
     auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), members);
     bool ascii = idris_rt_ascii(bytes.data(), bytes.size());
     auto scalars = static_cast<int64_t>(idris_rt_utf8_count(bytes.data(), bytes.size()));
-    uint32_t info = cellInfo(ascii ? 1 : 0, 0, CellKind::String);
+    uint32_t info = CellInfo::string(ascii).word();
     auto global = this->global(b, loc, "__idr_str_", type, [&](OpBuilder &init) -> Value {
       SmallVector<Value> values{i32Constant(init, loc, 0), i32Constant(init, loc, info),
                                 i64Constant(init, loc, static_cast<int64_t>(bytes.size())),
@@ -303,7 +303,7 @@ Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
     auto global = this->global(b, loc, "__idr_big_", type, [&](OpBuilder &init) -> Value {
       return pack(init, loc, type,
                   {i32Constant(init, loc, 0),
-                   i32Constant(init, loc, cellInfo(0, 0, CellKind::Bignum)),
+                   i32Constant(init, loc, CellInfo::bignum().word()),
                    i32Constant(init, loc, static_cast<int64_t>(count)), i32Constant(init, loc, size),
                    addressOf(init, loc, limbsGlobal)});
     });
@@ -352,8 +352,7 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
     if (auto con = dyn_cast<ConAttr>(value)) {
       auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
       const Cell &cell = layouts.box(ctor);
-      uint32_t info = cellInfo(static_cast<uint32_t>(ctor.getTag()), cell.objs, CellKind::Box);
-      cellGlobal = staticCell(b, loc, "__idr_box_", cell, info, [&](OpBuilder &init, unsigned i) {
+      cellGlobal = staticCell(b, loc, "__idr_box_", cell, [&](OpBuilder &init, unsigned i) {
         return constant(init, loc, con.getFields()[i], ctor.getFieldType(i));
       });
     } else {
@@ -361,8 +360,7 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
       const Label &label = layouts.label(layouts.labelId(
           closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size())));
       const Cell &cell = layouts.closure(label);
-      uint32_t info = cellInfo(layouts.labelId(label), cell.objs, CellKind::Closure);
-      cellGlobal = staticCell(b, loc, "__idr_closure_", cell, info,
+      cellGlobal = staticCell(b, loc, "__idr_closure_", cell,
                               [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
                                 if (i == 0)
                                   return {code(init, loc, label)};

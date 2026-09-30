@@ -44,7 +44,9 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
     module.walk([](idr::ConOp con) { con->removeAttr(mark); });
     idr::stack::Escapes escapes(module);
     llvm::DenseSet<Operation *> recursive = idr::stack::recursiveFunctions(module);
-    idr::lower::Layouts layouts(module);
+    FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(module);
+    if (failed(layouts))
+      return signalPassFailure();
     for (auto fn : module.getOps<func::FuncOp>()) {
       unsigned left = recursive.contains(fn) ? recursiveFrameLimit : frameLimit;
       fn.walk<WalkOrder::PreOrder>([&](idr::ConOp con) {
@@ -53,7 +55,7 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
         ++numBoxes;
         if (escapes.mayEscape(con))
           return;
-        unsigned size = layouts.box(idr::lookupCtor(con, con.getCtor())).size;
+        unsigned size = layouts->box(idr::lookupCtor(con, con.getCtor())).size;
         if (size > cellLimit || size > left)
           return;
         left -= size;

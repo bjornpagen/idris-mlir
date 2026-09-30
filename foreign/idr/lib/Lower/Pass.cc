@@ -130,12 +130,13 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
           auto b = OpBuilder::atBlockBegin(&fn.getBody().front());
           idr::MayLoopOp::create(b, fn.getLoc());
         }
-    idr::lower::Layouts layouts(module);
-    idr::lower::Runtime runtime(module, layouts, jit);
+    FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(module);
+    if (failed(layouts))
+      return signalPassFailure();
+    idr::lower::Runtime runtime(module, *layouts, jit);
     idr::lower::Facts facts(module);
-    // The parameters' idr attributes have served their purpose. They go
-    // before the conversion, which splits a parameter into its components
-    // and would leave its attributes where the parameter was.
+    // The parameters' idr attributes have served their purpose; the lowered
+    // parameters get LLVM's instead (Lower/Facts.h).
     module.walk([](func::FuncOp fn) { fn.removeArgAttrsAttr(); });
     idr::lower::lowerMatches(module);
 
@@ -145,7 +146,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
         [&](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
           if (type.getDialect().getNamespace() != idr::IdrDialect::getDialectNamespace())
             return std::nullopt;
-          llvm::append_range(out, layouts.components(type));
+          llvm::append_range(out, layouts->components(type));
           return success();
         });
 
@@ -173,9 +174,9 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    idr::lower::populatePatterns(patterns, converter, layouts, runtime);
+    idr::lower::populatePatterns(patterns, converter, *layouts, runtime);
     if (jit)
-      idr::lower::populateClosurePatterns(patterns, converter, layouts, runtime);
+      idr::lower::populateClosurePatterns(patterns, converter, *layouts, runtime);
 
     ConversionConfig config;
     config.allowPatternRollback = false;
@@ -202,7 +203,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // In JIT mode closures call functions through pointers, and no call in
     // sight shows what they pass; the facts are the executable's.
     if (!jit) {
-      facts.apply(layouts);
+      facts.apply(*layouts);
       emitMain(module, root, io, runtime);
     }
   }
