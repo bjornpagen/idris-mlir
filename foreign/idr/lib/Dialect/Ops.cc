@@ -69,16 +69,64 @@ void printSignedness(OpAsmPrinter &printer, Operation *, UnitAttr isSigned) {
 
 // `: !idr.nat` on a big op that computes on naturals; nothing on one that
 // computes on Integers, which most do.
-ParseResult parseNatural(OpAsmParser &parser, Type &type) {
+// A result type written only when it is not the plain type the op has by
+// default (a big, a string, a natural): `: !idr.nat`, `: !idr.own<!idr.str>`.
+ParseResult parseResultAtGrade(OpAsmParser &parser, Type &type, Type plain) {
   if (succeeded(parser.parseOptionalColon()))
     return parser.parseType(type);
-  type = BigType::get(parser.getContext());
+  type = plain;
   return success();
 }
 
-void printNatural(OpAsmPrinter &printer, Operation *, Type type) {
-  if (isa<NatType>(type))
+void printResultAtGrade(OpAsmPrinter &printer, Type type, Type plain) {
+  if (type != plain)
     printer << ": " << type;
+}
+
+ParseResult parseNatural(OpAsmParser &parser, Type &type) {
+  return parseResultAtGrade(parser, type, BigType::get(parser.getContext()));
+}
+
+void printNatural(OpAsmPrinter &printer, Operation *, Type type) {
+  printResultAtGrade(printer, type, BigType::get(type.getContext()));
+}
+
+// The result of an op on naturals or bigs: its operands' type unless
+// written, `-> T`, at another grade.
+ParseResult parseNaturalResult(OpAsmParser &parser, Type &type, Type operand) {
+  if (succeeded(parser.parseOptionalArrow()))
+    return parser.parseType(type);
+  type = operand;
+  return success();
+}
+
+void printNaturalResult(OpAsmPrinter &printer, Operation *, Type type, Type operand) {
+  if (type != operand)
+    printer << "-> " << type;
+}
+
+ParseResult parseStrResult(OpAsmParser &parser, Type &type) {
+  return parseResultAtGrade(parser, type, StrType::get(parser.getContext()));
+}
+
+void printStrResult(OpAsmPrinter &printer, Operation *, Type type) {
+  printResultAtGrade(printer, type, StrType::get(type.getContext()));
+}
+
+ParseResult parseBigResult(OpAsmParser &parser, Type &type) {
+  return parseResultAtGrade(parser, type, BigType::get(parser.getContext()));
+}
+
+void printBigResult(OpAsmPrinter &printer, Operation *, Type type) {
+  printResultAtGrade(printer, type, BigType::get(type.getContext()));
+}
+
+ParseResult parseNatResult(OpAsmParser &parser, Type &type) {
+  return parseResultAtGrade(parser, type, NatType::get(parser.getContext()));
+}
+
+void printNatResult(OpAsmPrinter &printer, Operation *, Type type) {
+  printResultAtGrade(printer, type, NatType::get(type.getContext()));
 }
 
 // The field types of a constructor: `(i64, f64)`.
@@ -227,6 +275,13 @@ Attribute untyped(Attribute value) {
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   if (untyped(value) != value)
     return false;
+  // The erased value is at its own grade. Every other constant is
+  // unrestricted: a static value is used any number of times, and a
+  // linear value of it is entered from it, an owned one taken (idr.dup).
+  if (isa<ErasedAttr>(value))
+    return isErased(type);
+  if (type != unrestricted(type))
+    return false;
   if (auto con = dyn_cast<ConAttr>(value)) {
     FlatSymbolRefAttr name = getSumName(type);
     return name && name.getAttr() == con.getCtor().getRootReference();
@@ -363,7 +418,7 @@ LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // MLIR's allocas use.
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (!isa<BoxType>(getType()))
+  if (!isa<BoxType>(unrestricted(getType())))
     return;
   SideEffects::DefaultResource *memory =
       (*this)->hasAttr("idr.stack") ? SideEffects::AutomaticAllocationScopeResource::get()
@@ -385,13 +440,15 @@ LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {
   CtorOp ctor = lookupCtor(data, ref.getLeafReference());
   if (!ctor)
     return emitOpError("refers to an unknown constructor ") << ref;
-  if (data.getValueType() != getType())
+  if (data.getValueType() != unrestricted(getType()))
     return emitOpError("builds ") << ref << " but has type " << getType();
   auto types = ctor.getFieldTypes();
   if (types.size() != getFields().size())
     return emitOpError("expects ") << types.size() << " fields";
+  // In the owned stage a field that holds references is owned: it moves
+  // into the cell.
   for (auto [expected, value] : llvm::zip(types.getAsValueRange<TypeAttr>(), getFields()))
-    if (expected != value.getType())
+    if (expected != value.getType() && owned(expected) != value.getType())
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   return success();
 }
@@ -1019,9 +1076,13 @@ LogicalResult DestOfOp::verifySymbolUses(SymbolTableCollection &symbols) {
 
 // The cell was built here, by an idr.con or idr.reuse of the constructor,
 // with the field pending: a destination names a field that has no value
-// yet, and nothing else does.
+// yet, and nothing else does. In the owned stage the cell is owned and
+// the destination reads it through a view.
 LogicalResult DestOfOp::verify() {
-  Operation *made = getValue().getDefiningOp();
+  Value cell = getValue();
+  if (auto borrow = cell.getDefiningOp<BorrowOp>())
+    cell = borrow.getValue();
+  Operation *made = cell.getDefiningOp();
   ValueRange fields;
   SymbolRefAttr ctor;
   if (auto con = dyn_cast_or_null<ConOp>(made)) {

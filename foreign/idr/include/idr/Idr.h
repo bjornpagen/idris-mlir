@@ -225,6 +225,28 @@ bool isLinear(mlir::Type type);
 bool isWorld(mlir::Type type);
 bool isErased(mlir::Type type);
 
+// The owned stage's grades: a value that holds a reference of its own
+// (own, or excl), and the view of it, which holds none. `owned` and `view`
+// keep the quantity and change the permission; `atQuantity` keeps the
+// permission and changes the quantity.
+bool isOwned(mlir::Type type);
+mlir::Type owned(mlir::Type type);
+mlir::Type view(mlir::Type type);
+mlir::Type atQuantity(mlir::Type type, Quantity quantity);
+
+// The result is the operand's value at whatever grade the result has: an
+// op that computes a new value of its operands' type, which the owned
+// stage then owns.
+template <typename ConcreteType>
+class ResultCarriesOperand : public mlir::OpTrait::TraitBase<ConcreteType, ResultCarriesOperand> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    if (unrestricted(op->getResult(0).getType()) != unrestricted(op->getOperand(0).getType()))
+      return op->emitOpError("expects its result to be its operand's value, at any grade");
+    return mlir::success();
+  }
+};
+
 } // namespace idr
 
 #define GET_OP_CLASSES

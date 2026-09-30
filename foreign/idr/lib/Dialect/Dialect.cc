@@ -153,7 +153,8 @@ LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Grade 
       return emitError() << "expects the world at quantity 1, owning nothing";
     return success();
   }
-  if (grade.quantity != Quantity::Zero && !isFieldType(value))
+  // A runtime type: one a field may have, or a token, which is owned.
+  if (grade.quantity != Quantity::Zero && !isFieldType(value) && !isa<TokenType>(value))
     return emitError() << "expects a grade of a runtime type, got " << value;
   return success();
 }
@@ -255,9 +256,30 @@ bool idr::isLinear(Type type) {
   return gradeOf(type).quantity == Quantity::One && !isWorld(type);
 }
 
-// The spellings: !idr.lin<T> is (1, ·) of T, !idr.erased is (0, ·) of no
-// carrier, !idr.world is (1, ·) of the world; any other grade is written
-// out as !idr.q. The world's carrier is never written by itself.
+bool idr::isOwned(Type type) {
+  Permission permission = gradeOf(type).permission;
+  return permission == Permission::Own || permission == Permission::Excl;
+}
+
+Type idr::owned(Type type) {
+  Grade grade = gradeOf(type);
+  if (grade.permission == Permission::None)
+    grade.permission = Permission::Own;
+  return graded(grade, unrestricted(type));
+}
+
+Type idr::view(Type type) {
+  return graded({gradeOf(type).quantity, Permission::None}, unrestricted(type));
+}
+
+Type idr::atQuantity(Type type, Quantity quantity) {
+  return graded({quantity, gradeOf(type).permission}, unrestricted(type));
+}
+
+// The spellings: !idr.lin<T> is (1, ·) of T, !idr.own<T> is (ω, own) of
+// T, !idr.erased is (0, ·) of no carrier, !idr.world is (1, ·) of the
+// world; any other grade is written out as !idr.q. The world's carrier is
+// never written by itself.
 Type IdrDialect::parseType(DialectAsmParser &parser) const {
   llvm::SMLoc loc = parser.getCurrentLocation();
   MLIRContext *ctx = parser.getContext();
@@ -267,6 +289,13 @@ Type IdrDialect::parseType(DialectAsmParser &parser) const {
       return {};
     return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
                              Grade{Quantity::One, Permission::None}, value);
+  }
+  if (succeeded(parser.parseOptionalKeyword("own"))) {
+    Type value;
+    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
+      return {};
+    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
+                             Grade{Quantity::Many, Permission::Own}, value);
   }
   if (succeeded(parser.parseOptionalKeyword("erased")))
     return erased(ctx);
@@ -290,6 +319,8 @@ void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
       printer << "erased";
     } else if (isLinear(q) && q.getGrade().permission == Permission::None) {
       printer << "lin<" << q.getValue() << '>';
+    } else if (q.getGrade() == Grade{Quantity::Many, Permission::Own}) {
+      printer << "own<" << q.getValue() << '>';
     } else {
       printer << "q";
       q.print(printer);
@@ -347,7 +378,7 @@ bool idr::readOnce(Value value) {
 //===----------------------------------------------------------------------===//
 
 FlatSymbolRefAttr idr::getSumName(Type type) {
-  return TypeSwitch<Type, FlatSymbolRefAttr>(type)
+  return TypeSwitch<Type, FlatSymbolRefAttr>(unrestricted(type))
       .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
       .Default([](Type) { return nullptr; });
 }
@@ -591,10 +622,10 @@ private:
   }
 
   unsigned count(Operation *op) {
-    // idr.inc takes a reference of its own to what a cell still holds; the
-    // value is not consumed. idr.dec is a consumption like any other.
+    // A view of the value (idr.borrow) is not a use of it: the owner keeps
+    // its reference, and the view's uses come before the owner's one use.
     unsigned total =
-        isa<IncOp>(op) ? 0u : static_cast<unsigned>(llvm::count(op->getOperands(), world));
+        isa<BorrowOp>(op) ? 0u : static_cast<unsigned>(llvm::count(op->getOperands(), world));
     if (op->getNumRegions() == 0)
       return total;
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
@@ -701,7 +732,7 @@ constexpr KnownAttr kKnownAttrs[] = {
     {IdrDialect::StackAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        auto con = dyn_cast<ConOp>(op);
-       if (!con || !isa<BoxType>(con.getType()) || !isa<UnitAttr>(attr.getValue()))
+       if (!con || !isa<BoxType>(unrestricted(con.getType())) || !isa<UnitAttr>(attr.getValue()))
          return op->emitOpError("expects idr.stack as a unit attribute of an idr.con of a box");
        return success();
      }},
@@ -721,8 +752,6 @@ constexpr KnownAttr kKnownAttrs[] = {
 // The ownership passes name the attributes they write themselves.
 static_assert(std::string_view(ownership::stageAttr) ==
               std::string_view(IdrDialect::StageAttrHelper::getNameStr()));
-static_assert(std::string_view(ownership::borrowedAttr) ==
-              std::string_view(IdrDialect::BorrowedAttrHelper::getNameStr()));
 
 // The discardable attributes of no dialect that our own tools read. MLIR
 // verifies a discardable attribute only through the dialect its name
@@ -763,22 +792,12 @@ LogicalResult IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute
 
 // A parameter's quantity is its type; the argument attributes are the
 // passes' own marks.
-LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned,
-                                                   unsigned argIndex,
+LogicalResult IdrDialect::verifyRegionArgAttribute(Operation *op, unsigned, unsigned,
                                                    NamedAttribute attr) {
   auto fn = dyn_cast<FunctionOpInterface>(op);
   // idr-specialize numbers a clone's parameters by the holes of its key.
   if (attr.getName().getValue() == HoleAttrHelper::getNameStr() && fn &&
       isa<IntegerAttr>(attr.getValue()))
     return success();
-  // idr-rc's parameters that the function borrows (lib/Ownership).
-  if (attr.getName().getValue() == BorrowedAttrHelper::getNameStr() && fn) {
-    if (!isa<UnitAttr>(attr.getValue()) ||
-        !isa<StrType, BigType, NatType, BoxType, FnType, DataType>(fn.getArgumentTypes()[argIndex]))
-      return op->emitOpError("expects idr.borrowed as a unit attribute of a parameter that "
-                             "holds references, not of argument ")
-             << argIndex;
-    return success();
-  }
   return op->emitOpError("has an unknown idr argument attribute ") << attr.getName();
 }

@@ -1,8 +1,11 @@
 // The owned stage's rule: each reference is consumed exactly once on every
-// path. It extends the world's rule (Dialect.cc), which counts uses on the
-// worst path, to exact counts: a walk of each function follows the
-// references every value holds along the ops, taking the regions of a match
-// as alternatives that must agree where they meet again.
+// path, and a view is used only while its owner holds its reference. The
+// grades say which is which (`!idr.own<T>` holds one reference, plain T
+// holds none) and the position table (useOf) says what each use does; the
+// rule extends the world's (Dialect.cc), which counts uses on the worst
+// path, to exact counts: a walk of each function follows the references
+// every owned value holds along the ops, taking the regions of a match as
+// alternatives that must agree where they meet again.
 //
 // Runs as the verifier of the module's `idr.stage`, before the ops inside
 // are verified, so it assumes no op is well formed beyond what it checks.
@@ -14,6 +17,7 @@
 #include "llvm/ADT/DenseSet.h"
 
 #include <optional>
+#include <variant>
 
 using namespace mlir;
 
@@ -29,13 +33,12 @@ public:
 
   LogicalResult check(func::FuncOp fn) {
     Block &entry = fn.getBody().front();
-    for (BlockArgument arg : entry.getArguments())
-      if (counting.tracked(arg)) {
-        bool borrowed = isBorrowed(fn, arg.getArgNumber());
-        define(arg, borrowed ? 0 : 1);
-        if (borrowed)
-          owners[arg] = Value();
-      }
+    for (BlockArgument arg : entry.getArguments()) {
+      if (tracked(arg))
+        define(arg, 1);
+      else if (isView(arg))
+        owners[arg] = Value();
+    }
     return failure(failed(walk(entry)));
   }
 
@@ -82,11 +85,21 @@ private:
     return changes;
   }
 
+  // Whether `value` holds a reference the walk follows: it is owned, and
+  // not a value that stands for one without holding it (poison, a pending
+  // field, a small big).
+  bool tracked(Value value) { return isOwned(value.getType()) && !isStatic(value); }
+
+  // Whether `value` is a view: it holds references but not one of its own.
+  bool isView(Value value) {
+    return counting.counted(value.getType()) && !isOwned(value.getType()) && !isStatic(value);
+  }
+
   // Whether `value` may be used here: it holds a reference, or what it was
   // read from is alive, or it is a borrowed parameter.
   bool alive(Value value) {
     for (unsigned depth = 0; depth < 1024; ++depth) {
-      if (!counting.tracked(value))
+      if (!tracked(value) && !isView(value))
         return true;
       auto it = held.find(value);
       if (it != held.end() && it->second > 0)
@@ -108,19 +121,18 @@ private:
   }
 
   LogicalResult consume(Operation &op, Value value) {
-    if (!counting.tracked(value))
+    if (!tracked(value))
       return success();
     int references = held.lookup(value);
     if (references < 1)
-      return fail(op, value,
-                  "consumes a reference that the value does not hold here: it was consumed "
-                  "before on this path, or it is borrowed and needs an idr.inc");
+      return fail(op, value, "consumes a reference that the value does not hold here: it was "
+                             "consumed before on this path");
     set(value, references - 1);
     return success();
   }
 
   LogicalResult use(Operation &op, Value value) {
-    if (counting.tracked(value) && !alive(value))
+    if (!alive(value))
       return fail(op, value, "uses a value whose last reference is gone on this path");
     return success();
   }
@@ -128,7 +140,7 @@ private:
   // Every value `block` defines holds no reference at its end.
   LogicalResult settled(Block &block, Operation &at) {
     auto check = [&](Value value) -> LogicalResult {
-      if (counting.tracked(value) && held.lookup(value) != 0)
+      if (tracked(value) && held.lookup(value) != 0)
         return fail(at, value, "ends a path on which a value still holds a reference");
       return success();
     };
@@ -167,54 +179,73 @@ private:
   }
 
   LogicalResult visit(Operation &op) {
-    if (auto inc = dyn_cast<IncOp>(op)) {
-      Value value = inc.getValue();
-      if (!counting.tracked(value))
-        return success();
-      if (!alive(value))
-        return fail(op, value, "adds a reference to a value whose last reference is gone");
-      set(value, held.lookup(value) + 1);
-      return success();
-    }
-    if (auto select = dyn_cast<arith::SelectOp>(op); select && counting.tracked(select))
+    if (auto select = dyn_cast<arith::SelectOp>(op); select && tracked(select))
       return op.emitOpError("selects between values that hold references; in the owned "
                             "stage a match does");
+    // A view of an owned value: the one read of it that is not a use.
+    if (auto borrow = dyn_cast<BorrowOp>(op)) {
+      if (failed(use(op, borrow.getValue())))
+        return failure();
+      define(borrow.getResult(), 0, borrow.getValue(), /*borrowed=*/true);
+      return success();
+    }
     // What the op borrows must be alive for all of it, after what it
-    // consumes.
-    SmallVector<Value> borrowed;
+    // consumes; a loop's terminator passes both on, the views alive as
+    // their owners' references move (walkLoop), so its views are checked
+    // before its moves. An owned value is consumed, never read directly: a
+    // view of it (idr.borrow) is; a view is read, never consumed: a
+    // reference of its own (idr.dup) is.
+    SmallVector<Value> consumed, borrowed;
     for (OpOperand &operand : op.getOpOperands()) {
-      if (!counting.tracked(operand.get()))
-        continue;
-      if (useKind(operand) == Use::Consume) {
-        if (failed(consume(op, operand.get())))
-          return failure();
-      } else {
-        borrowed.push_back(operand.get());
+      Value value = operand.get();
+      bool consumes = useKind(operand) == Use::Consume;
+      if (tracked(value)) {
+        if (!consumes)
+          return fail(op, value, "reads an owned value; only a view of it (idr.borrow) is read");
+        consumed.push_back(value);
+      } else if (isView(value)) {
+        if (consumes)
+          return fail(op, value, "consumes a view, which holds no reference; a reference of "
+                                 "its own (idr.dup) is consumed");
+        borrowed.push_back(value);
       }
     }
-    for (Value value : borrowed)
-      if (failed(use(op, value)))
+    bool passesOn = isa<scf::ConditionOp, scf::YieldOp>(op) &&
+                    isa_and_nonnull<scf::WhileOp, scf::ForOp>(op.getParentOp());
+    if (passesOn)
+      for (Value value : borrowed)
+        if (failed(use(op, value)))
+          return failure();
+    for (Value value : consumed)
+      if (failed(consume(op, value)))
         return failure();
+    if (!passesOn)
+      for (Value value : borrowed)
+        if (failed(use(op, value)))
+          return failure();
     for (Value result : op.getResults()) {
-      if (!counting.tracked(result))
-        continue;
-      if (isa<FieldOp>(op))
-        define(result, 0, op.getOperand(0), /*borrowed=*/true);
-      else
+      if (tracked(result)) {
         define(result, 1);
+      } else if (isView(result)) {
+        if (!isa<FieldOp>(op))
+          return fail(op, result, "makes a value that holds references and is not owned; only "
+                                  "a read (idr.field, idr.borrow) makes a view");
+        define(result, 0, op.getOperand(0), /*borrowed=*/true);
+      }
     }
     if (auto reuse = dyn_cast<ReuseOp>(op))
       return fits(reuse);
     return success();
   }
 
-  // What a use does, where a loop's terminator passes on a borrowed slot.
+  // What a use does, where a loop's terminator passes on a borrowed slot
+  // or a view (walkLoop).
   Use useKind(OpOperand &operand) {
     Operation *op = operand.getOwner();
     Operation *loop = op->getParentOp();
     if (isa_and_nonnull<scf::WhileOp, scf::ForOp>(loop) && isa<scf::ConditionOp, scf::YieldOp>(op)) {
       unsigned slot = operand.getOperandNumber() - (isa<scf::ConditionOp>(op) ? 1 : 0);
-      if (Value owner = slotOwner(loop, slot))
+      if (slotOwner(loop, slot) || isView(operand.get()))
         return Use::Borrow;
     }
     if (isa<YieldOp>(op) && op->getParentOp() &&
@@ -283,7 +314,7 @@ private:
         continue;
       Block &block = region.front();
       for (BlockArgument field : block.getArguments())
-        if (counting.tracked(field))
+        if (isView(field))
           define(field, 0, scrutinee, /*borrowed=*/true);
       FailureOr<bool> reached = walk(block);
       if (failed(reached))
@@ -312,12 +343,10 @@ private:
     for (auto &[value, references] : after)
       set(value, references);
     for (Value result : op.getResults()) {
-      if (!counting.tracked(result))
-        continue;
       auto it = passedOn.find(result);
       if (it != passedOn.end())
         define(result, 0, it->second, /*borrowed=*/true);
-      else
+      else if (tracked(result))
         define(result, 1);
     }
     return true;
@@ -337,32 +366,48 @@ private:
   }
 
   // An scf.while of idr-tail-loops, which carries a function's parameters
-  // first, then its results. A slot whose first value is borrowed (a
-  // borrowed parameter) carries borrowed values, which live as long as that
-  // first one; every other slot's values are owned: the initial values are
-  // consumed, each region takes its arguments owned and consumes what its
-  // terminator passes on, and leaves the values from outside as it found
-  // them. The results and the after region's arguments that nothing uses
-  // are the payload of the path not taken, which is poison there.
+  // first, then its results. A slot whose first value is a view (a
+  // borrowed parameter) carries views, which live as long as that first
+  // one; every other carried slot's values are owned: the initial values
+  // are consumed, each region takes its arguments owned and consumes what
+  // its terminator passes on, and leaves the values from outside as it
+  // found them. The condition passes on, beyond the carried slots, the
+  // views the rest of the body needs of the before region's work (the
+  // scrutinee it read); each is a view of a carried slot's value, and
+  // lives as long as that slot's value on the other side, or of a value
+  // from outside the loop. The results and the after region's arguments
+  // that nothing uses are the payload of the path not taken, which is
+  // poison there.
   FailureOr<bool> walkLoop(scf::WhileOp loop) {
     Operation &op = *loop.getOperation();
     SmallVector<Value> &slots = loops[loop];
+    auto carried = static_cast<unsigned>(loop.getInits().size());
     for (Value init : loop.getInits()) {
-      bool borrowed = counting.tracked(init) && held.lookup(init) == 0 && alive(init);
+      bool borrowed = isView(init);
       slots.push_back(borrowed ? init : Value());
       if (failed(borrowed ? use(op, init) : consume(op, init)))
         return failure();
     }
+    scf::ConditionOp condition;
     if (!loop.getBefore().empty())
-      if (auto condition = dyn_cast<scf::ConditionOp>(loop.getBefore().front().getTerminator()))
-        for (auto [slot, value] : llvm::enumerate(condition.getArgs()))
-          if (Value owner = slotOwner(loop, static_cast<unsigned>(slot)))
-            passOn(value, owner);
-    auto slotType = [&](unsigned slot, Value value, bool after) {
-      if (Value owner = slotOwner(loop, slot))
+      condition = dyn_cast<scf::ConditionOp>(loop.getBefore().front().getTerminator());
+    if (condition)
+      for (auto [slot, value] : llvm::enumerate(condition.getArgs()))
+        if (Value owner = slotOwner(loop, static_cast<unsigned>(slot)))
+          passOn(value, owner);
+    // What each view passed on beyond the carried slots is a view of, known
+    // once the before region is walked.
+    SmallVector<std::variant<unsigned, Value>> passed;
+    auto slotType = [&](unsigned slot, Value value, ValueRange side, bool after) {
+      if (Value owner = slotOwner(loop, slot)) {
         define(value, 0, owner, /*borrowed=*/true);
-      else
+      } else if (slot >= carried && slot - carried < passed.size() && isView(value)) {
+        const auto &of = passed[slot - carried];
+        define(value, 0, std::holds_alternative<unsigned>(of) ? side[std::get<unsigned>(of)] : std::get<Value>(of),
+               /*borrowed=*/true);
+      } else if (tracked(value)) {
         define(value, after && value.use_empty() ? 0 : 1);
+      }
     };
     size_t mark = log.size();
     bool exits = false;
@@ -372,8 +417,7 @@ private:
       Block &block = region->front();
       bool after = region == &loop.getAfter();
       for (BlockArgument arg : block.getArguments())
-        if (counting.tracked(arg))
-          slotType(arg.getArgNumber(), arg, after);
+        slotType(arg.getArgNumber(), arg, block.getArguments(), after);
       FailureOr<bool> reached = walk(block);
       if (failed(reached))
         return failure();
@@ -386,12 +430,31 @@ private:
                       "changes the references of a value from outside the loop in its body");
         exits = exits || !after;
       }
+      if (!after && condition)
+        for (Value value : condition.getArgs().drop_front(carried))
+          passed.push_back(viewOf(value, block));
       undo(mark);
     }
     for (OpResult result : loop.getResults())
-      if (counting.tracked(result))
-        slotType(result.getResultNumber(), result, /*after=*/true);
+      slotType(result.getResultNumber(), result, loop.getResults(), /*after=*/true);
     return exits;
+  }
+
+  // What a view the before region of a loop passes on is a view of: the
+  // carried slot whose value it was read from, or a value from outside the
+  // loop (null for a borrowed parameter, which is alive throughout).
+  std::variant<unsigned, Value> viewOf(Value value, Block &before) {
+    for (unsigned depth = 0; depth < 1024; ++depth) {
+      if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getOwner() == &before)
+        return arg.getArgNumber();
+      auto owner = owners.find(value);
+      if (owner == owners.end())
+        return value;
+      if (!owner->second)
+        return Value();
+      value = owner->second;
+    }
+    return value;
   }
 
   // An scf.for that idr-tail-loops made of a counted scf.while: its slots
@@ -405,7 +468,7 @@ private:
         return failure();
     SmallVector<Value> &slots = loops[loop];
     for (Value init : loop.getInitArgs()) {
-      bool borrowed = counting.tracked(init) && held.lookup(init) == 0 && alive(init);
+      bool borrowed = isView(init);
       slots.push_back(borrowed ? init : Value());
       if (failed(borrowed ? use(op, init) : consume(op, init)))
         return failure();
@@ -413,14 +476,13 @@ private:
     auto slotType = [&](unsigned slot, Value value, bool result) {
       if (Value owner = slotOwner(loop, slot))
         define(value, 0, owner, /*borrowed=*/true);
-      else
+      else if (tracked(value))
         define(value, result && value.use_empty() ? 0 : 1);
     };
     size_t mark = log.size();
     Block &body = *loop.getBody();
     for (BlockArgument arg : loop.getRegionIterArgs())
-      if (counting.tracked(arg))
-        slotType(arg.getArgNumber() - loop.getNumInductionVars(), arg, /*result=*/false);
+      slotType(arg.getArgNumber() - loop.getNumInductionVars(), arg, /*result=*/false);
     FailureOr<bool> reached = walk(body);
     if (failed(reached))
       return failure();
@@ -434,8 +496,7 @@ private:
     }
     undo(mark);
     for (OpResult result : loop.getResults())
-      if (counting.tracked(result))
-        slotType(result.getResultNumber(), result, /*result=*/true);
+      slotType(result.getResultNumber(), result, /*result=*/true);
     return true;
   }
 

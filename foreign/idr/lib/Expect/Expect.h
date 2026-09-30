@@ -59,17 +59,17 @@ mlir::LogicalResult foldsBalanced(mlir::ModuleOp module, llvm::StringRef);
 // one that died (idr.reuse), and at least one is: no box gets a fresh cell.
 mlir::LogicalResult reusesInPlace(mlir::ModuleOp module, llvm::StringRef function);
 
-// The function the argument names counts no reference: no idr.inc, no
-// idr.dec.
+// The function the argument names counts no reference: no idr.dup, no
+// idr.drop.
 mlir::LogicalResult countsNothing(mlir::ModuleOp module, llvm::StringRef function);
 
 // Every take of a box, in the function the argument names or
 // in every function, tests a cell that its function never gives a second
-// reference: no idr.inc of the box or of a value it was read from.
+// reference: no idr.dup of a view of the box or of a value it was read from.
 mlir::LogicalResult resetsUnshared(mlir::ModuleOp module, llvm::StringRef function) noexcept;
 
 // In the function the argument names, every cell a take yields
-// for a constructor with fields is reused: no idr.dec frees one.
+// for a constructor with fields is reused: no idr.drop frees one.
 mlir::LogicalResult reusesEveryCell(mlir::ModuleOp module, llvm::StringRef function) noexcept;
 
 // No private function is called once, from another function, and nothing

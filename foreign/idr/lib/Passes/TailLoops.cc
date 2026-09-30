@@ -227,8 +227,7 @@ std::optional<Decision> decisionOf(func::FuncOp fn) {
 // The loop of a function whose body is a decision (decisionOf).
 class WhileDo {
 public:
-  WhileDo(func::FuncOp fn, Decision decision, idr::ownership::Counting &counting, OpBuilder &b)
-      : fn(fn), decision(decision), counting(counting), b(b) {}
+  WhileDo(func::FuncOp fn, Decision decision, OpBuilder &b) : fn(fn), decision(decision), b(b) {}
 
   // Builds the loop, or leaves the function as it was and fails when what
   // the regions need from the body cannot pass from one iteration to the
@@ -252,7 +251,6 @@ private:
 
   func::FuncOp fn;
   Decision decision;
-  idr::ownership::Counting &counting;
   OpBuilder &b;
   scf::WhileOp loop;
   // The arguments that change from one call to the next, by position.
@@ -379,7 +377,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   auto call = cast<func::CallOp>(decision.loops->front().getTerminator()->getPrevNode());
   for (BlockArgument arg : entry.getArguments()) {
     unsigned index = arg.getArgNumber();
-    bool consumed = counting.tracked(arg) && !idr::ownership::isBorrowed(fn, index);
+    bool consumed = idr::isOwned(arg.getType());
     if (call.getOperand(index) != arg || consumed)
       carried.push_back(index);
   }
@@ -397,7 +395,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   for (Operation &op : llvm::make_range(entry.begin(), match->getIterator())) {
     bool once = op.getNumRegions() == 0 && isMemoryEffectFree(&op) &&
                 llvm::all_of(op.getOperands(), invariant) &&
-                llvm::none_of(op.getResults(), [&](Value r) { return counting.tracked(r); });
+                llvm::none_of(op.getResults(), [&](Value r) { return idr::isOwned(r.getType()); });
     if (once)
       outside.insert(&op);
     (once ? hoisted : repeated).push_back(&op);
@@ -417,7 +415,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   if (auto sum = dyn_cast<idr::MatchOp>(match))
     if (Operation *def = sum.getScrutinee().getDefiningOp(); def && !outside.contains(def))
       needed.insert(sum.getScrutinee());
-  if (llvm::any_of(needed, [&](Value value) { return counting.tracked(value); }))
+  if (llvm::any_of(needed, [&](Value value) { return idr::isOwned(value.getType()); }))
     return failure();
   // The before region passes every argument it has on to the rest, as the
   // uplift expects. A world or linear argument that the decision's code
@@ -526,22 +524,21 @@ bool counterUsedAfter(scf::WhileOp loop) {
 // Whether `op`, in a loop, may run once before it instead: it has no
 // effect, cannot fail, and holds no reference, so no count changes
 // whichever iteration's copy it is.
-bool invariantCode(Operation *op, idr::ownership::Counting &counting) {
+bool invariantCode(Operation *op) {
   return isMemoryEffectFree(op) && isSpeculatable(op) &&
-         llvm::none_of(op->getResults(), [&](Value result) { return counting.tracked(result); });
+         llvm::none_of(op->getResults(), [](Value result) { return idr::isOwned(result.getType()); });
 }
 
 struct TailLoops : idr::impl::IdrTailLoopsBase<TailLoops> {
   void runOnOperation() override {
     OpBuilder b(&getContext());
-    idr::ownership::Counting counting(getOperation());
     SmallVector<scf::WhileOp> loops;
     for (auto fn : getOperation().getOps<func::FuncOp>()) {
       if (fn.isExternal() || !reachesTailCall(fn.getBody().front(), fn))
         continue;
       ++numLoops;
       if (std::optional<Decision> decision = decisionOf(fn)) {
-        FailureOr<scf::WhileOp> loop = WhileDo(fn, *decision, counting, b).build();
+        FailureOr<scf::WhileOp> loop = WhileDo(fn, *decision, b).build();
         if (succeeded(loop)) {
           loops.push_back(*loop);
           continue;
@@ -555,7 +552,7 @@ struct TailLoops : idr::impl::IdrTailLoopsBase<TailLoops> {
       moveLoopInvariantCode(
           loop.getLoopRegions(),
           [&](Value value, Region *) { return loop.isDefinedOutsideOfLoop(value); },
-          [&](Operation *op, Region *) { return invariantCode(op, counting); },
+          [&](Operation *op, Region *) { return invariantCode(op); },
           [&](Operation *op, Region *) { loop.moveOutOfLoop(op); });
     RewritePatternSet uplift(&getContext());
     scf::populateUpliftWhileToForPatterns(uplift);

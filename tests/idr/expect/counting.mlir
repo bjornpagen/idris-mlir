@@ -9,7 +9,7 @@
 // fresh; a function that keeps a string twice counts, and reuses nothing.
 // FRESH: error: expected reuses-in-place: a box of @L::@C gets a fresh cell in @map
 // FRESH: error: expected reuses-in-place: nothing is built in a reused cell in @map
-// BOTH-DAG: error: expected counts-nothing: idr.inc in @both
+// BOTH-DAG: error: expected counts-nothing: idr.dup in @both
 // BOTH-DAG: error: expected reuses-in-place: nothing is built in a reused cell in @both
 module attributes {idr.program} {
   idr.data @L box {

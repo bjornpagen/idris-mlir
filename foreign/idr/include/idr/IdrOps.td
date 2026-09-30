@@ -50,9 +50,8 @@ def Idr_Dialect : Dialect {
     "::mlir::UnitAttr":$stack,
     // idr-specialize's clone: its name and its key.
     "::idr::CloneAttr":$clone,
-    // Parameters: a clone's hole, and a parameter idr-rc borrows.
-    "::mlir::IntegerAttr":$hole,
-    "::mlir::UnitAttr":$borrowed
+    // A clone's hole.
+    "::mlir::IntegerAttr":$hole
   );
   // Constants of scalars, calls from closures, and regions ending in
   // ub.unreachable; and the layouts of cells, whose sizes the owned stage
@@ -151,6 +150,22 @@ def Idr_LinType : Type<CPred<"::idr::isLinear($_self)">,
 
 def Idr_SumType : AnyTypeOf<[Idr_DataType, Idr_BoxType]>;
 def Idr_Int : AnyTypeOf<[I8, I16, I32, I64]>;
+
+// A value of a type at any grade: what an op that makes one produces,
+// plain before idr-rc and owned after it.
+class Idr_AtAnyGrade<string cppType, string name>
+    : Type<CPred<"::llvm::isa<" # cppType # ">(::idr::unrestricted($_self))">, name, "::mlir::Type">;
+def Idr_StrValue : Idr_AtAnyGrade<"::idr::StrType", "a string at any grade">;
+def Idr_BigValue : Idr_AtAnyGrade<"::idr::BigType", "an Integer at any grade">;
+def Idr_NatValue : Idr_AtAnyGrade<"::idr::NatType", "a natural at any grade">;
+def Idr_BigOrNatValue : Idr_AtAnyGrade<"::idr::BigType, ::idr::NatType", "an Integer or a natural at any grade">;
+def Idr_BoxValue : Idr_AtAnyGrade<"::idr::BoxType", "a box at any grade">;
+def Idr_SumValue : Idr_AtAnyGrade<"::idr::DataType, ::idr::BoxType", "a constructor value at any grade">;
+
+// The result is the operand's value, at whatever grade the result has.
+def Idr_ResultCarriesOperand : NativeOpTrait<"ResultCarriesOperand"> {
+  let cppNamespace = "::idr";
+}
 
 //===----------------------------------------------------------------------===//
 // Constant attributes
@@ -360,7 +375,7 @@ def Idr_ConOp : Idr_Op<"con", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "builds a constructor value";
   let arguments = (ins SymbolRefAttr:$ctor, Variadic<AnyType>:$fields);
-  let results = (outs Idr_SumType:$result);
+  let results = (outs Idr_SumValue:$result);
   let assemblyFormat = [{
     $ctor `(` $fields `)` attr-dict `:` functional-type($fields, $result)
   }];
@@ -432,8 +447,8 @@ def Idr_DestOfOp : Idr_Op<"dest.of", [Pure,
 }
 
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
-    TypesMatchWith<"the value is what the destination holds", "dest", "value",
-                   "::llvm::cast<::idr::DestType>($_self).getValue()">]> {
+    TypesMatchWith<"the value is what the destination holds, owned", "dest", "value",
+                   "::idr::owned(::llvm::cast<::idr::DestType>($_self).getValue())">]> {
   let summary = "writes the value of a pending field, consuming its reference";
   let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);
   let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest)";
@@ -638,25 +653,25 @@ class Idr_StrBuilderOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"str." # mnemonic, !listconcat(traits, [Idr_CallsRuntime])> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let results = (outs Res<Idr_StrType, "", [MemAlloc]>:$result);
+  let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
 }
 
 def Idr_StrAppendOp : Idr_StrBuilderOp<"append"> {
   let summary = "the concatenation of two strings";
   let arguments = (ins Idr_StrType:$lhs, Idr_StrType:$rhs);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<StrResult>(type($result))";
 }
 
 def Idr_StrConsOp : Idr_StrBuilderOp<"cons"> {
   let summary = "a character before a string";
   let arguments = (ins I32:$head, Idr_StrType:$tail);
-  let assemblyFormat = "$head `,` $tail attr-dict";
+  let assemblyFormat = "$head `,` $tail attr-dict custom<StrResult>(type($result))";
 }
 
 def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char"> {
   let summary = "the string of one character";
   let arguments = (ins I32:$value);
-  let assemblyFormat = "$value attr-dict";
+  let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
 }
 
 // `signed` or `unsigned` for an integer, nothing for a Double.
@@ -664,7 +679,7 @@ def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
   let summary = "the text of a number, as prim__cast_TString writes it";
   let arguments = (ins UnitAttr:$is_signed, AnyTypeOf<[Idr_Int, F64]>:$value);
   let assemblyFormat = [{
-    custom<Signedness>($is_signed) `` $value attr-dict `:` type($value)
+    custom<Signedness>($is_signed) `` $value attr-dict `:` type($value) custom<StrResult>(type($result))
   }];
   let hasVerifier = 1;
 }
@@ -672,13 +687,13 @@ def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
 def Idr_StrSubstrOp : Idr_StrBuilderOp<"substr"> {
   let summary = "the characters of a string from a start, at most a length";
   let arguments = (ins Idr_StrType:$str, I64:$start, I64:$length);
-  let assemblyFormat = "$str `,` $start `,` $length attr-dict";
+  let assemblyFormat = "$str `,` $start `,` $length attr-dict custom<StrResult>(type($result))";
 }
 
 def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse"> {
   let summary = "the characters of a string in reverse order";
   let arguments = (ins Idr_StrType:$str);
-  let assemblyFormat = "$str attr-dict";
+  let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
 }
 
 def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
@@ -686,8 +701,8 @@ def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
   let hasFolder = 1;
   let summary = "a string without its first character; crashes on \"\"";
   let arguments = (ins Idr_StrType:$str);
-  let results = (outs Idr_StrType:$result);
-  let assemblyFormat = "$str attr-dict";
+  let results = (outs Idr_StrValue:$result);
+  let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
   let extraClassDefinition = [{
     std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
       if (knownNonEmpty(getStr()))
@@ -774,22 +789,28 @@ class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
   let hasFolder = 1;
   let summary = what # " of two bigs";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
-  let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<BigResult>(type($result))";
 }
 
 // The sum and the product of two naturals are natural, so these take
 // Integers or naturals, and give what they take: Nat's plus and mult are
 // these ops. The type is written only for naturals: `: !idr.nat`.
 class Idr_BigNaturalOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs", "result"]>,
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs"]>,
+                                 Idr_ResultCarriesOperand,
                                  DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs or two naturals";
   let arguments = (ins Idr_BigOrNat:$lhs, Idr_BigOrNat:$rhs);
-  let results = (outs Res<Idr_BigOrNat, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<Natural>(type($result))";
+  let results = (outs Res<Idr_BigOrNatValue, "", [MemAlloc]>:$result);
+  // The operands' type, written for naturals; the result's when it is
+  // the operands' at another grade: `-> !idr.own<!idr.nat>`.
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict custom<Natural>(type($lhs))
+    custom<NaturalResult>(type($result), ref(type($lhs)))
+  }];
 }
 
 def Idr_BigAddOp : Idr_BigNaturalOp<"add", "the sum">;
@@ -805,8 +826,8 @@ class Idr_BigDivisionOp<string mnemonic, string what>
   let hasFolder = 1;
   let summary = what # " of two bigs, as Integer's div and mod; crashes on zero";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
-  let results = (outs Idr_BigType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let results = (outs Idr_BigValue:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<BigResult>(type($result))";
   let extraClassDefinition = [{
     std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
       if (knownNonZero(getRhs()))
@@ -824,8 +845,8 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
   let hasFolder = 1;
   let summary = "the negation of a big";
   let arguments = (ins Idr_BigType:$value);
-  let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict";
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
 }
 
 // The frontend writes it where a match on a natural found it is not zero,
@@ -838,8 +859,8 @@ def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime,
   let hasFolder = 1;
   let summary = "the predecessor of a natural that is not zero";
   let arguments = (ins Idr_NatType:$value);
-  let results = (outs Idr_NatType:$result);
-  let assemblyFormat = "$value attr-dict";
+  let results = (outs Idr_NatValue:$result);
+  let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
 }
 
 // Two naturals compare as the Integers they are: Nat's equalNat and
@@ -858,12 +879,15 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
 // A natural as the Integer it is (Nat's natToInteger): the same big under
 // another type. It costs nothing at runtime, and hands its operand's
 // reference to its result.
-def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure,
+    TypesMatchWith<"the Integer is the natural at its grade", "value", "result",
+                   "::idr::graded(::idr::gradeOf($_self), ::idr::BigType::get($_self.getContext()))">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let hasFolder = 1;
   let summary = "a natural as an Integer";
-  let arguments = (ins Idr_NatType:$value);
-  let results = (outs Idr_BigType:$result);
-  let assemblyFormat = "$value attr-dict";
+  let arguments = (ins Idr_NatValue:$value);
+  let results = (outs Idr_BigValue:$result);
+  let assemblyFormat = "$value attr-dict custom<NatResult>(type($value))";
 }
 
 // The only op that makes a natural of an Integer, so the one that must
@@ -874,8 +898,8 @@ def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime, DeclareOpInterf
   let hasFolder = 1;
   let summary = "an Integer as a natural, 0 if it is negative";
   let arguments = (ins Idr_BigType:$value);
-  let results = (outs Res<Idr_NatType, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict";
+  let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
 }
 
 // An integer as an Integer, or, read as unsigned, as a natural: an unsigned
@@ -887,7 +911,7 @@ def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime, DeclareOpInterf
   let hasVerifier = 1;
   let summary = "an integer as a big or, unsigned, as a natural";
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
-  let results = (outs Res<Idr_BigOrNat, "", [MemAlloc]>:$result);
+  let results = (outs Res<Idr_BigOrNatValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
     custom<Signedness>($is_signed) `` $value attr-dict `:` type($value)
     custom<Natural>(type($result))
@@ -903,7 +927,7 @@ def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, DeclareOpInterfaceMethods<InferI
   let hasFolder = 1;
   let summary = "the small big or natural of a word that fits";
   let arguments = (ins I64:$value);
-  let results = (outs Idr_BigOrNat:$result);
+  let results = (outs Idr_BigOrNatValue:$result);
   let assemblyFormat = "$value attr-dict `:` type($result)";
 }
 
@@ -923,8 +947,8 @@ def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
   let hasFolder = 1;
   let summary = "a Double truncated to a big; crashes on NaN and the infinities";
   let arguments = (ins F64:$value);
-  let results = (outs Idr_BigType:$result);
-  let assemblyFormat = "$value attr-dict";
+  let results = (outs Idr_BigValue:$result);
+  let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
   let extraClassDefinition = [{
     std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
       if (knownFinite(getValue()))
@@ -948,8 +972,8 @@ def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
   let hasFolder = 1;
   let summary = "the decimal text of a big";
   let arguments = (ins Idr_BigType:$value);
-  let results = (outs Res<Idr_StrType, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict";
+  let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
 }
 
 def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
@@ -957,8 +981,8 @@ def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
   let hasFolder = 1;
   let summary = "a string as a big, as prim__cast_StringInteger reads it";
   let arguments = (ins Idr_StrType:$str);
-  let results = (outs Res<Idr_BigType, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$str attr-dict";
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$str attr-dict custom<BigResult>(type($result))";
 }
 
 //===----------------------------------------------------------------------===//
@@ -1012,27 +1036,41 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 // Ownership (lib/Ownership)
 //===----------------------------------------------------------------------===//
 
-// idr-rc makes every reference explicit, and marks the module
-// `idr.stage = "owned"`: from then on the verifier checks that each
-// reference is consumed exactly once on every path. The ops below read and
-// write the counts in cell headers and may free cells, so no pass reorders,
-// merges or drops them.
+// idr-rc makes every reference explicit, in the grades: from then on a
+// value that holds references is owned, `!idr.own<T>` (the grade
+// (ω, own) of T), and holds one reference of its own, which exactly one
+// use on every path consumes; or it is a view, plain T, which holds none
+// and lives while what it was read from does: a borrowed parameter, a
+// field, a match's case argument, an `idr.borrow`, or static data, which
+// no count reaches. The module is marked `idr.stage = "owned"`, and the
+// verifier checks the rule (lib/Ownership/Verify.cc). The ops below read
+// and write the counts in cell headers and may free cells, so no pass
+// reorders, merges or drops them.
 
 def Idr_TokenType : Idr_Type<"Token", "token"> {
   let summary = "the memory of a cell whose fields idr.take moved out, or null";
 }
 
 // The values that hold references: a string, a big or natural (a small one
-// holds none), a box, a closure, and an unboxed sum with a slot of any of these;
-// linear or not, since a linear field read from a cell that lives on needs
-// a reference of its own.
+// holds none), a box, a closure, a token, and an unboxed sum with a slot of
+// any of these; at any grade, since a linear field read from a cell that
+// lives on needs a reference of its own.
 def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
-                                      Idr_BigType, Idr_NatType]>;
+                                      Idr_BigType, Idr_NatType, Idr_TokenType]>;
 def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
-    Type<And<[CPred<"::idr::isLinear($_self)">,
+    Type<And<[CPred<"::llvm::isa<::idr::QType>($_self)">,
               SubstLeaves<"$_self", "::idr::unrestricted($_self)",
                           Idr_CountedValueType.predicate>]>,
-         "a linear value that holds references">]>;
+         "a graded value that holds references">]>;
+
+// A value that holds one reference of its own, and a view, which holds
+// none.
+// The accessors give plain values: idr-rc builds these ops on values it
+// grades afterwards.
+def Idr_OwnType : Type<CPred<"::idr::isOwned($_self)">, "a value that holds a reference",
+                       "::mlir::Type">;
+def Idr_ViewType : Type<And<[CPred<"!::idr::isOwned($_self)">, Idr_CountedType.predicate]>,
+                        "a value that holds no reference">;
 
 // An op that exists only in the owned stage: before idr-rc nothing counts
 // references, so a pass that meets one knows the module's stage.
@@ -1040,33 +1078,57 @@ class Idr_OwnedOp<string mnemonic, list<Trait> traits = []> : Idr_Op<mnemonic, t
   let hasVerifier = 1;
 }
 
-def Idr_IncOp : Idr_OwnedOp<"inc"> {
-  let summary = "adds a reference to a value";
+def Idr_DupOp : Idr_OwnedOp<"dup", [
+    TypesMatchWith<"the result owns the value", "value", "result", "::idr::owned($_self)">]> {
+  let summary = "a reference of its own to a value that holds none";
   let description = [{
-    Static data, a small big and an empty slot hold no count and are left
-    alone; an unboxed sum adds a reference to each of its slots.
+    The value is a view: what it holds lives on, and the result holds one
+    more reference to it. Static data, a small big and an empty slot hold
+    no count and are left alone; an unboxed sum adds a reference to each of
+    its slots.
   }];
-  let arguments = (ins Arg<Idr_CountedType, "", [MemRead, MemWrite]>:$value);
+  let arguments = (ins Arg<Idr_ViewType, "", [MemRead, MemWrite]>:$value);
+  let results = (outs Idr_OwnType:$result);
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
 
-def Idr_DecOp : Idr_OwnedOp<"dec"> {
-  let summary = "drops a reference to a value, and frees it with its last";
+def Idr_DropOp : Idr_OwnedOp<"drop"> {
+  let summary = "consumes a reference, and frees the value with its last";
   let description = [{
-    Freeing a cell drops its fields' references in turn. The dec of a token
-    frees the memory of its cell, whose fields idr.take already moved out.
-    A linear value is used at most once, and may be dropped instead.
+    Freeing a cell drops its fields' references in turn. The drop of a
+    token frees the memory of its cell, whose fields idr.take already moved
+    out.
   }];
-  let arguments = (ins Arg<AnyTypeOf<[Idr_CountedType, Idr_TokenType]>, "",
-                           [MemRead, MemWrite, MemFree]>:$value);
+  let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value);
   let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
+// A view of an owned value: reads (a field, a tag, a match, a borrowed
+// argument) take views, and a view lives only while its owner holds its
+// reference: every use of it comes before the owner's consuming use on
+// each path. It has no runtime form.
+def Idr_BorrowOp : Idr_Op<"borrow", [Pure,
+    TypesMatchWith<"the view is the value without its reference", "value", "result",
+                   "::idr::view($_self)">]> {
+  let summary = "a view of an owned value, alive while its owner holds its reference";
+  let arguments = (ins Idr_OwnType:$value);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
+// A token is always owned: idr.take makes it, idr.reuse or idr.drop
+// consumes it.
+def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
+                               CPred<"::llvm::isa<::idr::TokenType>(::idr::unrestricted($_self))">]>,
+                          "an owned token", "::mlir::Type"> {
+  let builderCall = "::idr::owned(::idr::TokenType::get($_builder.getContext()))";
 }
 
 def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
-  let arguments = (ins Arg<Idr_TokenType, "", [MemWrite]>:$token, SymbolRefAttr:$ctor,
+  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, SymbolRefAttr:$ctor,
                        Variadic<AnyType>:$fields);
-  let results = (outs Res<Idr_BoxType, "", [MemAlloc]>:$result);
+  let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
     $token $ctor `(` $fields `)` attr-dict `:` functional-type($fields, $result)
   }];
@@ -1085,7 +1147,7 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInte
     one fewer, and the token is null. An unboxed sum is its fields already,
     so taking it apart changes no count.
   }];
-  let arguments = (ins Arg<Idr_SumType, "", [MemRead, MemWrite, MemFree]>:$value,
+  let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value,
                        SymbolRefAttr:$ctor);
   let results = (outs Variadic<AnyType>:$results);
   let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` `(` type($results) `)`";
@@ -1181,8 +1243,8 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 // Neither hides the value from an analysis: the integer range of what
 // enters is that of what is used.
 def Idr_LinEnterOp : Idr_Op<"lin.enter", [
-    TypesMatchWith<"the operand is the linear type's value", "result", "value",
-                   "::idr::unrestricted($_self)">,
+    TypesMatchWith<"the operand is the value at any quantity", "result", "value",
+                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "a value handed to a linear position";
   let arguments = (ins AnyType:$value);
@@ -1193,8 +1255,8 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [
 
 // The one use of a linear value, where it becomes an ordinary one.
 def Idr_LinUseOp : Idr_Op<"lin.use", [
-    TypesMatchWith<"the result is the linear type's value", "linear", "result",
-                   "::idr::unrestricted($_self)">,
+    TypesMatchWith<"the result is the value at any quantity", "linear", "result",
+                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "the one use of a linear value";
   let arguments = (ins Idr_LinType:$linear);

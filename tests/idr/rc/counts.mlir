@@ -6,19 +6,21 @@
 
 // A map over a list takes each cell apart where it matches it, the fields
 // moving out with no count changed, and builds the new cell in it: it
-// reuses in place (the first RUN line). A function that
-// only reads its list borrows it, and counts nothing; neither do worlds,
-// erased values and scalars.
+// reuses in place (the first RUN line). A function that only reads its
+// list borrows it (a plain parameter, a view of the caller's), and counts
+// nothing; neither do worlds, erased values and scalars.
 // CHECK-LABEL: func.func private @sum(
-// CHECK-SAME: {idr.borrowed}
+// CHECK-SAME: %{{.*}}: !idr.box<@L>, %{{.*}}: i64)
 // CHECK-LABEL: func.func private @both(
 
-// A string consumed twice takes one more reference; one only read is
-// borrowed.
-// CHECK-SAME: %[[A:[^:]*]]: !idr.str, %[[B:[^:]*]]: !idr.str {idr.borrowed})
-// CHECK-COUNT-1: idr.inc %[[A]]
-// CHECK-NOT: idr.inc
-// CHECK-NOT: idr.dec %[[B]]
+// A string consumed twice is owned, and the first consuming use takes a
+// reference of its own from a view of it; one only read is borrowed.
+// CHECK-SAME: %[[A:[^:]*]]: !idr.own<!idr.str>, %[[B:[^:]*]]: !idr.str)
+// CHECK: %[[V:.*]] = idr.borrow %[[A]]
+// CHECK-COUNT-1: idr.dup %[[V]]
+// CHECK-NOT: idr.dup
+// CHECK-NOT: idr.drop %[[B]]
+// CHECK-LABEL: func.func private @scalars(
 module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @N ()

@@ -410,7 +410,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
 //===----------------------------------------------------------------------===//
 
 def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
-  let summary = "Make every reference explicit: reset/reuse, borrowed parameters, inc and dec";
+  let summary = "Make every reference explicit: reset/reuse, borrowed parameters, dup and drop";
   let description = [{
     Runs on functional code, after the simplify group and
     idr-defunctionalize and before idr-tail-loops, in Lean's order:
@@ -419,11 +419,16 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
         constructor on each path after that with a cell of the same size
         is built in its cell (`idr.reuse`);
       - borrow inference: a parameter that never needs a reference of its
-        own gets `idr.borrowed`, and its callers keep theirs;
-      - explicit counting: every other reference is consumed exactly once
-        on every path, with `idr.inc` before a use that consumes a
-        reference the value still needs, and `idr.dec` after its last use
-        that does not.
+        own stays a plain type (a view of the caller's value), and its
+        callers keep theirs; every other parameter and every result is
+        `!idr.own<T>`;
+      - explicit counting: every value that holds references is owned
+        (`!idr.own<T>`, one reference of its own, consumed exactly once on
+        every path) or a view (plain `T`, read while its owner holds its
+        reference): `idr.dup` takes a reference of its own from a view
+        before a use that consumes one, `idr.drop` gives one up after the
+        last use, and `idr.borrow` makes the view an owned value is read
+        through.
     The module then gets `idr.stage = "owned"`, whose rule the verifier
     checks after every later pass.
   }];
@@ -434,8 +439,8 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
   // The sizes of cells, for reuse, are those of their LLVM layouts.
   let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
   let statistics = [
-    Statistic<"numIncs", "incs", "idr.inc added">,
-    Statistic<"numDecs", "decs", "idr.dec added">,
+    Statistic<"numDups", "dups", "idr.dup added">,
+    Statistic<"numDrops", "drops", "idr.drop added">,
     Statistic<"numTakes", "takes", "Dead boxes taken apart for their cells">,
     Statistic<"numReuses", "reuses", "Constructors built in a taken cell">,
     Statistic<"numBorrowed", "borrowed", "Parameters borrowed">,
@@ -462,11 +467,11 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         function;
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
-      - `counts-nothing=@f`: no idr.inc or idr.dec in @f;
+      - `counts-nothing=@f`: no idr.dup or idr.drop in @f;
       - `resets-unshared`, `resets-unshared=@f`: every take of a box,
         anywhere or in @f, tests a cell that its function never gives a
-        second reference (an idr.inc of the box or of a value it was read
-        from);
+        second reference (an idr.dup of a view of the box or of a value it
+        was read from);
       - `reuses-every-cell=@f`: every cell a take in @f yields
         for a constructor with fields is reused, and none is freed;
       - `contified`: no private function is called once, from another

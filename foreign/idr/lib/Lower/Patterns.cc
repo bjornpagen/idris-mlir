@@ -43,14 +43,15 @@ struct LowerCon : IdrPattern<ConOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     CtorOp ctor = lookupCtor(op, op.getCtor());
-    if (isa<BoxType>(op.getType())) {
+    if (isa<BoxType>(unrestricted(op.getType()))) {
       // idr-stack: a cell that never outlives its frame is a slot of it.
       Value box = buildBox(rewriter, loc, layouts, runtime, ctor,
                            stack::cell(rewriter, loc, op, layouts, runtime), adaptor.getFields());
       rewriter.replaceOp(op, box);
       return success();
     }
-    const SumLayout &layout = layouts.sum(cast<DataType>(op.getType()).getName().getAttr());
+    const SumLayout &layout =
+        layouts.sum(cast<DataType>(unrestricted(op.getType())).getName().getAttr());
     SmallVector<Value> slots(layout.slots.size());
     const auto &fields = layout.fields.find(ctor.getSymName())->second;
     for (auto [field, values] : llvm::zip_equal(fields, adaptor.getFields()))
@@ -78,12 +79,13 @@ struct LowerTag : IdrPattern<TagOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     auto i64 = rewriter.getI64Type();
-    if (isa<BoxType>(op.getValue().getType())) {
+    if (isa<BoxType>(unrestricted(op.getValue().getType()))) {
       Value tag = runtime.loadTag(rewriter, loc, adaptor.getValue().front());
       rewriter.replaceOpWithNewOp<arith::ExtUIOp>(op, i64, tag);
       return success();
     }
-    const SumLayout &layout = layouts.sum(cast<DataType>(op.getValue().getType()).getName().getAttr());
+    const SumLayout &layout =
+        layouts.sum(cast<DataType>(unrestricted(op.getValue().getType())).getName().getAttr());
     if (!layout.tag)
       rewriter.replaceOp(op, constantI64(rewriter, loc, 0));
     else
@@ -99,7 +101,7 @@ struct LowerField : IdrPattern<FieldOp> {
   LogicalResult matchAndRewrite(FieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     auto index = static_cast<unsigned>(op.getIndex());
-    Type type = op.getValue().getType();
+    Type type = unrestricted(op.getValue().getType());
     if (isa<BoxType>(type)) {
       CtorOp ctor = lookupCtor(lookupData(op, type), op.getCtor());
       rewriter.replaceOpWithMultiple(

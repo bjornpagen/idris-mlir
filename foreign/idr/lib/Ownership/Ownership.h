@@ -3,18 +3,18 @@
 // stage.
 //
 // A value holds references when its type does (a string, a big, a box, a
-// closure, a reuse token, or an unboxed sum with a slot of one of these),
-// unless it is static: a constant, whose cells are persistent data that no
-// count reaches, or poison, which nothing reads. A value that holds
-// references is
-//   - owned: it holds one reference of its own, which exactly one use on
-//     every path consumes. Results of calls, constructors, closures,
-//     primitives and matches are owned, and so are parameters;
-//   - borrowed: it holds none, and lives as long as what it was read from.
-//     A parameter marked `idr.borrowed` lives as long as the call, and a
-//     field of a constructor (an idr.field, or a field a match region
-//     binds) as long as the value it was read from.
-// idr.inc gives a value one more reference, which one more use consumes.
+// closure, a reuse token, or an unboxed sum with a slot of one of these).
+// In the owned stage its grade says what it holds:
+//   - owned (`!idr.own<T>`): one reference of its own, which exactly one
+//     use on every path consumes. Results of calls, constructors, closures,
+//     primitives and matches are owned, and so are the parameters that
+//     borrow inference leaves owned;
+//   - a view (plain T): none; it lives as long as what it was read from. A
+//     borrowed parameter lives as long as the call, a field of a
+//     constructor (an idr.field, or a field a match region binds) and an
+//     idr.borrow as long as the value it was read from, and static data (a
+//     constant, whose cells no count reaches) forever.
+// idr.dup gives a view one reference of its own, which one use consumes.
 #pragma once
 
 #include "idr/Idr.h"
@@ -27,8 +27,6 @@ class Layouts;
 
 namespace idr::ownership {
 
-// The attribute of a parameter that the function borrows.
-inline constexpr llvm::StringLiteral borrowedAttr = "idr.borrowed";
 // The module attribute that marks the owned stage, and its value.
 inline constexpr llvm::StringLiteral stageAttr = "idr.stage";
 inline constexpr llvm::StringLiteral ownedStage = "owned";
@@ -61,7 +59,8 @@ mlir::Value readFrom(mlir::Value value);
 // that holds that block, up to the block that defines it.
 bool usedAfter(mlir::Value value, mlir::Operation *op);
 
-// Whether the function borrows its parameter `index`.
+// Whether the function borrows its parameter `index`: in the owned
+// stage, whether the parameter is a view.
 bool isBorrowed(mlir::func::FuncOp fn, unsigned index);
 
 // What a use does with a reference: consumes one, or only needs the value to
@@ -92,8 +91,14 @@ TakeOp takeFields(mlir::Value value, mlir::SymbolRefAttr ctor, mlir::ArrayRef<ml
 std::pair<unsigned, unsigned> insertResetReuse(mlir::func::FuncOp fn, lower::Layouts &layouts);
 
 // Lean's borrow inference: which parameters of the module's functions can
-// be borrowed. Marks each with `idr.borrowed` and returns how many.
+// be borrowed. Writes the signatures: a borrowed parameter keeps its plain
+// type, an owned one and every result that holds references become owned.
+// Returns how many parameters are borrowed.
 unsigned inferBorrows(mlir::ModuleOp module, Counting &counting);
+
+// The signatures with every parameter and result that holds references
+// owned: what counting assumes when borrow inference does not run.
+void ownSignatures(mlir::ModuleOp module, Counting &counting);
 
 // Explicit counting (Perceus): the incs and decs that make every
 // reference consumed exactly once on every path. Returns the numbers of

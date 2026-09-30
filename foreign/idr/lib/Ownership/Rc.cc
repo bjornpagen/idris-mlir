@@ -42,14 +42,17 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
     }
     if (borrow)
       numBorrowed += own::inferBorrows(module, counting);
+    else
+      own::ownSignatures(module, counting);
+    // The signatures are graded from here on: counting reads them.
+    module->setAttr(own::stageAttr, StringAttr::get(&getContext(), own::ownedStage));
     for (func::FuncOp fn : functions) {
       FailureOr<std::pair<unsigned, unsigned>> counts = own::insertCounts(fn, counting);
       if (failed(counts))
         return signalPassFailure();
-      numIncs += counts->first;
-      numDecs += counts->second;
+      numDups += counts->first;
+      numDrops += counts->second;
     }
-    module->setAttr(own::stageAttr, StringAttr::get(&getContext(), own::ownedStage));
   }
 };
 

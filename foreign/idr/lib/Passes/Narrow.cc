@@ -37,7 +37,7 @@ namespace {
 
 using ranges::Bounds;
 
-bool isBig(Type type) { return isa<BigType, NatType>(type); }
+bool isBig(Type type) { return isa<BigType, NatType>(unrestricted(type)); }
 
 // MLIR's analysis starts a value it cannot see computed at every value of
 // its type; a natural's type proves more, that it is at least 0.
@@ -74,18 +74,10 @@ LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
 
 // Whether the big `value` holds a reference of its own, which a word
 // taking its place in a consuming use leaves it to drop: once counting ran
-// (`counted`), one the program computed or an owned parameter, not a
-// constant, a field read or a borrowed parameter. A loop's argument is the
-// loop's, narrowed with it.
+// (`counted`), its grade says so, and a value that stands for one (a
+// small big, poison) holds none.
 bool ownedBig(Value value, bool counted) {
-  if (!counted || ownership::isStatic(value) || ownership::readFrom(value))
-    return false;
-  if (auto arg = dyn_cast<BlockArgument>(value)) {
-    auto fn = dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
-    return fn && arg.getOwner()->isEntryBlock() &&
-           !ownership::isBorrowed(fn, arg.getArgNumber());
-  }
-  return true;
+  return counted && isOwned(value.getType()) && !ownership::isStatic(value);
 }
 
 // The bounds of values: the analysis's, and those of the values the pass
@@ -99,9 +91,7 @@ public:
   // Whether `value` is borrowed once counting ran: it is counted, and holds
   // no reference of its own.
   bool borrowed(Value value) const {
-    return counted && ownership::Counting(value.getParentRegion()->getParentOfType<ModuleOp>())
-                          .tracked(value) &&
-           !ownedBig(value, counted);
+    return counted && !isOwned(value.getType()) && !ownership::isStatic(value);
   }
 
   Bounds of(Value value) const {
@@ -280,7 +270,7 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
         Value natural = retype.getValue();
         Value value = word(natural);
         if (facts.owned(natural))
-          DecOp::create(rewriter, loc, natural);
+          DropOp::create(rewriter, loc, natural);
         replaceBig(rewriter, facts, op, value);
         return true;
       })
@@ -294,7 +284,7 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
       // A big the pass made of a word holds no count. Any other big
       // proved small keeps its count ops: counting still tracks it (a call's
       // result, a parameter), and on a small they do nothing at runtime.
-      .Case<IncOp, DecOp>([&](Operation *) {
+      .Case<DupOp, DropOp>([&](Operation *) {
         Value value = op->getOperand(0);
         if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>())
           return false;
@@ -334,7 +324,7 @@ void passWord(RewriterBase &rewriter, Facts &facts, Operation *op, unsigned inde
   Value word = facts.word(rewriter, op->getLoc(), big);
   rewriter.modifyOpInPlace(op, [&] { op->setOperand(index, word); });
   if (facts.owned(big))
-    DecOp::create(rewriter, op->getLoc(), big);
+    DropOp::create(rewriter, op->getLoc(), big);
 }
 
 // The values that flow around loops and out of merges, where every value
@@ -482,7 +472,7 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index, bool cou
   // The copy starts from the word, so the natural it was read from drops
   // the reference the loop would have taken.
   if (ownedBig(init, counted))
-    DecOp::create(rewriter, loc, init);
+    DropOp::create(rewriter, loc, init);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
   scf::YieldOp::create(rewriter, loc, copy->getResults());
@@ -526,7 +516,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
       if (isa<scf::WhileOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, MatchOp, MatchLitOp>(op))
         joints.push_back(op);
       if (isa<MatchLitOp, BigAddOp, BigSubOp, BigMulOp, BigPredOp, BigCmpOp, NatFromBigOp, NatToBigOp,
-                   BigToIntOp, IncOp, DecOp>(op))
+                   BigToIntOp, DupOp, DropOp>(op))
         ops.push_back(op);
     });
     for (Operation *op : joints)

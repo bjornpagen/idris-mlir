@@ -218,7 +218,7 @@ the checker is smaller than the transformation.
 | `Facts/Moves/Only.cc` isa chain, `PerformsIO`, `RemoveUnusedCall` | `MemoryEffects` with resources, and an external model on `func.call` | mlir-idioms 3.4 |
 | seven isa chains of "what happens to this operand" | one flow interface (`BufferViewFlowOpInterface`'s shape) | mlir-idioms §2 |
 | `idr.stack` discardable mark | frame cells as ops with `AutomaticAllocationScope` | mlir-idioms 3.2 |
-| `idr.stage` and the path-interpreting `Verify.cc` | owned-stage types | mlir-ownership-types |
+| `idr.stage` and the path-interpreting `Verify.cc` | owned-stage types (landed 2026-09-30: `!idr.own`, `dup`/`drop`/`borrow`, graded signatures; the walk stays, typed, for alternatives and loops) | mlir-ownership-types |
 | Vect as a list of boxes, when contiguity is proved | tensor/linalg/bufferization | representation.md |
 | tail loops as bare `scf.while` | uplift to `scf.for`, then affine | I.3 |
 

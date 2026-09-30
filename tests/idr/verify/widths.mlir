@@ -38,6 +38,6 @@ func.func private @f(%a: i1, %w: !idr.world) -> !idr.world {
 // A linear integer holds no reference, so nothing counts it.
 func.func private @f(%x: !idr.lin<i64>) {
   // expected-error @+1 {{but got '!idr.lin<i64>'}}
-  idr.inc %x : !idr.lin<i64>
+  %o = idr.dup %x : !idr.lin<i64>
   return
 }

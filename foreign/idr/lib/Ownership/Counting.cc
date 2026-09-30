@@ -74,8 +74,12 @@ bool usedAfter(Value value, Operation *op) {
   return false;
 }
 
+// Before the owned stage every parameter may still be owned: borrow
+// inference has not decided.
 bool isBorrowed(func::FuncOp fn, unsigned index) {
-  return index < fn.getNumArguments() && fn.getArgAttr(index, borrowedAttr);
+  auto module = fn->getParentOfType<ModuleOp>();
+  return module && module->hasAttr(stageAttr) && index < fn.getNumArguments() &&
+         !isOwned(fn.getArgument(index).getType());
 }
 
 func::FuncOp callee(func::CallOp call, SymbolTableCollection &symbols) {
@@ -94,7 +98,7 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
   // A linear value moves into its one use and out of it again, with its
   // reference; so does a natural into the Integer it is, and a value
   // written to a destination into the cell.
-  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DecOp, LinEnterOp,
+  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DropOp, LinEnterOp,
           LinUseOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp, scf::WhileOp>(op))
     return Use::Consume;
   return Use::Borrow;

@@ -1,7 +1,7 @@
 // Borrow inference (Counting Immutable Beans §4.2, as Lean's
 // Compiler/IR/Borrow.lean does it): a parameter the function never needs a
 // reference of its own for is borrowed, and its callers keep the
-// reference, which saves an idr.inc and an idr.dec per call.
+// reference, which saves an idr.dup and an idr.drop per call.
 //
 // Every parameter starts borrowed and becomes owned, until nothing changes
 // in the module, when it or a field read from it
@@ -17,6 +17,10 @@
 // parameters owned: their callers are not calls this pass sees. A
 // parameter of quantity 1 is owned too: Idris proved the function uses it
 // once, so it moves to that use and is never counted.
+//
+// The answer is written into the signatures: an owned parameter and
+// every result that holds references are owned (`!idr.own<T>`), a
+// borrowed parameter keeps its plain type, a view of the caller's value.
 
 #include "Ownership/Ownership.h"
 
@@ -61,16 +65,24 @@ public:
         collect(fn);
     } while (changed);
     unsigned borrowed = 0;
-    for (func::FuncOp fn : functions)
-      for (auto [index, isOwned] : llvm::enumerate(owned[fn])) {
+    for (func::FuncOp fn : functions) {
+      SmallVector<Type> params(fn.getArgumentTypes());
+      for (auto [index, holds] : llvm::enumerate(owned[fn])) {
         auto param = static_cast<unsigned>(index);
-        if (isOwned) {
-          fn.removeArgAttr(param, borrowedAttr);
+        if (!counting.counted(params[param]))
+          continue;
+        if (!holds) {
+          ++borrowed;
           continue;
         }
-        fn.setArgAttr(param, borrowedAttr, UnitAttr::get(module.getContext()));
-        ++borrowed;
+        params[param] = idr::owned(params[param]);
+        fn.getArgument(param).setType(params[param]);
       }
+      SmallVector<Type> results;
+      for (Type result : fn.getResultTypes())
+        results.push_back(counting.counted(result) ? idr::owned(result) : result);
+      fn.setFunctionType(FunctionType::get(module.getContext(), params, results));
+    }
     return borrowed;
   }
 
@@ -200,6 +212,23 @@ private:
 
 unsigned inferBorrows(ModuleOp module, Counting &counting) {
   return Inference(module, counting).run();
+}
+
+void ownSignatures(ModuleOp module, Counting &counting) {
+  for (auto fn : module.getOps<func::FuncOp>()) {
+    if (fn.isExternal())
+      continue;
+    SmallVector<Type> params;
+    for (BlockArgument arg : fn.getArguments()) {
+      if (counting.counted(arg.getType()))
+        arg.setType(idr::owned(arg.getType()));
+      params.push_back(arg.getType());
+    }
+    SmallVector<Type> results;
+    for (Type result : fn.getResultTypes())
+      results.push_back(counting.counted(result) ? idr::owned(result) : result);
+    fn.setFunctionType(FunctionType::get(module.getContext(), params, results));
+  }
 }
 
 } // namespace idr::ownership

@@ -41,7 +41,7 @@ namespace {
 
 // Whether `op` is the constructor of a box: an idr.con or idr.reuse.
 bool buildsBox(Operation *op) {
-  return isa_and_nonnull<idr::ConOp, idr::ReuseOp>(op) && isa<idr::BoxType>(op->getResult(0).getType());
+  return isa_and_nonnull<idr::ConOp, idr::ReuseOp>(op) && isa<idr::BoxType>(idr::unrestricted(op->getResult(0).getType()));
 }
 
 SymbolRefAttr ctorOf(Operation *op) {
@@ -140,8 +140,11 @@ void passDestination(OpBuilder &b, Modulo tail, func::FuncOp clone, Value hole) 
   tail.built->setOperand(first + tail.index, pending);
   b.setInsertionPointAfter(tail.built);
   SymbolRefAttr ctor = ctorOf(tail.built);
+  // The destination is taken from a view of the cell, whose reference
+  // then moves on: into the hole it fills, or out of the function.
+  Value seen = idr::BorrowOp::create(b, loc, cell);
   Value dest = idr::DestOfOp::create(
-      b, loc, idr::DestType::get(b.getContext(), pending.getType()), cell,
+      b, loc, idr::DestType::get(b.getContext(), idr::unrestricted(pending.getType())), seen,
       FlatSymbolRefAttr::get(ctor.getLeafReference()), b.getI64IntegerAttr(tail.index));
   if (hole)
     idr::DestWriteOp::create(b, loc, hole, cell);
@@ -201,7 +204,7 @@ struct Trmc : idr::impl::IdrTrmcBase<Trmc> {
     SymbolTable symbols(module);
     OpBuilder b(&getContext());
     for (auto fn : llvm::make_early_inc_range(module.getOps<func::FuncOp>())) {
-      if (fn.isExternal() || fn.getNumResults() != 1 || !isa<idr::BoxType>(fn.getResultTypes()[0]))
+      if (fn.isExternal() || fn.getNumResults() != 1 || !isa<idr::BoxType>(idr::unrestricted(fn.getResultTypes()[0])))
         continue;
       SmallVector<Modulo> tails;
       forTails(fn.getBody().front(), [&](Block &block) {
@@ -219,7 +222,7 @@ struct Trmc : idr::impl::IdrTrmcBase<Trmc> {
       clone.setPrivate();
       clone->removeAttr("idr.clone");
       symbols.insert(clone);
-      auto dest = idr::DestType::get(&getContext(), fn.getResultTypes()[0]);
+      auto dest = idr::DestType::get(&getContext(), idr::unrestricted(fn.getResultTypes()[0]));
       unsigned arity = clone.getNumArguments();
       (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
       clone.removeResAttrsAttr();

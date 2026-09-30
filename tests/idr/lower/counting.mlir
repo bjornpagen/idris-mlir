@@ -6,7 +6,7 @@
 // memory freed; a reuse builds in the token, or in a new cell when it is
 // null.
 // CHECK-LABEL: func.func private @counts(
-// CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr{{( \{[^}]*\})?}}, %{{[^:]*}}: i8{{( \{[^}]*\})?}}, %[[D:[^:]*]]: !llvm.ptr{{( \{[^}]*\})?}}, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
+// CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr {{.*}}, %{{[^:]*}}: i8 {{.*}}, %[[D:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
 // CHECK: llvm.call @idris_rt_inc(%[[S]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK: llvm.call @idris_rt_dec(%[[D]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK: %[[B:.*]] = llvm.inttoptr %[[N]] : i64 to !llvm.ptr
@@ -37,44 +37,46 @@ module attributes {idr.program, idr.stage = "owned"} {
     idr.ctor @A (!idr.str)
     idr.ctor @B (i64)
   }
-  func.func private @counts(%s: !idr.str, %d: !idr.data<@S>, %b: !idr.big) -> (!idr.str, !idr.str) {
-    idr.inc %s : !idr.str
-    idr.dec %d : !idr.data<@S>
-    idr.dec %b : !idr.big
-    return %s, %s : !idr.str, !idr.str
+  func.func private @counts(%s: !idr.str, %d: !idr.own<!idr.data<@S>>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
+    %o = idr.dup %s : !idr.str
+    idr.drop %d : !idr.own<!idr.data<@S>>
+    idr.drop %b : !idr.own<!idr.big>
+    return %o : !idr.own<!idr.str>
   }
-  func.func private @unused(%x: i64) -> !idr.data<@S> {
-    %d = idr.con @S::@B(%x) : (i64) -> !idr.data<@S>
-    return %d : !idr.data<@S>
+  func.func private @unused(%x: i64) -> !idr.own<!idr.data<@S>> {
+    %d = idr.con @S::@B(%x) : (i64) -> !idr.own<!idr.data<@S>>
+    return %d : !idr.own<!idr.data<@S>>
   }
-  func.func private @drop(%l: !idr.box<@L>) -> i64 {
-    %r = idr.match %l : !idr.box<@L> -> (i64) {
+  func.func private @drop(%l: !idr.own<!idr.box<@L>>) -> i64 {
+    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
+    %r = idr.match %v : !idr.box<@L> -> (i64) {
     case @C(%h: i64, %t: !idr.box<@L>) {
-      %w:3 = idr.take %l @L::@C : !idr.box<@L> -> (!idr.token, i64, !idr.box<@L>)
-      idr.dec %w#2 : !idr.box<@L>
-      idr.dec %w#0 : !idr.token
+      %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
+      idr.drop %w#2 : !idr.own<!idr.box<@L>>
+      idr.drop %w#0 : !idr.own<!idr.token>
       idr.yield %h : i64
     }
     default {
-      idr.dec %l : !idr.box<@L>
+      idr.drop %l : !idr.own<!idr.box<@L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
     }
     return %r : i64
   }
-  func.func private @rebuild(%l: !idr.box<@L>) -> !idr.box<@L> {
-    %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
+  func.func private @rebuild(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
+    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
+    %r = idr.match %v : !idr.box<@L> -> (!idr.own<!idr.box<@L>>) {
     case @C(%h: i64, %t: !idr.box<@L>) {
-      %w:3 = idr.take %l @L::@C : !idr.box<@L> -> (!idr.token, i64, !idr.box<@L>)
-      %c = idr.reuse %w#0 @L::@C(%w#1, %w#2) : (i64, !idr.box<@L>) -> !idr.box<@L>
-      idr.yield %c : !idr.box<@L>
+      %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
+      %c = idr.reuse %w#0 @L::@C(%w#1, %w#2) : (i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
+      idr.yield %c : !idr.own<!idr.box<@L>>
     }
     default {
-      idr.yield %l : !idr.box<@L>
+      idr.yield %l : !idr.own<!idr.box<@L>>
     }
     }
-    return %r : !idr.box<@L>
+    return %r : !idr.own<!idr.box<@L>>
   }
   func.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

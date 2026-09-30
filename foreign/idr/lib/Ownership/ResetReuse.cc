@@ -43,7 +43,7 @@ public:
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
       Value box = match.getScrutinee();
-      if (!isa<BoxType>(box.getType()) || !reusable(box) || usedAfter(box, match))
+      if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(box) || usedAfter(box, match))
         continue;
       DataOp data = lookupData(match, box.getType());
       for (auto [index, name] : llvm::enumerate(match.getCases().getAsRange<FlatSymbolRefAttr>())) {
@@ -72,7 +72,7 @@ public:
   void readBoxes() {
     SmallVector<std::pair<Value, FieldOp>> boxes;
     auto consider = [&](Value box) {
-      if (!isa<BoxType>(box.getType()) || box.use_empty() || !reusable(box))
+      if (!isa<BoxType>(unrestricted(box.getType())) || box.use_empty() || !reusable(box))
         return;
       FieldOp first;
       for (Operation *user : box.getUsers()) {
@@ -102,17 +102,14 @@ public:
   }
 
 private:
-  // Whether `box` holds its own reference: not static, not borrowed (a
-  // borrowed parameter, or a field read from one), not a stack cell.
+  // Whether `box` holds its own reference: not static, not a stack cell.
+  // Borrow inference runs after this and keeps a parameter that is taken
+  // apart owned.
   bool reusable(Value box) {
     for (Value value = box; value; value = readFrom(value)) {
       if (isStatic(value))
         return false;
       if (auto con = value.getDefiningOp<ConOp>(); con && con->hasAttr("idr.stack"))
-        return false;
-      if (auto arg = dyn_cast<BlockArgument>(value);
-          arg && arg.getOwner()->getParentOp() == fn.getOperation() &&
-          isBorrowed(fn, arg.getArgNumber()))
         return false;
     }
     return true;
@@ -172,7 +169,7 @@ private:
   bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<ConOp> &found) {
     for (Operation &op : llvm::make_range(at, block.end())) {
       if (auto con = dyn_cast<ConOp>(op)) {
-        if (isa<BoxType>(con.getType()) && !con->hasAttr("idr.stack"))
+        if (isa<BoxType>(unrestricted(con.getType())) && !con->hasAttr("idr.stack"))
           if (CtorOp ctor = lookupCtor(con, con.getCtor()); ctor && layouts.box(ctor).size == size) {
             found.push_back(con);
             return true;
@@ -199,10 +196,13 @@ private:
       Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
       auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
                                      {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
-      SmallVector<Type> results{TokenType::get(fn.getContext())};
+      Counting counting(fn->getParentOfType<ModuleOp>());
+      SmallVector<Type> results{owned(TokenType::get(fn.getContext()))};
       for (unsigned index = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); index < e;
-           ++index)
-        results.push_back(ctor.getFieldType(index));
+           ++index) {
+        Type field = ctor.getFieldType(index);
+        results.push_back(counting.counted(field) ? owned(field) : field);
+      }
       auto take = TakeOp::create(b, loc, results, box, name);
       auto later = [&](OpOperand &use) {
         Operation *top = block.findAncestorOpInBlock(*use.getOwner());

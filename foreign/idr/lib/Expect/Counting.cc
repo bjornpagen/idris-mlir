@@ -19,7 +19,7 @@ LogicalResult reusesInPlace(ModuleOp module, StringRef function) {
     if (isa<ReuseOp>(op))
       reused = true;
     auto con = dyn_cast<ConOp>(op);
-    if (con && isa<BoxType>(con.getType())) {
+    if (con && isa<BoxType>(unrestricted(con.getType()))) {
       fail(op->getLoc(), property) << "a box of " << con.getCtor() << " gets a fresh cell in "
                                    << where(op);
       held = false;
@@ -39,7 +39,7 @@ LogicalResult countsNothing(ModuleOp module, StringRef function) {
     return failure();
   bool held = true;
   fn.walk([&](Operation *op) {
-    if (!isa<IncOp, DecOp>(op))
+    if (!isa<DupOp, DropOp>(op))
       return;
     fail(op->getLoc(), property) << op->getName() << " in " << where(op);
     held = false;
@@ -49,16 +49,22 @@ LogicalResult countsNothing(ModuleOp module, StringRef function) {
 
 namespace {
 
-// Whether the function gives `value` a second reference: an idr.inc of it,
-// of the value it moved in from (idr.lin.enter, idr.lin.use), or of a value
-// it was read from, whose cell then holds it shared.
+// Whether the function gives `value` a second reference: an idr.dup of a
+// view of it, of the value it moved in from (idr.lin.enter, idr.lin.use),
+// or of a value it was read from, whose cell then holds it shared.
 bool givenSecondReference(Value value) noexcept {
+  auto dupped = [](Value view) {
+    return llvm::any_of(view.getUsers(), llvm::IsaPred<DupOp>);
+  };
   for (; value; value = ownership::readFrom(value)) {
     for (Value alias = value; alias;) {
-      if (llvm::any_of(alias.getUsers(), llvm::IsaPred<IncOp>))
+      if (dupped(alias))
         return true;
+      for (Operation *user : alias.getUsers())
+        if (auto borrow = dyn_cast<BorrowOp>(user); borrow && dupped(borrow.getResult()))
+          return true;
       Operation *def = alias.getDefiningOp();
-      alias = isa_and_nonnull<LinEnterOp, LinUseOp>(def) ? def->getOperand(0) : Value();
+      alias = isa_and_nonnull<LinEnterOp, LinUseOp, BorrowOp>(def) ? def->getOperand(0) : Value();
     }
   }
   return false;
@@ -107,7 +113,7 @@ LogicalResult reusesEveryCell(ModuleOp module, StringRef function) noexcept {
   if (!fn)
     return failure();
   bool held = true;
-  fn.walk([&](DecOp dec) {
+  fn.walk([&](DropOp dec) {
     auto take = dec.getValue().getDefiningOp<TakeOp>();
     if (!take || dec.getValue() != take.getToken())
       return;

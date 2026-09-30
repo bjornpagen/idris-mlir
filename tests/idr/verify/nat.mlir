@@ -20,7 +20,7 @@ func.func @difference(%a: !idr.nat) -> !idr.nat {
 // -----
 
 func.func @mixed(%a: !idr.nat, %b: !idr.big) -> !idr.nat {
-  // expected-error @+1 {{all of {lhs, rhs, result} have same type}}
+  // expected-error @+1 {{all of {lhs, rhs} have same type}}
   %s = "idr.big.add"(%a, %b) : (!idr.nat, !idr.big) -> !idr.nat
   return %s : !idr.nat
 }
@@ -38,7 +38,7 @@ func.func @integer_predecessor(%a: !idr.big) -> !idr.big {
 
 // An Integer becomes a natural only through idr.nat.from_big, which clamps.
 func.func @unclamped(%a: !idr.big) -> !idr.nat {
-  // expected-error @+1 {{must be a natural number}}
+  // expected-error @+1 {{must be a natural at any grade}}
   %n = "idr.nat.to_big"(%a) : (!idr.big) -> !idr.nat
   return %n : !idr.nat
 }

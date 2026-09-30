@@ -4,30 +4,34 @@
 
 #include "Lower/Patterns.h"
 
+#include "mlir/IR/Matchers.h"
+
 using namespace mlir;
 
 namespace idr::lower {
 
 namespace {
 
-// One more reference for each counted component.
-struct LowerInc : IdrPattern<IncOp> {
+// One more reference for each counted component. Static data holds no
+// count, so a reference to a constant is the constant: nothing runs.
+struct LowerDup : IdrPattern<DupOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(IncOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(DupOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    runtime.inc(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(op.getValue().getType()));
-    rewriter.eraseOp(op);
+    if (!matchPattern(op.getValue(), m_Constant()))
+      runtime.inc(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(op.getValue().getType()));
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
     return success();
   }
 };
 
 // One less for each counted component; a token's memory is freed.
-struct LowerDec : IdrPattern<DecOp> {
+struct LowerDrop : IdrPattern<DropOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(DecOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(DropOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Type type = op.getValue().getType();
-    if (isa<TokenType>(type)) {
+    if (isa<TokenType>(unrestricted(type))) {
       if (!runtime.isJit())
         runtime.call(rewriter, op.getLoc(), "idris_rt_free_cell", Type(),
                      adaptor.getValue().front());
@@ -78,7 +82,7 @@ struct LowerTake : IdrPattern<TakeOp> {
   LogicalResult matchAndRewrite(TakeOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Type type = op.getValue().getType();
+    Type type = unrestricted(op.getValue().getType());
     CtorOp ctor = lookupCtor(op, op.getCtor());
     ValueRange value = adaptor.getValue();
     SmallVector<SmallVector<Value>> out;
@@ -119,12 +123,22 @@ struct LowerTake : IdrPattern<TakeOp> {
   }
 };
 
+// A view has no runtime form: it is the value itself.
+struct LowerBorrow : IdrPattern<BorrowOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(BorrowOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
+    return success();
+  }
+};
+
 } // namespace
 
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerInc, LowerDec, LowerReuse, LowerTake>(converter, patterns.getContext(),
-                                                          layouts, runtime);
+  patterns.add<LowerDup, LowerDrop, LowerBorrow, LowerReuse, LowerTake>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::lower

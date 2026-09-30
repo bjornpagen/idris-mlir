@@ -4,6 +4,39 @@ This is conjecture: a design sketch, not tested. It belongs with
 `mlir-idioms.md` §1.3. Its aim is to make "each reference consumed exactly once
 on every path" a local SSA rule, and to give uniqueness an SSA form that can fold.
 
+## What landed (2026-09-30)
+
+The types and ops of the sketch are in: `!idr.own<T>` (the `own` permission
+of the graded type, qtt-representation Part 3), plain `T` for a view,
+`idr.dup`/`idr.drop`/`idr.borrow`, signatures written by borrow inference,
+`idr.take` and `idr.reuse` on owned values, and the consuming/reading
+positions as ODS operand constraints (`Idr_OwnType` against a plain type).
+Where it deviates from the sketch, and why:
+
+- **The verifier still walks paths.** A local "exactly once" rule is not
+  enough: a match's regions are alternatives that must agree, and the loops
+  idr-tail-loops makes carry owned values through `scf.while` slots and pass
+  views on through their condition. So `Verify.cc` is still an interpreter,
+  but a typed one: it tracks owned values (exact once), views (alive while
+  the owner holds), and for a loop, each view the condition passes on as a
+  view of the same slot's value on the other side. The undo log and
+  `passedOn` stay for that.
+- **`idr.stage` stays.** It marks that the counting ops are legal and that
+  the signatures are graded (`Counting::isBorrowed` reads the parameter type
+  only in the owned stage; before it, every counted parameter is passed
+  owned, which reset/reuse insertion relies on). It is set before counting.
+- **Constants are views.** A constant of a counted type holds no reference
+  and lives forever; each consuming use takes a `dup`, which lowers to
+  nothing (the sketch's second option, chosen because it keeps the ODS
+  constraints uniform).
+- **Results are always owned.** A function never returns a view: there is
+  no owner for the caller to hold it against.
+- **Phantoms.** Poison, a pending field and a small big stand for a
+  reference without holding one; they are typed `own` and untracked.
+
+Not yet: the exclusivity `i1`, the `dup`/`drop` simplification patterns,
+and the fixed-ABI comparison with bufferization.
+
 ## What the stage is today
 
 - **The switch.** `idr-rc` inserts `idr.inc %v` / `idr.dec %v` and sets

@@ -5,11 +5,12 @@
 // it, and its loop carries the borrowed list with no count changed; a string
 // built along the way is carried owned.
 // CHECK-LABEL: func.func private @sumAcc(
-// CHECK-SAME: {idr.borrowed}
+// CHECK-SAME: %{{.*}}: i64, %{{.*}}: !idr.box<@L>)
 // CHECK: scf.while
-// CHECK-NOT: idr.inc
-// CHECK-NOT: idr.dec
+// CHECK-NOT: idr.dup
+// CHECK-NOT: idr.drop
 // CHECK-LABEL: func.func private @drain(
+// CHECK-SAME: %{{.*}}: !idr.box<@L>, %{{.*}}: !idr.own<!idr.str>)
 // CHECK: scf.while
 module attributes {idr.program} {
   idr.data @L box {

@@ -1,27 +1,31 @@
-// Explicit counting: the idr.inc and idr.dec that make every reference
-// consumed exactly once on every path (Perceus; Counting Immutable Beans'
-// C). It runs on functional code, where a match region's yield is the join
-// point and recursion is still a call.
+// Explicit counting: the grades, idr.dup and idr.drop that make every
+// reference consumed exactly once on every path (Perceus; Counting
+// Immutable Beans' C). It runs on functional code, where a match region's
+// yield is the join point and recursion is still a call.
 //
 // Each value is placed on its own, along the ops of the block that
 // defines it:
-//   - an owned value's reference goes to its last use on each path. A use
-//     that consumes a reference while the value is still needed afterwards
-//     gets an idr.inc first; a last use that only borrows is followed by an
-//     idr.dec; a value nothing uses is dropped where it is defined. A match
-//     region the value is not used in drops it on entry, unless it is still
+//   - an owned value (`!idr.own<T>`) holds one reference, which goes to its
+//     last use on each path. A use that consumes a reference while the
+//     value is still needed afterwards consumes an idr.dup of a view of it
+//     instead; a last use that only reads is followed by an idr.drop; a
+//     value nothing uses is dropped where it is defined. A match region
+//     the value is not used in drops it on entry, unless it is still
 //     needed after the match, and a region that ends in a crash is left
 //     alone;
-//   - a borrowed value gets an idr.inc before each use that consumes;
-//   - a field is borrowed when every use of it comes while the value it is
+//   - a view (a borrowed parameter, a field, a constant) holds none: each
+//     use that consumes one consumes an idr.dup of it;
+//   - a field is a view when every use of it comes while the value it is
 //     read from is still alive: a borrowed parameter, or an owned value
 //     that is used again after it. Otherwise it takes a reference of its
-//     own, with an idr.inc where it is read, so that the value it comes
-//     from can die before it (Beans: `let y = proj x; inc y`). A field of a
-//     static value is static.
-// Every drop of a region's entry comes after the idr.inc of its fields, so
-// the fields survive their scrutinee. Nothing is placed after a call whose
-// arguments it consumes, so a self tail call stays one.
+//     own, an idr.dup where it is read, which is then placed as an owned
+//     value, so that the value it comes from can die before it (Beans:
+//     `let y = proj x; inc y`). A field of a static value is static.
+// A read of an owned value (a field, a match, a borrowed argument) reads a
+// view of it (idr.borrow). Every drop of a region's entry comes after the
+// dups of its fields, so the fields survive their scrutinee. Nothing is
+// placed after a call whose arguments it consumes, so a self tail call
+// stays one.
 
 #include "Ownership/Ownership.h"
 
@@ -48,15 +52,48 @@ public:
       return failure();
     rewriteSelects();
     takeApart();
+    ownFields();
+    SmallVector<std::tuple<Value, Block *, Operation *>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
-        plan(arg, *block, nullptr);
+        values.emplace_back(arg, block, nullptr);
       for (Operation &op : *block)
         for (Value result : op.getResults())
-          plan(result, *block, &op);
+          values.emplace_back(result, block, &op);
     });
+    for (auto [value, block, def] : values)
+      plan(value, *block, def);
     materialize();
     return std::make_pair(incs, decs);
+  }
+
+  // A field that needs a reference of its own takes it where it is read:
+  // an idr.dup of the field, which every use of the field then uses, and
+  // which is placed as an owned value.
+  void ownFields() {
+    SmallVector<Value> fields;
+    fn.walk<WalkOrder::PreOrder>([&](Block *block) {
+      for (BlockArgument arg : block->getArguments())
+        if (readFrom(arg) && classOf(arg) == Class::Owned)
+          fields.push_back(arg);
+      for (Operation &op : *block)
+        for (Value result : op.getResults())
+          if (readFrom(result) && classOf(result) == Class::Owned)
+            fields.push_back(result);
+    });
+    for (Value field : fields) {
+      if (field.use_empty())
+        continue;
+      OpBuilder b(fn.getContext());
+      if (Operation *def = field.getDefiningOp())
+        b.setInsertionPointAfter(def);
+      else
+        b.setInsertionPointToStart(cast<BlockArgument>(field).getOwner());
+      auto dup = DupOp::create(b, field.getLoc(), field);
+      field.replaceAllUsesExcept(dup.getResult(), dup);
+      classes.erase(field);
+      ++incs;
+    }
   }
 
 private:
@@ -129,7 +166,7 @@ private:
   void takeReadSums() {
     SmallVector<Value> sums;
     auto consider = [&](Value value) {
-      if (!isa<DataType>(value.getType()) || value.use_empty())
+      if (!isa<DataType>(unrestricted(value.getType())) || value.use_empty())
         return;
       auto first = dyn_cast<FieldOp>(*value.getUsers().begin());
       if (!first || !llvm::all_of(value.getUsers(), [&](Operation *user) {
@@ -157,6 +194,14 @@ private:
         fields.push_back(decl.getFieldType(index));
       takeFields(value, ctor, fields);
     }
+  }
+
+  // A value that stands for one without holding a reference: poison, a
+  // pending field, a small big. It is owned by type, and no count reaches
+  // it.
+  static bool phantom(Value value) {
+    Operation *def = value.getDefiningOp();
+    return isa_and_nonnull<ub::PoisonOp, PendingOp, BigSmallOp>(def);
   }
 
   Class classOf(Value value) {
@@ -205,7 +250,15 @@ private:
   void plan(Value value, Block &block, Operation *def) {
     switch (classOf(value)) {
     case Class::Untracked:
+      return;
     case Class::Static:
+      // A value that stands for one is owned by type; a constant is a
+      // view, which each consuming use takes a reference of its own to (no
+      // count reaches static data, so the dup runs nothing).
+      if (phantom(value))
+        value.setType(owned(value.getType()));
+      else
+        placeBorrowed(value, block, def);
       return;
     case Class::Borrowed:
       placeBorrowed(value, block, def);
@@ -213,12 +266,11 @@ private:
     case Class::Owned:
       break;
     }
-    if (readFrom(value)) {
-      // A field takes its own reference where it is read.
-      if (value.use_empty())
-        return;
-      at(block, def).incs.push_back(value);
-    }
+    // A field that needs its own reference took it in ownFields; what is
+    // left reading from a value is a view.
+    if (readFrom(value))
+      return;
+    value.setType(owned(value.getType()));
     placeOwned(value, block, def, /*keep=*/false);
   }
 
@@ -256,9 +308,23 @@ private:
   }
 
   // The changes right after `def` in `block`, or at its start when null.
-  // Nothing follows a terminator, so that point is before an op too.
+  // Nothing follows a terminator, so that point is before an op too. A
+  // field that takes a reference of its own does so right there
+  // (ownFields), and the point is after it: the field takes its reference
+  // before the value it was read from drops its own.
   Changes &at(Block &block, Operation *def) {
-    return changes[def ? def->getNextNode() : &block.front()];
+    Operation *point = def ? def->getNextNode() : &block.front();
+    auto ownsField = [&](Operation *op) {
+      auto dup = dyn_cast<DupOp>(op);
+      if (!dup)
+        return false;
+      Value field = dup.getValue();
+      return def ? field.getDefiningOp() == def
+                 : isa<BlockArgument>(field) && cast<BlockArgument>(field).getOwner() == &block;
+    };
+    while (point && ownsField(point))
+      point = point->getNextNode();
+    return changes[point];
   }
 
   void incBeforeOp(Operation *op, Value value, unsigned times) {
@@ -321,19 +387,51 @@ private:
     }
   }
 
-  // At each point the incs come first: an inc never frees, and a field
+  // The view of `value` at `b`: itself, or an idr.borrow of an owned value.
+  static Value viewOf(OpBuilder &b, Location loc, Value value) {
+    return isOwned(value.getType()) ? BorrowOp::create(b, loc, value).getResult() : value;
+  }
+
+  // At each point the dups come first: a dup never frees, and a field
   // takes its reference before the value it was read from drops its own.
+  // Each planned reference goes to one consuming operand of the op, which
+  // consumes an idr.dup of a view of the value in its place; the operand
+  // left over, if any, consumes the value itself. Then every read of an
+  // owned value reads a view of it.
   void materialize() {
     OpBuilder b(fn.getContext());
     for (auto &[op, change] : changes) {
       b.setInsertionPoint(op);
+      Location loc = op->getLoc();
+      llvm::MapVector<Value, unsigned> fresh;
       for (Value value : change.incs)
-        IncOp::create(b, op->getLoc(), value);
+        ++fresh[value];
+      for (auto [value, count] : fresh) {
+        Value seen = viewOf(b, loc, value);
+        for (OpOperand &operand : op->getOpOperands()) {
+          if (count == 0)
+            break;
+          if (operand.get() != value || useOf(operand, symbols) != Use::Consume)
+            continue;
+          operand.set(DupOp::create(b, loc, seen).getResult());
+          --count;
+        }
+      }
       for (Value value : change.decs)
-        DecOp::create(b, op->getLoc(), value);
+        DropOp::create(b, loc, value);
       incs += static_cast<unsigned>(change.incs.size());
       decs += static_cast<unsigned>(change.decs.size());
     }
+    fn.walk([&](Operation *op) {
+      if (isa<BorrowOp>(op))
+        return;
+      for (OpOperand &operand : op->getOpOperands()) {
+        if (!isOwned(operand.get().getType()) || useOf(operand, symbols) != Use::Borrow)
+          continue;
+        b.setInsertionPoint(op);
+        operand.set(BorrowOp::create(b, op->getLoc(), operand.get()).getResult());
+      }
+    });
   }
 
   func::FuncOp fn;

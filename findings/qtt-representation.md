@@ -1191,6 +1191,24 @@ on.
      - a tail loop with a pure total call hoisted, shown by upstream LICM's
        statistics.
 5. **Owned grades** (mlir-ownership-types; memory-theory step 2). Lands as A7.
+   - **Landed 2026-09-30 (the types and ops):** after `idr-rc` every value
+     that holds references is `!idr.own<T>` (one reference of its own) or
+     plain `T` (a view, alive while its owner holds its reference);
+     `idr.dup` (view → own), `idr.drop` (own), `idr.borrow` (own → view)
+     replace `idr.inc`/`idr.dec`; borrow inference writes function types
+     (an owned parameter or result is `own<T>`, a borrowed parameter plain
+     `T`) and `idr.borrowed` is gone; `idr.take` gives owned fields and an
+     owned token, `idr.reuse` takes them. The position table (`useOf`) is
+     now mostly ODS: consuming operands are `Idr_OwnType`, reading operands
+     plain, and the graded results (`Idr_AtAnyGrade`) let a producer's
+     result be owned directly. Constants are views, and a `dup` of one
+     lowers to nothing. The verifier still walks paths (it must, for the
+     join of alternatives and the loops idr-tail-loops makes), but on
+     types: owned values exactly once, views alive while their owner
+     holds, a loop's condition passing views on with their owners.
+     `idr.stage` stays as the marker that the counting ops are legal and
+     that signatures are graded; V5 (the match at its scrutinee's grade)
+     is next, now that a scrutinee can be `own<T>`.
    - `(u, own)`, plain `T` for borrowed, `dup`/`drop`/`borrow`; V2 exact;
      V6.
    - *Load:* it deletes `idr.stage` and Verify.cc's path interpreter.

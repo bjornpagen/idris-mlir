@@ -12,10 +12,12 @@ TakeOp takeAtEntry(MatchOp match, unsigned index) {
   Value value = match.getScrutinee();
   auto data = getSumName(value.getType());
   auto ctor = SymbolRefAttr::get(data.getAttr(), {cast<FlatSymbolRefAttr>(match.getCases()[index])});
+  Counting counting(match->getParentOfType<ModuleOp>());
   SmallVector<Type> results;
-  if (isa<BoxType>(value.getType()))
-    results.push_back(TokenType::get(match.getContext()));
-  llvm::append_range(results, block.getArgumentTypes());
+  if (isa<BoxType>(unrestricted(value.getType())))
+    results.push_back(owned(TokenType::get(match.getContext())));
+  for (Type field : block.getArgumentTypes())
+    results.push_back(counting.counted(field) ? owned(field) : field);
   OpBuilder b = OpBuilder::atBlockBegin(&block);
   auto take = TakeOp::create(b, match.getLoc(), results, value, ctor);
   for (auto [field, taken] : llvm::zip_equal(block.getArguments(), take.getFields()))
@@ -29,7 +31,11 @@ TakeOp takeFields(Value value, SymbolRefAttr ctor, ArrayRef<Type> fieldTypes) {
     b.setInsertionPointAfter(def);
   else
     b.setInsertionPointToStart(cast<BlockArgument>(value).getOwner());
-  auto take = TakeOp::create(b, value.getLoc(), fieldTypes, value, ctor);
+  Counting counting(value.getParentRegion()->getParentOfType<ModuleOp>());
+  SmallVector<Type> results;
+  for (Type field : fieldTypes)
+    results.push_back(counting.counted(field) ? owned(field) : field);
+  auto take = TakeOp::create(b, value.getLoc(), results, value, ctor);
   for (OpOperand &use : llvm::make_early_inc_range(value.getUses())) {
     auto read = dyn_cast<FieldOp>(use.getOwner());
     if (!read)
