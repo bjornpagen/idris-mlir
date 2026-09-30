@@ -99,14 +99,14 @@ cl::opt<std::string> dumpAfter("dump-after",
                                cl::init(""));
 cl::opt<std::string> dumpDir("dump-dir", cl::desc("Directory for --dump-after files"),
                              cl::init("."));
-// x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since
-// Haswell (2013) and AMD's Zen, and an executable says so by name on an
-// older one (idris_rt_start). `native` is the machine that compiles,
-// `x86-64` the baseline.
+// The default is the target entry's (CMakeLists.txt), and an executable
+// names what an older CPU lacks (idris_rt_start). `native` is the machine
+// that compiles.
 cl::opt<std::string> targetCpu("cpu",
-                               cl::desc("Target CPU: x86-64-v3 (default), native, x86-64, "
-                                        "or any x86-64 CPU name LLVM knows"),
-                               cl::init("x86-64-v3"));
+                               cl::desc("Target CPU: " IDRIS_MLIR_TARGET_CPU
+                                        " (default), native, or any CPU name LLVM knows "
+                                        "for the target"),
+                               cl::init(IDRIS_MLIR_TARGET_CPU));
 // The runtime's archive of fat LTO objects, recorded at build time.
 // Its bitcode joins the program's module; an empty path links no runtime.
 cl::opt<std::string> runtimeArchive("runtime",
@@ -119,9 +119,8 @@ cl::opt<std::string> runtimeArchive("runtime",
 // `unsupported (<reason>)`) 3.
 constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 
-// Executables are static-PIE on musl, so code is compiled for the
-// triple the runtime is built for (the CMake preset's compiler target),
-// which its bitcode carries. The module records it with the CPU as its
+// Code is compiled for the triple the runtime is built for (the target
+// entry's), which its bitcode carries. The module records it with the CPU as its
 // #llvm.target; the -o flow and tools/compile.sh link for the triple
 // --print-target-triple prints.
 constexpr llvm::StringLiteral targetTriple = IDRIS_MLIR_TARGET_TRIPLE;
@@ -192,8 +191,8 @@ std::optional<Cpu> selectCpu(const llvm::Target &target, const llvm::Triple &tri
       target.createMCSubtargetInfo(triple, cpu.name, cpu.features));
   if (!subtarget || !subtarget->isCPUStringValid(cpu.name)) {
     llvm::errs() << "idris-mlir-cc: unsupported --cpu=" << targetCpu << ": " << cpu.name
-                 << " is not an x86-64 CPU that LLVM knows (use native, x86-64, "
-                    "x86-64-v2, x86-64-v3, x86-64-v4 or an LLVM CPU name)\n";
+                 << " is not a CPU that LLVM knows for " << triple.str()
+                 << " (use native or an LLVM CPU name)\n";
     return std::nullopt;
   }
   return cpu;
@@ -352,7 +351,7 @@ bool linkRuntime(llvm::Module &program, llvm::StringSet<> &baseline) {
   return true;
 }
 
-// Runtime code was compiled for the x86-64 baseline, plus the
+// Runtime code was compiled for the target's baseline, plus the
 // features a function asks for itself (a simdutf kernel's AVX2, say). It takes
 // the program's CPU and keeps every feature it asked for, so it inlines into
 // program code and no function loses an instruction it relies on; the

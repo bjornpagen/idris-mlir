@@ -1,0 +1,4 @@
+compile: exit 1
+Idris's error: reported
+backend: did not run
+artifacts: none
