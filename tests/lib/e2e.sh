@@ -61,7 +61,8 @@ e2e_v0() {
 # with the checks of its modules (module_checks). The stock Chez
 # backend compiles the same program, and must print the same stdout and
 # exit with the same status (chez_agrees); with `oracle-chez` it is the only
-# oracle of stdout. `packages` names installed packages it uses.
+# oracle of stdout, and with `no-chez`, which says why, it is not run.
+# `packages` names installed packages it uses.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -126,6 +127,10 @@ e2e_io() {
   heap_free "$here" "$work/ours/build/exec/prog.dump"
   module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
+  if [ -f "$io_fixture/no-chez" ]; then
+    say "chez: not compared (no-chez)"
+    return
+  fi
   # shellcheck disable=SC2086 # the packages are words
   chez_agrees "$io_fixture" "$io_stdin" "$io_crash" "$io_ours_status" $io_packages
 }

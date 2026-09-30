@@ -153,6 +153,27 @@ which the top-level CMake configure gate reads.
   `tests/upstream/inline-unreachable-terminator` fails then
 - upstream: upstream/inline-unreachable-terminator (not yet filed)
 
+## mlir-recursion
+
+- symptom: MLIR's textual parser and printer, and many walks, recurse once
+  per level of attribute nesting, so a constant nested a few thousand deep
+  overflows an 8 MiB stack with a bare SIGSEGV (6,000 levels of builtin
+  array in `mlir-opt`). Compile-time evaluation builds constants as deep as
+  the program's own values: a computed list of 10,000 elements is a
+  constant nested 10,000 deep
+- sites: foreign/idr/tools/idris-mlir-cc.cc (`runOnLargeStack`),
+  foreign/idr/lib/Eval/Child.cc, runtime/start.cc
+  (`idris_rt_run_on_stack`)
+- workaround: idris-mlir-cc runs the whole compilation, and the evaluation
+  child its calls, on the runtime's reserved-stack runner: up to 2^44 and
+  2^46 bytes of address space, committed as touched, above a guard, so the
+  depth is bounded by memory. Running out of it is a named internal error
+  in idris-mlir-cc and exhaustion in the child. idris-mlir-opt and
+  idris-mlir-reduce do not have it
+- retire: when MLIR parses and prints nested attributes from a worklist;
+  `tests/upstream/recursive-attribute-parser` fails then
+- upstream: upstream/recursive-attribute-parser (not yet filed)
+
 ## linarray-escape
 
 - symptom: contrib's `Data.Linear.Array.newArray` lets its continuation

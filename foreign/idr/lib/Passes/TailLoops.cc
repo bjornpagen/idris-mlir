@@ -356,6 +356,8 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
     idr::CtorOp decl = idr::lookupCtor(idr::lookupData(sum, scrutinee.getType()), ctor.getValue());
     b.setInsertionPointToEnd(to);
     for (BlockArgument field : from.getArguments()) {
+      if (field.use_empty())
+        continue;
       Type type = decl.getFieldType(field.getArgNumber());
       Value value = idr::FieldOp::create(b, field.getLoc(), type, scrutinee, ctor,
                                          b.getI64IntegerAttr(field.getArgNumber()));

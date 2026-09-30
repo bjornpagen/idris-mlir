@@ -10,9 +10,9 @@ its `scf.condition` forwards when the condition is false: for
 ## Reproduce
 
 No `mlir-opt` pass runs the uplift outside MLIR's test passes, so the
-reproducer is a small program against the MLIR libraries (`uplift.cpp`,
-built by `CMakeLists.txt`) that applies the patterns, with the greedy
-driver's folding, to `counter.mlir`:
+reproducer is a small program against the MLIR libraries (`uplift.cpp`)
+that applies the patterns, with the greedy driver's folding, to
+`counter.mlir`:
 
 ```mlir
 func.func @count() -> index {
@@ -32,8 +32,9 @@ func.func @count() -> index {
 ```
 
 ```sh
-cmake -G Ninja -DMLIR_DIR=<prefix>/lib/cmake/mlir -B build && ninja -C build
-build/uplift counter.mlir
+clang++ -std=c++17 -fno-rtti -I<prefix>/include uplift.cpp -o uplift \
+  -Wl,--start-group <prefix>/lib/libMLIR*.a <prefix>/lib/libLLVM*.a -Wl,--end-group
+./uplift counter.mlir
 ```
 
 The result returns `arith.constant 9 : index`. The loop ends with `i = 10`.

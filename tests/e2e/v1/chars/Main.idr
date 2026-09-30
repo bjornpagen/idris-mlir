@@ -2,9 +2,9 @@ module Main
 
 import Prelude
 
--- The Prelude's putChar agrees with the reference only on ASCII, so 'λ'
--- is written as a string. Its getChar reads one byte: the
--- first of the two bytes of the 'é' on stdin, 195.
+-- The Prelude's putChar writes one byte (high-chars), so 'λ' is written
+-- as a string. Its getChar reads one byte: the first of the two bytes of
+-- the 'é' on stdin, 195.
 main : IO ()
 main = do
   putStrLn (prim__cast_IntString (prim__cast_CharInt 'λ'))

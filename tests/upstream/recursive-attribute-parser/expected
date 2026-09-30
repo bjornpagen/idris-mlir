@@ -1,0 +1,1 @@
+nested: still reproduces (the parser overflows the stack)
