@@ -11,7 +11,9 @@ fib tak'` runs fewer):
 - **MLton**: `bench/sml/<name>.sml`, the same algorithm in Standard ML,
   compiled with `-default-type int64` because Idris's `Int` has 64 bits;
 - **clang -O2**: `bench/c/<name>.c`, the same algorithm in C, built with the
-  pinned clang as a static PIE on musl, as our programs are.
+  pinned clang as a static PIE on musl, as our programs are, for the CPU
+  this compiler targets (`idris-mlir-cc --print-target-cpu`) and without
+  floating-point contraction, as this compiler builds Idris.
 
 It checks that the Idris backends print the same text and that every
 program prints the same numbers (to 1e-9), and reports the best of several
@@ -27,16 +29,16 @@ the pinned clang), best of 5, seconds:
 
 | benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | vs MLton |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| nbody | 5000000 | 0.326 | 6.496 | 1.402 | 0.327 | 4.30x |
-| mandelbrot | 2000 | 0.358 | 5.842 | 0.517 | 0.398 | 1.45x |
-| fib | 38 | 0.128 | 3.688 | 0.288 | 0.111 | 2.26x |
-| tak | 18 | 0.121 | 1.307 | 0.185 | 0.118 | 1.52x |
-| collatz | 3000000 | 0.492 | 24.226 | 2.016 | 0.470 | 4.09x |
-| ack | 10 | 0.003 | 1.144 | 0.094 | 0.177 | 31.98x |
-| ackdyn | 10 | 0.207 | 1.136 | 0.090 | 0.167 | 0.44x |
-| harmonic | 200000000 | 0.251 | 7.448 | 0.639 | 0.261 | 2.54x |
+| nbody | 5000000 | 0.325 | 6.634 | 1.388 | 0.311 | 4.27x |
+| mandelbrot | 2000 | 0.346 | 5.772 | 0.528 | 0.361 | 1.53x |
+| fib | 38 | 0.120 | 3.766 | 0.301 | 0.115 | 2.51x |
+| tak | 18 | 0.124 | 1.370 | 0.183 | 0.123 | 1.48x |
+| collatz | 3000000 | 0.474 | 21.896 | 1.988 | 0.486 | 4.20x |
+| ack | 10 | 0.004 | 1.091 | 0.096 | 0.169 | 25.36x |
+| ackdyn | 10 | 0.183 | 1.062 | 0.096 | 0.172 | 0.53x |
+| harmonic | 200000000 | 0.259 | 6.797 | 0.662 | 0.259 | 2.56x |
 
-Compiling each program takes 1.9 to 3.1 seconds (idris-mlir, idris-mlir-cc
+Compiling each program takes 2.1 to 4.1 seconds (idris-mlir, idris-mlir-cc
 and the link).
 
 The Prelude costs nothing: its interfaces, `Integer` literals and `show`
