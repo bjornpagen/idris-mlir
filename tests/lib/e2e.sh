@@ -62,7 +62,8 @@ e2e_v0() {
 # backend compiles the same program, and must print the same stdout and
 # exit with the same status (chez_agrees); with `oracle-chez` it is the only
 # oracle of stdout, and with `no-chez`, which says why, it is not run.
-# `packages` names installed packages it uses.
+# `packages` names installed packages it uses. It runs on a 1 MiB stack,
+# or with `default-stack`, which says why, on the one programs get.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -85,7 +86,11 @@ e2e_io() {
     return
   fi
   artifacts "$work/ours" prog.core prog.mlir prog.o prog
-  run_ours ours "$work/ours/build/exec/prog" "$io_stdin" small
+  if [ -f "$io_fixture/default-stack" ]; then
+    run_ours ours "$work/ours/build/exec/prog" "$io_stdin"
+  else
+    run_ours ours "$work/ours/build/exec/prog" "$io_stdin" small
+  fi
   io_ours_status=$ran
 
   if [ -f "$io_fixture/expected-crash" ]; then

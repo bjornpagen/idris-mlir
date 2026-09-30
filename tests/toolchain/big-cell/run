@@ -1,0 +1,12 @@
+#!/bin/sh
+# A large big's digits are in its cell, one load from its word.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+runtime=$root/build/dev/runtime/libidris_rt.a
+if ! "$pinned_cc" -O1 -I"$root/runtime" "$here/cell.c" "$runtime" -lgmp -o "$work/cell" \
+     > "$work/cc.log" 2>&1; then
+  say "cell: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+bounded "$work/cell"
+say "cell: exit $?"

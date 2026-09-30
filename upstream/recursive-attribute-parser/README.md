@@ -58,4 +58,4 @@ diagnostic rather than a crash.
 and compile-time evaluation's child runs its calls, on a stack reserved as
 large as the address space allows (the runtime's `idris_rt_run_on_stack`),
 so the depth is bounded by memory, not by the default 8 MiB stack.
-`idris-mlir-opt` and `idris-mlir-reduce` do not have it.
+`idris-mlir-opt` runs on the same stack; `idris-mlir-reduce` does not.

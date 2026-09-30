@@ -128,16 +128,16 @@ typedef struct idris_rt_str {
  * each integer has one representation. */
 typedef int64_t idris_rt_big;
 
-/* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), then
- * a GMP integer whose limbs GMP allocates (or, in static data, point to a
- * constant limb array); freeing a bignum frees its limbs. The
- * GMP integer is spelled out so that this header needs no gmp.h:
- * __mpz_struct is { int alloc; int size; mp_limb_t *d; }. */
+/* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), the
+ * signed number of limbs (GMP's convention: its sign is the integer's, its
+ * magnitude the count), then the limbs, least significant first, in the same
+ * cell. A big never changes, so its digits live with it, one load from its
+ * word, and the cell owns nothing else. The word of a large big is exactly
+ * the cell's address, with no tag bit: a prefetcher that follows values
+ * shaped like pointers reaches the digits. */
 typedef struct idris_rt_bignum {
   idris_rt_header header;
-  int32_t alloc;
-  int32_t size;
-  uint64_t *limbs;
+  int64_t size;
 } idris_rt_bignum;
 
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
@@ -186,8 +186,8 @@ void *idris_rt_cell(size_t size, uint32_t info);
 void idris_rt_inc(void *o);
 
 /* One owned reference less. At 0 the object is released: a box's or a
- * closure's object slots lose a reference each, a bignum's limbs are freed,
- * and then its memory is freed (a stack cell's is not). Objects that reach 0
+ * closure's object slots lose a reference each, and then its memory is freed
+ * (a stack cell's is not). Objects that reach 0
  * in turn are released the same way, from a worklist that runs through the
  * dying cells themselves: no recursion and no allocation, so freeing takes
  * constant stack however deep the structure is. */
@@ -269,8 +269,9 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * them, it names them and ends the process with IDRIS_RT_CRASHED before the
  * program runs; it is compiled for the target's baseline, and idris-mlir-cc
  * keeps it there. Otherwise it runs body on a reserved stack
- * (idris_rt_run_on_stack) of a gibibyte, or of the stack limit when that is
- * larger; when that stack runs out, the output written so far is flushed,
+ * (idris_rt_run_on_stack) of the number of bytes the environment variable
+ * IDRIS_RT_STACK says, or else of a gibibyte, or of the stack limit when
+ * that is larger; when that stack runs out, the output written so far is flushed,
  * "idris-mlir: stack exhausted" is written to standard error, and the
  * process ends with IDRIS_RT_CRASHED. What body returns is the exit status:
  * it returns a status from 0 to 255, and ends the process as a crash that
@@ -280,8 +281,8 @@ int32_t idris_rt_start(int64_t (*body)(void), uint64_t cpu);
 /* The reserved-stack runner, which programs, idris-mlir-cc and compile-time
  * evaluation's child share: runs fn(arg) on a new thread whose stack is
  * reserved address space, committed as it is touched, of the largest size
- * from `most` bytes down by halves to 64 MiB that the machine grants, with
- * `guard` inaccessible bytes below it. A fault on the guard is the stack
+ * from `most` bytes down by halves to 64 MiB (or `most`, when smaller)
+ * that the machine grants, with `guard` inaccessible bytes below it. A fault on the guard is the stack
  * running out: exhausted() runs, on a signal stack of its own, and must end
  * the process with only async-signal-safe calls. Any other fault gets the
  * action it had before. One runner runs at a time in a process. Returns 0

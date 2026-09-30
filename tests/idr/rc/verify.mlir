@@ -130,11 +130,10 @@ module attributes {idr.stage = "owned"} {
   func.func private @swap(%l: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
     case @C(%h: i64, %t: !idr.box<@L>) {
-      idr.inc %t : !idr.box<@L>
-      %w = idr.reset %l @L::@C : !idr.box<@L> -> !idr.token
+      %w:3 = idr.take %l @L::@C : !idr.box<@L> -> (!idr.token, i64, !idr.box<@L>)
       // expected-error @+1 {{builds a cell of 16 bytes in the 24-byte cell of @L::@C}}
-      %o = idr.reuse %w @L::@One(%h) : (i64) -> !idr.box<@L>
-      idr.dec %t : !idr.box<@L>
+      %o = idr.reuse %w#0 @L::@One(%w#1) : (i64) -> !idr.box<@L>
+      idr.dec %w#2 : !idr.box<@L>
       idr.yield %o : !idr.box<@L>
     }
     default {

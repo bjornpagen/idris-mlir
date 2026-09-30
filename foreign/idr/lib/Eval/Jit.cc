@@ -91,16 +91,20 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
                                   std::string &error) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
-  auto builder = llvm::orc::JITTargetMachineBuilder::detectHost();
+  // The code runs here, but is compiled for the program's target and CPU,
+  // not this machine's: its frames, and so what a call spends of its stack
+  // budget and whether it is evaluated, are then the same on every machine.
+  // A module with no target (a test's) is compiled for this machine's
+  // triple and the generic CPU, the triple's baseline.
+  mlir::LLVM::TargetAttr target = targetOf(module);
+  auto builder = target ? llvm::Expected<llvm::orc::JITTargetMachineBuilder>(
+                              llvm::orc::JITTargetMachineBuilder(
+                                  llvm::Triple(target.getTriple().getValue())))
+                        : llvm::orc::JITTargetMachineBuilder::detectHost();
   if (!builder) {
     error = describe(builder.takeError());
     return nullptr;
   }
-  // The code runs here, but is compiled for the program's CPU, not this
-  // machine's: its frames, and so what a call spends of its stack budget and
-  // whether it is evaluated, are then the same on every machine. A module
-  // with no target (a test's) is compiled for the x86-64 baseline.
-  mlir::LLVM::TargetAttr target = targetOf(module);
   std::string features =
       target && target.getFeatures() ? target.getFeatures().getFeaturesString() : "";
   // Code for a CPU with more than this one would stop on an illegal
@@ -117,7 +121,7 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
             " (compile with --cpu=native, or --no-eval)";
     return nullptr;
   }
-  builder->setCPU(target ? target.getChip().str() : "x86-64");
+  builder->setCPU(target ? target.getChip().str() : "generic");
   builder->getFeatures() = llvm::SubtargetFeatures(features);
   builder->setCodeGenOptLevel(llvm::CodeGenOptLevel::Aggressive);
   builder->getOptions() = targetOptions();

@@ -296,7 +296,7 @@ Value Runtime::string(OpBuilder &b, Location loc, StringRef bytes) {
 
 // A big: the runtime reads the decimal text (one semantics for what a
 // big literal denotes); a small result is its tagged word, any other a
-// static idris_rt_bignum whose limbs are static too.
+// static idris_rt_bignum, its limbs in the same global.
 Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
   StringRef text = value.getValue();
   const idris_rt_str *digits = idris_rt_str_from_utf8(text.data(), text.size());
@@ -310,29 +310,26 @@ Value Runtime::big(OpBuilder &b, Location loc, BigAttr value) {
   auto it = statics.find(key);
   if (it == statics.end()) {
     const auto *number = reinterpret_cast<const idris_rt_bignum *>(word);
-    auto count = static_cast<size_t>(number->size < 0 ? -number->size : number->size);
+    int64_t size = number->size;
+    auto count = static_cast<size_t>(size < 0 ? -size : size);
     SmallVector<int64_t> limbs;
+    const auto *digitsOf = reinterpret_cast<const uint64_t *>(number + 1);
     for (size_t i = 0; i < count; ++i)
-      limbs.push_back(static_cast<int64_t>(number->limbs[i]));
-    int32_t size = number->size;
+      limbs.push_back(static_cast<int64_t>(digitsOf[i]));
     idris_rt_big_release(word);
     auto i32 = b.getI32Type();
-    auto limbsType = LLVM::LLVMArrayType::get(b.getI64Type(), count);
-    auto limbsGlobal = global(b, loc, "__idr_limbs_", limbsType, [&](OpBuilder &init) -> Value {
-      return LLVM::ConstantOp::create(
+    auto i64 = b.getI64Type();
+    auto limbsType = LLVM::LLVMArrayType::get(i64, count);
+    auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), {i32, i32, i64, limbsType});
+    auto global = this->global(b, loc, "__idr_big_", type, [&](OpBuilder &init) -> Value {
+      Value limbsValue = LLVM::ConstantOp::create(
           init, loc, limbsType,
           DenseElementsAttr::get(
               RankedTensorType::get({static_cast<int64_t>(count)}, init.getI64Type()),
               ArrayRef<int64_t>(limbs)));
-    });
-    auto type = LLVM::LLVMStructType::getLiteral(b.getContext(),
-                                                 {i32, i32, i32, i32, ptrType(b.getContext())});
-    auto global = this->global(b, loc, "__idr_big_", type, [&](OpBuilder &init) -> Value {
       return pack(init, loc, type,
-                  {i32Constant(init, loc, 0),
-                   i32Constant(init, loc, CellInfo::bignum().word()),
-                   i32Constant(init, loc, static_cast<int64_t>(count)), i32Constant(init, loc, size),
-                   addressOf(init, loc, limbsGlobal)});
+                  {i32Constant(init, loc, 0), i32Constant(init, loc, CellInfo::bignum().word()),
+                   i64Constant(init, loc, size), limbsValue});
     });
     it = statics.try_emplace(key, global).first;
   }

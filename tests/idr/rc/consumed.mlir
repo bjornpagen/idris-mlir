@@ -2,7 +2,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-every-cell=@ins -o /dev/null
 // A box whose last use in a region consumes it dies in that use: no cell of
 // it is left to reuse after the use. Here `ins` looks at the right subtree
-// and then gives it to the recursive call. A reset after the call would
+// and then gives it to the recursive call. A take after the call would
 // keep a second reference alive across it, and the callee would find the
 // cell shared and copy it at every level. So every cell tested for reuse
 // is one its function never gives a second reference, and the node taken

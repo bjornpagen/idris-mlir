@@ -9,6 +9,7 @@
 #include "internal.h"
 #include "platform.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 
 namespace {
@@ -49,11 +50,27 @@ void runTask(void *argument) {
   task.fn(task.arg);
 }
 
-// A program's stack: a gibibyte, which lets a non-tail recursion go tens of
-// millions deep, or the process's stack limit (ulimit -s) when that is
-// larger. An unlimited one means as large as the address space allows.
+// A program's stack: the number of bytes IDRIS_RT_STACK says, when it is
+// set; else a gibibyte, which lets a non-tail recursion go tens of millions
+// deep, or the process's stack limit (ulimit -s) when that is larger. An
+// unlimited one means as large as the address space allows.
 size_t programStack() {
   constexpr size_t gibibyte = size_t{1} << 30;
+  if (const char *text = getenv("IDRIS_RT_STACK")) {
+    size_t bytes = 0;
+    bool valid = *text != '\0';
+    for (; valid && *text != '\0'; ++text) {
+      unsigned digit = static_cast<unsigned>(*text - '0');
+      valid = digit < 10 && bytes <= (SIZE_MAX - digit) / 10;
+      bytes = bytes * 10 + digit;
+    }
+    if (!valid || bytes == 0) {
+      static constexpr char message[] =
+          "idris-mlir: IDRIS_RT_STACK is not a number of bytes above 0\n";
+      idris_rt_crash(message, sizeof message - 1);
+    }
+    return bytes;
+  }
   size_t limit = rt::platform::stackLimit();
   if (limit == SIZE_MAX)
     return size_t{1} << 44;
@@ -150,13 +167,17 @@ extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most,
   size_t page = rt::platform::pageSize();
   size_t alternate = roundUp(alternateSize, page);
   guard = roundUp(guard, page);
-  for (size_t size = most; size >= smallest; size >>= 1) {
-    char *base = rt::platform::reserve(size);
+  size_t size = roundUp(most, page);
+  size_t least = size < smallest ? size : smallest;
+  if (least < page)
+    least = page;
+  for (; size >= least; size = size / 2 / page * page) {
+    size_t region = alternate + guard + size;
+    char *base = rt::platform::reserve(region);
     if (base == nullptr)
       continue;
-    char *stack = base + alternate + guard;
     if (!rt::platform::protect(base + alternate, guard)) {
-      rt::platform::release(base, size);
+      rt::platform::release(base, region);
       continue;
     }
     guardLow = reinterpret_cast<uintptr_t>(base + alternate);
@@ -164,9 +185,9 @@ extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most,
     onExhausted = exhausted;
     rt::platform::catchFaults(onFault);
     Task task{fn, arg, base, alternate};
-    bool ran = rt::platform::runThread(runTask, &task, stack, size - alternate - guard);
+    bool ran = rt::platform::runThread(runTask, &task, base + alternate + guard, size);
     guardLow = guardHigh = 0;
-    rt::platform::release(base, size);
+    rt::platform::release(base, region);
     if (ran)
       return 0;
   }

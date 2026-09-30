@@ -1,0 +1,2 @@
+A million frames do not fit the default 8 MiB stack of a process: the
+program needs the reserved stack its entry runs it on.

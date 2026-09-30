@@ -68,8 +68,10 @@ still live when it ends: none.
 - **v1:** `main : IO ()` programs over several modules: `do`,
   `putStr`/`putStrLn`/`putChar`/`getChar` (today the Prelude's), `Char`,
   static strings, lambdas, higher-order and polymorphic functions, and user
-  monads written with plain functions. The executable references only
-  `write`, `read` and `_exit`.
+  monads written with plain functions. For input and output the executable
+  references only `write`, `read` and `_exit`; its entry runs the program
+  on a reserved stack of a gibibyte, so a recursion that exhausts it ends
+  with `idris-mlir: stack exhausted` after the output written so far.
 - **v2:** user-defined interfaces (superclasses, defaults, named and
   constrained implementations, higher-kinded ones such as a user `Monad`
   with `do`), resolved at compile time; `Double` with Chez's semantics and

@@ -13,9 +13,9 @@ namespace rt {
 // then comes from the arena, every cell is persistent, and nothing is freed.
 extern bool arenaActive;
 
-// Raw memory, which is not a cell (GMP's limbs, scratch buffers): from the
-// arena in an evaluation child, from snmalloc otherwise. Exhausted memory is
-// a crash.
+// Raw memory, which is not a cell (GMP's scratch integers, scratch
+// buffers): from the arena in an evaluation child, from snmalloc otherwise.
+// Exhausted memory is a crash.
 void *allocate(size_t size);
 void release(void *block);
 
@@ -31,9 +31,6 @@ void freeCell(void *cell);
 // pagemap covers no more (alloc.cc checks snmalloc against it). The dying
 // list in rc.cc keeps an address in that many bits.
 constexpr unsigned heapAddressBits = 48;
-
-// Frees a bignum's limbs, and leaves its cell alone.
-void clearBignum(idris_rt_bignum *b);
 
 // Writes n bytes to fd, looping over partial writes; a failed write abandons
 // the rest.

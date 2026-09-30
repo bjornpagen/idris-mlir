@@ -78,13 +78,19 @@ Status of claims:
   - one is rejected outright (k-nucleotide);
   - every array formulation is rejected (`IOArray`, `Buffer`, `IORef`,
     `LinArray`, `Vect n` with a runtime `n`).
-- **One bug:** `putChar` diverges from Chez for characters 128–255
-  (**measured**).
-  - We write UTF-8 (`runtime/io.cc:121-124`), while the primitive is
-    `C:putchar` (`Registry/Primitives.idr:70`) and Chez writes one byte.
-  - So mandelbrot's PBM output differs from both Chez's and C's.
-  - The Chez diff in the tests never prints such a character, so it does
-    not catch this.
+- **Not a bug, a decided divergence:** `putChar` differs from Chez for
+  characters from 128 on (**measured**).
+  - We write UTF-8 (`runtime/io.cc`), while the primitive is `C:putchar`
+    (`Registry/Primitives.idr:70`) and Chez writes one byte.
+  - Decided (wave 0): a Char is a Unicode scalar value, so putChar keeps
+    writing its UTF-8 encoding; Chez's byte is not cargo-culted. The
+    difference is the class `put-char-utf8` of
+    `tests/lib/chez-divergences`, shown by `tests/e2e/v1/high-chars`.
+  - So mandelbrot's PBM output still differs from both Chez's and C's
+    (`tests/e2e/v2/mandelbrot-pbm`, marked `put-char-utf8`). A correct PBM
+    needs byte output, which the supported subset lacks: `Data.Buffer`
+    (`prim__setBits8` and the rest) and `System.File`'s
+    `writeBufferData` on stdout are rejected. That is wave 4.
 - **The global maximum is reachable with upstream MLIR, and it beats clang
   at bit-identical results.** I measured two upstream-only experiments:
   - **n-body.** Five bodies as structure-of-arrays `vector<8xf64>`, with
@@ -244,8 +250,10 @@ What the table cannot hold.
   - The primitive is registered as `C:putchar`
     (`Registry/Primitives.idr:70-71`), whose meaning is one byte, but the
     runtime encodes UTF-8 (`runtime/io.cc:121-124`).
-  - By AGENTS.md this is a silent miscompile. Fix it to Chez's meaning,
-    and extend the Chez diff with a character above 127.
+  - Decided in wave 0: not a miscompile. A Char is a Unicode scalar
+    value and putChar writes it whole; the difference is stated once, as
+    `put-char-utf8` in `tests/lib/chez-divergences`. PBM output needs byte
+    output (wave 4).
 - **Beyond C -O2.** Vectorize `escapes` across the 8 pixels of a byte,
   exact per lane, with "all lanes escaped or 50 iterations" as the exit.
   - The Idris facts are purity and totality: the 8 calls are
@@ -513,9 +521,9 @@ baseline is `-ffp-contract=off`.
 Ranked by programs unblocked times payoff, measured where possible. Each
 names the fact or representation, and what it deletes.
 
-1. **Fix `putChar` to Chez's meaning** (bug). Add a character above 127
-   to the Chez diff. This unblocks correct mandelbrot output, and costs
-   nothing.
+1. ~~Fix `putChar` to Chez's meaning~~. Decided otherwise: putChar
+   writes UTF-8, and correct mandelbrot output waits for byte output
+   (item 4).
 2. **Arrays on tensor → bufferization → memref** (linear-libs.md §4.2
    steps 2–4):
    - registry meanings for `prim__newArray`/`arrayGet`/`arraySet` and the

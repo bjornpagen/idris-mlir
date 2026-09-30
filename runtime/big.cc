@@ -16,9 +16,14 @@
 #include <string.h>
 
 static_assert(sizeof(mp_limb_t) == sizeof(uint64_t), "a limb is 64 bits");
-static_assert(sizeof(__mpz_struct) == 16 && offsetof(idris_rt_bignum, size) == 12 &&
-                  offsetof(idris_rt_bignum, limbs) == 16,
-              "idris_rt_bignum spells out __mpz_struct after the header");
+static_assert(sizeof(idris_rt_bignum) == 16 && alignof(idris_rt_bignum) == 8,
+              "a bignum's limbs start 16 bytes into its cell, aligned for a limb");
+// A large big's word is its cell's address itself: cells are 8-aligned, so
+// the address is even, which is the whole tag, and no other bit of the word
+// is borrowed. Hardware that prefetches what looks like a heap pointer
+// (Apple's and Intel's data-dependent prefetchers) then follows it.
+static_assert(sizeof(idris_rt_big) == sizeof(void *) && alignof(idris_rt_header) % 2 == 0,
+              "an even big word is exactly a cell address");
 
 namespace {
 
@@ -32,18 +37,24 @@ idris_rt_big small(int64_t v) {
   return static_cast<idris_rt_big>(static_cast<uint64_t>(v) << 1 | 1);
 }
 
-idris_rt_bignum *bignum(idris_rt_big a) { return reinterpret_cast<idris_rt_bignum *>(a); }
-mpz_ptr integer(idris_rt_bignum *b) { return reinterpret_cast<mpz_ptr>(&b->alloc); }
+const idris_rt_bignum *bignum(idris_rt_big a) {
+  return reinterpret_cast<const idris_rt_bignum *>(a);
+}
+// The limbs follow the bignum in its cell.
+const mp_limb_t *limbsOf(const idris_rt_bignum *b) {
+  return reinterpret_cast<const mp_limb_t *>(b + 1);
+}
 
-// A GMP view of any big: a large one's own integer, or a small one's value
-// in one limb on the stack.
+// A read-only GMP view of any big, which copies nothing: a large one's limbs
+// in its cell, or a small one's value in one limb on the stack.
 struct Operand {
   mp_limb_t limb;
   __mpz_struct view;
 
   explicit Operand(idris_rt_big a) {
     if (!isSmall(a)) {
-      view = *integer(bignum(a));
+      const idris_rt_bignum *b = bignum(a);
+      mpz_roinit_n(&view, limbsOf(b), static_cast<mp_size_t>(b->size));
       return;
     }
     int64_t v = smallValue(a);
@@ -55,7 +66,8 @@ struct Operand {
 
 // The integer a GMP operation writes, on the stack. finish gives it its one
 // representation: a small word, or, only when it does not fit one, a new
-// cell the integer moves into, so a small result allocates no cell.
+// cell of exactly its size that its limbs are copied into, so a small result
+// allocates no cell and a large one allocates one.
 class Result {
 public:
   Result() {
@@ -73,9 +85,13 @@ public:
       mpz_clear(&value);
       return small(v);
     }
-    auto *b = static_cast<idris_rt_bignum *>(
-        rt::newCell(sizeof(idris_rt_bignum), idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
-    *integer(b) = value;
+    size_t count = mpz_size(&value);
+    auto *b = static_cast<idris_rt_bignum *>(rt::newCell(
+        sizeof(idris_rt_bignum) + count * sizeof(mp_limb_t), idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
+    auto size = static_cast<int64_t>(count);
+    b->size = mpz_sgn(&value) < 0 ? -size : size;
+    memcpy(b + 1, mpz_limbs_read(&value), count * sizeof(mp_limb_t));
+    mpz_clear(&value);
     return reinterpret_cast<idris_rt_big>(b);
   }
 
@@ -101,7 +117,8 @@ template <typename Op> idris_rt_big binary(idris_rt_big a, idris_rt_big b, Op op
 int32_t signOf(idris_rt_big a) {
   if (isSmall(a))
     return smallValue(a) < 0 ? -1 : smallValue(a) > 0 ? 1 : 0;
-  return mpz_sgn(integer(bignum(a)));
+  int64_t size = bignum(a)->size;
+  return size < 0 ? -1 : size > 0 ? 1 : 0;
 }
 
 } // namespace
@@ -128,7 +145,7 @@ extern "C" idris_rt_big idris_rt_nat_from_big(idris_rt_big a) {
   if (signOf(a) < 0)
     return small(0);
   if (!isSmall(a))
-    idris_rt_inc(bignum(a));
+    idris_rt_inc(reinterpret_cast<void *>(a));
   return a;
 }
 
@@ -209,9 +226,9 @@ extern "C" idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
 extern "C" int64_t idris_rt_big_to_int(idris_rt_big a) {
   if (isSmall(a))
     return smallValue(a);
-  mpz_srcptr z = integer(bignum(a));
-  uint64_t low = mpz_getlimbn(z, 0);
-  return static_cast<int64_t>(mpz_sgn(z) < 0 ? 0 - low : low);
+  Operand x(a);
+  uint64_t low = mpz_getlimbn(x.get(), 0);
+  return static_cast<int64_t>(mpz_sgn(x.get()) < 0 ? 0 - low : low);
 }
 
 extern "C" idris_rt_big idris_rt_big_from_double(double x) {
@@ -228,7 +245,8 @@ extern "C" idris_rt_big idris_rt_big_from_double(double x) {
 extern "C" double idris_rt_big_to_double(idris_rt_big a) {
   if (isSmall(a))
     return static_cast<double>(smallValue(a));
-  mpz_srcptr z = integer(bignum(a));
+  Operand x(a);
+  mpz_srcptr z = x.get();
   size_t bits = mpz_sizeinbase(z, 2);
   if (bits <= 64) {
     auto magnitude = static_cast<double>(mpz_getlimbn(z, 0));
@@ -253,7 +271,8 @@ extern "C" const idris_rt_str *idris_rt_big_show(idris_rt_big a) {
   if (isSmall(a))
     return idris_rt_str_show_s(smallValue(a));
   rt::gmpReady();
-  mpz_srcptr z = integer(bignum(a));
+  Operand x(a);
+  mpz_srcptr z = x.get();
   size_t room = mpz_sizeinbase(z, 10) + 2;
   idris_rt_str *s = rt::newString(room, 0, true);
   char *text = rt::mutableBytes(s);
@@ -284,8 +303,6 @@ extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
   rt::release(text);
   return r.finish();
 }
-
-void rt::clearBignum(idris_rt_bignum *b) { mpz_clear(integer(b)); }
 
 extern "C" void idris_rt_big_release(idris_rt_big a) {
   idris_rt_dec(reinterpret_cast<void *>(a));

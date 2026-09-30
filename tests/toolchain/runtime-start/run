@@ -1,0 +1,37 @@
+#!/bin/sh
+# The runtime's entry, idris_rt_start: the program runs on a reserved stack
+# far deeper than the process's own; running out of it writes the output so
+# far, names the cause and exits as a crash; main's value is the exit status
+# from 0 to 255, and any other is a crash that names it; IDRIS_RT_STACK sets
+# the stack's size; a processor without what the program needs is refused
+# before the program runs.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+runtime=$root/build/dev/runtime/libidris_rt.a
+if ! "$pinned_cc" -O1 -I"$root/runtime" "$here/start.c" "$runtime" -lgmp -o "$work/start" \
+    > "$work/cc.log" 2>&1; then
+  say "start: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+# start MODE [STACK]: the program in MODE on an 8 MiB process stack, and a
+# reserved one of STACK bytes when given; its status, stdout and stderr.
+start() {
+  if [ $# -gt 1 ]; then
+    ( ulimit -s 8192 && IDRIS_RT_STACK=$2 && export IDRIS_RT_STACK && bounded "$work/start" "$1" ) \
+      > "$work/out" 2> "$work/err"
+    say "$1, IDRIS_RT_STACK=$2: exit $?"
+  else
+    ( ulimit -s 8192 && unset IDRIS_RT_STACK && bounded "$work/start" "$1" ) > "$work/out" 2> "$work/err"
+    say "$1: exit $?"
+  fi
+  sed 's/^/  stdout | /' "$work/out"
+  sed 's/^/  stderr | /' "$work/err"
+}
+start million
+start million 8388608
+start deep 16777216
+start 255
+start 256
+start negative
+start million 12x
+start cpu

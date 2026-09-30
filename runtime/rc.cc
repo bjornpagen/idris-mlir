@@ -93,11 +93,9 @@ void **slotsOf(idris_rt_header *cell) {
   return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
 }
 
-// Releases what a cell owns besides its memory: its object slots, and a
-// bignum's limbs, which GMP keeps outside the cell.
+// Releases what a cell owns besides its memory: its object slots. A
+// bignum's digits are in its cell.
 void releaseOwned(idris_rt_header *cell, Dying &dying) {
-  if (idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_BIGNUM)
-    rt::clearBignum(static_cast<idris_rt_bignum *>(static_cast<void *>(cell)));
   void **slots = slotsOf(cell);
   for (uint32_t i = 0, n = idris_rt_info_objs(cell->info); i < n; ++i)
     if (idris_rt_header *dead = lastReference(slots[i]))

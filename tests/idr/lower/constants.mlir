@@ -3,15 +3,15 @@
 // closure is a private constant global with count 0, shared when equal. A
 // string's header holds the ASCII flag, the byte length and the scalar count
 // (the runtime counts them); a small big is its tagged word; a large one a
-// static GMP integer with static limbs. An unboxed constant is its
+// static bignum, its limbs in the same global. An unboxed constant is its
 // components.
 // Closures are lowered by idr-eval's lowering (jit) alone: the program's
 // have all become sums.
 // CHECK-DAG: llvm.mlir.global private constant @[[S:__idr_str_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, i64, i64, array<4 x i8>)>
 // -(2^65 - 1): two limbs, size -2.
 // CHECK-DAG: llvm.mlir.constant(dense<[-1, 1]> : tensor<2xi64>) : !llvm.array<2 x i64>
-// CHECK-DAG: llvm.mlir.constant(-2 : i32) : i32
-// CHECK-DAG: llvm.mlir.global private constant @[[B:__idr_big_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, i32, i32, ptr)>
+// CHECK-DAG: llvm.mlir.constant(-2 : i64) : i64
+// CHECK-DAG: llvm.mlir.global private constant @[[B:__idr_big_[0-9]+]]() {{.*}} : !llvm.struct<(i32, i32, i64, array<2 x i64>)>
 // A box's counted fields come first.
 // CHECK-DAG: llvm.mlir.global private constant @[[BOX:__idr_box_[0-9]+]]() {{.*}} : !llvm.struct<packed (i32, i32, ptr, i64)>
 // CHECK-DAG: llvm.mlir.global private constant @[[CL:__idr_closure_[0-9]+]]() {{.*}} : !llvm.struct<packed (i32, i32, ptr, ptr)>

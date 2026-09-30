@@ -162,14 +162,14 @@ which the top-level CMake configure gate reads.
   the program's own values: a computed list of 10,000 elements is a
   constant nested 10,000 deep
 - sites: foreign/idr/tools/idris-mlir-cc.cc (`runOnLargeStack`),
-  foreign/idr/lib/Eval/Child.cc, runtime/start.cc
-  (`idris_rt_run_on_stack`)
-- workaround: idris-mlir-cc runs the whole compilation, and the evaluation
-  child its calls, on the runtime's reserved-stack runner: up to 2^44 and
-  2^46 bytes of address space, committed as touched, above a guard, so the
-  depth is bounded by memory. Running out of it is a named internal error
-  in idris-mlir-cc and exhaustion in the child. idris-mlir-opt and
-  idris-mlir-reduce do not have it
+  foreign/idr/tools/idris-mlir-opt.cc, foreign/idr/lib/Eval/Child.cc,
+  runtime/start.cc (`idris_rt_run_on_stack`)
+- workaround: idris-mlir-cc runs the whole compilation, idris-mlir-opt
+  its run, and the evaluation child its calls, on the runtime's
+  reserved-stack runner: up to 2^44, 2^44 and 2^46 bytes of address space,
+  committed as touched, above a guard, so the depth is bounded by memory.
+  Running out of it is a named error in the tools and exhaustion in the
+  child. idris-mlir-reduce does not have it
 - retire: when MLIR parses and prints nested attributes from a worklist;
   `tests/upstream/recursive-attribute-parser` fails then
 - upstream: upstream/recursive-attribute-parser (not yet filed)

@@ -242,7 +242,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
 }
 
 // The functions the runtime marks with the annotation "idris-rt-baseline"
-// (the CPU test at a program's entry), which stay compiled for the x86-64
+// (the CPU test at a program's entry), which stay compiled for the target's
 // baseline whatever the program's CPU: they run before anything shows that
 // the CPU has more.
 void readBaseline(const llvm::Module &member, llvm::StringSet<> &names) {

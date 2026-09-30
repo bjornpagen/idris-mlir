@@ -232,6 +232,30 @@ def IdrTailLoops : Pass<"idr-tail-loops", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrNarrow : Pass<"idr-narrow", "::mlir::ModuleOp"> {
+  let summary = "Make the bigs and naturals proved to fit a small plain i64 words";
+  let description = [{
+    Integer range analysis sees the ops on bigs and naturals through their
+    ranges, a natural it cannot see computed starting at 0. Every web of
+    them it proves fits a small (the values, the loop-carried arguments and
+    the merged results that carry them) becomes `arith` on `i64`, with
+    `nsw`, and `nuw` where nothing is negative; `idr.big.to_int` and
+    `idr.big.from_int` convert where a web meets a big it does not prove.
+    The count of such a value is gone: a small big owns nothing.
+
+    A loop whose natural argument only descends (every value it passes
+    back is the argument or a predecessor of it) is versioned: one test on
+    entry that the argument is small, then a copy of the loop in which it
+    is proved to stay small, and the loop as it was otherwise.
+  }];
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
+  let statistics = [
+    Statistic<"numNarrowed", "narrowed", "Ops on bigs and naturals made i64 arithmetic">,
+    Statistic<"numCarried", "carried", "Loop-carried and merged bigs made i64">,
+    Statistic<"numVersioned", "versioned", "Loops versioned on a small descending natural">,
+  ];
+}
+
 def IdrStack : Pass<"idr-stack", "::mlir::ModuleOp"> {
   let summary = "Put the cells of boxes that never leave their frame on the stack";
   let description = [{
