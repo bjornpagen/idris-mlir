@@ -1,5 +1,5 @@
-// Phase 2 of idr-lower for closures: a closure is a cell with its label, the
-// address of its code and its captures. Only idr-eval lowers closures; the
+// Phase 2 of idr-lower for closures: a closure is a cell with the address of
+// its code and its captures. Only idr-eval lowers closures; the
 // program's own lowering meets none, as idr-defunctionalize has made each
 // a sum.
 
@@ -11,7 +11,7 @@ namespace idr::lower {
 
 namespace {
 
-// A new cell with the label, its code and the captures.
+// A new cell with its code and the captures.
 struct LowerClosure : IdrPattern<ClosureOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ClosureOp op, OneToNOpAdaptor adaptor,
@@ -20,8 +20,7 @@ struct LowerClosure : IdrPattern<ClosureOp> {
     const Label &label = layouts.label(layouts.labelId(
         op.getCalleeAttr(), static_cast<unsigned>(op.getCaptures().size())));
     const Cell &cell = layouts.closure(label);
-    Value closure = runtime.allocate(rewriter, loc, cell.size,
-                                     cellInfo(layouts.labelId(label), cell.objs, CellKind::Closure));
+    Value closure = runtime.allocate(rewriter, loc, cell.size, cell.info);
     runtime.store(rewriter, loc, closure, cell.fields.front(), runtime.code(rewriter, loc, label));
     for (auto [slots, values] :
          llvm::zip_equal(ArrayRef(cell.fields).drop_front(), adaptor.getCaptures()))

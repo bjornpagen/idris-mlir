@@ -461,11 +461,19 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   Operation *ret = entry.getTerminator();
   Operation *exit = inlineRegion(*decision.exits, Scope::Exit);
   ret->erase();
+  b.setInsertionPoint(exit);
   if (auto result = dyn_cast<idr::YieldOp>(exit)) {
-    b.setInsertionPoint(result);
     func::ReturnOp::create(b, result.getLoc(), result.getResults());
-    result.erase();
+  } else {
+    // A region that crashes: no function body ends in ub.unreachable
+    // (PINS.md: inline-unreachable), so the function returns poison, which
+    // is never reached.
+    SmallVector<Value> none = llvm::map_to_vector(fn.getResultTypes(), [&](Type type) -> Value {
+      return ub::PoisonOp::create(b, exit->getLoc(), type);
+    });
+    func::ReturnOp::create(b, exit->getLoc(), none);
   }
+  exit->erase();
   match->erase();
   // What only the decision read (a flag widened for it, a comparison
   // turned around) is left over.

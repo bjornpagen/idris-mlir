@@ -33,8 +33,8 @@ public:
   }
 
   constexpr uint32_t word() const noexcept { return bits; }
-  // The word of the same cell in a stack frame.
-  constexpr uint32_t onStack() const noexcept { return bits | IDRIS_RT_STACK_CELL; }
+  // The same cell in a stack frame.
+  constexpr CellInfo onStack() const noexcept { return CellInfo(bits | IDRIS_RT_STACK_CELL); }
 
 private:
   constexpr explicit CellInfo(uint32_t word) noexcept : bits(word) {}

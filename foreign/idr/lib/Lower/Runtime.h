@@ -43,15 +43,14 @@ public:
   // A new cell of `size` bytes with its header: count 1 and `info`
   // (idris_rt_cell), or in JIT mode an arena cell with count 0, which is
   // never counted.
-  mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, unsigned size, uint32_t info);
+  mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, unsigned size, CellInfo info);
   // Writes the header of a cell: count 1 and `info`.
-  void storeHeader(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, uint32_t info);
+  void storeHeader(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, CellInfo info);
   void store(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,
              llvm::ArrayRef<Slot> slots, mlir::ValueRange values);
   llvm::SmallVector<mlir::Value> load(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell,
                                       llvm::ArrayRef<Slot> slots);
-  // The tag of a cell: a box's constructor tag or a closure's label, the low
-  // 16 bits of its info word (offset 4).
+  // The tag of a box: the low bits of its info word (offset 4).
   mlir::Value loadTag(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
 
   // One more, or one less, reference for each counted component of a value
@@ -95,7 +94,7 @@ private:
   // A cell as static data, count 0: its header, then the components of
   // each field in the cell's address order.
   mlir::LLVM::GlobalOp staticCell(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef prefix,
-                                  const Cell &cell, uint32_t info,
+                                  const Cell &cell,
                                   llvm::function_ref<llvm::SmallVector<mlir::Value>(
                                       mlir::OpBuilder &, unsigned field)>
                                       components);

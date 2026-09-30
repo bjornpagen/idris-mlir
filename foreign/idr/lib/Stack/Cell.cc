@@ -24,9 +24,7 @@ Value cell(OpBuilder &b, Location loc, ConOp con, lower::Layouts &layouts,
                                   LLVM::LLVMArrayType::get(i64, layout.size / 8), one,
                                   /*alignment=*/8);
   }
-  uint32_t info = lower::cellInfo(static_cast<uint32_t>(ctor.getTag()), layout.objs,
-                                  lower::CellKind::Box);
-  runtime.storeHeader(b, loc, slot, info | IDRIS_RT_STACK_CELL);
+  runtime.storeHeader(b, loc, slot, layout.info.onStack());
   return slot;
 }
 

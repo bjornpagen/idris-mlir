@@ -15,9 +15,7 @@ Value buildBox(OpBuilder &b, Location loc, Layouts &layouts, Runtime &runtime, C
                Value cell, ArrayRef<ValueRange> fields) {
   const Cell &layout = layouts.box(ctor);
   if (!cell)
-    cell = runtime.allocate(b, loc, layout.size,
-                            cellInfo(static_cast<uint32_t>(ctor.getTag()), layout.objs,
-                                     CellKind::Box));
+    cell = runtime.allocate(b, loc, layout.size, layout.info);
   for (auto [slots, values] : llvm::zip_equal(layout.fields, fields))
     runtime.store(b, loc, cell, slots, values);
   return cell;

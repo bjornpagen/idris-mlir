@@ -64,7 +64,7 @@ struct LowerReuse : IdrPattern<ReuseOp> {
     Location loc = op.getLoc();
     CtorOp ctor = lookupCtor(op, op.getCtor());
     const Cell &layout = layouts.box(ctor);
-    uint32_t info = cellInfo(static_cast<uint32_t>(ctor.getTag()), layout.objs, CellKind::Box);
+    CellInfo info = layout.info;
     Value token = adaptor.getToken().front();
     Type ptr = token.getType();
     Value empty = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq, token,
