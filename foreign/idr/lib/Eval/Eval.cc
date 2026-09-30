@@ -91,6 +91,7 @@ constexpr llvm::StringLiteral codesName = "__idr_codes";
 // not.
 constexpr llvm::StringLiteral sentResults = "results";
 constexpr llvm::StringLiteral sentTooLarge = "too-large";
+constexpr llvm::StringLiteral sentUnreadable = "unreadable";
 
 struct Outcome {
   SmallVector<Attribute> results;
@@ -319,7 +320,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     auto values = reifier.results(resultTypes[i], slots);
     if (!values)
       return {(values.error().why == idr::eval::Unread::Why::TooLarge ? sentTooLarge
-                                                                       : StringRef("unreadable"))
+                                                                       : sentUnreadable)
                   .str(),
               values.error().message};
     OwningOpRef<ModuleOp> holder = ModuleOp::create(UnknownLoc::get(ctx));
@@ -327,7 +328,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     std::string bytes;
     llvm::raw_string_ostream os(bytes);
     if (failed(writeBytecodeToFile(*holder, os)))
-      return {"unreadable", "the results have no bytecode"};
+      return {sentUnreadable.str(), "the results have no bytecode"};
     return {sentResults.str(), std::move(bytes)};
   };
   size_t next = 0;
