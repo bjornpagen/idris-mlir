@@ -72,26 +72,36 @@ LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
   return solver.initializeAndRun(root);
 }
 
+// Whether the big `value` holds a reference of its own, which a word
+// taking its place in a consuming use leaves it to drop: once counting ran
+// (`counted`), one the program computed or an owned parameter, not a
+// constant, a field read or a borrowed parameter. A loop's argument is the
+// loop's, narrowed with it.
+bool ownedBig(Value value, bool counted) {
+  if (!counted || ownership::isStatic(value) || ownership::readFrom(value))
+    return false;
+  if (auto arg = dyn_cast<BlockArgument>(value)) {
+    auto fn = dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
+    return fn && arg.getOwner()->isEntryBlock() &&
+           !ownership::isBorrowed(fn, arg.getArgNumber());
+  }
+  return true;
+}
+
 // The bounds of values: the analysis's, and those of the values the pass
 // makes, which stand for values it analysed.
 class Facts {
 public:
   Facts(DataFlowSolver &s, bool counted) : solver(s), counted(counted) {}
 
-  // Whether the big `value` holds a reference of its own, which a word
-  // taking its place in a consuming use leaves it to drop: once counting
-  // ran, one the program computed or an owned parameter, not a constant, a
-  // field read or a borrowed parameter. A loop's argument is the loop's,
-  // narrowed with it.
-  bool owned(Value value) const {
-    if (!counted || ownership::isStatic(value) || ownership::readFrom(value))
-      return false;
-    if (auto arg = dyn_cast<BlockArgument>(value)) {
-      auto fn = dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
-      return fn && arg.getOwner()->isEntryBlock() &&
-             !ownership::isBorrowed(fn, arg.getArgNumber());
-    }
-    return true;
+  bool owned(Value value) const { return ownedBig(value, counted); }
+
+  // Whether `value` is borrowed once counting ran: it is counted, and holds
+  // no reference of its own.
+  bool borrowed(Value value) const {
+    return counted && ownership::Counting(value.getParentRegion()->getParentOfType<ModuleOp>())
+                          .tracked(value) &&
+           !ownedBig(value, counted);
   }
 
   Bounds of(Value value) const {
@@ -434,6 +444,11 @@ bool descends(Value value, BlockArgument arg, scf::WhileOp loop, unsigned depth 
 // The first natural argument of `loop` that only descends and that the
 // analysis does not already prove small, or none.
 std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts) {
+  // Once counting ran, a slot that carries a borrowed value passes it out of
+  // the loop borrowed, which a branch between two copies of the loop would
+  // have to take owned: such a loop stays one loop.
+  if (llvm::any_of(loop.getInits(), [&](Value init) { return facts.borrowed(init); }))
+    return std::nullopt;
   Block &before = loop.getBefore().front();
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
@@ -446,7 +461,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
 // if (init <= smallMax) { the loop, from init masked to its low 62 bits }
 // else { the loop }. On the first path the mask changes nothing, and shows
 // the analysis the bound that a descending argument keeps.
-void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
+void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index, bool counted) {
   Location loc = loop.getLoc();
   MLIRContext *ctx = loop.getContext();
   Value init = loop.getInits()[index];
@@ -464,6 +479,10 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Value mask = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(ranges::smallMax));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
   Value start = BigSmallOp::create(rewriter, loc, nat, masked);
+  // The copy starts from the word, so the natural it was read from drops
+  // the reference the loop would have taken.
+  if (ownedBig(init, counted))
+    DecOp::create(rewriter, loc, init);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
   scf::YieldOp::create(rewriter, loc, copy->getResults());
@@ -492,7 +511,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
           versions.emplace_back(loop, *index);
       });
       for (auto [loop, index] : versions)
-        version(rewriter, loop, index);
+        version(rewriter, loop, index, counted);
       numVersioned += versions.size();
     }
 

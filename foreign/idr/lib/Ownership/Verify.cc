@@ -259,6 +259,10 @@ private:
       return walkMatch(op, match.getScrutinee());
     if (auto match = dyn_cast<MatchLitOp>(op))
       return walkMatch(op, match.getScrutinee());
+    // A branch on a condition is a match on an i1: idr-narrow versions a
+    // loop with one.
+    if (auto branch = dyn_cast<scf::IfOp>(op))
+      return walkMatch(op, branch.getCondition());
     if (auto loop = dyn_cast<scf::WhileOp>(op))
       return walkLoop(loop);
     if (auto loop = dyn_cast<scf::ForOp>(op))
