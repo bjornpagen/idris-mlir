@@ -120,7 +120,7 @@ dataParams def = case definition def of
     if length idris == arity then pure idris else do
       defs <- get Ctxt
       tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)
-      found <- case sequence tys of
+      found <- the (Core (List Nat)) $ case the (Maybe (List ClosedTerm)) (sequence tys) of
         Just ts@(_ :: _) => do
           sets <- traverse (\t => uniform <$> (normaliseClosed t >>= toFullNames)) ts
           pure (filter (\i => all (elem i) sets) [0 .. minus arity 1])
