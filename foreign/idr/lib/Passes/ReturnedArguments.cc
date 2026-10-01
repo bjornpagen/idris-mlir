@@ -2,14 +2,17 @@
 // of its arguments is dropped, and its callers use the argument instead.
 //
 // A value threaded through a function and given back (a linear array
-// through every read and write of it, the state of a recursion) is, once
-// lowered, the argument itself on every path: through the join of an
-// scf.if or scf.index_switch, and through the recursive calls, whose
-// result is the argument they pass by the hypothesis the pass refines to a
-// fixpoint from the optimistic start. The result is then no information: the
-// caller holds that value already, live across the call. Dropping it
-// shrinks every such function's result, which the target returns through
-// memory once it has more components than registers.
+// through every read and write of it, the state of a recursion or of a
+// loop) is, once lowered, the argument itself on every path: through the
+// join of an scf.if or scf.index_switch, through a loop whose every
+// iteration yields it unchanged (what idr-tail-loops makes of a tail
+// recursion, with poison where an exit value has none yet), and through
+// the recursive calls, whose result is the argument they pass by the
+// hypothesis the pass refines to a fixpoint from the optimistic start. The
+// result is then no information: the caller holds that value already, live
+// across the call. Dropping it shrinks every such function's result, which
+// the target returns through memory once it has more components than
+// registers.
 //
 // Only a private function every use of which is a direct call changes its
 // signature. A result that is an argument on some paths only stays, and so
@@ -19,6 +22,7 @@
 #include "idr/Idr.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 
 using namespace mlir;
 
@@ -145,14 +149,19 @@ private:
     return true;
   }
 
-  // Which argument of `fn` `value` is, under what is known of the callees.
+  // Which argument of `fn` `value` is, under what is known of the callees
+  // and under `assumed`, the hypotheses on the loop arguments being
+  // resolved: a loop argument is the function's argument when its initial
+  // value is and what the loop yields for it is too, by that hypothesis.
+  // Poison agrees with anything.
   Returned argumentOf(func::FuncOp fn, Value value) {
     if (auto arg = dyn_cast<BlockArgument>(value))
-      return arg.getOwner() == &fn.getBody().front() ? Returned::arg(arg.getArgNumber())
-                                                     : Returned::none();
+      return argumentOf(fn, arg);
     auto result = cast<OpResult>(value);
     Operation *op = result.getOwner();
     unsigned index = result.getResultNumber();
+    if (isa<ub::PoisonOp>(op))
+      return Returned();
     if (isa<scf::IfOp, scf::IndexSwitchOp>(op)) {
       Returned joined;
       for (Region &region : op->getRegions()) {
@@ -162,6 +171,12 @@ private:
       }
       return joined;
     }
+    if (auto select = dyn_cast<arith::SelectOp>(op))
+      return argumentOf(fn, select.getTrueValue()).meet(argumentOf(fn, select.getFalseValue()));
+    if (auto loop = dyn_cast<scf::WhileOp>(op))
+      return argumentOf(fn, loop.getConditionOp().getArgs()[index]);
+    if (auto loop = dyn_cast<scf::ForOp>(op))
+      return argumentOf(fn, loop.getRegionIterArgs()[index]);
     if (auto call = dyn_cast<func::CallOp>(op)) {
       auto callee = symbols.lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
       auto it = results.find(callee);
@@ -175,8 +190,42 @@ private:
     return Returned::none();
   }
 
+  Returned argumentOf(func::FuncOp fn, BlockArgument arg) {
+    Block *block = arg.getOwner();
+    if (block == &fn.getBody().front())
+      return Returned::arg(arg.getArgNumber());
+    if (auto it = assumed.find(arg); it != assumed.end())
+      return it->second;
+    unsigned index = arg.getArgNumber();
+    if (auto loop = dyn_cast<scf::WhileOp>(block->getParentOp())) {
+      if (block == loop.getAfterBody())
+        return argumentOf(fn, loop.getConditionOp().getArgs()[index]);
+      return carried(fn, arg, loop.getInits()[index], loop.getYieldOp().getOperand(index));
+    }
+    if (auto loop = dyn_cast<scf::ForOp>(block->getParentOp())) {
+      if (index == 0)
+        return Returned::none();
+      return carried(fn, arg, loop.getInitArgs()[index - 1],
+                     loop.getBody()->getTerminator()->getOperand(index - 1));
+    }
+    return Returned::none();
+  }
+
+  // A loop argument: its initial value, which what the loop yields for it
+  // must agree with, under the hypothesis that the argument is that value.
+  Returned carried(func::FuncOp fn, BlockArgument arg, Value init, Value yielded) {
+    Returned initial = argumentOf(fn, init);
+    if (initial.kind != Returned::Argument)
+      return initial;
+    assumed[arg] = initial;
+    Returned joined = initial.meet(argumentOf(fn, yielded));
+    assumed.erase(arg);
+    return joined;
+  }
+
   ModuleOp module;
   SymbolTableCollection symbols;
+  DenseMap<Value, Returned> assumed;
   SmallVector<func::FuncOp> functions;
   DenseMap<Operation *, SmallVector<Returned>> results;
   DenseMap<Operation *, SmallVector<func::CallOp>> calls;
