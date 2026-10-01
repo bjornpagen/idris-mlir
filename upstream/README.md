@@ -26,7 +26,6 @@ workaround. If it does not, the bug is ours.
 | [remove-dead-values-unreachable](remove-dead-values-unreachable/README.md) | MLIR | not yet | `prune-before-remove-dead-values`: `idr-prune` and `symbol-dce` run first |
 | [remove-dead-values-address-taken](remove-dead-values-address-taken/README.md) | MLIR | not yet | `remove-dead-values-address-taken`: `idr-prune` passes `ub.poison` for parameters an address-taken function never reads |
 | [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | not yet | `inline-unreachable`: no function body ends in `ub.unreachable` |
-| [idris-linarray-escape](idris-linarray-escape/README.md) | Idris 2 (contrib) | not yet | `linarray-escape`: uniqueness is proved by the compiler, never taken from the library's signature |
 | [uplift-final-counter](uplift-final-counter/README.md) | MLIR | not yet | `uplift-final-counter`: `idr-tail-loops` uplifts only loops whose counter's final value is unused |
 | [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | not yet | `orc-lljit`: `idr-eval` uses ORC's `LLJIT` directly |
 | [recursive-attribute-parser](recursive-attribute-parser/README.md) | MLIR | not yet | `mlir-recursion`: `idris-mlir-cc` and the evaluation child run on a reserved stack as large as the address space allows |

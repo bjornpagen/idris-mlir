@@ -12,6 +12,20 @@
 # temporary directory, removed on exit. The Idris environment is the
 # Makefile's.
 #
+# A fixture may carry a mark, a file named for what it changes:
+#
+#     heap-free       no op of the lowered module allocates a heap cell
+#                     (heap.sh); in a version directory, for all its tests
+#     oracle-chez     Chez's stdout is the only oracle of stdout (e2e.sh)
+#     no-chez         Chez is not run; the file says why (e2e.sh)
+#     chez-differs    Chez knowingly prints something else: the file names a
+#                     class of tests/lib/chez-divergences, and chez-stdout
+#                     is what Chez prints (chez.sh)
+#     libm-lines      the numbered output lines are libm results, which may
+#                     differ from Chez's in the last place (chez.sh)
+#     default-stack   the program runs on the default stack instead of the
+#                     1 MiB one; the file says why (e2e.sh)
+#
 # The helpers are in tests/lib, one file per concern, sourced below after
 # the limits, each after what it uses:
 #
