@@ -104,6 +104,20 @@ private:
 // prefix, so any other name would be accepted and read by no one.
 mlir::LogicalResult verifyDiscardableAttrs(mlir::Operation *op);
 
+// func.call answers MemoryEffectOpInterface from its callee's facts
+// (lib/Facts/CallEffects.cc); registered with the dialect.
+void registerCallEffects(mlir::DialectRegistry &registry);
+
+// Whether `op`, with everything in it, only computes: its effects are at
+// most the allocation of its own results, so it may move across any op,
+// run on fewer paths, or not at all.
+bool onlyAllocates(mlir::Operation *op);
+
+// Whether `op`, or something in it, may perform IO: an effect on the IO
+// resource. An op that does not may run later, past ops that only compute,
+// though it may crash or not return.
+bool performsIO(mlir::Operation *op);
+
 // Every idr op (`Idr_KnownAttributes`): its discardable attributes are
 // known ones.
 template <typename ConcreteType>

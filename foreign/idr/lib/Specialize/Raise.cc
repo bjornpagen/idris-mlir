@@ -168,9 +168,9 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
     return std::nullopt;
   // A call that only computes may run later, after anything between it and
   // its consumer; any other only after ops that only compute.
-  if (!facts::canMoveAcross(call))
+  if (!idr::onlyAllocates(call))
     for (Operation *op = call->getNextNode(); op != apply; op = op->getNextNode())
-      if (!facts::canMoveAcross(op))
+      if (!idr::onlyAllocates(op))
         return std::nullopt;
   return e;
 }

@@ -17,7 +17,6 @@
 
 #include "Dialect/Canonicalize/Matches.h"
 
-import idr.facts;
 
 using namespace mlir;
 using namespace idr;
@@ -50,13 +49,13 @@ SmallVector<Region *> usersIn(Operation *value, Operation *match) {
 
 // Whether `value` may run later, in the regions of `match` that use it.
 bool movesInto(Operation *value, Operation *match, size_t regions) {
-  if (facts::canMoveAcross(value))
+  if (onlyAllocates(value))
     return true;
-  if (regions != match->getNumRegions() || !facts::canDelay(value))
+  if (regions != match->getNumRegions() || performsIO(value))
     return false;
   for (Operation *between = value->getNextNode(); between != match;
        between = between->getNextNode())
-    if (!facts::canMoveAcross(between))
+    if (!onlyAllocates(between))
       return false;
   return true;
 }

@@ -29,8 +29,6 @@ def Idr_Dialect : Dialect {
   }];
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;
-  // The pattern that removes unused calls of func.call.
-  let hasCanonicalizer = 1;
   // The module's and the functions' rules.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;

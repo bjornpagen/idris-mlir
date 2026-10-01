@@ -5,7 +5,6 @@ target_sources(idr_dialect PRIVATE
 	BigRanges.cc
 	Sharing.cc
 	Canonicalize/Apply.cc
-	Canonicalize/Calls.cc
 	Canonicalize/CaseOfCase.cc
 	Canonicalize/Con.cc
 	Canonicalize/Field.cc

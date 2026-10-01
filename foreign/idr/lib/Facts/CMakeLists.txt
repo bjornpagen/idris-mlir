@@ -10,8 +10,8 @@ target_sources(idr_dialect
 			Evaluation.cppm
 			Functions.cppm
 			Infer.cppm
-			Moves.cppm
 	PRIVATE
+		CallEffects.cc
 		Closures/ClosureLabel.cc
 		Closures/MayHoldClosure.cc
 		Closures/Passed.cc
@@ -24,9 +24,5 @@ target_sources(idr_dialect
 		Functions/Record.cc
 		Functions/TakesWorld.cc
 		Infer/Infer.cc
-		Moves/CanDelay.cc
-		Moves/CanDrop.cc
-		Moves/CanMoveAcross.cc
-		Moves/Only.cc
 		Pass.cc
 )

@@ -10,7 +10,6 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/RegionUtils.h"
 
-import idr.facts;
 
 using namespace mlir;
 using namespace idr;
@@ -68,7 +67,7 @@ private:
       return false;
     for (Operation *between = op->getNextNode(); between != consumer;
          between = between->getNextNode())
-      if (!facts::canMoveAcross(between))
+      if (!onlyAllocates(between))
         return false;
     return true;
   }
@@ -77,7 +76,7 @@ private:
   // nothing between them uses its results. Its operands and the values its
   // regions use exist before it, so they exist before the consumer too.
   static bool canLower(Match op, Operation *consumer) {
-    if (!facts::canMoveAcross(op))
+    if (!onlyAllocates(op))
       return false;
     return llvm::all_of(op->getUsers(), [&](Operation *user) {
       Operation *at = op->getBlock()->findAncestorOpInBlock(*user);

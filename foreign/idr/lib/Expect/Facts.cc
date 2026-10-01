@@ -15,9 +15,9 @@ namespace {
 std::string answers(Operation *op, SymbolTable &symbols) {
   auto call = dyn_cast<func::CallOp>(op);
   std::pair<StringRef, bool> questions[] = {
-      {"drop", call && idr::facts::canDrop(call)},
-      {"move", idr::facts::canMoveAcross(op)},
-      {"delay", idr::facts::canDelay(op)},
+      {"drop", call && call->use_empty() && idr::onlyAllocates(call)},
+      {"move", idr::onlyAllocates(op)},
+      {"delay", !idr::performsIO(op)},
       {"evaluate", idr::facts::canEvaluate(op, symbols).has_value()},
   };
   std::string out;

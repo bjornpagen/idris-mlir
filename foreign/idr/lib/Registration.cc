@@ -9,6 +9,7 @@ using namespace mlir;
 
 void idr::registerIdr(DialectRegistry &registry) {
   registry.insert<IdrDialect>();
+  registerCallEffects(registry);
 }
 
 // The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir-cc.
