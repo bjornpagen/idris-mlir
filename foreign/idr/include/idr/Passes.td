@@ -324,6 +324,24 @@ def IdrStack : Pass<"idr-stack", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrReturnedArguments : Pass<"idr-returned-arguments", "::mlir::ModuleOp"> {
+  let summary = "Drop a result a function always returns as one of its arguments";
+  let description = [{
+    A result that is, on every path, one and the same argument of its
+    function (directly, through the join of an `scf.if` or
+    `scf.index_switch`, or through a recursive call that gives back the
+    argument it was passed) is dropped, and every caller uses the argument
+    it passed instead. A value threaded through a function and given back
+    (a linear array through its reads and writes) is such a result once
+    lowered, and costs the caller nothing when dropped: it holds the value
+    already. Only a private function every use of which is a direct call
+    changes its signature.
+  }];
+  let statistics = [
+    Statistic<"numDropped", "dropped", "Results dropped, whose callers use the argument">,
+  ];
+}
+
 def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
   let summary = "Empty the code dead-code analysis proves unreachable";
   let description = [{

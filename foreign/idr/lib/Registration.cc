@@ -33,6 +33,11 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-narrow",
       "idr-lower",
       "canonicalize,cse",
+      // On lowered code, where a threaded value given back is its argument
+      // component by component; a join that then yields the same value on
+      // every path folds after it.
+      "idr-returned-arguments",
+      "canonicalize,cse",
       "convert-scf-to-cf,convert-to-llvm,reconcile-unrealized-casts",
   };
   return steps;

@@ -5,6 +5,7 @@ target_sources(idr_dialect PRIVATE
 	LoopBreakers.cc
 	Narrow.cc
 	Prune.cc
+	ReturnedArguments.cc
 	Simplify.cc
 	TailLoops.cc
 	Target.cc

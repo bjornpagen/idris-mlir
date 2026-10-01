@@ -1,10 +1,14 @@
 // Lowering of arrays: one cell (idris_rt_array) of a length and its
-// elements, each laid out as a cell's fields are. The runtime allocates and
-// frees the cell; the elements are read and written here, with a bounds
-// check before each, since an index is a value the program computed.
+// elements, each laid out as a cell's fields are, and beside the cell its
+// length, the memref's dimension (Layouts::components). The runtime
+// allocates and frees the cell; the elements are read and written here,
+// with a bounds check before each, since an index is a value the program
+// computed: the index against the length, two registers, so that a check
+// the program's own test made redundant folds away.
 
 #include "Lower/Patterns.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
 #include <cstddef>
@@ -40,13 +44,10 @@ Value elementAt(OpBuilder &b, Location loc, Value cell, Value index, const Eleme
                              ArrayRef<LLVM::GEPArg>{offset}, LLVM::GEPNoWrapFlags::inbounds);
 }
 
-// Ends the program unless `index` is below the array's length; a negative
-// index is a large unsigned one.
-void checkBounds(OpBuilder &b, Location loc, Runtime &runtime, Value cell, Value index,
+// Ends the program unless `index` is below `length`; a negative index is a
+// large unsigned one.
+void checkBounds(OpBuilder &b, Location loc, Runtime &runtime, Value length, Value index,
                  StringRef cause) {
-  Value lengthAt = LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(), cell,
-                                       ArrayRef<LLVM::GEPArg>{offsetof(idris_rt_array, length)});
-  Value length = LLVM::LoadOp::create(b, loc, b.getI64Type(), lengthAt, IDRIS_RT_WORD_BYTES);
   Value outside = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::uge, index, length);
   runtime.crashIf(b, loc, outside, cause);
 }
@@ -54,7 +55,7 @@ void checkBounds(OpBuilder &b, Location loc, Runtime &runtime, Value cell, Value
 // The runtime's cell, then every element written with the fill's
 // components: the fill moved in with its one reference, and each element
 // after the first takes one more, so the fill is incremented once per
-// element and dropped once.
+// element and dropped once. The array is the cell and its length.
 struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ArrayNewOp op, OneToNOpAdaptor adaptor,
@@ -63,22 +64,21 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
     FailureOr<Element> element = elementOf(op, layouts);
     if (failed(element))
       return failure();
-    Value size = adaptor.getSize().front();
+    // A negative size is an empty array (idris_rt_array_new).
+    Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(0));
+    Value length = arith::MaxSIOp::create(rewriter, loc, adaptor.getSize().front(), zero);
     Value cell = runtime.call(rewriter, loc, "idris_rt_array_new", ptrType(getContext()),
-                              ValueRange{size, LLVM::ConstantOp::create(
-                                                   rewriter, loc, rewriter.getI32Type(),
-                                                   rewriter.getI32IntegerAttr(static_cast<int32_t>(
-                                                       element->info.word())))});
+                              ValueRange{length, LLVM::ConstantOp::create(
+                                                     rewriter, loc, rewriter.getI32Type(),
+                                                     rewriter.getI32IntegerAttr(static_cast<int32_t>(
+                                                         element->info.word())))});
     ValueRange fill = adaptor.getFill();
     SmallVector<bool> counted = layouts.counted(op.getFill().getType());
     for (auto [i, component] : llvm::enumerate(fill))
       counted[i] = counted[i] && !Runtime::isStatic(component);
-    // A negative size is an empty array (idris_rt_array_new).
-    Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(0));
-    Value count = arith::MaxSIOp::create(rewriter, loc, size, zero);
     Type index = rewriter.getIndexType();
     Value lower = arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0));
-    Value upper = arith::IndexCastOp::create(rewriter, loc, index, count);
+    Value upper = arith::IndexCastOp::create(rewriter, loc, index, length);
     Value step = arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(1));
     auto loop = scf::ForOp::create(rewriter, loc, lower, upper, step);
     {
@@ -91,7 +91,7 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
       runtime.inc(rewriter, loc, fill, counted);
     }
     runtime.dec(rewriter, loc, fill, counted);
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{cell}, SmallVector<Value>{}});
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{cell, length}, SmallVector<Value>{}});
     return success();
   }
 };
@@ -106,12 +106,12 @@ struct LowerArrayGet : IdrPattern<ArrayGetOp> {
     FailureOr<Element> element = elementOf(op, layouts);
     if (failed(element))
       return failure();
-    Value cell = adaptor.getArray().front();
+    ValueRange array = adaptor.getArray();
     Value index = adaptor.getIndex().front();
     if (std::optional<StringRef> cause = op.getCrashCause())
-      checkBounds(rewriter, loc, runtime, cell, index, *cause);
-    SmallVector<Value> value =
-        runtime.load(rewriter, loc, elementAt(rewriter, loc, cell, index, *element), element->slots);
+      checkBounds(rewriter, loc, runtime, array[1], index, *cause);
+    SmallVector<Value> value = runtime.load(
+        rewriter, loc, elementAt(rewriter, loc, array[0], index, *element), element->slots);
     runtime.inc(rewriter, loc, value, layouts.counted(op.getValue().getType()));
     rewriter.replaceOpWithMultiple(op, {value, SmallVector<Value>{}});
     return success();
@@ -127,16 +127,32 @@ struct LowerArraySet : IdrPattern<ArraySetOp> {
     FailureOr<Element> element = elementOf(op, layouts);
     if (failed(element))
       return failure();
-    Value cell = adaptor.getArray().front();
+    ValueRange array = adaptor.getArray();
     Value index = adaptor.getIndex().front();
     if (std::optional<StringRef> cause = op.getCrashCause())
-      checkBounds(rewriter, loc, runtime, cell, index, *cause);
-    Value at = elementAt(rewriter, loc, cell, index, *element);
+      checkBounds(rewriter, loc, runtime, array[1], index, *cause);
+    Value at = elementAt(rewriter, loc, array[0], index, *element);
     SmallVector<bool> counted = layouts.counted(op.getValue().getType());
     SmallVector<Value> old = runtime.load(rewriter, loc, at, element->slots);
     runtime.dec(rewriter, loc, old, counted);
     runtime.store(rewriter, loc, at, element->slots, adaptor.getValue());
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+    return success();
+  }
+};
+
+// The length of an array, `memref.dim %a, %c0`: its length component, as
+// the index the op gives. An array has the one dimension 0.
+struct LowerDim : OpConversionPattern<memref::DimOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(memref::DimOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    if (!isArray(op.getSource().getType()))
+      return op.emitError() << "unsupported (array): the dimension of "
+                            << op.getSource().getType() << ", which is not an array";
+    if (op.getConstantIndex() != 0)
+      return op.emitError() << "unsupported (array): an array has the one dimension 0";
+    rewriter.replaceOpWithNewOp<arith::IndexCastOp>(op, op.getType(), adaptor.getSource()[1]);
     return success();
   }
 };
@@ -147,6 +163,7 @@ void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &con
                            Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerArrayNew, LowerArrayGet, LowerArraySet>(converter, patterns.getContext(),
                                                             layouts, runtime);
+  patterns.add<LowerDim>(converter, patterns.getContext());
 }
 
 } // namespace idr::lower

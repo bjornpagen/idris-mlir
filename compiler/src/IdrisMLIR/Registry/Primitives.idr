@@ -97,4 +97,13 @@ primitives =
   , arrayPrimitive "prim__arrayGet"
                    (Pi QW (arrayData Hole) (Pi QW int (Pi Q1 world (ioRes Hole)))) GetArray
   , arrayPrimitive "prim__arraySet"
-                   (Pi QW (arrayData Hole) (Pi QW int (Pi QW Hole (Pi Q1 world (ioRes unit))))) SetArray ]
+                   (Pi QW (arrayData Hole) (Pi QW int (Pi QW Hole (Pi Q1 world (ioRes unit))))) SetArray
+  -- The length of an array, which the backend contract lacks: the in-house
+  -- linear array library declares it by Chez's spec, `vector-length` of the
+  -- vector `ArrayData` is there (after the erased type argument Chez passes
+  -- a Scheme foreign function), and the compiler gives that spec its one
+  -- meaning, the memref's dimension.
+  , MkEntry (Foreign (MkSpec "scheme" "(lambda (ty v) (vector-length v))"))
+            (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
+                      (Pi Q0 TypeOfTypes (Pi QW (arrayData Hole) int)))
+            ArraySize [Primitive] ]

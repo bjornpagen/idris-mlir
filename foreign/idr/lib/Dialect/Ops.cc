@@ -1179,7 +1179,9 @@ void arrayEffects(std::optional<StringRef> crash, Value allocated,
                          SideEffects::DefaultResource::get());
 }
 
-// No array's length is in the IR yet, so every index may be out of bounds.
+// An index is a value the program computed, so it may be out of bounds;
+// the check against the length (memref.dim) that the program's own test
+// made redundant folds away after lowering.
 constexpr StringRef outOfBounds = "array index out of bounds";
 
 } // namespace

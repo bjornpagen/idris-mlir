@@ -169,6 +169,7 @@ mutual
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
+        Just (Right ArraySize) => arraySize fc loc arity (type def) args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
@@ -322,20 +323,19 @@ mutual
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (\ys => Effect loc op ys res) (drop arity xs)
 
-      -- An array primitive: polymorphic in its element, so its one type
+      -- An array primitive is polymorphic in its element, so its one type
       -- argument fixes the operation's element type, and only its runtime
-      -- arguments are the operation's operands.
-      arrayCall : FC -> Loc -> Nat -> ArrayOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      arrayCall fc loc arity op ty xs = do
+      -- arguments are the operation's operands: those parameters, the
+      -- element type, the arguments given for them, and the result type.
+      arrayOperands : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) ->
+                      Core (List PKind, Ty, List (Term a), ClosedTerm)
+      arrayOperands fc loc arity ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         Just element <- pure (elementOf kinds)
           | Nothing => internal fc "an array primitive without its element type"
         el <- coreType fc ctx.owner ValueType element
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
-          | _ => internal fc "an array primitive with an unexpected type"
         given <- arguments loc kinds (take arity xs)
-        finish loc (filter isRuntime kinds) (runtimeOnly kinds given)
-               (\ys => Effect loc (Array op el) ys res) (drop arity xs)
+        pure (filter isRuntime kinds, el, runtimeOnly kinds given, resTy)
         where
           elementOf : List PKind -> Maybe ClosedTerm
           elementOf (TypeParam t :: _) = Just t
@@ -349,6 +349,20 @@ mutual
           runtimeOnly : List PKind -> List (Term a) -> List (Term a)
           runtimeOnly (k :: ks) (g :: gs) = if isRuntime k then g :: runtimeOnly ks gs else runtimeOnly ks gs
           runtimeOnly _ _ = []
+
+      -- An array operation: IO, in the world's order.
+      arrayCall : FC -> Loc -> Nat -> ArrayOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayCall fc loc arity op ty xs = do
+        (kinds, el, given, resTy) <- arrayOperands fc loc arity ty xs
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+          | _ => internal fc "an array primitive with an unexpected type"
+        finish loc kinds given (\ys => Effect loc (Array op el) ys res) (drop arity xs)
+
+      -- The length of an array: a primitive of the array alone.
+      arraySize : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arraySize fc loc arity ty xs = do
+        (kinds, el, given, _) <- arrayOperands fc loc arity ty xs
+        finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
   application ctx env afc fn args = case headStep fn args of
     Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)
     Nothing => do

@@ -3,4 +3,5 @@ Emit names func: yes
 Emit names arith: yes
 Emit names math: yes
 Emit names ub: yes
+Emit names memref: yes
 op names of other dialects: 0

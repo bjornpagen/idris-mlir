@@ -21,15 +21,22 @@ import Linear.Notation
 
 %default total
 
+||| The number of elements, which every backend keeps with the array: on
+||| Chez the array is a vector (and a Scheme foreign function is passed its
+||| erased type argument too), and idris-mlir gives this spec the array's
+||| dimension.
+%foreign "scheme:(lambda (ty v) (vector-length v))"
+prim__arraySize : forall a . ArrayData a -> Int
+
 ||| A mutable array of `a`, threaded linearly.
 export
 data Array : Type -> Type where
-  MkArray : (len : Int) -> ArrayData a -> Array a
+  MkArray : ArrayData a -> Array a
 
 ||| An array frozen: read-only, and shared freely.
 export
 data IArray : Type -> Type where
-  MkIArray : (len : Int) -> ArrayData a -> IArray a
+  MkIArray : ArrayData a -> IArray a
 
 ||| A new array of `n` elements, each `x`; a non-positive `n` makes an
 ||| empty array. Bind it at quantity 1 (`let 1 a = mkArray n x`) and thread
@@ -38,7 +45,7 @@ data IArray : Type -> Type where
 ||| backend.
 export
 mkArray : (n : Int) -> a -> Array a
-mkArray n x = MkArray (max 0 n) (unsafePerformIO (primIO (prim__newArray (max 0 n) x)))
+mkArray n x = MkArray (unsafePerformIO (primIO (prim__newArray (max 0 n) x)))
 
 ||| A new array of `n` elements, each `x`, given to a continuation that
 ||| returns an unrestricted value, so that the array cannot leave it.
@@ -49,14 +56,14 @@ newArray n x k = unrestricted (k (mkArray n x))
 ||| The element at `i`, with the array given back. Out of bounds: a crash.
 export
 read : (1 _ : Array a) -> Int -> Res a (const (Array a))
-read (MkArray len arr) i = unsafePerformIO (primIO (prim__arrayGet arr i)) # MkArray len arr
+read (MkArray arr) i = unsafePerformIO (primIO (prim__arrayGet arr i)) # MkArray arr
 
 ||| The array with `x` at `i`. Out of bounds: a crash. The array given
 ||| back comes out of the action, so that the write is never dropped as an
 ||| unused value.
 export
 write : (1 _ : Array a) -> Int -> a -> Array a
-write (MkArray len arr) i x = unsafePerformIO (do primIO (prim__arraySet arr i x); pure (MkArray len arr))
+write (MkArray arr) i x = unsafePerformIO (do primIO (prim__arraySet arr i x); pure (MkArray arr))
 
 ||| The element at `i` replaced by `f` of it, with the old element given
 ||| back. Out of bounds: a crash.
@@ -67,20 +74,20 @@ modify arr i f = let x # arr' = read arr i in x # write arr' i (f x)
 ||| The number of elements, with the array given back.
 export
 size : (1 _ : Array a) -> Res Int (const (Array a))
-size (MkArray len arr) = len # MkArray len arr
+size (MkArray arr) = prim__arraySize arr # MkArray arr
 
 ||| The array, frozen: the linear phase ends, and the continuation reads
 ||| it as a shared value.
 export
 freeze : (1 _ : Array a) -> (IArray a -> b) -> b
-freeze (MkArray len arr) k = k (MkIArray len arr)
+freeze (MkArray arr) k = k (MkIArray arr)
 
 ||| The element of a frozen array at `i`. Out of bounds: a crash.
 export
 iread : IArray a -> Int -> a
-iread (MkIArray _ arr) i = unsafePerformIO (primIO (prim__arrayGet arr i))
+iread (MkIArray arr) i = unsafePerformIO (primIO (prim__arrayGet arr i))
 
 ||| The number of elements of a frozen array.
 export
 isize : IArray a -> Int
-isize (MkIArray len _) = len
+isize (MkIArray arr) = prim__arraySize arr

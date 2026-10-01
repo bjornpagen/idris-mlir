@@ -117,8 +117,8 @@ intLike SDouble = Nothing
 
 ||| A primitive, on operands in Idris's order.
 export
-prim : Loc -> Prim -> List Val -> E Val
-prim l (IntOp op t) [a, b] =
+prim : Index -> Loc -> Prim -> List Val -> E Val
+prim ix l (IntOp op t) [a, b] =
   let w = " : i" ++ show (width t)
       two = a.name ++ ", " ++ b.name
       arith = \n => value l (IntT t) (n ++ " " ++ two ++ w)
@@ -131,23 +131,23 @@ prim l (IntOp op t) [a, b] =
        Xor => arith "arith.xori"
        Div => value l (IntT t) ("idr.div " ++ (if signed t then "signed " else "") ++ two ++ w)
        Mod => value l (IntT t) ("idr.mod " ++ (if signed t then "signed " else "") ++ two ++ w)
-prim l (FloatOp op) [a, b] =
+prim ix l (FloatOp op) [a, b] =
   let n = case op of
             FAdd => "arith.addf"
             FSub => "arith.subf"
             FMul => "arith.mulf"
             FDiv => "arith.divf"
   in value l DoubleT (n ++ " " ++ a.name ++ ", " ++ b.name ++ " : f64")
-prim l Negate [a] = value l DoubleT ("arith.negf " ++ a.name ++ " : f64")
-prim l (Math f) as = value l DoubleT (mathOp f ++ " " ++ names as ++ " : f64")
-prim l (Compare c SDouble) [a, b] =
+prim ix l Negate [a] = value l DoubleT ("arith.negf " ++ a.name ++ " : f64")
+prim ix l (Math f) as = value l DoubleT (mathOp f ++ " " ++ names as ++ " : f64")
+prim ix l (Compare c SDouble) [a, b] =
   extend l !(value l (IntT IdrisInt) ("arith.cmpf " ++ cmpf c ++ ", " ++ a.name ++ ", " ++ b.name ++ " : f64"))
-prim l (Compare c s) [a, b] = case intLike s of
+prim ix l (Compare c s) [a, b] = case intLike s of
   Just (w, sgn) =>
     extend l !(value l (IntT IdrisInt)
                  ("arith.cmpi " ++ cmpi c sgn ++ ", " ++ a.name ++ ", " ++ b.name ++ " : i" ++ show w))
   Nothing => internal ("a comparison of " ++ show s)
-prim l (Cast from to) [a] = case (from, to) of
+prim ix l (Cast from to) [a] = case (from, to) of
   (SInt f, SChar) => value l CharT ("idr.to_char " ++ (if signed f then "signed " else "") ++ a.name ++ " : i" ++ show (width f))
   (SInt f, SDouble) =>
     value l DoubleT ((if signed f then "arith.sitofp " else "arith.uitofp ") ++ a.name ++ " : i" ++ show (width f) ++ " to f64")
@@ -161,35 +161,35 @@ prim l (Cast from to) [a] = case (from, to) of
       else value l (scalarTy t) ((if fs then "arith.extsi " else "arith.extui ") ++ a.name ++
                                  " : i" ++ show fw ++ " to i" ++ show tw)
     _ => internal ("a cast from " ++ show f ++ " to " ++ show t)
-prim l StrAppend [a, b] = value l StrT ("idr.str.append " ++ a.name ++ ", " ++ b.name)
-prim l StrCons [c, s] = value l StrT ("idr.str.cons " ++ c.name ++ ", " ++ s.name)
-prim l StrLength [s] = value l (IntT IdrisInt) ("idr.str.length " ++ s.name)
-prim l StrHead [s] = value l CharT ("idr.str.head " ++ s.name)
-prim l StrTail [s] = value l StrT ("idr.str.tail " ++ s.name)
-prim l StrIndex [s, i] = value l CharT ("idr.str.index " ++ s.name ++ ", " ++ i.name)
-prim l StrReverse [s] = value l StrT ("idr.str.reverse " ++ s.name)
+prim ix l StrAppend [a, b] = value l StrT ("idr.str.append " ++ a.name ++ ", " ++ b.name)
+prim ix l StrCons [c, s] = value l StrT ("idr.str.cons " ++ c.name ++ ", " ++ s.name)
+prim ix l StrLength [s] = value l (IntT IdrisInt) ("idr.str.length " ++ s.name)
+prim ix l StrHead [s] = value l CharT ("idr.str.head " ++ s.name)
+prim ix l StrTail [s] = value l StrT ("idr.str.tail " ++ s.name)
+prim ix l StrIndex [s, i] = value l CharT ("idr.str.index " ++ s.name ++ ", " ++ i.name)
+prim ix l StrReverse [s] = value l StrT ("idr.str.reverse " ++ s.name)
 -- Idris takes the start, the length, then the string.
-prim l StrSubstr [start, len, s] =
+prim ix l StrSubstr [start, len, s] =
   value l StrT ("idr.str.substr " ++ s.name ++ ", " ++ start.name ++ ", " ++ len.name)
-prim l (StrCompare c) [a, b] =
+prim ix l (StrCompare c) [a, b] =
   extend l !(value l (IntT IdrisInt) ("idr.str.cmp " ++ show c ++ " " ++ a.name ++ ", " ++ b.name))
-prim l (ToStr (SInt t)) [x] = value l StrT ("idr.str.show " ++ signedness t ++ x.name ++ " : i" ++ show (width t))
-prim l (ToStr SChar) [c] = value l StrT ("idr.str.from_char " ++ c.name)
-prim l (ToStr SDouble) [x] = value l StrT ("idr.str.show " ++ x.name ++ " : f64")
-prim l (FromStr (SInt t)) [s] = value l (IntT t) ("idr.str.to_int " ++ signedness t ++ s.name ++ " : i" ++ show (width t))
-prim l (FromStr SDouble) [s] = value l DoubleT ("idr.str.to_double " ++ s.name)
-prim l (BigArith op) [a, b] = value l BigT ("idr.big." ++ show op ++ " " ++ a.name ++ ", " ++ b.name)
-prim l BigNegate [a] = value l BigT ("idr.big.neg " ++ a.name)
-prim l (BigCompare c) [a, b] =
+prim ix l (ToStr (SInt t)) [x] = value l StrT ("idr.str.show " ++ signedness t ++ x.name ++ " : i" ++ show (width t))
+prim ix l (ToStr SChar) [c] = value l StrT ("idr.str.from_char " ++ c.name)
+prim ix l (ToStr SDouble) [x] = value l StrT ("idr.str.show " ++ x.name ++ " : f64")
+prim ix l (FromStr (SInt t)) [s] = value l (IntT t) ("idr.str.to_int " ++ signedness t ++ s.name ++ " : i" ++ show (width t))
+prim ix l (FromStr SDouble) [s] = value l DoubleT ("idr.str.to_double " ++ s.name)
+prim ix l (BigArith op) [a, b] = value l BigT ("idr.big." ++ show op ++ " " ++ a.name ++ ", " ++ b.name)
+prim ix l BigNegate [a] = value l BigT ("idr.big.neg " ++ a.name)
+prim ix l (BigCompare c) [a, b] =
   extend l !(value l (IntT IdrisInt) ("idr.big.cmp " ++ show c ++ " " ++ a.name ++ ", " ++ b.name))
-prim l (ToBig (SInt t)) [x] = value l BigT ("idr.big.from_int " ++ signedness t ++ x.name ++ " : i" ++ show (width t))
-prim l (ToBig SChar) [c] = value l BigT ("idr.big.from_int unsigned " ++ c.name ++ " : i32")
-prim l (ToBig SDouble) [d] = value l BigT ("idr.big.from_double " ++ d.name)
-prim l (FromBig (SInt t)) [b] = value l (IntT t) ("idr.big.to_int " ++ b.name ++ " : i" ++ show (width t))
-prim l (FromBig SDouble) [b] = value l DoubleT ("idr.big.to_double " ++ b.name)
+prim ix l (ToBig (SInt t)) [x] = value l BigT ("idr.big.from_int " ++ signedness t ++ x.name ++ " : i" ++ show (width t))
+prim ix l (ToBig SChar) [c] = value l BigT ("idr.big.from_int unsigned " ++ c.name ++ " : i32")
+prim ix l (ToBig SDouble) [d] = value l BigT ("idr.big.from_double " ++ d.name)
+prim ix l (FromBig (SInt t)) [b] = value l (IntT t) ("idr.big.to_int " ++ b.name ++ " : i" ++ show (width t))
+prim ix l (FromBig SDouble) [b] = value l DoubleT ("idr.big.to_double " ++ b.name)
 -- The code point if the integer is one, else 0; `idr.to_char`
 -- decides for the integers an `i64` holds, and 0 stands for the rest.
-prim l (FromBig SChar) [b] = do
+prim ix l (FromBig SChar) [b] = do
   lo <- literal l (LBig 0)
   hi <- literal l (LBig 0x10FFFF)
   ge <- value l (IntT IdrisInt) ("idr.big.cmp gte " ++ b.name ++ ", " ++ lo.name)
@@ -199,15 +199,23 @@ prim l (FromBig SChar) [b] = do
   outside <- literal l (LInt IdrisInt (-1))
   m <- value l (IntT IdrisInt) ("arith.select " ++ inRange.name ++ ", " ++ n.name ++ ", " ++ outside.name ++ " : i64")
   value l CharT ("idr.to_char signed " ++ m.name ++ " : i64")
-prim l BigShow [b] = value l StrT ("idr.big.show " ++ b.name)
-prim l BigRead [s] = value l BigT ("idr.big.from_str " ++ s.name)
-prim l NatAdd [a, b] = value l NatT ("idr.big.add " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
-prim l NatMul [a, b] = value l NatT ("idr.big.mul " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
-prim l (NatCompare c) [a, b] =
+prim ix l BigShow [b] = value l StrT ("idr.big.show " ++ b.name)
+prim ix l BigRead [s] = value l BigT ("idr.big.from_str " ++ s.name)
+prim ix l NatAdd [a, b] = value l NatT ("idr.big.add " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
+prim ix l NatMul [a, b] = value l NatT ("idr.big.mul " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat")
+prim ix l (NatCompare c) [a, b] =
   extend l !(value l (IntT IdrisInt) ("idr.big.cmp " ++ show c ++ " " ++ a.name ++ ", " ++ b.name ++ " : !idr.nat"))
-prim l NatToBig [n] = value l BigT ("idr.nat.to_big " ++ n.name)
-prim l NatFromBig [b] = value l NatT ("idr.nat.from_big " ++ b.name)
-prim l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
+prim ix l NatToBig [n] = value l BigT ("idr.nat.to_big " ++ n.name)
+prim ix l NatFromBig [b] = value l NatT ("idr.nat.from_big " ++ b.name)
+-- The length of an array is its memref's dimension, an index, as an `Int`.
+prim ix l (ArrayLength e) [a] = do
+  at <- typeText ix (ArrayT e)
+  zero <- fresh
+  append (Line (zero ++ " = arith.constant 0 : index") (At l))
+  n <- fresh
+  append (Line (n ++ " = memref.dim " ++ a.name ++ ", " ++ zero ++ " : " ++ at) (At l))
+  value l (IntT IdrisInt) ("arith.index_cast " ++ n ++ " : index to i64")
+prim ix l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
 ||| A constructor application (`idr.con`); a box's allocates.
 export

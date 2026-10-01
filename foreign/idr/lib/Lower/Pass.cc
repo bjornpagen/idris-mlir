@@ -7,6 +7,7 @@
 #include "idris_rt.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 
 using namespace mlir;
@@ -156,6 +157,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<idr::IdrDialect>();
+    // The one memref op of the contract: an array's length (Arrays.cc).
+    target.addIllegalOp<memref::DimOp>();
     target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
                            cf::ControlFlowDialect>();
     target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp, func::CallIndirectOp,

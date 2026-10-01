@@ -256,6 +256,9 @@ data Prim
     NatToBig
   | ||| An Integer as a natural, 0 if it is negative.
     NatFromBig
+  | ||| The number of elements of an array of this element type: the
+    ||| dimension of its memref.
+    ArrayLength Ty
 
 export
 Show ArithOp where
@@ -335,6 +338,7 @@ Show Prim where
   show (NatCompare op) = show op ++ "_Nat"
   show NatToBig = "cast_NatInteger"
   show NatFromBig = "cast_IntegerNat"
+  show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
 
 public export
 scalarTy : Scalar -> Ty
@@ -375,6 +379,7 @@ primArgs NatMul = [NatT, NatT]
 primArgs (NatCompare _) = [NatT, NatT]
 primArgs NatToBig = [NatT]
 primArgs NatFromBig = [BigT]
+primArgs (ArrayLength e) = [ArrayT e]
 
 ------------------------------------------------------------------------------
 -- IO

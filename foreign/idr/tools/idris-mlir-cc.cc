@@ -7,6 +7,7 @@
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
 #include "mlir/Debug/CLOptionsSetup.h"
 #include "mlir/Debug/Counter.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Remarks.h"
@@ -399,7 +400,7 @@ int run() {
   // dialects, so an op of any other fails to parse. The rest load after.
   mlir::DialectRegistry contract;
   contract.insert<mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::math::MathDialect,
-                  mlir::ub::UBDialect>();
+                  mlir::ub::UBDialect, mlir::memref::MemRefDialect>();
   idr::registerIdr(contract);
   mlir::MLIRContext context(contract);
   // MLIR runs single-threaded, so results do not depend on

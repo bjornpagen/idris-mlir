@@ -1,19 +1,19 @@
 #!/bin/sh
-# Emit writes ops of the contract's dialects only: idr, func, arith, math
-# and ub (idris-mlir-cc parses with a registry
+# Emit writes ops of the contract's dialects only: idr, func, arith, math,
+# ub and memref (idris-mlir-cc parses with a registry
 # of exactly these and builtin). Every op name in the text Emit writes comes
 # from a string literal of compiler/src/IdrisMLIR/Emit.idr, its modules
 # (Emit/*.idr) or MLIR.idr, as
 # `<dialect>.<op>` or as a prefix `<dialect>.` that code completes; each
-# dialect named so must be one of the five. A literal that starts with `.`
+# dialect named so must be one of the six. A literal that starts with `.`
 # and a lowercase letter would complete an op name without its dialect, and
 # is refused too. `allowlist` lists the literals that are not op names
-# (`path: text -- reason`). The check must see the five, or it would see
+# (`path: text -- reason`). The check must see the six, or it would see
 # nothing.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 allowlist=$here/allowlist
 cd "$root" || exit 1
-allowed_dialects=' idr func arith math ub '
+allowed_dialects=' idr func arith math ub memref '
 : > "$work/found"
 : > "$work/dialects"
 for file in compiler/src/IdrisMLIR/Emit.idr compiler/src/IdrisMLIR/Emit/*.idr compiler/src/IdrisMLIR/MLIR.idr; do
@@ -50,7 +50,7 @@ while IFS= read -r hit; do
   [ $keep = yes ] && printf '%s\n' "$hit" >> "$work/left"
 done < "$work/found"
 
-for dialect in idr func arith math ub; do
+for dialect in idr func arith math ub memref; do
   if grep -qx "$dialect" "$work/seen" 2> /dev/null; then
     say "Emit names $dialect: yes"
   else

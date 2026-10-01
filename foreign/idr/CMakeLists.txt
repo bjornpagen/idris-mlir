@@ -105,6 +105,7 @@ target_link_libraries(idr_dialect
 		MLIRArithDialect
 		MLIRSCFDialect
 		MLIRSCFTransforms
+		MLIRMemRefDialect
 		MLIRUBDialect
 		MLIRLLVMDialect
 		MLIRMathDialect

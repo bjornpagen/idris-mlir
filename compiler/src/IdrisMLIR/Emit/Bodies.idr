@@ -188,7 +188,7 @@ alg ix own (ErasedF l) env _ = Just <$> erased l
 alg ix own (PrimAppF l p as) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing
-  Just <$> prim l p vs
+  Just <$> prim ix l p vs
 alg ix own (EffectF l op as res) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (ioArgs op ++ [WorldT]))
     | Nothing => pure Nothing

@@ -192,9 +192,15 @@ SmallVector<Type> Layouts::components(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  // A destination is the address of a field's word; an array is its cell.
-  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type) || isArray(type))
+  // A destination is the address of a field's word.
+  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
+  // An array is its cell and its length, the memref's dimension: a bounds
+  // check compares two registers, so the one a program's own test made
+  // redundant folds away, where a load of the length from the cell, which
+  // the stores into the cell may alias, would stay in every loop.
+  if (isArray(type))
+    return {LLVM::LLVMPointerType::get(ctx), IntegerType::get(ctx, 64)};
   if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
   if (auto data = dyn_cast<DataType>(type))
@@ -206,8 +212,10 @@ SmallVector<bool> Layouts::counted(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type) || isArray(type))
+  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
+  if (isArray(type))
+    return {true, false};
   if (isa<DestType>(type))
     return {false};
   if (auto data = dyn_cast<DataType>(type)) {
