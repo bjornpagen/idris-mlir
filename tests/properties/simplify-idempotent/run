@@ -1,7 +1,0 @@
-#!/bin/sh
-# The simplify loop ends at a fixpoint: idr-simplify, run again on the
-# module it left, finds nothing to change in its first round, for every e2e
-# fixture that compiles.
-test_limit=3600
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-property simplify-idempotent

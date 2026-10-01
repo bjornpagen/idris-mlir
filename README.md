@@ -133,7 +133,7 @@ make doctor                  # what the host has, and what is built
 make check                   # the repository: pins, commands, source rules; no build
 make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Idris
 make build                   # the C++ dev preset and the compiler
-make test                    # compiler, profile, e2e (incl. the Chez diff), properties, bench
+make test                    # compiler, profile, e2e (incl. the Chez diff and the dumps' properties), bench
 make test-idr                # the idr dialect, with FileCheck
 make test-mlir-tools         # the upstream bugs in upstream/ still reproduce
 make bench                   # bench/run.sh

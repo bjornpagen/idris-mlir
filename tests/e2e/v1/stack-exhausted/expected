@@ -4,4 +4,10 @@ run: exit 1, a crash
 stdout: as expected
 stderr: names the cause in expected-crash
 object: no undefined symbol outside the allowed set
+budget: kept
+dumps: parse and verify
+simplify: idempotent
+quantities: kept
 chez: not compared (no-chez)
+no-eval budget: kept
+no-eval: same stdout and exit status

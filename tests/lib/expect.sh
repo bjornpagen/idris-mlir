@@ -18,18 +18,6 @@ expect_holds() {
 # pipeline, or of the module Emit wrote for the step `emitted`. Lines that
 # start with `#` explain.
 
-# expect_steps FILE: the steps an mlir.expect names.
-expect_steps() {
-  sed -n 's/^\([a-z0-9-]*\):.*/\1/p' "$1"
-}
-
-# expect_directives FILE: the directives a compilation needs for FILE.
-expect_directives() {
-  [ -f "$1" ] || return 0
-  expect_steps "$1" | grep -qvx emitted && say '--directive dump-mlir'
-  return 0
-}
-
 # check_expect FILE EMITTED DUMPS: every line of the mlir.expect FILE holds
 # of its step's module (step_module); one line, `mlir.expect: holds`, or a
 # line and idr-expect's errors for each step where some property fails.

@@ -45,12 +45,6 @@ mlir_input() {
   esac
 }
 
-# mlir_directives CHECK: the directives a compilation needs for CHECK.
-mlir_directives() {
-  [ -f "$1" ] || return 0
-  [ "$(mlir_input "$1")" = emitted ] || say '--directive dump-mlir'
-}
-
 # step_module STEP EMITTED DUMPS: the module of STEP, `emitted` (EMITTED) or
 # the first dump of that step in the directory DUMPS; nothing, and status
 # 1, when that step left no dump.

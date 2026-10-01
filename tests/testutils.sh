@@ -24,15 +24,14 @@
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     oracle.sh        Oracle.idr, and the generated semantics tests
 #     chez.sh          the stock Chez backend as an oracle
-#     e2e.sh           the end-to-end programs
+#     e2e.sh           the end-to-end programs, each compiled twice
+#     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
 #     determinism.sh   two compilations, byte for byte
 #     lit.sh           the dialect tests' RUN lines
-#     equivalence.sh   with and without compile-time evaluation
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    Idris's evaluator against the compiled program
 #     idris-lex.sh     Idris source, code told from comments and strings
-#     properties.sh    what holds of every compilation, over the e2e fixtures
 #     bench.sh         the benchmarks, built and run on small inputs
 
 idris_mlir=$1
@@ -43,7 +42,7 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # test_limit seconds: the first time this file is sourced, it runs the script
 # again under `timeout` and, if the script is killed, prints that it timed
 # out, which no expected output holds, so the test fails. A run script that
-# does many compilations (equivalence, fuzz, two levels) sets a larger
+# does many compilations (fuzz, two levels) sets a larger
 # test_limit before sourcing this file. IDRIS_MLIR_TIME_SCALE (make's
 # time_scale) multiplies both, for a slower machine; a limit never passes a
 # test, it only ends one.
@@ -69,8 +68,8 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing compile run heap mlir expect oracle chez e2e profile \
-                determinism lit equivalence fuzz two-levels idris-lex properties bench; do
+for lib_file in harness timing compile run heap mlir expect oracle chez properties e2e \
+                profile determinism lit fuzz two-levels idris-lex bench; do
   . "$root/tests/lib/$lib_file.sh"
 done
 unset lib_file

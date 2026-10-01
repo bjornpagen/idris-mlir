@@ -1,7 +1,0 @@
-#!/bin/sh
-# No pass drops or widens a quantity Idris proved: in every e2e fixture that
-# compiles, every parameter keeps the quantity it was emitted with, after
-# every step up to lowering, and so does every constructor field.
-test_limit=3600
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-property quantities-kept

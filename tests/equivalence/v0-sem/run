@@ -1,7 +1,0 @@
-#!/bin/sh
-# The generated semantics fixtures of tests/e2e/v0, the integer primitives,
-# compiled with evaluation and with --no-eval: the same exit status.
-# Dozens of compilations: half an hour in all.
-test_limit=1800
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-equivalence v0 sem

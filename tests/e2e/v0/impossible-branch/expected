@@ -6,3 +6,9 @@ stdout: empty
 stderr: empty
 object: no undefined symbol outside the allowed set
 heap: nothing is allocated on the heap
+budget: kept
+dumps: parse and verify
+simplify: idempotent
+quantities: kept
+no-eval budget: kept
+no-eval: same stdout and exit status

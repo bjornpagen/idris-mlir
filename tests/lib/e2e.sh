@@ -1,4 +1,10 @@
 # The end-to-end programs: compiled, run, and held to their oracles.
+#
+# Each fixture is compiled once with every module of the pipeline dumped,
+# and everything that holds of a compilation is read off that one
+# compilation and its dumps (lib/properties.sh); then once more without
+# compile-time evaluation, whose program must behave the same. Two
+# compilations per fixture, and no suite that compiles them all again.
 
 # compile_v0 DIR [--directive D]...: the `main : Int` program DIR/Prog.idr, to
 # DIR/build/exec/Prog.
@@ -29,16 +35,17 @@ e2e_v0() {
   copy_fixture "$1" "$work/e2e"
   # shellcheck disable=SC2046 # the directives are words
   compile_v0 "$work/e2e" $(module_directives "$1") || return
-  run_ours prog "$work/e2e/build/exec/Prog" /dev/null small
+  run_ours ours "$work/e2e/build/exec/Prog" /dev/null small
+  ours_status=$ran
   if [ -f "$1/expected-crash" ]; then
     v0_cause=$(cat "$1/expected-crash")
     if [ "$ran" -eq 1 ]; then say "run: exit 1, a crash"; else say "run: exit $ran, but a crash exits 1"; fi
-    empty stdout "$work/prog.out"
-    if grep -qF -- "$v0_cause" "$work/prog.err"; then
+    empty stdout "$work/ours.out"
+    if grep -qF -- "$v0_cause" "$work/ours.err"; then
       say "stderr: names the cause in expected-crash"
     else
       say "stderr: lacks the cause in expected-crash"
-      show "$work/prog.err"
+      show "$work/ours.err"
     fi
   else
     [ -n "$v0_expected" ] || v0_expected=$(first_word "$1/expected-exit")
@@ -47,13 +54,15 @@ e2e_v0() {
     else
       say "run: exit $ran, expected $v0_expected"
     fi
-    empty stdout "$work/prog.out"
-    empty stderr "$work/prog.err"
+    empty stdout "$work/ours.out"
+    empty stderr "$work/ours.err"
   fi
   object_imports "$work/e2e/build/exec/Prog.o" "$here"
   heap_free "$here" "$work/e2e/build/exec/Prog.dump"
-  module_checks "$1" "$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)" \
-    "$work/e2e/build/exec/Prog.dump"
+  v0_emitted=$(find "$work/e2e/build/ttc" -type f -name Prog.mlir | sort | head -n 1)
+  module_checks "$1" "$v0_emitted" "$work/e2e/build/exec/Prog.dump"
+  compilation_properties "$v0_emitted" "$work/e2e/build/exec/Prog.dump"
+  without_evaluation v0 "$1" /dev/null small
 }
 
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
@@ -74,6 +83,8 @@ e2e_io() {
   if [ -f "$io_fixture/packages" ]; then
     for io_package in $(cat "$io_fixture/packages"); do io_packages="$io_packages -p $io_package"; done
   fi
+  io_stack=small
+  [ -f "$io_fixture/default-stack" ] && io_stack=
   io_directives=$(module_directives "$io_fixture")
   [ -f "$io_fixture/Oracle.idr" ] && check_oracle "$io_fixture"
 
@@ -86,12 +97,8 @@ e2e_io() {
     return
   fi
   artifacts "$work/ours" prog.core prog.mlir prog.o prog
-  if [ -f "$io_fixture/default-stack" ]; then
-    run_ours ours "$work/ours/build/exec/prog" "$io_stdin"
-  else
-    run_ours ours "$work/ours/build/exec/prog" "$io_stdin" small
-  fi
-  io_ours_status=$ran
+  run_ours ours "$work/ours/build/exec/prog" "$io_stdin" $io_stack
+  ours_status=$ran
 
   if [ -f "$io_fixture/expected-crash" ]; then
     io_crash=$(cat "$io_fixture/expected-crash")
@@ -131,23 +138,24 @@ e2e_io() {
   object_imports "$work/ours/build/exec/prog.o" "$here"
   heap_free "$here" "$work/ours/build/exec/prog.dump"
   module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
+  compilation_properties "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
   if [ -f "$io_fixture/no-chez" ]; then
     say "chez: not compared (no-chez)"
-    return
+  else
+    # shellcheck disable=SC2086 # the packages are words
+    chez_agrees "$io_fixture" "$io_stdin" "$io_crash" "$ours_status" $io_packages
   fi
-  # shellcheck disable=SC2086 # the packages are words
-  chez_agrees "$io_fixture" "$io_stdin" "$io_crash" "$io_ours_status" $io_packages
+  without_evaluation io "$io_fixture" "$io_stdin" $io_stack
 }
 
-# module_directives FIXTURE: the directives that the checks of the
-# fixture's modules need, one per line; the mark heap-free is the test's
-# (heap_free).
+# module_directives FIXTURE: the directives the fixture's compilation
+# needs, one per line. Every compilation dumps the module after each step:
+# the checks of the fixture's modules read the dumps, and so do the
+# properties of every compilation (compilation_properties).
 module_directives() {
   {
-    heap_directives "$here"
-    mlir_directives "$1/mlir.check"
-    expect_directives "$1/mlir.expect"
+    say '--directive dump-mlir'
     [ -f "$1/translate.check" ] && say '--directive dump-core'
   } | sort -u
 }

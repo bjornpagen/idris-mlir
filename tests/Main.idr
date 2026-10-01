@@ -99,10 +99,8 @@ suites =
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
-      , pool "equivalence: every e2e program with and without compile-time evaluation" ["equivalence"]
       , pool "fuzz: closed expressions over every primitive, three ways" ["fuzz"]
       , pool "two levels: Idris's evaluator against the compiled program" ["two-levels"]
-      , pool "properties: what holds of every compilation, over the e2e programs" ["properties"]
       , pool "bench: every benchmark builds and prints its recorded output" ["bench"]
       ])
   , ("test-idr",

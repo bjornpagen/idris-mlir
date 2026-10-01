@@ -4,3 +4,4 @@ core: identical
 mlir: identical
 object: identical
 executable: identical
+dumps: identical after every step

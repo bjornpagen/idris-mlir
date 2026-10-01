@@ -1,7 +1,0 @@
-#!/bin/sh
-# Every module the pipeline dumps after a step (--dump-after=all) is valid
-# IR that can be read back: idris-mlir-opt parses each again and its
-# verifier accepts it, for every e2e fixture that compiles.
-test_limit=3600
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-property dumps-verify

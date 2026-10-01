@@ -66,12 +66,6 @@ heap_marked() {
   [ -f "$1/heap-free" ] || [ -f "$1/../heap-free" ]
 }
 
-# heap_directives TEST: the directives heap_free needs for TEST.
-heap_directives() {
-  heap_marked "$1" && say '--directive dump-mlir'
-  return 0
-}
-
 # heap_free TEST DUMPS: for a marked test, nothing in the module that
 # idr-lower lowers, the last dumped before it in DUMPS, allocates a heap
 # cell; for any other, nothing.

@@ -104,8 +104,8 @@ middle fc dir src = do
 ------------------------------------------------------------------------------
 
 ||| `--directive no-eval`: `idris-mlir-cc --no-eval`, which leaves every
-||| closed call to run at runtime. The
-||| equivalence suite (tests/equivalence) compiles each program both ways.
+||| closed call to run at runtime. Every e2e test compiles its program both
+||| ways (tests/lib/properties.sh, without_evaluation).
 noEval : {auto c : Ref Ctxt Defs} -> Core (List String)
 noEval = do
   ds <- getDirectives (Other "mlir")
