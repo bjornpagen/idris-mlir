@@ -1,0 +1,3 @@
+# Removing duplicates from a sorted list (LeetCode 83): kept cells are
+# reused, dropped ones freed, and no take tests a count.
+idr-rc: tests-nothing=@Main.dedup reuses-in-place=@Main.dedup

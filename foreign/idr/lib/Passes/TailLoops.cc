@@ -364,8 +364,9 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
         continue;
       Value value = scrutinee;
       if (ctor)
-        value = idr::FieldOp::create(b, field.getLoc(), decl.getFieldType(field.getArgNumber()),
-                                     scrutinee, ctor, b.getI64IntegerAttr(field.getArgNumber()));
+        value = idr::FieldOp::create(
+            b, field.getLoc(), idr::fieldType(scrutinee.getType(), decl.getFieldType(field.getArgNumber())),
+            scrutinee, ctor, b.getI64IntegerAttr(field.getArgNumber()));
       field.replaceAllUsesWith(idr::heldAs(b, field.getLoc(), value, field.getType()));
     }
   }

@@ -1,0 +1,4 @@
+# The k-th node from the end (LeetCode 19): the list is walked once to
+# count, reversed in place and reversed back, then the node is unlinked;
+# nothing is copied, and no take tests a count. Unlinking frees one cell.
+idr-rc: tests-nothing=@Main.countRev counts-nothing=@Main.countRev reuses-in-place=@Main.countRev tests-nothing=@Main.removeAt

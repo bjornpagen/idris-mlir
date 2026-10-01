@@ -1259,9 +1259,50 @@ on.
      where it ran 1.37 s after TRMC (same machine, 4 cores, load about
      1.5). A dup of static data now runs nothing (the lowering read the
      constant through the no-rollback driver's replaced value). Not yet:
-     the per-constructor cover (cfold), cloning a function for its
-     exclusive call sites, `noalias` from `excl`, freeing an exclusive
-     tree without reading its counts.
+     the per-constructor cover (cfold), `noalias` from `excl`, freeing an
+     exclusive tree without reading its counts.
+   - **Landed 2026-10-01 (what the leetcode suite on `Data.Linear.LList`
+     found):** five representation gaps, each fixed by a rule, none by a
+     pattern. (1) `idr.field` reads a field at the value's grade times the
+     field's, as the match binds it (`idr::fieldType`), and so does
+     `idr.take`; the fold of a field of a known constructor gives the
+     operand only at the same grade, else the canonicalizer holds it as
+     read. A closure's linear captures matched from an unrestricted value
+     (pidigits' IO loop) were the failing case. (2) The default region of
+     a match takes the owned scrutinee itself back, not a view it had to
+     duplicate while the original dropped: a two-list match (`merge`) was
+     never exclusive because of that dup. (3) A nullary constructor is its
+     atom, so its take yields no token and nothing is dropped: that drop
+     was the one count op left in `rev`. (4) `idr-stack` lets the cell of
+     a value matched at quantity 1 escape: the match takes it apart and
+     builds in it again, so a rebuilt cell passed to a consuming callee is
+     the callee's to reuse, not a stack slot (rbidx's regression). (5) A
+     function with exclusive callers and shared ones is specialized on the
+     grade as the specializer specializes on types: the exclusive calls go
+     to a copy (`f$excl`), rounds until no call moves, on the same
+     solver. The compile-time evaluator makes this common: a closed
+     `build 10` becomes a static list, and every function it flows into
+     would otherwise take all its lists shared. With these, `rev`,
+     `merge`, `part`, `kadane`, `insert`, `removeAt` and the rest take
+     nothing apart with a test, count nothing, and rebuild in place; the
+     lowered programs have one allocation site and no inc or dec. (6)
+     `idr-trmc` looks through a grade change between the recursive call
+     and the constructor's field (`idr.lin.enter`, which has no runtime
+     form), so `merge`, `app`, `dedup`, `insert` and the library's own
+     `length` run in constant stack; the e2e harness runs every program
+     on a 1 MiB stack, which is what found it. Where a recursion builds
+     under a field of a pair (a length that gives the list back), the
+     fixtures use two in-place passes instead, as a linked-list program
+     does. (7) A match whose cases name every constructor loses its
+     default region in canonicalization: Idris's case trees carry one for
+     the clauses after a complete split, and to every analysis it was a
+     path, one that rebuilt the scrutinee on the stack and shared its
+     fields, which made `removeAt` a mixed function with a copy for the
+     fresh calls and a shared original for a path that never runs. (8) A
+     linear operand of a constructor moves into its field read when that
+     field is read once and the constructor is read no other way
+     (`fieldReadOnce`), not only when the constructor has a single use:
+     a rebuilt pair read back field by field folds away entirely.
    - Demand remarks for census types.
    - *Load:* static reuse.
    - *Proof:*

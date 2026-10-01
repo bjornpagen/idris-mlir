@@ -31,6 +31,26 @@ struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
   }
 };
 
+// A default region the match cannot take: its cases name every constructor
+// of the data. Idris's case trees carry one for the clauses that follow a
+// complete split, and it looks like a path to every analysis.
+struct DropCoveredDefault : OpRewritePattern<MatchOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(MatchOp op, PatternRewriter &rewriter) const final {
+    if (!op.getDefaultRegion())
+      return failure();
+    DataOp data = lookupData(op, op.getScrutinee().getType());
+    if (!data || op.getCases().size() != llvm::range_size(data.getBody().getOps<CtorOp>()))
+      return failure();
+    SmallVector<Attribute> cases(op.getCases().begin(), op.getCases().end());
+    SmallVector<Region *> regions;
+    for (unsigned index = 0, e = static_cast<unsigned>(cases.size()); index < e; ++index)
+      regions.push_back(&op.getCaseRegion(index));
+    rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
+    return success();
+  }
+};
+
 // A case region's arguments are its constructor's fields, read from the
 // value the scrutinee entered its grade from and held as the region binds
 // them; the default region's argument is the scrutinee itself.
@@ -43,8 +63,9 @@ Value readField(OpBuilder &builder, Location loc, Value value) {
   auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region]);
   Value source = throughLinear(match.getScrutinee());
   CtorOp decl = lookupCtor(lookupData(match, source.getType()), ctor.getValue());
-  Value field = FieldOp::create(builder, loc, decl.getFieldType(arg.getArgNumber()), source, ctor,
-                                builder.getI64IntegerAttr(arg.getArgNumber()));
+  Value field = FieldOp::create(builder, loc,
+                                fieldType(source.getType(), decl.getFieldType(arg.getArgNumber())),
+                                source, ctor, builder.getI64IntegerAttr(arg.getArgNumber()));
   return heldAs(builder, loc, field, arg.getType());
 }
 
@@ -76,6 +97,7 @@ void populate(RewritePatternSet &results, MLIRContext *context,
 
 void MatchOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   populate<MatchOp>(results, context, readField, readsPlainValue);
+  results.add<DropCoveredDefault>(context);
 }
 
 void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,

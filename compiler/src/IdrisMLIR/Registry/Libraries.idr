@@ -125,4 +125,4 @@ admits o q = covers Admitted o || (q.space == ["PrimIO"] && elem q.name admitted
 ||| flag like any other escape hatch.
 export
 assertion : QName -> Bool
-assertion q = q == MkQName ["Builtin"] "assert_total"
+assertion q = q.space == ["Builtin"] && elem q.name ["assert_total", "assert_smaller"]

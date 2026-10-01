@@ -166,8 +166,12 @@ Escapes::Flow Escapes::flow(OpOperand &use, Mode mode, const Frame &frame,
       .Case([&](FieldOp field) { return read(field.getResult()); })
       .Case([&](TagOp) { return read({}); })
       // A match's only operand is its scrutinee; its case regions'
-      // arguments are the fields.
-      .Case([&](MatchOp match) {
+      // arguments are the fields. A match on a linear value takes it
+      // apart, and the cell it leaves is the match's to build in again: the
+      // cell's own reference goes with it.
+      .Case([&](MatchOp match) -> Flow {
+        if (mode == Mode::Shallow && quantityOf(match.getScrutinee().getType()) == Quantity::One)
+          return lost;
         SmallVector<Value> fields;
         for (Region &region : match.getRegions())
           llvm::append_range(fields, region.getArguments());

@@ -1,0 +1,4 @@
+# Matching brackets (LeetCode 20) with a linear stack: pushes and pops
+# move cells, with no count test. The literal inputs are static lists, so
+# the call on the generated input goes to the copy specialized on the grade.
+idr-rc: tests-nothing=@Main.check$excl

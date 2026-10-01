@@ -60,8 +60,7 @@ module attributes {idr.program} {
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
     %k_use = idr.lin.use %k : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
     %io = idr.apply %k_use(%u) : !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %f_lin = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
@@ -269,8 +268,7 @@ module attributes {idr.program} {
   }
   func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %io = func.call @s1() : () -> !idr.data<@IO>
-    %f_lin = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }

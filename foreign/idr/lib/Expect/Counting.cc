@@ -5,6 +5,8 @@
 #include "Expect/Expect.h"
 #include "Ownership/Ownership.h"
 
+#include "mlir/IR/Matchers.h"
+
 using namespace mlir;
 
 namespace idr::expect {
@@ -40,6 +42,9 @@ LogicalResult countsNothing(ModuleOp module, StringRef function) {
   bool held = true;
   fn.walk([&](Operation *op) {
     if (!isa<DupOp, DropOp>(op))
+      return;
+    // Static data holds no count: a reference to it costs nothing.
+    if (auto dup = dyn_cast<DupOp>(op); dup && matchPattern(dup.getValue(), m_Constant()))
       return;
     fail(op->getLoc(), property) << op->getName() << " in " << where(op);
     held = false;

@@ -91,6 +91,21 @@ void printNatural(OpAsmPrinter &printer, Operation *, Type type) {
   printResultAtGrade(printer, type, BigType::get(type.getContext()));
 }
 
+// A parenthesized list of result types, which may be empty: `()`.
+ParseResult parseResultTypes(OpAsmParser &parser, SmallVectorImpl<Type> &types) {
+  if (parser.parseLParen())
+    return failure();
+  if (succeeded(parser.parseOptionalRParen()))
+    return success();
+  return failure(parser.parseTypeList(types) || parser.parseRParen());
+}
+
+void printResultTypes(OpAsmPrinter &printer, Operation *, TypeRange types) {
+  printer << '(';
+  llvm::interleaveComma(types, printer);
+  printer << ')';
+}
+
 // The result of a dup: the value owned, unless written, `-> T`, at another
 // owned grade.
 ParseResult parseOwnedResult(OpAsmParser &parser, Type &type, Type value) {
@@ -475,8 +490,11 @@ LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
     return emitOpError("refers to an unknown constructor ") << getCtorAttr();
   if (getIndex() >= ctor.getFieldTypes().size())
     return emitOpError("field index out of range");
-  if (ctor.getFieldType(static_cast<unsigned>(getIndex())) != getType())
-    return emitOpError("result type does not match the field type");
+  // A field is read at the value's grade times its own, as a match binds it.
+  Type expected = fieldType(getValue().getType(), ctor.getFieldType(static_cast<unsigned>(getIndex())));
+  if (expected != getType())
+    return emitOpError("has result ") << getType() << ", but the field of a "
+                                      << getValue().getType() << " is read as " << expected;
   return success();
 }
 
@@ -488,9 +506,14 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
-    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr() &&
-        (quantityOf(getType()) != Quantity::One || readOnce(getValue())))
-      return con.getFields()[index];
+    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr()) {
+      // A field read at another grade than the constructor took it is
+      // the canonicalizer's, which holds it as read.
+      Value field = con.getFields()[index];
+      if (field.getType() == getType() &&
+          (quantityOf(field.getType()) != Quantity::One || fieldReadOnce(con.getResult(), index)))
+        return field;
+    }
   // The constant is the operand's, as folding or constant propagation knows
   // it, or the one it passed a linear position from.
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
@@ -1093,7 +1116,8 @@ LogicalResult DestOfOp::verifySymbolUses(SymbolTableCollection &symbols) {
     return emitOpError("refers to an unknown constructor ") << getCtorAttr();
   if (getIndex() >= ctor.getFieldTypes().size())
     return emitOpError("field index out of range");
-  if (ctor.getFieldType(static_cast<unsigned>(getIndex())) != getType().getValue())
+  // A destination is the field's word, whatever grade the field is held at.
+  if (unrestricted(ctor.getFieldType(static_cast<unsigned>(getIndex()))) != getType().getValue())
     return emitOpError("destination type does not match the field type");
   return success();
 }

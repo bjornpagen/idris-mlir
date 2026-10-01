@@ -1,0 +1,3 @@
+# Insertion sort of a list (LeetCode 147): every cell moves to its place;
+# one cell is allocated per insertion, and no take tests a count.
+idr-rc: tests-nothing=@Main.insert counts-nothing=@Main.insert

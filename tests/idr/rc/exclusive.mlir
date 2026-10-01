@@ -2,22 +2,31 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@bump2 -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
+// RUN: idris-mlir-opt %s --idr-rc '--idr-expect=holds=tests-nothing=@bump2$excl' -o /dev/null
 // idr-rc proves which values hold the only reference to every cell they
 // reach, and writes it into their types: a list built of fresh cells is
 // exclusive, and so is what a function that only ever gets exclusive lists
 // takes apart and rebuilds. Its takes test no count (tests-nothing). A
 // list a caller uses again is shared, and the function it then goes to
-// takes its cells apart with the runtime test.
+// takes its cells apart with the runtime test; where the same function
+// also gets fresh lists, those calls go to a copy specialized on the grade.
 // CHECK-LABEL: func.func private @build(
 // CHECK-SAME: -> !idr.excl<!idr.box<@L>>
 // CHECK-LABEL: func.func private @bump(
 // CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<@L>>) -> !idr.excl<!idr.box<@L>>
+// A nullary constructor is its atom: its take yields nothing.
+// CHECK: idr.take %{{.*}} @L::@N : !idr.excl<!idr.box<@L>> -> ()
 // CHECK: idr.take %{{.*}} @L::@C : !idr.excl<!idr.box<@L>> -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<@L>>)
 // CHECK-LABEL: func.func private @bump2(
 // CHECK-SAME: %{{.*}}: !idr.own<!idr.box<@L>>) -> !idr.excl<!idr.box<@L>>
 // CHECK: idr.take %{{.*}} @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
+// The calls of @bump2 with an exclusive list go to a copy of their own.
+// CHECK-LABEL: func.func private @bump2$excl(
+// CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<@L>>) -> !idr.excl<!idr.box<@L>>
+// CHECK: func.call @bump2$excl(
 // CHECK-LABEL: func.func @root(
 // CHECK: idr.share %{{.*}} : !idr.excl<!idr.box<@L>>
+// CHECK: call @bump2$excl(
 // SHARED: error: expected tests-nothing: idr.take in @bump2 tests a value of '!idr.own<!idr.box<@L>>', which is not exclusive
 module attributes {idr.program} {
   idr.data @L box {
@@ -102,10 +111,15 @@ module attributes {idr.program} {
     %p = func.call @bump2(%m) : (!idr.box<@L>) -> !idr.box<@L>
     %s3 = func.call @sum(%k, %z) : (!idr.box<@L>, i64) -> i64
     %s4 = func.call @sum(%p, %z) : (!idr.box<@L>, i64) -> i64
+    // Fresh again, to the same function: exclusive, in a copy.
+    %q = func.call @build(%c3) : (i64) -> !idr.box<@L>
+    %r = func.call @bump2(%q) : (!idr.box<@L>) -> !idr.box<@L>
+    %s5 = func.call @sum(%r, %z) : (!idr.box<@L>, i64) -> i64
     %w1 = idr.io.put_int signed %s1, %w : i64
     %w2 = idr.io.put_int signed %s2, %w1 : i64
     %w3 = idr.io.put_int signed %s3, %w2 : i64
     %w4 = idr.io.put_int signed %s4, %w3 : i64
-    return %w4 : !idr.world
+    %w5 = idr.io.put_int signed %s5, %w4 : i64
+    return %w5 : !idr.world
   }
 }

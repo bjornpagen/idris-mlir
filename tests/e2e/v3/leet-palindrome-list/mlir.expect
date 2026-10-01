@@ -1,0 +1,2 @@
+# A palindrome check (LeetCode 234) by reversing one half in place.
+idr-rc: tests-nothing=@Main.rev counts-nothing=@Main.rev

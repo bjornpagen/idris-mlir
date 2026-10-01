@@ -14,7 +14,8 @@ TakeOp takeAtEntry(MatchOp match, unsigned index) {
   auto ctor = SymbolRefAttr::get(data.getAttr(), {cast<FlatSymbolRefAttr>(match.getCases()[index])});
   Counting counting(match->getParentOfType<ModuleOp>());
   SmallVector<Type> results;
-  if (isa<BoxType>(unrestricted(value.getType())))
+  // A constructor without fields is its atom, which is nobody's to build in.
+  if (isa<BoxType>(unrestricted(value.getType())) && block.getNumArguments() != 0)
     results.push_back(owned(TokenType::get(match.getContext())));
   for (Type field : block.getArgumentTypes())
     results.push_back(counting.counted(field) ? owned(field) : field);

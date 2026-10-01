@@ -12,8 +12,7 @@
 // CHECK: %[[W1:.*]] = idr.io.put_int signed
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int signed %{{.*}}, %[[W1]]
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[B]][@MkIO, 0]
-// CHECK-NEXT: %[[U:.*]] = idr.lin.use %[[F]]
-// CHECK-NEXT: %[[R:.*]] = idr.apply %[[U]](%[[W2]])
+// CHECK-NEXT: %[[R:.*]] = idr.apply %[[F]](%[[W2]])
 // CHECK-NEXT: %[[W3:.*]] = idr.field %[[R]][@MkIORes, 1]
 // CHECK-NEXT: %[[W4:.*]] = idr.io.put_int signed %{{.*}}, %[[W3]]
 // CHECK-NEXT: %{{.*}} = call @actions$raise$[[N:[0-9]+]](%{{.*}}, %[[W4]])
@@ -48,8 +47,7 @@ module attributes {idr.program} {
   func.func private @then(%a: !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>, %b: !idr.data<@IO>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
     %r = idr.apply %a(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
-    %f_lin = idr.field %b[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %b[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
@@ -85,13 +83,11 @@ module attributes {idr.program} {
     %a = func.call @actions(%xs) : (!idr.box<@L>) -> !idr.data<@IO>
     %w1 = idr.io.put_int signed %n, %w : i64
     %w2 = idr.io.put_int signed %n, %w1 : i64
-    %f_lin = idr.field %b[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %b[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w2) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %w3 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
     %w4 = idr.io.put_int signed %n, %w3 : i64
-    %g2_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %g2 = idr.lin.use %g2_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %g2 = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %s = idr.apply %g2(%w4) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }

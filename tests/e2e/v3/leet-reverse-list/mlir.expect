@@ -1,0 +1,4 @@
+# Reversing a list in place: every cell is reused, and no take tests a count.
+# The small example is evaluated at compile time; the calls that remain all
+# pass fresh lists, so rev takes nothing apart with a test.
+idr-rc: tests-nothing=@Main.rev counts-nothing=@Main.rev reuses-in-place=@Main.rev

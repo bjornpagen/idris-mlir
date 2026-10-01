@@ -31,8 +31,7 @@ module attributes {idr.program} {
     %io = func.call @greet(%n) : (i64) -> !idr.data<@IO>
     %in = idr.lin.enter %io : !idr.lin<!idr.data<@IO>>
     %out = idr.lin.use %in : !idr.lin<!idr.data<@IO>>
-    %f_lin = idr.field %out[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %out[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }

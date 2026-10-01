@@ -24,6 +24,9 @@
 #include "mlir/IR/Matchers.h"
 
 #include "llvm/ADT/SetVector.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "idr-rc"
 
 using namespace mlir;
 using namespace mlir::dataflow;
@@ -144,18 +147,12 @@ public:
     if (auto dup = dyn_cast<DupOp>(op))
       return set(results[0], isAtom(dup.getValue()) ? Sharing::Exclusive : Sharing::Shared);
     // The fields of an exclusive value are exclusive: it alone reached
-    // them. So is the cell it leaves behind, unless the constructor has no
-    // fields: that cell may be the atom, which is nobody's to write.
-    if (auto take = dyn_cast<TakeOp>(op)) {
+    // them. So is the cell it leaves behind.
+    if (isa<TakeOp>(op)) {
       Sharing sharing = held(operands[0]);
-      CtorOp ctor = lookupCtor(take, take.getCtor());
-      for (auto [result, lattice] : llvm::zip(op->getResults(), results)) {
-        if (!followed(result))
-          continue;
-        bool atom = isa<TokenType>(unrestricted(result.getType())) &&
-                    (!ctor || ctor.getFieldTypes().empty());
-        propagateIfChanged(lattice, lattice->join(Cells::of(atom ? Sharing::Shared : sharing)));
-      }
+      for (auto [result, lattice] : llvm::zip(op->getResults(), results))
+        if (followed(result))
+          propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
       return success();
     }
     if (isa<LinEnterOp, LinUseOp>(op))
@@ -373,19 +370,137 @@ private:
 
 } // namespace
 
+namespace {
+
+// A function called with exclusive values from some callers and shared ones
+// from others would take its parameters shared, and test every cell for
+// all of them. Instead it is specialized on the grade, as the specializer
+// specializes on types: the calls whose every followed argument is
+// exclusive go to a copy of their own, whose parameters the next solve
+// proves exclusive. A call is redirected at most once, so the rounds end.
+// A function whose callers the solver does not all see (a closure's code)
+// keeps them, and a copy is never copied again.
+class Specialize {
+public:
+  // The copies made so far, by their original, which a call made exclusive
+  // by an earlier round's copy joins.
+  using Copies = llvm::DenseMap<Operation *, func::FuncOp>;
+
+  Specialize(ModuleOp module, DataFlowSolver &solver, Copies &copies)
+      : module(module), solver(solver), copies(copies) {}
+
+  bool run() {
+    SymbolTableCollection symbols;
+    SmallVector<func::FuncOp> fns(module.getOps<func::FuncOp>());
+    bool redirected = false;
+    for (func::FuncOp fn : fns) {
+      if (fn.isExternal() || fn.isPublic() || fn.getSymName().ends_with(copySuffix))
+        continue;
+      auto *callers = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
+      if (!callers || !callers->allPredecessorsKnown())
+        continue;
+      SmallVector<func::CallOp> exclusiveCalls;
+      bool mixed = false;
+      for (Operation *pred : callers->getKnownPredecessors()) {
+        auto call = dyn_cast<func::CallOp>(pred);
+        if (!call || !isLive(call))
+          continue;
+        if (improves(fn, call))
+          exclusiveCalls.push_back(call);
+        else
+          mixed = true;
+      }
+      if (exclusiveCalls.empty() || !mixed)
+        continue;
+      func::FuncOp copy = copyOf(fn);
+      for (func::CallOp call : exclusiveCalls)
+        call.setCalleeAttr(FlatSymbolRefAttr::get(copy.getSymNameAttr()));
+      LLVM_DEBUG(llvm::dbgs() << "idr-rc: " << exclusiveCalls.size() << " calls of @"
+                              << fn.getSymName() << " go to @" << copy.getSymName() << "\n");
+      redirected = true;
+    }
+    return redirected;
+  }
+
+private:
+  static constexpr StringLiteral copySuffix = "$excl";
+
+  bool isLive(Operation *op) {
+    auto *state = solver.lookupState<Executable>(solver.getProgramPointBefore(op->getBlock()));
+    return state && state->isLive();
+  }
+
+  Sharing sharingOf(Value value) {
+    auto *lattice = solver.lookupState<CellsLattice>(value);
+    return lattice ? lattice->getValue().sharing : Sharing::Unknown;
+  }
+
+  // Whether the call gives every followed parameter an exclusive value, and
+  // at least one of them a value the function now takes shared.
+  bool improves(func::FuncOp fn, func::CallOp call) {
+    bool gains = false;
+    for (auto [param, arg] : llvm::zip(fn.getArguments(), call.getArgOperands())) {
+      if (!followed(param))
+        continue;
+      if (sharingOf(arg) != Sharing::Exclusive)
+        return false;
+      gains |= sharingOf(param) == Sharing::Shared;
+    }
+    return gains;
+  }
+
+  func::FuncOp copyOf(func::FuncOp fn) {
+    auto it = copies.find(fn);
+    if (it != copies.end())
+      return it->second;
+    func::FuncOp copy = fn.clone();
+    copy.setSymName((fn.getSymName() + copySuffix).str());
+    copy.setPrivate();
+    OpBuilder b(fn);
+    b.setInsertionPointAfter(fn);
+    b.insert(copy.getOperation());
+    copies.try_emplace(fn, copy);
+    return copy;
+  }
+
+  ModuleOp module;
+  DataFlowSolver &solver;
+  Copies &copies;
+};
+
+} // namespace
+
 FailureOr<unsigned> inferExclusive(ModuleOp module) {
   // A clone names itself (idr.clone) without calling it, which the solver
   // would take for a caller it cannot see; nothing after idr-rc reads it.
   for (auto fn : module.getOps<func::FuncOp>())
     fn->removeAttr("idr.clone");
   shareTainted(module);
-  DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-  solver.load<DeadCodeAnalysis>();
-  solver.load<NoConstants>();
-  solver.load<ExclusiveAnalysis>();
-  if (failed(solver.initializeAndRun(module)))
-    return failure();
-  return Commit(module, solver).run();
+  Specialize::Copies copies;
+  // Every round redirects a call for good, so the rounds are bounded by
+  // the calls; a round past that is a bug here.
+  unsigned calls = 0;
+  module.walk([&](func::CallOp) { ++calls; });
+  for (unsigned round = 0;; ++round) {
+    DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
+    solver.load<DeadCodeAnalysis>();
+    solver.load<NoConstants>();
+    solver.load<ExclusiveAnalysis>();
+    if (failed(solver.initializeAndRun(module)))
+      return failure();
+    if (round <= calls && Specialize(module, solver, copies).run())
+      continue;
+    if (round > calls)
+      return module.emitError("idr-rc: specializing on exclusivity did not settle"), failure();
+    FailureOr<unsigned> exclusive = Commit(module, solver).run();
+    if (failed(exclusive))
+      return failure();
+    // A function every call of which went to its copy is unused.
+    for (auto [original, copy] : copies)
+      if (SymbolTable::symbolKnownUseEmpty(original, module))
+        original->erase();
+    return exclusive;
+  }
 }
 
 } // namespace idr::ownership

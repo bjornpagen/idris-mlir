@@ -58,15 +58,13 @@ module attributes {idr.program} {
     %a = func.call @greet(%n) : (i64) -> !idr.data<@IO>
     %r = idr.match_lit %n : i64 -> (!idr.data<@IORes>) {
     case 0 {
-      %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+      %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
       %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
       idr.yield %s : !idr.data<@IORes>
     }
     default {
       %w2 = idr.io.put_int signed %n, %w1 : i64
-      %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+      %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
       %s = idr.apply %f(%w2) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
       idr.yield %s : !idr.data<@IORes>
     }

@@ -184,10 +184,11 @@ mlir::Type unrestricted(mlir::Type type);
 // may take a linear part of it is the reader's to decide.
 mlir::Value throughLinear(mlir::Value value);
 
-// Whether `value` has one use, and so has each value it was made from
-// through a linear position: a read of it is the only one, and may take
-// its linear parts.
-bool readOnce(mlir::Value value);
+// Whether the field at `index` of a constructor value is read exactly once,
+// and the value is read no other way: through its grade changes every use
+// is a field read, and one of them reads `index`. Then a linear operand at
+// that index moves into its one read.
+bool fieldReadOnce(mlir::Value value, unsigned index);
 
 } // namespace idr
 

@@ -476,7 +476,8 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         function;
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
-      - `counts-nothing=@f`: no idr.dup or idr.drop in @f;
+      - `counts-nothing=@f`: no idr.dup or idr.drop in @f, other than a dup of
+        static data, which holds no count;
       - `tests-nothing=@f`: every take in @f is of an exclusive value and
         every reuse builds in an exclusive cell, so no count or null is
         tested; and there is at least one take;

@@ -103,6 +103,12 @@ struct LowerTake : IdrPattern<TakeOp> {
       return success();
     }
     Value cell = value.front();
+    // A constructor without fields is its atom: nothing is loaded, and
+    // nothing is anyone's to free.
+    if (!op.getToken()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
     const Cell &layout = layouts.box(ctor);
     SmallVector<Value> components;
     for (const auto &slots : layout.fields) {

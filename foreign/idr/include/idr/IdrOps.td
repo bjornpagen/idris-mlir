@@ -1179,7 +1179,7 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInte
   let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value,
                        SymbolRefAttr:$ctor);
   let results = (outs Variadic<AnyType>:$results);
-  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` `(` type($results) `)`";
+  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` custom<ResultTypes>(type($results))";
   let extraClassDeclaration = [{
     // The token, for a box; null for an unboxed sum.
     ::mlir::Value getToken();

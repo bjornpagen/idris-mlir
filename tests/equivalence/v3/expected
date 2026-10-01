@@ -6,6 +6,16 @@ compile-time-evaluation: same stdout and exit status
 deep-result: same stdout and exit status
 lambda-terminates: same stdout and exit status
 layout-255-counted-fields: same stdout and exit status
+leet-insertion-sort: same stdout and exit status
+leet-kth-from-end: same stdout and exit status
+leet-max-subarray: same stdout and exit status
+leet-merge-sorted: same stdout and exit status
+leet-palindrome-list: same stdout and exit status
+leet-partition: same stdout and exit status
+leet-remove-duplicates: same stdout and exit status
+leet-reverse-list: same stdout and exit status
+leet-rotate: same stdout and exit status
+leet-valid-parentheses: same stdout and exit status
 linear-catch-all: same stdout and exit status
 linear-library-lists: same stdout and exit status
 linear-lollipop: same stdout and exit status
@@ -19,6 +29,7 @@ nat-parity: same stdout and exit status
 nat-sum: same stdout and exit status
 partial-divergent-call: same stdout and exit status
 partial-untaken-divergence: same stdout and exit status
+pidigits: same stdout and exit status
 prelude: same stdout and exit status
 prelude-input: same stdout and exit status
 prelude-io: same stdout and exit status

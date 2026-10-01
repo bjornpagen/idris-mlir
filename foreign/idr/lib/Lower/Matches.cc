@@ -38,7 +38,8 @@ void readFields(RewriterBase &rewriter, Region &region, Value value, FlatSymbolR
   for (BlockArgument field : block.getArguments()) {
     Value read = value;
     if (ctor)
-      read = FieldOp::create(rewriter, field.getLoc(), decl.getFieldType(field.getArgNumber()),
+      read = FieldOp::create(rewriter, field.getLoc(),
+                             fieldType(value.getType(), decl.getFieldType(field.getArgNumber())),
                              value, ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
     rewriter.replaceAllUsesWith(field, heldAs(rewriter, field.getLoc(), read, field.getType()));
   }

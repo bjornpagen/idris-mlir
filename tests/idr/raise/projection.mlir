@@ -23,8 +23,7 @@
 // CHECK-SAME: idr.effects = #idr.effects<io, crash>
 // CHECK-NOT: idr.total
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
-// CHECK-NEXT: %[[U:.*]] = idr.lin.use %[[F]]
-// CHECK-NEXT: %[[Z:.*]] = idr.apply %[[U]](%[[Y]])
+// CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
 // CHECK-NEXT: return %[[Z]]
 // CHECK: func.func private @[[GREET]](
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[B:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
@@ -76,8 +75,7 @@ module attributes {idr.program} {
   }
   func.func private @twice(%io: !idr.data<@IO>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<none>, idr.total} {
     %a = func.call @same(%io) : (!idr.data<@IO>) -> !idr.data<@IO>
-    %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }
@@ -85,8 +83,7 @@ module attributes {idr.program} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %a = func.call @greet(%n) : (i64) -> !idr.data<@IO>
-    %f_lin = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %f = idr.lin.use %f_lin : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
+    %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>
   }

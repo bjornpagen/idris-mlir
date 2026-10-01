@@ -155,6 +155,12 @@ private:
         if (!region.empty() && !usedIn(value, region) && !endsInCrash(region.front()))
           takeAtEntry(match, index);
       }
+      // The default region has the value itself back, not a view of it to
+      // take a reference from while the value drops its own.
+      Region *fallback = match.getDefaultRegion();
+      if (fallback && !fallback->empty() && fallback->getNumArguments() == 1 &&
+          !usedIn(value, *fallback) && !endsInCrash(fallback->front()))
+        fallback->getArgument(0).replaceAllUsesWith(value);
     }
   }
 
@@ -181,7 +187,9 @@ private:
       for (Value result : op->getResults())
         consider(result);
     });
-    for (Value value : sums) {
+    // A sum read from another sum's field is taken apart first: taking
+    // the outer one apart replaces, and erases, the read that defines it.
+    for (Value value : llvm::reverse(sums)) {
       auto read = cast<FieldOp>(*value.getUsers().begin());
       auto ctor = SymbolRefAttr::get(getSumName(value.getType()).getAttr(), {read.getCtorAttr()});
       CtorOp decl = lookupCtor(read, ctor);
@@ -191,7 +199,7 @@ private:
       SmallVector<Type> fields;
       for (unsigned index = 0, e = static_cast<unsigned>(decl.getFieldTypes().size()); index < e;
            ++index)
-        fields.push_back(decl.getFieldType(index));
+        fields.push_back(fieldType(value.getType(), decl.getFieldType(index)));
       takeFields(value, ctor, fields);
     }
   }

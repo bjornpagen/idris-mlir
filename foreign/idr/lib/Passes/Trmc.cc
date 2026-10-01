@@ -89,11 +89,15 @@ void forTails(Block &block, function_ref<void(Block &)> f) {
 }
 
 // A tail modulo constructor: the self call whose result is field `index`
-// of the constructor `built`, which the block's terminator passes on.
+// of the constructor `built`, which the block's terminator passes on. The
+// result may enter or leave a grade on its way to the field (`grades`,
+// nearest the field first): a grade has no runtime form, and goes with
+// the call.
 struct Modulo {
   func::CallOp call;
   Operation *built;
   unsigned index;
+  SmallVector<Operation *, 2> grades;
 };
 
 std::optional<Modulo> moduloAt(Block &block, func::FuncOp fn) {
@@ -102,15 +106,24 @@ std::optional<Modulo> moduloAt(Block &block, func::FuncOp fn) {
   if (!passesOnPrevious(terminator) || !buildsBox(built))
     return std::nullopt;
   for (auto [index, field] : llvm::enumerate(fieldsOf(built))) {
-    auto call = field.getDefiningOp<func::CallOp>();
+    SmallVector<Operation *, 2> grades;
+    Value source = field;
+    while (Operation *def = source.getDefiningOp()) {
+      if (!isa<idr::LinEnterOp, idr::LinUseOp>(def) || !def->hasOneUse())
+        break;
+      grades.push_back(def);
+      source = def->getOperand(0);
+    }
+    auto call = source.getDefiningOp<func::CallOp>();
     if (!call || !isSelfCall(call, fn) || call->getBlock() != &block || !call->hasOneUse() ||
         call->getNumResults() != 1)
       continue;
     bool movable = true;
     for (Operation *op = call->getNextNode(); op != built; op = op->getNextNode())
-      movable = movable && isMemoryEffectFree(op) && isSpeculatable(op);
+      movable = movable &&
+                (llvm::is_contained(grades, op) || (isMemoryEffectFree(op) && isSpeculatable(op)));
     if (movable)
-      return Modulo{call, built, static_cast<unsigned>(index)};
+      return Modulo{call, built, static_cast<unsigned>(index), std::move(grades)};
   }
   return std::nullopt;
 }
@@ -135,9 +148,11 @@ void passDestination(OpBuilder &b, Modulo tail, func::FuncOp clone, Value hole) 
   Location loc = tail.call.getLoc();
   Value cell = tail.built->getResult(0);
   b.setInsertionPoint(tail.built);
-  Value pending = idr::PendingOp::create(b, loc, tail.call.getResult(0).getType());
+  Value pending = idr::PendingOp::create(b, loc, fieldsOf(tail.built)[tail.index].getType());
   unsigned first = tail.built->getNumOperands() - static_cast<unsigned>(fieldsOf(tail.built).size());
   tail.built->setOperand(first + tail.index, pending);
+  for (Operation *grade : tail.grades)
+    grade->erase();
   b.setInsertionPointAfter(tail.built);
   SymbolRefAttr ctor = ctorOf(tail.built);
   // The destination is taken from a view of the cell, whose reference

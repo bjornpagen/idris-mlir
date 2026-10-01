@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-trmc -o %t.trmc.mlir
 // RUN: FileCheck %s < %t.trmc.mlir
-// RUN: idris-mlir-opt %t.trmc.mlir --idr-tail-loops --idr-expect=holds=constant-stack=@copy -o %t.mlir
+// RUN: idris-mlir-opt %t.trmc.mlir --idr-tail-loops --idr-expect=holds=constant-stack=@copy,constant-stack=@copyLin -o %t.mlir
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@depth -o /dev/null 2> %t.err && FileCheck %s --check-prefix=DEPTH < %t.err
 // @copy returns a constructor around its own result: the constructor is
 // built first, with the field pending, and its destination goes to a
@@ -27,6 +27,13 @@
 // CHECK-NEXT: func.call @copy$trmc(%{{.*}}, %[[D2]])
 // CHECK-NEXT: idr.yield
 // CHECK-NOT: func.func private @depth$trmc(
+// The result of a call may enter a grade on its way to the field: a grade
+// has no runtime form, and goes with the call.
+// CHECK-LABEL: func.func private @copyLin(
+// CHECK: %[[PL:.*]] = idr.dest.pending : !idr.q<1 own, !idr.box<@LList>>
+// CHECK: idr.con @LList::@LCons(%{{.*}}, %[[PL]])
+// CHECK: func.call @copyLin$trmc(
+// CHECK-LABEL: func.func private @copyLin$trmc(
 // DEPTH: expected constant-stack: the stack grows with the recursion of @depth
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @List box {
@@ -47,6 +54,26 @@ module attributes {idr.program, idr.stage = "owned"} {
     }
     }
     return %r : !idr.own<!idr.box<@List>>
+  }
+  idr.data @LList box {
+    idr.ctor @LNil ()
+    idr.ctor @LCons (i64, !idr.lin<!idr.box<@LList>>)
+  }
+  func.func private @copyLin(%xs: !idr.box<@LList>) -> !idr.own<!idr.box<@LList>> attributes {idr.total} {
+    %r = idr.match %xs : !idr.box<@LList> -> (!idr.own<!idr.box<@LList>>) {
+    case @LNil() {
+      %nil = idr.constant #idr.con<@LList::@LNil, []> : !idr.box<@LList>
+      %o = idr.dup %nil : !idr.box<@LList>
+      idr.yield %o : !idr.own<!idr.box<@LList>>
+    }
+    case @LCons(%x: i64, %rest: !idr.box<@LList>) {
+      %ys = func.call @copyLin(%rest) : (!idr.box<@LList>) -> !idr.own<!idr.box<@LList>>
+      %l = idr.lin.enter %ys : !idr.q<1 own, !idr.box<@LList>>
+      %c = idr.con @LList::@LCons(%x, %l) : (i64, !idr.q<1 own, !idr.box<@LList>>) -> !idr.own<!idr.box<@LList>>
+      idr.yield %c : !idr.own<!idr.box<@LList>>
+    }
+    }
+    return %r : !idr.own<!idr.box<@LList>>
   }
   func.func private @depth(%xs: !idr.box<@List>) -> !idr.own<!idr.box<@List>> attributes {idr.total} {
     %r = idr.match %xs : !idr.box<@List> -> (!idr.own<!idr.box<@List>>) {
@@ -80,6 +107,9 @@ module attributes {idr.program, idr.stage = "owned"} {
     %b = func.call @depth(%va) : (!idr.box<@List>) -> !idr.own<!idr.box<@List>>
     idr.drop %a : !idr.own<!idr.box<@List>>
     idr.drop %b : !idr.own<!idr.box<@List>>
+    %ls = idr.constant #idr.con<@LList::@LNil, []> : !idr.box<@LList>
+    %c = func.call @copyLin(%ls) : (!idr.box<@LList>) -> !idr.own<!idr.box<@LList>>
+    idr.drop %c : !idr.own<!idr.box<@LList>>
     %zero = arith.constant 0 : i64
     return %zero : i64
   }

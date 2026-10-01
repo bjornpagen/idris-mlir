@@ -1,0 +1,3 @@
+# Merging two sorted lists (LeetCode 21): the merged list is made of the
+# two lists' cells, and every take moves out of an exclusive cell.
+idr-rc: tests-nothing=@Main.merge counts-nothing=@Main.merge reuses-in-place=@Main.merge

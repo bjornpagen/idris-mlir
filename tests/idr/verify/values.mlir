@@ -82,7 +82,7 @@ idr.data @T {
   idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i32 {
-  // expected-error @+1 {{result type does not match the field type}}
+  // expected-error @+1 {{has result 'i32', but the field of a '!idr.data<@T>' is read as 'i64'}}
   %x = idr.field %v[@A, 0] : !idr.data<@T> -> i32
   return %x : i32
 }

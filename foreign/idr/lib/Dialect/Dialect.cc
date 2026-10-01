@@ -399,14 +399,24 @@ Value idr::throughLinear(Value value) {
   }
 }
 
-bool idr::readOnce(Value value) {
-  while (value.hasOneUse()) {
-    Operation *def = value.getDefiningOp();
-    if (!isa_and_nonnull<LinUseOp, LinEnterOp>(def))
-      return true;
-    value = def->getOperand(0);
+bool idr::fieldReadOnce(Value value, unsigned index) {
+  unsigned reads = 0;
+  SmallVector<Value, 4> work{value};
+  while (!work.empty()) {
+    Value held = work.pop_back_val();
+    for (Operation *user : held.getUsers()) {
+      if (isa<LinEnterOp, LinUseOp>(user)) {
+        work.push_back(user->getResult(0));
+        continue;
+      }
+      auto read = dyn_cast<FieldOp>(user);
+      if (!read)
+        return false;
+      if (read.getIndex() == index)
+        ++reads;
+    }
   }
-  return false;
+  return reads == 1;
 }
 
 //===----------------------------------------------------------------------===//

@@ -31,9 +31,12 @@ labels='this compiler|Idris Chez|MLton|clang -O2'
 # and optionally
 #   compare     "bytes" when every output must equal the reference byte
 #               for byte; otherwise they must print the same numbers;
+#   libs        linker flags the C version needs (-lgmp);
 #   rejected    the reason this compiler gives for rejecting the program
 #               today; its column then reads n/a and the C version's output
-#               is the reference.
+#               is the reference;
+#   differs     why this compiler's output differs from Chez's today (a
+#               decided divergence); its column reads n/a likewise.
 # The C and SML versions are bench/c/<name>.c and bench/sml/<name>.sml; a
 # missing one is skipped. Every input is large enough that start-up does
 # not matter.
@@ -100,7 +103,7 @@ build() {
   missing=
   case $1 in
     'this compiler')
-      if [ -f "$bench/$name/rejected" ]; then missing=yes; return; fi
+      if [ -f "$bench/$name/rejected" ] || [ -f "$bench/$name/differs" ]; then missing=yes; return; fi
       idris_sources "$work/ours"
       compile_start=$(date +%s%N)
       bounded "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
@@ -122,9 +125,12 @@ build() {
       ;;
     'clang -O2')
       if [ ! -f "$bench/c/$name.c" ]; then missing=yes; return; fi
+      libs=
+      [ -f "$bench/$name/libs" ] && libs=$(cat "$bench/$name/libs")
+      # shellcheck disable=SC2086 # libs holds linker flags, split on spaces
       bounded "$pinned_cc" -O2 -Xclang -target-cpu -Xclang "$target_cpu" -ffp-contract=off \
         "$bench/c/$name.c" \
-        -o "$work/$name-c" -lm > "$work/build.log" 2>&1 &&
+        -o "$work/$name-c" -lm $libs > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac

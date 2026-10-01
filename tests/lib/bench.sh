@@ -18,12 +18,18 @@ bench_smoke() {
         [ -f "$bs_source" ] && cp "$bs_source" "$work/$bs_name/"
       done
       compile_program --io "$work/$bs_name/Main.idr" prog
-      if [ "$compiled" -ne 0 ] && grep -qF "$(cat "$root/bench/$bs_name/rejected")" "$work/compile.err"; then
+      if [ "$compiled" -ne 0 ] && cat "$work/compile.out" "$work/compile.err" | grep -qF "$(cat "$root/bench/$bs_name/rejected")"; then
         say "$bs_name: rejected as recorded"
       else
         say "$bs_name: not rejected as recorded (compile exit $compiled)"
         show "$work/compile.err"
       fi
+      continue
+    fi
+    # A benchmark whose output differs from Chez's for a decided reason is
+    # not compared with Chez's output.
+    if [ -f "$root/bench/$bs_name/differs" ]; then
+      say "$bs_name: output differs from Chez's, as recorded"
       continue
     fi
     if [ ! -f "$1/$bs_name.in" ] || [ ! -f "$1/$bs_name.out" ]; then

@@ -197,10 +197,12 @@ private:
       auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
                                      {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
       Counting counting(fn->getParentOfType<ModuleOp>());
-      SmallVector<Type> results{owned(TokenType::get(fn.getContext()))};
+      SmallVector<Type> results;
+      if (!ctor.getFieldTypes().empty())
+        results.push_back(owned(TokenType::get(fn.getContext())));
       for (unsigned index = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); index < e;
            ++index) {
-        Type field = ctor.getFieldType(index);
+        Type field = fieldType(box.getType(), ctor.getFieldType(index));
         results.push_back(counting.counted(field) ? owned(field) : field);
       }
       auto take = TakeOp::create(b, loc, results, box, name);
