@@ -131,8 +131,42 @@ their SML. qsort and unionfind are in pure code over `Linear.Array`.
   allocated (the fixtures `linarray-*` state those properties). Both are
   in place: there is no copying array to turn off, since a linear array
   is a mutable object by construction, which is what the linear API
-  promises on every backend. `IOArray` is the escape hatch, imperative
-  code compiled to imperative code.
+  promises on every backend; what there is to turn off is each compiler
+  mechanism, below. `IOArray` is the escape hatch, imperative code
+  compiled to imperative code.
+- **Ablation.** `idris-mlir-cc --without=STEP,...` (or `--directive
+  without=STEP,...` through `idris-mlir`) leaves pipeline steps out, or
+  idr-rc's mechanisms (`reuse`, `borrow`, `sink`), so what each one is
+  worth is a measurement, not a claim. fannkuch-linear and unionfind, best
+  of 3 on this machine, each variant compiled and run alone (2026-10-01):
+
+  | left out | fannkuch-linear | unionfind |
+  | --- | ---: | ---: |
+  | nothing | 0.209 | 0.166 |
+  | idr-simplify | 4.770 | 1.484 |
+  | sink (consumer sinking in idr-rc) | 0.240 | 0.166 |
+  | idr-returned-arguments | 0.201 | 0.241 |
+  | reuse (reset/reuse in idr-rc) | 0.211 | 0.215 |
+  | idr-stack | 0.199 | 0.215 |
+  | idr-tail-loops | 0.214 | 0.197 |
+  | idr-defunctionalize | 0.215 | 0.203 |
+  | idr-contify | 0.194 | 0.190 |
+  | idr-trmc | 0.198 | 0.177 |
+  | borrow (borrow inference in idr-rc) | 0.196 | 0.163 |
+  | idr-narrow | 0.197 | 0.167 |
+
+  The linear library is plain Idris: `read` and `write` wrap base's array
+  primitive in `unsafePerformIO`, rebuild the `MkArray` record and give it
+  back through `Res` pairs. Without the simplify loop (inlining,
+  specialization, compile-time evaluation and the dialect's
+  canonicalizations) fannkuch-linear takes 23x longer and unionfind 9x:
+  that is what the loops of loads and stores cost to recover from the
+  functional program, and it is the compiler's work, not the program's.
+  After it, what each remaining mechanism is worth is within the machine's
+  spread on fannkuch (consumer sinking's 15% is the one visible one: a
+  dup and a drop per swap otherwise), and on unionfind the returned
+  argument (1.45x), the reuse of dead cells and the stack (1.3x each) and
+  the loops (1.2x) each carry their weight.
 - **spectral-norm** (lists, 0.78x) and **spectral-norm-linear** (parity):
   the linear one is loads and multiplies; the list one rebuilds its lists
   in their own cells and pays for it. The input is 5500, the game's, so

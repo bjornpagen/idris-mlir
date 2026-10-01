@@ -47,7 +47,7 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
     // The signatures are graded from here on: counting reads them.
     module->setAttr(own::stageAttr, StringAttr::get(&getContext(), own::ownedStage));
     for (func::FuncOp fn : functions) {
-      FailureOr<std::pair<unsigned, unsigned>> counts = own::insertCounts(fn, counting);
+      FailureOr<std::pair<unsigned, unsigned>> counts = own::insertCounts(fn, counting, sink);
       if (failed(counts))
         return signalPassFailure();
       numDups += counts->first;

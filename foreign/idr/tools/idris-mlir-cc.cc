@@ -77,6 +77,10 @@ cl::opt<bool> checkOnly("check",
                         cl::init(false));
 // No compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
+cl::list<std::string> without(
+    "without", cl::CommaSeparated,
+    cl::desc("Leave out these steps of the pipeline (an idr-* pass other than idr-lower) or these "
+             "mechanisms of idr-rc (reuse, borrow, sink), to measure what each one is worth"));
 cl::opt<std::string> remarks("remarks",
                              cl::desc("Print the remarks (passed, missed, failed and analysis) "
                                       "of these categories (a regex), e.g. idr-eval"),
@@ -513,11 +517,37 @@ int run() {
   // --stats, LLVM's own option: the statistics of every pass manager too.
   bool statistics = llvm::AreStatisticsEnabled();
 
+  // --without: the names must be steps or idr-rc mechanisms, so that a
+  // misspelling measures nothing by accident.
+  llvm::StringSet<> omitted;
+  for (const std::string &name : without) {
+    bool mechanism = name == "reuse" || name == "borrow" || name == "sink";
+    bool step = name != "idr-lower" && llvm::StringRef(name).starts_with("idr-") &&
+                llvm::any_of(idr::pipelineSteps(),
+                             [&](llvm::StringRef s) { return stepName(s) == name; });
+    if (!mechanism && !step) {
+      llvm::errs() << "idris-mlir-cc: --without names " << name
+                   << ", which is neither a pipeline step nor reuse, borrow or sink\n";
+      return usage;
+    }
+    omitted.insert(name);
+  }
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
     if (checkOnly && stepName(step) == "idr-lower")
       return ok;
+    if (omitted.contains(stepName(step)))
+      continue;
+    std::string text = step.str();
+    if (stepName(step) == "idr-rc") {
+      llvm::SmallVector<std::string> options;
+      for (const char *mechanism : {"reuse", "borrow", "sink"})
+        if (omitted.contains(mechanism))
+          options.push_back(std::string(mechanism) + "=false");
+      if (!options.empty())
+        text = "idr-rc{" + llvm::join(options, " ") + "}";
+    }
     mlir::PassManager pm(&context);
     if (statistics)
       pm.enableStatistics(mlir::PassDisplayMode::List);
@@ -525,8 +555,8 @@ int run() {
     if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
       return usage;
     pm.enableTiming(rootTiming);
-    if (mlir::failed(mlir::parsePassPipeline(step, pm))) {
-      llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << step << "\n";
+    if (mlir::failed(mlir::parsePassPipeline(text, pm))) {
+      llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << text << "\n";
       return failure;
     }
     if (mlir::failed(pm.run(*module))) {

@@ -21,8 +21,8 @@
 #
 # Two directives also reach the idris-mlir-cc that the check flow runs here
 # (the -o flow's is run by idris-mlir itself, which reads them too):
-# `no-eval` passes --no-eval, and `dump-mlir` passes --dump-after=all with
-# OUTPUT.dump as --dump-dir.
+# `no-eval` passes --no-eval, `without=STEPS` passes --without=STEPS, and
+# `dump-mlir` passes --dump-after=all with OUTPUT.dump as --dump-dir.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -46,6 +46,7 @@ while [ $# -gt 2 ]; do
       options="$options $1 $2"
       case $2 in
         no-eval) cc_options="$cc_options --no-eval" ;;
+        without=*) cc_options="$cc_options --$2" ;;
         dump-mlir) dump_mlir=yes ;;
       esac
       shift

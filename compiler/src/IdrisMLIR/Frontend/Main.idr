@@ -103,13 +103,20 @@ middle fc dir src = do
 -- idris-mlir-cc
 ------------------------------------------------------------------------------
 
-||| `--directive no-eval`: `idris-mlir-cc --no-eval`, which leaves every
-||| closed call to run at runtime. Every e2e test compiles its program both
-||| ways (tests/lib/properties.sh, without_evaluation).
-noEval : {auto c : Ref Ctxt Defs} -> Core (List String)
-noEval = do
+||| The directives idris-mlir-cc takes as options. `--directive no-eval`:
+||| `--no-eval`, which leaves every closed call to run at runtime (every e2e
+||| test compiles its program both ways: tests/lib/properties.sh,
+||| without_evaluation). `--directive without=STEPS`: `--without=STEPS`,
+||| which leaves those pipeline steps or idr-rc mechanisms out, to measure
+||| what each is worth.
+ccOptions : {auto c : Ref Ctxt Defs} -> Core (List String)
+ccOptions = do
   ds <- getDirectives (Other "mlir")
-  pure (if elem "no-eval" ds then ["--no-eval"] else [])
+  pure ((if elem "no-eval" ds then ["--no-eval"] else []) ++
+        mapMaybe without ds)
+  where
+    without : String -> Maybe String
+    without d = if isPrefixOf "without=" d then Just ("--" ++ d) else Nothing
 
 ||| A location in `idris-mlir-cc`'s text: `file:line:column`, 1-based.
 record Place where
@@ -265,7 +272,7 @@ compileModule c _ source = do
   write mlirPath mlir
   -- A profile rejection on the optimized module is a user error of
   -- `--check` too, and leaves no artifact.
-  ccVerdict fc prog [corePath, mlirPath] !(runCc ([mlirPath, "--check"] ++ !noEval) (mlirPath ++ ".stderr"))
+  ccVerdict fc prog [corePath, mlirPath] !(runCc ([mlirPath, "--check"] ++ !ccOptions) (mlirPath ++ ".stderr"))
   pure (Just (!(getObjFileName source "mlir"), []))
 
 ------------------------------------------------------------------------------
@@ -356,7 +363,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
   write mlirPath mlir
   -- The rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
-  ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !noEval) (base ++ ".cc.stderr"))
+  ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !ccOptions) (base ++ ".cc.stderr"))
   -- lld links the program's one object into a static-PIE executable on
   -- musl, whose libc.a also holds the libm functions the lowering calls,
   -- with GMP as a native archive, for the triple idris-mlir-cc compiled

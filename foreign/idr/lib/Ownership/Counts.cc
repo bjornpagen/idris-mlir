@@ -45,7 +45,8 @@ struct Changes {
 
 class Counter {
 public:
-  Counter(func::FuncOp fn, Counting &counting) : fn(fn), counting(counting) {}
+  Counter(func::FuncOp fn, Counting &counting, bool sink)
+      : fn(fn), counting(counting), sink(sink) {}
 
   FailureOr<std::pair<unsigned, unsigned>> run() {
     if (failed(check()))
@@ -53,7 +54,8 @@ public:
     rewriteSelects();
     takeApart();
     ownFields();
-    sinkConsumers();
+    if (sink)
+      sinkConsumers();
     SmallVector<std::tuple<Value, Block *, Operation *>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
@@ -533,6 +535,7 @@ private:
 
   func::FuncOp fn;
   Counting &counting;
+  bool sink;
   SymbolTableCollection symbols;
   llvm::DenseMap<Value, Class> classes;
   // What goes right before each op.
@@ -542,8 +545,9 @@ private:
 
 } // namespace
 
-FailureOr<std::pair<unsigned, unsigned>> insertCounts(func::FuncOp fn, Counting &counting) {
-  return Counter(fn, counting).run();
+FailureOr<std::pair<unsigned, unsigned>> insertCounts(func::FuncOp fn, Counting &counting,
+                                                      bool sink) {
+  return Counter(fn, counting, sink).run();
 }
 
 } // namespace idr::ownership

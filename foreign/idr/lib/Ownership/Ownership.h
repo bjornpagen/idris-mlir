@@ -109,7 +109,7 @@ void ownSignatures(mlir::ModuleOp module, Counting &counting);
 // reference consumed exactly once on every path. Returns the numbers of
 // incs and decs added, or failure after reporting what it cannot count.
 mlir::FailureOr<std::pair<unsigned, unsigned>> insertCounts(mlir::func::FuncOp fn,
-                                                            Counting &counting);
+                                                             Counting &counting, bool sink);
 
 // Exclusivity (Exclusive.cc): the owned values that hold the only
 // reference to every cell they reach get the excl grade, and an exclusive
