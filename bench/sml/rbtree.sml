@@ -1,13 +1,6 @@
 (* Red-black tree insertion, as Perceus's rbtree.kk and Main.idr here; the
    Counting Immutable Beans SML version (rbmap.sml) with Koka's balancing. *)
 
-fun readInt () =
-  let fun go acc =
-        case TextIO.input1 TextIO.stdIn of
-            SOME c => if Char.isDigit c then go (acc * 10 + (Char.ord c - 48)) else acc
-          | NONE => acc
-  in go 0 end
-
 datatype color = Red | Black
 datatype tree = Leaf | Node of color * tree * int * bool * tree
 

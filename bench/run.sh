@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs the benchmarks (make bench): each program built by this compiler, by
-# the stock Idris Chez backend (the same source), by MLton (bench/sml) and by
-# the pinned clang -O2 (bench/c; static PIE on musl, as our programs), on the
-# same input. clang compiles for the CPU this compiler targets (idris-mlir-cc
+# the stock Idris Chez backend (the same source), by MLton (bench/sml), by
+# the pinned clang -O2 (bench/c; static PIE on musl, as our programs), by
+# Koka (bench/koka) and by Lean 4 (bench/lean), on the same input. clang
+# compiles for the CPU this compiler targets (idris-mlir-cc
 # --print-target-cpu), and without floating-point contraction, which this
 # compiler never does:
 # the columns compare compilers, not instruction sets or rounding. Prints a
@@ -13,7 +14,9 @@
 #     bench/run.sh [--runs N] [name ...]
 #
 # MLton is looked up in .toolchain/mlton (the Debian package, unpacked there
-# with dpkg -x) and then on PATH; a missing compiler is reported and skipped.
+# with dpkg -x) and then on PATH; Koka and Lean in .toolchain/koka and
+# .toolchain/lean (bench/toolchains.sh fetches them) and then on PATH. A
+# missing compiler is reported and skipped.
 # Times come from GNU date's nanoseconds. The Idris environment is the
 # Makefile's. Every build and run is killed after 300 seconds times
 # IDRIS_MLIR_TIME_SCALE, and a benchmark that times out fails.
@@ -21,7 +24,7 @@
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 bench=$root/bench
-labels='this compiler|Idris Chez|MLton|clang -O2'
+labels='this compiler|Idris Chez|MLton|clang -O2|Koka|Lean 4'
 
 # A benchmark is a directory bench/<name>/ holding Main.idr and one of
 #   input       its stdin, given literally (a number, usually);
@@ -34,14 +37,16 @@ labels='this compiler|Idris Chez|MLton|clang -O2'
 #   libs        linker flags the C version needs (-lgmp);
 #   packages    installed Idris packages the program uses (mlir-linear),
 #               for this compiler and for Chez alike;
-#   reference   the name of another benchmark whose C and SML versions are
-#               this one's references (fannkuch-linear's is fannkuch-redux);
+#   reference   the name of another benchmark whose C, SML, Koka and Lean
+#               versions are this one's references (fannkuch-linear's is
+#               fannkuch-redux);
 #   rejected    the reason this compiler gives for rejecting the program
 #               today; its column then reads n/a and the C version's output
 #               is the reference;
 #   differs     why this compiler's output differs from Chez's today (a
 #               decided divergence); its column reads n/a likewise.
-# The C and SML versions are bench/c/<name>.c and bench/sml/<name>.sml; a
+# The C, SML, Koka and Lean versions are bench/c/<name>.c,
+# bench/sml/<name>.sml, bench/koka/<name>.kk and bench/lean/<name>.lean; a
 # missing one is skipped. Every input is large enough that start-up does
 # not matter.
 all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
@@ -87,6 +92,14 @@ esac
 
 mlton=$toolchain/mlton/usr/bin/mlton
 [ -f "$mlton" ] || mlton=$(command -v mlton 2> /dev/null)
+koka=$toolchain/koka/bin/koka
+[ -x "$koka" ] || koka=$(command -v koka 2> /dev/null)
+lean=$toolchain/lean/bin/lean
+leanc=$toolchain/lean/bin/leanc
+if [ ! -x "$lean" ] || [ ! -x "$leanc" ]; then
+  lean=$(command -v lean 2> /dev/null)
+  leanc=$(command -v leanc 2> /dev/null)
+fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bench.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
@@ -139,6 +152,21 @@ build() {
         -o "$work/$name-c" -lm $libs > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
+    Koka)
+      if [ -z "$koka" ] || [ ! -f "$bench/koka/$reference.kk" ]; then missing=yes; return; fi
+      mkdir "$work/koka"
+      cp "$bench/koka/$reference.kk" "$work/koka/"
+      # The Perceus benchmarks' flags: -O2 and a 128 MiB stack.
+      (cd "$work/koka" && bounded "$koka" -O2 --stack=128M --builddir="$work/koka/build" \
+         -o "$work/$name-koka" "$reference.kk") > "$work/build.log" 2>&1 && cmd=$work/$name-koka
+      ;;
+    'Lean 4')
+      if [ -z "$lean" ] || [ -z "$leanc" ] || [ ! -f "$bench/lean/$reference.lean" ]; then missing=yes; return; fi
+      # As Lean's own benchmarks: lean emits C, leanc -O3 -DNDEBUG compiles it.
+      { bounded "$lean" -c "$work/$name-lean.c" "$bench/lean/$reference.lean" &&
+        bounded "$leanc" -O3 -DNDEBUG -o "$work/$name-lean" "$work/$name-lean.c"; } \
+        > "$work/build.log" 2>&1 && cmd=$work/$name-lean
+      ;;
   esac
   if [ -z "$cmd" ] && [ -z "$missing" ]; then
     echo "$name: $1 failed to build:" >&2
@@ -153,7 +181,9 @@ timed() {
   run=0
   while [ "$run" -lt "$runs" ]; do
     start=$(date +%s%N)
-    bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr"
+    # With an unlimited stack, as Lean's and Koka's benchmarks run: cfold
+    # and deriv recurse as deep as their input is large.
+    (ulimit -s unlimited 2> /dev/null; bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr")
     status=$?
     end=$(date +%s%N)
     [ "$status" -eq 0 ] || die "$1 exited $status: $(cat "$work/stderr")"
@@ -249,13 +279,13 @@ done
 cpus=$(getconf _NPROCESSORS_ONLN 2> /dev/null || nproc 2> /dev/null || echo 1)
 echo "Best of $runs runs, wall-clock seconds; $(uname -m), $cpus CPUs. Outputs agree."
 echo
-echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | vs MLton |"
-echo "| --- | --- | ---: | ---: | ---: | ---: | ---: |"
+echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |"
+echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
 awk -F'|' '
   function cell(t) { return t == "" ? "n/a" : sprintf("%.3f", t / 1e9) }
   {
-    ratio = ($5 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $5 / $3) : "n/a"
-    printf "| %s | %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), cell($6), ratio
+    ratio = ($6 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $6 / $3) : "n/a"
+    printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), cell($6), cell($7), cell($8), ratio
   }' "$rows"
 echo
 echo "Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link."

@@ -2,13 +2,6 @@
    here; the Counting Immutable Beans SML version (qsort.sml), with the
    checksum of the middle elements that every version here prints. *)
 
-fun readInt () =
-  let fun go acc =
-        case TextIO.input1 TextIO.stdIn of
-            SOME c => if Char.isDigit c then go (acc * 10 + (Char.ord c - 48)) else acc
-          | NONE => acc
-  in go 0 end
-
 type elem = Word32.word
 
 fun badRand (seed : elem) : elem = seed * 0w1664525 + 0w1013904223

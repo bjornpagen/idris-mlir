@@ -1,13 +1,6 @@
 (* Binary trees on one core, as Main.idr here: Lean's binarytrees.st.lean;
    the Counting Immutable Beans SML version is binarytrees.st.sml. *)
 
-fun readInt () =
-  let fun go acc =
-        case TextIO.input1 TextIO.stdIn of
-            SOME c => if Char.isDigit c then go (acc * 10 + (Char.ord c - 48)) else acc
-          | NONE => acc
-  in go 0 end
-
 datatype tree = Tip | Node of tree * tree
 
 fun make' n d =

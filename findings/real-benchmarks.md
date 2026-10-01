@@ -1,5 +1,11 @@
 # Real benchmarks: beating Lean and Koka on their own programs
 
+The memory gate (`bench/gate`) this note and `memory-gate*.md` describe is
+folded into `bench/` (2026-10-01): its programs are `bench/<name>/` with
+their C, SML, Koka and Lean versions in `bench/c`, `bench/sml`,
+`bench/koka` and `bench/lean`, measured by `bench/run.sh`; its hand-lowered
+prototypes and thread experiments are gone, built for real since.
+
 Stream "real-benchmarks". The programs this stream wrote are quoted in full
 in `real-benchmarks-programs.md`. The scripts, raw result files, builds and
 IR dumps are in `scratchpad/research/real-benchmarks/`:

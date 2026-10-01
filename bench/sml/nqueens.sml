@@ -1,13 +1,6 @@
 (* All solutions of the n-queens problem, as Perceus's nqueens.kk and
    Main.idr here. *)
 
-fun readInt () =
-  let fun go acc =
-        case TextIO.input1 TextIO.stdIn of
-            SOME c => if Char.isDigit c then go (acc * 10 + (Char.ord c - 48)) else acc
-          | NONE => acc
-  in go 0 end
-
 fun safe queen diag (q :: qs) =
       queen <> q andalso queen <> q + diag andalso queen <> q - diag
       andalso safe queen (diag + 1) qs

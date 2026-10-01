@@ -1,7 +1,9 @@
 ack: prints the recorded output
 ackdyn: prints the recorded output
 binary-trees: prints the recorded output
+cfold: prints the recorded output
 collatz: prints the recorded output
+deriv: prints the recorded output
 fannkuch-linear: prints the recorded output
 fannkuch-redux: prints the recorded output
 fasta: prints the recorded output
@@ -11,8 +13,11 @@ k-nucleotide: rejected as recorded
 mandelbrot: prints the recorded output
 mandelbrot-pbm: output differs from Chez's, as recorded
 nbody: prints the recorded output
+nqueens: prints the recorded output
 pidigits: prints the recorded output
 qsort: prints the recorded output
+rbtree: prints the recorded output
+rbtree-ck: prints the recorded output
 regex-redux: prints the recorded output
 reverse-complement: prints the recorded output
 spectral-norm: prints the recorded output

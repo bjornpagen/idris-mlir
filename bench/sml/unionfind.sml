@@ -2,13 +2,6 @@
    unionfind.lean and Main.idr here. The array holds records; every update
    stores a newly built one. *)
 
-fun readInt () =
-  let fun go acc =
-        case TextIO.input1 TextIO.stdIn of
-            SOME c => if Char.isDigit c then go (acc * 10 + (Char.ord c - 48)) else acc
-          | NONE => acc
-  in go 0 end
-
 type node = {find : int, rank : int}
 
 exception Fail of string
