@@ -31,6 +31,7 @@ mutual
     Nothing => internal ("unknown data " ++ show d)
   mtype ix (FunT a r) = pure (Fn [!(binderType ix a)] [!(mtype ix r)])
   mtype ix (LazyT r) = pure (Fn [] [!(mtype ix r)])
+  mtype ix (ArrayT e) = Memref <$> mtype ix e
 
   ||| The contract type of what a binder binds: its quantity is in the
   ||| type, where no pass can lose it.

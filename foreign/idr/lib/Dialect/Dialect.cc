@@ -127,7 +127,21 @@ bool idr::isFieldType(Type type) {
   type = unrestricted(type);
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType>(type);
+  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType>(type) ||
+         isArray(type);
+}
+
+// One dynamic dimension in the identity layout: the shape the runtime's
+// array cell has (a length, then the elements in order). An element is a
+// field type at no grade, and not the world or the erased value, which
+// have no runtime form to store.
+bool idr::isArray(Type type) {
+  auto memref = dyn_cast<MemRefType>(type);
+  if (!memref || memref.getRank() != 1 || !memref.isDynamicDim(0) ||
+      !memref.getLayout().isIdentity() || memref.getMemorySpace())
+    return false;
+  Type element = memref.getElementType();
+  return !isa<QType>(element) && !isWorld(element) && !isErased(element) && isFieldType(element);
 }
 
 //===----------------------------------------------------------------------===//

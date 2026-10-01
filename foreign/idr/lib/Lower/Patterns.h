@@ -31,6 +31,10 @@ void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, Layouts &layouts,
                               Runtime &runtime);
 
+// The patterns of arrays (Arrays.cc).
+void populateArrayPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
+                           Layouts &layouts, Runtime &runtime);
+
 // The patterns of bigs and naturals, whose small case is inline (Bigs.cc).
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          Layouts &layouts, Runtime &runtime);

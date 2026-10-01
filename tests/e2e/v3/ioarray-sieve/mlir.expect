@@ -1,0 +1,4 @@
+# A sieve on an IOArray of Bool: the array is read and written in place,
+# with no reference counted on the way (the array is borrowed, its elements
+# are atoms).
+idr-rc: counts-nothing=@Main.mark counts-nothing=@Main.count

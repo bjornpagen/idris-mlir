@@ -171,6 +171,9 @@ bool knownNonEmpty(mlir::Value value);
 // The types a field of a constructor may have.
 bool isFieldType(mlir::Type type);
 
+// An array: `memref<?xE>` of a field type E at no grade (Idr_ArrayType).
+bool isArray(mlir::Type type);
+
 // How often a value may be used, as its type says: never (!idr.erased),
 // exactly once (!idr.lin<T> and the world), or any number of times.
 Quantity quantityOf(mlir::Type type);

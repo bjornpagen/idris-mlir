@@ -39,12 +39,14 @@ extern "C" {
  * Freeing reads only objs, kind and bit 31, so the runtime frees any cell
  * without knowing its type.
  * - tag (bits 0-15): a box's constructor tag, a string's ASCII flag in bit 0
- *   (set only when every byte is ASCII); 0 for a closure, whose code pointer
- *   says what it is, and for a bignum.
+ *   (set only when every byte is ASCII), an array's element size in bytes;
+ *   0 for a closure, whose code pointer says what it is, and for a bignum.
  * - objs (bits 16-23): the number of object slots, one word
  *   (IDRIS_RT_WORD_BYTES) each. A box's are the first objs slots right after
  *   the header; a closure's are the first objs slots after its code pointer,
- *   which is right after the header. Strings and bignums have none.
+ *   which is right after the header.
+ *   Strings and bignums have none. An array's are per element: its first
+ *   objs words (idris_rt_array).
  * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
  * - bit 31: a stack cell, which the compiler builds in a frame; its memory
  *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
@@ -92,6 +94,7 @@ IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
 #define IDRIS_RT_KIND_CLOSURE 1u
 #define IDRIS_RT_KIND_STRING 2u
 #define IDRIS_RT_KIND_BIGNUM 3u
+#define IDRIS_RT_KIND_ARRAY 4u
 #define IDRIS_RT_STACK_CELL 0x80000000u
 
 #define IDRIS_RT_TAG_LIMIT 0x10000u
@@ -140,6 +143,18 @@ typedef struct idris_rt_bignum {
   int64_t size;
 } idris_rt_bignum;
 
+/* An array (idr.array.new): the header (kind IDRIS_RT_KIND_ARRAY; its tag
+ * is the size of an element in bytes, its objs the number of object slots
+ * each element starts with), the number of elements, then the elements, each
+ * laid out as idr-lower lays out a cell's fields (object slots first), in the
+ * same cell. An element is read and written through the array, in the order
+ * of the world, so the array itself is never exclusive: the cell holds its
+ * elements' references for as long as it lives. */
+typedef struct idris_rt_array {
+  idris_rt_header header;
+  uint64_t length;
+} idris_rt_array;
+
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
  * the constructor's fields, object slots first. A closure is the header (kind
  * IDRIS_RT_KIND_CLOSURE, tag 0), then the code pointer, then the captures,
@@ -180,6 +195,12 @@ void idris_rt_free(void *block);
  * the process with a crash. In compile-time evaluation's arena the cell is
  * persistent (count 0) instead, and not a live cell. */
 void *idris_rt_cell(size_t size, uint32_t info);
+
+/* A new array of `length` elements (a negative length is 0) with the
+ * header `info` (kind IDRIS_RT_KIND_ARRAY), counted as idris_rt_cell counts
+ * a cell; its elements are not written. Exhausted memory, and a length whose
+ * cell would not fit the address space, end the process with a crash. */
+idris_rt_array *idris_rt_array_new(int64_t length, uint32_t info);
 
 /* One more owned reference; a count that would reach UINT32_MAX saturates
  * there. */

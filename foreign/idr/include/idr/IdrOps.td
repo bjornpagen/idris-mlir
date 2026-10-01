@@ -10,6 +10,7 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
+include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -69,21 +70,24 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def Idr_DataType : Idr_Type<"Data", "data"> {
+// Every runtime value type is an element type of memref, so an array of
+// values (idr.array.new) is a builtin memref: what the memref and
+// bufferization passes work on, with no array type of our own.
+def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface]> {
   let summary = "a value of the unboxed sum declared by idr.data";
   let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
   let assemblyFormat = "`<` $name `>`";
 }
 
 // A value of a boxed (recursive) type, declared `idr.data @T box`.
-def Idr_BoxType : Idr_Type<"Box", "box"> {
+def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
   let summary = "a value of the boxed type declared by idr.data ... box";
   let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
   let assemblyFormat = "`<` $name `>`";
 }
 
 // `!idr.fn<(A...) -> (R...)>`; Lazy and Inf are `!idr.fn<() -> (a)>`.
-def Idr_FnType : Idr_Type<"Fn", "fn"> {
+def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface]> {
   let summary = "a closure";
   let parameters = (ins ArrayRefParameter<"::mlir::Type">:$inputs,
                         ArrayRefParameter<"::mlir::Type">:$results);
@@ -93,11 +97,11 @@ def Idr_FnType : Idr_Type<"Fn", "fn"> {
   }];
 }
 
-def Idr_StrType : Idr_Type<"Str", "str"> {
+def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface]> {
   let summary = "a string (UTF-8)";
 }
 
-def Idr_BigType : Idr_Type<"Big", "big"> {
+def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface]> {
   let summary = "an Integer";
 }
 
@@ -109,7 +113,7 @@ def Idr_BigType : Idr_Type<"Big", "big"> {
 // Integer range analysis is to seed [0, +inf) from this type in its entry
 // state (setToEntryState), for block arguments and results it cannot see
 // computed.
-def Idr_NatType : Idr_Type<"Nat", "nat"> {
+def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface]> {
   let summary = "a natural number: a non-negative big";
 }
 
@@ -1046,6 +1050,77 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 }
 
 //===----------------------------------------------------------------------===//
+// Arrays
+//===----------------------------------------------------------------------===//
+
+// An array is a builtin memref of one dynamic dimension, `memref<?xE>`,
+// over a field type E at no grade: the type the memref and bufferization
+// passes know, so no array type of our own. Its cell holds its elements
+// like a constructor's fields, so the array is a counted value, an element
+// moves into it with its reference, and an element read takes one of its
+// own (Lower/Arrays.cc, runtime idris_rt_array).
+def Idr_ArrayType : Type<CPred<"::idr::isArray($_self)">,
+                         "an array, memref<?xE> of a field type E", "::mlir::MemRefType">;
+def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,
+                          "an array at any grade", "::mlir::Type">;
+
+// The array ops are IO: each takes the world and gives the next, and
+// reads or writes the array's cell in that order. Their effects are their
+// own (not Idr_IOOp's, whose runtime call they do not make): the IO
+// resource, a crash where an index may be out of bounds, an allocation
+// for a new array.
+class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
+    : Idr_Op<"array." # mnemonic, !listconcat(traits, [Idr_PerformsIO,
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+        DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>])>;
+
+// A new array of `size` elements, each the value `fill`, which moves in
+// (one reference, held by each element: the fill takes the others). A
+// negative size is an empty array.
+def Idr_ArrayNewOp : Idr_ArrayOp<"new"> {
+  let summary = "a new array of `size` copies of `fill`";
+  let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
+  let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);
+  let assemblyFormat = "$size `,` $fill `,` $world attr-dict `:` type($fill) `->` type($array)";
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
+    }
+  }];
+}
+
+// The element at `index`, which must be in bounds, else the program
+// crashes.
+def Idr_ArrayGetOp : Idr_ArrayOp<"get"> {
+  let summary = "the element of an array at an index";
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, Idr_WorldType:$world);
+  let results = (outs AnyType:$value, Idr_WorldType:$next);
+  let assemblyFormat = "$array `[` $index `]` `,` $world attr-dict `:` type($array) `->` type($value)";
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
+    }
+  }];
+}
+
+// Writes `value`, which moves in, over the element at `index`, which must
+// be in bounds, else the program crashes; the old element is released.
+def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
+  let summary = "writes an element of an array at an index";
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = "$array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)";
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
+    }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Ownership (lib/Ownership)
 //===----------------------------------------------------------------------===//
 
@@ -1065,11 +1140,11 @@ def Idr_TokenType : Idr_Type<"Token", "token"> {
 }
 
 // The values that hold references: a string, a big or natural (a small one
-// holds none), a box, a closure, a token, and an unboxed sum with a slot of
-// any of these; at any grade, since a linear field read from a cell that
-// lives on needs a reference of its own.
+// holds none), a box, a closure, a token, an array, and an unboxed sum with
+// a slot of any of these; at any grade, since a linear field read from a
+// cell that lives on needs a reference of its own.
 def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
-                                      Idr_BigType, Idr_NatType, Idr_TokenType]>;
+                                      Idr_BigType, Idr_NatType, Idr_TokenType, Idr_ArrayType]>;
 def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
     Type<And<[CPred<"::llvm::isa<::idr::QType>($_self)">,
               SubstLeaves<"$_self", "::idr::unrestricted($_self)",

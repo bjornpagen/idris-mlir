@@ -147,7 +147,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     converter.addConversion([](Type type) { return type; });
     converter.addConversion(
         [&](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
-          if (type.getDialect().getNamespace() != idr::IdrDialect::getDialectNamespace())
+          if (type.getDialect().getNamespace() != idr::IdrDialect::getDialectNamespace() &&
+              !idr::isArray(type))
             return std::nullopt;
           llvm::append_range(out, layouts->components(type));
           return success();

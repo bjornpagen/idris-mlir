@@ -83,6 +83,9 @@ data MType = I Nat | F64
              Natural
            | ||| A value used exactly once.
              Lin MType
+           | ||| An array of elements of a type: a memref of one dynamic
+             ||| dimension.
+             Memref MType
 
 mutual
   export
@@ -98,6 +101,7 @@ mutual
   showType World = "!idr.world"
   showType Erased = "!idr.erased"
   showType (Lin t) = "!idr.lin<" ++ showType t ++ ">"
+  showType (Memref t) = "memref<?x" ++ showType t ++ ">"
 
   ||| Types separated by commas.
   export

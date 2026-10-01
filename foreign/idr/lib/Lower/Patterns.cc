@@ -519,6 +519,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   MLIRContext *ctx = patterns.getContext();
   populateCountingPatterns(patterns, converter, layouts, runtime);
   populateBigPatterns(patterns, converter, layouts, runtime);
+  populateArrayPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
                LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
                LowerPending, LowerDestOf, LowerDestWrite, LowerAsItself<LinEnterOp>,

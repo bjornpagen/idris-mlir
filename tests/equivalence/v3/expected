@@ -4,6 +4,7 @@ cfold: same stdout and exit status
 choice: same stdout and exit status
 compile-time-evaluation: same stdout and exit status
 deep-result: same stdout and exit status
+ioarray-sieve: same stdout and exit status
 lambda-terminates: same stdout and exit status
 layout-255-counted-fields: same stdout and exit status
 leet-insertion-sort: same stdout and exit status

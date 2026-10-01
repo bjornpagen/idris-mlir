@@ -14,10 +14,18 @@ mlir::InFlightDiagnostic fail(mlir::Location loc, llvm::StringRef property);
 // The name of the function that holds `op`, for an error's text.
 std::string where(mlir::Operation *op);
 
-// The function `function` (`@f`) names, or null after the error that
-// `property` names none.
-mlir::func::FuncOp named(mlir::ModuleOp module, llvm::StringRef function,
-                         llvm::StringRef property);
+// Whether the function named `name` is `origin` or a clone of it: a
+// specialization or a raised copy whose chain of keys (idr.clone) leads to
+// `origin`.
+bool isCloneOf(mlir::SymbolTable &symbols, llvm::StringRef name, llvm::StringRef origin);
+
+// The functions `function` (`@f`) names: @f itself, when the module still
+// has it, and every clone of it (a specialization, a raised copy), which
+// keeps the location that names the definition it was copied from; or
+// none, after the error that `property` names no function. A property
+// stated of @f holds of all of them.
+llvm::SmallVector<mlir::func::FuncOp> named(mlir::ModuleOp module, llvm::StringRef function,
+                                            llvm::StringRef property);
 
 // Every property takes the module and the text after `=` in its request
 // (empty when there is none), and fails when it reported an error.

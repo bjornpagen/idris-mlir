@@ -44,11 +44,10 @@ LogicalResult noHeapAllocation(ModuleOp module, StringRef function) {
     for (auto fn : module.getOps<func::FuncOp>())
       reached.push_back(fn);
   } else {
-    auto root = symbols.lookup<func::FuncOp>(function.ltrim('@'));
-    if (!root)
-      return fail(module.getLoc(), property) << "no function " << function;
-    reached.push_back(root);
-    seen.insert(root);
+    reached = named(module, function, property);
+    if (reached.empty())
+      return failure();
+    seen.insert(reached.begin(), reached.end());
   }
   bool held = true;
   // In one function's scope, what it may call is in scope too: every

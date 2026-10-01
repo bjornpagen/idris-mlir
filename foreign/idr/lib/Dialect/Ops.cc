@@ -1149,3 +1149,66 @@ LogicalResult DestOfOp::verify() {
     return emitOpError("names a field the cell was built with");
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// Arrays
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// An element moves into an array, or out of it, at the element type at any
+// grade: plain before idr-rc, and owned after it when it holds references.
+LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType array) {
+  if (view(type) != array.getElementType())
+    return op->emitOpError() << what << " has type " << type << ", but the array holds "
+                             << array.getElementType();
+  return success();
+}
+
+// What an array op does besides computing: IO in the world's order, a
+// crash where its index may be out of bounds, and for a new array an
+// allocation.
+void arrayEffects(std::optional<StringRef> crash, Value allocated,
+                  SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+  if (crash)
+    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+  if (allocated)
+    effects.emplace_back(MemoryEffects::Allocate::get(), cast<OpResult>(allocated),
+                         SideEffects::DefaultResource::get());
+}
+
+// No array's length is in the IR yet, so every index may be out of bounds.
+constexpr StringRef outOfBounds = "array index out of bounds";
+
+} // namespace
+
+LogicalResult ArrayNewOp::verify() {
+  return verifyElement(*this, "the fill", getFill().getType(), getArrayType());
+}
+
+LogicalResult ArrayGetOp::verify() {
+  return verifyElement(*this, "the result", getValue().getType(), getArrayType());
+}
+
+LogicalResult ArraySetOp::verify() {
+  return verifyElement(*this, "the value", getValue().getType(), getArrayType());
+}
+
+std::optional<StringRef> ArrayNewOp::getCrashCause() { return std::nullopt; }
+std::optional<StringRef> ArrayGetOp::getCrashCause() { return outOfBounds; }
+std::optional<StringRef> ArraySetOp::getCrashCause() { return outOfBounds; }
+
+void ArrayNewOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  arrayEffects(getCrashCause(), getArray(), effects);
+}
+void ArrayGetOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  arrayEffects(getCrashCause(), Value(), effects);
+}
+void ArraySetOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  arrayEffects(getCrashCause(), Value(), effects);
+}

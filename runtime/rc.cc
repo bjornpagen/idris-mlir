@@ -93,13 +93,27 @@ void **slotsOf(idris_rt_header *cell) {
   return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
 }
 
-// Releases what a cell owns besides its memory: its object slots. A
-// bignum's digits are in its cell.
-void releaseOwned(idris_rt_header *cell, Dying &dying) {
-  void **slots = slotsOf(cell);
-  for (uint32_t i = 0, n = idris_rt_info_objs(cell->info); i < n; ++i)
+void releaseSlots(void **slots, uint32_t objs, Dying &dying) {
+  for (uint32_t i = 0; i < objs; ++i)
     if (idris_rt_header *dead = lastReference(slots[i]))
       dying.push(dead);
+}
+
+// Releases what a cell owns besides its memory: its object slots, which an
+// array has per element. A bignum's digits are in its cell.
+void releaseOwned(idris_rt_header *cell, Dying &dying) {
+  uint32_t objs = idris_rt_info_objs(cell->info);
+  if (idris_rt_info_kind(cell->info) != IDRIS_RT_KIND_ARRAY) {
+    releaseSlots(slotsOf(cell), objs, dying);
+    return;
+  }
+  if (objs == 0)
+    return;
+  auto *array = reinterpret_cast<idris_rt_array *>(cell);
+  char *element = reinterpret_cast<char *>(array + 1);
+  size_t stride = idris_rt_info_tag(cell->info);
+  for (uint64_t i = 0; i < array->length; ++i, element += stride)
+    releaseSlots(static_cast<void **>(static_cast<void *>(element)), objs, dying);
 }
 
 // A dead cell's memory is freed, but a stack cell's belongs to its frame:

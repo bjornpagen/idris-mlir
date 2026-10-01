@@ -105,12 +105,15 @@ mutual
   ||| `Nat`-like type, an integer that is never negative, the same
   ||| big at runtime; `FunT` and `LazyT` are closures, `FunT` binding its argument as a
   ||| lambda does; `DataT` is a data instance, whose declaration says
-  ||| whether it is an unboxed sum or a box.
+  ||| whether it is an unboxed sum or a box; `ArrayT` is a mutable array of
+  ||| its element type, `Data.IOArray.Prims.ArrayData`, read and written
+  ||| through the world.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT | ErasedT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
+          | ArrayT Ty
 
   ||| What a parameter, a lambda, an arrow or a constructor field binds:
   ||| nothing at runtime (multiplicity 0), or a value of a type, used as
@@ -137,6 +140,7 @@ mutual
   sameTy (DataT a) (DataT b) = a == b
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
+  sameTy (ArrayT a) (ArrayT b) = sameTy a b
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
@@ -165,6 +169,7 @@ mutual
   showTy (DataT d) = show d
   showTy (FunT a r) = "((" ++ showBinder a ++ ") -> " ++ showTy r ++ ")"
   showTy (LazyT a) = "Lazy (" ++ showTy a ++ ")"
+  showTy (ArrayT a) = "Array (" ++ showTy a ++ ")"
 
   ||| `0 Erased`, `1 T` or `w T`, as the Core dump writes a binder.
   showBinder : Binder -> String
@@ -375,16 +380,32 @@ primArgs NatFromBig = [BigT]
 -- IO
 ------------------------------------------------------------------------------
 
-||| The IO primitives the registry lists (`IOCall`).
+||| The operations on a mutable array (`Data.IOArray.Prims`): a new array
+||| of a size and a fill, the element at an index, an element written at an
+||| index. An index out of bounds crashes, where Idris's primitives leave
+||| the behaviour undefined.
+public export
+data ArrayOp = NewArray | GetArray | SetArray
+
+export
+Show ArrayOp where
+  show NewArray = "newArray"
+  show GetArray = "arrayGet"
+  show SetArray = "arraySet"
+
+||| The IO primitives the registry lists (`IOCall`, `ArrayCall`); an array
+||| operation carries its element type, which its call fixes.
 public export
 data IOOp = PutStr | PutChar
           | GetByte   -- one byte of input
+          | Array ArrayOp Ty
 
 export
 Show IOOp where
   show PutStr = "putStr"
   show PutChar = "putChar"
   show GetByte = "getByte"
+  show (Array op e) = show op ++ "<" ++ show e ++ ">"
 
 ||| The operand types of an IO primitive, before the world.
 public export
@@ -392,3 +413,6 @@ ioArgs : IOOp -> List Ty
 ioArgs PutStr = [StrT]
 ioArgs PutChar = [CharT]
 ioArgs GetByte = []
+ioArgs (Array NewArray e) = [IntT IdrisInt, e]
+ioArgs (Array GetArray e) = [ArrayT e, IntT IdrisInt]
+ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]

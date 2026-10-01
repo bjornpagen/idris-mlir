@@ -20,6 +20,20 @@ ioCallOf [] = Nothing
 ioCallOf (IOCall op :: _) = Just op
 ioCallOf (_ :: hs) = ioCallOf hs
 
+||| The array operation a definition's calls are.
+export
+arrayCallOf : List Hook -> Maybe ArrayOp
+arrayCallOf [] = Nothing
+arrayCallOf (ArrayCall op :: _) = Just op
+arrayCallOf (_ :: hs) = arrayCallOf hs
+
+||| Is a type constructor the external type of arrays?
+export
+isArrayType : List Hook -> Bool
+isArrayType [] = False
+isArrayType (ArrayType :: _) = True
+isArrayType (_ :: hs) = isArrayType hs
+
 ||| What a function on naturals means, if it is one the registry knows.
 export
 natOperationOf : List Hook -> Maybe NatMeaning

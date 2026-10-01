@@ -48,16 +48,18 @@ the same programs written against a hand-made numeric module.
 ## The Benchmarks Game
 
 The ten programs of the Computer Language Benchmarks Game, written as an
-Idris programmer writes them first (Prelude and base, lists where the game
-uses arrays, `getChar` for input, `putStrLn` for output), beside the C of
-`bench/c`. regex-redux carries its own small regex engine, since Idris has
-no regex library; it has no C version, so Chez is its only reference.
-Same machine and method as above, best of 3 (2026-10-01, at 60176f4):
+Idris programmer writes them first (Prelude and base, `getChar` for input,
+`putStrLn` for output; lists where the game uses arrays, except
+fannkuch-redux, which is on base's `IOArray`), beside the C of `bench/c`.
+regex-redux carries its own small regex engine, since Idris has no regex
+library; it has no C version, so Chez is its only reference. Same machine
+and method as above, best of 3 (2026-10-01, at 60176f4; fannkuch-redux
+re-measured with arrays the same day):
 
 | benchmark | input | this compiler | Idris Chez | clang -O2 |
 | --- | --- | ---: | ---: | ---: |
 | binary-trees | 21 | 5.579 | 35.598 | 25.821 |
-| fannkuch-redux | 10 | 1.650 | 2.408 | 0.461 |
+| fannkuch-redux | 10 | 0.563 | 10.894 | 0.492 |
 | fasta | 250000 | 0.319 | 0.255 | 0.036 |
 | k-nucleotide | fasta 250000 | rejected | 12.787 | 0.263 |
 | mandelbrot (PBM) | 4000 | differs | 18.817 | 0.985 |
@@ -75,9 +77,16 @@ Same machine and method as above, best of 3 (2026-10-01, at 60176f4):
   in-place form waits for exclusivity on bigs.
 - **spectral-norm:** on lists of doubles, where it was 56x slower than C
   before reference counting learned to rebuild lists in their own cells.
-- **fannkuch-redux, fasta, reverse-complement:** lists and `List Char`
-  where C has arrays and byte buffers, and input read a character at a
-  time; arrays on the tensor path and byte I/O are the next steps.
+- **fannkuch-redux:** three `IOArray Int`, updated in place as the game's
+  programs do; the same program on lists took 1.650 s, and Chez takes
+  10.894 s on the array version against 2.408 s on the lists. The element
+  is a `Maybe Int` (a tag word per element) and every access carries
+  Idris's own range test and the compiler's, which is the gap to C.
+  `IOArray` is the escape hatch, imperative code compiled to imperative
+  code; the demo is the same program on a linear array, pure, with the
+  in-place update decided by the compiler, which comes next.
+- **fasta, reverse-complement:** `List Char` where C has byte buffers, and
+  input read a character at a time; byte I/O is the next step.
 - **k-nucleotide** is rejected: `Data.SortedMap` keeps its `Ord`
   dictionary in a value chosen at runtime. **mandelbrot (PBM)** compiles,
   but `putChar` writes UTF-8 for bytes from 128 on (a decided divergence

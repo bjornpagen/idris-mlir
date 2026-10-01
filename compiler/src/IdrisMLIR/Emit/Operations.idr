@@ -254,6 +254,25 @@ io ix l op vs res = do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))
       pure (val (r ++ "#0") CharT Plain, val (r ++ "#1") WorldT Plain)
+    (Array NewArray e, [n, x, w0]) => do
+      r <- fresh
+      et <- typeText ix e
+      at <- typeText ix (ArrayT e)
+      append (Line (r ++ ":2 = idr.array.new " ++ n.name ++ ", " ++ x.name ++ ", " ++ w0.name ++
+                    " : " ++ et ++ " -> " ++ at) (At l))
+      pure (val (r ++ "#0") (ArrayT e) Plain, val (r ++ "#1") WorldT Plain)
+    (Array GetArray e, [a, i, w0]) => do
+      r <- fresh
+      et <- typeText ix e
+      at <- typeText ix (ArrayT e)
+      append (Line (r ++ ":2 = idr.array.get " ++ a.name ++ "[" ++ i.name ++ "], " ++ w0.name ++
+                    " : " ++ at ++ " -> " ++ et) (At l))
+      pure (val (r ++ "#0") e Plain, val (r ++ "#1") WorldT Plain)
+    (Array SetArray e, [a, i, x, w0]) => do
+      et <- typeText ix e
+      at <- typeText ix (ArrayT e)
+      withUnit mk !(value l WorldT ("idr.array.set " ++ a.name ++ "[" ++ i.name ++ "], " ++ x.name ++
+                                    ", " ++ w0.name ++ " : " ++ at ++ ", " ++ et))
     _ => internal ("io." ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where

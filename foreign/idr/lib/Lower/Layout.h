@@ -27,6 +27,9 @@ public:
   static std::expected<CellInfo, std::string> box(uint64_t tag, uint64_t objs) noexcept;
   // A closure's code pointer says what it is, so its tag is 0.
   static std::expected<CellInfo, std::string> closure(uint64_t objs) noexcept;
+  // An array's: the tag is the element's size in bytes, its objs the object
+  // slots each element starts with.
+  static std::expected<CellInfo, std::string> array(uint64_t stride, uint64_t objs) noexcept;
   static constexpr CellInfo string(bool ascii) noexcept {
     return CellInfo(idris_rt_info(ascii ? 1u : 0u, 0, IDRIS_RT_KIND_STRING));
   }
@@ -87,6 +90,16 @@ struct Cell {
   CellInfo info;
 };
 
+// An element of an array (idris_rt_array): its components in their slots,
+// at offsets from the element's start, laid out as a cell's fields are
+// (object slots first); the element's size, which is the array's stride;
+// and the info word of the array's cell.
+struct Element {
+  llvm::SmallVector<Slot> slots;
+  unsigned stride;
+  CellInfo info;
+};
+
 // A closure label: a function with the number of leading
 // parameters that are captures. Closures of one label share their code.
 struct Label {
@@ -125,6 +138,11 @@ public:
 
   // The layout of the unboxed sum named `name`, computed once.
   const SumLayout &sum(mlir::StringAttr name);
+
+  // The element layout of an array of `element`, or why it has none: more
+  // counted components than a cell's header counts, or a size its tag
+  // cannot hold.
+  std::expected<Element, std::string> element(mlir::Type element);
 
   // The cell of a boxed constructor, and of a closure of `label`.
   const Cell &box(CtorOp ctor) const { return *boxes.find(ctor)->second; }

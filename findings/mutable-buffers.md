@@ -672,6 +672,57 @@ at that point, before the next one starts.
 7. **`idr.array.unshare`,** when value arrays in data structures appear.
 8. **Raising to linalg** for spectral-norm, once measured.
 
+## Landed 2026-10-01: shared-mutable arrays (step 3 of the path, in part)
+
+- **Types.** `!idr.data`, `!idr.box`, `!idr.fn`, `!idr.str`, `!idr.big` and
+  `!idr.nat` implement `MemRefElementTypeInterface`; `isArray` is
+  `memref<?xE>` (one dynamic dimension, identity layout) of a field type E
+  at no grade, and `isFieldType` admits it, so an array is a parameter, a
+  result, a field, a capture, and a `!idr.q` payload (`!idr.own<memref>`
+  after idr-rc). Tensors are not field types yet (step 5).
+- **Ops.** Three of ours, `idr.array.new %n, %x, %w`, `idr.array.get %a[%i],
+  %w` and `idr.array.set %a[%i], %x, %w`, not `memref.load`/`store`: an
+  element of a counted type moves in with its reference and comes out with
+  one of its own, and the ops thread the world, which `memref` ops cannot
+  carry. Their effects are their own (IO resource read and write, a crash
+  where the index may be out of bounds, an allocation for `new`), and
+  `getCrashCause` reports "array index out of bounds". `useOf` consumes
+  the fill and the value set, and borrows the array.
+- **Runtime.** `IDRIS_RT_KIND_ARRAY`: header (tag = element stride in bytes,
+  objs = counted words per element), `uint64 length`, then the elements,
+  each laid out as a cell's fields are (`Layouts::element`, with
+  `CellInfo::array` checking the header's limits); `idris_rt_array_new`
+  allocates through `rt::newCell` (arena-aware), and the release walk in
+  rc.cc frees every element's object slots. Not yet: the
+  `_mlir_memref_to_llvm_alloc` hooks and `finalize-memref-to-llvm`, which
+  only upstream memref ops would need.
+- **Lowering (Lower/Arrays.cc).** `new` is the runtime call, a
+  `scf.for` storing the fill's components into each element with one inc
+  per element, and one dec of the fill; `get` checks `index <u length`
+  (crashIf), loads the components and increments the counted ones; `set`
+  checks, decrements the old element's components and stores the new one.
+- **Frontend.** `Ty` gains `ArrayT`, `IOOp` gains `Array ArrayOp Ty`
+  (the element type fixed at the call from its one type argument), the
+  registry (`Primitives.idr`) names `Data.IOArray.Prims.ArrayData`
+  (`ArrayType`) and `prim__newArray`/`arrayGet`/`arraySet` (`ArrayCall`)
+  as `%extern` definitions of the backend contract, and the emitter writes
+  `memref<?xE>`.
+- **Measured.** A sieve on `IOArray Bool` to 10^7: 0.219 s against Chez's
+  7.76 s, live cells 0. fannkuch-redux on `IOArray Int`: 0.563 s against
+  1.650 s on lists, 10.894 s for Chez's array version and 0.492 s for C.
+  The element is `Maybe Int` (16 bytes, a tag per element), and every
+  access carries Idris's own range test and ours: the structure-of-arrays
+  split and the ValueBounds fold (§7) are what stand between this and C.
+- **idr-expect** names a function by its Idris name: `@f` is `@f` and
+  every clone of it, found through the `NameLoc` every emitted function
+  carries and every clone keeps, where the clone-key attribute is stripped
+  by idr-rc. So a fixture states `counts-nothing=@Main.mark` of the
+  function the programmer wrote, however the passes rename it.
+- **Deliberately not this slice.** `IOArray` is the escape hatch: it proves
+  the cell, the counting and the lowering, and compiles imperative code to
+  imperative code. The demo is `LinArray` (step 5): pure, linear, with the
+  in-place decision One-Shot's, which is the next slice.
+
 ## Open questions
 
 - **Structure of arrays for `Maybe` elements.**

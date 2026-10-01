@@ -11,24 +11,27 @@ using namespace mlir;
 
 namespace idr::expect {
 
+// The function and its clones together: at least one of them builds in a
+// reused cell, and none gets a fresh one.
 LogicalResult reusesInPlace(ModuleOp module, StringRef function) {
   constexpr StringRef property = "reuses-in-place";
-  func::FuncOp fn = named(module, function, property);
-  if (!fn)
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
     return failure();
   bool held = true, reused = false;
-  fn.walk([&](Operation *op) {
-    if (isa<ReuseOp>(op))
-      reused = true;
-    auto con = dyn_cast<ConOp>(op);
-    if (con && isa<BoxType>(unrestricted(con.getType()))) {
-      fail(op->getLoc(), property) << "a box of " << con.getCtor() << " gets a fresh cell in "
-                                   << where(op);
-      held = false;
-    }
-  });
+  for (func::FuncOp fn : functions)
+    fn.walk([&](Operation *op) {
+      if (isa<ReuseOp>(op))
+        reused = true;
+      auto con = dyn_cast<ConOp>(op);
+      if (con && isa<BoxType>(unrestricted(con.getType()))) {
+        fail(op->getLoc(), property) << "a box of " << con.getCtor() << " gets a fresh cell in "
+                                     << where(op);
+        held = false;
+      }
+    });
   if (!reused) {
-    fail(fn.getLoc(), property) << "nothing is built in a reused cell in " << where(fn);
+    fail(functions.front().getLoc(), property) << "nothing is built in a reused cell in " << function;
     held = false;
   }
   return success(held);
@@ -36,44 +39,46 @@ LogicalResult reusesInPlace(ModuleOp module, StringRef function) {
 
 LogicalResult countsNothing(ModuleOp module, StringRef function) {
   constexpr StringRef property = "counts-nothing";
-  func::FuncOp fn = named(module, function, property);
-  if (!fn)
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
     return failure();
   bool held = true;
-  fn.walk([&](Operation *op) {
-    if (!isa<DupOp, DropOp>(op))
-      return;
-    // Static data holds no count: a reference to it costs nothing.
-    if (auto dup = dyn_cast<DupOp>(op); dup && matchPattern(dup.getValue(), m_Constant()))
-      return;
-    fail(op->getLoc(), property) << op->getName() << " in " << where(op);
-    held = false;
-  });
+  for (func::FuncOp fn : functions)
+    fn.walk([&](Operation *op) {
+      if (!isa<DupOp, DropOp>(op))
+        return;
+      // Static data holds no count: a reference to it costs nothing.
+      if (auto dup = dyn_cast<DupOp>(op); dup && matchPattern(dup.getValue(), m_Constant()))
+        return;
+      fail(op->getLoc(), property) << op->getName() << " in " << where(op);
+      held = false;
+    });
   return success(held);
 }
 
 LogicalResult testsNothing(ModuleOp module, StringRef function) {
   constexpr StringRef property = "tests-nothing";
-  func::FuncOp fn = named(module, function, property);
-  if (!fn)
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
     return failure();
   bool held = true, taken = false;
-  fn.walk([&](Operation *op) {
-    Value cell;
-    if (auto take = dyn_cast<TakeOp>(op)) {
-      taken = true;
-      cell = take.getValue();
-    } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
-      cell = reuse.getToken();
-    }
-    if (!cell || isExclusive(cell.getType()))
-      return;
-    fail(op->getLoc(), property) << op->getName() << " in " << where(op) << " tests a value of "
-                                 << cell.getType() << ", which is not exclusive";
-    held = false;
-  });
+  for (func::FuncOp fn : functions)
+    fn.walk([&](Operation *op) {
+      Value cell;
+      if (auto take = dyn_cast<TakeOp>(op)) {
+        taken = true;
+        cell = take.getValue();
+      } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
+        cell = reuse.getToken();
+      }
+      if (!cell || isExclusive(cell.getType()))
+        return;
+      fail(op->getLoc(), property) << op->getName() << " in " << where(op) << " tests a value of "
+                                   << cell.getType() << ", which is not exclusive";
+      held = false;
+    });
   if (!taken) {
-    fail(fn.getLoc(), property) << "nothing is taken apart in " << where(fn);
+    fail(functions.front().getLoc(), property) << "nothing is taken apart in " << function;
     held = false;
   }
   return success(held);
@@ -102,15 +107,12 @@ bool givenSecondReference(Value value) noexcept {
   return false;
 }
 
-// The functions a property of functions is about: the one `function`
+// The functions a property of functions is about: the ones `function`
 // names, or, without one, every function with a body.
 SmallVector<func::FuncOp> about(ModuleOp module, StringRef function, StringRef property) noexcept {
+  if (!function.empty())
+    return named(module, function, property);
   SmallVector<func::FuncOp> functions;
-  if (!function.empty()) {
-    if (func::FuncOp fn = named(module, function, property))
-      functions.push_back(fn);
-    return functions;
-  }
   for (auto fn : module.getOps<func::FuncOp>())
     if (!fn.isExternal())
       functions.push_back(fn);
@@ -141,23 +143,24 @@ LogicalResult resetsUnshared(ModuleOp module, StringRef function) noexcept {
 
 LogicalResult reusesEveryCell(ModuleOp module, StringRef function) noexcept {
   constexpr StringRef property = "reuses-every-cell";
-  func::FuncOp fn = named(module, function, property);
-  if (!fn)
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
     return failure();
   bool held = true;
-  fn.walk([&](DropOp dec) {
-    auto take = dec.getValue().getDefiningOp<TakeOp>();
-    if (!take || dec.getValue() != take.getToken())
-      return;
-    SymbolRefAttr ctor = take.getCtor();
-    // A constructor without fields is a static cell, never the program's
-    // to reuse.
-    if (CtorOp decl = lookupCtor(dec, ctor); decl && decl.getFieldTypes().empty())
-      return;
-    fail(dec.getLoc(), property) << "the cell of " << ctor << " is freed, not reused, in "
-                                 << where(dec);
-    held = false;
-  });
+  for (func::FuncOp fn : functions)
+    fn.walk([&](DropOp dec) {
+      auto take = dec.getValue().getDefiningOp<TakeOp>();
+      if (!take || dec.getValue() != take.getToken())
+        return;
+      SymbolRefAttr ctor = take.getCtor();
+      // A constructor without fields is a static cell, never the program's
+      // to reuse.
+      if (CtorOp decl = lookupCtor(dec, ctor); decl && decl.getFieldTypes().empty())
+        return;
+      fail(dec.getLoc(), property) << "the cell of " << ctor << " is freed, not reused, in "
+                                   << where(dec);
+      held = false;
+    });
   return success(held);
 }
 

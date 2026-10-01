@@ -63,6 +63,7 @@ target_link_libraries(idris_rt_ryu PRIVATE idris_mlir_runtime_profile)
 
 add_library(idris_rt STATIC
 	alloc.cc
+	arrays.cc
 	big.cc
 	double.cc
 	eval.cc

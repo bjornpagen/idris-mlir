@@ -30,6 +30,21 @@ std::expected<CellInfo, std::string> CellInfo::closure(uint64_t objs) noexcept {
   return CellInfo(idris_rt_info(0, static_cast<uint32_t>(objs), IDRIS_RT_KIND_CLOSURE));
 }
 
+std::expected<CellInfo, std::string> CellInfo::array(uint64_t stride, uint64_t objs) noexcept {
+  if (stride >= IDRIS_RT_TAG_LIMIT)
+    return std::unexpected(("an element takes " + Twine(stride) +
+                            " bytes, and an array's element takes fewer than " +
+                            Twine(IDRIS_RT_TAG_LIMIT))
+                               .str());
+  if (objs >= IDRIS_RT_OBJS_LIMIT)
+    return std::unexpected(("an element holds " + Twine(objs) +
+                            " counted references, and an array's element holds at most " +
+                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
+                               .str());
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(stride), static_cast<uint32_t>(objs),
+                                IDRIS_RT_KIND_ARRAY));
+}
+
 SmallVector<Type> SumLayout::types() const {
   SmallVector<Type> all;
   if (tag)
@@ -177,8 +192,8 @@ SmallVector<Type> Layouts::components(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  // A destination is the address of a field's word.
-  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
+  // A destination is the address of a field's word; an array is its cell.
+  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type) || isArray(type))
     return {LLVM::LLVMPointerType::get(ctx)};
   if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
@@ -191,7 +206,7 @@ SmallVector<bool> Layouts::counted(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
+  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type) || isArray(type))
     return {true};
   if (isa<DestType>(type))
     return {false};
@@ -204,6 +219,24 @@ SmallVector<bool> Layouts::counted(Type type) {
     return all;
   }
   return {false};
+}
+
+// An element is laid out as a cell of one field, less the header: the
+// offsets start at the element, and the stride is the word-aligned size.
+std::expected<Element, std::string> Layouts::element(Type type) {
+  std::expected<Cell, std::string> cell =
+      cellOf(type, 0, [](unsigned objs) { return CellInfo::box(0, objs); });
+  if (!cell)
+    return std::unexpected(std::move(cell.error()));
+  constexpr unsigned header = sizeof(idris_rt_header);
+  unsigned stride = cell->size - header;
+  std::expected<CellInfo, std::string> info = CellInfo::array(stride, cell->objs);
+  if (!info)
+    return std::unexpected(std::move(info.error()));
+  SmallVector<Slot> slots = std::move(cell->fields.front());
+  for (Slot &slot : slots)
+    slot.offset -= header;
+  return Element{std::move(slots), stride, *info};
 }
 
 std::expected<Cell, std::string>

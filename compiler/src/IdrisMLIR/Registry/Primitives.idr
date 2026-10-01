@@ -60,6 +60,24 @@ ioPrimitive : Spec -> String -> Shape -> IOOp -> Entry
 ioPrimitive spec name shape op =
   MkEntry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall op) [IOPrimitive]
 
+||| The module of the array primitives, which base declares `%extern`: a
+||| backend implements them by name.
+arrayPrims : List String
+arrayPrims = ["Data", "IOArray", "Prims"]
+
+||| `ArrayData a`, the external type of arrays.
+arrayData : Shape -> Shape
+arrayData a = Head (Def (MkQName arrayPrims "ArrayData")) [a]
+
+||| An array primitive, `forall a . ... -> PrimIO r`: its element type is
+||| erased, and its world is the last argument.
+arrayPrimitive : String -> Shape -> ArrayOp -> Entry
+arrayPrimitive name shape op =
+  MkEntry (Def (MkQName arrayPrims name)) (Typed (Pi Q0 TypeOfTypes shape)) (ArrayCall op) [IOPrimitive]
+
+int : Shape
+int = Prim (IntP IdrisInt)
+
 ||| The table: Idris's backend contract as the compiler implements it.
 export
 primitives : List Entry
@@ -71,4 +89,12 @@ primitives =
                 (Pi QW (Prim CharP) (Pi Q1 world (ioRes unit))) PutChar
   -- The Prelude's getChar reads one byte.
   , ioPrimitive (MkSpec "C" "getchar") "prim__getChar"
-                (Pi Q1 world (ioRes (Prim CharP))) GetByte ]
+                (Pi Q1 world (ioRes (Prim CharP))) GetByte
+  , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi QW TypeOfTypes TypeOfTypes))
+            ArrayType [IOPrimitive]
+  , arrayPrimitive "prim__newArray"
+                   (Pi QW int (Pi QW Hole (Pi Q1 world (ioRes (arrayData Hole))))) NewArray
+  , arrayPrimitive "prim__arrayGet"
+                   (Pi QW (arrayData Hole) (Pi QW int (Pi Q1 world (ioRes Hole)))) GetArray
+  , arrayPrimitive "prim__arraySet"
+                   (Pi QW (arrayData Hole) (Pi QW int (Pi QW Hole (Pi Q1 world (ioRes unit))))) SetArray ]

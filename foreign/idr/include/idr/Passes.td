@@ -466,7 +466,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
     Tests state what a pass guarantees by name, not by the ops that happen
     to show it. Each property in `holds`, `name` or `name=argument`, reports
     every place it fails as an error `expected <name>: <what>`, and the pass
-    fails if any does:
+    fails if any does. A property of `@f` is of @f and of every clone of it
+    (a specialization, a raised copy), which keeps the location naming the
+    definition it was copied from, so a test names the function the
+    programmer wrote:
       - `no-closures`: no closure is built, applied or a constant;
       - `no-heap-allocation`, `no-heap-allocation=@f`: nothing allocates a
         heap cell, anywhere, or in @f and everything it may call;

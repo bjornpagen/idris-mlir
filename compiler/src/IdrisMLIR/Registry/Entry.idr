@@ -182,6 +182,13 @@ data Hook
     ||| `idr.io` op of this IO operation. Handler:
     ||| `Frontend.Translate.application`.
     IOCall IOOp
+  | ||| An array primitive of the backend contract, polymorphic in its
+    ||| element: its calls are the `idr.array` op at the element type the
+    ||| call fixes. Handler: `Frontend.Translate.application`.
+    ArrayCall ArrayOp
+  | ||| The external type of arrays, `ArrayData a`: the array type of its
+    ||| element. Handler: `Frontend.Translate.Types.coreType`.
+    ArrayType
   | ||| The identity on its last argument, its one runtime argument; the
     ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
@@ -215,6 +222,8 @@ Show Kind where
 export
 kind : Hook -> Kind
 kind (IOCall _) = Faster
+kind (ArrayCall _) = Faster
+kind ArrayType = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster

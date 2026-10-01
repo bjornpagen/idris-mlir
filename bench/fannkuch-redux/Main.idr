@@ -1,61 +1,92 @@
 module Main
 
--- fannkuch-redux (the Benchmarks Game): every permutation of 1..n, the
--- number of prefix reversals that brings 1 to the front, the largest such
--- count and an alternating checksum. Permutations are lists, as an Idris
--- programmer writes them first.
+-- fannkuch-redux (the Benchmarks Game): every permutation of 0..n-1, the
+-- number of prefix reversals that brings 0 to the front, the largest such
+-- count and an alternating checksum. The permutation, its working copy and
+-- the counters are arrays (base's IOArray), updated in place as the game's
+-- programs do.
 
 import Prelude
-import Data.List
+import Data.IOArray
 
--- Reverse the first h elements, where h is the head.
-flip1 : List Int -> List Int
-flip1 [] = []
-flip1 p@(h :: _) = let (a, b) = splitAt (cast h) p in reverse a ++ b
+get : IOArray Int -> Int -> IO Int
+get arr i = do
+  Just v <- readArray arr i
+    | Nothing => pure 0
+  pure v
 
-flips : List Int -> Int -> Int
-flips [] k = k
-flips (1 :: _) k = k
-flips p k = flips (flip1 p) (k + 1)
+set : IOArray Int -> Int -> Int -> IO ()
+set arr i v = ignore (writeArray arr i v)
 
--- Rotate the first r + 1 elements left by one.
-rotate : Int -> List Int -> List Int
-rotate r xs = case splitAt (cast (r + 1)) xs of
-  (p0 :: rest, t) => rest ++ (p0 :: t)
-  (_, _) => xs
+-- perm1[i] := i.
+iota : IOArray Int -> Int -> Int -> IO ()
+iota arr n i = if i >= n then pure () else do set arr i i; iota arr n (i + 1)
 
-setAt : Int -> Int -> List Int -> List Int
-setAt _ _ [] = []
-setAt 0 v (_ :: xs) = v :: xs
-setAt i v (x :: xs) = x :: setAt (i - 1) v xs
+copy : IOArray Int -> IOArray Int -> Int -> Int -> IO ()
+copy from to n i =
+  if i >= n then pure ()
+  else do v <- get from i
+          set to i v
+          copy from to n (i + 1)
 
-getAt : Int -> List Int -> Int
-getAt _ [] = 0
-getAt 0 (x :: _) = x
-getAt i (_ :: xs) = getAt (i - 1) xs
+-- Reverses perm[i..j].
+rev : IOArray Int -> Int -> Int -> IO ()
+rev p i j =
+  if i >= j then pure ()
+  else do a <- get p i
+          b <- get p j
+          set p i b
+          set p j a
+          rev p (i + 1) (j - 1)
+
+-- The number of prefix reversals (each of perm[0..perm[0]]) that brings 0
+-- to the front.
+flips : IOArray Int -> Int -> IO Int
+flips p k = do
+  h <- get p 0
+  if h == 0
+     then pure k
+     else do rev p 0 h
+             flips p (k + 1)
+
+-- Rotates perm1[0..r] left by one.
+rotate : IOArray Int -> Int -> IO ()
+rotate p r = do
+  p0 <- get p 0
+  shift 0
+  set p r p0
+  where
+    shift : Int -> IO ()
+    shift i =
+      if i >= r then pure ()
+      else do v <- get p (i + 1)
+              set p i v
+              shift (i + 1)
+
+-- The next permutation's r, or nothing when they are exhausted.
+next : Int -> IOArray Int -> IOArray Int -> Int -> IO (Maybe Int)
+next n perm1 count r =
+  if r == n
+     then pure Nothing
+     else do rotate perm1 r
+             c <- get count r
+             set count r (c - 1)
+             if c > 1 then pure (Just r) else next n perm1 count (r + 1)
 
 -- count[i] := i + 1 for i below r.
-fill : List Int -> Int -> List Int
-fill count r = if r == 1 then count else fill (setAt (r - 1) r count) (r - 1)
+fill : IOArray Int -> Int -> IO ()
+fill count r = if r == 1 then pure () else do set count (r - 1) r; fill count (r - 1)
 
--- The next permutation, or nothing when they are exhausted.
-next : Int -> List Int -> List Int -> Int -> Maybe (List Int, List Int, Int)
-next n perm count r =
-  if r == n then Nothing
-  else let perm' = rotate r perm
-           c = getAt r count - 1
-           count' = setAt r c count
-       in if c > 0 then Just (perm', count', r) else next n perm' count' (r + 1)
-
-loop : Int -> List Int -> List Int -> Int -> Int -> Int -> Int -> (Int, Int)
-loop n perm count r idx checksum maxf =
-  let count' = fill count r
-      f = flips perm 0
-      checksum' = if idx `mod` 2 == 0 then checksum + f else checksum - f
-      maxf' = max maxf f
-  in case next n perm count' 1 of
-       Nothing => (checksum', maxf')
-       Just (perm', count'', r') => loop n perm' count'' r' (idx + 1) checksum' maxf'
+loop : Int -> IOArray Int -> IOArray Int -> IOArray Int -> Int -> Int -> Int -> Int -> IO (Int, Int)
+loop n perm1 perm count r idx checksum maxf = do
+  fill count r
+  copy perm1 perm n 0
+  f <- flips perm 0
+  let checksum' = if idx `mod` 2 == 0 then checksum + f else checksum - f
+  let maxf' = max maxf f
+  Just r' <- next n perm1 count 1
+    | Nothing => pure (checksum', maxf')
+  loop n perm1 perm count r' (idx + 1) checksum' maxf'
 
 readInt : IO Int
 readInt = go 0
@@ -68,6 +99,10 @@ readInt = go 0
 main : IO ()
 main = do
   n <- readInt
-  let (checksum, maxf) = loop n [1 .. n] (replicate (cast n) 0) n 0 0 0
+  perm1 <- newArray n
+  perm <- newArray n
+  count <- newArray n
+  iota perm1 n 0
+  (checksum, maxf) <- loop n perm1 perm count n 0 0 0
   printLn checksum
   putStrLn ("Pfannkuchen(" ++ show n ++ ") = " ++ show maxf)

@@ -29,12 +29,11 @@ SmallVector<func::FuncOp> references(func::FuncOp fn, SymbolTable &symbols) {
 // a body in the module call nothing back.
 LogicalResult constantStack(ModuleOp module, StringRef function) {
   constexpr StringRef property = "constant-stack";
-  func::FuncOp root = named(module, function, property);
-  if (!root)
+  SmallVector<func::FuncOp> reached = named(module, function, property);
+  if (reached.empty())
     return failure();
   SymbolTable symbols(module);
-  SmallVector<func::FuncOp> reached{root};
-  llvm::DenseSet<Operation *> seen{root};
+  llvm::DenseSet<Operation *> seen(reached.begin(), reached.end());
   for (size_t next = 0; next < reached.size(); ++next)
     for (func::FuncOp callee : references(reached[next], symbols))
       if (seen.insert(callee).second)
@@ -55,25 +54,27 @@ LogicalResult constantStack(ModuleOp module, StringRef function) {
   return success(held);
 }
 
-// The function loops, and every loop it has counts to a bound with a step:
-// an scf.for, which says its trip count, and no scf.while.
+// The function (or a clone of it) loops, and every loop it has counts to a
+// bound with a step: an scf.for, which says its trip count, and no
+// scf.while.
 LogicalResult countedLoop(ModuleOp module, StringRef function) {
   constexpr StringRef property = "counted-loop";
-  func::FuncOp fn = named(module, function, property);
-  if (!fn)
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
     return failure();
   unsigned counted = 0;
   bool held = true;
-  fn.walk([&](Operation *op) {
-    if (isa<scf::ForOp>(op))
-      ++counted;
-    if (isa<scf::WhileOp>(op)) {
-      fail(op->getLoc(), property) << "a loop of " << where(op) << " has no trip count";
-      held = false;
-    }
-  });
+  for (func::FuncOp fn : functions)
+    fn.walk([&](Operation *op) {
+      if (isa<scf::ForOp>(op))
+        ++counted;
+      if (isa<scf::WhileOp>(op)) {
+        fail(op->getLoc(), property) << "a loop of " << where(op) << " has no trip count";
+        held = false;
+      }
+    });
   if (held && counted == 0) {
-    fail(fn.getLoc(), property) << "@" << fn.getSymName() << " has no loop";
+    fail(functions.front().getLoc(), property) << function << " has no loop";
     held = false;
   }
   return success(held);
