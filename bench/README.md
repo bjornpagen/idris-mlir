@@ -45,6 +45,45 @@ The Prelude costs nothing: its interfaces, `Integer` literals and `show`
 internals are all resolved at compile time, and these times equal those of
 the same programs written against a hand-made numeric module.
 
+## The Benchmarks Game
+
+The ten programs of the Computer Language Benchmarks Game, written as an
+Idris programmer writes them first (Prelude and base, lists where the game
+uses arrays, `getChar` for input, `putStrLn` for output), beside the C of
+`bench/c`. regex-redux carries its own small regex engine, since Idris has
+no regex library; it has no C version, so Chez is its only reference.
+Same machine and method as above, best of 3 (2026-10-01, at 60176f4):
+
+| benchmark | input | this compiler | Idris Chez | clang -O2 |
+| --- | --- | ---: | ---: | ---: |
+| binary-trees | 21 | 5.579 | 35.598 | 25.821 |
+| fannkuch-redux | 10 | 1.650 | 2.408 | 0.461 |
+| fasta | 250000 | 0.319 | 0.255 | 0.036 |
+| k-nucleotide | fasta 250000 | rejected | 12.787 | 0.263 |
+| mandelbrot (PBM) | 4000 | differs | 18.817 | 0.985 |
+| n-body | 5000000 | 0.325 | 6.634 | 0.311 |
+| pidigits | 10000 | 0.990 | 5.062 | 1.042 |
+| regex-redux | fasta 250000 | 3.244 | 3.124 | n/a |
+| reverse-complement | fasta 250000 | 0.325 | 0.592 | 0.014 |
+| spectral-norm | 1000 | 0.069 | 4.777 | 0.052 |
+
+- **binary-trees:** the C version frees through musl's `malloc`; the
+  game's fastest C uses a pool. Ours frees each tree as it dies, through
+  the runtime's allocator, and the bottom level is one static cell.
+- **pidigits:** C uses GMP in place; ours allocates a new `mpz` per
+  operation and still matches it, through the runtime's allocator. The
+  in-place form waits for exclusivity on bigs.
+- **spectral-norm:** on lists of doubles, where it was 56x slower than C
+  before reference counting learned to rebuild lists in their own cells.
+- **fannkuch-redux, fasta, reverse-complement:** lists and `List Char`
+  where C has arrays and byte buffers, and input read a character at a
+  time; arrays on the tensor path and byte I/O are the next steps.
+- **k-nucleotide** is rejected: `Data.SortedMap` keeps its `Ord`
+  dictionary in a value chosen at runtime. **mandelbrot (PBM)** compiles,
+  but `putChar` writes UTF-8 for bytes from 128 on (a decided divergence
+  from Chez), so its bitmap is not compared; `bench/mandelbrot` above
+  counts the same points instead.
+
 ## Caveats
 
 - The programs compute on numbers, with no lists or trees, so they
