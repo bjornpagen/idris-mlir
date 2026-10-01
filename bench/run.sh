@@ -124,7 +124,7 @@ build() {
       idris_sources "$work/ours"
       compile_start=$(date +%s%N)
       # shellcheck disable=SC2086 # the packages are words
-      bounded "$root/tools/compile.sh" --io $packages "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
+      bounded "$root/tools/compile.sh" $packages "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
       # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
       echo "$name|$(( $(date +%s%N) - compile_start ))" >> "$compiles"

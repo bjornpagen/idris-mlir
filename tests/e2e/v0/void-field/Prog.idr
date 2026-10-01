@@ -12,5 +12,5 @@ get (A n) = n
 get (B _) = 0
 
 public export
-main : Int
-main = get (A 3)
+result : Int
+result = get (A 3)

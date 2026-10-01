@@ -6,8 +6,7 @@
 # `symbols` file next to the tests adds for them (tests/e2e/v2/symbols:
 # libm, for Doubles). Anything else is a call the program should not make.
 #
-# A file `heap-free` in a test's directory, or in the directory of its
-# tests for all of them (tests/e2e/v0/heap-free), marks a program whose
+# A file `heap-free` in a test's directory marks a program whose
 # values the compiler keeps off the heap: no op of the module that is
 # lowered allocates a heap cell (idr-expect's no-heap-allocation). The mark
 # is the test: the day an optimization stops keeping those values off the
@@ -60,10 +59,9 @@ object_imports() {
   fi
 }
 
-# heap_marked TEST: the test directory TEST, or its tests' directory, has
-# the mark `heap-free`.
+# heap_marked TEST: the test directory TEST has the mark `heap-free`.
 heap_marked() {
-  [ -f "$1/heap-free" ] || [ -f "$1/../heap-free" ]
+  [ -f "$1/heap-free" ]
 }
 
 # heap_free TEST DUMPS: for a marked test, nothing in the module that

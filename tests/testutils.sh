@@ -15,7 +15,7 @@
 # A fixture may carry a mark, a file named for what it changes:
 #
 #     heap-free       no op of the lowered module allocates a heap cell
-#                     (heap.sh); in a version directory, for all its tests
+#                     (heap.sh)
 #     oracle-chez     Chez's stdout is the only oracle of stdout (e2e.sh)
 #     no-chez         Chez is not run; the file says why (e2e.sh)
 #     chez-differs    Chez knowingly prints something else: the file names a

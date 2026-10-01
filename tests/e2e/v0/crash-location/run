@@ -1,3 +1,3 @@
 #!/bin/sh
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-e2e_v0 .
+e2e_io .

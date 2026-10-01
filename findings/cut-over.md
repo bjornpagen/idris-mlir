@@ -27,5 +27,13 @@ was decided; the deletions are in the commits of the same day.
 - **Two program shapes.** `main : Int` programs (the exit status is the
   value) were this compiler's own invention for the semantics tests, with
   their own flow in `tools/compile.sh`, `tests/lib/e2e.sh` and
-  `Frontend/Main.idr`, and no Chez oracle. They become IO programs that
-  print the value, and the Int flow goes.
+  `Frontend/Main.idr`, and no Chez oracle. They became IO programs that
+  print the value (`Prog.result`, with an `Oracle.idr` that proves it the
+  expected stdout), the Int flow went, and Chez checks them too. Two things
+  the one flow showed: a module Idris reloads from its TTC keeps no
+  location inside a term, so a crash names the function, not the
+  operation, and a profile rejection reports the definition's line; and
+  Idris's own inliner drops a division whose quotient is unused, where this
+  compiler keeps the crash as an effect in program order
+  (`tests/e2e/v0/crash-div-zero`, marked `no-chez`). Whether an undemanded
+  crash is an effect is a decision still to take.

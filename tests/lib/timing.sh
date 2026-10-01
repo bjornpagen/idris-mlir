@@ -28,10 +28,8 @@ record_time() {
   record_ms=$1
   shift
   record_what=compile
-  record_flow=
   while [ $# -gt 2 ]; do
     case $1 in
-      --int | --io) record_flow=$1 ;;
       --directive) record_what="$record_what --directive $2"; shift ;;
       -p) shift ;;
     esac
@@ -48,12 +46,7 @@ record_time() {
   record_module=-
   if [ "$compiled" -eq 0 ]; then
     record_dir=$(dirname "$record_source")
-    if [ "$record_flow" = --io ]; then
-      record_found=$record_dir/build/exec/${record_output##*/}.mlir
-    else
-      record_stem=${record_source##*/}
-      record_found=$(find "$record_dir/build/ttc" -type f -name "${record_stem%.*}.mlir" 2> /dev/null | sort | head -n 1)
-    fi
+    record_found=$record_dir/build/exec/${record_output##*/}.mlir
     if [ -n "$record_found" ] && [ -f "$record_found" ]; then
       record_module=$timing_dir/$timing_id.$timing_count.mlir
       cp "$record_found" "$record_module" 2> /dev/null || record_module=-

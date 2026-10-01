@@ -1,11 +1,11 @@
 ||| Table-driven integer semantics over every integer type.
 |||
-||| Each generated program is an ordinary v0 end-to-end fixture: `Prog.main`
-||| is 0 when every case agrees with the table, and otherwise the number of
-||| the first case that disagrees. `Oracle.idr` proves `Prog.main = 0` with
-||| `Refl`, so the stock evaluator agrees with the same table. The table
-||| itself is computed here, from what each primitive means, not from the
-||| compiler.
+||| Each generated program is the `Prog` module of an ordinary end-to-end
+||| fixture, whose Main.idr prints `Prog.result`: 0 when every case agrees
+||| with the table, and otherwise the number of the first case that
+||| disagrees. `Oracle.idr` proves `Prog.result = 0` with `Refl`, so the
+||| stock evaluator agrees with the same table. The table itself is computed
+||| here, from what each primitive means, not from the compiler.
 |||
 ||| The tests are `tests/e2e/v0/prim-<type>-<table>-<part>/`, the type in
 ||| lower case. Their `run` asks the test runner for the program:
@@ -139,7 +139,7 @@ chunks : Nat -> List a -> List (List a)
 chunks n [] = []
 chunks n xs = take n xs :: chunks n (drop n xs)
 
-||| The v0 program that checks the given cases.
+||| The Prog module that checks the given cases.
 program : List Case -> String
 program cases =
   let numbered = zip [1 .. length cases] cases
@@ -155,8 +155,8 @@ program cases =
        , "chk 1 _ rest = rest"
        , "chk _ i _ = i", ""
        , "public export partial"
-       , "main : Int"
-       , "main ="
+       , "result : Int"
+       , "result ="
        , "  " ++ body
        ]
 

@@ -16,12 +16,6 @@ import IdrisMLIR.Types
 
 %default total
 
-||| The root of a `main : Int` program is `main` in its module,
-||| given by its path, outermost first.
-export
-intEntry : List String -> QName
-intEntry ns = MkQName ns "main"
-
 ||| The module Idris takes `main` from when none is named.
 export
 mainModule : List String

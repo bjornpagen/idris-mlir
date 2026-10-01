@@ -61,8 +61,8 @@ fuzz() {
       for fuzz_mode in $fuzz_modes; do
         cp "$fuzz_dir/Main.idr" "$fuzz_dir/$fuzz_mode/Main.idr"
         case $fuzz_mode in
-          eval) compile_program --io "$fuzz_dir/eval/Main.idr" prog ;;
-          noeval) compile_program --io --directive no-eval "$fuzz_dir/noeval/Main.idr" prog ;;
+          eval) compile_program "$fuzz_dir/eval/Main.idr" prog ;;
+          noeval) compile_program --directive no-eval "$fuzz_dir/noeval/Main.idr" prog ;;
           chez)
             (cd "$fuzz_dir/chez" && bounded "$idris2" --no-banner --no-color --no-prelude \
                --cg chez -o prog Main.idr) > "$work/compile.out" 2> "$work/compile.err"

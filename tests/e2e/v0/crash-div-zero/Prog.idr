@@ -5,6 +5,6 @@ partial
 divide : Int -> Int -> Int
 divide a b = let q = prim__div_Int a b in 3
 
-partial
-main : Int
-main = divide 10 0
+export partial
+result : Int
+result = divide 10 0

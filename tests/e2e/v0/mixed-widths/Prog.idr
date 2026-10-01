@@ -11,5 +11,5 @@ total' (MkPacked a b c d) =
       (prim__add_Int (prim__cast_Bits64Int c) (prim__cast_Int32Int d)))
 
 public export
-main : Int
-main = total' (MkPacked (prim__cast_IntBits8 200) (prim__cast_IntInt16 (-100)) (prim__cast_IntBits64 3) (prim__cast_IntInt32 7))
+result : Int
+result = total' (MkPacked (prim__cast_IntBits8 200) (prim__cast_IntInt16 (-100)) (prim__cast_IntBits64 3) (prim__cast_IntInt32 7))

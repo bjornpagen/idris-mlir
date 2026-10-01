@@ -96,25 +96,19 @@ quantities_kept() {
   [ -n "$qk_failed" ] || say "quantities: kept"
 }
 
-# without_evaluation FLOW FIXTURE STDIN STACK: the fixture compiled again
+# without_evaluation FIXTURE STDIN STACK: the fixture compiled again
 # with `--directive no-eval`, which leaves every closed call to runtime,
 # must print the stdout and exit with the status the first compilation's
 # program did (in $work/ours.out and $ours_status), within its budgets. A
 # fixture that --no-eval rejects with a user error (a value the profile
 # forbids at runtime, which only evaluation removes) says so with the
-# reason instead. FLOW is `io` (Main.idr) or `v0` (Prog.idr); STACK is
-# `small` or empty, as the first run had it.
+# reason instead. STACK is `small` or empty, as the first run had it.
 without_evaluation() {
   mkdir "$work/noeval"
-  copy_fixture "$2" "$work/noeval"
-  if [ "$1" = io ]; then
-    # shellcheck disable=SC2086 # the packages are words
-    compile_program --io $io_packages --directive no-eval "$work/noeval/Main.idr" prog
-    we_exe=$work/noeval/build/exec/prog
-  else
-    compile_program --int --directive no-eval "$work/noeval/Prog.idr" "$work/noeval/build/exec/Prog"
-    we_exe=$work/noeval/build/exec/Prog
-  fi
+  copy_fixture "$1" "$work/noeval"
+  # shellcheck disable=SC2086 # the packages are words
+  compile_program $io_packages --directive no-eval "$work/noeval/Main.idr" prog
+  we_exe=$work/noeval/build/exec/prog
   if [ "$compiled" -ne 0 ]; then
     we_reason=$(rejection_reason)
     if [ "$compiled" -eq 1 ] && [ -n "$we_reason" ]; then
@@ -126,7 +120,7 @@ without_evaluation() {
     return
   fi
   budget_kept "no-eval budget"
-  run_ours noeval "$we_exe" "$3" ${4:+small}
+  run_ours noeval "$we_exe" "$2" ${3:+small}
   if ! cmp -s "$work/ours.out" "$work/noeval.out"; then
     say "no-eval: stdout differs (< evaluation, > --no-eval)"
     diff "$work/ours.out" "$work/noeval.out" | head -n 20 | sed 's/^/  | /'

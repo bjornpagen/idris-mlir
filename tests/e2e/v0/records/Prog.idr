@@ -19,5 +19,5 @@ width (Circle _ r) = prim__mul_Int 2 r
 width (Rect a b) = prim__sub_Int b.x a.x
 
 public export
-main : Int
-main = prim__add_Int (width (Rect (MkPoint 1 2) (add (MkPoint 10 20) (MkPoint 5 5)))) (width (Circle (MkPoint 0 0) 3))
+result : Int
+result = prim__add_Int (width (Rect (MkPoint 1 2) (add (MkPoint 10 20) (MkPoint 5 5)))) (width (Circle (MkPoint 0 0) 3))

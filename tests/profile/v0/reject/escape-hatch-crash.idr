@@ -1,10 +1,11 @@
--- expect: escape hatch, line 6
+-- expect: escape hatch, line 7
 module Main
+import Prelude
 
 partial
 stop : Int -> Int
 stop x = prim__crash Int "no"
 
 partial
-main : Int
-main = stop 5
+main : IO ()
+main = printLn (stop 5)

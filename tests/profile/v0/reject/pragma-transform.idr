@@ -1,5 +1,6 @@
--- expect: pragma, line 10
+-- expect: pragma, line 11
 module Main
+import Prelude
 
 slow : Int -> Int
 slow x = prim__add_Int x 0
@@ -9,5 +10,5 @@ fast x = x
 
 %transform "fast" slow = fast
 
-main : Int
-main = slow 3
+main : IO ()
+main = printLn (slow 3)

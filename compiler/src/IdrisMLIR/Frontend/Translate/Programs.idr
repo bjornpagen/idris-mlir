@@ -97,14 +97,6 @@ assemble root = do
     dataField (Held _ (DataT d)) = Just d
     dataField _ = Nothing
 
-||| A `main : Int` program: the root is `main` itself.
-export
-translateIntProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Source
-translateIntProgram main = do
-  root <- request EmptyFC (show main) main []
-  drain
-  assemble root
-
 ||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,
 ||| `unsafeCreateWorld` and `unsafeDestroyWorld` mean:

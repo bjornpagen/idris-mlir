@@ -1,9 +1,10 @@
--- expect: pragma, line 4
+-- expect: pragma, line 5
 module Main
+import Prelude
 
 %inline
 one : Int
 one = 1
 
-main : Int
-main = one
+main : IO ()
+main = printLn one

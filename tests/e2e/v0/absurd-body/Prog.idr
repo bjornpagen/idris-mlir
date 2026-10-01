@@ -26,5 +26,5 @@ countdown 0 = 5
 countdown n = countdown (prim__sub_Int n 1)
 
 public export
-main : Int
-main = get (A (countdown 100000))
+result : Int
+result = get (A (countdown 100000))

@@ -1,5 +1,6 @@
--- exit: 9
+-- stdout: 9\n
 module Main
+import Prelude
 
 -- A quantity-0 field may have any type.
 data Tagged : Type where
@@ -8,5 +9,5 @@ data Tagged : Type where
 get : Tagged -> Int
 get (MkTagged _ n) = n
 
-main : Int
-main = get (MkTagged Integer 9)
+main : IO ()
+main = printLn (get (MkTagged Integer 9))

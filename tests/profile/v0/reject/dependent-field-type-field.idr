@@ -1,5 +1,6 @@
--- expect: dependent field, line 5
+-- expect: dependent field, line 6
 module Main
+import Prelude
 
 data Box : Type where
   MkBox : Type -> Box
@@ -7,5 +8,5 @@ data Box : Type where
 size : Box -> Int
 size (MkBox _) = 1
 
-main : Int
-main = size (MkBox Int)
+main : IO ()
+main = printLn (size (MkBox Int))

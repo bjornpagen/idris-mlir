@@ -17,7 +17,7 @@ bench_smoke() {
       for bs_source in "$root"/bench/lib/*.idr "$bs_main"; do
         [ -f "$bs_source" ] && cp "$bs_source" "$work/$bs_name/"
       done
-      compile_program --io "$work/$bs_name/Main.idr" prog
+      compile_program "$work/$bs_name/Main.idr" prog
       if [ "$compiled" -ne 0 ] && cat "$work/compile.out" "$work/compile.err" | grep -qF "$(cat "$root/bench/$bs_name/rejected")"; then
         say "$bs_name: rejected as recorded"
       else
@@ -45,7 +45,7 @@ bench_smoke() {
       for bs_package in $(cat "$root/bench/$bs_name/packages"); do bs_packages="$bs_packages -p $bs_package"; done
     fi
     # shellcheck disable=SC2086 # the packages are words
-    compile_program --io $bs_packages "$work/$bs_name/Main.idr" prog
+    compile_program $bs_packages "$work/$bs_name/Main.idr" prog
     if [ "$compiled" -ne 0 ]; then
       say "$bs_name: compile exit $compiled"
       show "$work/compile.out" "$work/compile.err"

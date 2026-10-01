@@ -1,6 +1,4 @@
 compile: exit 0
-artifacts: build/ttc/*/Main.core build/ttc/*/Main.mlir
-compile again: exit 0
-unchanged module: not compiled again
+artifacts: build/exec/Main build/exec/Main.core build/exec/Main.mlir build/exec/Main.o
 compile an unsupported change: exit 1
 artifacts after the failure: none

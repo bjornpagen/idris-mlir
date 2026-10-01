@@ -1,7 +1,7 @@
 compile: exit 0
-artifacts: Prog.core Prog.mlir Prog.o Prog
+artifacts: prog.core prog.mlir prog.o prog
 run: exit 1, a crash
-stdout: empty
+stdout: as expected
 stderr: names the cause in expected-crash
 object: no undefined symbol outside the allowed set
 heap: nothing is allocated on the heap
@@ -9,5 +9,7 @@ budget: kept
 dumps: parse and verify
 simplify: idempotent
 quantities: kept
+chez: compile exit 0
+chez: same stdout
 no-eval budget: kept
 no-eval: same stdout and exit status

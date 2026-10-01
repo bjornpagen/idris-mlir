@@ -29,5 +29,5 @@ stepN 0 d = d
 stepN n d = stepN (prim__sub_Int n 1) (next d)
 
 public export
-main : Int
-main = index (stepN 10 Mon)
+result : Int
+result = index (stepN 10 Mon)

@@ -1,35 +1,25 @@
 # Determinism: the same program compiles to the same bytes.
 
-# determinism FLOW FIXTURE: two compilations of the fixture give
+# determinism FIXTURE: two compilations of the fixture, an IO program in
+# Main.idr with the installed packages its `packages` names, give
 # byte-identical .core, .mlir, object and executable, and dump the same
-# module after every step of the pipeline. FLOW is `v0`, a `main : Int`
-# program in Prog.idr, or `io`, an IO program in Main.idr with the
-# installed packages its `packages` names.
+# module after every step of the pipeline.
 determinism() {
   mkdir "$work/det"
-  copy_fixture "$2" "$work/det"
+  copy_fixture "$1" "$work/det"
   det_packages=
-  if [ -f "$2/packages" ]; then
-    for det_package in $(cat "$2/packages"); do det_packages="$det_packages -p $det_package"; done
+  if [ -f "$1/packages" ]; then
+    for det_package in $(cat "$1/packages"); do det_packages="$det_packages -p $det_package"; done
   fi
   for det_round in 1 2; do
     rm -rf "$work/det/build"
-    if [ "$1" = v0 ]; then
-      compile_program --int --directive dump-mlir "$work/det/Prog.idr" "$work/det/build/exec/Prog"
-      det_core=$(find "$work/det/build" -type f -name Prog.core | sort | head -n 1)
-      det_mlir=$(find "$work/det/build" -type f -name Prog.mlir | sort | head -n 1)
-      det_object=$work/det/build/exec/Prog.o
-      det_executable=$work/det/build/exec/Prog
-      det_dumps=$work/det/build/exec/Prog.dump
-    else
-      # shellcheck disable=SC2086 # the packages are words
-      compile_program --io $det_packages --directive dump-mlir "$work/det/Main.idr" prog
-      det_core=$work/det/build/exec/prog.core
-      det_mlir=$work/det/build/exec/prog.mlir
-      det_object=$work/det/build/exec/prog.o
-      det_executable=$work/det/build/exec/prog
-      det_dumps=$work/det/build/exec/prog.dump
-    fi
+    # shellcheck disable=SC2086 # the packages are words
+    compile_program $det_packages --directive dump-mlir "$work/det/Main.idr" prog
+    det_core=$work/det/build/exec/prog.core
+    det_mlir=$work/det/build/exec/prog.mlir
+    det_object=$work/det/build/exec/prog.o
+    det_executable=$work/det/build/exec/prog
+    det_dumps=$work/det/build/exec/prog.dump
     say "compile $det_round: exit $compiled"
     if [ "$compiled" -ne 0 ]; then
       show "$work/compile.out" "$work/compile.err"

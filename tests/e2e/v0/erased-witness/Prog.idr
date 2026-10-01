@@ -23,5 +23,5 @@ countdown 0 = 7
 countdown n = countdown (prim__sub_Int n 1)
 
 public export
-main : Int
-main = linearId (clamp (countdown 100000) 9 Ok)
+result : Int
+result = linearId (clamp (countdown 100000) 9 Ok)

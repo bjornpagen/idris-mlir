@@ -15,5 +15,5 @@ size Small _ = 17
 size Large ItIs impossible
 
 public export
-main : Int
-main = size Small ItIs
+result : Int
+result = size Small ItIs

@@ -229,53 +229,6 @@ ccVerdict fc src artifacts (status, text) =
       internal fc ("idris-mlir-cc failed with status " ++ show status ++ ":\n" ++ text)
 
 ------------------------------------------------------------------------------
--- main : Int programs
-------------------------------------------------------------------------------
-
-dropExt : String -> String -> String
-dropExt path ext = if isSuffixOf ext path then substr 0 (length path `minus` length ext) path else path
-
-compileModule : Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
-                String -> Core (Maybe (String, List String))
-compileModule c _ source = do
-  ident <- ctxtPathToNS source
-  -- A location that --check reports.
-  let fc = MkFC (PhysicalIdrSrc ident) (0, 0) (0, 0)
-  corePath <- getTTCFileName source "core"
-  mlirPath <- getTTCFileName source "mlir"
-  -- No stale artifacts survive a failure.
-  remove corePath
-  remove mlirPath
-  s <- newRef TState (initState fc)
-  validated fc
-  checkPragmas ident source
-  defs <- get Ctxt
-  case defs.imported of
-    [] => pure ()
-    ((m, _, _) :: _) => do
-      at <- map snd . head' <$> imports ident source
-      reject (fromMaybe fc at) (show ident) ProgramShape
-             ("a main : Int program imports nothing (it imports " ++ show m ++ ")")
-  -- Idris's entry convention, from the registry.
-  let main = toName (intEntry (modulePath ident))
-  Just def <- lookupCtxtExact main (gamma defs)
-    | Nothing => reject fc (show ident) ProgramShape "the module does not define main"
-  ty <- normalise defs Env.Nil (type def)
-  case ty of
-    PrimVal _ (PrT IntType) => pure ()
-    _ => reject (location def) (show main) ProgramShape "main must have type Int"
-  checkReachable fc [main]
-  prog <- translateIntProgram main
-  (dir, _) <- dumpDir (corePath `dropExt` ".core")
-  (core, mlir) <- middle fc dir prog
-  write corePath core
-  write mlirPath mlir
-  -- A profile rejection on the optimized module is a user error of
-  -- `--check` too, and leaves no artifact.
-  ccVerdict fc prog [corePath, mlirPath] !(runCc ([mlirPath, "--check"] ++ !ccOptions) (mlirPath ++ ".stderr"))
-  pure (Just (!(getObjFileName source "mlir"), []))
-
-------------------------------------------------------------------------------
 -- IO programs
 ------------------------------------------------------------------------------
 
@@ -388,7 +341,7 @@ executeProgram _ _ _ _ =
   throw (GenericMsg EmptyFC "mlir backend: unsupported (program): --exec is not supported")
 
 backend : Codegen
-backend = MkCG compileProgram executeProgram (Just compileModule) (Just "mlir")
+backend = MkCG compileProgram executeProgram Nothing Nothing
 
 main : IO ()
 main = mainWithCodegens [("mlir", backend)]

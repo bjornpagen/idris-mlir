@@ -57,9 +57,8 @@ bounded() {
   timeout -k 5 "$limit" "$@"
 }
 
-# The contract text: SOURCE, or what tools/compile.sh leaves of the program:
-# build/exec/<output>.mlir for an IO program, build/ttc/*/<module>.mlir for
-# a `main : Int` one.
+# The contract text: SOURCE, or what tools/compile.sh leaves of the program,
+# build/exec/<output>.mlir.
 case $source in
   *.mlir) mlir=$(cd "$(dirname "$source")" && pwd)/${source##*/} ;;
   *)
@@ -79,8 +78,6 @@ case $source in
     fi
     mlir=$work/src/build/exec/program.mlir
     [ -f "$mlir" ] ||
-      mlir=$(find "$work/src/build/ttc" -type f -name "${file%.*}.mlir" 2> /dev/null | sort | head -n 1)
-    [ -n "$mlir" ] && [ -f "$mlir" ] ||
       { echo "bisect: tools/compile.sh left no contract text for $source" >&2; exit 2; }
     ;;
 esac

@@ -16,7 +16,7 @@
 #                          contract changes
 #   make test-mlir-tools   tests/upstream, the upstream bugs still reproduce with the
 #                          pinned tools; after changing upstream MLIR usage
-#   make compile SRC=Prog.idr OUT=prog
+#   make compile SRC=Main.idr OUT=prog
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
@@ -148,7 +148,7 @@ test-mlir-tools: runner
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-mlir-tools $(GOLDEN)
 
 compile:
-	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Prog.idr OUT=prog' >&2; exit 2; }
+	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Main.idr OUT=prog' >&2; exit 2; }
 	@$(PINS) built idris sysroot
 	@$(ROOT)/tools/compile.sh '$(abspath $(SRC))' '$(abspath $(OUT))'
 

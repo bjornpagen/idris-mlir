@@ -1,4 +1,4 @@
 #!/bin/sh
-# tests/e2e/v0/shapes, a `main : Int` program, compiled twice.
+# tests/e2e/v0/shapes, compiled twice.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism v0 "$root/tests/e2e/v0/shapes"
+determinism "$root/tests/e2e/v0/shapes"

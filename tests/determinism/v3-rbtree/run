@@ -2,4 +2,4 @@
 # tests/e2e/v3/rbtree, an IO program with data, specialization, TRMC and
 # reference counting, compiled twice.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism io "$root/tests/e2e/v3/rbtree"
+determinism "$root/tests/e2e/v3/rbtree"

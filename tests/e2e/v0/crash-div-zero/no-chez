@@ -1,0 +1,3 @@
+Idris's own inliner drops the unused binding of the quotient, so Chez prints
+3 and exits 0; this compiler keeps the division, whose crash is an effect in
+program order, and crashes before printing.

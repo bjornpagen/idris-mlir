@@ -20,5 +20,5 @@ toInt Odd = 0
 toInt Even = 1
 
 public export
-main : Int
-main = prim__add_Int (prim__mul_Int 10 (toInt (isEven 1000))) (toInt (isOdd 7))
+result : Int
+result = prim__add_Int (prim__mul_Int 10 (toInt (isEven 1000))) (toInt (isOdd 7))

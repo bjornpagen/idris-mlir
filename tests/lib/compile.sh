@@ -1,9 +1,9 @@
 # Compiling a program with the compiler under test, and the artifacts a
 # compilation leaves or must not leave.
 
-# compile_program [--int|--io] [-p PACKAGE]... [--directive D]... SOURCE OUTPUT:
-# SOURCE, a `main : Int` program (--int) or an IO program (--io), compiled
-# through tools/compile.sh, the one copy of the chain. Its output is in $work/compile.out and $work/compile.err, its exit
+# compile_program [-p PACKAGE]... [--directive D]... SOURCE OUTPUT: SOURCE,
+# an IO program, compiled through tools/compile.sh, the one copy of the
+# chain. Its output is in $work/compile.out and $work/compile.err, its exit
 # status in $compiled; its wall time goes to the timing record.
 compile_program() {
   compile_started=$(now_ms)

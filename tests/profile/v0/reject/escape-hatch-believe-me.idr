@@ -1,8 +1,9 @@
--- expect: escape hatch, line 5
+-- expect: escape hatch, line 6
 module Main
+import Prelude
 
 coerce : Int -> Int
 coerce x = prim__believe_me Int Int x
 
-main : Int
-main = coerce 5
+main : IO ()
+main = printLn (coerce 5)

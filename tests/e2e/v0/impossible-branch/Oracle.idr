@@ -3,5 +3,5 @@ module Oracle
 import Builtin
 import Prog
 
-check : Prog.main = 17
+check : Prog.result = 17
 check = Refl

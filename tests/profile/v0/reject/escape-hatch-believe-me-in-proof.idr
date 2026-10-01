@@ -1,5 +1,6 @@
--- expect: escape hatch, line 9
+-- expect: escape hatch, line 10
 module Main
+import Prelude
 
 data Same : Int -> Int -> Type where
   Yes : Same x x
@@ -11,5 +12,5 @@ lie = prim__believe_me (Same 1 1) (Same 1 2) Yes
 use : (0 _ : Same 1 2) -> Int
 use _ = 7
 
-main : Int
-main = use lie
+main : IO ()
+main = printLn (use lie)

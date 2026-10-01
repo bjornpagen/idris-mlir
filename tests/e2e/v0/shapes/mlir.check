@@ -9,14 +9,13 @@
 // CHECK-DAG: idr.ctor @Circle (i64) {{.*}}loc("Prog.Circle"("Prog.idr":
 // CHECK-DAG: idr.ctor @Rect (i64, i64) {{.*}}loc("Prog.Rect"("Prog.idr":
 // CHECK: } loc("Prog.Shape"("Prog.idr":
-// The root is the only public function; a main : Int program's is () -> i64.
-// An erased argument is passed as the erased constant, and a call carries
-// its source location.
-// CHECK: func.func @Prog.main() -> i64 {
+// Prog's value is a private function of no arguments. An erased argument
+// is passed as the erased constant, and a call carries its source location.
+// CHECK: func.func private @Prog.result() -> i64 {
 // CHECK-DAG: %[[E:[^ ]+]] = idr.constant #idr.erased : !idr.erased
 // CHECK-DAG: idr.con @Prog.Shape::@Rect(%{{[^,]+}}, %{{[^)]+}}) : (i64, i64) -> !idr.data<@Prog.Shape>
 // CHECK: func.call @Prog.keep(%[[E]], %{{[^)]+}}) : (!idr.erased, i64) -> i64 loc("Prog.idr":
-// CHECK: } loc("Prog.main"("Prog.idr":
+// CHECK: } loc("Prog.result"("Prog.idr":
 // The other functions, in any order: a match on data has one case per
 // constructor, its fields the region's arguments; one on an Int matches
 // literals. keep and area are total. countdown recurses on an Int: Idris
@@ -28,3 +27,5 @@
 // CHECK-DAG: case @Rect(%{{[^:]+}}: i64, %{{[^:]+}}: i64) {
 // CHECK-DAG: func.func private @Prog.countdown(%{{[^:]+}}: i64) -> i64 {{[{]$}}
 // CHECK-DAG: idr.match_lit %{{[^ ]+}} : i64 -> (i64) {
+// The root, the program on its world, is the only public function.
+// CHECK: func.func @"$36$idris$45$mlir.root"(%{{[^:]+}}: !idr.world) -> !idr.data<@PrimIO.IORes{{.*}}> {

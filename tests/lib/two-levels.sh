@@ -39,7 +39,7 @@ two_levels() {
        -o unused Main.idr) > "$work/upper.out" 2> "$work/upper.err"
     say "$tl_corpus: Idris's evaluator: exit $?"
     [ -s "$work/upper.err" ] && show "$work/upper.err"
-    compile_program --io "$tl_dir/lower/Main.idr" prog
+    compile_program "$tl_dir/lower/Main.idr" prog
     say "$tl_corpus: compile: exit $compiled"
     if [ "$compiled" -ne 0 ]; then
       show "$work/compile.out" "$work/compile.err"

@@ -1,10 +1,12 @@
 module Prog
 
--- A crash reports the source location of the operation that failed.
+-- A crash reports a source location: the function whose operation failed,
+-- the module having been loaded from its TTC, which keeps no location
+-- inside a term.
 partial
 f : Int -> Int
 f x = prim__div_Int 10 x
 
-partial
-main : Int
-main = f 0
+export partial
+result : Int
+result = f 0

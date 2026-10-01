@@ -21,5 +21,5 @@ countdown 0 = 6
 countdown n = countdown (prim__sub_Int n 1)
 
 public export
-main : Int
-main = keep 99 (area (Rect (countdown 100000) 7))
+result : Int
+result = keep 99 (area (Rect (countdown 100000) 7))

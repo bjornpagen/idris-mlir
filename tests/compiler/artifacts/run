@@ -1,55 +1,39 @@
 #!/bin/sh
-# Artifacts exist after success, are not rewritten when nothing changed, and
-# are removed when the same module later fails.
+# Artifacts exist after success, and are removed when the same module later
+# fails.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
-# listed: the .core and .mlir of Main under build/, on one line, the TTC
-# version as *.
+# listed: the artifacts of Main under build/exec, on one line.
 listed() {
-  find "$work/build" -type f \( -name Main.core -o -name Main.mlir \) 2> /dev/null |
-    sed "s|^$work/||; s|/ttc/[^/]*/|/ttc/*/|" | sort | tr '\n' ' ' | sed 's/ $//'
+  find "$work/build/exec" -type f \( -name Main.core -o -name Main.mlir -o -name Main.o -o -name Main \) 2> /dev/null |
+    sed "s|^$work/||" | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
 
-main : Int
-main = 7
+import Prelude
+
+main : IO ()
+main = printLn (the Int 7)
 IDRIS
-compile_program --int "$work/Main.idr" "$work/build/exec/Main"
+compile_program "$work/Main.idr" "$work/build/exec/Main"
 say "compile: exit $compiled"
 [ "$compiled" -eq 0 ] || show "$work/compile.out" "$work/compile.err"
 say "artifacts: $(listed)"
 
-mkdir "$work/before"
-for file in $(find "$work/build" -type f \( -name Main.core -o -name Main.mlir \)); do
-  cp -p "$file" "$work/before/"
-done
-compile_program --int "$work/Main.idr" "$work/build/exec/Main"
-say "compile again: exit $compiled"
-rewritten=
-for file in $(find "$work/build" -type f \( -name Main.core -o -name Main.mlir \)); do
-  old=$work/before/${file##*/}
-  if ! cmp -s "$file" "$old" || [ -n "$(find "$file" -newer "$old")" ]; then
-    rewritten="$rewritten ${file##*/}"
-  fi
-done
-if [ -z "$rewritten" ]; then
-  say "unchanged module: not compiled again"
-else
-  say "unchanged module compiled again:$rewritten"
-fi
-
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
+
+import Prelude
 
 f : Int -> Int
 f x = prim__shl_Int x 1
 
-main : Int
-main = f 7
+main : IO ()
+main = printLn (f 7)
 IDRIS
-compile_program --int "$work/Main.idr" "$work/build/exec/Main"
+compile_program "$work/Main.idr" "$work/build/exec/Main"
 say "compile an unsupported change: exit $compiled"
 left=$(listed)
 if [ -z "$left" ]; then

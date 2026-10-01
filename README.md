@@ -61,8 +61,7 @@ after every later pass that every reference is consumed exactly once on
 every path. Cells that never leave their frame are on the stack. Run with
 `IDRIS_RT_LIVE=1`, a program reports on standard error how many cells are
 still live when it ends: none.
-- **v0:** a single `--no-prelude` module with `main : Int` (the exit status,
-  0 to 255; any other value ends the program as a crash that names it):
+- **v0:** programs over machine values alone, which never allocate:
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
 - **v1:** `main : IO ()` programs over several modules: `do`,
@@ -101,9 +100,8 @@ and within reach of clang -O2. On deep non-tail recursion with no constant
 argument (`ackdyn`), MLton is 2.3x faster.
 
 ```sh
-idris-mlir --no-prelude --cg mlir --inc mlir --check Prog.idr    # main : Int
-idris-mlir --no-prelude --cg mlir -o prog Main.idr                # IO
-make compile SRC=Prog.idr OUT=prog                                # either
+idris-mlir --no-prelude --cg mlir -o prog Main.idr
+make compile SRC=Main.idr OUT=prog
 ```
 
 The Prelude is imported explicitly (`--no-prelude` plus `import Prelude`);

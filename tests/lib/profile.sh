@@ -31,20 +31,16 @@ profile_prepare() {
   fi
 }
 
-# profile_compile: $work/fixture/Main.idr to build/exec/Main, as an IO
-# program with the packages its header names if its main is IO, and as a
-# `main : Int` program otherwise.
+# profile_compile: $work/fixture/Main.idr to build/exec/Main, with the
+# packages its header names.
 profile_compile() {
   profile_main=$work/fixture/Main.idr
-  if grep -Eq '^main[[:space:]]*:[[:space:]]*IO([^[:alnum:]_]|$)' "$profile_main"; then
-    profile_packages=
-    for profile_package in $(header "$profile_main" packages); do
-      profile_packages="$profile_packages -p $profile_package"
-    done
-    compile_program --io $profile_packages "$profile_main" Main
-  else
-    compile_program --int "$profile_main" "$work/fixture/build/exec/Main"
-  fi
+  profile_packages=
+  for profile_package in $(header "$profile_main" packages); do
+    profile_packages="$profile_packages -p $profile_package"
+  done
+  # shellcheck disable=SC2086 # the packages are words
+  compile_program $profile_packages "$profile_main" Main
 }
 
 # profile_reject FIXTURE: `tests/profile/vN/reject/<reason>-<desc>.idr`, or a
