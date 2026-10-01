@@ -632,6 +632,7 @@ using idr::times;
 using idr::FieldOp;
 using idr::FnType;
 using idr::GetByteOp;
+using idr::WorldNewOp;
 using idr::ArrayNewOp;
 using idr::ArrayGetOp;
 using idr::ArraySetOp;

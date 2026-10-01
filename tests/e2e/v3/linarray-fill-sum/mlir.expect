@@ -1,0 +1,3 @@
+# The fill and the sum are loops of stores and loads: nothing is allocated
+# in them, and no count changes, since the array is moved along its thread.
+idr-rc: counts-nothing=@Main.fill counts-nothing=@Main.sumTo no-heap-allocation=@Main.fill no-heap-allocation=@Main.sumTo

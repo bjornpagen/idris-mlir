@@ -102,7 +102,9 @@ mutual
     case constantLit c of
       Just l => pure (Literal loc l)
       Nothing => case c of
-        WorldVal => reject (bestFC ctx fc) ctx.owner WorldUse "%MkWorld"
+        -- A trusted library forges a world (`unsafePerformIO`); the
+        -- profile has rejected the user's (Profile.checkReachable).
+        WorldVal => pure (NewWorld loc)
         PrT _ => pure (Erased loc)
         _ => reject (bestFC ctx fc) ctx.owner ValueType ("constant " ++ show c)
   term ctx env (TType fc _) = Erased <$> toLoc (bestFC ctx fc)

@@ -1,0 +1,5 @@
+# Quicksort over a linear array of 32-bit words (Counting Immutable Beans'
+# qsort): the partition and the sorted check change no count and allocate
+# nothing; every swap is loads and stores on the one array. (partition
+# itself is inlined into its one caller.)
+idr-rc: counts-nothing=@Main.partitionAux counts-nothing=@Main.checkSorted counts-nothing=@Main.qsortAux no-heap-allocation=@Main.partitionAux no-heap-allocation=@Main.checkSorted no-heap-allocation=@Main.qsortAux

@@ -32,6 +32,10 @@ labels='this compiler|Idris Chez|MLton|clang -O2'
 #   compare     "bytes" when every output must equal the reference byte
 #               for byte; otherwise they must print the same numbers;
 #   libs        linker flags the C version needs (-lgmp);
+#   packages    installed Idris packages the program uses (mlir-linear),
+#               for this compiler and for Chez alike;
+#   reference   the name of another benchmark whose C and SML versions are
+#               this one's references (fannkuch-linear's is fannkuch-redux);
 #   rejected    the reason this compiler gives for rejecting the program
 #               today; its column then reads n/a and the C version's output
 #               is the reference;
@@ -106,30 +110,32 @@ build() {
       if [ -f "$bench/$name/rejected" ] || [ -f "$bench/$name/differs" ]; then missing=yes; return; fi
       idris_sources "$work/ours"
       compile_start=$(date +%s%N)
-      bounded "$root/tools/compile.sh" --io "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
+      # shellcheck disable=SC2086 # the packages are words
+      bounded "$root/tools/compile.sh" --io $packages "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
       # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
       echo "$name|$(( $(date +%s%N) - compile_start ))" >> "$compiles"
       ;;
     'Idris Chez')
       idris_sources "$work/chez"
-      (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude --cg chez -o prog Main.idr) \
+      # shellcheck disable=SC2086 # the packages are words
+      (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude $packages --cg chez -o prog Main.idr) \
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     MLton)
-      if [ -z "$mlton" ] || [ ! -f "$bench/sml/$name.sml" ]; then missing=yes; return; fi
-      cat "$bench/sml/common.sml" "$bench/sml/$name.sml" > "$work/$name.sml"
+      if [ -z "$mlton" ] || [ ! -f "$bench/sml/$reference.sml" ]; then missing=yes; return; fi
+      cat "$bench/sml/common.sml" "$bench/sml/$reference.sml" > "$work/$name.sml"
       # Idris's Int is 64 bits; MLton's default int is 32.
       bounded "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
         > "$work/build.log" 2>&1 && cmd=$work/$name-mlton
       ;;
     'clang -O2')
-      if [ ! -f "$bench/c/$name.c" ]; then missing=yes; return; fi
+      if [ ! -f "$bench/c/$reference.c" ]; then missing=yes; return; fi
       libs=
       [ -f "$bench/$name/libs" ] && libs=$(cat "$bench/$name/libs")
       # shellcheck disable=SC2086 # libs holds linker flags, split on spaces
       bounded "$pinned_cc" -O2 -Xclang -target-cpu -Xclang "$target_cpu" -ffp-contract=off \
-        "$bench/c/$name.c" \
+        "$bench/c/$reference.c" \
         -o "$work/$name-c" -lm $libs > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
@@ -191,6 +197,12 @@ for name in $names; do
   [ -f "$bench/$name/Main.idr" ] || die "unknown benchmark: $name"
   work=$tmp/$name
   mkdir "$work"
+  packages=
+  if [ -f "$bench/$name/packages" ]; then
+    for package in $(cat "$bench/$name/packages"); do packages="$packages -p $package"; done
+  fi
+  reference=$name
+  [ -f "$bench/$name/reference" ] && reference=$(cat "$bench/$name/reference")
   if [ -f "$bench/$name/input" ]; then
     stdin=$(cat "$bench/$name/input")
     printf '%s' "$stdin" > "$work/stdin"

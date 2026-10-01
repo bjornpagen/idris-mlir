@@ -1,0 +1,4 @@
+# The pass over the array is a loop of loads and stores on the one array:
+# no count changes and nothing is allocated in it, nor in the fill or the
+# check.
+idr-rc: counts-nothing=@Main.pass counts-nothing=@Main.fill counts-nothing=@Main.check no-heap-allocation=@Main.pass no-heap-allocation=@Main.fill no-heap-allocation=@Main.check

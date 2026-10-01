@@ -4,8 +4,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 -- n, n - step, ..., down to 1 or 2, prepended: ascending.
 build : Int -> Int -> LList (!* Int) -@ LList (!* Int)

@@ -1,0 +1,4 @@
+# spectral-norm over linear arrays of doubles: the row products and the
+# dot products are loops of loads and stores with no count changed and
+# nothing allocated.
+idr-rc: counts-nothing=@Main.dotRow counts-nothing=@Main.mulAv counts-nothing=@Main.dots no-heap-allocation=@Main.dotRow no-heap-allocation=@Main.mulAv no-heap-allocation=@Main.dots

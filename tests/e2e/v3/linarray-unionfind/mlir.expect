@@ -1,0 +1,5 @@
+# Union-find over a linear array of records (Counting Immutable Beans'
+# unionfind): the find with path compression, the merging passes and the
+# node setup change no count and allocate nothing; a record stored is its
+# two words. (union itself is inlined into the merging pass.)
+idr-rc: counts-nothing=@Main.findEntryAux counts-nothing=@Main.mergePackAux counts-nothing=@Main.mkNodes counts-nothing=@Main.numEqsAux no-heap-allocation=@Main.findEntryAux no-heap-allocation=@Main.mergePackAux no-heap-allocation=@Main.mkNodes

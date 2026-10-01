@@ -31,6 +31,16 @@ std::optional<std::pair<unsigned, unsigned>> position(Location loc) {
   return std::make_pair(file.getLine(), file.getColumn());
 }
 
+// Whether `block`'s arguments carry quantities Idris proved: a function's
+// parameters, and the fields a match's region binds (its default region's
+// scrutinee too). A loop's iteration state (scf.while) does not: its
+// arguments are the pass's, and the custom syntax drops their locations,
+// so a dump read back gives them the dump's own positions.
+bool bindsProved(Block &block) {
+  Operation *parent = block.getParentOp();
+  return isa<func::FuncOp, MatchOp, MatchLitOp>(parent);
+}
+
 StringRef spelled(Quantity q) {
   switch (q) {
   case Quantity::Zero:
@@ -74,6 +84,8 @@ LogicalResult quantitiesKept(ModuleOp module, StringRef emitted) {
 
   bool held = true;
   module.walk([&](Block *block) {
+    if (!bindsProved(*block))
+      return;
     Operation *parent = block->getParentOp();
     auto fn = dyn_cast<func::FuncOp>(parent);
     if (!fn)

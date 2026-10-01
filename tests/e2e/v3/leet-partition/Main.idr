@@ -4,8 +4,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 build : Int -> Int -> LList (!* Int) -@ LList (!* Int)
 build n seed acc =

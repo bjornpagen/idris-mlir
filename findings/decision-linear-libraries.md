@@ -1,6 +1,8 @@
 # Decision: linear libraries, the contrib LinArray leak, and the language
 
-The user has agreed to this decision.
+The user has agreed to this decision. **Superseded in part on 2026-10-01**
+by `decision-inhouse-linear.md`: the compiler ships its own linear library
+(`libs/mlir-linear`); the points on the language and on soundness stand.
 
 - **The Idris 2 language does not change.** We don't touch its type
   checker, its quantities or its syntax, and third_party/Idris2 stays

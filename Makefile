@@ -5,7 +5,8 @@
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset and the Idris compiler; after any code change
+#   make build             the C++ dev preset, the packages in libs/ and the Idris
+#                          compiler; after any code change
 #   make test              tests/compiler, profile, e2e (each program twice: with
 #                          its dumps checked, and without compile-time
 #                          evaluation), determinism, registry, toolchain, fuzz,
@@ -63,7 +64,7 @@ GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except
 # A runner that hangs fails instead of holding the tree's lock.
 RUN_TESTS = timeout -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
 
-.PHONY: help bootstrap doctor verify-pins env check build paths test test-idr test-mlir-tools \
+.PHONY: help bootstrap doctor verify-pins env check build libs paths test test-idr test-mlir-tools \
         runner compile bench
 .DEFAULT_GOAL := help
 
@@ -85,13 +86,23 @@ env:
 	@env | grep -E '^(IDRIS2_[A-Z_]*|CHEZ|IDRIS_MLIR_ROOT)=' | sort
 
 # The presets are the only interface for building C++.
-build:
+build: libs
 	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset dev
 	cd $(ROOT) && $(CMAKE) --build --preset dev
 	@$(PINS) idris
 	@$(MAKE) --no-print-directory paths
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
+
+# The packages this compiler ships (libs/), installed into the pinned
+# Idris's prefix, where its own backend and this compiler find them alike
+# (-p mlir-linear), again whenever one of their sources changes.
+LIBS_STAMP := $(ROOT)/libs/mlir-linear/build/.installed
+libs: $(LIBS_STAMP)
+$(LIBS_STAMP): $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr)
+	@$(PINS) idris
+	cd $(ROOT)/libs/mlir-linear && $(IDRIS2) --install mlir-linear.ipkg
+	@mkdir -p $(dir $@) && touch $@
 
 # The -o path runs the tools recorded here, never PATH, and links for the
 # triple idris-mlir-cc compiles for.
@@ -124,7 +135,7 @@ runner:
 check: runner
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite check $(GOLDEN)
 
-test: runner
+test: runner libs
 	@$(PINS) built llvm sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test $(GOLDEN)
 
@@ -141,6 +152,6 @@ compile:
 	@$(PINS) built idris sysroot
 	@$(ROOT)/tools/compile.sh '$(abspath $(SRC))' '$(abspath $(OUT))'
 
-bench:
+bench: libs
 	@$(PINS) built idris sysroot
 	$(ROOT)/bench/run.sh $(ARGS)

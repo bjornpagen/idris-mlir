@@ -1049,6 +1049,20 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
   let assemblyFormat = "$world attr-dict";
 }
 
+// A world forged where a trusted library runs an IO action for a pure
+// value (`unsafePerformIO`): the first world of a chain of its own, which
+// orders that chain; between chains, the effects order the ops, as they
+// order any two IO ops. It opens the IO resource, so no pass merges two,
+// moves one past an IO op, or deletes one, and every function that reaches
+// one performs IO (idr-effects), which keeps compile-time evaluation off
+// it. It has no runtime form.
+def Idr_WorldNewOp : Idr_Op<"world.new", [Idr_PerformsIO,
+    MemoryEffects<[MemWrite<Idr_IOResource>]>]> {
+  let summary = "a forged world, the first of a chain of its own";
+  let results = (outs Idr_WorldType:$world);
+  let assemblyFormat = "attr-dict";
+}
+
 //===----------------------------------------------------------------------===//
 // Arrays
 //===----------------------------------------------------------------------===//

@@ -4,7 +4,7 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
+import Linear.Notation
 
 data Bound : Type where
   BNil : Bound

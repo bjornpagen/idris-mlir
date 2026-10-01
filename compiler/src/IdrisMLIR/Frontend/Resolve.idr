@@ -67,13 +67,22 @@ homeOf ident = do
       pure $ if dropBase bdir file == Just own then Project else
         case map splitPath (dropBase global file) of
           Just (dir :: _) =>
-            -- An installed package's directory is its name and the
-            -- version it was installed with, which is the pinned Idris's.
-            let suffix = "-" ++ showVersion False version in
-            if isSuffixOf suffix dir && dropBase (global </> dir </> show ttcVersion) file == Just own
-               then Installed (substr 0 (length dir `minus` length suffix) dir)
-               else Elsewhere
+            -- An installed package's directory is its name and its
+            -- version: `base-0.8.0`, `mlir-linear-0.1.0`.
+            case packageName dir of
+              Just name => if dropBase (global </> dir </> show ttcVersion) file == Just own
+                              then Installed name else Elsewhere
+              Nothing => Elsewhere
           _ => Elsewhere
+  where
+    ||| The name before a package directory's `-<version>`.
+    packageName : String -> Maybe String
+    packageName dir =
+      case break (== '-') (reverse (unpack dir)) of
+        (ver, '-' :: name) =>
+          if not (null ver) && not (null name) && all (\c => isDigit c || c == '.') ver
+             then Just (pack (reverse name)) else Nothing
+        _ => Nothing
 
 ||| Where the code of a module comes from (the registry's library table),
 ||| by the package Idris loaded it from, never by its name alone.

@@ -161,3 +161,12 @@ func.func @main() -> i64 {
   %r = func.call @external(%c) : (i64) -> i64
   return %r : i64
 }
+
+// A world forged in the body is IO that no parameter announces.
+// CHECK-LABEL: func.func private @forges(
+// CHECK-SAME: idr.effects = #idr.effects<io>
+func.func private @forges(%c: i32) {
+  %w = idr.world.new
+  %w1 = idr.io.put_char %c, %w
+  return
+}

@@ -194,6 +194,16 @@ struct LowerCrash : IdrPattern<CrashOp> {
   }
 };
 
+// A forged world has no runtime form, like every world.
+struct LowerWorldNew : IdrPattern<WorldNewOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(WorldNewOp op, OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+    return success();
+  }
+};
+
 struct LowerMayLoop : IdrPattern<MayLoopOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
@@ -520,7 +530,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateCountingPatterns(patterns, converter, layouts, runtime);
   populateBigPatterns(patterns, converter, layouts, runtime);
   populateArrayPatterns(patterns, converter, layouts, runtime);
-  patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerMayLoop,
+  patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerWorldNew, LowerMayLoop,
                LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
                LowerPending, LowerDestOf, LowerDestWrite, LowerAsItself<LinEnterOp>,
                LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(

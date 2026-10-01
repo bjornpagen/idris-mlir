@@ -344,3 +344,4 @@ alg ix own (CrashF l msg) env _ = do
   statement l ("idr.crash " ++ utf8 msg)
   statement l "ub.unreachable"
   pure Nothing
+alg ix own (NewWorldF l) env _ = Just <$> value l WorldT "idr.world.new"

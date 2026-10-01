@@ -14,9 +14,13 @@ public export
 data Area = Data | Control | Decidable | Syntax
 
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the Prelude's
-||| modules, and the trusted areas of the packages base and linear.
+||| modules, the trusted areas of base, and the packages this compiler
+||| ships itself (`libs/`: `mlir-linear`), which it implements in full. The
+||| compiler implements Idris 2 for programs over the upstream prelude and
+||| base; the other packages shipped with Idris (contrib, linear, network,
+||| test) are no commitment, and what they covered comes from `libs/`.
 public export
-data Lib = Builtin | PrimIO | Prelude | Base Area | Linear Area
+data Lib = Builtin | PrimIO | Prelude | Base Area | InHouse
 
 ||| Where Idris found the TTC of a module: in the project's own build
 ||| directory, built from the user's source; in the pinned installation's
@@ -62,7 +66,7 @@ row Builtin  = MkRow        True    True     True       True
 row PrimIO   = MkRow        True    False    True       True
 row Prelude  = MkRow        True    True     False      True
 row (Base _) = MkRow        True    True     False      False
-row (Linear _) = MkRow      True    True     False      False
+row InHouse  = MkRow        True    True     False      False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
@@ -87,8 +91,9 @@ area _ = Nothing
 
 ||| The origin of the code in a module, by where its TTC is and the
 ||| module's path, outermost first. The Prelude package holds `Builtin`,
-||| `PrimIO` and the Prelude; a trusted area of base or linear is its top
-||| namespace within that package.
+||| `PrimIO` and the Prelude; a trusted area of base is its top namespace
+||| within that package; every module of a package this compiler ships is
+||| its own.
 export
 moduleOrigin : Home -> List String -> Origin
 moduleOrigin Project _ = User
@@ -96,7 +101,7 @@ moduleOrigin (Installed "prelude") ["Builtin"] = Library Builtin
 moduleOrigin (Installed "prelude") ["PrimIO"] = Library PrimIO
 moduleOrigin (Installed "prelude") ("Prelude" :: _) = Library Prelude
 moduleOrigin (Installed "base") (top :: _) = maybe Untrusted (Library . Base) (area top)
-moduleOrigin (Installed "linear") (top :: _) = maybe Untrusted (Library . Linear) (area top)
+moduleOrigin (Installed "mlir-linear") _ = Library InHouse
 moduleOrigin _ _ = Untrusted
 
 ------------------------------------------------------------------------------

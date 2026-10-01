@@ -1,0 +1,4 @@
+# fannkuch-redux over linear arrays: the reversal, the flip count and the
+# rotation are loops of loads and stores on arrays moved along their
+# threads, with no count changed and nothing allocated.
+idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.shift counts-nothing=@Main.copy counts-nothing=@Main.iota no-heap-allocation=@Main.rev no-heap-allocation=@Main.flips no-heap-allocation=@Main.shift no-heap-allocation=@Main.copy

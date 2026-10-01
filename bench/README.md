@@ -54,12 +54,14 @@ fannkuch-redux, which is on base's `IOArray`), beside the C of `bench/c`.
 regex-redux carries its own small regex engine, since Idris has no regex
 library; it has no C version, so Chez is its only reference. Same machine
 and method as above, best of 3 (2026-10-01, at 60176f4; fannkuch-redux
-re-measured with arrays the same day):
+re-measured with arrays the same day, and the `-linear` rows measured
+later that day, in one run with their references):
 
 | benchmark | input | this compiler | Idris Chez | clang -O2 |
 | --- | --- | ---: | ---: | ---: |
 | binary-trees | 21 | 5.579 | 35.598 | 25.821 |
 | fannkuch-redux | 10 | 0.563 | 10.894 | 0.492 |
+| fannkuch-linear | 10 | 0.216 | 4.344 | 0.508 |
 | fasta | 250000 | 0.319 | 0.255 | 0.036 |
 | k-nucleotide | fasta 250000 | rejected | 12.787 | 0.263 |
 | mandelbrot (PBM) | 4000 | differs | 18.817 | 0.985 |
@@ -68,6 +70,16 @@ re-measured with arrays the same day):
 | regex-redux | fasta 250000 | 3.244 | 3.124 | n/a |
 | reverse-complement | fasta 250000 | 0.325 | 0.592 | 0.014 |
 | spectral-norm | 1000 | 0.069 | 4.777 | 0.052 |
+| spectral-norm-linear | 1000 | 0.054 | 5.916 | 0.054 |
+
+Counting Immutable Beans' array programs (Lean's `qsort.lean` and
+`unionfind.lean`), in pure code over `Linear.Array`, measured the same
+way the same day beside the gate's C:
+
+| benchmark | input | this compiler | Idris Chez | clang -O2 |
+| --- | --- | ---: | ---: | ---: |
+| qsort | 400 | 1.307 | 15.216 | 1.301 |
+| unionfind | 3000000 | 0.204 | 2.401 | 0.146 |
 
 - **binary-trees:** the C version frees through musl's `malloc`; the
   game's fastest C uses a pool. Ours frees each tree as it dies, through
@@ -81,10 +93,20 @@ re-measured with arrays the same day):
   programs do; the same program on lists took 1.650 s, and Chez takes
   10.894 s on the array version against 2.408 s on the lists. The element
   is a `Maybe Int` (a tag word per element) and every access carries
-  Idris's own range test and the compiler's, which is the gap to C.
-  `IOArray` is the escape hatch, imperative code compiled to imperative
-  code; the demo is the same program on a linear array, pure, with the
-  in-place update decided by the compiler, which comes next.
+  Idris's own range test and the compiler's. `IOArray` is the escape
+  hatch, imperative code compiled to imperative code.
+- **fannkuch-linear, spectral-norm-linear, qsort, unionfind:** the same
+  programs in pure code over `Linear.Array` (`libs/mlir-linear`, this
+  compiler's own linear library): each array is threaded through every
+  read and write at quantity 1, filled at creation so a read gives the
+  element and not a `Maybe`, and the compiler proves every thread
+  exclusive. The loops are loads and stores on the one array cell with no
+  count changed and nothing allocated (the fixtures `linarray-*` state
+  it), which is why the linear fannkuch runs faster than the `IOArray`
+  one: no `Maybe` tag, no second range test. What is left against C is
+  the compiler's one bounds check per access. qsort and unionfind are
+  Counting Immutable Beans' array programs (Lean's `qsort.lean` and
+  `unionfind.lean`), with the C of `bench/gate`.
 - **fasta, reverse-complement:** `List Char` where C has byte buffers, and
   input read a character at a time; byte I/O is the next step.
 - **k-nucleotide** is rejected: `Data.SortedMap` keeps its `Ord`

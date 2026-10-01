@@ -64,6 +64,7 @@ refs (AppF _ f x) = mergeRefs [f, x]
 refs (ResumeF _ e) = e
 refs (UnreachableF _) = ([], [])
 refs (CrashF _ _) = ([], [])
+refs (NewWorldF _) = ([], [])
 
 ||| The call graph of the emitted module, where a function refers to what
 ||| it calls and to the closures it builds. Program order is each instance,

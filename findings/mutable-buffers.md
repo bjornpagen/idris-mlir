@@ -723,6 +723,38 @@ at that point, before the next one starts.
   imperative code. The demo is `LinArray` (step 5): pure, linear, with the
   in-place decision One-Shot's, which is the next slice.
 
+## Landed 2026-10-01: linear arrays on memref, from the in-house library
+
+- **Decision** (`decision-inhouse-linear.md`): a linear array is a mutable
+  object behind a linear API on every backend, so its representation is
+  `memref<?xE>`, the one the `IOArray` slice landed, and not a tensor.
+  Every write is in place by construction; there is no in-place decision
+  to check and no copy to reject. The tensor → One-Shot path of §5 and §9
+  (W1/W2) waits for value-semantic data (`Vect` as a value, R12).
+- **The library** is ours, `libs/mlir-linear` (`Linear.Array`,
+  `Linear.Notation`), in plain Idris over base's `Data.IOArray.Prims` and
+  `unsafePerformIO`: `mkArray n x` (filled, so a read gives `a`, not
+  `Maybe a`), `read`/`write`/`modify`/`size` threading the array at
+  quantity 1, `freeze`/`iread`/`isize` for the shared read-only phase.
+  Installed by `make build` into the pinned Idris's prefix, so Chez runs
+  it as the oracle (`-p mlir-linear`).
+- **The one compiler mechanism:** a trusted library's `%MkWorld` is
+  `idr.world.new`, a forged world (`Idr_PerformsIO`, a write of the IO
+  resource), lowered to nothing; the chain on it is ordered by the world,
+  chains by their effects. User code's stays `unsupported (world)`.
+- **Counting** gained consumer sinking: a pure op that consumes an owned
+  value which later ops still read (the rebuilt `MkArray` wrapper, which
+  the simplifier merged across the inlined reads and writes) moves down to
+  its result's first use, so the value moves into it and no dup/drop pair
+  is left in the loop.
+- **Measured (`make bench --runs 3`, one run):** fannkuch over
+  `Linear.Array` 0.216 s against the `IOArray` version's 0.621 s and C's
+  0.508 s (n = 10); spectral-norm over `Array Double` 0.054 s, as C
+  (n = 1000), same digits; qsort 1.307 s against C's 1.301 s; unionfind
+  0.204 s against C's 0.146 s; the fixtures `linarray-fill-sum`, `-bubble`, `-fannkuch`,
+  `-spectral-norm`, `-qsort`, `-unionfind` hold `counts-nothing` and
+  `no-heap-allocation` on their loops, and agree with Chez.
+
 ## Open questions
 
 - **Structure of arrays for `Maybe` elements.**

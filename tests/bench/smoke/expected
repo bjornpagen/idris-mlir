@@ -2,6 +2,7 @@ ack: prints the recorded output
 ackdyn: prints the recorded output
 binary-trees: prints the recorded output
 collatz: prints the recorded output
+fannkuch-linear: prints the recorded output
 fannkuch-redux: prints the recorded output
 fasta: prints the recorded output
 fib: prints the recorded output
@@ -11,7 +12,10 @@ mandelbrot: prints the recorded output
 mandelbrot-pbm: output differs from Chez's, as recorded
 nbody: prints the recorded output
 pidigits: prints the recorded output
+qsort: prints the recorded output
 regex-redux: prints the recorded output
 reverse-complement: prints the recorded output
 spectral-norm: prints the recorded output
+spectral-norm-linear: prints the recorded output
 tak: prints the recorded output
+unionfind: prints the recorded output

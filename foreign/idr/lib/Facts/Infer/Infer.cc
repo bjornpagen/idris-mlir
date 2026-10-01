@@ -11,7 +11,8 @@ namespace {
 // What reaching something does to a function: an op that may crash makes
 // it crash, and something unknown (a function without a body, a call of
 // anything but a func.func) makes it do anything. IO a function does with a
-// world it takes is not reached: it is read off its type.
+// world it takes is not reached: it is read off its type; IO on a world it
+// forges (idr.world.new) is reached.
 constexpr idr::Effect crashes = idr::Effect::crash;
 constexpr idr::Effect unknown = idr::Effect::io | idr::Effect::crash;
 
@@ -41,6 +42,9 @@ Found local(func::FuncOp fn, SymbolTableCollection &symbols) {
   fn.getBody().walk([&](Operation *op) {
     if (auto mayCrash = dyn_cast<idr::MayCrashOpInterface>(op); mayCrash && mayCrash.getCrashCause())
       found.reached = found.reached | crashes;
+    // A world forged in the body: IO that no world parameter announces.
+    if (isa<idr::WorldNewOp>(op))
+      found.reached = found.reached | idr::Effect::io;
     if (auto call = dyn_cast<func::CallOp>(op))
       reach(op, call.getCalleeAttr());
     else if (auto closure = dyn_cast<idr::ClosureOp>(op))

@@ -3,8 +3,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 -- Each k from n down to 1, k mod 3 + 1 times, prepended: ascending with runs.
 build : Int -> Int -> LList (!* Int) -@ LList (!* Int)

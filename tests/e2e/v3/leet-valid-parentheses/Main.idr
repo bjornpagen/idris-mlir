@@ -4,8 +4,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 closes : Char -> Char -> Bool
 closes '(' ')' = True

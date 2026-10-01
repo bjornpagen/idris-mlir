@@ -53,6 +53,7 @@ public:
     rewriteSelects();
     takeApart();
     ownFields();
+    sinkConsumers();
     SmallVector<std::tuple<Value, Block *, Operation *>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
@@ -65,6 +66,94 @@ public:
       plan(value, *block, def);
     materialize();
     return std::make_pair(incs, decs);
+  }
+
+  // An op without effects that consumes an owned value which later ops in
+  // its block still read would cost that value one more reference: a dup
+  // for the consumer, and a drop after the last read (a rebuilt wrapper
+  // around an array that the inlined code goes on reading, where the
+  // simplifier merged the rebuilds into the first). Moved down to its
+  // result's first use, past those reads, the consumer takes the value
+  // itself, and no count changes; moving later on the same path needs no
+  // speculation. The ops that feed it and nothing else (the wrapper
+  // entering its grade) move with it, and what they consume counts as its.
+  void sinkConsumers() {
+    fn.walk([&](Block *block) {
+      // The consumers as the block holds them now, each considered once:
+      // a moved one is not met again further down.
+      SmallVector<Operation *> consumers;
+      for (Operation &op : *block)
+        if (op.getNumRegions() == 0 && op.getNumResults() != 0 &&
+            llvm::any_of(op.getOpOperands(), [&](OpOperand &operand) {
+              return counting.counted(operand.get().getType()) &&
+                     useOf(operand, symbols) == Use::Consume &&
+                     classOf(operand.get()) == Class::Owned;
+            }))
+          consumers.push_back(&op);
+      for (Operation *op : consumers) {
+        if (!movable(op))
+          continue;
+        Operation *target = nullptr;
+        for (Value result : op->getResults())
+          for (OpOperand &use : result.getUses())
+            if (Operation *top = block->findAncestorOpInBlock(*use.getOwner());
+                top && (!target || top->isBeforeInBlock(target)))
+              target = top;
+        if (!target || target == op->getNextNode())
+          continue;
+        SmallVector<Operation *> chain = feeders(op, *block);
+        bool reads = false;
+        for (Operation *link : chain)
+          for (OpOperand &operand : link->getOpOperands()) {
+            if (useOf(operand, symbols) != Use::Consume || classOf(operand.get()) != Class::Owned)
+              continue;
+            for (OpOperand &other : operand.get().getUses())
+              if (Operation *top = block->findAncestorOpInBlock(*other.getOwner());
+                  top && !llvm::is_contained(chain, top) && op->isBeforeInBlock(top) &&
+                  top->isBeforeInBlock(target))
+                reads = true;
+          }
+        if (!reads)
+          continue;
+        // The op first, then each feeder right before what it feeds.
+        op->moveBefore(target);
+        for (Operation *link : llvm::drop_begin(chain))
+          link->moveBefore(link->getResults().front().getUses().begin()->getOwner());
+      }
+    });
+  }
+
+  // An op that may move later on its path: one without effects, or one
+  // whose only effect is to be a linear value's one entry or use
+  // (lin.enter, lin.use: an allocation on the linear resource, which no
+  // memory holds).
+  static bool movable(Operation *op) {
+    if (isMemoryEffectFree(op))
+      return true;
+    auto iface = dyn_cast<MemoryEffectOpInterface>(op);
+    if (!iface)
+      return false;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    iface.getEffects(effects);
+    return llvm::all_of(effects, [](const MemoryEffects::EffectInstance &effect) {
+      return isa<MemoryEffects::Allocate>(effect.getEffect()) &&
+             effect.getResource()->getResourceID() == LinResource::getResourceID();
+    });
+  }
+
+  // `op`, then the movable ops of `block` that feed it and nothing else,
+  // nearest first: a chain that moves as one.
+  static SmallVector<Operation *> feeders(Operation *op, Block &block) {
+    SmallVector<Operation *> chain{op};
+    for (unsigned i = 0; i < chain.size(); ++i)
+      for (Value operand : chain[i]->getOperands()) {
+        Operation *def = operand.getDefiningOp();
+        if (def && def->getBlock() == &block && def->getNumRegions() == 0 && movable(def) &&
+            def->getNumResults() == 1 && def->getResult(0).hasOneUse() &&
+            !llvm::is_contained(chain, def))
+          chain.push_back(def);
+      }
+    return chain;
   }
 
   // A field that needs a reference of its own takes it where it is read:

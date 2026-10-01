@@ -3,8 +3,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 -- A list of n values in [-50, 49] from a linear congruential generator.
 build : Int -> Int -> LList (!* Int) -@ LList (!* Int)

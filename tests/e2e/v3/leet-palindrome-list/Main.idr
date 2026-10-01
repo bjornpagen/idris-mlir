@@ -3,8 +3,8 @@
 module Main
 
 import Prelude
-import Data.Linear.Notation
-import Data.Linear.LList
+import Linear.Notation
+import Linear.List
 
 build : Int -> LList (!* Int) -@ LList (!* Int)
 build n acc = if n <= 0 then acc else build (n - 1) (MkBang n :: acc)

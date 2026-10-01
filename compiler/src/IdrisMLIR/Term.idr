@@ -112,6 +112,9 @@ mutual
     Unreachable : Loc -> Term a
     ||| A case the definition does not cover: a crash.
     Crash : Loc -> String -> Term a
+    ||| A world forged where a trusted library runs an IO action for a pure
+    ||| value (`unsafePerformIO`): the first world of a chain of its own.
+    NewWorld : Loc -> Term a
 
   ||| A constructor alternative binds the constructor's fields (not its
   ||| parameters): field `i` is `Bound i`.
@@ -176,6 +179,7 @@ mutual
     ResumeF : Loc -> f a -> TermF f a
     UnreachableF : Loc -> TermF f a
     CrashF : Loc -> String -> TermF f a
+    NewWorldF : Loc -> TermF f a
 
   public export
   data AltF : (Type -> Type) -> Type -> Type where
@@ -208,6 +212,7 @@ hmap h (SuspendF l lbl caps body) = SuspendF l lbl caps (h body)
 hmap h (ResumeF l e) = ResumeF l (h e)
 hmap h (UnreachableF l) = UnreachableF l
 hmap h (CrashF l m) = CrashF l m
+hmap h (NewWorldF l) = NewWorldF l
 
 mutual
   ||| The paramorphism: each layer with its subterms as they were and as the
@@ -231,6 +236,7 @@ mutual
   para alg (Resume l e) = alg (ResumeF l (sub alg e))
   para alg (Unreachable l) = alg (UnreachableF l)
   para alg (Crash l m) = alg (CrashF l m)
+  para alg (NewWorld l) = alg (NewWorldF l)
 
   sub : {0 f : Type -> Type} -> ({0 b : Type} -> TermF (Sub f) b -> f b) -> Term a -> Sub f a
   sub alg t = MkSub t (para alg t)
@@ -399,6 +405,7 @@ printer (SuspendF _ lbl caps body) ix d =
 printer (ResumeF _ e) ix d = "force (" ++ e ix d ++ ")"
 printer (UnreachableF _) ix d = "unreachable"
 printer (CrashF _ m) ix d = "crash " ++ show m
+printer (NewWorldF _) ix d = "new-world"
 
 ||| A function body, parameter `i` being `#i`.
 export

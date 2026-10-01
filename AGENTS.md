@@ -32,6 +32,17 @@ numbers.
   too. Compile-time evaluation follows upstream Idris 2: every closed call of
   pure code is evaluated, total code to the end, partial code within a
   budget, after which the call stays for runtime.
+- The compiler implements Idris 2 fully for programs over the upstream
+  prelude and base. The other packages shipped with Idris (contrib, linear,
+  network, test) are no commitment: upstream itself plans to disband
+  contrib for external packages. What they covered comes from the packages
+  this compiler ships in `libs/` (today `mlir-linear`: linear arrays and
+  linear data), written for this compiler's analyses in plain Idris over
+  base's primitives, so that the stock Chez backend runs them unchanged as
+  the oracle. A trusted library may run an IO action for a pure value
+  (`unsafePerformIO`, a forged world): its effects happen where the value
+  is demanded, in program order with every other effect, as Chez runs
+  them. User code may not.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work.
