@@ -145,6 +145,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     module.walk([](func::FuncOp fn) { fn.removeArgAttrsAttr(); });
     idr::lower::lowerMatches(module);
     idr::lower::lowerArrayLoops(module);
+    // Read from the ops as the conversion will meet them.
+    idr::lower::Fields fields(module);
 
     TypeConverter converter;
     converter.addConversion([](Type type) { return type; });
@@ -194,7 +196,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    idr::lower::populatePatterns(patterns, converter, *layouts, runtime);
+    idr::lower::populatePatterns(patterns, converter, *layouts, runtime, fields);
     if (jit)
       idr::lower::populateClosurePatterns(patterns, converter, *layouts, runtime);
 
