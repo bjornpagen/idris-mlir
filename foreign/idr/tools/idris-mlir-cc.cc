@@ -26,9 +26,13 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
@@ -112,12 +116,22 @@ cl::opt<std::string> targetCpu("cpu",
                                         " (default), native, or any CPU name LLVM knows "
                                         "for the target"),
                                cl::init(IDRIS_MLIR_TARGET_CPU));
-// The runtime's archive of fat LTO objects, recorded at build time.
-// Its bitcode joins the program's module; an empty path links no runtime.
-cl::opt<std::string> runtimeArchive("runtime",
-                                    cl::desc("Runtime archive of fat LTO objects whose bitcode "
-                                             "joins the program ('' for none)"),
-                                    cl::init(IDRIS_MLIR_RUNTIME_ARCHIVE));
+// The runtime whose bitcode joins the program's module, recorded at build
+// time: the bitcode --prepare-runtime wrote from the archive of fat LTO
+// objects, or that archive itself. An empty path links no runtime.
+cl::opt<std::string> runtimePath("runtime",
+                                 cl::desc("The runtime whose bitcode joins the program: what "
+                                          "--prepare-runtime wrote, or the archive of fat LTO "
+                                          "objects it reads ('' for none)"),
+                                 cl::init(IDRIS_MLIR_RUNTIME));
+// The runtime is the same for every program, so it is optimized once, at
+// build time, and each compilation links the result: what it then
+// optimizes again is the program, and the runtime code it reaches.
+cl::opt<bool> prepareRuntime("prepare-runtime",
+                             cl::desc("Optimize the runtime archive --runtime names once, for "
+                                      "the default CPU, into the bitcode file -o, which every "
+                                      "compilation then links (no input file)"),
+                             cl::init(false));
 
 // Exit statuses: an internal error or a
 // contract violation is 1, a usage error 2, and a rejection (a user error,
@@ -213,7 +227,7 @@ struct Member {
 bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
   if (!archive) {
-    llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": "
+    llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
                  << llvm::toString(archive.takeError()) << "\n";
     return false;
   }
@@ -222,7 +236,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     auto name = child.getName();
     auto buffer = child.getMemoryBufferRef();
     if (!name || !buffer) {
-      llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": unreadable member\n";
+      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": unreadable member\n";
       llvm::consumeError(name.takeError());
       llvm::consumeError(buffer.takeError());
       llvm::consumeError(std::move(error));
@@ -239,18 +253,26 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     members.push_back({name->str(), *bitcode});
   }
   if (error) {
-    llvm::errs() << "idris-mlir-cc: runtime " << runtimeArchive << ": "
+    llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
                  << llvm::toString(std::move(error)) << "\n";
     return false;
   }
   return true;
 }
 
-// The functions the runtime marks with the annotation "idris-rt-baseline"
-// (the CPU test at a program's entry), which stay compiled for the target's
-// baseline whatever the program's CPU: they run before anything shows that
-// the CPU has more.
-void readBaseline(const llvm::Module &member, llvm::StringSet<> &names) {
+// Marks on the runtime's functions, as function attributes, which survive
+// optimization and go with a function into every clone of it. The baseline
+// mark is the runtime's own annotation "idris-rt-baseline" (the CPU test at
+// a program's entry): such a function stays compiled for the target's
+// baseline whatever the program's CPU, since it runs before anything shows
+// that the CPU has more. The other two record what a function was compiled
+// for, before --prepare-runtime optimizes it for the default CPU, so that a
+// compilation for any CPU raises it from there (retarget).
+constexpr llvm::StringLiteral baselineMark = "idris-rt-baseline";
+constexpr llvm::StringLiteral cpuMark = "idris-rt-cpu";
+constexpr llvm::StringLiteral featuresMark = "idris-rt-features";
+
+void markBaseline(llvm::Module &member) {
   const llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations");
   auto *entries = annotations && annotations->hasInitializer()
                       ? llvm::dyn_cast<llvm::ConstantArray>(annotations->getInitializer())
@@ -266,8 +288,8 @@ void readBaseline(const llvm::Module &member, llvm::StringSet<> &names) {
     auto *data = text && text->hasInitializer()
                      ? llvm::dyn_cast<llvm::ConstantDataArray>(text->getInitializer())
                      : nullptr;
-    if (function && data && data->isCString() && data->getAsCString() == "idris-rt-baseline")
-      names.insert(function->getName());
+    if (function && data && data->isCString() && data->getAsCString() == baselineMark)
+      function->addFnAttr(baselineMark);
   }
 }
 
@@ -275,16 +297,17 @@ void readBaseline(const llvm::Module &member, llvm::StringSet<> &names) {
 // for separate compilation only. LinkOnlyNeeded always links appending
 // globals, so constructors would run in every program, and `used` would keep
 // dead runtime code (and its libc calls) in every executable: constructors are
-// rejected, `used` markers dropped. Annotations are read into `baseline`,
-// then dropped too.
-bool prepareMember(llvm::Module &member, llvm::StringRef name, llvm::StringSet<> &baseline) {
+// rejected, `used` markers dropped. Annotations become marks, then are
+// dropped too. Prepared bitcode passes through unchanged: it is a member
+// that was prepared already.
+bool prepareMember(llvm::Module &member, llvm::StringRef name) {
   if (member.getTargetTriple().str() != targetTriple) {
     llvm::errs() << "idris-mlir-cc: runtime member " << name << " is compiled for "
                  << member.getTargetTriple().str() << ", and programs for " << targetTriple
                  << "\n";
     return false;
   }
-  readBaseline(member, baseline);
+  markBaseline(member);
   if (llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations"))
     annotations->eraseFromParent();
   // An empty list of constructors, which clang writes for some translation
@@ -312,43 +335,70 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name, llvm::StringSet<>
   return true;
 }
 
-// The program and the runtime become one module. The members are
-// first joined into one runtime module, where a symbol two members define is
-// an error, and that module is linked once with LinkOnlyNeeded: only what the
-// program reaches joins it, and each file-local global is copied at most
-// once, so no runtime state is ever split in two.
-bool linkRuntime(llvm::Module &program, llvm::StringSet<> &baseline) {
-  if (runtimeArchive.empty())
-    return true;
-  auto archiveBuffer = llvm::MemoryBuffer::getFile(runtimeArchive, /*IsText=*/false,
-                                                   /*RequiresNullTerminator=*/false);
-  if (!archiveBuffer) {
-    llvm::errs() << "idris-mlir-cc: cannot read runtime " << runtimeArchive << ": "
-                 << archiveBuffer.getError().message() << "\n";
-    return false;
+// The runtime as one module, for the program's triple and data layout: the
+// bitcode --prepare-runtime wrote, read as it is, or the members of the
+// archive joined, where a symbol two members define is an error. Its debug
+// info describes the runtime's C++ sources, not the program: it is most of
+// the archive's bitcode, and every program would carry it, so it goes.
+std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm::Triple &triple,
+                                          const llvm::DataLayout &layout) {
+  auto buffer = llvm::MemoryBuffer::getFile(runtimePath, /*IsText=*/false,
+                                            /*RequiresNullTerminator=*/false);
+  if (!buffer) {
+    llvm::errs() << "idris-mlir-cc: cannot read runtime " << runtimePath << ": "
+                 << buffer.getError().message() << "\n";
+    return nullptr;
   }
-  std::vector<Member> members;
-  if (!readMembers(**archiveBuffer, members))
-    return false;
-  auto runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", program.getContext());
-  runtime->setTargetTriple(program.getTargetTriple());
-  runtime->setDataLayout(program.getDataLayout());
-  llvm::Linker runtimeLinker(*runtime);
-  for (const Member &member : members) {
-    auto module = llvm::parseBitcodeFile(member.bitcode, program.getContext());
+  std::unique_ptr<llvm::Module> runtime;
+  if (llvm::identify_magic((*buffer)->getBuffer()) == llvm::file_magic::bitcode) {
+    auto module = llvm::parseBitcodeFile((*buffer)->getMemBufferRef(), context);
     if (!module) {
-      llvm::errs() << "idris-mlir-cc: runtime member " << member.name << ": "
+      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
                    << llvm::toString(module.takeError()) << "\n";
-      return false;
+      return nullptr;
     }
-    if (!prepareMember(**module, member.name, baseline))
-      return false;
-    if (runtimeLinker.linkInModule(std::move(*module))) {
-      llvm::errs() << "idris-mlir-cc: runtime member " << member.name
-                   << " does not link with the members before it\n";
-      return false;
+    if (!prepareMember(**module, runtimePath))
+      return nullptr;
+    runtime = std::move(*module);
+  } else {
+    std::vector<Member> members;
+    if (!readMembers(**buffer, members))
+      return nullptr;
+    runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", context);
+    runtime->setTargetTriple(triple);
+    runtime->setDataLayout(layout);
+    llvm::Linker runtimeLinker(*runtime);
+    for (const Member &member : members) {
+      auto module = llvm::parseBitcodeFile(member.bitcode, context);
+      if (!module) {
+        llvm::errs() << "idris-mlir-cc: runtime member " << member.name << ": "
+                     << llvm::toString(module.takeError()) << "\n";
+        return nullptr;
+      }
+      if (!prepareMember(**module, member.name))
+        return nullptr;
+      if (runtimeLinker.linkInModule(std::move(*module))) {
+        llvm::errs() << "idris-mlir-cc: runtime member " << member.name
+                     << " does not link with the members before it\n";
+        return nullptr;
+      }
     }
   }
+  llvm::StripDebugInfo(*runtime);
+  return runtime;
+}
+
+// The program and the runtime become one module, linked once with
+// LinkOnlyNeeded: only what the program reaches joins it, and each
+// file-local global is copied at most once, so no runtime state is ever
+// split in two.
+bool linkRuntime(llvm::Module &program) {
+  if (runtimePath.empty())
+    return true;
+  std::unique_ptr<llvm::Module> runtime =
+      readRuntime(program.getContext(), program.getTargetTriple(), program.getDataLayout());
+  if (!runtime)
+    return false;
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded)) {
     llvm::errs() << "idris-mlir-cc: internal error: linking the runtime into the program failed\n";
     return false;
@@ -360,22 +410,88 @@ bool linkRuntime(llvm::Module &program, llvm::StringSet<> &baseline) {
 // features a function asks for itself (a simdutf kernel's AVX2, say). It takes
 // the program's CPU and keeps every feature it asked for, so it inlines into
 // program code and no function loses an instruction it relies on; the
-// baseline functions keep the baseline.
-void retarget(llvm::Module &module, const llvm::TargetMachine &machine,
-              const llvm::StringSet<> &baseline) {
+// baseline functions keep the baseline. A prepared function remembers what
+// it asked for in its marks, which the archive's functions still carry as
+// their attributes; the marks are read off here.
+void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
   std::string cpuFeatures = machine.getTargetFeatureString().str();
   for (llvm::Function &function : module) {
-    if (function.isDeclaration() || !function.hasFnAttribute("target-cpu") ||
-        baseline.contains(function.getName()))
+    if (function.isDeclaration() || !function.hasFnAttribute("target-cpu"))
       continue;
-    std::string features = function.getFnAttribute("target-features").getValueAsString().str();
+    std::string features =
+        function.getFnAttribute(function.hasFnAttribute(featuresMark) ? featuresMark
+                                                                      : "target-features")
+            .getValueAsString()
+            .str();
+    function.removeFnAttr(cpuMark);
+    function.removeFnAttr(featuresMark);
+    if (function.hasFnAttribute(baselineMark))
+      continue;
     if (!cpuFeatures.empty())
       features = features.empty() ? cpuFeatures : cpuFeatures + "," + features;
     function.addFnAttr("target-cpu", machine.getTargetCPU());
     function.removeFnAttr("tune-cpu");
-    if (!features.empty())
+    if (features.empty())
+      function.removeFnAttr("target-features");
+    else
       function.addFnAttr("target-features", features);
   }
+}
+
+// --prepare-runtime: the archive's members, joined, raised to the default
+// CPU and optimized as a program is, with everything but the C ABI
+// (idris_rt_*) internal, since programs reach nothing else: what each
+// compilation then links and optimizes once more, with the program. Each
+// function first records what it was compiled for, so that retarget can
+// raise it to any CPU from there; the optimization copies the marks into
+// every function it makes from another (a clone, a thunk), and one without
+// them could not be retargeted, so none may be left.
+int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &cpu) {
+  if (runtimePath.empty()) {
+    llvm::errs() << "idris-mlir-cc: --prepare-runtime needs --runtime to name the archive\n";
+    return usage;
+  }
+  std::unique_ptr<llvm::TargetMachine> machine(
+      target.createTargetMachine(triple, cpu.name, cpu.features, idr::targetOptions(),
+                                 llvm::Reloc::PIC_, std::nullopt, llvm::CodeGenOptLevel::Aggressive));
+  if (!machine) {
+    llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
+                 << "\n";
+    return failure;
+  }
+  llvm::LLVMContext context;
+  std::unique_ptr<llvm::Module> runtime = readRuntime(context, triple, machine->createDataLayout());
+  if (!runtime)
+    return failure;
+  llvm::StringMap<std::pair<std::string, std::string>> compiledFor;
+  for (const llvm::Function &function : *runtime)
+    if (!function.isDeclaration())
+      compiledFor[function.getName()] = {
+          function.getFnAttribute("target-cpu").getValueAsString().str(),
+          function.getFnAttribute("target-features").getValueAsString().str()};
+  retarget(*runtime, *machine);
+  for (llvm::Function &function : *runtime)
+    if (auto found = compiledFor.find(function.getName()); found != compiledFor.end()) {
+      function.addFnAttr(cpuMark, found->second.first);
+      function.addFnAttr(featuresMark, found->second.second);
+    }
+  llvm::internalizeModule(*runtime, [](const llvm::GlobalValue &value) {
+    return value.getName().starts_with("idris_rt_");
+  });
+  idr::optimize(*runtime, *machine);
+  for (const llvm::Function &function : *runtime)
+    if (!function.isDeclaration() &&
+        (!function.hasFnAttribute(cpuMark) || !function.hasFnAttribute(featuresMark))) {
+      llvm::errs() << "idris-mlir-cc: internal error: the optimization made the runtime function "
+                   << function.getName() << " without the marks of what it was compiled for\n";
+      return failure;
+    }
+  return writeOutput([&](llvm::raw_ostream &os) {
+           llvm::WriteBitcodeToFile(*runtime, os);
+           return true;
+         })
+             ? ok
+             : failure;
 }
 
 // Which errors the passes reported: a rejection (`unsupported (<reason>):
@@ -433,6 +549,8 @@ int run() {
   std::optional<Cpu> cpu = selectCpu(*target, triple);
   if (!cpu)
     return usage;
+  if (prepareRuntime)
+    return prepare(*target, triple, *cpu);
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
@@ -577,8 +695,11 @@ int run() {
                : failure;
 
   // Step 11: LLVM IR, joined with the runtime into one module; every symbol
-  // but main internalized; LLVM's O3 pipeline; object code for the CPU.
+  // but main internalized; LLVM's O3 pipeline; object code for the CPU. Each
+  // stage has a timer of its own, so --timing says which one a compilation
+  // spends its time on.
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
+  mlir::TimingScope stage = llvmTiming.nest("translate");
   auto moduleTarget =
       (*module)->getAttrOfType<mlir::LLVM::TargetAttr>(mlir::LLVM::LLVMDialect::getTargetAttrName());
   if (!moduleTarget) {
@@ -608,15 +729,17 @@ int run() {
   llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
   llvmModule->setPIELevel(llvm::PIELevel::Large);
 
-  llvm::StringSet<> baseline;
-  if (!linkRuntime(*llvmModule, baseline))
+  stage = llvmTiming.nest("link runtime");
+  if (!linkRuntime(*llvmModule))
     return failure;
-  retarget(*llvmModule, *machine, baseline);
+  retarget(*llvmModule, *machine);
   // The program is whole, so nothing but the process entry is
   // visible outside it; O3 then removes what main does not reach.
   llvm::internalizeModule(*llvmModule,
                           [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
+  stage = llvmTiming.nest("optimize");
   idr::optimize(*llvmModule, *machine);
+  stage = llvmTiming.nest("codegen");
 
   if (emitKind == "llvm")
     return writeOutput([&](llvm::raw_ostream &os) {
@@ -708,8 +831,9 @@ int main(int argc, char **argv) {
                  << "\n";
     return ok;
   }
-  if (inputPath.empty()) {
-    llvm::errs() << "idris-mlir-cc: no input file (see --help)\n";
+  if (inputPath.empty() != prepareRuntime) {
+    llvm::errs() << (prepareRuntime ? "idris-mlir-cc: --prepare-runtime takes no input file\n"
+                                    : "idris-mlir-cc: no input file (see --help)\n");
     return usage;
   }
   return runOnLargeStack();

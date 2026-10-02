@@ -1,8 +1,9 @@
 # The runtime:
 # C++ with no exceptions, no RTTI and no C++ library at link time, built into
-# one archive of fat LTO objects. Their bitcode joins every program's LTO
-# module in idris-mlir-cc; their native code links into
-# idris-mlir-cc itself, where the folders and idr-eval's JIT call it.
+# one archive of fat LTO objects. Their bitcode, optimized once by
+# idris-mlir-cc (--prepare-runtime, foreign/idr/CMakeLists.txt), joins every
+# program's LTO module; their native code links into idris-mlir-cc itself,
+# where the folders and idr-eval's JIT call it.
 # It includes the vendored libraries' headers, so like foreign/idr it is
 # quarantine code.
 # PIN(runtime-quarantine), PIN(runtime-cx16) — see PINS.md
