@@ -139,6 +139,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
       return signalPassFailure();
     idr::lower::Runtime runtime(module, *layouts, jit);
     idr::lower::Facts facts(module);
+    idr::lower::Fields fields(module);
     // The parameters' idr attributes have served their purpose; the lowered
     // parameters get LLVM's instead (Lower/Facts.h).
     module.walk([](func::FuncOp fn) { fn.removeArgAttrsAttr(); });
@@ -181,7 +182,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateCallOpTypeConversionPattern(patterns, converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
     scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-    idr::lower::populatePatterns(patterns, converter, *layouts, runtime);
+    idr::lower::populatePatterns(patterns, converter, *layouts, runtime, fields);
     if (jit)
       idr::lower::populateClosurePatterns(patterns, converter, *layouts, runtime);
 

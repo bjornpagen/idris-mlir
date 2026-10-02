@@ -4,7 +4,9 @@
 // of a box yields its cell when it is exclusive, and otherwise gives each
 // field a reference and drops the box's; a token that is dropped has its
 // memory freed; a reuse builds in the token, or in a new cell when it is
-// null.
+// null. A reuse of the constructor its token's take took apart finds the
+// header, and every field it gives back as taken, in the cell already: those
+// are stored into the new cell only (tests/idr/rc/kept-fields.mlir).
 // CHECK-LABEL: func.func private @counts(
 // CHECK-SAME: %[[S:[^:]*]]: !llvm.ptr {{.*}}, %{{[^:]*}}: i8 {{.*}}, %[[D:[^:]*]]: !llvm.ptr, %{{[^:]*}}: i64, %[[N:[^:]*]]: i64)
 // CHECK: llvm.call @idris_rt_inc(%[[S]]) {{.*}}: (!llvm.ptr) -> ()
@@ -30,8 +32,11 @@
 // CHECK: %[[NULL:.*]] = llvm.icmp "eq" %[[W]], %{{.*}} : !llvm.ptr
 // CHECK: scf.if %[[NULL]] -> (!llvm.ptr) {
 // CHECK: llvm.call @idris_rt_cell(
+// CHECK-COUNT-2: llvm.store
 // CHECK: } else {
-// CHECK: llvm.store %{{.*}}, %[[W]]{{.*}} {{.*}}: i32, !llvm.ptr
+// CHECK-NEXT: scf.yield %[[W]]
+// CHECK-NOT: llvm.store
+// CHECK: return
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @L box {
     idr.ctor @N ()
