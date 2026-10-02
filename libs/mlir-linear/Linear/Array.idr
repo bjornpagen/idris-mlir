@@ -106,9 +106,10 @@ isize (MkIArray arr) = prim__arraySize arr
 -- that makes an array makes a new one, linear: the arrays it reads are
 -- frozen, so that its function may read them at any index.
 
-||| `f i` written at each index of a new array of `n` elements, which base's
-||| primitive makes of a fill: `f 0`. So `f` is applied at 0 first, once
-||| more than at any other index, and even when `n` is not positive.
+||| A new array of `n` elements, element `i` being `f i`: base's primitive
+||| makes it of a fill, `f 0`, which is element 0, and `f i` is then written
+||| at each index from 1 on. So `f` is applied once at each index, at 0
+||| first, and at 0 even when `n` is not positive.
 prim__generate : forall a . (n : Int) -> (Int -> a) -> PrimIO (ArrayData a)
 prim__generate n f w =
   case prim__newArray (max 0 n) (f 0) w of

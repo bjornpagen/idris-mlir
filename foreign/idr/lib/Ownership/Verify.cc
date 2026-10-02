@@ -349,7 +349,7 @@ private:
   }
 
   // A loop over an array (idr.array.generate, idr.array.fold): its body
-  // runs once per element, takes its arguments owned (the element as
+  // runs once per index it covers, takes its arguments owned (the element as
   // array.get gives it, the accumulator as the init moved in), consumes
   // what its yield passes on, and leaves every value from outside as it
   // found it. The results are owned. `operands` are the loop's operands
