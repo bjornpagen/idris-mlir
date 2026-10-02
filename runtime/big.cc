@@ -282,26 +282,34 @@ extern "C" const idris_rt_str *idris_rt_big_show(idris_rt_big a) {
   return s;
 }
 
-extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
-  const char *p = idris_rt_str_bytes(s);
-  size_t digits;
-  if (!rt::isInteger(p, s->bytes, digits)) {
-    double value = idris_rt_parse_double(p, s->bytes);
-    return __builtin_isfinite(value) ? idris_rt_big_from_double(value) : small(0);
-  }
-  if (s->bytes - digits <= 18) {
-    int64_t value = 0;
-    for (size_t i = digits; i < s->bytes; ++i)
-      value = 10 * value + (p[i] - '0');
-    return ofInt64(p[0] == '-' ? -value : value);
-  }
+idris_rt_big rt::bigOfDigits(const char *p, size_t n, unsigned base) {
+  auto *text = static_cast<char *>(rt::allocate(n + 1));
+  size_t length = 0;
+  for (size_t i = 0; i < n; ++i)
+    if (p[i] != '_')
+      text[length++] = p[i];
+  text[length] = '\0';
   Result r;
-  auto *text = static_cast<char *>(rt::allocate(s->bytes + 1));
-  memcpy(text, p, s->bytes);
-  text[s->bytes] = '\0';
-  mpz_set_str(r.get(), text + (p[0] == '+' ? 1 : 0), 10);
+  mpz_set_str(r.get(), text, static_cast<int>(base));
   rt::release(text);
   return r.finish();
+}
+
+// The integer cast of numbers.cc, exactly: a short decimal on the stack,
+// any other through GMP.
+extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
+  const char *p = idris_rt_str_bytes(s);
+  rt::Numeral numeral = rt::readNumeral(p, s->bytes);
+  if (numeral.kind != rt::Numeral::Integer)
+    return small(0);
+  if (numeral.base == 10 && !numeral.grouped && s->bytes - numeral.digits <= 18)
+    return ofInt64(static_cast<int64_t>(numeral.wrapped(p, s->bytes)));
+  idris_rt_big magnitude = rt::bigOfDigits(p + numeral.digits, s->bytes - numeral.digits, numeral.base);
+  if (!numeral.negative)
+    return magnitude;
+  idris_rt_big value = idris_rt_big_neg(magnitude);
+  idris_rt_big_release(magnitude);
+  return value;
 }
 
 extern "C" void idris_rt_big_release(idris_rt_big a) {

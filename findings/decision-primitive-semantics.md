@@ -126,3 +126,38 @@ A primitive's meaning comes from, in this order:
     text;
   - `tests/idr/eval/fold-vs-jit.mlir` and `tests/idr/e2e/doubles.mlir`.
 - **Also:** `idr.double_head`'s range is now `'-'` to `'n'`.
+
+### Casts from String: Idris's literals, IEEE 754
+
+- **Idris:** defines none.
+  - The Prelude documents no syntax.
+  - The evaluator hands a string to the `cast` of the Chez it runs on
+    (`Core/Primitives.idr`: `castInteger [Str i] = BI (cast i)`), and does
+    not reduce a cast to Int8 through Bits64 at all.
+  - The backends disagree. Chez reads a Scheme number with
+    `string->number` and truncates it: 12.7 is 12 as an Int, and `"1/2"`
+    is 0.5 as a Double. Casting `"+inf.0"` to Int crashes it. RefC reads
+    a prefix with `atoi` and `atof`, so `"12abc"` is 12 as an Int, and an
+    Integer with `mpz_set_str`.
+- **Ours:** the whole string is an optional sign and a literal of the
+  target type as Idris's lexer writes it (`Parser/Lexer/Source.idr`).
+  Anything else is 0, since a cast is total.
+  - Every number type reads an integer literal: decimal, `0b`, `0o`, `0x`
+    or `0X`, with single underscores between digits. An integer type
+    takes it modulo its width.
+  - Double also reads a decimal literal (`digits.digits`, optional
+    exponent `e`, sign, digits), correctly rounded.
+  - Double also reads digits with an exponent and no point, which is how
+    `show` writes a double with one significant digit (`1e21`). IEEE 754
+    requires a double's text to read back.
+  - Double also reads IEEE 754's `inf`, `infinity` and `nan`, in any case.
+- **So:** 12.7 is 0 as an Int, being no literal of one, and `.5`, `5.`,
+  `1E3` and surrounding spaces are no number.
+- **Divergence:** `cast-string-literal`.
+- **Tests:**
+  - `tests/programs/prelude/cast-from-string`, with accepted and refused
+    strings, cast at run time and folded;
+  - the table in `tests/toolchain/runtime-api`;
+  - `tests/idr/eval/fold-vs-jit.mlir`.
+- **Also:** the two-levels casts of literals are compared with Idris's
+  evaluator again, no longer set aside as host-dependent.

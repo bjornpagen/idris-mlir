@@ -387,16 +387,18 @@ const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
 /* Negative, zero or positive as a is before, equal to or after b in the
  * order of their scalar values (Chez's string<?). */
 int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
-/* `cast` from String. Which strings are numbers is ours to
- * define:
- * - to Double: the whole string in fast_float's general format, with a
- *   leading `+` allowed, correctly rounded; an exponent out of range gives
- *   the infinity or zero fast_float stores alongside its range error;
- *   anything else is 0;
- * - to an integer: a sign (`+` or `-`) and decimal digits give that integer,
- *   exactly; any other string the Double cast accepts gives its finite value
- *   truncated toward zero, as Chez's exact-truncate does; anything else,
- *   the infinities and NaN included, is 0.
+/* `cast` from String: the whole string is an optional sign (`+` or `-`)
+ * and a literal of the target type as Idris writes it; any other string
+ * is 0.
+ * - to an integer: an integer literal, decimal digits or 0b, 0o, 0x or 0X
+ *   and digits of that base, single underscores between digits allowed,
+ *   gives that integer, exactly;
+ * - to Double: an integer literal, digits, a point and digits with an
+ *   optional exponent (`e`, an optional sign, digits), or digits and an
+ *   exponent, give the nearest double, ties to even (so every text
+ *   idris_rt_str_show_f64 writes reads back as its double), an exponent
+ *   out of range an infinity or a zero; `inf`, `infinity` and `nan`, in any
+ *   case, give an infinity and NaN.
  * idris_rt_str_to_int returns the result modulo 2^64; idr-lower wraps it to
  * the op's width. */
 double idris_rt_str_to_double(const idris_rt_str *s);

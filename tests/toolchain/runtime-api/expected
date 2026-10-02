@@ -1,7 +1,7 @@
 api: built
 rc: built
 api: exit 0
-casts from String: 43 of 43 as idris_rt.h defines them
+casts from String: 74 of 74 as idris_rt.h defines them
 doubles read back from their text: 30013 of 30013
 bytes as a string: 16 of 16 as idris_rt.h defines them
 live cells once every result is released: 0
