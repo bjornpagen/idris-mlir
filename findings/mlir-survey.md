@@ -275,7 +275,7 @@ precondition, the risk and what it moves.
 - **Moves:** spectral-norm (0.77x), the n-body SoA form, mandelbrot's lane
   predication (`simd.md` §7); the lane working on it owns the measurement.
 
-### 6. The simplify loop stays ours; the reason is an upstream report we have not filed
+### 6. The simplify loop stays ours; the reason is recorded in upstream/
 
 - **What:** `composite-fixed-point-pass` (`mlir/include/mlir/Transforms/Passes.td:598-613`)
   runs a pipeline until `OperationFingerPrint` stops changing or
@@ -290,13 +290,17 @@ precondition, the risk and what it moves.
   both warn `didn't converge in 5 iterations`; `{pipeline=canonicalize}`
   converges after one round. So the composite pass cannot host a round
   with `sccp` in it, and `idr-simplify`'s hash is a workaround for upstream
-  behaviour, which AGENTS.md says needs its report in `upstream/`, its
-  `tests/upstream/` check and its `PINS.md` entry.
-- **Replaces:** nothing; keep `Simplify.cc:137-176`. The report proposes
-  either a fingerprint that hashes constants by value, or `sccp` reusing
-  the constant it already has (`OperationFolder::getOrCreateConstant` does
-  dedupe within a block, but the old constant is erased and a new one made,
-  so the pointer-based fingerprint moves; conjecture on the exact cause).
+  behaviour: its report is `upstream/composite-fixed-point-sccp`, its check
+  `tests/upstream/composite-fixed-point-sccp`, its entry
+  `PINS.md` `simplify-structural-fixpoint`.
+- **Replaces:** nothing; keep `Simplify.cc:137-176`. The cause (read, in
+  the report): `sccp`'s rewrite asks a fresh `OperationFolder` for every
+  constant result, and nothing seeds that folder with the module's existing
+  constants (`insertKnownConstant`, which the greedy driver calls before
+  rewriting), so it makes a new constant and erases the old one as dead:
+  same text, new addresses, new `OperationFingerPrint` every run. Either
+  side's fix ends it: `sccp` seeding its folder, or the composite pass
+  comparing a structural hash.
 - **Risk:** none; a report. **Moves:** compile time if upstream fixes it
   and the round's own `canonicalize` stops re-hoisting constants every
   round.
@@ -410,7 +414,7 @@ precondition, the risk and what it moves.
 | `IntegerDivisibilityAnalysis`, `StridedMetadataRangeAnalysis` (`mlir/include/mlir/Analysis/DataFlow/IntegerDivisibilityAnalysis.h:29-37`, `StridedMetadataRangeAnalysis.h:24-30`) | `idr-narrow` | New at this pin. Divisibility could prove `big.mod` by a constant on an even counter; no program of ours asks it yet. Conjecture, low. |
 | The inliner's cost model and interface (`mlir/include/mlir/Transforms/Inliner.h:120-125`; `Passes.td:316-337`; `mlir/lib/Transforms/Utils/Inliner.cpp:703-715`; `mlir/include/mlir/Transforms/InliningUtils.h:64-89`) | `Inline/Inline.cc`, `Contify.cc`, the `inline-unreachable` pin | Already used: our MLton rule is the `ProfitabilityCallbackTy` (`Inline.cc:147-150`), stricter and cheaper than `inlining-threshold`. The SCC rule that refuses a callee that calls its caller (`Inliner.cpp:709-715`) is why `idr-contify` exists (`Contify.cc:6-16`), and it is policy, not a hook. The `ub.unreachable` terminator hook is the `ub` dialect's to implement (`PINS.md` `inline-unreachable`); a second `DialectInlinerInterface` for a dialect that already has one is not registrable (conjecture: interface registration is one per dialect per interface), so the pin stands until the report lands. |
 | `symbol-dce`, `sccp`, `cse`, `remove-dead-values`, canonicalize options (`Passes.td:19-63, 88-101, 127-287, 439-450, 496-539`) | the round | Used. `remove-dead-values` skips a function any non-call op names (`mlir/lib/Transforms/RemoveDeadValues.cpp:278-290`), which is the `remove-dead-values-address-taken` pin's root. `region-simplify=aggressive` merges identical blocks within a region: our regions are one block each, so nothing. `cse-between-iterations` is redundant with the round's `cse`. `trivial-dce` (`Passes.td:103-125`) is what the greedy driver already does. |
-| `OperationFingerPrint`, `composite-fixed-point-pass` | `Simplify.cc` | See §6: measured non-convergence with `sccp`; keep ours; file the report. |
+| `OperationFingerPrint`, `composite-fixed-point-pass` | `Simplify.cc` | See §6: measured non-convergence with `sccp`; keep ours; reported in `upstream/composite-fixed-point-sccp`. |
 | `duplicate-function-elimination` | clones | See §8. |
 | Math: `math-uplift-to-fma`, polynomial approximation, `convert-math-to-libm` vs `convert-math-to-llvm` (`mlir/include/mlir/Dialect/Math/Transforms/Passes.td:14-20`; `mlir/lib/Dialect/Math/Transforms/UpliftToFMA.cpp:26-29`; `PolynomialApproximation.cpp:9-10`; `mlir/include/mlir/Conversion/Passes.td:807, 842`) | Doubles, `tests/programs/prelude/symbols` | No, by the Chez diff. FMA uplift requires the `contract` fastmath flag we never set (`Lower/Target.cc:9`, `FPOpFusion::Strict`); the polynomial approximations change digits; libm calls are what Chez makes, and `convert-math-to-llvm`'s intrinsics become the same libm calls at `-O3` unless LLVM folds a constant argument with the host's libm (conjecture; a risk only when cross-compiling to arm64 macOS, where the folded digit may differ from Apple's libm at runtime). |
 | `arith-emulate-wide-int`, `arith-emulate-unsupported-floats` (`Arith Passes.td:82-122`) | bigs, doubles | No: bigs are GMP, doubles are `f64`. |
