@@ -4,6 +4,7 @@
 
 #include "Expect/Expect.h"
 #include "Passes/Scc.h"
+#include "Passes/Trips.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -233,6 +234,9 @@ LogicalResult narrowedLanes(ModuleOp module, StringRef function) {
         narrow = true;
         return;
       }
+      // A loop that runs at most once has no version to pay for.
+      if (idr::passes::runsAtMostOnce(loop))
+        return;
       // The 64-bit version stands in the else region of a version whose
       // then region holds a loop computing its lanes in 32 bits.
       bool paired = false;

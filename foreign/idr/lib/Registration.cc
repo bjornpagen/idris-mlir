@@ -37,8 +37,8 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // parallel dimension is tiled by the target's lanes and vectorized,
       // and upstream makes the loops of those left.
       "idr-vectorize",
-      // On the vectorized loops: the integer lanes of each run compute in
-      // 32 bits under a bound on the sizes, the 64-bit loops kept for the
+      // On the vectorized loops: the integer lanes of each compute in 32
+      // bits under a bound on the sizes, the 64-bit loop kept for the
       // sizes above it.
       "idr-narrow-lanes",
       "convert-linalg-to-loops",

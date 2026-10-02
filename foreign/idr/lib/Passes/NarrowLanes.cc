@@ -4,13 +4,15 @@
 // casts linalg.index to the word), and the target's lanes pay for it:
 // neither x86-64-v3 nor NEON has a 64-bit vector multiply, and x86-64-v3
 // has no int64-to-double conversion, so LLVM emulates the one and
-// scalarizes the other, where 32-bit lanes have both. Each run
-// of vectorized loops in a block (idr-vectorize's full tiles and last
-// tile, and the loops of the generics that followed one another) becomes
-// two versions: where every integer the loops read from outside (the
-// sizes, the tile bound) is at most B, a copy in which every integer op
-// that integer range analysis proves fits 32 bits is narrowed by
-// upstream's arith-int-range-narrowing; otherwise the loops as they were.
+// scalarizes the other, where 32-bit lanes have both. Each vectorized loop
+// that computes on lanes of integers wider than 32 bits becomes two
+// versions: where every integer it reads from outside (the sizes, the tile
+// bound) is at most B, a copy in which every integer op that integer range
+// analysis proves fits 32 bits is narrowed by upstream's
+// arith-int-range-narrowing; otherwise the loop as it was. A loop that
+// runs at most once, as upstream's value bounds see its bounds (the loop
+// of a peeled tile loop's last tile), stays as it is: its version would
+// never pay for the code it adds.
 //
 // The bound is an SSA fact, since the analysis reads no branch condition:
 // in the copy each such input stands behind arith.minui of itself and B,
@@ -26,6 +28,7 @@
 // under the analysis of the chosen B, and the copy is cloned into the
 // version; the function itself is never analysed.
 
+#include "Passes/Trips.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
@@ -38,6 +41,7 @@
 #include "mlir/IR/Remarks.h"
 #include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
@@ -82,43 +86,12 @@ bool isVectorized(scf::ForOp loop) {
   return vectors && !walk.wasInterrupted();
 }
 
-// The runs of vectorized loops of `block`, each the loops that stand
-// together with only effect-free ops between them. Those ops (the
-// dimensions and the tile bound the next generic's loops read) move
-// before the run: a value the loops read from outside is one the version
-// can test.
-SmallVector<SmallVector<Operation *>> runsOf(Block &block) {
-  SmallVector<SmallVector<Operation *>> runs;
-  SmallVector<Operation *> current, between;
-  auto flush = [&] {
-    if (!current.empty())
-      runs.push_back(current);
-    current.clear();
-    between.clear();
-  };
-  for (Operation &op : llvm::make_early_inc_range(block)) {
-    if (auto loop = dyn_cast<scf::ForOp>(op); loop && isVectorized(loop)) {
-      for (Operation *moved : between)
-        moved->moveBefore(current.front());
-      between.clear();
-      current.push_back(&op);
-    } else if (!current.empty() && op.getNumRegions() == 0 && isMemoryEffectFree(&op)) {
-      between.push_back(&op);
-    } else {
-      flush();
-    }
-  }
-  flush();
-  return runs;
-}
-
-// Whether `value` is defined inside one of `loops`.
-bool within(Value value, ArrayRef<Operation *> loops) {
-  Block *block = loops.front()->getBlock();
-  Operation *op = value.getDefiningOp() ? value.getDefiningOp() : value.getParentBlock()->getParentOp();
-  while (op && op->getBlock() != block)
-    op = op->getParentOp();
-  return op && llvm::is_contained(loops, op);
+// The values `loop` reads from outside it, in the order of their first use.
+SetVector<Value> inputsOf(scf::ForOp loop) {
+  SetVector<Value> inputs;
+  inputs.insert_range(loop->getOperands());
+  getUsedValuesDefinedAbove(loop->getRegions(), inputs);
+  return inputs;
 }
 
 // Whether `value` is one the version tests: an integer wider than 32 bits
@@ -205,21 +178,20 @@ Width widthOf(Operation *op) {
   return width;
 }
 
-// The verdict of a trial: whether every wide op fits 32 bits and computes
-// the same there, and whether one of them computes on lanes, which is what
-// the narrowing is for.
-struct Fit {
-  bool all = true;
-  bool lanes = false;
-};
+// Whether `loop` computes on lanes of integers wider than 32 bits, which is
+// what the narrowing is for.
+bool computesWideLanes(scf::ForOp loop) {
+  return loop
+      .walk([](Operation *op) { return widthOf(op).lanes ? WalkResult::interrupt() : WalkResult::advance(); })
+      .wasInterrupted();
+}
 
-// The copy of a run in a scratch module: a function of the values the
-// loops read from outside, each testable one behind arith.minui of itself
+// The copy of a loop in a scratch module: a function of the values the
+// loop reads from outside, each testable one behind arith.minui of itself
 // and the bound, a constant the trials set.
 class Copy {
 public:
-  Copy(Location loc, ArrayRef<Operation *> loops, const SetVector<Value> &inputs)
-      : module(ModuleOp::create(loc)) {
+  Copy(Location loc, scf::ForOp loop, const SetVector<Value> &inputs) : module(ModuleOp::create(loc)) {
     MLIRContext *ctx = loc.getContext();
     SmallVector<Type> argTypes;
     for (Value input : inputs)
@@ -245,8 +217,7 @@ public:
       }
       into.map(input, arg);
     }
-    for (Operation *loop : loops)
-      copies.push_back(b.clone(*loop, into));
+    copy = b.clone(*loop, into);
     func::ReturnOp::create(b, loc);
   }
   ~Copy() { module.erase(); }
@@ -267,26 +238,25 @@ public:
     return solver;
   }
 
-  // The verdict of `solver`'s analysis of the copy's loops (the stand-ins
-  // before them read the inputs, which fit nothing).
-  Fit fit(DataFlowSolver &solver) {
-    Fit verdict;
-    auto fits = [&](Value value) {
+  // Whether, under `solver`'s analysis, every op of the copied loop that
+  // computes on integers wider than 32 bits fits 32 bits and computes the
+  // same there (the stand-ins before it read the inputs, which fit nothing).
+  bool fits(DataFlowSolver &solver) {
+    auto fit = [&](Value value) {
       if (ConstantIntRanges::getStorageBitwidth(value.getType()) == 0)
         return true;
       std::optional<ConstantIntRanges> range = rangeOf(solver, value);
       return range && fits32(*range);
     };
-    for (Operation *loop : copies)
-      loop->walk([&](Operation *op) {
-        Width width = widthOf(op);
-        if (!width.wide)
-          return;
-        verdict.lanes |= width.lanes;
-        verdict.all &= llvm::all_of(op->getOperands(), fits) && llvm::all_of(op->getResults(), fits) &&
-                       exact(op, solver);
-      });
-    return verdict;
+    return !copy
+                ->walk([&](Operation *op) {
+                  if (!widthOf(op).wide ||
+                      (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit) &&
+                       exact(op, solver)))
+                    return WalkResult::advance();
+                  return WalkResult::interrupt();
+                })
+                .wasInterrupted();
   }
 
   // Narrows the copy under `solver`'s analysis: upstream's patterns, in
@@ -322,11 +292,8 @@ public:
     // canonicalization of sitofp of it), which the target has for 32-bit
     // lanes where it has no unsigned one.
     function.walk([&](arith::ExtUIOp widen) {
-      auto *state = solver.lookupState<IntegerValueRangeLattice>(widen.getResult());
-      if (!state || state->getValue().isUninitialized())
-        return;
-      const ConstantIntRanges &range = state->getValue().getValue();
-      if (range.smin().isNonNegative() && fits32(range))
+      std::optional<ConstantIntRanges> range = rangeOf(solver, widen.getResult());
+      if (range && range->smin().isNonNegative() && fits32(*range))
         widen.setNonNeg(true);
     });
     return success();
@@ -348,55 +315,32 @@ public:
 private:
   ModuleOp module;
   func::FuncOp function;
-  // The copies of the loops, after the stand-ins.
-  SmallVector<Operation *> copies;
+  // The copied loop, after the stand-ins.
+  Operation *copy = nullptr;
   // The bound: one constant per type of input tested.
   llvm::MapVector<Type, Value> bounds;
 };
-
-// The values the loops of `run` read from outside them, in the order of
-// their first use.
-SetVector<Value> inputsOf(ArrayRef<Operation *> run) {
-  SetVector<Value> inputs;
-  for (Operation *loop : run)
-    loop->walk([&](Operation *op) {
-      for (Value operand : op->getOperands())
-        if (!within(operand, run))
-          inputs.insert(operand);
-    });
-  return inputs;
-}
 
 struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
   using IdrNarrowLanesBase::IdrNarrowLanesBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
-    // Outer blocks first, so that the loops inside a run's loops are not
-    // runs of their own.
-    SmallVector<Block *> blocks;
-    module.walk<WalkOrder::PreOrder>([&](Block *block) { blocks.push_back(block); });
-    SmallVector<SmallVector<Operation *>> runs;
-    DenseSet<Operation *> taken;
-    for (Block *block : blocks) {
-      bool nested = false;
-      for (Operation *parent = block->getParentOp(); parent; parent = parent->getParentOp())
-        nested |= taken.contains(parent);
-      if (nested)
-        continue;
-      for (SmallVector<Operation *> &run : runsOf(*block)) {
-        taken.insert_range(run);
-        runs.push_back(std::move(run));
-      }
-    }
+    // The outermost vectorized loops: a loop inside one is part of it.
+    SmallVector<scf::ForOp> loops;
+    getOperation().walk<WalkOrder::PreOrder>([&](scf::ForOp loop) {
+      if (!isVectorized(loop))
+        return WalkResult::advance();
+      loops.push_back(loop);
+      return WalkResult::skip();
+    });
     IRRewriter rewriter(&getContext());
-    for (const SmallVector<Operation *> &run : runs)
-      if (failed(version(rewriter, run)))
+    for (scf::ForOp loop : loops)
+      if (computesWideLanes(loop) && failed(version(rewriter, loop)))
         return signalPassFailure();
   }
 
-  LogicalResult version(IRRewriter &rewriter, ArrayRef<Operation *> run) {
-    Location loc = run.front()->getLoc();
+  LogicalResult version(IRRewriter &rewriter, scf::ForOp loop) {
+    Location loc = loop.getLoc();
     auto wide = [&](const Twine &why) {
       remark::missed(loc, remark::RemarkOpts::name("Wide").category("idr-narrow-lanes"))
           << ("the lanes stay 64-bit: " + why).str();
@@ -406,31 +350,31 @@ struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
     auto internal = [&](const Twine &what) -> LogicalResult {
       return emitError(loc) << "internal error: idr-narrow-lanes: " << what;
     };
-    SetVector<Value> inputs = inputsOf(run);
+    if (idr::passes::runsAtMostOnce(loop))
+      return wide("the loop runs at most once, which no version pays for");
+    SetVector<Value> inputs = inputsOf(loop);
     if (llvm::none_of(inputs, testable))
-      return wide("the loops read no size from outside");
-    Copy copy(loc, run, inputs);
-    // The verdict under the bound 2^exponent.
-    auto fitAt = [&](unsigned exponent) -> FailureOr<Fit> {
+      return wide("the loop reads no size from outside");
+    Copy copy(loc, loop, inputs);
+    // Whether the copy's integer ops fit under the bound 2^exponent.
+    auto fitsAt = [&](unsigned exponent) -> FailureOr<bool> {
       std::unique_ptr<DataFlowSolver> solver = copy.analyse(exponent);
       if (!solver)
         return failure();
-      return copy.fit(*solver);
+      return copy.fits(*solver);
     };
-    FailureOr<Fit> least = fitAt(minExponent);
+    FailureOr<bool> least = fitsAt(minExponent);
     if (failed(least))
       return internal("the analysis of a copy failed");
-    if (!least->lanes)
-      return wide("no integer lanes are wider than 32 bits");
-    if (!least->all)
+    if (!*least)
       return wide("its integer ops do not all compute the same in 32 bits under any bound on the sizes");
     unsigned low = minExponent, high = maxExponent;
     while (low < high) {
       unsigned mid = (low + high + 1) / 2;
-      FailureOr<Fit> at = fitAt(mid);
+      FailureOr<bool> at = fitsAt(mid);
       if (failed(at))
         return internal("the analysis of a copy failed");
-      if (at->all)
+      if (*at)
         low = mid;
       else
         high = mid - 1;
@@ -441,8 +385,8 @@ struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
     if (failed(copy.narrow(*solver)))
       return internal("the narrowing of a copy did not converge");
 
-    // if (every tested input <= 2^low) { the copy } else { the loops }.
-    rewriter.setInsertionPoint(run.front());
+    // if (every tested input <= 2^low) { the copy } else { the loop }.
+    rewriter.setInsertionPoint(loop);
     llvm::MapVector<Type, Value> bounds;
     Value guard;
     for (Value input : inputs) {
@@ -458,9 +402,7 @@ struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
     auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
     rewriter.setInsertionPointToStart(branch.thenBlock());
     copy.cloneInto(rewriter, inputs);
-    Operation *slow = branch.elseBlock()->getTerminator();
-    for (Operation *loop : run)
-      rewriter.moveOpBefore(loop, slow);
+    rewriter.moveOpBefore(loop, branch.elseBlock()->getTerminator());
     remark::passed(loc, remark::RemarkOpts::name("Narrowed").category("idr-narrow-lanes"))
         << ("the integer lanes compute in 32 bits for sizes up to 2^" + Twine(low)).str();
     ++numNarrowed;

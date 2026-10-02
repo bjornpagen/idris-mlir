@@ -165,8 +165,8 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   is at most 2^14, the bound the analysis of the body's own arithmetic
   finds: 15 instructions per four rows (`vpaddd`, `vpmulld`, a `vpsrad`
   for the `div 2`, `vcvtdq2pd` and the `vdivpd`). Measured at 5500, best
-  of 10 interleaved in one session: 0.910 s, against 1.739 s on 64-bit
-  lanes and clang's 1.551 s. The list one rebuilds its lists in their own
+  of 10 interleaved in one session: 0.860 s, against 1.692 s on 64-bit
+  lanes and clang's 1.579 s. The list one rebuilds its lists in their own
   cells and pays for it. The input is the game's 5500.
 - **qsort** (parity with C): Koka's own `qsort.kk` takes 20 s on this
   input; it is measured as the Perceus repository has it, for the

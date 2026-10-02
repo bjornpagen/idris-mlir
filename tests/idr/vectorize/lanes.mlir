@@ -11,7 +11,8 @@
 // sizes behind arith.minui so that the analysis knows the bound, its
 // conversion to double from the i32 word and marked non-negative (the
 // signed conversion is the one the target has for 32-bit lanes);
-// otherwise the loop as it was, on i64 lanes. The bound is the body's:
+// otherwise the loop as it was, on i64 lanes (and the loop of the last
+// tile, which runs once, keeps its i64 lanes). The bound is the body's:
 // the squares fit i32 below 2^15, the rows' (i + j) * (i + j + 1) below
 // 2^14, its division by 2 floored as Idris's `div` is (a signed
 // remainder by 2 included). A body no bound above 2^8 makes fit (the
