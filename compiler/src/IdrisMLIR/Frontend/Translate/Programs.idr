@@ -43,6 +43,7 @@ isTotal fc n = do
 ||| Translates one function instance.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
+  update TState { current := Just p.inst }
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
   let fc = location def
@@ -52,7 +53,7 @@ translateInstance p = do
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  (kinds, resTy) <- classify fc owner (length args) (type def) (map (map known) p.statics)
+  (kinds, resTy) <- classify fc owner (length args) (type def) (givenArgs p.kinds)
   result <- coreType fc owner ValueType !(normaliseClosed resTy)
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
@@ -67,8 +68,11 @@ translateInstance p = do
     info : Fin k -> PKind -> VarInfo (Fin k)
     info i (TypeParam t) = TypeValue t
     info i (DictParam t) = Static t
-    info i (ValueParam b) = Runtime i (Just (typeOf b))
+    info i (ValueParam b Nothing) = Runtime i (Just (typeOf b))
+    info i (ValueParam b (Just shape)) = shaped i (typeOf b) shape
 
+||| Translates every instance requested, until none is left or a
+||| construction site voids the pass (`Dictionaries`).
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
   st <- get TState
@@ -77,7 +81,19 @@ drain = do
     (p :: rest) => do
       put TState ({ queue := rest } st)
       translateInstance p
-      drain
+      st' <- get TState
+      unless st'.restart drain
+
+||| The program's instances from its root, in as many passes as the
+||| dictionary fields matched before they were built need: each pass starts
+||| from the dictionaries the last one found.
+translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core FnId
+translateFrom fc main = do
+  update TState nextPass
+  inst <- request fc (show main) main []
+  drain
+  st <- get TState
+  if st.restart then translateFrom fc main else pure inst
 
 ||| The program, with each data instance's representation: a box when it
 ||| contains itself, through the fields of any data (not through closures,
@@ -107,8 +123,7 @@ export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core Source
 translateIOProgram fc main = do
-  inst <- request fc (show main) main []
-  drain
+  inst <- translateFrom fc main
   st <- get TState
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
