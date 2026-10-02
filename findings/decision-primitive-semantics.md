@@ -161,3 +161,53 @@ A primitive's meaning comes from, in this order:
   - `tests/idr/eval/fold-vs-jit.mlir`.
 - **Also:** the two-levels casts of literals are compared with Idris's
   evaluator again, no longer set aside as host-dependent.
+
+### Kept, with their authority
+
+- **Integer div and mod are Euclidean**, the remainder in [0, |b|).
+  - Authority: Idris's own definition. Upstream's test suite requires it
+    of every backend (`tests/{chez,refc,node}/integers`: a `mod` by a
+    negative divisor is not negative).
+  - Each backend computes it its own way: Chez `blodwen-euclidMod`, RefC
+    `mpz_mod`, Node `_mod`.
+- **Integer's bitwise operations are those of infinite two's complement.**
+  - Authority: the same tests, on negative Integers.
+  - RefC's `mpz_and`, `mpz_ior` and `mpz_xor` agree.
+- **Integer to Double is the nearest double, ties to even**, an infinity
+  past the largest.
+  - Authority: IEEE 754's conversion under its default rounding.
+  - RefC truncates (`mpz_get_d`), which IEEE 754's default does not allow.
+    We follow IEEE 754.
+- **Strings compare in code point order**, which is UTF-8's byte order.
+  - Authority: Unicode.
+  - Chez's `string<?` and RefC's `strcmp` agree. Node compares UTF-16
+    code units, which puts supplementary characters before U+E000.
+- **`substr` clamps.**
+  - Authority: the Prelude documents it. An index past the end gives `""`,
+    and a length past the end is cut.
+  - A negative start or length, which only a call of the primitive itself
+    passes, counts as 0: ours.
+  - RefC's `strSubstr` neither clamps nor counts characters, only bytes.
+- **putChar writes UTF-8** (`put-char-utf8`). The decision predates this
+  policy; see below.
+
+## Left for the user
+
+- **putChar.**
+  - The Prelude declares it as C's `putchar` (`%foreign "C:putchar"`) and
+    documents it as writing "one single-byte character", with
+    `putCharLn` for a multi-byte one.
+  - By the order above, that makes its meaning the low byte, which both
+    stock backends write.
+  - This compiler writes UTF-8 (`put-char-utf8`), a decision taken
+    before this policy. Reversing it needs a byte-writing op for putChar
+    beside `idr.io.put_char`, which output fusion uses for the characters
+    of strings.
+- **Casting NaN or an infinity to an integer crashes** (`idr.to_int`), as
+  Chez's `exact-truncate` raises. Idris's casts are total. IEEE 754 makes
+  the conversion invalid, with a result it leaves to the language.
+- **Outside the runtime:** the compiler still cites Chez for a buffer
+  write of an Int outside 0 to 255, which crashes "as Chez's
+  bytevector-u8-set! refuses it" (`IdrOps.td`,
+  `Registry/Primitives.idr`). Its authority is base's `Data.Buffer`,
+  which this audit did not cover.

@@ -4,10 +4,9 @@
 // operation returns the small form when the result fits.
 //
 // Division and modulus are Euclidean: the remainder is in [0, |b|). That is
-// blodwen-euclidDiv and blodwen-euclidMod of the Chez support code, which
-// Integer's div and mod compile to (`div (Signed Unlimited)` in
-// Compiler/Scheme/Common.idr), and what Idris's evaluator computes, through
-// the Integer div and mod of the Chez it runs on.
+// Idris's own meaning of div and mod on Integer: upstream's test suite
+// requires it of every backend, and each of Chez, RefC and Node computes
+// it its own way.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
@@ -239,9 +238,11 @@ extern "C" idris_rt_big idris_rt_big_from_double(double x) {
   return r.finish();
 }
 
-// GMP's mpz_get_d truncates. The top 64 bits of |a|, with a sticky bit for
-// any bit below them, convert with one correct rounding, and the scaling by
-// a power of two is exact (or overflows to infinity, as Chez's does).
+// IEEE 754's conversion under its default rounding: the nearest double,
+// ties to even, and an infinity past the largest. GMP's mpz_get_d
+// truncates instead, as RefC's cast does. The top 64 bits of |a|, with a
+// sticky bit for any bit below them, convert with one correct rounding, and
+// the scaling by a power of two is exact or overflows to the infinity.
 extern "C" double idris_rt_big_to_double(idris_rt_big a) {
   if (isSmall(a))
     return static_cast<double>(smallValue(a));
