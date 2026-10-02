@@ -5,7 +5,10 @@ notes for work not yet planned: `simd.md` (SIMD by default);
 `mlir-survey.md` (what the pinned MLIR offers that the pipeline does not use
 yet, with the effects census of every op); `competitors.md` (what GHC, Lean
 4, Koka, MLton, Idris 2's backends, Futhark and Dex do that we should take,
-against the benchmark rows). Nothing here is a specification:
+against the benchmark rows); `dictionary-fields-opaque-types.md` (why two
+implementations of one dictionary field are rejected when a type differs
+only through an opaque definition, and the runtime tag that would accept
+them). Nothing here is a specification:
 the code is, and a note becomes work only when a plan picks it up. The
 research streams behind the 2026-09 redesign were removed once their work
 landed; `git log -- findings` has them.
