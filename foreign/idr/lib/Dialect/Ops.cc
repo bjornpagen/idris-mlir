@@ -501,7 +501,9 @@ LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // A field of a known constructor, built by idr.con or constant, also when
 // it passed a linear position on the way. A linear field moves out of the
 // constructor, so only the constructor's one read takes it: otherwise it
-// would be used twice.
+// would be used twice. A field the constructor was built without
+// (idr.dest.pending) has no value until its destination is written, so a
+// read of it is not the pending operand: it stays a read of the cell.
 OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
@@ -510,7 +512,7 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
       // A field read at another grade than the constructor took it is
       // the canonicalizer's, which holds it as read.
       Value field = con.getFields()[index];
-      if (field.getType() == getType() &&
+      if (!field.getDefiningOp<PendingOp>() && field.getType() == getType() &&
           (quantityOf(field.getType()) != Quantity::One || fieldReadOnce(con.getResult(), index)))
         return field;
     }
