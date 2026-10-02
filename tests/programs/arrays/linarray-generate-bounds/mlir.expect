@@ -1,0 +1,5 @@
+# Each loop over a new array's index space that reads the frozen array at
+# its index reads it as an input under one test of the lengths, and that
+# copy computes on the target's lanes; the copy that keeps the bounds
+# checks is no body of words alone, and stays a loop.
+idr-vectorize: vectorized

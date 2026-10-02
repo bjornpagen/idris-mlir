@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-lower --convert-linalg-to-loops --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s --check-prefix=LLVM
+// RUN: idris-mlir-opt %s --idr-lower --convert-linalg-to-loops --canonicalize --cse --expand-strided-metadata --lower-affine --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s --check-prefix=LLVM
 // A loop over an array's index space is one linalg.generic after lowering,
 // over the array's memref view: a generated array is a new array and a
 // parallel generic writing each element from linalg.index; a fold is a
@@ -8,8 +8,12 @@
 // after, the reduction dimension run in index order. A generate whose body
 // is a fold over an array from outside is one generic of two dimensions,
 // parallel then reduction, after a parallel one that writes each element's
-// init. No idr op is left; convert-linalg-to-loops then makes the loops of
-// what is left, and the whole lowers to the LLVM dialect alone.
+// init. A generate whose body reads arrays from outside at its own index
+// (zipWith over frozen arrays) is two generics under one test that the
+// arrays are at least as long as the new one: the first reads them as
+// inputs and only computes, the other reads them with their bounds
+// checks. No idr op is left; convert-linalg-to-loops then makes the loops
+// of what is left, and the whole lowers to the LLVM dialect alone.
 // CHECK-LABEL: func.func private @squares(
 // CHECK: llvm.call @idris_rt_array_new(
 // CHECK: linalg.generic
@@ -46,6 +50,21 @@
 // CHECK-NOT: linalg.generic
 // CHECK-NOT: idr.
 // CHECK: return
+// CHECK-LABEL: func.func private @zip(
+// CHECK: arith.cmpi ule
+// CHECK: arith.cmpi ule
+// CHECK: scf.if
+// CHECK: linalg.generic
+// CHECK-SAME: ins(%{{.*}}, %{{.*}} : memref<?xf64, strided<[1]>>, memref<?xf64, strided<[1]>>)
+// CHECK-NOT: llvm.call
+// CHECK: arith.mulf
+// CHECK: linalg.yield
+// CHECK: } else {
+// CHECK: linalg.generic
+// CHECK: llvm.call @idris_rt_crash
+// CHECK: arith.mulf
+// CHECK-NOT: idr.
+// CHECK: return
 // LLVM-NOT: linalg.
 // LLVM-NOT: memref.
 // LLVM-NOT: unrealized_conversion_cast
@@ -60,7 +79,8 @@ module attributes {idr.program} {
     %s, %w2 = func.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
     %v, %w3 = func.call @ones(%n, %w2) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
     %r, %w4 = func.call @rows(%n, %v, %w3) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
-    return %w4 : !idr.world
+    %z, %w5 = func.call @zip(%v, %r, %n, %w4) : (memref<?xf64>, memref<?xf64>, i64, !idr.world) -> (memref<?xf64>, !idr.world)
+    return %w5 : !idr.world
   }
   // generate n (\i => i * i)
   func.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
@@ -101,6 +121,19 @@ module attributes {idr.program} {
         idr.yield %t : f64
       }
       idr.yield %s : f64
+    }
+    return %r, %w1 : memref<?xf64>, !idr.world
+  }
+  // zipWith (*) u v: each element the product of u's and v's at its index.
+  func.func private @zip(%u: memref<?xf64>, %v: memref<?xf64>, %n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+    %zero = arith.constant 0.0 : f64
+    %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
+      %w0 = idr.world.new
+      %x, %w2 = idr.array.get %u[%i], %w0 : memref<?xf64> -> f64
+      %w3 = idr.world.new
+      %y, %w4 = idr.array.get %v[%i], %w3 : memref<?xf64> -> f64
+      %p = arith.mulf %x, %y : f64
+      idr.yield %p : f64
     }
     return %r, %w1 : memref<?xf64>, !idr.world
   }
