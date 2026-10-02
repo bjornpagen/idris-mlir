@@ -59,15 +59,15 @@ chooser = do
     go Nothing = pure Nothing
     go (Just inst) = do
       st <- get TState
-      let Just (n, parent) = lookup inst st.requesters
+      let Just r = lookup inst st.requesters
         | Nothing => pure Nothing
       defs <- get Ctxt
-      Just def <- lookupCtxtExact n (gamma defs)
-        | Nothing => go parent
+      Just def <- lookupCtxtExact r.name (gamma defs)
+        | Nothing => go r.parent
       loc <- toLoc (location def)
       case loc.origin of
         User => pure (Just (fullname def, location def))
-        _ => go parent
+        _ => go r.parent
 
 ||| A construction site gives field `i` of a constructor the implementation
 ||| `impl`: the one the field holds, if no site gave another. Two sites of

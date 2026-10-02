@@ -331,6 +331,49 @@ export
 shaped : a -> Ty -> ClosedTerm -> VarInfo a
 shaped x t s = if isJust (shapeHead s) then Shaped x t s else Runtime x (Just t)
 
+||| How many constructors deep a shape says what the value was built with.
+export
+shapeDepth : ClosedTerm -> Nat
+shapeDepth tm = case shapeHead tm of
+  Just (_, args) => S (foldl (\d, a => max d (shapeDepth a)) 0 args)
+  Nothing => Z
+
+||| A shape cut at a depth: every part below it, and every part the shape
+||| does not say, is `hole`.
+export
+cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
+cutShape hole Z _ = hole
+cutShape hole (S d) tm = case spine tm [] of
+  (con@(Ref fc (DataCon _ _) _), args) => foldl (App fc) con (map (cutShape hole d) args)
+  _ => hole
+
+||| What a shape leaves unknown of a runtime value, where a type is asked
+||| whether it needs it: a reference to a definition that does not exist,
+||| at which reduction stops exactly where it would need the value. Idris's
+||| quotation gives such a function back as it was, where it would take a
+||| bound machine name for one of the binders it makes, by its number.
+export
+unknownPart : ClosedTerm
+unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
+
+||| Does a term mention `unknownPart`?
+export
+mentionsUnknown : TT vars -> Bool
+mentionsUnknown (Ref _ _ (MN "idris-mlir-unknown" _)) = True
+mentionsUnknown (Bind _ _ b sc) = mentionsUnknown (binderType b) || binderVal b || mentionsUnknown sc
+  where
+    binderVal : TTBinder (TT vs) -> Bool
+    binderVal (Let _ _ v _) = mentionsUnknown v
+    binderVal (PLet _ _ v _) = mentionsUnknown v
+    binderVal _ = False
+mentionsUnknown (App _ f a) = mentionsUnknown f || mentionsUnknown a
+mentionsUnknown (As _ _ a p) = mentionsUnknown p
+mentionsUnknown (TDelayed _ _ t) = mentionsUnknown t
+mentionsUnknown (TDelay _ _ t a) = mentionsUnknown t || mentionsUnknown a
+mentionsUnknown (TForce _ _ t) = mentionsUnknown t
+mentionsUnknown (Meta _ _ _ args) = any mentionsUnknown args
+mentionsUnknown _ = False
+
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
 export
 isTypeLike : TT vars -> Bool

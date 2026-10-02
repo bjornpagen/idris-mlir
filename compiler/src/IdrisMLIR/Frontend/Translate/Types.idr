@@ -200,25 +200,33 @@ paramPositions owner n = do
     TCon arity _ _ _ _ _ _ => pure (Just (arity, !(typeParams def)))
     _ => pure Nothing
 
+||| Does a type mention what the test picks other than as an index of an
+||| inductive family? Indices exist at compile time only, so a type that
+||| mentions something only there has one representation whatever it is.
+export
+outsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                 (ClosedTerm -> Bool) -> String -> ClosedTerm -> Core Bool
+outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
+  -- The argument is erased in the result: a dependency on it is one on an
+  -- erased value, unless it is only an index.
+  inA <- outsideIndices picks owner a
+  inB <- outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
+  pure (inA || inB)
+outsideIndices picks owner tm = case spine tm [] of
+  (Ref _ (TyCon _) n, args) => do
+    Just (_, ps) <- paramPositions owner n
+      | Nothing => pure (picks tm)
+    rs <- traverse (outsideIndices picks owner) (mapMaybe (\p => getAt p args) ps)
+    pure (any id rs)
+  _ => pure (picks tm)
+
 ||| Does a type mention an erased value other than as an index of an
 ||| inductive family? Indices exist at compile time only ("Inductive families
 ||| need not store their indices", Brady, McBride and McKinna, 2003).
 export
 erasedOutsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                        String -> ClosedTerm -> Core Bool
-erasedOutsideIndices owner (Bind bfc _ (Pi _ _ _ a) sc) = do
-  -- The argument is erased in the result: a dependency on it is one on an
-  -- erased value, unless it is only an index.
-  inA <- erasedOutsideIndices owner a
-  inB <- erasedOutsideIndices owner (subst (Erased bfc Placeholder) sc)
-  pure (inA || inB)
-erasedOutsideIndices owner tm = case spine tm [] of
-  (Ref _ (TyCon _) n, args) => do
-    Just (_, ps) <- paramPositions owner n
-      | Nothing => pure (anyErased tm)
-    rs <- traverse (erasedOutsideIndices owner) (mapMaybe (\p => getAt p args) ps)
-    pure (any id rs)
-  _ => pure (anyErased tm)
+erasedOutsideIndices = outsideIndices anyErased
 
 ||| The arguments of a constructor application that are fields, by layout.
 export

@@ -50,6 +50,47 @@ excludedBy shape cn = case maybe Nothing shapeHead shape of
 shapeArgs : Maybe ClosedTerm -> List ClosedTerm
 shapeArgs shape = maybe [] snd (maybe Nothing shapeHead shape)
 
+conName : CaseAlt vars -> Maybe Name
+conName (ConCase cn _ _ _) = Just cn
+conName _ = Nothing
+
+||| Every constructor of the type a match's constructors build.
+siblings : {auto c : Ref Ctxt Defs} -> List (CaseAlt vars) -> Core (List Name)
+siblings alts = case mapMaybe conName alts of
+  [] => pure []
+  (cn :: _) => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact cn (gamma defs)
+      | Nothing => pure []
+    let Just tn = built (type def)
+      | Nothing => pure []
+    Just tdef <- lookupCtxtExact tn (gamma defs)
+      | Nothing => pure []
+    case definition tdef of
+      TCon _ _ _ _ _ (Just cons) _ => pure cons
+      _ => pure []
+  where
+    built : TT vs -> Maybe Name
+    built (Bind _ _ (Pi {}) sc) = built sc
+    built tm = case spine tm [] of
+      (Ref _ (TyCon _) tn, _) => Just tn
+      _ => Nothing
+
+||| Can the default alternative of a match be taken? Not when the match
+||| names every constructor of the type, nor when it names the one the
+||| value's shape, if known, says it was built with: the default then
+||| stands for no value the match sees. Its code, which may call for
+||| instances no value needs (one a constructor deeper, where a shape keys
+||| the instance), is not translated.
+defaultDead : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> List (CaseAlt vars) -> Core Bool
+defaultDead shape alts = do
+  named <- traverse toFullNames (mapMaybe conName alts)
+  every <- traverse toFullNames !(siblings alts)
+  built <- case the (Maybe (Name, List ClosedTerm)) (shape >>= shapeHead) of
+    Just (cn, _) => pure (elem !(toFullNames cn) named)
+    Nothing => pure False
+  pure (built || (not (null every) && all (\c => elem c named) every))
+
 mutual
   export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
@@ -77,7 +118,7 @@ mutual
       Just (Runtime i (Just ErasedT)) => forced alts
       Just (TypeValue (Erased _ _)) => forced alts
       Just (Runtime i (Just (DataT inst))) => do
-        (conAlts, def) <- conAlternatives ctx env shape inst alts
+        (conAlts, def) <- conAlternatives ctx env shape !(defaultDead shape alts) inst alts
         st <- get TState
         -- Constructors the tree leaves out are impossible when the
         -- definition is covering, and crash otherwise.
@@ -123,7 +164,7 @@ mutual
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
             Ctx -> List (VarInfo a) -> Maybe ClosedTerm -> Loc -> a -> List (CaseAlt vars) -> Core (Term a)
   natCase ctx env shape loc x alts = do
-    (zero, succ, def) <- natAlternatives ctx env shape loc x alts
+    (zero, succ, def) <- natAlternatives ctx env shape !(defaultDead shape alts) loc x alts
     case (zero, succ, def) of
       (Nothing, Nothing, d) => pure (fromMaybe (missingCase ctx loc) d)
       (z, s, d) => pure (CaseNat loc x (fromMaybe (fromMaybe (missingCase ctx loc) d) z)
@@ -131,13 +172,14 @@ mutual
 
   ||| The alternatives of a match on a `Nat`-like value: zero's, the
   ||| successor's (over the predecessor, its erased arguments compile-time
-  ||| values), and the default. The value's shape, if known, rules one of
+  ||| values), and the default, unless no value takes it (`defaultDead`,
+  ||| given as `deadDefault`). The value's shape, if known, rules one of
   ||| the two out, and gives the predecessor its own.
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
-                    Ctx -> List (VarInfo a) -> Maybe ClosedTerm -> Loc -> a -> List (CaseAlt vars) ->
+                    Ctx -> List (VarInfo a) -> Maybe ClosedTerm -> Bool -> Loc -> a -> List (CaseAlt vars) ->
                     Core (Maybe (Term a), Maybe (Term (Under 1 a)), Maybe (Term a))
-  natAlternatives ctx env shape loc x [] = pure (Nothing, Nothing, Nothing)
-  natAlternatives ctx env shape loc x (ConCase cn _ args rhs :: rest) = do
+  natAlternatives ctx env shape deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
+  natAlternatives ctx env shape deadDefault loc x (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     isErased <- erasedArgs cn
     dead <- excludedBy shape (fullname def)
@@ -145,7 +187,7 @@ mutual
       Just Zero => do
         z <- if dead then pure (Unreachable loc)
              else tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) rhs
-        (_, s, d) <- natAlternatives ctx env shape loc x rest
+        (_, s, d) <- natAlternatives ctx env shape deadDefault loc x rest
         pure (Just z, s, d)
       Just Succ => do
         let erased = isErased ++ replicate (length args) False
@@ -156,7 +198,7 @@ mutual
         let infos = zipWith (\_, e => if e then TypeValue (Erased ctx.fc Placeholder) else predInfo)
                             args erased
         body <- if dead then pure (Unreachable loc) else tree ctx (under infos env) rhs
-        (z, _, d) <- natAlternatives ctx env shape loc x rest
+        (z, _, d) <- natAlternatives ctx env shape deadDefault loc x rest
         pure (z, Just body, d)
       Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
     where
@@ -165,8 +207,9 @@ mutual
       predecessor (a :: as) (True :: es) = predecessor as es
       predecessor (a :: as) _ = Just a
       predecessor [] _ = Nothing
-  natAlternatives ctx env shape loc x (DefaultCase rhs :: _) = pure (Nothing, Nothing, Just !(tree ctx env rhs))
-  natAlternatives ctx env shape loc x (_ :: _) = internal ctx.fc "an unexpected alternative"
+  natAlternatives ctx env shape deadDefault loc x (DefaultCase rhs :: _) =
+    pure (Nothing, Nothing, Just !(if deadDefault then pure (Unreachable loc) else tree ctx env rhs))
+  natAlternatives ctx env shape deadDefault loc x (_ :: _) = internal ctx.fc "an unexpected alternative"
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
@@ -195,13 +238,14 @@ mutual
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
 
   ||| The constructor alternatives of a match, each over its fields, and
-  ||| the default. The value's shape, if known, rules out every other
+  ||| the default, unless no value takes it (`defaultDead`, given as
+  ||| `deadDefault`). The value's shape, if known, rules out every other
   ||| constructor and gives the fields their shapes.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
-                    Ctx -> List (VarInfo a) -> Maybe ClosedTerm -> DataId -> List (CaseAlt vars) ->
+                    Ctx -> List (VarInfo a) -> Maybe ClosedTerm -> Bool -> DataId -> List (CaseAlt vars) ->
                     Core (List (Alt a), Maybe (Term a))
-  conAlternatives ctx env shape inst [] = pure ([], Nothing)
-  conAlternatives ctx env shape inst (ConCase cn _ args rhs :: rest) = do
+  conAlternatives ctx env shape deadDefault inst [] = pure ([], Nothing)
+  conAlternatives ctx env shape deadDefault inst (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     let cid = MkConId inst (shortName (fullname def))
     st <- get TState
@@ -226,12 +270,13 @@ mutual
                              [0 .. length bs] (fieldInfos bs)
         tree ctx (under (arrange info.layout info.params fields) env) rhs
       Nothing => Unreachable <$> toLoc ctx.fc
-    (alts, def') <- conAlternatives ctx env shape inst rest
+    (alts, def') <- conAlternatives ctx env shape deadDefault inst rest
     pure (MkAlt cid bs body :: alts, def')
-  conAlternatives ctx env shape inst (DefaultCase rhs :: _) = pure ([], Just !(tree ctx env rhs))
-  conAlternatives ctx env shape inst (DelayCase {} :: _) =
+  conAlternatives ctx env shape deadDefault inst (DefaultCase rhs :: _) =
+    pure ([], Just !(if deadDefault then Unreachable <$> toLoc ctx.fc else tree ctx env rhs))
+  conAlternatives ctx env shape deadDefault inst (DelayCase {} :: _) =
     reject ctx.fc ctx.owner Laziness "a match on a lazy value"
-  conAlternatives ctx env shape inst (ConstCase {} :: _) =
+  conAlternatives ctx env shape deadDefault inst (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
