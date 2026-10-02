@@ -577,8 +577,11 @@ int run() {
                : failure;
 
   // Step 11: LLVM IR, joined with the runtime into one module; every symbol
-  // but main internalized; LLVM's O3 pipeline; object code for the CPU.
+  // but main internalized; LLVM's O3 pipeline; object code for the CPU. Each
+  // stage has a timer of its own, so --timing says which one a compilation
+  // spends its time on.
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
+  mlir::TimingScope stage = llvmTiming.nest("translate");
   auto moduleTarget =
       (*module)->getAttrOfType<mlir::LLVM::TargetAttr>(mlir::LLVM::LLVMDialect::getTargetAttrName());
   if (!moduleTarget) {
@@ -609,6 +612,7 @@ int run() {
   llvmModule->setPIELevel(llvm::PIELevel::Large);
 
   llvm::StringSet<> baseline;
+  stage = llvmTiming.nest("link runtime");
   if (!linkRuntime(*llvmModule, baseline))
     return failure;
   retarget(*llvmModule, *machine, baseline);
@@ -616,7 +620,9 @@ int run() {
   // visible outside it; O3 then removes what main does not reach.
   llvm::internalizeModule(*llvmModule,
                           [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
+  stage = llvmTiming.nest("optimize");
   idr::optimize(*llvmModule, *machine);
+  stage = llvmTiming.nest("codegen");
 
   if (emitKind == "llvm")
     return writeOutput([&](llvm::raw_ostream &os) {
