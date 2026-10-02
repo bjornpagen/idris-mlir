@@ -10,5 +10,6 @@ target_sources(idr_dialect PRIVATE
 	Pass.cc
 	Patterns.cc
 	Runtime.cc
+	Strings.cc
 	Target.cc
 )

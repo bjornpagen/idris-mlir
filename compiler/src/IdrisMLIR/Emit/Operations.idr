@@ -208,6 +208,8 @@ prim ix l (NatCompare c) [a, b] =
 prim ix l NatToBig [n] = value l BigT ("idr.nat.to_big " ++ n.name)
 prim ix l NatFromBig [b] = value l NatT ("idr.nat.from_big " ++ b.name)
 -- The length of an array is its memref's dimension, an index, as an `Int`.
+prim ix l (StrBuild Pack d) [xs] = value l StrT ("idr.str.pack " ++ xs.name ++ " : " ++ !(typeText ix (DataT d)) ++ " -> !idr.str")
+prim ix l (StrBuild Concat d) [xs] = value l StrT ("idr.str.concat " ++ xs.name ++ " : " ++ !(typeText ix (DataT d)) ++ " -> !idr.str")
 prim ix l (ArrayLength e) [a] = do
   at <- typeText ix (ArrayT e)
   zero <- fresh

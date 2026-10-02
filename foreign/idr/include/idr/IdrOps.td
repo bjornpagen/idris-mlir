@@ -700,6 +700,24 @@ def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char"> {
   let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
 }
 
+// A string built once from a list the Prelude would build a piece at a
+// time: pack over a List Char, concat over a List String. The list is a
+// box of a nil without fields and a cons of the element and the rest; the
+// op walks it twice, once for the size of the result and once to write it.
+def Idr_StrPackOp : Idr_StrBuilderOp<"pack"> {
+  let summary = "the string of a list of characters, built once";
+  let arguments = (ins Idr_SumValue:$list);
+  let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
+  let hasVerifier = 1;
+}
+
+def Idr_StrConcatOp : Idr_StrBuilderOp<"concat"> {
+  let summary = "the concatenation of a list of strings, built once";
+  let arguments = (ins Idr_SumValue:$list);
+  let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
+  let hasVerifier = 1;
+}
+
 // `signed` or `unsigned` for an integer, nothing for a Double.
 def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
   let summary = "the text of a number, as prim__cast_TString writes it";

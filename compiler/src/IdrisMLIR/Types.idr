@@ -234,6 +234,15 @@ data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Fl
 public export
 data Scalar = SInt IntTy | SChar | SDouble
 
+||| What a string is built from: a list of characters, or of strings.
+public export
+data Builder = Pack | Concat
+
+export
+Show Builder where
+  show Pack = "pack"
+  show Concat = "concat"
+
 ||| Idris's primitives as Core has them: on fixed-width
 ||| integers, characters and doubles; on strings; on `Integer`.
 public export
@@ -259,6 +268,11 @@ data Prim
   | ||| The number of elements of an array of this element type: the
     ||| dimension of its memref.
     ArrayLength Ty
+  | ||| A string built once from a list, the Prelude's own `%transform` of
+    ||| `pack` to `fastPack` and of `concat` to `fastConcat`: the string of
+    ||| the list's characters, or the concatenation of its strings. The
+    ||| data instance is the list's.
+    StrBuild Builder DataId
 
 export
 Show ArithOp where
@@ -339,6 +353,7 @@ Show Prim where
   show NatToBig = "cast_NatInteger"
   show NatFromBig = "cast_IntegerNat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
+  show (StrBuild b d) = show b ++ "<" ++ show d ++ ">"
 
 public export
 scalarTy : Scalar -> Ty
@@ -380,6 +395,7 @@ primArgs (NatCompare _) = [NatT, NatT]
 primArgs NatToBig = [NatT]
 primArgs NatFromBig = [BigT]
 primArgs (ArrayLength e) = [ArrayT e]
+primArgs (StrBuild _ d) = [DataT d]
 
 ------------------------------------------------------------------------------
 -- IO

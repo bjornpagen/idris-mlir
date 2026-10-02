@@ -360,12 +360,13 @@ struct LowerToByte : IdrPattern<ToByteOp> {
 template <typename OpT>
 constexpr bool returnsWord = llvm::is_one_of<OpT, ToIntOp, StrToIntOp>::value;
 
-// The ops whose small case is inline (Bigs.cc), which call the runtime only
-// on their cold path.
+// The ops with a lowering of their own: the bigs whose small case is inline
+// (Bigs.cc), which call the runtime only on their cold path, and the string
+// builders over lists (Strings.cc), which walk the list here.
 template <typename OpT>
-constexpr bool smallCaseInline = llvm::is_one_of<OpT, BigAddOp, BigSubOp, BigMulOp, BigPredOp,
-                                                 BigCmpOp, NatFromBigOp, BigFromIntOp,
-                                                 BigToIntOp>::value;
+constexpr bool ownLowering = llvm::is_one_of<OpT, BigAddOp, BigSubOp, BigMulOp, BigPredOp,
+                                             BigCmpOp, NatFromBigOp, BigFromIntOp, BigToIntOp,
+                                             StrPackOp, StrConcatOp>::value;
 
 template <typename OpT>
 std::optional<bool> signedness(OpT op) {
@@ -529,7 +530,7 @@ template <typename... Ops>
 void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
                      Layouts &layouts, Runtime &runtime) {
   auto add = [&]<typename OpT>() {
-    if constexpr (!OpT::template hasTrait<CallsRuntime>() || smallCaseInline<OpT>)
+    if constexpr (!OpT::template hasTrait<CallsRuntime>() || ownLowering<OpT>)
       return;
     else if constexpr (requires(OpT op) { op.getPredicate(); })
       patterns.add<LowerCompare<OpT>>(converter, patterns.getContext(), layouts, runtime);
@@ -547,6 +548,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateCountingPatterns(patterns, converter, layouts, runtime);
   populateBigPatterns(patterns, converter, layouts, runtime);
   populateArrayPatterns(patterns, converter, layouts, runtime);
+  populateStringPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerWorldNew, LowerMayLoop,
                LowerPoison, LowerSelect, LowerToChar, LowerToByte, LowerDivision<DivOp>,
                LowerDivision<ModOp>,

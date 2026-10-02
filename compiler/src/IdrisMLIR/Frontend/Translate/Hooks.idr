@@ -35,6 +35,14 @@ arrayElementOf [] = Nothing
 arrayElementOf (ArrayType e :: _) = Just e
 arrayElementOf (_ :: hs) = arrayElementOf hs
 
+||| The string a definition's calls build from their list, if the registry
+||| says they build one.
+export
+builderOf : List Hook -> Maybe Builder
+builderOf [] = Nothing
+builderOf (Builds b :: _) = Just b
+builderOf (_ :: hs) = builderOf hs
+
 ||| Is a type constructor the external type that is a machine word?
 export
 isWordType : List Hook -> Bool

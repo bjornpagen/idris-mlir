@@ -149,6 +149,46 @@ OpFoldResult StrConsOp::fold(FoldAdaptor adaptor) {
   return scope.attr(idris_rt_str_cons(static_cast<int32_t>(c.getInt()), scope.str(s)));
 }
 
+// The elements of a constant list: a chain of constructors of two fields
+// ending in one of none; nothing for any other constant.
+std::optional<SmallVector<Attribute>> listElements(Attribute list) {
+  SmallVector<Attribute> elements;
+  while (true) {
+    auto con = dyn_cast_or_null<ConAttr>(list);
+    if (!con)
+      return std::nullopt;
+    ArrayAttr fields = con.getFields();
+    if (fields.empty())
+      return elements;
+    if (fields.size() != 2)
+      return std::nullopt;
+    elements.push_back(fields[0]);
+    list = fields[1];
+  }
+}
+
+OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
+  std::optional<SmallVector<Attribute>> chars = listElements(adaptor.getList());
+  if (!chars || !llvm::all_of(*chars, [](Attribute c) { return isa<IntegerAttr>(c); }))
+    return {};
+  Scope scope(getContext());
+  const idris_rt_str *s = scope.str(StringAttr::get(getContext(), ""));
+  for (Attribute c : llvm::reverse(*chars))
+    s = scope.keep(idris_rt_str_cons(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+  return scope.attr(s);
+}
+
+OpFoldResult StrConcatOp::fold(FoldAdaptor adaptor) {
+  std::optional<SmallVector<Attribute>> parts = listElements(adaptor.getList());
+  if (!parts || !llvm::all_of(*parts, [](Attribute p) { return isa<StringAttr>(p); }))
+    return {};
+  Scope scope(getContext());
+  const idris_rt_str *s = scope.str(StringAttr::get(getContext(), ""));
+  for (Attribute p : *parts)
+    s = scope.keep(idris_rt_str_append(s, scope.str(cast<StringAttr>(p))));
+  return scope.attr(s);
+}
+
 OpFoldResult StrFromCharOp::fold(FoldAdaptor adaptor) {
   auto c = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!c)

@@ -153,9 +153,10 @@ mutual
       -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
-      PMDef _ params _ _ _ => case natOperationOf (hooksOf full) of
-        Just m => natOperation fc loc m (length params) (type def) args
-        Nothing =>
+      PMDef _ params _ _ _ => case (natOperationOf (hooksOf full), builderOf (hooksOf full)) of
+        (Just m, _) => natOperation fc loc m (length params) (type def) args
+        (_, Just b) => builderCall fc loc (length params) b (type def) args
+        _ =>
           if identityOnLast (hooksOf full) && length args >= length params
              then do
                let (now, rest) = splitAt (length params) args
@@ -171,6 +172,8 @@ mutual
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
         Just (Right (ArraySize fixed)) => arraySize fc loc arity fixed (type def) args
         Just (Right (Handle h)) => applyAll loc (Literal loc h) args
+        Just (Right (Builds b)) => builderCall fc loc arity b (type def) args
+        Just (Right (Alias q)) => aliasCall fc loc q args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
@@ -315,6 +318,24 @@ mutual
               args' <- traverse (term ctx env) (take arity xs)
               let kinds = map (ValueParam . Held Many) (primArgs p)
               finish loc kinds args' (PrimApp loc p) (drop arity xs)
+
+      -- A string built once from a list: the primitive at the list's
+      -- instance, which the one parameter's type names.
+      builderCall : FC -> Loc -> Nat -> Builder -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      builderCall fc loc arity b ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty []
+        let [ValueParam (Held _ (DataT d))] = kinds
+          | _ => internal fc "a string built from something other than a list"
+        given <- arguments loc kinds (take arity xs)
+        finish loc kinds given (PrimApp loc (StrBuild b d)) (drop arity xs)
+
+      -- A call of the library function a foreign definition stands for.
+      aliasCall : FC -> Loc -> QName -> List (TT vars) -> Core (Term a)
+      aliasCall fc loc q xs = do
+        target <- lookupDef fc ctx.owner (toName q)
+        let PMDef _ params _ _ _ = definition target
+          | _ => internal fc (show q ++ " is not a function to stand for")
+        call fc loc (fullname target) (length params) (type target) xs
 
       ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
       ioCall fc loc arity op ty xs = do

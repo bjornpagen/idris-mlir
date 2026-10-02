@@ -257,6 +257,18 @@ void idris_rt_io_put_int_s(int64_t value);
 void idris_rt_io_put_int_u(uint64_t value);
 /* The text of a double, as Chez writes it. */
 void idris_rt_io_put_double(double value);
+/* A string built in place by idr.str.pack and idr.str.concat, which know
+ * its size from a first pass: a new string of `bytes` bytes and `scalars`
+ * scalar values (`ascii` nonzero when every byte is ASCII), whose bytes
+ * the caller then writes in order, a character's UTF-8 or a string's
+ * bytes at an offset, each giving the next offset. The empty string is
+ * shared and never written. */
+idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars, int32_t ascii);
+int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c);
+int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part);
+/* The byte length of a string, and whether every byte is ASCII. */
+int64_t idris_rt_str_bytes_length(const idris_rt_str *s);
+int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
 /* A line of input without its end: the bytes up to the first '\r' or

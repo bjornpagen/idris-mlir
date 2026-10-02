@@ -100,6 +100,13 @@ filePrimitive : String -> List String -> String -> Shape -> Hook -> Entry
 filePrimitive spec space name shape hook =
   MkEntry (Foreign (MkSpec "C" spec)) (Declared (MkQName space name) shape) hook [IOPrimitive]
 
+preludeTypes : List String
+preludeTypes = ["Prelude", "Types"]
+
+||| `List a`.
+list : Shape -> Shape
+list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
+
 ||| A buffer primitive, declared `%foreign` by its Chez spec.
 bufferPrimitive : String -> String -> Shape -> IOOp -> Entry
 bufferPrimitive spec name shape op =
@@ -171,4 +178,23 @@ primitives =
                   (Pi QW filePtr (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes int))))))
                   (IOCall ReadBytes)
   , filePrimitive "idris2_eof" fileReadWrite "prim__eof"
-                  (Pi QW filePtr (Pi Q1 world (ioRes int))) (IOCall Eof) ]
+                  (Pi QW filePtr (Pi Q1 world (ioRes int))) (IOCall Eof)
+  -- Strings built from lists. The Prelude's pack is strCons by strCons, a
+  -- string per character, and its own %transform runs fastPack in its
+  -- place at runtime, as fastConcat for concat over a list of strings and
+  -- fastUnpack for unpack: the stock backends build the string once. The
+  -- one meaning of pack and fastPack is the string of the list's
+  -- characters, of fastConcat the concatenation, each built once
+  -- (idr.str.pack, idr.str.concat); fastUnpack stands for unpack, a loop
+  -- already.
+  , MkEntry (Def (MkQName preludeTypes "pack"))
+            (Typed (Pi QW (list (Prim CharP)) (Prim StringP))) (Builds Pack) [Primitive]
+  , MkEntry (Foreign (MkSpec "scheme" "string-pack"))
+            (Declared (MkQName preludeTypes "fastPack") (Pi QW (list (Prim CharP)) (Prim StringP)))
+            (Builds Pack) [Primitive]
+  , MkEntry (Foreign (MkSpec "scheme" "string-concat"))
+            (Declared (MkQName preludeTypes "fastConcat") (Pi QW (list (Prim StringP)) (Prim StringP)))
+            (Builds Concat) [Primitive]
+  , MkEntry (Foreign (MkSpec "scheme" "string-unpack"))
+            (Declared (MkQName preludeTypes "fastUnpack") (Pi QW (Prim StringP) (list (Prim CharP))))
+            (Alias (MkQName preludeTypes "unpack")) [Primitive] ]

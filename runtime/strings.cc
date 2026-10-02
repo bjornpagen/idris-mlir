@@ -118,6 +118,28 @@ extern "C" const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n) {
   return rt::stringOf(p, n);
 }
 
+extern "C" idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars, int32_t ascii) {
+  if (bytes == 0)
+    return const_cast<idris_rt_str *>(&emptyString);
+  return rt::newString(static_cast<uint64_t>(bytes), static_cast<uint64_t>(scalars), ascii != 0);
+}
+
+extern "C" int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c) {
+  return offset + static_cast<int64_t>(rt::encodeUtf8(c, rt::mutableBytes(s) + offset));
+}
+
+extern "C" int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part) {
+  if (part->bytes != 0)
+    memcpy(rt::mutableBytes(s) + offset, idris_rt_str_bytes(part), part->bytes);
+  return offset + static_cast<int64_t>(part->bytes);
+}
+
+extern "C" int64_t idris_rt_str_bytes_length(const idris_rt_str *s) {
+  return static_cast<int64_t>(s->bytes);
+}
+
+extern "C" int32_t idris_rt_str_is_ascii(const idris_rt_str *s) { return isAscii(s) ? 1 : 0; }
+
 extern "C" const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const idris_rt_str *b) {
   if (a->bytes == 0)
     return shared(b);

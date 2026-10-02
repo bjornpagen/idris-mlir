@@ -203,6 +203,16 @@ data Hook
   | ||| An external type that is a machine word: `AnyPtr`, which only the
     ||| handles inhabit. Handler: `Frontend.Translate.Types.coreType`.
     WordType
+  | ||| A function whose calls build a string from a list once: the
+    ||| Prelude's `pack` and `fastPack` over a `List Char`, its
+    ||| `fastConcat` over a `List String`, which the Prelude's own
+    ||| `%transform` rules make one at runtime. Handler:
+    ||| `Frontend.Translate.application`.
+    Builds Builder
+  | ||| A `%foreign` definition that stands for a library function of the
+    ||| same type and meaning (`fastUnpack` for `unpack`): its calls are
+    ||| calls of that function. Handler: `Frontend.Translate.application`.
+    Alias QName
   | ||| The identity on its last argument, its one runtime argument; the
     ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
@@ -240,6 +250,8 @@ kind (ArrayCall _) = Faster
 kind (ArrayType _) = Faster
 kind (ArraySize _) = Faster
 kind (Handle _) = Faster
+kind (Builds _) = Faster
+kind (Alias _) = Faster
 kind WordType = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster

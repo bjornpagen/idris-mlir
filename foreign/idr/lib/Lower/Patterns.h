@@ -39,6 +39,11 @@ void populateArrayPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeCo
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          Layouts &layouts, Runtime &runtime);
 
+// The string builders over lists (Strings.cc).
+void populateStringPatterns(mlir::RewritePatternSet &patterns,
+                            const mlir::TypeConverter &converter, Layouts &layouts,
+                            Runtime &runtime);
+
 // The base of the patterns: the layouts and the runtime they lower with.
 template <typename OpT>
 struct IdrPattern : mlir::OpConversionPattern<OpT> {

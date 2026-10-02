@@ -55,7 +55,7 @@ reaches 15%, so a ratio within that of 1 is parity.
 | harmonic | 200000000 | 0.222 | 5.729 | 0.604 | 0.256 | n/a | n/a | 1.15x |
 | k-nucleotide | fasta 250000 | n/a | 12.089 | n/a | 0.270 | n/a | n/a | n/a |
 | mandelbrot | 2000 | 0.237 | 4.579 | 0.418 | 0.242 | n/a | n/a | 1.02x |
-| mandelbrot-pbm | 4000 | n/a | 18.824 | n/a | 1.041 | n/a | n/a | n/a |
+| mandelbrot-pbm | 4000 | 1.167 | 23.384 | n/a | 1.198 | n/a | n/a | 1.03x |
 | nbody | 5000000 | 0.262 | 5.110 | 1.137 | 0.251 | n/a | n/a | 0.96x |
 | nqueens | 13 | 0.875 | 11.822 | 1.001 | 1.213 | 0.855 | 1.798 | 1.39x |
 | pidigits | 10000 | 0.977 | 5.044 | n/a | 0.991 | n/a | n/a | 1.01x |
@@ -189,12 +189,16 @@ their SML. qsort and unionfind are in pure code over `Linear.Array`.
   operation and still matches it, through the runtime's allocator. The
   in-place form waits for exclusivity on bigs.
 - **fasta, reverse-complement:** `List Char` where C has byte buffers, and
-  input read a character at a time; byte I/O is the next step.
+  input read a character at a time. Measured apart, fasta's computation
+  takes 0.098 s and writing its 2.5 MB of lines 0.002 s, where the whole
+  program takes 0.38 s: the rest is `pack`, which builds each 60-character
+  line by `strCons`, one string per character. The Prelude's own
+  `%transform` runs `fastPack` instead, a builder; that is the next step.
 - **k-nucleotide** is rejected: `Data.SortedMap` keeps its `Ord`
-  dictionary in a value chosen at runtime. **mandelbrot-pbm** compiles,
-  but `putChar` writes UTF-8 for bytes from 128 on (a decided divergence
-  from Chez), so its bitmap is not compared; `mandelbrot` above counts the
-  same points instead.
+  dictionary in a constructor field, an implementation chosen at runtime.
+  **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
+  `System.File`, byte for byte as the C does; its row was measured in a
+  later run of this machine, where `mandelbrot` took 0.294 s.
 
 ## Caveats
 

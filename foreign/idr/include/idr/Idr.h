@@ -312,6 +312,11 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
+// The cons constructor of the list type `list` the string builders walk
+// (a box of a nil without fields and a cons of `element` and the list), or
+// null with an error at `op`.
+CtorOp listCons(mlir::Operation *op, mlir::Type list, mlir::Type element);
+
 // The elimination of a value that begins at one of its uses: an apply of
 // the value, or of one field of it (an action in `MkIO f`), each read
 // through the one use of a linear value, where the value may first pass a
