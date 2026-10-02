@@ -33,11 +33,12 @@ mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(idr_tablegen)
 
 # idris-mlir-cc links the runtime's bitcode into the program (Linker,
-# BitReader, Object) and internalizes it (IPO); idr-eval compiles
-# with ORC's LLJIT (OrcJIT) and the same pipeline (Passes). The runtime's
-# bitcode carries inline assembly (CPU feature probes), which the object
-# emitter parses with the native target's assembly parser.
-llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader object ipo orcjit)
+# BitReader, Object), internalizes it (IPO) and writes the runtime it
+# prepared (BitWriter); idr-eval compiles with ORC's LLJIT (OrcJIT) and the
+# same pipeline (Passes). The runtime's bitcode carries inline assembly (CPU
+# feature probes), which the object emitter parses with the native target's
+# assembly parser.
+llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader bitwriter object ipo orcjit)
 
 # idr.mlir is the one unit that parses MLIR's, LLVM's and TableGen's
 # headers; every module imports their names from it. Each area of lib/
@@ -152,12 +153,24 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	MLIRRemarkStreamer
 	idris_mlir_language_profile
 )
-# The runtime archive whose bitcode joins every program, checked before
-# idris-mlir-cc is built. --runtime overrides the path.
+# The runtime every program links: the archive, checked before idris-mlir-cc
+# is built, then optimized once by idris-mlir-cc itself (--prepare-runtime)
+# into bitcode, which is the runtime the driver links by default (--runtime
+# overrides the path, with the archive itself if need be).
+set(IDRIS_MLIR_RUNTIME_BITCODE "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
 target_compile_definitions(idris-mlir-cc PRIVATE
-	"IDRIS_MLIR_RUNTIME_ARCHIVE=\"${IDRIS_MLIR_RUNTIME_ARCHIVE}\""
+	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_BITCODE}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
+add_custom_command(
+	OUTPUT "${IDRIS_MLIR_RUNTIME_BITCODE}"
+	COMMAND idris-mlir-cc --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
+		-o "${IDRIS_MLIR_RUNTIME_BITCODE}"
+	DEPENDS idris-mlir-cc idris_rt idris_rt_check
+	COMMENT "Optimizing the runtime once, for every program"
+	VERBATIM
+)
+add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_BITCODE}")
 
 # Shrinking a module that makes a pass fail.
 add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
