@@ -57,6 +57,8 @@ bool isStatic(Value value) {
   return false;
 }
 
+bool isArrayLoop(Operation *op) { return isa<ArrayGenerateOp, ArrayFoldOp>(op); }
+
 bool usedAfter(Value value, Operation *op) {
   Block *home = value.getParentBlock();
   for (Operation *at = op; at; at = at->getParentOp()) {
@@ -70,6 +72,9 @@ bool usedAfter(Value value, Operation *op) {
     }
     if (block == home || isa<func::FuncOp>(block->getParentOp()))
       return false;
+    // The body of a loop runs again: the next iteration uses the value.
+    if (isArrayLoop(block->getParentOp()))
+      return true;
   }
   return false;
 }
@@ -102,11 +107,17 @@ Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
           LinUseOp, ShareOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp,
           scf::WhileOp>(op))
     return Use::Consume;
-  // An element moves into the array's cell; the array itself is read.
+  // An element moves into the array's cell; the array itself is read. The
+  // fill of a generated array moves in likewise, and a fold's init into
+  // its body as the first accumulator.
   if (auto make = dyn_cast<ArrayNewOp>(op))
     return operand.get() == make.getFill() ? Use::Consume : Use::Borrow;
   if (auto set = dyn_cast<ArraySetOp>(op))
     return operand.get() == set.getValue() ? Use::Consume : Use::Borrow;
+  if (auto generate = dyn_cast<ArrayGenerateOp>(op))
+    return operand.get() == generate.getFill() ? Use::Consume : Use::Borrow;
+  if (auto fold = dyn_cast<ArrayFoldOp>(op))
+    return operand.get() == fold.getInit() ? Use::Consume : Use::Borrow;
   return Use::Borrow;
 }
 

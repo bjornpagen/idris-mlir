@@ -7,6 +7,7 @@
 #include "idris_rt.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 
@@ -143,6 +144,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // parameters get LLVM's instead (Lower/Facts.h).
     module.walk([](func::FuncOp fn) { fn.removeArgAttrsAttr(); });
     idr::lower::lowerMatches(module);
+    idr::lower::lowerArrayLoops(module);
 
     TypeConverter converter;
     converter.addConversion([](Type type) { return type; });
@@ -154,13 +156,24 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
           llvm::append_range(out, layouts->components(type));
           return success();
         });
+    // A legal op that still holds an array of words (a linalg op over it,
+    // Loops.cc) gets the array's view of its cell and length (Arrays.cc).
+    converter.addSourceMaterialization(
+        [&](OpBuilder &b, Type type, ValueRange inputs, Location loc) -> Value {
+          if (!idr::isArray(type) || inputs.size() != 2)
+            return nullptr;
+          return idr::lower::arrayView(b, loc, runtime, cast<MemRefType>(type), inputs[0],
+                                       inputs[1]);
+        });
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<idr::IdrDialect>();
-    // The one memref op of the contract: an array's length (Arrays.cc).
-    target.addIllegalOp<memref::DimOp>();
     target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
-                           cf::ControlFlowDialect>();
+                           cf::ControlFlowDialect, memref::MemRefDialect, linalg::LinalgDialect>();
+    // The one memref op of the contract, an array's length, becomes the
+    // length beside the cell; the loads and stores the lowering itself makes
+    // on an array's view stay for convert-to-llvm (Arrays.cc).
+    target.addIllegalOp<memref::DimOp>();
     target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp, func::CallIndirectOp,
                       func::ConstantOp>();
     // The declarations are erased after the conversion.

@@ -6,6 +6,7 @@ target_sources(idr_dialect PRIVATE
 	Counting.cc
 	Facts.cc
 	Layout.cc
+	Loops.cc
 	Matches.cc
 	Pass.cc
 	Patterns.cc

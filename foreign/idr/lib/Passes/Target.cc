@@ -4,6 +4,7 @@
 // features a CPU name stands for and the data layout are LLVM's own.
 
 #include "idr/Idr.h"
+#include "idr/Target.h"
 
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Pass/PassManager.h"
@@ -38,3 +39,14 @@ struct Target : idr::impl::IdrTargetBase<Target> {
 };
 
 } // namespace
+
+unsigned idr::vectorBits(ModuleOp module) {
+  auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
+  if (!target)
+    return 128;
+  LLVM::TargetFeaturesAttr features = target.getFeatures();
+  auto has = [&](StringRef feature) { return features && features.contains(feature); };
+  if (llvm::Triple(target.getTriple().getValue()).isX86())
+    return has("+avx512f") ? 512 : has("+avx") ? 256 : 128;
+  return 128;
+}

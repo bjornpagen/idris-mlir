@@ -65,6 +65,8 @@ refs (ResumeF _ e) = e
 refs (UnreachableF _) = ([], [])
 refs (CrashF _ _) = ([], [])
 refs (NewWorldF _) = ([], [])
+refs (ArrayGenF _ _ n x w body _) = mergeRefs [n, x, w, body]
+refs (ArrayFoldF _ _ _ arr z w body _) = mergeRefs [arr, z, w, body]
 
 ||| The call graph of the emitted module, where a function refers to what
 ||| it calls and to the closures it builds. Program order is each instance,

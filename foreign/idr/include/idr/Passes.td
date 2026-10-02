@@ -63,7 +63,8 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
     "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
     "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect",
-    "::mlir::math::MathDialect"
+    "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect",
+    "::mlir::linalg::LinalgDialect"
   ];
 }
 
@@ -480,6 +481,34 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
 // Test assertions (lib/Expect/)
 //===----------------------------------------------------------------------===//
 
+def IdrVectorize : Pass<"idr-vectorize", "::mlir::ModuleOp"> {
+  let summary = "Tile each loop over an array by the target's lanes and vectorize it";
+  let description = [{
+    Every `linalg.generic` with a parallel dimension (the loops over arrays
+    idr-lower leaves) is tiled by the target's lanes along its parallel
+    dimensions and by one along its reductions, its tile loop peeled so
+    that the full tiles are known to be full, and each tile vectorized at
+    those sizes: the full tiles without masks, the last one masked. The lane
+    count is the target's vector register (idr-target's `#llvm.target`)
+    over the widest word the loop computes. A reduction dimension never
+    gets more than one lane, so a floating accumulator adds in program
+    order; the unit dimension that lane leaves on the tile's vectors is
+    dropped again, so that LLVM sees vectors of the lanes. A loop the
+    vectorizer refuses (a call or a crash check in its body) stays, for
+    convert-linalg-to-loops. Remarks in the category idr-vectorize:
+    `Vectorized` with the lanes, `Scalar` with why not.
+  }];
+  let statistics = [
+    Statistic<"numVectorized", "vectorized", "Loops that compute on lanes">,
+    Statistic<"numScalar", "scalar", "Loops left for convert-linalg-to-loops">,
+  ];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect", "::mlir::arith::ArithDialect",
+    "::mlir::linalg::LinalgDialect", "::mlir::memref::MemRefDialect",
+    "::mlir::scf::SCFDialect", "::mlir::vector::VectorDialect"
+  ];
+}
+
 def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
   let summary = "Check named properties of the module, and change nothing";
   let description = [{
@@ -525,6 +554,14 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `constant-stack=@f`: no function @f may call, @f included, is on a
         cycle of references: every recursion from @f became a loop;
       - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
+      - `pure-array-loops`, `pure-array-loops=@f`: every loop over an array
+        (`idr.array.generate`, `idr.array.fold`), anywhere or in @f, has a
+        body that only computes (no count changes, nothing allocated,
+        nothing called), and there is at least one;
+      - `vectorized`, `vectorized=@f`: after idr-vectorize, anywhere or in
+        @f, some loop computes on vectors, and no `linalg.generic` with a
+        parallel dimension and a body of words alone (arith, math,
+        `linalg.index`) is left scalar;
       - `folds-balanced`: the folders released every reference they took
         from the runtime, which holds no live cell (on the calling thread,
         so run single-threaded).
