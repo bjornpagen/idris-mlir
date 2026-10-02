@@ -5,3 +5,6 @@
 # characters; and no walk counts a reference: the input is read into cells
 # without a dup or a drop, and reverse neither counts nor tests one.
 idr-rc: reuses-in-place=@Prelude.Types.List.reverseOnto counts-nothing=@Prelude.Types.List.reverseOnto tests-nothing=@Prelude.Types.List.reverseOnto counts-nothing=@Main.readAll reuses-in-place=@Main.body resets-unshared=@Main.body reuses-in-place=@Main.putChunks
+# Each line is written as its list is walked: no string is built only to
+# be written.
+idr-simplify: output-fused

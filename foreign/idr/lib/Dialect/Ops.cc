@@ -1164,6 +1164,22 @@ LogicalResult StrConcatOp::verify() {
   return consOf(*this, getList().getType(), StrType::get(getContext())) ? success() : failure();
 }
 
+Type PutListOp::getElementType() {
+  if (DataOp data = lookupData(*this, unrestricted(getList().getType())))
+    for (CtorOp ctor : data.getCtors())
+      if (ctor.getFieldTypes().size() == 2)
+        return ctor.getFieldType(0);
+  return {};
+}
+
+// A list pack or concat walks.
+LogicalResult PutListOp::verify() {
+  Type element = getElementType();
+  if (!isa_and_nonnull<StrType>(element) && element != IntegerType::get(getContext(), 32))
+    return emitOpError("writes a list of characters or of strings, not ") << getList().getType();
+  return consOf(*this, getList().getType(), element) ? success() : failure();
+}
+
 // A constant that is a byte: 0 to 255.
 bool isByte(Attribute constant) {
   auto value = dyn_cast_or_null<IntegerAttr>(constant);

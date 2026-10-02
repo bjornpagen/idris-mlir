@@ -3,7 +3,9 @@
 // meets a value where it folds or canonicalizes against it: a match takes
 // the case of a known constructor or literal, a field or tag of a known
 // constructor is read off it, a known closure applied is a call, output
-// takes a string as it is built, and any other op folds with constants.
+// takes a string as it is built (a list packed only to be written, as it
+// is walked) and a constant list as the string it folds to, and any other
+// op folds with constants.
 // Each copy then shrinks to what its region knows. A consumer that only
 // holds the value gains nothing there: a constructor holding it beside a
 // field that is not constant, a closure capturing it, a call passing it on.
@@ -79,11 +81,16 @@ bool foldsWith(OpOperand &use, Attribute constant) {
 } // namespace
 
 // A call's result meets the elimination that raising moves into a clone of
-// the callee once the two meet. A string builder meets output and the
-// first character, and output meets the empty string, which it does not
-// write. A constant, a constructor or a closure meets what reads it and a
-// call it is passed to as a function; a constant also meets what folds
-// with it, and a call it closes.
+// the callee once the two meet. A string builder meets output that writes
+// it in pieces (writtenInPieces) and the first character, and output meets
+// the empty string, which it does not write. Output of a list meets a
+// constant list, which it writes as its string; not a cell, though it
+// writes one a step at a time where it finds one: moved into the regions
+// of a match for a cell, it would follow a chain of choices, each consing
+// onto the list the one before built, into every region of each. A
+// constant, a constructor or a closure meets what reads it and a call it
+// is passed to as a function; a constant also meets what folds with it,
+// and a call it closes.
 bool canon::feeds(Value value, OpOperand &use) {
   if (isa_and_nonnull<func::CallOp>(value.getDefiningOp()))
     return eliminationAt(use).has_value();
@@ -102,14 +109,16 @@ bool canon::feeds(Value value, OpOperand &use) {
     return true;
   OpOperand &read = reader(use);
   Operation *consumer = read.getOwner();
-  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def))
-    return isa<PutStrOp, StrHeadOp>(consumer);
   Attribute constant;
   matchPattern(value, m_Constant(&constant));
   if (isa<PutStrOp>(consumer)) {
     auto text = dyn_cast_or_null<StringAttr>(constant);
-    return text && text.getValue().empty();
+    return writtenInPieces(value) || (text && text.getValue().empty());
   }
+  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def))
+    return isa<StrHeadOp>(consumer);
+  if (isa<PutListOp>(consumer))
+    return static_cast<bool>(constant);
   if (!constant && !isa_and_nonnull<ConOp, ClosureOp>(def))
     return false;
   if (eliminationAt(use) || isa<MatchOp, MatchLitOp, FieldOp, TagOp>(consumer))

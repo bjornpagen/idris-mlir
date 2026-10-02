@@ -22,3 +22,16 @@ func.func @f(%x: !idr.big) {
   %b = idr.big.cmp ne %x, %x
   return
 }
+
+// -----
+
+// put_list writes characters or strings, as pack and concat build them.
+idr.data @Ints box {
+  idr.ctor @Nil ()
+  idr.ctor @Cons (i64, !idr.box<@Ints>)
+}
+func.func @f(%xs: !idr.box<@Ints>, %w: !idr.world) -> !idr.world {
+  // expected-error @+1 {{writes a list of characters or of strings}}
+  %w1 = idr.io.put_list %xs, %w : !idr.box<@Ints>
+  return %w1 : !idr.world
+}

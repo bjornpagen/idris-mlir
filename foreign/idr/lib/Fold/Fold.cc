@@ -167,26 +167,30 @@ std::optional<SmallVector<Attribute>> listElements(Attribute list) {
   }
 }
 
-OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
-  std::optional<SmallVector<Attribute>> chars = listElements(adaptor.getList());
-  if (!chars || !llvm::all_of(*chars, [](Attribute c) { return isa<IntegerAttr>(c); }))
+Attribute stringOfList(MLIRContext *ctx, Attribute list) {
+  std::optional<SmallVector<Attribute>> elements = listElements(list);
+  if (!elements)
     return {};
-  Scope scope(getContext());
-  const idris_rt_str *s = scope.str(StringAttr::get(getContext(), ""));
-  for (Attribute c : llvm::reverse(*chars))
-    s = scope.keep(idris_rt_str_cons(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+  Scope scope(ctx);
+  const idris_rt_str *s = scope.str(StringAttr::get(ctx, ""));
+  if (llvm::all_of(*elements, [](Attribute c) { return isa<IntegerAttr>(c); })) {
+    for (Attribute c : llvm::reverse(*elements))
+      s = scope.keep(idris_rt_str_cons(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+    return scope.attr(s);
+  }
+  if (!llvm::all_of(*elements, [](Attribute p) { return isa<StringAttr>(p); }))
+    return {};
+  for (Attribute p : *elements)
+    s = scope.keep(idris_rt_str_append(s, scope.str(cast<StringAttr>(p))));
   return scope.attr(s);
 }
 
+OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
+  return stringOfList(getContext(), adaptor.getList());
+}
+
 OpFoldResult StrConcatOp::fold(FoldAdaptor adaptor) {
-  std::optional<SmallVector<Attribute>> parts = listElements(adaptor.getList());
-  if (!parts || !llvm::all_of(*parts, [](Attribute p) { return isa<StringAttr>(p); }))
-    return {};
-  Scope scope(getContext());
-  const idris_rt_str *s = scope.str(StringAttr::get(getContext(), ""));
-  for (Attribute p : *parts)
-    s = scope.keep(idris_rt_str_append(s, scope.str(cast<StringAttr>(p))));
-  return scope.attr(s);
+  return stringOfList(getContext(), adaptor.getList());
 }
 
 OpFoldResult StrFromCharOp::fold(FoldAdaptor adaptor) {

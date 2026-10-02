@@ -731,6 +731,30 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat"> {
   let hasVerifier = 1;
 }
 
+// Output of a list pack or concat walks: its characters or its strings,
+// written in order, each as put_char or put_str writes it, which is what
+// writing the list's pack or concat writes. Output of a pack or a concat
+// whose string has no other use becomes this op, and the string is never
+// built. Where the op meets the list's constructor it takes one step of
+// the walk: the nil writes nothing, and a cell writes its element before
+// the rest, so a cell built only to be written is not built. It is IO, as
+// the idr.io ops are, but calls no runtime function named after it: its
+// lowering walks the list (Lower/Strings.cc).
+def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO,
+    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
+  let summary = "writes the characters or the strings of a list, in order";
+  let arguments = (ins Idr_SumValue:$list, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = "$list `,` $world attr-dict `:` type($list)";
+  let hasVerifier = 1;
+  let hasCanonicalizer = 1;
+  let extraClassDeclaration = [{
+    // What the list holds: i32, a character, or !idr.str; null when it is
+    // not a list of either, which the verifier refuses.
+    ::mlir::Type getElementType();
+  }];
+}
+
 // `signed` or `unsigned` for an integer, nothing for a Double.
 def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
   let summary = "the text of a number, as prim__cast_TString writes it";
