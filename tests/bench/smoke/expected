@@ -9,7 +9,7 @@ fannkuch-redux: prints the recorded output
 fasta: prints the recorded output
 fib: prints the recorded output
 harmonic: prints the recorded output
-k-nucleotide: rejected as recorded
+k-nucleotide: prints the recorded output
 mandelbrot: prints the recorded output
 mandelbrot-pbm: prints the recorded output
 nbody: prints the recorded output

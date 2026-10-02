@@ -14,7 +14,7 @@ public export
 data Rule
   = ProgramShape | TrustedLibrary | WorldUse | IOPrimitive
   | ValueType
-  | DependentField | DataType
+  | DependentField | DictionaryField | DataType
   | DefinitionShape | Match | StaticArgument
   | Polymorphism | Laziness
   | Primitive | StringPrimitive
@@ -31,6 +31,7 @@ Show Rule where
   show IOPrimitive = "io primitive"
   show ValueType = "type"
   show DependentField = "dependent field"
+  show DictionaryField = "dictionary field"
   show DataType = "data type"
   show DefinitionShape = "definition"
   show Match = "match"
@@ -52,7 +53,7 @@ Show Rule where
 allRules : List Rule
 allRules =
   [ ProgramShape, TrustedLibrary, WorldUse, IOPrimitive, ValueType
-  , DependentField, DataType, DefinitionShape, Match, StaticArgument
+  , DependentField, DictionaryField, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
   , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape
   , CompileBudget, Layout ]

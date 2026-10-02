@@ -1,0 +1,12 @@
+// Data.SortedMap keeps the Ord of its keys in the map's constructors. In
+// full Core that field is erased from each map instance (the implementation
+// is a compile-time value of the instance, which its methods specialize
+// on), and no data instance of the interface exists anywhere.
+// CHECK-NOT: {{^data Prelude\.EqOrd\.(Ord|Eq)\[}}
+// CHECK: {{^}}data Data.SortedMap.Dependent.SortedDMap[String, {{.*}}]
+// CHECK-NEXT: Empty tag 0 (0 Erased)
+// CHECK-NEXT: M tag 1 (0 Erased, w Nat, w Data.SortedMap.Dependent.Tree[
+// CHECK: {{^}}data Data.SortedMap.Dependent.SortedDMap[Int, {{.*}}]
+// CHECK-NEXT: Empty tag 0 (0 Erased)
+// CHECK-NEXT: M tag 1 (0 Erased, w Nat, w Data.SortedMap.Dependent.Tree[
+// CHECK-NOT: {{^data Prelude\.EqOrd\.(Ord|Eq)\[}}

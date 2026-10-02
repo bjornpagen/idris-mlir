@@ -25,8 +25,9 @@ this compiler's: above 1, this compiler is faster.
 
 Development container, x86-64, 4 CPUs; LLVM 23.1.2, MLton 20210117, Koka
 3.2.9, Lean 4.34.1, the pinned clang; best of 3, in one run on 2026-10-02 at
-903d127. The run-to-run spread on this machine reaches 15%, so a ratio
-within that of 1 is parity.
+903d127, except k-nucleotide, measured once it compiled, in a run of its
+own on the same container (its note below). The run-to-run spread on this
+machine reaches 15%, so a ratio within that of 1 is parity.
 
 | benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -41,7 +42,7 @@ within that of 1 is parity.
 | fasta | 250000 | 0.094 | 0.309 | n/a | 0.047 | n/a | n/a | 0.50x |
 | fib | 38 | 0.130 | 3.589 | 0.282 | 0.124 | n/a | n/a | 0.96x |
 | harmonic | 200000000 | 0.284 | 6.879 | 0.784 | 0.294 | n/a | n/a | 1.03x |
-| k-nucleotide | fasta 250000 | n/a | 11.845 | n/a | 0.254 | n/a | n/a | n/a |
+| k-nucleotide | fasta 250000 | 6.194 | 14.072 | n/a | 0.278 | n/a | n/a | 0.04x |
 | mandelbrot | 2000 | 0.297 | 5.384 | 0.519 | 0.302 | n/a | n/a | 1.02x |
 | mandelbrot-pbm | 4000 | 1.172 | 23.222 | n/a | 1.187 | n/a | n/a | 1.01x |
 | nbody | 5000000 | 0.305 | 5.698 | 1.553 | 0.298 | n/a | n/a | 0.98x |
@@ -171,9 +172,18 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   computation and 0.002 s output, the rest a string per character; it now
   takes about its computation, and reverse-complement 2.8x less than
   before. What remains is the list itself: a cons cell per character read.
-- **k-nucleotide** is rejected: `Data.SortedMap` keeps its `Ord`
-  dictionary in a constructor field, an implementation chosen at runtime.
-  **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
+- **k-nucleotide** (2.3x faster than Chez, 22x slower than C): the
+  fragments are counted in a `Data.SortedMap String Int`, which keeps the
+  `Ord String` it was built with in the map's constructors. The frontend
+  holds that dictionary as a compile-time value of the map's data instance
+  (`Frontend.Translate.Dictionaries`), so a lookup compares strings with
+  the primitive and the field costs nothing at runtime. What remains is the
+  program as written: the sequence is a `List Char`, a `String` is packed
+  for each of the 1.75 million fragments counted, and each count rebuilds
+  the path of a persistent 2-3 tree, where the C hashes fragments packed
+  into integers in place. Best of 3 on 2026-10-02: 6.194 s, Chez 14.072 s,
+  clang 0.278 s; the compilation takes 17 s.
+- **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
   `System.File`, byte for byte as the C does.
 
 ## Caveats
