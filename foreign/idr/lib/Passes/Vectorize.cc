@@ -9,9 +9,14 @@
 // reduction dimension never gets more than one lane, so a floating
 // accumulator adds in program order; that lane is a unit dimension of the
 // tile's vectors (vector<4x1xf64>), which LLVM would take as four vectors
-// of one, so the vector dialect's own patterns drop it again. A generic the
-// vectorizer refuses (a call or a crash check in its body, a nested loop)
-// stays as it is, for convert-linalg-to-loops.
+// of one, so the vector dialect's own patterns drop it again.
+//
+// Whether the vectorizer takes a generic is decided before anything
+// changes. One it refuses (a call or a crash check in its body, a nested
+// loop) stays as it is, for convert-linalg-to-loops, which runs its body in
+// the program's order: tiled first and then refused, its tiles would run
+// the body column by column within each group of rows, so a body that
+// crashes or calls would do it in another order than the program's.
 
 #include "idr/Idr.h"
 #include "idr/Target.h"
@@ -59,6 +64,18 @@ unsigned widestWord(linalg::GenericOp op) {
   return bits;
 }
 
+// Whether the vectorizer takes the generic at these sizes. It maps an op of
+// the body to vectors only when the op is elementwise-mappable, a constant,
+// an index or the yield; upstream's precondition checks that of the body of
+// an all-parallel generic, but of a reduction's only the types and the
+// combiner, and says yes to a body the vectorizer then refuses. The body is
+// checked here for every generic, as upstream checks an all-parallel one.
+// PIN(vectorize-precondition-body) — see PINS.md
+bool vectorizable(linalg::GenericOp op, ArrayRef<int64_t> sizes, ArrayRef<bool> scalable) {
+  return succeeded(linalg::vectorizeOpPrecondition(op, sizes, scalable)) &&
+         linalg::hasOnlyScalarElementwiseOp(op.getRegion());
+}
+
 struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
   using IdrVectorizeBase::IdrVectorizeBase;
 
@@ -100,7 +117,7 @@ struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
       // Fixed vectors: the lane count is the target's, not a runtime value.
       SmallVector<bool> scalable(sizes.size(), false);
       Location loc = op.getLoc();
-      if (failed(linalg::vectorizeOpPrecondition(op, sizes, scalable))) {
+      if (!vectorizable(op, sizes, scalable)) {
         remark::missed(loc, remark::RemarkOpts::name("Scalar").category("idr-vectorize"))
             << "the loop stays scalar: its body is not one the vectorizer takes";
         ++numScalar;
@@ -136,10 +153,12 @@ struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
                                 /*vectorizeNDExtract=*/false,
                                 /*flatten1DDepthwiseConv=*/false,
                                 /*assumeDynamicDimsMatchVecSizes=*/full);
+          // The loop was tiled because the vectorizer takes it: a tile it
+          // then refuses is this pass's error, never a loop to leave scalar.
           if (failed(vectorized)) {
-            tile.emitError("internal error: idr-vectorize: a tile the vectorizer accepted "
-                           "did not vectorize");
-            continue;
+            tile.emitError("internal error: idr-vectorize: a tile of a loop the vectorizer "
+                           "takes did not vectorize");
+            return signalPassFailure();
           }
           // On buffers the generic has no results: the vector ops stand in.
           rewriter.replaceOp(tile, vectorized->replacements);
