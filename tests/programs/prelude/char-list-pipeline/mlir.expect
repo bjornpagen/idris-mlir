@@ -1,0 +1,7 @@
+# Every list the program consumes is rebuilt in its own cells: reverse
+# turns each cell it visits around in place, body complements each
+# character into the cell the input held it in, and splitAt, unrolled into
+# putChunks for its constant count, gives each chunk the cells of its
+# characters; and no walk counts a reference: the input is read into cells
+# without a dup or a drop, and reverse neither counts nor tests one.
+idr-rc: reuses-in-place=@Prelude.Types.List.reverseOnto counts-nothing=@Prelude.Types.List.reverseOnto tests-nothing=@Prelude.Types.List.reverseOnto counts-nothing=@Main.readAll reuses-in-place=@Main.body resets-unshared=@Main.body reuses-in-place=@Main.putChunks
