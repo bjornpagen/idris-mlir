@@ -1,7 +1,8 @@
 /* The runtime's string and big operations against Chez: `api` prints one
  * line per operation, and chez.ss prints what Chez computes for the same
  * operations, which the run script compares. Then the casts from String,
- * whose grammar is ours (idris_rt.h), are checked against a table.
+ * whose grammar is ours (idris_rt.h), and the decoding of bytes from
+ * outside the program, are checked against tables.
  *
  * Every operation borrows its arguments and returns an owned result, so
  * each result is released once, when it has been printed, and each argument
@@ -109,6 +110,64 @@ static void expectDouble(const char *s, double want) {
     fprintf(stderr, "FAIL to_double \"%s\"\n", s);
     ++failures;
   }
+}
+
+static int decodeFailures = 0, decodeChecks = 0;
+
+/* The n bytes at p become the string of the well-formed UTF-8 `want`:
+ * the same bytes, scalar count and ASCII flag. */
+static void expectDecoded(const char *p, size_t n, const char *want) {
+  const idris_rt_str *got = idris_rt_str_from_bytes(p, n);
+  const idris_rt_str *expected = make(want);
+  ++decodeChecks;
+  if (got->bytes != expected->bytes || got->scalars != expected->scalars ||
+      memcmp(idris_rt_str_bytes(got), idris_rt_str_bytes(expected), got->bytes) != 0 ||
+      idris_rt_str_is_ascii(got) != idris_rt_str_is_ascii(expected)) {
+    fprintf(stderr, "FAIL from_bytes of %zu bytes, expected \"%s\"\n", n, want);
+    ++decodeFailures;
+  }
+  release(got);
+  release(expected);
+}
+
+/* Bytes from outside the program as a string: each maximal subpart of an
+ * ill-formed sequence, the longest prefix of a well-formed one or else one
+ * byte, is one U+FFFD (the Unicode Standard, chapter 3, whose table of
+ * U+FFFD in UTF-8 conversion is the first case). */
+static void decoding(void) {
+#define FFFD "\xEF\xBF\xBD"
+  static const char table[] = "\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64";
+  expectDecoded(table, sizeof table - 1, "a" FFFD FFFD FFFD "b" FFFD "c" FFFD FFFD "d");
+  expectDecoded("\x61\xE2\x82\x62", 4, "a" FFFD "b");
+  expectDecoded("\xF0\x9F\x98\x63", 4, FFFD "c");
+  expectDecoded("\xC0\x80\x64", 3, FFFD FFFD "d");
+  expectDecoded("\xED\xA0\x80\x65", 4, FFFD FFFD FFFD "e");
+  expectDecoded("\xE9\x66", 2, FFFD "f");
+  expectDecoded("\xE9", 1, FFFD);
+  expectDecoded("\xE0\x80\x80", 3, FFFD FFFD FFFD);
+  expectDecoded("\xF0\x80\x80\x80", 4, FFFD FFFD FFFD FFFD);
+  expectDecoded("\xF4\x90\x80\x80", 4, FFFD FFFD FFFD FFFD);
+  expectDecoded("\xF4\x8F\xBF", 3, FFFD);
+  expectDecoded("\xFF\xFE\x80", 3, FFFD FFFD FFFD);
+  expectDecoded("\xE0\xA0\x80\xEF\xBF\xBF\xF4\x8F\xBF\xBF", 10, "\xE0\xA0\x80\xEF\xBF\xBF\xF4\x8F\xBF\xBF");
+  expectDecoded("h\xC3\xA9llo \xE6\x97\xA5\xF0\x9F\x98\x80", 14, "h\xC3\xA9llo \xE6\x97\xA5\xF0\x9F\x98\x80");
+  expectDecoded("", 0, "");
+  /* Ill-formed bytes between runs longer than simdutf's blocks: a lead
+   * byte with no continuation and a lone continuation byte, each one
+   * U+FFFD of three bytes. */
+  char runs[200];
+  memset(runs, 'x', sizeof runs);
+  runs[70] = '\xC3';
+  runs[150] = '\xA9';
+  char want[sizeof runs + 2 + 2 + 1];
+  memset(want, 'x', sizeof want);
+  memcpy(want + 70, FFFD, 3);
+  memcpy(want + 152, FFFD, 3);
+  want[sizeof want - 1] = '\0';
+  expectDecoded(runs, sizeof runs, want);
+#undef FFFD
+  fprintf(stderr, "bytes as a string: %d of %d as idris_rt.h defines them\n",
+          decodeChecks - decodeFailures, decodeChecks);
 }
 
 int main(void) {
@@ -255,7 +314,8 @@ int main(void) {
   expectDouble("0x10", 0.0);
   expectDouble("", 0.0);
   fprintf(stderr, "casts from String: %d of %d as idris_rt.h defines them\n", checks - failures, checks);
+  decoding();
   uint64_t live = idris_rt_live_cells();
   fprintf(stderr, "live cells once every result is released: %llu\n", (unsigned long long)live);
-  return failures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;
+  return failures == 0 && decodeFailures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;
 }

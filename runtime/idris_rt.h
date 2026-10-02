@@ -274,9 +274,8 @@ int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
 int32_t idris_rt_io_get_byte(void);
 /* A line of input without its end: the bytes up to the first '\r' or
  * '\n', consumed through the '\n', as the stock idris2_getStr cuts them;
- * the empty string at the end of input. Bytes that are not well-formed
- * UTF-8 become U+FFFD, one per ill-formed byte, as Chez decodes them. A new
- * string. */
+ * the empty string at the end of input. The bytes are decoded as
+ * idris_rt_str_from_bytes decodes them. A new string. */
 const idris_rt_str *idris_rt_io_get_line(void);
 /* Bytes [offset, offset + count) of a byte array to a standard stream:
  * handle 1 is standard output, through the output buffer and in order with
@@ -397,6 +396,13 @@ int64_t idris_rt_str_to_int(const idris_rt_str *s);
 /* The string of n bytes of well-formed UTF-8 at p: a new string, or the
  * persistent empty one. */
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
+/* The string of any n bytes at p, decoded as UTF-8: how bytes from outside
+ * the program become a string. Well-formed sequences are their scalars, and
+ * each maximal subpart of an ill-formed one, the longest prefix of a
+ * well-formed sequence at that point or else one byte, is one U+FFFD, as the
+ * Unicode Standard recommends (chapter 3). A new string, or the persistent
+ * empty one. */
+const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
 /* The UTF-8 bytes of s, valid as long as s is. */
 const char *idris_rt_str_bytes(const idris_rt_str *s);
 
