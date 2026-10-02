@@ -899,14 +899,15 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
 // The frontend writes it where a match on a natural found it is not zero,
 // so the value visibly shrinks: the passes see structural descent, not
 // arithmetic. That the operand is not zero is also why the result is
-// natural.
-def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime,
+// natural. A small operand's predecessor is computed inline; a GMP one's
+// is a new big, so the op allocates its result like the other big ops.
+def Idr_BigPredOp : Idr_Op<"big.pred", [Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the predecessor of a natural that is not zero";
   let arguments = (ins Idr_NatType:$value);
-  let results = (outs Idr_NatValue:$result);
+  let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
   let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
 }
 
