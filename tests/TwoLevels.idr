@@ -7,7 +7,7 @@
 |||
 ||| prints `Terms.idr`, the terms `t1`, `t2`, ... (`public export`), or
 ||| `Main.idr`, which prints each as `t<n> <value>`. The helper
-||| tests/twolevels (IdrisMLIR.Frontend.TwoLevels) prints the same lines from
+||| tests/two-levels/evaluator (IdrisMLIR.Frontend.TwoLevels) prints the same lines from
 ||| Idris's evaluator, `normaliseAll` by value, as the REPL's
 ||| `:set eval normalise_all` does.
 |||

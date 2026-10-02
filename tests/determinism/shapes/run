@@ -1,0 +1,4 @@
+#!/bin/sh
+# tests/programs/data/shapes, compiled twice.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism "$root/tests/programs/data/shapes"

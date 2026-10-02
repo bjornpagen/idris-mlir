@@ -43,8 +43,8 @@ profile_compile() {
   compile_program $profile_packages "$profile_main" Main
 }
 
-# profile_reject FIXTURE: `tests/profile/vN/reject/<reason>-<desc>.idr`, or a
-# directory of that name holding Main.idr and its other modules, whose first
+# profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
+# Main.idr and its other modules, whose first
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
 # `-- message: <text>`), <reason> being the phrase the compiler gives and the
 # name starting with it, words joined by dashes. It is rejected with exit
@@ -92,8 +92,8 @@ profile_reject() {
   no_artifacts "$work/fixture"
 }
 
-# profile_accept FIXTURE: `tests/profile/vN/accept/<desc>.idr`, or a
-# directory of that name holding Main.idr: it compiles with every artifact
+# profile_accept FIXTURE: `tests/accept/<desc>/`, a directory holding Main.idr
+# and its other modules: it compiles with every artifact
 # written. With `-- exit: <status>` or `-- stdout: <text with \n escapes>` in
 # its header it also runs, with those, and with nothing on stderr.
 profile_accept() {

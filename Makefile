@@ -7,7 +7,7 @@
 #                          always, without a build
 #   make build             the C++ dev preset, the packages in libs/ and the Idris
 #                          compiler; after any code change
-#   make test              tests/compiler, profile, e2e (each program twice: with
+#   make test              tests/compiler, accept, reject, programs (each program twice: with
 #                          its dumps checked, and without compile-time
 #                          evaluation), determinism, registry, toolchain, fuzz,
 #                          two-levels and bench (each benchmark on a small
@@ -23,7 +23,7 @@
 # in a process of its own; the whole run ends after 4 hours (times
 # time_scale), so that nothing can hold the tree for ever. They
 # take only='NAME...' and except='NAME...' (substrings of test paths such as
-# e2e/v1/hello), threads=N (default: the number of CPUs),
+# programs/basic/hello), threads=N (default: the number of CPUs),
 # INTERACTIVE=--interactive (offer to accept new output) and time_scale=N
 # (multiplies every timeout: each command a test runs gets 60 s
 # and each test 300 s, or what its run script sets). Each ends with the

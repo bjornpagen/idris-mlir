@@ -1,0 +1,5 @@
+#!/bin/sh
+# tests/programs/linear/leet-rotate, an IO program over the linear library's lists
+# (packages: linear), compiled twice.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism "$root/tests/programs/linear/leet-rotate"

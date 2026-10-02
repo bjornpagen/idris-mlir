@@ -81,21 +81,34 @@ pool name dirs = do
        else pure []
   pure (MkTestPool name [] Test.Golden.Nothing (sort (concat found)))
 
-||| A pool over every version directory of a tree: `e2e/v0`, `e2e/v1`, ...
-versioned : String -> String -> (String -> String) -> IO TestPool
-versioned name tree inside = pool name . map inside =<< subdirs tree
+||| One pool per subdirectory of a tree, each named after its directory.
+subpools : String -> String -> IO (List TestPool)
+subpools tree description = do
+  dirs <- subdirs tree
+  for dirs $ \dir => pool (dir ++ ": " ++ description) [dir]
 
-||| The make target that runs each pool.
-suites : List (String, List (IO TestPool))
+||| The make target that runs each pool. The program topics under
+||| `programs/` are listed with a line each, as upstream Idris's tests are.
+suites : List (String, IO (List TestPool))
 suites =
-  [ ("check",
+  [ ("check", sequence
       [ pool "spec: the repository: pins, commands, toolchain, source rules" ["spec"]
       ])
-  , ("test",
+  , ("test", sequence
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
-      , versioned "accept: profile fixtures that compile" "profile" (++ "/accept")
-      , versioned "reject: profile fixtures that are rejected" "profile" (++ "/reject")
-      , versioned "e2e: programs against their oracles and Chez" "e2e" id
+      , pool "accept: programs the profile accepts" ["accept"]
+      , pool "reject: programs rejected with a named rule" ["reject"]
+      , pool "programs/semantics: the meaning of primitives, matches and crashes, against Idris's evaluator and Chez" ["programs/semantics"]
+      , pool "programs/basic: language features" ["programs/basic"]
+      , pool "programs/io: input and output through the Prelude, System.File and Buffer" ["programs/io"]
+      , pool "programs/prelude: the Prelude and base over strings, lists and doubles" ["programs/prelude"]
+      , pool "programs/interfaces: interfaces resolved at compile time" ["programs/interfaces"]
+      , pool "programs/eval: compile-time evaluation and specialization" ["programs/eval"]
+      , pool "programs/partial: partial functions, crashes and the stack" ["programs/partial"]
+      , pool "programs/nat: natural numbers" ["programs/nat"]
+      , pool "programs/data: data and records at runtime" ["programs/data"]
+      , pool "programs/linear: linear values and the linear library's lists" ["programs/linear"]
+      , pool "programs/arrays: linear arrays, IOArray and Buffer" ["programs/arrays"]
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
@@ -103,9 +116,8 @@ suites =
       , pool "two levels: Idris's evaluator against the compiled program" ["two-levels"]
       , pool "bench: every benchmark builds and prints its recorded output" ["bench"]
       ])
-  , ("test-idr",
-      [ versioned "dialect: the idr dialect and its passes" "idr" id ])
-  , ("test-mlir-tools",
+  , ("test-idr", subpools "idr" "the idr dialect and its passes")
+  , ("test-mlir-tools", sequence
       [ pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
   ]
 
@@ -135,10 +147,10 @@ runnerUsage = unlines
   ]
 
 ||| The pools of a suite, or of all of them.
-suitePools : Maybe String -> IO (List (IO TestPool))
-suitePools Nothing = pure (concatMap snd suites)
+suitePools : Maybe String -> IO (List TestPool)
+suitePools Nothing = concat <$> sequence (map snd suites)
 suitePools (Just s) =
-  maybe (die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)) pure (lookup s suites)
+  maybe (die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)) id (lookup s suites)
 
 ||| The tests each pool would run, without running them.
 listPools : Options -> List TestPool -> IO ()
@@ -154,7 +166,7 @@ runSuites prog args = do
     | Nothing => die runnerUsage
   r <- root
   ignore $ setEnv "IDRIS_MLIR_ROOT" r True
-  pools <- sequence !(suitePools suite)
+  pools <- suitePools suite
   -- Run anywhere but tests/, the pools are empty; that must not pass.
   when (all (null . testCases) pools) $
     die "no tests found: run the runner in tests/, through make"

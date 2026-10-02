@@ -7,7 +7,7 @@
 ||| stock evaluator agrees with the same table. The table itself is computed
 ||| here, from what each primitive means, not from the compiler.
 |||
-||| The tests are `tests/e2e/v0/prim-<type>-<table>-<part>/`, the type in
+||| The tests are `tests/programs/semantics/prim-<type>-<table>-<part>/`, the type in
 ||| lower case. Their `run` asks the test runner for the program:
 |||
 |||     runtests --sem-program prim-<type>-<table>-<part>

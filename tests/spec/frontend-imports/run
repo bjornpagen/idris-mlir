@@ -11,7 +11,7 @@ case " $roots " in
   *" Core "*) say "the Idris API's module roots include Core" ;;
   *) say "the Idris API's module roots lack Core: $roots" ;;
 esac
-# The test programs too: tests/twolevels, which runs Idris's evaluator, is
+# The test programs too: tests/two-levels/evaluator, which runs Idris's evaluator, is
 # named IdrisMLIR.Frontend.TwoLevels for this reason.
 { find "$root/compiler/src" -path "$root/compiler/src/IdrisMLIR/Frontend" -prune -o -name '*.idr' -print
   find "$root/tests" \( -name build -o -path '*/IdrisMLIR/Frontend' \) -prune -o -name '*.idr' -print

@@ -1,3 +1,0 @@
-#!/bin/sh
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-profile_accept ../streams.idr

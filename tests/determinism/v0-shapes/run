@@ -1,4 +1,0 @@
-#!/bin/sh
-# tests/e2e/v0/shapes, compiled twice.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism "$root/tests/e2e/v0/shapes"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# tests/programs/basic/hello, an IO program, compiled twice.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism "$root/tests/programs/basic/hello"

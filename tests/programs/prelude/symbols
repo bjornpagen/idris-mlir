@@ -1,0 +1,2 @@
+# Doubles bring libm, with the functions LLVM substitutes for pow.
+exp log pow sin cos tan asin acos atan sqrt floor ceil exp2 ldexp

@@ -2,7 +2,7 @@
 # the compiled program.
 
 # two_levels CORPUS...: the two-level test (tests/TwoLevels.idr). The helper
-# tests/twolevels, Idris's own evaluator as a backend of the stock driver, is
+# tests/two-levels/evaluator, Idris's own evaluator as a backend of the stock driver, is
 # built; for each corpus, `primitives` or `prelude`, its terms are
 # normalised by it (the upper level), and compiled by this compiler (the
 # lower level) and by Chez, each run on empty stdin. The lower level prints
@@ -15,7 +15,7 @@ two_levels() {
   # The helper is an Idris backend built against the compiler's own modules,
   # which takes about a minute: one step, but a larger one.
   (step_limit=$(( 300 * time_scale ))
-   cd "$root/tests/twolevels" && bounded "$idris2" --no-banner --no-color \
+   cd "$root/tests/two-levels/evaluator" && bounded "$idris2" --no-banner --no-color \
      --build-dir "$work/twolevels-build" --build twolevels.ipkg) > "$work/twolevels.log" 2>&1
   tl_built=$?
   tl_helper=$work/twolevels-build/exec/twolevels

@@ -3,7 +3,7 @@
 # Its object's undefined symbols are what the runtime it is linked with
 # imports (read from the runtime's archive, so the list follows the
 # runtime), the calls code generation makes by itself, and what a
-# `symbols` file next to the tests adds for them (tests/e2e/v2/symbols:
+# `symbols` file next to the tests adds for them (tests/programs/prelude/symbols:
 # libm, for Doubles). Anything else is a call the program should not make.
 #
 # A file `heap-free` in a test's directory marks a program whose
