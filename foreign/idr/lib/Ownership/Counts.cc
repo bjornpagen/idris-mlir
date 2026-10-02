@@ -460,10 +460,10 @@ private:
         continue;
       }
       auto [consumes, borrows] = usesBy(value, user);
-      // The body of a loop runs once per element: a value from outside it
-      // holds its reference throughout, each use inside taking a view (or
-      // a dup, to consume), and the loop reads the value for as long as it
-      // runs.
+      // The body of a loop runs once per index it covers: a value from
+      // outside it holds its reference throughout, each use inside taking a
+      // view (or a dup, to consume), and the loop reads the value for as
+      // long as it runs.
       if (isArrayLoop(user))
         for (Region &region : user->getRegions())
           if (!region.empty() && usedIn(value, region)) {

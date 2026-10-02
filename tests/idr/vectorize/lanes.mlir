@@ -19,10 +19,10 @@
 // eighth power) stays one loop on 64-bit lanes, and so does each body
 // whose ops fit but whose 32-bit forms would compute something else
 // (@inexact): a shift by up to 40, poison on i32; a signed remainder
-// that sees INT32_MIN % -1 at index 0, which overflows on i32; an
-// unsigned remainder of a word that is negative at indices 0 and 1, read
-// as another number on i32. The whole pipeline reaches the LLVM dialect
-// with the 32-bit lanes in it.
+// that sees INT32_MIN % -1 at index 1 (the loop's first, element 0 being
+// the fill), which overflows on i32; an unsigned remainder of a word that
+// is negative at index 1, read as another number on i32. The whole
+// pipeline reaches the LLVM dialect with the 32-bit lanes in it.
 // CHECK-LABEL: func.func private @squares(
 // CHECK: arith.cmpi ule
 // CHECK: scf.if
@@ -111,8 +111,7 @@ module attributes {idr.program} {
   func.func private @inexact(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %c41 = arith.constant 41 : i64
-    %min = arith.constant -2147483648 : i64
-    %m1 = arith.constant -1 : i64
+    %below = arith.constant -2147483649 : i64
     %two = arith.constant 2 : i64
     %seven = arith.constant 7 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
@@ -121,8 +120,8 @@ module attributes {idr.program} {
       idr.yield %r : i64
     }
     %b, %w2 = idr.array.generate %n, %zero, %w1 : i64 -> memref<?xi64> (%i: i64) {
-      %x = arith.addi %i, %min : i64
-      %d = arith.subi %m1, %i : i64
+      %x = arith.addi %i, %below : i64
+      %d = arith.subi %zero, %i : i64
       %r = arith.remsi %x, %d : i64
       idr.yield %r : i64
     }

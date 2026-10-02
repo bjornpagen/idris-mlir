@@ -1,0 +1,35 @@
+#!/bin/sh
+# What Idris proved lives in types the verifier checks, and the owned stage's
+# counts in its rule; they hold through the pipeline because the verifier
+# runs after every pass, so a pass that breaks one fails its own step, by
+# name, instead of a later pass or the program going wrong. It does, in every
+# tool and every test: MLIR's pass manager verifies after each pass by
+# default, idris-mlir-opt's -verify-each is on by default, and the pipelines
+# a pass runs itself (idr-simplify's round, idr-inline's cleanup, idr-eval's
+# lowering) inherit the setting of the manager that runs the pass. The
+# manager skips the verifier only after a pass that says it preserved every
+# analysis, which ours say only when they changed nothing.
+#
+# So nothing may turn the verifier off: no code gives enableVerifier or
+# verifyPasses anything but true, and no command, script or RUN line sets
+# -verify-each to false or turns the verifier off on parsing. Documents,
+# golden output and this test are not searched.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+searched() {
+  find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \
+            -o -name .claude -o -path ./tests/spec/verifier-every-pass \) -prune \
+     -o -type f ! -name '*.md' ! -name output "$@"
+}
+searched -print | sort > "$work/files"
+grep -q '^\./foreign/.*\.cc$' "$work/files" && say "C++ sources searched: yes" || say "C++ sources searched: no"
+grep -q '^\./tests/idr/.*\.mlir$' "$work/files" && say "RUN lines searched: yes" || say "RUN lines searched: no"
+searched -exec grep -HnIE '(enableVerifier|verifyPasses)[[:space:]]*\(' {} + |
+  grep -vE '(enableVerifier|verifyPasses)[[:space:]]*\([[:space:]]*(true)?[[:space:]]*\)' > "$work/off"
+searched -exec grep -HniIE 'verify-each=(false|0)|disable-verifier' {} + >> "$work/off"
+if [ -s "$work/off" ]; then
+  say "the verifier is turned off at:"
+  sed 's|^\./||' "$work/off" | sort
+else
+  say "no code, command or RUN line turns the verifier off"
+fi

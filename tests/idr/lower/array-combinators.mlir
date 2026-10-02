@@ -1,24 +1,26 @@
 // RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-lower --convert-linalg-to-loops --canonicalize --cse --expand-strided-metadata --lower-affine --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s --check-prefix=LLVM
+// RUN: idris-mlir-opt %s --idr-lower --convert-linalg-to-loops --canonicalize --cse --expand-strided-metadata --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | FileCheck %s --check-prefix=LLVM
 // A loop over an array's index space is one linalg.generic after lowering,
-// over the array's memref view: a generated array is a new array and a
-// parallel generic writing each element from linalg.index; a fold is a
+// over the array's memref view: a generated array is a new array, whose
+// element 0 is the fill, and a parallel generic over the view of its
+// elements from 1 on, writing each from linalg.index plus one; a fold is a
 // reduction generic over the array into a slot of the function's frame
 // (one alloca, at its entry), the init stored before and the result loaded
 // after, the reduction dimension run in index order. A generate whose body
 // is a fold over an array from outside is one generic of two dimensions,
 // parallel then reduction, after a parallel one that writes each element's
-// init. A generate whose body reads arrays from outside at its own index
-// (zipWith over frozen arrays) is two generics under one test that the
-// arrays are at least as long as the new one: the first reads them as
-// inputs and only computes, the other reads them with their bounds
-// checks. No idr op is left; convert-linalg-to-loops then makes the loops
-// of what is left, and the whole lowers to the LLVM dialect alone.
+// init, both over the elements from 1 on. A generate whose body reads
+// arrays from outside at its own index (zipWith over frozen arrays) is two
+// generics under one test that the arrays have the elements the loop
+// reads: the first reads them as inputs, from element 1 as the loop does,
+// and only computes; the other reads them with their bounds checks. No idr
+// op is left; convert-linalg-to-loops then makes the loops of what is
+// left, and the whole lowers to the LLVM dialect alone.
 // CHECK-LABEL: func.func private @squares(
 // CHECK: llvm.call @idris_rt_array_new(
 // CHECK: linalg.generic
 // CHECK-SAME: iterator_types = ["parallel"]
-// CHECK-SAME: outs(%{{.*}} : memref<?xi64>)
+// CHECK-SAME: outs(%{{.*}} : memref<?xi64, strided<[1], offset: 1>>)
 // CHECK: linalg.index 0
 // CHECK: arith.muli
 // CHECK: linalg.yield
@@ -42,7 +44,7 @@
 // CHECK: linalg.yield
 // CHECK: linalg.generic
 // CHECK-SAME: iterator_types = ["parallel", "reduction"]
-// CHECK-SAME: ins(%{{.*}} : memref<?xf64>) outs(%{{.*}} : memref<?xf64>)
+// CHECK-SAME: ins(%{{.*}} : memref<?xf64>) outs(%{{.*}} : memref<?xf64, strided<[1], offset: 1>>)
 // CHECK: linalg.index 0
 // CHECK: linalg.index 1
 // CHECK: arith.addf
@@ -55,7 +57,7 @@
 // CHECK: arith.cmpi ule
 // CHECK: scf.if
 // CHECK: linalg.generic
-// CHECK-SAME: ins(%{{.*}}, %{{.*}} : memref<?xf64, strided<[1]>>, memref<?xf64, strided<[1]>>)
+// CHECK-SAME: ins(%{{.*}}, %{{.*}} : memref<?xf64, strided<[1], offset: 1>>, memref<?xf64, strided<[1], offset: 1>>)
 // CHECK-NOT: llvm.call
 // CHECK: arith.mulf
 // CHECK: linalg.yield

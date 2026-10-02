@@ -6,10 +6,12 @@
 // after is upstream's: convert-linalg-to-loops makes the loops, or the
 // vectorizer the vectors.
 //
-// A generate is a parallel generic over the new array (idr.array.new makes
-// it, filled as the op's fill says), its body yielding each element from
-// linalg.index 0. A fold is a reduction generic over its array into a 0-d
-// memref holding the accumulator, a slot in the function's frame
+// A generate is a parallel generic over a view of the new array from
+// element 1 on (idr.array.new makes the array, filled as the op's fill
+// says, and the fill is element 0), its body yielding each element from
+// linalg.index 0 plus one: the body runs at every index but 0, whose
+// element is the fill. A fold is a reduction generic over its array into a
+// 0-d memref holding the accumulator, a slot in the function's frame
 // (memref.alloca at the entry, so a fold inside a loop takes one slot, not
 // one per iteration): the init is stored first and the result loaded
 // after. The reduction keeps the program's order: linalg runs a reduction
@@ -21,26 +23,28 @@
 // a row's reduction: spectral-norm's rows) is one generic of two
 // dimensions, parallel then reduction, with the element's accumulator in
 // the new array itself: a first parallel generic writes each element's
-// init, the second reduces into it. The body's other ops, which compute
-// from the index alone, go into both; the fold's body follows them with
-// the accumulator as the output element, the element as the input and the
-// index from linalg.index 1. That is the form the vectorizer tiles along
-// the parallel dimension, each lane summing its row in order.
+// init, the second reduces into it, both over the elements from 1 on. The
+// body's other ops, which compute from the index alone, go into both; the
+// fold's body follows them with the accumulator as the output element, the
+// element as the input and the index from linalg.index 1. That is the form
+// the vectorizer tiles along the parallel dimension, each lane summing its
+// row in order.
 //
 // A generate whose body reads arrays from outside at its own index (imap,
 // map and zipWith over frozen arrays) reads each with its bounds check,
 // which keeps the loop scalar. Where every array it reads is at least as
 // long as the new one, which one test on entry decides, every index of the
 // loop is within them: there a copy of the generic takes them as inputs,
-// read at its own index, and its body only computes. Otherwise the generic
-// as it was ends the program at the first index outside an array, in
-// index order, as the program does.
+// each from the first index the loop runs at, and its body only computes.
+// Otherwise the generic as it was ends the program at the first index
+// outside an array, in index order, as the program does.
 
 #include "Lower/Patterns.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/MapVector.h"
@@ -58,10 +62,25 @@ Value asMemref(OpBuilder &b, Location loc, Value array) {
 }
 
 // The index of dimension `dim` of the generic around the insertion point,
-// as the i64 the body takes.
-Value indexOf(OpBuilder &b, Location loc, uint64_t dim) {
+// counted from `first`, as the i64 the body takes.
+Value indexOf(OpBuilder &b, Location loc, uint64_t dim, int64_t first = 0) {
   Value index = linalg::IndexOp::create(b, loc, dim);
+  if (first != 0)
+    index = arith::AddIOp::create(b, loc, index, arith::ConstantIndexOp::create(b, loc, first));
   return arith::IndexCastOp::create(b, loc, b.getI64Type(), index);
+}
+
+// The elements of a new array of `size` elements from index 1 on, a view of
+// `array`: what a generate's body writes, element 0 being the fill. There
+// are max(size, 1) - 1 of them, which is 0 for every size up to 1 and,
+// unlike size - 1, does not wrap where size is the least i64.
+Value fromSecond(OpBuilder &b, Location loc, Value array, Value size) {
+  Value one = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(1));
+  Value rest = arith::SubIOp::create(b, loc, arith::MaxSIOp::create(b, loc, size, one), one);
+  OpFoldResult unit = b.getIndexAttr(1);
+  OpFoldResult length = arith::IndexCastOp::create(b, loc, b.getIndexType(), rest).getResult();
+  return memref::SubViewOp::create(b, loc, array, ArrayRef<OpFoldResult>{unit},
+                                   ArrayRef<OpFoldResult>{length}, ArrayRef<OpFoldResult>{unit});
 }
 
 // Clones the ops of `block` but its terminator (and `except`) at the
@@ -106,53 +125,74 @@ ArrayFoldOp reducedBy(ArrayGenerateOp op) {
   return fold;
 }
 
-// The array `op` reads at the index of the generic around it, a word from
-// an array from outside the generic; null when `op` is no such read.
-Value readAtIndex(Operation &op, linalg::GenericOp generic) {
+// A read of an array from outside a generic at the generic's index: the
+// array, and the index the loop's first iteration reads it at (a
+// generate's loop runs from its element 1 on, `indexOf`).
+struct Read {
+  Value array;
+  int64_t first = 0;
+};
+
+// The read `op` is, a word of an array from outside the generic at
+// linalg.index 0 plus a constant, as the i64 the body takes; none when `op`
+// is no such read.
+std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
   auto get = dyn_cast<ArrayGetOp>(op);
   if (!get)
-    return {};
+    return std::nullopt;
   auto word = get.getIndex().getDefiningOp<arith::IndexCastOp>();
-  auto index = word ? word.getIn().getDefiningOp<linalg::IndexOp>() : linalg::IndexOp();
+  Value index = word ? word.getIn() : Value();
+  int64_t first = 0;
+  if (auto plus = index ? index.getDefiningOp<arith::AddIOp>() : arith::AddIOp()) {
+    std::optional<int64_t> offset = getConstantIntValue(plus.getRhs());
+    if (!offset || *offset < 0)
+      return std::nullopt;
+    first = *offset;
+    index = plus.getLhs();
+  }
+  auto loopIndex = index ? index.getDefiningOp<linalg::IndexOp>() : linalg::IndexOp();
   Value array = viewed(get.getArray());
   Type element = get.getArrayType().getElementType();
-  if (!index || index.getDim() != 0 || generic.getRegion().isAncestor(array.getParentRegion()) ||
+  if (!loopIndex || loopIndex.getDim() != 0 || generic.getRegion().isAncestor(array.getParentRegion()) ||
       !element.isIntOrFloat() || get.getValue().getType() != element)
-    return {};
-  return array;
+    return std::nullopt;
+  return Read{array, first};
 }
 
-// if (every array the body reads at its index is at least as long as the
-// new one) { the generic reading them as inputs } else { the generic }.
+// if (every array the body reads at its index has the elements the loop
+// reads) { the generic reading them as inputs } else { the generic }.
 void readAsInputs(IRRewriter &rewriter, linalg::GenericOp generic) {
   Block &body = generic.getRegion().front();
-  llvm::MapVector<Value, unsigned> arrays;
+  llvm::MapVector<std::pair<Value, int64_t>, unsigned> reads;
   for (Operation &op : body.without_terminator())
-    if (Value array = readAtIndex(op, generic))
-      arrays.insert({array, arrays.size()});
-  if (arrays.empty())
+    if (std::optional<Read> read = readAtIndex(op, generic))
+      reads.insert({{read->array, read->first}, reads.size()});
+  if (reads.empty())
     return;
   Location loc = generic.getLoc();
   rewriter.setInsertionPoint(generic);
   Value out = generic.getDpsInits().front();
   Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
-  Value length = memref::DimOp::create(rewriter, loc, out, zero);
+  // The loop's trip count: the length of the view it writes.
+  Value length = rewriter.createOrFold<memref::DimOp>(loc, out, zero);
   Value guard;
-  SmallVector<Value> reads;
-  for (auto [array, position] : arrays) {
-    Value read = asMemref(rewriter, loc, array);
-    Value within = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, length,
-                                         memref::DimOp::create(rewriter, loc, read, zero));
+  SmallVector<std::pair<Value, int64_t>> arrays;
+  for (auto [read, position] : reads) {
+    auto [array, first] = read;
+    Value view = asMemref(rewriter, loc, array);
+    Value last = arith::AddIOp::create(rewriter, loc, length, arith::ConstantIndexOp::create(rewriter, loc, first));
+    Value within = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, last,
+                                         memref::DimOp::create(rewriter, loc, view, zero));
     guard = guard ? Value(arith::AndIOp::create(rewriter, loc, guard, within)) : within;
-    reads.push_back(read);
+    arrays.push_back({view, first});
   }
   auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
-  // Each input the first `length` elements of an array, which the test
-  // says it has.
+  // Each input the `length` elements of an array from the one the first
+  // iteration reads, which the test says it has.
   rewriter.setInsertionPointToStart(branch.thenBlock());
   SmallVector<Value> inputs;
-  for (Value read : reads)
-    inputs.push_back(memref::SubViewOp::create(rewriter, loc, read, ArrayRef<OpFoldResult>{rewriter.getIndexAttr(0)},
+  for (auto [view, first] : arrays)
+    inputs.push_back(memref::SubViewOp::create(rewriter, loc, view, ArrayRef<OpFoldResult>{rewriter.getIndexAttr(first)},
                                                ArrayRef<OpFoldResult>{length},
                                                ArrayRef<OpFoldResult>{rewriter.getIndexAttr(1)}));
   SmallVector<AffineMap> maps(inputs.size() + 1, generic.getIndexingMapsArray().front());
@@ -162,9 +202,9 @@ void readAsInputs(IRRewriter &rewriter, linalg::GenericOp generic) {
         IRMapping mapping;
         mapping.map(body.getArgument(0), args.back());
         for (Operation &op : body) {
-          if (Value array = readAtIndex(op, generic)) {
+          if (std::optional<Read> read = readAtIndex(op, generic)) {
             auto get = cast<ArrayGetOp>(op);
-            mapping.map(get.getValue(), args[arrays.lookup(array)]);
+            mapping.map(get.getValue(), args[reads.lookup({read->array, read->first})]);
             mapping.map(get.getNext(), mapping.lookupOrDefault(get.getWorld()));
             continue;
           }
@@ -184,7 +224,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
   rewriter.setInsertionPoint(op);
   auto made = ArrayNewOp::create(rewriter, loc, op.getArray().getType(), op.getNext().getType(),
                                  op.getSize(), op.getFill(), op.getWorld());
-  Value out = asMemref(rewriter, loc, made.getArray());
+  Value out = fromSecond(rewriter, loc, asMemref(rewriter, loc, made.getArray()), op.getSize());
   Block &body = op.getBody().front();
   Type element = op.getArrayType().getElementType();
   AffineMap identity = AffineMap::getMultiDimIdentityMap(1, ctx);
@@ -195,7 +235,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
     // The body's ops but the fold, from the index: what the fold's init
     // and body compute with.
     auto prelude = [&](OpBuilder &b, Location l, IRMapping &mapping) {
-      mapping.map(body.getArgument(0), indexOf(b, l, 0));
+      mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
       for (Operation &inner : body.without_terminator())
         if (&inner != fold)
           b.clone(inner, mapping);
@@ -225,7 +265,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
         rewriter, loc, ValueRange{}, ValueRange{out}, ArrayRef<AffineMap>{identity},
         ArrayRef<utils::IteratorType>{parallel}, [&](OpBuilder &b, Location l, ValueRange) {
           IRMapping mapping;
-          mapping.map(body.getArgument(0), indexOf(b, l, 0));
+          mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
           linalg::YieldOp::create(b, l, cloneBody(b, l, body, mapping, nullptr, element));
         });
     readAsInputs(rewriter, generic);

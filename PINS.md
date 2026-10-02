@@ -222,6 +222,30 @@ which the top-level CMake configure gate reads.
   error and its statistics ours
 - upstream: upstream/composite-fixed-point-sccp (not yet filed)
 
+## vectorize-precondition-body
+
+- symptom: at llvmorg-23.1.2, `linalg::vectorizeOpPrecondition` ("Return
+  success if the operation can be vectorized") checks the ops of an
+  all-parallel generic's body (`isElementwise`), but of a reduction's only
+  their types and the combiner
+  (`mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp:2250-2288`,
+  `:1879-1896`). It accepts a reduction whose body holds an op that is not
+  elementwise-mappable (a crash check's `scf.if`, a call), which
+  `linalg::vectorize` then refuses (`:1380-1382`), after building part of
+  its vector code. idr-vectorize tiled such a loop before vectorizing it, and
+  its scalar tiles ran the body column by column within each group of rows
+- sites: foreign/idr/lib/Passes/Vectorize.cc (`vectorizable`)
+- workaround: idr-vectorize decides with the precondition and
+  `linalg::hasOnlyScalarElementwiseOp` of the body, the check upstream
+  makes of an all-parallel generic, before it changes anything; a generic it
+  refuses stays whole, and convert-linalg-to-loops runs its body in the
+  program's order. A tile of a generic it took that the vectorizer refuses
+  is its error, and fails the pass
+- retire: when the precondition refuses such a body
+  (`tests/upstream/vectorize-precondition-body` fails); `vectorizable` then
+  asks the precondition alone
+- upstream: upstream/vectorize-precondition-body (not yet filed)
+
 ## int-range-narrowing-exactness
 
 - symptom: at llvmorg-23.1.2, upstream's narrowing
@@ -234,11 +258,11 @@ which the top-level CMake configure gate reads.
   wide op gives 0), and a `remui` of a word that may be negative, which
   the narrow op reads as another number
 - sites: foreign/idr/lib/Passes/NarrowLanes.cc (`exact`)
-- workaround: idr-narrow-lanes versions a run of vectorized loops only
-  when every integer op in it wider than 32 bits is an arith op whose
-  32-bit form computes the same: a shift's amount stays below 32, a signed
-  remainder never sees INT32_MIN % -1, an op that reads its operands
-  unsigned sees no negative word; any other run keeps its 64-bit lanes
+- workaround: idr-narrow-lanes versions a vectorized loop only when every
+  integer op in it wider than 32 bits is an arith op whose 32-bit form
+  computes the same: a shift's amount stays below 32, a signed remainder
+  never sees INT32_MIN % -1, an op that reads its operands unsigned sees
+  no negative word; any other loop keeps its 64-bit lanes
 - retire: when the narrowing asks this itself
   (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then
 - upstream: upstream/int-range-narrowing-exactness (not yet filed)

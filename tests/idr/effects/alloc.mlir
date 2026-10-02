@@ -28,21 +28,26 @@ func.func @merged(%x: i64) -> (!idr.data<@P>, !idr.data<@P>) {
 // CHECK: %[[T:.*]] = idr.str.append
 // CHECK: %[[G:.*]] = idr.big.add
 // CHECK: %[[H:.*]] = idr.big.add
-// CHECK: return %[[A]], %[[B]], %[[S]], %[[T]], %[[G]], %[[H]]
-func.func @cells(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big)
-    -> (!idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big) {
+// CHECK: %[[P:.*]] = idr.big.pred
+// CHECK: %[[Q:.*]] = idr.big.pred
+// CHECK: return %[[A]], %[[B]], %[[S]], %[[T]], %[[G]], %[[H]], %[[P]], %[[Q]]
+func.func @cells(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %nat: !idr.nat)
+    -> (!idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat) {
   %a = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
   %b = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
   %c = idr.str.append %s, %s
   %d = idr.str.append %s, %s
   %e = idr.big.add %g, %g
   %f = idr.big.add %g, %g
-  return %a, %b, %c, %d, %e, %f : !idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big
+  %p = idr.big.pred %nat
+  %q = idr.big.pred %nat
+  return %a, %b, %c, %d, %e, %f, %p, %q
+      : !idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat
 }
 
 // CHECK-LABEL: func.func @dead(
 // CHECK-NEXT: return
-func.func @dead(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %c: i32) {
+func.func @dead(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %c: i32, %nat: !idr.nat) {
   %a = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
   %b = idr.str.append %s, %s
   %d = idr.str.cons %c, %s
@@ -52,6 +57,7 @@ func.func @dead(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %c: i32) 
   %i = idr.str.reverse %s
   %j = idr.big.mul %g, %g
   %k = idr.big.neg %g
+  %z = idr.big.pred %nat
   %m = idr.big.from_int signed %x : i64
   %n = idr.big.show %g
   %o = idr.big.from_str %s

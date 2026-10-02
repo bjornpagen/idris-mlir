@@ -15,6 +15,15 @@
 // a value no pass may merge with another, as idr.lin.enter declares its
 // own), which keeps CSE from merging two calls that make cells and still
 // lets an unused one go. A callee the module lacks may do anything.
+//
+// In the owned stage a call also consumes the reference of each owned value
+// it passes, which no effect says: an unused call of a callee that only
+// computes is still dead, and erasing it leaves that reference held where
+// nothing consumes it any more. The owned stage's verifier, which runs after
+// every pass, refuses a reference still held at a return, so a pass that
+// erased such a call would fail instead of leaking a cell. None in the
+// pipeline does: nothing between idr-rc and idr-lower canonicalizes, and
+// idr-lower drops the facts, after which a call may do anything.
 
 #include "idr/Idr.h"
 
