@@ -265,8 +265,22 @@ int32_t idris_rt_io_get_byte(void);
  * UTF-8 become U+FFFD, one per ill-formed byte, as Chez decodes them. A new
  * string. */
 const idris_rt_str *idris_rt_io_get_line(void);
-/* 1 once a read met the end of input, as C's feof reports it; 0 before. */
-int32_t idris_rt_io_eof(void);
+/* Bytes [offset, offset + count) of a byte array to a standard stream:
+ * handle 1 is standard output, through the output buffer and in order with
+ * every other write to it; 2 is standard error; any other handle writes
+ * nothing and gives 0. A range outside the array's `length` bytes is a
+ * crash. Gives the count written. */
+int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
+                                int64_t offset, int64_t count);
+/* Bytes from a standard stream into [offset, offset + count) of a byte
+ * array: handle 0 is standard input, giving the count read, 0 at the end of
+ * input; any other handle reads nothing and gives 0. A range outside the
+ * array is a crash. */
+int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
+                               int64_t offset, int64_t count);
+/* 1 once a read on the handle met the end of input, as C's feof reports it,
+ * else 0; only handle 0 is read. */
+int64_t idris_rt_io_eof(int64_t handle);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status IDRIS_RT_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);

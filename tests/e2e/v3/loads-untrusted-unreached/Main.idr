@@ -1,6 +1,7 @@
--- Data.IORef loads System.Concurrency and System.Info, which the compiler
--- does not trust. Nothing here reaches them, so loading them is no reason
--- to reject the program.
+-- Data.IORef loads System.Concurrency and System.Info, whose foreign
+-- functions (threads, the system's name) have no meaning in this
+-- compiler. Nothing here reaches them, so loading them is no reason to
+-- reject the program.
 module Main
 
 import Prelude

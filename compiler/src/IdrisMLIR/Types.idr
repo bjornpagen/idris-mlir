@@ -408,6 +408,9 @@ data IOOp = PutStr | PutChar
           | BufferNew -- a buffer of zero bytes
           | BufferGet -- a byte of a buffer, as an Int
           | BufferSet -- an Int written as a byte, which it must be
+          | WriteBytes -- bytes of a buffer to a handle; how many were written
+          | ReadBytes  -- bytes from a handle into a buffer; how many were read
+          | Eof        -- whether a read on the handle met the end of input
 
 export
 Show IOOp where
@@ -419,6 +422,9 @@ Show IOOp where
   show BufferNew = "bufferNew"
   show BufferGet = "bufferGet"
   show BufferSet = "bufferSet"
+  show WriteBytes = "writeBytes"
+  show ReadBytes = "readBytes"
+  show Eof = "eof"
 
 ||| The operand types of an IO primitive, before the world.
 public export
@@ -433,3 +439,6 @@ ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]
 ioArgs BufferNew = [IntT IdrisInt]
 ioArgs BufferGet = [ArrayT (IntT UInt8), IntT IdrisInt]
 ioArgs BufferSet = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
+ioArgs WriteBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
+ioArgs ReadBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
+ioArgs Eof = [IntT UInt64]

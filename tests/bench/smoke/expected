@@ -11,7 +11,7 @@ fib: prints the recorded output
 harmonic: prints the recorded output
 k-nucleotide: rejected as recorded
 mandelbrot: prints the recorded output
-mandelbrot-pbm: output differs from Chez's, as recorded
+mandelbrot-pbm: prints the recorded output
 nbody: prints the recorded output
 nqueens: prints the recorded output
 pidigits: prints the recorded output

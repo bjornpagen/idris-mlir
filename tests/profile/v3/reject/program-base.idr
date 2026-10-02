@@ -3,7 +3,7 @@
 module Main
 
 import Prelude
-import System.File
+import Debug.Trace
 
 main : IO ()
 main = putStrLn "hi"

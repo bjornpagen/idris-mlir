@@ -1011,6 +1011,9 @@ def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
   let assemblyFormat = "$str attr-dict custom<BigResult>(type($result))";
 }
 
+def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,
+                          "an array at any grade", "::mlir::Type">;
+
 //===----------------------------------------------------------------------===//
 // IO
 //===----------------------------------------------------------------------===//
@@ -1068,6 +1071,44 @@ def Idr_GetLineOp : Idr_IOOp<"get_line"> {
   let assemblyFormat = "$world attr-dict custom<StrResult>(type($str))";
 }
 
+// Bytes of a buffer (an array of i8) to a standard stream's handle: 1 is
+// standard output, through the output buffer and in order with every
+// other write to it; 2 is standard error; any other handle writes nothing
+// and gives 0, as C's fwrite to a stream not open for writing. The range
+// must lie in the buffer, else the program crashes. Gives the count
+// written.
+def Idr_WriteBytesOp : Idr_IOOp<"write_bytes"> {
+  let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
+                       Idr_WorldType:$world);
+  let results = (outs I64:$written, Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
+  }];
+  let hasVerifier = 1;
+}
+
+// Bytes from a standard stream's handle into a buffer: 0 is standard
+// input, giving the count read, 0 at the end of input, which it then
+// records (idr.io.eof); any other handle reads nothing and gives 0. The
+// range must lie in the buffer, else the program crashes.
+def Idr_ReadBytesOp : Idr_IOOp<"read_bytes"> {
+  let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
+                       Idr_WorldType:$world);
+  let results = (outs I64:$read, Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
+  }];
+  let hasVerifier = 1;
+}
+
+// 1 once a read on the handle met the end of input, as C's feof reports
+// it, else 0; only handle 0 is read.
+def Idr_EofOp : Idr_IOOp<"eof"> {
+  let arguments = (ins I64:$handle, Idr_WorldType:$world);
+  let results = (outs I64:$ended, Idr_WorldType:$next);
+  let assemblyFormat = "$handle `,` $world attr-dict";
+}
+
 // A world forged where a trusted library runs an IO action for a pure
 // value (`unsafePerformIO`): the first world of a chain of its own, which
 // orders that chain; between chains, the effects order the ops, as they
@@ -1094,9 +1135,6 @@ def Idr_WorldNewOp : Idr_Op<"world.new", [Idr_PerformsIO,
 // own (Lower/Arrays.cc, runtime idris_rt_array).
 def Idr_ArrayType : Type<CPred<"::idr::isArray($_self)">,
                          "an array, memref<?xE> of a field type E", "::mlir::MemRefType">;
-def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,
-                          "an array at any grade", "::mlir::Type">;
-
 // The array ops are IO: each takes the world and gives the next, and
 // reads or writes the array's cell in that order. Their effects are their
 // own (not Idr_IOOp's, whose runtime call they do not make): the IO

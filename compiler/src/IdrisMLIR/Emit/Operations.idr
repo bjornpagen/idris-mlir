@@ -307,9 +307,23 @@ io ix l op vs res = do
       b <- value l byte ("idr.to_byte " ++ x.name)
       withUnit mk !(value l WorldT ("idr.array.set " ++ a.name ++ "[" ++ i.name ++ "], " ++ b.name ++
                                     ", " ++ w0.name ++ " : " ++ !(typeText ix (ArrayT byte)) ++ ", i8"))
+    -- Bytes between a buffer and a standard stream's handle.
+    (WriteBytes, [h, a, o, n, w0]) => bytes "idr.io.write_bytes" h a o n w0
+    (ReadBytes, [h, a, o, n, w0]) => bytes "idr.io.read_bytes" h a o n w0
+    (Eof, [h, w0]) => do
+      r <- fresh
+      append (Line (r ++ ":2 = idr.io.eof " ++ h.name ++ ", " ++ w0.name) (At l))
+      pure (val (r ++ "#0") (IntT IdrisInt) Plain, val (r ++ "#1") WorldT Plain)
     _ => internal ("io." ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where
+    bytes : String -> Val -> Val -> Val -> Val -> Val -> E (Val, Val)
+    bytes opName h a o n w0 = do
+      r <- fresh
+      append (Line (r ++ ":2 = " ++ opName ++ " " ++ h.name ++ ", " ++ a.name ++ "[" ++ o.name ++ ", " ++
+                    n.name ++ "], " ++ w0.name ++ " : " ++ !(typeText ix (ArrayT byte))) (At l))
+      pure (val (r ++ "#0") (IntT IdrisInt) Plain, val (r ++ "#1") WorldT Plain)
+
     ||| The unit value of an IO result, built after the operation.
     withUnit : Con -> Val -> E (Val, Val)
     withUnit mk w = case map typeOf mk.fields of

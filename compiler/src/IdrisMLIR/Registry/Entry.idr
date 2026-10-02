@@ -195,6 +195,14 @@ data Hook
     ||| at the fixed element of an array type without a type argument
     ||| (`Just`). Handler: `Frontend.Translate.application`.
     ArraySize (Maybe Ty)
+  | ||| A standard stream's handle, a foreign constant, as the literal it
+    ||| is: 0 for input, 1 for output, 2 for errors, the one meaning this
+    ||| compiler's runtime gives a `FilePtr`. Handler:
+    ||| `Frontend.Translate.application`.
+    Handle Lit
+  | ||| An external type that is a machine word: `AnyPtr`, which only the
+    ||| handles inhabit. Handler: `Frontend.Translate.Types.coreType`.
+    WordType
   | ||| The identity on its last argument, its one runtime argument; the
     ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
@@ -231,6 +239,8 @@ kind (IOCall _) = Faster
 kind (ArrayCall _) = Faster
 kind (ArrayType _) = Faster
 kind (ArraySize _) = Faster
+kind (Handle _) = Faster
+kind WordType = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster

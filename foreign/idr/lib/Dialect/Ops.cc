@@ -1048,6 +1048,18 @@ void ToCharOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setR
   setResultRange(getResult(), nonNegative(32, 0, 0x10FFFF));
 }
 
+// The buffer of a byte transfer holds bytes.
+template <typename OpT> LogicalResult verifyByteBuffer(OpT op) {
+  auto array = cast<MemRefType>(unrestricted(op.getBuffer().getType()));
+  if (!array.getElementType().isInteger(8))
+    return op.emitOpError("transfers bytes, so its buffer must hold i8, not ")
+           << array.getElementType();
+  return success();
+}
+
+LogicalResult WriteBytesOp::verify() { return verifyByteBuffer(*this); }
+LogicalResult ReadBytesOp::verify() { return verifyByteBuffer(*this); }
+
 // A constant that is a byte: 0 to 255.
 bool isByte(Attribute constant) {
   auto value = dyn_cast_or_null<IntegerAttr>(constant);

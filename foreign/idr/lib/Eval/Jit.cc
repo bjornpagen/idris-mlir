@@ -41,6 +41,8 @@ llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols()
       IDRIS_RT_BIND(idris_rt_io_put_char), IDRIS_RT_BIND(idris_rt_io_put_int_s),
       IDRIS_RT_BIND(idris_rt_io_put_int_u), IDRIS_RT_BIND(idris_rt_io_put_double),
       IDRIS_RT_BIND(idris_rt_io_get_byte), IDRIS_RT_BIND(idris_rt_io_get_line),
+      IDRIS_RT_BIND(idris_rt_io_write_bytes), IDRIS_RT_BIND(idris_rt_io_read_bytes),
+      IDRIS_RT_BIND(idris_rt_io_eof),
       IDRIS_RT_BIND(idris_rt_to_int),
       IDRIS_RT_BIND(idris_rt_double_head), IDRIS_RT_BIND(idris_rt_int_head_s),
       IDRIS_RT_BIND(idris_rt_int_head_u), IDRIS_RT_BIND(idris_rt_str_append),

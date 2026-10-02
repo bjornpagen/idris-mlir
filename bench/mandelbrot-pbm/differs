@@ -1,1 +1,0 @@
-compiles, but its PBM has bytes from 128 on, which putChar writes as UTF-8 (the put-char-utf8 divergence from Chez); it waits for byte output

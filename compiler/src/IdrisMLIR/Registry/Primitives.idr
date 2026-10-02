@@ -86,6 +86,20 @@ buffer = Head (Def (MkQName bufferModule "Buffer")) []
 byte : Ty
 byte = IntT UInt8
 
+||| `AnyPtr`, the type of a file handle.
+filePtr : Shape
+filePtr = Head (Def (MkQName ["PrimIO"] "AnyPtr")) []
+
+fileVirtual, fileBuffer, fileReadWrite : List String
+fileVirtual = ["System", "File", "Virtual"]
+fileBuffer = ["System", "File", "Buffer"]
+fileReadWrite = ["System", "File", "ReadWrite"]
+
+||| A System.File primitive, declared `%foreign` by its C support spec.
+filePrimitive : String -> List String -> String -> Shape -> Hook -> Entry
+filePrimitive spec space name shape hook =
+  MkEntry (Foreign (MkSpec "C" spec)) (Declared (MkQName space name) shape) hook [IOPrimitive]
+
 ||| A buffer primitive, declared `%foreign` by its Chez spec.
 bufferPrimitive : String -> String -> Shape -> IOOp -> Entry
 bufferPrimitive spec name shape op =
@@ -141,4 +155,20 @@ primitives =
                     (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes bits8)))) (Array GetArray byte)
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi QW buffer int))
-            (ArraySize (Just byte)) [Primitive] ]
+            (ArraySize (Just byte)) [Primitive]
+  -- base's System.File on the standard streams: a FilePtr is an AnyPtr,
+  -- a machine word, which only the three handles inhabit, the runtime's
+  -- own meaning of them; the byte transfers of System.File.Buffer; and
+  -- whether a read met the end of input.
+  , MkEntry (Def (MkQName ["PrimIO"] "AnyPtr")) (Typed TypeOfTypes) WordType [IOPrimitive]
+  , filePrimitive "idris2_stdin" fileVirtual "prim__stdin" filePtr (Handle (LInt UInt64 0))
+  , filePrimitive "idris2_stdout" fileVirtual "prim__stdout" filePtr (Handle (LInt UInt64 1))
+  , filePrimitive "idris2_stderr" fileVirtual "prim__stderr" filePtr (Handle (LInt UInt64 2))
+  , filePrimitive "idris2_writeBufferData" fileBuffer "prim__writeBufferData"
+                  (Pi QW filePtr (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes int))))))
+                  (IOCall WriteBytes)
+  , filePrimitive "idris2_readBufferData" fileBuffer "prim__readBufferData"
+                  (Pi QW filePtr (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes int))))))
+                  (IOCall ReadBytes)
+  , filePrimitive "idris2_eof" fileReadWrite "prim__eof"
+                  (Pi QW filePtr (Pi Q1 world (ioRes int))) (IOCall Eof) ]

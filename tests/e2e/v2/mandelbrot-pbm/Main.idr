@@ -1,46 +1,46 @@
 module Main
 
-import Prelude
+-- The benchmarks game's mandelbrot: a portable bitmap of the set, eight
+-- pixels to a byte, fifty iterations; each row is built in a buffer and
+-- written as bytes.
 
--- The benchmarks game's mandelbrot: a PBM image, 8 pixels to a byte. Its
--- bytes from 128 on are characters written by putChar, so they come out in
--- UTF-8 and the image is not a PBM; the stock Chez backend writes each as
--- one byte (chez-differs). A correct image needs byte output, which the
--- supported subset does not have yet: Data.Buffer (setBits8) and
--- System.File.Buffer.writeBufferData on stdout are both rejected.
-escapes : Double -> Double -> Bool
-escapes cr ci = go 0.0 0.0 0
+import Prelude
+import Data.Buffer
+import System.File
+
+inSet : Double -> Double -> Bool
+inSet cr ci = go 0.0 0.0 0
   where
     go : Double -> Double -> Int -> Bool
     go zr zi i =
-      if i >= 50 then False
+      if i >= 50 then True
       else let zr2 = zr * zr
                zi2 = zi * zi
-           in if zr2 + zi2 > 4.0 then True
+           in if zr2 + zi2 > 4.0 then False
               else go (zr2 - zi2 + cr) (2.0 * zr * zi + ci) (i + 1)
 
--- The byte of pixels x to x + 7 of a row: a set bit is a point that stays.
+-- The byte for pixels x .. x + 7 of row ci; pixels past n are clear.
 byte : Int -> Double -> Int -> Int -> Int -> Int
 byte n ci x k acc =
-  if k >= 8 then acc
+  if k == 8 then acc
   else let px = x + k
-           cr = 2.0 * cast px / cast n - 1.5
-           inside = px < n && not (escapes cr ci)
-       in byte n ci x (k + 1) (acc * 2 + (if inside then 1 else 0))
+           bit = if px < n && inSet (2.0 * cast px / cast n - 1.5) ci then 1 else 0
+       in byte n ci x (k + 1) (acc * 2 + bit)
 
-row : Int -> Double -> Int -> IO ()
-row n ci x =
+row : Buffer -> Int -> Double -> Int -> IO ()
+row buf n ci x =
   if x >= n then pure ()
   else do
-    putChar (chr (byte n ci x 0 0))
-    row n ci (x + 8)
+    setBits8 buf (x `div` 8) (cast (byte n ci x 0 0))
+    row buf n ci (x + 8)
 
-rows : Int -> Int -> IO ()
-rows n y =
+rows : Buffer -> Int -> Int -> Int -> IO ()
+rows buf w n y =
   if y >= n then pure ()
   else do
-    row n (2.0 * cast y / cast n - 1.0) 0
-    rows n (y + 1)
+    row buf n (2.0 * cast y / cast n - 1.0) 0
+    ignore (writeBufferData stdout buf 0 w)
+    rows buf w n (y + 1)
 
 readInt : IO Int
 readInt = go 0
@@ -53,5 +53,8 @@ readInt = go 0
 main : IO ()
 main = do
   n <- readInt
-  putStr ("P4\n" ++ show n ++ " " ++ show n ++ "\n")
-  rows n 0
+  putStrLn ("P4\n" ++ show n ++ " " ++ show n)
+  let w = (n + 7) `div` 8
+  Just buf <- newBuffer w
+    | Nothing => pure ()
+  rows buf w n 0

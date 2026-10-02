@@ -89,7 +89,12 @@ still live when it ends: none.
   ([naturals](tests/registry/nat-operations)); a closed call is
   evaluated at compile time, and its result is static data. Base's
   `IOArray` is an array cell read and written through the world, and its
-  `Buffer` an array of bytes ([buffers](tests/e2e/v3/buffer-bytes)). The pure
+  `Buffer` an array of bytes ([buffers](tests/e2e/v3/buffer-bytes));
+  `System.File` reaches the standard streams: `stdin`, `stdout` and
+  `stderr` are the handles, `readBufferData` and `writeBufferData` move
+  bytes, `fEOF` says whether a read met the end of input
+  ([bytes](tests/e2e/v3/file-bytes-echo),
+  [lines](tests/e2e/v3/file-lines-eof)). The pure
   parts of the base library (`-p base`) are trusted too: length-indexed
   vectors (`Data.Vect`), with their indices at compile time only. See
   [vectors](tests/e2e/v3/vect),

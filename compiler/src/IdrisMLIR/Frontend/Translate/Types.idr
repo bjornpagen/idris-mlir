@@ -324,6 +324,8 @@ mutual
       def <- lookupDef fc owner n
       if !(natLike def)
          then pure NatT
+         else if isWordType (hooksOf (fullname def))
+           then pure (IntT UInt64)
          else case arrayElementOf (hooksOf (fullname def)) of
            Just (Just e) => pure (ArrayT e)
            Just Nothing => case args of

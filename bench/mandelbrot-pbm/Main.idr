@@ -1,9 +1,12 @@
 module Main
 
 -- mandelbrot (the Benchmarks Game): a portable bitmap of the set, eight
--- pixels to a byte, fifty iterations, written byte by byte.
+-- pixels to a byte, fifty iterations; each row is built in a buffer and
+-- written as bytes.
 
 import Prelude
+import Data.Buffer
+import System.File
 
 inSet : Double -> Double -> Bool
 inSet cr ci = go 0.0 0.0 0
@@ -24,19 +27,20 @@ byte n ci x k acc =
            bit = if px < n && inSet (2.0 * cast px / cast n - 1.5) ci then 1 else 0
        in byte n ci x (k + 1) (acc * 2 + bit)
 
-row : Int -> Double -> Int -> IO ()
-row n ci x =
+row : Buffer -> Int -> Double -> Int -> IO ()
+row buf n ci x =
   if x >= n then pure ()
   else do
-    putChar (chr (byte n ci x 0 0))
-    row n ci (x + 8)
+    setBits8 buf (x `div` 8) (cast (byte n ci x 0 0))
+    row buf n ci (x + 8)
 
-rows : Int -> Int -> IO ()
-rows n y =
+rows : Buffer -> Int -> Int -> Int -> IO ()
+rows buf w n y =
   if y >= n then pure ()
   else do
-    row n (2.0 * cast y / cast n - 1.0) 0
-    rows n (y + 1)
+    row buf n (2.0 * cast y / cast n - 1.0) 0
+    ignore (writeBufferData stdout buf 0 w)
+    rows buf w n (y + 1)
 
 readInt : IO Int
 readInt = go 0
@@ -50,4 +54,7 @@ main : IO ()
 main = do
   n <- readInt
   putStrLn ("P4\n" ++ show n ++ " " ++ show n)
-  rows n 0
+  let w = (n + 7) `div` 8
+  Just buf <- newBuffer w
+    | Nothing => pure ()
+  rows buf w n 0

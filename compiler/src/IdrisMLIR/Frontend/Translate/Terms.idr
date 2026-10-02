@@ -170,6 +170,7 @@ mutual
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
         Just (Right (ArraySize fixed)) => arraySize fc loc arity fixed (type def) args
+        Just (Right (Handle h)) => applyAll loc (Literal loc h) args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of

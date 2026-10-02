@@ -35,6 +35,13 @@ arrayElementOf [] = Nothing
 arrayElementOf (ArrayType e :: _) = Just e
 arrayElementOf (_ :: hs) = arrayElementOf hs
 
+||| Is a type constructor the external type that is a machine word?
+export
+isWordType : List Hook -> Bool
+isWordType [] = False
+isWordType (WordType :: _) = True
+isWordType (_ :: hs) = isWordType hs
+
 ||| What a function on naturals means, if it is one the registry knows.
 export
 natOperationOf : List Hook -> Maybe NatMeaning

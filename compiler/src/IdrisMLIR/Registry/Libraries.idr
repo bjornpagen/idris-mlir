@@ -9,9 +9,12 @@ import IdrisMLIR.Registry.Name
 %default total
 
 ||| The areas of a trusted package that the profile trusts, by their top
-||| namespace.
+||| namespace. `System` holds the IO of files, the clock and the process:
+||| its definitions are admitted like any trusted module's, and a foreign
+||| function of its that is reached without a registry entry is rejected
+||| where it is reached, as anywhere.
 public export
-data Area = Data | Control | Decidable | Syntax
+data Area = Data | Control | Decidable | Syntax | System
 
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the Prelude's
 ||| modules, the trusted areas of base, and the packages this compiler
@@ -87,6 +90,7 @@ area "Data" = Just Data
 area "Control" = Just Control
 area "Decidable" = Just Decidable
 area "Syntax" = Just Syntax
+area "System" = Just System
 area _ = Nothing
 
 ||| The origin of the code in a module, by where its TTC is and the
@@ -108,13 +112,14 @@ moduleOrigin _ _ = Untrusted
 -- Policy by definition
 ------------------------------------------------------------------------------
 
-||| What `PrimIO` admits. Its other definitions (pointers,
+||| What `PrimIO` admits: the IO types and their operations, and `AnyPtr`,
+||| the type of a file handle. Its other definitions (the other pointers,
 ||| threads and their foreign calls) are not admitted.
 admittedFromPrimIO : List String
 admittedFromPrimIO =
   [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"
   , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
-  , "unsafeCreateWorld", "unsafeDestroyWorld" ]
+  , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr" ]
 
 ||| Is a definition of this origin admitted? The name is the
 ||| definition's own, or for a case or with block its parent's. `Builtin`'s
