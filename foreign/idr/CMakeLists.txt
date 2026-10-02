@@ -108,6 +108,15 @@ target_link_libraries(idr_dialect
 		MLIRSCFTransforms
 		MLIRMemRefDialect
 		MLIRMemRefTransforms
+		# The loops over arrays, the step that makes their loops, and the
+		# vectorizer with the dialects of its tiles.
+		MLIRLinalgDialect
+		MLIRLinalgTransforms
+		MLIRVectorDialect
+		MLIRVectorTransforms
+		MLIRAffineDialect
+		MLIRLinalgUtils
+		MLIRTilingInterface
 		MLIRUBDialect
 		MLIRLLVMDialect
 		MLIRMathDialect
@@ -118,6 +127,8 @@ target_link_libraries(idr_dialect
 		MLIRSideEffectInterfaces
 		MLIRSCFToControlFlow
 		MLIRConvertToLLVMPass
+		# The memref descriptor an array's view is (Lower/Arrays.cc).
+		MLIRLLVMCommonConversion
 		MLIRReconcileUnrealizedCasts
 		MLIRTargetLLVMIRExport
 		MLIRTargetLLVMIRTransforms

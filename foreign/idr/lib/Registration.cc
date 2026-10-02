@@ -33,13 +33,24 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // the bigs it proves small it removes.
       "idr-narrow",
       "idr-lower",
+      // The loops over arrays are linalg ops after lowering: each with a
+      // parallel dimension is tiled by the target's lanes and vectorized,
+      // and upstream makes the loops of those left.
+      "idr-vectorize",
+      "convert-linalg-to-loops",
       "canonicalize,cse",
       // On lowered code, where a threaded value given back is its argument
       // component by component; a join that then yields the same value on
       // every path folds after it.
       "idr-returned-arguments",
       "canonicalize,cse",
-      "convert-scf-to-cf,convert-to-llvm,reconcile-unrealized-casts",
+      // The tiles' transfers of a rank above one become loops over 1-D
+      // ones, their bounds arithmetic, their views offsets; the vector ops
+      // then take the vector dialect's own conversion, whose pre-lowering
+      // (transfers to loads and stores, steps, broadcasts, shape casts)
+      // convert-to-llvm does not carry.
+      "convert-vector-to-scf,lower-affine,expand-strided-metadata,convert-scf-to-cf,"
+      "convert-vector-to-llvm,convert-to-llvm,reconcile-unrealized-casts",
   };
   return steps;
 }

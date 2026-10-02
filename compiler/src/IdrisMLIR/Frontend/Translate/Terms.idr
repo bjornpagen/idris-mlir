@@ -87,6 +87,22 @@ succArg kinds = case mapMaybe runtime (zip [0 .. length kinds] kinds) of
     runtime (i, ValueParam (Held _ _) _) = Just i
     runtime _ = Nothing
 
+||| The term of an array loop's op over its runtime operands (`Hook.ArrayLoop`):
+||| a generated array of `n` elements, the function at the index, and at 0
+||| as the fill base's primitive needs, which the library's definition
+||| applies first too; a fold of `arr` from `z`, the function at the
+||| accumulator, the index and the element. The operands are as `finish`
+||| gives them, one per runtime parameter.
+loopTerm : Loc -> ArrayLoop -> List Ty -> DataId -> {0 b : Type} -> List (Term b) -> Term b
+loopTerm loc Generate [el] res [n, f, w] =
+  ArrayGen loc el n (App loc f (Literal loc (LInt IdrisInt 0))) w
+           (App loc (map Free f) (Var loc (Bound FZ))) res
+loopTerm loc Fold [el, acc] res [arr, z, f, w] =
+  ArrayFold loc el acc arr z w
+            (App loc (App loc (App loc (map Free f) (Var loc (Bound FZ))) (Var loc (Bound (FS (FS FZ)))))
+                 (Var loc (Bound (FS FZ)))) res
+loopTerm loc _ _ _ _ = Unreachable loc
+
 mutual
   export
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
@@ -155,9 +171,11 @@ mutual
       -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
-      PMDef _ params _ _ _ => case (natOperationOf (hooksOf full), builderOf (hooksOf full)) of
-        (Just m, _) => natOperation fc loc m (length params) (type def) args
-        (_, Just b) => builderCall fc loc (length params) b (type def) args
+      PMDef _ params _ _ _ => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
+                                   arrayLoopOf (hooksOf full)) of
+        (Just m, _, _) => natOperation fc loc m (length params) (type def) args
+        (_, Just b, _) => builderCall fc loc (length params) b (type def) args
+        (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
         _ =>
           if identityOnLast (hooksOf full) && length args >= length params
              then do
@@ -353,47 +371,68 @@ mutual
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (\ys => Effect loc op ys res) (drop arity xs)
 
-      -- An array primitive is polymorphic in its element, so its one type
-      -- argument fixes the operation's element type, and only its runtime
-      -- arguments are the operation's operands: those parameters, the
-      -- element type, the arguments given for them, and the result type.
+      isRuntime : PKind -> Bool
+      isRuntime (ValueParam (Held _ _) _) = True
+      isRuntime _ = False
+
+      runtimeOnly : List PKind -> List (Term a) -> List (Term a)
+      runtimeOnly (k :: ks) (g :: gs) = if isRuntime k then g :: runtimeOnly ks gs else runtimeOnly ks gs
+      runtimeOnly _ _ = []
+
+      -- A function over arrays is polymorphic in its element (and a fold
+      -- in its accumulator), so its type arguments fix the operation's
+      -- types, and only its runtime arguments are the operation's
+      -- operands: those parameters, the instances of the type parameters
+      -- in order, the arguments given for them, and the result type.
       arrayOperands : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) ->
-                      Core (List PKind, Ty, List (Term a), ClosedTerm)
+                      Core (List PKind, List Ty, List (Term a), ClosedTerm)
       arrayOperands fc loc arity ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
-        Just element <- pure (elementOf kinds)
-          | Nothing => internal fc "an array primitive without its element type"
-        el <- coreType fc ctx.owner ValueType element
+        tys <- traverse (coreType fc ctx.owner ValueType) (typeParams kinds)
         given <- arguments loc kinds (take arity xs)
-        pure (filter isRuntime kinds, el, runtimeOnly kinds given, resTy)
+        pure (filter isRuntime kinds, tys, runtimeOnly kinds given, resTy)
         where
-          elementOf : List PKind -> Maybe ClosedTerm
-          elementOf (TypeParam t :: _) = Just t
-          elementOf (_ :: ks) = elementOf ks
-          elementOf [] = Nothing
-
-          isRuntime : PKind -> Bool
-          isRuntime (ValueParam (Held _ _) _) = True
-          isRuntime _ = False
-
-          runtimeOnly : List PKind -> List (Term a) -> List (Term a)
-          runtimeOnly (k :: ks) (g :: gs) = if isRuntime k then g :: runtimeOnly ks gs else runtimeOnly ks gs
-          runtimeOnly _ _ = []
+          typeParams : List PKind -> List ClosedTerm
+          typeParams (TypeParam t :: ks) = t :: typeParams ks
+          typeParams (_ :: ks) = typeParams ks
+          typeParams [] = []
 
       -- An array operation: IO, in the world's order.
       arrayCall : FC -> Loc -> Nat -> ArrayOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
       arrayCall fc loc arity op ty xs = do
-        (kinds, el, given, resTy) <- arrayOperands fc loc arity ty xs
+        (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
+          | _ => internal fc "an array primitive without its one element type"
         DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
           | _ => internal fc "an array primitive with an unexpected type"
         finish loc kinds given (\ys => Effect loc (Array op el) ys res) (drop arity xs)
 
-      -- The length of an array: a primitive of the array alone.
+      -- A library loop over an array's index space (the registry's
+      -- `ArrayLoop`): the op of that loop, its body applying the function,
+      -- when the element and a fold's accumulator are machine words, which
+      -- a memref holds and a vector lane computes; at any other instance a
+      -- call of the library's definition, the same loop in Idris. IO, in
+      -- the world's order, like the array primitives.
+      arrayLoop : FC -> Loc -> ArrayLoop -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayLoop fc loc loop name arity ty xs = do
+        (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+          | _ => internal fc "an array loop with an unexpected type"
+        if all word tys
+           then finish loc kinds given (loopTerm loc loop tys res) (drop arity xs)
+           else call fc loc name arity ty xs
+        where
+          word : Ty -> Bool
+          word (IntT _) = True
+          word CharT = True
+          word DoubleT = True
+          word _ = False
+
       -- The length of an array: at the element its type argument fixes, or
       -- at the fixed element of a type that has none (a buffer's bytes).
       arraySize : FC -> Loc -> Nat -> Maybe Ty -> ClosedTerm -> List (TT vars) -> Core (Term a)
       arraySize fc loc arity Nothing ty xs = do
-        (kinds, el, given, _) <- arrayOperands fc loc arity ty xs
+        (kinds, [el], given, _) <- arrayOperands fc loc arity ty xs
+          | _ => internal fc "an array's length without its one element type"
         finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
       arraySize fc loc arity (Just el) ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []

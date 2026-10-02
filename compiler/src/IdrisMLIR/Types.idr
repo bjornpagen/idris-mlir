@@ -414,6 +414,18 @@ Show ArrayOp where
   show GetArray = "arrayGet"
   show SetArray = "arraySet"
 
+||| The two loops over an array's index space that the in-house array
+||| library writes in Idris and the compiler knows by name (the registry's
+||| `ArrayLoop`): an array generated from its indices, and a left fold over
+||| an array in index order.
+public export
+data ArrayLoop = Generate | Fold
+
+export
+Show ArrayLoop where
+  show Generate = "generate"
+  show Fold = "fold"
+
 ||| The IO primitives the registry lists (`IOCall`, `ArrayCall`); an array
 ||| operation carries its element type, which its call fixes.
 public export

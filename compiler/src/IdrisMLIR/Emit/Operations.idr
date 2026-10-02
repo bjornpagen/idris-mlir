@@ -255,6 +255,11 @@ only ix d = case (.cons) <$> lookup d ix.datas of
 byte : Ty
 byte = IntT UInt8
 
+||| The `IORes` of an IO operation's result and its next world.
+export
+ioResult : Index -> Loc -> DataId -> Val -> Val -> E Val
+ioResult ix l res x w = con ix l !(only ix res) [x, w]
+
 ||| An IO primitive, and the `IORes` of its result and next
 ||| world.
 export

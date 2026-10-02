@@ -5,6 +5,7 @@
 
 #include "Lower/Layout.h"
 
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/SymbolTable.h"
 
@@ -16,11 +17,19 @@ namespace idr::lower {
 
 class Runtime {
 public:
-  Runtime(mlir::ModuleOp m, Layouts &l, bool jitMode) : module(m), layouts(l), jit(jitMode) {}
+  Runtime(mlir::ModuleOp m, Layouts &l, bool jitMode)
+      : module(m), layouts(l), jit(jitMode),
+        llvmTypes(m.getContext(), mlir::LowerToLLVMOptions(m.getContext(), mlir::DataLayout(m))) {}
 
   // Whether the code is lowered for compile-time evaluation, where every
   // cell comes from the arena and is never counted.
   bool isJit() const { return jit; }
+
+  // How convert-to-llvm will convert the memref types idr-lower leaves (an
+  // array's view of its elements, Arrays.cc): the same converter over the
+  // module's data layout, so that a descriptor built here is the one it
+  // reads.
+  const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
   // Calls the runtime function `name` with `args`, returning `result` (or
   // nothing when it is null). The declaration is added on first use.
@@ -112,6 +121,7 @@ private:
   mlir::ModuleOp module;
   Layouts &layouts;
   bool jit;
+  mlir::LLVMTypeConverter llvmTypes;
   unsigned globals = 0;
   llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, mlir::LLVM::GlobalOp> statics;
   llvm::StringMap<mlir::LLVM::GlobalOp> messages;
