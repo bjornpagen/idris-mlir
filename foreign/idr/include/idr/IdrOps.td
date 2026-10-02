@@ -392,7 +392,14 @@ def Idr_ConOp : Idr_Op<"con", [
 }
 
 // Reading a field of another constructor gives an unspecified value but never
-// traps, so the op is speculatable.
+// traps, so the op is speculatable. It is Pure though it may load from the
+// cell, because a cell never changes while a reference to it is live: it is
+// written when it is built (a field built pending once more, through its
+// destination, before anything reads it), and reused only through the token
+// of a box idr.take consumed. In the owned stage, where references end, the
+// verifier refuses a read through a view once the reference the view borrows
+// is gone, so a pass that moves a read past its cell's drop fails there
+// instead of reading a freed cell.
 def Idr_FieldOp : Idr_Op<"field", [Pure,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "reads a field of a constructor value";
@@ -406,7 +413,10 @@ def Idr_FieldOp : Idr_Op<"field", [Pure,
   let hasCanonicalizeMethod = 1;
 }
 
-// The tag is in [0, n-1] for n constructors.
+// The tag is in [0, n-1] for n constructors. It is Pure though it may load
+// the cell's header, for idr.field's reason: a cell never changes while a
+// reference to it is live, and the owned stage refuses a read once the
+// reference is gone.
 def Idr_TagOp : Idr_Op<"tag", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the constructor tag of a value";

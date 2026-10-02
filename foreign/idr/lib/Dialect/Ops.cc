@@ -444,7 +444,12 @@ LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // A box's constructor allocates its cell, so CSE never merges two of them;
 // an unused one is still dead code (wouldOpBeTriviallyDead). A cell
 // idr-stack keeps in its frame (`idr.stack`) is stack memory, the resource
-// MLIR's allocas use.
+// MLIR's allocas use. In the owned stage the constructor also consumes its
+// fields' references, which no effect says. Its result is owned there, and
+// the verifier, which runs after every pass, has it consumed on every path:
+// a constructor goes unused only once a pass erased what consumed it, and
+// erasing it then leaves its fields' references held, which the verifier
+// refuses.
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   if (!isa<BoxType>(unrestricted(getType())))
