@@ -7,6 +7,7 @@ module IdrisMLIR.Registry.Recognized
 
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
+import IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Rule
 import IdrisMLIR.Types
 
@@ -81,11 +82,36 @@ naturals =
     types : List String
     types = ["Prelude", "Types"]
 
+------------------------------------------------------------------------------
+-- Index spaces of the in-house array library
+------------------------------------------------------------------------------
+
+||| A loop over an array's index space, by its name in `Linear.Array`: the
+||| library's definition is the loop in Idris, and the compiler's op is the
+||| same loop as one linalg operation.
+indexSpace : String -> Shape -> ArrayLoop -> Entry
+indexSpace name shape loop =
+  MkEntry (Def (MkQName ["Linear", "Array"] name)) (Typed shape) (ArrayLoop loop) [HookShape]
+
+||| The two loops: `prim__generate : forall a . Int -> (Int -> a) -> PrimIO
+||| (ArrayData a)` and `prim__foldl : forall a, b . ArrayData a -> b -> (b
+||| -> Int -> a -> b) -> PrimIO b`.
+indexSpaces : List Entry
+indexSpaces =
+  [ indexSpace "prim__generate"
+      (Pi Q0 TypeOfTypes (Pi QW int (Pi QW (Pi QW int Hole) (Pi Q1 world (ioRes (arrayData Hole))))))
+      Generate
+  , indexSpace "prim__foldl"
+      (Pi Q0 TypeOfTypes (Pi Q0 TypeOfTypes
+        (Pi QW (arrayData Hole) (Pi QW Hole (Pi QW (Pi QW Hole (Pi QW int (Pi QW Hole Hole)))
+          (Pi Q1 world (ioRes Hole)))))))
+      Fold ]
+
 ||| The table.
 export
 recognized : List Entry
 recognized =
-  naturals ++
+  naturals ++ indexSpaces ++
   [ identity "replace"
   , identity "rewrite__impl"
   , rootOnly "unsafePerformIO" (Pi Q0 TypeOfTypes (Pi QW (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))

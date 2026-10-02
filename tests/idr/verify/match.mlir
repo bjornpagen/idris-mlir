@@ -159,6 +159,6 @@ func.func @f(%v: f64) {
 // -----
 
 func.func @f() {
-  // expected-error @+1 {{expects parent op to be one of 'idr.match, idr.match_lit'}}
+  // expected-error @+1 {{expects parent op to be one of 'idr.match, idr.match_lit, idr.array.generate, idr.array.fold'}}
   idr.yield
 }

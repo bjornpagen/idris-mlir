@@ -188,17 +188,18 @@ public:
   }
 
 private:
-  // The code this pass counts: blocks of one region each, with matches as
-  // the only region ops.
+  // The code this pass counts: blocks of one region each, with matches and
+  // the loops over arrays as the only region ops.
   LogicalResult check() {
     WalkResult result = fn.walk([&](Operation *op) -> WalkResult {
       for (Region &region : op->getRegions())
         if (!region.empty() && !region.hasOneBlock())
           return op->emitOpError("idr-rc counts regions of one block only");
       if (op->getNumRegions() != 0 && op != fn.getOperation() &&
-          !isa<MatchOp, MatchLitOp>(op))
-        return op->emitOpError("idr-rc counts functional code, where matches are the only "
-                               "ops with regions; it runs before idr-tail-loops");
+          !isa<MatchOp, MatchLitOp>(op) && !isArrayLoop(op))
+        return op->emitOpError("idr-rc counts functional code, where matches and the loops "
+                               "over arrays are the only ops with regions; it runs before "
+                               "idr-tail-loops");
       return WalkResult::advance();
     });
     return failure(result.wasInterrupted());
@@ -443,7 +444,7 @@ private:
     }
     for (auto [i, user] : llvm::enumerate(users)) {
       bool last = i + 1 == users.size() && !keep;
-      if (user->getNumRegions() != 0) {
+      if (user->getNumRegions() != 0 && !isArrayLoop(user)) {
         // Each region takes the reference, or drops it on entry.
         for (Region &region : user->getRegions()) {
           if (region.empty())
@@ -459,6 +460,16 @@ private:
         continue;
       }
       auto [consumes, borrows] = usesBy(value, user);
+      // The body of a loop runs once per element: a value from outside it
+      // holds its reference throughout, each use inside taking a view (or
+      // a dup, to consume), and the loop reads the value for as long as it
+      // runs.
+      if (isArrayLoop(user))
+        for (Region &region : user->getRegions())
+          if (!region.empty() && usedIn(value, region)) {
+            placeBorrowed(value, region.front(), nullptr);
+            ++borrows;
+          }
       if (!last) {
         incBeforeOp(user, value, consumes);
         continue;
@@ -473,16 +484,16 @@ private:
     }
   }
 
-  // `value` holds no reference; each use that consumes one gets its own.
+  // `value` holds no reference; each use that consumes one gets its own. A
+  // match only reads its scrutinee; a loop's operands are placed as any
+  // op's, and the uses inside its body as the uses in a match's regions.
   void placeBorrowed(Value value, Block &block, Operation *after) {
     for (Operation *user : usersIn(value, block, after)) {
-      if (user->getNumRegions() == 0) {
-        incBeforeOp(user, value, usesBy(value, user).first);
-        continue;
-      }
       for (Region &region : user->getRegions())
         if (!region.empty() && usedIn(value, region))
           placeBorrowed(value, region.front(), nullptr);
+      if (user->getNumRegions() == 0 || isArrayLoop(user))
+        incBeforeOp(user, value, usesBy(value, user).first);
     }
   }
 

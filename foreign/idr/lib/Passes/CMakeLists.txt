@@ -10,4 +10,5 @@ target_sources(idr_dialect PRIVATE
 	TailLoops.cc
 	Target.cc
 	Trmc.cc
+	Vectorize.cc
 )

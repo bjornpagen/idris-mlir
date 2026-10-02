@@ -91,3 +91,84 @@ iread (MkIArray arr) i = unsafePerformIO (primIO (prim__arrayGet arr i))
 export
 isize : IArray a -> Int
 isize (MkIArray arr) = prim__arraySize arr
+
+------------------------------------------------------------------------------
+-- Index spaces
+------------------------------------------------------------------------------
+
+-- The two loops over an array's index space, in plain Idris over the
+-- primitives, which every backend runs as written. idris-mlir knows these
+-- two by name: when the element (and a fold's accumulator) is a machine
+-- word, an `Int`, a `Double`, a `Char` or one of the fixed widths, each
+-- loop is one operation of its own, which it lowers to a linalg
+-- operation over the array's memory, tiled and vectorized; any other
+-- instance compiles as written. A fold reads a frozen array, and a loop
+-- that makes an array makes a new one, linear: the arrays it reads are
+-- frozen, so that its function may read them at any index.
+
+||| `f i` written at each index of a new array of `n` elements, which base's
+||| primitive makes of a fill: `f 0`. So `f` is applied at 0 first, once
+||| more than at any other index, and even when `n` is not positive.
+prim__generate : forall a . (n : Int) -> (Int -> a) -> PrimIO (ArrayData a)
+prim__generate n f w =
+  case prim__newArray (max 0 n) (f 0) w of
+    MkIORes arr w1 => go arr (integerToNat (cast (n - 1))) 1 w1
+  where
+    go : ArrayData a -> Nat -> Int -> PrimIO (ArrayData a)
+    go arr Z i w = MkIORes arr w
+    go arr (S k) i w = case prim__arraySet arr i (f i) w of
+      MkIORes _ w1 => go arr k (i + 1) w1
+
+||| The elements folded from the left in index order, each with its index:
+||| `f (f (f z 0 x0) 1 x1) 2 x2`.
+prim__foldl : forall a, b . ArrayData a -> b -> (b -> Int -> a -> b) -> PrimIO b
+prim__foldl arr z f w = go (integerToNat (cast (prim__arraySize arr))) 0 z w
+  where
+    go : Nat -> Int -> b -> PrimIO b
+    go Z i acc w = MkIORes acc w
+    go (S k) i acc w = case prim__arrayGet arr i w of
+      MkIORes x w1 => go k (i + 1) (f acc i x) w1
+
+||| A new array of `n` elements, element `i` being `f i`. A non-positive `n`
+||| makes an empty array; `f 0` is applied first even then (it is the
+||| fill base's primitive needs), so `f` must be defined at 0.
+export
+generate : (n : Int) -> (Int -> a) -> Array a
+generate n f = MkArray (unsafePerformIO (primIO (prim__generate n f)))
+
+||| The elements of a frozen array folded from the left in index order,
+||| each with its index: `ifoldl f z` of `[x0, x1]` is `f (f z 0 x0) 1 x1`.
+export
+ifoldl : (acc -> Int -> a -> acc) -> acc -> IArray a -> acc
+ifoldl f z (MkIArray arr) = unsafePerformIO (primIO (prim__foldl arr z f))
+
+||| The elements of a frozen array folded from the left in index order:
+||| `foldl f z` of `[x0, x1]` is `f (f z x0) x1`.
+export
+foldl : (acc -> a -> acc) -> acc -> IArray a -> acc
+foldl f = ifoldl (\acc, _, x => f acc x)
+
+||| The sum of a frozen array's elements, added from the left in index
+||| order.
+export
+sum : Num a => IArray a -> a
+sum = foldl (+) 0
+
+||| A new array of `f i x` for each element `x` at `i` of a frozen array.
+||| Its first element is read first (`generate`), so the array must not be
+||| empty.
+export
+imap : (Int -> a -> b) -> IArray a -> Array b
+imap f frozen = generate (isize frozen) (\i => f i (iread frozen i))
+
+||| A new array of `f x` for each element `x` of a frozen array, which must
+||| not be empty (`imap`).
+export
+map : (a -> b) -> IArray a -> Array b
+map f = imap (\_, x => f x)
+
+||| A new array of `f x y` for each pair of elements at one index of two
+||| frozen arrays, as long as the shorter; neither may be empty (`imap`).
+export
+zipWith : (a -> b -> c) -> IArray a -> IArray b -> Array c
+zipWith f xs ys = generate (min (isize xs) (isize ys)) (\i => f (iread xs i) (iread ys i))
