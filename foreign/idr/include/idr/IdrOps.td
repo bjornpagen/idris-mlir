@@ -1330,8 +1330,9 @@ def Idr_DupOp : Idr_OwnedOp<"dup"> {
     more reference to it. Static data, a small big and an empty slot hold
     no count and are left alone; an unboxed sum adds a reference to each of
     its slots. The result is owned, or exclusive (`-> !idr.excl<T>`) when
-    the value is an atom, a constant nullary constructor, which is in every
-    exclusive tree.
+    the value is static data that reaches no cell but atoms (a constant
+    nullary constructor, or a constant unboxed sum of them), which is in
+    every exclusive tree: no take hands out a cell of it.
   }];
   let arguments = (ins Arg<Idr_ViewType, "", [MemRead, MemWrite]>:$value);
   let results = (outs Idr_OwnType:$result);

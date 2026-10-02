@@ -34,10 +34,15 @@ inline constexpr llvm::StringLiteral ownedStage = "owned";
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
 
-// Whether `view` is an atom: a constant nullary constructor, a static cell
-// with no fields that no count reaches and nothing reuses, which is in
-// every exclusive tree.
-bool isAtom(mlir::Value view);
+// Whether `view` is static data that reaches no cell but atoms: a constant
+// nullary constructor (an atom, a static cell with no fields), or a constant
+// unboxed sum, which has no cell, whose fields reach none either (a pair of
+// empty lists). No take hands out a cell of it, since an atom has no fields
+// to take and a sum no cell; no count reaches it, nothing frees or writes
+// it. So whoever else holds it changes nothing a consumer of exclusivity
+// does: it is in every exclusive tree. A static box with fields is not: a
+// take of it would hand out its cell as a token to build in.
+bool reachesOnlyAtoms(mlir::Value view);
 
 // Which types hold references. An unboxed sum does when a field of one of
 // its constructors does; the answers are computed once per module.

@@ -233,3 +233,31 @@ module attributes {idr.stage = "owned"} {
     return %s : !idr.own<!idr.str>
   }
 }
+
+// -----
+
+// A reference of its own to static data built only of atoms is exclusive:
+// a pair of empty lists has no cell a take would hand out. One to static
+// data holding a cell with fields is not: it shares that cell with every
+// other copy, and a take of it would hand the cell out to build in.
+module attributes {idr.stage = "owned"} {
+  idr.data @L box {
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
+  }
+  idr.data @P {
+    idr.ctor @MkPair (!idr.box<@L>, !idr.box<@L>)
+  }
+  func.func private @empty() -> !idr.excl<!idr.data<@P>> {
+    %c = idr.constant #idr.con<@P::@MkPair, [#idr.con<@L::@N, []>, #idr.con<@L::@N, []>]> : !idr.data<@P>
+    %p = idr.dup %c : !idr.data<@P> -> !idr.excl<!idr.data<@P>>
+    return %p : !idr.excl<!idr.data<@P>>
+  }
+  func.func private @one() -> !idr.excl<!idr.data<@P>> {
+    // expected-note @+1 {{the value is defined here}}
+    %c = idr.constant #idr.con<@P::@MkPair, [#idr.con<@L::@C, [1 : i64, #idr.con<@L::@N, []>]>, #idr.con<@L::@N, []>]> : !idr.data<@P>
+    // expected-error @+1 {{takes an exclusive reference to a value that reaches cells other than atoms, which it shares}}
+    %p = idr.dup %c : !idr.data<@P> -> !idr.excl<!idr.data<@P>>
+    return %p : !idr.excl<!idr.data<@P>>
+  }
+}
