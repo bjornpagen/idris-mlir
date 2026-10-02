@@ -543,9 +543,9 @@ void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter
 } // namespace
 
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
-                      Layouts &layouts, Runtime &runtime) {
+                      Layouts &layouts, Runtime &runtime, const Fields &fields) {
   MLIRContext *ctx = patterns.getContext();
-  populateCountingPatterns(patterns, converter, layouts, runtime);
+  populateCountingPatterns(patterns, converter, layouts, runtime, fields);
   populateBigPatterns(patterns, converter, layouts, runtime);
   populateArrayPatterns(patterns, converter, layouts, runtime);
   populateStringPatterns(patterns, converter, layouts, runtime);
