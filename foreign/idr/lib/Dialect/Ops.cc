@@ -720,6 +720,33 @@ Region *takenRegion(Match op, Attribute key) {
   return op.getDefaultRegion();
 }
 
+// The region a match takes because it sits in a region of another match on
+// the same value: in a case of the enclosing match the value has that
+// case's key, and in its default it has none of its keys, so a match whose
+// keys are all among them takes its default. A match on a value no
+// enclosing match took is known no better; the enclosing match's default
+// says too little when this match has a key of its own, and the search
+// goes on outward. Only the value matters, not the position it is held in:
+// the same value in a linear position is still that value.
+template <typename Match>
+Region *takenFromEnclosing(Match op) {
+  Value source = throughLinear(op.getScrutinee());
+  for (Region *region = op->getParentRegion(); region; region = region->getParentRegion()) {
+    auto outer = dyn_cast<Match>(region->getParentOp());
+    if (!outer || throughLinear(outer.getScrutinee()) != source)
+      continue;
+    unsigned index = region->getRegionNumber();
+    if (index < outer.getCases().size())
+      return takenRegion(op, outer.getCases()[index]);
+    Region *fallback = op.getDefaultRegion();
+    if (fallback && llvm::all_of(op.getCases(), [&](Attribute key) {
+          return llvm::is_contained(outer.getCases(), key);
+        }))
+      return fallback;
+  }
+  return nullptr;
+}
+
 } // namespace
 
 // `idr.match %v : T -> (R...) { case @C(%x: A) {...} ... default {...} }`
@@ -794,7 +821,8 @@ LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 // A constant constructor, or the constructor of the idr.con that built the
-// scrutinee, also through a linear position.
+// scrutinee, also through a linear position; else what an enclosing match
+// on the same value established.
 Region *MatchOp::getTakenRegion(Attribute value) {
   SymbolRefAttr ctor;
   Value source = throughLinear(getScrutinee());
@@ -806,7 +834,7 @@ Region *MatchOp::getTakenRegion(Attribute value) {
   else if (matchPattern(source, m_Constant(&constant)))
     ctor = constant.getCtor();
   if (!ctor)
-    return nullptr;
+    return takenFromEnclosing(*this);
   return takenRegion(*this, FlatSymbolRefAttr::get(ctor.getLeafReference()));
 }
 
@@ -894,9 +922,11 @@ LogicalResult MatchLitOp::verify() {
   return verifyMatchRegions(*this);
 }
 
+// The literal itself, else what an enclosing match on the same value
+// established.
 Region *MatchLitOp::getTakenRegion(Attribute value) {
   if (!value)
-    return nullptr;
+    return takenFromEnclosing(*this);
   return takenRegion(*this, value);
 }
 
@@ -1263,6 +1293,19 @@ LogicalResult ArrayGetOp::verify() {
 
 LogicalResult ArraySetOp::verify() {
   return verifyElement(*this, "the value", getValue().getType(), getArrayType());
+}
+
+// The one dimension of the new array is its size clamped at 0, as an
+// index: the length idris_rt_array_new gives a negative size. The world
+// result has no shape.
+LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
+                                            ReifiedRankedShapedTypeDims &shapes) {
+  Location loc = getLoc();
+  Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
+  Value length = arith::MaxSIOp::create(b, loc, getSize(), zero);
+  Value index = arith::IndexCastOp::create(b, loc, b.getIndexType(), length);
+  shapes.push_back({OpFoldResult(index)});
+  return success();
 }
 
 std::optional<StringRef> ArrayNewOp::getCrashCause() { return std::nullopt; }

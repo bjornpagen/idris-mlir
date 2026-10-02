@@ -6,6 +6,7 @@
 #include "Dialect/Sharing.h"
 #include "Ownership/Ownership.h"
 
+#include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
@@ -59,6 +60,14 @@ void IdrDialect::initialize() {
       >();
   addInterfaces<IdrInliner>();
   addSharingInterfaces(*this);
+}
+
+// The dimension of an array, `memref.dim` of an `idr.array.new`, is the
+// size the array was made with: upstream's resolution of a dimension
+// through ReifyRankedShapedTypeOpInterface, which idr.array.new
+// implements, as a canonicalization.
+void IdrDialect::getCanonicalizationPatterns(RewritePatternSet &results) const {
+  memref::populateResolveRankedShapedTypeResultDimsPatterns(results);
 }
 
 // idr.constant for the dialect's values and strings, and

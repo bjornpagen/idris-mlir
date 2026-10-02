@@ -29,6 +29,9 @@ def Idr_Dialect : Dialect {
   }];
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;
+  // Upstream's patterns on other dialects' ops over this dialect's values:
+  // the dimension of an array (lib/Dialect/Dialect.cc).
+  let hasCanonicalizer = 1;
   // The module's and the functions' rules.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
@@ -1165,8 +1168,11 @@ class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
 
 // A new array of `size` elements, each the value `fill`, which moves in
 // (one reference, held by each element: the fill takes the others). A
-// negative size is an empty array.
-def Idr_ArrayNewOp : Idr_ArrayOp<"new"> {
+// negative size is an empty array. The array's shape is known from its
+// size (ReifyRankedShapedTypeOpInterface), so `memref.dim` of it folds, as
+// upstream folds the dimension of a `memref.alloc`.
+def Idr_ArrayNewOp : Idr_ArrayOp<"new", [DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface,
+                                                                   ["reifyResultShapes"]>]> {
   let summary = "a new array of `size` copies of `fill`";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
   let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);

@@ -30,3 +30,4 @@ workaround. If it does not, the bug is ours.
 | [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | not yet | `orc-lljit`: `idr-eval` uses ORC's `LLJIT` directly |
 | [recursive-attribute-parser](recursive-attribute-parser/README.md) | MLIR | not yet | `mlir-recursion`: `idris-mlir-cc` and the evaluation child run on a reserved stack as large as the address space allows |
 | [bytecode-deferred-quadratic](bytecode-deferred-quadratic/README.md) | MLIR | not yet | `bytecode-deferred-quadratic`: `idr-eval` sends its results as a flat table of their parts |
+| [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | not yet | `simplify-structural-fixpoint`: `idr-simplify` is its own loop and decides its fixpoint by a structural hash of the module |
