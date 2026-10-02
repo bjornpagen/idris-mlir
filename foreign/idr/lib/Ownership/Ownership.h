@@ -115,6 +115,17 @@ void whereDies(mlir::Value value, mlir::Block &block, mlir::SymbolTableCollectio
 TakeOp takeAt(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
               mlir::Block *fields);
 
+// Whether `box`, built by `ctor`, keeps a field that holds references past
+// `at` in `block`, where it dies: a field of it (as takeAt finds them) used
+// at that point or after. Only then does a take there save anything over a
+// drop, as Perceus specializes a drop only where the children are used: a
+// field that lives on moves out of an unshared cell instead of taking a
+// reference of its own while the box drops the cell's. A field that dies
+// with the box is dropped either way, and one that holds no reference has
+// nothing to move.
+bool keepsCountedField(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
+                       mlir::Block *fields);
+
 // The first read of a box that no match takes apart and whose every use
 // reads a field of one constructor (a nested pattern reads the fields of a
 // box an outer one matched), the point from which the box's constructor
