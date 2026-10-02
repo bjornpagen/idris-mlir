@@ -24,6 +24,14 @@ numbers.
   heap-free check, lowering) are C++ in `foreign/idr/`, following
   bjornpagen/cpp-starter; `PINS.md` records every deliberate deviation from
   it and every pinned workaround.
+- One thing, one representation. A concept the compiler holds twice (the
+  dialect's ops, types or primitives mirrored on the Idris side, a fact kept
+  in a type and again in an attribute, one analysis computed in two places)
+  drifts until the copies disagree, and every new case then costs a branch
+  in each. Generate the second copy from the first, or delete it. When a new
+  case shows up, change the data and its invariants until the case is no
+  longer special, or no longer expressible, before adding a branch, a flag
+  or a guard.
 - The compiler consumes checked Idris TT and its definition context. Do not
   replace that input with CExp or runtime case trees, and do not erase facts
   before the passes that use them.

@@ -7,6 +7,11 @@ toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 # Idris 2 and its libraries, built from third_party/Idris2.
 idris_prefix=$toolchain/idris2
 idris2=$idris_prefix/bin/idris2
+# The prefix every command runs that Idris with (`make prefix`): this
+# checkout's own, the pinned prefix's packages linked and the packages of
+# libs/ installed as this checkout builds them, so that no checkout (a
+# worktree too) compiles against another's libs/.
+checkout_prefix=$root/build/idris2
 # The stage-2 LLVM/MLIR: clang, lld, mlir-opt, mlir-translate,
 # opt, llc, llvm-nm, FileCheck, not, count.
 llvm_bin=$toolchain/llvm-musl/bin
