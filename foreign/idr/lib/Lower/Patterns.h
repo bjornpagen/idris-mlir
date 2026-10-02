@@ -26,9 +26,26 @@ void lowerArrayLoops(mlir::ModuleOp module);
 mlir::Value arrayView(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
                       mlir::MemRefType view, mlir::Value cell, mlir::Value length);
 
+// What the owned stage settled about the fields of the ops that count
+// references, read after phase 1 and before the conversion starts, which
+// replaces each op as it meets it (Counting.cc).
+class Fields {
+public:
+  explicit Fields(mlir::ModuleOp module);
+
+  // For a reuse of the constructor its token's take took apart: for each
+  // field, whether the cell holds it already, because the reuse gives it
+  // back as the take gave it. Empty for a reuse of another constructor,
+  // whose cell holds none of its fields, and a new header.
+  llvm::ArrayRef<bool> kept(ReuseOp reuse) const;
+
+private:
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<bool>> keptFields;
+};
+
 // Phase 2: the patterns that convert each idr op and type.
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
-                      Layouts &layouts, Runtime &runtime);
+                      Layouts &layouts, Runtime &runtime, const Fields &fields);
 
 // The patterns of closures (Closures.cc). Only idr-eval's lowering meets a
 // closure: it runs code before idr-defunctionalize has made every closure
@@ -40,7 +57,7 @@ void populateClosurePatterns(mlir::RewritePatternSet &patterns,
 // The patterns of the ops that count references (Counting.cc).
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, Layouts &layouts,
-                              Runtime &runtime);
+                              Runtime &runtime, const Fields &fields);
 
 // The patterns of arrays (Arrays.cc).
 void populateArrayPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,

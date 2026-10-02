@@ -230,22 +230,41 @@ private:
     }
   }
 
-  // An owned scrutinee that dies where a case region begins is taken
-  // apart there: its fields move out of it instead of each taking one more
-  // reference while it drops its own.
+  // An owned scrutinee that dies in a case region is taken apart where it
+  // dies (Perceus's drop specialization): its fields move out of it
+  // instead of each taking one more reference while it drops its own, which
+  // walks the cell's children to drop theirs. Where the region begins when
+  // nothing in it uses the box; else after its last use there, the
+  // constructor known all along (whereDies, as reset/reuse insertion
+  // places its takes, which run before borrow inference and so only where
+  // a cell is reused; a box taken apart here is owned already). A region
+  // that ends in a crash is left alone.
   void takeApart() {
     takeReadSums();
+    takeReadBoxes();
     SmallVector<MatchOp> matches;
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
       Value value = match.getScrutinee();
       if (classOf(value) != Class::Owned || usedAfter(value, match))
         continue;
-      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
-           ++index) {
-        Region &region = match.getCaseRegion(index);
-        if (!region.empty() && !usedIn(value, region) && !endsInCrash(region.front()))
-          takeAtEntry(match, index);
+      DataOp data = lookupData(match, value.getType());
+      for (auto [index, name] : llvm::enumerate(match.getCases().getAsRange<FlatSymbolRefAttr>())) {
+        auto caseIndex = static_cast<unsigned>(index);
+        Region &region = match.getCaseRegion(caseIndex);
+        if (region.empty() || endsInCrash(region.front()))
+          continue;
+        if (!usedIn(value, region)) {
+          takeAtEntry(match, caseIndex);
+          continue;
+        }
+        CtorOp ctor = data ? lookupCtor(data, name.getValue()) : CtorOp();
+        if (!ctor || !isa<BoxType>(unrestricted(value.getType())))
+          continue;
+        whereDies(value, region.front(), symbols, [&](Block &block, Block::iterator at) {
+          if (!endsInCrash(block))
+            takeAt(value, ctor, block, at, &region.front());
+        });
       }
       // The default region has the value itself back, not a view of it to
       // take a reference from while the value drops its own.
@@ -293,6 +312,35 @@ private:
            ++index)
         fields.push_back(fieldType(value.getType(), decl.getFieldType(index)));
       takeFields(value, ctor, fields);
+    }
+  }
+
+  // An owned box that no match takes apart, whose every use reads a field
+  // of one constructor (a nested pattern reads the fields of a box an outer
+  // one matched): its constructor is known from its first read on, and it
+  // dies after its last, where it is taken apart as a matched box is.
+  void takeReadBoxes() {
+    SmallVector<std::pair<Value, FieldOp>> boxes;
+    auto consider = [&](Value box) {
+      if (FieldOp first = onlyReads(box); first && classOf(box) == Class::Owned)
+        boxes.emplace_back(box, first);
+    };
+    fn.walk<WalkOrder::PreOrder>([&](Block *block) {
+      for (BlockArgument arg : block->getArguments())
+        consider(arg);
+      for (Operation &op : *block)
+        for (Value result : op.getResults())
+          consider(result);
+    });
+    for (auto [box, first] : boxes) {
+      auto name = SymbolRefAttr::get(getSumName(box.getType()).getAttr(), {first.getCtorAttr()});
+      CtorOp ctor = lookupCtor(first, name);
+      if (!ctor)
+        continue;
+      whereDies(box, *first->getBlock(), symbols, [&](Block &block, Block::iterator at) {
+        if (!endsInCrash(block))
+          takeAt(box, ctor, block, at, nullptr);
+      });
     }
   }
 
@@ -372,20 +420,6 @@ private:
       return;
     value.setType(owned(value.getType()));
     placeOwned(value, block, def, /*keep=*/false);
-  }
-
-  // The ops of `block` after `after` (from its start when null) that use
-  // `value`, themselves or in their regions, in order.
-  SmallVector<Operation *> usersIn(Value value, Block &block, Operation *after) {
-    SmallVector<Operation *> users;
-    for (OpOperand &use : value.getUses()) {
-      Operation *top = block.findAncestorOpInBlock(*use.getOwner());
-      if (top && (!after || after->isBeforeInBlock(top)))
-        users.push_back(top);
-    }
-    llvm::sort(users, [](Operation *a, Operation *b) { return a->isBeforeInBlock(b); });
-    users.erase(std::unique(users.begin(), users.end()), users.end());
-    return users;
   }
 
   static bool usedIn(Value value, Region &region) {
