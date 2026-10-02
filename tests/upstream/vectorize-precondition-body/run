@@ -1,0 +1,24 @@
+#!/bin/sh
+# The upstream bug upstream/vectorize-precondition-body still reproduces
+# with the pinned mlir-opt: the vectorizer's precondition accepts the
+# reduction whose body holds a crash check, so linalg::vectorize builds part
+# of its vector code before it refuses the check, and leaves that code; the
+# same body without the reduction dimension is refused before anything is
+# built. When this fails, the bug is fixed: idr-vectorize's `vectorizable`
+# may ask the precondition alone, and the PINS.md entry
+# vectorize-precondition-body, the report and this test go
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+"$llvm_bin/mlir-opt" "$root/upstream/vectorize-precondition-body/body.mlir" --transform-interpreter \
+  > "$work/out.mlir" 2> "$work/err"
+status=$?
+sed -n '/func.func @elementwise/,/^  }/p' "$work/out.mlir" > "$work/elementwise.mlir"
+sed -n '/func.func @rows/,/^  }/p' "$work/out.mlir" > "$work/rows.mlir"
+if [ "$status" -eq 0 ] && grep -q 'linalg.generic' "$work/elementwise.mlir" &&
+   ! grep -q 'vector\.' "$work/elementwise.mlir" &&
+   grep -q 'linalg.generic' "$work/rows.mlir" && grep -q 'vector\.transfer_read' "$work/rows.mlir"; then
+  say "body: still reproduces (the reduction is vectorized in part, then refused)"
+else
+  say "body: no longer reproduces (exit $status)"
+  sed 's/^/  | /' "$work/err" "$work/rows.mlir"
+fi

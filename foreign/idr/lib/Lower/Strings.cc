@@ -4,7 +4,11 @@
 // walks it twice: once to count the bytes and scalar values of the result
 // and whether it is ASCII, which the runtime's one allocation needs; once
 // more to write each element after the last. The list is read and never
-// counted: the op borrows it.
+// counted: the op borrows it. The ops declare the allocation of their result
+// and not these reads: a list's cells never change while a reference to them
+// is live, and the owned stage's verifier refuses a builder that reads its
+// list, a view, once the reference the view borrows is gone, as it refuses a
+// field read.
 
 #include "Lower/Patterns.h"
 

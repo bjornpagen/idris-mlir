@@ -54,6 +54,18 @@ func.func private @crashes_in_region(%x: i64) -> i64 {
   return %r : i64
 }
 
+// A byte transfer ends the program when its range lies outside the buffer:
+// io, and the crash.
+// CHECK-LABEL: func.func private @transfers(
+// CHECK-SAME: idr.effects = #idr.effects<io, crash>
+func.func private @transfers(%buf: memref<?xi8>, %w: !idr.world) -> !idr.world {
+  %zero = arith.constant 0 : i64
+  %one = arith.constant 1 : i64
+  %written, %w1 = idr.io.write_bytes %one, %buf[%zero, %one], %w : memref<?xi8>
+  %read, %w2 = idr.io.read_bytes %zero, %buf[%zero, %one], %w1 : memref<?xi8>
+  return %w2 : !idr.world
+}
+
 // Taking a world is performing IO, whatever the body does with it.
 // CHECK-LABEL: func.func private @writes(
 // CHECK-SAME: idr.effects = #idr.effects<io>
