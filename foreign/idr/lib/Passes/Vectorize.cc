@@ -83,9 +83,10 @@ struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
     unsigned bits = idr::vectorBits(module);
-    // Outermost first, as a walk meets them. A generic another generic holds
-    // keeps the holder scalar (its body is no vector body), so nothing here
-    // erases an op still to come.
+    // As the walk meets them, each after the ops it holds: a generic in the
+    // body of another comes before its holder and changes nothing outside
+    // that body, and the holder, whose body holds that loop, stays scalar.
+    // So no generic collected here is erased before its turn.
     SmallVector<linalg::GenericOp> generics;
     module.walk([&](linalg::GenericOp op) { generics.push_back(op); });
     IRRewriter rewriter(&getContext());
