@@ -106,6 +106,7 @@ target_link_libraries(idr_dialect
 		MLIRSCFDialect
 		MLIRSCFTransforms
 		MLIRMemRefDialect
+		MLIRMemRefTransforms
 		# The loops over arrays, and the step that makes their loops.
 		MLIRLinalgDialect
 		MLIRLinalgTransforms

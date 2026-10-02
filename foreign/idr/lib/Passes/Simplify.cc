@@ -7,6 +7,7 @@
 // asserts it: a module that still changes after that many rounds is the
 // user error `unsupported (compile-time budget)`, not a hang.
 //
+// PIN(simplify-structural-fixpoint) — see PINS.md
 // "Unchanged" is structural(), not OperationFingerPrint. OperationFingerPrint
 // hashes op pointers, and sccp replaces every constant value by a new
 // constant op on every run (SCCP.cpp:54-60, replaceWithConstant), as

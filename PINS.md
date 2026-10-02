@@ -194,6 +194,34 @@ which the top-level CMake configure gate reads.
   may stay regardless, as it keeps sharing without the reader's help
 - upstream: upstream/bytecode-deferred-quadratic (not yet filed)
 
+## simplify-structural-fixpoint
+
+- symptom: at llvmorg-23.1.2, `composite-fixed-point-pass` decides its
+  fixpoint by `OperationFingerPrint`, a hash of the addresses of the
+  module's ops, blocks and values (`mlir/lib/Transforms/CompositePass.cpp:68-91`,
+  `mlir/lib/IR/OperationSupport.cpp:933-975`), and `sccp` erases every
+  constant it meets and makes an equal one, since its fresh `OperationFolder`
+  is never told about the constants the module has
+  (`mlir/lib/Transforms/SCCP.cpp:42-62, 84-99`). A pipeline with `sccp` in
+  it never has the same fingerprint twice: on a module at its fixpoint the
+  composite pass runs the pipeline `max-iterations` times and warns.
+  `-mlir-print-ir-after-change` prints after `sccp` for the same reason
+- sites: foreign/idr/lib/Passes/Simplify.cc (`structural`, and the loop in
+  `runOnOperation`)
+- workaround: `idr-simplify` is its own loop over the round and decides the
+  fixpoint by a structural hash of the module: constants by their value at
+  each use, other values by their position in the walk, so a constant
+  remade at another address hashes the same. Over its round budget it fails
+  with `unsupported (compile-time budget)`, where the composite pass would
+  warn and go on
+- retire: when `composite-fixed-point-pass{pipeline=sccp}` converges on a
+  module `sccp` leaves as it is (`tests/upstream/composite-fixed-point-sccp`
+  fails). Then measure whether a round at its fixpoint keeps its
+  `OperationFingerPrint`; if it does, `structural` goes, and the loop may be
+  a `composite-fixed-point-pass` over the round once its budget can be an
+  error and its statistics ours
+- upstream: upstream/composite-fixed-point-sccp (not yet filed)
+
 ## llvm-force-enable-stats
 
 - symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when
