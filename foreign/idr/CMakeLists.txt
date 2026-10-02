@@ -155,23 +155,25 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	idris_mlir_language_profile
 )
 # The runtime every program links: the archive, checked before idris-mlir-cc
-# is built, then optimized once by idris-mlir-cc itself (--prepare-runtime)
-# into bitcode, which is the runtime the driver links by default (--runtime
-# overrides the path, with the archive itself if need be).
-set(IDRIS_MLIR_RUNTIME_BITCODE "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
+# is built, then prepared once by idris-mlir-cc itself (--prepare-runtime)
+# into one object, native code for every executable's link line with the
+# same functions as bitcode for inlining, which is the runtime the driver
+# links by default (--runtime overrides the path, with the archive itself if
+# need be; --print-runtime tells the link line where it is).
+set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
 target_compile_definitions(idris-mlir-cc PRIVATE
-	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_BITCODE}\""
+	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
 add_custom_command(
-	OUTPUT "${IDRIS_MLIR_RUNTIME_BITCODE}"
+	OUTPUT "${IDRIS_MLIR_RUNTIME_PREPARED}"
 	COMMAND idris-mlir-cc --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
-		-o "${IDRIS_MLIR_RUNTIME_BITCODE}"
+		-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
 	DEPENDS idris-mlir-cc idris_rt idris_rt_check
-	COMMENT "Optimizing the runtime once, for every program"
+	COMMENT "Optimizing and compiling the runtime once, for every program"
 	VERBATIM
 )
-add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_BITCODE}")
+add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_PREPARED}")
 
 # Shrinking a module that makes a pass fail.
 add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)

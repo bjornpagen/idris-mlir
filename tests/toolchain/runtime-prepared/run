@@ -1,0 +1,58 @@
+#!/bin/sh
+# The runtime idris-mlir-cc prepares for programs (--print-runtime) is one
+# object that every executable links. Its native half defines the C ABI
+# programs call and behaves as the archive it was prepared from: the
+# runtime-api programs, built against it, print what they print against the
+# archive, and count the same live cells. What it needs of the C library,
+# compiler-rt and GMP is listed here, and nothing else: a program's object
+# needs nothing beyond the runtime's symbols and this list (tests/lib/heap.sh
+# checks each e2e program for that).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+runtime=$("$idris_mlir_cc" --print-runtime)
+archive=$root/build/dev/runtime/libidris_rt.a
+if [ ! -f "$runtime" ]; then
+  say "prepared runtime: missing ($runtime)"
+  exit 0
+fi
+say "prepared runtime: one object"
+# build_test RUNTIME SOURCE OUT: SOURCE, a runtime-api program, linked with
+# RUNTIME and GMP into OUT.
+build_test() {
+  if "$pinned_cc" -O1 -I"$root/runtime" "$2" "$1" -lgmp -o "$3" > "$work/cc.log" 2>&1; then
+    return 0
+  fi
+  say "${3##*/}: does not build"
+  show "$work/cc.log"
+  return 1
+}
+api=$root/tests/toolchain/runtime-api
+for name in api rc; do
+  build_test "$archive" "$api/$name.c" "$work/$name.archive" || exit 0
+  build_test "$runtime" "$api/$name.c" "$work/$name.prepared" || exit 0
+done
+# same NAME ARG...: NAME built both ways, run with ARG... and IDRIS_RT_LIVE=1,
+# prints the same, reports the same live cells and exits alike.
+same() {
+  same_name=$1
+  shift
+  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/$same_name.archive" "$@" ) \
+    > "$work/archive.out" 2> "$work/archive.err"
+  same_archive=$?
+  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/$same_name.prepared" "$@" ) \
+    > "$work/prepared.out" 2> "$work/prepared.err"
+  same_prepared=$?
+  if [ "$same_archive" -eq "$same_prepared" ] && cmp -s "$work/archive.out" "$work/prepared.out" &&
+     cmp -s "$work/archive.err" "$work/prepared.err"; then
+    say "$same_name${*:+ $*}: the same output, live cells and exit status ($same_archive) with the prepared runtime as with the archive"
+  else
+    say "$same_name${*:+ $*}: differs (archive exit $same_archive, prepared exit $same_prepared)"
+    diff "$work/archive.out" "$work/prepared.out" | head -n 10 | sed 's/^/  stdout | /'
+    diff "$work/archive.err" "$work/prepared.err" | head -n 10 | sed 's/^/  stderr | /'
+  fi
+}
+same api
+same rc
+same rc leak
+same rc crash
+say "the prepared runtime needs:"
+"$llvm_bin/llvm-nm" --no-llvm-bc --undefined-only --format=just-symbols "$runtime" | sort -u | sed 's/^/  /'

@@ -2,12 +2,20 @@
 // arena, which is never freed, the crash report, and the meter of a call
 // that need not end. A crash leaves its call in place; memory the machine
 // refuses is reported as exhaustion.
+//
+// Only the compiler calls these entry points, natively (the child is
+// idris-mlir-cc itself, and the code it JITs binds them by address); no
+// program does. Each is annotated so, and idris-mlir-cc keeps them out of
+// the runtime it prepares for programs, where the arena is then never
+// active and every allocation knows it.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
 
 #include <sys/mman.h>
 #include <unistd.h>
+
+#define IDRIS_RT_COMPILER_ONLY [[clang::annotate("idris-rt-compiler")]]
 
 bool rt::arenaActive = false;
 
@@ -31,12 +39,13 @@ uintptr_t stackFloor = 0;
 
 } // namespace
 
-extern "C" void idris_rt_eval_begin(int report_fd) {
+extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_begin(int report_fd) {
   reportFd = report_fd;
   rt::arenaActive = true;
 }
 
-extern "C" void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes, uint64_t stack) {
+extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes,
+                                                        uint64_t stack) {
   metered = true;
   ticksLeft = ticks;
   bytesLeft = bytes;
@@ -44,9 +53,9 @@ extern "C" void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes, uint64_t sta
   stackFloor = here > stack ? here - stack : 0;
 }
 
-extern "C" void idris_rt_eval_unmetered(void) { metered = false; }
+extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_unmetered(void) { metered = false; }
 
-extern "C" void idris_rt_eval_tick(void) {
+extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_tick(void) {
   if (!metered)
     return;
   if (ticksLeft == 0 || reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) < stackFloor)
@@ -54,7 +63,7 @@ extern "C" void idris_rt_eval_tick(void) {
   --ticksLeft;
 }
 
-extern "C" void *idris_rt_arena_alloc(size_t size) {
+extern "C" IDRIS_RT_COMPILER_ONLY void *idris_rt_arena_alloc(size_t size) {
   size = (size + 15) & ~size_t{15};
   if (metered) {
     if (size > bytesLeft)
@@ -75,7 +84,7 @@ extern "C" void *idris_rt_arena_alloc(size_t size) {
   return result;
 }
 
-extern "C" void idris_rt_eval_crash(const char *msg, size_t len) {
+extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_crash(const char *msg, size_t len) {
   rt::writeAll(reportFd, msg, len);
   _exit(IDRIS_RT_EVAL_CRASHED);
 }
