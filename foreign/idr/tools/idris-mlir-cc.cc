@@ -454,6 +454,29 @@ bool nativeRuns(const llvm::Module &runtime, const llvm::Target &target, const l
   return true;
 }
 
+// The program names a symbol of the runtime only to refer to it. The
+// linker binds every reference the runtime makes to a name, wherever its
+// code lands, to the definition of that name the joined module has: one the
+// program also defined would take the runtime's place in the runtime's own
+// code, and no renaming would show it. A local symbol of either side is
+// told apart by the linker, and the frontend's names are namespaced, so no
+// Idris program defines one of the runtime's; a module that does is
+// refused before anything is linked.
+bool namesApart(const llvm::Module &program, const llvm::Module &runtime) {
+  for (const llvm::GlobalValue &value : program.global_values()) {
+    if (value.isDeclaration() || value.hasLocalLinkage())
+      continue;
+    const llvm::GlobalValue *named = runtime.getNamedValue(value.getName());
+    if (!named || named->hasLocalLinkage())
+      continue;
+    llvm::errs() << "idris-mlir-cc: the program defines " << value.getName() << ", which the runtime "
+                 << (named->isDeclaration() ? "refers to" : "defines")
+                 << " too: the runtime's references would bind to the program's definition\n";
+    return false;
+  }
+  return true;
+}
+
 // The program and the runtime become one module, linked once with
 // LinkOnlyNeeded: only what the program reaches joins it. From the prepared
 // runtime, when its native half runs on the program's CPU, the bodies join
@@ -469,31 +492,16 @@ bool linkRuntime(llvm::Module &program, const llvm::Target &target, const llvm::
     return true;
   std::unique_ptr<llvm::Module> runtime =
       readRuntime(program.getContext(), program.getTargetTriple(), program.getDataLayout());
-  if (!runtime)
+  if (!runtime || !namesApart(program, *runtime))
     return false;
-  bool native = nativeRuns(*runtime, target, triple, machine);
-  llvm::StringSet<> provided;
-  for (llvm::GlobalValue &value : runtime->global_values()) {
-    if (value.isDeclaration())
-      continue;
-    if (native)
-      provided.insert(value.getName());
-    else if (value.hasAvailableExternallyLinkage())
-      value.setLinkage(llvm::GlobalValue::ExternalLinkage);
-  }
+  if (!nativeRuns(*runtime, target, triple, machine))
+    for (llvm::GlobalValue &value : runtime->global_values())
+      if (value.hasAvailableExternallyLinkage())
+        value.setLinkage(llvm::GlobalValue::ExternalLinkage);
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded)) {
     llvm::errs() << "idris-mlir-cc: internal error: linking the runtime into the program failed\n";
     return false;
   }
-  // A body that keeps its name resolves in the native half; one the linker
-  // had to rename, because the program names a symbol as the runtime does,
-  // would not.
-  for (const llvm::GlobalValue &value : program.global_values())
-    if (value.hasAvailableExternallyLinkage() && !provided.contains(value.getName())) {
-      llvm::errs() << "idris-mlir-cc: internal error: the runtime's " << value.getName()
-                   << " was renamed; the program names a symbol as the runtime does\n";
-      return false;
-    }
   return true;
 }
 
