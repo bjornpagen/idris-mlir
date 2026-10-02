@@ -392,7 +392,14 @@ def Idr_ConOp : Idr_Op<"con", [
 }
 
 // Reading a field of another constructor gives an unspecified value but never
-// traps, so the op is speculatable.
+// traps, so the op is speculatable. It is Pure though it may load from the
+// cell, because a cell never changes while a reference to it is live: it is
+// written when it is built (a field built pending once more, through its
+// destination, before anything reads it), and reused only through the token
+// of a box idr.take consumed. In the owned stage, where references end, the
+// verifier refuses a read through a view once the reference the view borrows
+// is gone, so a pass that moves a read past its cell's drop fails there
+// instead of reading a freed cell.
 def Idr_FieldOp : Idr_Op<"field", [Pure,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "reads a field of a constructor value";
@@ -406,7 +413,10 @@ def Idr_FieldOp : Idr_Op<"field", [Pure,
   let hasCanonicalizeMethod = 1;
 }
 
-// The tag is in [0, n-1] for n constructors.
+// The tag is in [0, n-1] for n constructors. It is Pure though it may load
+// the cell's header, for idr.field's reason: a cell never changes while a
+// reference to it is live, and the owned stage refuses a read once the
+// reference is gone.
 def Idr_TagOp : Idr_Op<"tag", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the constructor tag of a value";
@@ -899,14 +909,15 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
 // The frontend writes it where a match on a natural found it is not zero,
 // so the value visibly shrinks: the passes see structural descent, not
 // arithmetic. That the operand is not zero is also why the result is
-// natural.
-def Idr_BigPredOp : Idr_Op<"big.pred", [Pure, Idr_CallsRuntime,
+// natural. A small operand's predecessor is computed inline; a GMP one's
+// is a new big, so the op allocates its result like the other big ops.
+def Idr_BigPredOp : Idr_Op<"big.pred", [Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the predecessor of a natural that is not zero";
   let arguments = (ins Idr_NatType:$value);
-  let results = (outs Idr_NatValue:$result);
+  let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
   let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
 }
 
@@ -1092,34 +1103,36 @@ def Idr_GetLineOp : Idr_IOOp<"get_line"> {
   let assemblyFormat = "$world attr-dict custom<StrResult>(type($str))";
 }
 
-// Bytes of a buffer (an array of i8) to a standard stream's handle: 1 is
-// standard output, through the output buffer and in order with every
-// other write to it; 2 is standard error; any other handle writes nothing
-// and gives 0, as C's fwrite to a stream not open for writing. The range
-// must lie in the buffer, else the program crashes. Gives the count
-// written.
-def Idr_WriteBytesOp : Idr_IOOp<"write_bytes"> {
+// A transfer of the bytes [offset, offset + count) of a buffer (an array of
+// i8) between it and a standard stream's handle. The range must lie in the
+// buffer, else the program crashes (the runtime's check, in the function
+// the op calls), so the op's effects are its own, as the array ops' are:
+// the IO resource, and the crash.
+class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
+    [Idr_PerformsIO, Idr_CallsRuntime,
+     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+     DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>]> {
   let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
                        Idr_WorldType:$world);
-  let results = (outs I64:$written, Idr_WorldType:$next);
   let assemblyFormat = [{
     $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
   }];
   let hasVerifier = 1;
 }
 
+// Bytes of a buffer to a standard stream's handle: 1 is standard output,
+// through the output buffer and in order with every other write to it; 2
+// is standard error; any other handle writes nothing and gives 0, as C's
+// fwrite to a stream not open for writing. Gives the count written.
+def Idr_WriteBytesOp : Idr_IOTransferOp<"write_bytes"> {
+  let results = (outs I64:$written, Idr_WorldType:$next);
+}
+
 // Bytes from a standard stream's handle into a buffer: 0 is standard
 // input, giving the count read, 0 at the end of input, which it then
-// records (idr.io.eof); any other handle reads nothing and gives 0. The
-// range must lie in the buffer, else the program crashes.
-def Idr_ReadBytesOp : Idr_IOOp<"read_bytes"> {
-  let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
-                       Idr_WorldType:$world);
+// records (idr.io.eof); any other handle reads nothing and gives 0.
+def Idr_ReadBytesOp : Idr_IOTransferOp<"read_bytes"> {
   let results = (outs I64:$read, Idr_WorldType:$next);
-  let assemblyFormat = [{
-    $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
-  }];
-  let hasVerifier = 1;
 }
 
 // 1 once a read on the handle met the end of input, as C's feof reports

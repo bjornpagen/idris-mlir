@@ -214,3 +214,22 @@ module attributes {idr.stage = "owned"} {
     return %r : i64
   }
 }
+
+// -----
+
+// A string builder walks the cells of its list, a view, so it is refused
+// once the reference the view borrows is gone, as a field read is.
+module attributes {idr.stage = "owned"} {
+  idr.data @Chars box {
+    idr.ctor @Nil ()
+    idr.ctor @Cons (i32, !idr.box<@Chars>)
+  }
+  func.func private @pack(%l: !idr.own<!idr.box<@Chars>>) -> !idr.own<!idr.str> {
+    // expected-note @+1 {{the value is defined here}}
+    %v = idr.borrow %l : !idr.own<!idr.box<@Chars>>
+    idr.drop %l : !idr.own<!idr.box<@Chars>>
+    // expected-error @+1 {{uses a value whose last reference is gone on this path}}
+    %s = idr.str.pack %v : !idr.box<@Chars> -> !idr.own<!idr.str>
+    return %s : !idr.own<!idr.str>
+  }
+}
