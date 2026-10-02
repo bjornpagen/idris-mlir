@@ -403,6 +403,7 @@ Show ArrayOp where
 public export
 data IOOp = PutStr | PutChar
           | GetByte   -- one byte of input
+          | GetLine   -- a line of input, without its end
           | Array ArrayOp Ty
 
 export
@@ -410,6 +411,7 @@ Show IOOp where
   show PutStr = "putStr"
   show PutChar = "putChar"
   show GetByte = "getByte"
+  show GetLine = "getLine"
   show (Array op e) = show op ++ "<" ++ show e ++ ">"
 
 ||| The operand types of an IO primitive, before the world.
@@ -418,6 +420,7 @@ ioArgs : IOOp -> List Ty
 ioArgs PutStr = [StrT]
 ioArgs PutChar = [CharT]
 ioArgs GetByte = []
+ioArgs GetLine = []
 ioArgs (Array NewArray e) = [IntT IdrisInt, e]
 ioArgs (Array GetArray e) = [ArrayT e, IntT IdrisInt]
 ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]

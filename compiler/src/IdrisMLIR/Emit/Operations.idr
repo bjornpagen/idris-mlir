@@ -262,6 +262,10 @@ io ix l op vs res = do
       r <- fresh
       append (Line (r ++ ":2 = idr.io.get_byte " ++ w0.name) (At l))
       pure (val (r ++ "#0") CharT Plain, val (r ++ "#1") WorldT Plain)
+    (GetLine, [w0]) => do
+      r <- fresh
+      append (Line (r ++ ":2 = idr.io.get_line " ++ w0.name) (At l))
+      pure (val (r ++ "#0") StrT Plain, val (r ++ "#1") WorldT Plain)
     (Array NewArray e, [n, x, w0]) => do
       r <- fresh
       et <- typeText ix e

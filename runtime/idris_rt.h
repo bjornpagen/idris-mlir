@@ -259,6 +259,14 @@ void idris_rt_io_put_int_u(uint64_t value);
 void idris_rt_io_put_double(double value);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
+/* A line of input without its end: the bytes up to the first '\r' or
+ * '\n', consumed through the '\n', as the stock idris2_getStr cuts them;
+ * the empty string at the end of input. Bytes that are not well-formed
+ * UTF-8 become U+FFFD, one per ill-formed byte, as Chez decodes them. A new
+ * string. */
+const idris_rt_str *idris_rt_io_get_line(void);
+/* 1 once a read met the end of input, as C's feof reports it; 0 before. */
+int32_t idris_rt_io_eof(void);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status IDRIS_RT_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);

@@ -84,6 +84,9 @@ primitives =
   -- The Prelude's getChar reads one byte.
   , ioPrimitive (MkSpec "C" "getchar") "prim__getChar"
                 (Pi Q1 world (ioRes (Prim CharP))) GetByte
+  -- The Prelude's getLine: a line without its end, "" at the end of input.
+  , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
+                (Pi Q1 world (ioRes (Prim StringP))) GetLine
   , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi QW TypeOfTypes TypeOfTypes))
             ArrayType [IOPrimitive]
   , arrayPrimitive "prim__newArray"

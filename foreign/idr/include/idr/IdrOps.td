@@ -1047,6 +1047,16 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
   let assemblyFormat = "$world attr-dict";
 }
 
+// A line of input without its end (the Prelude's getLine): the bytes up to
+// the first carriage return or newline, consumed through the newline; the
+// empty string at the end of input. A new string, allocated like a
+// builder's.
+def Idr_GetLineOp : Idr_IOOp<"get_line"> {
+  let arguments = (ins Idr_WorldType:$world);
+  let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);
+  let assemblyFormat = "$world attr-dict custom<StrResult>(type($str))";
+}
+
 // A world forged where a trusted library runs an IO action for a pure
 // value (`unsafePerformIO`): the first world of a chain of its own, which
 // orders that chain; between chains, the effects order the ops, as they

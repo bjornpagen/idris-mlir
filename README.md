@@ -65,7 +65,7 @@ still live when it ends: none.
   fixed-width integers, non-recursive data types and records, recursion,
   erased arguments. Self tail calls become loops.
 - **v1:** `main : IO ()` programs over several modules: `do`,
-  `putStr`/`putStrLn`/`putChar`/`getChar` (today the Prelude's), `Char`,
+  `putStr`/`putStrLn`/`putChar`/`getChar`/`getLine` (the Prelude's), `Char`,
   static strings, lambdas, higher-order and polymorphic functions, and user
   monads written with plain functions. For input and output the executable
   references only `write`, `read` and `_exit`; its entry runs the program
