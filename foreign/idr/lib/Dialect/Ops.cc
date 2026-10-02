@@ -1295,6 +1295,19 @@ LogicalResult ArraySetOp::verify() {
   return verifyElement(*this, "the value", getValue().getType(), getArrayType());
 }
 
+// The one dimension of the new array is its size clamped at 0, as an
+// index: the length idris_rt_array_new gives a negative size. The world
+// result has no shape.
+LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
+                                            ReifiedRankedShapedTypeDims &shapes) {
+  Location loc = getLoc();
+  Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
+  Value length = arith::MaxSIOp::create(b, loc, getSize(), zero);
+  Value index = arith::IndexCastOp::create(b, loc, b.getIndexType(), length);
+  shapes.push_back({OpFoldResult(index)});
+  return success();
+}
+
 std::optional<StringRef> ArrayNewOp::getCrashCause() { return std::nullopt; }
 std::optional<StringRef> ArrayGetOp::getCrashCause() { return outOfBounds; }
 std::optional<StringRef> ArraySetOp::getCrashCause() { return outOfBounds; }
