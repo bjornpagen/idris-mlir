@@ -218,7 +218,7 @@ mutual
   staticCase ctx env t alts = do
     Just (cn, cargs) <- whnf 64 t
       | Nothing => reject ctx.fc ctx.owner RuntimeClosure
-                     ("an implementation that does not reduce to its constructor: " ++ showTT t)
+                     ("an implementation that does not reduce to its constructor: " ++ !(showTT t))
     cn <- toFullNames cn
     erased <- erasedArgs cn
     pick cn (zipWith info (erased ++ replicate (length cargs) False) cargs) alts

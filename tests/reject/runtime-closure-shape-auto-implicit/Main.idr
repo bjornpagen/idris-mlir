@@ -1,5 +1,5 @@
 -- expect: runtime closure, line 19
--- message: an implementation chosen at runtime
+-- message: an implementation chosen at runtime: (Prelude.Types.S [__])
 module Main
 
 import Prelude

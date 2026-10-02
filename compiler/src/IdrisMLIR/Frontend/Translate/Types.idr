@@ -64,7 +64,7 @@ instanceName n args = do
   args' <- traverse (\a => case a of
                              Just t => Just <$> toFullNames t
                              Nothing => pure Nothing) args
-  let shown = map showTT (catMaybes args')
+  shown <- traverse showTT (catMaybes args')
   let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
   st <- get TState
   let same = fromMaybe [] (lookup (nameKey n') st.named)
@@ -374,7 +374,7 @@ mutual
            Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
-    _ => reject fc owner rule ("unsupported runtime type " ++ showTT tm)
+    _ => reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
 
   ||| Registers a monomorphic data instance.
   export
@@ -422,7 +422,7 @@ mutual
           -- a runtime field (`Dictionaries`).
           if !(dictionaryBinder rig pinfo a') then pure (Gone, Just a') else do
             when !(erasedOutsideIndices cname a') $
-              reject dfc cname DependentField ("a field type that depends on another field: " ++ showTT !(toFullNames a'))
+              reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
             t <- coreType dfc cname DependentField a'
             pure (Held (useOf rig) t, Nothing)
         rest <- walk cname dfc targs ls (subst (Erased bfc Placeholder) sc)

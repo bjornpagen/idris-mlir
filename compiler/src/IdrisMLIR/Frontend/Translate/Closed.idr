@@ -363,9 +363,12 @@ erasedArgs n = do
     go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
     go _ = []
 
+||| A term as a message shows it, every name full: a name Idris has
+||| resolved to its place in the context prints as `$resolved359`, which
+||| says nothing to the reader.
 export
-showTT : ClosedTerm -> String
-showTT = show
+showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
+showTT tm = show <$> toFullNames tm
 
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an

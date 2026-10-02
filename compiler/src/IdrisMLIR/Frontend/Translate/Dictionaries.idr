@@ -103,7 +103,7 @@ opaqueFor impl = case spine impl [] of
     opaque <- hidden (nub (definitionsIn seen))
     case opaque of
       [] => pure Nothing
-      _ => pure (Just (show !(toFullNames n) ++ " implements " ++ showTT seen ++ ", where " ++
+      _ => pure (Just (show !(toFullNames n) ++ " implements " ++ !(showTT seen) ++ ", where " ++
                        joinBy ", " (map show opaque) ++ " is opaque to the program (exported without " ++
                        "its definition) and unfolded by this compiler: two types to Idris are one " ++
                        "type here, whose data holds one implementation"))
@@ -135,11 +135,10 @@ recordDictionary fc owner cid ty i impl = do
   st <- get TState
   case lookup (cid, i) st.dicts of
     Just d => unless (d.impl == impl') $ do
-      ty' <- toFullNames ty
       why <- catMaybes <$> traverse opaqueFor [d.impl, impl']
       reject site owner DictionaryField
-             (show cid.dataId ++ "::" ++ show cid ++ " holds two implementations of " ++ showTT ty' ++
-              ": " ++ showTT d.impl ++ ", chosen in " ++ d.chooser ++ ", and " ++ showTT impl' ++
+             (show cid.dataId ++ "::" ++ show cid ++ " holds two implementations of " ++ !(showTT ty) ++
+              ": " ++ !(showTT d.impl) ++ ", chosen in " ++ d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ by ++ concatMap ("; " ++) why)
     Nothing =>
       update TState { dicts $= insert (cid, i) (MkDictionary impl' by site)

@@ -83,8 +83,8 @@ growing fc owner n base kinds = do
             x <- parameterName fc owner n i
             reject fc owner Polymorphism
                    ("polymorphic recursion: the type of " ++ base ++ " depends on its argument " ++ x ++
-                    ", which its recursion builds deeper at each call (" ++ showTT !(toFullNames after) ++
-                    " after " ++ showTT !(toFullNames before) ++ "), so that each instance would need another")
+                    ", which its recursion builds deeper at each call (" ++ !(showTT after) ++
+                    " after " ++ !(showTT before) ++ "), so that each instance would need another")
           Nothing => pure ()
       from r.parent
 
@@ -200,12 +200,12 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
            | _ => reject fc owner StaticArgument "an implementation that is not known statically"
          val <- v.written
          when !(runtimeDependent val) $
-           reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ showTT val)
+           reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
          pure (DictParam val :: rest, res)
        else do
          when !(erasedOutsideIndices owner a') $
-           reject fc owner ValueType ("a parameter type that depends on another argument: " ++ showTT !(toFullNames a'))
+           reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
          t <- coreType fc owner ValueType a'
          -- The rest of the type may have to reduce on the parameter's value
          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
