@@ -145,7 +145,12 @@ struct LowerReuse : IdrPattern<ReuseOp> {
 // A sum's fields are its slots, and move as they are. A box's fields are
 // loaded; when the box held the only reference to its cell they move out of
 // it and the token is the cell, otherwise they each get one more
-// reference, the box drops its own, and the token is null.
+// reference, the box drops its own, and the token is null. A field nothing
+// wants, whose one use is an idr.drop, dies with the box (Perceus's drop
+// specialization, with the dups and drops fused): where the box held the
+// only reference the field's own is dropped here, and where the box was
+// shared nothing happens to the field, instead of a reference taken for it
+// and given up again.
 struct LowerTake : IdrPattern<TakeOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(TakeOp op, OneToNOpAdaptor adaptor,
@@ -171,31 +176,43 @@ struct LowerTake : IdrPattern<TakeOp> {
       return success();
     }
     const Cell &layout = layouts.box(ctor);
-    SmallVector<Value> components;
-    for (const auto &slots : layout.fields) {
+    SmallVector<DropOp> drops;
+    for (Value field : op.getFields())
+      drops.push_back(field.hasOneUse() ? dyn_cast<DropOp>(*field.user_begin()) : DropOp());
+    // The components of the fields that move on and of those that die
+    // here, each with whether it is counted.
+    SmallVector<Value> moving, dying;
+    SmallVector<bool> movingCounted, dyingCounted;
+    for (auto [index, slots, fieldType] :
+         llvm::enumerate(layout.fields, ctor.getFieldTypes().getAsValueRange<TypeAttr>())) {
       out.push_back(runtime.load(rewriter, loc, cell, slots));
-      llvm::append_range(components, out.back());
+      bool dies = drops[index] != nullptr;
+      llvm::append_range(dies ? dying : moving, out.back());
+      llvm::append_range(dies ? dyingCounted : movingCounted, layouts.counted(fieldType));
     }
     Value token = cell;
     // An exclusive value alone reaches its cell: its fields move out, and
     // the cell is the token, with no test.
-    if (!isExclusive(op.getValue().getType())) {
-      SmallVector<bool> counted;
-      for (Type fieldType : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-        llvm::append_range(counted, layouts.counted(fieldType));
+    if (isExclusive(op.getValue().getType())) {
+      runtime.dec(rewriter, loc, dying, dyingCounted);
+    } else {
       Type ptr = cell.getType();
       auto choose = scf::IfOp::create(rewriter, loc, TypeRange{ptr},
                                       runtime.exclusive(rewriter, loc, cell),
                                       /*withElseRegion=*/true);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(choose.thenBlock());
+      runtime.dec(rewriter, loc, dying, dyingCounted);
       scf::YieldOp::create(rewriter, loc, cell);
       rewriter.setInsertionPointToStart(choose.elseBlock());
-      runtime.inc(rewriter, loc, components, counted);
+      runtime.inc(rewriter, loc, moving, movingCounted);
       runtime.dec(rewriter, loc, cell, {true});
       scf::YieldOp::create(rewriter, loc, runtime.null(rewriter, loc, ptr));
       token = choose.getResult(0);
     }
+    for (DropOp drop : drops)
+      if (drop)
+        rewriter.eraseOp(drop);
     out.insert(out.begin(), SmallVector<Value>{token});
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();

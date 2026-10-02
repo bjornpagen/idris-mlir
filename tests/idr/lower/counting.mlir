@@ -2,8 +2,10 @@
 // The counting ops call the runtime on each counted component: a string's
 // pointer, a big's word (as a pointer), each counted slot of a sum. A take
 // of a box yields its cell when it is exclusive, and otherwise gives each
-// field a reference and drops the box's; a token that is dropped has its
-// memory freed; a reuse builds in the token, or in a new cell when it is
+// field that moves on a reference and drops the box's; a field nothing
+// wants (its one use an idr.drop) dies with the box: dropped where the box
+// is exclusive, untouched where it is shared; a token that is dropped has
+// its memory freed; a reuse builds in the token, or in a new cell when it is
 // null. A reuse of the constructor its token's take took apart finds the
 // header, and every field it gives back as taken, in the cell already: those
 // are stored into the new cell only (tests/idr/rc/kept-fields.mlir).
@@ -18,10 +20,12 @@
 // CHECK: llvm.mlir.zero : !llvm.ptr
 // CHECK-LABEL: func.func private @drop(
 // CHECK: %[[T:.*]] = scf.if %{{.*}} -> (!llvm.ptr) {
+// CHECK-NEXT: llvm.call @idris_rt_dec(
 // CHECK-NEXT: scf.yield %arg0 : !llvm.ptr
 // CHECK-NEXT: } else {
-// CHECK: llvm.call @idris_rt_inc(
+// CHECK-NOT: llvm.call @idris_rt_inc(
 // CHECK: llvm.call @idris_rt_dec(%arg0) {{.*}}: (!llvm.ptr) -> ()
+// CHECK-NOT: llvm.call @idris_rt_dec(
 // CHECK: llvm.call @idris_rt_free_cell(%[[T]]) {{.*}}: (!llvm.ptr) -> ()
 // A reference to static data (a constant box, a constant string) runs
 // nothing: static data holds no count.
