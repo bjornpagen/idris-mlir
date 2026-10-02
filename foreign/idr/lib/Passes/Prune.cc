@@ -9,8 +9,7 @@
 // So this pass, with dead-code analysis and constant propagation loaded as
 // remove-dead-values loads them, empties every unreachable function body
 // and match region: a match region ends in `ub.unreachable`, and a function
-// body returns `ub.poison` (a body never ends in `ub.unreachable`:
-// PINS.md: inline-unreachable).
+// body returns `ub.poison` (idr::returnNever).
 // Nothing reachable changes, so the program means what it meant.
 //
 // remove-dead-values also leaves alone the parameters of a function that a
@@ -23,6 +22,7 @@
 // reads, which nothing reads either.
 
 #include "idr/Idr.h"
+#include "idr/Passes.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -54,16 +54,10 @@ void empty(Block &block) {
     block.back().erase();
   Operation *parent = block.getParentOp();
   OpBuilder b = OpBuilder::atBlockEnd(&block);
-  Location loc = parent->getLoc();
-  auto fn = dyn_cast<func::FuncOp>(parent);
-  if (!fn) {
-    ub::UnreachableOp::create(b, loc);
-    return;
-  }
-  SmallVector<Value> results = llvm::map_to_vector(fn.getResultTypes(), [&](Type type) -> Value {
-    return ub::PoisonOp::create(b, loc, type);
-  });
-  func::ReturnOp::create(b, loc, results);
+  if (auto fn = dyn_cast<func::FuncOp>(parent))
+    idr::returnNever(b, parent->getLoc(), fn);
+  else
+    ub::UnreachableOp::create(b, parent->getLoc());
 }
 
 // The functions some symbol use other than a call's callee names: a closure,
@@ -136,3 +130,10 @@ struct Prune : idr::impl::IdrPruneBase<Prune> {
 };
 
 } // namespace
+
+func::ReturnOp idr::returnNever(OpBuilder &b, Location loc, func::FuncOp fn) {
+  SmallVector<Value> results = llvm::map_to_vector(fn.getResultTypes(), [&](Type type) -> Value {
+    return ub::PoisonOp::create(b, loc, type);
+  });
+  return func::ReturnOp::create(b, loc, results);
+}

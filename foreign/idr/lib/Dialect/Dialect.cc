@@ -524,6 +524,16 @@ LogicalResult verifyProgram(ModuleOp module) {
                                      "(!idr.world) -> (...), not ")
            << root;
 
+  // No function body ends in ub.unreachable, which the pinned inliner
+  // cannot inline: a body that never returns returns poison, which is never
+  // reached (returnNever). A match region may end in it.
+  // PIN(inline-unreachable) — see PINS.md
+  for (auto fn : module.getOps<func::FuncOp>())
+    for (Block &block : fn.getBody())
+      if (!block.empty() && isa<ub::UnreachableOp>(block.back()))
+        return block.back().emitOpError("ends the body of @")
+               << fn.getSymName() << ", where a body that never returns returns poison";
+
   // Every attribute in the program is read by someone: an inherent one by
   // its op, a discardable one by its dialect or by one of our tools.
   WalkResult named = module.walk([&](Operation *op) -> WalkResult {

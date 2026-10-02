@@ -58,7 +58,9 @@ Two parts:
 ## Our workaround
 
 `PINS.md`: `inline-unreachable`. No function body the compiler writes ends
-in `ub.unreachable`: `Emit` (`epilogue` in `compiler/src/IdrisMLIR/Emit.idr`)
-and `idr-prune` end a body that never returns with `ub.poison` and
-`func.return`, which is never reached. `ub.unreachable` appears only at the
-end of match regions, which the inliner does not see as callees.
+in `ub.unreachable`: `Emit` (`epilogue` in
+`compiler/src/IdrisMLIR/Emit/Bodies.idr`), `idr-prune` and `idr-tail-loops`
+end a body that never returns with `ub.poison` and `func.return`, which is
+never reached, and the program's verifier refuses a body that ends in
+`ub.unreachable`. `ub.unreachable` appears only at the end of match
+regions, which the inliner does not see as callees.
