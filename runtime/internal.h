@@ -36,10 +36,10 @@ constexpr unsigned heapAddressBits = 48;
 // the rest.
 void writeAll(int fd, const char *p, size_t n);
 
-// The longest text formatDouble writes: a sign, 17 digits, a point, the
-// zeros of 1e-3 or an exponent, and a subnormal's `|52`.
-constexpr size_t doubleTextMax = 48;
-// The text of a double, as Chez writes it; returns its length.
+// Room for the longest text formatDouble writes, 24 bytes: a sign, 17
+// digits, a point and an exponent such as `e-308`.
+constexpr size_t doubleTextMax = 32;
+// The text of a double (double.cc); returns its length.
 size_t formatDouble(double x, volatile char *out);
 
 // The decimal digits of an integer, written backwards from `end`; returns

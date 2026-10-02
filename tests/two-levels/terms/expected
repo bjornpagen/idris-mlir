@@ -27,8 +27,8 @@ primitives: not compared with Idris: Idris evaluates it differently: prim__cast_
 primitives: not compared with Idris: Idris evaluates it differently: prim__cast_CharString: Idris's evaluator writes a non-ASCII character escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42): (prim__cast_CharString (litChar '\128512'))
 primitives: not compared with Idris: host-dependent: prim__cast_StringInt: cast from String: (prim__cast_StringInt (litString "-1234"))
 primitives: not compared with Idris: host-dependent: prim__cast_StringInteger: cast from String: (prim__cast_StringInteger (litString "123456789012345678901234567890"))
-primitives: this compiler prints Idris's value for every other term
-primitives: Chez prints the same, the host-dependent terms aside
+primitives: this compiler prints Idris's value for every other term, its Doubles read as ours
+primitives: Chez prints the same, its Doubles read as ours, the host-dependent terms aside
 prelude: Idris's evaluator: exit 0
 prelude: compile: exit 0
 prelude: run: exit 0
@@ -37,5 +37,5 @@ prelude: chez: compile exit 0
 prelude: not compared with Idris: host-dependent: exp: libm: exp (litDouble 1.0)
 prelude: not compared with Idris: host-dependent: sin: libm: sin (litDouble 1.0)
 prelude: not compared with Idris: host-dependent: cast from String: cast (litString "123456789012345678901234567890")
-prelude: this compiler prints Idris's value for every other term
-prelude: Chez prints the same, the host-dependent terms aside
+prelude: this compiler prints Idris's value for every other term, its Doubles read as ours
+prelude: Chez prints the same, its Doubles read as ours, the host-dependent terms aside

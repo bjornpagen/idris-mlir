@@ -12,7 +12,7 @@
 // read, say), nothing of its own. What the runtime needs of the C library
 // is stated once, by tests/toolchain/runtime-prepared.
 // CHECK: hello x y
-// CHECK-NEXT: -42 65535 255 1.5 1e22 +inf.0
+// CHECK-NEXT: -42 65535 255 1.5 1e22 inf
 module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit ()

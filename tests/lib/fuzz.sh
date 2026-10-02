@@ -33,7 +33,9 @@ fuzz_agree() {
 #     idr-eval or the runtime computes (j) and the runtime's (r);
 #   - --no-eval prints what evaluation prints, byte for byte;
 #   - Chez prints the same, but for the lines of cases through libm (L),
-#     which C libraries may round differently.
+#     which C libraries may round differently, once its Doubles are read
+#     as this compiler writes them (chez_doubles): a case may make a
+#     Double whose text the two knowingly differ on.
 # IDRIS_MLIR_FUZZ_CASES sets the cases of a program (default 30), and
 # IDRIS_MLIR_FUZZ_ROUNDS=N adds N seeds, SEED + 1000, SEED + 2000, ...; the
 # output is the same for any of them.
@@ -87,7 +89,7 @@ fuzz() {
         fi
       fi
       grep -v '^[djr]L' "$work/eval.out" > "$work/eval.host-independent"
-      grep -v '^[djr]L' "$work/chez.out" > "$work/chez.host-independent"
+      chez_doubles "$work/chez.out" | grep -v '^[djr]L' > "$work/chez.host-independent"
       if ! cmp -s "$work/eval.host-independent" "$work/chez.host-independent"; then
         printf '%s\n' "$fuzz_seed: (< this compiler, > Chez)" >> "$work/fuzz.chez"
         diff "$work/eval.host-independent" "$work/chez.host-independent" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.chez"
@@ -97,7 +99,7 @@ fuzz() {
     fuzz_report "$fuzz_part: each case prints one value, whoever computes it" fuzz.agree
     [ "$fuzz_part" = runtime ] &&
       fuzz_report "$fuzz_part: --no-eval prints what evaluation prints" fuzz.noeval
-    fuzz_report "$fuzz_part: Chez prints the same, the libm lines aside" fuzz.chez
+    fuzz_report "$fuzz_part: Chez prints the same, its Doubles read as ours, the libm lines aside" fuzz.chez
   done
 }
 

@@ -256,7 +256,7 @@ void idris_rt_io_put_char(int32_t c);
  * extends to 64 bits as its type's signedness says. */
 void idris_rt_io_put_int_s(int64_t value);
 void idris_rt_io_put_int_u(uint64_t value);
-/* The text of a double, as Chez writes it. */
+/* The text of a double, as idris_rt_str_show_f64 writes it. */
 void idris_rt_io_put_double(double value);
 /* A string built in place by idr.str.pack and idr.str.concat, which know
  * its size from a first pass: a new string of `bytes` bytes and `scalars`
@@ -349,7 +349,8 @@ int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t gua
 /* Doubles. x truncated toward zero, modulo 2^64; x is
  * finite (idr-lower checks it first). */
 int64_t idris_rt_to_int(double x);
-/* The first character of the text of a double, as Chez writes it. */
+/* The first character of the text of a double (idris_rt_str_show_f64):
+ * '-', a digit, or the 'i' of inf or the 'n' of nan. */
 int32_t idris_rt_double_head(double x);
 /* The first character of the decimal text of a signed or unsigned integer. */
 int32_t idris_rt_int_head_s(int64_t value);
@@ -367,6 +368,12 @@ const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *s);
 const idris_rt_str *idris_rt_str_from_char(int32_t c);
 const idris_rt_str *idris_rt_str_show_s(int64_t value);
 const idris_rt_str *idris_rt_str_show_u(uint64_t value);
+/* The text of a double, which reads back as it (idris_rt_str_to_double): the
+ * fewest significant digits that do, the nearest of those to the double, and
+ * of two equally near the one whose last digit is even; positional from 1e-3
+ * up to 1e10, with a digit after the point (0.001, 100.0), else in
+ * scientific notation (1e21, 1.5e-7, 5e-324); inf, -inf and nan, a NaN
+ * whatever its sign; -0.0 with its sign. */
 const idris_rt_str *idris_rt_str_show_f64(double value);
 /* The number of scalar values. */
 int64_t idris_rt_str_length(const idris_rt_str *s);

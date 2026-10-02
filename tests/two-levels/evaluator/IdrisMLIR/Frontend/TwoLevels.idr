@@ -27,7 +27,9 @@ import Idris.Syntax
 
 import Data.String
 
-||| A value as the compiled program prints it.
+||| A value as the compiled program prints it; a Double with the `show` of
+||| the Chez this helper runs on, which the test reads as this compiler
+||| writes Doubles (tests/lib/chez-doubles.ss).
 value : ClosedTerm -> String
 value (PrimVal _ c) = case c of
   I x => show x

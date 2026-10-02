@@ -112,6 +112,43 @@ static void expectDouble(const char *s, double want) {
   }
 }
 
+/* Every double's text reads back as the double, as IEEE 754 requires of
+ * the two conversions, a NaN's as a NaN: the special values, the edges of
+ * the subnormals and of the range, and pseudo-random bit patterns, a third
+ * of them subnormal. */
+static void roundTrip(void) {
+  static const double edges[] = {0.0, -0.0, 1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0, 4.9e-324,
+                                 -2.225073858507201e-308, 2.2250738585072014e-308,
+                                 1.7976931348623157e308, 1e21, 1e-7, 0.1, 12.8868560791015625};
+  enum { edgeCount = sizeof edges / sizeof edges[0], patterns = 30000 };
+  int trips = 0, failed = 0;
+  uint64_t state = 7;
+  for (int i = 0; i < edgeCount + patterns; ++i) {
+    double x;
+    if (i < edgeCount) {
+      x = edges[i];
+    } else {
+      state = state * 6364136223846793005u + 1442695040888963407u;
+      uint64_t bits = state ^ (state >> 29);
+      if (i % 3 == 0)
+        bits &= 0x800FFFFFFFFFFFFFu;
+      memcpy(&x, &bits, sizeof x);
+    }
+    const idris_rt_str *text = idris_rt_str_show_f64(x);
+    uint32_t made = countOf(text);
+    double back = idris_rt_str_to_double(text);
+    ++trips;
+    if (memcmp(&back, &x, sizeof x) != 0 && !(back != back && x != x)) {
+      if (failed < 5)
+        fprintf(stderr, "FAIL \"%.*s\" does not read back\n", (int)text->bytes, idris_rt_str_bytes(text));
+      ++failed;
+    }
+    releaseArgument(text, made, "a double's text");
+  }
+  fprintf(stderr, "doubles read back from their text: %d of %d\n", trips - failed, trips);
+  failures += failed;
+}
+
 static int decodeFailures = 0, decodeChecks = 0;
 
 /* The n bytes at p become the string of the well-formed UTF-8 `want`:
@@ -314,6 +351,7 @@ int main(void) {
   expectDouble("0x10", 0.0);
   expectDouble("", 0.0);
   fprintf(stderr, "casts from String: %d of %d as idris_rt.h defines them\n", checks - failures, checks);
+  roundTrip();
   decoding();
   uint64_t live = idris_rt_live_cells();
   fprintf(stderr, "live cells once every result is released: %llu\n", (unsigned long long)live);

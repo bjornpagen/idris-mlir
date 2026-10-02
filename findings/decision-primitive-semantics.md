@@ -26,7 +26,13 @@ A primitive's meaning comes from, in this order:
   lists the marks.
 - Idris's evaluator runs on Chez itself. Where it computes a value through
   a Chez quirk, the two-levels corpus marks the term `-- idris-differs:`
-  with the reason.
+  with the reason. Where it only writes a Double through Chez's printer, the
+  test reads its output as it reads the Chez build's.
+- That reading is `tests/lib/chez-doubles.ss`: Chez's text of a double
+  becomes ours, where a `double-*` class says the printers differ. The
+  comparisons of whole outputs line by line use it: the fuzzer, the two
+  levels, the runtime's printer and its API test. A fixture that shows a
+  class names it instead.
 - Where we claim the backends disagree, we checked upstream's other
   backend, RefC (`third_party/Idris2/support/refc`), and say so below.
 
@@ -81,3 +87,42 @@ A primitive's meaning comes from, in this order:
 - **Divergence:** `getline-carriage-return`, from both upstream C-backed
   backends.
 - **Test:** `tests/programs/io/prelude-getline`.
+
+### The text of a Double: IEEE 754, then ours
+
+- **Idris:** defines none.
+  - The Prelude's `show` is the backend's `prim__cast_DoubleString`.
+  - Chez writes `number->string`.
+  - RefC writes `printf("%f")`, so 0.1 is `0.100000`.
+  - The evaluator uses the `show` of the Chez the compiler runs on.
+- **IEEE 754 requires** that:
+  - the text of a double read back as the double, under correct
+    rounding, ties to even by default;
+  - the infinities be spelled `inf` or `infinity`, NaN `nan`, in any case.
+- **Ours:**
+  - Digits: the fewest significant digits that read back, the nearest of
+    those, and of two equally near the even one. These are Ryu's digits.
+  - Layout: positional from 1e-3 up to 1e10 with a digit after the point,
+    else `d.ddde-x`. It is the Chez backend's layout, so that the oracle
+    compares every other text.
+  - Specials: `inf`, `-inf` and `nan`. A NaN's sign is not written:
+    IEEE 754 gives it no meaning, and x86-64 and arm64 make NaNs of
+    opposite sign for the same operation.
+- **Was**, Chez's printer copied in three places; now IEEE 754 or ours:
+
+  | class | Chez's printer | ours |
+  | --- | --- | --- |
+  | `double-subnormal-suffix` | R6RS's mantissa width on a subnormal, `5e-324\|1`; no Idris reader needs it | `5e-324` |
+  | `double-tie-even` | ties to the larger candidate, `12.886856079101563` | ties to even, `12.886856079101562`, as Ryu itself breaks them |
+  | `double-special-text` | Scheme's `+inf.0`, `-inf.0`, `+nan.0` | `inf`, `-inf`, `nan` |
+
+- **Tests:**
+  - `tests/programs/prelude/double-subnormals`, `double-ties` and
+    `double-infinities-nan`; `double-basics` and `show-values` keep their
+    other lines, compared with Chez;
+  - `tests/toolchain/double-print`: 176,000 doubles, equal to Chez's text
+    read through the classes, each class seen;
+  - `tests/toolchain/runtime-api`: 30,013 doubles read back from their
+    text;
+  - `tests/idr/eval/fold-vs-jit.mlir` and `tests/idr/e2e/doubles.mlir`.
+- **Also:** `idr.double_head`'s range is now `'-'` to `'n'`.

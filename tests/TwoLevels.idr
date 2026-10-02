@@ -16,8 +16,11 @@
 ||| print the elaborator's value.
 |||
 ||| Values are printed as the programs print them: integers in decimal, a
-||| Char as its code point, a String as itself, a Double as Idris's `show`
-||| (which is Chez's number->string on both sides).
+||| Char as its code point, a String as itself, a Double as Idris's `show`.
+||| The evaluator runs on Chez, so it writes a Double, and makes the String
+||| of one, with Chez's number->string, as the Chez build does; the test
+||| reads both as this compiler writes Doubles (tests/lib/chez-doubles.ss)
+||| where tests/lib/chez-divergences says the two printers differ.
 |||
 ||| Terms whose value depends on the host by design are marked in Terms.idr
 ||| with `-- host-dependent: t<n> <reason>`, and are not compared: the libm

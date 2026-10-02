@@ -30,12 +30,11 @@ main = do
   putChar (firstOf (show (the Int8 (cast (n * 30)))))
   putChar (firstOf (show (the Bits64 (cast (negate n)))))
   putChar '\n'
-  -- A Double's first character is the printer's own.
+  -- A Double's first character is the printer's own. The fixtures
+  -- double-infinities-nan and double-subnormals show the infinities, NaN
+  -- and subnormals, whose text is not Chez's.
   let x = the Double (cast n)
   putStrLn (show (Just (x / 2.0)))
   putStrLn (show (Just (negate x / 2.0)))
   putStrLn (show (Just (negate (x - x))))
-  putStrLn (show (Just ((x - x) / (x - x))))
-  putStrLn (show (Just (negate x / 0.0)))
   putStrLn (show (Just (x * 1.4285714285714285e22)))
-  putStrLn (show (Just (x * 5.0e-324)))

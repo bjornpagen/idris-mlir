@@ -664,7 +664,7 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "the first character of a Double as the reference prints it";
+  let summary = "the first character of a Double's text";
   let arguments = (ins F64:$value);
   let results = (outs I32:$result);
   let assemblyFormat = "$value attr-dict";
