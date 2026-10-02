@@ -25,12 +25,14 @@ mainModule = ["Main"]
 -- Shapes of the IO contract
 ------------------------------------------------------------------------------
 
+export
 world : Shape
 world = Prim WorldP
 
 unit : Shape
 unit = Head (Def (MkQName ["Builtin"] "Unit")) []
 
+export
 ioRes : Shape -> Shape
 ioRes a = Head (Def (MkQName ["PrimIO"] "IORes")) [a]
 
@@ -60,6 +62,7 @@ arrayPrims : List String
 arrayPrims = ["Data", "IOArray", "Prims"]
 
 ||| `ArrayData a`, the external type of arrays.
+export
 arrayData : Shape -> Shape
 arrayData a = Head (Def (MkQName arrayPrims "ArrayData")) [a]
 
@@ -69,6 +72,7 @@ arrayPrimitive : String -> Shape -> ArrayOp -> Entry
 arrayPrimitive name shape op =
   MkEntry (Def (MkQName arrayPrims name)) (Typed (Pi Q0 TypeOfTypes shape)) (ArrayCall op) [IOPrimitive]
 
+export
 int : Shape
 int = Prim (IntP IdrisInt)
 

@@ -60,8 +60,14 @@ private:
 // scrutinee of the match whose region binds it; null for any other value.
 mlir::Value readFrom(mlir::Value value);
 
+// Whether `op`'s region is the body of a loop over an array
+// (idr.array.generate, idr.array.fold): it runs once per element, so a
+// value from outside it is used again after any op in it.
+bool isArrayLoop(mlir::Operation *op);
+
 // Whether `value` is used after `op`: later in its block, or after an op
-// that holds that block, up to the block that defines it.
+// that holds that block, up to the block that defines it; always, from
+// inside the body of a loop the value comes from outside of.
 bool usedAfter(mlir::Value value, mlir::Operation *op);
 
 // Whether the function borrows its parameter `index`: in the owned

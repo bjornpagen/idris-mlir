@@ -340,7 +340,46 @@ private:
       return walkLoop(loop);
     if (auto loop = dyn_cast<scf::ForOp>(op))
       return walkFor(loop);
+    if (auto loop = dyn_cast<ArrayGenerateOp>(op))
+      return walkArrayLoop(op, {{loop.getFill(), true}}, loop.getBody(), loop.getResults());
+    if (auto loop = dyn_cast<ArrayFoldOp>(op))
+      return walkArrayLoop(op, {{loop.getArray(), false}, {loop.getInit(), true}}, loop.getBody(),
+                           loop.getResults());
     return op.emitOpError("has regions, which the owned stage does not know how to count");
+  }
+
+  // A loop over an array (idr.array.generate, idr.array.fold): its body
+  // runs once per element, takes its arguments owned (the element as
+  // array.get gives it, the accumulator as the init moved in), consumes
+  // what its yield passes on, and leaves every value from outside as it
+  // found it. The results are owned. `operands` are the loop's operands
+  // that hold references, each with whether the loop consumes it.
+  FailureOr<bool> walkArrayLoop(Operation &op, ArrayRef<std::pair<Value, bool>> operands, Region &body,
+                                ValueRange results) {
+    for (auto [value, consumed] : operands)
+      if (failed(consumed ? consume(op, value) : use(op, value)))
+        return failure();
+    size_t mark = log.size();
+    Block &block = body.front();
+    for (BlockArgument arg : block.getArguments())
+      if (tracked(arg))
+        define(arg, 1);
+    FailureOr<bool> reached = walk(block);
+    if (failed(reached))
+      return failure();
+    if (*reached) {
+      if (failed(settled(block, block.back())))
+        return failure();
+      auto changes = changesSince(mark);
+      if (!changes.empty())
+        return fail(op, changes.front().first,
+                    "changes the references of a value from outside the loop in its body");
+    }
+    undo(mark);
+    for (Value result : results)
+      if (tracked(result))
+        define(result, 1);
+    return true;
   }
 
   // Each region starts from the state before the match; the regions that

@@ -16,6 +16,7 @@
 
 #include "idr/Idr.h"
 
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
@@ -247,6 +248,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   // The executable's own lowering, in JIT mode.
   OpPassManager lower(ModuleOp::getOperationName());
   lower.addPass(idr::createIdrLower(idr::IdrLowerOptions{/*jit=*/true}));
+  lower.addPass(createConvertLinalgToLoopsPass());
   lower.addPass(createCanonicalizerPass());
   lower.addPass(createCSEPass());
   if (failed(runPipeline(lower, lowered)))

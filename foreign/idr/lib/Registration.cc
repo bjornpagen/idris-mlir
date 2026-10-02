@@ -33,6 +33,10 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // the bigs it proves small it removes.
       "idr-narrow",
       "idr-lower",
+      // The loops over arrays are linalg ops after lowering; upstream makes
+      // the loops of those left, so every program is correct before any
+      // vectorization.
+      "convert-linalg-to-loops",
       "canonicalize,cse",
       // On lowered code, where a threaded value given back is its argument
       // component by component; a join that then yields the same value on

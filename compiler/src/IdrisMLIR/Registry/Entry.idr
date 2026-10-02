@@ -225,6 +225,12 @@ data Hook
     ||| representation of `Nat`, in constant time and stack, instead of its
     ||| unary recursion. Handler: `Frontend.Translate.application`.
     NatOperation NatMeaning
+  | ||| A library loop over an array's index space (`Linear.Array`'s
+    ||| `prim__generate` and `prim__foldl`): its calls at a machine-word
+    ||| element (and accumulator) are the `idr.array` op of that loop, whose
+    ||| body applies the function; at any other instance the definition
+    ||| compiles as written. Handler: `Frontend.Translate.application`.
+    ArrayLoop ArrayLoop
   | ||| Rejected where the user's code uses it, under the rule named:
     ||| a definition the user's definitions refer to, or a spelling in the
     ||| user's source. Handler:
@@ -256,6 +262,7 @@ kind WordType = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster
+kind (ArrayLoop _) = Faster
 kind (Forbidden _) = Stricter
 
 ------------------------------------------------------------------------------

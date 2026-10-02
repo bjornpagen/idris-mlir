@@ -56,3 +56,11 @@ natOperationOf : List Hook -> Maybe NatMeaning
 natOperationOf [] = Nothing
 natOperationOf (NatOperation m :: _) = Just m
 natOperationOf (_ :: hs) = natOperationOf hs
+
+||| The loop over an array's index space a definition is, if the registry
+||| knows it as one.
+export
+arrayLoopOf : List Hook -> Maybe ArrayLoop
+arrayLoopOf [] = Nothing
+arrayLoopOf (ArrayLoop l :: _) = Just l
+arrayLoopOf (_ :: hs) = arrayLoopOf hs

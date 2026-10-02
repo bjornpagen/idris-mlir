@@ -4,6 +4,8 @@
 
 #include "Expect/Expect.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+
 #include "llvm/ADT/StringSwitch.h"
 
 using namespace mlir;
@@ -108,6 +110,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("constant-stack", constantStack)
       .Case("counted-loop", countedLoop)
       .Case("word-loop", wordLoop)
+      .Case("pure-array-loops", pureArrayLoops)
       .Default(nullptr);
 }
 

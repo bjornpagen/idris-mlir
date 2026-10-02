@@ -93,6 +93,12 @@ record Region where
   result : Maybe Val
   ops : List Op
 
+||| The yield that ends a loop's body with its value; a body that never
+||| returns has ended in `ub.unreachable` already.
+yielding : Index -> Loc -> Maybe Val -> E (List Op)
+yielding ix l Nothing = pure []
+yielding ix l (Just v) = pure [Line ("idr.yield " ++ v.name ++ " : " ++ !(typeText ix v.type)) (At l)]
+
 ||| A match, from its regions: results when a region yields, and none,
 ||| followed by `ub.unreachable`, when no region returns.
 match : Index -> Loc -> String -> List Region -> E (Maybe Val)
@@ -336,6 +342,35 @@ alg ix own (ResumeF l e) env expected = do
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
   Just <$> value l r ("idr.apply " ++ ev.name ++ "() : " ++ !(typeText ix ev.type))
+-- The two loops over an array's index space: the body is a region taking
+-- the index (and for a fold the accumulator and the element), which yields
+-- the element (the next accumulator); a body that never returns ends in
+-- ub.unreachable, as a match region does.
+alg ix own (ArrayGenF l e n x w body res) env _ = do
+  Just [nv, xv, wv] <- operands ix l env [n, x, w] [Held Many (IntT IdrisInt), Held Many e, Held Many WorldT]
+    | _ => pure Nothing
+  i <- fresh
+  (r, ops) <- collect (plain ix l (body.result (bind [val i (IntT IdrisInt) Plain] env) (Just e)))
+  out <- fresh
+  append (Nest (out ++ ":2 = idr.array.generate " ++ nv.name ++ ", " ++ xv.name ++ ", " ++ wv.name ++
+                " : " ++ !(typeText ix e) ++ " -> " ++ !(typeText ix (ArrayT e)) ++ " (" ++ i ++ ": i64) {")
+               (ops ++ !(yielding ix l r)) "}" (Just (At l)))
+  Just <$> ioResult ix l res (val (out ++ "#0") (ArrayT e) Plain) (val (out ++ "#1") WorldT Plain)
+alg ix own (ArrayFoldF l e t arr z w body res) env _ = do
+  Just [av, zv, wv] <- operands ix l env [arr, z, w] [Held Many (ArrayT e), Held Many t, Held Many WorldT]
+    | _ => pure Nothing
+  acc <- fresh
+  x <- fresh
+  i <- fresh
+  (r, ops) <- collect (plain ix l (body.result (bind [val acc t Plain, val x e Plain, val i (IntT IdrisInt) Plain] env)
+                                              (Just t)))
+  out <- fresh
+  append (Nest (out ++ ":2 = idr.array.fold " ++ av.name ++ ", " ++ zv.name ++ ", " ++ wv.name ++
+                " : " ++ !(typeText ix (ArrayT e)) ++ ", " ++ !(typeText ix t) ++ " -> " ++ !(typeText ix t) ++
+                " (" ++ acc ++ ": " ++ !(typeText ix t) ++ ", " ++ x ++ ": " ++ !(typeText ix e) ++
+                ", " ++ i ++ ": i64) {")
+               (ops ++ !(yielding ix l r)) "}" (Just (At l)))
+  Just <$> ioResult ix l res (val (out ++ "#0") t Plain) (val (out ++ "#1") WorldT Plain)
 alg ix own (UnreachableF l) env _ = do
   statement l "ub.unreachable"
   pure Nothing

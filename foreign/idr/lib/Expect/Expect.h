@@ -101,4 +101,10 @@ mlir::LogicalResult countedLoop(mlir::ModuleOp module, llvm::StringRef function)
 // value in it is a big or a natural (idr-narrow).
 mlir::LogicalResult wordLoop(mlir::ModuleOp module, llvm::StringRef function);
 
+// Every loop over an array (idr.array.generate, idr.array.fold), in the
+// function the argument names or anywhere, has a body that only computes:
+// no count changes, nothing is allocated, nothing is called; and there is
+// at least one.
+mlir::LogicalResult pureArrayLoops(mlir::ModuleOp module, llvm::StringRef function);
+
 } // namespace idr::expect

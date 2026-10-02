@@ -76,13 +76,14 @@ Value elementAt(OpBuilder &b, Location loc, Value cell, Value index, const Eleme
                              LLVM::GEPNoWrapFlags::inbounds);
 }
 
-// The view of an array of words: the descriptor convert-to-llvm reads for
-// a memref of `view`'s type, built over the cell. Its allocated pointer is
-// the cell, which only the runtime frees, through the count; its aligned
-// pointer the first element; its offset 0, its size the length, its stride
-// 1. The cast to the memref meets its inverse in convert-to-llvm.
-Value viewOf(OpBuilder &b, Location loc, Runtime &runtime, MemRefType view, Value cell,
-             Value length) {
+} // namespace
+
+// The descriptor's allocated pointer is the cell, which only the runtime
+// frees, through the count; its aligned pointer the first element; its
+// offset 0, its size the length, its stride 1. The cast to the memref
+// meets its inverse in convert-to-llvm.
+Value arrayView(OpBuilder &b, Location loc, Runtime &runtime, MemRefType view, Value cell,
+                Value length) {
   auto descriptor = MemRefDescriptor::poison(b, loc, runtime.llvmTypeConverter().convertType(view));
   descriptor.setAllocatedPtr(b, loc, cell);
   descriptor.setAlignedPtr(b, loc, elementsOf(b, loc, cell));
@@ -91,6 +92,8 @@ Value viewOf(OpBuilder &b, Location loc, Runtime &runtime, MemRefType view, Valu
   descriptor.setConstantStride(b, loc, 0, 1);
   return UnrealizedConversionCastOp::create(b, loc, view, Value(descriptor)).getResult(0);
 }
+
+namespace {
 
 // The index as memref ops take it.
 Value asIndex(OpBuilder &b, Location loc, Value index) {
@@ -131,7 +134,7 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
     SmallVector<bool> counted = layouts.counted(op.getFill().getType());
     for (auto [i, component] : llvm::enumerate(fill))
       counted[i] = counted[i] && !Runtime::isStatic(component);
-    Value elements = view ? viewOf(rewriter, loc, runtime, view, cell, length) : Value();
+    Value elements = view ? arrayView(rewriter, loc, runtime, view, cell, length) : Value();
     Value lower = arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(0));
     Value upper = asIndex(rewriter, loc, length);
     Value step = arith::ConstantOp::create(rewriter, loc, rewriter.getIndexAttr(1));
@@ -171,7 +174,7 @@ struct LowerArrayGet : IdrPattern<ArrayGetOp> {
     if (std::optional<StringRef> cause = op.getCrashCause())
       checkBounds(rewriter, loc, runtime, array[1], index, *cause);
     if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, layouts)) {
-      Value elements = viewOf(rewriter, loc, runtime, view, array[0], array[1]);
+      Value elements = arrayView(rewriter, loc, runtime, view, array[0], array[1]);
       Value word = memref::LoadOp::create(rewriter, loc, elements, asIndex(rewriter, loc, index));
       rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{word}, SmallVector<Value>{}});
       return success();
@@ -199,7 +202,7 @@ struct LowerArraySet : IdrPattern<ArraySetOp> {
     if (std::optional<StringRef> cause = op.getCrashCause())
       checkBounds(rewriter, loc, runtime, array[1], index, *cause);
     if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, layouts)) {
-      Value elements = viewOf(rewriter, loc, runtime, view, array[0], array[1]);
+      Value elements = arrayView(rewriter, loc, runtime, view, array[0], array[1]);
       memref::StoreOp::create(rewriter, loc, adaptor.getValue().front(), elements,
                               asIndex(rewriter, loc, index));
       rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});

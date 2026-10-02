@@ -513,8 +513,8 @@ def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
 }
 
 def Idr_YieldOp : Idr_Op<"yield", [Pure, ReturnLike, Terminator,
-    ParentOneOf<["MatchOp", "MatchLitOp"]>]> {
-  let summary = "ends a region of a match with its results";
+    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp"]>]> {
+  let summary = "ends a region of a match, or the body of an array loop, with its results";
   let arguments = (ins Variadic<AnyType>:$results);
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
 }
@@ -1201,6 +1201,51 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
   let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)";
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
+    }
+  }];
+}
+
+// The two loops over an array's index space, graded region ops: the body
+// runs once per index, in index order, and what its ops perform the loop
+// performs (RecursiveMemoryEffects). Their elements are machine words (an
+// integer or a float type), which a memref holds and a vector lane
+// computes; the frontend emits them only then, and the library's own
+// definition compiles as written for any other element. Lowering makes
+// each a linalg.generic over the array's memory (Lower/Loops.cc), and a
+// generate whose body is a fold one generic of two dimensions.
+
+// A new array of `size` elements, element `i` the body at `i` (an i64);
+// `fill`, what base's primitive fills the new array with before the body
+// writes it, moves in as array.new's does. A negative size is an empty
+// array.
+def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects]> {
+  let summary = "a new array of the body's value at each index";
+  let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
+  let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);
+  let regions = (region SizedRegion<1>:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
+    }
+  }];
+}
+
+// The elements folded from the left in index order: the body takes the
+// accumulator (`init` first, which moves in), the element (as array.get
+// gives it) and the index (an i64), and yields the next accumulator; the
+// result is the last.
+def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects]> {
+  let summary = "an array folded from the left in index order";
+  let arguments = (ins Idr_ArrayValue:$array, AnyType:$init, Idr_WorldType:$world);
+  let results = (outs AnyType:$result, Idr_WorldType:$next);
+  let regions = (region SizedRegion<1>:$body);
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::MemRefType getArrayType() {

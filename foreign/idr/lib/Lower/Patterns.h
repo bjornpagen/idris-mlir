@@ -15,6 +15,17 @@ namespace idr::lower {
 // unreachable. The structural conversion of scf then takes the types apart.
 void lowerMatches(mlir::ModuleOp module);
 
+// Phase 1 too, after the matches: idr.array.generate and idr.array.fold
+// become linalg.generic over the arrays (Loops.cc).
+void lowerArrayLoops(mlir::ModuleOp module);
+
+// The memref view of an array of words: the descriptor convert-to-llvm
+// reads for a memref of `view`'s type, built over the cell and its length
+// (Arrays.cc). Phase 2 gives it to every legal op that still holds the
+// array.
+mlir::Value arrayView(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
+                      mlir::MemRefType view, mlir::Value cell, mlir::Value length);
+
 // Phase 2: the patterns that convert each idr op and type.
 void populatePatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                       Layouts &layouts, Runtime &runtime);

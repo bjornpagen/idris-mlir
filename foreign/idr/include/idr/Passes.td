@@ -63,7 +63,8 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
     "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
     "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect",
-    "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect"
+    "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect",
+    "::mlir::linalg::LinalgDialect"
   ];
 }
 
@@ -525,12 +526,21 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `constant-stack=@f`: no function @f may call, @f included, is on a
         cycle of references: every recursion from @f became a loop;
       - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
+      - `pure-array-loops`, `pure-array-loops=@f`: every loop over an array
+        (`idr.array.generate`, `idr.array.fold`), anywhere or in @f, has a
+        body that only computes (no count changes, nothing allocated,
+        nothing called), and there is at least one;
       - `folds-balanced`: the folders released every reference they took
         from the runtime, which holds no live cell (on the calling thread,
         so run single-threaded).
   }];
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,
+  ];
+  // quantities-kept parses the module Emit wrote while the pass runs, so
+  // the dialects it may use beyond the program's own are loaded first.
+  let dependentDialects = [
+    "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect", "::mlir::ub::UBDialect"
   ];
 }
 
