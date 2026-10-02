@@ -59,28 +59,10 @@ export
 under : List (VarInfo (Under k a)) -> List (VarInfo a) -> List (VarInfo (Under k a))
 under bound env = bound ++ map (map Free) env
 
-||| Does the term mention `Erased` for the given reason?
-anyErasedAs : (WhyErased (TT vars) -> Bool) -> TT vars -> Bool
-anyErasedAs p tm = go tm
-  where
-    go : TT vs -> Bool
-    go (Erased _ w) = case w of
-      Placeholder => p Placeholder
-      Impossible => p Impossible
-      Dotted _ => False
-    go (Bind _ _ b sc) = go (binderType b) || binderVal b || go sc
-      where
-        binderVal : TTBinder (TT ws) -> Bool
-        binderVal (Let _ _ v _) = go v
-        binderVal (PLet _ _ v _) = go v
-        binderVal _ = False
-    go (App _ f a) = go f || go a
-    go (As _ _ a q) = go q
-    go (TDelayed _ _ t) = go t
-    go (TDelay _ _ t a) = go t || go a
-    go (TForce _ _ t) = go t
-    go (Meta _ _ _ args) = any go args
-    go _ = False
+export
+spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
+spine (App _ fn arg) args = spine fn (arg :: args)
+spine fn args = (fn, args)
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
 export
@@ -170,7 +152,8 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t) = t
-    -- A shape is what is known of the value at compile time.
+    -- A shape is what is known of the value at compile time; its holes
+    -- are the runtime parts (`skeleton`).
     value (Shaped _ _ s) = s
     -- A quantity-0 variable (a length, a proof) is not a runtime value: an
     -- implementation that mentions it (`Foldable (Vect n)`) does not
@@ -206,11 +189,61 @@ solved tm =
        normaliseHoles defs [] tm
      else pure tm
 
+||| The quantities of a definition's parameters, as its type binds them.
+quantities : {auto c : Ref Ctxt Defs} -> Name -> Core (List RigCount)
+quantities n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure []
+  pure (go (type def))
+  where
+    go : TT vs -> List RigCount
+    go (Bind _ _ (Pi _ rig _ _) sc) = rig :: go sc
+    go _ = []
+
+||| Does a written implementation depend on a runtime value: does a part
+||| that stands for one (`Erased` with reason `Impossible`: a runtime
+||| variable, or a part of a runtime value its shape does not say) stand
+||| where a value exists at runtime? A type does not (a binder's type, a
+||| type constructor's arguments), nor does an argument a definition or a
+||| constructor takes with quantity 0, which Idris has checked is never
+||| used at runtime: `Foldable (Vect n)` does not depend on the length
+||| `n`, while `MkBox {v = n}` holds `n` itself.
 export
-runtimeDependent : ClosedTerm -> Bool
-runtimeDependent = anyErasedAs (\w => case w of
-                                        Impossible => True
-                                        _ => False)
+runtimeDependent : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
+runtimeDependent = go
+  where
+    anyM : List (TT vs) -> (TT vs -> Core Bool) -> Core Bool
+    anyM [] f = pure False
+    anyM (x :: xs) f = if !(f x) then pure True else anyM xs f
+
+    mutual
+      go : TT vs -> Core Bool
+      go (Erased _ Impossible) = pure True
+      go (Erased _ (Dotted t)) = go t
+      go (Bind _ _ (Pi {}) _) = pure False
+      go (Bind _ _ (Let _ _ v _) sc) = if !(go v) then pure True else go sc
+      go (Bind _ _ (PLet _ _ v _) sc) = if !(go v) then pure True else go sc
+      go (Bind _ _ _ sc) = go sc
+      go (TDelay _ _ _ arg) = go arg
+      go (TForce _ _ t) = go t
+      go (As _ _ _ p) = go p
+      go (Meta _ _ _ args) = anyM args go
+      go tm@(App {}) = applied (spine tm [])
+      go _ = pure False
+
+      applied : (TT vs, List (TT vs)) -> Core Bool
+      applied (Ref _ (TyCon _) _, _) = pure False
+      applied (Ref _ _ n, args) = do
+        qs <- quantities n
+        arguments (map isErased qs) args
+      applied (f, args) = anyM (f :: args) go
+
+      -- An argument past the parameters the type shows is taken as runtime.
+      arguments : List Bool -> List (TT vs) -> Core Bool
+      arguments _ [] = pure False
+      arguments (True :: es) (_ :: as) = arguments es as
+      arguments es (a :: as) = if !(go a) then pure True else arguments (drop 1 es) as
 
 ||| The normal form of a closed term, every definition unfolded as in
 ||| `closeNormalise`.
@@ -271,11 +304,6 @@ export
 showTT : ClosedTerm -> String
 showTT = show
 
-export
-spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
-spine (App _ fn arg) args = spine fn (arg :: args)
-spine fn args = (fn, args)
-
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an
 ||| erased part) says nothing of the value.
@@ -288,11 +316,14 @@ shapeHead tm = case spine tm [] of
 ||| The shape of a term as written: the constructors it is built with,
 ||| everything else erased, and nothing when its head is no constructor.
 ||| Nothing is evaluated: a constant, a variable or a call says nothing.
+||| What the shape does not say is a part of a runtime value, so a hole
+||| has the reason `Impossible`, as a runtime variable has in the written
+||| form: `runtimeDependent` refuses it wherever a value is needed.
 export
 skeleton : ClosedTerm -> Maybe ClosedTerm
 skeleton tm = case spine tm [] of
   (con@(Ref fc (DataCon _ _) _), args) =>
-    Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Placeholder) (skeleton a)) args))
+    Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Impossible) (skeleton a)) args))
   _ => Nothing
 
 ||| A runtime value of a type with what its shape says, if anything.

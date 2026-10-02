@@ -123,7 +123,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
          let (Just v, vals') = nextStatic vals
            | _ => reject fc owner StaticArgument "an implementation that is not known statically"
          val <- v.written
-         when (runtimeDependent val) $
+         when !(runtimeDependent val) $
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ showTT val)
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
          pure (DictParam val :: rest, res)
