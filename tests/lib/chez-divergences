@@ -6,3 +6,4 @@
 # chez-differs and holds what Chez prints in chez-stdout (chez_agrees).
 put-char-utf8 A Char is a Unicode scalar value, so putChar writes its UTF-8 encoding; Chez passes it to C's putchar, which writes its low byte, so from 128 on the bytes differ.
 utf8-maximal-subparts Input that is not well-formed UTF-8 decodes as the Unicode Standard recommends, one U+FFFD for each maximal subpart, the longest prefix of a well-formed sequence or else one byte: an overlong C0 80 is two and an encoded surrogate ED A0 80 three; Chez's decoder replaces each such sequence with one U+FFFD.
+getline-carriage-return getLine reads a line without its end, as the Prelude documents it: the '\n' that ends it, as POSIX reads text, or the "\r\n" of text written elsewhere, so a '\r' anywhere else stays in the line; upstream's C support (idris2_getStr), which Chez and RefC both call, cuts the line at its first '\r'.

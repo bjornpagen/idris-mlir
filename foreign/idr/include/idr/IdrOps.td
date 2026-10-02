@@ -1094,9 +1094,9 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 }
 
 // A line of input without its end (the Prelude's getLine): the bytes up to
-// the first carriage return or newline, consumed through the newline; the
-// empty string at the end of input. A new string, allocated like a
-// builder's.
+// the next newline, which is consumed, without it or a carriage return
+// right before it, decoded as UTF-8 (idris_rt_io_get_line); the empty
+// string at the end of input. A new string, allocated like a builder's.
 def Idr_GetLineOp : Idr_IOOp<"get_line"> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);

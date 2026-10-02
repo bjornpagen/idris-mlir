@@ -272,10 +272,11 @@ int64_t idris_rt_str_bytes_length(const idris_rt_str *s);
 int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
-/* A line of input without its end: the bytes up to the first '\r' or
- * '\n', consumed through the '\n', as the stock idris2_getStr cuts them;
- * the empty string at the end of input. The bytes are decoded as
- * idris_rt_str_from_bytes decodes them. A new string. */
+/* A line of input without its end, the Prelude's getLine: the bytes up to
+ * the next '\n', which is consumed, without that '\n' or the "\r\n" it
+ * ends; the rest of the input when no '\n' is left, and the empty string at
+ * the end of input. The bytes are decoded as idris_rt_str_from_bytes
+ * decodes them. A new string. */
 const idris_rt_str *idris_rt_io_get_line(void);
 /* Bytes [offset, offset + count) of a byte array to a standard stream:
  * handle 1 is standard output, through the output buffer and in order with

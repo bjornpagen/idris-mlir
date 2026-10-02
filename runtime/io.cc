@@ -177,17 +177,18 @@ extern "C" int32_t idris_rt_io_get_byte(void) {
   return b;
 }
 
+// A line ends at '\n', as POSIX reads text, or at the "\r\n" that ends the
+// lines of text written elsewhere; a '\r' anywhere else is the line's own.
 extern "C" const idris_rt_str *idris_rt_io_get_line(void) {
   Line line;
-  bool cut = false;
   for (int32_t b = peek(); b >= 0; b = peek()) {
     ++inputPosition;
-    if (b == '\n')
+    if (b == '\n') {
+      if (line.length > 0 && line.bytes[line.length - 1] == '\r')
+        --line.length;
       break;
-    if (b == '\r')
-      cut = true;
-    if (!cut)
-      line.push(static_cast<char>(b));
+    }
+    line.push(static_cast<char>(b));
   }
   return idris_rt_str_from_bytes(line.bytes, line.length);
 }

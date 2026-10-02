@@ -64,3 +64,20 @@ A primitive's meaning comes from, in this order:
   - `tests/toolchain/runtime-api`: the Unicode Standard's example of
     U+FFFD in UTF-8 conversion, and more;
   - `tests/programs/io/prelude-getline`.
+
+### getLine's line end: the Prelude, POSIX
+
+- **Authority:** the Prelude documents getLine as one line "without the
+  trailing newline". POSIX ends a line at `'\n'`.
+- **Ours:** a `"\r\n"` ending is removed whole too, since text written
+  elsewhere ends its lines so.
+- **Was:** the line cut at its first `'\r'` anywhere, so `wor\rld` read
+  as `wor`. That comes from upstream's C support (`idris2_getStr` in
+  `support/c/idris_support.c`): it nulls every `'\r'` and `'\n'`, though
+  its own comment says it removes the trailing newline. Chez and RefC both
+  call it. Node's getLine keeps the `'\n'`.
+- **Now:** only a trailing `'\n'` or `"\r\n"` is removed. A line at the end
+  of input without one is read whole.
+- **Divergence:** `getline-carriage-return`, from both upstream C-backed
+  backends.
+- **Test:** `tests/programs/io/prelude-getline`.
