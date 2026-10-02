@@ -71,13 +71,15 @@ chooser = do
 
 ||| A construction site gives field `i` of a constructor the implementation
 ||| `impl`: the one the field holds, if no site gave another. Two sites of
-||| one constructor agree when their implementations are one term, by the
-||| same comparison that makes two calls one function instance.
+||| one constructor agree when their implementations are one, by what each
+||| reduces to (`implementationOf`), not as written: Data.SortedMap's
+||| `Monoid` takes the map's `Ord k` as the first of a pair of constraints,
+||| where `fromList`'s caller names it directly.
 export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    FC -> String -> ConId -> ClosedTerm -> Nat -> ClosedTerm -> Core ()
 recordDictionary fc owner cid ty i impl = do
-  impl' <- toFullNames impl
+  impl' <- toFullNames !(implementationOf 64 impl)
   chosen <- chooser
   let site = maybe fc snd chosen
   let by = maybe owner (show . fst) chosen

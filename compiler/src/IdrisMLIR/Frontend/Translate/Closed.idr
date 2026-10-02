@@ -253,39 +253,102 @@ normaliseClosed tm = do
   defs <- get Ctxt
   normaliseAll defs [] tm
 
-||| The constructor a compile-time value reduces to, with its arguments. An
-||| implementation is a definition with one right-hand side, so it is
-||| unfolded by substituting its arguments, keeping the rest as written;
-||| anything else goes to Idris's normaliser.
-export
-whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
-whnf Z tm = pure Nothing
-whnf (S fuel) tm = case spineC tm [] of
-  (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
-  (Ref _ _ n, args) => do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
-      | Nothing => pure Nothing
-    case definition def of
-      PMDef _ pargs (STerm _ body) _ _ =>
-        if length args < length pargs then pure Nothing
-        else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
-                                (drop (length pargs) args))
-      _ => normalised
-  (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
-  (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
-  _ => normalised
-  where
-    spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
-    spineC (App _ f a) as = spineC f (a :: as)
-    spineC f as = (f, as)
-    normalised : Core (Maybe (Name, List ClosedTerm))
-    normalised = do
+||| A projection: a definition that matches one of its parameters against
+||| one constructor and returns one of that constructor's arguments, as
+||| `fst` and an interface's parents and methods do. Its arity, the
+||| position of the parameter, the constructor, and the position of the
+||| argument.
+projection : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (Nat, Nat, Name, Nat))
+projection n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure Nothing
+  pure (case definition def of
+          PMDef _ pargs (Case idx _ _ [ConCase cn _ cargs (STerm _ (Local _ _ k _))]) _ _ =>
+            if k < length cargs then Just (length pargs, idx, cn, k) else Nothing
+          _ => Nothing)
+
+mutual
+  ||| The constructor a compile-time value reduces to, with its arguments.
+  ||| An implementation is a definition with one right-hand side, so it is
+  ||| unfolded by substituting its arguments, keeping the rest as written,
+  ||| whatever its visibility: one its module exports without its
+  ||| definition is a module boundary, not a value. Anything else goes to
+  ||| Idris's normaliser, which stops at such an implementation: a
+  ||| projection it leaves takes its field from the constructor the record
+  ||| reduces to here.
+  export
+  whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
+  whnf Z tm = pure Nothing
+  whnf (S fuel) tm = case spineC tm [] of
+    (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
+    (Ref _ _ n, args) => do
       defs <- get Ctxt
-      tm' <- normalise defs [] tm
-      pure (case spineC tm' [] of
-              (Ref _ (DataCon _ _) n, args) => Just (n, args)
-              _ => Nothing)
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure Nothing
+      case definition def of
+        PMDef _ pargs (STerm _ body) _ _ =>
+          if length args < length pargs then pure Nothing
+          else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
+                                  (drop (length pargs) args))
+        _ => do
+          Nothing <- normalised
+            | found => pure found
+          Just field <- projected fuel n args
+            | Nothing => pure Nothing
+          whnf fuel field
+    (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
+    (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
+    _ => normalised
+    where
+      spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
+      spineC (App _ f a) as = spineC f (a :: as)
+      spineC f as = (f, as)
+      normalised : Core (Maybe (Name, List ClosedTerm))
+      normalised = do
+        defs <- get Ctxt
+        tm' <- normalise defs [] tm
+        pure (case spineC tm' [] of
+                (Ref _ (DataCon _ _) n, args) => Just (n, args)
+                _ => Nothing)
+
+  ||| A projection applied to arguments, when it applies to all of them: the
+  ||| field it takes from the constructor its record reduces to, applied to
+  ||| the arguments past the projection's own.
+  projected : {auto c : Ref Ctxt Defs} -> Nat -> Name -> List ClosedTerm -> Core (Maybe ClosedTerm)
+  projected fuel n args = do
+    Just (arity, idx, cn, k) <- projection n
+      | Nothing => pure Nothing
+    let True = length args >= arity
+      | False => pure Nothing
+    let Just whole = getAt idx args
+      | Nothing => pure Nothing
+    Just (built, fields) <- whnf fuel whole
+      | Nothing => pure Nothing
+    let Just field = getAt k fields
+      | Nothing => pure Nothing
+    if !(toFullNames built) /= !(toFullNames cn)
+       then pure Nothing
+       else pure (Just (foldl (App EmptyFC) field (drop arity args)))
+
+||| The implementation a written one stands for, so that two are compared
+||| by what they are: the name of an implementation applied to its
+||| arguments, each of them an implementation reduced in turn, once what
+||| leads to it is reduced: a projection of a constructor's argument (an
+||| implementation's constraints, which Idris passes as one tuple, taken
+||| apart with `fst` and `snd`; a parent taken from an implementation), a
+||| `let`, an applied lambda. The implementation itself is not unfolded.
+export
+implementationOf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core ClosedTerm
+implementationOf Z tm = pure tm
+implementationOf (S fuel) tm = case spine tm [] of
+  (Bind _ _ (Lam {}) sc, a :: as) => implementationOf fuel (betaAll (subst a sc) as)
+  (Bind fc _ (Let _ _ v _) sc, as) => implementationOf fuel (foldl (App fc) (subst v sc) as)
+  (f@(Ref fc _ n), args) => do
+    Just field <- projected fuel n args
+      | Nothing => foldl (App fc) f <$> traverse (implementationOf fuel) args
+    implementationOf fuel field
+  _ => pure tm
 
 ||| Which arguments of a constructor are erased, by position.
 export
