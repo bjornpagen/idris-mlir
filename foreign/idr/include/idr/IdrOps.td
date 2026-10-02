@@ -1093,34 +1093,36 @@ def Idr_GetLineOp : Idr_IOOp<"get_line"> {
   let assemblyFormat = "$world attr-dict custom<StrResult>(type($str))";
 }
 
-// Bytes of a buffer (an array of i8) to a standard stream's handle: 1 is
-// standard output, through the output buffer and in order with every
-// other write to it; 2 is standard error; any other handle writes nothing
-// and gives 0, as C's fwrite to a stream not open for writing. The range
-// must lie in the buffer, else the program crashes. Gives the count
-// written.
-def Idr_WriteBytesOp : Idr_IOOp<"write_bytes"> {
+// A transfer of the bytes [offset, offset + count) of a buffer (an array of
+// i8) between it and a standard stream's handle. The range must lie in the
+// buffer, else the program crashes (the runtime's check, in the function
+// the op calls), so the op's effects are its own, as the array ops' are:
+// the IO resource, and the crash.
+class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
+    [Idr_PerformsIO, Idr_CallsRuntime,
+     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+     DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>]> {
   let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
                        Idr_WorldType:$world);
-  let results = (outs I64:$written, Idr_WorldType:$next);
   let assemblyFormat = [{
     $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
   }];
   let hasVerifier = 1;
 }
 
+// Bytes of a buffer to a standard stream's handle: 1 is standard output,
+// through the output buffer and in order with every other write to it; 2
+// is standard error; any other handle writes nothing and gives 0, as C's
+// fwrite to a stream not open for writing. Gives the count written.
+def Idr_WriteBytesOp : Idr_IOTransferOp<"write_bytes"> {
+  let results = (outs I64:$written, Idr_WorldType:$next);
+}
+
 // Bytes from a standard stream's handle into a buffer: 0 is standard
 // input, giving the count read, 0 at the end of input, which it then
-// records (idr.io.eof); any other handle reads nothing and gives 0. The
-// range must lie in the buffer, else the program crashes.
-def Idr_ReadBytesOp : Idr_IOOp<"read_bytes"> {
-  let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
-                       Idr_WorldType:$world);
+// records (idr.io.eof); any other handle reads nothing and gives 0.
+def Idr_ReadBytesOp : Idr_IOTransferOp<"read_bytes"> {
   let results = (outs I64:$read, Idr_WorldType:$next);
-  let assemblyFormat = [{
-    $handle `,` $buffer `[` $offset `,` $count `]` `,` $world attr-dict `:` type($buffer)
-  }];
-  let hasVerifier = 1;
 }
 
 // 1 once a read on the handle met the end of input, as C's feof reports

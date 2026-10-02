@@ -1092,6 +1092,41 @@ template <typename OpT> LogicalResult verifyByteBuffer(OpT op) {
 LogicalResult WriteBytesOp::verify() { return verifyByteBuffer(*this); }
 LogicalResult ReadBytesOp::verify() { return verifyByteBuffer(*this); }
 
+namespace {
+
+// What an op on a buffer or an array does besides computing: IO in the
+// world's order, a crash where its range or index may be out of bounds,
+// and for a new array an allocation.
+void ioEffects(std::optional<StringRef> crash, Value allocated,
+               SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+  if (crash)
+    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+  if (allocated)
+    effects.emplace_back(MemoryEffects::Allocate::get(), cast<OpResult>(allocated),
+                         SideEffects::DefaultResource::get());
+}
+
+// The range is what the program computed, so it may lie outside the
+// buffer; the runtime checks it in the function the op calls, and crashes
+// with this message.
+constexpr StringRef outsideBuffer = "a byte range outside the buffer";
+
+} // namespace
+
+std::optional<StringRef> WriteBytesOp::getCrashCause() { return outsideBuffer; }
+std::optional<StringRef> ReadBytesOp::getCrashCause() { return outsideBuffer; }
+
+void WriteBytesOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  ioEffects(getCrashCause(), Value(), effects);
+}
+void ReadBytesOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  ioEffects(getCrashCause(), Value(), effects);
+}
+
 // The cons constructor of a list the string builders walk: `list` is a box
 // of two constructors, a nil without fields and a cons of an `element` and
 // the list itself; null, with an error at `op`, for any other type.
@@ -1264,20 +1299,6 @@ LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType
   return success();
 }
 
-// What an array op does besides computing: IO in the world's order, a
-// crash where its index may be out of bounds, and for a new array an
-// allocation.
-void arrayEffects(std::optional<StringRef> crash, Value allocated,
-                  SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
-  if (crash)
-    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
-  if (allocated)
-    effects.emplace_back(MemoryEffects::Allocate::get(), cast<OpResult>(allocated),
-                         SideEffects::DefaultResource::get());
-}
-
 // An index is a value the program computed, so it may be out of bounds;
 // the check against the length (memref.dim) that the program's own test
 // made redundant folds away after lowering.
@@ -1316,15 +1337,15 @@ std::optional<StringRef> ArraySetOp::getCrashCause() { return outOfBounds; }
 
 void ArrayNewOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  arrayEffects(getCrashCause(), getArray(), effects);
+  ioEffects(getCrashCause(), getArray(), effects);
 }
 void ArrayGetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  arrayEffects(getCrashCause(), Value(), effects);
+  ioEffects(getCrashCause(), Value(), effects);
 }
 void ArraySetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  arrayEffects(getCrashCause(), Value(), effects);
+  ioEffects(getCrashCause(), Value(), effects);
 }
 
 namespace {
@@ -1474,9 +1495,9 @@ LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,
 // new array; its body's ops carry theirs (RecursiveMemoryEffects).
 void ArrayGenerateOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  arrayEffects(getCrashCause(), getArray(), effects);
+  ioEffects(getCrashCause(), getArray(), effects);
 }
 void ArrayFoldOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  arrayEffects(getCrashCause(), Value(), effects);
+  ioEffects(getCrashCause(), Value(), effects);
 }
