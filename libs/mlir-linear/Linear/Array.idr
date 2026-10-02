@@ -113,7 +113,9 @@ isize (MkIArray arr) = prim__arraySize arr
 prim__generate : forall a . (n : Int) -> (Int -> a) -> PrimIO (ArrayData a)
 prim__generate n f w =
   case prim__newArray (max 0 n) (f 0) w of
-    MkIORes arr w1 => go arr (integerToNat (cast (n - 1))) 1 w1
+    -- The elements after the first, counted in Integer: as an Int, n - 1
+    -- would wrap at the least Int, to the greatest.
+    MkIORes arr w1 => go arr (integerToNat (cast n - 1)) 1 w1
   where
     go : ArrayData a -> Nat -> Int -> PrimIO (ArrayData a)
     go arr Z i w = MkIORes arr w
