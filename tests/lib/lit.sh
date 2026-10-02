@@ -35,22 +35,25 @@ lit_status() {
 }
 
 # lit_cc ARG... (`%cc`): the pinned C compiler, which links a program with
-# the libraries every program needs, as tools/compile.sh links one: GMP,
-# since the runtime frees a big's limbs.
+# what every program needs, as tools/compile.sh links one: the runtime
+# idris-mlir-cc reads, where what a program did not inline resolves, and
+# GMP, since the runtime frees a big's limbs.
 lit_cc() {
-  bounded "$pinned_cc" "$@" -lgmp
+  bounded "$pinned_cc" "$@" "$("$idris_mlir_cc" --print-runtime)" -lgmp
 }
 
 # lit FILE: the `// RUN:` lines of a dialect test, run as lit's internal
 # shell ran them, with no lit and no Python: %s is FILE, %t a path in the
 # work directory, %cc the pinned C compiler linking a program as the chain
-# does (lit_cc), and `%status N CMD` checks that
-# CMD exits with status N. A line fails when any command of its pipelines
-# fails (pipefail); a trailing \ continues it on the next RUN line.
-# idris-mlir-opt, idris-mlir-cc and the pinned LLVM's FileCheck, not and
-# count come first on PATH, and `echo -n` omits the newline.
+# does (lit_cc), %runtime the runtime object idris-mlir-cc reads and every
+# program links, and `%status N CMD` checks that CMD exits with status N. A
+# line fails when any command of its pipelines fails (pipefail); a trailing
+# \ continues it on the next RUN line. idris-mlir-opt, idris-mlir-cc and the
+# pinned LLVM's FileCheck, not and count come first on PATH, and `echo -n`
+# omits the newline.
 lit() {
   lit_file=$(cd "$(dirname "$1")" && pwd)/${1##*/}
+  lit_runtime=$("$idris_mlir_cc" --print-runtime)
   sed -n 's/^[[:space:]]*\/\/[[:space:]]*RUN:[[:space:]]*//p' "$lit_file" |
     awk '{ sub(/[ \t]+$/, "") }
          /\\$/ { sub(/\\$/, ""); joined = joined $0; next }
@@ -64,6 +67,7 @@ lit() {
     lit_command=$(printf '%s\n' "$lit_line" | sed \
       -e "s|%status|lit_status|g" \
       -e "s|%cc|lit_cc|g" \
+      -e "s|%runtime|$(sed_escape "$lit_runtime")|g" \
       -e "s|%s|$(sed_escape "$lit_file")|g" \
       -e "s|%t|$(sed_escape "$work/t")|g" \
       -e 's/ | / | lit_stage /g' \

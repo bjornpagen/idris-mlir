@@ -96,7 +96,8 @@ outcome() {
     return
   fi
   if ! bounded "$pinned_cc" --target="$("$idris_mlir_cc" --print-target-triple)" -fuse-ld=lld -static-pie \
-      -Wl,--gc-sections -Wl,--icf=all "$work/$outcome_name.o" -o "$work/$outcome_name" -lgmp \
+      -Wl,--gc-sections -Wl,--icf=all "$work/$outcome_name.o" "$("$idris_mlir_cc" --print-runtime)" \
+      -o "$work/$outcome_name" -lgmp \
       > "$work/$outcome_name.ld" 2>&1; then
     printf 'the link fails\n' > "$work/$outcome_name.outcome"
     return

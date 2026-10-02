@@ -1,36 +1,16 @@
 // RUN: idris-mlir-cc %s -o %t.o
-// RUN: llvm-nm --undefined-only --format=just-symbols %t.o | FileCheck %s --check-prefix=EXT
+// RUN: llvm-nm --no-llvm-bc --format=just-symbols %runtime | sort -u > %t.runtime
+// RUN: llvm-nm --undefined-only --format=just-symbols %t.o | sort -u | comm -23 - %t.runtime | count 0
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "xy" | %t > %t.out
 // RUN: FileCheck %s < %t.out
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input as bytes, then 255 at the end. The object
-// needs nothing but write and read; getenv, which asks at exit whether to
-// report the cells still live; and what the runtime's entry uses: the
-// processor's features (compiler-rt's __cpu_*), and the reserved stack the
-// program runs on (address space, a thread, a signal handler), which
-// IDRIS_RT_STACK may size.
-// EXT: __cpu_features2
-// EXT-NEXT: __cpu_indicator_init
-// EXT-NEXT: __cpu_model
-// EXT-NEXT: _exit
-// EXT-NEXT: getenv
-// EXT-NEXT: getrlimit
-// EXT-NEXT: mmap
-// EXT-NEXT: mprotect
-// EXT-NEXT: munmap
-// EXT-NEXT: pthread_attr_destroy
-// EXT-NEXT: pthread_attr_init
-// EXT-NEXT: pthread_attr_setstack
-// EXT-NEXT: pthread_create
-// EXT-NEXT: pthread_join
-// EXT-NEXT: read
-// EXT-NEXT: sigaction
-// EXT-NEXT: sigaltstack
-// EXT-NEXT: sigemptyset
-// EXT-NEXT: sysconf
-// EXT-NEXT: write
-// EXT-NOT: {{.}}
+// needs nothing the runtime does not define or need itself: the runtime's
+// bodies it did not inline resolve in the runtime object on the link line,
+// and the bodies it did inline call what that object calls too (write and
+// read, say), nothing of its own. What the runtime needs of the C library
+// is stated once, by tests/toolchain/runtime-prepared.
 // CHECK: hello x y
 // CHECK-NEXT: -42 65535 255 1.5 1e22 +inf.0
 module attributes {idr.program} {
