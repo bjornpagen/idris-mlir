@@ -18,11 +18,15 @@
 # .toolchain/lean (bench/toolchains.sh fetches them) and then on PATH. A
 # missing compiler is reported and skipped.
 # Times come from GNU date's nanoseconds. The Idris environment is the
-# Makefile's. Every build and run is killed after 300 seconds times
-# IDRIS_MLIR_TIME_SCALE, and a benchmark that times out fails.
+# Makefile's, set here too, so that a direct run builds against this
+# checkout's libs/ (`make build` makes its prefix). Every build and run is
+# killed after 300 seconds times IDRIS_MLIR_TIME_SCALE, and a benchmark
+# that times out fails.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
+unset IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
+export IDRIS2_PREFIX="$checkout_prefix"
 bench=$root/bench
 labels='this compiler|Idris Chez|MLton|clang -O2|Koka|Lean 4'
 
