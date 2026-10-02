@@ -1,10 +1,7 @@
 # Findings
 
-Unstructured notes from reading the code, the research sources and the
-generated code, on how to improve idris-mlir. One markdown file per stream or
-topic; anything goes: evidence, half-formed ideas, open questions. Nothing
-here is a specification or a plan: the code is the specification, and a
-finding becomes work only when a plan picks it up.
-
-Cite what a claim rests on (file:line, a paper and section, an IR dump or an
-assembly excerpt), and say when it is conjecture.
+Decisions the user took, each in one note (`decision-*.md`), and research
+notes for work not yet planned (`simd.md`). Nothing here is a specification:
+the code is, and a note becomes work only when a plan picks it up. The
+research streams behind the 2026-09 redesign were removed once their work
+landed; `git log -- findings` has them.

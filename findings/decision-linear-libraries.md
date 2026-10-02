@@ -25,7 +25,7 @@ by `decision-inhouse-linear.md`: the compiler ships its own linear library
   `prim__arrayGet`, `prim__arraySet`, and the Buffer ones) gets its one
   meaning in the registry, as array ops on the tensor → bufferization →
   memref path. Then contrib's `LinArray` and `Data.IOArray` compile as
-  they are. Package-keyed trust (findings/linear-libs.md R2) and the `-@`
+  they are. Package-keyed trust (the linear-libs research stream, R2) and the `-@`
   constructor fix (R1) are prerequisites.
 - **Revisit** only if upstream does not fix the signature and users need
   the escape rejected by Idris's own type checker. Then a small in-repo

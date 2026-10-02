@@ -51,69 +51,25 @@ That promise, more than dependent types alone, is why this compiler exists.
 
 ## What compiles today
 
-Values that remain at runtime after the pipeline (inlining, known
-constructors, case-of-case, specialization, compile-time evaluation of
-closed calls, defunctionalization) live in cells on the heap, with
-explicit reference counts: `idr-rc` reuses the cell of a value that dies
-for a constructor of the same size, borrows the parameters a function only
-reads, and adds each increment and decrement, and the verifier checks
-after every later pass that every reference is consumed exactly once on
-every path. Cells that never leave their frame are on the stack. Run with
-`IDRIS_RT_LIVE=1`, a program reports on standard error how many cells are
-still live when it ends: none.
-- **v0:** programs over machine values alone, which never allocate:
-  fixed-width integers, non-recursive data types and records, recursion,
-  erased arguments. Self tail calls become loops.
-- **v1:** `main : IO ()` programs over several modules: `do`,
-  `putStr`/`putStrLn`/`putChar`/`getChar`/`getLine` (the Prelude's), `Char`,
-  static strings, lambdas, higher-order and polymorphic functions, and user
-  monads written with plain functions. For input and output the executable
-  references only `write`, `read` and `_exit`; its entry runs the program
-  on a reserved stack of a gibibyte, so a recursion that exhausts it ends
-  with `idris-mlir: stack exhausted` after the output written so far.
-- **v2:** user-defined interfaces (superclasses, defaults, named and
-  constrained implementations, higher-kinded ones such as a user `Monad`
-  with `do`), resolved at compile time; `Double` with Chez's semantics and
-  shortest round-trip printing; libm functions. See
-  [the math showcase](tests/e2e/v2/math-showcase) for what that allows.
-
-- **v3:** the stock Prelude, imported explicitly by IO programs and used
-  the ordinary way: `Num`, `Neg`, `Fractional`, `Integral`, `Eq`, `Ord`,
-  `Show` (on `Int`, `Double`, `Bool`, `Maybe`, pairs and user types),
-  `Maybe`, `Either`, `if`, `cast`, `getChar`/`putStr`/`printLn`, lists and
-  ranges with `Foldable` (`sum`, `product`, folds, `map`, `for_`,
-  `traverse_`). `Integer`, `Nat`, lists and streams have runtime
-  representations, built at runtime on the heap; a `Nat` is a big integer
-  that is never negative, and the Prelude's arithmetic and comparisons on
-  it are the runtime's, as in Idris's own backends
-  ([naturals](tests/registry/nat-operations)); a closed call is
-  evaluated at compile time, and its result is static data. Base's
-  `IOArray` is an array cell read and written through the world, and its
-  `Buffer` an array of bytes ([buffers](tests/e2e/v3/buffer-bytes));
-  `System.File` reaches the standard streams: `stdin`, `stdout` and
-  `stderr` are the handles, `readBufferData` and `writeBufferData` move
-  bytes, `fEOF` says whether a read met the end of input
-  ([bytes](tests/e2e/v3/file-bytes-echo),
-  [lines](tests/e2e/v3/file-lines-eof)). The pure
-  parts of the base library (`-p base`) are trusted too: length-indexed
-  vectors (`Data.Vect`), with their indices at compile time only. See
-  [vectors](tests/e2e/v3/vect),
-  [complex numbers through the Prelude](tests/e2e/v3/prelude-math).
-
-On the programs of the benchmarks, the output is faster than MLton's
-on seven of the eight benchmarks in [bench/](bench/README.md), by 1.4x to
-4.3x (and 32x where call-pattern specialization removes most of the work),
-and within reach of clang -O2. On deep non-tail recursion with no constant
-argument (`ackdyn`), MLton is 2.3x faster.
+Idris 2 programs over the stock Prelude and base, with `main : IO ()`,
+imported explicitly (`--no-prelude` plus `import Prelude`): interfaces
+resolved at compile time, `Integer`, `Nat`, `Double`, strings, lists,
+`Data.Vect`, base's `IOArray` and `Buffer`, and `System.File` on the
+standard streams. Linear arrays and lists come from the compiler's own
+`libs/mlir-linear`, plain Idris the stock backend runs unchanged. Values
+that remain after the pipeline live in counted cells: `idr-rc` reuses the
+cell of a value that dies, borrows what a function only reads, and the
+verifier checks after every pass that every reference is consumed exactly
+once; cells that never leave their frame are on the stack. With
+`IDRIS_RT_LIVE=1` a program reports how many cells are live when it ends:
+none. What the compiler cannot compile it rejects with a named rule
+(`unsupported (<rule>)`), never miscompiles. The measurements are in
+[bench/](bench/README.md).
 
 ```sh
 idris-mlir --no-prelude --cg mlir -o prog Main.idr
 make compile SRC=Main.idr OUT=prog
 ```
-
-The Prelude is imported explicitly (`--no-prelude` plus `import Prelude`);
-a program that needs a heap (a list whose length is known only at runtime,
-a string built at runtime and kept) is rejected with the rule it breaks.
 
 ## Setup
 
