@@ -414,8 +414,6 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
     Option<"inlineIterations", "inline-iterations", "unsigned", "0",
            "max-iterations of the inliner in each round; 0, the default, "
            "until an iteration inlines nothing">,
-    Option<"cloneLimit", "clone-limit", "unsigned", "4096",
-           "clone-limit of idr-specialize">,
     Option<"maxRounds", "max-rounds", "unsigned", "64",
            "The round budget: the most rounds a fixpoint may take">,
   ];
