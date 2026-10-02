@@ -157,10 +157,12 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<idr::IdrDialect>();
-    // The one memref op of the contract: an array's length (Arrays.cc).
-    target.addIllegalOp<memref::DimOp>();
     target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
-                           cf::ControlFlowDialect>();
+                           cf::ControlFlowDialect, memref::MemRefDialect>();
+    // The one memref op of the contract, an array's length, becomes the
+    // length beside the cell; the loads and stores the lowering itself makes
+    // on an array's view stay for convert-to-llvm (Arrays.cc).
+    target.addIllegalOp<memref::DimOp>();
     target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp, func::CallIndirectOp,
                       func::ConstantOp>();
     // The declarations are erased after the conversion.

@@ -116,6 +116,8 @@ target_link_libraries(idr_dialect
 		MLIRSideEffectInterfaces
 		MLIRSCFToControlFlow
 		MLIRConvertToLLVMPass
+		# The memref descriptor an array's view is (Lower/Arrays.cc).
+		MLIRLLVMCommonConversion
 		MLIRReconcileUnrealizedCasts
 		MLIRTargetLLVMIRExport
 		MLIRTargetLLVMIRTransforms

@@ -63,7 +63,7 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
     "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
     "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect",
-    "::mlir::math::MathDialect"
+    "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect"
   ];
 }
 
