@@ -97,13 +97,29 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   Idris. The C stays as written. The Idris compiles to the loop's loads and
   stores and nothing else.
 - **fannkuch-redux** (`IOArray`) against **fannkuch-linear**: the same
-  loops, about 3x apart. The `IOArray` version pays Idris's own range test
-  before the compiler's, a `Maybe` tag per element and the IO monad's
-  plumbing; the linear version is filled at creation and proved exclusive,
-  so its loops are loads and stores with no count changed and nothing
-  allocated (the `linarray-*` fixtures state those properties). There is
-  no copying array to turn off: a linear array is mutable by construction
-  on every backend. What can be turned off is each compiler mechanism:
+  loops. The table's 3x was the simplify loop's, not the program's:
+  inlining base's `readArray` and `writeArray` left each index's range
+  test nested in the regions of the same test made for the read before
+  it, where nothing folded it, so every test doubled the continuation
+  after it, the IO binds on the out-of-bounds paths stayed closures built
+  and applied, and the loops became code LLVM would not inline (`rev` was
+  a thousand lines after the loop, the linear `rev` 33). A match now
+  knows the case of an enclosing match on its value (2026-10-02), and
+  both compile to the loops' loads and stores: in one run after the
+  change, 0.397 s against the linear version's 0.245 s and C's 0.591 s
+  (1.49x and 2.42x of C). What remains is base's representation: an
+  `IOArray` holds `Maybe elem` cells, an unboxed tag beside each `Int` at
+  a stride of 16 bytes, so every read loads and tests a tag and every
+  write stores one. The same program over the raw primitive takes the
+  same time with Idris's range tests (0.253 s) as without (0.256 s), and
+  with the `Maybe` cells alone 0.314 s: the tags are the whole remaining
+  gap, the range tests nothing measurable, and `Int` has no spare value
+  for `Nothing` that a layout could use. The linear version is filled at
+  creation and proved exclusive, so its loops are loads and stores with no
+  count changed and nothing allocated (the `linarray-*` and
+  `ioarray-fannkuch` fixtures state those properties). There is no
+  copying array to turn off: a linear array is mutable by construction on
+  every backend. What can be turned off is each compiler mechanism:
 - **Ablation.** `idris-mlir-cc --without=STEP,...` (or `--directive
   without=STEP,...` through `idris-mlir`) leaves pipeline steps out, or
   idr-rc's mechanisms (`reuse`, `borrow`, `sink`). fannkuch-linear and
