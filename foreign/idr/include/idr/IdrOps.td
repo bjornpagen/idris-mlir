@@ -1227,8 +1227,9 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 // A new array of `size` elements, element `i` the body at `i` (an i64);
 // `fill`, what base's primitive fills the new array with before the body
 // writes it, moves in as array.new's does. A negative size is an empty
-// array.
-def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects]> {
+// array, and the array's shape is known from its size, as array.new's.
+def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects,
+    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the body's value at each index";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
   let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);

@@ -1,5 +1,8 @@
 # The loops over arrays of words are one linalg operation each, so their
 # bodies only compute: no count changes, nothing allocated, nothing called.
 # (The loop over pairs runs the library's definition as written, and the
-# functions around the loops are inlined into the program's root.)
+# functions around the loops are inlined into the program's root.) The
+# loops whose bodies are words alone then compute on the target's lanes;
+# the maps over frozen arrays read them with a bounds check and stay loops.
 idr-rc: pure-array-loops
+idr-vectorize: vectorized

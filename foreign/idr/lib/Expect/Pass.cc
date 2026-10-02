@@ -111,6 +111,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("counted-loop", countedLoop)
       .Case("word-loop", wordLoop)
       .Case("pure-array-loops", pureArrayLoops)
+      .Case("vectorized", vectorized)
       .Default(nullptr);
 }
 

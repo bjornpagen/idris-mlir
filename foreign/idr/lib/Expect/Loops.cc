@@ -5,6 +5,10 @@
 #include "Expect/Expect.h"
 #include "Passes/Scc.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+
 using namespace mlir;
 
 namespace idr::expect {
@@ -127,6 +131,58 @@ LogicalResult pureArrayLoops(ModuleOp module, StringRef function) {
     });
   if (!found) {
     fail(roots.front()->getLoc(), property) << "no loop over an array"
+                                            << (function.empty() ? "" : " in ") << function;
+    held = false;
+  }
+  return success(held);
+}
+
+// The roots a property of loops is checked under: the module, or the
+// functions named.
+static SmallVector<Operation *> rootsOf(ModuleOp module, StringRef function, StringRef property) {
+  SmallVector<Operation *> roots;
+  if (function.empty()) {
+    roots.push_back(module);
+    return roots;
+  }
+  for (func::FuncOp fn : named(module, function, property))
+    roots.push_back(fn);
+  return roots;
+}
+
+// A body the vectorizer takes: words alone, computed by arith and math ops
+// and the loop's own indices.
+static bool wordsAlone(linalg::GenericOp op) {
+  for (Operation &inner : op.getRegion().front()) {
+    if (isa<linalg::IndexOp, linalg::YieldOp>(inner))
+      continue;
+    StringRef dialect = inner.getDialect() ? inner.getDialect()->getNamespace() : "";
+    if (inner.getNumRegions() != 0 || (dialect != "arith" && dialect != "math"))
+      return false;
+  }
+  return true;
+}
+
+LogicalResult vectorized(ModuleOp module, StringRef function) {
+  constexpr StringRef property = "vectorized";
+  SmallVector<Operation *> roots = rootsOf(module, function, property);
+  if (roots.empty())
+    return failure();
+  bool held = true, vectors = false;
+  for (Operation *root : roots)
+    root->walk([&](Operation *op) {
+      if (isa_and_nonnull<vector::VectorDialect>(op->getDialect()))
+        vectors = true;
+      auto generic = dyn_cast<linalg::GenericOp>(op);
+      if (!generic || llvm::none_of(generic.getIteratorTypesArray(), linalg::isParallelIterator) ||
+          !wordsAlone(generic))
+        return;
+      fail(op->getLoc(), property) << "a loop over words with a parallel dimension stayed scalar in "
+                                   << where(op);
+      held = false;
+    });
+  if (!vectors) {
+    fail(roots.front()->getLoc(), property) << "no loop computes on vectors"
                                             << (function.empty() ? "" : " in ") << function;
     held = false;
   }

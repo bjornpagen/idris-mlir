@@ -1457,6 +1457,17 @@ LogicalResult ArrayFoldOp::verify() {
 std::optional<StringRef> ArrayGenerateOp::getCrashCause() { return std::nullopt; }
 std::optional<StringRef> ArrayFoldOp::getCrashCause() { return std::nullopt; }
 
+// As a new array's: its size clamped at 0, as an index.
+LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,
+                                                 ReifiedRankedShapedTypeDims &shapes) {
+  Location loc = getLoc();
+  Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
+  Value length = arith::MaxSIOp::create(b, loc, getSize(), zero);
+  Value index = arith::IndexCastOp::create(b, loc, b.getIndexType(), length);
+  shapes.push_back({OpFoldResult(index)});
+  return success();
+}
+
 // The loop's own effects: IO in the world's order, and for a generate the
 // new array; its body's ops carry theirs (RecursiveMemoryEffects).
 void ArrayGenerateOp::getEffects(

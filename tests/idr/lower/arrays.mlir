@@ -16,7 +16,7 @@
 // CHECK-LABEL: func.func private @make(
 // CHECK-SAME: %[[N:[^:]*]]: i64, %[[T:[^:]*]]: i8 {{.*}}, %[[S:[^:]*]]: !llvm.ptr)
 // CHECK: %[[L:.*]] = arith.maxsi %[[N]], %{{.*}} : i64
-// CHECK: %[[A:.*]] = llvm.call @idris_rt_array_new(%[[L]], %{{.*}}) : (i64, i32) -> !llvm.ptr
+// CHECK: %[[A:.*]] = llvm.call @idris_rt_array_new(%[[L]], %{{.*}}) : (i64, i32) -> {{.*}}!llvm.ptr
 // CHECK: scf.for
 // CHECK-DAG: llvm.store %[[S]]
 // CHECK-DAG: llvm.store %[[T]]

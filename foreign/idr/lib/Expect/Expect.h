@@ -107,4 +107,9 @@ mlir::LogicalResult wordLoop(mlir::ModuleOp module, llvm::StringRef function);
 // at least one.
 mlir::LogicalResult pureArrayLoops(mlir::ModuleOp module, llvm::StringRef function);
 
+// After idr-vectorize, in the function the argument names or anywhere, some
+// loop computes on vectors, and no linalg.generic with a parallel dimension
+// and a body of words alone is left scalar.
+mlir::LogicalResult vectorized(mlir::ModuleOp module, llvm::StringRef function);
+
 } // namespace idr::expect

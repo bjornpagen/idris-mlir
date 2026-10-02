@@ -149,8 +149,23 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   swap otherwise), and on unionfind the returned argument 1.45x, reuse and
   the stack 1.3x each, the loops 1.2x; the rest is within the spread.
 - **spectral-norm** (lists) and **spectral-norm-linear**: the linear one
-  is loads and multiplies at parity with C; the list one rebuilds its lists
-  in their own cells and pays for it. The input is the game's 5500.
+  is written over `Linear.Array`'s loops over an index space (`generate`,
+  `ifoldl`), and idr-vectorize runs each product with A as one loop nest
+  computing four rows at a time on AVX2 lanes, each row's sum in index
+  order (the C sums in index order too, so clang does not vectorize it).
+  Measured at 5500, best of 5: 1.734 s against clang's 1.811 s, parity,
+  and within the spread of the program's explicit loops before (1.752 s
+  in the table) and of its generate and fold as scalar loops (1.915 s). The
+  lanes do not pay because the body's integer index arithmetic is on
+  64-bit `Int` and x86-64-v3 has no 64-bit vector multiply nor an
+  int64-to-double conversion: the inner loop's assembly emulates the one
+  (three `vpmuludq`, shifts and adds) and scalarizes the other (four
+  `vcvtsi2sd` with the extracts and inserts around them), 45 instructions
+  per four rows where the division itself is one `vdivpd`. The C computes
+  its indices in `int`, for which both instructions exist (`vpmulld`,
+  `vcvtdq2pd`); narrowing the index arithmetic to 32 bits under a runtime
+  bound on n would let the lanes pay. The list one rebuilds its lists in
+  their own cells and pays for it. The input is the game's 5500.
 - **qsort** (parity with C): Koka's own `qsort.kk` takes 20 s on this
   input; it is measured as the Perceus repository has it, for the
   comparison, not as a verdict on Koka.

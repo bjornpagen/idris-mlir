@@ -129,6 +129,13 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
                                                      rewriter, loc, rewriter.getI32Type(),
                                                      rewriter.getI32IntegerAttr(static_cast<int32_t>(
                                                          element->info.word())))});
+    // A new cell is fresh memory, which no other pointer reaches: said at
+    // the call (the runtime's definition replaces the declaration's
+    // attributes when it is linked in), so that a loop over two arrays
+    // keeps what it accumulates in a register across the reads of the other.
+    cell.getDefiningOp<LLVM::CallOp>()->setAttr(
+        "res_attrs", rewriter.getArrayAttr({rewriter.getDictionaryAttr(
+                         {rewriter.getNamedAttr("llvm.noalias", rewriter.getUnitAttr())})}));
     ValueRange fill = adaptor.getFill();
     MemRefType view = wordView(op.getArrayType().getElementType(), *element, layouts);
     SmallVector<bool> counted = layouts.counted(op.getFill().getType());

@@ -107,9 +107,15 @@ target_link_libraries(idr_dialect
 		MLIRSCFTransforms
 		MLIRMemRefDialect
 		MLIRMemRefTransforms
-		# The loops over arrays, and the step that makes their loops.
+		# The loops over arrays, the step that makes their loops, and the
+		# vectorizer with the dialects of its tiles.
 		MLIRLinalgDialect
 		MLIRLinalgTransforms
+		MLIRVectorDialect
+		MLIRVectorTransforms
+		MLIRAffineDialect
+		MLIRLinalgUtils
+		MLIRTilingInterface
 		MLIRUBDialect
 		MLIRLLVMDialect
 		MLIRMathDialect
