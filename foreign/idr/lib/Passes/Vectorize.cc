@@ -25,7 +25,6 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
-#include "mlir/Dialect/MemRef/Transforms/ComposeSubView.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -95,16 +94,10 @@ struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
     // lanes reduced to the read and a broadcast, the last tile's masked
     // region made the masked transfer it holds, and the vector dialect's
     // canonicalizations, which fold the casts and the broadcasts together.
-    // A tile of a view (a generate writes its elements from 1 on through
-    // one, Lower/Loops.cc) is made one view of the array, whose offset is
-    // the sum of the two, an affine.apply. Made here, it is lowered with
-    // the other affine ops; the pipeline lowers those before it expands the
-    // views, so the expansion of a view of a view would leave its own.
     RewritePatternSet cleaning(&getContext());
     vector::populateDropUnitDimWithShapeCastPatterns(cleaning);
     vector::populateVectorTransferPermutationMapLoweringPatterns(cleaning);
     vector::populateVectorMaskLoweringPatternsForSideEffectingOps(cleaning);
-    memref::populateComposeSubViewPatterns(cleaning, &getContext());
     for (RegisteredOperationName name : getContext().getRegisteredOperations())
       if (name.getDialectNamespace() == vector::VectorDialect::getDialectNamespace())
         name.getCanonicalizationPatterns(cleaning, &getContext());

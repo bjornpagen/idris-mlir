@@ -1,0 +1,10 @@
+# The three loops over the index space compute from the index (and an
+# offset) alone, so their bodies only compute; after idr-vectorize they
+# run on the target's lanes, and after idr-narrow-lanes each loop that
+# computes 64-bit lanes is the 64-bit version beside one computing them in
+# 32 bits, under a bound on n and the offset that this fixture's input is
+# below (linarray-lanes-narrow) or above (linarray-lanes-wide), a negative
+# offset above it either way: both versions must give Chez's numbers.
+idr-rc: pure-array-loops
+idr-vectorize: vectorized
+idr-narrow-lanes: narrowed-lanes
