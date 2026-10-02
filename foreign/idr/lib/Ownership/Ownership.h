@@ -61,8 +61,8 @@ private:
 mlir::Value readFrom(mlir::Value value);
 
 // Whether `op`'s region is the body of a loop over an array
-// (idr.array.generate, idr.array.fold): it runs once per element, so a
-// value from outside it is used again after any op in it.
+// (idr.array.generate, idr.array.fold): it runs once per index it covers,
+// so a value from outside it is used again after any op in it.
 bool isArrayLoop(mlir::Operation *op);
 
 // Whether `value` is used after `op`: later in its block, or after an op

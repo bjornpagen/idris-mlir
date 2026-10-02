@@ -1229,18 +1229,21 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 }
 
 // The two loops over an array's index space, graded region ops: the body
-// runs once per index, in index order, and what its ops perform the loop
-// performs (RecursiveMemoryEffects). Their elements are machine words (an
-// integer or a float type), which a memref holds and a vector lane
-// computes; the frontend emits them only then, and the library's own
+// runs once per index it covers, in index order, and what its ops perform
+// the loop performs (RecursiveMemoryEffects). Their elements are machine
+// words (an integer or a float type), which a memref holds and a vector
+// lane computes; the frontend emits them only then, and the library's own
 // definition compiles as written for any other element. Lowering makes
 // each a linalg.generic over the array's memory (Lower/Loops.cc), and a
 // generate whose body is a fold one generic of two dimensions.
 
-// A new array of `size` elements, element `i` the body at `i` (an i64);
-// `fill`, what base's primitive fills the new array with before the body
-// writes it, moves in as array.new's does. A negative size is an empty
-// array, and the array's shape is known from its size, as array.new's.
+// A new array of `size` elements: element 0 is `fill`, and element `i` from
+// 1 on the body at `i` (an i64). So the library's loop makes it: base's
+// primitive fills the new array with the function at 0, and the loop
+// applies the function at each index from 1 on, never at 0 again. `fill`
+// moves in as array.new's does. A negative size, the least included, is an
+// empty array, and the array's shape is known from its size, as
+// array.new's.
 def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the body's value at each index";
