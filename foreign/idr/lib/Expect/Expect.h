@@ -112,4 +112,12 @@ mlir::LogicalResult pureArrayLoops(mlir::ModuleOp module, llvm::StringRef functi
 // and a body of words alone is left scalar.
 mlir::LogicalResult vectorized(mlir::ModuleOp module, llvm::StringRef function);
 
+// After idr-narrow-lanes, in the function the argument names or anywhere,
+// some loop computes integer lanes in 32 bits or fewer, and every loop
+// that computes integer lanes wider than 32 bits (an elementwise op on a
+// vector of such integers, other than a cast or a select, which only move
+// lanes) is the 64-bit version beside a loop that computes its lanes in
+// 32: the else region of an scf.if whose then region holds one.
+mlir::LogicalResult narrowedLanes(mlir::ModuleOp module, llvm::StringRef function);
+
 } // namespace idr::expect
