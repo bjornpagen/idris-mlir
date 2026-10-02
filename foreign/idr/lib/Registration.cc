@@ -49,11 +49,12 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-returned-arguments",
       "canonicalize,cse",
       // The tiles' transfers of a rank above one become loops over 1-D
-      // ones, their bounds arithmetic, their views offsets; the vector ops
-      // then take the vector dialect's own conversion, whose pre-lowering
-      // (transfers to loads and stores, steps, broadcasts, shape casts)
-      // convert-to-llvm does not carry.
-      "convert-vector-to-scf,lower-affine,expand-strided-metadata,convert-scf-to-cf,"
+      // ones; the views become offsets, the offset of a view of a view
+      // the affine arithmetic of both, before the affine ops lower with
+      // the loops' bounds; the vector ops then take the vector dialect's
+      // own conversion, whose pre-lowering (transfers to loads and stores,
+      // steps, broadcasts, shape casts) convert-to-llvm does not carry.
+      "convert-vector-to-scf,expand-strided-metadata,lower-affine,convert-scf-to-cf,"
       "convert-vector-to-llvm,convert-to-llvm,reconcile-unrealized-casts",
   };
   return steps;
