@@ -532,6 +532,14 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,
   ];
+  // `quantities-kept` parses the emitted module, which holds ops of every
+  // dialect of the contract, whether or not the module under test still
+  // does: a dimension read that folded away still loads memref there.
+  let dependentDialects = [
+    "::mlir::func::FuncDialect", "::mlir::arith::ArithDialect",
+    "::mlir::math::MathDialect", "::mlir::ub::UBDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
 }
 
 #endif // IDR_PASSES

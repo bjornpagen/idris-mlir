@@ -1,0 +1,7 @@
+# fannkuch-redux over base's IOArray, in IO: after the simplify loop the IO
+# monad's binds are inlined calls and each read's and write's range test is
+# made once, so no closure is built or applied anywhere and the main loop
+# allocates nothing; after counting, the loops change no count (the arrays
+# are borrowed, their elements are atoms).
+idr-simplify: no-closures no-heap-allocation=@Main.loop
+idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.next counts-nothing=@Main.copy counts-nothing=@Main.loop

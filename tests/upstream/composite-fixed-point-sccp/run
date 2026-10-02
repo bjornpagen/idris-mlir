@@ -1,0 +1,36 @@
+#!/bin/sh
+# The upstream bug upstream/composite-fixed-point-sccp still reproduces with
+# the pinned mlir-opt: composite-fixed-point-pass with sccp in its pipeline
+# warns at max-iterations on a module sccp leaves as it is, while the same
+# pass over canonicalize converges after one run. When this fails, the bug
+# is fixed: measure whether a simplify round at its fixpoint keeps its
+# OperationFingerPrint and, if it does, let idr-simplify decide its fixpoint
+# by it; delete the PINS.md entry simplify-structural-fixpoint, the report
+# and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/composite-fixed-point-sccp/one.mlir
+# The module is at sccp's fixpoint: a second run prints what the first did.
+bounded "$llvm_bin/mlir-opt" "$input" --sccp > "$work/once.mlir" 2> "$work/err" &&
+  bounded "$llvm_bin/mlir-opt" "$work/once.mlir" --sccp > "$work/twice.mlir" 2>> "$work/err"
+if ! cmp -s "$work/once.mlir" "$work/twice.mlir"; then
+  say "sccp: changes the module, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+for pipeline in sccp canonicalize; do
+  bounded "$llvm_bin/mlir-opt" "$input" \
+    --composite-fixed-point-pass="pipeline=$pipeline max-iterations=3" \
+    > "$work/out.mlir" 2> "$work/err"
+  status=$?
+  if grep -q "didn't converge in 3 iterations" "$work/err"; then
+    converged=no
+  else
+    converged=yes
+  fi
+  case $pipeline:$converged:$status in
+    sccp:no:0) say "sccp: still reproduces (warns at max-iterations on a module it leaves as it is)" ;;
+    sccp:*) say "sccp: no longer reproduces (exit $status)"; show "$work/err" ;;
+    canonicalize:yes:0) say "canonicalize: converges after one run, as the control" ;;
+    canonicalize:*) say "canonicalize: did not converge (exit $status)"; show "$work/err" ;;
+  esac
+done
