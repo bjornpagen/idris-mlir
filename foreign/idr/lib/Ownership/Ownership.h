@@ -61,8 +61,8 @@ private:
 mlir::Value readFrom(mlir::Value value);
 
 // Whether `op`'s region is the body of a loop over an array
-// (idr.array.generate, idr.array.fold): it runs once per element, so a
-// value from outside it is used again after any op in it.
+// (idr.array.generate, idr.array.fold): it runs once per index it covers,
+// so a value from outside it is used again after any op in it.
 bool isArrayLoop(mlir::Operation *op);
 
 // Whether `value` is used after `op`: later in its block, or after an op
@@ -83,6 +83,38 @@ Use useOf(mlir::OpOperand &operand, mlir::SymbolTableCollection &symbols);
 
 // The function a call calls, or null.
 mlir::func::FuncOp callee(mlir::func::CallOp call, mlir::SymbolTableCollection &symbols);
+
+// The ops of `block` after `after` (from its start when null) that use
+// `value`, themselves or in their regions, in order.
+llvm::SmallVector<mlir::Operation *> usersIn(mlir::Value value, mlir::Block &block,
+                                             mlir::Operation *after);
+
+// Where `value`, which `block` holds a reference to, dies on each path of
+// the block: at its start when nothing there uses it, after its last use,
+// or inside each region of that use when it has regions (not the body of a
+// loop over an array, which the value outlives). Nowhere on a path whose
+// last use consumes it: the value moves on, its cell with it, and a take
+// after that use would keep a second reference alive across it, so that
+// whoever receives the value finds its cell shared and copies it. Calls
+// `at` with each point.
+void whereDies(mlir::Value value, mlir::Block &block, mlir::SymbolTableCollection &symbols,
+               llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
+
+// Takes the box `box`, built by `ctor`, apart at `at` in `block`: an
+// idr.take whose fields replace the reads of the box's fields after that
+// point, the arguments of `fields` (the case region that bound them, when
+// one did) and idr.field, so that a field read after the box dies keeps the
+// box's reference instead of taking one of its own where the box reads it,
+// only for the box to drop it again. Reads before the take are borrowed
+// from the box, which is still alive there.
+TakeOp takeAt(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
+              mlir::Block *fields);
+
+// The first read of a box that no match takes apart and whose every use
+// reads a field of one constructor (a nested pattern reads the fields of a
+// box an outer one matched), the point from which the box's constructor
+// is known in that read's block; null for any other value.
+FieldOp onlyReads(mlir::Value box);
 
 // Takes the scrutinee of `match` apart where its case region `index`
 // begins: an idr.take whose fields replace the region's arguments.
