@@ -1,6 +1,7 @@
 # The runtime:
 # C++ with no exceptions, no RTTI and no C++ library at link time, built into
-# one archive of fat LTO objects. idris-mlir-cc prepares their bitcode once
+# one archive of objects that carry their bitcode as the target entry says
+# (fat LTO objects on ELF). idris-mlir-cc prepares their bitcode once
 # (--prepare-runtime, foreign/idr/CMakeLists.txt) into the object every
 # executable links, whose bitcode joins every program's module for inlining;
 # their native code links into idris-mlir-cc itself, where the folders and
@@ -24,14 +25,14 @@ endforeach()
 # - optimized, since optnone bitcode would stay unoptimized in programs;
 # - the target's baseline (its entry in CMakeLists.txt): idris-mlir-cc
 #   raises every runtime function to the program's CPU;
-# - fat LTO objects: bitcode for programs, native code for idris-mlir-cc;
+# - bitcode with the native code, as the target's entry carries it: bitcode
+#   for programs, native code for idris-mlir-cc;
 # - no FP contraction.
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
 	${IDRIS_MLIR_RUNTIME_BASELINE}
-	-flto=full
-	-ffat-lto-objects
+	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
 	-ffp-contract=off
 	-ffunction-sections
 	-fdata-sections

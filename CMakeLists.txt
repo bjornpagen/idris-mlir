@@ -85,10 +85,15 @@ endif()
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
 # built for too; its entry below adds the CPU programs are compiled for by
 # default, the baseline runtime code is compiled for (idris-mlir-cc raises
-# it to the program's CPU), and the runtime's test of the processor.
-# idris-mlir-cc writes the triple and CPU on every module as its
-# #llvm.target, with LLVM's data layout, and every later step reads them
-# there.
+# it to the program's CPU), the runtime's test of the processor, and the
+# container of the runtime's bitcode, which joins every program's module:
+# the flags that make each member of the runtime's archive carry its
+# bitcode with its native code, and the section of the prepared runtime's
+# object that holds it, which every link leaves out (an object format with
+# no such section, Mach-O's, names none: the bitcode goes in a file beside
+# the object). idris-mlir-cc writes the triple and CPU on every module as
+# its #llvm.target, with LLVM's data layout, and every later step reads
+# them there.
 if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-")
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
@@ -97,8 +102,12 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-")
 	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST cpu_x86_64.cc)
+	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
+	# LTO object's, is excluded from every link.
+	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
+	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION ".llvm.lto")
 else()
-	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it a default CPU, a runtime baseline and a processor test in CMakeLists.txt")
+	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it a default CPU, a runtime baseline, a processor test and the container of the runtime's bitcode in CMakeLists.txt")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)
