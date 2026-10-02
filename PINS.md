@@ -222,6 +222,30 @@ which the top-level CMake configure gate reads.
   error and its statistics ours
 - upstream: upstream/composite-fixed-point-sccp (not yet filed)
 
+## vectorize-precondition-body
+
+- symptom: at llvmorg-23.1.2, `linalg::vectorizeOpPrecondition` ("Return
+  success if the operation can be vectorized") checks the ops of an
+  all-parallel generic's body (`isElementwise`), but of a reduction's only
+  their types and the combiner
+  (`mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp:2250-2288`,
+  `:1879-1896`). It accepts a reduction whose body holds an op that is not
+  elementwise-mappable (a crash check's `scf.if`, a call), which
+  `linalg::vectorize` then refuses (`:1380-1382`), after building part of
+  its vector code. idr-vectorize tiled such a loop before vectorizing it, and
+  its scalar tiles ran the body column by column within each group of rows
+- sites: foreign/idr/lib/Passes/Vectorize.cc (`vectorizable`)
+- workaround: idr-vectorize decides with the precondition and
+  `linalg::hasOnlyScalarElementwiseOp` of the body, the check upstream
+  makes of an all-parallel generic, before it changes anything; a generic it
+  refuses stays whole, and convert-linalg-to-loops runs its body in the
+  program's order. A tile of a generic it took that the vectorizer refuses
+  is its error, and fails the pass
+- retire: when the precondition refuses such a body
+  (`tests/upstream/vectorize-precondition-body` fails); `vectorizable` then
+  asks the precondition alone
+- upstream: upstream/vectorize-precondition-body (not yet filed)
+
 ## llvm-force-enable-stats
 
 - symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when

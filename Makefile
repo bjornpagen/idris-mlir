@@ -44,9 +44,12 @@ RUNNER := $(ROOT)/tests/build/exec/runtests
 PINS := $(ROOT)/tools/verify-pins.sh
 
 # Every command runs the pinned Idris, and no package path inherited from
-# another installation. CHEZ is the Chez Scheme it was built with.
+# another installation. Its prefix is this checkout's own (`prefix`), so
+# that the packages of libs/ it finds are this checkout's. CHEZ is the Chez
+# Scheme it was built with.
 unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
-export IDRIS2_PREFIX := $(IDRIS_PREFIX)
+CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
+export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
 STAMPED_CHEZ := $(shell root='$(ROOT)'; . '$(ROOT)/tools/toolchain.sh'; stamp_field "$$idris_prefix" scheme)
@@ -64,8 +67,8 @@ GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except
 # A runner that hangs fails instead of holding the tree's lock.
 RUN_TESTS = timeout -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
 
-.PHONY: help bootstrap doctor verify-pins env check build libs paths test test-idr test-mlir-tools \
-        runner compile bench
+.PHONY: help bootstrap doctor verify-pins env check build prefix libs paths test test-idr \
+        test-mlir-tools runner compile bench
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -94,15 +97,39 @@ build: libs
 	@$(MAKE) --no-print-directory paths
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
 
-# The packages this compiler ships (libs/), installed into the pinned
-# Idris's prefix, where its own backend and this compiler find them alike
+# This checkout's Idris prefix, build/idris2: every entry of the pinned
+# prefix linked, except the packages this compiler ships (libs/), which
+# `libs` installs here. The pinned prefix is shared by every checkout of the
+# repository (a worktree links .toolchain), so a package installed there
+# would be whichever checkout installed last. Made again after a bootstrap.
+SHIPPED := $(notdir $(patsubst %/,%,$(wildcard $(ROOT)/libs/*/)))
+PREFIX_STAMP := $(CHECKOUT_PREFIX)/.linked
+prefix: $(PREFIX_STAMP)
+$(PREFIX_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json)
+	@$(PINS) idris
+	@rm -rf '$(CHECKOUT_PREFIX)' && mkdir -p '$(CHECKOUT_PREFIX)' && \
+	for top in '$(IDRIS_PREFIX)'/*; do \
+	  case $${top##*/} in \
+	    idris2-*) mkdir '$(CHECKOUT_PREFIX)'/"$${top##*/}" || exit 1; \
+	      for entry in "$$top"/*; do \
+	        shipped=no; \
+	        for lib in $(SHIPPED); do case $${entry##*/} in "$$lib"-*) shipped=yes ;; esac; done; \
+	        [ $$shipped = yes ] || ln -s "$$entry" '$(CHECKOUT_PREFIX)'/"$${top##*/}"/ || exit 1; \
+	      done ;; \
+	    *) ln -s "$$top" '$(CHECKOUT_PREFIX)'/ || exit 1 ;; \
+	  esac; \
+	done
+	@touch $@
+
+# The packages this compiler ships (libs/), installed into this checkout's
+# prefix, where the pinned Idris's backend and this compiler find them alike
 # (-p mlir-linear), again whenever one of their sources changes.
-LIBS_STAMP := $(ROOT)/libs/mlir-linear/build/.installed
+LIBS_STAMP := $(CHECKOUT_PREFIX)/.libs-installed
 libs: $(LIBS_STAMP)
-$(LIBS_STAMP): $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr)
+$(LIBS_STAMP): $(PREFIX_STAMP) $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr)
 	@$(PINS) idris
 	cd $(ROOT)/libs/mlir-linear && $(IDRIS2) --install mlir-linear.ipkg
-	@mkdir -p $(dir $@) && touch $@
+	@touch $@
 
 # The -o path runs the tools recorded here, never PATH, links for the
 # triple idris-mlir-cc compiles for, and links the runtime it reads.
@@ -126,7 +153,7 @@ paths:
 # it started with, which rewriting them in place would corrupt under it.
 RUNNER_FILES = runtests runtests_app/runtests.so runtests_app/runtests.ss \
                runtests_app/libidris2_support.so runtests_app/compileChez
-runner:
+runner: prefix
 	@$(PINS) idris
 	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && flock build/.runner.lock sh -c ' \
 	  $(IDRIS2) --build-dir build/stage --build tests.ipkg || exit 1; \

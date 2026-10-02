@@ -739,10 +739,13 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
   return ok;
 }
 
-// Which errors the passes reported: a rejection (`unsupported (<reason>):
-// ...`) is the user's, at the location of the user's code the frontend
-// reports; any other error is internal.
+// Which errors were reported. Any error fails the compilation, whether or
+// not what reported it failed: an error from a step that then goes on is an
+// error all the same. A rejection (`unsupported (<reason>): ...`) is the
+// user's, at the location of the user's code the frontend reports; any
+// other error is internal.
 struct Verdict {
+  bool errors = false;
   bool rejected = false;
 };
 
@@ -802,6 +805,7 @@ int run() {
   Verdict verdict;
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
     if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
+      verdict.errors = true;
       std::string message = diagnostic.str();
       if (llvm::StringRef(message).starts_with("unsupported ("))
         verdict.rejected = true;
@@ -810,7 +814,7 @@ int run() {
   });
   mlir::OwningOpRef<mlir::ModuleOp> module =
       mlir::parseSourceFile<mlir::ModuleOp>(inputPath, sources, &context);
-  if (!module)
+  if (!module || verdict.errors)
     return failure;
   mlir::DialectRegistry everything;
   mlir::registerAllDialects(everything);
@@ -818,7 +822,7 @@ int run() {
   mlir::registerBuiltinDialectTranslation(everything);
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
-  if (mlir::failed(setTarget(*module, *cpu))) {
+  if (mlir::failed(setTarget(*module, *cpu)) || verdict.errors) {
     llvm::errs() << "idris-mlir-cc: internal error: the module's target could not be set\n";
     return failure;
   }
@@ -855,6 +859,11 @@ int run() {
   if (!logActionsTags.empty())
     debugConfig.addLogActionLocFilter(&loggedTags);
   mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
+  // MLIR reports what it cannot set up as asked (a file --log-actions-to
+  // cannot open, debug counters with action logging) as an error and goes
+  // on without it.
+  if (verdict.errors)
+    return usage;
   // --no-eval: the idr-eval pass, wherever a pipeline runs it, is skipped;
   // every other action goes on to the handler installed before, or runs.
   if (noEval) {
@@ -922,10 +931,11 @@ int run() {
       llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << text << "\n";
       return failure;
     }
-    if (mlir::failed(pm.run(*module))) {
+    bool ran = mlir::succeeded(pm.run(*module));
+    if (!ran || verdict.errors) {
       if (!verdict.rejected)
-        llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step
-                     << ") failed\n";
+        llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step << ") "
+                     << (ran ? "reported an error" : "failed") << "\n";
       return status(verdict);
     }
     if (!dump(*module, index, stepName(step)))
@@ -964,7 +974,7 @@ int run() {
 
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
-  if (!llvmModule) {
+  if (!llvmModule || verdict.errors) {
     llvm::errs() << "idris-mlir-cc: internal error: translation to LLVM IR failed\n";
     return failure;
   }

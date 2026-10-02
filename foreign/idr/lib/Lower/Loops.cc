@@ -6,10 +6,12 @@
 // after is upstream's: convert-linalg-to-loops makes the loops, or the
 // vectorizer the vectors.
 //
-// A generate is a parallel generic over the new array (idr.array.new makes
-// it, filled as the op's fill says), its body yielding each element from
-// linalg.index 0. A fold is a reduction generic over its array into a 0-d
-// memref holding the accumulator, a slot in the function's frame
+// A generate is a parallel generic over a view of the new array from
+// element 1 on (idr.array.new makes the array, filled as the op's fill
+// says, and the fill is element 0), its body yielding each element from
+// linalg.index 0 plus one: the body runs at every index but 0, whose
+// element is the fill. A fold is a reduction generic over its array into a
+// 0-d memref holding the accumulator, a slot in the function's frame
 // (memref.alloca at the entry, so a fold inside a loop takes one slot, not
 // one per iteration): the init is stored first and the result loaded
 // after. The reduction keeps the program's order: linalg runs a reduction
@@ -21,11 +23,12 @@
 // a row's reduction: spectral-norm's rows) is one generic of two
 // dimensions, parallel then reduction, with the element's accumulator in
 // the new array itself: a first parallel generic writes each element's
-// init, the second reduces into it. The body's other ops, which compute
-// from the index alone, go into both; the fold's body follows them with
-// the accumulator as the output element, the element as the input and the
-// index from linalg.index 1. That is the form the vectorizer tiles along
-// the parallel dimension, each lane summing its row in order.
+// init, the second reduces into it, both over the elements from 1 on. The
+// body's other ops, which compute from the index alone, go into both; the
+// fold's body follows them with the accumulator as the output element, the
+// element as the input and the index from linalg.index 1. That is the form
+// the vectorizer tiles along the parallel dimension, each lane summing its
+// row in order.
 
 #include "Lower/Patterns.h"
 
@@ -46,10 +49,25 @@ Value asMemref(OpBuilder &b, Location loc, Value array) {
 }
 
 // The index of dimension `dim` of the generic around the insertion point,
-// as the i64 the body takes.
-Value indexOf(OpBuilder &b, Location loc, uint64_t dim) {
+// counted from `first`, as the i64 the body takes.
+Value indexOf(OpBuilder &b, Location loc, uint64_t dim, int64_t first = 0) {
   Value index = linalg::IndexOp::create(b, loc, dim);
+  if (first != 0)
+    index = arith::AddIOp::create(b, loc, index, arith::ConstantIndexOp::create(b, loc, first));
   return arith::IndexCastOp::create(b, loc, b.getI64Type(), index);
+}
+
+// The elements of a new array of `size` elements from index 1 on, a view of
+// `array`: what a generate's body writes, element 0 being the fill. There
+// are max(size, 1) - 1 of them, which is 0 for every size up to 1 and,
+// unlike size - 1, does not wrap where size is the least i64.
+Value fromSecond(OpBuilder &b, Location loc, Value array, Value size) {
+  Value one = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(1));
+  Value rest = arith::SubIOp::create(b, loc, arith::MaxSIOp::create(b, loc, size, one), one);
+  OpFoldResult unit = b.getIndexAttr(1);
+  OpFoldResult length = arith::IndexCastOp::create(b, loc, b.getIndexType(), rest).getResult();
+  return memref::SubViewOp::create(b, loc, array, ArrayRef<OpFoldResult>{unit},
+                                   ArrayRef<OpFoldResult>{length}, ArrayRef<OpFoldResult>{unit});
 }
 
 // Clones the ops of `block` but its terminator (and `except`) at the
@@ -100,7 +118,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
   rewriter.setInsertionPoint(op);
   auto made = ArrayNewOp::create(rewriter, loc, op.getArray().getType(), op.getNext().getType(),
                                  op.getSize(), op.getFill(), op.getWorld());
-  Value out = asMemref(rewriter, loc, made.getArray());
+  Value out = fromSecond(rewriter, loc, asMemref(rewriter, loc, made.getArray()), op.getSize());
   Block &body = op.getBody().front();
   Type element = op.getArrayType().getElementType();
   AffineMap identity = AffineMap::getMultiDimIdentityMap(1, ctx);
@@ -111,7 +129,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
     // The body's ops but the fold, from the index: what the fold's init
     // and body compute with.
     auto prelude = [&](OpBuilder &b, Location l, IRMapping &mapping) {
-      mapping.map(body.getArgument(0), indexOf(b, l, 0));
+      mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
       for (Operation &inner : body.without_terminator())
         if (&inner != fold)
           b.clone(inner, mapping);
@@ -141,7 +159,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
                               ArrayRef<utils::IteratorType>{parallel},
                               [&](OpBuilder &b, Location l, ValueRange) {
                                 IRMapping mapping;
-                                mapping.map(body.getArgument(0), indexOf(b, l, 0));
+                                mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
                                 linalg::YieldOp::create(b, l, cloneBody(b, l, body, mapping, nullptr, element));
                               });
   }
