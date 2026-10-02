@@ -414,8 +414,9 @@ which the top-level CMake configure gate reads.
   and preprocessor code, which the C++ profile forbids
 - sites: `runtime/`, every source there
 - workaround: the runtime is quarantine code in its own zone, built with its
-  own profile (no exceptions, no RTTI, no C++ library at link time, fat LTO
-  objects) and checked by `check-archive.sh`
+  own profile (no exceptions, no RTTI, no C++ library at link time, its
+  bitcode carried as the target entry says: fat LTO objects on ELF) and
+  checked by `check-archive.sh`
 - retire: never; the vendored libraries are C++ headers
 - upstream: none
 

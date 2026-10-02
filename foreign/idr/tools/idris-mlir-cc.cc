@@ -43,6 +43,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/IRObjectFile.h"
+#include "llvm/Object/ObjectFile.h"
 #include "llvm/Remarks/RemarkFormat.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -118,15 +119,23 @@ cl::opt<std::string> targetCpu("cpu",
                                         "for the target"),
                                cl::init(IDRIS_MLIR_TARGET_CPU));
 // The runtime, recorded at build time: the object --prepare-runtime wrote
-// from the archive of fat LTO objects, or that archive itself. Its bitcode
-// joins the program's module, and the same file is on every executable's
-// link line (--print-runtime). An empty path links no runtime.
+// from the runtime's archive, or that archive itself. Its bitcode joins the
+// program's module, and the same file is on every executable's link line
+// (--print-runtime). An empty path links no runtime.
 cl::opt<std::string> runtimePath("runtime",
                                  cl::desc("The runtime whose bitcode joins the program, and "
                                           "which executables link: what --prepare-runtime "
-                                          "wrote, or the archive of fat LTO objects it reads "
-                                          "('' for none)"),
+                                          "wrote, or the archive it reads ('' for none)"),
                                  cl::init(IDRIS_MLIR_RUNTIME));
+// Where the prepared runtime keeps the bitcode that joins every program, as
+// the target entry's container says (CMakeLists.txt): in a section of its
+// object that every link leaves out, or, with no section, in a file of its
+// own beside the object, which no link names.
+cl::opt<std::string> runtimeBitcodeSection(
+    "runtime-bitcode-section",
+    cl::desc("The section of the prepared runtime's object that holds its bitcode (by default "
+             "the target entry's), or '' for a file beside the object, named as it is with .bc"),
+    cl::init(IDRIS_MLIR_RUNTIME_BITCODE_SECTION));
 cl::opt<bool> printRuntime("print-runtime",
                            cl::desc("Print the path of the runtime --runtime names, which "
                                     "every executable links, and exit"),
@@ -230,8 +239,10 @@ struct Member {
   llvm::MemoryBufferRef bitcode;
 };
 
-// Every member of the runtime archive is a fat LTO object; this is
-// the bitcode half of each.
+// Every member of the runtime archive carries its bitcode as the target
+// entry's flags compile it (a fat LTO object's section, say), where LLVM's
+// object reader finds it whatever the object's format; this is the bitcode
+// of each.
 bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
   if (!archive) {
@@ -253,7 +264,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
     if (!bitcode) {
       llvm::errs() << "idris-mlir-cc: runtime member " << *name
-                   << " carries no bitcode; the runtime must be built of fat LTO objects: "
+                   << " carries no bitcode, which every member of the runtime's archive must: "
                    << llvm::toString(bitcode.takeError()) << "\n";
       llvm::consumeError(std::move(error));
       return false;
@@ -365,9 +376,50 @@ bool isPrepared(const llvm::Module &module) {
   return module.getModuleFlag(preparedCpuFlag) && module.getModuleFlag(preparedFeaturesFlag);
 }
 
+// The file beside the prepared runtime's object that holds its bitcode when
+// its container keeps no section for it: the object's name with .bc.
+std::string besideObject(llvm::StringRef object) {
+  llvm::SmallString<128> path(object);
+  llvm::sys::path::replace_extension(path, "bc");
+  return path.str().str();
+}
+
+// The prepared runtime's bitcode, where its container keeps it: a bitcode
+// file is itself; an object, of any format LLVM's object reader knows,
+// holds it in the section the container names, or, with none named, the
+// file beside it does.
+llvm::Expected<llvm::MemoryBufferRef> preparedBitcode(llvm::MemoryBufferRef file,
+                                                      std::unique_ptr<llvm::MemoryBuffer> &beside) {
+  if (llvm::identify_magic(file.getBuffer()) == llvm::file_magic::bitcode)
+    return file;
+  if (runtimeBitcodeSection.empty()) {
+    std::string path = besideObject(runtimePath);
+    auto read = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
+                                            /*RequiresNullTerminator=*/false);
+    if (!read)
+      return llvm::createStringError(read.getError(), "cannot read " + path);
+    beside = std::move(*read);
+    return beside->getMemBufferRef();
+  }
+  auto object = llvm::object::ObjectFile::createObjectFile(file);
+  if (!object)
+    return object.takeError();
+  for (const llvm::object::SectionRef &section : (*object)->sections()) {
+    llvm::Expected<llvm::StringRef> name = section.getName();
+    if (!name)
+      return name.takeError();
+    if (*name != runtimeBitcodeSection)
+      continue;
+    llvm::Expected<llvm::StringRef> contents = section.getContents();
+    if (!contents)
+      return contents.takeError();
+    return llvm::MemoryBufferRef(*contents, file.getBufferIdentifier());
+  }
+  return llvm::createStringError("the object has no section " + runtimeBitcodeSection);
+}
+
 // The runtime as one module, for the program's triple and data layout: the
-// bitcode of the object --prepare-runtime wrote (in its .llvm.lto section,
-// where a fat LTO object carries its bitcode), or the members of the archive
+// bitcode of what --prepare-runtime wrote, or the members of the archive
 // joined, where a symbol two members define is an error. Its debug info
 // describes the runtime's C++ sources, not the program: it is most of the
 // archive's bitcode, and every program would carry it, so it goes.
@@ -381,21 +433,17 @@ std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm
     return nullptr;
   }
   std::unique_ptr<llvm::Module> runtime;
-  llvm::file_magic magic = llvm::identify_magic((*buffer)->getBuffer());
-  if (magic == llvm::file_magic::bitcode || magic == llvm::file_magic::elf_relocatable) {
-    llvm::MemoryBufferRef bitcode = (*buffer)->getMemBufferRef();
-    if (magic == llvm::file_magic::elf_relocatable) {
-      auto found = llvm::object::IRObjectFile::findBitcodeInMemBuffer(bitcode);
-      if (!found) {
-        llvm::errs() << "idris-mlir-cc: runtime " << runtimePath
-                     << " carries no bitcode; the runtime is what --prepare-runtime wrote, or "
-                        "the archive it reads: "
-                     << llvm::toString(found.takeError()) << "\n";
-        return nullptr;
-      }
-      bitcode = *found;
+  if (llvm::identify_magic((*buffer)->getBuffer()) != llvm::file_magic::archive) {
+    std::unique_ptr<llvm::MemoryBuffer> beside;
+    auto bitcode = preparedBitcode((*buffer)->getMemBufferRef(), beside);
+    if (!bitcode) {
+      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath
+                   << " carries no bitcode where its container keeps it; the runtime is what "
+                      "--prepare-runtime wrote, or the archive it reads: "
+                   << llvm::toString(bitcode.takeError()) << "\n";
+      return nullptr;
     }
-    auto module = llvm::parseBitcodeFile(bitcode, context);
+    auto module = llvm::parseBitcodeFile(*bitcode, context);
     if (!module) {
       llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
                    << llvm::toString(module.takeError()) << "\n";
@@ -454,6 +502,29 @@ bool nativeRuns(const llvm::Module &runtime, const llvm::Target &target, const l
   return true;
 }
 
+// The program names a symbol of the runtime only to refer to it. The
+// linker binds every reference the runtime makes to a name, wherever its
+// code lands, to the definition of that name the joined module has: one the
+// program also defined would take the runtime's place in the runtime's own
+// code, and no renaming would show it. A local symbol of either side is
+// told apart by the linker, and the frontend's names are namespaced, so no
+// Idris program defines one of the runtime's; a module that does is
+// refused before anything is linked.
+bool namesApart(const llvm::Module &program, const llvm::Module &runtime) {
+  for (const llvm::GlobalValue &value : program.global_values()) {
+    if (value.isDeclaration() || value.hasLocalLinkage())
+      continue;
+    const llvm::GlobalValue *named = runtime.getNamedValue(value.getName());
+    if (!named || named->hasLocalLinkage())
+      continue;
+    llvm::errs() << "idris-mlir-cc: the program defines " << value.getName() << ", which the runtime "
+                 << (named->isDeclaration() ? "refers to" : "defines")
+                 << " too: the runtime's references would bind to the program's definition\n";
+    return false;
+  }
+  return true;
+}
+
 // The program and the runtime become one module, linked once with
 // LinkOnlyNeeded: only what the program reaches joins it. From the prepared
 // runtime, when its native half runs on the program's CPU, the bodies join
@@ -469,31 +540,16 @@ bool linkRuntime(llvm::Module &program, const llvm::Target &target, const llvm::
     return true;
   std::unique_ptr<llvm::Module> runtime =
       readRuntime(program.getContext(), program.getTargetTriple(), program.getDataLayout());
-  if (!runtime)
+  if (!runtime || !namesApart(program, *runtime))
     return false;
-  bool native = nativeRuns(*runtime, target, triple, machine);
-  llvm::StringSet<> provided;
-  for (llvm::GlobalValue &value : runtime->global_values()) {
-    if (value.isDeclaration())
-      continue;
-    if (native)
-      provided.insert(value.getName());
-    else if (value.hasAvailableExternallyLinkage())
-      value.setLinkage(llvm::GlobalValue::ExternalLinkage);
-  }
+  if (!nativeRuns(*runtime, target, triple, machine))
+    for (llvm::GlobalValue &value : runtime->global_values())
+      if (value.hasAvailableExternallyLinkage())
+        value.setLinkage(llvm::GlobalValue::ExternalLinkage);
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded)) {
     llvm::errs() << "idris-mlir-cc: internal error: linking the runtime into the program failed\n";
     return false;
   }
-  // A body that keeps its name resolves in the native half; one the linker
-  // had to rename, because the program names a symbol as the runtime does,
-  // would not.
-  for (const llvm::GlobalValue &value : program.global_values())
-    if (value.hasAvailableExternallyLinkage() && !provided.contains(value.getName())) {
-      llvm::errs() << "idris-mlir-cc: internal error: the runtime's " << value.getName()
-                   << " was renamed; the program names a symbol as the runtime does\n";
-      return false;
-    }
   return true;
 }
 
@@ -574,18 +630,30 @@ bool externalize(llvm::Module &runtime) {
 // every function it makes from another (a clone, a thunk), and one without
 // them could not be retargeted, so none may be left.
 //
-// The result is one object, written as a fat LTO object is: its native code
-// is what every executable's link line takes, and its .llvm.lto section
-// holds the same module as bitcode with every definition available_externally,
-// which is what joins each program's module (linkRuntime). The two halves
-// come from the one module, so they name the same symbols: a body the
-// program's optimizer inlines becomes program code, one it does not is
-// dropped and resolves to the native half, and runtime state (the
-// allocator's thread-locals, the output buffer, the live-cell count) is
-// defined once, in the native half, whichever bodies were inlined.
+// The result is an object whose native code is what every executable's link
+// line takes, and the same module as bitcode with every definition
+// available_externally, which is what joins each program's module
+// (linkRuntime), kept where the target entry's container says: in a section
+// of the object that every link leaves out, as a fat LTO object keeps its
+// bitcode, or in a file beside it. The two halves come from the one module,
+// so they name the same symbols: a body the program's optimizer inlines
+// becomes program code, one it does not is dropped and resolves to the
+// native half, and runtime state (the allocator's thread-locals, the output
+// buffer, the live-cell count) is defined once, in the native half,
+// whichever bodies were inlined.
 int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &cpu) {
   if (runtimePath.empty()) {
     llvm::errs() << "idris-mlir-cc: --prepare-runtime needs --runtime to name the archive\n";
+    return usage;
+  }
+  // Only these formats mark a section for every link to leave out
+  // (embedBufferInModule's exclusion); in any other, the bitcode would ship
+  // in every executable.
+  if (!runtimeBitcodeSection.empty() && !triple.isOSBinFormatELF() && !triple.isOSBinFormatCOFF()) {
+    llvm::errs() << "idris-mlir-cc: unsupported --runtime-bitcode-section=" << runtimeBitcodeSection
+                 << ": a " << triple.str()
+                 << " object has no section every link leaves out; the bitcode goes beside the "
+                    "object (--runtime-bitcode-section='')\n";
     return usage;
   }
   std::unique_ptr<llvm::TargetMachine> machine(
@@ -649,8 +717,26 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
       if (value.hasAvailableExternallyLinkage())
         value.setLinkage(llvm::GlobalValue::ExternalLinkage);
   }
-  llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"), ".llvm.lto");
-  return emit(*runtime, *machine, llvm::CodeGenFileType::ObjectFile) ? ok : failure;
+  // Kept only once the object is written too.
+  std::unique_ptr<llvm::ToolOutputFile> beside;
+  if (runtimeBitcodeSection.empty()) {
+    std::error_code error;
+    std::string path = besideObject(outputPath);
+    beside = std::make_unique<llvm::ToolOutputFile>(path, error, llvm::sys::fs::OF_None);
+    if (error) {
+      llvm::errs() << "idris-mlir-cc: cannot write " << path << ": " << error.message() << "\n";
+      return failure;
+    }
+    beside->os() << bitcode;
+  } else {
+    llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"),
+                              runtimeBitcodeSection);
+  }
+  if (!emit(*runtime, *machine, llvm::CodeGenFileType::ObjectFile))
+    return failure;
+  if (beside)
+    beside->keep();
+  return ok;
 }
 
 // Which errors were reported. Any error fails the compilation, whether or

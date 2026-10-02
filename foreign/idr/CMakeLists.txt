@@ -168,16 +168,23 @@ target_link_libraries(idris-mlir-cc PRIVATE
 # The runtime every program links: the archive, checked before idris-mlir-cc
 # is built, then prepared once by idris-mlir-cc itself (--prepare-runtime)
 # into one object, native code for every executable's link line with the
-# same functions as bitcode for inlining, which is the runtime the driver
-# links by default (--runtime overrides the path, with the archive itself if
-# need be; --print-runtime tells the link line where it is).
+# same functions as bitcode for inlining, kept as the target entry's
+# container says (CMakeLists.txt), which is the runtime the driver links by
+# default (--runtime overrides the path, with the archive itself if need be;
+# --print-runtime tells the link line where it is).
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
 target_compile_definitions(idris-mlir-cc PRIVATE
 	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
+	"IDRIS_MLIR_RUNTIME_BITCODE_SECTION=\"${IDRIS_MLIR_RUNTIME_BITCODE_SECTION}\""
 )
 add_dependencies(idris-mlir-cc idris_rt_check)
+set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
+if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")
+	# The bitcode, beside the object.
+	list(APPEND IDRIS_MLIR_RUNTIME_PREPARED_FILES "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
+endif()
 add_custom_command(
-	OUTPUT "${IDRIS_MLIR_RUNTIME_PREPARED}"
+	OUTPUT ${IDRIS_MLIR_RUNTIME_PREPARED_FILES}
 	COMMAND idris-mlir-cc --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
 		-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
 	DEPENDS idris-mlir-cc idris_rt idris_rt_check

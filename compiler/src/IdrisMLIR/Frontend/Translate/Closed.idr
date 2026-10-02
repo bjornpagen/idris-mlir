@@ -59,28 +59,10 @@ export
 under : List (VarInfo (Under k a)) -> List (VarInfo a) -> List (VarInfo (Under k a))
 under bound env = bound ++ map (map Free) env
 
-||| Does the term mention `Erased` for the given reason?
-anyErasedAs : (WhyErased (TT vars) -> Bool) -> TT vars -> Bool
-anyErasedAs p tm = go tm
-  where
-    go : TT vs -> Bool
-    go (Erased _ w) = case w of
-      Placeholder => p Placeholder
-      Impossible => p Impossible
-      Dotted _ => False
-    go (Bind _ _ b sc) = go (binderType b) || binderVal b || go sc
-      where
-        binderVal : TTBinder (TT ws) -> Bool
-        binderVal (Let _ _ v _) = go v
-        binderVal (PLet _ _ v _) = go v
-        binderVal _ = False
-    go (App _ f a) = go f || go a
-    go (As _ _ a q) = go q
-    go (TDelayed _ _ t) = go t
-    go (TDelay _ _ t a) = go t || go a
-    go (TForce _ _ t) = go t
-    go (Meta _ _ _ args) = any go args
-    go _ = False
+export
+spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
+spine (App _ fn arg) args = spine fn (arg :: args)
+spine fn args = (fn, args)
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
 export
@@ -170,7 +152,8 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t) = t
-    -- A shape is what is known of the value at compile time.
+    -- A shape is what is known of the value at compile time; its holes
+    -- are the runtime parts (`skeleton`).
     value (Shaped _ _ s) = s
     -- A quantity-0 variable (a length, a proof) is not a runtime value: an
     -- implementation that mentions it (`Foldable (Vect n)`) does not
@@ -206,11 +189,61 @@ solved tm =
        normaliseHoles defs [] tm
      else pure tm
 
+||| The quantities of a definition's parameters, as its type binds them.
+quantities : {auto c : Ref Ctxt Defs} -> Name -> Core (List RigCount)
+quantities n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure []
+  pure (go (type def))
+  where
+    go : TT vs -> List RigCount
+    go (Bind _ _ (Pi _ rig _ _) sc) = rig :: go sc
+    go _ = []
+
+||| Does a written implementation depend on a runtime value: does a part
+||| that stands for one (`Erased` with reason `Impossible`: a runtime
+||| variable, or a part of a runtime value its shape does not say) stand
+||| where a value exists at runtime? A type does not (a binder's type, a
+||| type constructor's arguments), nor does an argument a definition or a
+||| constructor takes with quantity 0, which Idris has checked is never
+||| used at runtime: `Foldable (Vect n)` does not depend on the length
+||| `n`, while `MkBox {v = n}` holds `n` itself.
 export
-runtimeDependent : ClosedTerm -> Bool
-runtimeDependent = anyErasedAs (\w => case w of
-                                        Impossible => True
-                                        _ => False)
+runtimeDependent : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
+runtimeDependent = go
+  where
+    anyM : List (TT vs) -> (TT vs -> Core Bool) -> Core Bool
+    anyM [] f = pure False
+    anyM (x :: xs) f = if !(f x) then pure True else anyM xs f
+
+    mutual
+      go : TT vs -> Core Bool
+      go (Erased _ Impossible) = pure True
+      go (Erased _ (Dotted t)) = go t
+      go (Bind _ _ (Pi {}) _) = pure False
+      go (Bind _ _ (Let _ _ v _) sc) = if !(go v) then pure True else go sc
+      go (Bind _ _ (PLet _ _ v _) sc) = if !(go v) then pure True else go sc
+      go (Bind _ _ _ sc) = go sc
+      go (TDelay _ _ _ arg) = go arg
+      go (TForce _ _ t) = go t
+      go (As _ _ _ p) = go p
+      go (Meta _ _ _ args) = anyM args go
+      go tm@(App {}) = applied (spine tm [])
+      go _ = pure False
+
+      applied : (TT vs, List (TT vs)) -> Core Bool
+      applied (Ref _ (TyCon _) _, _) = pure False
+      applied (Ref _ _ n, args) = do
+        qs <- quantities n
+        arguments (map isErased qs) args
+      applied (f, args) = anyM (f :: args) go
+
+      -- An argument past the parameters the type shows is taken as runtime.
+      arguments : List Bool -> List (TT vs) -> Core Bool
+      arguments _ [] = pure False
+      arguments (True :: es) (_ :: as) = arguments es as
+      arguments es (a :: as) = if !(go a) then pure True else arguments (drop 1 es) as
 
 ||| The normal form of a closed term, every definition unfolded as in
 ||| `closeNormalise`.
@@ -220,39 +253,102 @@ normaliseClosed tm = do
   defs <- get Ctxt
   normaliseAll defs [] tm
 
-||| The constructor a compile-time value reduces to, with its arguments. An
-||| implementation is a definition with one right-hand side, so it is
-||| unfolded by substituting its arguments, keeping the rest as written;
-||| anything else goes to Idris's normaliser.
-export
-whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
-whnf Z tm = pure Nothing
-whnf (S fuel) tm = case spineC tm [] of
-  (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
-  (Ref _ _ n, args) => do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
-      | Nothing => pure Nothing
-    case definition def of
-      PMDef _ pargs (STerm _ body) _ _ =>
-        if length args < length pargs then pure Nothing
-        else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
-                                (drop (length pargs) args))
-      _ => normalised
-  (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
-  (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
-  _ => normalised
-  where
-    spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
-    spineC (App _ f a) as = spineC f (a :: as)
-    spineC f as = (f, as)
-    normalised : Core (Maybe (Name, List ClosedTerm))
-    normalised = do
+||| A projection: a definition that matches one of its parameters against
+||| one constructor and returns one of that constructor's arguments, as
+||| `fst` and an interface's parents and methods do. Its arity, the
+||| position of the parameter, the constructor, and the position of the
+||| argument.
+projection : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (Nat, Nat, Name, Nat))
+projection n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure Nothing
+  pure (case definition def of
+          PMDef _ pargs (Case idx _ _ [ConCase cn _ cargs (STerm _ (Local _ _ k _))]) _ _ =>
+            if k < length cargs then Just (length pargs, idx, cn, k) else Nothing
+          _ => Nothing)
+
+mutual
+  ||| The constructor a compile-time value reduces to, with its arguments.
+  ||| An implementation is a definition with one right-hand side, so it is
+  ||| unfolded by substituting its arguments, keeping the rest as written,
+  ||| whatever its visibility: one its module exports without its
+  ||| definition is a module boundary, not a value. Anything else goes to
+  ||| Idris's normaliser, which stops at such an implementation: a
+  ||| projection it leaves takes its field from the constructor the record
+  ||| reduces to here.
+  export
+  whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
+  whnf Z tm = pure Nothing
+  whnf (S fuel) tm = case spineC tm [] of
+    (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
+    (Ref _ _ n, args) => do
       defs <- get Ctxt
-      tm' <- normalise defs [] tm
-      pure (case spineC tm' [] of
-              (Ref _ (DataCon _ _) n, args) => Just (n, args)
-              _ => Nothing)
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure Nothing
+      case definition def of
+        PMDef _ pargs (STerm _ body) _ _ =>
+          if length args < length pargs then pure Nothing
+          else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
+                                  (drop (length pargs) args))
+        _ => do
+          Nothing <- normalised
+            | found => pure found
+          Just field <- projected fuel n args
+            | Nothing => pure Nothing
+          whnf fuel field
+    (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
+    (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
+    _ => normalised
+    where
+      spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
+      spineC (App _ f a) as = spineC f (a :: as)
+      spineC f as = (f, as)
+      normalised : Core (Maybe (Name, List ClosedTerm))
+      normalised = do
+        defs <- get Ctxt
+        tm' <- normalise defs [] tm
+        pure (case spineC tm' [] of
+                (Ref _ (DataCon _ _) n, args) => Just (n, args)
+                _ => Nothing)
+
+  ||| A projection applied to arguments, when it applies to all of them: the
+  ||| field it takes from the constructor its record reduces to, applied to
+  ||| the arguments past the projection's own.
+  projected : {auto c : Ref Ctxt Defs} -> Nat -> Name -> List ClosedTerm -> Core (Maybe ClosedTerm)
+  projected fuel n args = do
+    Just (arity, idx, cn, k) <- projection n
+      | Nothing => pure Nothing
+    let True = length args >= arity
+      | False => pure Nothing
+    let Just whole = getAt idx args
+      | Nothing => pure Nothing
+    Just (built, fields) <- whnf fuel whole
+      | Nothing => pure Nothing
+    let Just field = getAt k fields
+      | Nothing => pure Nothing
+    if !(toFullNames built) /= !(toFullNames cn)
+       then pure Nothing
+       else pure (Just (foldl (App EmptyFC) field (drop arity args)))
+
+||| The implementation a written one stands for, so that two are compared
+||| by what they are: the name of an implementation applied to its
+||| arguments, each of them an implementation reduced in turn, once what
+||| leads to it is reduced: a projection of a constructor's argument (an
+||| implementation's constraints, which Idris passes as one tuple, taken
+||| apart with `fst` and `snd`; a parent taken from an implementation), a
+||| `let`, an applied lambda. The implementation itself is not unfolded.
+export
+implementationOf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core ClosedTerm
+implementationOf Z tm = pure tm
+implementationOf (S fuel) tm = case spine tm [] of
+  (Bind _ _ (Lam {}) sc, a :: as) => implementationOf fuel (betaAll (subst a sc) as)
+  (Bind fc _ (Let _ _ v _) sc, as) => implementationOf fuel (foldl (App fc) (subst v sc) as)
+  (f@(Ref fc _ n), args) => do
+    Just field <- projected fuel n args
+      | Nothing => foldl (App fc) f <$> traverse (implementationOf fuel) args
+    implementationOf fuel field
+  _ => pure tm
 
 ||| Which arguments of a constructor are erased, by position.
 export
@@ -267,14 +363,12 @@ erasedArgs n = do
     go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
     go _ = []
 
+||| A term as a message shows it, every name full: a name Idris has
+||| resolved to its place in the context prints as `$resolved359`, which
+||| says nothing to the reader.
 export
-showTT : ClosedTerm -> String
-showTT = show
-
-export
-spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
-spine (App _ fn arg) args = spine fn (arg :: args)
-spine fn args = (fn, args)
+showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
+showTT tm = show <$> toFullNames tm
 
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an
@@ -288,17 +382,63 @@ shapeHead tm = case spine tm [] of
 ||| The shape of a term as written: the constructors it is built with,
 ||| everything else erased, and nothing when its head is no constructor.
 ||| Nothing is evaluated: a constant, a variable or a call says nothing.
+||| What the shape does not say is a part of a runtime value, so a hole
+||| has the reason `Impossible`, as a runtime variable has in the written
+||| form: `runtimeDependent` refuses it wherever a value is needed.
 export
 skeleton : ClosedTerm -> Maybe ClosedTerm
 skeleton tm = case spine tm [] of
   (con@(Ref fc (DataCon _ _) _), args) =>
-    Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Placeholder) (skeleton a)) args))
+    Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Impossible) (skeleton a)) args))
   _ => Nothing
 
 ||| A runtime value of a type with what its shape says, if anything.
 export
 shaped : a -> Ty -> ClosedTerm -> VarInfo a
 shaped x t s = if isJust (shapeHead s) then Shaped x t s else Runtime x (Just t)
+
+||| How many constructors deep a shape says what the value was built with.
+export
+shapeDepth : ClosedTerm -> Nat
+shapeDepth tm = case shapeHead tm of
+  Just (_, args) => S (foldl (\d, a => max d (shapeDepth a)) 0 args)
+  Nothing => Z
+
+||| A shape cut at a depth: every part below it, and every part the shape
+||| does not say, is `hole`.
+export
+cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
+cutShape hole Z _ = hole
+cutShape hole (S d) tm = case spine tm [] of
+  (con@(Ref fc (DataCon _ _) _), args) => foldl (App fc) con (map (cutShape hole d) args)
+  _ => hole
+
+||| What a shape leaves unknown of a runtime value, where a type is asked
+||| whether it needs it: a reference to a definition that does not exist,
+||| at which reduction stops exactly where it would need the value. Idris's
+||| quotation gives such a function back as it was, where it would take a
+||| bound machine name for one of the binders it makes, by its number.
+export
+unknownPart : ClosedTerm
+unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
+
+||| Does a term mention `unknownPart`?
+export
+mentionsUnknown : TT vars -> Bool
+mentionsUnknown (Ref _ _ (MN "idris-mlir-unknown" _)) = True
+mentionsUnknown (Bind _ _ b sc) = mentionsUnknown (binderType b) || binderVal b || mentionsUnknown sc
+  where
+    binderVal : TTBinder (TT vs) -> Bool
+    binderVal (Let _ _ v _) = mentionsUnknown v
+    binderVal (PLet _ _ v _) = mentionsUnknown v
+    binderVal _ = False
+mentionsUnknown (App _ f a) = mentionsUnknown f || mentionsUnknown a
+mentionsUnknown (As _ _ a p) = mentionsUnknown p
+mentionsUnknown (TDelayed _ _ t) = mentionsUnknown t
+mentionsUnknown (TDelay _ _ t a) = mentionsUnknown t || mentionsUnknown a
+mentionsUnknown (TForce _ _ t) = mentionsUnknown t
+mentionsUnknown (Meta _ _ _ args) = any mentionsUnknown args
+mentionsUnknown _ = False
 
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
 export
