@@ -30,19 +30,27 @@ TTBinder : Type -> Type
 TTBinder = Core.TT.Binder.Binder
 
 ||| What a TT variable stands for: a Core variable (with its type, when a
-||| match may need it), a type argument's value, or an implementation's value.
-||| Types and implementations are compile-time values, closed TT terms: types
-||| are erased at runtime, and an implementation is used by translating it
-||| where it is needed.
+||| match may need it, and with the shape of its value when that is known),
+||| a type argument's value, or an implementation's value. Types and
+||| implementations are compile-time values, closed TT terms: types are
+||| erased at runtime, and an implementation is used by translating it where
+||| it is needed.
 public export
 data VarInfo : Type -> Type where
   Runtime : a -> Maybe Ty -> VarInfo a
+  ||| A runtime value whose shape is known: the constructors every call of
+  ||| the instance built its argument with (`Instances.classify`), or a
+  ||| constructor's field of such a value. The shape stands for the value
+  ||| in types, and a match on the value takes only the alternatives a
+  ||| value of that shape can.
+  Shaped : a -> Ty -> ClosedTerm -> VarInfo a
   TypeValue : ClosedTerm -> VarInfo a
   Static : ClosedTerm -> VarInfo a
 
 export
 Functor VarInfo where
   map f (Runtime x t) = Runtime (f x) t
+  map f (Shaped x t s) = Shaped (f x) t s
   map f (TypeValue t) = TypeValue t
   map f (Static t) = Static t
 
@@ -100,18 +108,23 @@ wrapLams {vars = x :: rest} fc tm =
   wrapLams {vars = rest} fc (Bind fc x (Lam fc top Explicit (Erased fc Placeholder)) tm)
 
 ||| The closed normal form of a term in scope, with type variables replaced by
-||| their known values and every other variable by `Erased`.
+||| their known values and every other variable by `Erased`. Every
+||| definition unfolds, whatever its visibility (`normaliseAll`): Idris's
+||| plain `normalise` keeps a `private` function of another module as it is
+||| (a type-level function such as Data.SortedMap's `delType`), which is a
+||| module boundary, not a value.
 export
 closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
                  FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
 closeNormalise fc env tm = do
   let closed = foldl (App fc) (wrapLams fc tm) (reverse (map value env))
   defs <- get Ctxt
-  normalise defs [] closed
+  normaliseAll defs [] closed
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t) = t
+    value (Shaped _ _ s) = s
     value (Runtime _ _) = Erased fc Placeholder
 
 ||| A closed term in any scope.
@@ -157,6 +170,8 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t) = t
+    -- A shape is what is known of the value at compile time.
+    value (Shaped _ _ s) = s
     -- A quantity-0 variable (a length, a proof) is not a runtime value: an
     -- implementation that mentions it (`Foldable (Vect n)`) does not
     -- depend on anything at runtime.
@@ -197,11 +212,13 @@ runtimeDependent = anyErasedAs (\w => case w of
                                         Impossible => True
                                         _ => False)
 
+||| The normal form of a closed term, every definition unfolded as in
+||| `closeNormalise`.
 export
 normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
-  normalise defs [] tm
+  normaliseAll defs [] tm
 
 ||| The constructor a compile-time value reduces to, with its arguments. An
 ||| implementation is a definition with one right-hand side, so it is
@@ -258,6 +275,30 @@ export
 spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
 spine (App _ fn arg) args = spine fn (arg :: args)
 spine fn args = (fn, args)
+
+||| What a shape says a value was built with: a constructor, with the
+||| shapes of its arguments. A shape that is no constructor application (an
+||| erased part) says nothing of the value.
+export
+shapeHead : ClosedTerm -> Maybe (Name, List ClosedTerm)
+shapeHead tm = case spine tm [] of
+  (Ref _ (DataCon _ _) n, args) => Just (n, args)
+  _ => Nothing
+
+||| The shape of a term as written: the constructors it is built with,
+||| everything else erased, and nothing when its head is no constructor.
+||| Nothing is evaluated: a constant, a variable or a call says nothing.
+export
+skeleton : ClosedTerm -> Maybe ClosedTerm
+skeleton tm = case spine tm [] of
+  (con@(Ref fc (DataCon _ _) _), args) =>
+    Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Placeholder) (skeleton a)) args))
+  _ => Nothing
+
+||| A runtime value of a type with what its shape says, if anything.
+export
+shaped : a -> Ty -> ClosedTerm -> VarInfo a
+shaped x t s = if isJust (shapeHead s) then Shaped x t s else Runtime x (Just t)
 
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
 export

@@ -32,6 +32,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Frontend.Translate.Dictionaries
         , IdrisMLIR.Frontend.Translate.Types
         , IdrisMLIR.Frontend.Translate.Recursion
         , IdrisMLIR.Frontend.Translate.Instances

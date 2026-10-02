@@ -294,6 +294,38 @@ natLike def = case definition def of
     pure (not (null roles) && all isJust roles)
   _ => pure False
 
+export
+isAuto : PiInfo t -> Bool
+isAuto AutoImplicit = True
+isAuto _ = False
+
+||| Is a type an interface, whatever binds a value of it? Idris declares an
+||| interface's record with unique search (`uniqueAuto`), and passes a
+||| function's constraints to its `where` functions and its case and with
+||| blocks as explicit arguments.
+export
+interfaceType : {auto c : Ref Ctxt Defs} -> TT vars -> Core Bool
+interfaceType ty = case spine ty [] of
+  (Ref _ (TyCon _) n, _) => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact n (gamma defs)
+      | Nothing => pure False
+    case definition def of
+      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
+      _ => pure False
+  _ => pure False
+
+||| Does a binder of this quantity, kind and (normalised) type bind an
+||| implementation: a value found by search (an interface constraint, a
+||| proof Idris searches for) or of an interface's type? The same answer
+||| classifies a function's parameters (`classify`) and a constructor's
+||| fields (`dataInstance`), so that what a construction site passes as a
+||| compile-time value, the constructor holds as one.
+export
+dictionaryBinder : {auto c : Ref Ctxt Defs} -> RigCount -> PiInfo (TT vars) -> TT vars -> Core Bool
+dictionaryBinder rig pinfo ty =
+  if isErased rig then pure False else if isAuto pinfo then pure True else interfaceType ty
+
 mutual
   ||| The Core type of a closed, normalised type. A type that has no runtime
   ||| representation is reported under `rule`: `ValueType`, or `DependentField`
@@ -370,16 +402,21 @@ mutual
       pure inst
     where
       ||| The constructor's arguments: a parameter is the instance's, anything
-      ||| else is a field.
-      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm -> Core (List Binder)
+      ||| else is a field, with its type when it holds an implementation.
+      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm ->
+             Core (List (Binder, Maybe ClosedTerm))
       walk cname dfc targs (Just p :: ls) (Bind bfc _ (Pi {}) sc) =
         walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
-      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
-        field <- binderOf rig $ do
-                   a' <- normaliseClosed a
-                   when !(erasedOutsideIndices cname a') $
-                     reject dfc cname DependentField "a field type that depends on another field"
-                   coreType dfc cname DependentField a'
+      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig pinfo a) sc) = do
+        field <- if isErased rig then pure (Gone, Nothing) else do
+          a' <- normaliseClosed a
+          -- An implementation is a compile-time value of the instance, not
+          -- a runtime field (`Dictionaries`).
+          if !(dictionaryBinder rig pinfo a') then pure (Gone, Just a') else do
+            when !(erasedOutsideIndices cname a') $
+              reject dfc cname DependentField ("a field type that depends on another field: " ++ showTT !(toFullNames a'))
+            t <- coreType dfc cname DependentField a'
+            pure (Held (useOf rig) t, Nothing)
         rest <- walk cname dfc targs ls (subst (Erased bfc Placeholder) sc)
         pure (field :: rest)
       walk _ _ _ _ _ = pure []
@@ -402,27 +439,7 @@ mutual
           internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
                                    show (length layout))
         fields <- walk cname (location def) targs layout ty
-        let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) fields loc
-        update TState { cons $= insert con.id (MkConLayout targs layout con) }
+        let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (map fst fields) loc
+        let dicts = mapMaybe (\(i, (_, d)) => (i,) <$> d) (zip [0 .. length fields] fields)
+        update TState { cons $= insert con.id (MkConLayout targs layout dicts con) }
         pure con
-
-export
-isAuto : PiInfo t -> Bool
-isAuto AutoImplicit = True
-isAuto _ = False
-
-||| Is a type an interface, whatever binds a value of it? Idris declares an
-||| interface's record with unique search (`uniqueAuto`), and passes a
-||| function's constraints to its `where` functions and its case and with
-||| blocks as explicit arguments.
-export
-interfaceType : {auto c : Ref Ctxt Defs} -> TT vars -> Core Bool
-interfaceType ty = case spine ty [] of
-  (Ref _ (TyCon _) n, _) => do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
-      | Nothing => pure False
-    case definition def of
-      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
-      _ => pure False
-  _ => pure False

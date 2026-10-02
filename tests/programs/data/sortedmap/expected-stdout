@@ -1,0 +1,18 @@
+brown 1
+dog 1
+end 1
+fox 1
+jumps 1
+lazy 1
+over 1
+quick 1
+the 3
+Just 3
+Nothing
+brown dog end jumps lazy over quick
+7
+squares Just 49 Nothing
+[(1, 1), (2, 4), (3, 9), (4, 16), (6, 36), (7, 49), (8, 64), (9, 81), (10, 100)]
+385
+[0, 11, 12]
+[1, 4, 18, 16, 25, 36, 49, 64, 81, 100]

@@ -9,6 +9,7 @@ import Core.TT
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Term
+import IdrisMLIR.Types
 
 import Data.SnocList
 import Data.SortedMap
@@ -16,14 +17,37 @@ import Data.SortedSet
 
 %default covering
 
+||| Parameter classification after instantiation (`Instances.classify`). A
+||| type parameter and an implementation (an auto-implicit argument, such as
+||| an interface constraint) are compile-time values: they key the instance
+||| and are erased at runtime. Any other parameter binds as its binder says;
+||| when the rest of the type depends on its value, the shape of its
+||| argument keys the instance too.
+public export
+data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ValueParam Binder (Maybe ClosedTerm)
+
+||| What a parameter binds at runtime: nothing for a compile-time value.
+export
+runtimeBinder : PKind -> Binder
+runtimeBinder (ValueParam b _) = b
+runtimeBinder _ = Gone
+
+||| The compile-time value that keys an instance at this parameter, if any.
+export
+staticOf : PKind -> Maybe ClosedTerm
+staticOf (TypeParam t) = Just t
+staticOf (DictParam t) = Just t
+staticOf (ValueParam _ shape) = shape
+
 ||| A function instance waiting to be translated.
 public export
 record Pending where
   constructor MkPending
   name : Name
   inst : FnId
-  ||| The compile-time arguments, by position.
-  statics : List (Maybe ClosedTerm)
+  ||| The parameters as the call that requested the instance classified
+  ||| them, so that the instance is translated at the same values.
+  kinds : List PKind
 
 ||| What a constructor instance needs for case trees.
 public export
@@ -34,7 +58,21 @@ record ConLayout where
   ||| data type's parameter it is, or `Nothing` for a field. Idris does not
   ||| put the parameters first (`(::) : {0 len} -> {0 elem} -> ...`).
   layout : List (Maybe Nat)
+  ||| The fields that hold an implementation (`Empty : Ord k => ...`), by
+  ||| their position among the fields, with the field's type: compile-time
+  ||| values, erased from the representation (`Dictionaries`).
+  dicts : List (Nat, ClosedTerm)
   con : Con
+
+||| The one implementation a dictionary field holds in the whole program,
+||| and the user definition that chose it: the one the first construction
+||| site's instance was requested for, through the library's instances.
+public export
+record Dictionary where
+  constructor MkDictionary
+  impl : ClosedTerm
+  chooser : String
+  site : FC
 
 export
 data TState : Type where
@@ -75,10 +113,32 @@ record TS where
   ||| The instances of each definition by their arguments, up to the names
   ||| of binders: `(x : a) -> b` and `a -> b` are one type.
   named : SortedMap String (List (List (Maybe ClosedTerm), String))
+  ||| The implementation each dictionary field holds, by constructor and
+  ||| position among the fields; the one part of the state a pass hands to
+  ||| the next (`nextPass`).
+  dicts : SortedMap (ConId, Nat) Dictionary
+  ||| The dictionary fields matched in this pass before any construction
+  ||| site gave their implementation: their alternatives were translated as
+  ||| unreachable, which a construction site seen later contradicts.
+  assumed : SortedSet (ConId, Nat)
+  ||| A construction site contradicted an assumption: the pass is void, and
+  ||| the translation starts over with what it learnt.
+  restart : Bool
+  ||| The instance being translated.
+  current : Maybe FnId
+  ||| Each instance's definition and the instance whose translation
+  ||| requested it: the chain back to the user definition it serves.
+  requesters : SortedMap FnId (Name, Maybe FnId)
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc empty empty empty empty
+initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty
+
+||| The state a pass of the translation starts from: nothing of the last
+||| pass but the dictionaries it found.
+export
+nextPass : TS -> TS
+nextPass st = { dicts := st.dicts } (initState st.moduleFC)
 
 ||| A fresh program point for a lambda or `Delay`.
 export

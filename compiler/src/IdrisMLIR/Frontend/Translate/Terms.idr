@@ -9,6 +9,7 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Instances
@@ -83,7 +84,7 @@ succArg kinds = case mapMaybe runtime (zip [0 .. length kinds] kinds) of
   _ => Nothing
   where
     runtime : (Nat, PKind) -> Maybe Nat
-    runtime (i, ValueParam (Held _ _)) = Just i
+    runtime (i, ValueParam (Held _ _) _) = Just i
     runtime _ = Nothing
 
 mutual
@@ -94,6 +95,7 @@ mutual
     loc <- toLoc (bestFC ctx fc)
     case getAt idx env of
       Just (Runtime x _) => pure (Var loc x)
+      Just (Shaped x _ _) => pure (Var loc x)
       Just (TypeValue _) => pure (Erased loc)
       Just (Static t) => term {vars} ctx env (embedClosed {vars} t)
       Nothing => internal (bestFC ctx fc) "a variable out of scope"
@@ -192,7 +194,7 @@ mutual
       arguments loc kinds xs = traverse arg (zip kinds xs)
         where
           arg : (PKind, TT vars) -> Core (Term a)
-          arg (ValueParam (Held _ _), x) = term ctx env x
+          arg (ValueParam (Held _ _) _, x) = term ctx env x
           arg _ = pure (Erased loc)
 
       isImplementation : TT vars -> Bool
@@ -219,17 +221,13 @@ mutual
              etaExpand afc loc (map runtimeBinder missing) mk given
         where
           isStatic : PKind -> Bool
-          isStatic (ValueParam _) = False
+          isStatic (ValueParam _ _) = False
           isStatic _ = True
 
       call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
       call fc loc name arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
-        let statics = map (\k => case k of
-                                    TypeParam t => Just t
-                                    DictParam t => Just t
-                                    _ => Nothing) kinds
-        inst <- request fc ctx.owner name statics
+        inst <- request fc ctx.owner name kinds
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst) (drop arity xs)
 
@@ -244,12 +242,12 @@ mutual
         (kinds, _) <- classify fc ctx.owner arity (type def) (replicate arity Nothing)
         let True = all isRuntime kinds
           | False => reject fc (show q) HookShape "the registry names a library function with compile-time arguments"
-        inst <- request fc ctx.owner (fullname def) (replicate arity Nothing)
+        inst <- request fc ctx.owner (fullname def) kinds
         pure (\ns => let (now, rest) = splitAt arity ns in
                      foldl (App loc) (Call loc inst now) rest)
         where
           isRuntime : PKind -> Bool
-          isRuntime (ValueParam _) = True
+          isRuntime (ValueParam _ _) = True
           isRuntime _ = False
 
       -- A function on naturals, as the primitives it means (the registry's
@@ -297,8 +295,18 @@ mutual
             -- not one is an erased field.
             st <- get TState
             let cid = MkConId inst (shortName (fullname def))
-            let layout = maybe [] (.layout) (lookup cid st.cons)
-            finish loc (fieldsOnly layout kinds) (fieldsOnly layout given) (ConApp loc cid) (drop arity xs)
+            let Just info = lookup cid st.cons
+              | Nothing => internal fc ("the constructor " ++ cid.name ++ " of " ++ inst.name ++ " is not registered")
+            let fieldKinds = fieldsOnly info.layout kinds
+            -- An implementation given to a dictionary field is the one the
+            -- field holds, for the whole program.
+            for_ (zip [0 .. length fieldKinds] fieldKinds) $ \(i, kind) =>
+              case (Data.List.lookup i info.dicts, kind) of
+                (Just ty, DictParam t) => recordDictionary fc ctx.owner cid ty i t
+                (Just _, _) => internal fc ("a runtime value for a dictionary field of " ++ cid.name)
+                (Nothing, DictParam _) => internal fc ("an implementation for a runtime field of " ++ cid.name)
+                _ => pure ()
+            finish loc fieldKinds (fieldsOnly info.layout given) (ConApp loc cid) (drop arity xs)
 
       primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (TT vars) -> Core (Term a)
       primitive fc loc name arity op xs = case op of
@@ -316,7 +324,7 @@ mutual
             Nothing => reject fc ctx.owner Primitive ("primitive " ++ show name)
             Just p => do
               args' <- traverse (term ctx env) (take arity xs)
-              let kinds = map (ValueParam . Held Many) (primArgs p)
+              let kinds = map (\t => ValueParam (Held Many t) Nothing) (primArgs p)
               finish loc kinds args' (PrimApp loc p) (drop arity xs)
 
       -- A string built once from a list: the primitive at the list's
@@ -324,7 +332,7 @@ mutual
       builderCall : FC -> Loc -> Nat -> Builder -> ClosedTerm -> List (TT vars) -> Core (Term a)
       builderCall fc loc arity b ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
-        let [ValueParam (Held _ (DataT d))] = kinds
+        let [ValueParam (Held _ (DataT d)) _] = kinds
           | _ => internal fc "a string built from something other than a list"
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (PrimApp loc (StrBuild b d)) (drop arity xs)
@@ -365,7 +373,7 @@ mutual
           elementOf [] = Nothing
 
           isRuntime : PKind -> Bool
-          isRuntime (ValueParam (Held _ _)) = True
+          isRuntime (ValueParam (Held _ _) _) = True
           isRuntime _ = False
 
           runtimeOnly : List PKind -> List (Term a) -> List (Term a)
