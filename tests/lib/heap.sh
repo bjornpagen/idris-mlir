@@ -1,10 +1,12 @@
 # What an e2e program needs outside itself, and whether it allocates.
 #
-# Its object's undefined symbols are what the runtime it is linked with
-# imports (read from the runtime's archive, so the list follows the
-# runtime), the calls code generation makes by itself, and what a
-# `symbols` file next to the tests adds for them (tests/programs/prelude/symbols:
-# libm, for Doubles). Anything else is a call the program should not make.
+# Its object's undefined symbols are the runtime's (read from the runtime
+# object it is linked with, so the list follows the runtime): the bodies
+# the program did not inline, which resolve there, and what the runtime
+# itself imports, which the bodies it did inline call; the calls code
+# generation makes by itself; and what a `symbols` file next to the tests
+# adds for them (tests/programs/prelude/symbols: libm, for Doubles).
+# Anything else is a call the program should not make.
 #
 # A file `heap-free` in a test's directory marks a program whose
 # values the compiler keeps off the heap: no op of the module that is
@@ -12,18 +14,13 @@
 # is the test: the day an optimization stops keeping those values off the
 # heap, it fails.
 
-runtime_archive=$root/build/dev/runtime/libidris_rt.a
-
 # The calls LLVM makes by itself, for copies and fills.
 codegen_symbols='memcpy memset memmove'
 
-# runtime_imports: the symbols the runtime archive imports: undefined in
-# it and defined by none of its members.
-runtime_imports() {
-  "$llvm_bin/llvm-nm" --print-file-name "$runtime_archive" > "$work/runtime.nm" 2> /dev/null || return 0
-  awk '$(NF-1) ~ /^[Uwv]$/ { print $NF }' "$work/runtime.nm" | sort -u > "$work/runtime.undefined"
-  awk '$(NF-1) !~ /^[Uwv]$/ { print $NF }' "$work/runtime.nm" | sort -u > "$work/runtime.defined"
-  comm -23 "$work/runtime.undefined" "$work/runtime.defined"
+# runtime_symbols: what the runtime object every program links defines
+# and imports (its native half: the bitcode in it names the same symbols).
+runtime_symbols() {
+  "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir_cc" --print-runtime)" 2> /dev/null | sort -u
 }
 
 # allowed_symbols TEST: the calls allowed to the program of the test
@@ -31,7 +28,7 @@ runtime_imports() {
 allowed_symbols() {
   allowed_tests=$(cd "$1/.." && pwd)
   say "$codegen_symbols"
-  runtime_imports
+  runtime_symbols
   [ -f "$allowed_tests/symbols" ] && sed '/^#/d' "$allowed_tests/symbols"
   return 0
 }

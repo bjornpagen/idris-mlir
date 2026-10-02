@@ -1,0 +1,65 @@
+prepared runtime: one object
+api: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc leak: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc crash: the same output, live cells and exit status (1) with the prepared runtime as with the archive
+the prepared runtime needs:
+  __cpu_features2
+  __cpu_indicator_init
+  __cpu_model
+  __errno_location
+  __gmp_set_memory_functions
+  __gmpz_add
+  __gmpz_and
+  __gmpz_cdiv_q
+  __gmpz_clear
+  __gmpz_cmp
+  __gmpz_fdiv_q
+  __gmpz_fits_slong_p
+  __gmpz_get_si
+  __gmpz_get_str
+  __gmpz_init
+  __gmpz_ior
+  __gmpz_limbs_read
+  __gmpz_mod
+  __gmpz_mul
+  __gmpz_roinit_n
+  __gmpz_set
+  __gmpz_set_d
+  __gmpz_set_si
+  __gmpz_set_str
+  __gmpz_set_ui
+  __gmpz_sizeinbase
+  __gmpz_sub
+  __gmpz_xor
+  _exit
+  abort
+  bcmp
+  clock_gettime
+  close
+  fsync
+  getenv
+  getrlimit
+  ldexp
+  madvise
+  memcpy
+  memmove
+  memset
+  mmap
+  mprotect
+  munmap
+  open
+  pthread_attr_destroy
+  pthread_attr_init
+  pthread_attr_setstack
+  pthread_create
+  pthread_join
+  read
+  sigaction
+  sigaltstack
+  sigemptyset
+  strlen
+  syscall
+  sysconf
+  write
+  writev

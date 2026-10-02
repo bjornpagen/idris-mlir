@@ -1,10 +1,11 @@
 /* The runtime's C interface.
  *
- * Every helper that idr-lower calls is here. Programs join the runtime's
- * bitcode by LTO, so what a program does not call is not in its
- * executable. idris-mlir-cc links the same code natively: the folders of
- * the string and big ops call it, and so does the code idr-eval JITs, so a
- * primitive has one implementation at compile time and at runtime.
+ * Every helper that idr-lower calls is here. A program inlines the
+ * runtime's bitcode where that pays and links the rest natively, so what a
+ * program does not call is not in its executable. idris-mlir-cc links the
+ * same code natively: the folders of the string and big ops call it, and so
+ * does the code idr-eval JITs, so a primitive has one implementation at
+ * compile time and at runtime.
  *
  * The layouts below are shared with idr-lower (foreign/idr/lib/Lower), which
  * writes constants of them into static data. */
@@ -463,7 +464,9 @@ void idris_rt_gmp_init(void);
  * live cell, so counting does nothing in the child. A cell JIT-mode code
  * takes from idris_rt_arena_alloc itself must be written with count 0 too.
  * The arena is never freed: the child ends with the round, and memory
- * management is not observable. */
+ * management is not observable. Only the compiler calls these, natively,
+ * never a program (eval.cc annotates them so); the runtime idris-mlir-cc
+ * prepares for programs has no entry for them. */
 void idris_rt_eval_begin(int report_fd);
 void *idris_rt_arena_alloc(size_t size);
 /* Writes msg to the report descriptor, then ends the child with
