@@ -460,9 +460,18 @@ void ConOp::getEffects(
   effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
 }
 
+// A box is a cell: building one allocates, and reading a field of one
+// loads from a cell only as large as its own constructor. A sum is its
+// slots, all there whatever its constructor: building or reading it is
+// computing, which may run anywhere.
 Speculation::Speculatability ConOp::getSpeculatability() {
-  return isa<BoxType>(getType()) ? Speculation::NotSpeculatable
-                                 : Speculation::Speculatable;
+  return isa<BoxType>(unrestricted(getType())) ? Speculation::NotSpeculatable
+                                               : Speculation::Speculatable;
+}
+
+Speculation::Speculatability FieldOp::getSpeculatability() {
+  return isa<BoxType>(unrestricted(getValue().getType())) ? Speculation::NotSpeculatable
+                                                         : Speculation::Speculatable;
 }
 
 LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {

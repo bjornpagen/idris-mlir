@@ -391,16 +391,23 @@ def Idr_ConOp : Idr_Op<"con", [
   let hasFolder = 1;
 }
 
-// Reading a field of another constructor gives an unspecified value but never
-// traps, so the op is speculatable. It is Pure though it may load from the
-// cell, because a cell never changes while a reference to it is live: it is
-// written when it is built (a field built pending once more, through its
-// destination, before anything reads it), and reused only through the token
-// of a box idr.take consumed. In the owned stage, where references end, the
-// verifier refuses a read through a view once the reference the view borrows
-// is gone, so a pass that moves a read past its cell's drop fails there
-// instead of reading a freed cell.
-def Idr_FieldOp : Idr_Op<"field", [Pure,
+// A sum's field is one of its slots, there whatever constructor built the
+// value, so reading another constructor's gives an unspecified value: the
+// read may run anywhere (it is speculatable). A box's field is a load from
+// its cell, which is as large as its own constructor (an atom is its header
+// alone), so reading a larger constructor's field from it would load past
+// its end: the read stays where its constructor is known, under its match
+// or after the test of its tag, and moves nowhere it would run without them
+// (it is not speculatable). Neither read has a memory effect though a box's
+// loads from the cell, because a cell never changes while a reference to it
+// is live: it is written when it is built (a field built pending once more,
+// through its destination, before anything reads it), and reused only
+// through the token of a box idr.take consumed. In the owned stage, where
+// references end, the verifier refuses a read through a view once the
+// reference the view borrows is gone, so a pass that moves a read past its
+// cell's drop fails there instead of reading a freed cell.
+def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "reads a field of a constructor value";
   let arguments = (ins Idr_SumType:$value, FlatSymbolRefAttr:$ctor,
