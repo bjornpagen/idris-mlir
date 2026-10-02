@@ -39,6 +39,10 @@ export
 declares : Entry -> List String -> Bool
 declares e specs = any (\s => Foreign s == e.key) (mapMaybe parseSpec specs)
 
+||| The name an entry's definition has, when it names one.
+declaredAt : Entry -> Maybe QName
+declaredAt e = fst <$> site e
+
 ||| What the registry makes of a `%foreign` definition, by the specs Idris
 ||| recorded for it: `Nothing` if it declares no entry's spec; the entry's
 ||| hook if it is the definition the entry names; otherwise the entry and
@@ -46,7 +50,11 @@ declares e specs = any (\s => Foreign s == e.key) (mapMaybe parseSpec specs)
 export
 foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hook)
 foreignHook q specs = do
-  e <- find (\e => declares e specs) entries
+  -- Two entries may declare one spec at two names (Chez writes a byte
+  -- from an Int or a Bits8 alike): the entry declared at this name wins.
+  e <- case find (\e => declares e specs && declaredAt e == Just q) entries of
+         Just e => Just e
+         Nothing => find (\e => declares e specs) entries
   pure (case site e of
           Just (declared, _) => if declared == q then Right e.hook else Left (e, DeclaredBy q)
           Nothing => Right e.hook)

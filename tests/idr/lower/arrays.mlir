@@ -41,6 +41,11 @@
 // CHECK-NOT: llvm.load
 // CHECK: %[[X:.*]] = arith.index_cast %[[DL]] : i64 to index
 // CHECK: return %[[X]]
+// A byte element takes one byte: the cell's header says the stride is 1
+// (the tag bits) with no object slot, and kind array (4 << 24).
+// CHECK-LABEL: func.func private @bytes(
+// CHECK: %[[INFO:.*]] = llvm.mlir.constant(67108865 : i32) : i32
+// CHECK: llvm.call @idris_rt_array_new(%{{.*}}, %[[INFO]])
 module attributes {idr.program, idr.stage = "owned"} {
   idr.data @Opt {
     idr.ctor @None ()
@@ -74,5 +79,10 @@ module attributes {idr.program, idr.stage = "owned"} {
     %c0 = arith.constant 0 : index
     %n = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
     return %n : index
+  }
+  func.func private @bytes(%n: i64, %w: !idr.world) -> (!idr.own<memref<?xi8>>, !idr.world) {
+    %z = arith.constant 0 : i8
+    %a, %w1 = idr.array.new %n, %z, %w : i8 -> !idr.own<memref<?xi8>>
+    return %a, %w1 : !idr.own<memref<?xi8>>, !idr.world
   }
 }

@@ -625,6 +625,17 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
   let hasFolder = 1;
 }
 
+// An Int written as a byte of a buffer: itself when 0 to 255, else a
+// crash, as Chez's bytevector-u8-set! refuses it.
+def Idr_ToByteOp : Idr_Op<"to_byte", [Idr_MayCrash<>,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "an Int as a byte: itself when 0 to 255, else a crash";
+  let arguments = (ins I64:$value);
+  let results = (outs I8:$result);
+  let assemblyFormat = "$value attr-dict";
+  let hasFolder = 1;
+}
+
 // Truncates toward zero and wraps to the result width; crashes on NaN and
 // the infinities.
 def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {

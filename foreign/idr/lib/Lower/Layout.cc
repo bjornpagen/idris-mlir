@@ -230,20 +230,26 @@ SmallVector<bool> Layouts::counted(Type type) {
 }
 
 // An element is laid out as a cell of one field, less the header: the
-// offsets start at the element, and the stride is the word-aligned size.
+// offsets start at the element, and the stride is the element's size at
+// its own alignment, so that a byte element takes one byte and a buffer's
+// bytes are contiguous; an element with an object slot takes whole words.
 std::expected<Element, std::string> Layouts::element(Type type) {
   std::expected<Cell, std::string> cell =
       cellOf(type, 0, [](unsigned objs) { return CellInfo::box(0, objs); });
   if (!cell)
     return std::unexpected(std::move(cell.error()));
   constexpr unsigned header = sizeof(idris_rt_header);
-  unsigned stride = cell->size - header;
+  SmallVector<Slot> slots = std::move(cell->fields.front());
+  unsigned end = 0, alignment = 1;
+  for (Slot &slot : slots) {
+    slot.offset -= header;
+    end = std::max(end, slot.offset + sizeOf(slot.type));
+    alignment = std::max(alignment, alignmentOf(slot.type));
+  }
+  unsigned stride = static_cast<unsigned>(llvm::alignTo(end, alignment));
   std::expected<CellInfo, std::string> info = CellInfo::array(stride, cell->objs);
   if (!info)
     return std::unexpected(std::move(info.error()));
-  SmallVector<Slot> slots = std::move(cell->fields.front());
-  for (Slot &slot : slots)
-    slot.offset -= header;
   return Element{std::move(slots), stride, *info};
 }
 

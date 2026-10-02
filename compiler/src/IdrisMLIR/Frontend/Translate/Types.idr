@@ -324,11 +324,12 @@ mutual
       def <- lookupDef fc owner n
       if !(natLike def)
          then pure NatT
-         else if isArrayType (hooksOf (fullname def))
-           then case args of
+         else case arrayElementOf (hooksOf (fullname def)) of
+           Just (Just e) => pure (ArrayT e)
+           Just Nothing => case args of
              [a] => ArrayT <$> coreType fc owner rule !(normaliseClosed a)
              _ => internal fc "the array type without its one element type"
-           else DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
+           Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => reject fc owner rule ("unsupported runtime type " ++ showTT tm)

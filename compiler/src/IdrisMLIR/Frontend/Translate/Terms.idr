@@ -169,7 +169,7 @@ mutual
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
-        Just (Right ArraySize) => arraySize fc loc arity (type def) args
+        Just (Right (ArraySize fixed)) => arraySize fc loc arity fixed (type def) args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
@@ -359,9 +359,15 @@ mutual
         finish loc kinds given (\ys => Effect loc (Array op el) ys res) (drop arity xs)
 
       -- The length of an array: a primitive of the array alone.
-      arraySize : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      arraySize fc loc arity ty xs = do
+      -- The length of an array: at the element its type argument fixes, or
+      -- at the fixed element of a type that has none (a buffer's bytes).
+      arraySize : FC -> Loc -> Nat -> Maybe Ty -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arraySize fc loc arity Nothing ty xs = do
         (kinds, el, given, _) <- arrayOperands fc loc arity ty xs
+        finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
+      arraySize fc loc arity (Just el) ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty []
+        given <- arguments loc kinds (take arity xs)
         finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
   application ctx env afc fn args = case headStep fn args of
     Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)

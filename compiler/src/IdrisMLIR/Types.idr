@@ -405,6 +405,9 @@ data IOOp = PutStr | PutChar
           | GetByte   -- one byte of input
           | GetLine   -- a line of input, without its end
           | Array ArrayOp Ty
+          | BufferNew -- a buffer of zero bytes
+          | BufferGet -- a byte of a buffer, as an Int
+          | BufferSet -- an Int written as a byte, which it must be
 
 export
 Show IOOp where
@@ -413,6 +416,9 @@ Show IOOp where
   show GetByte = "getByte"
   show GetLine = "getLine"
   show (Array op e) = show op ++ "<" ++ show e ++ ">"
+  show BufferNew = "bufferNew"
+  show BufferGet = "bufferGet"
+  show BufferSet = "bufferSet"
 
 ||| The operand types of an IO primitive, before the world.
 public export
@@ -424,3 +430,6 @@ ioArgs GetLine = []
 ioArgs (Array NewArray e) = [IntT IdrisInt, e]
 ioArgs (Array GetArray e) = [ArrayT e, IntT IdrisInt]
 ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]
+ioArgs BufferNew = [IntT IdrisInt]
+ioArgs BufferGet = [ArrayT (IntT UInt8), IntT IdrisInt]
+ioArgs BufferSet = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]

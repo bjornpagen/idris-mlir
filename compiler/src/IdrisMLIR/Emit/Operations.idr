@@ -249,6 +249,10 @@ only ix d = case (.cons) <$> lookup d ix.datas of
   Just [c] => pure c
   _ => internal (show d ++ " does not have exactly one constructor")
 
+||| A buffer's element.
+byte : Ty
+byte = IntT UInt8
+
 ||| An IO primitive, and the `IORes` of its result and next
 ||| world.
 export
@@ -285,6 +289,24 @@ io ix l op vs res = do
       at <- typeText ix (ArrayT e)
       withUnit mk !(value l WorldT ("idr.array.set " ++ a.name ++ "[" ++ i.name ++ "], " ++ x.name ++
                                     ", " ++ w0.name ++ " : " ++ at ++ ", " ++ et))
+    -- A buffer is an array of bytes: a new one is zero bytes, a byte read
+    -- as an Int is widened, an Int written as a byte must be one.
+    (BufferNew, [n, w0]) => do
+      z <- value l byte "arith.constant 0 : i8"
+      r <- fresh
+      append (Line (r ++ ":2 = idr.array.new " ++ n.name ++ ", " ++ z.name ++ ", " ++ w0.name ++
+                    " : i8 -> " ++ !(typeText ix (ArrayT byte))) (At l))
+      pure (val (r ++ "#0") (ArrayT byte) Plain, val (r ++ "#1") WorldT Plain)
+    (BufferGet, [a, i, w0]) => do
+      r <- fresh
+      append (Line (r ++ ":2 = idr.array.get " ++ a.name ++ "[" ++ i.name ++ "], " ++ w0.name ++
+                    " : " ++ !(typeText ix (ArrayT byte)) ++ " -> i8") (At l))
+      x <- value l (IntT IdrisInt) ("arith.extui " ++ r ++ "#0 : i8 to i64")
+      pure (x, val (r ++ "#1") WorldT Plain)
+    (BufferSet, [a, i, x, w0]) => do
+      b <- value l byte ("idr.to_byte " ++ x.name)
+      withUnit mk !(value l WorldT ("idr.array.set " ++ a.name ++ "[" ++ i.name ++ "], " ++ b.name ++
+                                    ", " ++ w0.name ++ " : " ++ !(typeText ix (ArrayT byte)) ++ ", i8"))
     _ => internal ("io." ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where

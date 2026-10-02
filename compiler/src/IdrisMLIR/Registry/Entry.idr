@@ -186,13 +186,15 @@ data Hook
     ||| element: its calls are the `idr.array` op at the element type the
     ||| call fixes. Handler: `Frontend.Translate.application`.
     ArrayCall ArrayOp
-  | ||| The external type of arrays, `ArrayData a`: the array type of its
-    ||| element. Handler: `Frontend.Translate.Types.coreType`.
-    ArrayType
-  | ||| The length of an array, polymorphic in its element: its calls are
-    ||| the array's dimension (`ArrayLength`) at the element type the call
-    ||| fixes. Handler: `Frontend.Translate.application`.
-    ArraySize
+  | ||| An external type that is an array: `ArrayData a`, of the element
+    ||| its type argument names (`Nothing`), or `Buffer`, of bytes (`Just`
+    ||| the element). Handler: `Frontend.Translate.Types.coreType`.
+    ArrayType (Maybe Ty)
+  | ||| The length of an array: its calls are the array's dimension
+    ||| (`ArrayLength`) at the element type the call fixes (`Nothing`), or
+    ||| at the fixed element of an array type without a type argument
+    ||| (`Just`). Handler: `Frontend.Translate.application`.
+    ArraySize (Maybe Ty)
   | ||| The identity on its last argument, its one runtime argument; the
     ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
@@ -227,8 +229,8 @@ export
 kind : Hook -> Kind
 kind (IOCall _) = Faster
 kind (ArrayCall _) = Faster
-kind ArrayType = Faster
-kind ArraySize = Faster
+kind (ArrayType _) = Faster
+kind (ArraySize _) = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster

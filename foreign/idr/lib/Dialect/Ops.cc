@@ -1048,6 +1048,29 @@ void ToCharOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setR
   setResultRange(getResult(), nonNegative(32, 0, 0x10FFFF));
 }
 
+// A constant that is a byte: 0 to 255.
+bool isByte(Attribute constant) {
+  auto value = dyn_cast_or_null<IntegerAttr>(constant);
+  return value && !value.getValue().isNegative() && value.getValue().isIntN(8);
+}
+
+OpFoldResult ToByteOp::fold(FoldAdaptor adaptor) {
+  if (!isByte(adaptor.getValue()))
+    return {};
+  return IntegerAttr::get(getType(), cast<IntegerAttr>(adaptor.getValue()).getValue().trunc(8));
+}
+
+std::optional<StringRef> ToByteOp::getCrashCause() {
+  Attribute constant;
+  if (matchPattern(getValue(), m_Constant(&constant)) && isByte(constant))
+    return std::nullopt;
+  return StringRef("a byte outside 0 to 255");
+}
+
+void ToByteOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  setResultRange(getResult(), nonNegative(8, 0, 255));
+}
+
 OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
   auto value = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
   if (!value || !value.getValue().isFinite())

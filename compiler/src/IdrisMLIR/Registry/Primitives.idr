@@ -72,6 +72,25 @@ arrayPrimitive name shape op =
 int : Shape
 int = Prim (IntP IdrisInt)
 
+bits8 : Shape
+bits8 = Prim (IntP UInt8)
+
+||| The module of base's buffers, whose `Buffer` is an external type.
+bufferModule : List String
+bufferModule = ["Data", "Buffer"]
+
+buffer : Shape
+buffer = Head (Def (MkQName bufferModule "Buffer")) []
+
+||| A buffer's element.
+byte : Ty
+byte = IntT UInt8
+
+||| A buffer primitive, declared `%foreign` by its Chez spec.
+bufferPrimitive : String -> String -> Shape -> IOOp -> Entry
+bufferPrimitive spec name shape op =
+  MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName bufferModule name) shape) (IOCall op) [IOPrimitive]
+
 ||| The table: Idris's backend contract as the compiler implements it.
 export
 primitives : List Entry
@@ -88,7 +107,7 @@ primitives =
   , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
                 (Pi Q1 world (ioRes (Prim StringP))) GetLine
   , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi QW TypeOfTypes TypeOfTypes))
-            ArrayType [IOPrimitive]
+            (ArrayType Nothing) [IOPrimitive]
   , arrayPrimitive "prim__newArray"
                    (Pi QW int (Pi QW Hole (Pi Q1 world (ioRes (arrayData Hole))))) NewArray
   , arrayPrimitive "prim__arrayGet"
@@ -103,4 +122,23 @@ primitives =
   , MkEntry (Foreign (MkSpec "scheme" "(lambda (ty v) (vector-length v))"))
             (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
                       (Pi Q0 TypeOfTypes (Pi QW (arrayData Hole) int)))
-            ArraySize [Primitive] ]
+            (ArraySize Nothing) [Primitive]
+  -- base's Data.Buffer, a mutable array of bytes, by the Chez specs it
+  -- declares: a new buffer is zero bytes; a byte is read as its Bits8 or as
+  -- an Int, and written from either, an Int outside 0 to 255 being a
+  -- crash, as Chez's bytevector-u8-set! refuses it; its size is the
+  -- array's dimension.
+  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType (Just byte)) [IOPrimitive]
+  , bufferPrimitive "blodwen-new-buffer" "prim__newBuffer"
+                    (Pi QW int (Pi Q1 world (ioRes buffer))) BufferNew
+  , bufferPrimitive "blodwen-buffer-setbyte" "prim__setByte"
+                    (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes unit))))) BufferSet
+  , bufferPrimitive "blodwen-buffer-setbyte" "prim__setBits8"
+                    (Pi QW buffer (Pi QW int (Pi QW bits8 (Pi Q1 world (ioRes unit))))) (Array SetArray byte)
+  , bufferPrimitive "blodwen-buffer-getbyte" "prim__getByte"
+                    (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes int)))) BufferGet
+  , bufferPrimitive "blodwen-buffer-getbyte" "prim__getBits8"
+                    (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes bits8)))) (Array GetArray byte)
+  , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
+            (Declared (MkQName bufferModule "prim__bufferSize") (Pi QW buffer int))
+            (ArraySize (Just byte)) [Primitive] ]

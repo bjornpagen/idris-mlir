@@ -27,12 +27,13 @@ arrayCallOf [] = Nothing
 arrayCallOf (ArrayCall op :: _) = Just op
 arrayCallOf (_ :: hs) = arrayCallOf hs
 
-||| Is a type constructor the external type of arrays?
+||| The element of an external type that is an array: `Nothing` when its
+||| type argument names it, `Just` a fixed one.
 export
-isArrayType : List Hook -> Bool
-isArrayType [] = False
-isArrayType (ArrayType :: _) = True
-isArrayType (_ :: hs) = isArrayType hs
+arrayElementOf : List Hook -> Maybe (Maybe Ty)
+arrayElementOf [] = Nothing
+arrayElementOf (ArrayType e :: _) = Just e
+arrayElementOf (_ :: hs) = arrayElementOf hs
 
 ||| What a function on naturals means, if it is one the registry knows.
 export

@@ -331,6 +331,23 @@ struct LowerToChar : IdrPattern<ToCharOp> {
   }
 };
 
+// to_byte: a crash unless the value is 0 to 255, then its low byte.
+struct LowerToByte : IdrPattern<ToByteOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ToByteOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value x = adaptor.getValue();
+    if (std::optional<StringRef> cause = op.getCrashCause())
+      runtime.crashIf(rewriter, loc,
+                      arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ugt, x,
+                                            constantI64(rewriter, loc, 255)),
+                      *cause);
+    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, rewriter.getI8Type(), x);
+    return success();
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Runtime calls
 //===----------------------------------------------------------------------===//
@@ -531,7 +548,8 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateBigPatterns(patterns, converter, layouts, runtime);
   populateArrayPatterns(patterns, converter, layouts, runtime);
   patterns.add<LowerCon, LowerTag, LowerField, LowerConstant, LowerCrash, LowerWorldNew, LowerMayLoop,
-               LowerPoison, LowerSelect, LowerToChar, LowerDivision<DivOp>, LowerDivision<ModOp>,
+               LowerPoison, LowerSelect, LowerToChar, LowerToByte, LowerDivision<DivOp>,
+               LowerDivision<ModOp>,
                LowerPending, LowerDestOf, LowerDestWrite, LowerAsItself<LinEnterOp>,
                LowerAsItself<LinUseOp>, LowerAsItself<NatToBigOp>>(
       converter, ctx, layouts, runtime);
