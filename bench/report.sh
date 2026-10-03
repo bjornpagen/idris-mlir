@@ -120,6 +120,11 @@ chart() {
     function text(x, y, s, anchor, size, fill, weight) {
       printf "<text x=\"%.1f\" y=\"%.1f\" text-anchor=\"%s\" font-size=\"%d\" fill=\"%s\"%s>%s</text>\n", x, y, anchor, size, fill, weight == "" ? "" : " font-weight=\"" weight "\"", esc(s)
     }
+    # times(r): r as this compiler being faster or slower, by how much.
+    function times(r,   f) {
+      f = r >= 1 ? r : 1 / r
+      return (f >= 10 ? sprintf("%.0fx", f) : sprintf("%.2fx", f)) (r >= 1 ? " faster" : " slower")
+    }
     function seconds(t) {
       if (t >= 1) return sprintf("%g s", t)
       if (t >= 0.001) return sprintf("%g ms", t * 1000)
@@ -202,12 +207,12 @@ chart() {
       printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\" font-family=\"-apple-system, Segoe UI, Helvetica, Arial, sans-serif\">\n", left + width + right, height, left + width + right, height
       printf "<rect width=\"100%%\" height=\"100%%\" fill=\"%s\"/>\n", bg
       text(left, 24, title, "start", 16, fg, "600")
-      text(left, 46, "right of 1x: this compiler is faster; log scale", "start", 12, dim, "")
+      text(left, 46, "green: this compiler is faster; red: slower; log scale", "start", 12, dim, "")
       one = left + (0 - a) / (b - a) * width
       for (d = a; d <= b; d++) {
         gx = left + (d - a) / (b - a) * width
         printf "<line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\"/>\n", gx, top - 6, gx, top + m * row, d == 0 ? dim : grid
-        text(gx, top + m * row + 18, sprintf("%gx", 10 ^ d), "middle", 11, dim, "")
+        text(gx, top + m * row + 18, d == 0 ? "even" : d > 0 ? sprintf("%gx faster", 10 ^ d) : sprintf("%gx slower", 10 ^ -d), "middle", 11, dim, "")
       }
       for (i = 1; i <= m; i++) {
         y = top + (i - 1) * row
@@ -215,7 +220,7 @@ chart() {
         text(left - 10, y + 15, key[i], "end", 12, fg, "")
         if (x >= one) printf "<rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"14\" fill=\"%s\"/>\n", one, y + 4, x - one, good
         else printf "<rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"14\" fill=\"%s\"/>\n", x, y + 4, one - x, bad
-        text(x >= one ? x + 6 : one + 6, y + 15, ratio[i] >= 10 ? sprintf("%.0fx", ratio[i]) : sprintf("%.2fx", ratio[i]), "start", 12, fg, "")
+        text(x >= one ? x + 6 : one + 6, y + 15, times(ratio[i]), "start", 12, fg, "")
       }
       if (missing != "")
         text(left, top + m * row + 44, "not shown, no version to compare with: " missing, "start", 11, dim, "")
@@ -224,8 +229,8 @@ chart() {
 }
 
 chart times "Best time of each compiler, per benchmark" > "$run/times.svg"
-chart vs-c "clang -O2's time over this compiler's" > "$run/vs-c.svg"
-chart vs-chez "Idris on Chez Scheme's time over this compiler's" > "$run/vs-chez.svg"
+chart vs-c "This compiler against clang -O2" > "$run/vs-c.svg"
+chart vs-chez "This compiler against Idris on Chez Scheme" > "$run/vs-chez.svg"
 rm -f "$run/best.tsv"
 
 cat "$run/results.md"
