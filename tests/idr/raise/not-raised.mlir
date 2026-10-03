@@ -34,7 +34,7 @@ module attributes {idr.program} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @mk(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.effects = #idr.effects<none>} {
+  func.func private @mk(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.effects = #idr.effects<diverge>} {
     %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }

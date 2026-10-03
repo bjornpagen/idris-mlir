@@ -4,10 +4,11 @@
 // call is projected and applied at once, the projection moves with the
 // apply: in the clone of @greet it meets the constant action of one region
 // and the constructor of the other, and both fold to a call of the
-// closure's function. The clone is total, as its callee and every function
-// it applies are; it is effectful as its callee is. Where
+// closure's function. The clone may do what its callee and every function
+// it applies may: IO, as its callee does. Where
 // what a tail applies is not known here (@same returns its parameter), the
-// clone applies the field it reads, and is not total.
+// clone applies the field it reads, which may do anything. Either keeps its
+// callee's proof that its own body's loops end (idr.total).
 // CHECK-LABEL: func.func private @twice(
 // CHECK-SAME: %[[IO:[a-z0-9_]+]]: !idr.data<@IO>, %[[V:[a-z0-9_]+]]: !idr.world
 // CHECK-NEXT: %[[S:.*]] = call @[[SAME:same\$raise\$[0-9]+]](%[[IO]], %[[V]])
@@ -20,8 +21,7 @@
 // CHECK-NEXT: return %[[R]]
 // CHECK: func.func private @[[SAME]](
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: !idr.data<@IO> {{.*}}, %[[Y:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
-// CHECK-SAME: idr.effects = #idr.effects<io, crash>
-// CHECK-NOT: idr.total
+// CHECK-SAME: idr.effects = #idr.effects<io, crash, diverge>{{.*}}idr.total
 // CHECK-NEXT: %[[F:.*]] = idr.field %[[X]][@MkIO, 0]
 // CHECK-NEXT: %[[Z:.*]] = idr.apply %[[F]](%[[Y]])
 // CHECK-NEXT: return %[[Z]]

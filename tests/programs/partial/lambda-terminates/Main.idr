@@ -2,9 +2,10 @@ module Main
 
 -- Idris reports termination per definition: main is partial, because the
 -- loop it runs reading input has no decreasing argument. The lambda it
--- passes to traverse_ reaches only functions Idris proved terminating, so
--- the lifted function is total on its own, where copying main's fact would
--- make it partial and keep every call of it from moving.
+-- passes to traverse_ has no loop of its own, so the lifted function is
+-- total on its own, where copying main's fact would make it partial and
+-- keep every call of it from moving; it reaches only functions Idris
+-- proved terminating, so idr-effects finds that it does not diverge.
 
 import Prelude
 

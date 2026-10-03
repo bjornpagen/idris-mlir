@@ -2,7 +2,8 @@
 // be inlined keeps a loop breaker, at the start of every round
 // of the simplify loop.
 //
-// Emit marks the breakers of full Core's call graph. The rounds then close
+// The first round marks the breakers of the cycles Emit wrote; Emit marks
+// none, so there is one rule for every cycle. The rounds then close
 // new cycles: a call redirected to a clone that calls back, or, through
 // sccp, a function that returns a closure constant of itself (an IO loop
 // whose action is a constant: `echo = getChar >>= \c => ... echo`, where
@@ -13,8 +14,9 @@
 // calls and to the functions its closures and closure constants name. In
 // each cycle without a breaker (two or more functions, or one that refers
 // to itself), the newest clone becomes `no_inline`, or else the first
-// function in module order that is not from a library; then the rest of the
-// cycle is cut the same way.
+// function in module order that does not break last (`idr.break_last`,
+// which Emit writes from the registry's column), or else the first; then
+// the rest of the cycle is cut the same way.
 
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
@@ -33,20 +35,20 @@ import idr.facts;
 namespace {
 
 // The breaker of a cycle: its newest clone, or else its first function in
-// module order that is not from a library, or else its first.
+// module order that does not break last, or else its first.
 func::FuncOp choose(ArrayRef<func::FuncOp> cycle,
                     const llvm::DenseMap<func::FuncOp, unsigned> &order) {
-  func::FuncOp newest, first, firstOwn;
+  func::FuncOp newest, first, firstEarly;
   for (func::FuncOp fn : cycle) {
     unsigned at = order.lookup(fn);
     if (fn->hasAttr("idr.clone") && (!newest || order.lookup(newest) < at))
       newest = fn;
     if (!first || at < order.lookup(first))
       first = fn;
-    if (!idr::facts::isLibrary(fn) && (!firstOwn || at < order.lookup(firstOwn)))
-      firstOwn = fn;
+    if (!idr::facts::breaksLast(fn) && (!firstEarly || at < order.lookup(firstEarly)))
+      firstEarly = fn;
   }
-  return newest ? newest : firstOwn ? firstOwn : first;
+  return newest ? newest : firstEarly ? firstEarly : first;
 }
 
 struct LoopBreakers : idr::impl::IdrLoopBreakersBase<LoopBreakers> {

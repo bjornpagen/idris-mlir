@@ -796,10 +796,10 @@ constexpr KnownAttr kKnownAttrs[] = {
          return op->emitOpError("expects idr.stage = \"owned\" on the module");
        return ownership::verifyOwned(cast<ModuleOp>(op));
      }},
-    // The facts of a function (lib/Facts): what Idris proves, whether it was
-    // written in a library, and what idr-effects finds.
+    // The facts of a function (lib/Facts): what Idris proves, whether a
+    // cycle breaks at it last, and what idr-effects finds.
     {IdrDialect::TotalAttrHelper::getNameStr(), unitOfFunction},
-    {IdrDialect::LibraryAttrHelper::getNameStr(), unitOfFunction},
+    {IdrDialect::BreakLastAttrHelper::getNameStr(), unitOfFunction},
     {IdrDialect::EffectsAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        if (!isa<func::FuncOp>(op) || !isa<EffectAttr>(attr.getValue()))

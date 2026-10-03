@@ -17,8 +17,9 @@ target_sources(idr_dialect
 		Closures/Passed.cc
 		Effects/Effects.cc
 		Evaluation/CanEvaluate.cc
+		Functions/BreaksLast.cc
 		Functions/Inherit.cc
-		Functions/IsLibrary.cc
+		Functions/Inlined.cc
 		Functions/MayHoldWorld.cc
 		Functions/Of.cc
 		Functions/Record.cc

@@ -16,7 +16,7 @@ func.func private @unknown(%x: i64) -> i64 attributes {idr.total} {
   %r = arith.muli %x, %x : i64
   return %r : i64
 }
-func.func private @partial(%x: i64) -> i64 attributes {idr.effects = #idr.effects<none>} {
+func.func private @partial(%x: i64) -> i64 attributes {idr.effects = #idr.effects<diverge>} {
   %r = arith.muli %x, %x : i64
   return %r : i64
 }

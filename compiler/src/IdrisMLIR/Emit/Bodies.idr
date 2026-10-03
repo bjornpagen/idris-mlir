@@ -3,7 +3,6 @@
 module IdrisMLIR.Emit.Bodies
 
 import IdrisMLIR.Emit.Attributes
-import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Emit.Operations
@@ -176,8 +175,7 @@ lifted ix own l lbl caps ps expected body = do
   rt <- typeText ix t
   header <- traverse (param ix) params
   let fn = Nest ("func.func private " ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (own.inherited ++ [Total | contains (LamNode lbl) ix.terminating] ++
-                             [NoInline | contains (LamNode lbl) ix.breakers]) ++ " {")
+                 attributes (own.inherited ++ lifted) ++ " {")
                 (epilogue l rt res ops) "}" (Just (Named own.idrisName l))
   modify { lifted $= (:< fn) }
   pure (sym, t)

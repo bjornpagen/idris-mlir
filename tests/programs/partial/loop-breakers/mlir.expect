@@ -1,4 +1,5 @@
-# even and odd call each other: Emit cuts their cycle with a loop breaker,
-# so that inlining the rest of the cycle into it ends. Which of the two it
-# is is Emit's choice.
-emitted: every-cycle-has-breaker
+# even and odd call each other: idr-loop-breakers cuts their cycle with a
+# loop breaker in the first round, so that inlining the rest of the cycle
+# into it ends. Which of the two it is is the pass's choice; Emit marks
+# none.
+idr-simplify: every-cycle-has-breaker breaks-last

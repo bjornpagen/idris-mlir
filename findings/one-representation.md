@@ -355,6 +355,18 @@ calls, runtime/io.cc.
 | 4, after the frontend lane, lists 3a and io.cc | 4a `Prim` and `IOOp` from generated ops (row 2); 4b instance keys by induced types, dictionaries through defunctionalization (row 8); 4c contiguous runs share the cell and the view (row 7) | Types.idr, Frontend/Translate/*; runtime/strings.cc, Lower/Strings.cc, Lower/Arrays.cc | the frontend lane's and lists' gates; string fixtures against Chez | frontend lane, lists, io.cc |
 | 5, last | Closure conversion in MLIR (row 1; §4.1 #5) | Term.idr, Emit/Bodies.idr, Frontend/Translate/Terms.idr, a new pass | everything; `.core` dumps change | all Idris lanes |
 
+Stages 0 and 1a are done (cleanup lane R1). Stage 1a as landed: Emit marks
+no breakers and writes the *break last* column as `idr.break_last`, which
+idr-loop-breakers reads (`breaks-last` states its rule); Emit/Breakers.idr
+is gone; `#idr.effects` has a third bit, `diverge`, seeded where a body
+lacks `idr.total` and propagated through every function, those Idris proved
+included (a proof does not see the implementations an interface method
+reaches); every lifted function is `idr.total`, its body having no loop of
+its own; and one rule the audit did not name keeps `idr.total` a statement
+about a body: a body that takes in one without the proof, by inlining or
+contification, loses it (facts::inlined), since a loop of the callee's may
+close there. Every benchmark's object code is unchanged by it.
+
 ## 8. The limit
 
 Where a second representation is essential, and stays:

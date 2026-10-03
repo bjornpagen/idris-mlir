@@ -4,7 +4,6 @@ module IdrisMLIR.Emit.Declarations
 
 import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Bodies
-import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Emit.Types
@@ -54,7 +53,7 @@ function ix root f = do
   header <- traverse (param ix) (toList params)
   let visibility = if f.id == root then "" else "private "
   let fn = Nest ("func.func " ++ visibility ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (own f ++ [NoInline | contains (FnNode f.id) ix.breakers]) ++ " {")
+                 attributes (own f) ++ " {")
                 (epilogue f.loc rt res ops) "}" (Just (Named f.idrisName f.loc))
   inner <- gets (.lifted)
   pure (fn :: (inner <>> []))
