@@ -3,15 +3,16 @@
 // reserved stack, so that running out of it is a named crash rather than a
 // bare fault that loses the buffered output. idris-mlir-cc and compile-time
 // evaluation's child run on the same runner, with stacks of their own sizes.
-// What it needs of the system is in the platform layer (platform.h).
+// What it needs of the system is in the platform layer (rt.platform).
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "cpu_features.h"
 #include "internal.h"
-#include "platform.h"
 
 #include <stdlib.h>
 #include <unistd.h>
+
+import rt.platform;
 
 namespace {
 

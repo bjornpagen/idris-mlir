@@ -11,9 +11,10 @@
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
-#include "platform.h"
 
 #include <unistd.h>
+
+import rt.platform;
 
 #define IDRIS_RT_COMPILER_ONLY [[clang::annotate("idris-rt-compiler")]]
 

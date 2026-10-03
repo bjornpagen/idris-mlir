@@ -6,17 +6,19 @@
 // the function the target entry names (IDRIS_RT_CPU_FEATURES_INIT), which
 // may be called any number of times.
 // PIN(runtime-quarantine) — see PINS.md
-
+module;
+// The target entry's list of features, an X-macro, which no import carries.
 #include "cpu_features.h"
-#include "platform.h"
+
+#include <stdint.h>
 
 #ifdef IDRIS_RT_CPU_FEATURES_INIT
 extern "C" void IDRIS_RT_CPU_FEATURES_INIT(void) noexcept;
 #endif
 
-namespace rt::platform {
+module rt.platform;
 
-[[clang::annotate("idris-rt-baseline")]] uint64_t cpuFeatures() noexcept {
+[[clang::annotate("idris-rt-baseline")]] uint64_t rt::platform::cpuFeatures() noexcept {
 #ifdef IDRIS_RT_CPU_FEATURES_INIT
   IDRIS_RT_CPU_FEATURES_INIT();
 #endif
@@ -28,5 +30,3 @@ namespace rt::platform {
 #undef IDRIS_RT_CPU_TEST
   return features;
 }
-
-} // namespace rt::platform

@@ -73,13 +73,33 @@ add_library(idris_rt STATIC
 	gmp.cc
 	io.cc
 	numbers.cc
-	platform_posix.cc
-	${IDRIS_MLIR_RUNTIME_CPU_TEST}
 	rc.cc
 	start.cc
 	strings.cc
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>
+)
+# rt.platform: the platform layer, a module, implemented on every POSIX
+# system by Platform/Posix and on the target's processor by the target
+# entry's unit.
+target_sources(idris_rt
+	PRIVATE
+		FILE_SET rt_platform TYPE CXX_MODULES FILES
+			Platform/Platform.cppm
+			Platform/Cpu.cppm
+			Platform/Faults.cppm
+			Platform/Memory.cppm
+			Platform/Stacks.cppm
+	PRIVATE
+		Platform/Posix/CatchFaults.cc
+		Platform/Posix/PageSize.cc
+		Platform/Posix/Protect.cc
+		Platform/Posix/Release.cc
+		Platform/Posix/Reserve.cc
+		Platform/Posix/RunThread.cc
+		Platform/Posix/StackLimit.cc
+		Platform/Posix/UseSignalStack.cc
+		${IDRIS_MLIR_RUNTIME_CPU_TEST}
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # The target entry's list of the processor features programs may be compiled
@@ -119,12 +139,13 @@ if(IDRIS_MLIR_RUNTIME_CPU_INIT)
 endif()
 target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 
+# No target imports std, which links the C++ library; the runtime scans
+# for its own modules, the vendored code has none.
 foreach(target idris_rt_simdutf idris_rt_ryu idris_rt)
-	set_target_properties(${target} PROPERTIES
-		CXX_MODULE_STD OFF
-		CXX_SCAN_FOR_MODULES OFF
-	)
+	set_target_properties(${target} PROPERTIES CXX_MODULE_STD OFF)
 endforeach()
+set_target_properties(idris_rt_simdutf idris_rt_ryu PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+set_target_properties(idris_rt PROPERTIES CXX_SCAN_FOR_MODULES ON)
 set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
 set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")

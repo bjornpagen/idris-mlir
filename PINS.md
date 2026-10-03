@@ -45,7 +45,7 @@ which the top-level CMake configure gate reads.
   `idr/Idr.h`, TableGen's output or `lib/Mlir.cppm` recompiles every unit
   that imports anything
 - sites: `foreign/idr/cmake/IdrLibrary.cmake` (the `CXX_MODULES` file set of
-  every module's library)
+  every module's library) and `runtime/CMakeLists.txt` (`rt.platform`'s)
 - workaround: interface units declare and never define, so that an edit to
   code recompiles its one implementation unit and nothing else; `idr.mlir`
   already exports every name the code uses, so it rarely changes
