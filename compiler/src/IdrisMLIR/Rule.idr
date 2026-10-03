@@ -1,8 +1,9 @@
 ||| The reasons the compiler gives for a rejection, as data, so a misspelt
 ||| reason is a type error, not a wrong message. Each is shown as the short
 ||| phrase of `unsupported (<phrase>): ...`. The frontend checks most of
-||| them; `CompileBudget` comes back from `idris-mlir-cc`, which names it
-||| by its phrase (`parseRule`).
+||| them; `CompileBudget` and `Layout` also come back from `idris-mlir-cc`,
+||| which names them by their phrases (`parseRule`). Any other error of
+||| `idris-mlir-cc` is the compiler's own, never a rejection.
 module IdrisMLIR.Rule
 
 

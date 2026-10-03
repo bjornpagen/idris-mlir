@@ -119,7 +119,7 @@ public:
   // header is decided here, once: when a box type or a cell has more than
   // its header can describe, each such one gets an `unsupported (layout)`
   // error and the result is a failure. A target whose pointers are not the
-  // runtime's words gets `unsupported (target)`.
+  // runtime's words is an internal error.
   static mlir::FailureOr<Layouts> of(mlir::ModuleOp m);
 
   // The bytes a component of type `component` takes in a cell, and the
