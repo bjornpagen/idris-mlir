@@ -5,41 +5,38 @@ Stack: unlimited (ulimit -s), the most this system allows.
 
 - this compiler: 861acdc, for x86_64-unknown-linux-musl, CPU x86-64-v3; link flags: --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie -Wl,--gc-sections -Wl,--icf=all -lgmp
 - Idris Chez: Idris 2, version 0.8.0-1c630e67c; Chez Scheme 10.4.1
-- MLton: MLton 20210117+dfsg-3
 - clang -O2: clang version 23.1.2 (https://github.com/llvm/llvm-project.git 85ac560262434c9ccfc0c183ec22d4138ed647fb)
-- Koka: Koka 3.2.9, 05:27:08 Sep 18 2026 (ghc release version)
-- Lean 4: Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)
 
 Best of 5 runs, wall-clock seconds. Outputs agree.
 
-| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| ack | 10 | 0.004 | 1.117 | 0.069 | 0.251 | n/a | n/a | 56.57x |
-| ackdyn | 10 | 0.257 | 1.112 | 0.084 | 0.250 | n/a | n/a | 0.97x |
-| binary-trees | 21 | 6.834 | 41.936 | 7.490 | 29.839 | 12.058 | 7.329 | 4.37x |
-| cfold | 20 | 0.222 | 0.654 | 0.442 | 0.542 | 0.257 | 0.360 | 2.45x |
-| collatz | 3000000 | 0.596 | 22.899 | 2.318 | 0.639 | n/a | n/a | 1.07x |
-| deriv | 10 | 1.126 | 3.583 | 1.158 | 4.233 | 1.109 | 1.357 | 3.76x |
-| fannkuch-linear | 10 | 0.250 | 4.440 | n/a | 0.542 | n/a | n/a | 2.17x |
-| fannkuch-redux | 10 | 0.333 | 12.456 | n/a | 0.546 | n/a | n/a | 1.64x |
-| fasta | 250000 | 0.084 | 0.289 | n/a | 0.047 | n/a | n/a | 0.56x |
-| fib | 38 | 0.130 | 3.700 | 0.276 | 0.111 | n/a | n/a | 0.85x |
-| harmonic | 200000000 | 0.288 | 6.660 | 0.749 | 0.293 | n/a | n/a | 1.02x |
-| k-nucleotide | fasta 250000 | 4.807 | 11.555 | n/a | 0.260 | n/a | n/a | 0.05x |
-| mandelbrot | 2000 | 0.292 | 5.145 | 0.518 | 0.291 | n/a | n/a | 1.00x |
-| mandelbrot-pbm | 4000 | 1.146 | 21.824 | n/a | 1.154 | n/a | n/a | 1.01x |
-| nbody | 5000000 | 0.297 | 5.195 | 1.481 | 0.292 | n/a | n/a | 0.98x |
-| nqueens | 13 | 1.034 | 13.967 | 1.139 | 1.297 | 1.023 | 2.243 | 1.26x |
-| pidigits | 10000 | 1.137 | 5.485 | n/a | 1.204 | n/a | n/a | 1.06x |
-| qsort | 400 | 1.509 | 14.712 | 1.727 | 1.436 | 24.865 | 2.473 | 0.95x |
-| rbtree | 4200000 | 1.146 | 2.581 | 6.128 | 1.643 | 0.938 | 2.643 | 1.43x |
-| rbtree-ck | 4200000 | 2.855 | 9.514 | 6.915 | 4.437 | 2.257 | 4.891 | 1.55x |
-| regex-redux | fasta 250000 | 3.723 | 3.094 | n/a | n/a | n/a | n/a | n/a |
-| reverse-complement | fasta 250000 | 0.134 | 0.829 | n/a | 0.016 | n/a | n/a | 0.12x |
-| spectral-norm | 5500 | 2.237 | 174.752 | n/a | 1.738 | n/a | n/a | 0.78x |
-| spectral-norm-linear | 5500 | 0.874 | 182.346 | n/a | 1.740 | n/a | n/a | 1.99x |
-| tak | 18 | 0.127 | 1.321 | 0.176 | 0.122 | n/a | n/a | 0.97x |
-| unionfind | 3000000 | 0.187 | 2.406 | 0.324 | 0.158 | 2.352 | 2.343 | 0.85x |
+| benchmark | input | this compiler | Idris Chez | clang -O2 | clang / this |
+| --- | --- | ---: | ---: | ---: | ---: |
+| ack | 10 | 0.004 | 1.117 | 0.251 | 56.57x |
+| ackdyn | 10 | 0.257 | 1.112 | 0.250 | 0.97x |
+| binary-trees | 21 | 6.834 | 41.936 | 29.839 | 4.37x |
+| cfold | 20 | 0.222 | 0.654 | 0.542 | 2.45x |
+| collatz | 3000000 | 0.596 | 22.899 | 0.639 | 1.07x |
+| deriv | 10 | 1.126 | 3.583 | 4.233 | 3.76x |
+| fannkuch-linear | 10 | 0.250 | 4.440 | 0.542 | 2.17x |
+| fannkuch-redux | 10 | 0.333 | 12.456 | 0.546 | 1.64x |
+| fasta | 250000 | 0.084 | 0.289 | 0.047 | 0.56x |
+| fib | 38 | 0.130 | 3.700 | 0.111 | 0.85x |
+| harmonic | 200000000 | 0.288 | 6.660 | 0.293 | 1.02x |
+| k-nucleotide | fasta 250000 | 4.807 | 11.555 | 0.260 | 0.05x |
+| mandelbrot | 2000 | 0.292 | 5.145 | 0.291 | 1.00x |
+| mandelbrot-pbm | 4000 | 1.146 | 21.824 | 1.154 | 1.01x |
+| nbody | 5000000 | 0.297 | 5.195 | 0.292 | 0.98x |
+| nqueens | 13 | 1.034 | 13.967 | 1.297 | 1.26x |
+| pidigits | 10000 | 1.137 | 5.485 | 1.204 | 1.06x |
+| qsort | 400 | 1.509 | 14.712 | 1.436 | 0.95x |
+| rbtree | 4200000 | 1.146 | 2.581 | 1.643 | 1.43x |
+| rbtree-ck | 4200000 | 2.855 | 9.514 | 4.437 | 1.55x |
+| regex-redux | fasta 250000 | 3.723 | 3.094 | n/a | n/a |
+| reverse-complement | fasta 250000 | 0.134 | 0.829 | 0.016 | 0.12x |
+| spectral-norm | 5500 | 2.237 | 174.752 | 1.738 | 0.78x |
+| spectral-norm-linear | 5500 | 0.874 | 182.346 | 1.740 | 1.99x |
+| tak | 18 | 0.127 | 1.321 | 0.122 | 0.97x |
+| unionfind | 3000000 | 0.187 | 2.406 | 0.158 | 0.85x |
 
 Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link.
 

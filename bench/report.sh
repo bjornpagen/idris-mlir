@@ -35,7 +35,7 @@ for record in "$run" ${previous:+"$previous"}; do
     die "$record: not a run record (about and samples.tsv)"
 done
 
-labels='this compiler|Idris Chez|MLton|clang -O2|Koka|Lean 4'
+labels='this compiler|Idris Chez|clang -O2'
 
 # best RECORD: one line per benchmark, in the record's order: benchmark,
 # input, then the best time of each compiler in $labels in seconds (empty
@@ -68,13 +68,13 @@ best "$run" > "$run/best.tsv"
   echo
   if [ "$runs" -eq 1 ]; then echo "One run each, wall-clock seconds. Outputs agree."; else echo "Best of $runs runs, wall-clock seconds. Outputs agree."; fi
   echo
-  echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |"
-  echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+  echo "| benchmark | input | this compiler | Idris Chez | clang -O2 | clang / this |"
+  echo "| --- | --- | ---: | ---: | ---: | ---: |"
   awk -F'\t' '
     function cell(t) { return t == "" ? "n/a" : sprintf("%.3f", t) }
     {
-      ratio = ($6 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $6 / $3) : "n/a"
-      printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), cell($6), cell($7), cell($8), ratio
+      ratio = ($5 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $5 / $3) : "n/a"
+      printf "| %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), ratio
     }' "$run/best.tsv"
   if [ -s "$run/compile.tsv" ]; then
     echo
@@ -93,10 +93,10 @@ best "$run" > "$run/best.tsv"
     echo "| benchmark | before | now | change |"
     echo "| --- | ---: | ---: | ---: |"
     awk -F'\t' '
-      NR == FNR { if ($3 != "" && $6 != "" && $3 > 0) before[$1] = $6 / $3; next }
+      NR == FNR { if ($3 != "" && $5 != "" && $3 > 0) before[$1] = $5 / $3; next }
       {
-        if ($3 == "" || $6 == "" || $3 <= 0) next
-        now = $6 / $3
+        if ($3 == "" || $5 == "" || $3 <= 0) next
+        now = $5 / $3
         if ($1 in before)
           printf "| %s | %.2fx | %.2fx | %+.0f%% |\n", $1, before[$1], now, (now / before[$1] - 1) * 100
         else
@@ -118,12 +118,12 @@ chart() {
     function ceil_(x) { return x == int(x) ? x : (x < 0 ? int(x) : int(x) + 1) }
     function esc(s) { gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s); return s }
     function text(x, y, s, anchor, size, fill, weight) {
-      printf "<text x=\"%.1f\" y=\"%.1f\" text-anchor=\"%s\" font-size=\"%d\" fill=\"%s\"%s>%s</text>\n", x, y, anchor, size, fill, weight == "" ? "" : " font-weight=\"" weight "\"", esc(s)
+      printf "<text x=\"%.1f\" y=\"%.1f\" text-anchor=\"%s\" font-size=\"%d\" fill=\"%s\"%s>%s</text>\n", x, y, anchor, size, fill, (weight == "" ? "" : " font-weight=\"" weight "\""), esc(s)
     }
     # times(r): r as this compiler being faster or slower, by how much.
     function times(r,   f) {
       f = r >= 1 ? r : 1 / r
-      return (f >= 10 ? sprintf("%.0fx", f) : sprintf("%.2fx", f)) (r >= 1 ? " faster" : " slower")
+      return (f >= 10 ? sprintf("%.0fx", f) : sprintf("%.2fx", f)) ((r >= 1) ? " faster" : " slower")
     }
     function seconds(t) {
       if (t >= 1) return sprintf("%g s", t)
@@ -132,7 +132,7 @@ chart() {
     }
     BEGIN {
       n = split(labels, label, "|")
-      split("#58a6ff|#d29922|#a371f7|#8b949e|#f778ba|#3fb950", colour, "|")
+      split("#58a6ff|#d29922|#8b949e", colour, "|")
       bg = "#0d1117"; fg = "#c9d1d9"; dim = "#8b949e"; grid = "#30363d"
       good = "#3fb950"; bad = "#f85149"
     }
@@ -181,7 +181,7 @@ chart() {
         print "</svg>"
         exit
       }
-      other = mode == "vs-c" ? 4 : 2
+      other = mode == "vs-c" ? 3 : 2
       m = 0; missing = ""
       for (r = 1; r <= rows; r++) {
         if (t[r, 1] == "" || t[r, other] == "" || t[r, 1] <= 0) {
@@ -211,8 +211,8 @@ chart() {
       one = left + (0 - a) / (b - a) * width
       for (d = a; d <= b; d++) {
         gx = left + (d - a) / (b - a) * width
-        printf "<line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\"/>\n", gx, top - 6, gx, top + m * row, d == 0 ? dim : grid
-        text(gx, top + m * row + 18, d == 0 ? "even" : d > 0 ? sprintf("%gx faster", 10 ^ d) : sprintf("%gx slower", 10 ^ -d), "middle", 11, dim, "")
+        printf "<line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\"/>\n", gx, top - 6, gx, top + m * row, (d == 0 ? dim : grid)
+        text(gx, top + m * row + 18, (d == 0 ? "even" : (d > 0 ? sprintf("%gx faster", 10 ^ d) : sprintf("%gx slower", 10 ^ -d))), "middle", 11, dim, "")
       }
       for (i = 1; i <= m; i++) {
         y = top + (i - 1) * row
@@ -220,7 +220,7 @@ chart() {
         text(left - 10, y + 15, key[i], "end", 12, fg, "")
         if (x >= one) printf "<rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"14\" fill=\"%s\"/>\n", one, y + 4, x - one, good
         else printf "<rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"14\" fill=\"%s\"/>\n", x, y + 4, one - x, bad
-        text(x >= one ? x + 6 : one + 6, y + 15, times(ratio[i]), "start", 12, fg, "")
+        text((x >= one ? x + 6 : one + 6), y + 15, times(ratio[i]), "start", 12, fg, "")
       }
       if (missing != "")
         text(left, top + m * row + 44, "not shown, no version to compare with: " missing, "start", 11, dim, "")

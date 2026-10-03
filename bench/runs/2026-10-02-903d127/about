@@ -8,7 +8,4 @@ Host: development container, x86-64, 4 CPUs.
 
 - this compiler: 903d127, for x86_64-unknown-linux-musl
 - Idris Chez: Idris 2 on Chez Scheme 9.5
-- MLton: 20210117
 - clang -O2: the pinned clang, LLVM 23.1.2
-- Koka: 3.2.9
-- Lean 4: 4.34.1

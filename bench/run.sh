@@ -1,9 +1,8 @@
 #!/bin/sh
 # Runs the benchmarks (make bench): each program built by this compiler, by
-# the stock Idris Chez backend (the same source), by MLton (bench/sml), by
-# the pinned clang -O2 (bench/c; linked as our programs are, with the flags
-# idris-mlir-cc --print-link-flags names for the target), by Koka
-# (bench/koka) and by Lean 4 (bench/lean), on the same input. clang
+# the stock Idris Chez backend (the same source), and by the pinned clang -O2
+# (bench/c; linked as our programs are, with the flags idris-mlir-cc
+# --print-link-flags names for the target), on the same input. clang
 # compiles for the CPU this compiler targets (idris-mlir-cc
 # --print-target-cpu), and without floating-point contraction, which this
 # compiler never does:
@@ -21,10 +20,7 @@
 # results and charts made from it, once every output has agreed: a run
 # that fails leaves no record.
 #
-# MLton, Koka and Lean are looked up in .toolchain/mlton, .toolchain/koka
-# and .toolchain/lean (bench/toolchains.sh puts them there) and then on
-# PATH. A missing compiler is reported in the header and its column reads
-# n/a. Times come from now_ns (tools/host.sh). Every program runs with the
+# Times come from now_ns (tools/host.sh). Every program runs with the
 # largest stack the system allows (stack_max: unlimited on Linux, the hard
 # limit of about 64 MiB on macOS). The Idris environment is the Makefile's,
 # set here too, so that a direct run builds against this checkout's libs/
@@ -41,7 +37,7 @@ if [ -z "${CHEZ-}" ]; then
   [ -z "$CHEZ" ] || export CHEZ
 fi
 bench=$root/bench
-labels='this compiler|Idris Chez|MLton|clang -O2|Koka|Lean 4'
+labels='this compiler|Idris Chez|clang -O2'
 
 # A benchmark is a directory bench/<name>/ holding Main.idr and one of
 #   input       its stdin, given literally (a number, usually);
@@ -54,18 +50,15 @@ labels='this compiler|Idris Chez|MLton|clang -O2|Koka|Lean 4'
 #   libs        linker flags the C version needs (-lgmp);
 #   packages    installed Idris packages the program uses (mlir-linear),
 #               for this compiler and for Chez alike;
-#   reference   the name of another benchmark whose C, SML, Koka and Lean
-#               versions are this one's references (fannkuch-linear's is
-#               fannkuch-redux);
+#   reference   the name of another benchmark whose C version is this one's
+#               reference (fannkuch-linear's is fannkuch-redux);
 #   rejected    the reason this compiler gives for rejecting the program
 #               today; its column then reads n/a and the C version's output
 #               is the reference;
 #   differs     why this compiler's output differs from Chez's today (a
 #               decided divergence); its column reads n/a likewise.
-# The C, SML, Koka and Lean versions are bench/c/<name>.c,
-# bench/sml/<name>.sml, bench/koka/<name>.kk and bench/lean/<name>.lean; a
-# missing one is skipped. Every input is large enough that start-up does
-# not matter.
+# The C version is bench/c/<name>.c; a missing one is skipped. Every input
+# is large enough that start-up does not matter.
 all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
 
 die() {
@@ -122,17 +115,6 @@ if [ -n "$keep" ] && [ -e "$keep" ] && [ -n "$(ls -A "$keep" 2> /dev/null)" ]; t
   die "--record $keep: not an empty directory; a record is never overwritten"
 fi
 
-mlton=$toolchain/mlton/usr/bin/mlton
-[ -f "$mlton" ] || mlton=$(command -v mlton 2> /dev/null)
-koka=$toolchain/koka/bin/koka
-[ -x "$koka" ] || koka=$(command -v koka 2> /dev/null)
-lean=$toolchain/lean/bin/lean
-leanc=$toolchain/lean/bin/leanc
-if [ ! -x "$lean" ] || [ ! -x "$leanc" ]; then
-  lean=$(command -v lean 2> /dev/null)
-  leanc=$(command -v leanc 2> /dev/null)
-fi
-
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bench.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
@@ -159,22 +141,7 @@ revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=un
   echo
   echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $(printf "%s" "$link_flags" | tr "\n" " ")"
   echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
-  if [ -n "$mlton" ]; then
-    echo "- MLton: $(first_line "$mlton")"
-  else
-    echo "- MLton: not found (bench/toolchains.sh mlton, or mlton on PATH); its column reads n/a"
-  fi
   echo "- clang -O2: $(first_line "$pinned_cc" --version)"
-  if [ -n "$koka" ]; then
-    echo "- Koka: $(first_line "$koka" --version)"
-  else
-    echo "- Koka: not found (bench/toolchains.sh koka, or koka on PATH); its column reads n/a"
-  fi
-  if [ -n "$lean" ] && [ -n "$leanc" ]; then
-    echo "- Lean 4: $(first_line "$lean" --version)"
-  else
-    echo "- Lean 4: not found (bench/toolchains.sh lean, or lean and leanc on PATH); its column reads n/a"
-  fi
 } > "$record/about"
 cat "$record/about" >&2
 
@@ -208,13 +175,6 @@ build() {
       (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude $packages --cg chez -o prog Main.idr) \
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
-    MLton)
-      if [ -z "$mlton" ] || [ ! -f "$bench/sml/$reference.sml" ]; then missing=yes; return; fi
-      cat "$bench/sml/common.sml" "$bench/sml/$reference.sml" > "$work/$name.sml"
-      # Idris's Int is 64 bits; MLton's default int is 32.
-      bounded "$mlton" -default-type int64 -output "$work/$name-mlton" "$work/$name.sml" \
-        > "$work/build.log" 2>&1 && cmd=$work/$name-mlton
-      ;;
     'clang -O2')
       if [ ! -f "$bench/c/$reference.c" ]; then missing=yes; return; fi
       libs=
@@ -224,21 +184,6 @@ build() {
         "$bench/c/$reference.c" \
         -o "$work/$name-c" $link_flags -lm $libs > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
-      ;;
-    Koka)
-      if [ -z "$koka" ] || [ ! -f "$bench/koka/$reference.kk" ]; then missing=yes; return; fi
-      mkdir "$work/koka"
-      cp "$bench/koka/$reference.kk" "$work/koka/"
-      # The Perceus benchmarks' flags: -O2 and a 128 MiB stack.
-      (cd "$work/koka" && bounded "$koka" -O2 --stack=128M --builddir="$work/koka/build" \
-         -o "$work/$name-koka" "$reference.kk") > "$work/build.log" 2>&1 && cmd=$work/$name-koka
-      ;;
-    'Lean 4')
-      if [ -z "$lean" ] || [ -z "$leanc" ] || [ ! -f "$bench/lean/$reference.lean" ]; then missing=yes; return; fi
-      # As Lean's own benchmarks: lean emits C, leanc -O3 -DNDEBUG compiles it.
-      { bounded "$lean" -c "$work/$name-lean.c" "$bench/lean/$reference.lean" &&
-        bounded "$leanc" -O3 -DNDEBUG -o "$work/$name-lean" "$work/$name-lean.c"; } \
-        > "$work/build.log" 2>&1 && cmd=$work/$name-lean
       ;;
   esac
   if [ -z "$cmd" ] && [ -z "$missing" ]; then
@@ -253,11 +198,11 @@ timed() {
   run=0
   while [ "$run" -lt "$runs" ]; do
     start=$(now_ns)
-    # With the largest stack there is, as Lean's and Koka's benchmarks run
-    # (unlimited). Only cfold needs a deep one: its C program between 48
-    # and 56 MiB on x86-64, under macOS's 64 MiB cap; its Koka program asks
-    # for 128 MiB, which Koka takes with setrlimit on Linux (so a hard limit
-    # below that fails it) and with a link flag on macOS.
+    # With the largest stack the system allows. Only cfold needs a deep
+    # one: its programs recurse between 48 and 56 MiB on x86-64, which
+    # fits macOS's ~64 MiB hard cap; the run raises the soft limit to the
+    # hard one so the program runs, rather than the cap's meaning
+    # changing.
     (ulimit -s "$stack" && bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr")
     status=$?
     end=$(now_ns)
@@ -267,8 +212,7 @@ timed() {
   done
 }
 
-# agree A B: the two outputs print the same numbers, to 1e-9 (SML writes a
-# minus sign as ~).
+# agree A B: the two outputs print the same numbers, to 1e-9.
 agree() {
   awk '
     function numbers(file, list,   line, n, count) {

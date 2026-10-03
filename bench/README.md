@@ -1,31 +1,25 @@
 # Benchmarks
 
-`make bench` runs `bench/run.sh`, which builds each program six ways and
+`make bench` runs `bench/run.sh`, which builds each program three ways and
 runs it on one input (`make bench ARGS='--runs 3 fib tak'` runs fewer):
 this compiler on `bench/<name>/Main.idr` (ordinary Idris over the stock
 Prelude and base, or over `Linear.Array` of `libs/mlir-linear` where
 `bench/<name>/packages` says so); the same source through the stock Chez
-backend; MLton on `bench/sml/<name>.sml` (`-default-type int64`, as Idris's
-`Int` has 64 bits); the pinned clang at `-O2` on `bench/c/<name>.c`, linked
+backend; and the pinned clang at `-O2` on `bench/c/<name>.c`, linked
 as `idris-mlir-cc --print-link-flags` says the target links a program (a
-static PIE on musl today, a dynamic executable on Darwin), for this
+static PIE on musl, a dynamic executable on Darwin), for this
 compiler's target CPU without floating-point contraction, as our programs
-are built; Koka on `bench/koka/<name>.kk` (`-O2 --stack=128M`, the Perceus
-benchmarks' flags); Lean 4 on `bench/lean/<name>.lean` (`lean -c`,
-`leanc -O3 -DNDEBUG`, as Lean's benchmarks are built). Every program runs
+are built. Every program runs
 with the largest stack the system allows: unlimited on Linux, the hard
-limit (64 MiB) on macOS. Only cfold needs a deep one: its C program 48 to
-56 MiB on x86-64, and its Koka program the 128 MiB it asks for. The output starts with what it ran on: the host,
-its CPU, that stack limit and each compiler's version.
+limit (about 64 MiB) on macOS. Only cfold needs a deep one: its programs
+recurse 48 to 56 MiB on x86-64, which fits. The output starts with what it
+ran on: the host, its CPU, that stack limit and each compiler's version.
 
 The script checks that the two Idris backends print the same text and that
 every program prints the same numbers (to 1e-9), or the same bytes where
 the game compares bytes, and reports the best of the runs in wall-clock
-seconds, process start included (about a millisecond). MLton, Koka and
-Lean are unpacked into `.toolchain/` by `bench/toolchains.sh` (pinned
-archives for x86-64 Linux and arm64 macOS; on macOS MLton is Homebrew's,
-`brew install mlton`) or found on `PATH`; a missing one reads `n/a`. The last column is clang's time over
-this compiler's: above 1, this compiler is faster.
+seconds, process start included (about a millisecond). The last column is
+clang's time over this compiler's: above 1, this compiler is faster.
 
 ## Results
 
@@ -33,9 +27,11 @@ The latest record is
 [`runs/2026-10-03-861acdc`](runs/2026-10-03-861acdc/results.md): every
 program built by every compiler, best of 5 runs, measured on 2026-10-03
 at 861acdc on a shared development container (x86-64, 4 CPUs, a Xeon at
-2.10 GHz) with LLVM 23.1.2, Chez Scheme 10.4.1, MLton 20210117, Koka 3.2.9
-and Lean 4.34.1. Its results page holds the full table, the compile times
-and the comparison with the record before it.
+2.10 GHz) with LLVM 23.1.2 and Chez Scheme 10.4.1. Its results page holds
+the full table, the compile times and the comparison with the record
+before it. The macOS record, on the arm64 host, is recorded beside this
+one with `make bench ARGS='--record bench/runs/<date>-<rev>-darwin-arm64'`
+on that machine.
 
 ![This compiler against clang -O2](runs/2026-10-03-861acdc/vs-c.svg)
 
@@ -84,9 +80,9 @@ lists where the game uses arrays except fannkuch-redux on base's
 version, so Chez is its only reference; fannkuch-linear and
 spectral-norm-linear are the same two programs over `Linear.Array`.
 **Counting Immutable Beans' programs** (rbtree, rbtree-ck, cfold, deriv,
-nqueens, binary-trees, qsort, unionfind): the Lean 4 and Koka (Perceus)
-papers' benchmarks in Idris, with their Lean and Koka sources as the
-papers' repositories have them; qsort and unionfind over `Linear.Array`.
+nqueens, binary-trees, qsort, unionfind): the Perceus and Lean papers'
+benchmarks, written in Idris from the papers' repositories; qsort and
+unionfind over `Linear.Array`.
 
 ### Per program
 
@@ -180,15 +176,13 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   lanes and clang's 1.399 s. The 2026-10-03 record shows it in a full run:
   0.874 s against clang's 1.740 s. The list one rebuilds its lists in their own
   cells and pays for it. The input is the game's 5500.
-- **qsort** (parity with C): Koka's own `qsort.kk` takes 20 s on this
-  input; it is measured as the Perceus repository has it, for the
-  comparison, not as a verdict on Koka.
+- **qsort** (parity with C): over `Linear.Array`, so the partition writes
+  in place.
 - **rbtree, rbtree-ck, cfold, deriv, nqueens:** persistent trees and terms
   rebuilt on every step, in the cells of the values that die (reset/reuse),
-  as Lean and Koka do, the rest on the stack; the times are Lean's and
-  Koka's or better, except that Koka is 1.2x faster on rbtree and 1.3x on
-  rbtree-ck (which keeps the older trees alive, so it measures the
-  allocator under a live set).
+  as the Perceus and Lean papers' versions do, the rest on the stack.
+  rbtree-ck keeps the older trees alive, so it measures the allocator under
+  a live set.
 - **binary-trees:** the C frees through musl's `malloc`; the game's fastest
   C uses a pool. Ours frees each tree as it dies through the runtime's
   allocator, and the bottom level is one static cell.
@@ -219,10 +213,6 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
 
 ## Caveats
 
-- SML's `int` traps on overflow where Idris's and C's wrap: a check per
-  operation for MLton (collatz, fib, tak).
-- The SML n-body uses immutable records like the Idris; the C updates an
-  array in place. All print the same energies to the last digit.
 - `ack` computes `ack 3 n` with `m` a literal: call-pattern specialization
   copies `ack` with `m` fixed and LLVM closes three of the copies, so this
   measures the specialization; `ackdyn` reads `m` from the input and

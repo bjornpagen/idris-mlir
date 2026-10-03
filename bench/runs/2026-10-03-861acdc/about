@@ -5,7 +5,4 @@ Stack: unlimited (ulimit -s), the most this system allows.
 
 - this compiler: 861acdc, for x86_64-unknown-linux-musl, CPU x86-64-v3; link flags: --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie -Wl,--gc-sections -Wl,--icf=all -lgmp
 - Idris Chez: Idris 2, version 0.8.0-1c630e67c; Chez Scheme 10.4.1
-- MLton: MLton 20210117+dfsg-3
 - clang -O2: clang version 23.1.2 (https://github.com/llvm/llvm-project.git 85ac560262434c9ccfc0c183ec22d4138ed647fb)
-- Koka: Koka 3.2.9, 05:27:08 Sep 18 2026 (ghc release version)
-- Lean 4: Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)

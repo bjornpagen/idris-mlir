@@ -79,8 +79,8 @@ make compile SRC=Main.idr OUT=prog
 ## Performance
 
 Twenty-six programs, each built by this compiler, by Idris's own Chez
-Scheme backend, and by clang -O2, MLton, Koka and Lean 4 where a version
-exists, measured on 2026-10-03 at 861acdc, best of 5 runs each:
+Scheme backend, and by clang -O2, measured on 2026-10-03 at 861acdc on an
+x86-64 Linux host, best of 5 runs each:
 
 ![This compiler against clang -O2](bench/runs/2026-10-03-861acdc/vs-c.svg)
 
@@ -117,21 +117,24 @@ Ubuntu 24.04:
 sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev
 ```
 
-The scripts run on macOS's BSD userland too (`tools/host.sh` holds every
+The scripts run on arm64 macOS too (`tools/host.sh` holds every
 difference). There the Command Line Tools give the compiler, the SDK,
 Make, Git, python3, m4, curl and perl (whose clock times what `date`
-cannot), and Homebrew the rest: coreutils for `gtimeout`, and MLton for
-the benchmarks:
+cannot), and MacPorts the rest: coreutils for `gtimeout` and `gsha256sum`:
 
 ```sh
 xcode-select --install
-brew install coreutils mlton
+sudo port install coreutils
 ```
 
-`make bootstrap` builds the pinned CMake, Ninja, a two-stage LLVM/MLIR
-(static on musl and libc++, with LTO), musl, GMP, Chez Scheme and Idris 2
-into `.toolchain/`; the steps and their environment are at the top of
-`tools/bootstrap.sh`. Stage 1 and stage 2 take hours and tens of GB of disk.
+`make bootstrap` builds the pinned CMake, Ninja, LLVM/MLIR, GMP, Chez
+Scheme and Idris 2 into `.toolchain/`; the steps and their environment are
+at the top of `tools/bootstrap.sh`. On Linux that is three stages: a
+stage-1 clang, musl and the LLVM runtimes, and then a stage-2 LLVM/MLIR,
+static on musl and libc++, with LTO. On arm64 macOS it is one stage with
+Apple clang, which then builds the pinned runtimes (compiler-rt's builtins
+and a static libc++/libc++abi) beside it. The long builds take hours and
+tens of GB of disk.
 Distribution LLVM packages track release branches, not the pinned commit, so
 they are not used.
 
@@ -168,7 +171,7 @@ a named class in `tests/lib/chez-divergences`.
 - `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear
   arrays and lists), installed per checkout under `build/idris2`.
 - `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
-  benchmarks against C, Chez, MLton, Koka and Lean 4.
+  benchmarks against C and Chez.
 - `findings/`: decisions taken (`decision-*.md`) and research notes with
   staged plans; `findings/one-representation.md` is the cleanup plan for
   everything the compiler still represents twice.
