@@ -1,0 +1,34 @@
+#!/bin/sh
+# The upstream bug upstream/while-move-if-down-duplicates still reproduces
+# with the pinned MLIR: canonicalize changes what a loop computes when its
+# scf.condition forwards one scf.if result twice. The program runs as it
+# is and after canonicalize; its exit status is what it returns. When this
+# fails, the bug is fixed: delete the idr dialect's ReadForwardedOnce and
+# its test tests/idr/canon/while-forwarded-twice, the PINS.md entry
+# while-move-if-down-duplicates, the report and this test
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/while-move-if-down-duplicates/twice.mlir
+# returns NAME FILE: builds FILE and prints the status it exits with.
+returns() {
+  bounded "$llvm_bin/mlir-opt" "$2" --convert-scf-to-cf --convert-to-llvm \
+    --reconcile-unrealized-casts > "$work/$1.llvm.mlir" 2>> "$work/err" &&
+    bounded "$llvm_bin/mlir-translate" --mlir-to-llvmir "$work/$1.llvm.mlir" \
+      > "$work/$1.ll" 2>> "$work/err" &&
+    bounded "$pinned_cc" -Wno-override-module "$work/$1.ll" -o "$work/$1" 2>> "$work/err" ||
+    return 1
+  bounded "$work/$1"
+  echo $?
+}
+bounded "$llvm_bin/mlir-opt" "$input" --canonicalize > "$work/canonical.mlir" 2> "$work/err"
+before=$(returns input "$input") && after=$(returns canonical "$work/canonical.mlir") || {
+  say "twice: did not build"
+  show "$work/err"
+  exit 0
+}
+if [ "$before" = 14 ] && [ "$after" = 7 ]; then
+  say "twice: still reproduces (returns 14, and 7 after canonicalize)"
+else
+  say "twice: no longer reproduces (returns $before, and $after after canonicalize)"
+  show "$work/canonical.mlir"
+fi

@@ -43,6 +43,32 @@ struct IdrInliner : DialectInlinerInterface {
   }
 };
 
+// An scf.while whose scf.condition forwards one scf.if result at several
+// positions: the after region reads it through the first of them only, and
+// the arguments of the others are left unused. Upstream's WhileMoveIfDown
+// gives the if's then value to the argument of the first position alone,
+// so it is right only on a loop that reads no other; the benefit puts this
+// pattern before it. PIN(while-move-if-down-duplicates) — see PINS.md
+struct ReadForwardedOnce : OpRewritePattern<scf::WhileOp> {
+  explicit ReadForwardedOnce(MLIRContext *context)
+      : OpRewritePattern(context, /*benefit=*/2) {}
+
+  LogicalResult matchAndRewrite(scf::WhileOp loop, PatternRewriter &rewriter) const override {
+    llvm::SmallDenseMap<Value, BlockArgument> first;
+    bool changed = false;
+    for (auto [value, arg] : llvm::zip(loop.getConditionOp().getArgs(), loop.getAfterArguments())) {
+      if (!value.getDefiningOp<scf::IfOp>())
+        continue;
+      auto [it, inserted] = first.try_emplace(value, arg);
+      if (inserted || arg.use_empty())
+        continue;
+      rewriter.replaceAllUsesWith(arg, it->second);
+      changed = true;
+    }
+    return success(changed);
+  }
+};
+
 } // namespace
 
 void IdrDialect::initialize() {
@@ -65,9 +91,11 @@ void IdrDialect::initialize() {
 // The dimension of an array, `memref.dim` of an `idr.array.new`, is the
 // size the array was made with: upstream's resolution of a dimension
 // through ReifyRankedShapedTypeOpInterface, which idr.array.new
-// implements, as a canonicalization.
+// implements, as a canonicalization. And no loop reads one value its
+// condition forwards twice through two arguments (ReadForwardedOnce).
 void IdrDialect::getCanonicalizationPatterns(RewritePatternSet &results) const {
   memref::populateResolveRankedShapedTypeResultDimsPatterns(results);
+  results.add<ReadForwardedOnce>(results.getContext());
 }
 
 // idr.constant for the dialect's values and strings, and
