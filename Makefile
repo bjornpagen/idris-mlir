@@ -57,6 +57,9 @@ CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
+# The host's architecture, which a test's `targets` file names and the
+# runner (tests/Main.idr) reads when it builds its pools.
+export IDRIS_MLIR_HOST_ARCH := $(shell uname -m)
 export CHEZ := $(call toolchain,chez_scheme)
 
 threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)

@@ -4,6 +4,9 @@ versions: each test name's version compiled for its LLVM name
 darwin: compiles
 darwin: reads compiler-rt's features
 darwin: fills them in first
+darwin-m1: compiles
+darwin-m1: reads compiler-rt's features
+darwin-m1: fills them in first
 linux: compiles
 linux: reads compiler-rt's features
 linux: calls nothing to fill them in

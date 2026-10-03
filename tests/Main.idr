@@ -71,13 +71,46 @@ holdsTests dir = do
   found <- for !(subdirs dir) $ \d => exists (d ++ "/run")
   pure (any id found)
 
+||| The architecture a test's `targets` file names, from
+||| IDRIS_MLIR_HOST_ARCH (the Makefile exports uname -m; a run script
+||| invoked directly gets the same fallback from tests/testutils.sh).
+||| `unknown` when neither says, which matches no `targets` file, so a
+||| test that names architectures does not run.
+hostArch : IO String
+hostArch = do
+  Just raw <- getEnv "IDRIS_MLIR_HOST_ARCH"
+    | Nothing => pure "unknown"
+  pure $ case raw of
+    "x86_64" => "x86-64"
+    "amd64" => "x86-64"
+    "arm64" => "aarch64"
+    "aarch64" => "aarch64"
+    other => other
+
+||| Whether TEST runs here. A test with no `targets` file holds everywhere;
+||| one with a `targets` file holds only where it names this host's
+||| architecture, which is how an x86-only or arm64-only test runs where it
+||| holds and is not counted elsewhere.
+runsHere : String -> String -> IO Bool
+runsHere arch test = do
+  Right text <- readFile (test ++ "/targets")
+    | Left _ => pure True
+  pure (arch `elem` words text)
+
+||| The tests of TESTS that run here.
+applicableTests : String -> List String -> IO (List String)
+applicableTests arch tests = do
+  flags <- traverse (runsHere arch) tests
+  pure (map fst (filter snd (zip tests flags)))
+
 ||| The tests of the directories that hold any, found by `testsInDir`, as
 ||| one pool. A directory that does not exist yet has no tests.
 pool : String -> List String -> IO TestPool
 pool name dirs = do
+  arch <- hostArch
   found <- for dirs $ \dir =>
     if !(holdsTests dir)
-       then map testCases (testsInDir dir name)
+       then applicableTests arch !(map testCases (testsInDir dir name))
        else pure []
   pure (MkTestPool name [] Test.Golden.Nothing (sort (concat found)))
 

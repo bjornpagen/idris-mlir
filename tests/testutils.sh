@@ -69,6 +69,14 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # test, it only ends one. coreutils' timeout is $timeout_cmd
 # (tools/host.sh).
 . "$root/tools/host.sh"
+# The host's architecture as a test's `targets` file names it, for a run
+# script invoked without make (the Makefile exports uname -m, and
+# tests/Main.idr maps it to these names before it builds the pools).
+case $(uname -m) in
+  x86_64 | amd64) : "${IDRIS_MLIR_HOST_ARCH:=x86_64}" ;;
+  arm64 | aarch64) : "${IDRIS_MLIR_HOST_ARCH:=arm64}" ;;
+esac
+export IDRIS_MLIR_HOST_ARCH
 if [ -z "$timeout_cmd" ]; then
   printf '%s\n' "test: $timeout_missing, so the test could hang"
   exit 1

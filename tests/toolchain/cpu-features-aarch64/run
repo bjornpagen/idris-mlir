@@ -97,4 +97,7 @@ test_cpu() {
   fi
 }
 test_cpu darwin "$darwin" -DIDRIS_RT_CPU_FEATURES_INIT=__init_cpu_features_resolver
+# The CPU the Darwin target entry names (apple-m1), compiled as an entry
+# does: the same shape, and one the hardware this test runs on has.
+test_cpu darwin-m1 "$darwin" -mcpu=apple-m1 -DIDRIS_RT_CPU_FEATURES_INIT=__init_cpu_features_resolver
 test_cpu linux aarch64-unknown-linux-musl
