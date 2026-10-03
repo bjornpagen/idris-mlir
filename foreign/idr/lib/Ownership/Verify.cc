@@ -202,8 +202,14 @@ private:
                             "stage a match does");
     // An exclusive value alone reaches its cells: no view of it (or of
     // what was read from it) takes a reference of its own, and an
-    // exclusive constructor is built of exclusive fields, on the heap.
+    // exclusive constructor is built of exclusive fields, on the heap. A
+    // reference of its own is exclusive only to static data that reaches
+    // no cell but atoms, which no take hands out (reachesOnlyAtoms): of
+    // anything else, the copy shares the original's cells.
     if (auto dup = dyn_cast<DupOp>(op)) {
+      if (isExclusive(dup.getType()) && !reachesOnlyAtoms(dup.getValue()))
+        return fail(op, dup.getValue(), "takes an exclusive reference to a value that reaches "
+                                        "cells other than atoms, which it shares");
       Value root = viewRoot(dup.getValue());
       if (isExclusive(root.getType()))
         for (OpOperand &use : root.getUses())
@@ -218,7 +224,8 @@ private:
       for (Value field : op.getOperands()) {
         auto dup = field.getDefiningOp<DupOp>();
         if (isOwned(field.getType()) && !isExclusive(field.getType()) &&
-            isa<BoxType, DataType>(unrestricted(field.getType())) && !(dup && isAtom(dup.getValue())))
+            isa<BoxType, DataType>(unrestricted(field.getType())) &&
+            !(dup && reachesOnlyAtoms(dup.getValue())))
           return fail(op, field, "builds an exclusive value of a field that may be shared");
       }
     }
