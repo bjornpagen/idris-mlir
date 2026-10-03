@@ -66,7 +66,7 @@ best "$run" > "$run/best.tsv"
 {
   cat "$run/about"
   echo
-  echo "Best of $runs runs, wall-clock seconds. Outputs agree."
+  if [ "$runs" -eq 1 ]; then echo "One run each, wall-clock seconds. Outputs agree."; else echo "Best of $runs runs, wall-clock seconds. Outputs agree."; fi
   echo
   echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |"
   echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"

@@ -1,0 +1,14 @@
+Measured on 2026-10-02, at 903d127.
+
+Transcribed from the table bench/README.md held then, so each sample is
+that run's best of 3, to the millisecond; k-nucleotide was measured in a
+run of its own on the same container. No compile times were kept.
+
+Host: development container, x86-64, 4 CPUs.
+
+- this compiler: 903d127, for x86_64-unknown-linux-musl
+- Idris Chez: Idris 2 on Chez Scheme 9.5
+- MLton: 20210117
+- clang -O2: the pinned clang, LLVM 23.1.2
+- Koka: 3.2.9
+- Lean 4: 4.34.1

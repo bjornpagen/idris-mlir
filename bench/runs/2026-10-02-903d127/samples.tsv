@@ -1,0 +1,109 @@
+ack	10	this compiler	4000000
+ack	10	Idris Chez	1207000000
+ack	10	MLton	68000000
+ack	10	clang -O2	253000000
+ackdyn	10	this compiler	266000000
+ackdyn	10	Idris Chez	1205000000
+ackdyn	10	MLton	86000000
+ackdyn	10	clang -O2	254000000
+binary-trees	21	this compiler	6522000000
+binary-trees	21	Idris Chez	46112000000
+binary-trees	21	MLton	7606000000
+binary-trees	21	clang -O2	31746000000
+binary-trees	21	Koka	12557000000
+binary-trees	21	Lean 4	7221000000
+cfold	20	this compiler	187000000
+cfold	20	Idris Chez	588000000
+cfold	20	MLton	412000000
+cfold	20	clang -O2	477000000
+cfold	20	Koka	360000000
+cfold	20	Lean 4	370000000
+collatz	3000000	this compiler	589000000
+collatz	3000000	Idris Chez	23318000000
+collatz	3000000	MLton	2379000000
+collatz	3000000	clang -O2	634000000
+deriv	10	this compiler	1258000000
+deriv	10	Idris Chez	3067000000
+deriv	10	MLton	1122000000
+deriv	10	clang -O2	3935000000
+deriv	10	Koka	1166000000
+deriv	10	Lean 4	1307000000
+fannkuch-linear	10	this compiler	259000000
+fannkuch-linear	10	Idris Chez	4737000000
+fannkuch-linear	10	clang -O2	555000000
+fannkuch-redux	10	this compiler	722000000
+fannkuch-redux	10	Idris Chez	12686000000
+fannkuch-redux	10	clang -O2	522000000
+fasta	250000	this compiler	94000000
+fasta	250000	Idris Chez	309000000
+fasta	250000	clang -O2	47000000
+fib	38	this compiler	130000000
+fib	38	Idris Chez	3589000000
+fib	38	MLton	282000000
+fib	38	clang -O2	124000000
+harmonic	200000000	this compiler	284000000
+harmonic	200000000	Idris Chez	6879000000
+harmonic	200000000	MLton	784000000
+harmonic	200000000	clang -O2	294000000
+k-nucleotide	fasta 250000	this compiler	6194000000
+k-nucleotide	fasta 250000	Idris Chez	14072000000
+k-nucleotide	fasta 250000	clang -O2	278000000
+mandelbrot	2000	this compiler	297000000
+mandelbrot	2000	Idris Chez	5384000000
+mandelbrot	2000	MLton	519000000
+mandelbrot	2000	clang -O2	302000000
+mandelbrot-pbm	4000	this compiler	1172000000
+mandelbrot-pbm	4000	Idris Chez	23222000000
+mandelbrot-pbm	4000	clang -O2	1187000000
+nbody	5000000	this compiler	305000000
+nbody	5000000	Idris Chez	5698000000
+nbody	5000000	MLton	1553000000
+nbody	5000000	clang -O2	298000000
+nqueens	13	this compiler	1023000000
+nqueens	13	Idris Chez	14859000000
+nqueens	13	MLton	1211000000
+nqueens	13	clang -O2	1303000000
+nqueens	13	Koka	1076000000
+nqueens	13	Lean 4	2422000000
+pidigits	10000	this compiler	1165000000
+pidigits	10000	Idris Chez	6235000000
+pidigits	10000	clang -O2	1220000000
+qsort	400	this compiler	1495000000
+qsort	400	Idris Chez	16288000000
+qsort	400	MLton	1774000000
+qsort	400	clang -O2	1511000000
+qsort	400	Koka	26342000000
+qsort	400	Lean 4	2505000000
+rbtree	4200000	this compiler	1197000000
+rbtree	4200000	Idris Chez	2498000000
+rbtree	4200000	MLton	5933000000
+rbtree	4200000	clang -O2	1675000000
+rbtree	4200000	Koka	949000000
+rbtree	4200000	Lean 4	2937000000
+rbtree-ck	4200000	this compiler	2837000000
+rbtree-ck	4200000	Idris Chez	9149000000
+rbtree-ck	4200000	MLton	9354000000
+rbtree-ck	4200000	clang -O2	4532000000
+rbtree-ck	4200000	Koka	2157000000
+rbtree-ck	4200000	Lean 4	4851000000
+regex-redux	fasta 250000	this compiler	3573000000
+regex-redux	fasta 250000	Idris Chez	3023000000
+reverse-complement	fasta 250000	this compiler	155000000
+reverse-complement	fasta 250000	Idris Chez	714000000
+reverse-complement	fasta 250000	clang -O2	13000000
+spectral-norm	5500	this compiler	2259000000
+spectral-norm	5500	Idris Chez	191642000000
+spectral-norm	5500	clang -O2	1749000000
+spectral-norm-linear	5500	this compiler	1752000000
+spectral-norm-linear	5500	Idris Chez	187927000000
+spectral-norm-linear	5500	clang -O2	1735000000
+tak	18	this compiler	124000000
+tak	18	Idris Chez	1386000000
+tak	18	MLton	173000000
+tak	18	clang -O2	130000000
+unionfind	3000000	this compiler	174000000
+unionfind	3000000	Idris Chez	2351000000
+unionfind	3000000	MLton	345000000
+unionfind	3000000	clang -O2	134000000
+unionfind	3000000	Koka	2313000000
+unionfind	3000000	Lean 4	2271000000

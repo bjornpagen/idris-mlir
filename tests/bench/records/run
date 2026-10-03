@@ -1,0 +1,21 @@
+#!/bin/sh
+# Every record kept in bench/runs holds what bench/report.sh makes from it,
+# compared with the record before it (records sort by name, which starts
+# with the date): its results.md and charts are current, never edited by
+# hand.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+previous=
+for record in "$root"/bench/runs/*/; do
+  name=$(basename "$record")
+  mkdir "$work/$name"
+  for input in about samples.tsv compile.tsv; do
+    [ -f "$record/$input" ] && cp "$record/$input" "$work/$name/"
+  done
+  bounded sh "$root/bench/report.sh" "$work/$name" ${previous:+"$work/$previous"} > /dev/null ||
+    say "$name: bench/report.sh failed"
+  for made in results.md times.svg vs-c.svg vs-chez.svg; do
+    cmp -s "$work/$name/$made" "$record/$made" || say "$name/$made: not what bench/report.sh makes; run it again"
+  done
+  previous=$name
+done
+say "records checked"
