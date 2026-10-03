@@ -39,6 +39,9 @@ IDRIS2 := $(call toolchain,idris2)
 CMAKE := $(call toolchain,cmake)
 PINNED_CC := $(call toolchain,pinned_cc)
 IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
+# The C++ build's configure preset: dev on Linux, dev-darwin on arm64 macOS
+# (CMakePresets.json, through tools/toolchain.sh).
+DEV_PRESET := $(call toolchain,dev_preset)
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
@@ -93,8 +96,8 @@ env:
 # The presets are the only interface for building C++.
 build: libs
 	@$(PINS) cmake ninja llvm sysroot
-	cd $(ROOT) && $(CMAKE) --preset dev
-	cd $(ROOT) && $(CMAKE) --build --preset dev
+	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET)
+	cd $(ROOT) && $(CMAKE) --build --preset $(DEV_PRESET)
 	@$(PINS) idris
 	@$(MAKE) --no-print-directory paths
 	$(ROOT)/tools/dialects.sh generate

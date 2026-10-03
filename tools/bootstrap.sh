@@ -19,8 +19,29 @@
 #             compiler: it runs Idris 2 and the test oracle
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
 #             the pinned Chez Scheme
-#   llvm     stage1, musl, runtimes and stage2
-#   all       every step, in the order above
+#   llvm     stage1, musl, runtimes and stage2 (Linux)
+#   all       every step, in the order above (Linux)
+#
+# On arm64 macOS the recipe is one stage and these steps:
+#
+#   cmake     CMake, built with the host's C++ compiler    -> .toolchain/cmake
+#   ninja     Ninja, built with the pinned CMake            -> .toolchain/ninja
+#   stage2    LLVM, MLIR, clang, lld, clang-tidy and the    -> .toolchain/llvm-macos
+#             test tools, built natively by Apple clang,
+#             then compiler-rt's builtins and a static
+#             libc++/libc++abi built into the clang's
+#             resource directory by that clang
+#   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
+#             pinned clang
+#   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
+#             compiler: it runs Idris 2 and the test oracle
+#   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
+#             the pinned Chez Scheme
+#   llvm     stage2
+#   all       cmake, ninja, stage2, gmp, chez and idris
+#
+# stage1, musl and runtimes are Linux-only: Darwin's C library is libSystem
+# in the SDK, and its runtimes are part of stage2.
 #
 # A step runs only when its provenance stamp is missing or stale. A stamp
 # holds the digest of the step's inputs: the pinned revisions, the step's
@@ -57,12 +78,27 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/host.sh"
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 lock=$root/toolchain.lock.json
-triple=x86_64-unknown-linux-musl
+# The host decides which recipe runs. On Linux the pinned toolchain is
+# three stages: the host's compiler builds a stage-1 clang and lld, that
+# builds musl and the LLVM runtimes, and those build the stage-2
+# LLVM/MLIR/clang/lld, statically on musl and libc++. On Darwin there is
+# one stage: Apple clang builds the pinned LLVM/MLIR/clang/lld natively in
+# .toolchain/llvm-macos, and that clang then builds the pinned runtimes
+# (compiler-rt's builtins and a static libc++/libc++abi) into its own
+# resource directory. The target programs are compiled for is the triple
+# below, and every fact of it is decided in CMakeLists.txt's target entry.
+host_kind=
+case $(uname -s) in
+  Linux) host_kind=linux ;;
+  Darwin) host_kind=darwin ;;
+  *) die "no recipe for a $(uname -s) host; add one beside the Linux and Darwin recipes" ;;
+esac
 cmake_prefix=$toolchain/cmake
 ninja_prefix=$toolchain/ninja
 stage1=$toolchain/stage1
 sysroot=$toolchain/sysroot
 llvm_musl=$toolchain/llvm-musl
+llvm_macos=$toolchain/llvm-macos
 chez_prefix=$toolchain/chez
 idris_prefix=$toolchain/idris2
 llvm_source=$toolchain/llvm-project
@@ -72,6 +108,25 @@ logs=$toolchain/logs
 builds=$toolchain/build
 host_cc=${CC:-cc}
 host_cxx=${CXX:-c++}
+# The page size, recorded in every stamp and read at a program's entry
+# (CMakeLists.txt's target entry): 16384 on this machine's Apple Silicon,
+# where Linux x86-64 uses 4096. sysctl hw.pagesize is not readable in every
+# sandbox; getconf always is.
+page_size=$(getconf PAGESIZE 2> /dev/null) || page_size=
+case $page_size in '' | *[!0-9]*) die "getconf PAGESIZE names no page size" ;; esac
+if [ "$host_kind" = darwin ]; then
+  triple=arm64-apple-macosx14.0
+  llvm_prefix=$llvm_macos
+  sdk=$(xcrun --show-sdk-path 2> /dev/null) ||
+    die "no macOS SDK; run: xcode-select --install"
+  [ -d "$sdk" ] || die "the macOS SDK path $sdk is not a directory"
+  sdk_version=$(xcrun --show-sdk-version 2> /dev/null) || sdk_version=unknown
+else
+  triple=x86_64-unknown-linux-musl
+  llvm_prefix=$llvm_musl
+  sdk=
+  sdk_version=
+fi
 
 say() {
   printf '%s\n' "$*"
@@ -90,11 +145,27 @@ usage() {
 
 [ $# -gt 0 ] || usage
 steps=
+# The steps that only mean something on one host: Linux's stage-1 clang,
+# musl and its runtimes have no Darwin analogue, and Darwin's single stage
+# is the pinned LLVM/MLIR, runtimes included.
+if [ "$host_kind" = darwin ]; then
+  llvm_steps="stage2"
+  all_steps="cmake ninja stage2 gmp chez idris"
+else
+  llvm_steps="stage1 musl runtimes stage2"
+  all_steps="cmake ninja stage1 musl runtimes stage2 gmp chez idris"
+fi
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | musl | runtimes | stage2 | gmp | chez | idris) steps="$steps $arg" ;;
-    llvm) steps="$steps stage1 musl runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 musl runtimes stage2 gmp chez idris" ;;
+    cmake | ninja | stage2 | gmp | chez | idris) steps="$steps $arg" ;;
+    stage1 | musl | runtimes)
+      if [ "$host_kind" = darwin ]; then
+        usage "$arg is a Linux step: the Darwin recipe is one stage (tools/bootstrap.sh stage2)"
+      fi
+      steps="$steps $arg"
+      ;;
+    llvm) steps="$steps $llvm_steps" ;;
+    all) steps="$steps $all_steps" ;;
     gcc) usage "gcc is retired: the pinned C compiler is the stage-2 clang; run: tools/bootstrap.sh llvm" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
@@ -200,7 +271,7 @@ stamp_of() {
     ninja) echo "$ninja_prefix/provenance.json" ;;
     stage1) echo "$stage1/provenance.json" ;;
     musl | runtimes | gmp) echo "$sysroot/provenance/$1.json" ;;
-    stage2) echo "$llvm_musl/provenance.json" ;;
+    stage2) echo "$llvm_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
     *) die "internal error: no step $1" ;;
@@ -374,6 +445,15 @@ static_pie() {
   case $static_pie_out in *NEEDED*) die "$2 needs a shared library" ;; esac
 }
 
+# mh_pie OBJDUMP FILE: a Mach-O executable is position-independent when its
+# header names MH_PIE. The Darwin toolchain's check where Linux's is
+# static_pie: the target's programs are dynamic PIE executables linked
+# against libSystem, not static PIE.
+mh_pie() {
+  mh_pie_out=$("$1" --macho --private-headers "$2") || die "$1 cannot read $2"
+  case $mh_pie_out in *MH_PIE*) ;; *) die "$2 is not position-independent (no MH_PIE)" ;; esac
+}
+
 # clone_pinned TOOL DEST: a shallow clone of the lock's tag, at the lock's
 # revision, unmodified.
 clone_pinned() {
@@ -466,9 +546,19 @@ install_staged() {
 # --- Recipes ------------------------------------------------------------
 
 # The only configuration of the pinned clangs, next to them, which
-# clang reads for its target (<CFGDIR> is the file's directory). Static-PIE is
-# the only kind of executable: a shared link fails.
+# clang reads for its target (<CFGDIR> is the file's directory). One file
+# per host, beside each clang.
 config_file() {
+  if [ "$host_kind" = darwin ]; then
+    config_file_darwin
+  else
+    config_file_linux
+  fi
+}
+
+# Linux: musl, libc++ and GMP from the sysroot next to this clang;
+# compiler-rt and libunwind; lld; static-PIE executables.
+config_file_linux() {
   cat << 'CFG'
 # idris-mlir's toolchain for x86_64-unknown-linux-musl, written
 # by tools/bootstrap.sh: musl, libc++ and GMP from the sysroot next to this
@@ -479,6 +569,31 @@ config_file() {
 -stdlib=libc++
 -fuse-ld=lld
 -static-pie
+CFG
+}
+
+# Darwin: the C library and headers are libSystem in the SDK; the pinned
+# libc++/libc++abi and compiler-rt's builtins are the ones built beside
+# this clang; GMP is the sysroot beside it; ld64.lld links dynamic PIE
+# executables. -nostdinc++ keeps the SDK's libc++ headers out of the way
+# of the pinned ones.
+config_file_darwin() {
+  cat << CFG
+# idris-mlir's toolchain for $triple, written by tools/bootstrap.sh:
+# Apple clang built the pinned LLVM/MLIR in .toolchain/llvm-macos, and
+# this clang links the pinned libc++ and compiler-rt beside it. The C
+# library and headers are libSystem in the macOS SDK ($sdk_version); GMP
+# is in the sysroot beside this clang. idris-mlir's programs are PIE
+# executables linked against libSystem.
+-isysroot
+$sdk
+--rtlib=compiler-rt
+-nostdinc++
+-I<CFGDIR>/../include/c++/v1
+-L<CFGDIR>/../lib
+-I<CFGDIR>/../../sysroot/usr/include
+-L<CFGDIR>/../../sysroot/usr/lib
+-fuse-ld=lld
 CFG
 }
 
@@ -583,16 +698,66 @@ recipe_runtimes() {
   args_libcxx
 }
 
+# Darwin's runtimes, built by the just-installed pinned clang and installed
+# into its own resource directory: compiler-rt's builtins for osx arm64,
+# then a static libc++/libc++abi, which the configuration file beside the
+# clang names. They are part of the one stage, so a change to either
+# restales stage2 (recipe_stage2_darwin).
+args_builtins_darwin() {
+  printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_C_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_CXX_COMPILER=$llvm_macos/bin/clang++" \
+    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" \
+    "-DCMAKE_OSX_ARCHITECTURES=arm64" "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
+    -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=ON -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
+    -DCOMPILER_RT_BUILD_CRT=ON -DCOMPILER_RT_ENABLE_IOS=OFF -DCOMPILER_RT_ENABLE_WATCHOS=OFF \
+    -DCOMPILER_RT_ENABLE_TVOS=OFF -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+    "-DCOMPILER_RT_INSTALL_PATH=$llvm_macos/lib/clang/$llvm_major"
+}
+
+args_libcxx_darwin() {
+  printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_C_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_CXX_COMPILER=$llvm_macos/bin/clang++" \
+    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" \
+    "-DCMAKE_OSX_ARCHITECTURES=arm64" "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
+    -DCMAKE_C_COMPILER_WORKS=ON -DCMAKE_CXX_COMPILER_WORKS=ON -DCMAKE_ASM_COMPILER_WORKS=ON \
+    "-DCMAKE_INSTALL_PREFIX=$llvm_macos" \
+    '-DLLVM_ENABLE_RUNTIMES=libcxxabi;libcxx' \
+    -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF \
+    -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_STATIC=ON \
+    -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON \
+    -DLIBCXX_CXX_ABI=libcxxabi -DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON \
+    -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXX_INCLUDE_TESTS=OFF
+}
+
 # What stage 2 installs.
 stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
-# Stage 2. Static PIE on musl and libc++ (the configuration file),
+args_stage2() {
+  if [ "$host_kind" = darwin ]; then
+    args_stage2_darwin
+  else
+    args_stage2_linux
+  fi
+}
+
+recipe_stage2() {
+  printf '%s\n' "llvm $llvm_revision"
+  if [ "$host_kind" = darwin ]; then
+    recipe_stage2_darwin
+  else
+    recipe_stage2_linux
+  fi
+  args_stage2
+  config_file
+}
+
+# Linux stage 2. Static PIE on musl and libc++ (the configuration file),
 # no shared libraries or plugins, LTO with fat objects: their bitcode serves
 # the Release build of our tools, their native code every other build. A
 # ThinLTO link runs two backend threads, so that it and two compile jobs fit
 # in 15 GB of memory.
 # PIN(stage2-thinlto): ThinLTO unless IDRIS_MLIR_STAGE2_LTO=Full — see PINS.md
-args_stage2() {
+args_stage2_linux() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
   printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld.lld" -DCMAKE_EXE_LINKER_FLAGS=-Wl,--thinlto-jobs=2 \
@@ -607,21 +772,78 @@ args_stage2() {
   llvm_without_host_libraries
 }
 
-recipe_stage2() {
+recipe_stage2_linux() {
   recipe_stage1_inputs=$(inputs stage1) || exit 1
   recipe_musl_inputs=$(inputs musl) || exit 1
   recipe_runtimes_inputs=$(inputs runtimes) || exit 1
-  printf '%s\n' "llvm $llvm_revision" "stage1 $recipe_stage1_inputs" \
+  printf '%s\n' "stage1 $recipe_stage1_inputs" \
     "musl $recipe_musl_inputs" "runtimes $recipe_runtimes_inputs"
-  args_stage2
+}
+
+# What the Darwin stage installs. Its own C++ library is the pinned
+# libc++/libc++abi (built after it, into its resource directory), so
+# LLVM's headers and libraries go with it, as on Linux.
+stage2_components_darwin='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
+
+# Darwin's one stage: Apple clang builds LLVM, MLIR, clang, lld and
+# clang-tidy natively, as a shared-library build (LLVM_BUILD_STATIC=OFF), no
+# LTO (an Apple-clang link of LLVM's bitcode is not this build's to make),
+# assertions on. It is not statically linked to musl and libc++: the
+# pinned runtimes are built after it and installed into its resource
+# directory (step_stage2), and the configuration file beside it names them.
+args_stage2_darwin() {
+  printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" \
+    "-DCMAKE_ASM_COMPILER=$host_cc" "-DCMAKE_MAKE_PROGRAM=$ninja" \
+    "-DCMAKE_INSTALL_PREFIX=$llvm_macos" \
+    "-DCMAKE_OSX_ARCHITECTURES=arm64" "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
+    '-DLLVM_ENABLE_PROJECTS=clang;lld;mlir;clang-tools-extra' \
+    '-DLLVM_TARGETS_TO_BUILD=AArch64;X86' \
+    "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
+    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_LIBCXX=ON -DLLVM_ENABLE_PIC=ON -DLLVM_BUILD_STATIC=OFF \
+    -DLLVM_ENABLE_LTO=OFF -DLLVM_INSTALL_UTILS=ON \
+    -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DCLANG_PLUGIN_SUPPORT=OFF \
+    "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components_darwin"
+  llvm_without_host_libraries
+}
+
+args_runtimes_darwin() {
+  args_builtins_darwin
+  args_libcxx_darwin
+}
+
+recipe_stage2_darwin() {
+  printf '%s\n' "apple clang $("$host_cc" --version 2>&1 | head -n 1)" \
+    "sdk $sdk_version" "page $page_size" \
+    "targets AArch64;X86" "stage2_components_darwin"
+  args_stage2_darwin
+  args_runtimes_darwin
   config_file
 }
 
 args_gmp() {
+  if [ "$host_kind" = darwin ]; then
+    args_gmp_darwin
+  else
+    args_gmp_linux
+  fi
+}
+
+args_gmp_linux() {
   printf '%s\n' --prefix=/usr --build=x86_64-pc-linux-musl --host=x86_64-pc-linux-musl \
     --enable-fat --with-pic --disable-shared --enable-static \
     "CC=$llvm_musl/bin/clang" 'CFLAGS=-O2 -pipe -ffp-contract=off' \
     "AR=$llvm_musl/bin/llvm-ar" "NM=$llvm_musl/bin/llvm-nm" "RANLIB=$llvm_musl/bin/llvm-ranlib"
+}
+
+# GMP on arm64 macOS: no run-time CPU dispatch to ask for (--enable-fat is
+# x86's), built by the pinned clang for the host it runs on.
+args_gmp_darwin() {
+  printf '%s\n' --prefix=/usr --build=aarch64-apple-darwin --host=aarch64-apple-darwin \
+    --with-pic --disable-shared --enable-static \
+    "CC=$llvm_macos/bin/clang" 'CFLAGS=-O2 -pipe -ffp-contract=off' \
+    "AR=$llvm_macos/bin/llvm-ar" "NM=$llvm_macos/bin/llvm-nm" "RANLIB=$llvm_macos/bin/llvm-ranlib"
 }
 
 recipe_gmp() {
@@ -820,8 +1042,76 @@ CC
   finish
 }
 
-# Stage 2, with stage 1, on musl and libc++.
+# Stage 2 on Darwin: Apple clang builds LLVM, MLIR, clang, lld and
+# clang-tidy natively, then the pinned clang builds compiler-rt's builtins
+# and a static libc++/libc++abi into its resource directory. The runtimes
+# are part of the stage, so its one stamp records them too.
+step_stage2_darwin() {
+  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, one stage with Apple clang, plus compiler-rt and libc++" || return 0
+  require cmake ninja
+  need git python3 "$host_cc" "$host_cxx"
+  # One snapshot serves both the compiler and its runtimes.
+  clone_pinned llvm "$llvm_source"
+  build_dir resume
+  if [ "$resumed" = no ]; then need_disk 40 "the Darwin LLVM/MLIR build and install, runtimes included"; fi
+  eval "set -- $(args_stage2 | quote_lines)"
+  sample_memory
+  run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
+    "-DPython3_EXECUTABLE=$(command -v python3)" \
+    "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
+  run "build (hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" distribution
+  build_mib=$(size_mib "$build")
+  rm -rf "$llvm_macos"
+  run install "$ninja" -C "$build" install-distribution
+  # compiler-rt's builtins, then libc++ and libc++abi, with the clang just
+  # installed.
+  eval "set -- $(args_builtins_darwin | quote_lines)"
+  run "configure the builtins" "$cmake" -S "$llvm_source/compiler-rt/lib/builtins" -B "$build/builtins" "$@"
+  run "build the builtins" "$ninja" -C "$build/builtins" -j "$jobs"
+  run "install the builtins" "$ninja" -C "$build/builtins" install
+  eval "set -- $(args_libcxx_darwin | quote_lines)"
+  run "configure libc++ and libc++abi" "$cmake" -S "$llvm_source/runtimes" -B "$build/runtimes" "$@" \
+    "-DPython3_EXECUTABLE=$(command -v python3)"
+  run "build libc++ and libc++abi" "$ninja" -C "$build/runtimes" -j "$jobs"
+  run "install libc++ and libc++abi" "$ninja" -C "$build/runtimes" install
+  stop_sampling
+  config_file > "$llvm_macos/bin/$triple.cfg"
+  for stage2_file in bin/clang bin/clang++ bin/ld64.lld bin/clang-tidy bin/opt bin/llc bin/llvm-nm \
+    bin/llvm-ar bin/llvm-readelf bin/mlir-opt bin/mlir-translate bin/mlir-tblgen bin/FileCheck \
+    bin/not bin/count lib/cmake/llvm/LLVMConfig.cmake lib/cmake/mlir/MLIRConfig.cmake \
+    lib/libLLVMSupport.a lib/libMLIRIR.a lib/libc++.a lib/libc++abi.a \
+    include/c++/v1/vector include/mlir/IR/MLIRContext.h \
+    "lib/clang/$llvm_major/include/stddef.h"; do
+    [ -e "$llvm_macos/$stage2_file" ] || die "stage 2 installed no $stage2_file"
+  done
+  version_is "$llvm_macos/bin/clang" "clang version $llvm_version"
+  version_is "$llvm_macos/bin/ld64.lld" "LLD $llvm_version"
+  version_is "$llvm_macos/bin/mlir-opt" "LLVM version $llvm_version"
+  version_is "$llvm_macos/bin/FileCheck" "LLVM version $llvm_version"
+  mh_pie "$llvm_macos/bin/llvm-objdump" "$llvm_macos/bin/clang"
+  mh_pie "$llvm_macos/bin/llvm-objdump" "$llvm_macos/bin/mlir-opt"
+  mkdir -p "$build/check"
+  printf '#include <stdio.h>\nint main(void) { puts("c ok"); return 0; }\n' > "$build/check/c.c"
+  printf '#include <cstdio>\n#include <vector>\nint main() { std::vector<int> v{1, 2}; std::printf("c++ ok %%zu\\n", v.size()); }\n' > "$build/check/cc.cc"
+  run "check: a C program on the SDK" "$llvm_macos/bin/clang" -O2 "$build/check/c.c" -o "$build/check/c"
+  run "check: a C++26 program with the pinned libc++" "$llvm_macos/bin/clang++" -std=c++26 -O2 "$build/check/cc.cc" -o "$build/check/cc"
+  [ "$("$build/check/c")" = "c ok" ] || die "the C check program did not print its line"
+  [ "$("$build/check/cc")" = "c++ ok 2" ] || die "the C++ check program did not print its line"
+  write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
+    tag "$llvm_tag" version "$llvm_version" triple "$triple" sdk "$sdk" sdk_version "$sdk_version" \
+    page_size "$page_size" inputs "$step_inputs" jobs "$jobs" \
+    seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
+    baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
+    install_mib "$(size_mib "$llvm_macos")" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finish
+}
+
+# Stage 2 on Linux, with stage 1, on musl and libc++.
 step_stage2() {
+  if [ "$host_kind" = darwin ]; then
+    step_stage2_darwin
+    return 0
+  fi
   begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, with stage 1 ($lto LTO)" || return 0
   require cmake ninja stage1 musl runtimes
   need git python3
@@ -879,11 +1169,16 @@ step_stage2() {
   finish
 }
 
-# GMP, with the stage-2 clang: static, position-independent, with every
-# x86-64 kernel selected at run time.
+# GMP, with the stage-2 clang: static and position-independent; every
+# x86-64 kernel selected at run time on Linux, one arm64 build on Darwin.
 step_gmp() {
-  begin gmp "GMP $gmp_version, with the stage-2 clang" || return 0
-  require stage2 musl runtimes
+  if [ "$host_kind" = darwin ]; then
+    begin gmp "GMP $gmp_version, with the pinned clang, into the sysroot" || return 0
+    require stage2
+  else
+    begin gmp "GMP $gmp_version, with the stage-2 clang" || return 0
+    require stage2 musl runtimes
+  fi
   need git make m4
   submodule third_party/gmp gmp > /dev/null
   verify_release gmp third_party/gmp
@@ -898,9 +1193,16 @@ step_gmp() {
   rm -rf "$build/stage/usr/share" "$build/stage/usr/lib/libgmp.la"
   install_staged gmp "$build/stage"
   printf '#include <gmp.h>\n#include <stdio.h>\nint main(void) { mpz_t x; mpz_init(x); mpz_ui_pow_ui(x, 2, 100); gmp_printf("%%Zd\\n", x); mpz_clear(x); return 0; }\n' > "$build/check.c"
-  run "check: a static-PIE GMP program" "$llvm_musl/bin/clang" -O2 "$build/check.c" -o "$build/check" -lgmp
-  [ "$("$build/check")" = 1267650600228229401496703205376 ] || die "the GMP check program did not print 2^100"
-  static_pie "$llvm_musl/bin/llvm-readelf" "$build/check"
+  if [ "$host_kind" = darwin ]; then
+    run "check: a PIE GMP program against the sysroot" \
+      "$llvm_macos/bin/clang" "--target=$triple" -O2 "$build/check.c" -o "$build/check" -lgmp
+    [ "$("$build/check")" = 1267650600228229401496703205376 ] || die "the GMP check program did not print 2^100"
+    mh_pie "$llvm_macos/bin/llvm-objdump" "$build/check"
+  else
+    run "check: a static-PIE GMP program" "$llvm_musl/bin/clang" -O2 "$build/check.c" -o "$build/check" -lgmp
+    [ "$("$build/check")" = 1267650600228229401496703205376 ] || die "the GMP check program did not print 2^100"
+    static_pie "$llvm_musl/bin/llvm-readelf" "$build/check"
+  fi
   write_stamp "$(stamp_of gmp)" step gmp revision "$gmp_revision" version "$gmp_version" \
     inputs "$step_inputs" release "$release_check" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish

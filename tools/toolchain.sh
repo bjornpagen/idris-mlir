@@ -25,6 +25,12 @@ case $(uname -s) in
   *) llvm_prefix=$toolchain/llvm-musl ;;
 esac
 llvm_bin=$llvm_prefix/bin
+# The configure preset `make build` uses (CMakePresets.json): the Darwin one
+# is the same build with .toolchain/llvm-macos as the pinned compiler.
+case $(uname -s) in
+  Darwin) dev_preset=dev-darwin ;;
+  *) dev_preset=dev ;;
+esac
 # The C compiler that links programs (both compile flows, the benchmarks): the
 # stage-2 clang, whose configuration file names the sysroot, compiler-rt,
 # libunwind, lld and static-PIE output on Linux, and the SDK and the pinned
