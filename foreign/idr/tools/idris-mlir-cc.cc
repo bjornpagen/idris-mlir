@@ -65,6 +65,7 @@
 #include <string>
 #include <vector>
 
+#include "cpu_features.h"
 #include "idris_rt.h"
 
 #include <unistd.h>
@@ -506,7 +507,7 @@ bool nativeRuns(const llvm::Module &runtime, const llvm::Target &target, const l
       triple, moduleFlagString(runtime, preparedCpuFlag),
       moduleFlagString(runtime, preparedFeaturesFlag)));
   const llvm::MCSubtargetInfo &program = machine.getMCSubtargetInfo();
-#define IDR_FEATURE(bit, name)                                                                   \
+#define IDR_FEATURE(bit, test, name)                                                             \
   if (prepared->checkFeatures("+" name) && !program.checkFeatures("+" name))                     \
     return false;
   IDRIS_RT_CPU_FEATURES(IDR_FEATURE)
@@ -992,7 +993,7 @@ int run() {
   }
   llvmModule->setTargetTriple(triple);
   llvmModule->setDataLayout(machine->createDataLayout());
-  // The executable is static-PIE.
+  // Every target's executables are position-independent.
   llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
   llvmModule->setPIELevel(llvm::PIELevel::Large);
 

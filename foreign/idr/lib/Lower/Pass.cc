@@ -4,6 +4,7 @@
 #include "Lower/Facts.h"
 #include "Lower/Patterns.h"
 
+#include "cpu_features.h"
 #include "idris_rt.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -40,14 +41,15 @@ FailureOr<func::FuncOp> findRoot(ModuleOp module) {
 }
 
 // The IDRIS_RT_CPU_FEATURES bits of the features the module's target
-// enables. A module with no target states no requirement.
+// enables, found by their LLVM names. A module with no target states no
+// requirement.
 uint64_t requiredCpuFeatures(ModuleOp module) {
   auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
   LLVM::TargetFeaturesAttr features = target ? target.getFeatures() : nullptr;
   uint64_t bits = 0;
   if (!features)
     return bits;
-#define IDR_REQUIRED_FEATURE(bit, name, ...)                                                    \
+#define IDR_REQUIRED_FEATURE(bit, test, name)                                                   \
   if (features.contains("+" name))                                                             \
     bits |= uint64_t{1} << (bit);
   IDRIS_RT_CPU_FEATURES(IDR_REQUIRED_FEATURE)

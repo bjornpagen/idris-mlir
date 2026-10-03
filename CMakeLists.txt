@@ -83,18 +83,69 @@ endif()
 
 # The target programs are compiled for is decided here and nowhere else. The
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
-# built for too; its entry below adds the CPU programs are compiled for by
-# default, the baseline runtime code is compiled for (idris-mlir-cc raises
-# it to the program's CPU), the runtime's test of the processor, and the
-# container of the runtime's bitcode, which joins every program's module:
-# the flags that make each member of the runtime's archive carry its
-# bitcode with its native code, and the section of the prepared runtime's
-# object that holds it, which every link leaves out (an object format with
-# no such section, Mach-O's, names none: the bitcode goes in a file beside
-# the object). idris-mlir-cc writes the triple and CPU on every module as
-# its #llvm.target, with LLVM's data layout, and every later step reads
-# them there.
-if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-")
+# built for too, and selects one entry below. idris-mlir-cc writes the
+# triple and CPU on every module as its #llvm.target, with LLVM's data
+# layout, and every later step reads them there; every other fact of the
+# target is one of the entry's, which the build hands to whatever needs it.
+# An entry sets each of these:
+#
+#   IDRIS_MLIR_TARGET_CPU               the CPU programs are compiled for by
+#                                       default (idris-mlir-cc --cpu), an
+#                                       LLVM name
+#   IDRIS_MLIR_RUNTIME_BASELINE         the flags of the CPU runtime code is
+#                                       compiled for, which every machine of
+#                                       the target has (idris-mlir-cc raises
+#                                       it to the program's CPU)
+#   IDRIS_MLIR_RUNTIME_CPU_TEST         the runtime's test of the processor
+#                                       at a program's entry (runtime/)
+#   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
+#                                       as the test spells it and as LLVM
+#                                       does (a runtime/ header)
+#   IDRIS_MLIR_RUNTIME_CPU_INIT         the function the test calls first to
+#                                       fill in the features, or "" where a
+#                                       static constructor of compiler-rt
+#                                       does
+#   IDRIS_MLIR_RUNTIME_DEFINITIONS      what the vendored allocator is told
+#                                       of the system (snmalloc's headers)
+#   IDRIS_MLIR_RUNTIME_BITCODE_FLAGS    the flags that make each member of
+#                                       the runtime's archive carry its
+#                                       bitcode with its native code, which
+#                                       joins every program's module
+#   IDRIS_MLIR_RUNTIME_BITCODE_SECTION  the section of the prepared
+#                                       runtime's object that holds the
+#                                       bitcode and every link leaves out,
+#                                       or "" for a file beside the object
+#                                       (an object format with no such
+#                                       section, Mach-O's)
+#   IDRIS_MLIR_STACK_ADDRESS_BITS       the bits of a stack address, which
+#                                       the runtime's freeing keeps in a
+#                                       dying cell
+#   IDRIS_MLIR_EXECUTABLE_FLAGS         the link flags that make a program an
+#                                       executable of the target
+#   IDRIS_MLIR_PROGRAM_LINK_FLAGS       the link flags that drop and fold
+#                                       what no program needs twice
+#   IDRIS_MLIR_GMP                      what links GMP: a flag or the path of
+#                                       its archive
+#   IDRIS_MLIR_NO_UNWINDER              the link flags that leave out the
+#                                       unwinder, so that the runtime's link
+#                                       check fails on a reference to it
+#   IDRIS_MLIR_SYMBOL_PREFIX            what the object format puts before a
+#                                       C name ("_" on Mach-O)
+#   IDRIS_MLIR_CONSTRUCTOR_SECTIONS     the sections of an object that hold
+#                                       static constructors and destructors,
+#                                       which the runtime may not have
+#   IDRIS_MLIR_JIT_LIBRARY_CALLS        the library functions, beyond those
+#                                       Eval/Jit.cc binds, that LLVM's code
+#                                       for the target calls, which
+#                                       idr-eval's JIT binds from the
+#                                       process
+#
+# A program's link line is the pinned C compiler with its object, the
+# runtime and -o, then idris-mlir-cc --print-link-flags: --target with the
+# triple, the executable flags, the program link flags and GMP. The tools'
+# own platform flags (hardening, the Release build's LTO link) are in the
+# platform's block below, not here.
+if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
 	# snmalloc needs CMPXCHG16B, which the baseline lacks.
@@ -102,12 +153,27 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-")
 	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST cpu_x86_64.cc)
+	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
+	set(IDRIS_MLIR_RUNTIME_CPU_INIT "")
+	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
 	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
 	# LTO object's, is excluded from every link.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
 	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION ".llvm.lto")
+	# User space ends below 2^47 on Linux on x86-64: only an mmap that asks
+	# for a higher address gets one, and no stack does.
+	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
+	# Static-PIE on musl; GMP is the pinned sysroot's, which the pinned
+	# clang's configuration file names.
+	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld -static-pie)
+	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,--gc-sections -Wl,--icf=all)
+	set(IDRIS_MLIR_GMP -lgmp)
+	set(IDRIS_MLIR_NO_UNWINDER --unwindlib=none)
+	set(IDRIS_MLIR_SYMBOL_PREFIX "")
+	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
+	set(IDRIS_MLIR_JIT_LIBRARY_CALLS "")
 else()
-	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it a default CPU, a runtime baseline, a processor test and the container of the runtime's bitcode in CMakeLists.txt")
+	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it each fact the comment above the entries lists, in CMakeLists.txt")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)

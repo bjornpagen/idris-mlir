@@ -82,6 +82,11 @@ add_library(idris_rt STATIC
 	$<TARGET_OBJECTS:idris_rt_ryu>
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+# The target entry's list of the processor features programs may be compiled
+# to use (cpu_features.h), which idr-lower and idris-mlir-cc read too.
+target_compile_definitions(idris_rt PUBLIC
+	"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
+)
 target_include_directories(idris_rt SYSTEM PRIVATE
 	"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
 	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
@@ -95,16 +100,23 @@ target_compile_definitions(idris_rt PRIVATE
 	# destructor (pthread keys register one with [[gnu::destructor]]) or the
 	# C++ runtime: a thread's cached memory is returned only if the
 	# C library calls _malloc_thread_cleanup, which musl does not, and
-	# programs are single-threaded; its own small STL; and what the musl
-	# sysroot provides.
+	# programs are single-threaded; its own small STL; getentropy and
+	# waiting on an address, which every system of the target entries has;
+	# and what the entry says of the system.
 	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
 	SNMALLOC_USE_THREAD_CLEANUP
 	SNMALLOC_USE_SELF_VENDORED_STL
 	SNMALLOC_PLATFORM_HAS_GETENTROPY
-	SNMALLOC_HAS_LINUX_RANDOM_H
-	SNMALLOC_HAS_LINUX_FUTEX_H
 	SNMALLOC_USE_WAIT_ON_ADDRESS=1
+	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
+	# The bits of a stack address (rc.cc).
+	IDRIS_RT_STACK_ADDRESS_BITS=${IDRIS_MLIR_STACK_ADDRESS_BITS}
 )
+# The function that fills in the processor's features before the test reads
+# them, where no static constructor does.
+if(IDRIS_MLIR_RUNTIME_CPU_INIT)
+	target_compile_definitions(idris_rt PRIVATE "IDRIS_RT_CPU_FEATURES_INIT=${IDRIS_MLIR_RUNTIME_CPU_INIT}")
+endif()
 target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 
 foreach(target idris_rt_simdutf idris_rt_ryu idris_rt)

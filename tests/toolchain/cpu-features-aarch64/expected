@@ -1,0 +1,9 @@
+features: 29
+bits: 0 up, each once, under 64
+versions: each test name's version compiled for its LLVM name
+darwin: compiles
+darwin: reads compiler-rt's features
+darwin: fills them in first
+linux: compiles
+linux: reads compiler-rt's features
+linux: calls nothing to fill them in

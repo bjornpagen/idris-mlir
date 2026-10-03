@@ -1,0 +1,92 @@
+#!/bin/sh
+# The AArch64 list of processor features (runtime/cpu_aarch64.h), which an
+# AArch64 target entry names, read by the pinned clang's frontend, which
+# knows AArch64 without its code generator: each feature's two names are
+# one feature, function multiversioning's (which __builtin_cpu_supports
+# tests) and LLVM's (which idr-lower and idris-mlir-cc look for), since a
+# function versioned for the first is compiled with the second; the bits
+# are 0 up, each once, under 64; and the processor test (cpu_aarch64.cc)
+# compiles for arm64 macOS, where it first calls the function Apple's
+# compiler-rt fills the features in, and for arm64 Linux, where a static
+# constructor of compiler-rt does and it calls nothing.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+clang=$llvm_bin/clang++
+darwin=arm64-apple-macosx14.0
+
+# The list, one `BIT TEST NAME` line per feature.
+printf '%s\n' '#include "cpu_aarch64.h"' '#define LINE(bit, test, name) bit test name;' \
+  'IDRIS_RT_CPU_FEATURES(LINE)' > "$work/list.cc"
+if ! bounded "$clang" -E -P -I"$root/runtime" "$work/list.cc" > "$work/list.i" 2> "$work/cc.log"; then
+  say "list: does not preprocess"
+  show "$work/cc.log"
+  exit 0
+fi
+tr ';' '\n' < "$work/list.i" | tr -d '"' | awk 'NF == 3' > "$work/list"
+say "features: $(wc -l < "$work/list" | tr -d ' ')"
+if awk '$1 != NR - 1 || $1 >= 64 { bad = 1 } END { exit bad }' "$work/list"; then
+  say "bits: 0 up, each once, under 64"
+else
+  say "bits: not 0 up, each once, under 64"
+  show "$work/list"
+fi
+
+# Each feature, versioned for its test name (with a default version), and
+# tested; versioned functions are compiled for the generic CPU's features
+# and the version's.
+{
+  printf '%s\n' '#include "cpu_aarch64.h"'
+  printf '%s\n' '#define VERSION(bit, test, name) \' \
+    '  __attribute__((target_version(test))) int version##bit(void) { return bit; } \' \
+    '  __attribute__((target_version("default"))) int version##bit(void) { return -1; } \' \
+    '  int tested##bit(void) { return __builtin_cpu_supports(test); }'
+  printf '%s\n' 'IDRIS_RT_CPU_FEATURES(VERSION)'
+} > "$work/versions.cc"
+if ! bounded "$clang" --target="$darwin" -mcpu=generic -ffreestanding -I"$root/runtime" -S -emit-llvm \
+    "$work/versions.cc" -o "$work/versions.ll" > "$work/cc.log" 2>&1; then
+  say "versions: do not compile (a name function multiversioning does not know?)"
+  show "$work/cc.log"
+  exit 0
+fi
+while read -r bit test name; do
+  attributes=$(sed -n "s/^define .*@_Z[0-9]*version${bit}v\._[^(]*(.*#\([0-9]*\) .*/\1/p" "$work/versions.ll")
+  if [ -z "$attributes" ]; then
+    say "$test: no version"
+  elif ! grep "^attributes #$attributes " "$work/versions.ll" |
+      grep -q "\"target-features\"=\"\([^\"]*,\)\{0,1\}+$name[,\"]"; then
+    say "$test: its version is not compiled for LLVM's $name"
+  fi
+done < "$work/list"
+say "versions: each test name's version compiled for its LLVM name"
+
+# test_cpu NAME TARGET DEFINITION...: cpu_aarch64.cc compiled for TARGET as an
+# entry would, into $work/NAME.ll.
+test_cpu() {
+  test_cpu_name=$1
+  test_cpu_target=$2
+  shift 2
+  if bounded "$clang" --target="$test_cpu_target" -ffreestanding -nostdlibinc -fno-exceptions -fno-rtti -O1 \
+      -I"$root/runtime" \
+      '-DIDRIS_RT_CPU_FEATURES_FILE="cpu_aarch64.h"' "$@" -S -emit-llvm \
+      "$root/runtime/cpu_aarch64.cc" -o "$work/$test_cpu_name.ll" > "$work/cc.log" 2>&1; then
+    say "$test_cpu_name: compiles"
+  else
+    say "$test_cpu_name: does not compile"
+    show "$work/cc.log"
+    return 1
+  fi
+  if grep -q '@__aarch64_cpu_features' "$work/$test_cpu_name.ll"; then
+    say "$test_cpu_name: reads compiler-rt's features"
+  else
+    say "$test_cpu_name: does not read compiler-rt's features"
+  fi
+  if grep -q '__gxx_personality\|__cxa_\|_Unwind_' "$work/$test_cpu_name.ll"; then
+    say "$test_cpu_name: references the C++ runtime"
+  fi
+  if grep -q 'call void @__init_cpu_features_resolver()' "$work/$test_cpu_name.ll"; then
+    say "$test_cpu_name: fills them in first"
+  else
+    say "$test_cpu_name: calls nothing to fill them in"
+  fi
+}
+test_cpu darwin "$darwin" -DIDRIS_RT_CPU_FEATURES_INIT=__init_cpu_features_resolver
+test_cpu linux aarch64-unknown-linux-musl

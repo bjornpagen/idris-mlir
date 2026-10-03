@@ -29,17 +29,13 @@ bool isExclusive(const idris_rt_header *cell) {
   return cell->count == 1 && !isStack(cell->info);
 }
 
-// The bits of a stack address, per target: user space ends below 2^47 on
-// Linux on x86-64 (only an mmap that asks for a higher address gets one,
-// and no stack does) and on macOS on arm64. Another target states its own
-// after checking its address space; it does not inherit these.
-#if defined(__linux__) && defined(__x86_64__)
-constexpr unsigned stackAddressBits = 47;
-#elif defined(__APPLE__) && defined(__aarch64__)
-constexpr unsigned stackAddressBits = 47;
-#else
-#error "the dying list keeps a stack cell's address: state this target's stackAddressBits"
+// The bits of a stack address: the target entry's (CMakeLists.txt), which
+// states them after checking its address space; no target inherits
+// another's.
+#ifndef IDRIS_RT_STACK_ADDRESS_BITS
+#error "the dying list keeps a stack cell's address: the target entry states its bits"
 #endif
+constexpr unsigned stackAddressBits = IDRIS_RT_STACK_ADDRESS_BITS;
 
 // The cells whose count reached 0 and whose references are still to be
 // released: a stack threaded through the cells. A dying cell's count and

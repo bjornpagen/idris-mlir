@@ -1,7 +1,8 @@
 // What the runtime asks of the operating system and the processor, behind
 // one interface: a target entry (CMakeLists.txt) picks the files that
 // implement it. platform_posix.cc serves every POSIX system; each
-// processor has its own file for its features (cpu_x86_64.cc).
+// processor has its own file for its features (cpu_x86_64.cc,
+// cpu_aarch64.cc).
 // PIN(runtime-quarantine) — see PINS.md
 
 #pragma once

@@ -6,6 +6,7 @@
 // What it needs of the system is in the platform layer (platform.h).
 // PIN(runtime-quarantine) — see PINS.md
 
+#include "cpu_features.h"
 #include "internal.h"
 #include "platform.h"
 
@@ -126,7 +127,7 @@ void runProgram(void *argument) {
   static constexpr char suffix[] =
       ", which the program was compiled to use (idris-mlir-cc --cpu)\n";
   say(prefix, sizeof prefix - 1);
-#define IDRIS_RT_CPU_NAME(bit, name)                                                             \
+#define IDRIS_RT_CPU_NAME(bit, test, name)                                                       \
   if ((missing >> (bit) & 1) != 0) {                                                             \
     say(" ", 1);                                                                                 \
     say(name, length(name));                                                                     \

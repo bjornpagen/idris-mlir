@@ -3,17 +3,16 @@
 // the AVX and AVX-512 registers, without which those features are unusable.
 // PIN(runtime-quarantine) — see PINS.md
 
+#include "cpu_features.h"
 #include "platform.h"
-
-#include "idris_rt.h"
 
 namespace rt::platform {
 
 [[clang::annotate("idris-rt-baseline")]] uint64_t cpuFeatures() noexcept {
   __builtin_cpu_init();
   uint64_t features = 0;
-#define IDRIS_RT_CPU_TEST(bit, name)                                                             \
-  if (__builtin_cpu_supports(name))                                                              \
+#define IDRIS_RT_CPU_TEST(bit, test, name)                                                       \
+  if (__builtin_cpu_supports(test))                                                              \
     features |= uint64_t{1} << (bit);
   IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_TEST)
 #undef IDRIS_RT_CPU_TEST

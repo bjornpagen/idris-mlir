@@ -305,27 +305,10 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * CPU without the features the program was compiled to use. */
 #define IDRIS_RT_CRASHED 1
 
-/* The processor features a program may be compiled to use and
- * idris_rt_start tests, per target. Each is X(bit, name), the name being
- * LLVM's, which __builtin_cpu_supports also knows; idr-lower sets a bit for
- * each one the module's target enables. On x86-64 they are those of the
- * microarchitecture levels v2, v3 and v4 above the baseline; a CPU named
- * with --cpu may enable more, which are not tested. */
-#if defined(__x86_64__)
-#define IDRIS_RT_CPU_FEATURES(X)                                               \
-  X(0, "cx16") X(1, "popcnt") X(2, "sse3") X(3, "sse4.1") X(4, "sse4.2")       \
-  X(5, "ssse3") X(6, "sahf") X(7, "avx") X(8, "avx2") X(9, "bmi")              \
-  X(10, "bmi2") X(11, "f16c") X(12, "fma") X(13, "lzcnt") X(14, "movbe")       \
-  X(15, "xsave") X(16, "avx512f") X(17, "avx512bw") X(18, "avx512cd")          \
-  X(19, "avx512dq") X(20, "avx512vl")
-#else
-#error "idris_rt.h: no list of processor features for this target"
-#endif
-
 /* The program's entry, which @main calls with the program and the
- * IDRIS_RT_CPU_FEATURES bits its target enables. When the CPU lacks one of
- * them, it names them and ends the process with IDRIS_RT_CRASHED before the
- * program runs; it is compiled for the target's baseline, and idris-mlir-cc
+ * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h). When the
+ * CPU lacks one of them, it names them and ends the process with
+ * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir-cc
  * keeps it there. Otherwise it runs body on a reserved stack
  * (idris_rt_run_on_stack) of the number of bytes the environment variable
  * IDRIS_RT_STACK says, or else of a gibibyte, or of the stack limit when
