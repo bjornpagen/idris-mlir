@@ -500,11 +500,12 @@ which the top-level CMake configure gate reads.
 ## idris-support-host-cc
 
 - symptom: the pinned toolchain builds everything else with the stage-2
-  clang, but Idris's C support library is a shared object loaded by the host's
-  Chez Scheme, a glibc process, which the static musl toolchain cannot build
-  for
-- sites: tools/bootstrap.sh (step `idris`)
-- workaround: Idris 2 is built as before, with the host's C compiler; it is
-  a host program and never links into an executable
-- retire: when Chez Scheme itself is built on the pinned toolchain
+  clang, but Idris's C support library is a shared object loaded by Chez
+  Scheme, a dynamically linked process of the host's C library (glibc here,
+  libSystem on macOS), which the static musl toolchain cannot build for
+- sites: tools/bootstrap.sh (steps `chez` and `idris`)
+- workaround: the pinned Chez Scheme and Idris 2 are built with the host's C
+  compiler; they are host programs and never link into an executable
+- retire: when Chez Scheme itself is built on the pinned toolchain for the
+  host
 - upstream: none

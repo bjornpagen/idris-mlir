@@ -4,7 +4,11 @@
 # IDRIS_MLIR_TOOLCHAIN stands for .toolchain (the spec tests use it).
 
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
-# Idris 2 and its libraries, built from third_party/Idris2.
+# The pinned Chez Scheme: Idris 2 runs on it, and so do the programs of
+# Idris's Chez backend, the tests' oracle.
+chez_prefix=$toolchain/chez
+chez_scheme=$chez_prefix/bin/scheme
+# Idris 2 and its libraries, built from third_party/Idris2 on that Chez.
 idris_prefix=$toolchain/idris2
 idris2=$idris_prefix/bin/idris2
 # The prefix every command runs that Idris with (`make prefix`): this

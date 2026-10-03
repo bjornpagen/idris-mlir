@@ -46,17 +46,15 @@ PINS := $(ROOT)/tools/verify-pins.sh
 
 # Every command runs the pinned Idris, and no package path inherited from
 # another installation. Its prefix is this checkout's own (`prefix`), so
-# that the packages of libs/ it finds are this checkout's. CHEZ is the Chez
-# Scheme it was built with.
+# that the packages of libs/ it finds are this checkout's. CHEZ is the
+# pinned Chez Scheme it was built with (tools/verify-pins.sh idris checks
+# that), never one on PATH.
 unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
 CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
-STAMPED_CHEZ := $(shell root='$(ROOT)'; . '$(ROOT)/tools/toolchain.sh'; stamp_field "$$idris_prefix" scheme)
-ifneq ($(STAMPED_CHEZ),)
-export CHEZ := $(STAMPED_CHEZ)
-endif
+export CHEZ := $(call toolchain,chez_scheme)
 
 threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)
 only ?=

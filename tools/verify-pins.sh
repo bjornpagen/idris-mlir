@@ -8,11 +8,12 @@
 #
 #   source      the Idris checkout is the staged gitlink, without modifications
 #   revision    the same, printing the revision
-#   idris       the local Idris 2 was built from that checkout
+#   idris       the local Idris 2 was built from that checkout, on the pinned
+#               Chez Scheme
 #   llvm        the stage-2 LLVM/MLIR and clang were built at the lock's revision
 #   sysroot     musl, the LLVM runtimes and GMP were built into the sysroot at
 #               the lock's revisions
-#   cmake, ninja
+#   cmake, ninja, chez
 #               the pinned tool's stamp names the lock's revision
 #   built       the tools `make build` makes exist
 #   test-tools  the pinned LLVM has FileCheck, not and count
@@ -79,6 +80,10 @@ check() {
       source_revision
       [ "$(stamp_field "$prefix" idris2_revision)" = "$revision" ] ||
         fail "Local Idris toolchain is stale; rerun tools/bootstrap.sh idris"
+      # Idris runs on the Chez Scheme it was built with: the pinned one.
+      check chez
+      [ "$(stamp_field "$prefix" chez_revision)" = "$(lock_field chez revision)" ] ||
+        fail "Local Idris 2 was built on another Chez Scheme than the pinned one; rerun tools/bootstrap.sh idris"
       ;;
     llvm)
       prefix=${llvm_bin%/bin}
@@ -99,7 +104,7 @@ check() {
           fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
       done
       ;;
-    cmake | ninja)
+    cmake | ninja | chez)
       want=$(lock_field "$1" revision)
       { [ -n "$want" ] && [ "$(stamp_field "$toolchain/$1" revision)" = "$want" ]; } ||
         fail "Pinned $1 missing or stale; run: tools/bootstrap.sh $1"

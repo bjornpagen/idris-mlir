@@ -15,9 +15,11 @@
 #             test tools: static on musl and libc++, with LTO
 #   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
 #             stage-2 clang
+#   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
+#             compiler: it runs Idris 2 and the test oracle
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
-#             the host's Chez Scheme
-#   llvm      stage1, musl, runtimes and stage2
+#             the pinned Chez Scheme
+#   llvm     stage1, musl, runtimes and stage2
 #   all       every step, in the order above
 #
 # A step runs only when its provenance stamp is missing or stale. A stamp
@@ -34,11 +36,9 @@
 #                          one per 5 GiB of memory); one link at a time
 #   IDRIS_MLIR_STAGE2_LTO  Thin (default) or Full (PINS.md: stage2-thinlto)
 #   CC, CXX                the host's C and C++ compilers (default: cc, c++)
-#   CHEZ                   the Chez Scheme for Idris (default: chezscheme,
-#                          scheme or chez on PATH)
 #
 # The host provides: a C and C++ compiler, make, git, python3
-# (LLVM's configure), m4 (GMP), Chez Scheme (Idris), its Linux UAPI headers,
+# (LLVM's configure), m4 (GMP), its Linux UAPI headers,
 # tar, sha256sum, and curl to check release tarballs. Each step logs to
 # .toolchain/logs/STEP.log; a failure prints the log's end and exits 1, a
 # usage error exits 2.
@@ -61,6 +61,7 @@ ninja_prefix=$toolchain/ninja
 stage1=$toolchain/stage1
 sysroot=$toolchain/sysroot
 llvm_musl=$toolchain/llvm-musl
+chez_prefix=$toolchain/chez
 idris_prefix=$toolchain/idris2
 llvm_source=$toolchain/llvm-project
 cmake=$cmake_prefix/bin/cmake
@@ -81,7 +82,7 @@ die() {
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
-  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 musl runtimes stage2 gmp idris llvm all)' >&2
+  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 musl runtimes stage2 gmp chez idris llvm all)' >&2
   exit 2
 }
 
@@ -89,9 +90,9 @@ usage() {
 steps=
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | musl | runtimes | stage2 | gmp | idris) steps="$steps $arg" ;;
+    cmake | ninja | stage1 | musl | runtimes | stage2 | gmp | chez | idris) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 musl runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 musl runtimes stage2 gmp idris" ;;
+    all) steps="$steps cmake ninja stage1 musl runtimes stage2 gmp chez idris" ;;
     gcc) usage "gcc is retired: the pinned C compiler is the stage-2 clang; run: tools/bootstrap.sh llvm" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
@@ -156,6 +157,9 @@ musl_revision=$(lock_value musl revision) || exit 1
 musl_version=$(lock_value musl version) || exit 1
 gmp_revision=$(lock_value gmp revision) || exit 1
 gmp_version=$(lock_value gmp version) || exit 1
+chez_revision=$(lock_value chez revision) || exit 1
+chez_tag=$(lock_value chez tag) || exit 1
+chez_version=$(lock_value chez version) || exit 1
 
 # --- Stamps and inputs --------------------------------------------------
 
@@ -195,6 +199,7 @@ stamp_of() {
     stage1) echo "$stage1/provenance.json" ;;
     musl | runtimes | gmp) echo "$sysroot/provenance/$1.json" ;;
     stage2) echo "$llvm_musl/provenance.json" ;;
+    chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
     *) die "internal error: no step $1" ;;
   esac
@@ -623,23 +628,43 @@ recipe_gmp() {
   args_gmp
 }
 
+# chez_machine: Chez Scheme's threaded machine type for the host it runs on
+# (it is a host program, like CMake, not a target).
+chez_machine() {
+  case $(uname -s):$(uname -m) in
+    Linux:x86_64) echo ta6le ;;
+    Darwin:arm64) echo tarm64osx ;;
+    *) die "no Chez Scheme machine type for a $(uname -s) $(uname -m) host; add one to chez_machine" ;;
+  esac
+}
+
+# Chez's own configure, with its vendored zlib and LZ4. The REPL's editor
+# (curses) and X11 are left out: Idris runs Chez only on programs. The
+# install prefix is passed apart, so that a toolchain that links this one's
+# Chez reads the same inputs.
+args_chez() {
+  args_chez_machine=$(chez_machine) || exit 1
+  printf '%s\n' --threads "-m=$args_chez_machine" --disable-curses --disable-x11 --as-is "CC=$host_cc"
+}
+
+recipe_chez() {
+  printf '%s\n' "chez $chez_revision"
+  args_chez
+}
+
+# find_chez: the pinned Chez Scheme by its physical path, which every
+# program Idris compiles names on its first line.
 find_chez() {
-  if [ -n "${CHEZ-}" ]; then
-    command -v "$CHEZ" 2> /dev/null || die "CHEZ=$CHEZ is not an executable"
-    return 0
-  fi
-  for chez_name in chezscheme scheme chez chez-scheme; do
-    if command -v "$chez_name" 2> /dev/null; then return 0; fi
-  done
-  die "Chez Scheme not found: install it or set CHEZ"
+  [ -x "$chez_prefix/bin/scheme" ] || die "no Chez Scheme in $chez_prefix; run: tools/bootstrap.sh chez"
+  find_chez_bin=$(cd "$chez_prefix/bin" && pwd -P) || die "cannot resolve $chez_prefix/bin"
+  printf '%s/scheme\n' "$find_chez_bin"
 }
 
 recipe_idris() {
   recipe_idris_revision=$(submodule third_party/Idris2) || exit 1
-  recipe_chez=$(find_chez) || exit 1
-  recipe_chez_version=$("$recipe_chez" --version 2>&1 | head -n 1)
-  printf '%s\n' "idris2 $recipe_idris_revision" "scheme $recipe_chez" \
-    "scheme version $recipe_chez_version" "make bootstrap install install-api"
+  recipe_chez_inputs=$(inputs chez) || exit 1
+  printf '%s\n' "idris2 $recipe_idris_revision" "chez $recipe_chez_inputs" \
+    "make bootstrap install install-api"
 }
 
 # --- Steps --------------------------------------------------------------
@@ -878,11 +903,41 @@ step_gmp() {
   finish
 }
 
-# Idris 2 on the host's Chez Scheme. Its C support library is a
-# shared object in the host's Chez process, so the host's C compiler builds
-# it. PIN(idris-support-host-cc) — see PINS.md
+# Chez Scheme, with the host's C compiler. Idris 2 runs on it and the tests
+# run Idris's Chez backend as their oracle, so it is one pinned release on
+# every host, not whichever the host packages. Idris's support library is
+# loaded into its process. PIN(idris-support-host-cc) — see PINS.md
+step_chez() {
+  begin chez "Chez Scheme $chez_tag, with the host's C compiler" || return 0
+  need git make "$host_cc"
+  build_dir
+  clone_pinned chez "$build/src"
+  run "fetch zlib, LZ4, nanopass, stex and zuo (its submodules)" \
+    git -C "$build/src" submodule update --init --depth 1
+  chez_changes=$(git -C "$build/src" status --porcelain --untracked-files=no) || die "git status failed in $build/src"
+  [ -z "$chez_changes" ] || die "$build/src or its submodules differ from the pinned commit's gitlinks"
+  eval "set -- $(args_chez | quote_lines)"
+  run configure in_dir "$build/src" ./configure "$@" "--installprefix=$chez_prefix"
+  run build in_dir "$build/src" make -j "$jobs"
+  rm -rf "$chez_prefix"
+  run install in_dir "$build/src" make install
+  version_is "$chez_prefix/bin/scheme" "$chez_version"
+  chez_machine=$(chez_machine) || exit 1
+  chez_says=$(echo '(display (list (machine-type) (threaded?)))' | "$chez_prefix/bin/scheme" -q) ||
+    die "the installed scheme does not run"
+  [ "$chez_says" = "($chez_machine #t)" ] || die "the installed scheme is $chez_says, not ($chez_machine #t)"
+  write_stamp "$(stamp_of chez)" step chez revision "$chez_revision" tag "$chez_tag" \
+    version "$chez_version" machine "$chez_machine" inputs "$step_inputs" \
+    host_compiler "$("$host_cc" --version 2>&1 | head -n 1)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finish
+}
+
+# Idris 2 on the pinned Chez Scheme. Its C support library is a shared
+# object in the Chez process, a host program, so the host's C compiler
+# builds it. PIN(idris-support-host-cc) — see PINS.md
 step_idris() {
-  begin idris "Idris 2 and its API, on the host's Chez Scheme" || return 0
+  begin idris "Idris 2 and its API, on Chez Scheme $chez_tag" || return 0
+  require chez
   need git make
   idris_revision=$(submodule third_party/Idris2) || exit 1
   chez=$(find_chez) || exit 1
@@ -893,8 +948,8 @@ step_idris() {
   run "install the API" idris_make install-api "IDRIS2_BOOT=$idris_prefix/bin/idris2"
   "$idris_prefix/bin/idris2" --version > /dev/null 2>&1 || die "the installed idris2 does not run"
   write_stamp "$(stamp_of idris)" step idris idris2_revision "$idris_revision" scheme "$chez" \
-    scheme_version "$("$chez" --version 2>&1 | head -n 1)" inputs "$step_inputs" \
-    built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    scheme_version "$("$chez" --version 2>&1 | head -n 1)" chez_revision "$chez_revision" \
+    inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
 }
 

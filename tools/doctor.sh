@@ -24,7 +24,7 @@ fi
 llvm_version=$(lock_field llvm version)
 echo "LLVM pin: $(lock_field llvm tag) $(lock_field llvm revision)"
 # What the host provides, only to build the pinned tools.
-for tool in git make cc c++ python3 m4 curl tar sha256sum timeout scheme chez chezscheme; do
+for tool in git make cc c++ python3 m4 curl tar sha256sum timeout; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done
 if [ -f /usr/include/linux/futex.h ] && [ -d /usr/include/asm-generic ]; then
@@ -33,11 +33,12 @@ else
   echo "Linux UAPI headers: not found"
 fi
 if [ -f "$idris_prefix/provenance.json" ]; then
-  echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision)"
+  echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision) on Chez Scheme $(stamp_field "$idris_prefix" scheme_version)"
+  "$pins" idris 2> /dev/null || echo "Local Idris/API: problem: $(problem idris)"
 else
   echo "Local Idris/API: not built"
 fi
-for name in cmake ninja llvm sysroot; do
+for name in cmake ninja chez llvm sysroot; do
   if "$pins" "$name" 2> /dev/null; then
     case $name in
       llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; .toolchain/llvm-musl)" ;;
