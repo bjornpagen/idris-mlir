@@ -1,0 +1,35 @@
+#!/bin/sh
+# No C++ unit of ours (a .cc or a .cppm under foreign/idr or runtime) is over
+# 400 lines: a unit holds one concept, one exported function or the members
+# of one type, and one that grows past a screenful is two.
+#
+# A ratchet: `allowed` lists the units over the limit today, and only
+# shrinks. A unit over the limit that is not listed fails, and so does a
+# listed one that is no longer over it (or gone), so that whoever splits a
+# unit removes its line; the conversion of an area to a module deletes the
+# area's lines.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+limit=400
+cd "$root" || exit 1
+find foreign/idr runtime -name build -prune -o -type f \( -name '*.cc' -o -name '*.cppm' \) -print |
+  sort > "$work/units"
+if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
+while IFS= read -r unit; do
+  [ "$(wc -l < "$unit")" -gt "$limit" ] && printf '%s\n' "$unit"
+done < "$work/units" > "$work/found"
+
+grep -v '^[[:space:]]*#' "$here/allowed" | grep -v '^[[:space:]]*$' | sort -u > "$work/allowed"
+comm -23 "$work/found" "$work/allowed" > "$work/new"
+comm -13 "$work/found" "$work/allowed" > "$work/stale"
+if [ -s "$work/new" ]; then
+  say "units over $limit lines (split them):"
+  cat "$work/new"
+else
+  say "no unit over $limit lines that is not allowed"
+fi
+if [ -s "$work/stale" ]; then
+  say "allowed units no longer over $limit lines (delete their lines from allowed):"
+  cat "$work/stale"
+else
+  say "every allowed unit is still over $limit lines"
+fi

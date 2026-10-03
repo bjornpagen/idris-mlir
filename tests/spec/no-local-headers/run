@@ -1,0 +1,62 @@
+#!/bin/sh
+# No C or C++ of ours includes a header of the repository: code is in named
+# modules, which a unit imports. Two headers are the rule's exceptions, and
+# always allowed: runtime/idris_rt.h, the C ABI, which C and generated code
+# read; and foreign/idr/include/idr/Idr.h,
+# which declares what TableGen generates, for the plain units that define
+# its members and for the modules that wrap it. What TableGen and CMake
+# generate is no file of the repository, so including it is no finding.
+#
+# A ratchet: `allowed` lists each include of today, `file: header` as the
+# file spells it, and only shrinks. An include that is not listed fails,
+# and so does a listed one that is gone, so that whoever removes an include
+# removes its line; the conversion of an area to a module deletes the
+# area's lines.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+find . \( -name third_party -o -name build -o -name sources -o -name '.?*' \) -prune \
+  -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cppm' -o -name '*.cpp' -o -name '*.h' \
+     -o -name '*.hpp' -o -name '*.inc' \) -print | sed 's|^\./||' | sort > "$work/sources"
+if [ -s "$work/sources" ]; then say "sources: found"; else say "sources: none found"; fi
+
+# Each quoted include that names a file of the repository: beside the
+# including file, or on an include path of the build (foreign/idr/lib,
+# foreign/idr/include, runtime).
+while IFS= read -r file; do
+  sed -n 's/^[[:space:]]*#[[:space:]]*include[[:space:]]*"\([^"]*\)".*/\1/p' "$file" |
+    while IFS= read -r header; do
+      for base in "${file%/*}" foreign/idr/lib foreign/idr/include runtime; do
+        [ -f "$base/$header" ] || continue
+        case $base/$header in
+          runtime/idris_rt.h | foreign/idr/include/idr/Idr.h) printf 'exception %s\n' "$base/$header" ;;
+          *) printf '%s: %s\n' "$file" "$header" ;;
+        esac
+        break
+      done
+    done
+done < "$work/sources" | sort -u > "$work/includes"
+# The exceptions show that the check finds what an include names.
+for exception in runtime/idris_rt.h foreign/idr/include/idr/Idr.h; do
+  if grep -qx "exception $exception" "$work/includes"; then
+    say "the check sees the includes of $exception"
+  else
+    say "the check does not see the includes of $exception"
+  fi
+done
+grep -v '^exception ' "$work/includes" > "$work/found"
+
+grep -v '^[[:space:]]*#' "$here/allowed" | grep -v '^[[:space:]]*$' | sort -u > "$work/allowed"
+comm -23 "$work/found" "$work/allowed" > "$work/new"
+comm -13 "$work/found" "$work/allowed" > "$work/stale"
+if [ -s "$work/new" ]; then
+  say "includes of repository headers (import the module instead):"
+  cat "$work/new"
+else
+  say "no include of a repository header that is not allowed"
+fi
+if [ -s "$work/stale" ]; then
+  say "allowed includes that are gone (delete their lines from allowed):"
+  cat "$work/stale"
+else
+  say "every allowed include is still there"
+fi

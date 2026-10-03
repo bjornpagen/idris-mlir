@@ -1,0 +1,22 @@
+# The units over 400 lines that are still allowed; tests/spec/file-size/run
+# says why the list only shrinks. Splitting a unit deletes its line.
+# foreign/idr/lib/Mlir.cppm is one list, the names idr.mlir re-exports,
+# and stays.
+foreign/idr/bench/gate/runtime.cc
+foreign/idr/lib/Dialect/Dialect.cc
+foreign/idr/lib/Dialect/Ops.cc
+foreign/idr/lib/Eval/Eval.cc
+foreign/idr/lib/Fold/Fold.cc
+foreign/idr/lib/Lower/Patterns.cc
+foreign/idr/lib/Lower/Runtime.cc
+foreign/idr/lib/Lower/TailCalls.cc
+foreign/idr/lib/Mlir.cppm
+foreign/idr/lib/Ownership/Counts.cc
+foreign/idr/lib/Ownership/Exclusive.cc
+foreign/idr/lib/Ownership/Verify.cc
+foreign/idr/lib/Passes/Defunctionalize.cc
+foreign/idr/lib/Passes/Narrow.cc
+foreign/idr/lib/Passes/NarrowLanes.cc
+foreign/idr/lib/Passes/TailLoops.cc
+foreign/idr/tools/idris-mlir-cc.cc
+foreign/idr/tools/idris-mlir-tblgen.cc

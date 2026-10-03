@@ -1,0 +1,5 @@
+sources: found
+the check sees the includes of runtime/idris_rt.h
+the check sees the includes of foreign/idr/include/idr/Idr.h
+no include of a repository header that is not allowed
+every allowed include is still there
