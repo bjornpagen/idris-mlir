@@ -168,7 +168,6 @@ target_compile_options(idris_mlir_language_profile INTERFACE
 	-ftrivial-auto-var-init=zero
 	-fstack-protector-strong
 	-fzero-call-used-regs=used-gpr
-	-fstack-clash-protection
 	-fno-delete-null-pointer-checks
 	-fno-strict-aliasing
 	-fstrict-flex-arrays=3
@@ -178,8 +177,7 @@ target_compile_options(idris_mlir_language_profile INTERFACE
 target_link_options(idris_mlir_language_profile INTERFACE
 	-fsanitize=undefined
 	-fsanitize-trap=all
-	"$<$<CONFIG:Release>:-flto=full;-Wl,--fat-lto-objects;-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache;-Wl,--thinlto-cache-policy=cache_size_bytes=2g>"
-	"$<$<AND:$<CONFIG:Release>,$<BOOL:${IDRIS_MLIR_LINUX}>>:LINKER:--gc-sections>"
+	"$<$<CONFIG:Release>:-flto=full>"
 )
 
 # PIN(darwin-inert-mitigations): FORTIFY is inert on musl and Darwin, and branch
@@ -189,6 +187,12 @@ if(IDRIS_MLIR_LINUX)
 	target_compile_options(idris_mlir_language_profile INTERFACE
 		-fPIE
 		"$<IF:$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>,-fcf-protection=full,-mbranch-protection=standard>"
+		-fstack-clash-protection
+	)
+	# lld's ELF spellings: the Release link takes the bitcode of fat LTO
+	# objects, caches LLVM's ThinLTO backends, and drops unused sections.
+	target_link_options(idris_mlir_language_profile INTERFACE
+		"$<$<CONFIG:Release>:-Wl,--fat-lto-objects;-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache;-Wl,--thinlto-cache-policy=cache_size_bytes=2g;LINKER:--gc-sections>"
 	)
 	# Static-PIE on musl. PIN(musl-thread-stacks): LLVM takes the
 	# libc's default thread stack, which musl reads from PT_GNU_STACK — see
