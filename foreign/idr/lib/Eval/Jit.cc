@@ -4,6 +4,7 @@
 #include "Eval/Jit.h"
 
 #include "idr/Target.h"
+#include "idr/TargetEntry.h"
 
 #include "idris_rt.h"
 
@@ -11,6 +12,7 @@
 #include "mlir/Target/LLVMIR/Export.h"
 
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
+#include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/TargetParser/Host.h"
@@ -31,7 +33,9 @@ using Unary = double (*)(double);
 using Binary = double (*)(double, double);
 
 // What lowered code may call: the runtime's entry points, the libm functions
-// idr-lower calls (and fmod), and the memory functions LLVM emits.
+// idr-lower calls (and fmod), and the memory functions LLVM emits on every
+// target. What else LLVM emits for the target is the target entry's
+// (libraryCalls).
 llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols() {
 #define IDRIS_RT_BIND(name) bind(#name, &name)
   return {
@@ -164,6 +168,24 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   if (auto err = result->jit->getMainJITDylib().define(llvm::orc::absoluteSymbols(table))) {
     error = describe(std::move(err));
     return nullptr;
+  }
+  // The library functions the target entry names, which LLVM's code for the
+  // target calls beyond those (Darwin's bzero and __exp10, say): each is
+  // bound from the process, which has a dynamic loader on every target that
+  // names one, and no other process symbol is.
+  llvm::orc::SymbolNameSet libraryCalls;
+#define IDR_LIBRARY_CALL(name) libraryCalls.insert(result->jit->mangleAndIntern(name));
+  IDRIS_MLIR_JIT_LIBRARY_CALLS(IDR_LIBRARY_CALL)
+#undef IDR_LIBRARY_CALL
+  if (!libraryCalls.empty()) {
+    auto process = llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
+        result->jit->getDataLayout().getGlobalPrefix(),
+        [libraryCalls](const llvm::orc::SymbolStringPtr &name) { return libraryCalls.contains(name); });
+    if (!process) {
+      error = describe(process.takeError());
+      return nullptr;
+    }
+    result->jit->getMainJITDylib().addGenerator(std::move(*process));
   }
   if (auto err = result->jit->addIRModule(
           llvm::orc::ThreadSafeModule(std::move(code), std::move(context)))) {

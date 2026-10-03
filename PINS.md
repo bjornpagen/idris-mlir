@@ -76,7 +76,11 @@ which the top-level CMake configure gate reads.
 - workaround: ORC's `LLJIT` directly, which `ExecutionEngine` wraps, with
   `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
   `absoluteSymbols` table that binds the runtime's functions, and the libm
-  functions lowered code may call, to `idris-mlir-cc`'s own copies
+  functions lowered code may call, to `idris-mlir-cc`'s own copies; the
+  library functions LLVM calls only on some targets (Darwin's `bzero`,
+  `__exp10`, ...) are the target entry's `IDRIS_MLIR_JIT_LIBRARY_CALLS`,
+  bound from the process by a `DynamicLibrarySearchGenerator` that allows
+  those names alone, which only a target with a dynamic loader names
 - retire: when `ExecutionEngine` can be created without the process's
   symbols (upstream/execution-engine-process-symbols); re-read at every LLVM
   bump
