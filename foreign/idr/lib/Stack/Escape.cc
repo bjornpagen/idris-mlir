@@ -63,7 +63,7 @@ Escapes::Node Escapes::node(Value value, Mode mode) {
   return {value, isa<BoxType>(runtimeType(value.getType())) ? mode : Mode::Deep};
 }
 
-Escapes::Escapes(ModuleOp top) : module(top), symbols(top) {
+Escapes::Escapes(ModuleOp top, const Cycles &cycles) : module(top), symbols(top), cycles(cycles) {
   SmallVector<func::FuncOp> fns;
   for (auto fn : module.getOps<func::FuncOp>())
     if (!fn.isExternal())
@@ -187,9 +187,13 @@ Escapes::Flow Escapes::flow(OpOperand &use, Mode mode, const Frame &frame,
         auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
         if (!callee || callee.isExternal())
           return lost;
-        // A self tail call becomes the next iteration of a loop.
-        if (callee == frame.fn && llvm::is_contained(frame.repeating, callee.getOperation()) &&
-            inTailPosition(call))
+        // A call in tail position on the frame's cycle is a tail call
+        // (idr-tail-calls), and a self one the next iteration of a loop
+        // (idr-tail-loops): either way the frame that built the cell is
+        // gone when the callee runs. A parameter's cell is another
+        // frame's, which outlives the call.
+        if (!frame.repeating.empty() && inTailPosition(call) &&
+            cycles.together(frame.fn, callee))
           return lost;
         if (parameters.contains(node(callee.getArgument(use.getOperandNumber()), mode)))
           return lost;

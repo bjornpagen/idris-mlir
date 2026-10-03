@@ -1,0 +1,4 @@
+sequence_ builds its action by the Prelude's foldr, which recurses as deep
+as the list is long before anything runs, in Chez too, whose stack grows
+on the heap: a million frames need more than the 1 MiB stack, and fit the
+one programs get.

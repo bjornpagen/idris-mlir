@@ -13,9 +13,12 @@
 # exit with the same status (chez_agrees); with `oracle-chez` it is the only
 # oracle of stdout, and with `no-chez`, which says why, it is not run.
 # `packages` names installed packages it uses. It runs on a 1 MiB stack,
-# or with `default-stack`, which says why, on the one programs get. With an
-# Oracle.idr, stock Idris's evaluator is an oracle too: it proves
-# `Prog.result = <literal>`, and that literal is the expected stdout.
+# or with `default-stack`, which says why, on the one programs get. With
+# `constant-stack` its input is its stdin many times over (`repeated`), so
+# long that a loop growing the stack by a frame per iteration exhausts the
+# 1 MiB: both compilers run the long input. With an Oracle.idr, stock
+# Idris's evaluator is an oracle too: it proves `Prog.result = <literal>`,
+# and that literal is the expected stdout.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -28,6 +31,14 @@ e2e_io() {
   fi
   io_stack=small
   [ -f "$io_fixture/default-stack" ] && io_stack=
+  if [ -f "$io_fixture/constant-stack" ]; then
+    if [ -z "$io_stack" ]; then
+      say "marks: constant-stack runs on the 1 MiB stack, which default-stack refuses"
+      return
+    fi
+    repeated "$io_stdin" "$(first_word "$io_fixture/constant-stack")" "$work/long-stdin" || return
+    io_stdin=$work/long-stdin
+  fi
   io_directives=$(module_directives "$io_fixture")
   if [ -f "$io_fixture/Oracle.idr" ]; then
     check_oracle "$io_fixture"

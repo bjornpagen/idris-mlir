@@ -1,0 +1,3 @@
+10000
+The input is 10000 records of one 60-character line: 640,000 characters,
+each of which goes once round the loop of process, body and push's actions.

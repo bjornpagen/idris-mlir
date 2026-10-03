@@ -42,13 +42,13 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
     ModuleOp module = getOperation();
     UnitAttr unit = UnitAttr::get(&getContext());
     module.walk([](idr::ConOp con) { con->removeAttr(mark); });
-    idr::stack::Escapes escapes(module);
-    llvm::DenseSet<Operation *> recursive = idr::stack::recursiveFunctions(module);
+    idr::stack::Cycles cycles(module);
+    idr::stack::Escapes escapes(module, cycles);
     FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(module);
     if (failed(layouts))
       return signalPassFailure();
     for (auto fn : module.getOps<func::FuncOp>()) {
-      unsigned left = recursive.contains(fn) ? recursiveFrameLimit : frameLimit;
+      unsigned left = cycles.recursive(fn) ? recursiveFrameLimit : frameLimit;
       fn.walk<WalkOrder::PreOrder>([&](idr::ConOp con) {
         if (!isa<idr::BoxType>(con.getType()))
           return;

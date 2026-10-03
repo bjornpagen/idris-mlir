@@ -26,6 +26,9 @@ bool isCloneOf(mlir::SymbolTable &symbols, llvm::StringRef name, llvm::StringRef
 // stated of @f holds of all of them.
 llvm::SmallVector<mlir::func::FuncOp> named(mlir::ModuleOp module, llvm::StringRef function,
                                             llvm::StringRef property);
+// The same, of every kind of function: the lowered `llvm.func`s too.
+llvm::SmallVector<mlir::FunctionOpInterface>
+namedFunctions(mlir::ModuleOp module, llvm::StringRef function, llvm::StringRef property);
 
 // Every property takes the module and the text after `=` in its request
 // (empty when there is none), and fails when it reported an error.
@@ -89,8 +92,11 @@ mlir::LogicalResult reusesEveryCell(mlir::ModuleOp module, llvm::StringRef funct
 // else: every continuation was inlined into the function it continues.
 mlir::LogicalResult contified(mlir::ModuleOp module, llvm::StringRef) noexcept;
 
-// Every recursion reachable from the function the argument names became a
-// loop: none of the functions it may call is on a cycle of references.
+// No recursion reachable from the function the argument names grows the
+// stack: every function it may call that is on a cycle of references
+// reaches the others of its cycle only through guaranteed tail calls
+// (`musttail`, which idr-tail-calls makes), so before idr-tail-calls none
+// may be on a cycle at all: every recursion became a loop.
 mlir::LogicalResult constantStack(mlir::ModuleOp module, llvm::StringRef function);
 
 // The function the argument names loops, and each of its loops is an

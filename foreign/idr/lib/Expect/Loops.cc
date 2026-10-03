@@ -1,6 +1,6 @@
-// constant-stack and counted-loop: what idr-tail-loops guarantees of a
-// function, stated as properties of the call graph and of the loops, not as
-// the ops that happen to show them.
+// constant-stack and counted-loop: what idr-tail-loops and idr-tail-calls
+// guarantee of a function, stated as properties of the call graph and of the
+// loops, not as the ops that happen to show them.
 
 #include "Expect/Expect.h"
 #include "Passes/Scc.h"
@@ -14,45 +14,68 @@ using namespace mlir;
 namespace idr::expect {
 namespace {
 
-// The functions the body of `fn` refers to: by calls, and by closures that
-// name them. What the function's own attributes name (the clone it is)
-// is provenance, not a call.
-SmallVector<func::FuncOp> references(func::FuncOp fn, SymbolTable &symbols) {
-  SmallVector<func::FuncOp> out;
-  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&fn.getBody()))
-    for (const SymbolTable::SymbolUse &use : *uses)
-      if (auto target = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference()))
-        out.push_back(target);
+// A function's reference to another: by a call, guaranteed a tail call or
+// not, or by a closure or an address that names it.
+struct Reference {
+  Operation *target;
+  bool tailCall;
+};
+
+// The functions the body of `fn`, a function, refers to. What the
+// function's own attributes name (the clone it is) is provenance, not a
+// call.
+SmallVector<Reference> references(Operation *fn, SymbolTable &symbols) {
+  SmallVector<Reference> out;
+  Region &body = cast<FunctionOpInterface>(fn).getFunctionBody();
+  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&body))
+    for (const SymbolTable::SymbolUse &use : *uses) {
+      Operation *target = symbols.lookup(use.getSymbolRef().getRootReference());
+      if (!isa_and_nonnull<FunctionOpInterface>(target))
+        continue;
+      auto call = dyn_cast<LLVM::CallOp>(use.getUser());
+      out.push_back(
+          {target, call && call.getTailCallKind() == LLVM::tailcallkind::TailCallKind::MustTail});
+    }
   return out;
 }
 
 } // namespace
 
-// Every recursion reachable from the function became a loop: no function it
-// may call, itself included, is on a cycle of references. Functions without
-// a body in the module call nothing back.
+// No recursion reachable from the function grows the stack: each function it
+// may call, itself included, that is on a cycle of references refers to the
+// others of its cycle only by guaranteed tail calls, each of which replaces
+// its caller's frame. Functions without a body in the module call nothing
+// back.
 LogicalResult constantStack(ModuleOp module, StringRef function) {
   constexpr StringRef property = "constant-stack";
-  SmallVector<func::FuncOp> reached = named(module, function, property);
+  SmallVector<Operation *> reached =
+      llvm::map_to_vector(namedFunctions(module, function, property),
+                          [](FunctionOpInterface fn) { return fn.getOperation(); });
   if (reached.empty())
     return failure();
   SymbolTable symbols(module);
   llvm::DenseSet<Operation *> seen(reached.begin(), reached.end());
   for (size_t next = 0; next < reached.size(); ++next)
-    for (func::FuncOp callee : references(reached[next], symbols))
-      if (seen.insert(callee).second)
-        reached.push_back(callee);
-  auto refers = [&](func::FuncOp fn) { return references(fn, symbols); };
+    for (Reference ref : references(reached[next], symbols))
+      if (seen.insert(ref.target).second)
+        reached.push_back(ref.target);
+  auto refers = [&](Operation *fn) {
+    return llvm::map_to_vector(references(fn, symbols), [](Reference ref) { return ref.target; });
+  };
   bool held = true;
-  for (const SmallVector<func::FuncOp> &cycle :
-       idr::passes::stronglyConnected<func::FuncOp>(reached, refers)) {
-    if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
+  for (const SmallVector<Operation *> &cycle :
+       idr::passes::stronglyConnected<Operation *>(reached, refers)) {
+    llvm::DenseSet<Operation *> members(cycle.begin(), cycle.end());
+    bool grows = false;
+    for (Operation *fn : cycle)
+      for (Reference ref : references(fn, symbols))
+        grows |= members.contains(ref.target) && !ref.tailCall;
+    if (!grows)
       continue;
-    func::FuncOp first = cycle.front();
-    InFlightDiagnostic error = fail(first.getLoc(), property)
+    InFlightDiagnostic error = fail(cycle.front()->getLoc(), property)
                                << "the stack grows with the recursion of";
-    for (func::FuncOp fn : cycle)
-      error << " @" << fn.getSymName();
+    for (Operation *fn : cycle)
+      error << " @" << SymbolTable::getSymbolName(fn).getValue();
     held = false;
   }
   return success(held);

@@ -1,5 +1,5 @@
-// Which functions may have more than one frame live at a time
-// (Stack/Recursion.h).
+// Which functions may have more than one frame live at a time, and which
+// share a cycle of calls (Stack/Recursion.h).
 
 #include "Stack/Recursion.h"
 
@@ -12,7 +12,7 @@ using namespace mlir;
 
 namespace idr::stack {
 
-llvm::DenseSet<Operation *> recursiveFunctions(ModuleOp module) {
+Cycles::Cycles(ModuleOp module) {
   SymbolTable symbols(module);
   SmallVector<Operation *> fns;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -46,14 +46,23 @@ llvm::DenseSet<Operation *> recursiveFunctions(ModuleOp module) {
       llvm::append_range(out, labels);
   }
 
-  llvm::DenseSet<Operation *> recursive;
-  for (const SmallVector<Operation *> &component : passes::stronglyConnected<Operation *>(
+  unsigned index = 0;
+  for (const SmallVector<Operation *> &members : passes::stronglyConnected<Operation *>(
            fns, [&](Operation *fn) { return calls.lookup(fn); })) {
-    Operation *first = component.front();
-    if (component.size() > 1 || llvm::is_contained(calls.lookup(first), first))
-      recursive.insert(component.begin(), component.end());
+    for (Operation *fn : members)
+      component[fn] = index;
+    ++index;
+    Operation *first = members.front();
+    if (members.size() > 1 || llvm::is_contained(calls.lookup(first), first))
+      onCycle.insert(members.begin(), members.end());
   }
-  return recursive;
+}
+
+bool Cycles::together(Operation *a, Operation *b) const {
+  if (a == b)
+    return true;
+  auto at = component.find(a), bt = component.find(b);
+  return at != component.end() && bt != component.end() && at->second == bt->second;
 }
 
 } // namespace idr::stack

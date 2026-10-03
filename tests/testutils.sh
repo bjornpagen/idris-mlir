@@ -25,6 +25,11 @@
 #                     differ from Chez's in the last place (chez.sh)
 #     default-stack   the program runs on the default stack instead of the
 #                     1 MiB one; the file says why (e2e.sh)
+#     constant-stack  the program loops in constant stack on a long input:
+#                     its stdin is the fixture's stdin as many times over as
+#                     the file's first word says, so many iterations that a
+#                     loop keeping one frame per iteration exhausts the 1 MiB
+#                     stack it runs on; the file says what loops (e2e.sh)
 #
 # The helpers are in tests/lib, one file per concern, sourced below after
 # the limits, each after what it uses:

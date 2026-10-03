@@ -12,5 +12,6 @@ target_sources(idr_dialect PRIVATE
 	Patterns.cc
 	Runtime.cc
 	Strings.cc
+	TailCalls.cc
 	Target.cc
 )
