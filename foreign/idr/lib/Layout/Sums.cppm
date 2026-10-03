@@ -16,8 +16,15 @@ struct SumLayout {
   // For each constructor name: for each field, the slots of its components.
   llvm::StringMap<llvm::SmallVector<llvm::SmallVector<unsigned>>> fields;
 
-  llvm::SmallVector<mlir::Type> types() const;
-  unsigned offset() const;
+  // The tag, if any, then the slots.
+  llvm::SmallVector<mlir::Type> types() const {
+    llvm::SmallVector<mlir::Type> all;
+    if (tag)
+      all.push_back(tag);
+    all.append(slots.begin(), slots.end());
+    return all;
+  }
+  unsigned offset() const { return tag ? 1 : 0; }
 };
 
 } // namespace idr::layout

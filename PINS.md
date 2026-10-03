@@ -73,7 +73,7 @@ which the top-level CMake configure gate reads.
   llvmorg-23.1.2), which needs `dlopen(NULL)`, and a static musl
   `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
   symbols by default
-- sites: foreign/idr/lib/Eval/Jit.cc (`idr-eval`)
+- sites: foreign/idr/lib/Eval/Jit.cppm (`idr-eval`)
 - workaround: ORC's `LLJIT` directly, which `ExecutionEngine` wraps, with
   `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
   `absoluteSymbols` table that binds the runtime's functions, and the libm
@@ -99,8 +99,8 @@ which the top-level CMake configure gate reads.
   canonicalization at `:833`, `Matchers.h:491`). The constants that make a
   region unreachable can appear after `sccp` in the same round (from
   `canonicalize` or `idr-eval`), so running `sccp` first is not enough
-- sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
-  foreign/idr/lib/Passes/Simplify.cc (the round of the simplify loop)
+- sites: foreign/idr/lib/Simplify/Prune.cppm (`idr-prune`),
+  foreign/idr/lib/Simplify/Round.cppm (the round of the simplify loop)
 - workaround: `idr-prune` runs before `remove-dead-values` and empties,
   with the same analyses, every block they prove unreachable: a match
   region ends in `ub.unreachable`, a function returns poison. `symbol-dce`
@@ -119,8 +119,8 @@ which the top-level CMake configure gate reads.
   never reads it: it erases the value (a parameter of the caller, or the op
   that made it) and the call keeps a null operand ("null operand found").
   Arity raising and apply of a known closure make such direct calls
-- sites: foreign/idr/lib/Passes/Prune.cc (`idr-prune`),
-  foreign/idr/lib/Eval/Eval.cc (a poison operand is no value to evaluate)
+- sites: foreign/idr/lib/Simplify/Prune.cppm (`idr-prune`),
+  foreign/idr/lib/Facts/Evaluation.cppm (a poison operand is no value to evaluate)
 - workaround: `idr-prune`, right before `remove-dead-values`, makes each
   call of such a function pass `ub.poison` for every parameter the
   function never reads
@@ -136,7 +136,7 @@ which the top-level CMake configure gate reads.
   the counter with its value in the last iteration, one step short of the
   value the loop ends with, and below the lower bound when the loop runs
   no iteration
-- sites: foreign/idr/lib/Passes/TailLoops.cc (`counterUsedAfter`);
+- sites: foreign/idr/lib/Tail/Loops.cppm (`counterUsedAfter`);
   foreign/idr/tools/idris-mlir-opt.cc registers upstream's test pass
   `test-scf-uplift-while-to-for`, which the pinned mlir-opt lacks, for the
   reproducer
@@ -154,9 +154,10 @@ which the top-level CMake configure gate reads.
   it, and no hook of ours sees that terminator. The inliner's region
   patterns likewise skip a region that ends in `ub.unreachable`
 - sites: compiler/src/IdrisMLIR/Emit/Bodies.idr (`epilogue`),
-  foreign/idr/lib/Passes/Prune.cc (`idr::returnNever`, which
-  foreign/idr/lib/Passes/TailLoops.cc uses too),
-  foreign/idr/lib/Dialect/Dialect.cc (the program's verifier)
+  foreign/idr/lib/Simplify/ReturnNever.cppm (`idr::simplify::returnNever`,
+  which foreign/idr/lib/Simplify/Prune.cppm and
+  foreign/idr/lib/Tail/WhileDo.cppm use),
+  foreign/idr/lib/Verify/Program.cppm (the program's verifier)
 - workaround: no function body ends in `ub.unreachable`: one that never
   returns (a crash, a body Idris proved impossible, a match none of whose
   regions returns) returns `ub.poison` instead, which is never reached; the
@@ -175,8 +176,8 @@ which the top-level CMake configure gate reads.
   array in `mlir-opt`). Compile-time evaluation builds constants as deep as
   the program's own values: a computed list of 10,000 elements is a
   constant nested 10,000 deep
-- sites: foreign/idr/tools/idris-mlir-cc.cc (`runOnLargeStack`),
-  foreign/idr/tools/idris-mlir-opt.cc, foreign/idr/lib/Eval/Child.cc,
+- sites: foreign/idr/lib/Driver/RunOnLargeStack.cppm (`runOnLargeStack`),
+  foreign/idr/tools/idris-mlir-opt.cc, foreign/idr/lib/Eval/Child.cppm,
   runtime/start.cc (`idris_rt_run_on_stack`)
 - workaround: idris-mlir-cc runs the whole compilation, idris-mlir-opt
   its run, and the evaluation child its calls, on the runtime's
@@ -194,7 +195,7 @@ which the top-level CMake configure gate reads.
   quadratic in n (4.5 s for a builtin array 32,000 deep, 0.18 s from
   text). Compile-time evaluation's results are as deep as the program's
   values: a computed list of 20,000 elements took 45 s to read back
-- sites: foreign/idr/lib/Eval/Reify.cc (`encodeResults`, `decodeResults`)
+- sites: foreign/idr/lib/Eval/Encoding.cppm (`encodeResults`, `decodeResults`)
 - workaround: the evaluation child sends a call's results as bytecode of
   a flat table of their distinct parts, each after the parts it holds,
   which it names by position; the compiler rebuilds the constants from the
@@ -217,8 +218,8 @@ which the top-level CMake configure gate reads.
   it never has the same fingerprint twice: on a module at its fixpoint the
   composite pass runs the pipeline `max-iterations` times and warns.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
-- sites: foreign/idr/lib/Passes/Simplify.cc (`structural`, and the loop in
-  `runOnOperation`)
+- sites: foreign/idr/lib/Simplify/Structural.cppm (`structural`), and
+  foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
 - workaround: `idr-simplify` is its own loop over the round and decides the
   fixpoint by a structural hash of the module: constants by their value at
   each use, other values by their position in the walk, so a constant
@@ -245,7 +246,7 @@ which the top-level CMake configure gate reads.
   `linalg::vectorize` then refuses (`:1380-1382`), after building part of
   its vector code. idr-vectorize tiled such a loop before vectorizing it, and
   its scalar tiles ran the body column by column within each group of rows
-- sites: foreign/idr/lib/Passes/Vectorize.cc (`vectorizable`)
+- sites: foreign/idr/lib/Vectorize/Tiles.cppm (`vectorizable`)
 - workaround: idr-vectorize decides with the precondition and
   `linalg::hasOnlyScalarElementwiseOp` of the body, the check upstream
   makes of an all-parallel generic, before it changes anything; a generic it
@@ -268,7 +269,7 @@ which the top-level CMake configure gate reads.
   -1 of the narrow type (undefined behaviour once `llvm.srem`, where the
   wide op gives 0), and a `remui` of a word that may be negative, which
   the narrow op reads as another number
-- sites: foreign/idr/lib/Passes/NarrowLanes.cc (`exact`)
+- sites: foreign/idr/lib/Narrow/Widths.cppm (`exact`)
 - workaround: idr-narrow-lanes versions a vectorized loop only when every
   integer op in it wider than 32 bits is an arith op whose 32-bit form
   computes the same: a shift's amount stays below 32, a signed remainder
@@ -287,8 +288,8 @@ which the top-level CMake configure gate reads.
   condition forwards that result at several positions, the after-region
   arguments of the later ones keep the else value where the loop needs the
   then value: the loop computes something else
-- sites: foreign/idr/lib/Dialect/Dialect.cc (`ReadForwardedOnce`, added by
-  `IdrDialect::getCanonicalizationPatterns`)
+- sites: foreign/idr/lib/Canon/ReadForwardedOnce.cppm (`ReadForwardedOnce`,
+  added by `IdrDialect::getCanonicalizationPatterns`)
 - workaround: the idr dialect's canonicalization, at a benefit above
   upstream's patterns, has the after region of an `scf.while` read a value
   its condition forwards at several positions, when it is an `scf.if`
@@ -301,6 +302,31 @@ which the top-level CMake configure gate reads.
   `tests/upstream/while-move-if-down-duplicates` fails then. Delete
   `ReadForwardedOnce` and `tests/idr/canon/while-forwarded-twice`
 - upstream: upstream/while-move-if-down-duplicates (fixed on main)
+
+## clang-module-layout-forward-declaration
+
+- symptom: at llvmorg-23.1.2, clang aborts ("Cannot get layout of forward
+  declarations") generating `DenseMap<Operation *, DenseSetEmpty, ...>` (a
+  `SetVector<Operation *>`'s set) in a module partition that imports a
+  sibling partition holding a `DenseSet<Operation *>`
+- sites: foreign/idr/lib/Stack/Escape.cppm (the escape analysis's caller
+  and worklist sets)
+- workaround: the sets hold `func::FuncOp`, which is what they hold
+- retire: when tests/upstream/clang-module-layout-forward-declaration fails
+  (the pinned clang compiles the report's unit); the sets may stay typed
+- upstream: upstream/clang-module-layout-forward-declaration (not reduced yet)
+
+## clang-module-predeclared-new
+
+- symptom: at llvmorg-23.1.2, clang reaches an UNREACHABLE ("predeclared
+  global operator new/delete is missing") generating libc++'s
+  `__libcpp_allocate` in a module unit without a global module fragment that
+  builds `std::string`s from an imported wrapper of libc++
+- sites: foreign/idr/lib/Driver/Retarget.cppm (`retarget`)
+- workaround: the feature string is an `llvm::SmallString`
+- retire: when tests/upstream/clang-module-predeclared-new fails (the pinned
+  clang compiles the report's unit)
+- upstream: upstream/clang-module-predeclared-new (not reduced yet)
 
 ## llvm-force-enable-stats
 
@@ -315,7 +341,7 @@ which the top-level CMake configure gate reads.
   every library of foreign/idr and the tools are compiled with, and of
   idris-mlir-tblgen, which links none of them),
   foreign/idr/lib/Support/EnableStatistics.h,
-  foreign/idr/lib/Support/Statistics/PipelineStatistics.cc (the static_assert)
+  foreign/idr/lib/Support/Statistics.cppm (the static_assert)
 - workaround: every translation unit of foreign/idr and the tools starts
   with `lib/Support/EnableStatistics.h` (`-include`), which includes
   `llvm-config.h` first and redefines `LLVM_FORCE_ENABLE_STATS` to 1, so

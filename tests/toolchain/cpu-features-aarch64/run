@@ -6,7 +6,7 @@
 # tests) and LLVM's (which idr-lower and idris-mlir-cc look for), since a
 # function versioned for the first is compiled with the second; the bits
 # are 0 up, each once, under 64; and the processor test
-# (runtime/Platform/Aarch64/CpuFeatures.cc, a unit of rt.platform) compiles
+# (runtime/Platform/Aarch64/Cpu.cppm, a partition of rt.platform) compiles
 # for arm64 macOS, where it first calls the function Apple's
 # compiler-rt fills the features in, and for arm64 Linux, where a static
 # constructor of compiler-rt does and it calls nothing.
@@ -64,40 +64,18 @@ cpu_flags() {
   printf '%s\n' --target="$1" -std=c++26 -ffreestanding -nostdlibinc -fno-exceptions -fno-rtti -O1
 }
 
-# precompile NAME TARGET: rt.platform's interfaces precompiled for TARGET
-# into $work/NAME, its partitions first, where the processor test, a unit
-# of the module, finds them.
-precompile() {
-  mkdir -p "$work/$1"
-  for interface in "$root"/runtime/Platform/*.cppm; do
-    stem=${interface##*/}
-    stem=${stem%.cppm}
-    [ "$stem" = Platform ] && continue
-    # shellcheck disable=SC2046 # the flags are words
-    bounded "$clang" $(cpu_flags "$2") --precompile "$interface" \
-      -o "$work/$1/rt.platform-$(printf '%s' "$stem" | tr '[:upper:]' '[:lower:]').pcm" || return 1
-  done
-  # shellcheck disable=SC2046 # the flags are words
-  bounded "$clang" $(cpu_flags "$2") -fprebuilt-module-path="$work/$1" --precompile \
-    "$root/runtime/Platform/Platform.cppm" -o "$work/$1/rt.platform.pcm"
-}
-
 # test_cpu NAME TARGET DEFINITION...: the processor test compiled for TARGET
 # as an entry would, into $work/NAME.ll.
 test_cpu() {
   test_cpu_name=$1
   test_cpu_target=$2
   shift 2
-  if ! precompile "$test_cpu_name-pcm" "$test_cpu_target" > "$work/cc.log" 2>&1; then
-    say "$test_cpu_name: rt.platform does not precompile"
-    show "$work/cc.log"
-    return 1
-  fi
+  # The partition imports nothing, so it compiles alone.
   # shellcheck disable=SC2046 # the flags are words
-  if bounded "$clang" $(cpu_flags "$test_cpu_target") -fprebuilt-module-path="$work/$test_cpu_name-pcm" \
-      -I"$root/runtime" \
+  if bounded "$clang" $(cpu_flags "$test_cpu_target") -I"$root/runtime" \
       '-DIDRIS_RT_CPU_FEATURES_FILE="cpu_aarch64.h"' "$@" -S -emit-llvm \
-      "$root/runtime/Platform/Aarch64/CpuFeatures.cc" -o "$work/$test_cpu_name.ll" > "$work/cc.log" 2>&1; then
+      -fmodule-output="$work/$test_cpu_name.pcm" \
+      "$root/runtime/Platform/Aarch64/Cpu.cppm" -o "$work/$test_cpu_name.ll" > "$work/cc.log" 2>&1; then
     say "$test_cpu_name: compiles"
   else
     say "$test_cpu_name: does not compile"

@@ -11,9 +11,14 @@ struct Effects {
   bool crash = false;
   bool diverge = false;
 
-  static Effects all();
-  bool none() const;
-  Effects &operator|=(const Effects &other);
+  static Effects all() { return {true, true, true}; }
+  bool none() const { return !io && !crash && !diverge; }
+  Effects &operator|=(const Effects &other) {
+    io |= other.io;
+    crash |= other.crash;
+    diverge |= other.diverge;
+    return *this;
+  }
 };
 
 } // namespace idr::facts

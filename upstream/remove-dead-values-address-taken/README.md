@@ -65,6 +65,6 @@ dropping them; or have liveness treat the arguments of a call whose callee
 ## Our workaround
 
 `PINS.md`: `remove-dead-values-address-taken`. `idr-prune`
-(`foreign/idr/lib/Passes/Prune.cc`), right before `remove-dead-values`,
+(`foreign/idr/lib/Simplify/Prune.cppm`), right before `remove-dead-values`,
 makes each call of such a function pass `ub.poison` for every parameter
 the function never reads.

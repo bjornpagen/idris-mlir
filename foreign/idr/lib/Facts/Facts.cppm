@@ -8,8 +8,16 @@
 // a call may do, and what a closed call may be evaluated as.
 export module idr.facts;
 
-export import :closures;
+export import :breakslast;
+export import :closurelabel;
 export import :effects;
 export import :evaluation;
-export import :functions;
 export import :infer;
+export import :inherit;
+export import :inlined;
+export import :mayholdclosure;
+export import :mayholdworld;
+export import :of;
+export import :passed;
+export import :record;
+export import :takesworld;

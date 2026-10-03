@@ -4,15 +4,12 @@
 idr_library(idr_support
 	MODULES
 		Support.cppm
-		Actions.cppm
 		Counts.cppm
+		EvalCallAction.cppm
+		Perform.cppm
+		RaiseAction.cppm
+		SpecializeCloneAction.cppm
 		Statistics.cppm
-	UNITS
-		Actions/EvalCallAction.cc
-		Actions/RaiseAction.cc
-		Actions/SpecializeCloneAction.cc
-		Counts/PatternCounts.cc
-		Statistics/PipelineStatistics.cc
 	LINKS
 		idr_mlir
 )

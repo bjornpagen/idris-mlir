@@ -98,7 +98,7 @@ endif()
 #                                       it to the program's CPU)
 #   IDRIS_MLIR_RUNTIME_CPU_TEST         the runtime's test of the processor
 #                                       at a program's entry, rt.platform's
-#                                       unit for it (runtime/Platform/)
+#                                       partition for it (runtime/Platform/)
 #   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
 #                                       as the test spells it and as LLVM
 #                                       does (a runtime/ header)
@@ -136,7 +136,7 @@ endif()
 #                                       static constructors and destructors,
 #                                       which the runtime may not have
 #   IDRIS_MLIR_JIT_LIBRARY_CALLS        the library functions, beyond those
-#                                       Eval/Jit.cc binds, that LLVM's code
+#                                       Eval/Jit.cppm binds, that LLVM's code
 #                                       for the target calls, which
 #                                       idr-eval's JIT binds from the
 #                                       process
@@ -153,7 +153,7 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# PIN(runtime-cx16) — see PINS.md
 	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/CpuFeatures.cc)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cppm)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
 	set(IDRIS_MLIR_RUNTIME_CPU_INIT "")
 	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)

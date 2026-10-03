@@ -59,47 +59,98 @@ target_include_directories(idris_rt_simdutf SYSTEM PRIVATE
 target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
 target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)
 
-# Ryu's shortest digits, which double.cc wraps; C, unmodified.
+# Ryu's shortest digits, which rt.doubles wraps; C, unmodified.
 add_library(idris_rt_ryu OBJECT "${IDRIS_MLIR_THIRD_PARTY}/ryu/ryu/d2s.c")
 target_include_directories(idris_rt_ryu SYSTEM PRIVATE "${IDRIS_MLIR_THIRD_PARTY}/ryu")
 target_link_libraries(idris_rt_ryu PRIVATE idris_mlir_runtime_profile)
 
 add_library(idris_rt STATIC
-	alloc.cc
-	arrays.cc
-	big.cc
-	double.cc
-	eval.cc
-	gmp.cc
-	io.cc
-	numbers.cc
-	rc.cc
-	start.cc
-	strings.cc
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>
 )
+# The runtime's modules, each a private file set of the one archive: its
+# memory (rt.alloc), counting (rt.rc), strings (rt.strings), `cast` from
+# String (rt.numerals), bigs (rt.big), doubles (rt.doubles), standard
+# output and input (rt.io), compile-time evaluation's child (rt.eval) and
+# the program's entry (rt.start).
+target_sources(idris_rt
+	PRIVATE
+		FILE_SET rt_alloc TYPE CXX_MODULES FILES
+			Alloc/Alloc.cppm
+			Alloc/Arrays.cppm
+			Alloc/Blocks.cppm
+			Alloc/Cells.cppm
+			Alloc/Classes.cppm
+			Alloc/Gmp.cppm
+	PRIVATE
+		FILE_SET rt_rc TYPE CXX_MODULES FILES
+			Rc/Rc.cppm
+			Rc/Counting.cppm
+			Rc/Freeing.cppm
+			Rc/Objects.cppm
+	PRIVATE
+		FILE_SET rt_strings TYPE CXX_MODULES FILES
+			Strings/Strings.cppm
+			Strings/Concat.cppm
+			Strings/Integers.cppm
+			Strings/Making.cppm
+			Strings/Order.cppm
+			Strings/Replacement.cppm
+			Strings/Scalars.cppm
+			Strings/Show.cppm
+			Strings/Simd.cppm
+			Strings/Utf8.cppm
+	PRIVATE
+		FILE_SET rt_numerals TYPE CXX_MODULES FILES
+			Numerals/Numerals.cppm
+			Numerals/Machine.cppm
+			Numerals/Reading.cppm
+	PRIVATE
+		FILE_SET rt_big TYPE CXX_MODULES FILES
+			Big/Big.cppm
+			Big/Arithmetic.cppm
+			Big/Bitwise.cppm
+			Big/Compare.cppm
+			Big/Conversions.cppm
+			Big/Digits.cppm
+			Big/Operands.cppm
+			Big/Words.cppm
+	PRIVATE
+		FILE_SET rt_doubles TYPE CXX_MODULES FILES
+			Doubles/Doubles.cppm
+			Doubles/Ieee.cppm
+			Doubles/Parsing.cppm
+			Doubles/Printing.cppm
+			Doubles/Truncation.cppm
+	PRIVATE
+		FILE_SET rt_io TYPE CXX_MODULES FILES
+			Io/Io.cppm
+			Io/Bytes.cppm
+			Io/Ending.cppm
+			Io/Input.cppm
+			Io/Output.cppm
+			Io/Writing.cppm
+	PRIVATE
+		FILE_SET rt_eval TYPE CXX_MODULES FILES
+			Eval/Eval.cppm
+			Eval/Child.cppm
+	PRIVATE
+		FILE_SET rt_start TYPE CXX_MODULES FILES
+			Start/Start.cppm
+			Start/Entry.cppm
+			Start/Runner.cppm
+)
 # rt.platform: the platform layer, a module, implemented on every POSIX
-# system by Platform/Posix and on the target's processor by the target
-# entry's unit.
+# system by Platform/Posix's partitions and on the target's processor by
+# the target entry's partition.
 target_sources(idris_rt
 	PRIVATE
 		FILE_SET rt_platform TYPE CXX_MODULES FILES
 			Platform/Platform.cppm
-			Platform/Cpu.cppm
-			Platform/Faults.cppm
-			Platform/Memory.cppm
-			Platform/Stacks.cppm
-	PRIVATE
-		Platform/Posix/CatchFaults.cc
-		Platform/Posix/PageSize.cc
-		Platform/Posix/Protect.cc
-		Platform/Posix/Release.cc
-		Platform/Posix/Reserve.cc
-		Platform/Posix/RunThread.cc
-		Platform/Posix/StackLimit.cc
-		Platform/Posix/UseSignalStack.cc
-		${IDRIS_MLIR_RUNTIME_CPU_TEST}
+			Platform/Posix/Faults.cppm
+			Platform/Posix/Memory.cppm
+			Platform/Posix/Stacks.cppm
+			${IDRIS_MLIR_RUNTIME_CPU_TEST}
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # The target entry's list of the processor features programs may be compiled
@@ -129,7 +180,7 @@ target_compile_definitions(idris_rt PRIVATE
 	SNMALLOC_PLATFORM_HAS_GETENTROPY
 	SNMALLOC_USE_WAIT_ON_ADDRESS=1
 	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
-	# The bits of a stack address (rc.cc).
+	# The bits of a stack address (rt.rc).
 	IDRIS_RT_STACK_ADDRESS_BITS=${IDRIS_MLIR_STACK_ADDRESS_BITS}
 )
 # The function that fills in the processor's features before the test reads

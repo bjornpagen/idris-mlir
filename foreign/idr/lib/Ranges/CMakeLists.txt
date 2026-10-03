@@ -2,17 +2,13 @@
 idr_library(idr_ranges
 	MODULES
 		Ranges.cppm
+		Add.cppm
 		Bounds.cppm
-	UNITS
-		Bounds/Add.cc
-		Bounds/Bounded.cc
-		Bounds/Bounds.cc
-		Bounds/BoundsOf.cc
-		Bounds/Mul.cc
-		Bounds/Natural.cc
-		Bounds/OfInteger.cc
-		Bounds/RangeOf.cc
-		Bounds/Sub.cc
+		BoundsOf.cppm
+		Mul.cppm
+		OfInteger.cppm
+		RangeOf.cppm
+		Sub.cppm
 	LINKS
 		idr_mlir
 )

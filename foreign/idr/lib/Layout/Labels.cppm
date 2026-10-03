@@ -1,5 +1,5 @@
-// idr.layout:labels: a closure label, and the name of its closures' code,
-// which idr-lower defines and idr-eval's child looks up.
+// idr.layout:labels: a closure label, a function and how many of its
+// parameters are captures.
 export module idr.layout:labels;
 
 import idr.mlir;
@@ -14,11 +14,9 @@ struct Label {
   // The callee's type before idr-lower converts it.
   mlir::FunctionType type;
 
-  llvm::ArrayRef<mlir::Type> captureTypes() const;
-  llvm::ArrayRef<mlir::Type> argumentTypes() const;
+  // A closure label's parameters: its captures, then its arguments.
+  llvm::ArrayRef<mlir::Type> captureTypes() const { return type.getInputs().take_front(captures); }
+  llvm::ArrayRef<mlir::Type> argumentTypes() const { return type.getInputs().drop_front(captures); }
 };
-
-// The name of the code of the label numbered `id`.
-std::string codeName(unsigned id);
 
 } // namespace idr::layout

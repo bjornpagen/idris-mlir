@@ -4,6 +4,9 @@
 // a pass runs itself.
 export module idr.support;
 
-export import :actions;
 export import :counts;
+export import :evalcallaction;
+export import :perform;
+export import :raiseaction;
+export import :specializecloneaction;
 export import :statistics;

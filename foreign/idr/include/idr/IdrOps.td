@@ -438,7 +438,7 @@ def Idr_TagOp : Idr_Op<"tag", [Pure,
 }
 
 //===----------------------------------------------------------------------===//
-// Destinations (lib/Passes/Trmc.cc)
+// Destinations (lib/Tail/Trmc.cppm)
 //===----------------------------------------------------------------------===//
 
 // A recursion that returns a constructor around its own result, `Cons x

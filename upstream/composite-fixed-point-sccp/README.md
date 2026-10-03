@@ -120,7 +120,7 @@ every pass that remakes an operation in place.
 ## Our workaround
 
 `PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
-(`foreign/idr/lib/Passes/Simplify.cc`) is its own loop over the round and
+(`foreign/idr/lib/Simplify/Pass.cc`) is its own loop over the round and
 decides the fixpoint with a structural hash of the module (`structural`):
 constants by their value at each use, other values by their position in the
 walk. Over its round budget it fails with a named error where the composite

@@ -1,4 +1,15 @@
-# Canonicalize, as plain translation units: not yet a module.
-target_sources(idr_dialect PRIVATE
-	Pass.cc
+# idr.canonicalize: canonicalize with its rewrites counted; the pass glue
+# (the TableGen-declared base of idr-canonicalize) is a plain unit that
+# imports it.
+idr_library(idr_canonicalize
+	MODULES
+		Canonicalize.cppm
+		Counted.cppm
+		Levels.cppm
+		Patterns.cppm
+	GLUE
+		Pass.cc
+	LINKS
+		idr_mlir
+		idr_support
 )

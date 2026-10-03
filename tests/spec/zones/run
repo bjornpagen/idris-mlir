@@ -3,9 +3,11 @@
 # for the runtime, runtime/, with .cc its only source extension and .cppm
 # that of a module interface; src/ and unsafe/ exist only once they hold
 # code. A hidden directory is a tool's (the editor's, the agent's
-# worktrees), never a source zone, so none is searched.
+# worktrees), never a source zone, so none is searched; nor is upstream/,
+# whose C++ is a reproducer of a bug in upstream tools, built by its check
+# and never by the build.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-(cd "$root" && find . \( -name third_party -o -name build -o -name sources -o -name '.?*' \) -prune \
+(cd "$root" && find . \( -name third_party -o -name build -o -name sources -o -name upstream -o -name '.?*' \) -prune \
    -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.cppm' -o -name '*.td' -o -name '*.inc' \) \
    -print) | sed 's|^\./||' | sort > "$work/cpp"
 if [ -s "$work/cpp" ]; then say "C++: found"; else say "C++: none found"; fi

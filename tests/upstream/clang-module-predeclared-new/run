@@ -1,0 +1,12 @@
+#!/bin/sh
+# The upstream bug upstream/clang-module-predeclared-new still reproduces
+# with the pinned clang: compiling the report's Retarget.cppm in place of
+# foreign/idr/lib/Driver/Retarget.cppm, with the build's own command for that
+# unit (after make build), crashes clang with "predeclared global operator
+# new/delete is missing". When this fails, the bug is fixed: the PINS.md
+# entry clang-module-predeclared-new, the report and this test go
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+crashes_in_place "$root/upstream/clang-module-predeclared-new/Retarget.cppm" \
+  foreign/idr/lib/Driver/CMakeFiles/idr_driver.dir/Retarget.cppm.o Retarget.cppm \
+  "predeclared global operator new/delete is missing"

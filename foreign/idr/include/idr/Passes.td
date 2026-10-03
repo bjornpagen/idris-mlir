@@ -138,7 +138,7 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// The optimization passes (lib/Passes/)
+// The optimization passes (lib/Defunctionalize, Narrow, Simplify, Tail, Vectorize)
 //===----------------------------------------------------------------------===//
 
 def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {

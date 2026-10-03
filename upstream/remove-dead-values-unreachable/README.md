@@ -70,6 +70,6 @@ uses.
 ## Our workaround
 
 `PINS.md`: `prune-before-remove-dead-values`. `idr-prune`
-(`foreign/idr/lib/Passes/Prune.cc`) runs the same analyses before
+(`foreign/idr/lib/Simplify/Prune.cppm`) runs the same analyses before
 `remove-dead-values` and empties every block they prove unreachable, and
 `symbol-dce` then removes the functions that only that code referred to.

@@ -165,7 +165,7 @@ typedef struct idris_rt_array {
  * classes with an allocate and a free entry
  * each: every snmalloc size class from 16 bytes to 1 KiB, with
  * SNMALLOC_MIN_ALLOC_STEP_SIZE=8, so a cell of an 8-byte header
- * and two fields takes exactly 24 bytes. alloc.cc checks that each is
+ * and two fields takes exactly 24 bytes. rt.alloc checks that each is
  * exactly one snmalloc class. */
 #define IDRIS_RT_SIZE_CLASSES(X)                                               \
   X(16) X(24) X(32) X(40) X(48) X(56) X(64) X(80) X(96) X(112) X(128)          \
@@ -470,7 +470,7 @@ void idris_rt_gmp_init(void);
  * takes from idris_rt_arena_alloc itself must be written with count 0 too.
  * The arena is never freed: the child ends with the round, and memory
  * management is not observable. Only the compiler calls these, natively,
- * never a program (eval.cc annotates them so); the runtime idris-mlir-cc
+ * never a program (rt.eval annotates them so); the runtime idris-mlir-cc
  * prepares for programs has no entry for them. */
 void idris_rt_eval_begin(int report_fd);
 void *idris_rt_arena_alloc(size_t size);

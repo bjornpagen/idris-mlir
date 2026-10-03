@@ -9,35 +9,9 @@ export module idr.layout:cells;
 
 import idr.mlir;
 
+import :cellinfo;
+
 export namespace idr::layout {
-
-// The info word of a cell's header, which the runtime reads to free the cell
-// (idris_rt_info: the tag, the number of object slots, the kind). A CellInfo
-// exists only for a tag and an object count that fit their fields, so a word
-// whose fields overflow into each other cannot be written; the factories say
-// why when they do not fit.
-class CellInfo {
-public:
-  static std::expected<CellInfo, std::string> box(uint64_t tag, uint64_t objs) noexcept;
-  // A closure's code pointer says what it is, so its tag is 0.
-  static std::expected<CellInfo, std::string> closure(uint64_t objs) noexcept;
-  // An array's: the tag is the element's size in bytes, its objs the object
-  // slots each element starts with.
-  static std::expected<CellInfo, std::string> array(uint64_t stride, uint64_t objs) noexcept;
-  static CellInfo string(bool ascii) noexcept;
-  static CellInfo bignum() noexcept;
-
-  uint32_t word() const noexcept;
-  // The same cell in a stack frame.
-  CellInfo onStack() const noexcept;
-
-private:
-  explicit CellInfo(uint32_t word) noexcept;
-  uint32_t bits;
-};
-
-// The tag of a box, the low bits of its info word (idris_rt_info_tag).
-constexpr uint32_t tagMask = IDRIS_RT_TAG_LIMIT - 1;
 
 // One component of a value stored in a heap cell or static data.
 struct Slot {

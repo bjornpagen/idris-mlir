@@ -23,28 +23,29 @@ struct Bounds {
 
   // Every value fits a small, so the sum, difference or product of two
   // such values is an i64 that cannot overflow.
-  bool fits() const noexcept;
+  bool fits() const noexcept { return lo && hi; }
 };
 
+} // namespace idr::ranges
+
+namespace {
+
+std::optional<int64_t> inside(std::optional<int64_t> v) noexcept {
+  if (v && *v >= idr::ranges::smallMin && *v <= idr::ranges::smallMax)
+    return v;
+  return std::nullopt;
+}
+
+} // namespace
+
+export namespace idr::ranges {
+
 // Keeps each bound only when it is inside the small range.
-Bounds bounded(std::optional<int64_t> lo, std::optional<int64_t> hi) noexcept;
-
-// The bounds a range states. A range of another width, as MLIR gives a
-// value that is not an integer, states none.
-Bounds boundsOf(const mlir::ConstantIntRanges &range) noexcept;
-
-// The 64-bit range of `bounds`.
-mlir::ConstantIntRanges rangeOf(Bounds bounds) noexcept;
+Bounds bounded(std::optional<int64_t> lo, std::optional<int64_t> hi) noexcept {
+  return {inside(lo), inside(hi)};
+}
 
 // What a natural nothing else bounds is: at least 0.
-Bounds natural() noexcept;
-
-Bounds add(Bounds a, Bounds b) noexcept;
-Bounds sub(Bounds a, Bounds b) noexcept;
-Bounds mul(Bounds a, Bounds b) noexcept;
-
-// The bounds of an integer operand of range `range`, read as `isSigned`
-// says.
-Bounds ofInteger(const mlir::ConstantIntRanges &range, bool isSigned) noexcept;
+Bounds natural() noexcept { return {0, std::nullopt}; }
 
 } // namespace idr::ranges

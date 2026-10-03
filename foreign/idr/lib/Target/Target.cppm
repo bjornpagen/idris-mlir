@@ -3,5 +3,6 @@
 // semantics for Double at compile time and at runtime.
 export module idr.target;
 
-export import :pipeline;
+export import :optimize;
+export import :targetoptions;
 export import :vectors;

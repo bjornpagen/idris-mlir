@@ -3,16 +3,12 @@
 idr_library(idr_layout
 	MODULES
 		Layout.cppm
+		CellInfo.cppm
 		Cells.cppm
+		CodeName.cppm
 		Labels.cppm
 		Layouts.cppm
 		Sums.cppm
-	UNITS
-		Cells/CellInfo.cc
-		Labels/CodeName.cc
-		Labels/Label.cc
-		Layouts/Layouts.cc
-		Sums/SumLayout.cc
 	LINKS
 		idr_mlir
 		idr_ods

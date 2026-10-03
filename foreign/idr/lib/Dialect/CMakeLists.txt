@@ -8,20 +8,76 @@ idr_library(idr_ods
 )
 
 # The dialect and the hooks of its ops (verifiers, folders, canonicalizers,
-# DRR patterns): TableGen declares them in the global module, so they are
-# plain translation units for good.
+# DRR patterns), and the helpers idr/Idr.h declares around them: TableGen
+# and idr/Idr.h declare them in the global module, so they are plain
+# translation units for good, which import the modules for the rest
+# (idr.canon, idr.ops, idr.ranges, idr.sharing, idr.verify).
 target_sources(idr_dialect PRIVATE
-	BigRanges.cc
-	Sharing.cc
+	Dialect/Constants.cc
+	Dialect/Initialize.cc
+	Dialect/Patterns.cc
+	Types/DestType.cc
+	Types/FnType.cc
+	Types/QType.cc
+	Attrs/BigAttr.cc
+	Attrs/ConAttr.cc
+	Grades/AtQuantity.cc
+	Grades/Erased.cc
+	Grades/FieldReadOnce.cc
+	Grades/FieldType.cc
+	Grades/GradeOf.cc
+	Grades/Graded.cc
+	Grades/HeldAs.cc
+	Grades/IsArray.cc
+	Grades/IsErased.cc
+	Grades/IsExclusive.cc
+	Grades/IsFieldType.cc
+	Grades/IsLinear.cc
+	Grades/IsOwned.cc
+	Grades/IsWorld.cc
+	Grades/Linear.cc
+	Grades/Owned.cc
+	Grades/QuantityOf.cc
+	Grades/ThroughLinear.cc
+	Grades/Times.cc
+	Grades/Unrestricted.cc
+	Grades/View.cc
+	Grades/World.cc
+	Symbols/EliminationAt.cc
+	Symbols/GetSumName.cc
+	Symbols/ListCons.cc
+	Symbols/LookupCtor.cc
+	Symbols/LookupData.cc
+	Verify/Attributes.cc
+	Verify/DiscardableAttrs.cc
+	Effects/OnlyAllocates.cc
+	Effects/PerformsIO.cc
+	Crashes/KnownFinite.cc
+	Crashes/KnownNonEmpty.cc
+	Crashes/KnownNonZero.cc
+	Ops/Arrays.cc
+	Ops/Bigs.cc
+	Ops/Bytes.cc
+	Ops/Closure.cc
+	Ops/Con.cc
+	Ops/Constant.cc
+	Ops/Crash.cc
+	Ops/Data.cc
+	Ops/Dest.cc
+	Ops/Field.cc
+	Ops/Generated.cc
+	Ops/Lin.cc
+	Ops/Matches.cc
+	Ops/Scalars.cc
+	Ops/Strings.cc
+	Ops/Tag.cc
+	Registration/PipelineSteps.cc
+	Registration/RegisterIdr.cc
+	Registration/RegisterIdrPipeline.cc
 	Canonicalize/Apply.cc
-	Canonicalize/CaseOfCase.cc
 	Canonicalize/Con.cc
 	Canonicalize/Field.cc
 	Canonicalize/Matches.cc
-	Canonicalize/Meet.cc
-	Canonicalize/Merge.cc
-	Canonicalize/Sink.cc
 	Canonicalize/Strings.cc
-	Dialect.cc
-	Ops.cc
+	Canonicalize/WrittenInPieces.cc
 )

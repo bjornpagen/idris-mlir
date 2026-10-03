@@ -4,7 +4,9 @@
 // module for its target.
 export module idr.layout;
 
+export import :cellinfo;
 export import :cells;
+export import :codename;
 export import :labels;
 export import :layouts;
 export import :sums;

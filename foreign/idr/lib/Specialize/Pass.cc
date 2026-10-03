@@ -1,15 +1,17 @@
 // idr-specialize, and idr-binding-times, which reports what it decides on.
 
-#include "Specialize/Specializer.h"
-
-using namespace mlir;
-using namespace idr::specialize;
+#include "idr/Idr.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRSPECIALIZE
 #define GEN_PASS_DEF_IDRBINDINGTIMES
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.specialize;
+
+using namespace mlir;
+using namespace idr::specialize;
 
 namespace {
 

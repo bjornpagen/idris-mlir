@@ -24,10 +24,6 @@ numbers.
   heap-free check, lowering) are C++ in `foreign/idr/`, following
   bjornpagen/cpp-starter; `PINS.md` records every deliberate deviation from
   it and every pinned workaround.
-- The C++ of `foreign/idr/` and `runtime/` is organized as
-  `foreign/idr/lib/MODULES.md` says: named modules, a namespace per module,
-  one concept per file, no headers of our own, and one library per module
-  that links exactly what it imports. Read it before you add or move C++.
 - One thing, one representation. A concept the compiler holds twice (the
   dialect's ops, types or primitives mirrored on the Idris side, a fact kept
   in a type and again in an attribute, one analysis computed in two places)

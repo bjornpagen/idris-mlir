@@ -53,6 +53,7 @@
 #     two-levels.sh    Idris's evaluator against the compiled program
 #     idris-lex.sh     Idris source, code told from comments and strings
 #     bench.sh         the benchmarks, built and run on small inputs
+#     upstream.sh      clang bugs a unit of ours reproduces, compiled in place
 
 idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
@@ -91,7 +92,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
 fi
 
 for lib_file in harness timing compile run heap mlir expect oracle chez properties e2e \
-                profile determinism lit fuzz two-levels idris-lex bench; do
+                profile determinism lit fuzz two-levels idris-lex bench upstream; do
   . "$root/tests/lib/$lib_file.sh"
 done
 unset lib_file

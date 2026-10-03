@@ -1,12 +1,56 @@
-# Ownership, as plain translation units: not yet a module.
-target_sources(idr_dialect PRIVATE
-	Borrow.cc
-	Counting.cc
-	Counts.cc
-	Exclusive.cc
-	Ops.cc
-	Rc.cc
-	ResetReuse.cc
-	Take.cc
-	Verify.cc
+# idr.ownership: the owned stage: which values hold references, idr-rc's
+# passes and the owned stage's verifier. The pass glue (the TableGen-declared
+# base of idr-rc) and the hooks of the ownership ops are plain units that
+# import it.
+idr_library(idr_ownership
+	MODULES
+		Ownership.cppm
+		ArrayLoop.cppm
+		Borrow.cppm
+		Borrowed.cppm
+		Callee.cppm
+		Cells.cppm
+		Checker.cppm
+		Classes.cppm
+		Commit.cppm
+		Counting.cppm
+		Counts.cppm
+		Exclusive.cppm
+		ExclusiveAnalysis.cppm
+		Fields.cppm
+		Followed.cppm
+		KeepsCountedField.cppm
+		Loops.cppm
+		NoConstants.cppm
+		OnlyReads.cppm
+		OpChecks.cppm
+		OwnSignatures.cppm
+		Placement.cppm
+		Rc.cppm
+		ReachesOnlyAtoms.cppm
+		ReadFrom.cppm
+		References.cppm
+		Regions.cppm
+		Reshape.cppm
+		Reuse.cppm
+		ShareTainted.cppm
+		Specialize.cppm
+		Stage.cppm
+		IsStatic.cppm
+		Take.cppm
+		TakeAtEntry.cppm
+		TakeFields.cppm
+		UseOf.cppm
+		UsedAfter.cppm
+		UsersIn.cppm
+		Verify.cppm
+		WhereDies.cppm
+	GLUE
+		Ops.cc
+		Rc.cc
+	LINKS
+		idr_mlir
+		idr_ods
+		idr_graph
+		idr_layout
 )

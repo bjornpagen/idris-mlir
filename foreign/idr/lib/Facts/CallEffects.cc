@@ -1,6 +1,6 @@
 // The effects of a func.call, through MLIR's own interface: what the
-// callee's facts say (`idr.effects`, Functions/Of.cc) and what
-// the closures the call is given may do (Closures/Passed.cc). Every pass,
+// callee's facts say (`idr.effects`, Of.cppm) and what
+// the closures the call is given may do (Passed.cppm). Every pass,
 // upstream or ours, then asks a call what it does the way it asks any op:
 // canonicalize erases an unused call that only computes, CSE merges two
 // calls of a pure function on the same arguments, LICM hoists one out of

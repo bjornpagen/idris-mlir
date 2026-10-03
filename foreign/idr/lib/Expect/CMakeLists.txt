@@ -1,16 +1,44 @@
-# Expect, as plain translation units: not yet a module.
-target_sources(idr_dialect PRIVATE
-	Allocation.cc
-	Breakers.cc
-	Clones.cc
-	Closures.cc
-	Continuations.cc
-	Counting.cc
-	Facts.cc
-	Folds.cc
-	Loops.cc
-	Output.cc
-	Pass.cc
-	Quantities.cc
-	Words.cc
+# idr.expect: the properties idr-expect checks, one partition each; the pass
+# glue (the TableGen-declared base of idr-expect) is a plain unit that
+# imports it. folds-balanced reads the runtime's count of live cells
+# (idris_rt.h), whose include directory idris_rt gives; resets-unshared
+# reads what idr.ownership says a value was read from.
+idr_library(idr_expect
+	MODULES
+		Expect.cppm
+		Allocation.cppm
+		BreaksLast.cppm
+		Clones.cppm
+		Closures.cppm
+		ConstantStack.cppm
+		Continuations.cppm
+		CountedLoop.cppm
+		CountsNothing.cppm
+		EveryCycleHasBreaker.cppm
+		Facts.cppm
+		Folds.cppm
+		Lookup.cppm
+		Named.cppm
+		NarrowedLanes.cppm
+		Output.cppm
+		PureArrayLoops.cppm
+		Quantities.cppm
+		References.cppm
+		Report.cppm
+		ResetsUnshared.cppm
+		ReusesEveryCell.cppm
+		ReusesInPlace.cppm
+		Roots.cppm
+		TestsNothing.cppm
+		Vectorized.cppm
+		Words.cppm
+	GLUE
+		Pass.cc
+	LINKS
+		idr_mlir
+		idr_ods
+		idr_facts
+		idr_graph
+		idr_ownership
+		idris_rt
 )

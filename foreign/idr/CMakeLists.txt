@@ -161,8 +161,11 @@ idr_library(idr_mlir
 # plain units in idr_dialect.
 add_library(idr_dialect STATIC)
 foreach(area
+		Canon
 		Canonicalize
+		Defunctionalize
 		Dialect
+		Driver
 		Eval
 		Expect
 		Facts
@@ -171,13 +174,19 @@ foreach(area
 		Inline
 		Layout
 		Lower
+		Narrow
+		Ops
 		Ownership
-		Passes
 		Ranges
+		Sharing
+		Simplify
 		Specialize
 		Stack
 		Support
+		Tail
 		Target
+		Vectorize
+		Verify
 	)
 	add_subdirectory(lib/${area})
 endforeach()
@@ -187,7 +196,6 @@ endforeach()
 # hooks; it links every module's library, and the runtime, natively, for the
 # folders and idr-eval's JIT, with GMP, which it calls, linked as the target
 # entry says.
-target_sources(idr_dialect PRIVATE lib/Registration.cc)
 target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 target_link_libraries(idr_dialect
 	PUBLIC
@@ -200,6 +208,24 @@ target_link_libraries(idr_dialect
 		idr_layout
 		idr_facts
 		idr_target
+		idr_canonicalize
+		idr_expect
+		idr_fold
+		idr_inlining
+		idr_stack
+		idr_specialize
+		idr_eval
+		idr_ownership
+		idr_canon
+		idr_ops
+		idr_sharing
+		idr_verify
+		idr_defunctionalize
+		idr_narrow
+		idr_simplify
+		idr_tail
+		idr_vectorize
+		idr_lower
 		idris_rt
 		${IDRIS_MLIR_GMP}
 	PRIVATE
@@ -223,9 +249,11 @@ target_link_libraries(idris-mlir-opt PRIVATE
 )
 
 add_executable(idris-mlir-cc tools/idris-mlir-cc.cc)
-# MLIRDebug: the action handlers (debug counters, action logging);
-# MLIRRemarkStreamer: --remarks-file.
+# idr_driver: the driver, whose pipeline is idr_dialect's; MLIRDebug: the
+# action handlers (debug counters, action logging); MLIRRemarkStreamer:
+# --remarks-file.
 target_link_libraries(idris-mlir-cc PRIVATE
+	idr_driver
 	idr_dialect
 	MLIRDebug
 	MLIRRegisterAllDialects
@@ -240,9 +268,10 @@ target_link_libraries(idris-mlir-cc PRIVATE
 # same functions as bitcode for inlining, kept as the target entry's
 # container says (CMakeLists.txt), which is the runtime the driver links by
 # default (--runtime overrides the path, with the archive itself if need be;
-# --print-runtime tells the link line where it is).
+# --print-runtime tells the link line where it is). The driver's options
+# read where it is.
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
-target_compile_definitions(idris-mlir-cc PRIVATE
+target_compile_definitions(idr_driver PRIVATE
 	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
 	"IDRIS_MLIR_RUNTIME_BITCODE_SECTION=\"${IDRIS_MLIR_RUNTIME_BITCODE_SECTION}\""
 )
@@ -290,7 +319,7 @@ target_compile_options(idris-mlir-tblgen PRIVATE
 	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/Support/EnableStatistics.h"
 )
 
-# The tools are plain translation units; idris-mlir-cc imports idr.target.
+# The tools are plain translation units; idris-mlir-cc imports idr.driver.
 set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce idris-mlir-tblgen PROPERTIES
 	CXX_MODULE_STD OFF
 	CXX_SCAN_FOR_MODULES OFF

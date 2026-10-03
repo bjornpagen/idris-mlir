@@ -3,12 +3,9 @@
 idr_library(idr_target
 	MODULES
 		Target.cppm
-		Pipeline.cppm
+		Optimize.cppm
+		TargetOptions.cppm
 		Vectors.cppm
-	UNITS
-		Pipeline/Optimize.cc
-		Pipeline/TargetOptions.cc
-		Vectors/VectorBits.cc
 	GLUE
 		Pass.cc
 	LINKS

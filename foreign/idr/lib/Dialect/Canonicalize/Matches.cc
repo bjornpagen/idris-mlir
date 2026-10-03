@@ -1,136 +1,31 @@
-// The canonicalization patterns of idr.match and idr.match_lit.
+// The canonicalization patterns of idr.match and idr.match_lit: upstream's
+// region patterns, as scf.index_switch uses them, then idr.canon's. Results
+// no region needs drop, and a match whose taken region is known (a constant
+// or an idr.con scrutinee, or one region left) is replaced by that region,
+// whose arguments become idr.field reads that fold. Upstream's defaults for
+// the region of a literal match, which binds nothing, are local to its
+// header, so these hooks add the region patterns themselves.
 
-#include "Dialect/Canonicalize/Matches.h"
+#include "idr/Idr.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/RegionUtils.h"
+
+import idr.canon;
 
 using namespace mlir;
 using namespace idr;
 
-namespace {
-
-// A string that cannot be empty never takes the case `""`.
-struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(MatchLitOp op, PatternRewriter &rewriter) const final {
-    auto empty = rewriter.getStringAttr("");
-    const auto *it = llvm::find(op.getCases(), empty);
-    if (it == op.getCases().end() || !knownNonEmpty(op.getScrutinee()))
-      return failure();
-    auto dropped = static_cast<unsigned>(it - op.getCases().begin());
-    SmallVector<Attribute> cases;
-    SmallVector<Region *> regions;
-    for (unsigned index = 0, count = op->getNumRegions(); index < count; ++index)
-      if (index != dropped) {
-        if (index < op.getCases().size())
-          cases.push_back(op.getCases()[index]);
-        regions.push_back(&op->getRegion(index));
-      }
-    rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
-    return success();
-  }
-};
-
-// A default region the match cannot take: its cases name every constructor
-// of the data. Idris's case trees carry one for the clauses that follow a
-// complete split, and it looks like a path to every analysis.
-struct DropCoveredDefault : OpRewritePattern<MatchOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(MatchOp op, PatternRewriter &rewriter) const final {
-    if (!op.getDefaultRegion())
-      return failure();
-    DataOp data = lookupData(op, op.getScrutinee().getType());
-    if (!data || op.getCases().size() != llvm::range_size(data.getBody().getOps<CtorOp>()))
-      return failure();
-    SmallVector<Attribute> cases(op.getCases().begin(), op.getCases().end());
-    SmallVector<Region *> regions;
-    for (unsigned index = 0, e = static_cast<unsigned>(cases.size()); index < e; ++index)
-      regions.push_back(&op.getCaseRegion(index));
-    rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
-    return success();
-  }
-};
-
-// A case region's arguments are its constructor's fields, read from the
-// value the scrutinee entered its grade from and held as the region binds
-// them; the default region's argument is the scrutinee itself.
-Value readField(OpBuilder &builder, Location loc, Value value) {
-  auto arg = cast<BlockArgument>(value);
-  auto match = cast<MatchOp>(arg.getOwner()->getParentOp());
-  unsigned region = arg.getOwner()->getParent()->getRegionNumber();
-  if (region >= match.getCases().size())
-    return match.getScrutinee();
-  auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region]);
-  Value source = throughLinear(match.getScrutinee());
-  CtorOp decl = lookupCtor(lookupData(match, source.getType()), ctor.getValue());
-  Value field = FieldOp::create(builder, loc,
-                                fieldType(source.getType(), decl.getFieldType(arg.getArgNumber())),
-                                source, ctor, builder.getI64IntegerAttr(arg.getArgNumber()));
-  return heldAs(builder, loc, field, arg.getType());
-}
-
-// A match none of whose regions yields never completes, so nothing after it
-// in its block runs: that block, a region of another match, ends in
-// ub.unreachable right after it, as a region does after a crash. Case-of-case
-// copies a consumer into every region, so one region of a match may yield
-// the result of a match that never completes, followed by what consumes it
-// there. A function body keeps its return: a body never ends in
-// ub.unreachable (PINS.md: inline-unreachable).
-template <typename Match>
-struct EndAfterNoYield : OpRewritePattern<Match> {
-  using OpRewritePattern<Match>::OpRewritePattern;
-  LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    if (llvm::any_of(op->getRegions(), [](Region &region) {
-          return region.empty() || !isa<ub::UnreachableOp>(region.front().getTerminator());
-        }))
-      return failure();
-    Block *block = op->getBlock();
-    if (!isa<MatchOp, MatchLitOp>(block->getParentOp()) ||
-        isa<ub::UnreachableOp>(op->getNextNode()))
-      return failure();
-    while (&block->back() != op.getOperation())
-      rewriter.eraseOp(&block->back());
-    rewriter.setInsertionPointToEnd(block);
-    ub::UnreachableOp::create(rewriter, op.getLoc());
-    return success();
-  }
-};
-
-// A match on a linear value takes it apart, and stays: the value has no
-// other reader to read its fields from. One whose value entered its grade
-// from a plain value reads that value's fields.
-LogicalResult readsPlainValue(Operation *op) {
-  auto match = dyn_cast<MatchOp>(op);
-  return success(!match ||
-                 quantityOf(throughLinear(match.getScrutinee()).getType()) != Quantity::One);
-}
-
-// Upstream's region patterns, as scf.index_switch uses them: results no
-// region needs drop, and a match whose taken region is known (a constant or
-// an idr.con scrutinee, or one region left) is replaced by that region, whose
-// arguments become idr.field reads that fold.
-template <typename Match>
-void populate(RewritePatternSet &results, MLIRContext *context,
-              NonSuccessorInputReplacementBuilderFn replacement, PatternMatcherFn applies) {
-  populateRegionBranchOpInterfaceCanonicalizationPatterns(results, Match::getOperationName());
-  populateRegionBranchOpInterfaceInliningPattern(results, Match::getOperationName(),
-                                                 replacement, applies);
-  canon::addMerge<Match>(results, context);
-  canon::addCaseOfCase<Match>(results, context);
-  canon::addSink<Match>(results, context);
-  results.add<EndAfterNoYield<Match>>(context);
-}
-
-} // namespace
-
 void MatchOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  populate<MatchOp>(results, context, readField, readsPlainValue);
-  results.add<DropCoveredDefault>(context);
+  populateRegionBranchOpInterfaceCanonicalizationPatterns(results, getOperationName());
+  populateRegionBranchOpInterfaceInliningPattern(results, getOperationName(), canon::readField,
+                                                 canon::readsPlainValue);
+  canon::addMatchPatterns(results, context);
 }
 
 void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                              MLIRContext *context) {
-  populate<MatchLitOp>(results, context, mlir::detail::defaultReplBuilderFn,
-                       mlir::detail::defaultMatcherFn);
-  results.add<DropEmptyStringCase>(context);
+  populateRegionBranchOpInterfaceCanonicalizationPatterns(results, getOperationName());
+  populateRegionBranchOpInterfaceInliningPattern(results, getOperationName());
+  canon::addMatchLitPatterns(results, context);
 }

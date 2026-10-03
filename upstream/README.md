@@ -34,3 +34,5 @@ workaround. If it does not, the bug is ours.
 | [vectorize-precondition-body](vectorize-precondition-body/README.md) | MLIR | not yet | `vectorize-precondition-body`: `idr-vectorize` checks the ops of every loop's body before it tiles the loop |
 | [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | not yet | `int-range-narrowing-exactness`: `idr-narrow-lanes` versions only loops whose wide ops all compute the same in 32 bits |
 | [while-move-if-down-duplicates](while-move-if-down-duplicates/README.md) | MLIR | fixed on main | `while-move-if-down-duplicates`: an idr canonicalization has the after region read a value the condition forwards twice through one argument, before `WhileMoveIfDown` runs |
+| [clang-module-layout-forward-declaration](clang-module-layout-forward-declaration/README.md) | clang | not yet (not reduced) | `clang-module-layout-forward-declaration`: the escape analysis's sets hold `func::FuncOp` |
+| [clang-module-predeclared-new](clang-module-predeclared-new/README.md) | clang | not yet (not reduced) | `clang-module-predeclared-new`: `retarget` builds its feature string in an `llvm::SmallString` |
