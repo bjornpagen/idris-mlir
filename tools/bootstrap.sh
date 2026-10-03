@@ -53,6 +53,8 @@ unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LIBS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_P
   CMAKE_TOOLCHAIN_FILE CMAKE_BUILD_TYPE CMAKE_INSTALL_PREFIX CLANG_NO_DEFAULT_CONFIG
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# The host's tools where Linux and macOS differ: SHA-256, the memory.
+. "$root/tools/host.sh"
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 lock=$root/toolchain.lock.json
 triple=x86_64-unknown-linux-musl
@@ -110,7 +112,7 @@ if [ -n "${IDRIS_MLIR_JOBS-}" ]; then
   jobs=$IDRIS_MLIR_JOBS
 else
   cores=$(getconf _NPROCESSORS_ONLN 2> /dev/null) || cores=1
-  memory_kib=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2> /dev/null) || memory_kib=0
+  memory_kib=$(memory_kib 2> /dev/null) || memory_kib=0
   case $cores in '' | *[!0-9]*) cores=1 ;; esac
   case $memory_kib in '' | *[!0-9]*) memory_kib=0 ;; esac
   jobs=$((memory_kib / 5242880))
@@ -185,7 +187,7 @@ write_stamp() {
 }
 
 digest() {
-  sha256sum | cut -c1-64
+  sha256 | cut -c1-64
 }
 
 stamp_of() {
@@ -306,7 +308,7 @@ size_mib() {
 }
 
 used_kib() {
-  awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { print (t > 0 ? t - a : 0) }' /proc/meminfo 2> /dev/null || echo 0
+  memory_used_kib 2> /dev/null || echo 0
 }
 
 # The most memory in use on the machine while a build runs,
@@ -427,7 +429,7 @@ verify_release() {
     rm -rf "$release_dir"
     return 0
   fi
-  release_got=$(sha256sum "$release_dir/release" | cut -c1-64)
+  release_got=$(sha256 "$release_dir/release" | cut -c1-64)
   [ "$release_got" = "$release_sha256" ] ||
     die "$release_url has SHA-256 $release_got; toolchain.lock.json records $release_sha256"
   tar -xf "$release_dir/release" -C "$release_dir/files" || die "cannot unpack $release_url"
@@ -742,7 +744,8 @@ step_musl() {
     usr/include/linux/futex.h usr/include/asm/unistd.h; do
     [ -f "$sysroot/$musl_file" ] || die "the musl step installed no $musl_file"
   done
-  uapi_sha256=$(cd "$sysroot/usr/include" && find linux asm asm-generic -type f | sort | xargs sha256sum | digest)
+  uapi_sha256=$(cd "$sysroot/usr/include" && find linux asm asm-generic -type f | sort |
+    while IFS= read -r uapi_file; do sha256 "$uapi_file" || exit 1; done | digest)
   uapi_package=$(dpkg-query -W -f='${Version}' linux-libc-dev 2> /dev/null) || uapi_package=unknown
   write_stamp "$(stamp_of musl)" step musl revision "$musl_revision" version "$musl_version" \
     inputs "$step_inputs" release "$release_check" uapi_headers "$uapi" \

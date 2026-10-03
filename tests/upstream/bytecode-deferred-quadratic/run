@@ -4,15 +4,16 @@
 # deep from bytecode takes far more than 4 times as long. When this fails,
 # the bug is fixed: the PINS.md entry bytecode-deferred-quadratic, the
 # report and this test go, and compile-time evaluation may send nested
-# attributes again (upstream/README.md).
+# attributes again (upstream/README.md). The text parser recurses per
+# level, so the stack is as large as the system allows (stack_max).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-ulimit -s unlimited 2> /dev/null || ulimit -s 4194304
+stack_max
 milliseconds() {
   sh "$root/upstream/bytecode-deferred-quadratic/nested.sh" "$1" > "$work/n$1.mlir"
   bounded "$llvm_bin/mlir-opt" "$work/n$1.mlir" --emit-bytecode -o "$work/n$1.mlirbc" || return 1
-  start=$(date +%s%N)
+  start=$(now_ns) || return 1
   bounded "$llvm_bin/mlir-opt" "$work/n$1.mlirbc" --emit-bytecode -o /dev/null || return 1
-  end=$(date +%s%N)
+  end=$(now_ns) || return 1
   echo $(( (end - start) / 1000000 ))
 }
 small=$(milliseconds 8000) && large=$(milliseconds 32000) || { say "mlir-opt failed"; exit 0; }
