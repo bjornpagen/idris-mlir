@@ -277,6 +277,30 @@ which the top-level CMake configure gate reads.
   (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then
 - upstream: upstream/int-range-narrowing-exactness (not yet filed)
 
+## while-move-if-down-duplicates
+
+- symptom: at llvmorg-23.1.2, the `scf.while` canonicalization
+  `WhileMoveIfDown` replaces every use of an `scf.if` result in the
+  `scf.condition` with the if's else value at the first position that
+  forwards it (`mlir/lib/Dialect/SCF/IR/SCF.cpp:3464-3476`). When the
+  condition forwards that result at several positions, the after-region
+  arguments of the later ones keep the else value where the loop needs the
+  then value: the loop computes something else
+- sites: foreign/idr/lib/Dialect/Dialect.cc (`ReadForwardedOnce`, added by
+  `IdrDialect::getCanonicalizationPatterns`)
+- workaround: the idr dialect's canonicalization, at a benefit above
+  upstream's patterns, has the after region of an `scf.while` read a value
+  its condition forwards at several positions, when it is an `scf.if`
+  result, through the first argument only; the pattern then sets that one
+  argument right, and the others are unused. Every canonicalization of a
+  context with the idr dialect loaded collects it: the pipeline's
+  `canonicalize` steps, `idr-canonicalize` and the evaluator's lowering
+- retire: when the pin has upstream's fix, which assigns each condition
+  operand on its own (on main, in 24.1.0);
+  `tests/upstream/while-move-if-down-duplicates` fails then. Delete
+  `ReadForwardedOnce` and `tests/idr/canon/while-forwarded-twice`
+- upstream: upstream/while-move-if-down-duplicates (fixed on main)
+
 ## llvm-force-enable-stats
 
 - symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when
