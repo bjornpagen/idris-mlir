@@ -79,27 +79,29 @@ make compile SRC=Main.idr OUT=prog
 ## Setup
 
 Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
-LLVM and GMP), a threaded Chez Scheme, the Linux UAPI headers and coreutils'
-`timeout`. On Ubuntu 24.04:
+LLVM and GMP), the Linux UAPI headers and coreutils' `timeout`. Chez Scheme
+does not come from the host: `make bootstrap` builds the pinned release,
+which Idris 2 and the tests' oracle run on, the same on every host. On
+Ubuntu 24.04:
 
 ```sh
-sudo apt-get install -y git make gcc g++ python3 m4 curl chezscheme linux-libc-dev
+sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev
 ```
 
 The scripts run on macOS's BSD userland too (`tools/host.sh` holds every
 difference). There the Command Line Tools give the compiler, the SDK,
 Make, Git, python3, m4, curl and perl (whose clock times what `date`
-cannot), and Homebrew the rest: coreutils for `gtimeout`, Chez Scheme, and
-MLton for the benchmarks:
+cannot), and Homebrew the rest: coreutils for `gtimeout`, and MLton for
+the benchmarks:
 
 ```sh
 xcode-select --install
-brew install coreutils chezscheme mlton
+brew install coreutils mlton
 ```
 
 `make bootstrap` builds the pinned CMake, Ninja, a two-stage LLVM/MLIR
-(static on musl and libc++, with LTO), musl, GMP and Idris 2 into
-`.toolchain/`; the steps and their environment are at the top of
+(static on musl and libc++, with LTO), musl, GMP, Chez Scheme and Idris 2
+into `.toolchain/`; the steps and their environment are at the top of
 `tools/bootstrap.sh`. Stage 1 and stage 2 take hours and tens of GB of disk.
 Distribution LLVM packages track release branches, not the pinned commit, so
 they are not used.
@@ -108,7 +110,7 @@ they are not used.
 git submodule update --init
 make doctor                  # what the host has, and what is built
 make check                   # the repository: pins, commands, source rules; no build
-make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Idris
+make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Chez, Idris
 make build                   # the C++ dev preset and the compiler
 make test                    # compiler, profile, e2e (incl. the Chez diff and the dumps' properties), bench
 make test-idr                # the idr dialect, with FileCheck

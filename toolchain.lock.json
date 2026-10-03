@@ -67,5 +67,11 @@
     "revision": "4c0618b0e44f7ef027ebae05d2cc7812048f7c8f",
     "describe": "v2.0-108-g4c0618b",
     "version": "2.0-108"
+  },
+  "chez": {
+    "repository": "https://github.com/cisco/ChezScheme.git",
+    "revision": "e95a7efbafa2cf3bd5343ea542e6bc909a7ab2c4",
+    "tag": "v10.4.1",
+    "version": "10.4.1"
   }
 }

@@ -2,16 +2,9 @@
 # must print what this compiler's build printed and exit the same way.
 
 # The Chez Scheme that runs the scripts reading the stock backend's output:
-# $CHEZ, as the Makefile sets it to the one Idris was built with, or the
-# first found as tools/bootstrap.sh finds it; empty when there is none.
-chez_scheme=
-for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
-  if command -v "$chez_name" > /dev/null 2>&1; then
-    chez_scheme=$chez_name
-    break
-  fi
-done
-unset chez_name
+# the pinned one (tools/toolchain.sh), which Idris runs on and the Makefile
+# exports as CHEZ; empty when it is not built.
+[ -x "$chez_scheme" ] || chez_scheme=
 
 # chez_doubles FILE: FILE, the output of a program the stock backend built
 # or of Idris's evaluator, which runs on Chez, with every Double that Chez

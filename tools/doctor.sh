@@ -26,7 +26,7 @@ echo "LLVM pin: $(lock_field llvm tag) $(lock_field llvm revision)"
 # What the host provides, only to build the pinned tools, and what the
 # scripts run on it (tools/host.sh): coreutils' timeout, SHA-256 and, where
 # date has no nanoseconds (macOS), perl's clock.
-for tool in git make cc c++ python3 m4 curl tar unzip scheme chez chezscheme; do
+for tool in git make cc c++ python3 m4 curl tar unzip; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done
 echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
@@ -49,23 +49,24 @@ case $(uname -s) in
     else
       echo "macOS SDK: not found (xcode-select --install)"
     fi
-    # Homebrew's coreutils (gtimeout), Chez Scheme (Idris) and MLton (the
-    # benchmarks' MLton column).
+    # Homebrew's coreutils (gtimeout) and MLton (the benchmarks' MLton
+    # column).
     if command -v brew > /dev/null 2>&1; then
-      for formula in coreutils chezscheme mlton; do
+      for formula in coreutils mlton; do
         echo "Homebrew $formula: $(brew list --versions "$formula" 2> /dev/null || echo "not installed (brew install $formula)")"
       done
     else
-      echo "Homebrew: not found (https://brew.sh, then: brew install coreutils chezscheme mlton)"
+      echo "Homebrew: not found (https://brew.sh, then: brew install coreutils mlton)"
     fi
     ;;
 esac
 if [ -f "$idris_prefix/provenance.json" ]; then
-  echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision)"
+  echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision) on Chez Scheme $(stamp_field "$idris_prefix" scheme_version)"
+  "$pins" idris 2> /dev/null || echo "Local Idris/API: problem: $(problem idris)"
 else
   echo "Local Idris/API: not built"
 fi
-for name in cmake ninja llvm sysroot; do
+for name in cmake ninja chez llvm sysroot; do
   if "$pins" "$name" 2> /dev/null; then
     case $name in
       llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; .toolchain/llvm-musl)" ;;
