@@ -1,7 +1,9 @@
-Emit names idr: yes
-Emit names func: yes
-Emit names arith: yes
-Emit names math: yes
-Emit names ub: yes
-Emit names memref: yes
-op names of other dialects: 0
+arith: built by IdrisMLIR.Dialect.Arith
+builtin: built by IdrisMLIR.Dialect.Builtin
+func: built by IdrisMLIR.Dialect.Func
+idr: built by IdrisMLIR.Dialect.Idr
+math: built by IdrisMLIR.Dialect.Math
+memref: built by IdrisMLIR.Dialect.MemRef
+ub: built by IdrisMLIR.Dialect.UB
+places that build an op by hand: 0
+op names spelled by hand: 0

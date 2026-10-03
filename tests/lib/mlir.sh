@@ -23,7 +23,7 @@ filecheck() {
 # An mlir.check file is FileChecked against one module of the compilation.
 # Its first line chooses which:
 #
-#     // input: emitted              the .mlir Emit wrote
+#     // input: emitted              the .mlir Emit wrote, as MLIR prints it
 #     // input: after <step>         the module after that step of
 #                                    idris-mlir-cc's pipeline
 #
@@ -34,6 +34,11 @@ filecheck() {
 # name and not by its number, so it survives steps added before it; of two
 # dumps of a step (canonicalize runs more than once) the first is taken. A
 # step that left no dump fails the check, never falls back to another.
+#
+# Emit writes the generic form, which says what each op is and nothing of
+# how its dialect prints it; idris-mlir-opt parses the emitted module and
+# prints it in each dialect's syntax, each location written where it is.
+# So a check states the module, the same however Emit spells it.
 
 # mlir_input CHECK: `emitted`, or the step whose module CHECK reads.
 mlir_input() {
@@ -65,6 +70,16 @@ check_mlir() {
     say "${1##*/}: no module dumped after $check_mlir_step"
     ls "$3" 2> /dev/null | sed 's/^/  | /'
     return
+  fi
+  if [ "$check_mlir_step" = emitted ]; then
+    if ! bounded "$idris_mlir_opt" --mlir-disable-threading --mlir-print-debuginfo \
+         --mlir-print-local-scope "$check_mlir_file" -o "$work/emitted-printed.mlir" \
+         > "$work/print.log" 2>&1; then
+      say "${1##*/}: the emitted module does not parse and verify"
+      show "$work/print.log"
+      return
+    fi
+    check_mlir_file=$work/emitted-printed.mlir
   fi
   filecheck "$1" "$check_mlir_file"
 }

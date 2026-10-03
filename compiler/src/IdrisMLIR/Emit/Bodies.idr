@@ -2,6 +2,10 @@
 ||| matches as regions and its lambdas as lifted functions.
 module IdrisMLIR.Emit.Bodies
 
+import IdrisMLIR.CustomSyntax as Idr
+import IdrisMLIR.Dialect.Func as Func
+import IdrisMLIR.Dialect.Idr as Idr
+import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
@@ -45,20 +49,20 @@ operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
   Just v <- a.result env (typeOf <$> head' slots)
     | Nothing => pure Nothing
-  v' <- coerce ix l (maybe Plain binderMode (head' slots)) v
+  v' <- coerce ix l (maybe Many binderUse (head' slots)) v
   map (map (v' ::)) (operands ix l env as (drop 1 slots))
 
 ||| A value as a region or a function returns it: as itself, never linear.
 export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
-plain ix l act = act >>= traverse (coerce ix l Plain)
+plain ix l act = act >>= traverse (coerce ix l Many)
 
 mutual
   ||| `v`, with every value named as `before` is, itself or a field of a
   ||| rebuilt constructor, replaced by `after`.
   renamed : (before, after : Val) -> Val -> Val
-  renamed before after (MkVal n t m r) =
-    if n == before.name then after else MkVal n t m (renamedIn before after r)
+  renamed before after (MkVal n t u r) =
+    if n == before.name then after else MkVal n t u (renamedIn before after r)
 
   renamedIn : (before, after : Val) -> Maybe (ConId, List Val) -> Maybe (ConId, List Val)
   renamedIn before after Nothing = Nothing
@@ -85,55 +89,54 @@ excluded s = case s.term of
   Unreachable _ => True
   _ => False
 
-||| A region of a match: its header, its operations, and its value, which
-||| it yields.
-record Region where
-  constructor MkRegion
-  header : String
+||| An arm of a match: its key (none for the default), the arguments of its
+||| region, its operations, and its value, which it yields.
+record Arm where
+  constructor MkArm
+  key : Maybe MlirAttr
+  arguments : List Value
   result : Maybe Val
-  ops : List Op
+  statements : List Statement
 
-||| The yield that ends a loop's body with its value; a body that never
+||| The yield that ends a region with its value; a region that never
 ||| returns has ended in `ub.unreachable` already.
-yielding : Index -> Loc -> Maybe Val -> E (List Op)
+yielding : Index -> Loc -> Maybe Val -> E (List Statement)
 yielding ix l Nothing = pure []
-yielding ix l (Just v) = pure [Line ("idr.yield " ++ v.name ++ " : " ++ !(typeText ix v.type)) (At l)]
+yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [!(operand ix v)]) (At l)]
 
-||| A match, from its regions: results when a region yields, and none,
-||| followed by `ub.unreachable`, when no region returns.
-match : Index -> Loc -> String -> List Region -> E (Maybe Val)
-match ix l head regions =
-  case map (.type) (head' (mapMaybe (.result) regions)) of
+||| A match, from its arms, with the builder of its op over its keys,
+||| regions and results: results when an arm yields, and none, followed by
+||| `ub.unreachable`, when no arm returns.
+match : Index -> Loc -> (List MlirAttr -> List Region -> List MlirType -> Op) -> List Arm -> E (Maybe Val)
+match ix l build arms = do
+  regions <- traverse close arms
+  let keys = mapMaybe (.key) arms
+  case map (.type) (head' (mapMaybe (.result) arms)) of
     Just t => do
-      rt <- typeText ix t
-      body <- traverse (close rt) regions
       r <- fresh
-      append (Nest (r ++ " = " ++ head ++ " -> (" ++ rt ++ ") {") body "}" (Just (At l)))
-      pure (Just (val r t Plain))
+      append (MkStatement (Just r) (build keys regions [!(mlirType ix t)]) (At l))
+      pure (Just (val r t Many))
     Nothing => do
-      body <- traverse (close "") regions
-      append (Nest (head ++ " -> () {") body "}" (Just (At l)))
-      statement l "ub.unreachable"
+      statement l (build keys regions [])
+      statement l UB.unreachableOp
       pure Nothing
   where
-    close : String -> Region -> E Op
-    close rt reg = case reg.result of
-      Just v => pure (Nest reg.header (reg.ops ++ [Line ("idr.yield " ++ v.name ++ " : " ++ !(typeText ix v.type)) (At l)]) "}" Nothing)
-      Nothing => pure (Nest reg.header reg.ops "}" Nothing)
+    close : Arm -> E Region
+    close a = pure (MkRegion a.arguments (a.statements ++ !(yielding ix l a.result)))
 
 ||| A literal as a key of `idr.match_lit`.
-key : Lit -> String
-key (LInt t n) = show (twos (width t) n)
-key (LChar c) = show c
-key (LStr s) = utf8 s
-key (LBig n) = "#idr.big<" ++ quoted (show n) ++ ">"
-key (LNat n) = "#idr.big<" ++ quoted (show n) ++ ">"
-key (LDouble d) = floatLiteral d
+key : Lit -> MlirAttr
+key (LInt t n) = integerAttr (twos (width t) n) (integerType (width t))
+key (LChar c) = integerAttr c (integerType 32)
+key (LStr s) = stringAttr s
+key (LBig n) = Idr.bigAttr (show n)
+key (LNat n) = Idr.bigAttr (show n)
+key (LDouble d) = floatAttr d f64Type
 
 ||| Starts a function: its own SSA numbers and operations, the owner's
 ||| lifted functions kept.
 export
-inFunction : E a -> E (a, List Op)
+inFunction : E a -> E (a, List Statement)
 inFunction act = do
   st <- get
   put ({ next := 0, ops := [<] } st)
@@ -148,16 +151,18 @@ inFunction act = do
 ||| the pinned inliner cannot inline a body that ends in `ub.unreachable`
 ||| (PINS.md: inline-unreachable).
 export
-epilogue : Loc -> String -> Maybe Val -> List Op -> List Op
-epilogue l rt (Just v) ops = ops ++ [Line ("func.return " ++ v.name ++ " : " ++ rt) (At l)]
-epilogue l rt Nothing ops =
-  reverse (dropEnd (reverse ops)) ++
-    [ Line ("%never = ub.poison : " ++ rt) (At l)
-    , Line ("func.return %never : " ++ rt) (At l) ]
+epilogue : Index -> Loc -> MlirType -> Maybe Val -> List Statement -> E (List Statement)
+epilogue ix l rt (Just v) ops = pure (ops ++ [MkStatement Nothing (Func.returnOp [!(operand ix v)]) (At l)])
+epilogue ix l rt Nothing ops =
+  pure (reverse (dropEnd (reverse ops)) ++
+        [ MkStatement (Just never) (UB.poisonOp rt) (At l)
+        , MkStatement Nothing (Func.returnOp [MkValue never rt]) (At l) ])
   where
-    dropEnd : List Op -> List Op
-    dropEnd (Line "ub.unreachable" _ :: rest) = rest
-    dropEnd rest = rest
+    never : String
+    never = "%never"
+    dropEnd : List Statement -> List Statement
+    dropEnd (s :: rest) = if s.op.name == UB.unreachableOp.name then rest else s :: rest
+    dropEnd [] = []
 
 ||| A lifted function: private, its captures first, then its parameters.
 ||| Its body is the closure's, and it is what the closure calls.
@@ -173,13 +178,17 @@ lifted ix own l lbl caps ps expected body = do
   t <- case map (.type) res <|> expected of
          Just t => pure t
          Nothing => internal ("the result type of " ++ show lbl ++ ", whose body never returns")
-  rt <- typeText ix t
-  header <- traverse (param ix) params
-  let fn = Nest ("func.func private " ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (own.inherited ++ [Total | contains (LamNode lbl) ix.terminating] ++
-                             [NoInline | contains (LamNode lbl) ix.breakers]) ++ " {")
-                (epilogue l rt res ops) "}" (Just (Named own.idrisName l))
-  modify { lifted $= (:< fn) }
+  rt <- mlirType ix t
+  args <- traverse (operand ix) params
+  body <- epilogue ix l rt res ops
+  let fnAttrs = own.inherited ++ [Total | contains (LamNode lbl) ix.terminating]
+  -- A loop breaker: inlining it could unroll a cycle.
+  let fn = Func.funcOp {symVisibility = Just "private"}
+                       {noInline = contains (LamNode lbl) ix.breakers} sym
+                       (functionType (map (\a => a.type) args) [rt])
+                       (MkRegion args body)
+  modify { lifted $= (:< MkStatement Nothing ({ attributes := attributes fnAttrs } fn)
+                                     (Named own.idrisName l)) }
   pure (sym, t)
   where
     renamed : Val -> E Val
@@ -189,8 +198,8 @@ lifted ix own l lbl caps ps expected body = do
 export
 alg : {0 b : Type} -> Index -> Owner -> TermF (Sub Em) b -> Em b
 alg ix own (VarF l x) env _ = Just <$> force ix l (env x)
-alg ix own (LiteralF l x) env _ = Just <$> literal l x
-alg ix own (ErasedF l) env _ = Just <$> erased l
+alg ix own (LiteralF l x) env _ = Just <$> literal ix l x
+alg ix own (ErasedF l) env _ = Just <$> erasedValue ix l
 alg ix own (PrimAppF l p as) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing
@@ -204,9 +213,8 @@ alg ix own (CallF l fn as) env _ = do
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
   Just vs <- operands ix l env as (toList f.params)
     | Nothing => pure Nothing
-  rt <- typeText ix f.result
-  Just <$> value l f.result ("func.call " ++ symbol (mangle fn.name) ++ "(" ++ names vs ++ ") : (" ++
-                             !(types ix vs) ++ ") -> " ++ rt)
+  args <- traverse (operand ix) vs
+  Just <$> value ix l f.result (\rt => Func.callOp (mangle fn.name) args [rt])
 alg ix own (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
@@ -217,7 +225,7 @@ alg ix own (ConAppF l c as) env _ = do
 alg ix own (LetF l u v b) env expected = do
   Just x <- v.result env Nothing
     | Nothing => pure Nothing
-  x' <- coerce ix l (modeOf u x.type) x
+  x' <- coerce ix l u x
   b.result (bind [x'] env) expected
 -- A match takes its scrutinee at its grade: a linear one is used by the
 -- match, whose cases bind the fields as the constructor holds them and
@@ -230,38 +238,38 @@ alg ix own (CaseF l x alts def) env expected = do
     | t => internal ("a match on a value of type " ++ show t)
   Just decl <- pure (lookup d ix.datas)
     | Nothing => internal ("a match on " ++ show d ++ ", which is not declared")
-  st <- valText ix scrut
+  let takenApart = linear scrut.use scrut.type
   cases <- traverse (alternative before scrut) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
-      (header, inner) <- case scrut.mode of
-        Linear => do
-          back <- (\r => val r scrut.type Linear) <$> fresh
-          pure ("default(" ++ !(param ix back) ++ ") {", matched before back env)
-        Plain => pure ("default {", env)
+      (args, inner) <- the (E (List Value, b -> Val)) $ if takenApart
+        then do
+          back <- (\r => val r scrut.type Once) <$> fresh
+          arg <- operand ix back
+          pure ([arg], matched before back env)
+        else pure ([], env)
       (res, ops) <- collect (plain ix l (e.result inner expected))
-      pure [MkRegion header res ops]
+      pure [MkArm Nothing args res ops]
     Nothing => pure []
   case cases ++ dflt of
     [] => do
-      statement l "ub.unreachable"
+      statement l UB.unreachableOp
       pure Nothing
-    regions => match ix l ("idr.match " ++ scrut.name ++ " : " ++ st) regions
+    arms => match ix l (Idr.matchOp !(operand ix scrut)) arms
   where
-    alternative : Val -> Val -> AltF (Sub Em) b -> E Region
+    alternative : Val -> Val -> AltF (Sub Em) b -> E Arm
     alternative before scrut (MkAltF c fs body) = do
-      let held = case scrut.mode of
-                   Linear => binderMode
-                   Plain => const Plain
-      vals <- traverse (\f => (\n => val n (typeOf f) (held f)) <$> fresh) fs
-      args <- traverse (param ix) (toList vals)
+      let takenApart = linear scrut.use scrut.type
+      let use = if takenApart then binderUse else const Many
+      vals <- traverse (\f => (\n => val n (typeOf f) (use f)) <$> fresh) fs
+      args <- traverse (operand ix) (toList vals)
       -- Inside a case of a linear scrutinee, the scrutinee is the
       -- constructor of the fields the case bound.
-      inner <- case scrut.mode of
-        Linear => (\key => matched before (MkVal key scrut.type Plain (Just (c, toList vals))) env) <$> fresh
-        Plain => pure env
+      inner <- if takenApart
+        then (\k => matched before (MkVal k scrut.type Many (Just (c, toList vals))) env) <$> fresh
+        else pure env
       (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
-      pure (MkRegion ("case " ++ symbol (mangle c.name) ++ "(" ++ joinBy ", " args ++ ") {") res ops)
+      pure (MkArm (Just (flatSymbolRefAttr (mangle c.name))) args res ops)
 alg ix own (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible
@@ -273,51 +281,48 @@ alg ix own (CaseLitF l x alts def) env expected = do
                           else (live, Just def)
   case (cases, final) of
     (_, Nothing) => do
-      statement l "ub.unreachable"
+      statement l UB.unreachableOp
       pure Nothing
     ([], Just e) => e.result env expected
     (_, Just e) => do
-      scrut <- coerce ix l Plain !(force ix l (env x))
+      scrut <- coerce ix l Many !(force ix l (env x))
       let inner = matched (env x) scrut env
-      st <- typeText ix scrut.type
-      regions <- traverse (\(k, c) => do
-                             (res, ops) <- collect (plain ix l (c.result inner expected))
-                             pure (MkRegion ("case " ++ key k ++ " {") res ops)) cases
+      arms <- traverse (\(k, c) => do
+                          (res, ops) <- collect (plain ix l (c.result inner expected))
+                          pure (MkArm (Just (key k)) [] res ops)) cases
       (res, ops) <- collect (plain ix l (e.result inner expected))
-      match ix l ("idr.match_lit " ++ scrut.name ++ " : " ++ st) (regions ++ [MkRegion "default {" res ops])
+      match ix l (Idr.matchLitOp !(operand ix scrut)) (arms ++ [MkArm Nothing [] res ops])
 -- The predecessor exists only where the value is not zero: the successor's
 -- region computes it, and only it binds it.
 alg ix own (CaseNatF l x z s) env expected =
   case (excluded z, excluded s) of
     (True, True) => do
-      statement l "ub.unreachable"
+      statement l UB.unreachableOp
       pure Nothing
     (False, True) => z.result env expected
-    (True, False) => successor !(coerce ix l Plain !(force ix l (env x)))
+    (True, False) => successor !(coerce ix l Many !(force ix l (env x)))
     (False, False) => do
-      n <- coerce ix l Plain !(force ix l (env x))
+      n <- coerce ix l Many !(force ix l (env x))
       (zr, zops) <- collect (plain ix l (z.result env expected))
       (sr, sops) <- collect (plain ix l (successor n))
-      match ix l ("idr.match_lit " ++ n.name ++ " : !idr.nat")
-            [MkRegion ("case " ++ key (LNat 0) ++ " {") zr zops, MkRegion "default {" sr sops]
+      match ix l (Idr.matchLitOp !(operand ix n))
+            [MkArm (Just (key (LNat 0))) [] zr zops, MkArm Nothing [] sr sops]
   where
     successor : Val -> E (Maybe Val)
     successor n = do
-      p <- value l NatT ("idr.big.pred " ++ n.name)
+      p <- value ix l NatT (Idr.bigPredOp !(operand ix n))
       s.result (bind [p] env) expected
 alg ix own (LamF l lbl caps b body) env expected = do
   capVals <- traverse (force ix l . env) caps
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
-  (sym, rt) <- lifted ix own l lbl capVals [val "" (typeOf b) (binderMode b)] result
+  (sym, rt) <- lifted ix own l lbl capVals [val "" (typeOf b) (binderUse b)] result
                  (\cs, [p] => body.result (bind [p] (\i => index i cs)) result)
-  let t = FunT b rt
-  Just <$> closure sym (toList capVals) t
+  Just <$> closure sym (toList capVals) (FunT b rt)
   where
     closure : String -> List Val -> Ty -> E Val
-    closure sym cs t = value l t ("idr.closure " ++ symbol sym ++ "(" ++ names cs ++ ") : (" ++
-                                  !(types ix cs) ++ ") -> " ++ !(typeText ix t))
+    closure sym cs t = value ix l t (Idr.closureOp sym !(traverse (operand ix) cs))
 alg ix own (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
     | Nothing => pure Nothing
@@ -325,23 +330,25 @@ alg ix own (AppF l f x) env expected = do
     | t => internal ("an application of a value of type " ++ show t)
   Just xv <- x.result env (Just (typeOf a))
     | Nothing => pure Nothing
-  xv <- coerce ix l (binderMode a) xv
-  Just <$> value l r ("idr.apply " ++ fv.name ++ "(" ++ xv.name ++ ") : " ++ !(typeText ix fv.type))
+  xv <- coerce ix l (binderUse a) xv
+  callee <- operand ix fv
+  arg <- operand ix xv
+  Just <$> value ix l r (\rt => Idr.applyOp callee [arg] [rt])
 alg ix own (SuspendF l lbl caps body) env expected = do
   capVals <- traverse (force ix l . env) caps
   let result = case expected of
                  Just (LazyT r) => Just r
                  _ => Nothing
   (sym, rt) <- lifted ix own l lbl capVals [] result (\cs, _ => body.result (\i => index i cs) result)
-  let t = LazyT rt
-  Just <$> value l t ("idr.closure " ++ symbol sym ++ "(" ++ names (toList capVals) ++ ") : (" ++
-                      !(types ix (toList capVals)) ++ ") -> " ++ !(typeText ix t))
+  captures <- traverse (operand ix) (toList capVals)
+  Just <$> value ix l (LazyT rt) (Idr.closureOp sym captures)
 alg ix own (ResumeF l e) env expected = do
   Just ev <- plain ix l (e.result env Nothing)
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
-  Just <$> value l r ("idr.apply " ++ ev.name ++ "() : " ++ !(typeText ix ev.type))
+  callee <- operand ix ev
+  Just <$> value ix l r (\rt => Idr.applyOp callee [] [rt])
 -- The two loops over an array's index space: the body is a region taking
 -- the index (and for a fold the accumulator and the element), which yields
 -- the element (the next accumulator); a body that never returns ends in
@@ -349,34 +356,37 @@ alg ix own (ResumeF l e) env expected = do
 alg ix own (ArrayGenF l e n x w body res) env _ = do
   Just [nv, xv, wv] <- operands ix l env [n, x, w] [Held Many (IntT IdrisInt), Held Many e, Held Many WorldT]
     | _ => pure Nothing
-  i <- fresh
-  (r, ops) <- collect (plain ix l (body.result (bind [val i (IntT IdrisInt) Plain] env) (Just e)))
+  i <- val <$> fresh <*> pure (IntT IdrisInt) <*> pure Many
+  (r, ops) <- collect (plain ix l (body.result (bind [i] env) (Just e)))
+  yields <- yielding ix l r
+  let region = MkRegion [!(operand ix i)] (ops ++ yields)
   out <- fresh
-  append (Nest (out ++ ":2 = idr.array.generate " ++ nv.name ++ ", " ++ xv.name ++ ", " ++ wv.name ++
-                " : " ++ !(typeText ix e) ++ " -> " ++ !(typeText ix (ArrayT e)) ++ " (" ++ i ++ ": i64) {")
-               (ops ++ !(yielding ix l r)) "}" (Just (At l)))
-  Just <$> ioResult ix l res (val (out ++ "#0") (ArrayT e) Plain) (val (out ++ "#1") WorldT Plain)
+  append (MkStatement (Just out)
+           (Idr.arrayGenerateOp !(operand ix nv) !(operand ix xv) !(operand ix wv) region
+                                !(mlirType ix (ArrayT e)) !(mlirType ix WorldT))
+           (At l))
+  Just <$> ioResult ix l res (val (out ++ "#0") (ArrayT e) Many) (val (out ++ "#1") WorldT Many)
 alg ix own (ArrayFoldF l e t arr z w body res) env _ = do
   Just [av, zv, wv] <- operands ix l env [arr, z, w] [Held Many (ArrayT e), Held Many t, Held Many WorldT]
     | _ => pure Nothing
-  acc <- fresh
-  x <- fresh
-  i <- fresh
-  (r, ops) <- collect (plain ix l (body.result (bind [val acc t Plain, val x e Plain, val i (IntT IdrisInt) Plain] env)
-                                              (Just t)))
+  acc <- val <$> fresh <*> pure t <*> pure Many
+  x <- val <$> fresh <*> pure e <*> pure Many
+  i <- val <$> fresh <*> pure (IntT IdrisInt) <*> pure Many
+  (r, ops) <- collect (plain ix l (body.result (bind [acc, x, i] env) (Just t)))
+  yields <- yielding ix l r
+  let region = MkRegion !(traverse (operand ix) [acc, x, i]) (ops ++ yields)
   out <- fresh
-  append (Nest (out ++ ":2 = idr.array.fold " ++ av.name ++ ", " ++ zv.name ++ ", " ++ wv.name ++
-                " : " ++ !(typeText ix (ArrayT e)) ++ ", " ++ !(typeText ix t) ++ " -> " ++ !(typeText ix t) ++
-                " (" ++ acc ++ ": " ++ !(typeText ix t) ++ ", " ++ x ++ ": " ++ !(typeText ix e) ++
-                ", " ++ i ++ ": i64) {")
-               (ops ++ !(yielding ix l r)) "}" (Just (At l)))
-  Just <$> ioResult ix l res (val (out ++ "#0") t Plain) (val (out ++ "#1") WorldT Plain)
+  append (MkStatement (Just out)
+           (Idr.arrayFoldOp !(operand ix av) !(operand ix zv) !(operand ix wv) region
+                            !(mlirType ix t) !(mlirType ix WorldT))
+           (At l))
+  Just <$> ioResult ix l res (val (out ++ "#0") t Many) (val (out ++ "#1") WorldT Many)
 alg ix own (UnreachableF l) env _ = do
-  statement l "ub.unreachable"
+  statement l UB.unreachableOp
   pure Nothing
 -- A crash reports its message and never returns.
 alg ix own (CrashF l msg) env _ = do
-  statement l ("idr.crash " ++ utf8 msg)
-  statement l "ub.unreachable"
+  statement l (Idr.crashOp msg)
+  statement l UB.unreachableOp
   pure Nothing
-alg ix own (NewWorldF l) env _ = Just <$> value l WorldT "idr.world.new"
+alg ix own (NewWorldF l) env _ = Just <$> value ix l WorldT Idr.worldNewOp

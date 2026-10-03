@@ -1,3 +1,0 @@
-# String literals of Emit.idr, Emit/*.idr and MLIR.idr that emit-dialects allows
-# although they look like `<dialect>.`, one per line: `path: text -- reason`.
-compiler/src/IdrisMLIR/Emit/Operations.idr: "io." -- the text of an internal error about an IO op, never MLIR
