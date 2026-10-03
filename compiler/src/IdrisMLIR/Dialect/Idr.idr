@@ -138,10 +138,10 @@ export
 totalDiscardable : NamedAttr
 totalDiscardable = ("idr.total", unitAttr)
 
-||| The discardable attribute `idr.library`.
+||| The discardable attribute `idr.break_last`.
 export
-libraryDiscardable : NamedAttr
-libraryDiscardable = ("idr.library", unitAttr)
+breakLastDiscardable : NamedAttr
+breakLastDiscardable = ("idr.break_last", unitAttr)
 
 ||| The discardable attribute `idr.effects`.
 export
@@ -663,4 +663,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 329737934-934197 4234023483-26151
+-- fingerprint: 2027766871-935026 3012840158-26161

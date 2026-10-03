@@ -108,6 +108,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("no-closures", noClosures)
       .Case("no-heap-allocation", noHeapAllocation)
       .Case("every-cycle-has-breaker", everyCycleHasBreaker)
+      .Case("breaks-last", breaksLast)
       .Case("one-clone", oneClone)
       .Case("quantities-kept", quantitiesKept)
       .Case("reuses-in-place", reusesInPlace)

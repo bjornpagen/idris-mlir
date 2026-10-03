@@ -54,7 +54,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 
   // The passes of one round, parsed from their textual pipelines.
   LogicalResult buildRound(OpPassManager &pm) const {
-    for (const std::string &step : idr::simplifyRound(inlineIterations, cloneLimit))
+    for (const std::string &step : idr::simplifyRound(inlineIterations))
       if (failed(parsePassPipeline(step, pm, llvm::errs())))
         return failure();
     return success();
@@ -203,9 +203,9 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 // then removes the functions that only the emptied code referred to, which
 // the analysis would find unreachable in turn.
 //
-// Specialization has no limit to pass: it is finite by construction, and its
+// Specialization takes no option: it is finite by construction, and its
 // budget is an assertion of its own.
-SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations, unsigned) {
+SmallVector<std::string> idr::simplifyRound(unsigned inlineIterations) {
   return {
       "idr-loop-breakers",
       "idr-effects",

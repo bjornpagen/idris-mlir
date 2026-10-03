@@ -16,6 +16,7 @@ struct Effects : idr::impl::IdrEffectsBase<Effects> {
     for (auto [fn, effects] : idr::facts::infer(getOperation())) {
       numIO += effects.io;
       numCrash += effects.crash;
+      numDiverge += effects.diverge;
       idr::facts::record(fn, effects);
     }
   }

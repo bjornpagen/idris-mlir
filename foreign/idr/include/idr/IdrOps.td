@@ -44,9 +44,10 @@ def Idr_Dialect : Dialect {
     "::mlir::UnitAttr":$program,
     // The ownership stage: "owned" after idr-rc (lib/Ownership).
     "::mlir::StringAttr":$stage,
-    // A function's facts: total, written in a library, its effects.
+    // A function's facts: every loop of its body proved terminating, broken
+    // last, its effects.
     "::mlir::UnitAttr":$total,
-    "::mlir::UnitAttr":$library,
+    "::mlir::UnitAttr":$break_last,
     "::idr::EffectAttr":$effects,
     // idr-stack's box whose cell never leaves its frame.
     "::mlir::UnitAttr":$stack,
@@ -248,14 +249,17 @@ def Idr_CmpPredicate : I64EnumAttr<"CmpPredicate",
 // What a call of a function may do besides computing its results, as
 // idr-effects finds it: `io`, perform IO, which takes a world, so only a
 // function that takes one can, or anything at all, as a function without
-// a body may; `crash`, end the program with a crash. The attribute is
-// `idr.effects` on every function. Simplification only removes what a
+// a body may; `crash`, end the program with a crash; `diverge`, never
+// return, which a function may where its own body loops without Idris's
+// proof (no `idr.total`) or where it reaches one that may. The attribute
+// is `idr.effects` on every function. Simplification only removes what a
 // function reaches, so a stale value says too much, never too little; a
 // function without it may do anything.
 def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
       I32BitEnumAttrCaseNone<"none">,
       I32BitEnumAttrCaseBit<"io", 0>,
-      I32BitEnumAttrCaseBit<"crash", 1>]> {
+      I32BitEnumAttrCaseBit<"crash", 1>,
+      I32BitEnumAttrCaseBit<"diverge", 2>]> {
   let cppNamespace = "::idr";
   let separator = ", ";
   let genSpecializedAttr = 0;
@@ -1455,8 +1459,8 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInte
 // Specialization keys (lib/Specialize)
 //===----------------------------------------------------------------------===//
 
-// idr-specialize keeps the key of each clone it makes as `idr.spec_key`, so
-// that its later runs share the clone. The labels in a key are names, not
+// idr-specialize keeps the key of each clone it makes in the clone's
+// `idr.clone` attribute, so that its later runs share the clone. The labels in a key are names, not
 // symbol uses: a key keeps no function alive and refers to none.
 class Idr_KeyAttr<string name, string attrMnemonic> : AttrDef<Idr_Dialect, name> {
   let mnemonic = attrMnemonic;

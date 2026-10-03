@@ -3,8 +3,10 @@
 // idr-effects: #idr.effects on every function. `io` when the function
 // takes a world, as a parameter or in data one holds; `crash` when it
 // reaches an op that may crash, through calls and through the labels of
-// the closures it makes. A function without a body, and every function
-// that reaches one, does both. Running the pass again changes nothing.
+// the closures it makes; `diverge` when it reaches, the same way, a body
+// without Idris's proof (`idr.total`), its own included. A function without
+// a body, and every function that reaches one, does all three. Running the
+// pass again changes nothing.
 
 idr.data @IORes {
   idr.ctor @MkIORes (i64, !idr.world)
@@ -26,7 +28,7 @@ func.func private @pure(%x: i64) -> i64 attributes {idr.total} {
 // A division by a nonzero constant cannot crash; a stale fact goes.
 // CHECK-LABEL: func.func private @divides_safely(
 // CHECK-SAME: idr.effects = #idr.effects<none>
-func.func private @divides_safely(%x: i64) -> i64 attributes {idr.effects = #idr.effects<io, crash>} {
+func.func private @divides_safely(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<io, crash>} {
   %c = arith.constant 3 : i64
   %r = idr.div signed %x, %c : i64
   return %r : i64
@@ -34,14 +36,14 @@ func.func private @divides_safely(%x: i64) -> i64 attributes {idr.effects = #idr
 
 // CHECK-LABEL: func.func private @divides(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @divides(%x: i64) -> i64 {
+func.func private @divides(%x: i64) -> i64 attributes {idr.total} {
   %r = idr.div signed %x, %x : i64
   return %r : i64
 }
 
 // CHECK-LABEL: func.func private @crashes_in_region(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @crashes_in_region(%x: i64) -> i64 {
+func.func private @crashes_in_region(%x: i64) -> i64 attributes {idr.total} {
   %r = idr.match_lit %x : i64 -> (i64) {
   case 0 {
     idr.yield %x : i64
@@ -58,7 +60,7 @@ func.func private @crashes_in_region(%x: i64) -> i64 {
 // io, and the crash.
 // CHECK-LABEL: func.func private @transfers(
 // CHECK-SAME: idr.effects = #idr.effects<io, crash>
-func.func private @transfers(%buf: memref<?xi8>, %w: !idr.world) -> !idr.world {
+func.func private @transfers(%buf: memref<?xi8>, %w: !idr.world) -> !idr.world attributes {idr.total} {
   %zero = arith.constant 0 : i64
   %one = arith.constant 1 : i64
   %written, %w1 = idr.io.write_bytes %one, %buf[%zero, %one], %w : memref<?xi8>
@@ -69,20 +71,20 @@ func.func private @transfers(%buf: memref<?xi8>, %w: !idr.world) -> !idr.world {
 // Taking a world is performing IO, whatever the body does with it.
 // CHECK-LABEL: func.func private @writes(
 // CHECK-SAME: idr.effects = #idr.effects<io>
-func.func private @writes(%w: !idr.world) -> !idr.world {
+func.func private @writes(%w: !idr.world) -> !idr.world attributes {idr.total} {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
   return %w1 : !idr.world
 }
 // CHECK-LABEL: func.func private @passes_world(
 // CHECK-SAME: idr.effects = #idr.effects<io>
-func.func private @passes_world(%w: !idr.world) -> !idr.world {
+func.func private @passes_world(%w: !idr.world) -> !idr.world attributes {idr.total} {
   return %w : !idr.world
 }
 // A world in data counts too.
 // CHECK-LABEL: func.func private @finishes(
 // CHECK-SAME: idr.effects = #idr.effects<io>
-func.func private @finishes(%r: !idr.data<@IORes>) -> !idr.world {
+func.func private @finishes(%r: !idr.data<@IORes>) -> !idr.world attributes {idr.total} {
   %w = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
   %w1 = func.call @writes(%w) : (!idr.world) -> !idr.world
   return %w1 : !idr.world
@@ -91,20 +93,20 @@ func.func private @finishes(%r: !idr.data<@IORes>) -> !idr.world {
 // Crashes flow through calls, and around a cycle of calls.
 // CHECK-LABEL: func.func private @calls(
 // CHECK-SAME: idr.effects = #idr.effects<io, crash>
-func.func private @calls(%x: i64, %w: !idr.world) -> !idr.world {
+func.func private @calls(%x: i64, %w: !idr.world) -> !idr.world attributes {idr.total} {
   %q = func.call @divides(%x) : (i64) -> i64
   %w1 = func.call @writes(%w) : (!idr.world) -> !idr.world
   return %w1 : !idr.world
 }
 // CHECK-LABEL: func.func private @ping(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @ping(%x: i64) -> i64 {
+func.func private @ping(%x: i64) -> i64 attributes {idr.total} {
   %r = func.call @pong(%x) : (i64) -> i64
   return %r : i64
 }
 // CHECK-LABEL: func.func private @pong(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @pong(%x: i64) -> i64 {
+func.func private @pong(%x: i64) -> i64 attributes {idr.total} {
   %y = func.call @ping(%x) : (i64) -> i64
   %r = func.call @divides(%y) : (i64) -> i64
   return %r : i64
@@ -114,7 +116,7 @@ func.func private @pong(%x: i64) -> i64 {
 // world, and whoever runs the action gives it one.
 // CHECK-LABEL: func.func private @makes_writer(
 // CHECK-SAME: idr.effects = #idr.effects<none>
-func.func private @makes_writer() -> !idr.fn<(!idr.world) -> (!idr.world)> {
+func.func private @makes_writer() -> !idr.fn<(!idr.world) -> (!idr.world)> attributes {idr.total} {
   %c = idr.closure @writes() : () -> !idr.fn<(!idr.world) -> (!idr.world)>
   return %c : !idr.fn<(!idr.world) -> (!idr.world)>
 }
@@ -124,31 +126,31 @@ func.func private @makes_writer() -> !idr.fn<(!idr.world) -> (!idr.world)> {
 // sum of closures.
 // CHECK-LABEL: func.func private @makes_divider(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @makes_divider() -> !idr.fn<(i64) -> (i64)> {
+func.func private @makes_divider() -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
   %c = idr.closure @divides() : () -> !idr.fn<(i64) -> (i64)>
   return %c : !idr.fn<(i64) -> (i64)>
 }
 // CHECK-LABEL: func.func private @has_divider(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @has_divider() -> !idr.fn<(i64) -> (i64)> {
+func.func private @has_divider() -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
   %c = idr.constant #idr.closure<@divides, []> : !idr.fn<(i64) -> (i64)>
   return %c : !idr.fn<(i64) -> (i64)>
 }
 // CHECK-LABEL: func.func private @builds_divider(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @builds_divider() -> !idr.data<@fn$0> {
+func.func private @builds_divider() -> !idr.data<@fn$0> attributes {idr.total} {
   %c = idr.con @fn$0::@divides() : () -> !idr.data<@fn$0>
   return %c : !idr.data<@fn$0>
 }
 // CHECK-LABEL: func.func private @has_sum_divider(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
-func.func private @has_sum_divider() -> !idr.data<@fn$0> {
+func.func private @has_sum_divider() -> !idr.data<@fn$0> attributes {idr.total} {
   %c = idr.constant #idr.con<@fn$0::@divides, []> : !idr.data<@fn$0>
   return %c : !idr.data<@fn$0>
 }
 // CHECK-LABEL: func.func private @builds_pure(
 // CHECK-SAME: idr.effects = #idr.effects<none>
-func.func private @builds_pure() -> !idr.data<@fn$0> {
+func.func private @builds_pure() -> !idr.data<@fn$0> attributes {idr.total} {
   %c = idr.con @fn$0::@pure() : () -> !idr.data<@fn$0>
   return %c : !idr.data<@fn$0>
 }
@@ -157,18 +159,18 @@ func.func private @builds_pure() -> !idr.data<@fn$0> {
 // counts where it is made, and a call that passes it on is judged by it.
 // CHECK-LABEL: func.func private @applies(
 // CHECK-SAME: idr.effects = #idr.effects<none>
-func.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+func.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {idr.total} {
   %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
 
 // A function without a body, and its callers, do everything.
 // CHECK-LABEL: func.func private @external(
-// CHECK-SAME: idr.effects = #idr.effects<io, crash>
+// CHECK-SAME: idr.effects = #idr.effects<io, crash, diverge>
 func.func private @external(i64) -> i64
 // CHECK-LABEL: func.func @main(
-// CHECK-SAME: idr.effects = #idr.effects<io, crash>
-func.func @main() -> i64 {
+// CHECK-SAME: idr.effects = #idr.effects<io, crash, diverge>
+func.func @main() -> i64 attributes {idr.total} {
   %c = arith.constant 1 : i64
   %r = func.call @external(%c) : (i64) -> i64
   return %r : i64
@@ -177,8 +179,45 @@ func.func @main() -> i64 {
 // A world forged in the body is IO that no parameter announces.
 // CHECK-LABEL: func.func private @forges(
 // CHECK-SAME: idr.effects = #idr.effects<io>
-func.func private @forges(%c: i32) {
+func.func private @forges(%c: i32) attributes {idr.total} {
   %w = idr.world.new
   %w1 = idr.io.put_char %c, %w
   return
+}
+
+// A body without Idris's proof may diverge, and so may whatever reaches
+// it: by a call, around a cycle, or by a closure it makes. Idris's proof
+// of a function does not stop it: the proof counts the calls Idris saw,
+// and a call of an interface's method reaches its implementation only
+// once the dictionary is known, as @method_user's call of @method does.
+// CHECK-LABEL: func.func private @loops(
+// CHECK-SAME: idr.effects = #idr.effects<diverge>
+func.func private @loops(%x: i64) -> i64 {
+  %r = func.call @loops(%x) : (i64) -> i64
+  return %r : i64
+}
+// CHECK-LABEL: func.func private @method(
+// CHECK-SAME: idr.effects = #idr.effects<diverge>
+func.func private @method(%x: i64) -> i64 attributes {idr.total} {
+  %r = func.call @loops(%x) : (i64) -> i64
+  return %r : i64
+}
+// CHECK-LABEL: func.func private @method_user(
+// CHECK-SAME: idr.effects = #idr.effects<diverge>
+func.func private @method_user(%x: i64) -> i64 attributes {idr.total} {
+  %r = func.call @method(%x) : (i64) -> i64
+  return %r : i64
+}
+// CHECK-LABEL: func.func private @makes_looper(
+// CHECK-SAME: idr.effects = #idr.effects<diverge>
+func.func private @makes_looper() -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  %c = idr.closure @loops() : () -> !idr.fn<(i64) -> (i64)>
+  return %c : !idr.fn<(i64) -> (i64)>
+}
+// A cycle Idris proved does not diverge.
+// CHECK-LABEL: func.func private @proved_cycle(
+// CHECK-SAME: idr.effects = #idr.effects<none>
+func.func private @proved_cycle(%x: i64) -> i64 attributes {idr.total} {
+  %r = func.call @proved_cycle(%x) : (i64) -> i64
+  return %r : i64
 }

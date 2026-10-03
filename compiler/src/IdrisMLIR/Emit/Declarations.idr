@@ -6,7 +6,6 @@ import IdrisMLIR.Dialect.Func as Func
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Bodies
-import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Emit.Types
@@ -53,9 +52,7 @@ function ix root f = do
   rt <- mlirType ix f.result
   args <- traverse (operand ix) (toList params)
   body <- epilogue ix f.loc rt res ops
-  -- A loop breaker: inlining it could unroll a cycle.
-  let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private"}
-                       {noInline = contains (FnNode f.id) ix.breakers} sym
+  let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private"} sym
                        (functionType (map (\a : Value => a.type) args) [rt])
                        (MkRegion args body)
   inner <- gets (.lifted)

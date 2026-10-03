@@ -82,11 +82,14 @@ FailureOr<Layouts> Layouts::of(ModuleOp m) {
   Layouts layouts(m);
   // The runtime frees a cell by its object slots, which it reads as
   // pointers of the target it is compiled for, one word each; the layouts
-  // must place them as it reads them.
+  // must place them as it reads them. The module's data layout is the
+  // target entry's (idr-target), the one the runtime is built for, so a
+  // mismatch is the compiler's error, never the program's.
   Type pointer = LLVM::LLVMPointerType::get(m.getContext());
   if (layouts.sizeOf(pointer) != IDRIS_RT_WORD_BYTES ||
       layouts.alignmentOf(pointer) != IDRIS_RT_WORD_BYTES)
-    return m.emitError() << "unsupported (target): its pointers take " << layouts.sizeOf(pointer)
+    return m.emitError() << "the module's target is not the runtime's: its pointers take "
+                         << layouts.sizeOf(pointer)
                          << " bytes at an alignment of " << layouts.alignmentOf(pointer)
                          << ", and the runtime's object slots are words of "
                          << IDRIS_RT_WORD_BYTES;

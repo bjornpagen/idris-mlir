@@ -9,19 +9,23 @@ include "mlir/Rewrite/PassUtil.td"
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
   let summary = "Compute idr.effects on every function";
   let description = [{
-    `idr.effects = #idr.effects<io, crash>` says what a call of a function
-    may do besides computing its results. `io`: it takes a world, as a
-    parameter or in data a parameter holds; worlds reach a function only
-    that way, so a function that only builds IO actions is not `io`.
+    `idr.effects = #idr.effects<io, crash, diverge>` says what a call of a
+    function may do besides computing its results. `io`: it takes a world,
+    as a parameter or in data a parameter holds; worlds reach a function
+    only that way, so a function that only builds IO actions is not `io`.
     `crash`: it reaches an op that may crash, through calls and through the
     labels of the closures it makes (`idr.closure`, closure constants, and
-    the constructors of idr-defunctionalize's sums of closures). A function
+    the constructors of idr-defunctionalize's sums of closures). `diverge`:
+    it reaches, the same way, a function without `idr.total`, itself
+    included; a function Idris proved does not stop it, since its proof does
+    not see the implementations its interface methods reach. A function
     without a body, and every function that reaches one or calls anything
-    but a func.func, gets both. `#idr.effects<none>` is neither.
+    but a func.func, gets all three. `#idr.effects<none>` is none of them.
   }];
   let statistics = [
     Statistic<"numIO", "io", "Functions that get io">,
     Statistic<"numCrash", "crash", "Functions that get crash">,
+    Statistic<"numDiverge", "diverge", "Functions that get diverge">,
   ];
 }
 
@@ -105,8 +109,8 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
     process, and each result replaces its call as constants. Every call runs
     metered, within a budget of ticks (counted where code enters a function
     or goes round a loop), arena bytes and stack; a call that reaches only
-    total code gets a larger budget than one that reaches a function
-    without `idr.total`. A call that crashes, spends its budget, or is
+    total code gets a larger budget than one whose code may diverge
+    (`idr.effects`). A call that crashes, spends its budget, or is
     refused memory by the machine stays, and so does one whose results
     would take more than 1 MiB of static data. The results come back as
     MLIR bytecode, read once per cell, so parts they share stay shared.
@@ -143,9 +147,10 @@ def IdrLoopBreakers : Pass<"idr-loop-breakers", "::mlir::ModuleOp"> {
     A function refers to what it calls and to the functions its closures and
     closure constants name. In every cycle of such references among the
     functions that may be inlined, one becomes `no_inline`: the newest
-    clone, or else the first function in module order that is not from a
-    library. The first step of every round of `idr-simplify`, so that the
-    inliner never unrolls a cycle the previous round closed.
+    clone, or else the first function in module order without
+    `idr.break_last`, or else the first. The first step of every round of
+    `idr-simplify`, so that the inliner never unrolls a cycle, whether Emit
+    wrote it or the previous round closed it.
   }];
   let statistics = [
     Statistic<"numBreakers", "breakers", "Functions made loop breakers">,
@@ -442,8 +447,6 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
     Option<"inlineIterations", "inline-iterations", "unsigned", "0",
            "max-iterations of the inliner in each round; 0, the default, "
            "until an iteration inlines nothing">,
-    Option<"cloneLimit", "clone-limit", "unsigned", "4096",
-           "clone-limit of idr-specialize">,
     Option<"maxRounds", "max-rounds", "unsigned", "64",
            "The round budget: the most rounds a fixpoint may take">,
   ];
@@ -583,6 +586,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         heap cell, anywhere, or in @f and everything it may call;
       - `every-cycle-has-breaker`: every cycle of references among the
         functions that may be inlined has a `no_inline` function;
+      - `breaks-last`: a cycle that holds a function without
+        `idr.break_last` never breaks at one with it: every such breaker,
+        other than a clone (the newest of which breaks its cycle, whatever
+        it is), is on a cycle of `idr.break_last` functions alone;
       - `one-clone=@f`: every call of @f or of a clone of it calls one
         function;
       - `reuses-in-place=@f`: in @f every box is built in a reused cell

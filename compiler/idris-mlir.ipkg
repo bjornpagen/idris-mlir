@@ -27,7 +27,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Dialect.MemRef
         , IdrisMLIR.CustomSyntax
         , IdrisMLIR.Emit.Attributes
-        , IdrisMLIR.Emit.Breakers
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types
