@@ -11,8 +11,8 @@
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
+#include "platform.h"
 
-#include <sys/mman.h>
 #include <unistd.h>
 
 #define IDRIS_RT_COMPILER_ONLY [[clang::annotate("idris-rt-compiler")]]
@@ -72,11 +72,10 @@ extern "C" IDRIS_RT_COMPILER_ONLY void *idris_rt_arena_alloc(size_t size) {
   }
   if (size > static_cast<size_t>(arenaEnd - arenaNext)) {
     size_t chunk = size > chunkSize ? (size + chunkSize - 1) & ~(chunkSize - 1) : chunkSize;
-    void *block = mmap(nullptr, chunk, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (block == MAP_FAILED)
+    char *block = rt::platform::reserve(chunk);
+    if (block == nullptr)
       _exit(IDRIS_RT_EVAL_EXHAUSTED);
-    arenaNext = static_cast<char *>(block);
+    arenaNext = block;
     arenaEnd = arenaNext + chunk;
   }
   char *result = arenaNext;
