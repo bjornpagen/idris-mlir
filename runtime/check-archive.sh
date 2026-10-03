@@ -1,20 +1,32 @@
 #!/bin/sh
 # The runtime archive references no symbol of the C++ runtime, not even
-# weakly, and has no static constructors or destructors. The
-# build runs it after the link check (runtime/CMakeLists.txt), and so does
-# tests/toolchain/runtime-link.
+# weakly, and has no static constructors or destructors. The build runs it
+# after the link check (runtime/CMakeLists.txt), through the wrapper it
+# writes with the target entry's spellings (build/<preset>/runtime/
+# check-archive), and so does tests/toolchain/runtime-archive-check.
 #
-# Usage: check-archive.sh LLVM-NM LLVM-READELF ARCHIVE [STAMP]
+# Usage: check-archive.sh LLVM-NM LLVM-OBJDUMP SYMBOL-PREFIX
+#                         CONSTRUCTOR-SECTIONS ARCHIVE [STAMP]
+# SYMBOL-PREFIX is what the object format puts before a C name ("" on ELF,
+# "_" on Mach-O); CONSTRUCTOR-SECTIONS, the names of the sections that hold
+# static constructors and destructors, separated by spaces (a section named
+# one of them followed by a dot and a priority counts too). Both are the
+# target entry's (CMakeLists.txt). LLVM's tools read every object format
+# alike, so only these spellings differ between targets.
 # Prints one line and exits 0 when the archive passes, and touches STAMP;
-# otherwise prints what it found and exits 1.
+# otherwise prints what it found and exits 1. An archive that does not
+# define the runtime's entry, idris_rt_start, as a C name fails too: a check
+# that reads no name right proves nothing.
 set -eu
 LC_ALL=C
 export LC_ALL
 
 nm=$1
-readelf=$2
-archive=$3
-stamp=${4-}
+objdump=$2
+prefix=$3
+constructors=$4
+archive=$5
+stamp=${6-}
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-rt-check.XXXXXX")
 trap 'rm -rf "$work"' EXIT
@@ -26,10 +38,22 @@ if ! "$nm" --print-file-name "$archive" > "$work/nm" 2> "$work/nm.err"; then
   exit 1
 fi
 # The last two fields of each line are the symbol's type and name; U, w and v
-# are the undefined ones.
-awk '$(NF-1) ~ /^[Uwv]$/ { print $NF }' "$work/nm" | sort -u > "$work/undefined"
-awk '$(NF-1) !~ /^[Uwv]$/ { print $NF }' "$work/nm" | sort -u > "$work/defined"
+# are the undefined ones. The names are C's once the prefix is taken off.
+awk -v prefix="$prefix" '
+  NF >= 2 {
+    name = $NF
+    if (prefix != "" && index(name, prefix) == 1) name = substr(name, length(prefix) + 1)
+    print (($(NF-1) ~ /^[Uwv]$/) ? "U" : "D"), name
+  }' "$work/nm" > "$work/symbols"
+awk '$1 == "U" { print $2 }' "$work/symbols" | sort -u > "$work/undefined"
+awk '$1 == "D" { print $2 }' "$work/symbols" | sort -u > "$work/defined"
 comm -23 "$work/undefined" "$work/defined" > "$work/external"
+# The runtime's entry is among its names, read as C's: otherwise the prefix
+# is not the object format's, and no name below would be read right.
+if ! grep -qx 'idris_rt_start' "$work/defined"; then
+  echo "runtime check: $archive defines no idris_rt_start once '$prefix' is taken off its names, so nothing was checked"
+  exit 1
+fi
 
 # libc, GMP and compiler-rt define only C names, so every mangled name comes
 # from the C++ library. The rest is the C++ ABI (but the two __cxa_ functions
@@ -37,12 +61,19 @@ comm -23 "$work/undefined" "$work/defined" > "$work/external"
 grep -E '^(_Z|__cxa_|__cxxabi|__gxx_|__gcc_personality|_Unwind_|__dynamic_cast$)' "$work/external" |
   grep -vxE '__cxa_atexit|__cxa_finalize' > "$work/cxx" || true
 
-if ! "$readelf" --section-headers "$archive" > "$work/sections" 2> "$work/readelf.err"; then
-  echo "runtime check: $readelf failed on $archive"
-  cat "$work/readelf.err"
+if ! "$objdump" --section-headers "$archive" > "$work/sections" 2> "$work/objdump.err"; then
+  echo "runtime check: $objdump failed on $archive"
+  cat "$work/objdump.err"
   exit 1
 fi
-grep -E '[[:space:]]\.(init_array|fini_array|ctors|dtors|preinit_array)([.[:space:]]|$)' "$work/sections" > "$work/constructors" || true
+# Each section is a line `INDEX NAME SIZE ...` under a member's header.
+awk -v names="$constructors" '
+  BEGIN { n = split(names, list, " ") }
+  /:[[:space:]]+file format / { member = $1; sub(/:$/, "", member) }
+  $1 ~ /^[0-9]+$/ && NF >= 3 {
+    for (i = 1; i <= n; i++)
+      if ($2 == list[i] || index($2, list[i] ".") == 1) { print member ": " $2; break }
+  }' "$work/sections" > "$work/constructors"
 
 status=0
 if [ -s "$work/cxx" ]; then

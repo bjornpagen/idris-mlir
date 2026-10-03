@@ -1,0 +1,69 @@
+#!/bin/sh
+# The runtime's archive check (runtime/check-archive.sh) passes the
+# runtime and fails an archive that references the C++ runtime, has a static
+# constructor, or that it cannot read as the target entry spells it: the
+# wrapper the build writes with the entry's spellings, on archives of this
+# target's object format, and the script itself with Mach-O's spellings on
+# Mach-O archives (x86-64 Mach-O, which the pinned LLVM writes), so that
+# neither format's check passes for want of reading anything.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+check=$root/build/dev/runtime/check-archive
+archive=$root/build/dev/runtime/libidris_rt.a
+
+# check NAME CHECK... ARCHIVE: the check's exit status and what it printed,
+# with the work directory's path taken out.
+check() {
+  check_name=$1
+  shift
+  bounded "$@" > "$work/check.out" 2>&1
+  say "$check_name: exit $?"
+  sed "s|$work/||g; s/^/  | /" "$work/check.out"
+}
+
+# member NAME TARGET SOURCE: SOURCE, C++, compiled for TARGET into the
+# archive $work/NAME.a, alone.
+member() {
+  printf '%s\n' "$3" > "$work/$1.cc"
+  if ! bounded "$llvm_bin/clang++" --target="$2" -fno-exceptions -c "$work/$1.cc" -o "$work/$1.o" \
+      > "$work/cc.log" 2>&1; then
+    say "$1: does not compile"
+    show "$work/cc.log"
+    return 1
+  fi
+  rm -f "$work/$1.a"
+  bounded "$llvm_bin/llvm-ar" rcs "$work/$1.a" "$work/$1.o"
+}
+
+entry='extern "C" int idris_rt_start(void) { return 0; }'
+cxx="$entry"' int *cell() { return new int; }'
+ctor="$entry"' extern "C" int answer(void); struct S { int v; S() : v(answer()) {} }; S s;'
+
+check runtime sh "$check" "$archive"
+
+target=$("$idris_mlir_cc" --print-target-triple)
+member clean "$target" "$entry" || exit 0
+member cxx "$target" "$cxx" || exit 0
+member ctor "$target" "$ctor" || exit 0
+member blind "$target" 'extern "C" int other(void) { return 0; }' || exit 0
+check clean sh "$check" "$work/clean.a"
+check cxx sh "$check" "$work/cxx.a"
+check ctor sh "$check" "$work/ctor.a"
+check blind sh "$check" "$work/blind.a"
+
+# Mach-O: names behind "_", constructors in __mod_init_func.
+macho_sections='__mod_init_func __mod_term_func __init_offsets'
+member macho-clean x86_64-apple-macosx14.0 "$entry" || exit 0
+member macho-cxx x86_64-apple-macosx14.0 "$cxx" || exit 0
+member macho-ctor x86_64-apple-macosx14.0 "$ctor" || exit 0
+macho_check() {
+  macho_check_name=$1
+  shift
+  check "$macho_check_name" sh "$root/runtime/check-archive.sh" "$llvm_bin/llvm-nm" \
+    "$llvm_bin/llvm-objdump" _ "$macho_sections" "$@"
+}
+macho_check macho-clean "$work/macho-clean.a"
+macho_check macho-cxx "$work/macho-cxx.a"
+macho_check macho-ctor "$work/macho-ctor.a"
+# ELF's spellings on Mach-O read no name as C's.
+check macho-as-elf sh "$root/runtime/check-archive.sh" "$llvm_bin/llvm-nm" "$llvm_bin/llvm-objdump" \
+  '' '.init_array .fini_array .ctors .dtors .preinit_array' "$work/macho-cxx.a"
