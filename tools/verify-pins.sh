@@ -106,7 +106,10 @@ check() {
           [ -d "$sdk" ] || fail "the macOS SDK path $sdk is not a directory"
           [ -f "$llvm_prefix/provenance.json" ] ||
             fail "Build the pinned LLVM/MLIR with tools/bootstrap.sh stage2 first"
-          for runtime in libc++.a libclang_rt.builtins.a; do
+          # The pinned libc++ and compiler-rt's builtins: on Darwin the
+          # builtins are one OS library (libclang_rt.osx.a), not the
+          # per-triple libclang_rt.builtins.a Linux installs.
+          for runtime in libc++.a 'libclang_rt.*.a'; do
             found=$(find "$llvm_prefix/lib/clang" -name "$runtime" -print -quit 2> /dev/null)
             [ -n "$found" ] || fail "the pinned clang has no $runtime under $llvm_prefix/lib/clang; rerun tools/bootstrap.sh stage2"
           done
