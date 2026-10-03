@@ -1,0 +1,10 @@
+fib	38	this compiler	130000000
+fib	38	this compiler	120000000
+fib	38	Idris Chez	3600000000
+fib	38	Idris Chez	3500000000
+fib	38	clang -O2	125000000
+fib	38	clang -O2	240000000
+regex	fasta 9	this compiler	3000000000
+regex	fasta 9	this compiler	3100000000
+regex	fasta 9	Idris Chez	1500000000
+regex	fasta 9	Idris Chez	1600000000

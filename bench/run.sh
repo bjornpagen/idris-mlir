@@ -9,11 +9,17 @@
 # compiler never does:
 # the columns compare compilers, not instruction sets or rounding. Prints
 # what it ran on (the host, its CPU, the stack limit and every compiler's
-# version), then a Markdown table of the best of several wall-clock times,
-# and checks that the outputs agree; then the wall-clock time this compiler
-# took to compile each program.
+# version) on stderr, checks that the outputs agree, and then prints
+# bench/report.sh's results: the best of several wall-clock times per
+# compiler and the wall-clock time this compiler took to compile each
+# program.
 #
-#     bench/run.sh [--runs N] [name ...]
+#     bench/run.sh [--runs N] [--record DIR] [name ...]
+#
+# With --record, the run's record (every timed run, the compile times and
+# what it ran on; bench/report.sh describes it) is kept in DIR, with the
+# results and charts made from it, once every output has agreed: a run
+# that fails leaves no record.
 #
 # MLton, Koka and Lean are looked up in .toolchain/mlton, .toolchain/koka
 # and .toolchain/lean (bench/toolchains.sh puts them there) and then on
@@ -95,12 +101,15 @@ link_flags=$("$idris_mlir_cc" --print-link-flags) ||
 stack=$(stack_max && ulimit -s) || die "cannot raise the stack limit"
 
 runs=5
+keep=
 names=
 while [ $# -gt 0 ]; do
   case $1 in
-    --runs) [ $# -ge 2 ] || die "usage: bench/run.sh [--runs N] [name ...]"; runs=$2; shift ;;
+    --runs) [ $# -ge 2 ] || die "usage: bench/run.sh [--runs N] [--record DIR] [name ...]"; runs=$2; shift ;;
     --runs=*) runs=${1#--runs=} ;;
-    -*) die "usage: bench/run.sh [--runs N] [name ...]" ;;
+    --record) [ $# -ge 2 ] || die "usage: bench/run.sh [--runs N] [--record DIR] [name ...]"; keep=$2; shift ;;
+    --record=*) keep=${1#--record=} ;;
+    -*) die "usage: bench/run.sh [--runs N] [--record DIR] [name ...]" ;;
     *) names="$names $1" ;;
   esac
   shift
@@ -109,6 +118,9 @@ done
 case $runs in
   '' | *[!0-9]*) die "--runs takes a number" ;;
 esac
+if [ -n "$keep" ] && [ -e "$keep" ] && [ -n "$(ls -A "$keep" 2> /dev/null)" ]; then
+  die "--record $keep: not an empty directory; a record is never overwritten"
+fi
 
 mlton=$toolchain/mlton/usr/bin/mlton
 [ -f "$mlton" ] || mlton=$(command -v mlton 2> /dev/null)
@@ -121,41 +133,50 @@ if [ ! -x "$lean" ] || [ ! -x "$leanc" ]; then
   leanc=$(command -v leanc 2> /dev/null)
 fi
 
-# What the table was measured on, first, so that it describes itself: the
-# host, its CPU, the stack and each column's compiler, or why it reads n/a.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bench.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+record=$tmp/record
+mkdir "$record"
+: > "$record/samples.tsv"
+: > "$record/compile.tsv"
+
+# What the run measured on, first, so that its record describes itself:
+# when and at which revision, the host, its CPU, the stack and each
+# column's compiler, or why it reads n/a.
 first_line() {
   "$@" 2>&1 | head -n 1
 }
 revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=unknown
-echo "Host: $(uname -srm), $(cpu_name), $(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1) CPUs."
-case $stack in
-  unlimited) echo "Stack: unlimited (ulimit -s), the most this system allows." ;;
-  *) echo "Stack: $stack KiB (ulimit -s), the most this system allows." ;;
-esac
-echo
-echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $link_flags"
-echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
-if [ -n "$mlton" ]; then
-  echo "- MLton: $(first_line "$mlton")"
-else
-  echo "- MLton: not found (bench/toolchains.sh mlton, or mlton on PATH); its column reads n/a"
-fi
-echo "- clang -O2: $(first_line "$pinned_cc" --version)"
-if [ -n "$koka" ]; then
-  echo "- Koka: $(first_line "$koka" --version)"
-else
-  echo "- Koka: not found (bench/toolchains.sh koka, or koka on PATH); its column reads n/a"
-fi
-if [ -n "$lean" ] && [ -n "$leanc" ]; then
-  echo "- Lean 4: $(first_line "$lean" --version)"
-else
-  echo "- Lean 4: not found (bench/toolchains.sh lean, or lean and leanc on PATH); its column reads n/a"
-fi
-echo
-
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bench.XXXXXX") || exit 1
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 1' HUP INT TERM
+{
+  echo "Measured on $(date -u '+%Y-%m-%d at %H:%M UTC'), at $revision."
+  echo
+  echo "Host: $(uname -srm), $(cpu_name), $(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1) CPUs."
+  case $stack in
+    unlimited) echo "Stack: unlimited (ulimit -s), the most this system allows." ;;
+    *) echo "Stack: $stack KiB (ulimit -s), the most this system allows." ;;
+  esac
+  echo
+  echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $link_flags"
+  echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
+  if [ -n "$mlton" ]; then
+    echo "- MLton: $(first_line "$mlton")"
+  else
+    echo "- MLton: not found (bench/toolchains.sh mlton, or mlton on PATH); its column reads n/a"
+  fi
+  echo "- clang -O2: $(first_line "$pinned_cc" --version)"
+  if [ -n "$koka" ]; then
+    echo "- Koka: $(first_line "$koka" --version)"
+  else
+    echo "- Koka: not found (bench/toolchains.sh koka, or koka on PATH); its column reads n/a"
+  fi
+  if [ -n "$lean" ] && [ -n "$leanc" ]; then
+    echo "- Lean 4: $(first_line "$lean" --version)"
+  else
+    echo "- Lean 4: not found (bench/toolchains.sh lean, or lean and leanc on PATH); its column reads n/a"
+  fi
+} > "$record/about"
+cat "$record/about" >&2
 
 # idris_sources DIR: the benchmark's Idris source, and bench/lib's, in DIR.
 idris_sources() {
@@ -179,7 +200,7 @@ build() {
       bounded "$root/tools/compile.sh" $packages "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
       # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
-      echo "$name|$(( $(now_ns) - compile_start ))" >> "$compiles"
+      printf '%s\t%s\n' "$name" "$(( $(now_ns) - compile_start ))" >> "$record/compile.tsv"
       ;;
     'Idris Chez')
       idris_sources "$work/chez"
@@ -226,10 +247,9 @@ build() {
   fi
 }
 
-# timed CMD OUT: the best wall-clock time of $runs runs of CMD on the input,
-# in nanoseconds, in $best; the last run's stdout in OUT.
+# timed CMD OUT: $runs runs of CMD on the input, each one's wall-clock time
+# a sample of the record; the last run's stdout in OUT.
 timed() {
-  best=
   run=0
   while [ "$run" -lt "$runs" ]; do
     start=$(now_ns)
@@ -242,8 +262,7 @@ timed() {
     status=$?
     end=$(now_ns)
     [ "$status" -eq 0 ] || die "$1 exited $status: $(cat "$work/stderr")"
-    elapsed=$((end - start))
-    if [ -z "$best" ] || [ "$elapsed" -lt "$best" ]; then best=$elapsed; fi
+    printf '%s\t%s\t%s\t%s\n' "$name" "$stdin" "$label" "$((end - start))" >> "$record/samples.tsv"
     run=$((run + 1))
   done
 }
@@ -274,10 +293,6 @@ agree() {
     }' "$1" "$2"
 }
 
-rows=$tmp/rows
-: > "$rows"
-compiles=$tmp/compiles
-: > "$compiles"
 for name in $names; do
   [ -f "$bench/$name/Main.idr" ] || die "unknown benchmark: $name"
   work=$tmp/$name
@@ -304,18 +319,13 @@ for name in $names; do
   fi
   compare=numbers
   [ -f "$bench/$name/compare" ] && compare=$(cat "$bench/$name/compare")
-  times=
+  echo "$name" >&2
   IFS='|'
   set -- $labels
   unset IFS
   for label; do
     build "$label"
-    if [ -n "$cmd" ]; then
-      timed "$cmd" "$work/$label.out"
-      times="$times|$best"
-    else
-      times="$times|"
-    fi
+    [ -z "$cmd" ] || timed "$cmd" "$work/$label.out"
   done
   reference="$work/this compiler.out"
   [ -f "$reference" ] || reference="$work/clang -O2.out"
@@ -329,22 +339,12 @@ for name in $names; do
     agree "$out" "$reference" ||
       die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
   done
-  echo "$name|$stdin$times" >> "$rows"
 done
 
-echo "Best of $runs runs, wall-clock seconds. Outputs agree."
-echo
-echo "| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |"
-echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
-awk -F'|' '
-  function cell(t) { return t == "" ? "n/a" : sprintf("%.3f", t / 1e9) }
-  {
-    ratio = ($6 != "" && $3 != "" && $3 > 0) ? sprintf("%.2fx", $6 / $3) : "n/a"
-    printf "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", $1, $2, cell($3), cell($4), cell($5), cell($6), cell($7), cell($8), ratio
-  }' "$rows"
-echo
-echo "Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link."
-echo
-echo "| benchmark | compile |"
-echo "| --- | ---: |"
-awk -F'|' '{ printf "| %s | %.3f |\n", $1, $2 / 1e9 }' "$compiles"
+# Every output agreed: the record is complete, and what it shows is
+# bench/report.sh's.
+sh "$bench/report.sh" "$record" > /dev/null || die "bench/report.sh failed on the record"
+if [ -n "$keep" ]; then
+  mkdir -p "$keep" && cp "$record"/* "$keep"/ || die "cannot keep the record in $keep"
+fi
+cat "$record/results.md"

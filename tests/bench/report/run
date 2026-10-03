@@ -1,0 +1,20 @@
+#!/bin/sh
+# bench/report.sh turns a run record into its results: the best of each
+# compiler's samples, clang's time over ours, the compile times, the
+# comparison with an earlier record by each run's own ratio to C, and three
+# charts drawn from the same numbers, a missing column left out of them.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cp -R "$here/now" "$here/before" "$work/"
+bounded sh "$root/bench/report.sh" "$work/now" "$work/before" > "$work/printed" || say "report failed"
+cmp -s "$work/printed" "$work/now/results.md" && say "it prints its results.md"
+grep '^| fib |\|^| regex |' "$work/now/results.md" | while IFS= read -r line; do say "$line"; done
+grep -q '^Best of 2 runs' "$work/now/results.md" && say "best of 2 runs"
+for chart in times vs-c vs-chez; do
+  svg=$work/now/$chart.svg
+  if head -n 1 "$svg" | grep -q '^<svg ' && tail -n 1 "$svg" | grep -qx '</svg>'; then
+    say "$chart.svg: $(grep -c '<rect' "$svg") rects"
+  else
+    say "$chart.svg: not an svg"
+  fi
+done
+grep -q 'no version to compare with: regex' "$work/now/vs-c.svg" && say "vs-c names what it leaves out"

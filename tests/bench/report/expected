@@ -1,0 +1,11 @@
+it prints its results.md
+| fib | 38 | 0.120 | 3.500 | n/a | 0.125 | n/a | n/a | 1.04x |
+| regex | fasta 9 | 3.000 | 1.500 | n/a | n/a | n/a | n/a | n/a |
+| fib | 2.000 |
+| regex | 4.500 |
+| fib | 0.50x | 1.04x | +108% |
+best of 2 runs
+times.svg: 12 rects
+vs-c.svg: 2 rects
+vs-chez.svg: 3 rects
+vs-c names what it leaves out

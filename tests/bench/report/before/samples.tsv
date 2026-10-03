@@ -1,0 +1,2 @@
+fib	38	this compiler	200000000
+fib	38	clang -O2	100000000
