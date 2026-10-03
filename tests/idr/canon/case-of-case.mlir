@@ -142,7 +142,7 @@ func.func @nothing_to_meet(%m: !idr.data<@Maybe>, %a: !idr.str, %b: !idr.str,
 // A region that crashes does not get the consumer.
 // CHECK-LABEL: func.func @crash_region(
 // CHECK: case 0 {
-// CHECK-NEXT: idr.io.put_str
+// CHECK-NEXT: idr.io.put_int
 // CHECK: case 1 {
 // CHECK-NEXT: idr.io.put_str
 // CHECK: default {
@@ -154,8 +154,8 @@ func.func @nothing_to_meet(%m: !idr.data<@Maybe>, %a: !idr.str, %b: !idr.str,
 func.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
-    %c = idr.constant "zero" : !idr.str
-    idr.yield %c : !idr.str
+    %t = idr.str.show signed %n : i64
+    idr.yield %t : !idr.str
   }
   case 1 {
     %c = idr.constant "one" : !idr.str

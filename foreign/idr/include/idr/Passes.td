@@ -581,7 +581,7 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         across anything, delayed, and evaluated at compile time;
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
-        or `show` made;
+        or `show` made, or what `pack` or `concat` made for it alone;
       - `constant-stack=@f`: no function @f may call, @f included, is on a
         cycle of references: every recursion from @f became a loop;
       - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
