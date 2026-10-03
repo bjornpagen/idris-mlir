@@ -3,5 +3,5 @@
 // has no loop: whether a call of it may diverge is what it reaches
 // (idr-effects).
 // CHECK: func.func private @Main.main() -> !idr.data<{{[^>]*}}> {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{[^)]*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{[^)]*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {

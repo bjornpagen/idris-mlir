@@ -2,6 +2,8 @@
 ||| functions lifted from it.
 module IdrisMLIR.Emit.Declarations
 
+import IdrisMLIR.Dialect.Func as Func
+import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Emit.Bodies
 import IdrisMLIR.Emit.Index
@@ -17,46 +19,45 @@ import Control.Monad.State
 import Data.List
 import Data.SnocList
 import Data.SortedSet
-import Data.String
 import Data.Vect
 
 %default total
 
 ||| A declaration is located by its Idris name.
 export
-dataDecl : Index -> Data -> E Op
+dataDecl : Index -> Data -> E Statement
 dataDecl ix d = do
   ctors <- traverse ctor d.cons
-  pure (Nest ("idr.data " ++ symbol (mangle d.id.name) ++ (case d.repr of
-                                                              Sop => ""
-                                                              Box => " box") ++ " {")
-             ctors "}" (Just (Named d.idrisName d.loc)))
+  let box = case d.repr of
+              Sop => False
+              Box => True
+  pure (MkStatement Nothing (Idr.dataOp {box = box} (mangle d.id.name) (MkRegion [] ctors))
+                    (Named d.idrisName d.loc))
   where
-    ctor : Con -> E Op
+    ctor : Con -> E Statement
     ctor c = do
-      ts <- traverse (binderText ix) c.fields
-      pure (Line ("idr.ctor " ++ symbol (mangle c.id.name) ++
-                  " (" ++ joinBy ", " ts ++ ")")
-                 (Named c.idrisName c.loc))
+      ts <- traverse (binderType ix) c.fields
+      pure (MkStatement Nothing (Idr.ctorOp (mangle c.id.name) ts) (Named c.idrisName c.loc))
 
 ||| A function, and the functions lifted from it. Only the root is public.
 export
-function : Index -> FnId -> TFn -> E (List Op)
+function : Index -> FnId -> TFn -> E (List Statement)
 function ix root f = do
   let sym = mangle f.id.name
   modify { lifted := [<] }
   ((params, res), ops) <- inFunction $ do
-    params <- traverse (\b => (\n => val n (typeOf b) (binderMode b)) <$> fresh) f.params
+    params <- traverse (\b => (\n => val n (typeOf b) (binderUse b)) <$> fresh) f.params
     res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
     pure (params, res)
-  rt <- typeText ix f.result
-  header <- traverse (param ix) (toList params)
-  let visibility = if f.id == root then "" else "private "
-  let fn = Nest ("func.func " ++ visibility ++ symbol sym ++ "(" ++ joinBy ", " header ++ ") -> " ++ rt ++
-                 attributes (own f) ++ " {")
-                (epilogue f.loc rt res ops) "}" (Just (Named f.idrisName f.loc))
+  rt <- mlirType ix f.result
+  args <- traverse (operand ix) (toList params)
+  body <- epilogue ix f.loc rt res ops
+  let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private"} sym
+                       (functionType (map (\a : Value => a.type) args) [rt])
+                       (MkRegion args body)
   inner <- gets (.lifted)
-  pure (fn :: (inner <>> []))
+  pure (MkStatement Nothing ({ attributes := attributes (own f) } fn) (Named f.idrisName f.loc)
+        :: (inner <>> []))
   where
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
     alg' = alg ix (MkOwner (mangle f.id.name) f.idrisName (inherited f))

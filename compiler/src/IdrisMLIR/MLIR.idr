@@ -1,7 +1,11 @@
-||| What `Emit` writes, and its one printer: MLIR's custom syntax for the
-||| contract's dialects. An operation is a line, or a line that opens
-||| regions, their contents, and the line that closes them; every operation
-||| carries its location.
+||| MLIR's textual form, as `Emit` writes it. A type or an attribute is its
+||| text: the builtin ones are made here, and each dialect's by the module
+||| generated from the dialect's ODS (IdrisMLIR.Dialect.*), which also
+||| builds its ops. An op is written in MLIR's generic form, which every op
+||| has and which ODS says whole: its name, operands, inherent attributes
+||| (its properties), regions, discardable attributes, types and location.
+||| An op's custom syntax is C++ (custom directives, hand-written parsers),
+||| which nothing generated from ODS can know.
 module IdrisMLIR.MLIR
 
 import IdrisMLIR.Ids
@@ -68,47 +72,10 @@ symbol m = case unpack m of
   (c :: _) => if isAlpha c || c == '_' then "@" ++ m else "@" ++ quoted m
   [] => "@\"\""
 
-------------------------------------------------------------------------------
--- Types
-------------------------------------------------------------------------------
-
-||| The contract's types. Data types hold
-||| their mangled symbol.
-public export
-data MType = I Nat | F64
-           | Data String | Boxed String
-           | Fn (List MType) (List MType)
-           | Str | Big | World | Erased
-           | ||| A natural: a big that is never negative.
-             Natural
-           | ||| A value used exactly once.
-             Lin MType
-           | ||| An array of elements of a type: a memref of one dynamic
-             ||| dimension.
-             Memref MType
-
-mutual
-  export
-  showType : MType -> String
-  showType (I w) = "i" ++ show w
-  showType F64 = "f64"
-  showType (Data s) = "!idr.data<" ++ symbol s ++ ">"
-  showType (Boxed s) = "!idr.box<" ++ symbol s ++ ">"
-  showType (Fn as rs) = "!idr.fn<(" ++ showTypes as ++ ") -> (" ++ showTypes rs ++ ")>"
-  showType Str = "!idr.str"
-  showType Big = "!idr.big"
-  showType Natural = "!idr.nat"
-  showType World = "!idr.world"
-  showType Erased = "!idr.erased"
-  showType (Lin t) = "!idr.lin<" ++ showType t ++ ">"
-  showType (Memref t) = "memref<?x" ++ showType t ++ ">"
-
-  ||| Types separated by commas.
-  export
-  showTypes : List MType -> String
-  showTypes [] = ""
-  showTypes [t] = showType t
-  showTypes (t :: ts) = showType t ++ ", " ++ showTypes ts
+||| Texts separated by commas.
+export
+commaSeparated : List String -> String
+commaSeparated = joinBy ", "
 
 ------------------------------------------------------------------------------
 -- Literals
@@ -148,6 +115,122 @@ twos w n = let m = pow w
     pow (S k) = 2 * pow k
 
 ------------------------------------------------------------------------------
+-- Types
+------------------------------------------------------------------------------
+
+||| A type, by its text.
+public export
+record MlirType where
+  constructor MkMlirType
+  text : String
+
+||| A signless integer type, `i64`: an op that reads an integer says how.
+export
+integerType : Nat -> MlirType
+integerType w = MkMlirType ("i" ++ show w)
+
+export
+f64Type : MlirType
+f64Type = MkMlirType "f64"
+
+export
+indexType : MlirType
+indexType = MkMlirType "index"
+
+||| An array of elements of a type: a memref of one dynamic dimension.
+export
+memRefType : MlirType -> MlirType
+memRefType e = MkMlirType ("memref<?x" ++ e.text ++ ">")
+
+||| A function type, `(i64, !idr.str) -> i64`: its results in parentheses,
+||| unless it has one that is not itself a function type.
+export
+functionType : List MlirType -> List MlirType -> MlirType
+functionType ins outs =
+  MkMlirType ("(" ++ commaSeparated (map (.text) ins) ++ ") -> " ++ results outs)
+  where
+    results : List MlirType -> String
+    results [r] = if isPrefixOf "(" r.text then "(" ++ r.text ++ ")" else r.text
+    results rs = "(" ++ commaSeparated (map (.text) rs) ++ ")"
+
+------------------------------------------------------------------------------
+-- Attributes
+------------------------------------------------------------------------------
+
+||| An attribute, by its text.
+public export
+record MlirAttr where
+  constructor MkMlirAttr
+  text : String
+
+||| An attribute of an op's: its name, and itself.
+public export
+NamedAttr : Type
+NamedAttr = (String, MlirAttr)
+
+export
+unitAttr : MlirAttr
+unitAttr = MkMlirAttr "unit"
+
+export
+boolAttr : Bool -> MlirAttr
+boolAttr b = MkMlirAttr (if b then "true" else "false")
+
+||| An integer of an integer type, or of `index`.
+export
+integerAttr : Integer -> MlirType -> MlirAttr
+integerAttr n t = MkMlirAttr (show n ++ " : " ++ t.text)
+
+||| A float of a float type.
+export
+floatAttr : Double -> MlirType -> MlirAttr
+floatAttr d t = MkMlirAttr (floatLiteral d ++ " : " ++ t.text)
+
+||| A string, as its UTF-8 bytes.
+export
+stringAttr : String -> MlirAttr
+stringAttr s = MkMlirAttr (utf8 s)
+
+||| A symbol, by its mangled name.
+export
+flatSymbolRefAttr : String -> MlirAttr
+flatSymbolRefAttr m = MkMlirAttr (symbol m)
+
+||| A symbol nested in others, by the mangled name of each: `@T::@C`.
+export
+symbolRefAttr : List String -> MlirAttr
+symbolRefAttr ms = MkMlirAttr (joinBy "::" (map symbol ms))
+
+export
+typeAttr : MlirType -> MlirAttr
+typeAttr t = MkMlirAttr t.text
+
+export
+arrayAttr : List MlirAttr -> MlirAttr
+arrayAttr as = MkMlirAttr ("[" ++ commaSeparated (map (.text) as) ++ "]")
+
+export
+typeArrayAttr : List MlirType -> MlirAttr
+typeArrayAttr ts = arrayAttr (map typeAttr ts)
+
+||| The number of values in each group of an op's operands or results, where
+||| more than one group may vary in length.
+export
+segmentSizes : List Nat -> MlirAttr
+segmentSizes [] = MkMlirAttr "array<i32>"
+segmentSizes ns = MkMlirAttr ("array<i32: " ++ commaSeparated (map show ns) ++ ">")
+
+||| A unit attribute, there when `set`.
+export
+unitIf : String -> Bool -> List NamedAttr
+unitIf name set = if set then [(name, unitAttr)] else []
+
+||| An attribute ODS lets an op leave out, there when given.
+export
+attrIf : String -> (a -> MlirAttr) -> Maybe a -> List NamedAttr
+attrIf name make = maybe [] (\x => [(name, make x)])
+
+------------------------------------------------------------------------------
 -- Locations
 ------------------------------------------------------------------------------
 
@@ -178,29 +261,102 @@ location (Named n l) = wrapped l (quoted (show n) ++ (if l.file == "" then "" el
 -- Operations
 ------------------------------------------------------------------------------
 
-||| An operation as text: one line, or a line that opens regions (ending in
-||| `{`), the operations inside, and the text that closes them. The region
-||| headers of an `idr.match` (`case @C(%x: i64) {`) are nests without a
-||| location of their own.
+||| A value an op uses or a region binds: its SSA name and its type.
 public export
-data Op = Line String Location
-        | Nest String (List Op) String (Maybe Location)
+record Value where
+  constructor MkValue
+  name : String
+  type : MlirType
+
+mutual
+  ||| An op, as the generated builders make it (IdrisMLIR.Dialect.*).
+  public export
+  record Op where
+    constructor MkOp
+    name : String
+    operands : List Value
+    ||| Its inherent attributes, which ODS declares.
+    properties : List NamedAttr
+    regions : List Region
+    ||| Its discardable attributes.
+    attributes : List NamedAttr
+    results : List MlirType
+
+  ||| A region of one block: the block's arguments, and its ops.
+  public export
+  record Region where
+    constructor MkRegion
+    arguments : List Value
+    statements : List Statement
+
+  ||| An op where it stands: the name of its results, if it has any, and
+  ||| its location.
+  public export
+  record Statement where
+    constructor MkStatement
+    result : Maybe String
+    op : Op
+    at : Location
 
 indent : Nat -> String
 indent d = replicate (2 * d) ' '
 
+||| An attribute dictionary between `opening` and `closing`, if it has any
+||| entries; a unit attribute is its name alone.
+dictionary : String -> String -> List NamedAttr -> String
+dictionary opening closing [] = ""
+dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) ++ closing
+  where
+    entry : NamedAttr -> String
+    entry (name, a) = if a.text == "unit" then name else name ++ " = " ++ a.text
+
+||| A block argument or an operand with its type: `%3: i64`.
+typed : Value -> String
+typed v = v.name ++ ": " ++ v.type.text
+
 mutual
+  ||| `"dialect.op"(operands) <{properties}> (regions) {attributes} : type`,
+  ||| its regions indented by `d`.
   showOp : Nat -> Op -> String
-  showOp d (Line text at) = indent d ++ text ++ " " ++ location at ++ "\n"
-  showOp d (Nest opening body close at) =
-    indent d ++ opening ++ "\n" ++ showOps (S d) body ++
-    indent d ++ close ++ maybe "" (\l => " " ++ location l) at ++ "\n"
+  showOp d (MkOp name operands properties regions attributes results) =
+    quoted name ++ "(" ++ commaSeparated (map (.name) operands) ++ ")" ++
+    dictionary "<{" "}>" properties ++
+    (case regions of
+       [] => ""
+       _ => " (" ++ showRegions d regions ++ ")") ++
+    dictionary "{" "}" attributes ++
+    " : " ++ (functionType (map (.type) operands) results).text
 
-  showOps : Nat -> List Op -> String
-  showOps d [] = ""
-  showOps d (o :: os) = showOp d o ++ showOps d os
+  showRegions : Nat -> List Region -> String
+  showRegions d [] = ""
+  showRegions d [r] = showRegion d r
+  showRegions d (r :: rs) = showRegion d r ++ ", " ++ showRegions d rs
 
-||| A module with its attributes.
+  ||| The block is labelled even when it has no arguments: the generic form
+  ||| reads `{}` as a region of no blocks, and a block of no ops is one
+  ||| only by its label.
+  showRegion : Nat -> Region -> String
+  showRegion d (MkRegion arguments statements) =
+    "{\n" ++ indent d ++ "^bb0" ++
+    (case arguments of
+       [] => ""
+       _ => "(" ++ commaSeparated (map typed arguments) ++ ")") ++ ":\n" ++
+    showStatements (S d) statements ++ indent d ++ "}"
+
+  showStatements : Nat -> List Statement -> String
+  showStatements d [] = ""
+  showStatements d (s :: ss) = showStatement d s ++ showStatements d ss
+
+  showStatement : Nat -> Statement -> String
+  showStatement d (MkStatement result op at) =
+    indent d ++ named result (length op.results) ++ showOp d op ++ " " ++ location at ++ "\n"
+    where
+      named : Maybe String -> Nat -> String
+      named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
+      named (Just r) _ = r ++ " = "
+      named Nothing _ = ""
+
+||| A module: its op, in the generic form too, with what it holds.
 export
-showModule : String -> List Op -> String
-showModule attrs ops = "module attributes {" ++ attrs ++ "} {\n" ++ showOps 1 ops ++ "}\n"
+showModule : Op -> String
+showModule m = showOp 0 m ++ "\n"

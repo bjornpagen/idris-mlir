@@ -28,9 +28,9 @@ record ES where
   ||| The next SSA number of the function being written.
   next : Nat
   ||| The operations of the region being written.
-  ops : SnocList Op
+  ops : SnocList Statement
   ||| The functions lifted so far from the function being written.
-  lifted : SnocList Op
+  lifted : SnocList Statement
 
 public export
 E : Type -> Type
@@ -49,12 +49,12 @@ fresh = do
   pure ("%" ++ show st.next)
 
 export
-append : Op -> E ()
-append o = modify { ops $= (:< o) }
+append : Statement -> E ()
+append s = modify { ops $= (:< s) }
 
 ||| The operations `act` appends, apart from the current region's.
 export
-collect : E a -> E (a, List Op)
+collect : E a -> E (a, List Statement)
 collect act = do
   saved <- gets (.ops)
   modify { ops := [<] }
@@ -63,30 +63,26 @@ collect act = do
   modify { ops := saved }
   pure (x, inner <>> [])
 
-||| How the contract holds a value: as itself, or linear (`!idr.lin`), to be
-||| used exactly once.
+||| Whether a value of type `t`, used as `u` says, is held linearly
+||| (`!idr.lin<T>`): used exactly once, unless it is the world, which is
+||| linear by its own type and held as itself.
 public export
-data Mode = Plain | Linear
+linear : Use -> Ty -> Bool
+linear Once WorldT = False
+linear Once _ = True
+linear Many _ = False
 
-||| How a value used as `Use` says is held. The world is linear by its own
-||| type, so it is held as itself.
-export
-modeOf : Use -> Ty -> Mode
-modeOf Once WorldT = Plain
-modeOf Once _ = Linear
-modeOf Many _ = Plain
+||| How often the value a binder binds is used; the erased value is never
+||| used, and is held as itself.
+public export
+binderUse : Binder -> Use
+binderUse Gone = Many
+binderUse (Held u _) = u
 
-||| How the value a binder binds is held: the erased value, which is never
-||| used, as itself.
-export
-binderMode : Binder -> Mode
-binderMode Gone = Plain
-binderMode (Held u t) = modeOf u t
-
-||| A value in scope: its SSA name, its type and how it is held; or, with
-||| `rebuild`, a constructor a match took apart, which a reference builds
-||| again from its fields as the region holds them. A match uses a linear
-||| scrutinee, so a variable naming it inside a case region names the
+||| A value in scope: its SSA name, its type and how often it may be used;
+||| or, with `rebuild`, a constructor a match took apart, which a reference
+||| builds again from its fields as the region holds them. A match uses a
+||| linear scrutinee, so a variable naming it inside a case region names the
 ||| constructor of the fields the region bound; its `name` is then a key no
 ||| operation defines, which `matched` (Bodies) renames by.
 public export
@@ -94,9 +90,9 @@ record Val where
   constructor MkVal
   name : String
   type : Ty
-  mode : Mode
+  use : Use
   rebuild : Maybe (ConId, List Val)
 
 export
-val : String -> Ty -> Mode -> Val
-val name type mode = MkVal name type mode Nothing
+val : String -> Ty -> Use -> Val
+val name type use = MkVal name type use Nothing

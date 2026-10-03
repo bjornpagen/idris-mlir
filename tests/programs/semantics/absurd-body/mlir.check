@@ -7,4 +7,4 @@
 // CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
 // CHECK: %[[P:[^ ]+]] = ub.poison : i64
 // CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
-// CHECK: func.return %[[P]] : i64
+// CHECK: return %[[P]] : i64

@@ -1,12 +1,12 @@
 ||| What the emitted module states about a function besides its type.
 module IdrisMLIR.Emit.Attributes
 
+import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Loc
 import IdrisMLIR.Facts
 import IdrisMLIR.Registry.Libraries
+import IdrisMLIR.MLIR
 import IdrisMLIR.Term
-
-import Data.String
 
 %default total
 
@@ -20,9 +20,10 @@ data FnAttr
   | ||| Every loop of its own body is one Idris proved terminating.
     Total
 
-name : FnAttr -> String
-name BreaksLast = "idr.break_last"
-name Total = "idr.total"
+||| The dialect's attribute that states it.
+discardable : FnAttr -> NamedAttr
+discardable BreaksLast = Idr.breakLastDiscardable
+discardable Total = Idr.totalDiscardable
 
 ||| What a function states that the functions lifted from it state too:
 ||| their code is its code.
@@ -43,8 +44,7 @@ export
 lifted : List FnAttr
 lifted = [Total]
 
-||| The attribute dictionary of a function header, if it has any.
+||| The attributes of a function that states `as`.
 export
-attributes : List FnAttr -> String
-attributes [] = ""
-attributes as = " attributes {" ++ joinBy ", " (map name as) ++ "}"
+attributes : List FnAttr -> List NamedAttr
+attributes = map discardable

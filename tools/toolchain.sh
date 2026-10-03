@@ -25,6 +25,7 @@ cmake=$toolchain/cmake/bin/cmake
 # What `make build` makes.
 idris_mlir_cc=$root/build/dev/foreign/idr/idris-mlir-cc
 idris_mlir_opt=$root/build/dev/foreign/idr/idris-mlir-opt
+idris_mlir_tblgen=$root/build/dev/foreign/idr/idris-mlir-tblgen
 
 # stamp_field PREFIX KEY: a string of PREFIX/provenance.json, the stamp a
 # bootstrap writes once every step of it succeeded.
