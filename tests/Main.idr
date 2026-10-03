@@ -36,6 +36,7 @@ import Data.String
 import System
 import System.Directory
 import System.File
+import System.Info
 import System.Path
 
 import Test.Golden
@@ -71,46 +72,57 @@ holdsTests dir = do
   found <- for !(subdirs dir) $ \d => exists (d ++ "/run")
   pure (any id found)
 
-||| The architecture a test's `targets` file names, from
-||| IDRIS_MLIR_HOST_ARCH (the Makefile exports uname -m; a run script
-||| invoked directly gets the same fallback from tests/testutils.sh).
-||| `unknown` when neither says, which matches no `targets` file, so a
-||| test that names architectures does not run.
-hostArch : IO String
-hostArch = do
+||| The operating system a test's `targets` file names, from the compiler
+||| that built this runner (darwin, linux, ...); `macos` for darwin.
+hostOs : String
+hostOs = case System.Info.os of
+  "darwin" => "macos"
+  other => other
+
+||| The architecture a `targets` file names, from IDRIS_MLIR_HOST_ARCH
+||| (the Makefile exports uname -m; a run script invoked directly gets the
+||| same fallback from tests/testutils.sh).
+hostArch : String -> String
+hostArch raw = case raw of
+  "x86_64" => "x86-64"
+  "amd64" => "x86-64"
+  "arm64" => "aarch64"
+  "aarch64" => "aarch64"
+  other => other
+
+||| The names this host answers to in a `targets` file: its architecture
+||| and its operating system. A host whose architecture cannot be read
+||| (IDRIS_MLIR_HOST_ARCH unset) answers to its operating system alone.
+hostNames : IO (List String)
+hostNames = do
   Just raw <- getEnv "IDRIS_MLIR_HOST_ARCH"
-    | Nothing => pure "unknown"
-  pure $ case raw of
-    "x86_64" => "x86-64"
-    "amd64" => "x86-64"
-    "arm64" => "aarch64"
-    "aarch64" => "aarch64"
-    other => other
+    | Nothing => pure [hostOs]
+  pure (hostArch raw :: [hostOs])
 
 ||| Whether TEST runs here. A test with no `targets` file holds everywhere;
-||| one with a `targets` file holds only where it names this host's
-||| architecture, which is how an x86-only or arm64-only test runs where it
-||| holds and is not counted elsewhere.
-runsHere : String -> String -> IO Bool
-runsHere arch test = do
+||| one with a `targets` file holds only where it names one of this host's
+||| names, which is how an x86-only, arm64-only or Linux-only test runs
+||| where it holds and is not counted elsewhere.
+runsHere : List String -> String -> IO Bool
+runsHere names test = do
   Right text <- readFile (test ++ "/targets")
     | Left _ => pure True
-  pure (arch `elem` words text)
+  pure (any (\word => word `elem` names) (words text))
 
 ||| The tests of TESTS that run here.
-applicableTests : String -> List String -> IO (List String)
-applicableTests arch tests = do
-  flags <- traverse (runsHere arch) tests
+applicableTests : List String -> List String -> IO (List String)
+applicableTests names tests = do
+  flags <- traverse (runsHere names) tests
   pure (map fst (filter snd (zip tests flags)))
 
 ||| The tests of the directories that hold any, found by `testsInDir`, as
 ||| one pool. A directory that does not exist yet has no tests.
 pool : String -> List String -> IO TestPool
 pool name dirs = do
-  arch <- hostArch
+  names <- hostNames
   found <- for dirs $ \dir =>
     if !(holdsTests dir)
-       then applicableTests arch !(map testCases (testsInDir dir name))
+       then applicableTests names !(map testCases (testsInDir dir name))
        else pure []
   pure (MkTestPool name [] Test.Golden.Nothing (sort (concat found)))
 
