@@ -46,6 +46,40 @@ void whereDies(Value value, Block &block, SymbolTableCollection &symbols,
   at(block, std::next(last->getIterator()));
 }
 
+namespace {
+
+// Whether `use` is at `at` in `block` or after it, itself or inside an op
+// there: where a take placed at `at` has already run.
+bool fromPoint(Block &block, Block::iterator at, OpOperand &use) {
+  Operation *top = block.findAncestorOpInBlock(*use.getOwner());
+  return top && at != block.end() && !top->isBeforeInBlock(&*at);
+}
+
+// The fields of `box`, built by `ctor`, that a take of it gives: the
+// arguments of `fields` (the case region that bound them, when one did) and
+// the results of the idr.field reads of the box, each with its index.
+void eachField(Value box, CtorOp ctor, Block *fields, function_ref<void(Value, unsigned)> f) {
+  if (fields)
+    for (BlockArgument arg : fields->getArguments())
+      f(arg, arg.getArgNumber());
+  for (Operation *user : llvm::make_early_inc_range(box.getUsers()))
+    if (auto read = dyn_cast<FieldOp>(user); read && read.getCtor() == ctor.getSymName())
+      f(read.getResult(), static_cast<unsigned>(read.getIndex()));
+}
+
+} // namespace
+
+bool keepsCountedField(Value box, CtorOp ctor, Block &block, Block::iterator at, Block *fields) {
+  Counting counting(ctor->getParentOfType<ModuleOp>());
+  bool kept = false;
+  eachField(box, ctor, fields, [&](Value field, unsigned) {
+    kept = kept || (counting.counted(field.getType()) &&
+                    llvm::any_of(field.getUses(),
+                                 [&](OpOperand &use) { return fromPoint(block, at, use); }));
+  });
+  return kept;
+}
+
 TakeOp takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, Block *fields) {
   OpBuilder b(&block, at);
   Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
@@ -62,17 +96,10 @@ TakeOp takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, Block *f
     results.push_back(counting.counted(field) ? owned(field) : field);
   }
   auto take = TakeOp::create(b, loc, results, box, name);
-  auto later = [&](OpOperand &use) {
-    Operation *top = block.findAncestorOpInBlock(*use.getOwner());
-    return top && take->isBeforeInBlock(top);
-  };
-  if (fields)
-    for (auto [field, taken] : llvm::zip_equal(fields->getArguments(), take.getFields()))
-      field.replaceUsesWithIf(taken, later);
-  for (Operation *user : llvm::make_early_inc_range(box.getUsers()))
-    if (auto read = dyn_cast<FieldOp>(user); read && read.getCtor() == ctor.getSymName())
-      read.getResult().replaceUsesWithIf(take.getFields()[static_cast<unsigned>(read.getIndex())],
-                                         later);
+  eachField(box, ctor, fields, [&](Value field, unsigned index) {
+    field.replaceUsesWithIf(take.getFields()[index],
+                            [&](OpOperand &use) { return fromPoint(block, at, use); });
+  });
   return take;
 }
 

@@ -154,19 +154,20 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   `ifoldl`), and idr-vectorize runs each product with A as one loop nest
   computing four rows at a time on AVX2 lanes, each row's sum in index
   order (the C sums in index order too, so clang does not vectorize it).
-  Measured at 5500, best of 5: 1.734 s against clang's 1.811 s, parity,
-  and within the spread of the program's explicit loops before (1.752 s
-  in the table) and of its generate and fold as scalar loops (1.915 s). The
-  lanes do not pay because the body's integer index arithmetic is on
-  64-bit `Int` and x86-64-v3 has no 64-bit vector multiply nor an
-  int64-to-double conversion: the inner loop's assembly emulates the one
-  (three `vpmuludq`, shifts and adds) and scalarizes the other (four
-  `vcvtsi2sd` with the extracts and inserts around them), 45 instructions
-  per four rows where the division itself is one `vdivpd`. The C computes
-  its indices in `int`, for which both instructions exist (`vpmulld`,
-  `vcvtdq2pd`); narrowing the index arithmetic to 32 bits under a runtime
-  bound on n would let the lanes pay. The list one rebuilds its lists in
-  their own cells and pays for it. The input is the game's 5500.
+  The body's index arithmetic is the program's 64-bit `Int`, for which
+  x86-64-v3 has no vector multiply nor an int64-to-double conversion: on
+  64-bit lanes the inner loop emulates the one (three `vpmuludq`, shifts
+  and adds) and scalarizes the other (four `vcvtsi2sd` with the extracts
+  and inserts around them), 36 instructions per four rows around the one
+  `vdivpd`, which ran at clang's speed. The C computes its indices in
+  `int`, for which both instructions exist (`vpmulld`, `vcvtdq2pd`), and
+  idr-narrow-lanes gives each row loop a version on 32-bit lanes while n
+  is at most 2^14, the bound the analysis of the body's own arithmetic
+  finds: 15 instructions per four rows (`vpaddd`, `vpmulld`, a `vpsrad`
+  for the `div 2`, `vcvtdq2pd` and the `vdivpd`). Measured at 5500, best
+  of 10 interleaved in one session: 0.860 s, against 1.692 s on 64-bit
+  lanes and clang's 1.579 s. The list one rebuilds its lists in their own
+  cells and pays for it. The input is the game's 5500.
 - **qsort** (parity with C): Koka's own `qsort.kk` takes 20 s on this
   input; it is measured as the Perceus repository has it, for the
   comparison, not as a verdict on Koka.
@@ -186,7 +187,9 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   (idr.str.pack, 2026-10-02) fasta took 0.38 s of which 0.098 s was
   computation and 0.002 s output, the rest a string per character; it now
   takes about its computation, and reverse-complement 2.8x less than
-  before. What remains is the list itself: a cons cell per character read.
+  before. A line packed only to be written is written as its list is
+  walked, without the string (idr.io.put_list, 2026-10-02): about 5% off
+  each. What remains is the list itself: a cons cell per character read.
 - **k-nucleotide** (2.3x faster than Chez, 22x slower than C): the
   fragments are counted in a `Data.SortedMap String Int`, which keeps the
   `Ord String` it was built with in the map's constructors. The frontend

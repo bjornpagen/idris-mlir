@@ -507,6 +507,37 @@ def IdrVectorize : Pass<"idr-vectorize", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrNarrowLanes : Pass<"idr-narrow-lanes", "::mlir::ModuleOp"> {
+  let summary = "Run the integer lanes of each vectorized loop in 32 bits under a bound on the sizes";
+  let description = [{
+    After idr-vectorize, each vectorized loop (as its ops say: vector ops,
+    the loops of its tiles, ops with neither effects nor regions) that
+    computes on lanes of integers wider than 32 bits gets two versions:
+    where every integer it reads from outside (the sizes, the tile bound)
+    is at most B, a copy in which integer range analysis sees that bound
+    (each such input stands behind `arith.minui` of itself and B) and
+    upstream's arith-int-range-narrowing makes every integer op it proves
+    fits 32 bits an op on i32; otherwise the loop as it was. B is the
+    largest power of two from 2^31 down to 2^8 at which every elementwise
+    integer op of the copy wider than 32 bits fits, and is an arith op
+    whose 32-bit form computes the same (a shift by less than 32, a signed
+    remainder that never sees INT32_MIN % -1, an op reading its operands
+    unsigned on no negative word), found by running the analysis on the
+    copy in a scratch module. A loop that runs at most once (its bounds,
+    as upstream's value bounds see them, less than a step apart: the loop
+    of a peeled tile loop's last tile), or whose integers fit under no
+    bound, stays as it is. Remarks in the category idr-narrow-lanes:
+    `Narrowed` with the bound, `Wide` with why not.
+  }];
+  let statistics = [
+    Statistic<"numNarrowed", "narrowed", "Vectorized loops given a 32-bit version">,
+    Statistic<"numWide", "wide", "Vectorized loops on wide integer lanes left on 64 bits">,
+  ];
+  let dependentDialects = [
+    "::mlir::arith::ArithDialect", "::mlir::func::FuncDialect", "::mlir::scf::SCFDialect"
+  ];
+}
+
 def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
   let summary = "Check named properties of the module, and change nothing";
   let description = [{
@@ -548,7 +579,7 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         across anything, delayed, and evaluated at compile time;
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
-        or `show` made;
+        or `show` made, or what `pack` or `concat` made for it alone;
       - `constant-stack=@f`: no function @f may call, @f included, is on a
         cycle of references: every recursion from @f became a loop;
       - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
@@ -560,6 +591,13 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         @f, some loop computes on vectors, and no `linalg.generic` with a
         parallel dimension and a body of words alone (arith, math,
         `linalg.index`) is left scalar;
+      - `narrowed-lanes`, `narrowed-lanes=@f`: after idr-narrow-lanes,
+        anywhere or in @f, some loop computes integer lanes in 32 bits or
+        fewer, and every loop that computes integer lanes wider than 32
+        bits (an elementwise op on a vector of such integers that is no
+        cast and no select, which only move lanes) and may run more than
+        once is the 64-bit version beside a loop that computes its lanes
+        in 32: the else region of an `scf.if` whose then region holds one;
       - `folds-balanced`: the folders released every reference they took
         from the runtime, which holds no live cell (on the calling thread,
         so run single-threaded).

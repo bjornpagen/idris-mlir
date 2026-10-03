@@ -50,6 +50,17 @@ namespace {
 // captures come before the arguments of its application.
 using Key = std::pair<Attribute, Attribute>;
 
+// What a callee computes, as the cache knows it: a clone by its key (its
+// owner and the patterns of what it fixed), which tells what it computes,
+// any other function by its name. A clone's name does not: once the module
+// no longer holds a clone, the next clone of its owner may take its name
+// and compute something else.
+Attribute calleeKey(func::FuncOp callee) {
+  if (auto clone = callee->getAttrOfType<idr::CloneAttr>("idr.clone"))
+    return clone.getKey();
+  return FlatSymbolRefAttr::get(callee.getSymNameAttr());
+}
+
 // How a call runs: what it may spend (ticks, counted where code enters a
 // function or goes round a loop, bytes of arena and bytes of stack), and
 // how its remark says it did not finish.
@@ -173,7 +184,7 @@ void Eval::runOnOperation() {
   llvm::MapVector<Key, SmallVector<Call>> calls;
   module.walk([&](Operation *op) {
     if (std::optional<Call> call = closedCall(op, symbols))
-      calls[{FlatSymbolRefAttr::get(call->callee.getSymNameAttr()), call->args}].push_back(*call);
+      calls[{calleeKey(call->callee), call->args}].push_back(*call);
   });
   SmallVector<Key> fresh;
   for (const auto &entry : calls)
@@ -223,7 +234,7 @@ ModuleOp Eval::scratch(ModuleOp module, ArrayRef<Key> keys,
         reached.insert(fn);
   };
   for (const Key &key : keys) {
-    reach(key.first);
+    reached.insert(calls.find(key)->second.front().callee);
     Attribute args = key.second;
     args.walk([&](idr::ClosureAttr closure) { reach(closure.getCallee()); });
   }

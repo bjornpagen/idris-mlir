@@ -29,12 +29,25 @@
 // element as the input and the index from linalg.index 1. That is the form
 // the vectorizer tiles along the parallel dimension, each lane summing its
 // row in order.
+//
+// A generate whose body reads arrays from outside at its own index (imap,
+// map and zipWith over frozen arrays) reads each with its bounds check,
+// which keeps the loop scalar. Where every array it reads is at least as
+// long as the new one, which one test on entry decides, every index of the
+// loop is within them: there a copy of the generic takes them as inputs,
+// each from the first index the loop runs at, and its body only computes.
+// Otherwise the generic as it was ends the program at the first index
+// outside an array, in index order, as the program does.
 
 #include "Lower/Patterns.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
+
+#include "llvm/ADT/MapVector.h"
 
 using namespace mlir;
 
@@ -112,6 +125,99 @@ ArrayFoldOp reducedBy(ArrayGenerateOp op) {
   return fold;
 }
 
+// A read of an array from outside a generic at the generic's index: the
+// array, and the index the loop's first iteration reads it at (a
+// generate's loop runs from its element 1 on, `indexOf`).
+struct Read {
+  Value array;
+  int64_t first = 0;
+};
+
+// The read `op` is, a word of an array from outside the generic at
+// linalg.index 0 plus a constant, as the i64 the body takes; none when `op`
+// is no such read.
+std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
+  auto get = dyn_cast<ArrayGetOp>(op);
+  if (!get)
+    return std::nullopt;
+  auto word = get.getIndex().getDefiningOp<arith::IndexCastOp>();
+  Value index = word ? word.getIn() : Value();
+  int64_t first = 0;
+  if (auto plus = index ? index.getDefiningOp<arith::AddIOp>() : arith::AddIOp()) {
+    std::optional<int64_t> offset = getConstantIntValue(plus.getRhs());
+    if (!offset || *offset < 0)
+      return std::nullopt;
+    first = *offset;
+    index = plus.getLhs();
+  }
+  auto loopIndex = index ? index.getDefiningOp<linalg::IndexOp>() : linalg::IndexOp();
+  Value array = viewed(get.getArray());
+  Type element = get.getArrayType().getElementType();
+  if (!loopIndex || loopIndex.getDim() != 0 || generic.getRegion().isAncestor(array.getParentRegion()) ||
+      !element.isIntOrFloat() || get.getValue().getType() != element)
+    return std::nullopt;
+  return Read{array, first};
+}
+
+// if (every array the body reads at its index has the elements the loop
+// reads) { the generic reading them as inputs } else { the generic }.
+void readAsInputs(IRRewriter &rewriter, linalg::GenericOp generic) {
+  Block &body = generic.getRegion().front();
+  llvm::MapVector<std::pair<Value, int64_t>, unsigned> reads;
+  for (Operation &op : body.without_terminator())
+    if (std::optional<Read> read = readAtIndex(op, generic))
+      reads.insert({{read->array, read->first}, reads.size()});
+  if (reads.empty())
+    return;
+  Location loc = generic.getLoc();
+  rewriter.setInsertionPoint(generic);
+  Value out = generic.getDpsInits().front();
+  Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+  // The loop's trip count: the length of the view it writes.
+  Value length = rewriter.createOrFold<memref::DimOp>(loc, out, zero);
+  Value guard;
+  SmallVector<std::pair<Value, int64_t>> arrays;
+  for (auto [read, position] : reads) {
+    auto [array, first] = read;
+    Value view = asMemref(rewriter, loc, array);
+    Value last = arith::AddIOp::create(rewriter, loc, length, arith::ConstantIndexOp::create(rewriter, loc, first));
+    Value within = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, last,
+                                         memref::DimOp::create(rewriter, loc, view, zero));
+    guard = guard ? Value(arith::AndIOp::create(rewriter, loc, guard, within)) : within;
+    arrays.push_back({view, first});
+  }
+  auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
+  // Each input the `length` elements of an array from the one the first
+  // iteration reads, which the test says it has.
+  rewriter.setInsertionPointToStart(branch.thenBlock());
+  SmallVector<Value> inputs;
+  for (auto [view, first] : arrays)
+    inputs.push_back(memref::SubViewOp::create(rewriter, loc, view, ArrayRef<OpFoldResult>{rewriter.getIndexAttr(first)},
+                                               ArrayRef<OpFoldResult>{length},
+                                               ArrayRef<OpFoldResult>{rewriter.getIndexAttr(1)}));
+  SmallVector<AffineMap> maps(inputs.size() + 1, generic.getIndexingMapsArray().front());
+  auto fast = linalg::GenericOp::create(
+      rewriter, loc, inputs, ValueRange{out}, maps, generic.getIteratorTypesArray(),
+      [&](OpBuilder &b, Location, ValueRange args) {
+        IRMapping mapping;
+        mapping.map(body.getArgument(0), args.back());
+        for (Operation &op : body) {
+          if (std::optional<Read> read = readAtIndex(op, generic)) {
+            auto get = cast<ArrayGetOp>(op);
+            mapping.map(get.getValue(), args[reads.lookup({read->array, read->first})]);
+            mapping.map(get.getNext(), mapping.lookupOrDefault(get.getWorld()));
+            continue;
+          }
+          b.clone(op, mapping);
+        }
+      });
+  // The views and worlds the reads took are left unused.
+  for (Operation &op : llvm::make_early_inc_range(llvm::reverse(fast.getRegion().front())))
+    if (isOpTriviallyDead(&op))
+      rewriter.eraseOp(&op);
+  rewriter.moveOpBefore(generic, branch.elseBlock()->getTerminator());
+}
+
 void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
   Location loc = op.getLoc();
   MLIRContext *ctx = op.getContext();
@@ -155,13 +261,14 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
           linalg::YieldOp::create(b, l, cloneBody(b, l, reduce, mapping, nullptr, element));
         });
   } else {
-    linalg::GenericOp::create(rewriter, loc, ValueRange{}, ValueRange{out}, ArrayRef<AffineMap>{identity},
-                              ArrayRef<utils::IteratorType>{parallel},
-                              [&](OpBuilder &b, Location l, ValueRange) {
-                                IRMapping mapping;
-                                mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
-                                linalg::YieldOp::create(b, l, cloneBody(b, l, body, mapping, nullptr, element));
-                              });
+    auto generic = linalg::GenericOp::create(
+        rewriter, loc, ValueRange{}, ValueRange{out}, ArrayRef<AffineMap>{identity},
+        ArrayRef<utils::IteratorType>{parallel}, [&](OpBuilder &b, Location l, ValueRange) {
+          IRMapping mapping;
+          mapping.map(body.getArgument(0), indexOf(b, l, 0, 1));
+          linalg::YieldOp::create(b, l, cloneBody(b, l, body, mapping, nullptr, element));
+        });
+    readAsInputs(rewriter, generic);
   }
   rewriter.replaceOp(op, {made.getArray(), made.getNext()});
 }

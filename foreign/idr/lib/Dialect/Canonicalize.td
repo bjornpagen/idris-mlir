@@ -32,6 +32,17 @@ def Idr_PutStrOfShowInt : Pat<(Idr_PutStrOp (Idr_StrShowOp $isSigned, $x), $w),
 def Idr_PutStrOfShowDouble : Pat<(Idr_PutStrOp (Idr_StrShowOp $isSigned, $x), $w),
                                  (Idr_PutDoubleOp $x, $w), [(Idr_IsDouble $x)]>;
 
+// A list packed or concatenated only to be written: its elements are
+// written as the list is walked, and the string is never built. A string
+// with another use is built anyway, and writing it is a copy.
+def Idr_OnlyUse : Constraint<CPred<"$0.hasOneUse()">, "used only here">;
+
+def Idr_PutStrOfPack : Pat<(Idr_PutStrOp (Idr_StrPackOp:$s $list), $w),
+                           (Idr_PutListOp $list, $w), [(Idr_OnlyUse $s)]>;
+
+def Idr_PutStrOfConcat : Pat<(Idr_PutStrOp (Idr_StrConcatOp:$s $list), $w),
+                             (Idr_PutListOp $list, $w), [(Idr_OnlyUse $s)]>;
+
 //===----------------------------------------------------------------------===//
 // The first character of a string built at runtime.
 //===----------------------------------------------------------------------===//

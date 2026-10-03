@@ -460,9 +460,18 @@ void ConOp::getEffects(
   effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
 }
 
+// A box is a cell: building one allocates, and reading a field of one
+// loads from a cell only as large as its own constructor. A sum is its
+// slots, all there whatever its constructor: building or reading it is
+// computing, which may run anywhere.
 Speculation::Speculatability ConOp::getSpeculatability() {
-  return isa<BoxType>(getType()) ? Speculation::NotSpeculatable
-                                 : Speculation::Speculatable;
+  return isa<BoxType>(unrestricted(getType())) ? Speculation::NotSpeculatable
+                                               : Speculation::Speculatable;
+}
+
+Speculation::Speculatability FieldOp::getSpeculatability() {
+  return isa<BoxType>(unrestricted(getValue().getType())) ? Speculation::NotSpeculatable
+                                                         : Speculation::Speculatable;
 }
 
 LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -1162,6 +1171,22 @@ LogicalResult StrPackOp::verify() {
 
 LogicalResult StrConcatOp::verify() {
   return consOf(*this, getList().getType(), StrType::get(getContext())) ? success() : failure();
+}
+
+Type PutListOp::getElementType() {
+  if (DataOp data = lookupData(*this, unrestricted(getList().getType())))
+    for (CtorOp ctor : data.getCtors())
+      if (ctor.getFieldTypes().size() == 2)
+        return ctor.getFieldType(0);
+  return {};
+}
+
+// A list pack or concat walks.
+LogicalResult PutListOp::verify() {
+  Type element = getElementType();
+  if (!isa_and_nonnull<StrType>(element) && element != IntegerType::get(getContext(), 32))
+    return emitOpError("writes a list of characters or of strings, not ") << getList().getType();
+  return consOf(*this, getList().getType(), element) ? success() : failure();
 }
 
 // A constant that is a byte: 0 to 255.

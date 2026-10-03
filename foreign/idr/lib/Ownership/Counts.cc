@@ -237,8 +237,10 @@ private:
   // nothing in it uses the box; else after its last use there, the
   // constructor known all along (whereDies, as reset/reuse insertion
   // places its takes, which run before borrow inference and so only where
-  // a cell is reused; a box taken apart here is owned already). A region
-  // that ends in a crash is left alone.
+  // a cell is reused; a box taken apart here is owned already), when a
+  // field that holds references lives on past it (keepsCountedField): one
+  // whose fields all die with it, or hold none, is dropped as it was. A
+  // region that ends in a crash is left alone.
   void takeApart() {
     takeReadSums();
     takeReadBoxes();
@@ -262,7 +264,7 @@ private:
         if (!ctor || !isa<BoxType>(unrestricted(value.getType())))
           continue;
         whereDies(value, region.front(), symbols, [&](Block &block, Block::iterator at) {
-          if (!endsInCrash(block))
+          if (!endsInCrash(block) && keepsCountedField(value, ctor, block, at, &region.front()))
             takeAt(value, ctor, block, at, &region.front());
         });
       }
@@ -318,7 +320,8 @@ private:
   // An owned box that no match takes apart, whose every use reads a field
   // of one constructor (a nested pattern reads the fields of a box an outer
   // one matched): its constructor is known from its first read on, and it
-  // dies after its last, where it is taken apart as a matched box is.
+  // dies after its last, where it is taken apart as a matched box is when a
+  // field that holds references lives on past it.
   void takeReadBoxes() {
     SmallVector<std::pair<Value, FieldOp>> boxes;
     auto consider = [&](Value box) {
@@ -338,7 +341,7 @@ private:
       if (!ctor)
         continue;
       whereDies(box, *first->getBlock(), symbols, [&](Block &block, Block::iterator at) {
-        if (!endsInCrash(block))
+        if (!endsInCrash(block) && keepsCountedField(box, ctor, block, at, nullptr))
           takeAt(box, ctor, block, at, nullptr);
       });
     }

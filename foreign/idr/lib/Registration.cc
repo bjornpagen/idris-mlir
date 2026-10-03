@@ -37,6 +37,10 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // parallel dimension is tiled by the target's lanes and vectorized,
       // and upstream makes the loops of those left.
       "idr-vectorize",
+      // On the vectorized loops: the integer lanes of each compute in 32
+      // bits under a bound on the sizes, the 64-bit loop kept for the
+      // sizes above it.
+      "idr-narrow-lanes",
       "convert-linalg-to-loops",
       "canonicalize,cse",
       // On lowered code, where a threaded value given back is its argument
@@ -45,11 +49,12 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       "idr-returned-arguments",
       "canonicalize,cse",
       // The tiles' transfers of a rank above one become loops over 1-D
-      // ones, their bounds arithmetic, their views offsets; the vector ops
-      // then take the vector dialect's own conversion, whose pre-lowering
-      // (transfers to loads and stores, steps, broadcasts, shape casts)
-      // convert-to-llvm does not carry.
-      "convert-vector-to-scf,lower-affine,expand-strided-metadata,convert-scf-to-cf,"
+      // ones; the views become offsets, the offset of a view of a view
+      // the affine arithmetic of both, before the affine ops lower with
+      // the loops' bounds; the vector ops then take the vector dialect's
+      // own conversion, whose pre-lowering (transfers to loads and stores,
+      // steps, broadcasts, shape casts) convert-to-llvm does not carry.
+      "convert-vector-to-scf,expand-strided-metadata,lower-affine,convert-scf-to-cf,"
       "convert-vector-to-llvm,convert-to-llvm,reconcile-unrealized-casts",
   };
   return steps;

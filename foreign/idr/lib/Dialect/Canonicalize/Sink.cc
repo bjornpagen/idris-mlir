@@ -3,7 +3,13 @@
 // folds against it: output of a string it builds, a consumer a match of
 // its moves into (case-of-case), or an apply that eliminates the result of
 // a call, which raising then moves into the callee. Only one region runs,
-// so the value is still computed at most once.
+// so the value is still computed at most once. A constructor, a closure or
+// an entry into a linear type moves into the regions that use it without a
+// consumer to meet: built where it is used, a cell is built only on the
+// paths that use it, and after the reads there of the fields it takes,
+// which then need no count of their own; entered on a path that does not
+// use it, a linear value would be left there for counting to drop. Such a
+// copy is one op, and no consumer follows it in.
 //
 // A value that only computes may run on fewer paths. One that may crash or
 // not return moves only when every region uses it and every op between it
@@ -71,7 +77,8 @@ bool sinkable(Operation *value, Operation *match) {
   size_t regions = usersIn(value, match).size();
   if (!movesInto(value, match, regions))
     return false;
-  if (!llvm::any_of(value->getResults(), [](Value result) {
+  if (!isa<ConOp, ClosureOp, LinEnterOp>(value) &&
+      !llvm::any_of(value->getResults(), [](Value result) {
         return llvm::any_of(result.getUses(), [&](OpOperand &use) { return meets(result, use); });
       }))
     return false;

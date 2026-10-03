@@ -12,11 +12,25 @@
 // the field's is dropped at the take, and where it was shared nothing
 // happens to the field, instead of a reference taken for it and given up
 // again. `tail` drops the head of a list of lists: on the shared path only
-// the tail is counted, and no count is touched after the test.
+// the tail is counted, and no count is touched after the test. A box no
+// field of which that holds references lives on past it gains nothing from
+// the test (Perceus specializes a drop only where the children are used),
+// and is dropped where it dies: `headOnly` reads a list's head, a number,
+// and its tail dies with it; `numbers` reads a cell of two numbers.
 // CHECK-LABEL: func.func private @sumAfterTag(
 // CHECK-NOT: idr.dup
 // CHECK: idr.take
 // CHECK-NOT: idr.dup
+// CHECK: return
+// CHECK-LABEL: func.func private @headOnly(
+// CHECK-NOT: idr.take %{{.*}} @L::@C
+// CHECK: idr.drop
+// CHECK-NOT: idr.take %{{.*}} @L::@C
+// CHECK: return
+// CHECK-LABEL: func.func private @numbers(
+// CHECK-NOT: idr.take %{{.*}} @V::@V1
+// CHECK: idr.drop
+// CHECK-NOT: idr.take %{{.*}} @V::@V1
 // CHECK: return
 // LOWER-LABEL: func.func private @tail(
 // LOWER: scf.if
@@ -47,6 +61,10 @@ module attributes {idr.program} {
   idr.data @LL box {
     idr.ctor @NN ()
     idr.ctor @CC (!idr.box<@L>, !idr.box<@LL>)
+  }
+  idr.data @V box {
+    idr.ctor @V0 ()
+    idr.ctor @V1 (i64, i64)
   }
   func.func private @build(%n: i64) -> !idr.box<@L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<@L>) {
@@ -117,6 +135,43 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@LL>
   }
+  // A list of n, read (its tag), and then only its head, a number, used.
+  func.func private @headOnly(%n: i64) -> i64 {
+    %l = func.call @build(%n) : (i64) -> !idr.box<@L>
+    %r = idr.match %l : !idr.box<@L> -> (i64) {
+    case @N() {
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      %k = idr.tag %l : !idr.box<@L>
+      %s = arith.addi %h, %k : i64
+      idr.yield %s : i64
+    }
+    }
+    return %r : i64
+  }
+  func.func private @mkV(%n: i64) -> !idr.box<@V> {
+    %v = idr.con @V::@V1(%n, %n) : (i64, i64) -> !idr.box<@V>
+    return %v : !idr.box<@V>
+  }
+  // A cell of two numbers, read (its tag), and then its numbers used.
+  func.func private @numbers(%n: i64) -> i64 {
+    %v = func.call @mkV(%n) : (i64) -> !idr.box<@V>
+    %r = idr.match %v : !idr.box<@V> -> (i64) {
+    case @V0() {
+      %z = arith.constant 0 : i64
+      idr.yield %z : i64
+    }
+    case @V1(%a: i64, %b: i64) {
+      %k = idr.tag %v : !idr.box<@V>
+      %s = arith.addi %a, %b : i64
+      %t = arith.addi %s, %k : i64
+      idr.yield %t : i64
+    }
+    }
+    return %r : i64
+  }
   func.func @root(%w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
     %two = arith.constant 2 : i64
@@ -138,7 +193,11 @@ module attributes {idr.program} {
     %cd = arith.addi %c, %d : i64
     %ef = arith.addi %e, %f : i64
     %s = arith.addi %cd, %ef : i64
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %ho = func.call @headOnly(%three) : (i64) -> i64
+    %nu = func.call @numbers(%two) : (i64) -> i64
+    %hn = arith.addi %ho, %nu : i64
+    %all = arith.addi %s, %hn : i64
+    %w2 = idr.io.put_int signed %all, %w : i64
     return %w2 : !idr.world
   }
 }

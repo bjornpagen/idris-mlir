@@ -249,6 +249,27 @@ which the top-level CMake configure gate reads.
   asks the precondition alone
 - upstream: upstream/vectorize-precondition-body (not yet filed)
 
+## int-range-narrowing-exactness
+
+- symptom: at llvmorg-23.1.2, upstream's narrowing
+  (`arith::populateIntRangeNarrowingPatterns`) makes an elementwise op an
+  op on the narrow type whenever the ranges of its operands and results fit
+  it (`mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp:378-397`).
+  Three narrowed ops then compute something else: a shift whose amount can
+  reach the narrow width (poison there), a `remsi` that can see INT_MIN %
+  -1 of the narrow type (undefined behaviour once `llvm.srem`, where the
+  wide op gives 0), and a `remui` of a word that may be negative, which
+  the narrow op reads as another number
+- sites: foreign/idr/lib/Passes/NarrowLanes.cc (`exact`)
+- workaround: idr-narrow-lanes versions a vectorized loop only when every
+  integer op in it wider than 32 bits is an arith op whose 32-bit form
+  computes the same: a shift's amount stays below 32, a signed remainder
+  never sees INT32_MIN % -1, an op that reads its operands unsigned sees
+  no negative word; any other loop keeps its 64-bit lanes
+- retire: when the narrowing asks this itself
+  (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then
+- upstream: upstream/int-range-narrowing-exactness (not yet filed)
+
 ## llvm-force-enable-stats
 
 - symptom: `llvm/ADT/Statistic.h` makes `llvm::Statistic` a no-op when

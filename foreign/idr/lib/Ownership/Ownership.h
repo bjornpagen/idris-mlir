@@ -34,10 +34,15 @@ inline constexpr llvm::StringLiteral ownedStage = "owned";
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
 
-// Whether `view` is an atom: a constant nullary constructor, a static cell
-// with no fields that no count reaches and nothing reuses, which is in
-// every exclusive tree.
-bool isAtom(mlir::Value view);
+// Whether `view` is static data that reaches no cell but atoms: a constant
+// nullary constructor (an atom, a static cell with no fields), or a constant
+// unboxed sum, which has no cell, whose fields reach none either (a pair of
+// empty lists). No take hands out a cell of it, since an atom has no fields
+// to take and a sum no cell; no count reaches it, nothing frees or writes
+// it. So whoever else holds it changes nothing a consumer of exclusivity
+// does: it is in every exclusive tree. A static box with fields is not: a
+// take of it would hand out its cell as a token to build in.
+bool reachesOnlyAtoms(mlir::Value view);
 
 // Which types hold references. An unboxed sum does when a field of one of
 // its constructors does; the answers are computed once per module.
@@ -109,6 +114,17 @@ void whereDies(mlir::Value value, mlir::Block &block, mlir::SymbolTableCollectio
 // from the box, which is still alive there.
 TakeOp takeAt(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
               mlir::Block *fields);
+
+// Whether `box`, built by `ctor`, keeps a field that holds references past
+// `at` in `block`, where it dies: a field of it (as takeAt finds them) used
+// at that point or after. Only then does a take there save anything over a
+// drop, as Perceus specializes a drop only where the children are used: a
+// field that lives on moves out of an unshared cell instead of taking a
+// reference of its own while the box drops the cell's. A field that dies
+// with the box is dropped either way, and one that holds no reference has
+// nothing to move.
+bool keepsCountedField(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
+                       mlir::Block *fields);
 
 // The first read of a box that no match takes apart and whose every use
 // reads a field of one constructor (a nested pattern reads the fields of a
