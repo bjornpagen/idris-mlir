@@ -49,8 +49,9 @@ lit_cc() {
 # program links, and `%status N CMD` checks that CMD exits with status N. A
 # line fails when any command of its pipelines fails (pipefail); a trailing
 # \ continues it on the next RUN line. idris-mlir-opt, idris-mlir-cc and the
-# pinned LLVM's FileCheck, not and count come first on PATH, and `echo -n`
-# omits the newline.
+# pinned LLVM's FileCheck, not and count come first on PATH, `echo -n`
+# omits the newline, and `timeout` is coreutils' (tools/host.sh), which
+# bounds itself.
 lit() {
   lit_file=$(cd "$(dirname "$1")" && pwd)/${1##*/}
   lit_runtime=$("$idris_mlir_cc" --print-runtime)
@@ -76,6 +77,9 @@ lit() {
     (
       echo() {
         if [ "${1-}" = -n ]; then shift; printf '%s' "$*"; else printf '%s\n' "$*"; fi
+      }
+      timeout() {
+        "$timeout_cmd" "$@"
       }
       cd "$work" && eval "$lit_command"
     ) < /dev/null > "$work/lit.out" 2>&1

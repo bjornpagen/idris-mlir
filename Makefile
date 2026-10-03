@@ -65,8 +65,11 @@ INTERACTIVE ?=
 time_scale ?= 1
 export IDRIS_MLIR_TIME_SCALE := $(time_scale)
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
-# A runner that hangs fails instead of holding the tree's lock.
-RUN_TESTS = timeout -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
+# A runner that hangs fails instead of holding the tree's lock; without
+# coreutils' timeout (tools/host.sh) no test command runs.
+TIMEOUT := $(call toolchain,timeout_cmd)
+TIMEOUT_MISSING := $(call toolchain,timeout_missing)
+RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build prefix libs paths test test-idr \
         test-mlir-tools runner compile bench
@@ -150,18 +153,20 @@ paths:
 	    rm '$(PATHS_MODULE).new'; else mv '$(PATHS_MODULE).new' '$(PATHS_MODULE)'; fi
 
 # Every test command rebuilds the runner while other runs may be using it.
-# So it is built aside, in build/stage, one build at a time, and installed
-# by renaming each file over the old one: a running runner keeps the files
-# it started with, which rewriting them in place would corrupt under it.
-RUNNER_FILES = runtests runtests_app/runtests.so runtests_app/runtests.ss \
-               runtests_app/libidris2_support.so runtests_app/compileChez
+# So it is built aside, in build/stage, one build at a time (a mkdir
+# mutex, tools/host.sh), and installed by renaming each file over the old
+# one: a running runner keeps the files it started with, which rewriting
+# them in place would corrupt under it. The files are the launcher and
+# whatever the Chez backend put beside it, its support library named as
+# the host names one (.so, .dylib).
 runner: prefix
 	@$(PINS) idris
-	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && flock build/.runner.lock sh -c ' \
+	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && . $(ROOT)/tools/host.sh && \
+	with_lock build/.runner.mutex sh -c ' \
 	  $(IDRIS2) --build-dir build/stage --build tests.ipkg || exit 1; \
-	  for file in $(RUNNER_FILES); do \
-	    cp -p build/stage/exec/$$file build/exec/$$file.new.$$$$ && \
-	      mv -f build/exec/$$file.new.$$$$ build/exec/$$file || exit 1; \
+	  cd build/stage/exec && for file in runtests runtests_app/*; do \
+	    cp -p $$file ../../exec/$$file.new.$$$$ && \
+	      mv -f ../../exec/$$file.new.$$$$ ../../exec/$$file || exit 1; \
 	  done'
 
 check: runner

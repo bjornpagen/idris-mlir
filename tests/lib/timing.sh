@@ -2,14 +2,10 @@
 # file per test, with the module it emitted; tests/compile-times.sh lists
 # the slowest. The record gates nothing.
 
-# now_ms: the wall clock in milliseconds (GNU date's nanoseconds, or whole
-# seconds where date has none).
+# now_ms: the wall clock in milliseconds (now_ns, tools/host.sh).
 now_ms() {
-  now_ms_ns=$(date +%s%N)
-  case $now_ms_ns in
-    *N) say "$(( $(date +%s) * 1000 ))" ;;
-    *) say "$(( now_ms_ns / 1000000 ))" ;;
-  esac
+  now_ms_ns=$(now_ns) || return 1
+  say "$(( now_ms_ns / 1000000 ))"
 }
 
 # The timing record of this test: tests/build/timing/<test path, / as __>.tsv,

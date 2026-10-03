@@ -32,3 +32,7 @@ idris_mlir_tblgen=$root/build/dev/foreign/idr/idris-mlir-tblgen
 stamp_field() {
   sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1/provenance.json" 2> /dev/null | head -n 1
 }
+
+# The host's tools where Linux and macOS differ: coreutils' timeout
+# ($timeout_cmd), the nanosecond clock, SHA-256 and the stack limit.
+. "$root/tools/host.sh"

@@ -65,9 +65,11 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # does many compilations (fuzz, two levels) sets a larger
 # test_limit before sourcing this file. IDRIS_MLIR_TIME_SCALE (make's
 # time_scale) multiplies both, for a slower machine; a limit never passes a
-# test, it only ends one.
-if ! command -v timeout > /dev/null 2>&1; then
-  printf '%s\n' "test: no timeout command, so the test could hang"
+# test, it only ends one. coreutils' timeout is $timeout_cmd
+# (tools/host.sh).
+. "$root/tools/host.sh"
+if [ -z "$timeout_cmd" ]; then
+  printf '%s\n' "test: $timeout_missing, so the test could hang"
   exit 1
 fi
 time_scale=${IDRIS_MLIR_TIME_SCALE:-1}
@@ -77,7 +79,7 @@ test_limit=$(( ${test_limit:-300} * time_scale ))
 # a longer one is cut, and says so, which fails the test.
 if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   deadline_output=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-output.XXXXXX") || exit 1
-  IDRIS_MLIR_TEST_DEADLINE=$test_limit timeout -k 10 "$test_limit" sh "$0" "$@" > "$deadline_output"
+  IDRIS_MLIR_TEST_DEADLINE=$test_limit "$timeout_cmd" -k 10 "$test_limit" sh "$0" "$@" > "$deadline_output"
   deadline_status=$?
   head -c 262144 "$deadline_output"
   [ "$(wc -c < "$deadline_output")" -le 262144 ] || printf '\n%s\n' "test: output cut at 256 KiB"

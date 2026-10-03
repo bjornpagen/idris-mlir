@@ -53,8 +53,9 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bisect.XXXXXX") || exit 2
 trap 'rm -rf "$work"' EXIT
 trap 'exit 2' HUP INT TERM
 
+[ -n "$timeout_cmd" ] || { echo "bisect: $timeout_missing" >&2; exit 2; }
 bounded() {
-  timeout -k 5 "$limit" "$@"
+  "$timeout_cmd" -k 5 "$limit" "$@"
 }
 
 # The contract text: SOURCE, or what tools/compile.sh leaves of the program,

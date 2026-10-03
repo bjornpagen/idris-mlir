@@ -16,7 +16,7 @@ trap 'exit 1' HUP INT TERM
 # seconds, so a hang is a failure. A command that timed out exits 124 and says so on
 # stderr, which the caller shows with the rest of its output.
 bounded() {
-  timeout -k 5 "$step_limit" "$@"
+  "$timeout_cmd" -k 5 "$step_limit" "$@"
   bounded_status=$?
   case $bounded_status in
     124 | 137)
