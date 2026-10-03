@@ -1,0 +1,24 @@
+the checked-in modules: exit 0
+IdrisMLIR.Dialect.Idr: current
+IdrisMLIR.Dialect.Builtin: current
+IdrisMLIR.Dialect.Func: current
+IdrisMLIR.Dialect.Arith: current
+IdrisMLIR.Dialect.Math: current
+IdrisMLIR.Dialect.UB: current
+IdrisMLIR.Dialect.MemRef: current
+a module edited by hand: exit 1
+IdrisMLIR.Dialect.Idr: current
+IdrisMLIR.Dialect.Builtin: current
+IdrisMLIR.Dialect.Func: current
+IdrisMLIR.Dialect.Arith: current
+IdrisMLIR.Dialect.Math: current
+IdrisMLIR.Dialect.UB: edited by hand (make build writes it again)
+IdrisMLIR.Dialect.MemRef: current
+a changed generator: exit 1
+IdrisMLIR.Dialect.Idr: stale (make build writes it again)
+IdrisMLIR.Dialect.Builtin: stale (make build writes it again)
+IdrisMLIR.Dialect.Func: stale (make build writes it again)
+IdrisMLIR.Dialect.Arith: stale (make build writes it again)
+IdrisMLIR.Dialect.Math: stale (make build writes it again)
+IdrisMLIR.Dialect.UB: stale (make build writes it again)
+IdrisMLIR.Dialect.MemRef: stale (make build writes it again)

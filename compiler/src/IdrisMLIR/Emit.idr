@@ -1,5 +1,7 @@
-||| Full Core to the contract: one module in the custom syntax of the `idr`,
-||| `func`, `arith`, `math` and `ub` dialects.
+||| Full Core to the contract: one module of the `idr`, `func`, `arith`,
+||| `math`, `memref` and `ub` dialects, each op made by its builder, which is
+||| generated from the op's ODS (IdrisMLIR.Dialect.*), and written in MLIR's
+||| generic form (IdrisMLIR.MLIR).
 |||
 ||| A body is written by one fold over `Term`, a paramorphism: the algebra
 ||| turns each layer into an emitter, which, given the values of the
@@ -17,6 +19,8 @@
 ||| returns.
 module IdrisMLIR.Emit
 
+import IdrisMLIR.Dialect.Builtin as Builtin
+import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Emit.Declarations
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
@@ -34,8 +38,9 @@ emit : Source -> Either String String
 emit src = do
   let ix = index src
   let start = MkES 0 [<] [<]
-  (_, ops) <- runStateT start $ do
+  (_, statements) <- runStateT start $ do
     datas <- traverse (dataDecl ix) src.datas
     fns <- traverse (function ix src.root) src.fns
     pure (datas ++ concat fns)
-  pure (showModule "idr.program" ops)
+  pure (showModule ({ attributes := [Idr.programDiscardable] }
+                      (Builtin.moduleOp (MkRegion [] statements))))

@@ -5,8 +5,9 @@
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset, the packages in libs/ and the Idris
-#                          compiler; after any code change
+#   make build             the C++ dev preset, the packages in libs/, the Idris
+#                          side's modules of the dialects (tools/dialects.sh)
+#                          and the Idris compiler; after any code change
 #   make test              tests/compiler, accept, reject, programs (each program twice: with
 #                          its dumps checked, and without compile-time
 #                          evaluation), determinism, registry, toolchain, fuzz,
@@ -95,6 +96,7 @@ build: libs
 	cd $(ROOT) && $(CMAKE) --build --preset dev
 	@$(PINS) idris
 	@$(MAKE) --no-print-directory paths
+	$(ROOT)/tools/dialects.sh generate
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
 
 # This checkout's Idris prefix, build/idris2: every entry of the pinned

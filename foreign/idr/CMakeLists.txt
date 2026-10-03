@@ -204,10 +204,27 @@ target_link_libraries(idris-mlir-reduce PRIVATE
 	idris_mlir_language_profile
 )
 
+# mlir-tblgen with the generator of the Idris side's vocabulary of each
+# dialect Emit writes (tools/dialects.sh, which make build runs). It reads
+# ODS records only, so it links TableGen and nothing of the dialect.
+add_executable(idris-mlir-tblgen tools/idris-mlir-tblgen.cc)
+target_link_libraries(idris-mlir-tblgen PRIVATE
+	MLIRTblgenLib
+	MLIRTableGen
+	LLVMTableGen
+	LLVMSupport
+	idris_mlir_language_profile
+)
+target_compile_definitions(idris-mlir-tblgen PRIVATE ${IDR_LLVM_DEFINITIONS})
+# PIN(llvm-force-enable-stats)
+target_compile_options(idris-mlir-tblgen PRIVATE
+	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/Support/EnableStatistics.h"
+)
+
 # The MLIR API is not module-aware, so no target imports std: idr.mlir
 # wraps its headers instead. Only idr_dialect has module units; the tools
 # are plain translation units.
-set_target_properties(idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce PROPERTIES
+set_target_properties(idr_dialect idris-mlir-opt idris-mlir-cc idris-mlir-reduce idris-mlir-tblgen PROPERTIES
 	CXX_MODULE_STD OFF
 )
 set_target_properties(idr_dialect PROPERTIES CXX_SCAN_FOR_MODULES ON)
@@ -219,6 +236,6 @@ set_target_properties(idr_dialect PROPERTIES CXX_SCAN_FOR_MODULES ON)
 target_precompile_headers(idr_dialect PRIVATE include/idr/Idr.h)
 file(GLOB_RECURSE IDR_MODULE_UNITS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lib/*.cppm)
 set_source_files_properties(${IDR_MODULE_UNITS} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce PROPERTIES
+set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce idris-mlir-tblgen PROPERTIES
 	CXX_SCAN_FOR_MODULES OFF
 )

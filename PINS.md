@@ -21,7 +21,10 @@ which the top-level CMake configure gate reads.
   `OpRewritePattern`, `OpConversionPattern`), CRTP (`Op<...>`), headers and
   TableGen-generated `.inc` files included through the preprocessor; all of
   that is forbidden by the C++ profile
-- sites: `foreign/idr/` — the whole dialect, its passes and both tools
+- sites: `foreign/idr/` — the whole dialect, its passes and its tools
+  (`foreign/idr/tools/`), idris-mlir-tblgen among them: a TableGen backend
+  that reads ODS through `mlir::tblgen` and registers itself with
+  `mlir::GenRegistration`
 - workaround: all MLIR-facing code is quarantine code in `foreign/idr/`;
   LLVM/MLIR headers and generated files are system includes, so
   the project's warnings apply to our code only; the targets never import std.
@@ -276,7 +279,8 @@ which the top-level CMake configure gate reads.
   one-byte member, over what follows it in the pass. A plain
   `-DLLVM_FORCE_ENABLE_STATS=1` does not help: `llvm/Config/llvm-config.h`
   defines it to 0 unconditionally, after the command line
-- sites: foreign/idr/CMakeLists.txt (idr_dialect's compile options),
+- sites: foreign/idr/CMakeLists.txt (the compile options of idr_dialect and
+  of idris-mlir-tblgen, which links no idr_dialect),
   foreign/idr/lib/Support/EnableStatistics.h,
   foreign/idr/lib/Support/PipelineStatistics.cc (the static_assert)
 - workaround: every translation unit of idr_dialect and the tools starts
