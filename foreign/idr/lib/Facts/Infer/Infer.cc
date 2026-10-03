@@ -9,12 +9,13 @@ using namespace mlir;
 namespace {
 
 // What reaching something does to a function: an op that may crash makes
-// it crash, and something unknown (a function without a body, a call of
-// anything but a func.func) makes it do anything. IO a function does with a
-// world it takes is not reached: it is read off its type; IO on a world it
-// forges (idr.world.new) is reached.
+// it crash, a body without Idris's proof makes it diverge, and something
+// unknown (a function without a body, a call of anything but a func.func)
+// makes it do anything. IO a function does with a world it takes is not
+// reached: it is read off its type; IO on a world it forges (idr.world.new)
+// is reached.
 constexpr idr::Effect crashes = idr::Effect::crash;
-constexpr idr::Effect unknown = idr::Effect::io | idr::Effect::crash;
+constexpr idr::Effect unknown = idr::Effect::io | idr::Effect::crash | idr::Effect::diverge;
 
 struct Found {
   idr::Effect reached = idr::Effect::none;
@@ -29,6 +30,8 @@ Found local(func::FuncOp fn, SymbolTableCollection &symbols) {
     found.reached = unknown;
     return found;
   }
+  if (!fn->hasAttr("idr.total"))
+    found.reached = idr::Effect::diverge;
   auto reach = [&](Operation *from, SymbolRefAttr callee) {
     if (auto target = symbols.lookupNearestSymbolFrom<func::FuncOp>(from, callee))
       found.reaches.insert(target);
@@ -104,6 +107,7 @@ idr::facts::infer(ModuleOp module) {
     Effects effects;
     effects.io = bitEnumContainsAny(found.reached, idr::Effect::io) || takes(fn);
     effects.crash = bitEnumContainsAny(found.reached, idr::Effect::crash);
+    effects.diverge = bitEnumContainsAny(found.reached, idr::Effect::diverge);
     out.emplace_back(fn, effects);
   }
   return out;

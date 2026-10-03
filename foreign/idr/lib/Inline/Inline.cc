@@ -11,7 +11,8 @@
 // references, so that the other functions of a loop inline into its breaker
 // and its recursion becomes a self call. The decisions are taken once,
 // before anything is inlined, from the callees up, a callee that will be
-// inlined counting with its size where it is called.
+// inlined counting with its size where it is called. A caller that takes in
+// a body without Idris's proof of termination loses its own (facts::inlined).
 
 #include "Passes/Scc.h"
 #include "idr/Idr.h"
@@ -30,6 +31,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRINLINE
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.facts;
 
 namespace {
 
@@ -144,6 +147,15 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     unsigned iterations = maxIterations;
     config.setMaxInliningIterations(iterations ? iterations
                                                : std::numeric_limits<unsigned>::max());
+    config.setCloneCallback([clone = config.getCloneCallback()](
+                                OpBuilder &builder, Region *src, Block *inlineBlock,
+                                Block *postInsertBlock, IRMapping &mapper, bool cloned) {
+      Operation *at = inlineBlock->getParentOp();
+      auto into = isa<func::FuncOp>(at) ? cast<func::FuncOp>(at) : at->getParentOfType<func::FuncOp>();
+      if (into)
+        idr::facts::inlined(into, dyn_cast<func::FuncOp>(src->getParentOp()));
+      clone(builder, src, inlineBlock, postInsertBlock, mapper, cloned);
+    });
     auto profitable = [&](const Inliner::ResolvedCall &call) {
       Region *region = call.targetNode->getCallableRegion();
       return region && decisions.inlined.contains(region->getParentOp());

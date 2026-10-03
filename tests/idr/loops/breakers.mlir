@@ -1,6 +1,8 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-loop-breakers | FileCheck %s
+// RUN: idris-mlir-opt %s -split-input-file --idr-loop-breakers --idr-expect=holds=every-cycle-has-breaker,breaks-last -o /dev/null
 // idr-loop-breakers cuts every cycle of references among the functions that
-// may be inlined, calls and closures alike, at the start of every round.
+// may be inlined, calls and closures alike, at the start of every round;
+// Emit marks none, so its rule is the one rule.
 
 // Two clones that call each other: the newest becomes the breaker.
 // CHECK-LABEL: func.func private @f(
@@ -56,14 +58,14 @@ module attributes {idr.program} {
 
 // -----
 
-// A cycle through a library function and a function of the program: the
-// breaker is the program's, as Emit picks it (the library breaks last).
+// A cycle through a function that breaks last (the registry's column) and
+// a function of the program: the breaker is the program's.
 // CHECK-LABEL: func.func private @Lib.go(
 // CHECK-NOT: no_inline
 // CHECK-LABEL: func.func private @Main.back(
 // CHECK-SAME: no_inline
 module attributes {idr.program} {
-  func.func private @Lib.go(%x: i64) -> i64 attributes {idr.library} {
+  func.func private @Lib.go(%x: i64) -> i64 attributes {idr.break_last} {
     %r = func.call @Main.back(%x) : (i64) -> i64
     return %r : i64
   }
@@ -75,5 +77,51 @@ module attributes {idr.program} {
     %c = arith.constant 0 : i64
     %r = func.call @Lib.go(%c) : (i64) -> i64
     return %r : i64
+  }
+}
+
+// -----
+
+// The shape of a Show implementation for a rose tree: the user's show, the
+// Prelude's show of a list, which does not break last, and a function of
+// a library that does, first in module order. The cycle breaks at the
+// first function that does not break last; a cycle of functions that all
+// break last breaks at its first.
+// CHECK-LABEL: func.func private @Builtin.helper(
+// CHECK-NOT: no_inline
+// CHECK-LABEL: func.func private @Prelude.showList(
+// CHECK-SAME: no_inline
+// CHECK-LABEL: func.func private @Main.show(
+// CHECK-NOT: no_inline
+// CHECK-LABEL: func.func private @Builtin.one(
+// CHECK-SAME: no_inline
+// CHECK-LABEL: func.func private @Builtin.two(
+// CHECK-NOT: no_inline
+module attributes {idr.program} {
+  func.func private @Builtin.helper(%x: i64) -> i64 attributes {idr.break_last} {
+    %r = func.call @Main.show(%x) : (i64) -> i64
+    return %r : i64
+  }
+  func.func private @Prelude.showList(%x: i64) -> i64 {
+    %r = func.call @Builtin.helper(%x) : (i64) -> i64
+    return %r : i64
+  }
+  func.func private @Main.show(%x: i64) -> i64 {
+    %r = func.call @Prelude.showList(%x) : (i64) -> i64
+    return %r : i64
+  }
+  func.func private @Builtin.one(%x: i64) -> i64 attributes {idr.break_last} {
+    %r = func.call @Builtin.two(%x) : (i64) -> i64
+    return %r : i64
+  }
+  func.func private @Builtin.two(%x: i64) -> i64 attributes {idr.break_last} {
+    %r = func.call @Builtin.one(%x) : (i64) -> i64
+    return %r : i64
+  }
+  func.func @Main.main() -> i64 {
+    %c = arith.constant 0 : i64
+    %r = func.call @Main.show(%c) : (i64) -> i64
+    %s = func.call @Builtin.one(%r) : (i64) -> i64
+    return %s : i64
   }
 }

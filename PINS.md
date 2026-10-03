@@ -148,13 +148,16 @@ which the top-level CMake configure gate reads.
   `ub.unreachable`: the `ub` dialect's inliner interface does not implement
   it, and no hook of ours sees that terminator. The inliner's region
   patterns likewise skip a region that ends in `ub.unreachable`
-- sites: compiler/src/IdrisMLIR/Emit.idr (`epilogue`),
-  foreign/idr/lib/Passes/Prune.cc
+- sites: compiler/src/IdrisMLIR/Emit/Bodies.idr (`epilogue`),
+  foreign/idr/lib/Passes/Prune.cc (`idr::returnNever`, which
+  foreign/idr/lib/Passes/TailLoops.cc uses too),
+  foreign/idr/lib/Dialect/Dialect.cc (the program's verifier)
 - workaround: no function body ends in `ub.unreachable`: one that never
   returns (a crash, a body Idris proved impossible, a match none of whose
-  regions returns) returns `ub.poison` instead, which is never reached. A
-  match region that crashes still ends in `ub.unreachable` and stays a
-  region, which the lowering lowers
+  regions returns) returns `ub.poison` instead, which is never reached; the
+  program's verifier refuses a body that ends in `ub.unreachable`, after
+  every pass. A match region that crashes still ends in `ub.unreachable`
+  and stays a region, which the lowering lowers
 - retire: when the inliner handles `ub.unreachable` at a bump;
   `tests/upstream/inline-unreachable-terminator` fails then
 - upstream: upstream/inline-unreachable-terminator (not yet filed)

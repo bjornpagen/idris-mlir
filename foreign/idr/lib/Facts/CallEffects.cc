@@ -1,5 +1,5 @@
 // The effects of a func.call, through MLIR's own interface: what the
-// callee's facts say (`idr.effects`, `idr.total`, Functions/Of.cc) and what
+// callee's facts say (`idr.effects`, Functions/Of.cc) and what
 // the closures the call is given may do (Closures/Passed.cc). Every pass,
 // upstream or ours, then asks a call what it does the way it asks any op:
 // canonicalize erases an unused call that only computes, CSE merges two
@@ -49,9 +49,9 @@ struct CallEffects : MemoryEffectOpInterface::ExternalModel<CallEffects, func::C
     }
     if (what.crash)
       effects.emplace_back(MemoryEffects::Write::get(), idr::CrashResource::get());
-    if (what.partial)
+    if (what.diverge)
       effects.emplace_back(MemoryEffects::Write::get(), idr::DivergenceResource::get());
-    if ((what.crash || what.partial) && !what.io)
+    if ((what.crash || what.diverge) && !what.io)
       effects.emplace_back(MemoryEffects::Write::get(), idr::IOResource::get());
     for (OpResult result : call.getResults()) {
       Type type = idr::unrestricted(result.getType());

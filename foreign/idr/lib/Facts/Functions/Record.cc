@@ -12,5 +12,7 @@ void facts::record(func::FuncOp fn, Effects effects) {
     bits = bits | Effect::io;
   if (effects.crash)
     bits = bits | Effect::crash;
+  if (effects.diverge)
+    bits = bits | Effect::diverge;
   fn->setAttr("idr.effects", EffectAttr::get(fn.getContext(), bits));
 }

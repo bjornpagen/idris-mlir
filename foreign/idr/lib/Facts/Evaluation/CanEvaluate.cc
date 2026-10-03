@@ -54,6 +54,6 @@ std::optional<facts::Evaluation> facts::canEvaluate(Operation *op, SymbolTable &
     });
   if (!llvm::all_of(runners, runs))
     return std::nullopt;
-  out.total = llvm::none_of(runners, [](func::FuncOp fn) { return of(fn).partial; });
+  out.total = llvm::none_of(runners, [](func::FuncOp fn) { return of(fn).diverge; });
   return out;
 }

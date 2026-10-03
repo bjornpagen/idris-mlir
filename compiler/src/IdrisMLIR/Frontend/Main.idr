@@ -211,14 +211,13 @@ runCc args errPath = do
   when (status == 0 && text /= "") $ ignore (coreLift (fPutStr stderr text))
   pure (status, text)
 
-||| What an exit status of `idris-mlir-cc` means. 3 is a profile rejection
-||| and 4 a total evaluation the machine could not finish: both are user
-||| errors that name their rule and the call's location. Anything else but 0
+||| What an exit status of `idris-mlir-cc` means. 3 is a rejection, a user
+||| error that names its rule and the user's location. Anything else but 0
 ||| is an internal error. Either way the artifacts are removed.
 ccVerdict : {auto s : Ref TState TS} -> FC -> Source -> List String -> (Int, String) -> Core ()
 ccVerdict fc src artifacts (0, _) = pure ()
 ccVerdict fc src artifacts (status, text) =
-  if status == 3 || status == 4
+  if status == 3
     then do
       traverse_ remove artifacts
       case rejection text of

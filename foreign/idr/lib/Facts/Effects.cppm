@@ -9,7 +9,7 @@ export namespace idr::facts {
 struct Effects {
   bool io = false;
   bool crash = false;
-  bool partial = false;
+  bool diverge = false;
 
   static Effects all();
   bool none() const;

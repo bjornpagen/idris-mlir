@@ -41,6 +41,10 @@ mlir::LogicalResult noHeapAllocation(mlir::ModuleOp module, llvm::StringRef func
 // Every cycle of references among functions has a loop breaker.
 mlir::LogicalResult everyCycleHasBreaker(mlir::ModuleOp module, llvm::StringRef);
 
+// No cycle that holds a function without idr.break_last breaks at one with
+// it, other than at a clone.
+mlir::LogicalResult breaksLast(mlir::ModuleOp module, llvm::StringRef);
+
 // Every call of the function the argument names, or of a clone of it, calls
 // one and the same function.
 mlir::LogicalResult oneClone(mlir::ModuleOp module, llvm::StringRef function);

@@ -29,8 +29,8 @@ func.func private @f() attributes {idr.effects = "io"} {
 
 // -----
 
-// expected-error @+1 {{expects idr.library as a unit attribute of a function}}
-func.func private @f() attributes {idr.library = "yes"} {
+// expected-error @+1 {{expects idr.break_last as a unit attribute of a function}}
+func.func private @f() attributes {idr.break_last = "yes"} {
   return
 }
 
@@ -47,6 +47,6 @@ func.func private @f() {
 // The facts a function may carry.
 func.func private @f(%e: !idr.erased, %x: !idr.lin<i64>,
                      %y: i64)
-    attributes {idr.total, idr.library, idr.effects = #idr.effects<io, crash>, no_inline} {
+    attributes {idr.total, idr.break_last, idr.effects = #idr.effects<io, crash>, no_inline} {
   return
 }

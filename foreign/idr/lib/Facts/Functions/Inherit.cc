@@ -12,8 +12,4 @@ void facts::inherit(func::FuncOp made, func::FuncOp origin, ArrayRef<func::FuncO
     effects |= of(label);
   effects.io |= takesWorld(made);
   record(made, effects);
-  if (effects.partial)
-    made->removeAttr("idr.total");
-  else
-    made->setAttr("idr.total", UnitAttr::get(made.getContext()));
 }

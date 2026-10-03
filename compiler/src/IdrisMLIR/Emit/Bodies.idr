@@ -7,7 +7,6 @@ import IdrisMLIR.Dialect.Func as Func
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Attributes
-import IdrisMLIR.Emit.Breakers
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Emit.Operations
@@ -181,10 +180,8 @@ lifted ix own l lbl caps ps expected body = do
   rt <- mlirType ix t
   args <- traverse (operand ix) params
   body <- epilogue ix l rt res ops
-  let fnAttrs = own.inherited ++ [Total | contains (LamNode lbl) ix.terminating]
-  -- A loop breaker: inlining it could unroll a cycle.
-  let fn = Func.funcOp {symVisibility = Just "private"}
-                       {noInline = contains (LamNode lbl) ix.breakers} sym
+  let fnAttrs = own.inherited ++ lifted
+  let fn = Func.funcOp {symVisibility = Just "private"} sym
                        (functionType (map (\a => a.type) args) [rt])
                        (MkRegion args body)
   modify { lifted $= (:< MkStatement Nothing ({ attributes := attributes fnAttrs } fn)

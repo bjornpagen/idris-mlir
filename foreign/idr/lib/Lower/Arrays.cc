@@ -226,16 +226,19 @@ struct LowerArraySet : IdrPattern<ArraySetOp> {
 };
 
 // The length of an array, `memref.dim %a, %c0`: its length component, as
-// the index the op gives. An array has the one dimension 0.
+// the index the op gives. An array has the one dimension 0. Emit asks only
+// that of an array, and no pass asks another, so any other dim is the
+// compiler's error, never the program's.
 struct LowerDim : OpConversionPattern<memref::DimOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(memref::DimOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     if (!isArray(op.getSource().getType()))
-      return op.emitError() << "unsupported (array): the dimension of "
-                            << op.getSource().getType() << ", which is not an array";
+      return op.emitError() << "takes the dimension of " << op.getSource().getType()
+                            << ", which is not an array";
     if (op.getConstantIndex() != 0)
-      return op.emitError() << "unsupported (array): an array has the one dimension 0";
+      return op.emitError() << "takes a dimension of an array other than the constant 0, "
+                               "and an array has the one dimension 0";
     rewriter.replaceOpWithNewOp<arith::IndexCastOp>(op, op.getType(), adaptor.getSource()[1]);
     return success();
   }

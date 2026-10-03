@@ -1,4 +1,4 @@
-// What a call of a function may do, from `idr.effects` and `idr.total`.
+// What a call of a function may do, from `idr.effects`.
 module idr.facts;
 
 import idr.mlir;
@@ -12,10 +12,10 @@ facts::Effects facts::of(func::FuncOp fn) {
   // do anything.
   if (!fn || fn.isExternal())
     return out;
-  out.partial = !fn->hasAttr("idr.total");
   if (auto found = fn->getAttrOfType<EffectAttr>("idr.effects")) {
     out.io = bitEnumContainsAny(found.getValue(), Effect::io);
     out.crash = bitEnumContainsAny(found.getValue(), Effect::crash);
+    out.diverge = bitEnumContainsAny(found.getValue(), Effect::diverge);
   }
   return out;
 }

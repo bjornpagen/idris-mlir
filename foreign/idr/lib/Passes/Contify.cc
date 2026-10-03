@@ -10,7 +10,9 @@
 // constructor the case block builds, and case-of-case moves the call into
 // both arms of the parent's matches, after which it has two calls and is
 // no longer a continuation of anything.
-// Inlining the one call copies no code, and the call goes. So this runs
+// Inlining the one call copies no code, and the call goes; the parent keeps
+// Idris's proof of termination only if the case block had it too
+// (facts::inlined). So this runs
 // before the simplify loop, on the module Emit wrote, where every case block
 // still has its one call. It uses inlineCall rather than the inliner, whose
 // policy over the call graph is what refuses these callees. A callee that
@@ -38,6 +40,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRCONTIFY
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.facts;
 
 namespace {
 
@@ -86,12 +90,13 @@ struct Contify : idr::impl::IdrContifyBase<Contify> {
         if (found == users.end())
           continue;
         func::CallOp call = continuationCall(fn, found->second);
+        auto caller = call ? call->getParentOfType<func::FuncOp>() : func::FuncOp();
         if (!call ||
-            !callees.lookup(fn.getSymNameAttr())
-                 .contains(call->getParentOfType<func::FuncOp>().getSymNameAttr()) ||
+            !callees.lookup(fn.getSymNameAttr()).contains(caller.getSymNameAttr()) ||
             failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
                               /*shouldCloneInlinedRegion=*/false)))
           continue;
+        idr::facts::inlined(caller, fn);
         call.erase();
         users.erase(found);
         // The function's own attributes may name other symbols.
