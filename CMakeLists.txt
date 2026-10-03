@@ -140,6 +140,11 @@ endif()
 #                                       for the target calls, which
 #                                       idr-eval's JIT binds from the
 #                                       process
+#   IDRIS_MLIR_PAGE_SIZE                the size of a page of the target, the
+#                                       one number the runtime's startup
+#                                       check compares with the system's:
+#                                       16384 on Darwin arm64, 4096 on Linux
+#                                       x86-64. Nothing else may assume it.
 #
 # A program's link line is the pinned C compiler with its object, the
 # runtime and -o, then idris-mlir-cc --print-link-flags: --target with the
@@ -173,6 +178,44 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_SYMBOL_PREFIX "")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
 	set(IDRIS_MLIR_JIT_LIBRARY_CALLS "")
+	set(IDRIS_MLIR_PAGE_SIZE 4096)
+elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
+	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
+	# has, and a program compiled for a later one names what an older lacks.
+	# Function multiversioning tests the features at a program's entry, and
+	# compiler-rt reads them from sysctl only when the test asks, in the
+	# resolver this entry names, which may be called any number of times.
+	set(IDRIS_MLIR_TARGET_CPU "apple-m1")
+	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=apple-m1)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cppm)
+	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
+	set(IDRIS_MLIR_RUNTIME_CPU_INIT __init_cpu_features_resolver)
+	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
+	# Linux headers its defines name do not exist here.
+	set(IDRIS_MLIR_RUNTIME_DEFINITIONS "")
+	# Mach-O: each member carries its bitcode embedded (IRObjectFile reads
+	# it), and the prepared runtime keeps the joined bitcode in a .bc file
+	# beside its object, Mach-O having no section every link leaves out.
+	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -fembed-bitcode=all)
+	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION "")
+	# macOS user space ends below 2^47 on arm64: only an mmap that asks for
+	# a higher address gets one, and no stack does.
+	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
+	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
+	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
+	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,-dead_strip -Wl,--icf=all)
+	# The pinned clang's configuration file names the sysroot beside it;
+	# GMP is its one library on Darwin. The path is derived from the
+	# compiler the preset names, so a toolchain elsewhere still resolves.
+	get_filename_component(IDRIS_MLIR_CLANG_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
+	get_filename_component(IDRIS_MLIR_TOOLCHAIN_ROOT "${IDRIS_MLIR_CLANG_BIN}/../.." ABSOLUTE)
+	set(IDRIS_MLIR_GMP "${IDRIS_MLIR_TOOLCHAIN_ROOT}/sysroot/usr/lib/libgmp.a")
+	# libSystem is the unwinder; there is no separate one to leave out.
+	set(IDRIS_MLIR_NO_UNWINDER "")
+	set(IDRIS_MLIR_SYMBOL_PREFIX "_")
+	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
+	set(IDRIS_MLIR_JIT_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
+	set(IDRIS_MLIR_PAGE_SIZE 16384)
 else()
 	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it each fact the comment above the entries lists, in CMakeLists.txt")
 endif()

@@ -182,6 +182,9 @@ target_compile_definitions(idris_rt PRIVATE
 	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
 	# The bits of a stack address (rt.rc).
 	IDRIS_RT_STACK_ADDRESS_BITS=${IDRIS_MLIR_STACK_ADDRESS_BITS}
+	# The target's page size, which the runtime's startup check compares
+	# with the system's (rt.platform:memory). The target entry's one number.
+	IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
 )
 # The function that fills in the processor's features before the test reads
 # them, where no static constructor does.

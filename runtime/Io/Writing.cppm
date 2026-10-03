@@ -9,6 +9,11 @@ export module rt.io:writing;
 
 namespace rt::io {
 
+// The size of the buffers of standard output and input: a buffer, not a
+// page. It bounds one write's worth of pending output and is never an
+// alignment or a region size (the target entry's page size is
+// IDRIS_MLIR_PAGE_SIZE, which rt.platform's startup check reads); 4096 is a
+// small write's worth on every target.
 inline constexpr size_t bufferSize = 4096;
 
 } // namespace rt::io

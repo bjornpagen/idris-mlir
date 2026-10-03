@@ -132,6 +132,9 @@ void checkStatus(int64_t status) {
 
 extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int32_t
 idris_rt_start(int64_t (*body)(void), uint64_t cpu) {
+  // Before the processor test and before any reservation: a runtime built
+  // for another page size than this system's must not run at all.
+  rt::platform::checkPageSize();
   checkCpu(cpu);
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,

@@ -31,6 +31,9 @@ char *arenaNext = nullptr;
 char *arenaEnd = nullptr;
 
 // Chunks are reserved, not committed: pages cost memory when first touched.
+// The size is a multiple of 64 MiB, and reserve() maps whole pages of
+// whatever the system's page size is (rt.platform), so this bounds how much
+// address space a chunk asks for, not a page-aligned quantity of its own.
 constexpr size_t chunkSize = size_t{1} << 26;
 
 // The meter of the running call, when it is metered: the ticks and arena

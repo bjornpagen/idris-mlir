@@ -73,6 +73,8 @@ namespace {
 // The child's stack: at most 2^46 bytes of address space, committed as it is
 // touched, above a guard of 16 MiB. A metered call's stack budget ends it
 // before the guard; a fault on the guard is the machine's limit, exhaustion.
+// idris_rt_run_on_stack rounds both up to the system's page; neither is a
+// page size, and nothing here assumes one.
 constexpr size_t stackMost = size_t{1} << 46;
 constexpr size_t stackGuard = size_t{1} << 24;
 
