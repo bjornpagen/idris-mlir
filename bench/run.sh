@@ -157,7 +157,7 @@ revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=un
     *) echo "Stack: $stack KiB (ulimit -s), the most this system allows." ;;
   esac
   echo
-  echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $link_flags"
+  echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $(printf "%s" "$link_flags" | tr "\n" " ")"
   echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
   if [ -n "$mlton" ]; then
     echo "- MLton: $(first_line "$mlton")"
