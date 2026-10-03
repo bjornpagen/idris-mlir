@@ -12,6 +12,20 @@ compile_program() {
   record_time "$(( $(now_ms) - compile_started ))" "$@"
 }
 
+# link_program ARG...: the pinned C compiler with ARG... (sources or objects,
+# the runtime, -o and any option), then what links a program for the
+# target, one argument per line of idris-mlir-cc --print-link-flags, as the
+# -o flow links one.
+link_program() {
+  link_program_flags=$("$idris_mlir_cc" --print-link-flags) || return 1
+  while IFS= read -r link_program_flag; do
+    set -- "$@" "$link_program_flag"
+  done << EOF
+$link_program_flags
+EOF
+  bounded "$pinned_cc" "$@"
+}
+
 # artifacts DIR NAME...: every NAME is a non-empty file somewhere under
 # DIR/build.
 artifacts() {

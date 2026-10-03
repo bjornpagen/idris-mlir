@@ -13,11 +13,13 @@ Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation,
   → idr dialect (C++) → the simplify loop: inline, specialize, evaluate at compile time
     by running the program's own code in a JIT, to a fixpoint
   → defunctionalize, reference counting, loops → idr-lower → LLVM O3 with the runtime
-  → object → lld links a static-PIE executable on musl
+  → object → linked as the target entry says (static PIE on musl today)
 ```
 
 Targets: x86_64 Linux (musl, static PIE) today; arm64 macOS is the next
-first-class target, and the code is written for both (AGENTS.md).
+first-class target, and the code is written for both (AGENTS.md). What a
+target is lives in one place, its entry in CMakeLists.txt, whose comment
+lists every fact an entry gives.
 
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else

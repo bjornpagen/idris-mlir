@@ -37,9 +37,10 @@ lit_status() {
 # lit_cc ARG... (`%cc`): the pinned C compiler, which links a program with
 # what every program needs, as tools/compile.sh links one: the runtime
 # idris-mlir-cc reads, where what a program did not inline resolves, and
-# GMP, since the runtime frees a big's limbs.
+# what links a program for the target, GMP among it, since the runtime
+# frees a big's limbs (link_program).
 lit_cc() {
-  bounded "$pinned_cc" "$@" "$("$idris_mlir_cc" --print-runtime)" -lgmp
+  link_program "$@" "$("$idris_mlir_cc" --print-runtime)"
 }
 
 # lit FILE: the `// RUN:` lines of a dialect test, run as lit's internal

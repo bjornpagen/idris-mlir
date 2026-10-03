@@ -3,6 +3,7 @@
 
 #include "idr/Idr.h"
 #include "idr/Target.h"
+#include "idr/TargetEntry.h"
 
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
 #include "mlir/Debug/CLOptionsSetup.h"
@@ -157,14 +158,23 @@ cl::opt<bool> prepareRuntime("prepare-runtime",
 constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 
 // Code is compiled for the triple the runtime is built for (the target
-// entry's), which its bitcode carries. The module records it with the CPU as its
-// #llvm.target; the -o flow and tools/compile.sh link for the triple
-// --print-target-triple prints.
+// entry's), which its bitcode carries. The module records it with the CPU as
+// its #llvm.target; every link of a program is for it too (the --target of
+// --print-link-flags).
 constexpr llvm::StringLiteral targetTriple = IDRIS_MLIR_TARGET_TRIPLE;
 cl::opt<bool> printTargetTriple("print-target-triple",
                                 cl::desc("Print the target triple executables are linked for, "
                                          "and exit"),
                                 cl::init(false));
+// What links a program for the target entry, after its object, the runtime
+// and -o, one argument of the pinned C compiler per line: --target with the
+// triple, then the entry's executable and program link flags and GMP. The
+// -o flow, tools/bisect.sh and the tests link with these.
+cl::opt<bool> printLinkFlags("print-link-flags",
+                             cl::desc("Print the arguments that link a program for the target, "
+                                      "after its object, the runtime and -o, one per line, and "
+                                      "exit"),
+                             cl::init(false));
 // What other compilers need to compile for the same machine, bench/run.sh's
 // C versions among them: the CPU --cpu selects, `native` resolved.
 cl::opt<bool> printTargetCpu("print-target-cpu",
@@ -1093,6 +1103,12 @@ int main(int argc, char **argv) {
   }
   if (printRuntime) {
     llvm::outs() << runtimePath << "\n";
+    return ok;
+  }
+  if (printLinkFlags) {
+#define IDR_LINK_FLAG(flag) llvm::outs() << flag << "\n";
+    IDRIS_MLIR_LINK_FLAGS(IDR_LINK_FLAG)
+#undef IDR_LINK_FLAG
     return ok;
   }
   if (inputPath.empty() != prepareRuntime) {

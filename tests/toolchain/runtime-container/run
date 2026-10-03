@@ -101,7 +101,7 @@ program() {
     show "$work/cc.log"
     return 1
   fi
-  if ! bounded "$pinned_cc" "$program.o" "$program_runtime" -lgmp -o "$program" > "$work/ld.log" 2>&1; then
+  if ! link_program "$program.o" "$program_runtime" -o "$program" > "$work/ld.log" 2>&1; then
     say "$program_name: does not link"
     show "$work/ld.log"
     return 1

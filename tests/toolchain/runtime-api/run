@@ -10,7 +10,7 @@
 # The runtime archive the build made, linked natively with GMP.
 runtime=$root/build/dev/runtime/libidris_rt.a
 build_test() {
-  if "$pinned_cc" -O1 -I"$root/runtime" "$1" "$runtime" -lgmp -o "$2" > "$work/cc.log" 2>&1; then
+  if link_program -O1 -I"$root/runtime" "$1" "$runtime" -o "$2" > "$work/cc.log" 2>&1; then
     say "${2##*/}: built"
   else
     say "${2##*/}: does not build"

@@ -316,14 +316,12 @@ compileIO c _ tmpDir outputDir tm outfile = do
   -- The rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
   ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !ccOptions) (base ++ ".cc.stderr"))
-  -- lld links the program's one object and the runtime's (what the program
-  -- did not inline resolves there) into a static-PIE executable on musl,
-  -- whose libc.a also holds the libm functions the lowering calls, with GMP
-  -- as a native archive, for the triple idris-mlir-cc compiled it for. The
-  -- pinned clang's configuration file supplies the sysroot, compiler-rt and
-  -- libunwind.
-  run fc [corePath, mlirPath, objPath, base] [pinnedCc, "--target=" ++ targetTriple, "-fuse-ld=lld", "-static-pie",
-          "-Wl,--gc-sections", "-Wl,--icf=all", objPath, runtime, "-o", base, "-lgmp"]
+  -- The pinned C compiler links the program's one object and the runtime's
+  -- (what the program did not inline resolves there) into an executable
+  -- for the target idris-mlir-cc compiled it for, as the target entry says
+  -- (linkFlags: the triple, the kind of executable, what is dropped and
+  -- folded, and GMP).
+  run fc [corePath, mlirPath, objPath, base] ([pinnedCc, objPath, runtime, "-o", base] ++ linkFlags)
   pure (Just base)
 
 ||| The stock driver does not fail `-o` on a backend error, so the backend

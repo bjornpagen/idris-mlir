@@ -7,7 +7,7 @@
 # before the program runs.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 runtime=$root/build/dev/runtime/libidris_rt.a
-if ! "$pinned_cc" -O1 -I"$root/runtime" "$here/start.c" "$runtime" -lgmp -o "$work/start" \
+if ! link_program -O1 -I"$root/runtime" "$here/start.c" "$runtime" -o "$work/start" \
     > "$work/cc.log" 2>&1; then
   say "start: does not build"
   show "$work/cc.log"

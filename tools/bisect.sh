@@ -82,6 +82,19 @@ case $source in
     ;;
 esac
 
+# link ARG...: the pinned C compiler with ARG... (the object, the runtime and
+# -o), then what links a program for the target, one argument per line of
+# idris-mlir-cc --print-link-flags: as the -o flow links it.
+link() {
+  link_flags=$("$idris_mlir_cc" --print-link-flags) || return 1
+  while IFS= read -r link_flag; do
+    set -- "$@" "$link_flag"
+  done << EOF
+$link_flags
+EOF
+  bounded "$pinned_cc" "$@"
+}
+
 # outcome NAME FLAG...: the contract text compiled by idris-mlir-cc with
 # FLAGs and linked as the -o flow links it, run on STDIN; in NAME.outcome,
 # its exit status and what it printed, or how its compilation failed.
@@ -95,9 +108,7 @@ outcome() {
       "$(grep -m 1 'error' "$work/$outcome_name.cc")" > "$work/$outcome_name.outcome"
     return
   fi
-  if ! bounded "$pinned_cc" --target="$("$idris_mlir_cc" --print-target-triple)" -fuse-ld=lld -static-pie \
-      -Wl,--gc-sections -Wl,--icf=all "$work/$outcome_name.o" "$("$idris_mlir_cc" --print-runtime)" \
-      -o "$work/$outcome_name" -lgmp \
+  if ! link "$work/$outcome_name.o" "$("$idris_mlir_cc" --print-runtime)" -o "$work/$outcome_name" \
       > "$work/$outcome_name.ld" 2>&1; then
     printf 'the link fails\n' > "$work/$outcome_name.outcome"
     return

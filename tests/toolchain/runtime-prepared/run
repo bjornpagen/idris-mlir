@@ -18,7 +18,7 @@ say "prepared runtime: one object"
 # build_test RUNTIME SOURCE OUT: SOURCE, a runtime-api program, linked with
 # RUNTIME and GMP into OUT.
 build_test() {
-  if "$pinned_cc" -O1 -I"$root/runtime" "$2" "$1" -lgmp -o "$3" > "$work/cc.log" 2>&1; then
+  if link_program -O1 -I"$root/runtime" "$2" "$1" -o "$3" > "$work/cc.log" 2>&1; then
     return 0
   fi
   say "${3##*/}: does not build"
