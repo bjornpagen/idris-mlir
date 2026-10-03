@@ -182,6 +182,12 @@ bool knownNonZero(mlir::Value value);
 bool knownFinite(mlir::Value value);
 bool knownNonEmpty(mlir::Value value);
 
+// Whether output of `str` writes the pieces it is built from and never the
+// string (the output fusion of Canonicalize.td): a concatenation, a
+// character before a string, one character, a number, or a list packed or
+// concatenated for that output alone.
+bool writtenInPieces(mlir::Value str);
+
 // The types a field of a constructor may have.
 bool isFieldType(mlir::Type type);
 
@@ -316,6 +322,11 @@ CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 // (a box of a nil without fields and a cons of `element` and the list), or
 // null with an error at `op`.
 CtorOp listCons(mlir::Operation *op, mlir::Type list, mlir::Type element);
+
+// The string a constant list of characters packs to, or a constant list of
+// strings concatenates to, as the runtime builds it (lib/Fold); null for
+// any other constant.
+mlir::Attribute stringOfList(mlir::MLIRContext *context, mlir::Attribute list);
 
 // The elimination of a value that begins at one of its uses: an apply of
 // the value, or of one field of it (an action in `MkIO f`), each read

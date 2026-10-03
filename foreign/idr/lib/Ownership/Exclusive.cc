@@ -1,19 +1,25 @@
 // Exclusivity (Ownership/Ownership.h): which owned values hold the only
-// reference to every cell of their cell graph, so that taking them apart
-// needs no count test, and building in their cells no null test.
+// reference to every cell of their cell graph that a take could hand out,
+// so that taking them apart needs no count test, and building in their
+// cells no null test. Those are the cells with fields; static data built
+// only of atoms has none to hand out (an atom has no fields to take, an
+// unboxed sum no cell), no count reaches it and nothing frees or writes it,
+// so it is in every exclusive tree however many hold it (reachesOnlyAtoms).
 //
 // In the owned stage a reference is duplicated only by idr.dup, so
 // exclusivity is provenance: a value is exclusive when it is a constructor
 // whose box fields are exclusive, a field an exclusive value was taken apart
 // into (the token of that take too), a call's result that every return
-// makes exclusive, or a parameter every caller passes exclusive. A dup, a
-// constant (other than a nullary constructor, an atom no cell holds a
-// count for), a stack cell and a value from a caller the module does not
-// show are shared. The analysis is a sparse forward dataflow on MLIR's
-// solver, optimistic as SCCP is: a value is exclusive until a path shares
-// it, which is sound by induction on the run. What it proves is written
-// into the types (`!idr.excl<T>`), which every later pass keeps and the
-// owned stage's verifier checks.
+// makes exclusive, a parameter every caller passes exclusive, or a copy of
+// static data built only of atoms. So the pair of empty lists that span and
+// splitAt give at the end of their input joins the pair they build around
+// an exclusive one, and the join stays exclusive. Any other dup or
+// constant, a stack cell and a value from a caller the module does not show
+// are shared. The analysis is a sparse forward dataflow on MLIR's solver,
+// optimistic as SCCP is: a value is exclusive until a path shares it, which
+// is sound by induction on the run. What it proves is written into the
+// types (`!idr.excl<T>`), which every later pass keeps and the owned
+// stage's verifier checks.
 
 #include "Ownership/Ownership.h"
 
@@ -101,9 +107,32 @@ public:
 
 } // namespace
 
-bool isAtom(Value view) {
-  ConAttr con;
-  return matchPattern(view, m_Constant(&con)) && con.getFields().empty();
+namespace {
+
+// Whether the constant `attr` reaches no cell but atoms: a box constructor
+// without fields, a constructor of an unboxed sum whose fields reach none
+// either, or a value that is no box or sum at all (a number, a static
+// string or big, which nothing takes apart). A closure is a cell.
+bool onlyAtoms(Operation *from, Attribute attr) {
+  if (isa<ClosureAttr>(attr))
+    return false;
+  auto con = dyn_cast<ConAttr>(attr);
+  if (!con)
+    return true;
+  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
+      from, FlatSymbolRefAttr::get(con.getCtor().getRootReference()));
+  if (!data)
+    return false;
+  if (data.getBox())
+    return con.getFields().empty();
+  return llvm::all_of(con.getFields(), [&](Attribute field) { return onlyAtoms(from, field); });
+}
+
+} // namespace
+
+bool reachesOnlyAtoms(Value view) {
+  Attribute attr;
+  return matchPattern(view, m_Constant(&attr)) && onlyAtoms(view.getDefiningOp(), attr);
 }
 
 namespace {
@@ -144,8 +173,11 @@ public:
           sharing = std::max(sharing, held(lattice));
       return set(results[0], sharing);
     }
+    // A copy of static data that reaches no cell but atoms is in every
+    // exclusive tree; any other copy shares its cells with the original.
     if (auto dup = dyn_cast<DupOp>(op))
-      return set(results[0], isAtom(dup.getValue()) ? Sharing::Exclusive : Sharing::Shared);
+      return set(results[0],
+                 reachesOnlyAtoms(dup.getValue()) ? Sharing::Exclusive : Sharing::Shared);
     // The fields of an exclusive value are exclusive: it alone reached
     // them. So is the cell it leaves behind.
     if (isa<TakeOp>(op)) {

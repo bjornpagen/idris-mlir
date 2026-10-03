@@ -391,16 +391,23 @@ def Idr_ConOp : Idr_Op<"con", [
   let hasFolder = 1;
 }
 
-// Reading a field of another constructor gives an unspecified value but never
-// traps, so the op is speculatable. It is Pure though it may load from the
-// cell, because a cell never changes while a reference to it is live: it is
-// written when it is built (a field built pending once more, through its
-// destination, before anything reads it), and reused only through the token
-// of a box idr.take consumed. In the owned stage, where references end, the
-// verifier refuses a read through a view once the reference the view borrows
-// is gone, so a pass that moves a read past its cell's drop fails there
-// instead of reading a freed cell.
-def Idr_FieldOp : Idr_Op<"field", [Pure,
+// A sum's field is one of its slots, there whatever constructor built the
+// value, so reading another constructor's gives an unspecified value: the
+// read may run anywhere (it is speculatable). A box's field is a load from
+// its cell, which is as large as its own constructor (an atom is its header
+// alone), so reading a larger constructor's field from it would load past
+// its end: the read stays where its constructor is known, under its match
+// or after the test of its tag, and moves nowhere it would run without them
+// (it is not speculatable). Neither read has a memory effect though a box's
+// loads from the cell, because a cell never changes while a reference to it
+// is live: it is written when it is built (a field built pending once more,
+// through its destination, before anything reads it), and reused only
+// through the token of a box idr.take consumed. In the owned stage, where
+// references end, the verifier refuses a read through a view once the
+// reference the view borrows is gone, so a pass that moves a read past its
+// cell's drop fails there instead of reading a freed cell.
+def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "reads a field of a constructor value";
   let arguments = (ins Idr_SumType:$value, FlatSymbolRefAttr:$ctor,
@@ -729,6 +736,30 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat"> {
   let arguments = (ins Idr_SumValue:$list);
   let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
   let hasVerifier = 1;
+}
+
+// Output of a list pack or concat walks: its characters or its strings,
+// written in order, each as put_char or put_str writes it, which is what
+// writing the list's pack or concat writes. Output of a pack or a concat
+// whose string has no other use becomes this op, and the string is never
+// built. Where the op meets the list's constructor it takes one step of
+// the walk: the nil writes nothing, and a cell writes its element before
+// the rest, so a cell built only to be written is not built. It is IO, as
+// the idr.io ops are, but calls no runtime function named after it: its
+// lowering walks the list (Lower/Strings.cc).
+def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO,
+    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
+  let summary = "writes the characters or the strings of a list, in order";
+  let arguments = (ins Idr_SumValue:$list, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = "$list `,` $world attr-dict `:` type($list)";
+  let hasVerifier = 1;
+  let hasCanonicalizer = 1;
+  let extraClassDeclaration = [{
+    // What the list holds: i32, a character, or !idr.str; null when it is
+    // not a list of either, which the verifier refuses.
+    ::mlir::Type getElementType();
+  }];
 }
 
 // `signed` or `unsigned` for an integer, nothing for a Double.
@@ -1330,8 +1361,9 @@ def Idr_DupOp : Idr_OwnedOp<"dup"> {
     more reference to it. Static data, a small big and an empty slot hold
     no count and are left alone; an unboxed sum adds a reference to each of
     its slots. The result is owned, or exclusive (`-> !idr.excl<T>`) when
-    the value is an atom, a constant nullary constructor, which is in every
-    exclusive tree.
+    the value is static data that reaches no cell but atoms (a constant
+    nullary constructor, or a constant unboxed sum of them), which is in
+    every exclusive tree: no take hands out a cell of it.
   }];
   let arguments = (ins Arg<Idr_ViewType, "", [MemRead, MemWrite]>:$value);
   let results = (outs Idr_OwnType:$result);

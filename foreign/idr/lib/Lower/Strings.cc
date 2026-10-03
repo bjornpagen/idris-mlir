@@ -1,14 +1,15 @@
 // Lowering of the string builders over lists: idr.str.pack over a list of
-// characters and idr.str.concat over a list of strings. The list is a box
-// of a nil without fields and a cons of the element and the rest. Each op
-// walks it twice: once to count the bytes and scalar values of the result
-// and whether it is ASCII, which the runtime's one allocation needs; once
-// more to write each element after the last. The list is read and never
-// counted: the op borrows it. The ops declare the allocation of their result
-// and not these reads: a list's cells never change while a reference to them
-// is live, and the owned stage's verifier refuses a builder that reads its
-// list, a view, once the reference the view borrows is gone, as it refuses a
-// field read.
+// characters and idr.str.concat over a list of strings; and of
+// idr.io.put_list, which writes such a list. The list is a box of a nil
+// without fields and a cons of the element and the rest. Each builder walks
+// it twice: once to count the bytes and scalar values of the result and
+// whether it is ASCII, which the runtime's one allocation needs; once more
+// to write each element after the last. Output walks it once. The list is
+// read and never counted: the op borrows it. The ops do not declare these
+// reads (a builder declares the allocation of its result, output its IO): a
+// list's cells never change while a reference to them is live, and the
+// owned stage's verifier refuses an op that reads its list, a view, once the
+// reference the view borrows is gone, as it refuses a field read.
 
 #include "Lower/Patterns.h"
 
@@ -160,11 +161,36 @@ struct LowerStrConcat : IdrPattern<StrConcatOp> {
   }
 };
 
+// The output of a list in one walk: each character or string goes to the
+// runtime's output as put_char or put_str writes it, so the bytes, and
+// their order with everything else the program writes, are those of
+// writing the list's pack or concat.
+struct LowerPutList : IdrPattern<PutListOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Type element = op.getElementType();
+    CtorOp cons = listCons(op, op.getList().getType(), element);
+    if (!cons)
+      return failure();
+    StringRef put = isa<StrType>(element) ? "idris_rt_io_put_str" : "idris_rt_io_put_char";
+    walk(rewriter, op.getLoc(), layouts, runtime, cons, adaptor.getList().front(), {},
+         [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
+           runtime.call(b, l, put, Type(), head.front());
+           return SmallVector<Value>{};
+         });
+    // A world has no runtime form.
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+    return success();
+  }
+};
+
 } // namespace
 
 void populateStringPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerStrPack, LowerStrConcat>(converter, patterns.getContext(), layouts, runtime);
+  patterns.add<LowerStrPack, LowerStrConcat, LowerPutList>(converter, patterns.getContext(),
+                                                           layouts, runtime);
 }
 
 } // namespace idr::lower

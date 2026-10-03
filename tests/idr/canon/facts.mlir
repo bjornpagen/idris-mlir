@@ -46,16 +46,17 @@ func.func @unused(%x: i64) {
 }
 
 // Case-of-case moves output into a match across a call that only
-// computes; the match itself may crash, so it cannot move down instead.
+// computes, where it writes the number one region shows; the match itself
+// may crash, so it cannot move down instead.
 // CHECK-LABEL: func.func @across_computing(
 // CHECK: idr.match_lit
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: idr.io.put_str
+// CHECK-NEXT: idr.io.put_int
 func.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
-    %c = idr.constant "zero" : !idr.str
-    idr.yield %c : !idr.str
+    %t = idr.str.show signed %x : i64
+    idr.yield %t : !idr.str
   }
   case 1 {
     %c = idr.constant "one" : !idr.str
@@ -79,8 +80,8 @@ func.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i6
 func.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
-    %c = idr.constant "zero" : !idr.str
-    idr.yield %c : !idr.str
+    %t = idr.str.show signed %x : i64
+    idr.yield %t : !idr.str
   }
   case 1 {
     %c = idr.constant "one" : !idr.str
@@ -101,8 +102,8 @@ func.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64
 func.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
-    %c = idr.constant "zero" : !idr.str
-    idr.yield %c : !idr.str
+    %t = idr.str.show signed %x : i64
+    idr.yield %t : !idr.str
   }
   case 1 {
     %c = idr.constant "one" : !idr.str

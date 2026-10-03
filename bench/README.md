@@ -187,7 +187,9 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   (idr.str.pack, 2026-10-02) fasta took 0.38 s of which 0.098 s was
   computation and 0.002 s output, the rest a string per character; it now
   takes about its computation, and reverse-complement 2.8x less than
-  before. What remains is the list itself: a cons cell per character read.
+  before. A line packed only to be written is written as its list is
+  walked, without the string (idr.io.put_list, 2026-10-02): about 5% off
+  each. What remains is the list itself: a cons cell per character read.
 - **k-nucleotide** (2.3x faster than Chez, 22x slower than C): the
   fragments are counted in a `Data.SortedMap String Int`, which keeps the
   `Ord String` it was built with in the map's constructors. The frontend

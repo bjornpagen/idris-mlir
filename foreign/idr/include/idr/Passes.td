@@ -609,7 +609,7 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         across anything, delayed, and evaluated at compile time;
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
-        or `show` made;
+        or `show` made, or what `pack` or `concat` made for it alone;
       - `constant-stack=@f`: no recursion from @f grows the stack: every
         function @f may call, @f included, that is on a cycle of references
         refers to the others of its cycle only by guaranteed tail calls
