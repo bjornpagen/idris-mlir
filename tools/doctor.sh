@@ -23,15 +23,43 @@ else
 fi
 llvm_version=$(lock_field llvm version)
 echo "LLVM pin: $(lock_field llvm tag) $(lock_field llvm revision)"
-# What the host provides, only to build the pinned tools.
-for tool in git make cc c++ python3 m4 curl tar sha256sum timeout scheme chez chezscheme; do
+# What the host provides, only to build the pinned tools, and what the
+# scripts run on it (tools/host.sh): coreutils' timeout, SHA-256 and, where
+# date has no nanoseconds (macOS), perl's clock.
+for tool in git make cc c++ python3 m4 curl tar unzip scheme chez chezscheme; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done
-if [ -f /usr/include/linux/futex.h ] && [ -d /usr/include/asm-generic ]; then
-  echo "Linux UAPI headers: found"
-else
-  echo "Linux UAPI headers: not found"
-fi
+echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
+echo "SHA-256: $(command -v sha256sum 2> /dev/null || command -v shasum 2> /dev/null || echo 'not found: sha256sum (coreutils) or shasum')"
+case $host_clock in
+  date) echo "clock: date's %N" ;;
+  perl) echo "clock: perl's Time::HiRes: $(now_ns > /dev/null 2>&1 && echo found || echo 'not found')" ;;
+esac
+case $(uname -s) in
+  Linux)
+    if [ -f /usr/include/linux/futex.h ] && [ -d /usr/include/asm-generic ]; then
+      echo "Linux UAPI headers: found"
+    else
+      echo "Linux UAPI headers: not found"
+    fi
+    ;;
+  Darwin)
+    if sdk=$(xcrun --show-sdk-path 2> /dev/null) && [ -d "$sdk" ]; then
+      echo "macOS SDK: $sdk"
+    else
+      echo "macOS SDK: not found (xcode-select --install)"
+    fi
+    # Homebrew's coreutils (gtimeout), Chez Scheme (Idris) and MLton (the
+    # benchmarks' MLton column).
+    if command -v brew > /dev/null 2>&1; then
+      for formula in coreutils chezscheme mlton; do
+        echo "Homebrew $formula: $(brew list --versions "$formula" 2> /dev/null || echo "not installed (brew install $formula)")"
+      done
+    else
+      echo "Homebrew: not found (https://brew.sh, then: brew install coreutils chezscheme mlton)"
+    fi
+    ;;
+esac
 if [ -f "$idris_prefix/provenance.json" ]; then
   echo "Local Idris/API: built at $(stamp_field "$idris_prefix" idris2_revision)"
 else

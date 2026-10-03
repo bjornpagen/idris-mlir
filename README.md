@@ -84,6 +84,17 @@ LLVM and GMP), a threaded Chez Scheme, the Linux UAPI headers and coreutils'
 sudo apt-get install -y git make gcc g++ python3 m4 curl chezscheme linux-libc-dev
 ```
 
+The scripts run on macOS's BSD userland too (`tools/host.sh` holds every
+difference). There the Command Line Tools give the compiler, the SDK,
+Make, Git, python3, m4, curl and perl (whose clock times what `date`
+cannot), and Homebrew the rest: coreutils for `gtimeout`, Chez Scheme, and
+MLton for the benchmarks:
+
+```sh
+xcode-select --install
+brew install coreutils chezscheme mlton
+```
+
 `make bootstrap` builds the pinned CMake, Ninja, a two-stage LLVM/MLIR
 (static on musl and libc++, with LTO), musl, GMP and Idris 2 into
 `.toolchain/`; the steps and their environment are at the top of
