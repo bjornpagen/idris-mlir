@@ -1455,8 +1455,8 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInte
 // Specialization keys (lib/Specialize)
 //===----------------------------------------------------------------------===//
 
-// idr-specialize keeps the key of each clone it makes as `idr.spec_key`, so
-// that its later runs share the clone. The labels in a key are names, not
+// idr-specialize keeps the key of each clone it makes in the clone's
+// `idr.clone` attribute, so that its later runs share the clone. The labels in a key are names, not
 // symbol uses: a key keeps no function alive and refers to none.
 class Idr_KeyAttr<string name, string attrMnemonic> : AttrDef<Idr_Dialect, name> {
   let mnemonic = attrMnemonic;
