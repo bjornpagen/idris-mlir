@@ -245,3 +245,81 @@ func.func @uses_later(%c: i64) -> i64 {
   }
   return %r : i64
 }
+
+// The value a consumer meets may be one match deeper: no region of the
+// outer match yields a constructor, but one yields the result of an inner
+// match, whose regions do. fst (if b then (if c then (1, 2) else (3, 4))
+// else p): the consumer moves through both matches and folds against each
+// pair; only the read of p is left.
+// CHECK-LABEL: func.func @nested(
+// CHECK-SAME: %{{.*}}: i64, %{{.*}}: i64, %[[P:.*]]: !idr.data<@P>)
+// CHECK-NOT: idr.con
+// CHECK: idr.field %[[P]][@MkP, 0]
+// CHECK-NOT: idr.con
+// CHECK: return
+func.func @nested(%b: i64, %c: i64, %p: !idr.data<@P>) -> i64 {
+  %q = idr.match_lit %b : i64 -> (!idr.data<@P>) {
+  case 0 {
+    %inner = idr.match_lit %c : i64 -> (!idr.data<@P>) {
+    case 0 {
+      %one = arith.constant 1 : i64
+      %two = arith.constant 2 : i64
+      %x = idr.con @P::@MkP(%one, %two) : (i64, i64) -> !idr.data<@P>
+      idr.yield %x : !idr.data<@P>
+    }
+    default {
+      %three = arith.constant 3 : i64
+      %four = arith.constant 4 : i64
+      %y = idr.con @P::@MkP(%three, %four) : (i64, i64) -> !idr.data<@P>
+      idr.yield %y : !idr.data<@P>
+    }
+    }
+    idr.yield %inner : !idr.data<@P>
+  }
+  default {
+    idr.yield %p : !idr.data<@P>
+  }
+  }
+  %f = idr.field %q[@MkP, 0] : !idr.data<@P> -> i64
+  return %f : i64
+}
+
+// A match none of whose regions yields never completes, so in a region of
+// another match nothing after it runs: the region ends in ub.unreachable
+// right after it. Here the consumer that case-of-case moved into that region
+// goes, and the region keeps only the match that crashes.
+// CHECK-LABEL: func.func @never_yields(
+// CHECK: case 0 {
+// CHECK-NEXT: idr.match_lit
+// CHECK: idr.crash "zero"
+// CHECK: idr.crash "other"
+// CHECK-NEXT: ub.unreachable
+// CHECK-NEXT: }
+// CHECK-NEXT: }
+// CHECK-NEXT: ub.unreachable
+// CHECK-NEXT: }
+func.func @never_yields(%b: i64, %c: i64) -> i64 {
+  %q = idr.match_lit %b : i64 -> (!idr.data<@P>) {
+  case 0 {
+    %inner = idr.match_lit %c : i64 -> (!idr.data<@P>) {
+    case 0 {
+      idr.crash "zero"
+      ub.unreachable
+    }
+    default {
+      idr.crash "other"
+      ub.unreachable
+    }
+    }
+    idr.yield %inner : !idr.data<@P>
+  }
+  default {
+    %one = arith.constant 1 : i64
+    %two = arith.constant 2 : i64
+    %x = idr.con @P::@MkP(%one, %two) : (i64, i64) -> !idr.data<@P>
+    idr.yield %x : !idr.data<@P>
+  }
+  }
+  %f = idr.field %q[@MkP, 0] : !idr.data<@P> -> i64
+  return %f : i64
+}

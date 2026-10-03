@@ -28,7 +28,8 @@ Match rebuildMatch(mlir::PatternRewriter &rewriter, Match op, mlir::TypeRange ty
 bool feeds(mlir::Value value, mlir::OpOperand &use);
 
 // Whether `consumer`, moved into every region of the match that defines
-// `result`, meets in some region a value it folds or canonicalizes against.
+// `result`, meets in some region a value it folds or canonicalizes against,
+// there or in a region of a match that region yields the result of.
 bool meetsInSomeRegion(mlir::OpResult result, mlir::Operation *consumer);
 
 // Identical regions merge (Merge.cc).
