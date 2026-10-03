@@ -8,6 +8,7 @@ target_sources(idr_dialect PRIVATE
 	Prune.cc
 	ReturnedArguments.cc
 	Simplify.cc
+	Tail.cc
 	TailLoops.cc
 	Target.cc
 	Trmc.cc

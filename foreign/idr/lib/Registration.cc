@@ -56,6 +56,9 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // steps, broadcasts, shape casts) convert-to-llvm does not carry.
       "convert-vector-to-scf,expand-strided-metadata,lower-affine,convert-scf-to-cf,"
       "convert-vector-to-llvm,convert-to-llvm,reconcile-unrealized-casts",
+      // On the final control flow, where a call's path to the return is
+      // what LLVM sees.
+      "idr-tail-calls",
   };
   return steps;
 }

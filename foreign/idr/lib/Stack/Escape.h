@@ -32,13 +32,20 @@
 // function's entry block. So it also escapes when the con may run again in
 // the same frame while the cell is live: the cell must not be forwarded by
 // a terminator of a loop around the con, which carries values to the next
-// iteration or out of the loop, nor passed to a self tail call of the
-// function, which idr-tail-loops makes the next iteration of a loop. A con
+// iteration or out of the loop. Nor may it be passed to a call in tail
+// position of a function on the same cycle of calls: such a call must be a
+// tail call (idr-tail-calls) for the cycle to run in constant stack, or
+// the next iteration of a loop (idr-tail-loops) when it is a self call, and
+// either way the frame is gone when the callee runs. A function off the
+// cycle never calls back round to this frame's function, so a call of it in
+// tail position may stay a call that keeps the frame: idr-tail-calls leaves
+// a call that takes its caller's frame a call. A con
 // counts only in a function body of one block whose regions on the way are
 // those of matches (at most one runs, once) and of scf.while (one
 // iteration at a time); anywhere else it escapes.
 #pragma once
 
+#include "Stack/Recursion.h"
 #include "idr/Idr.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -53,8 +60,9 @@ namespace idr::stack {
 
 class Escapes {
 public:
-  // Computes the summaries of every parameter of the module's functions.
-  explicit Escapes(mlir::ModuleOp module);
+  // Computes the summaries of every parameter of the module's functions,
+  // whose cycles of calls are `cycles`.
+  Escapes(mlir::ModuleOp module, const Cycles &cycles);
 
   // Whether the cell that `con`, a box's constructor, builds may outlive its
   // frame, or be live when `con` runs again in the same frame.
@@ -68,7 +76,8 @@ public:
 private:
   // Where the nodes of a function are followed: `repeating` are the ops
   // that may run a con again in the same frame (its loops, and the function
-  // itself for its self tail calls); none, for the function's parameters.
+  // itself, whose calls in tail position end the frame); none, for the
+  // function's parameters, whose cells outlive the calls.
   struct Frame {
     mlir::func::FuncOp fn;
     llvm::ArrayRef<mlir::Operation *> repeating;
@@ -85,6 +94,7 @@ private:
 
   mlir::ModuleOp module;
   mlir::SymbolTable symbols;
+  const Cycles &cycles;
   // The nodes of parameters that escape.
   llvm::DenseSet<Node> parameters;
   // The escaping nodes of a function around the cons of one innermost loop

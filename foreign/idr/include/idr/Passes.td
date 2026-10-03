@@ -72,6 +72,33 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
+  let summary = "Make every call in tail position on a cycle of calls a guaranteed tail call";
+  let description = [{
+    Runs on the LLVM dialect, last. A call is in tail position when the
+    path from it returns its result unchanged: through extractvalue and
+    insertvalue, through branches that carry it, past conditions the path
+    itself decides and ops that only compute. When such a call's caller and
+    callee are on one cycle of direct calls, and only the module's calls
+    reach both (private, their address never taken), the two take the
+    `tailcc` calling convention, as do all their calls, and every call in
+    tail position between two functions of `tailcc` becomes `musttail`,
+    with the return right after it. The other functions keep their
+    convention: a call from one cycle to another adds a frame once at most,
+    and the callee of a `tailcc` call pops its stack arguments, at a cost
+    to every call of it. A function on a tail call whose result the target
+    returns in memory (what LLVM's lowering of `tailcc` decides for the
+    module's `#llvm.target`) takes a pointer to write it to instead: a tail
+    call passes on its own, any other call a slot of its frame. A call that
+    takes a pointer into its caller's frame stays a call.
+  }];
+  let statistics = [
+    Statistic<"numTailCalls", "tail-calls", "Calls in tail position made guaranteed tail calls">,
+    Statistic<"numInMemory", "in-memory", "Functions on tail calls whose result goes through memory">,
+    Statistic<"numFrameBound", "frame-bound", "Calls in tail position that take their caller's frame, left calls">,
+  ];
+}
+
 def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
   let summary = "Evaluate closed calls of functions that perform no IO at compile time";
   let description = [{
@@ -310,12 +337,13 @@ def IdrStack : Pass<"idr-stack", "::mlir::ModuleOp"> {
     reference to its cell can outlive the frame of the function that builds
     it, nor the loop iteration that builds it. A reference escapes when it
     is returned, captured by a closure, applied to an unknown function,
-    forwarded by a terminator of a loop around the con, passed to a call of
-    the con's own function (which idr-tail-loops may make the next
-    iteration of a loop), passed to a parameter that escapes (the
-    parameters are summarized over the module's calls), used by an op the
-    analysis does not know, or stored in a constructor whose value escapes
-    or whose fields are read into something that escapes. idr-lower builds
+    forwarded by a terminator of a loop around the con, passed to a call in
+    tail position of a function on the same cycle of calls (a tail call,
+    idr-tail-calls, or the next iteration of a loop, idr-tail-loops),
+    passed to a parameter that escapes (the parameters are summarized over
+    the module's calls), used by an op the analysis does not know, or
+    stored in a constructor whose value escapes or whose fields are read
+    into something that escapes. idr-lower builds
     a marked cell in a slot of its function's entry block, with the stack
     mark in its header. A cell of more than 256 bytes stays on the heap,
     and so do a function's cells past 1024 bytes, or 64 bytes for a
@@ -589,8 +617,11 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
         or `show` made, or what `pack` or `concat` made for it alone;
-      - `constant-stack=@f`: no function @f may call, @f included, is on a
-        cycle of references: every recursion from @f became a loop;
+      - `constant-stack=@f`: no recursion from @f grows the stack: every
+        function @f may call, @f included, that is on a cycle of references
+        refers to the others of its cycle only by guaranteed tail calls
+        (`musttail`, after idr-tail-calls), so before idr-tail-calls none may
+        be on a cycle at all: every recursion became a loop;
       - `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`;
       - `pure-array-loops`, `pure-array-loops=@f`: every loop over an array
         (`idr.array.generate`, `idr.array.fold`), anywhere or in @f, has a

@@ -71,18 +71,30 @@ bool locationNames(Location loc, StringRef name) {
 // location (a NameLoc), and a clone of it keeps that location whatever the
 // passes name the clone: the location is the provenance no pass drops, where
 // a key attribute is stripped once its pass is done.
-SmallVector<func::FuncOp> named(ModuleOp module, StringRef function, StringRef property) {
-  SmallVector<func::FuncOp> functions;
+SmallVector<FunctionOpInterface> namedFunctions(ModuleOp module, StringRef function,
+                                                StringRef property) {
+  SmallVector<FunctionOpInterface> functions;
   StringRef name = function.ltrim('@');
   if (name.empty()) {
     fail(module.getLoc(), property) << "no function named";
     return functions;
   }
-  for (auto fn : module.getOps<func::FuncOp>())
-    if (fn.getSymName() == name || locationNames(fn.getLoc(), name))
+  for (auto fn : module.getOps<FunctionOpInterface>())
+    if (SymbolTable::getSymbolName(fn) == name || locationNames(fn.getLoc(), name))
       functions.push_back(fn);
   if (functions.empty())
     fail(module.getLoc(), property) << "no function " << function << ", and no clone of it";
+  return functions;
+}
+
+SmallVector<func::FuncOp> named(ModuleOp module, StringRef function, StringRef property) {
+  SmallVector<FunctionOpInterface> all = namedFunctions(module, function, property);
+  SmallVector<func::FuncOp> functions;
+  for (FunctionOpInterface fn : all)
+    if (auto f = dyn_cast<func::FuncOp>(fn.getOperation()))
+      functions.push_back(f);
+  if (functions.empty() && !all.empty())
+    fail(module.getLoc(), property) << function << " is lowered: the property is of a module before idr-lower";
   return functions;
 }
 

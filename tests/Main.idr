@@ -105,6 +105,7 @@ suites =
       , pool "programs/interfaces: interfaces resolved at compile time" ["programs/interfaces"]
       , pool "programs/eval: compile-time evaluation and specialization" ["programs/eval"]
       , pool "programs/partial: partial functions, crashes and the stack" ["programs/partial"]
+      , pool "programs/stack: loops through calls in tail position in constant stack on long inputs, and recursions as deep as on Chez" ["programs/stack"]
       , pool "programs/nat: natural numbers" ["programs/nat"]
       , pool "programs/data: data and records at runtime" ["programs/data"]
       , pool "programs/linear: linear values and the linear library's lists" ["programs/linear"]

@@ -330,6 +330,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   toLLVM.addPass(createSCFToControlFlowPass());
   toLLVM.addPass(createConvertToLLVMPass());
   toLLVM.addPass(createReconcileUnrealizedCastsPass());
+  toLLVM.addPass(idr::createIdrTailCalls());
   if (failed(runPipeline(toLLVM, lowered)))
     return internal(0, "lowering the round's calls to the LLVM dialect failed");
   if (unsigned labels = layouts->numLabels()) {

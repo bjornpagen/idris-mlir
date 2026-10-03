@@ -69,6 +69,33 @@ Value readField(OpBuilder &builder, Location loc, Value value) {
   return heldAs(builder, loc, field, arg.getType());
 }
 
+// A match none of whose regions yields never completes, so nothing after it
+// in its block runs: that block, a region of another match, ends in
+// ub.unreachable right after it, as a region does after a crash. Case-of-case
+// copies a consumer into every region, so one region of a match may yield
+// the result of a match that never completes, followed by what consumes it
+// there. A function body keeps its return: a body never ends in
+// ub.unreachable (PINS.md: inline-unreachable).
+template <typename Match>
+struct EndAfterNoYield : OpRewritePattern<Match> {
+  using OpRewritePattern<Match>::OpRewritePattern;
+  LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
+    if (llvm::any_of(op->getRegions(), [](Region &region) {
+          return region.empty() || !isa<ub::UnreachableOp>(region.front().getTerminator());
+        }))
+      return failure();
+    Block *block = op->getBlock();
+    if (!isa<MatchOp, MatchLitOp>(block->getParentOp()) ||
+        isa<ub::UnreachableOp>(op->getNextNode()))
+      return failure();
+    while (&block->back() != op.getOperation())
+      rewriter.eraseOp(&block->back());
+    rewriter.setInsertionPointToEnd(block);
+    ub::UnreachableOp::create(rewriter, op.getLoc());
+    return success();
+  }
+};
+
 // A match on a linear value takes it apart, and stays: the value has no
 // other reader to read its fields from. One whose value entered its grade
 // from a plain value reads that value's fields.
@@ -91,6 +118,7 @@ void populate(RewritePatternSet &results, MLIRContext *context,
   canon::addMerge<Match>(results, context);
   canon::addCaseOfCase<Match>(results, context);
   canon::addSink<Match>(results, context);
+  results.add<EndAfterNoYield<Match>>(context);
 }
 
 } // namespace

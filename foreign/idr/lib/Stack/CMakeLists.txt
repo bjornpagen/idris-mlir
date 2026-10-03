@@ -4,5 +4,4 @@ target_sources(idr_dialect PRIVATE
 	Escape.cc
 	Pass.cc
 	Recursion.cc
-	Tail.cc
 )

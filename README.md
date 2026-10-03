@@ -60,7 +60,10 @@ standard streams. Linear arrays and lists come from the compiler's own
 that remain after the pipeline live in counted cells: `idr-rc` reuses the
 cell of a value that dies, borrows what a function only reads, and the
 verifier checks after every pass that every reference is consumed exactly
-once; cells that never leave their frame are on the stack. With
+once; cells that never leave their frame are on the stack. A call in tail
+position that goes round a cycle of calls is a guaranteed tail call, so a
+loop through such calls (a mutual recursion, an IO loop through its binds)
+runs in constant stack, as on Chez. With
 `IDRIS_RT_LIVE=1` a program reports how many cells are live when it ends:
 none. What the compiler cannot compile it rejects with a named rule
 (`unsupported (<rule>)`), never miscompiles. The measurements are in

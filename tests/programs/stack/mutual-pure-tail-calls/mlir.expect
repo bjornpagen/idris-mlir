@@ -1,0 +1,3 @@
+# The recursion of isEven and isOdd stays a cycle, whose every call is a
+# guaranteed tail call once idr-tail-calls has run.
+idr-tail-calls: constant-stack=@$36$idris$45$mlir.root

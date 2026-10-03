@@ -25,6 +25,7 @@
 // neither touch memory nor can fail, which the call then moves past: the
 // call's result has no other use.
 
+#include "Passes/Tail.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -212,6 +213,27 @@ void rewriteClone(OpBuilder &b, Block &block, func::FuncOp fn, func::FuncOp clon
   idr::DestWriteOp::create(b, terminator->getLoc(), hole, terminator->getOperand(0));
   endWithNothing(b, block);
 }
+
+} // namespace
+
+// Whether `call` is the self call of a tail modulo constructor, in a block
+// in tail position: idr-trmc writes its result into the constructor the
+// block returns, which it builds before the call.
+bool idr::passes::inTailPositionModuloConstructor(func::CallOp call) {
+  auto fn = call->getParentOfType<func::FuncOp>();
+  if (!fn || !isSelfCall(call, fn))
+    return false;
+  Block &block = *call->getBlock();
+  std::optional<Modulo> tail = moduloAt(block, fn);
+  if (!tail || tail->call != call)
+    return false;
+  Operation *terminator = block.getTerminator();
+  Operation *match = terminator->getParentOp();
+  return isa<func::ReturnOp>(terminator) ||
+         (isa<idr::MatchOp, idr::MatchLitOp>(match) && inTailPosition(match));
+}
+
+namespace {
 
 struct Trmc : idr::impl::IdrTrmcBase<Trmc> {
   void runOnOperation() override {

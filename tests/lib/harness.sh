@@ -76,3 +76,16 @@ fixture_name() {
 first_word() {
   awk '{ for (i = 1; i <= NF; i++) { print $i; exit } }' "$1"
 }
+
+# repeated FILE N OUT: FILE's lines N times over, in OUT: a long input, built
+# where the test runs rather than kept in the repository. Status 1, and a
+# line that says so, when N is not a count.
+repeated() {
+  case $2 in
+    '' | *[!0-9]*)
+      say "input: $2 is not a number of copies"
+      return 1 ;;
+  esac
+  awk -v n="$2" '{ line[NR] = $0 }
+    END { for (i = 0; i < n; i++) for (j = 1; j <= NR; j++) print line[j] }' "$1" > "$3"
+}
