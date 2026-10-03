@@ -49,15 +49,14 @@ case $(uname -s) in
     else
       echo "macOS SDK: not found (xcode-select --install)"
     fi
-    # Homebrew's coreutils (gtimeout) and MLton (the benchmarks' MLton
-    # column).
-    if command -v brew > /dev/null 2>&1; then
-      for formula in coreutils mlton; do
-        echo "Homebrew $formula: $(brew list --versions "$formula" 2> /dev/null || echo "not installed (brew install $formula)")"
-      done
-    else
-      echo "Homebrew: not found (https://brew.sh, then: brew install coreutils mlton)"
-    fi
+    # MacPorts' coreutils supply gtimeout and gsha256sum, which the
+    # benchmarks and the tests need (coreutils' timeout), and which a
+    # non-interactive shell's PATH may not name. Homebrew's names are
+    # checked too, since it installs the same two.
+    for gnu in gtimeout gsha256sum; do
+      echo "coreutils $gnu: $(command -v "$gnu" 2> /dev/null || { [ -x "/opt/local/bin/$gnu" ] && echo "/opt/local/bin/$gnu"; } || echo "not found (sudo port install coreutils)")"
+    done
+    echo "stack hard limit: $(stack_hard_max 2> /dev/null || echo unknown) KiB (macOS caps it near 64 MiB)"
     ;;
 esac
 if [ -f "$idris_prefix/provenance.json" ]; then

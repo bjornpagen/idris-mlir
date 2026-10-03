@@ -1,17 +1,36 @@
-# The host's tools where GNU/Linux and macOS (BSD userland, Homebrew)
+# The host's tools where GNU/Linux and macOS (BSD userland, MacPorts)
 # differ, decided in one place: sourced by tools/toolchain.sh, and so by
-# every script that sources it, and by tools/bootstrap.sh,
-# bench/toolchains.sh and the Makefile's runner. Sourcing it runs nothing
+# every script that sources it, and by tools/bootstrap.sh, bench/run.sh,
+# tools/doctor.sh and the Makefile's runner. Sourcing it runs nothing
 # that can fail. A function whose tool is missing names it
 # on stderr and fails; none falls back to something weaker.
+#
+# On macOS coreutils come from MacPorts (sudo port install coreutils):
+# /opt/local/bin, which may not be on a non-interactive shell's PATH, so
+# the GNU spellings are looked for there too.
+
+# host_path NAME...: the first of NAME that is on PATH or in MacPorts'
+# bin, printing its path, or nothing.
+host_path() {
+  for host_path_name in "$@"; do
+    if host_path_found=$(command -v "$host_path_name" 2> /dev/null); then
+      printf '%s\n' "$host_path_found"
+      return 0
+    fi
+    if [ -x "/opt/local/bin/$host_path_name" ]; then
+      printf '%s\n' "/opt/local/bin/$host_path_name"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # coreutils' timeout, which kills what it ran with everything that started
 # (it runs it in a process group of its own): `timeout` on Linux, and on
-# macOS Homebrew coreutils' `gtimeout` (or `timeout` with coreutils' gnubin
-# first on PATH). Empty when there is none; every caller stops then, since
-# without it a command could hang.
-timeout_cmd=$(command -v timeout 2> /dev/null || command -v gtimeout 2> /dev/null) || timeout_cmd=
-timeout_missing="no timeout command (coreutils; on macOS: brew install coreutils, for gtimeout)"
+# macOS coreutils' `gtimeout` from MacPorts. Empty when there is none;
+# every caller stops then, since without it a command could hang.
+timeout_cmd=$(host_path timeout gtimeout) || timeout_cmd=
+timeout_missing="no timeout command (coreutils; on macOS: sudo port install coreutils, for gtimeout)"
 
 # The nanosecond clock: GNU date's %N on Linux; macOS's date has none, so
 # perl's Time::HiRes there, which ships with macOS and reads microseconds.
@@ -32,16 +51,19 @@ now_ns() {
 
 # sha256 [FILE...]: each FILE's SHA-256 (stdin's without one), as
 # coreutils' sha256sum prints it: coreutils' on Linux, and on macOS
-# `shasum -a 256`, which prints the same.
+# coreutils' `gsha256sum` from MacPorts (macOS ships a `sha256sum` of its
+# own on recent releases; coreutils' is tried first where both exist);
+# `shasum -a 256`, which prints the same, is the fallback.
 sha256() {
-  if command -v sha256sum > /dev/null 2>&1; then
-    sha256sum "$@"
-  elif command -v shasum > /dev/null 2>&1; then
-    shasum -a 256 "$@"
-  else
-    echo "no sha256sum (coreutils) or shasum (perl's) to compute a SHA-256" >&2
-    return 1
-  fi
+  case $(uname -s) in
+    Darwin) sha256_tool=$(host_path gsha256sum sha256sum shasum) || sha256_tool= ;;
+    *) sha256_tool=$(host_path sha256sum gsha256sum shasum) || sha256_tool= ;;
+  esac
+  case ${sha256_tool##*/} in
+    shasum) shasum -a 256 "$@" ;;
+    '') echo "no sha256sum (coreutils) or shasum (perl's) to compute a SHA-256" >&2; return 1 ;;
+    *) "$sha256_tool" "$@" ;;
+  esac
 }
 
 # memory_kib: the machine's memory in KiB, from /proc/meminfo on Linux and
@@ -74,15 +96,24 @@ memory_used_kib() {
 
 # cpu_name: the processor's name, for a benchmark table's header:
 # /proc/cpuinfo's model name on Linux (or its CPU part on arm64), sysctl's
-# machdep.cpu.brand_string on macOS; `unknown` when neither says.
+# machdep.cpu.brand_string on macOS, and hw.model where the brand string is
+# absent (some Apple Silicon releases); `unknown` when neither says.
 cpu_name() {
   cpu_name_text=
   if [ -r /proc/cpuinfo ]; then
     cpu_name_text=$(awk -F': *' '/^(model name|Hardware|CPU part)[[:space:]]*:/ { print $2; exit }' /proc/cpuinfo)
   else
     cpu_name_text=$(sysctl -n machdep.cpu.brand_string 2> /dev/null)
+    [ -n "$cpu_name_text" ] || cpu_name_text=$(sysctl -n hw.model 2> /dev/null)
   fi
   printf '%s\n' "${cpu_name_text:-unknown}"
+}
+
+# stack_hard_max: the hard stack limit (ulimit -H -s) in KiB, or unlimited.
+# macOS caps it near 64 MiB, which is why a program that recurses deeply
+# must be run differently there, not with a larger limit (bench/run.sh).
+stack_hard_max() {
+  ulimit -H -s
 }
 
 # stack_max: raises this shell's stack limit (ulimit -s), for what it runs

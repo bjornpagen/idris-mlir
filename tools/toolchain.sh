@@ -17,13 +17,21 @@ idris2=$idris_prefix/bin/idris2
 # worktree too) compiles against another's libs/.
 checkout_prefix=$root/build/idris2
 # The stage-2 LLVM/MLIR: clang, lld, mlir-opt, mlir-translate,
-# opt, llc, llvm-nm, FileCheck, not, count.
-llvm_bin=$toolchain/llvm-musl/bin
+# opt, llc, llvm-nm, FileCheck, not, count. Its prefix is the host's: the
+# Linux build pins musl/libc++ into .toolchain/llvm-musl, the Darwin build
+# is one native stage in .toolchain/llvm-macos (tools/bootstrap.sh).
+case $(uname -s) in
+  Darwin) llvm_prefix=$toolchain/llvm-macos ;;
+  *) llvm_prefix=$toolchain/llvm-musl ;;
+esac
+llvm_bin=$llvm_prefix/bin
 # The C compiler that links programs (both compile flows, the benchmarks): the
 # stage-2 clang, whose configuration file names the sysroot, compiler-rt,
-# libunwind, lld and static-PIE output.
+# libunwind, lld and static-PIE output on Linux, and the SDK and the pinned
+# runtimes on Darwin.
 pinned_cc=$llvm_bin/clang
-# musl, the LLVM runtimes and GMP, which programs link against.
+# The sysroot programs link against: musl, the LLVM runtimes and GMP on
+# Linux; GMP alone on Darwin, whose C library is libSystem in the SDK.
 sysroot=$toolchain/sysroot
 cmake=$toolchain/cmake/bin/cmake
 # What `make build` makes.

@@ -93,16 +93,40 @@ check() {
         fail "Local LLVM tools are stale; rerun tools/bootstrap.sh llvm"
       ;;
     sysroot)
-      # The stamps of the steps that fill it (tools/bootstrap.sh), each at
-      # the lock's revision of what it built.
-      for part in musl:musl runtimes:llvm gmp:gmp; do
-        step=${part%%:*}
-        stamp=$sysroot/provenance/$step.json
-        [ -f "$stamp" ] || fail "The sysroot has no $step; run: tools/bootstrap.sh $step"
-        got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
-        [ "$got" = "$(lock_field "${part#*:}" revision)" ] ||
-          fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
-      done
+      # What programs link against, by host. On Linux the sysroot holds
+      # musl, the LLVM runtimes and GMP, and the stamps of the steps that
+      # filled it (tools/bootstrap.sh), each at the lock's revision of what
+      # it built. On Darwin the C library is libSystem in the SDK and the
+      # runtimes sit in the pinned clang's resource directory; only GMP is
+      # built into the sysroot.
+      case $(uname -s) in
+        Darwin)
+          sdk=$(xcrun --show-sdk-path 2> /dev/null) ||
+            fail "no macOS SDK; run: xcode-select --install"
+          [ -d "$sdk" ] || fail "the macOS SDK path $sdk is not a directory"
+          [ -f "$llvm_prefix/provenance.json" ] ||
+            fail "Build the pinned LLVM/MLIR with tools/bootstrap.sh stage2 first"
+          for runtime in libc++.a libclang_rt.builtins.a; do
+            found=$(find "$llvm_prefix/lib/clang" -name "$runtime" -print -quit 2> /dev/null)
+            [ -n "$found" ] || fail "the pinned clang has no $runtime under $llvm_prefix/lib/clang; rerun tools/bootstrap.sh stage2"
+          done
+          stamp=$sysroot/provenance/gmp.json
+          [ -f "$stamp" ] || fail "The sysroot has no gmp; run: tools/bootstrap.sh gmp"
+          got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
+          [ "$got" = "$(lock_field gmp revision)" ] ||
+            fail "The sysroot's gmp is stale; rerun tools/bootstrap.sh gmp"
+          ;;
+        *)
+          for part in musl:musl runtimes:llvm gmp:gmp; do
+            step=${part%%:*}
+            stamp=$sysroot/provenance/$step.json
+            [ -f "$stamp" ] || fail "The sysroot has no $step; run: tools/bootstrap.sh $step"
+            got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
+            [ "$got" = "$(lock_field "${part#*:}" revision)" ] ||
+              fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
+          done
+          ;;
+      esac
       ;;
     cmake | ninja | chez)
       want=$(lock_field "$1" revision)
