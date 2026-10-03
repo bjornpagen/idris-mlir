@@ -29,46 +29,49 @@ this compiler's: above 1, this compiler is faster.
 
 ## Results
 
-Development container, x86-64, 4 CPUs; LLVM 23.1.2, MLton 20210117, Koka
-3.2.9, Lean 4.34.1, the pinned clang; best of 3, in one run on 2026-10-02 at
-903d127, except k-nucleotide, measured once it compiled, in a run of its
-own on the same container (its note below). The run-to-run spread on this
-machine reaches 15%, so a ratio within that of 1 is parity.
+The latest record is
+[`runs/2026-10-03-861acdc`](runs/2026-10-03-861acdc/results.md): every
+program built by every compiler, best of 5 runs, measured on 2026-10-03
+at 861acdc on a shared development container (x86-64, 4 CPUs, a Xeon at
+2.10 GHz) with LLVM 23.1.2, Chez Scheme 10.4.1, MLton 20210117, Koka 3.2.9
+and Lean 4.34.1. Its results page holds the full table, the compile times
+and the comparison with the record before it.
 
-| benchmark | input | this compiler | Idris Chez | MLton | clang -O2 | Koka | Lean 4 | clang / this |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| ack | 10 | 0.004 | 1.207 | 0.068 | 0.253 | n/a | n/a | 68.02x |
-| ackdyn | 10 | 0.266 | 1.205 | 0.086 | 0.254 | n/a | n/a | 0.95x |
-| binary-trees | 21 | 6.522 | 46.112 | 7.606 | 31.746 | 12.557 | 7.221 | 4.87x |
-| cfold | 20 | 0.187 | 0.588 | 0.412 | 0.477 | 0.360 | 0.370 | 2.55x |
-| collatz | 3000000 | 0.589 | 23.318 | 2.379 | 0.634 | n/a | n/a | 1.08x |
-| deriv | 10 | 1.258 | 3.067 | 1.122 | 3.935 | 1.166 | 1.307 | 3.13x |
-| fannkuch-linear | 10 | 0.259 | 4.737 | n/a | 0.555 | n/a | n/a | 2.14x |
-| fannkuch-redux | 10 | 0.722 | 12.686 | n/a | 0.522 | n/a | n/a | 0.72x |
-| fasta | 250000 | 0.094 | 0.309 | n/a | 0.047 | n/a | n/a | 0.50x |
-| fib | 38 | 0.130 | 3.589 | 0.282 | 0.124 | n/a | n/a | 0.96x |
-| harmonic | 200000000 | 0.284 | 6.879 | 0.784 | 0.294 | n/a | n/a | 1.03x |
-| k-nucleotide | fasta 250000 | 6.194 | 14.072 | n/a | 0.278 | n/a | n/a | 0.04x |
-| mandelbrot | 2000 | 0.297 | 5.384 | 0.519 | 0.302 | n/a | n/a | 1.02x |
-| mandelbrot-pbm | 4000 | 1.172 | 23.222 | n/a | 1.187 | n/a | n/a | 1.01x |
-| nbody | 5000000 | 0.305 | 5.698 | 1.553 | 0.298 | n/a | n/a | 0.98x |
-| nqueens | 13 | 1.023 | 14.859 | 1.211 | 1.303 | 1.076 | 2.422 | 1.27x |
-| pidigits | 10000 | 1.165 | 6.235 | n/a | 1.220 | n/a | n/a | 1.05x |
-| qsort | 400 | 1.495 | 16.288 | 1.774 | 1.511 | 26.342 | 2.505 | 1.01x |
-| rbtree | 4200000 | 1.197 | 2.498 | 5.933 | 1.675 | 0.949 | 2.937 | 1.40x |
-| rbtree-ck | 4200000 | 2.837 | 9.149 | 9.354 | 4.532 | 2.157 | 4.851 | 1.60x |
-| regex-redux | fasta 250000 | 3.573 | 3.023 | n/a | n/a | n/a | n/a | n/a |
-| reverse-complement | fasta 250000 | 0.155 | 0.714 | n/a | 0.013 | n/a | n/a | 0.08x |
-| spectral-norm | 5500 | 2.259 | 191.642 | n/a | 1.749 | n/a | n/a | 0.77x |
-| spectral-norm-linear | 5500 | 1.752 | 187.927 | n/a | 1.735 | n/a | n/a | 0.99x |
-| tak | 18 | 0.124 | 1.386 | 0.173 | 0.130 | n/a | n/a | 1.05x |
-| unionfind | 3000000 | 0.174 | 2.351 | 0.345 | 0.134 | 2.313 | 2.271 | 0.77x |
+![This compiler against clang -O2](runs/2026-10-03-861acdc/vs-c.svg)
 
-Compiling each program takes 1.9 to 13.7 seconds (idris-mlir, idris-mlir-cc
-and the link); fannkuch-redux, regex-redux and spectral-norm are the slow
-ones. The C column moved by up to 2x between this run and the one two days
-earlier on the same container (rbtree 0.82 s then, 1.68 s now), so a ratio
-is read against its own run's C, never against an older table.
+![This compiler against Idris on Chez Scheme](runs/2026-10-03-861acdc/vs-chez.svg)
+
+![Best time of each compiler](runs/2026-10-03-861acdc/times.svg)
+
+Against clang -O2 this compiler is faster on 10 programs, within 15% on 9
+and slower on 6 (fasta, fib, k-nucleotide, reverse-complement,
+spectral-norm and unionfind); regex-redux has no C version. Against Idris
+on Chez Scheme it is faster on 25 of the 26, from 2.25x (rbtree) to 252x
+(ack), and 1.2x slower on regex-redux. Compiling a program takes 1.8 to
+11.2 seconds (idris-mlir, idris-mlir-cc and the link); k-nucleotide,
+spectral-norm-linear and regex-redux are the slow ones.
+
+Since the record before it (2026-10-02, 903d127): fannkuch-redux went from
+0.72x of C to 1.64x (a match knows the case of an enclosing match on its
+value), spectral-norm-linear from 0.99x to 1.99x (idr-narrow-lanes' 32-bit
+lanes) and reverse-complement from 0.08x to 0.12x; the rest moved within
+the spread.
+
+How to read them. The run-to-run spread on this container reaches 15%, so
+a ratio within that of 1 is parity. The C column itself moved by up to 2x
+between runs on different days (rbtree 0.82 s on one, 1.68 s two days
+later), so a ratio is read against its own run's C, and records compare by
+those ratios, never by seconds. ack runs in 4 ms: it measures the
+specialization (Caveats below), not a loop.
+
+A record is what a run measured, kept: `make bench ARGS='--record
+bench/runs/<date>-<revision>'` keeps every timed run (`samples.tsv`), the
+compile times and what it ran on (`about`), once every output has agreed.
+`bench/report.sh RUN PREVIOUS` makes the results page and the charts from
+it, and the table `bench/run.sh` prints is that report's, so the numbers
+have one source; `tests/bench/records` checks that every kept record's
+results are what the report makes. The first record,
+`runs/2026-10-02-903d127`, is the table this file held before, transcribed.
 
 Three kinds of program. **Numeric** (ack, ackdyn, collatz, fib, harmonic,
 mandelbrot, nbody, tak): Idris over the stock Prelude, whose interfaces,
@@ -87,7 +90,8 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
 
 ### Per program
 
-- **unionfind** (parity with C): path compression threads the array
+- **unionfind** (0.85x of C in the 2026-10-03 record, parity in earlier
+  runs): path compression threads the array
   through every `find` and gives it back around a non-tail call. Two
   general changes brought it from 1.4x of C to parity: an array value is
   its cell and its length, so a bounds check compares two registers
@@ -114,7 +118,8 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   knows the case of an enclosing match on its value (2026-10-02), and
   both compile to the loops' loads and stores: in one run after the
   change, 0.397 s against the linear version's 0.245 s and C's 0.591 s
-  (1.49x and 2.42x of C). What remains is base's representation: an
+  (1.49x and 2.42x of C); in the 2026-10-03 record 0.333 s against the
+  linear version's 0.250 s and C's 0.546 s. What remains is base's representation: an
   `IOArray` holds `Maybe elem` cells, an unboxed tag beside each `Int` at
   a stride of 16 bytes, so every read loads and tests a tag and every
   write stores one. The same program over the raw primitive takes the
@@ -172,8 +177,8 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   finds: 15 instructions per four rows (`vpaddd`, `vpmulld`, a `vpsrad`
   for the `div 2`, `vcvtdq2pd` and the `vdivpd`). Measured at 5500, best
   of 10 interleaved in one session: 0.696 s, against 1.401 s on 64-bit
-  lanes and clang's 1.399 s. The table above predates the narrowing; its
-  next full run on a quiet machine will show it. The list one rebuilds its lists in their own
+  lanes and clang's 1.399 s. The 2026-10-03 record shows it in a full run:
+  0.874 s against clang's 1.740 s. The list one rebuilds its lists in their own
   cells and pays for it. The input is the game's 5500.
 - **qsort** (parity with C): Koka's own `qsort.kk` takes 20 s on this
   input; it is measured as the Perceus repository has it, for the
@@ -181,8 +186,9 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
 - **rbtree, rbtree-ck, cfold, deriv, nqueens:** persistent trees and terms
   rebuilt on every step, in the cells of the values that die (reset/reuse),
   as Lean and Koka do, the rest on the stack; the times are Lean's and
-  Koka's or better, except rbtree-ck, where Koka is 1.4x faster (it keeps
-  the older trees alive, which measures the allocator under a live set).
+  Koka's or better, except that Koka is 1.2x faster on rbtree and 1.3x on
+  rbtree-ck (which keeps the older trees alive, so it measures the
+  allocator under a live set).
 - **binary-trees:** the C frees through musl's `malloc`; the game's fastest
   C uses a pool. Ours frees each tree as it dies through the runtime's
   allocator, and the bottom level is one static cell.
@@ -197,7 +203,7 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   before. A line packed only to be written is written as its list is
   walked, without the string (idr.io.put_list, 2026-10-02): about 5% off
   each. What remains is the list itself: a cons cell per character read.
-- **k-nucleotide** (2.3x faster than Chez, 22x slower than C): the
+- **k-nucleotide** (2.4x faster than Chez, 18x slower than C): the
   fragments are counted in a `Data.SortedMap String Int`, which keeps the
   `Ord String` it was built with in the map's constructors. The frontend
   holds that dictionary as a compile-time value of the map's data instance
@@ -206,8 +212,8 @@ papers' repositories have them; qsort and unionfind over `Linear.Array`.
   program as written: the sequence is a `List Char`, a `String` is packed
   for each of the 1.75 million fragments counted, and each count rebuilds
   the path of a persistent 2-3 tree, where the C hashes fragments packed
-  into integers in place. Best of 3 on 2026-10-02: 6.194 s, Chez 14.072 s,
-  clang 0.278 s; the compilation takes 17 s.
+  into integers in place. In the 2026-10-03 record: 4.807 s, Chez 11.555
+  s, clang 0.260 s; the compilation takes 11 s.
 - **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
   `System.File`, byte for byte as the C does.
 

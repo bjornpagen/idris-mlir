@@ -76,6 +76,35 @@ idris-mlir --no-prelude --cg mlir -o prog Main.idr
 make compile SRC=Main.idr OUT=prog
 ```
 
+## Performance
+
+Twenty-six programs, each built by this compiler, by Idris's own Chez
+Scheme backend, and by clang -O2, MLton, Koka and Lean 4 where a version
+exists, measured on 2026-10-03 at 861acdc, best of 5 runs each:
+
+![This compiler against clang -O2](bench/runs/2026-10-03-861acdc/vs-c.svg)
+
+![This compiler against Idris on Chez Scheme](bench/runs/2026-10-03-861acdc/vs-chez.svg)
+
+Against clang -O2 on the same algorithm this compiler is faster on 10
+programs, within 15% on 9 and slower on 6. The slow ones are mostly
+programs written as an Idris programmer writes them first, with
+`List Char` where the C has byte buffers (fasta, k-nucleotide,
+reverse-complement) and lists where it has arrays (spectral-norm, whose
+`Linear.Array` version is 1.99x faster than C). Against Idris on Chez
+Scheme 10.4.1 it is faster on 25 of the 26, from 2.25x to 252x; regex-redux
+is 1.2x slower.
+
+These are measurements of one shared x86-64 development container (4
+CPUs), not of a quiet machine: the run-to-run spread reaches 15%, and the C
+column itself moved by up to 2x between days, so each ratio is read
+against its own run's C. ack runs in 4 ms; it measures compile-time
+specialization. The arm64 macOS run comes with that port.
+[bench/](bench/README.md) says what each program measures and why each
+gap is what it is; the [full results](bench/runs/2026-10-03-861acdc/results.md)
+hold every compiler's times, the compile times and the comparison with
+the previous run.
+
 ## Setup
 
 Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build

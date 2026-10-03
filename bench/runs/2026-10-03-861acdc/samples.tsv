@@ -1,0 +1,545 @@
+ack	10	this compiler	5247923
+ack	10	this compiler	4623405
+ack	10	this compiler	4772712
+ack	10	this compiler	4529372
+ack	10	this compiler	4437390
+ack	10	Idris Chez	1142799584
+ack	10	Idris Chez	1189178063
+ack	10	Idris Chez	1116656095
+ack	10	Idris Chez	1246900816
+ack	10	Idris Chez	1247220691
+ack	10	MLton	69081332
+ack	10	MLton	75781622
+ack	10	MLton	78347271
+ack	10	MLton	109032045
+ack	10	MLton	79967724
+ack	10	clang -O2	254795804
+ack	10	clang -O2	259358649
+ack	10	clang -O2	250991089
+ack	10	clang -O2	283239236
+ack	10	clang -O2	262434315
+ackdyn	10	this compiler	257396828
+ackdyn	10	this compiler	264234699
+ackdyn	10	this compiler	308096357
+ackdyn	10	this compiler	273355723
+ackdyn	10	this compiler	258150739
+ackdyn	10	Idris Chez	1147080811
+ackdyn	10	Idris Chez	1111504854
+ackdyn	10	Idris Chez	1338875011
+ackdyn	10	Idris Chez	1152792829
+ackdyn	10	Idris Chez	1187697673
+ackdyn	10	MLton	101156723
+ackdyn	10	MLton	102548476
+ackdyn	10	MLton	90656222
+ackdyn	10	MLton	96406490
+ackdyn	10	MLton	84268348
+ackdyn	10	clang -O2	252109738
+ackdyn	10	clang -O2	270164395
+ackdyn	10	clang -O2	275384662
+ackdyn	10	clang -O2	250336074
+ackdyn	10	clang -O2	277142978
+binary-trees	21	this compiler	7178605295
+binary-trees	21	this compiler	6835679642
+binary-trees	21	this compiler	6993609933
+binary-trees	21	this compiler	6834372178
+binary-trees	21	this compiler	6863271407
+binary-trees	21	Idris Chez	41964074375
+binary-trees	21	Idris Chez	43168403536
+binary-trees	21	Idris Chez	42004078156
+binary-trees	21	Idris Chez	42668395187
+binary-trees	21	Idris Chez	41935723833
+binary-trees	21	MLton	7546657741
+binary-trees	21	MLton	8273292202
+binary-trees	21	MLton	7490348727
+binary-trees	21	MLton	7524738557
+binary-trees	21	MLton	7650861080
+binary-trees	21	clang -O2	29838591829
+binary-trees	21	clang -O2	30312282733
+binary-trees	21	clang -O2	30756907104
+binary-trees	21	clang -O2	30868731180
+binary-trees	21	clang -O2	30622354584
+binary-trees	21	Koka	12779137214
+binary-trees	21	Koka	12262343345
+binary-trees	21	Koka	12555311503
+binary-trees	21	Koka	12262744997
+binary-trees	21	Koka	12057978252
+binary-trees	21	Lean 4	7431727487
+binary-trees	21	Lean 4	7536039424
+binary-trees	21	Lean 4	7533454795
+binary-trees	21	Lean 4	7329264630
+binary-trees	21	Lean 4	7683103013
+cfold	20	this compiler	240849711
+cfold	20	this compiler	234070657
+cfold	20	this compiler	237245920
+cfold	20	this compiler	239064139
+cfold	20	this compiler	221691885
+cfold	20	Idris Chez	654278760
+cfold	20	Idris Chez	698731312
+cfold	20	Idris Chez	699224896
+cfold	20	Idris Chez	724533132
+cfold	20	Idris Chez	670415495
+cfold	20	MLton	442465956
+cfold	20	MLton	454438040
+cfold	20	MLton	503655072
+cfold	20	MLton	518579370
+cfold	20	MLton	471599656
+cfold	20	clang -O2	542410692
+cfold	20	clang -O2	548985249
+cfold	20	clang -O2	552744444
+cfold	20	clang -O2	621215337
+cfold	20	clang -O2	566950016
+cfold	20	Koka	455676127
+cfold	20	Koka	465430253
+cfold	20	Koka	285332662
+cfold	20	Koka	470978106
+cfold	20	Koka	256744807
+cfold	20	Lean 4	448406689
+cfold	20	Lean 4	403627304
+cfold	20	Lean 4	359926124
+cfold	20	Lean 4	407092214
+cfold	20	Lean 4	389050469
+collatz	3000000	this compiler	598836201
+collatz	3000000	this compiler	596454849
+collatz	3000000	this compiler	619753317
+collatz	3000000	this compiler	602241016
+collatz	3000000	this compiler	600648369
+collatz	3000000	Idris Chez	23658104948
+collatz	3000000	Idris Chez	22899096694
+collatz	3000000	Idris Chez	23178049919
+collatz	3000000	Idris Chez	23240260708
+collatz	3000000	Idris Chez	23227245452
+collatz	3000000	MLton	2373222236
+collatz	3000000	MLton	2360744008
+collatz	3000000	MLton	2386275108
+collatz	3000000	MLton	2368036367
+collatz	3000000	MLton	2318065985
+collatz	3000000	clang -O2	645881686
+collatz	3000000	clang -O2	638830542
+collatz	3000000	clang -O2	648571243
+collatz	3000000	clang -O2	646309120
+collatz	3000000	clang -O2	643818097
+deriv	10	this compiler	1148390515
+deriv	10	this compiler	1126111910
+deriv	10	this compiler	1144852073
+deriv	10	this compiler	1215257712
+deriv	10	this compiler	1181376469
+deriv	10	Idris Chez	3616281713
+deriv	10	Idris Chez	3842680415
+deriv	10	Idris Chez	3582953056
+deriv	10	Idris Chez	3593079354
+deriv	10	Idris Chez	3723468993
+deriv	10	MLton	1210986789
+deriv	10	MLton	1254768722
+deriv	10	MLton	1202967985
+deriv	10	MLton	1158283644
+deriv	10	MLton	1211222630
+deriv	10	clang -O2	4284921233
+deriv	10	clang -O2	4239021052
+deriv	10	clang -O2	4233149334
+deriv	10	clang -O2	4239086669
+deriv	10	clang -O2	4269449611
+deriv	10	Koka	2960784807
+deriv	10	Koka	1161913576
+deriv	10	Koka	1191767906
+deriv	10	Koka	1152300581
+deriv	10	Koka	1109440800
+deriv	10	Lean 4	1692242086
+deriv	10	Lean 4	1357137542
+deriv	10	Lean 4	1465731747
+deriv	10	Lean 4	1369266123
+deriv	10	Lean 4	1358389773
+fannkuch-linear	10	this compiler	249512283
+fannkuch-linear	10	this compiler	253390280
+fannkuch-linear	10	this compiler	284256245
+fannkuch-linear	10	this compiler	302199660
+fannkuch-linear	10	this compiler	257715671
+fannkuch-linear	10	Idris Chez	4732347391
+fannkuch-linear	10	Idris Chez	4663044716
+fannkuch-linear	10	Idris Chez	4479354779
+fannkuch-linear	10	Idris Chez	4596805798
+fannkuch-linear	10	Idris Chez	4440289154
+fannkuch-linear	10	clang -O2	542315839
+fannkuch-linear	10	clang -O2	563001265
+fannkuch-linear	10	clang -O2	546797081
+fannkuch-linear	10	clang -O2	564042064
+fannkuch-linear	10	clang -O2	553992311
+fannkuch-redux	10	this compiler	333833760
+fannkuch-redux	10	this compiler	334719065
+fannkuch-redux	10	this compiler	351131864
+fannkuch-redux	10	this compiler	341280372
+fannkuch-redux	10	this compiler	332619180
+fannkuch-redux	10	Idris Chez	12873391002
+fannkuch-redux	10	Idris Chez	12535431644
+fannkuch-redux	10	Idris Chez	12821135528
+fannkuch-redux	10	Idris Chez	12456475650
+fannkuch-redux	10	Idris Chez	12995692284
+fannkuch-redux	10	clang -O2	550938155
+fannkuch-redux	10	clang -O2	547853859
+fannkuch-redux	10	clang -O2	546157040
+fannkuch-redux	10	clang -O2	582940795
+fannkuch-redux	10	clang -O2	558859409
+fasta	250000	this compiler	83557135
+fasta	250000	this compiler	97340382
+fasta	250000	this compiler	105352515
+fasta	250000	this compiler	84814577
+fasta	250000	this compiler	95379226
+fasta	250000	Idris Chez	289253235
+fasta	250000	Idris Chez	321043424
+fasta	250000	Idris Chez	295466070
+fasta	250000	Idris Chez	363925361
+fasta	250000	Idris Chez	310814958
+fasta	250000	clang -O2	56074306
+fasta	250000	clang -O2	46737013
+fasta	250000	clang -O2	53467939
+fasta	250000	clang -O2	49456219
+fasta	250000	clang -O2	52083895
+fib	38	this compiler	129644204
+fib	38	this compiler	149173423
+fib	38	this compiler	138819682
+fib	38	this compiler	135417814
+fib	38	this compiler	138257209
+fib	38	Idris Chez	3901678103
+fib	38	Idris Chez	3719739703
+fib	38	Idris Chez	3771409020
+fib	38	Idris Chez	3700163832
+fib	38	Idris Chez	3772408650
+fib	38	MLton	276465987
+fib	38	MLton	275701676
+fib	38	MLton	322893414
+fib	38	MLton	278323687
+fib	38	MLton	279407352
+fib	38	clang -O2	118909410
+fib	38	clang -O2	111357146
+fib	38	clang -O2	110607892
+fib	38	clang -O2	112512413
+fib	38	clang -O2	116701460
+harmonic	200000000	this compiler	293901307
+harmonic	200000000	this compiler	295976630
+harmonic	200000000	this compiler	295034174
+harmonic	200000000	this compiler	288019898
+harmonic	200000000	this compiler	292293974
+harmonic	200000000	Idris Chez	6697033023
+harmonic	200000000	Idris Chez	6727668966
+harmonic	200000000	Idris Chez	6710541671
+harmonic	200000000	Idris Chez	6660061622
+harmonic	200000000	Idris Chez	6750936649
+harmonic	200000000	MLton	785699053
+harmonic	200000000	MLton	770876134
+harmonic	200000000	MLton	754592216
+harmonic	200000000	MLton	757475588
+harmonic	200000000	MLton	748614164
+harmonic	200000000	clang -O2	305165950
+harmonic	200000000	clang -O2	296750323
+harmonic	200000000	clang -O2	292724158
+harmonic	200000000	clang -O2	298273489
+harmonic	200000000	clang -O2	313954270
+k-nucleotide	fasta 250000	this compiler	4973263582
+k-nucleotide	fasta 250000	this compiler	5015669828
+k-nucleotide	fasta 250000	this compiler	5241914057
+k-nucleotide	fasta 250000	this compiler	4838643899
+k-nucleotide	fasta 250000	this compiler	4807381897
+k-nucleotide	fasta 250000	Idris Chez	11817162226
+k-nucleotide	fasta 250000	Idris Chez	11863237865
+k-nucleotide	fasta 250000	Idris Chez	11707485695
+k-nucleotide	fasta 250000	Idris Chez	11555322961
+k-nucleotide	fasta 250000	Idris Chez	11605357905
+k-nucleotide	fasta 250000	clang -O2	271227312
+k-nucleotide	fasta 250000	clang -O2	275929208
+k-nucleotide	fasta 250000	clang -O2	259637267
+k-nucleotide	fasta 250000	clang -O2	269177602
+k-nucleotide	fasta 250000	clang -O2	267560025
+mandelbrot	2000	this compiler	305969569
+mandelbrot	2000	this compiler	301143204
+mandelbrot	2000	this compiler	294513685
+mandelbrot	2000	this compiler	292114044
+mandelbrot	2000	this compiler	291837738
+mandelbrot	2000	Idris Chez	5144869941
+mandelbrot	2000	Idris Chez	5201530406
+mandelbrot	2000	Idris Chez	5261039042
+mandelbrot	2000	Idris Chez	5253108903
+mandelbrot	2000	Idris Chez	5290443377
+mandelbrot	2000	MLton	523855249
+mandelbrot	2000	MLton	536942416
+mandelbrot	2000	MLton	517692851
+mandelbrot	2000	MLton	521331390
+mandelbrot	2000	MLton	526445471
+mandelbrot	2000	clang -O2	290939516
+mandelbrot	2000	clang -O2	301149210
+mandelbrot	2000	clang -O2	297882610
+mandelbrot	2000	clang -O2	298829956
+mandelbrot	2000	clang -O2	296598440
+mandelbrot-pbm	4000	this compiler	1145900967
+mandelbrot-pbm	4000	this compiler	1184589262
+mandelbrot-pbm	4000	this compiler	1167500099
+mandelbrot-pbm	4000	this compiler	1170321781
+mandelbrot-pbm	4000	this compiler	1179279221
+mandelbrot-pbm	4000	Idris Chez	21824380127
+mandelbrot-pbm	4000	Idris Chez	22076583440
+mandelbrot-pbm	4000	Idris Chez	22165625844
+mandelbrot-pbm	4000	Idris Chez	22093898189
+mandelbrot-pbm	4000	Idris Chez	22246748627
+mandelbrot-pbm	4000	clang -O2	1173351699
+mandelbrot-pbm	4000	clang -O2	1154229416
+mandelbrot-pbm	4000	clang -O2	1166114358
+mandelbrot-pbm	4000	clang -O2	1155084921
+mandelbrot-pbm	4000	clang -O2	1168773068
+nbody	5000000	this compiler	299150121
+nbody	5000000	this compiler	305589199
+nbody	5000000	this compiler	307982183
+nbody	5000000	this compiler	296916742
+nbody	5000000	this compiler	321383152
+nbody	5000000	Idris Chez	5420467053
+nbody	5000000	Idris Chez	5399028675
+nbody	5000000	Idris Chez	5194856315
+nbody	5000000	Idris Chez	5268504019
+nbody	5000000	Idris Chez	5386417145
+nbody	5000000	MLton	1546431286
+nbody	5000000	MLton	1533501135
+nbody	5000000	MLton	1633628403
+nbody	5000000	MLton	1567809483
+nbody	5000000	MLton	1480714779
+nbody	5000000	clang -O2	292349020
+nbody	5000000	clang -O2	300119918
+nbody	5000000	clang -O2	294278681
+nbody	5000000	clang -O2	304030903
+nbody	5000000	clang -O2	298458253
+nqueens	13	this compiler	1063573014
+nqueens	13	this compiler	1073012527
+nqueens	13	this compiler	1039575740
+nqueens	13	this compiler	1033549881
+nqueens	13	this compiler	1050227368
+nqueens	13	Idris Chez	14140947110
+nqueens	13	Idris Chez	14445037240
+nqueens	13	Idris Chez	14221979904
+nqueens	13	Idris Chez	14180847254
+nqueens	13	Idris Chez	13967359701
+nqueens	13	MLton	1228636888
+nqueens	13	MLton	1172581614
+nqueens	13	MLton	1159766524
+nqueens	13	MLton	1158799072
+nqueens	13	MLton	1138557441
+nqueens	13	clang -O2	1337627056
+nqueens	13	clang -O2	1446516194
+nqueens	13	clang -O2	1419732553
+nqueens	13	clang -O2	1386676668
+nqueens	13	clang -O2	1297174524
+nqueens	13	Koka	1412221791
+nqueens	13	Koka	1199295445
+nqueens	13	Koka	1023365126
+nqueens	13	Koka	1053126965
+nqueens	13	Koka	1050138577
+nqueens	13	Lean 4	2447612270
+nqueens	13	Lean 4	2250307502
+nqueens	13	Lean 4	2243029762
+nqueens	13	Lean 4	2308611233
+nqueens	13	Lean 4	2368739132
+pidigits	10000	this compiler	1165344520
+pidigits	10000	this compiler	1180789008
+pidigits	10000	this compiler	1146298306
+pidigits	10000	this compiler	1137190912
+pidigits	10000	this compiler	1142212277
+pidigits	10000	Idris Chez	5576534402
+pidigits	10000	Idris Chez	5563534823
+pidigits	10000	Idris Chez	5623646401
+pidigits	10000	Idris Chez	5549223416
+pidigits	10000	Idris Chez	5484591809
+pidigits	10000	clang -O2	1221699531
+pidigits	10000	clang -O2	1204092980
+pidigits	10000	clang -O2	1214245284
+pidigits	10000	clang -O2	1209454086
+pidigits	10000	clang -O2	1270475377
+qsort	400	this compiler	1539084755
+qsort	400	this compiler	1522058647
+qsort	400	this compiler	1508780896
+qsort	400	this compiler	1524804417
+qsort	400	this compiler	1555479268
+qsort	400	Idris Chez	14836256715
+qsort	400	Idris Chez	14848561022
+qsort	400	Idris Chez	14712402461
+qsort	400	Idris Chez	14716170467
+qsort	400	Idris Chez	14759599778
+qsort	400	MLton	1763535327
+qsort	400	MLton	1727037736
+qsort	400	MLton	1812669580
+qsort	400	MLton	1854636663
+qsort	400	MLton	1771401516
+qsort	400	clang -O2	1473277567
+qsort	400	clang -O2	1493867626
+qsort	400	clang -O2	1527081410
+qsort	400	clang -O2	1475664903
+qsort	400	clang -O2	1436359501
+qsort	400	Koka	25189149736
+qsort	400	Koka	25400984237
+qsort	400	Koka	25152325776
+qsort	400	Koka	24865381323
+qsort	400	Koka	25670774992
+qsort	400	Lean 4	2536294920
+qsort	400	Lean 4	2472737078
+qsort	400	Lean 4	2580709969
+qsort	400	Lean 4	2542199432
+qsort	400	Lean 4	2480018732
+rbtree	4200000	this compiler	1181946697
+rbtree	4200000	this compiler	1145849673
+rbtree	4200000	this compiler	1152546502
+rbtree	4200000	this compiler	1178063033
+rbtree	4200000	this compiler	1201094627
+rbtree	4200000	Idris Chez	2604852301
+rbtree	4200000	Idris Chez	2632268729
+rbtree	4200000	Idris Chez	2583326253
+rbtree	4200000	Idris Chez	2580939185
+rbtree	4200000	Idris Chez	2603862709
+rbtree	4200000	MLton	6245481802
+rbtree	4200000	MLton	6302876615
+rbtree	4200000	MLton	6191049438
+rbtree	4200000	MLton	6128497230
+rbtree	4200000	MLton	6321080267
+rbtree	4200000	clang -O2	1642820107
+rbtree	4200000	clang -O2	1769116967
+rbtree	4200000	clang -O2	1648650915
+rbtree	4200000	clang -O2	1685121825
+rbtree	4200000	clang -O2	1737382896
+rbtree	4200000	Koka	1398549644
+rbtree	4200000	Koka	948560383
+rbtree	4200000	Koka	937772251
+rbtree	4200000	Koka	1331217914
+rbtree	4200000	Koka	993759187
+rbtree	4200000	Lean 4	3334530790
+rbtree	4200000	Lean 4	2756811919
+rbtree	4200000	Lean 4	2643050015
+rbtree	4200000	Lean 4	2752898665
+rbtree	4200000	Lean 4	2677281868
+rbtree-ck	4200000	this compiler	3153546656
+rbtree-ck	4200000	this compiler	2855115099
+rbtree-ck	4200000	this compiler	2866628133
+rbtree-ck	4200000	this compiler	2965400388
+rbtree-ck	4200000	this compiler	2901033466
+rbtree-ck	4200000	Idris Chez	9543736756
+rbtree-ck	4200000	Idris Chez	9882785839
+rbtree-ck	4200000	Idris Chez	9513985800
+rbtree-ck	4200000	Idris Chez	9648861979
+rbtree-ck	4200000	Idris Chez	10102387914
+rbtree-ck	4200000	MLton	8794169160
+rbtree-ck	4200000	MLton	8231620134
+rbtree-ck	4200000	MLton	7224296808
+rbtree-ck	4200000	MLton	6915236122
+rbtree-ck	4200000	MLton	7552385457
+rbtree-ck	4200000	clang -O2	4436979387
+rbtree-ck	4200000	clang -O2	4542873544
+rbtree-ck	4200000	clang -O2	4575161230
+rbtree-ck	4200000	clang -O2	4558682863
+rbtree-ck	4200000	clang -O2	4613441633
+rbtree-ck	4200000	Koka	6438956403
+rbtree-ck	4200000	Koka	2256914581
+rbtree-ck	4200000	Koka	2385315755
+rbtree-ck	4200000	Koka	3106574813
+rbtree-ck	4200000	Koka	2257545414
+rbtree-ck	4200000	Lean 4	6509234010
+rbtree-ck	4200000	Lean 4	5275822873
+rbtree-ck	4200000	Lean 4	5008213723
+rbtree-ck	4200000	Lean 4	4891155560
+rbtree-ck	4200000	Lean 4	5129648144
+regex-redux	fasta 250000	this compiler	3869135871
+regex-redux	fasta 250000	this compiler	3866153048
+regex-redux	fasta 250000	this compiler	3723291695
+regex-redux	fasta 250000	this compiler	4015339527
+regex-redux	fasta 250000	this compiler	3949660004
+regex-redux	fasta 250000	Idris Chez	3208859990
+regex-redux	fasta 250000	Idris Chez	3175511861
+regex-redux	fasta 250000	Idris Chez	3132814200
+regex-redux	fasta 250000	Idris Chez	3093560252
+regex-redux	fasta 250000	Idris Chez	3222450322
+reverse-complement	fasta 250000	this compiler	138470732
+reverse-complement	fasta 250000	this compiler	134363884
+reverse-complement	fasta 250000	this compiler	133746869
+reverse-complement	fasta 250000	this compiler	141028416
+reverse-complement	fasta 250000	this compiler	137441805
+reverse-complement	fasta 250000	Idris Chez	860226106
+reverse-complement	fasta 250000	Idris Chez	841399855
+reverse-complement	fasta 250000	Idris Chez	837379481
+reverse-complement	fasta 250000	Idris Chez	829464201
+reverse-complement	fasta 250000	Idris Chez	884999874
+reverse-complement	fasta 250000	clang -O2	16243686
+reverse-complement	fasta 250000	clang -O2	17376565
+reverse-complement	fasta 250000	clang -O2	18950798
+reverse-complement	fasta 250000	clang -O2	18102256
+reverse-complement	fasta 250000	clang -O2	18985353
+spectral-norm	5500	this compiler	2315580556
+spectral-norm	5500	this compiler	2314997735
+spectral-norm	5500	this compiler	2330806200
+spectral-norm	5500	this compiler	2238286956
+spectral-norm	5500	this compiler	2237352296
+spectral-norm	5500	Idris Chez	174751578788
+spectral-norm	5500	Idris Chez	175211269535
+spectral-norm	5500	Idris Chez	178251443345
+spectral-norm	5500	Idris Chez	175701427840
+spectral-norm	5500	Idris Chez	176530946445
+spectral-norm	5500	clang -O2	1761800549
+spectral-norm	5500	clang -O2	1737672508
+spectral-norm	5500	clang -O2	1760815490
+spectral-norm	5500	clang -O2	1752005819
+spectral-norm	5500	clang -O2	1784637016
+spectral-norm-linear	5500	this compiler	890079760
+spectral-norm-linear	5500	this compiler	874489789
+spectral-norm-linear	5500	this compiler	899980391
+spectral-norm-linear	5500	this compiler	890154227
+spectral-norm-linear	5500	this compiler	905397337
+spectral-norm-linear	5500	Idris Chez	182345761660
+spectral-norm-linear	5500	Idris Chez	183087262604
+spectral-norm-linear	5500	Idris Chez	184937946039
+spectral-norm-linear	5500	Idris Chez	182385080681
+spectral-norm-linear	5500	Idris Chez	183245954379
+spectral-norm-linear	5500	clang -O2	1741316812
+spectral-norm-linear	5500	clang -O2	1739782115
+spectral-norm-linear	5500	clang -O2	1775610135
+spectral-norm-linear	5500	clang -O2	1771619092
+spectral-norm-linear	5500	clang -O2	1771305988
+tak	18	this compiler	127149408
+tak	18	this compiler	126531754
+tak	18	this compiler	132505753
+tak	18	this compiler	136175968
+tak	18	this compiler	128872759
+tak	18	Idris Chez	1370609909
+tak	18	Idris Chez	1428579258
+tak	18	Idris Chez	1321125338
+tak	18	Idris Chez	1339827842
+tak	18	Idris Chez	1511073689
+tak	18	MLton	180466996
+tak	18	MLton	176217016
+tak	18	MLton	178856620
+tak	18	MLton	178905993
+tak	18	MLton	179033145
+tak	18	clang -O2	122449433
+tak	18	clang -O2	122515744
+tak	18	clang -O2	132507913
+tak	18	clang -O2	136127697
+tak	18	clang -O2	125820339
+unionfind	3000000	this compiler	191417177
+unionfind	3000000	this compiler	187016640
+unionfind	3000000	this compiler	217148225
+unionfind	3000000	this compiler	237453179
+unionfind	3000000	this compiler	203173581
+unionfind	3000000	Idris Chez	2406095350
+unionfind	3000000	Idris Chez	2422479461
+unionfind	3000000	Idris Chez	2467991220
+unionfind	3000000	Idris Chez	2452506933
+unionfind	3000000	Idris Chez	2452128311
+unionfind	3000000	MLton	330926814
+unionfind	3000000	MLton	326771749
+unionfind	3000000	MLton	357613651
+unionfind	3000000	MLton	337345723
+unionfind	3000000	MLton	324324644
+unionfind	3000000	clang -O2	160268388
+unionfind	3000000	clang -O2	170265718
+unionfind	3000000	clang -O2	182063207
+unionfind	3000000	clang -O2	158199258
+unionfind	3000000	clang -O2	169366369
+unionfind	3000000	Koka	2716264936
+unionfind	3000000	Koka	2384000166
+unionfind	3000000	Koka	2384805007
+unionfind	3000000	Koka	2352290691
+unionfind	3000000	Koka	2425583352
+unionfind	3000000	Lean 4	2449452126
+unionfind	3000000	Lean 4	2439193335
+unionfind	3000000	Lean 4	2343220588
+unionfind	3000000	Lean 4	2425368340
+unionfind	3000000	Lean 4	2365652988
