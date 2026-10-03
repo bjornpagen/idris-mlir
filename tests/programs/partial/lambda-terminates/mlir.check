@@ -1,5 +1,5 @@
 // input: emitted
 // main is not total; each function lifted from it is.
 // CHECK: func.func private @Main.main() -> !idr.data<{{[^>]*}}> {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{[^)]*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{[^)]*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {

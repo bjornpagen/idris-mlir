@@ -1,6 +1,8 @@
-||| Core's types as the contract's, and typed parameters.
+||| Core's types as the contract's, in the dialects' vocabulary.
 module IdrisMLIR.Emit.Types
 
+import IdrisMLIR.CustomSyntax as Idr
+import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
@@ -15,51 +17,39 @@ import Data.SortedMap
 
 mutual
   ||| The contract type of a Core type.
-  mtype : Index -> Ty -> E MType
-  mtype ix (IntT t) = pure (I (width t))
-  mtype ix CharT = pure (I 32)
-  mtype ix DoubleT = pure F64
-  mtype ix StrT = pure Str
-  mtype ix BigT = pure Big
-  mtype ix NatT = pure Natural
-  mtype ix WorldT = pure World
-  mtype ix ErasedT = pure Erased
-  mtype ix (DataT d) = case lookup d ix.datas of
+  export
+  mlirType : Index -> Ty -> E MlirType
+  mlirType ix (IntT t) = pure (integerType (width t))
+  mlirType ix CharT = pure (integerType 32)
+  mlirType ix DoubleT = pure f64Type
+  mlirType ix StrT = pure Idr.strType
+  mlirType ix BigT = pure Idr.bigType
+  mlirType ix NatT = pure Idr.natType
+  mlirType ix WorldT = pure Idr.world
+  mlirType ix ErasedT = pure Idr.erased
+  mlirType ix (DataT d) = case lookup d ix.datas of
     Just dt => pure (case dt.repr of
-                       Sop => Data (mangle d.name)
-                       Box => Boxed (mangle d.name))
+                       Sop => Idr.dataType (mangle d.name)
+                       Box => Idr.boxType (mangle d.name))
     Nothing => internal ("unknown data " ++ show d)
-  mtype ix (FunT a r) = pure (Fn [!(binderType ix a)] [!(mtype ix r)])
-  mtype ix (LazyT r) = pure (Fn [] [!(mtype ix r)])
-  mtype ix (ArrayT e) = Memref <$> mtype ix e
+  mlirType ix (FunT a r) = pure (Idr.fnType [!(binderType ix a)] [!(mlirType ix r)])
+  mlirType ix (LazyT r) = pure (Idr.fnType [] [!(mlirType ix r)])
+  mlirType ix (ArrayT e) = memRefType <$> mlirType ix e
 
   ||| The contract type of what a binder binds: its quantity is in the
   ||| type, where no pass can lose it.
-  binderType : Index -> Binder -> E MType
-  binderType ix Gone = pure Erased
-  binderType ix (Held u t) = case modeOf u t of
-    Plain => mtype ix t
-    Linear => Lin <$> mtype ix t
+  export
+  binderType : Index -> Binder -> E MlirType
+  binderType ix Gone = pure Idr.erased
+  binderType ix (Held u t) =
+    if linear u t then Idr.lin <$> mlirType ix t else mlirType ix t
 
-||| The contract type of a value of type `t` held as `mode` says.
-heldType : Index -> Mode -> Ty -> E MType
-heldType ix Plain t = mtype ix t
-heldType ix Linear t = Lin <$> mtype ix t
-
+||| The contract type of a value of type `t` used as `u` says.
 export
-typeText : Index -> Ty -> E String
-typeText ix t = showType <$> mtype ix t
+heldType : Index -> Use -> Ty -> E MlirType
+heldType ix u t = binderType ix (Held u t)
 
+||| A value as an op uses it: its name and its type as it is held.
 export
-binderText : Index -> Binder -> E String
-binderText ix b = showType <$> binderType ix b
-
-||| The contract type of a value as it is held.
-export
-valText : Index -> Val -> E String
-valText ix v = showType <$> heldType ix v.mode v.type
-
-||| A typed parameter: `%3: !idr.lin<i64>`.
-export
-param : Index -> Val -> E String
-param ix v = pure (v.name ++ ": " ++ !(valText ix v))
+operand : Index -> Val -> E Value
+operand ix v = MkValue v.name <$> heldType ix v.use v.type

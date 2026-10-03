@@ -1,0 +1,25 @@
+#!/bin/sh
+# The Idris side's modules of the dialects (compiler/src/IdrisMLIR/Dialect/)
+# are what idris-mlir-tblgen writes from the dialects' ODS and its own
+# source now: tools/dialects.sh check, which needs no build, finds each
+# current. On a copy, it finds a module edited by hand, and every module
+# stale once the generator changes.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+check() {
+  bounded sh "$1/tools/dialects.sh" check > "$work/out" 2>&1
+  say "$2: exit $?"
+  cat "$work/out"
+}
+check "$root" "the checked-in modules"
+
+copy=$work/repo
+mkdir -p "$copy/tools" "$copy/foreign/idr/tools" "$copy/compiler/src/IdrisMLIR"
+cp "$root/tools/dialects.sh" "$root/tools/toolchain.sh" "$copy/tools/"
+cp -R "$root/foreign/idr/include" "$copy/foreign/idr/"
+cp "$root/foreign/idr/tools/idris-mlir-tblgen.cc" "$copy/foreign/idr/tools/"
+cp -R "$root/compiler/src/IdrisMLIR/Dialect" "$copy/compiler/src/IdrisMLIR/"
+export IDRIS_MLIR_TOOLCHAIN="$toolchain"
+printf '%s\n' '-- a line no generator wrote' >> "$copy/compiler/src/IdrisMLIR/Dialect/UB.idr"
+check "$copy" "a module edited by hand"
+printf '%s\n' '// a change of the generator' >> "$copy/foreign/idr/tools/idris-mlir-tblgen.cc"
+check "$copy" "a changed generator"

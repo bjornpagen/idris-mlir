@@ -1,61 +1,59 @@
 #!/bin/sh
-# Emit writes ops of the contract's dialects only: idr, func, arith, math,
-# ub and memref (idris-mlir-cc parses with a registry
-# of exactly these and builtin). Every op name in the text Emit writes comes
-# from a string literal of compiler/src/IdrisMLIR/Emit.idr, its modules
-# (Emit/*.idr) or MLIR.idr, as
-# `<dialect>.<op>` or as a prefix `<dialect>.` that code completes; each
-# dialect named so must be one of the six. A literal that starts with `.`
-# and a lowercase letter would complete an op name without its dialect, and
-# is refused too. `allowlist` lists the literals that are not op names
-# (`path: text -- reason`). The check must see the six, or it would see
-# nothing.
+# Emit writes ops of the contract's dialects only, each through the builder
+# generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
+# idris-mlir-cc parses with a registry of exactly idr, func, arith, math,
+# ub, memref and builtin. So
+#   - each generated module builds ops of one dialect of the contract, and
+#     the contract's dialects each have one;
+#   - no other module builds an op (`MkOp`), other than MLIR.idr, which
+#     defines and prints it;
+#   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or
+#     CustomSyntax.idr spells an op name, `<dialect>.<op>`, or a prefix
+#     `<dialect>.` or suffix `.<op>` that code completes into one.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-allowlist=$here/allowlist
 cd "$root" || exit 1
-allowed_dialects=' idr func arith math ub memref '
-: > "$work/found"
-: > "$work/dialects"
-for file in compiler/src/IdrisMLIR/Emit.idr compiler/src/IdrisMLIR/Emit/*.idr compiler/src/IdrisMLIR/MLIR.idr; do
+contract='idr func arith math ub memref builtin'
+src=compiler/src/IdrisMLIR
+
+: > "$work/built"
+for file in "$src"/Dialect/*.idr; do
+  module=${file##*/}
+  idris_lex code "$file" | grep -q 'MkOp' || { say "IdrisMLIR.Dialect.${module%.idr}: builds no op"; continue; }
+  # The op names are the literals that follow MkOp; the lexer blanks them
+  # in code, so they are read from the source.
+  dialects=$(grep -o 'MkOp "[a-z_]*\.' "$file" | sed 's/^MkOp "//; s/\.$//' | sort -u | tr '\n' ' ')
+  case $dialects in
+    *' '?*) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of several dialects: $dialects" ;;
+    *)
+      dialect=${dialects% }
+      case " $contract " in
+        *" $dialect "*) say "$dialect: built by IdrisMLIR.Dialect.${module%.idr}"
+                        printf '%s\n' "$dialect" >> "$work/built" ;;
+        *) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of $dialect, outside the contract" ;;
+      esac ;;
+  esac
+done
+for dialect in $contract; do
+  grep -qx "$dialect" "$work/built" || say "$dialect: built by no module"
+done
+
+: > "$work/builders"
+find "$src" -path "$src/Dialect" -prune -o -name '*.idr' -print | sort | while IFS= read -r file; do
+  [ "$file" = "$src/MLIR.idr" ] && continue
+  idris_lex code "$file" | grep -E '(^|[^A-Za-z0-9_.])MkOp([^A-Za-z0-9_]|$)' |
+    sed "s|^|$file:|" >> "$work/builders"
+done
+say "places that build an op by hand: $(wc -l < "$work/builders" | tr -d ' ')"
+cat "$work/builders"
+
+: > "$work/names"
+for file in "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/CustomSyntax.idr; do
   idris_lex strings "$file" | awk -v file="$file" '
     {
       n = $0; sub(/:.*/, "", n); s = $0; sub(/^[0-9]*:/, "", s)
-      rest = s
-      while (match(rest, /(^|[ (,={<])[a-z][a-z0-9_]*\.([a-z_]|$)/)) {
-        word = substr(rest, RSTART, RLENGTH); sub(/^[ (,={<]/, "", word); sub(/\..*$/, "", word)
-        printf "%s\t%s:%s: \"%s\"\n", word, file, n, s
-        # The rest of the dotted name is not another dialect.
-        rest = substr(rest, RSTART + RLENGTH); sub(/^[a-z0-9_.]*/, "", rest)
-      }
-      if (s ~ /^\.[a-z]/) printf "%s\t%s:%s: \"%s\"\n", "(none)", file, n, s
-    }' >> "$work/dialects"
+      if (s ~ /(^|[ (,={<])[a-z][a-z0-9_]*\.([a-z_]|$)/ || s ~ /^\.[a-z]/)
+        printf "%s:%s: \"%s\"\n", file, n, s
+    }' >> "$work/names"
 done
-while IFS="$(printf '\t')" read -r dialect hit; do
-  case $allowed_dialects in
-    *" $dialect "*) printf '%s\n' "$dialect" >> "$work/seen" ;;
-    *) printf '%s (%s)\n' "$hit" "$dialect" >> "$work/found" ;;
-  esac
-done < "$work/dialects"
-
-grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
-: > "$work/left"
-while IFS= read -r hit; do
-  keep=yes
-  while IFS= read -r entry; do
-    path=${entry%%: *}
-    rest=${entry#*: }
-    text=${rest% -- *}
-    case $hit in "$path:"*"$text"*) keep=no ;; esac
-  done < "$work/allowed"
-  [ $keep = yes ] && printf '%s\n' "$hit" >> "$work/left"
-done < "$work/found"
-
-for dialect in idr func arith math ub memref; do
-  if grep -qx "$dialect" "$work/seen" 2> /dev/null; then
-    say "Emit names $dialect: yes"
-  else
-    say "Emit names $dialect: no"
-  fi
-done
-sed 's/^/a dialect outside the contract: /' "$work/left"
-say "op names of other dialects: $(wc -l < "$work/left" | tr -d ' ')"
+say "op names spelled by hand: $(wc -l < "$work/names" | tr -d ' ')"
+cat "$work/names"
