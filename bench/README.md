@@ -6,19 +6,25 @@ this compiler on `bench/<name>/Main.idr` (ordinary Idris over the stock
 Prelude and base, or over `Linear.Array` of `libs/mlir-linear` where
 `bench/<name>/packages` says so); the same source through the stock Chez
 backend; MLton on `bench/sml/<name>.sml` (`-default-type int64`, as Idris's
-`Int` has 64 bits); the pinned clang at `-O2` on `bench/c/<name>.c`, a
-static PIE on musl for this compiler's target CPU without floating-point
-contraction, as our programs are built; Koka on `bench/koka/<name>.kk`
-(`-O2 --stack=128M`, the Perceus benchmarks' flags); Lean 4 on
-`bench/lean/<name>.lean` (`lean -c`, `leanc -O3 -DNDEBUG`, as Lean's
-benchmarks are built). Every program runs with an unlimited stack.
+`Int` has 64 bits); the pinned clang at `-O2` on `bench/c/<name>.c`, linked
+as `idris-mlir-cc --print-link-flags` says the target links a program (a
+static PIE on musl today, a dynamic executable on Darwin), for this
+compiler's target CPU without floating-point contraction, as our programs
+are built; Koka on `bench/koka/<name>.kk` (`-O2 --stack=128M`, the Perceus
+benchmarks' flags); Lean 4 on `bench/lean/<name>.lean` (`lean -c`,
+`leanc -O3 -DNDEBUG`, as Lean's benchmarks are built). Every program runs
+with the largest stack the system allows: unlimited on Linux, the hard
+limit (64 MiB) on macOS. Only cfold needs a deep one: its C program 48 to
+56 MiB on x86-64, and its Koka program the 128 MiB it asks for. The output starts with what it ran on: the host,
+its CPU, that stack limit and each compiler's version.
 
 The script checks that the two Idris backends print the same text and that
 every program prints the same numbers (to 1e-9), or the same bytes where
 the game compares bytes, and reports the best of the runs in wall-clock
 seconds, process start included (about a millisecond). MLton, Koka and
-Lean are unpacked into `.toolchain/` by `bench/toolchains.sh` or found on
-`PATH`; a missing one reads `n/a`. The last column is clang's time over
+Lean are unpacked into `.toolchain/` by `bench/toolchains.sh` (pinned
+archives for x86-64 Linux and arm64 macOS; on macOS MLton is Homebrew's,
+`brew install mlton`) or found on `PATH`; a missing one reads `n/a`. The last column is clang's time over
 this compiler's: above 1, this compiler is faster.
 
 ## Results
