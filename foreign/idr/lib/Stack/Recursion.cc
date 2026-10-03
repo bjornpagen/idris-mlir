@@ -4,7 +4,7 @@
 #include "Stack/Recursion.h"
 
 #include "Passes/Scc.h"
-#include "Stack/Tail.h"
+#include "Passes/Tail.h"
 
 #include "mlir/IR/SymbolTable.h"
 
@@ -37,7 +37,7 @@ Cycles::Cycles(ModuleOp module) {
     fn->walk([&](Operation *op) {
       if (auto call = dyn_cast<func::CallOp>(op)) {
         auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
-        if (callee && !callee.isExternal() && !(callee == fn && inTailPosition(call)))
+        if (callee && !callee.isExternal() && !(callee == fn && passes::inTailPosition(call)))
           out.push_back(callee);
       }
       applies |= isa<ApplyOp>(op);

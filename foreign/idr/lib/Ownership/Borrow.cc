@@ -12,7 +12,10 @@
 //   - is returned, or yielded by a match, whose results are owned;
 // and when an owned value is passed to it by a tail call from the same
 // cycle of calls, which would otherwise have to drop its reference after
-// the call, so that the call would no longer be a tail call.
+// the call, so that the call would no longer be a tail call. A self call
+// whose result a tail position puts in a constructor counts as one:
+// idr-trmc makes it a tail call that writes the field, unless a drop sits
+// between the call and the constructor.
 // The public root, and every function a closure names, keep their
 // parameters owned: their callers are not calls this pass sees. A
 // parameter of quantity 1 is owned too: Idris proved the function uses it
@@ -25,6 +28,7 @@
 #include "Ownership/Ownership.h"
 
 #include "Passes/Scc.h"
+#include "Passes/Tail.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -149,22 +153,6 @@ private:
     return true;
   }
 
-  // Whether the results of `op` are the results of the function: it is
-  // followed by a terminator that passes them on, a return or the yield
-  // of a match whose own results are.
-  static bool inTailPosition(Operation *op) {
-    Operation *next = op->getNextNode();
-    if (!next || !next->hasTrait<OpTrait::IsTerminator>() ||
-        !llvm::equal(next->getOperands(), op->getResults()))
-      return false;
-    if (isa<func::ReturnOp>(next))
-      return true;
-    if (!isa<YieldOp>(next))
-      return false;
-    Operation *match = next->getParentOp();
-    return isa<MatchOp, MatchLitOp>(match) && inTailPosition(match);
-  }
-
   void collect(func::FuncOp fn) {
     current = fn;
     ownedFields.clear();
@@ -177,7 +165,8 @@ private:
         for (auto [index, arg] : llvm::enumerate(call.getOperands()))
           if (it == owned.end() || index >= it->second.size() || it->second[index])
             own(arg);
-        if (it != owned.end() && cycleOf.lookup(g) == cycleOf.lookup(fn) && inTailPosition(call))
+        if (it != owned.end() && cycleOf.lookup(g) == cycleOf.lookup(fn) &&
+            (passes::inTailPosition(call) || passes::inTailPositionModuloConstructor(call)))
           for (auto [index, arg] : llvm::enumerate(call.getOperands()))
             if (isOwned(arg))
               ownParam(g, static_cast<unsigned>(index));
