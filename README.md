@@ -1,7 +1,7 @@
 # idris-mlir
 
-An experimental whole-program compiler from a strict, versioned subset of
-unmodified Idris 2 to native code through MLIR. The goal is high-level code
+An experimental whole-program compiler from unmodified Idris 2 programs over
+the stock Prelude and base to native code through MLIR. The goal is high-level code
 with guaranteed costs. Where the types promise something (in-place reuse of
 linear values, no bounds check), the compiler either
 delivers it or rejects the program with a named rule. It is not a Rust
@@ -102,13 +102,29 @@ make bench                   # bench/run.sh
 
 Everything is installed under `.toolchain/`; `make` alone lists the commands.
 
+## Where a primitive's meaning comes from
+
+The runtime is the one meaning of every primitive; constant folding and
+compile-time evaluation call it too. That meaning comes from Idris's own
+definition first, then the standard the primitive implements (Unicode,
+IEEE 754, POSIX), then a decision of ours written down in
+`findings/decision-primitive-semantics.md`. The stock Chez backend is the
+test oracle, not the specification: every deliberate difference from it is
+a named class in `tests/lib/chez-divergences`.
+
 ## Layout
 
 - `compiler/`: the Idris side: frontend, Core, `Emit`.
 - `foreign/idr/`: the `idr` dialect, its passes, the JIT and the tools.
 - `runtime/`: the runtime every program links, and that folding and
   compile-time evaluation call.
-- `tests/`: golden tests (`tests/Main.idr`); `bench/`: benchmarks.
+- `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear
+  arrays and lists), installed per checkout under `build/idris2`.
+- `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
+  benchmarks against C, Chez, MLton, Koka and Lean 4.
+- `findings/`: decisions taken (`decision-*.md`) and research notes with
+  staged plans; `findings/one-representation.md` is the cleanup plan for
+  everything the compiler still represents twice.
 - `tools/`: the toolchain's bootstrap and the compile chain;
   `tools/bisect.sh SOURCE TAG` finds the action of TAG (an evaluation, a
   clone) after which a program behaves differently than with `--no-eval`.
