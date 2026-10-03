@@ -4,6 +4,7 @@ target_sources(idr_dialect PRIVATE
 	Defunctionalize.cc
 	LoopBreakers.cc
 	Narrow.cc
+	NarrowLanes.cc
 	Prune.cc
 	ReturnedArguments.cc
 	Simplify.cc

@@ -32,3 +32,4 @@ workaround. If it does not, the bug is ours.
 | [bytecode-deferred-quadratic](bytecode-deferred-quadratic/README.md) | MLIR | not yet | `bytecode-deferred-quadratic`: `idr-eval` sends its results as a flat table of their parts |
 | [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | not yet | `simplify-structural-fixpoint`: `idr-simplify` is its own loop and decides its fixpoint by a structural hash of the module |
 | [vectorize-precondition-body](vectorize-precondition-body/README.md) | MLIR | not yet | `vectorize-precondition-body`: `idr-vectorize` checks the ops of every loop's body before it tiles the loop |
+| [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | not yet | `int-range-narrowing-exactness`: `idr-narrow-lanes` versions only loops whose wide ops all compute the same in 32 bits |

@@ -39,6 +39,17 @@ staticOf (TypeParam t) = Just t
 staticOf (DictParam t) = Just t
 staticOf (ValueParam _ shape) = shape
 
+||| How a function instance came to be: its definition (with the full name
+||| as `nameKey` prints it), the instance whose translation requested it
+||| first, and its parameters as that call classified them.
+public export
+record Request where
+  constructor MkRequest
+  name : Name
+  base : String
+  parent : Maybe FnId
+  kinds : List PKind
+
 ||| A function instance waiting to be translated.
 public export
 record Pending where
@@ -126,9 +137,9 @@ record TS where
   restart : Bool
   ||| The instance being translated.
   current : Maybe FnId
-  ||| Each instance's definition and the instance whose translation
-  ||| requested it: the chain back to the user definition it serves.
-  requesters : SortedMap FnId (Name, Maybe FnId)
+  ||| How each instance came to be: the chain back to the user definition
+  ||| it serves, and to the instances of its own definition it comes from.
+  requesters : SortedMap FnId Request
 
 export
 initState : FC -> TS

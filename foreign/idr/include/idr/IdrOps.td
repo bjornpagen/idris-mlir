@@ -664,7 +664,7 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "the first character of a Double as the reference prints it";
+  let summary = "the first character of a Double's text";
   let arguments = (ins F64:$value);
   let results = (outs I32:$result);
   let assemblyFormat = "$value attr-dict";
@@ -1094,9 +1094,9 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 }
 
 // A line of input without its end (the Prelude's getLine): the bytes up to
-// the first carriage return or newline, consumed through the newline; the
-// empty string at the end of input. A new string, allocated like a
-// builder's.
+// the next newline, which is consumed, without it or a carriage return
+// right before it, decoded as UTF-8 (idris_rt_io_get_line); the empty
+// string at the end of input. A new string, allocated like a builder's.
 def Idr_GetLineOp : Idr_IOOp<"get_line"> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);

@@ -6,7 +6,4 @@ Just (Just (-7))
 Just 3.5
 Just (-3.5)
 Just (-0.0)
-Just +nan.0
-Just (-inf.0)
 Just 1e23
-Just 3.5e-323|3

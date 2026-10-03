@@ -248,15 +248,17 @@ void idris_rt_flush(void);
  * A crash reports nothing, and neither does compile-time evaluation. */
 void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
-/* The UTF-8 encoding of the character c: the Prelude's putChar. A Char is
- * a Unicode scalar value, so c is written whole, where the stock Chez
- * backend's putchar writes its low byte. */
+/* The UTF-8 encoding of the character c: the Prelude's putChar, and what
+ * writing a one-character string writes. A Char is a Unicode scalar value,
+ * so c is written whole, where both stock backends call C's putchar, as the
+ * Prelude declares putChar, and write its low byte (put-char-utf8 in
+ * tests/lib/chez-divergences). */
 void idris_rt_io_put_char(int32_t c);
 /* The decimal text of a signed or an unsigned integer, which idr-lower
  * extends to 64 bits as its type's signedness says. */
 void idris_rt_io_put_int_s(int64_t value);
 void idris_rt_io_put_int_u(uint64_t value);
-/* The text of a double, as Chez writes it. */
+/* The text of a double, as idris_rt_str_show_f64 writes it. */
 void idris_rt_io_put_double(double value);
 /* A string built in place by idr.str.pack and idr.str.concat, which know
  * its size from a first pass: a new string of `bytes` bytes and `scalars`
@@ -272,11 +274,11 @@ int64_t idris_rt_str_bytes_length(const idris_rt_str *s);
 int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
 /* One byte, or 255 at the end of input. */
 int32_t idris_rt_io_get_byte(void);
-/* A line of input without its end: the bytes up to the first '\r' or
- * '\n', consumed through the '\n', as the stock idris2_getStr cuts them;
- * the empty string at the end of input. Bytes that are not well-formed
- * UTF-8 become U+FFFD, one per ill-formed byte, as Chez decodes them. A new
- * string. */
+/* A line of input without its end, the Prelude's getLine: the bytes up to
+ * the next '\n', which is consumed, without that '\n' or the "\r\n" it
+ * ends; the rest of the input when no '\n' is left, and the empty string at
+ * the end of input. The bytes are decoded as idris_rt_str_from_bytes
+ * decodes them. A new string. */
 const idris_rt_str *idris_rt_io_get_line(void);
 /* Bytes [offset, offset + count) of a byte array to a standard stream:
  * handle 1 is standard output, through the output buffer and in order with
@@ -349,7 +351,8 @@ int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t gua
 /* Doubles. x truncated toward zero, modulo 2^64; x is
  * finite (idr-lower checks it first). */
 int64_t idris_rt_to_int(double x);
-/* The first character of the text of a double, as Chez writes it. */
+/* The first character of the text of a double (idris_rt_str_show_f64):
+ * '-', a digit, or the 'i' of inf or the 'n' of nan. */
 int32_t idris_rt_double_head(double x);
 /* The first character of the decimal text of a signed or unsigned integer. */
 int32_t idris_rt_int_head_s(int64_t value);
@@ -367,29 +370,40 @@ const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *s);
 const idris_rt_str *idris_rt_str_from_char(int32_t c);
 const idris_rt_str *idris_rt_str_show_s(int64_t value);
 const idris_rt_str *idris_rt_str_show_u(uint64_t value);
+/* The text of a double, which reads back as it (idris_rt_str_to_double): the
+ * fewest significant digits that do, the nearest of those to the double, and
+ * of two equally near the one whose last digit is even; positional from 1e-3
+ * up to 1e10, with a digit after the point (0.001, 100.0), else in
+ * scientific notation (1e21, 1.5e-7, 5e-324); inf, -inf and nan, a NaN
+ * whatever its sign; -0.0 with its sign. */
 const idris_rt_str *idris_rt_str_show_f64(double value);
 /* The number of scalar values. */
 int64_t idris_rt_str_length(const idris_rt_str *s);
 int32_t idris_rt_str_index(const idris_rt_str *s, int64_t i);
 int32_t idris_rt_str_head(const idris_rt_str *s);
 const idris_rt_str *idris_rt_str_tail(const idris_rt_str *s);
-/* Chez's string-substr: the scalars from max(0, start), at most max(0, len)
- * of them; "" when the start is past the end. */
+/* The Prelude's substr: the scalars from `start`, at most `len` of them; ""
+ * when the start is past the end, and only those left when fewer than `len`
+ * are. A negative start or length, which only a call of the primitive itself
+ * passes, counts as 0. */
 const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_t start, int64_t len);
 const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
 /* Negative, zero or positive as a is before, equal to or after b in the
- * order of their scalar values (Chez's string<?). */
+ * order of their scalar values, Unicode's code point order, which is the
+ * byte order of their UTF-8. */
 int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
-/* `cast` from String. Which strings are numbers is ours to
- * define:
- * - to Double: the whole string in fast_float's general format, with a
- *   leading `+` allowed, correctly rounded; an exponent out of range gives
- *   the infinity or zero fast_float stores alongside its range error;
- *   anything else is 0;
- * - to an integer: a sign (`+` or `-`) and decimal digits give that integer,
- *   exactly; any other string the Double cast accepts gives its finite value
- *   truncated toward zero, as Chez's exact-truncate does; anything else,
- *   the infinities and NaN included, is 0.
+/* `cast` from String: the whole string is an optional sign (`+` or `-`)
+ * and a literal of the target type as Idris writes it; any other string
+ * is 0.
+ * - to an integer: an integer literal, decimal digits or 0b, 0o, 0x or 0X
+ *   and digits of that base, single underscores between digits allowed,
+ *   gives that integer, exactly;
+ * - to Double: an integer literal, digits, a point and digits with an
+ *   optional exponent (`e`, an optional sign, digits), or digits and an
+ *   exponent, give the nearest double, ties to even (so every text
+ *   idris_rt_str_show_f64 writes reads back as its double), an exponent
+ *   out of range an infinity or a zero; `inf`, `infinity` and `nan`, in any
+ *   case, give an infinity and NaN.
  * idris_rt_str_to_int returns the result modulo 2^64; idr-lower wraps it to
  * the op's width. */
 double idris_rt_str_to_double(const idris_rt_str *s);
@@ -397,16 +411,23 @@ int64_t idris_rt_str_to_int(const idris_rt_str *s);
 /* The string of n bytes of well-formed UTF-8 at p: a new string, or the
  * persistent empty one. */
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
+/* The string of any n bytes at p, decoded as UTF-8: how bytes from outside
+ * the program become a string. Well-formed sequences are their scalars, and
+ * each maximal subpart of an ill-formed one, the longest prefix of a
+ * well-formed sequence at that point or else one byte, is one U+FFFD, as the
+ * Unicode Standard recommends (chapter 3). A new string, or the persistent
+ * empty one. */
+const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
 /* The UTF-8 bytes of s, valid as long as s is. */
 const char *idris_rt_str_bytes(const idris_rt_str *s);
 
 /* Bigs: Integer, and the Nat-like types. Each operation borrows its
- * arguments and returns an owned result: a small word, or a new bignum. Division and modulus
- * are Euclidean, as blodwen-euclidDiv and blodwen-euclidMod in the Chez
- * support code, which is also what Idris's evaluator computes;
- * the divisor is nonzero (idr-lower checks it first). The bitwise operations
- * are those of the infinite two's complement representation (Chez's logand,
- * logor and logxor). */
+ * arguments and returns an owned result: a small word, or a new bignum.
+ * Division and modulus are Euclidean, the remainder in [0, |b|), and the
+ * bitwise operations are those of the infinite two's complement
+ * representation, as upstream Idris's test suite requires of every backend
+ * (its integers test of Chez, RefC and Node); the divisor is nonzero
+ * (idr-lower checks it first). */
 idris_rt_big idris_rt_big_add(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_sub(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_mul(idris_rt_big a, idris_rt_big b);
@@ -429,7 +450,8 @@ idris_rt_big idris_rt_big_from_int_u(uint64_t value);
 int64_t idris_rt_big_to_int(idris_rt_big a);
 /* x truncated toward zero; x is finite (idr-lower checks it first). */
 idris_rt_big idris_rt_big_from_double(double x);
-/* The double nearest to a, ties to even (Chez's exact->inexact). */
+/* The double nearest to a, ties to even, an infinity past the largest: the
+ * conversion of IEEE 754 under its default rounding. */
 double idris_rt_big_to_double(idris_rt_big a);
 /* A new string. */
 const idris_rt_str *idris_rt_big_show(idris_rt_big a);

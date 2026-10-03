@@ -1,19 +1,20 @@
 // RUN: idris-mlir-cc %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// Doubles printed by the runtime as Chez prints them: shortest digits, an
-// exact tie taken up (Ryu alone gives 1.1258999068426242e15), positional
-// between 1e-3 and 1e10, subnormals with their precision, the special
-// values; and the cast to an integer truncates and wraps (2^64 is 0).
-// CHECK: 1.1258999068426243e15
-// CHECK-NEXT: 5e-324|1
+// Doubles printed by the runtime: the shortest digits that read back, an
+// exact tie to the even last digit (1.1258999068426242e15, where Chez takes
+// the larger), positional between 1e-3 and 1e10, a subnormal as any other,
+// the special values as IEEE 754 spells them; and the cast to an integer
+// truncates and wraps (2^64 is 0).
+// CHECK: 1.1258999068426242e15
+// CHECK-NEXT: 5e-324
 // CHECK-NEXT: 2.2250738585072014e-308
 // CHECK-NEXT: 0.001
 // CHECK-NEXT: 9999999999.0
 // CHECK-NEXT: 1e10
 // CHECK-NEXT: -0.0
-// CHECK-NEXT: +nan.0
-// CHECK-NEXT: -inf.0
+// CHECK-NEXT: nan
+// CHECK-NEXT: -inf
 // CHECK-NEXT: -2 0 7
 module attributes {idr.program} {
   func.func private @line(%x: f64, %w: !idr.world) -> !idr.world {

@@ -1,5 +1,14 @@
-# Where this compiler and the stock Chez backend knowingly differ, and why
-# this compiler's behaviour is the one Idris means. One class per line: its
+# Where this compiler and the stock Chez backend knowingly differ, and why:
+# the authority this compiler follows, which is Idris's own definition, the
+# standard the primitive implements, or a decision of ours, in that order
+# (findings/decision-primitive-semantics.md). One class per line: its
 # name, then its reason. A fixture that shows one names the class in its
-# chez-differs and holds what Chez prints in chez-stdout (chez_agrees).
+# chez-differs and holds what Chez prints in chez-stdout (chez_agrees); the
+# double-* classes are also how chez_doubles reads Chez's text of a Double.
 put-char-utf8 A Char is a Unicode scalar value, so putChar writes its UTF-8 encoding; Chez passes it to C's putchar, which writes its low byte, so from 128 on the bytes differ.
+utf8-maximal-subparts Input that is not well-formed UTF-8 decodes as the Unicode Standard recommends, one U+FFFD for each maximal subpart, the longest prefix of a well-formed sequence or else one byte: an overlong C0 80 is two and an encoded surrogate ED A0 80 three; Chez's decoder replaces each such sequence with one U+FFFD.
+getline-carriage-return getLine reads a line without its end, as the Prelude documents it: the '\n' that ends it, as POSIX reads text, or the "\r\n" of text written elsewhere, so a '\r' anywhere else stays in the line; upstream's C support (idris2_getStr), which Chez and RefC both call, cuts the line at its first '\r'.
+double-subnormal-suffix A subnormal Double is written as any other, with the fewest significant digits that read back as it (5e-324), as IEEE 754 asks of a double's text; Chez's printer ends a subnormal with its precision in bits, R6RS's mantissa width (5e-324|1).
+double-tie-even Where a Double is exactly halfway between the two shortest texts that read back as it, the one whose last digit is even is written, as IEEE 754's default rounding breaks a tie (12.886856079101562); Chez's printer writes the one larger in magnitude (12.886856079101563).
+double-special-text The infinities and NaN are written inf, -inf and nan, as IEEE 754 spells them, and read back through cast; Chez's printer writes Scheme's +inf.0, -inf.0 and +nan.0.
+cast-string-literal cast from String reads the whole string as an optional sign and a literal of the target type as Idris writes it, else 0: an integer literal in any base, with underscores, for every number type, and for Double also a decimal literal, a double's text and IEEE 754's inf and nan; Chez reads a Scheme number with string->number and truncates it to an integer type, so 12.7 is 12 as an Int, .5 is 0.5, 0x10 is 0 and inf is 0.0.

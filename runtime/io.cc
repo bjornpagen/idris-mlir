@@ -4,7 +4,6 @@
 
 #include "internal.h"
 
-#include <simdutf.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -74,31 +73,6 @@ struct Line {
     bytes[length++] = c;
   }
 };
-
-// The string of n bytes at p, ill-formed UTF-8 replaced by U+FFFD one byte
-// at a time, as Chez's decoder replaces it.
-const idris_rt_str *decoded(const char *p, size_t n) {
-  if (simdutf::validate_utf8(p, n))
-    return rt::stringOf(p, n);
-  static constexpr char replacement[] = "\xEF\xBF\xBD";
-  Line out;
-  while (n > 0) {
-    simdutf::result checked = simdutf::validate_utf8_with_errors(p, n);
-    size_t good = checked.error == simdutf::SUCCESS ? n : checked.count;
-    for (size_t i = 0; i < good; ++i)
-      out.push(p[i]);
-    p += good;
-    n -= good;
-    if (n > 0) {
-      for (char c : replacement)
-        if (c != '\0')
-          out.push(c);
-      ++p;
-      --n;
-    }
-  }
-  return rt::stringOf(out.bytes, out.length);
-}
 
 // The live cells on standard error when IDRIS_RT_LIVE is "1", in one write:
 // how a test sees that a program frees every cell it allocates. An
@@ -203,19 +177,20 @@ extern "C" int32_t idris_rt_io_get_byte(void) {
   return b;
 }
 
+// A line ends at '\n', as POSIX reads text, or at the "\r\n" that ends the
+// lines of text written elsewhere; a '\r' anywhere else is the line's own.
 extern "C" const idris_rt_str *idris_rt_io_get_line(void) {
   Line line;
-  bool cut = false;
   for (int32_t b = peek(); b >= 0; b = peek()) {
     ++inputPosition;
-    if (b == '\n')
+    if (b == '\n') {
+      if (line.length > 0 && line.bytes[line.length - 1] == '\r')
+        --line.length;
       break;
-    if (b == '\r')
-      cut = true;
-    if (!cut)
-      line.push(static_cast<char>(b));
+    }
+    line.push(static_cast<char>(b));
   }
-  return decoded(line.bytes, line.length);
+  return idris_rt_str_from_bytes(line.bytes, line.length);
 }
 
 // The bytes [offset, offset + count) of a byte array, or a crash.

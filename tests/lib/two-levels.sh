@@ -10,7 +10,10 @@
 # value depends on the host by design (`-- host-dependent:` in Terms.idr),
 # and those the pinned Idris evaluates differently from its own backends
 # (`-- idris-differs:`), all of which are listed; and Chez prints what the
-# lower level prints, the host-dependent terms aside.
+# lower level prints, the host-dependent terms aside. Idris's evaluator runs
+# on Chez, so it writes a Double with Chez's printer, as the Chez build
+# does: both outputs are read as this compiler writes Doubles
+# (chez_doubles) before they are compared.
 two_levels() {
   # The helper is an Idris backend built against the compiler's own modules,
   # which takes about a minute: one step, but a larger one.
@@ -36,9 +39,10 @@ two_levels() {
         }
     done
     (cd "$tl_dir/upper" && bounded "$tl_helper" --no-banner --no-color --no-prelude --cg twolevels \
-       -o unused Main.idr) > "$work/upper.out" 2> "$work/upper.err"
+       -o unused Main.idr) > "$work/upper.chez" 2> "$work/upper.err"
     say "$tl_corpus: Idris's evaluator: exit $?"
     [ -s "$work/upper.err" ] && show "$work/upper.err"
+    chez_doubles "$work/upper.chez" > "$work/upper.out"
     compile_program "$tl_dir/lower/Main.idr" prog
     say "$tl_corpus: compile: exit $compiled"
     if [ "$compiled" -ne 0 ]; then
@@ -52,6 +56,8 @@ two_levels() {
        -o prog Main.idr) > "$work/chez.log" 2>&1
     say "$tl_corpus: chez: compile exit $?"
     run_program chez "$tl_dir/chez/build/exec/prog" /dev/null
+    chez_doubles "$work/chez.out" > "$work/chez.read"
+    mv "$work/chez.read" "$work/chez.out"
     # The terms not compared with Idris's value, and why.
     sed -n 's/^-- host-dependent: \(t[0-9]*\) \(.*\)$/\1 host-dependent: \2/p' "$tl_dir/lower/Terms.idr" > "$work/tl.host"
     sed -n 's/^-- idris-differs: \(t[0-9]*\) \(.*\)$/\1 Idris evaluates it differently: \2/p' "$tl_dir/lower/Terms.idr" > "$work/tl.differs"
@@ -70,17 +76,17 @@ two_levels() {
     tl_upper_terms=$(wc -l < "$work/upper.out" | tr -d ' ')
     tl_lower_terms=$(wc -l < "$work/lower.out" | tr -d ' ')
     if [ -s "$work/tl.diff" ] || [ "$tl_upper_terms" -ne "$tl_lower_terms" ]; then
-      say "$tl_corpus: this compiler prints Idris's value for every other term: failed ($tl_upper_terms against $tl_lower_terms lines)"
+      say "$tl_corpus: this compiler prints Idris's value for every other term, its Doubles read as ours: failed ($tl_upper_terms against $tl_lower_terms lines)"
       head -n 40 "$work/tl.diff"
     else
-      say "$tl_corpus: this compiler prints Idris's value for every other term"
+      say "$tl_corpus: this compiler prints Idris's value for every other term, its Doubles read as ours"
     fi
     for tl_side in lower chez; do
       awk 'FILENAME == ARGV[1] { host[$1] = 1; next } !($1 in host)' \
         "$work/tl.host" "$work/$tl_side.out" > "$work/$tl_side.host-independent"
     done
     if cmp -s "$work/lower.host-independent" "$work/chez.host-independent"; then
-      say "$tl_corpus: Chez prints the same, the host-dependent terms aside"
+      say "$tl_corpus: Chez prints the same, its Doubles read as ours, the host-dependent terms aside"
     else
       say "$tl_corpus: Chez prints differently (< this compiler, > Chez)"
       diff "$work/lower.host-independent" "$work/chez.host-independent" | head -n 20 | sed 's/^/  | /'

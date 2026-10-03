@@ -1,6 +1,8 @@
 #!/bin/sh
-# 176,000 doubles printed by the runtime (Ryu and its tie wrapper) and by
-# Chez's number->string: every text is the same.
+# 176,000 doubles printed by the runtime (Ryu's digits in its layout) and by
+# Chez's number->string, read as this compiler writes Doubles
+# (chez_doubles): every text is the same. The reading is seen to change
+# Chez's text for each class of tests/lib/chez-divergences it applies.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
 runtime=$root/build/dev/runtime/libidris_rt.a
@@ -13,20 +15,29 @@ build_test() {
     return 1
   fi
 }
-# Chez Scheme, found as tools/bootstrap.sh finds it for Idris.
-chez=
-for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
-  if command -v "$chez_name" > /dev/null 2>&1; then chez=$chez_name; break; fi
-done
 build_test "$here/fuzz.c" "$work/fuzz" || exit 0
 "$work/fuzz" 176000 "$work/bits" > "$work/ours" 2> "$work/fuzz.err"
 say "fuzz: exit $?"
-if [ -z "$chez" ]; then say "chez: not found"; exit 0; fi
-"$chez" --script "$here/chez.ss" "$work/bits" > "$work/chez" 2> "$work/chez.err"
+if [ -z "$chez_scheme" ]; then say "chez: not found"; exit 0; fi
+"$chez_scheme" --script "$here/chez.ss" "$work/bits" > "$work/chez" 2> "$work/chez.err"
 say "chez: exit $?"
-if cmp -s "$work/ours" "$work/chez"; then
-  say "176000 doubles: the same text as Chez"
+chez_doubles "$work/chez" > "$work/chez.read"
+if cmp -s "$work/ours" "$work/chez.read"; then
+  say "176000 doubles: the same text as Chez's, read as ours"
 else
-  say "doubles printed differently (< runtime, > Chez):"
-  diff "$work/ours" "$work/chez" | head -n 20 | sed 's/^/  | /'
+  say "doubles printed differently (< runtime, > Chez read as ours):"
+  diff "$work/ours" "$work/chez.read" | head -n 20 | sed 's/^/  | /'
 fi
+# The texts the reading changed, by class: as strings, which awk would
+# otherwise compare as the numbers they spell.
+paste -d ' ' "$work/chez" "$work/chez.read" | awk '
+  ($1 "") != ($2 "") {
+    if ($1 ~ /[|]/) subnormal = 1
+    else if ($1 ~ /inf|nan/) special = 1
+    else tie = 1
+  }
+  END {
+    printf "read as double-subnormal-suffix: %s\n", subnormal ? "seen" : "not seen"
+    printf "read as double-special-text: %s\n", special ? "seen" : "not seen"
+    printf "read as double-tie-even: %s\n", tie ? "seen" : "not seen"
+  }'

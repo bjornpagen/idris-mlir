@@ -1204,10 +1204,10 @@ std::optional<StringRef> ToIntOp::getCrashCause() {
   return StringRef("cast of a non-finite Double");
 }
 
-// '+' (NaN and positive infinity), '-', or a digit.
+// '-', a digit, or the first letter of `inf` or `nan`.
 void DoubleHeadOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                      SetIntRangeFn setResultRange) {
-  setResultRange(getResult(), nonNegative(32, '+', '9'));
+  setResultRange(getResult(), nonNegative(32, '-', 'n'));
 }
 
 // '-' or a digit; a digit when unsigned.

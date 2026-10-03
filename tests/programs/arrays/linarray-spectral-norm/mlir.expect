@@ -1,6 +1,9 @@
 # spectral-norm over Linear.Array's loops: each product with A is one array
 # generated from its rows, each row an ordered fold over the vector, whose
 # bodies only compute; after idr-vectorize the rows compute on the
-# target's lanes, each lane summing its row in index order.
+# target's lanes, each lane summing its row in index order; after
+# idr-narrow-lanes every row loop computing 64-bit lanes is the 64-bit
+# version beside one computing its index arithmetic in 32 bits.
 idr-rc: pure-array-loops
 idr-vectorize: vectorized
+idr-narrow-lanes: narrowed-lanes

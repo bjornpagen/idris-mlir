@@ -1,0 +1,28 @@
+#!/bin/sh
+# The upstream bug upstream/int-range-narrowing-exactness still reproduces
+# with the pinned mlir-opt: arith-int-range-narrowing makes i32 ops of a
+# shift whose amount reaches 40, a remsi that may see INT32_MIN % -1 and a
+# remui of a word that may be negative, whose result then changes. When
+# this fails, the bug is fixed: delete `exact` in idr-narrow-lanes, whose
+# fit then suffices, the PINS.md entry int-range-narrowing-exactness, the
+# report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/int-range-narrowing-exactness/narrowing.mlir
+bounded "$llvm_bin/mlir-opt" "$input" --arith-int-range-narrowing="int-bitwidths-supported=32" \
+  > "$work/narrowed.mlir" 2>&1
+status=$?
+for op in shrui remsi remui; do
+  if [ "$status" -eq 0 ] && grep -q "arith\.$op .* : i32\$" "$work/narrowed.mlir"; then
+    say "$op: still reproduces (made an i32 op)"
+  else
+    say "$op: no longer reproduces (exit $status)"
+    show "$work/narrowed.mlir"
+  fi
+done
+bounded "$llvm_bin/mlir-opt" "$work/narrowed.mlir" --inline --canonicalize > "$work/folded.mlir" 2>&1
+if sed -n '/@remu_of_minus_two/,/return/p' "$work/folded.mlir" | grep -q 'arith.constant 2 : i64'; then
+  say "remui of -2 by 7: still reproduces (2, where the input program gives 0)"
+else
+  say "remui of -2 by 7: no longer reproduces"
+  show "$work/folded.mlir"
+fi

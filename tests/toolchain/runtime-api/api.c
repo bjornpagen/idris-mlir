@@ -1,7 +1,8 @@
 /* The runtime's string and big operations against Chez: `api` prints one
  * line per operation, and chez.ss prints what Chez computes for the same
  * operations, which the run script compares. Then the casts from String,
- * whose grammar is ours (idris_rt.h), are checked against a table.
+ * whose grammar is ours (idris_rt.h), and the decoding of bytes from
+ * outside the program, are checked against tables.
  *
  * Every operation borrows its arguments and returns an owned result, so
  * each result is released once, when it has been printed, and each argument
@@ -111,6 +112,101 @@ static void expectDouble(const char *s, double want) {
   }
 }
 
+/* Every double's text reads back as the double, as IEEE 754 requires of
+ * the two conversions, a NaN's as a NaN: the special values, the edges of
+ * the subnormals and of the range, and pseudo-random bit patterns, a third
+ * of them subnormal. */
+static void roundTrip(void) {
+  static const double edges[] = {0.0, -0.0, 1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0, 4.9e-324,
+                                 -2.225073858507201e-308, 2.2250738585072014e-308,
+                                 1.7976931348623157e308, 1e21, 1e-7, 0.1, 12.8868560791015625};
+  enum { edgeCount = sizeof edges / sizeof edges[0], patterns = 30000 };
+  int trips = 0, failed = 0;
+  uint64_t state = 7;
+  for (int i = 0; i < edgeCount + patterns; ++i) {
+    double x;
+    if (i < edgeCount) {
+      x = edges[i];
+    } else {
+      state = state * 6364136223846793005u + 1442695040888963407u;
+      uint64_t bits = state ^ (state >> 29);
+      if (i % 3 == 0)
+        bits &= 0x800FFFFFFFFFFFFFu;
+      memcpy(&x, &bits, sizeof x);
+    }
+    const idris_rt_str *text = idris_rt_str_show_f64(x);
+    uint32_t made = countOf(text);
+    double back = idris_rt_str_to_double(text);
+    ++trips;
+    if (memcmp(&back, &x, sizeof x) != 0 && !(back != back && x != x)) {
+      if (failed < 5)
+        fprintf(stderr, "FAIL \"%.*s\" does not read back\n", (int)text->bytes, idris_rt_str_bytes(text));
+      ++failed;
+    }
+    releaseArgument(text, made, "a double's text");
+  }
+  fprintf(stderr, "doubles read back from their text: %d of %d\n", trips - failed, trips);
+  failures += failed;
+}
+
+static int decodeFailures = 0, decodeChecks = 0;
+
+/* The n bytes at p become the string of the well-formed UTF-8 `want`:
+ * the same bytes, scalar count and ASCII flag. */
+static void expectDecoded(const char *p, size_t n, const char *want) {
+  const idris_rt_str *got = idris_rt_str_from_bytes(p, n);
+  const idris_rt_str *expected = make(want);
+  ++decodeChecks;
+  if (got->bytes != expected->bytes || got->scalars != expected->scalars ||
+      memcmp(idris_rt_str_bytes(got), idris_rt_str_bytes(expected), got->bytes) != 0 ||
+      idris_rt_str_is_ascii(got) != idris_rt_str_is_ascii(expected)) {
+    fprintf(stderr, "FAIL from_bytes of %zu bytes, expected \"%s\"\n", n, want);
+    ++decodeFailures;
+  }
+  release(got);
+  release(expected);
+}
+
+/* Bytes from outside the program as a string: each maximal subpart of an
+ * ill-formed sequence, the longest prefix of a well-formed one or else one
+ * byte, is one U+FFFD (the Unicode Standard, chapter 3, whose table of
+ * U+FFFD in UTF-8 conversion is the first case). */
+static void decoding(void) {
+#define FFFD "\xEF\xBF\xBD"
+  static const char table[] = "\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64";
+  expectDecoded(table, sizeof table - 1, "a" FFFD FFFD FFFD "b" FFFD "c" FFFD FFFD "d");
+  expectDecoded("\x61\xE2\x82\x62", 4, "a" FFFD "b");
+  expectDecoded("\xF0\x9F\x98\x63", 4, FFFD "c");
+  expectDecoded("\xC0\x80\x64", 3, FFFD FFFD "d");
+  expectDecoded("\xED\xA0\x80\x65", 4, FFFD FFFD FFFD "e");
+  expectDecoded("\xE9\x66", 2, FFFD "f");
+  expectDecoded("\xE9", 1, FFFD);
+  expectDecoded("\xE0\x80\x80", 3, FFFD FFFD FFFD);
+  expectDecoded("\xF0\x80\x80\x80", 4, FFFD FFFD FFFD FFFD);
+  expectDecoded("\xF4\x90\x80\x80", 4, FFFD FFFD FFFD FFFD);
+  expectDecoded("\xF4\x8F\xBF", 3, FFFD);
+  expectDecoded("\xFF\xFE\x80", 3, FFFD FFFD FFFD);
+  expectDecoded("\xE0\xA0\x80\xEF\xBF\xBF\xF4\x8F\xBF\xBF", 10, "\xE0\xA0\x80\xEF\xBF\xBF\xF4\x8F\xBF\xBF");
+  expectDecoded("h\xC3\xA9llo \xE6\x97\xA5\xF0\x9F\x98\x80", 14, "h\xC3\xA9llo \xE6\x97\xA5\xF0\x9F\x98\x80");
+  expectDecoded("", 0, "");
+  /* Ill-formed bytes between runs longer than simdutf's blocks: a lead
+   * byte with no continuation and a lone continuation byte, each one
+   * U+FFFD of three bytes. */
+  char runs[200];
+  memset(runs, 'x', sizeof runs);
+  runs[70] = '\xC3';
+  runs[150] = '\xA9';
+  char want[sizeof runs + 2 + 2 + 1];
+  memset(want, 'x', sizeof want);
+  memcpy(want + 70, FFFD, 3);
+  memcpy(want + 152, FFFD, 3);
+  want[sizeof want - 1] = '\0';
+  expectDecoded(runs, sizeof runs, want);
+#undef FFFD
+  fprintf(stderr, "bytes as a string: %d of %d as idris_rt.h defines them\n",
+          decodeChecks - decodeFailures, decodeChecks);
+}
+
 int main(void) {
   idris_rt_big values[bigCount];
   uint32_t made[bigCount];
@@ -211,51 +307,90 @@ int main(void) {
   for (int i = 0; i < bigCount; ++i)
     releaseArgument((void *)(uintptr_t)values[i], made[i], bigs[i]);
 
+  /* Integer literals, in every base, with a sign and underscores, read by
+   * every number type. */
   expectInt("123", 123);
   expectInt("-45", -45);
   expectInt("+7", 7);
   expectInt("007", 7);
-  expectInt("12.7", 12);
-  expectInt("-12.7", -12);
-  expectInt("1e3", 1000);
-  expectInt(".5", 0);
-  expectInt("5.", 5);
+  expectInt("1_000", 1000);
+  expectInt("0b101", 5);
+  expectInt("0o17", 15);
+  expectInt("0x1F", 31);
+  expectInt("0XfF", 255);
+  expectInt("-0x10", -16);
+  expectInt("0x1_0", 16);
+  expectInt("9223372036854775807", INT64_MAX);
+  expectInt("9223372036854775808", INT64_MIN);
+  expectInt("18446744073709551617", 1);
+  expectInt("0x1FFFFFFFFFFFFFFFF", -1);
+  expectBig("123456789012345678901234567890", "123456789012345678901234567890");
+  expectBig("+123456789012345678901234567890", "123456789012345678901234567890");
+  expectBig("-000123456789012345678901234567890", "-123456789012345678901234567890");
+  expectBig("1_000_000_000_000_000_000_000", "1000000000000000000000");
+  expectBig("0x1_0000_0000_0000_0000", "18446744073709551616");
+  expectBig("-0b1", "-1");
+  expectDouble("1_000", 1000.0);
+  expectDouble("0x10", 16.0);
+  expectDouble("-0b11", -3.0);
+  expectDouble("-0", -0.0);
+  expectDouble("123456789012345678901234567890", 1.2345678901234568e29);
+  expectDouble("0x1FFFFFFFFFFFFF1", 144115188075855856.0);
+  /* What no integer type reads: a decimal, a word, a malformed literal. */
+  expectInt("12.7", 0);
+  expectInt("-12.7", 0);
+  expectInt("1e3", 0);
+  expectInt("inf", 0);
+  expectInt("nan", 0);
+  expectInt("0x", 0);
+  expectInt("0b2", 0);
+  expectInt("0B1", 0);
+  expectInt("1__0", 0);
+  expectInt("_1", 0);
+  expectInt("1_", 0);
+  expectBig("1e30", "0");
+  expectBig("-2.5", "0");
+  /* Decimal literals as Idris writes them and doubles' texts as they are
+   * written, correctly rounded; IEEE 754's words, in any case. */
+  expectDouble("1.5", 1.5);
+  expectDouble("+1.5", 1.5);
+  expectDouble("1.0e+5", 100000.0);
+  expectDouble("1e21", 1e21);
+  expectDouble("5e-324", 4.9e-324);
+  expectDouble("2.4703282292062328e-324", 4.9e-324);
+  expectDouble("1.7976931348623157e308", 1.7976931348623157e308);
+  expectDouble("-1e-400", -0.0);
+  expectDouble("1e400", 1.0 / 0.0);
+  expectDouble("inf", 1.0 / 0.0);
+  expectDouble("+INF", 1.0 / 0.0);
+  expectDouble("-Infinity", -1.0 / 0.0);
+  expectDouble("nan", 0.0 / 0.0);
+  expectDouble("NaN", 0.0 / 0.0);
+  /* What no number type reads. */
   expectInt(" 1", 0);
   expectInt("1 ", 0);
   expectInt("abc", 0);
   expectInt("", 0);
   expectInt("-", 0);
   expectInt("+", 0);
-  expectInt("0x10", 0);
-  expectInt("1_000", 0);
-  expectInt("inf", 0);
-  expectInt("nan", 0);
-  expectInt("1e400", 0);
-  expectInt("9223372036854775807", INT64_MAX);
-  expectInt("9223372036854775808", INT64_MIN);
-  expectInt("18446744073709551617", 1);
-  expectBig("123456789012345678901234567890", "123456789012345678901234567890");
-  expectBig("+123456789012345678901234567890", "123456789012345678901234567890");
-  expectBig("-000123456789012345678901234567890", "-123456789012345678901234567890");
-  expectBig("1e30", "1000000000000000019884624838656");
-  expectBig("-2.5", "-2");
   expectBig("x", "0");
-  expectDouble("1.5", 1.5);
-  expectDouble("+1.5", 1.5);
-  expectDouble("-1e-400", -0.0);
-  expectDouble("1e400", 1.0 / 0.0);
-  expectDouble("inf", 1.0 / 0.0);
-  expectDouble("-Infinity", -1.0 / 0.0);
-  expectDouble("nan", 0.0 / 0.0);
-  expectDouble(".5", 0.5);
-  expectDouble("5.", 5.0);
+  expectDouble(".5", 0.0);
+  expectDouble("5.", 0.0);
+  expectDouble("1.e3", 0.0);
+  expectDouble("1E3", 0.0);
+  expectDouble("1.5e", 0.0);
+  expectDouble("1_000.5", 0.0);
   expectDouble("1d3", 0.0);
   expectDouble("1/2", 0.0);
   expectDouble(" 1", 0.0);
-  expectDouble("0x10", 0.0);
+  expectDouble("0x1p3", 0.0);
+  expectDouble("+inf.0", 0.0);
+  expectDouble("nan(1)", 0.0);
   expectDouble("", 0.0);
   fprintf(stderr, "casts from String: %d of %d as idris_rt.h defines them\n", checks - failures, checks);
+  roundTrip();
+  decoding();
   uint64_t live = idris_rt_live_cells();
   fprintf(stderr, "live cells once every result is released: %llu\n", (unsigned long long)live);
-  return failures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;
+  return failures == 0 && decodeFailures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;
 }

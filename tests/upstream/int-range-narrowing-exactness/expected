@@ -1,0 +1,4 @@
+shrui: still reproduces (made an i32 op)
+remsi: still reproduces (made an i32 op)
+remui: still reproduces (made an i32 op)
+remui of -2 by 7: still reproduces (2, where the input program gives 0)

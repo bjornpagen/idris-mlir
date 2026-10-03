@@ -42,7 +42,8 @@
 #     mlir.sh          FileCheck, and the module an mlir.check reads
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     oracle.sh        Oracle.idr, and the generated semantics tests
-#     chez.sh          the stock Chez backend as an oracle
+#     chez.sh          the stock Chez backend as an oracle, and its text of a
+#                      Double read as this compiler's (chez-doubles.ss)
 #     e2e.sh           the end-to-end programs, each compiled twice
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures

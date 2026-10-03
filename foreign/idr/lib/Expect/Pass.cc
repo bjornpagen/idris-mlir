@@ -124,6 +124,7 @@ idr::expect::Check lookup(StringRef name) {
       .Case("word-loop", wordLoop)
       .Case("pure-array-loops", pureArrayLoops)
       .Case("vectorized", vectorized)
+      .Case("narrowed-lanes", narrowedLanes)
       .Default(nullptr);
 }
 

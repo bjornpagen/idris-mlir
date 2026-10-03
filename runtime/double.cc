@@ -1,17 +1,18 @@
 // Doubles as text and as integers.
 //
-// The digits are Ryu's (Adams, PLDI 2018; third_party/ryu, unmodified): the
-// shortest that read back as the same double, the closest when there are
-// several. Where two are equally close Ryu takes the even one, and Chez
-// Scheme, whose number->string is the reference (Burger and Dybvig's
-// free-format algorithm), the larger. So the wrapper checks, with exact
-// integer arithmetic, whether Ryu's digits D are the lower of two equally
-// close candidates, that is whether x = (D + 1/2) * 10^e; if so it takes
-// D + 1. Both candidates are in the rounding interval then: they are equally
-// far from x, and the interval is no narrower above x than below it. Ryu
-// rounds such a tie to even, so D is even and D + 1 needs no carry.
-// The layout is Chez's. The text is written through a volatile pointer, so
-// that LLVM makes no memcpy or memset of its loops.
+// Idris leaves the text of a Double to each backend, and IEEE 754 fixes
+// what it must do: read back as the same double, and spell the infinities
+// and NaN as `inf` and `nan`. The rest is ours. A finite double is written
+// with the fewest significant digits that read back as it; of those, the
+// nearest to it, and of two equally near, the even one, as IEEE 754's
+// default rounding breaks a tie. Those are Ryu's digits (third_party/ryu,
+// unmodified). The layout is the stock Chez backend's, so that the oracle
+// compares every text: positional from 1e-3 up to 1e10, with a digit after
+// the point, else `d.ddde-x`. Every text reads back through `cast` from
+// String. A NaN is `nan` whatever its sign, which IEEE 754 gives no meaning
+// and which x86-64 and arm64 set differently for the same operation.
+// The text is written through a volatile pointer, so that LLVM makes no
+// memcpy or memset of its loops.
 // PIN(runtime-quarantine) — see PINS.md
 
 #include "internal.h"
@@ -25,32 +26,6 @@ constexpr uint64_t mantissaMask = (uint64_t{1} << mantissaBits) - 1;
 constexpr uint64_t exponentMask = 0x7FF;
 
 uint64_t bitsOf(double x) { return __builtin_bit_cast(uint64_t, x); }
-
-// value * 5^n, or nothing when that is `limit` or more.
-bool timesPowerOfFive(uint64_t value, int32_t n, uint64_t limit, uint64_t &result) {
-  for (int32_t i = 0; i < n; ++i) {
-    if (value >= limit / 5)
-      return false;
-    value *= 5;
-  }
-  result = value;
-  return value < limit;
-}
-
-// Whether the positive double m2 * 2^e2 is exactly (10 * digits + 5) *
-// 10^(e10 - 1): the lower candidate of an exact tie.
-bool isLowerTie(uint64_t m2, int32_t e2, uint64_t digits, int32_t e10) {
-  uint64_t n = 10 * digits + 5;
-  auto zeros = static_cast<int32_t>(__builtin_ctzll(m2));
-  uint64_t odd = m2 >> zeros;
-  int32_t twos = e2 + zeros;
-  int32_t p = e10 - 1;
-  uint64_t scaled;
-  // n is odd, so both sides must have the same power of two and odd part.
-  if (p >= 0)
-    return twos == p && timesPowerOfFive(n, p, uint64_t{1} << 53, scaled) && scaled == odd;
-  return twos == p && timesPowerOfFive(odd, -p, uint64_t{1} << 62, scaled) && scaled == n;
-}
 
 template <size_t N> size_t put(volatile char *out, const char (&text)[N]) {
   for (size_t i = 0; i + 1 < N; ++i)
@@ -66,39 +41,27 @@ size_t rt::formatDouble(double x, volatile char *out) {
   uint64_t mantissa = bits & mantissaMask;
   uint64_t exponent = (bits >> mantissaBits) & exponentMask;
   if (exponent == exponentMask)
-    return mantissa != 0 ? put(out, "+nan.0") : negative ? put(out, "-inf.0") : put(out, "+inf.0");
+    return mantissa != 0 ? put(out, "nan") : negative ? put(out, "-inf") : put(out, "inf");
   if (exponent == 0 && mantissa == 0)
     return negative ? put(out, "-0.0") : put(out, "0.0");
 
   // Ryu's scientific text: [-]d[.ddd]E[-]x.
   char ryu[32];
   auto ryuLength = static_cast<size_t>(d2s_buffered_n(x, ryu));
-  char digits[20];
-  size_t count = 0;
+  char first[17];
+  size_t olen = 0;
   size_t i = negative ? 1 : 0;
-  uint64_t d = 0;
   for (; ryu[i] != 'E'; ++i)
-    if (ryu[i] != '.') {
-      d = 10 * d + static_cast<uint64_t>(ryu[i] - '0');
-      ++count;
-    }
+    if (ryu[i] != '.')
+      first[olen++] = ryu[i];
   bool negativeExponent = ryu[++i] == '-';
   if (negativeExponent)
     ++i;
-  int32_t scientific = 0;
+  int32_t e = 0;
   for (; i < ryuLength; ++i)
-    scientific = 10 * scientific + (ryu[i] - '0');
+    e = 10 * e + (ryu[i] - '0');
   if (negativeExponent)
-    scientific = -scientific;
-  int32_t e10 = scientific - static_cast<int32_t>(count) + 1;
-
-  uint64_t m2 = exponent == 0 ? mantissa : mantissa | (uint64_t{1} << mantissaBits);
-  int32_t e2 = static_cast<int32_t>(exponent == 0 ? 1 : exponent) - 1075;
-  if (isLowerTie(m2, e2, d, e10))
-    ++d;
-  char *first = rt::formatUnsigned(d, digits + sizeof digits);
-  auto olen = static_cast<size_t>(digits + sizeof digits - first);
-  int32_t e = e10 + static_cast<int32_t>(olen) - 1;
+    e = -e;
 
   size_t at = 0;
   if (negative)
@@ -133,15 +96,6 @@ size_t rt::formatDouble(double x, volatile char *out) {
     char text[rt::intTextMax];
     char *end = text + sizeof text;
     char *start = rt::formatSigned(e, end);
-    while (start != end)
-      out[at++] = *start++;
-  }
-  if (exponent == 0) {
-    // A subnormal ends with its precision in bits, as Chez prints it.
-    out[at++] = '|';
-    char text[rt::intTextMax];
-    char *end = text + sizeof text;
-    char *start = rt::formatUnsigned(64 - static_cast<uint64_t>(__builtin_clzll(mantissa)), end);
     while (start != end)
       out[at++] = *start++;
   }

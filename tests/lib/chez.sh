@@ -1,6 +1,29 @@
 # The stock Chez backend as an oracle: the same program, compiled by it,
 # must print what this compiler's build printed and exit the same way.
 
+# The Chez Scheme that runs the scripts reading the stock backend's output:
+# $CHEZ, as the Makefile sets it to the one Idris was built with, or the
+# first found as tools/bootstrap.sh finds it; empty when there is none.
+chez_scheme=
+for chez_name in ${CHEZ-} chezscheme scheme chez chez-scheme; do
+  if command -v "$chez_name" > /dev/null 2>&1; then
+    chez_scheme=$chez_name
+    break
+  fi
+done
+unset chez_name
+
+# chez_doubles FILE: FILE, the output of a program the stock backend built
+# or of Idris's evaluator, which runs on Chez, with every Double that Chez
+# wrote read as this compiler writes it: where tests/lib/chez-divergences
+# says the two printers differ (the double-* classes), Chez's text becomes
+# this compiler's (tests/lib/chez-doubles.ss). The comparisons of whole
+# outputs line by line (the fuzzer, the two levels, the runtime's printer)
+# read Chez's this way; a fixture that shows a class names it instead.
+chez_doubles() {
+  bounded "$chez_scheme" --script "$root/tests/lib/chez-doubles.ss" < "$1"
+}
+
 # chez_agrees FIXTURE STDIN CRASH STATUS [OPTION...]: the IO program
 # FIXTURE/Main.idr compiled by the stock Chez backend (with the idris2
 # OPTIONs, such as `-p PACKAGE`) and run on STDIN prints what this

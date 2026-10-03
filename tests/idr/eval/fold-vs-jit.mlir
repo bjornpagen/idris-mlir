@@ -6,9 +6,10 @@
 // runtime's C in the compiler; the second evaluates the call, running the
 // op's lowering through the JIT. Both must give the same constant, which the
 // CHECK lines hold. The cases cover both signednesses, the widths that wrap,
-// Doubles printed with ties and subnormals, the small and large bigs and
-// their boundary, Euclidean division of negative bigs, correctly rounded
-// casts, and non-ASCII strings.
+// Doubles printed with ties, subnormals, the infinities and NaN, the small
+// and large bigs and their boundary, Euclidean division of negative bigs,
+// correctly rounded casts, casts from String of literals and of what is no
+// literal of the type, and non-ASCII strings.
 module {
   func.func private @append(%a0: !idr.str, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.append %a0, %a1
@@ -246,7 +247,7 @@ module {
     return %r : !idr.str
   }
   // CHECK-LABEL: func.func @case9(
-  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "5e-324|1" : !idr.str
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "5e-324" : !idr.str
   // CHECK-NEXT: return %[[V]] : !idr.str
   func.func @case9() -> !idr.str {
     %x0 = arith.constant 4.9406564584124654e-324 : f64
@@ -384,10 +385,10 @@ module {
     return %r : i16
   }
   // CHECK-LABEL: func.func @case25(
-  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -12 : i64
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant -31 : i64
   // CHECK-NEXT: return %[[V]] : i64
   func.func @case25() -> i64 {
-    %x0 = idr.constant "-12.7" : !idr.str
+    %x0 = idr.constant "-0x1_F" : !idr.str
     %r = func.call @to_int64(%x0) : (!idr.str) -> i64
     return %r : i64
   }
@@ -424,10 +425,10 @@ module {
     return %r : f64
   }
   // CHECK-LABEL: func.func @case30(
-  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 5.000000e+00 : f64
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1.500000e+01 : f64
   // CHECK-NEXT: return %[[V]] : f64
   func.func @case30() -> f64 {
-    %x0 = idr.constant "+.5e1" : !idr.str
+    %x0 = idr.constant "+1.5e1" : !idr.str
     %r = func.call @to_double(%x0) : (!idr.str) -> f64
     return %r : f64
   }
@@ -1130,7 +1131,7 @@ module {
     return %r : i32
   }
   // CHECK-LABEL: func.func @case110(
-  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 43 : i32
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 110 : i32
   // CHECK-NEXT: return %[[V]] : i32
   func.func @case110() -> i32 {
     %x0 = arith.constant 0x7FF8000000000000 : f64
@@ -1160,6 +1161,62 @@ module {
     %x0 = arith.constant -56 : i8
     %r = func.call @int_head_u8(%x0) : (i8) -> i32
     return %r : i32
+  }
+  // CHECK-LABEL: func.func @case114(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "12.886856079101562" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case114() -> !idr.str {
+    %x0 = arith.constant 12.8868560791015625 : f64
+    %r = func.call @show_f64(%x0) : (f64) -> !idr.str
+    return %r : !idr.str
+  }
+  // CHECK-LABEL: func.func @case115(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "-inf" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case115() -> !idr.str {
+    %x0 = arith.constant 0xFFF0000000000000 : f64
+    %r = func.call @show_f64(%x0) : (f64) -> !idr.str
+    return %r : !idr.str
+  }
+  // CHECK-LABEL: func.func @case116(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "nan" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case116() -> !idr.str {
+    %x0 = arith.constant 0xFFF8000000000000 : f64
+    %r = func.call @show_f64(%x0) : (f64) -> !idr.str
+    return %r : !idr.str
+  }
+  // CHECK-LABEL: func.func @case117(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 105 : i32
+  // CHECK-NEXT: return %[[V]] : i32
+  func.func @case117() -> i32 {
+    %x0 = arith.constant 0x7FF0000000000000 : f64
+    %r = func.call @double_head(%x0) : (f64) -> i32
+    return %r : i32
+  }
+  // CHECK-LABEL: func.func @case118(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0xFFF0000000000000 : f64
+  // CHECK-NEXT: return %[[V]] : f64
+  func.func @case118() -> f64 {
+    %x0 = idr.constant "-Infinity" : !idr.str
+    %r = func.call @to_double(%x0) : (!idr.str) -> f64
+    return %r : f64
+  }
+  // CHECK-LABEL: func.func @case119(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1.600000e+01 : f64
+  // CHECK-NEXT: return %[[V]] : f64
+  func.func @case119() -> f64 {
+    %x0 = idr.constant "0x10" : !idr.str
+    %r = func.call @to_double(%x0) : (!idr.str) -> f64
+    return %r : f64
+  }
+  // CHECK-LABEL: func.func @case120(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i16
+  // CHECK-NEXT: return %[[V]] : i16
+  func.func @case120() -> i16 {
+    %x0 = idr.constant "12.7" : !idr.str
+    %r = func.call @to_int16(%x0) : (!idr.str) -> i16
+    return %r : i16
   }
 }
 

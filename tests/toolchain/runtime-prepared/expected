@@ -34,7 +34,6 @@ the prepared runtime needs:
   __gmpz_xor
   _exit
   abort
-  bcmp
   clock_gettime
   close
   fsync

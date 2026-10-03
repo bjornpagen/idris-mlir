@@ -16,17 +16,21 @@
 ||| print the elaborator's value.
 |||
 ||| Values are printed as the programs print them: integers in decimal, a
-||| Char as its code point, a String as itself, a Double as Idris's `show`
-||| (which is Chez's number->string on both sides).
+||| Char as its code point, a String as itself, a Double as Idris's `show`.
+||| The evaluator runs on Chez, so it writes a Double, and makes the String
+||| of one, with Chez's number->string, as the Chez build does; the test
+||| reads both as this compiler writes Doubles (tests/lib/chez-doubles.ss)
+||| where tests/lib/chez-divergences says the two printers differ.
 |||
 ||| Terms whose value depends on the host by design are marked in Terms.idr
 ||| with `-- host-dependent: t<n> <reason>`, and are not compared: the libm
 ||| functions (Idris's evaluator runs the host's, the compiled program
-||| musl's), and casts from String. Terms
+||| musl's). Terms
 ||| the pinned Idris's evaluator computes differently from Idris's own
 ||| backends are marked `-- idris-differs: t<n> <reason>`: they are compared
 ||| with Chez, not with the evaluator. Terms Idris's evaluator leaves stuck
-||| are listed by the test.
+||| are listed by the test. A cast from String reads a literal of its type
+||| alike everywhere, so the casts here, of literals, are compared.
 module TwoLevels
 
 import Data.List
@@ -138,8 +142,7 @@ doubleTerms =
   ++ [ hostTerm "prim__doublePow: libm" "Double" (app "prim__doublePow" [lit "Double" "2.5", lit "Double" "3.5"])
      , term "String" (app "prim__cast_DoubleString" [lit "Double" "0.1"])
      , term "Integer" (app "prim__cast_DoubleInteger" [lit "Double" "1.0e20"])
-     , hostTerm "prim__cast_StringDouble: cast from String" "Double"
-         (app "prim__cast_StringDouble" [lit "String" "\"2.5e-3\""])
+     , term "Double" (app "prim__cast_StringDouble" [lit "String" "\"2.5e-3\""])
      ]
   ++ [ term "String" (app "prim__cast_DoubleString" [x]) | x <- ds ]
 
@@ -173,10 +176,8 @@ stringTerms =
   ++ [ term "String" (app "prim__strSubstr" [l 1, l 3, s]) | s <- ss ]
   ++ [ term "Int" (app (prim op "String") [x, y])
      | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip ss (reverse ss) ]
-  ++ [ hostTerm "prim__cast_StringInt: cast from String" "Int"
-         (app "prim__cast_StringInt" [lit "String" "\"-1234\""])
-     , hostTerm "prim__cast_StringInteger: cast from String" "Integer"
-         (app "prim__cast_StringInteger" [lit "String" "\"123456789012345678901234567890\""])
+  ++ [ term "Int" (app "prim__cast_StringInt" [lit "String" "\"-1234\""])
+     , term "Integer" (app "prim__cast_StringInteger" [lit "String" "\"123456789012345678901234567890\""])
      ]
 
 bigTerms : List Term
@@ -255,7 +256,7 @@ preludeTerms =
   , term "Double" ("floor " ++ d "(-2.5)" ++ " + ceiling " ++ d "2.5")
   , hostTerm "exp: libm" "Double" ("exp " ++ d "1.0")
   , hostTerm "sin: libm" "Double" ("sin " ++ d "1.0")
-  , hostTerm "cast from String" "Integer" ("cast " ++ s "\"123456789012345678901234567890\"")
+  , term "Integer" ("cast " ++ s "\"123456789012345678901234567890\"")
   ]
 
 ------------------------------------------------------------------------------

@@ -2,9 +2,11 @@ module Main
 
 -- Double arithmetic, libm functions, casts and printing on a value read at
 -- run time, so that nothing folds; the stock Chez backend is the oracle.
--- The libm results (lines 17 to 26 of the output, `libm-lines`) are musl's
+-- The libm results (lines 12 to 21 of the output, `libm-lines`) are musl's
 -- here and the host's in Chez: `tan 7` differs in the last place, which
--- the comparison with Chez allows on those lines only.
+-- the comparison with Chez allows on those lines only. The infinities, NaN
+-- and subnormals, whose text is not Chez's, are printed by the fixtures
+-- double-infinities-nan and double-subnormals.
 
 import Builtin
 import Prelude
@@ -43,12 +45,7 @@ main = do
   line (prim__negate_Double x)
   line (prim__mul_Double zero (prim__negate_Double x))
   line zero
-  line (prim__div_Double x zero)
-  line (prim__div_Double (prim__negate_Double x) zero)
-  line (prim__div_Double zero zero)
-  line (prim__mul_Double x 5.0e-324)
   line (prim__mul_Double x 2.2250738585072014e-308)
-  line (prim__mul_Double x 1.7e308)
   line (prim__doubleExp x)
   line (prim__doubleLog x)
   line (prim__doublePow x 0.5)

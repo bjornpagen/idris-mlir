@@ -36,10 +36,10 @@ constexpr unsigned heapAddressBits = 48;
 // the rest.
 void writeAll(int fd, const char *p, size_t n);
 
-// The longest text formatDouble writes: a sign, 17 digits, a point, the
-// zeros of 1e-3 or an exponent, and a subnormal's `|52`.
-constexpr size_t doubleTextMax = 48;
-// The text of a double, as Chez writes it; returns its length.
+// Room for the longest text formatDouble writes, 24 bytes: a sign, 17
+// digits, a point and an exponent such as `e-308`.
+constexpr size_t doubleTextMax = 32;
+// The text of a double (double.cc); returns its length.
 size_t formatDouble(double x, volatile char *out);
 
 // The decimal digits of an integer, written backwards from `end`; returns
@@ -60,9 +60,28 @@ char *mutableBytes(idris_rt_str *s);
 // A string from bytes that are well-formed UTF-8.
 const idris_rt_str *stringOf(const char *p, size_t n);
 
-// Whether the n bytes at p are a sign and decimal digits, the syntax of an
-// integer that `cast` reads exactly; `digits` is where the digits start.
-bool isInteger(const char *p, size_t n, size_t &digits);
+// What `cast` from String reads in a string (numbers.cc): an integer
+// literal, which every number type reads; a decimal literal, infinity or
+// NaN, which Double reads too; or no number.
+struct Numeral {
+  enum Kind { None, Integer, Decimal, Infinity, NaN };
+  Kind kind = None;
+  bool negative = false;
+  // An integer literal's base, and where its digits start.
+  unsigned base = 10;
+  size_t digits = 0;
+  // Whether underscores separate its digits.
+  bool grouped = false;
+
+  // The integer literal's value, of the n bytes at p it was read from,
+  // modulo 2^64.
+  uint64_t wrapped(const char *p, size_t n) const;
+};
+Numeral readNumeral(const char *p, size_t n);
+
+// The natural number the n bytes at p write in `base`, digits that
+// underscores may separate (big.cc).
+idris_rt_big bigOfDigits(const char *p, size_t n, unsigned base);
 
 // Makes GMP allocate through the runtime (idris_rt_gmp_init), once.
 void gmpReady();

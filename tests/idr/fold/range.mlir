@@ -21,13 +21,12 @@ func.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
   %b = arith.cmpi ule, %ch, %max : i32
   %zero = arith.constant 48 : i32
   %minus = arith.constant 45 : i32
-  %plus = arith.constant 43 : i32
   %ih = idr.int_head signed %x : i64
   %c = arith.cmpi sge, %ih, %minus : i32
   %uh = idr.int_head %u : i8
   %e = arith.cmpi sge, %uh, %zero : i32
   %dh = idr.double_head %d
-  %f = arith.cmpi sge, %dh, %plus : i32
+  %f = arith.cmpi sge, %dh, %minus : i32
   %len = idr.str.length %s
   %z = arith.constant 0 : i64
   %g = arith.cmpi sge, %len, %z : i64

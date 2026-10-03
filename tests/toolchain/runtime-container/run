@@ -1,0 +1,120 @@
+#!/bin/sh
+# The prepared runtime keeps the bitcode that joins every program where the
+# target entry's container says (CMakeLists.txt): in a section of its object
+# that every link leaves out, or in a file beside the object
+# (--runtime-bitcode-section=''). Preparing is deterministic: twice in a
+# row, and as the build did, byte for byte. A runtime prepared either way
+# serves a program alike: its bitcode joins the program from where it is
+# kept, its object alone is on the link line, and the program computes,
+# frees and exits as with the build's runtime; no executable carries
+# bitcode.
+step_limit=300
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+runtime=$("$idris_mlir_cc" --print-runtime)
+archive=$root/build/dev/runtime/libidris_rt.a
+
+# prepare NAME [OPTION...]: the archive prepared into $work/NAME.o.
+prepare() {
+  prepare_name=$1
+  shift
+  bounded "$idris_mlir_cc" --prepare-runtime --runtime="$archive" "$@" -o "$work/$prepare_name.o" \
+    > "$work/prepare.log" 2>&1 && return 0
+  say "$prepare_name: --prepare-runtime failed"
+  show "$work/prepare.log"
+  return 1
+}
+prepare again || exit 0
+if cmp -s "$work/again.o" "$runtime"; then
+  say "prepared again: the build's runtime, byte for byte"
+else
+  say "prepared again: differs from the build's runtime"
+fi
+prepare beside --runtime-bitcode-section= || exit 0
+prepare beside2 --runtime-bitcode-section= || exit 0
+if cmp -s "$work/beside.o" "$work/beside2.o" && cmp -s "$work/beside.bc" "$work/beside2.bc"; then
+  say "prepared beside, twice: the same object and bitcode"
+else
+  say "prepared beside, twice: differs"
+fi
+if [ "$(od -An -tx1 -N4 "$work/beside.bc" | tr -d ' \n')" = 4243c0de ]; then
+  say "beside: the bitcode in a file of its own, next to the object"
+else
+  say "beside: no bitcode next to the object"
+fi
+
+cat > "$work/sum.mlir" <<'MLIR'
+module attributes {idr.program} {
+  idr.data @L box {
+    idr.ctor @N ()
+    idr.ctor @C (i64, !idr.box<@L>)
+  }
+  func.func private @build(%n: i64) -> !idr.box<@L> {
+    %r = idr.match_lit %n : i64 -> (!idr.box<@L>) {
+    case 0 {
+      %e = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
+      idr.yield %e : !idr.box<@L>
+    }
+    default {
+      %one = arith.constant 1 : i64
+      %m = arith.subi %n, %one : i64
+      %t = func.call @build(%m) : (i64) -> !idr.box<@L>
+      %c = idr.con @L::@C(%n, %t) : (i64, !idr.box<@L>) -> !idr.box<@L>
+      idr.yield %c : !idr.box<@L>
+    }
+    }
+    return %r : !idr.box<@L>
+  }
+  func.func private @sum(%l: !idr.box<@L>, %acc: i64) -> i64 {
+    %r = idr.match %l : !idr.box<@L> -> (i64) {
+    case @N() {
+      idr.yield %acc : i64
+    }
+    case @C(%h: i64, %t: !idr.box<@L>) {
+      %a = arith.addi %acc, %h : i64
+      %s = func.call @sum(%t, %a) : (!idr.box<@L>, i64) -> i64
+      idr.yield %s : i64
+    }
+    }
+    return %r : i64
+  }
+  func.func @Prog.main() -> i64 {
+    %zero = arith.constant 0 : i64
+    %seven = arith.constant 7 : i64
+    %l = func.call @build(%seven) : (i64) -> !idr.box<@L>
+    %s = func.call @sum(%l, %zero) : (!idr.box<@L>, i64) -> i64
+    return %s : i64
+  }
+}
+MLIR
+
+# program NAME RUNTIME [OPTION...]: sum.mlir compiled against RUNTIME with
+# the options, linked with RUNTIME into $work/program-NAME, run with
+# IDRIS_RT_LIVE=1: its exit status and stderr.
+program() {
+  program_name=$1
+  program_runtime=$2
+  program=$work/program-$program_name
+  shift 2
+  if ! bounded "$idris_mlir_cc" "$work/sum.mlir" -o "$program.o" --no-eval \
+      --runtime="$program_runtime" "$@" > "$work/cc.log" 2>&1; then
+    say "$program_name: idris-mlir-cc failed"
+    show "$work/cc.log"
+    return 1
+  fi
+  if ! bounded "$pinned_cc" "$program.o" "$program_runtime" -lgmp -o "$program" > "$work/ld.log" 2>&1; then
+    say "$program_name: does not link"
+    show "$work/ld.log"
+    return 1
+  fi
+  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$program" ) > /dev/null 2> "$program.err"
+  program_status=$?
+  say "$program_name: exit $program_status, $(cat "$program.err")"
+  # Bitcode starts with these four bytes; they are nowhere in the
+  # executable.
+  printf '\102\103\300\336' > "$work/magic"
+  if LC_ALL=C grep -q -F -f "$work/magic" "$program"; then
+    say "$program_name: the executable carries bitcode"
+  fi
+}
+program built "$runtime"
+program beside "$work/beside.o" --runtime-bitcode-section=
