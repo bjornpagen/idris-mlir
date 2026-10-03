@@ -1,0 +1,76 @@
+#!/bin/sh
+# A unit finds a module only in the libraries its library links: with the
+# build's own idr_library (foreign/idr/cmake/IdrLibrary.cmake), the pinned
+# CMake, Ninja and clang build a library whose units import a module it
+# links, and refuse to build one whose implementation unit, or interface,
+# imports a module of a library it does not link. So no library imports a
+# module above it, or beside it, unless it says so (tests/spec/module-links
+# checks that it says exactly what it imports).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+ninja=$toolchain/ninja/bin/ninja
+
+# The project: idr_a, and idr_b, which links it, always; one more library
+# per case.
+mkdir "$work/project"
+cat > "$work/project/CMakeLists.txt" << 'EOF'
+cmake_minimum_required(VERSION 3.30)
+project(module_imports LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+# What idr_library expects of foreign/idr, empty here.
+add_library(idr_build INTERFACE)
+add_library(idris_mlir_language_profile INTERFACE)
+add_custom_target(idr_tablegen)
+include(${IDR}/cmake/IdrLibrary.cmake)
+idr_library(idr_a MODULES a.cppm UNITS a.cc)
+idr_library(idr_b MODULES b.cppm UNITS b.cc LINKS idr_a)
+if(CASE STREQUAL "unit")
+  idr_library(idr_c MODULES c.cppm UNITS c.cc)
+elseif(CASE STREQUAL "interface")
+  idr_library(idr_d MODULES d.cppm)
+endif()
+EOF
+# unit NAME TEXT: a source of the project.
+unit() {
+  printf '%s\n' "$2" > "$work/project/$1"
+}
+unit a.cppm 'export module idr.a;
+export namespace idr::a { int value(); }'
+unit a.cc 'module idr.a;
+int idr::a::value() { return 1; }'
+unit b.cppm 'export module idr.b;
+import idr.a;
+export namespace idr::b { int twice(); }'
+unit b.cc 'module idr.b;
+import idr.a;
+int idr::b::twice() { return 2 * idr::a::value(); }'
+unit c.cppm 'export module idr.c;
+export namespace idr::c { int one(); }'
+unit c.cc 'module idr.c;
+import idr.a;
+int idr::c::one() { return idr::a::value(); }'
+unit d.cppm 'export module idr.d;
+import idr.a;
+export namespace idr::d { int one(); }'
+
+# build CASE WHAT: the project configured and built with CASE's library;
+# whether it builds, and why not.
+build() {
+  if ! bounded "$cmake" -S "$work/project" -B "$work/build-$1" -G Ninja \
+      -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
+      -DIDR="$root/foreign/idr" -DCASE="$1" > "$work/configure.log" 2>&1; then
+    say "$2: does not configure"
+    show "$work/configure.log"
+    return
+  fi
+  if bounded "$ninja" -C "$work/build-$1" > "$work/build.log" 2>&1; then
+    say "$2: builds"
+  else
+    say "$2: does not build"
+    grep -o "fatal error: module '[^']*' not found" "$work/build.log" | sed 's/^/  /'
+  fi
+}
+build declared "a library whose units import what it links"
+build unit "an implementation unit that imports a library its library does not link"
+build interface "an interface that imports a library its library does not link"

@@ -1,0 +1,2 @@
+module libraries: found
+every module library links exactly what it imports

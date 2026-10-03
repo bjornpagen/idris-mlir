@@ -21,10 +21,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 
-namespace idr::lower {
-class Layouts;
-} // namespace idr::lower
-
 namespace idr::ownership {
 
 // The module attribute that marks the owned stage, and its value.
@@ -142,12 +138,6 @@ TakeOp takeAtEntry(MatchOp match, unsigned index);
 TakeOp takeFields(mlir::Value value, mlir::SymbolRefAttr ctor, mlir::ArrayRef<mlir::Type> fieldTypes);
 
 // The passes of idr-rc, in the order it runs them (Rc.cc).
-
-// Beans' reset/reuse insertion: in a case region of a match on a box that
-// is dead there, the box is taken apart where it dies and its cell reused
-// by the first constructor of a cell of the same size on each path after
-// it. Returns the number of takes and of reuses.
-std::pair<unsigned, unsigned> insertResetReuse(mlir::func::FuncOp fn, lower::Layouts &layouts);
 
 // Lean's borrow inference: which parameters of the module's functions can
 // be borrowed. Writes the signatures: a borrowed parameter keeps its plain

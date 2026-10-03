@@ -17,8 +17,6 @@
 //
 // The marks are the pass's alone: it drops any it finds before it decides.
 
-#include "Lower/Layout.h"
-#include "Stack/Cell.h"
 #include "Stack/Escape.h"
 #include "Stack/Recursion.h"
 
@@ -29,9 +27,11 @@ namespace idr {
 #include "idr/Passes.h.inc"
 } // namespace idr
 
+import idr.layout;
+
 namespace {
 
-using idr::stack::mark;
+using idr::layout::stackMark;
 
 constexpr unsigned cellLimit = 256;
 constexpr unsigned frameLimit = 1024;
@@ -41,10 +41,10 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
     UnitAttr unit = UnitAttr::get(&getContext());
-    module.walk([](idr::ConOp con) { con->removeAttr(mark); });
+    module.walk([](idr::ConOp con) { con->removeAttr(stackMark); });
     idr::stack::Cycles cycles(module);
     idr::stack::Escapes escapes(module, cycles);
-    FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(module);
+    FailureOr<idr::layout::Layouts> layouts = idr::layout::Layouts::of(module);
     if (failed(layouts))
       return signalPassFailure();
     for (auto fn : module.getOps<func::FuncOp>()) {
@@ -59,7 +59,7 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
         if (size > cellLimit || size > left)
           return;
         left -= size;
-        con->setAttr(mark, unit);
+        con->setAttr(stackMark, unit);
         ++numCells;
       });
     }

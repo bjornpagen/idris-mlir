@@ -1,7 +1,6 @@
 // Phase 2 of idr-lower: the conversion pattern of each idr op.
 
 #include "Lower/Patterns.h"
-#include "Stack/Cell.h"
 
 #include "mlir/Dialect/Math/IR/Math.h"
 
@@ -46,7 +45,7 @@ struct LowerCon : IdrPattern<ConOp> {
     if (isa<BoxType>(unrestricted(op.getType()))) {
       // idr-stack: a cell that never outlives its frame is a slot of it.
       Value box = buildBox(rewriter, loc, layouts, runtime, ctor,
-                           stack::cell(rewriter, loc, op, layouts, runtime), adaptor.getFields());
+                           stackCell(rewriter, loc, op, layouts, runtime), adaptor.getFields());
       rewriter.replaceOp(op, box);
       return success();
     }

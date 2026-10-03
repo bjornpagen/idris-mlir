@@ -23,7 +23,6 @@
 // round a remark traces the module (functions, clones, ops) and the round's
 // wall time.
 
-#include "Support/PipelineStatistics.h"
 #include "idr/Idr.h"
 #include "idr/Passes.h"
 
@@ -46,6 +45,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRSIMPLIFY
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.support;
 
 namespace {
 

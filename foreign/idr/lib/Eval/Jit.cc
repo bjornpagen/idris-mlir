@@ -3,7 +3,6 @@
 
 #include "Eval/Jit.h"
 
-#include "idr/Target.h"
 #include "idr/TargetEntry.h"
 
 #include "idris_rt.h"
@@ -20,6 +19,8 @@
 
 #include <cmath>
 #include <cstring>
+
+import idr.target;
 
 namespace idr::eval {
 
@@ -134,7 +135,7 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   builder->setCPU(target ? target.getChip().str() : "generic");
   builder->getFeatures() = llvm::SubtargetFeatures(features);
   builder->setCodeGenOptLevel(llvm::CodeGenOptLevel::Aggressive);
-  builder->getOptions() = targetOptions();
+  builder->getOptions() = target::targetOptions();
   auto machine = builder->createTargetMachine();
   if (!machine) {
     error = describe(machine.takeError());
@@ -148,7 +149,7 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   }
   code->setDataLayout((*machine)->createDataLayout());
   code->setTargetTriple((*machine)->getTargetTriple());
-  optimize(*code, **machine);
+  target::optimize(*code, **machine);
 
   auto made = llvm::orc::LLJITBuilder()
                   .setJITTargetMachineBuilder(std::move(*builder))

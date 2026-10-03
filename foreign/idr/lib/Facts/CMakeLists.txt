@@ -1,17 +1,16 @@
 # idr.facts: its interface units declare, its implementation units define;
-# the pass glue (the TableGen-declared base of idr-effects) is a plain
-# translation unit that imports it.
-target_sources(idr_dialect
-	PRIVATE
-		FILE_SET idr_facts TYPE CXX_MODULES FILES
-			Facts.cppm
-			Closures.cppm
-			Effects.cppm
-			Evaluation.cppm
-			Functions.cppm
-			Infer.cppm
-	PRIVATE
-		CallEffects.cc
+# the pass glue (the TableGen-declared base of idr-effects) and the hook that
+# answers MemoryEffectOpInterface for func.call are plain units that import
+# it.
+idr_library(idr_facts
+	MODULES
+		Facts.cppm
+		Closures.cppm
+		Effects.cppm
+		Evaluation.cppm
+		Functions.cppm
+		Infer.cppm
+	UNITS
 		Closures/ClosureLabel.cc
 		Closures/MayHoldClosure.cc
 		Closures/Passed.cc
@@ -25,5 +24,10 @@ target_sources(idr_dialect
 		Functions/Record.cc
 		Functions/TakesWorld.cc
 		Infer/Infer.cc
+	GLUE
+		CallEffects.cc
 		Pass.cc
+	LINKS
+		idr_mlir
+		idr_ods
 )

@@ -2,8 +2,6 @@
 
 #include "Specialize/BindingTimes.h"
 
-#include "Passes/Scc.h"
-
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 
@@ -12,6 +10,8 @@
 
 #include <string>
 #include <utility>
+
+import idr.graph;
 
 using namespace mlir;
 
@@ -202,7 +202,7 @@ BindingTimes::BindingTimes(ModuleOp module, SymbolTable &symbols) {
         out.push_back(target);
     });
   }
-  for (const SmallVector<func::FuncOp> &component : idr::passes::stronglyConnected<func::FuncOp>(
+  for (const SmallVector<func::FuncOp> &component : idr::graph::stronglyConnected<func::FuncOp>(
            functions, [&](func::FuncOp fn) { return references.lookup(fn); })) {
     func::FuncOp first = component.front();
     if (component.size() == 1 && !llvm::is_contained(references.lookup(first), first))

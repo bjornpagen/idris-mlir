@@ -3,13 +3,13 @@
 // loops, not as the ops that happen to show them.
 
 #include "Expect/Expect.h"
-#include "Passes/Scc.h"
-#include "Passes/Trips.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Interfaces/CastInterfaces.h"
+
+import idr.graph;
 
 using namespace mlir;
 
@@ -66,7 +66,7 @@ LogicalResult constantStack(ModuleOp module, StringRef function) {
   };
   bool held = true;
   for (const SmallVector<Operation *> &cycle :
-       idr::passes::stronglyConnected<Operation *>(reached, refers)) {
+       idr::graph::stronglyConnected<Operation *>(reached, refers)) {
     llvm::DenseSet<Operation *> members(cycle.begin(), cycle.end());
     bool grows = false;
     for (Operation *fn : cycle)
@@ -258,7 +258,7 @@ LogicalResult narrowedLanes(ModuleOp module, StringRef function) {
         return;
       }
       // A loop that runs at most once has no version to pay for.
-      if (idr::passes::runsAtMostOnce(loop))
+      if (idr::graph::runsAtMostOnce(loop))
         return;
       // The 64-bit version stands in the else region of a version whose
       // then region holds a loop computing its lanes in 32 bits.

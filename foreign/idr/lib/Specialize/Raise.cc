@@ -24,13 +24,13 @@
 // raised: its body would take part in the world chain. A closed call that
 // idr-eval runs to the end is left to it.
 
-#include "Support/Actions.h"
 #include "Specialize/Specializer.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 
 import idr.facts;
+import idr.support;
 
 using namespace mlir;
 
@@ -225,7 +225,7 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
   // Making the clone and calling it is one action, which a debug counter
   // may skip: then there is no clone and the call and its consumer stay.
   FailureOr<func::CallOp> result = func::CallOp();
-  perform<RaiseAction>(call, [&] {
+  support::perform<support::RaiseAction>(call, [&] {
     Attribute key = keyOf(*c, callee);
     const Clone *clone = clones.lookup(key);
     if (!clone) {

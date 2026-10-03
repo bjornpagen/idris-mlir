@@ -5,13 +5,12 @@ target_sources(idr_dialect PRIVATE
 	Closures.cc
 	Counting.cc
 	Facts.cc
-	Layout.cc
 	Loops.cc
 	Matches.cc
 	Pass.cc
 	Patterns.cc
 	Runtime.cc
+	StackCell.cc
 	Strings.cc
 	TailCalls.cc
-	Target.cc
 )

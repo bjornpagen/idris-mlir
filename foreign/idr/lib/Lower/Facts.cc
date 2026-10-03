@@ -35,7 +35,7 @@ componentFacts(Type type, bool mayBeNull, Layouts &layouts,
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data)
     return facts;
-  const SumLayout &layout = layouts.sum(data.getName().getAttr());
+  const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
   if (!layout.tag)
     return facts;
   unsigned width = layout.tag.getIntOrFloatBitWidth();

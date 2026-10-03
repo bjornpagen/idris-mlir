@@ -20,10 +20,10 @@
 // it is a closure: a closure static at a later call is new knowledge, where
 // data would re-abstract what the key already fixed.
 
-#include "Support/Actions.h"
 #include "Specialize/Specializer.h"
 
 import idr.facts;
+import idr.support;
 
 using namespace mlir;
 
@@ -213,7 +213,7 @@ LogicalResult Specializer::specialize(func::CallOp call) {
   // Making the clone and calling it is one action, which a debug counter
   // may skip: then there is no clone and the call stays.
   LogicalResult result = success();
-  perform<SpecializeCloneAction>(call, [&] {
+  support::perform<support::SpecializeCloneAction>(call, [&] {
     const Clone *clone = clones.lookup(key);
     if (clone) {
       ++stats.shared;

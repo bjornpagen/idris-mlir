@@ -1,0 +1,5 @@
+a library whose units import what it links: builds
+an implementation unit that imports a library its library does not link: does not build
+  fatal error: module 'idr.a' not found
+an interface that imports a library its library does not link: does not build
+  fatal error: module 'idr.a' not found

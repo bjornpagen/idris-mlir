@@ -3,6 +3,7 @@
 module idr.facts;
 
 import idr.mlir;
+import idr.dialect;
 
 using namespace mlir;
 

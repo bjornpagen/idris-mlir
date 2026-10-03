@@ -59,9 +59,9 @@ Attribute Reifier::refuse(Unread::Why why, std::string message) {
   return {};
 }
 
-SmallVector<uint64_t> Reifier::read(const char *cell, ArrayRef<lower::Slot> slots) {
+SmallVector<uint64_t> Reifier::read(const char *cell, ArrayRef<layout::Slot> slots) {
   SmallVector<uint64_t> words;
-  for (const lower::Slot &slot : slots) {
+  for (const layout::Slot &slot : slots) {
     uint64_t word = 0;
     std::memcpy(&word, cell + slot.offset, layouts.sizeOf(slot.type));
     words.push_back(word);
@@ -95,7 +95,7 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
   if (auto q = dyn_cast<QType>(type))
     return value(q.getValue(), words);
   if (auto data = dyn_cast<DataType>(type)) {
-    const lower::SumLayout &layout = layouts.sum(data.getName().getAttr());
+    const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
     size_t n = layout.types().size();
     ArrayRef<uint64_t> mine = words.take_front(n);
     words = words.drop_front(n);
@@ -160,7 +160,7 @@ Attribute Reifier::object(Type type, uint64_t word) {
       return refuse(Unread::Why::Unreadable,
                     ("a cell of @" + decl.getSymName() + " has tag " + Twine(tag)).str());
     CtorOp ctor = ctors[tag];
-    const lower::Cell &layout = layouts.box(ctor);
+    const layout::Cell &layout = layouts.box(ctor);
     if (!spend(layout.size))
       return {};
     return constructor(decl, ctor, [&](unsigned field) { return read(cell, layout.fields[field]); });
@@ -172,8 +172,8 @@ Attribute Reifier::object(Type type, uint64_t word) {
   auto found = codes.find(code);
   if (found == codes.end())
     return refuse(Unread::Why::Unreadable, "the code of a closure is no label's");
-  const lower::Label &label = layouts.label(found->second);
-  const lower::Cell &layout = layouts.closure(label);
+  const layout::Label &label = layouts.label(found->second);
+  const layout::Cell &layout = layouts.closure(label);
   assert(layout.fields.front().front().offset == sizeof(idris_rt_header));
   if (!spend(layout.size))
     return {};

@@ -11,8 +11,6 @@
 
 #include "Eval/Child.h"
 #include "Eval/Reify.h"
-#include "Lower/Runtime.h"
-#include "Support/Actions.h"
 
 #include "idr/Idr.h"
 
@@ -43,6 +41,8 @@ namespace idr {
 } // namespace idr
 
 import idr.facts;
+import idr.support;
+import idr.layout;
 
 namespace {
 
@@ -201,7 +201,7 @@ void Eval::runOnOperation() {
     if (outcome.stays)
       continue;
     for (const Call &call : sites)
-      idr::perform<idr::EvalCallAction>(call.op, [&] {
+      idr::support::perform<idr::support::EvalCallAction>(call.op, [&] {
         OpBuilder b(call.op);
         SmallVector<Value> values;
         for (auto [value, type] : llvm::zip_equal(outcome.results, call.op->getResultTypes()))
@@ -281,7 +281,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
   for (NamedAttribute attr : module->getAttrs())
     if (isa<DataLayoutSpecInterface>(attr.getValue()))
       (*pristine)->setAttr(attr.getName(), attr.getValue());
-  FailureOr<idr::lower::Layouts> layouts = idr::lower::Layouts::of(*pristine);
+  FailureOr<idr::layout::Layouts> layouts = idr::layout::Layouts::of(*pristine);
   if (failed(layouts))
     return failure();
   SmallVector<SmallVector<Type>> resultTypes;
@@ -343,7 +343,7 @@ LogicalResult Eval::evaluate(ModuleOp module, ArrayRef<Key> keys,
     b.createBlock(&table.getInitializerRegion());
     Value codes = LLVM::ZeroOp::create(b, loc, type);
     for (unsigned id = 0; id < labels; ++id)
-      if (auto code = symbols.lookup<LLVM::LLVMFuncOp>(idr::lower::codeName(id)))
+      if (auto code = symbols.lookup<LLVM::LLVMFuncOp>(idr::layout::codeName(id)))
         codes = LLVM::InsertValueOp::create(b, loc, codes, LLVM::AddressOfOp::create(b, loc, code),
                                             static_cast<int64_t>(id));
     LLVM::ReturnOp::create(b, loc, codes);

@@ -1,0 +1,67 @@
+#!/bin/sh
+# Each library of a module (idr_library, foreign/idr/cmake/IdrLibrary.cmake)
+# links exactly the libraries of the modules its units import: every module
+# a unit imports is one of a library it links, and every library it links
+# that holds a module is one some unit imports. The build refuses a module
+# outside what a library links (tests/toolchain/module-imports), but finds
+# one a linked library links in turn; this says the link list is the import
+# list, so that the layering CMake sees is the one the code has.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+idr=$root/foreign/idr
+
+# Every idr_library call, one `library directory section entry` line per
+# entry: its MODULES, UNITS and GLUE (paths relative to the directory) and
+# its LINKS.
+find "$idr" -name CMakeLists.txt | sort | while IFS= read -r file; do
+  awk -v dir="${file%/CMakeLists.txt}" '
+    /^idr_library\(/ { name = $0; sub(/^idr_library\(/, "", name); sub(/[[:space:]].*$/, "", name)
+                       section = ""; inside = 1; next }
+    !inside { next }
+    { token = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", token) }
+    token == "" || token ~ /^#/ { next }
+    token == ")" { inside = 0; next }
+    token ~ /^(MODULES|UNITS|GLUE|LINKS)$/ { section = token; next }
+    section != "" { print name, dir, section, token }
+  ' "$file"
+done > "$work/entries"
+if [ -s "$work/entries" ]; then say "module libraries: found"; else say "module libraries: none found"; fi
+
+# The module each library holds: its primary interface's name.
+: > "$work/modules"
+while read -r library dir section entry; do
+  [ "$section" = MODULES ] || continue
+  sed -n 's/^export module \([a-z][a-z.]*\);$/\1/p' "$dir/$entry" |
+    while IFS= read -r module; do printf '%s %s\n' "$module" "$library"; done
+done < "$work/entries" >> "$work/modules"
+
+# What each library imports, as libraries, and what it links.
+: > "$work/problems"
+cut -d' ' -f1 "$work/entries" | sort -u > "$work/libraries"
+while IFS= read -r library; do
+  : > "$work/imports"
+  awk -v l="$library" '$1 == l && $3 != "LINKS" { print $2 "/" $4 }' "$work/entries" |
+    while IFS= read -r unit; do
+      sed -n 's/^\(export \)\{0,1\}import \([a-z][a-z.]*\);$/\2/p' "$unit" |
+        while IFS= read -r module; do
+          found=$(awk -v m="$module" '$1 == m { print $2 }' "$work/modules")
+          if [ -z "$found" ]; then
+            printf '%s: %s imports %s, which no module library holds\n' "$library" "${unit#"$root"/}" "$module" >> "$work/problems"
+          elif [ "$found" != "$library" ]; then
+            printf '%s\n' "$found" >> "$work/imports"
+          fi
+        done
+    done
+  sort -u "$work/imports" > "$work/imported"
+  awk -v l="$library" '$1 == l && $3 == "LINKS" { print $4 }' "$work/entries" |
+    while IFS= read -r link; do
+      grep -qx "$link" "$work/libraries" && printf '%s\n' "$link"
+    done | sort -u > "$work/linked"
+  comm -23 "$work/imported" "$work/linked" | sed "s/^/$library: imports the module of /; s/\$/ without linking it/" >> "$work/problems"
+  comm -13 "$work/imported" "$work/linked" | sed "s/^/$library: links /; s/\$/, whose module none of its units imports/" >> "$work/problems"
+done < "$work/libraries"
+if [ -s "$work/problems" ]; then
+  say "libraries whose links are not their imports:"
+  cat "$work/problems"
+else
+  say "every module library links exactly what it imports"
+fi

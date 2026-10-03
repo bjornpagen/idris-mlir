@@ -3,10 +3,9 @@
 
 #include "Stack/Recursion.h"
 
-#include "Passes/Scc.h"
-#include "Passes/Tail.h"
-
 #include "mlir/IR/SymbolTable.h"
+
+import idr.graph;
 
 using namespace mlir;
 
@@ -37,7 +36,7 @@ Cycles::Cycles(ModuleOp module) {
     fn->walk([&](Operation *op) {
       if (auto call = dyn_cast<func::CallOp>(op)) {
         auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
-        if (callee && !callee.isExternal() && !(callee == fn && passes::inTailPosition(call)))
+        if (callee && !callee.isExternal() && !(callee == fn && graph::inTailPosition(call)))
           out.push_back(callee);
       }
       applies |= isa<ApplyOp>(op);
@@ -47,7 +46,7 @@ Cycles::Cycles(ModuleOp module) {
   }
 
   unsigned index = 0;
-  for (const SmallVector<Operation *> &members : passes::stronglyConnected<Operation *>(
+  for (const SmallVector<Operation *> &members : graph::stronglyConnected<Operation *>(
            fns, [&](Operation *fn) { return calls.lookup(fn); })) {
     for (Operation *fn : members)
       component[fn] = index;

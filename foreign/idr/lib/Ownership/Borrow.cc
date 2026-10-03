@@ -27,18 +27,16 @@
 
 #include "Ownership/Ownership.h"
 
-#include "Passes/Scc.h"
-#include "Passes/Tail.h"
-
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
+
+import idr.graph;
 
 using namespace mlir;
 
 namespace idr::ownership {
 
 namespace {
-
 
 class Inference {
 public:
@@ -101,7 +99,7 @@ private:
       });
       return callees;
     };
-    auto components = passes::stronglyConnected<func::FuncOp>(functions, calls);
+    auto components = graph::stronglyConnected<func::FuncOp>(functions, calls);
     for (auto [index, component] : llvm::enumerate(components))
       for (func::FuncOp fn : component)
         cycleOf[fn] = static_cast<unsigned>(index);
@@ -166,7 +164,7 @@ private:
           if (it == owned.end() || index >= it->second.size() || it->second[index])
             own(arg);
         if (it != owned.end() && cycleOf.lookup(g) == cycleOf.lookup(fn) &&
-            (passes::inTailPosition(call) || passes::inTailPositionModuloConstructor(call)))
+            (graph::inTailPosition(call) || graph::inTailPositionModuloConstructor(call)))
           for (auto [index, arg] : llvm::enumerate(call.getOperands()))
             if (isOwned(arg))
               ownParam(g, static_cast<unsigned>(index));

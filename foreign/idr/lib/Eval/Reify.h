@@ -3,10 +3,12 @@
 // Runs in idr-eval's child, on the memory of the JITed code.
 #pragma once
 
-#include "Lower/Layout.h"
+#include "idr/Idr.h"
 
 #include <expected>
 #include <string>
+
+import idr.layout;
 
 namespace idr::eval {
 
@@ -27,7 +29,7 @@ public:
   // `codes` maps the address of the code of each label's closures to the
   // label's number; the results of one call may take `budget` bytes of
   // static data.
-  Reifier(lower::Layouts &l, llvm::DenseMap<uint64_t, unsigned> codes, uint64_t budget)
+  Reifier(layout::Layouts &l, llvm::DenseMap<uint64_t, unsigned> codes, uint64_t budget)
       : layouts(l), codes(std::move(codes)), budget(budget) {}
 
   // The values of `types` whose components are the words of `slots`, one
@@ -43,14 +45,14 @@ private:
   // word itself), read once however many values share it.
   mlir::Attribute object(mlir::Type type, uint64_t word);
   // The components of `slots` in the cell at `cell`, one word each.
-  llvm::SmallVector<uint64_t> read(const char *cell, llvm::ArrayRef<lower::Slot> slots);
+  llvm::SmallVector<uint64_t> read(const char *cell, llvm::ArrayRef<layout::Slot> slots);
   mlir::Attribute constructor(DataOp data, CtorOp ctor,
                               llvm::function_ref<llvm::SmallVector<uint64_t>(unsigned field)> fields);
   // Counts `bytes` more of static data against the budget.
   bool spend(uint64_t bytes);
   mlir::Attribute refuse(Unread::Why why, std::string message);
 
-  lower::Layouts &layouts;
+  layout::Layouts &layouts;
   llvm::DenseMap<uint64_t, unsigned> codes;
   uint64_t budget;
   uint64_t spent = 0;

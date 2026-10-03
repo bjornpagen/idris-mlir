@@ -28,10 +28,11 @@ which the top-level CMake configure gate reads.
 - workaround: all MLIR-facing code is quarantine code in `foreign/idr/`;
   LLVM/MLIR headers and generated files are system includes, so
   the project's warnings apply to our code only; the targets never import std.
-  The headers are parsed once, by the module `idr.mlir`
-  (`foreign/idr/lib/Mlir.cppm`), which re-exports the names the code uses;
-  what TableGen declares (the dialect, op hooks, pass bases, DRR patterns)
-  stays in plain translation units in the global module
+  The headers are parsed once, by the modules `idr.mlir`
+  (`foreign/idr/lib/Mlir.cppm`) and `idr.dialect`
+  (`foreign/idr/lib/Dialect/Dialect.cppm`), which re-export the names the
+  code uses; what TableGen declares (the dialect, op hooks, pass bases, DRR
+  patterns) stays in plain translation units in the global module
 - retire: when MLIR offers a module-based, inheritance-free API (not expected)
 - upstream: none — MLIR's design
 
@@ -43,8 +44,8 @@ which the top-level CMake configure gate reads.
   every unit that imports it, and every unit that imports those. Touching
   `idr/Idr.h`, TableGen's output or `lib/Mlir.cppm` recompiles every unit
   that imports anything
-- sites: `foreign/idr/CMakeLists.txt` and `foreign/idr/lib/*/CMakeLists.txt`
-  (the `CXX_MODULES` file sets of `idr_dialect`)
+- sites: `foreign/idr/cmake/IdrLibrary.cmake` (the `CXX_MODULES` file set of
+  every module's library)
 - workaround: interface units declare and never define, so that an edit to
   code recompiles its one implementation unit and nothing else; `idr.mlir`
   already exports every name the code uses, so it rarely changes
@@ -310,11 +311,12 @@ which the top-level CMake configure gate reads.
   one-byte member, over what follows it in the pass. A plain
   `-DLLVM_FORCE_ENABLE_STATS=1` does not help: `llvm/Config/llvm-config.h`
   defines it to 0 unconditionally, after the command line
-- sites: foreign/idr/CMakeLists.txt (the compile options of idr_dialect and
-  of idris-mlir-tblgen, which links no idr_dialect),
+- sites: foreign/idr/CMakeLists.txt (the compile options of idr_build, which
+  every library of foreign/idr and the tools are compiled with, and of
+  idris-mlir-tblgen, which links none of them),
   foreign/idr/lib/Support/EnableStatistics.h,
-  foreign/idr/lib/Support/PipelineStatistics.cc (the static_assert)
-- workaround: every translation unit of idr_dialect and the tools starts
+  foreign/idr/lib/Support/Statistics/PipelineStatistics.cc (the static_assert)
+- workaround: every translation unit of foreign/idr and the tools starts
   with `lib/Support/EnableStatistics.h` (`-include`), which includes
   `llvm-config.h` first and redefines `LLVM_FORCE_ENABLE_STATS` to 1, so
   statistics count in every build type; a static_assert fails the build

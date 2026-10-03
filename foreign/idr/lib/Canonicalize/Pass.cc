@@ -13,7 +13,6 @@
 // idr-canonicalize. As for canonicalize, stopping early is no failure unless
 // test-convergence asks for one.
 
-#include "Support/PatternCounts.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/Remarks.h"
@@ -32,6 +31,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRCANONICALIZE
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.support;
 
 namespace {
 

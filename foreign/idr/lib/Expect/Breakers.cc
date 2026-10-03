@@ -8,11 +8,11 @@
 // newest of which breaks its cycle whatever it is.
 
 #include "Expect/Expect.h"
-#include "Passes/Scc.h"
 
 #include "llvm/ADT/DenseSet.h"
 
 import idr.facts;
+import idr.graph;
 
 using namespace mlir;
 
@@ -42,7 +42,7 @@ LogicalResult everyCycleHasBreaker(ModuleOp module, StringRef) {
       inlinable.push_back(fn);
   bool held = true;
   for (const SmallVector<func::FuncOp> &cycle :
-       idr::passes::stronglyConnected<func::FuncOp>(inlinable, refers)) {
+       idr::graph::stronglyConnected<func::FuncOp>(inlinable, refers)) {
     if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
       continue;
     func::FuncOp first = cycle.front();
@@ -66,7 +66,7 @@ LogicalResult breaksLast(ModuleOp module, StringRef) {
   auto refers = [&](func::FuncOp fn) { return references(symbols, fn); };
   llvm::DenseSet<func::FuncOp> onCycle;
   for (const SmallVector<func::FuncOp> &cycle :
-       idr::passes::stronglyConnected<func::FuncOp>(last, refers))
+       idr::graph::stronglyConnected<func::FuncOp>(last, refers))
     if (cycle.size() > 1 || llvm::is_contained(refers(cycle.front()), cycle.front()))
       onCycle.insert(cycle.begin(), cycle.end());
   bool held = true;

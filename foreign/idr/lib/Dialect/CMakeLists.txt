@@ -1,3 +1,12 @@
+# idr.dialect: the dialect's declarations, which every module unit that
+# names an idr op, type or attribute imports. Its library is idr_ods, after
+# the ODS records TableGen generates them from, since idr_dialect is the
+# aggregate the tools link.
+idr_library(idr_ods
+	MODULES
+		Dialect.cppm
+)
+
 # The dialect and the hooks of its ops (verifiers, folders, canonicalizers,
 # DRR patterns): TableGen declares them in the global module, so they are
 # plain translation units for good.

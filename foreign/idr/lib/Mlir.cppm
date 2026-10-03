@@ -1,14 +1,12 @@
-// idr.mlir: MLIR, LLVM and the idr dialect's TableGen-generated
-// declarations, for module units to import. Their headers are parsed here,
-// once; a unit that included them itself would parse them again, and one
-// that included them after an import would clash with this module's copy
-// of them. MLIR's API is headers only and exports nothing, so this module
-// names what idr's code uses and re-exports it: each `using` below makes a
-// declaration of the global module fragment visible to importers.
-// Operators are re-exported too, so that lookup by argument finds them.
+// idr.mlir: MLIR's and LLVM's declarations, for module units to import.
+// Their headers are parsed here, once; a unit that included them itself
+// would parse them again, and one that included them after an import would
+// clash with this module's copy of them. MLIR's API is headers only and
+// exports nothing, so this module names what idr's code uses and re-exports
+// it: each `using` below makes a declaration of the global module fragment
+// visible to importers. Operators are re-exported too, so that lookup by
+// argument finds them. The idr dialect's own declarations are idr.dialect's.
 module;
-#include "idr/Idr.h"
-
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -28,6 +26,7 @@ module;
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Action.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -46,9 +45,11 @@ module;
 #include "mlir/IR/Unit.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -64,7 +65,9 @@ module;
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -77,10 +80,16 @@ module;
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Support/CheckedArithmetic.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/SHA1.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include <algorithm>
 #include <array>
@@ -88,6 +97,7 @@ module;
 #include <concepts>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <functional>
 #include <limits>
 #include <map>
@@ -101,6 +111,7 @@ module;
 export module idr.mlir;
 
 export namespace mlir {
+using mlir::AffineMap;
 using mlir::AnalysisState;
 using mlir::any;
 using mlir::APFloat;
@@ -136,6 +147,7 @@ using mlir::createReconcileUnrealizedCastsPass;
 using mlir::createSCFToControlFlowPass;
 using mlir::DataFlowConfig;
 using mlir::DataFlowSolver;
+using mlir::DataLayout;
 using mlir::DenseElementsAttr;
 using mlir::DenseMap;
 using mlir::DenseSet;
@@ -162,6 +174,8 @@ using mlir::FunctionType;
 using mlir::FusedLoc;
 using mlir::GenericLatticeAnchorBase;
 using mlir::get;
+using mlir::getAffineDimExpr;
+using mlir::getConstantIntValue;
 using mlir::getType;
 using mlir::GreedyRewriteConfig;
 using mlir::GreedySimplifyRegionLevel;
@@ -178,6 +192,8 @@ using mlir::IRRewriter;
 using mlir::IRUnit;
 using mlir::isa;
 using mlir::isa_and_nonnull;
+using mlir::isMemoryEffectFree;
+using mlir::isSpeculatable;
 using mlir::Location;
 using mlir::LocationAttr;
 using mlir::LogicalResult;
@@ -235,6 +251,7 @@ using mlir::RegisteredOperationName;
 using mlir::ResultRange;
 using mlir::RewritePatternSet;
 using mlir::RewriterBase;
+using mlir::SelfOwningTypeID;
 using mlir::SetIntRangeFn;
 using mlir::SetVector;
 using mlir::SmallVector;
@@ -264,6 +281,7 @@ using mlir::UnitAttr;
 using mlir::UnknownLoc;
 using mlir::UnrealizedConversionCastOp;
 using mlir::Value;
+using mlir::ValueBoundsConstraintSet;
 using mlir::ValueRange;
 using mlir::visitUsedValuesDefinedAbove;
 using mlir::WalkOrder;
@@ -318,6 +336,8 @@ using mlir::LLVM::PtrToIntOp;
 using mlir::LLVM::ReturnOp;
 using mlir::LLVM::SelectOp;
 using mlir::LLVM::StoreOp;
+using mlir::LLVM::TargetAttr;
+using mlir::LLVM::TargetFeaturesAttr;
 using mlir::LLVM::UnreachableOp;
 using mlir::LLVM::ZeroOp;
 using mlir::LLVM::operator&;
@@ -416,6 +436,10 @@ using mlir::math::IsFiniteOp;
 using mlir::math::MathDialect;
 } // namespace mlir::math
 
+export namespace mlir::presburger {
+using mlir::presburger::BoundType;
+} // namespace mlir::presburger
+
 export namespace mlir::remark {
 using mlir::remark::add;
 using mlir::remark::analysis;
@@ -426,8 +450,13 @@ using mlir::remark::reason;
 using mlir::remark::RemarkOpts;
 } // namespace mlir::remark
 
+export namespace mlir::remark::detail {
+using mlir::remark::detail::InFlightRemark;
+} // namespace mlir::remark::detail
+
 export namespace mlir::scf {
 using mlir::scf::ConditionOp;
+using mlir::scf::ForOp;
 using mlir::scf::IfOp;
 using mlir::scf::IndexSwitchOp;
 using mlir::scf::populateSCFStructuralTypeConversionsAndLegality;
@@ -462,6 +491,8 @@ using llvm::ArrayRef;
 using llvm::bit_cast;
 using llvm::BitVector;
 using llvm::cast;
+using llvm::CGSCCAnalysisManager;
+using llvm::checkedMul;
 using llvm::Constant;
 using llvm::copy;
 using llvm::count;
@@ -484,8 +515,10 @@ using llvm::find;
 using llvm::for_each;
 using llvm::formatv;
 using llvm::function_ref;
+using llvm::FunctionAnalysisManager;
 using llvm::get;
 using llvm::getToken;
+using llvm::GraphTraits;
 using llvm::identity;
 using llvm::InitializeNativeTarget;
 using llvm::InitializeNativeTargetAsmPrinter;
@@ -500,23 +533,29 @@ using llvm::isDigit;
 using llvm::join;
 using llvm::LLVMContext;
 using llvm::LogicalResult;
+using llvm::LoopAnalysisManager;
 using llvm::make_early_inc_range;
 using llvm::make_filter_range;
 using llvm::make_range;
 using llvm::map_to_vector;
 using llvm::MapVector;
 using llvm::Module;
+using llvm::ModuleAnalysisManager;
 using llvm::move;
 using llvm::MutableArrayRef;
 using llvm::nodes;
 using llvm::none_of;
+using llvm::OptimizationLevel;
 using llvm::ParseResult;
+using llvm::PassBuilder;
+using llvm::PipelineTuningOptions;
 using llvm::PowerOf2Ceil;
 using llvm::raw_ostream;
 using llvm::raw_string_ostream;
 using llvm::replace;
 using llvm::report_fatal_error;
 using llvm::reverse;
+using llvm::scc_begin;
 using llvm::scope_exit;
 using llvm::SetVector;
 using llvm::SHA1;
@@ -527,6 +566,7 @@ using llvm::SmallVectorImpl;
 using llvm::SMLoc;
 using llvm::sort;
 using llvm::split;
+using llvm::stable_sort;
 using llvm::Statistic;
 using llvm::StringLiteral;
 using llvm::StringMap;
@@ -535,9 +575,12 @@ using llvm::StringSet;
 using llvm::StringSwitch;
 using llvm::succeeded;
 using llvm::success;
+using llvm::TargetMachine;
+using llvm::TargetOptions;
 using llvm::to_vector;
 using llvm::toString;
 using llvm::transform;
+using llvm::Triple;
 using llvm::Twine;
 using llvm::Type;
 using llvm::TypeSwitch;
@@ -570,153 +613,9 @@ using llvm::operator|=;
 using llvm::operator~;
 } // namespace llvm
 
-export namespace idr {
-using idr::ApplyOp;
-using idr::BigAddOp;
-using idr::BigAndOp;
-using idr::BigAttr;
-using idr::BigCmpOp;
-using idr::BigDivOp;
-using idr::BigFromDoubleOp;
-using idr::BigFromIntOp;
-using idr::BigSmallOp;
-using idr::BigFromStrOp;
-using idr::BigModOp;
-using idr::BigMulOp;
-using idr::BigNegOp;
-using idr::BigOrOp;
-using idr::BigPredOp;
-using idr::BigShowOp;
-using idr::BigSubOp;
-using idr::BigToDoubleOp;
-using idr::BigToIntOp;
-using idr::BigType;
-using idr::BigXorOp;
-using idr::bitEnumContainsAny;
-using idr::BoxType;
-using idr::CallsRuntime;
-using idr::CloneAttr;
-using idr::ClosureAttr;
-using idr::ClosureOp;
-using idr::CmpPredicate;
-using idr::ConAttr;
-using idr::ConOp;
-using idr::ConstantOp;
-using idr::CrashOp;
-using idr::CrashResource;
-using idr::createIdrLower;
-using idr::CtorOp;
-using idr::DataOp;
-using idr::DataType;
-using idr::DropOp;
-using idr::DupOp;
-using idr::BorrowOp;
-using idr::DivergenceResource;
-using idr::DivOp;
-using idr::DoubleHeadOp;
-using idr::Effect;
-using idr::EffectAttr;
-using idr::ErasedAttr;
-using idr::erased;
-using idr::Grade;
-using idr::gradeOf;
-using idr::graded;
-using idr::isErased;
-using idr::isLinear;
-using idr::isWorld;
-using idr::isExclusive;
-using idr::ShareOp;
-using idr::fieldType;
-using idr::heldAs;
-using idr::times;
-using idr::FieldOp;
-using idr::FnType;
-using idr::GetByteOp;
-using idr::WorldNewOp;
-using idr::ArrayNewOp;
-using idr::ArrayGetOp;
-using idr::ArraySetOp;
-using idr::getSumName;
-using idr::IdrDialect;
-using idr::IdrLowerOptions;
-using idr::isOwned;
-using idr::owned;
-using idr::view;
-using idr::atQuantity;
-using idr::IntHeadOp;
-using idr::IOResource;
-using idr::isFieldType;
-using idr::isArray;
-using idr::KeyApplyAttr;
-using idr::KeyApplyFieldAttr;
-using idr::KeyClosureAttr;
-using idr::KeyConAttr;
-using idr::KeyHoleAttr;
-using idr::knownFinite;
-using idr::knownNonEmpty;
-using idr::knownNonZero;
-using idr::LinEnterOp;
-using idr::LinResource;
-using idr::linear;
-using idr::Permission;
-using idr::QType;
-using idr::LinUseOp;
-using idr::lookupCtor;
-using idr::lookupData;
-using idr::MatchLitOp;
-using idr::MatchOp;
-using idr::MayCrash;
-using idr::MayCrashOpInterface;
-using idr::MayLoopOp;
-using idr::ModOp;
-using idr::NatFromBigOp;
-using idr::NatToBigOp;
-using idr::NatType;
-using idr::PerformsIO;
-using idr::pipelineSteps;
-using idr::PutCharOp;
-using idr::PutDoubleOp;
-using idr::PutIntOp;
-using idr::PutStrOp;
-using idr::Quantity;
-using idr::quantityOf;
-using idr::fieldReadOnce;
-using idr::registerIdr;
-using idr::registerIdrPasses;
-using idr::registerIdrPipeline;
-using idr::ReuseOp;
-using idr::SpecKeyAttr;
-using idr::StrAppendOp;
-using idr::StrCmpOp;
-using idr::StrConsOp;
-using idr::StrFromCharOp;
-using idr::StrHeadOp;
-using idr::StrIndexOp;
-using idr::StrLengthOp;
-using idr::StrReverseOp;
-using idr::StrShowOp;
-using idr::StrSubstrOp;
-using idr::StrTailOp;
-using idr::StrToDoubleOp;
-using idr::StrToIntOp;
-using idr::StrType;
-using idr::TagOp;
-using idr::TakeOp;
-using idr::throughLinear;
-using idr::ToCharOp;
-using idr::ToIntOp;
-using idr::TokenType;
-using idr::unrestricted;
-using idr::WorldType;
-using idr::YieldOp;
-using idr::operator&;
-using idr::operator&=;
-using idr::operator^;
-using idr::operator^=;
-using idr::operator|;
-using idr::operator|=;
-using idr::operator~;
-} // namespace idr
+export namespace llvm::FPOpFusion {
+using llvm::FPOpFusion::Strict;
+} // namespace llvm::FPOpFusion
 
 // Re-exports only, as libc++'s own std module does: nothing is added to
 // std.
@@ -753,6 +652,7 @@ using std::erase;
 using std::exit;
 using std::exp;
 using std::exp2;
+using std::expected;
 using std::fill;
 using std::find;
 using std::fixed;
@@ -783,6 +683,7 @@ using std::memmove;
 using std::memset;
 using std::milli;
 using std::min;
+using std::minmax;
 using std::minus;
 using std::move;
 using std::next;
@@ -818,10 +719,13 @@ using std::to_string;
 using std::transform;
 using std::trunc;
 using std::tuple;
+using std::tuple_element;
+using std::tuple_size;
 using std::uint32_t;
 using std::uint64_t;
 using std::uint8_t;
 using std::uintptr_t;
+using std::unexpected;
 using std::unique;
 using std::unique_ptr;
 using std::unreachable;
@@ -914,3 +818,15 @@ using std::ranges::views::all;
 using std::ranges::views::reverse;
 } // namespace std::ranges::views
 // NOLINTEND(bugprone-std-namespace-modification)
+
+// The C names of the integer types, which <cstdint> declares in the global
+// namespace as well, re-exported as libc++'s std.compat module does.
+export {
+using ::int32_t;
+using ::int64_t;
+using ::size_t;
+using ::uint32_t;
+using ::uint64_t;
+using ::uint8_t;
+using ::uintptr_t;
+}

@@ -18,7 +18,6 @@
 // which Emit writes from the registry's column), or else the first; then
 // the rest of the cycle is cut the same way.
 
-#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/SymbolTable.h"
@@ -31,6 +30,7 @@ namespace idr {
 } // namespace idr
 
 import idr.facts;
+import idr.graph;
 
 namespace {
 
@@ -76,7 +76,7 @@ struct LoopBreakers : idr::impl::IdrLoopBreakersBase<LoopBreakers> {
         if (!fn.isExternal() && !fn.getNoInline())
           inlinable.push_back(fn);
       for (const SmallVector<func::FuncOp> &cycle :
-           idr::passes::stronglyConnected<func::FuncOp>(inlinable, refers)) {
+           idr::graph::stronglyConnected<func::FuncOp>(inlinable, refers)) {
         if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
           continue;
         func::FuncOp breaker = choose(cycle, order);

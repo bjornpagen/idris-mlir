@@ -52,7 +52,6 @@
 //     takes, so such a call is never a recursion's: its callee, off the
 //     cycle, never calls back round, and adds its frame once.
 
-#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -78,6 +77,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRTAILCALLS
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.graph;
 
 namespace {
 
@@ -442,7 +443,7 @@ DenseMap<Operation *, unsigned> cyclesOf(ModuleOp module, SymbolTable &symbols) 
   DenseMap<Operation *, unsigned> cycleOf;
   unsigned index = 0;
   for (const SmallVector<Operation *> &members :
-       idr::passes::stronglyConnected<Operation *>(fns, callees)) {
+       idr::graph::stronglyConnected<Operation *>(fns, callees)) {
     for (Operation *fn : members)
       cycleOf[fn] = index;
     ++index;

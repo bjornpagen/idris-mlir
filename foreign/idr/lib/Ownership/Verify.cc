@@ -12,12 +12,12 @@
 
 #include "Ownership/Ownership.h"
 
-#include "Lower/Layout.h"
-
 #include "llvm/ADT/DenseSet.h"
 
 #include <optional>
 #include <variant>
+
+import idr.layout;
 
 using namespace mlir;
 
@@ -28,7 +28,7 @@ namespace {
 class Checker {
 public:
   Checker(Counting &counting, SymbolTableCollection &symbols,
-          function_ref<lower::Layouts *()> layouts)
+          function_ref<layout::Layouts *()> layouts)
       : counting(counting), symbols(symbols), layouts(layouts) {}
 
   LogicalResult check(func::FuncOp fn) {
@@ -324,7 +324,7 @@ private:
     if (!from || !to)
       return success();
     // Without layouts, which say why, there is nothing to compare.
-    lower::Layouts *cells = layouts();
+    layout::Layouts *cells = layouts();
     if (!cells)
       return failure();
     unsigned have = cells->box(from).size, need = cells->box(to).size;
@@ -590,7 +590,7 @@ private:
 
   Counting &counting;
   SymbolTableCollection &symbols;
-  function_ref<lower::Layouts *()> layouts;
+  function_ref<layout::Layouts *()> layouts;
   llvm::DenseMap<Value, int> held;
   llvm::DenseMap<Value, Value> owners;
   SmallVector<Change> log;
@@ -606,10 +606,10 @@ LogicalResult verifyOwned(ModuleOp module) {
   Counting counting(module);
   SymbolTableCollection symbols;
   // Only a reuse needs the sizes of cells.
-  std::optional<FailureOr<lower::Layouts>> cells;
-  auto layouts = [&]() -> lower::Layouts * {
+  std::optional<FailureOr<layout::Layouts>> cells;
+  auto layouts = [&]() -> layout::Layouts * {
     if (!cells)
-      cells.emplace(lower::Layouts::of(module));
+      cells.emplace(layout::Layouts::of(module));
     return succeeded(*cells) ? &**cells : nullptr;
   };
   for (auto fn : module.getOps<func::FuncOp>()) {

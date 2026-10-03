@@ -28,7 +28,6 @@
 // under the analysis of the chosen B, and the copy is cloned into the
 // version; the function itself is never analysed.
 
-#include "Passes/Trips.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
@@ -53,6 +52,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRNARROWLANES
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.graph;
 
 namespace {
 
@@ -350,7 +351,7 @@ struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
     auto internal = [&](const Twine &what) -> LogicalResult {
       return emitError(loc) << "internal error: idr-narrow-lanes: " << what;
     };
-    if (idr::passes::runsAtMostOnce(loop))
+    if (idr::graph::runsAtMostOnce(loop))
       return wide("the loop runs at most once, which no version pays for");
     SetVector<Value> inputs = inputsOf(loop);
     if (llvm::none_of(inputs, testable))

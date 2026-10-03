@@ -61,8 +61,6 @@ std::string crashMessage(Location loc, StringRef cause) {
   return ("idris-mlir: " + cause + (where.empty() ? "" : " at " + where) + "\n").str();
 }
 
-std::string codeName(unsigned id) { return ("__idr_code_" + Twine(id)).str(); }
-
 Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, ValueRange args) {
   auto callee = symbols.lookupSymbolIn<LLVM::LLVMFuncOp>(module, b.getStringAttr(name));
   if (!callee) {

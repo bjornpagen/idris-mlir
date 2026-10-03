@@ -2,10 +2,10 @@
 
 #include "Stack/Escape.h"
 
-#include "Passes/Tail.h"
-
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+import idr.graph;
 
 using namespace mlir;
 
@@ -192,7 +192,7 @@ Escapes::Flow Escapes::flow(OpOperand &use, Mode mode, const Frame &frame,
         // (idr-tail-loops): either way the frame that built the cell is
         // gone when the callee runs. A parameter's cell is another
         // frame's, which outlives the call.
-        if (!frame.repeating.empty() && passes::inTailPosition(call) &&
+        if (!frame.repeating.empty() && graph::inTailPosition(call) &&
             cycles.together(frame.fn, callee))
           return lost;
         if (parameters.contains(node(callee.getArgument(use.getOperandNumber()), mode)))

@@ -42,7 +42,6 @@
 // slots of closure type stay closures too: in a whole program that is only
 // a key whose labels the analysis cannot know.
 
-#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
@@ -56,12 +55,15 @@
 
 using namespace mlir;
 using namespace mlir::dataflow;
-namespace passes = idr::passes;
 
 namespace idr {
 #define GEN_PASS_DEF_IDRDEFUNCTIONALIZE
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.graph;
+
+namespace graph = idr::graph;
 
 namespace {
 
@@ -811,7 +813,7 @@ struct Converter {
         }
       }
     }
-    for (const SmallVector<Key> &component : passes::stronglyConnected<Key>(
+    for (const SmallVector<Key> &component : graph::stronglyConnected<Key>(
              candidates, [&](Key key) { return edges.lookup(key); }))
       if (component.size() > 1 || llvm::is_contained(edges.lookup(component.front()),
                                                       component.front()))

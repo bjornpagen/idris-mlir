@@ -2,12 +2,16 @@
 // which the types say and the LLVM types no longer do.
 #pragma once
 
-#include "Lower/Layout.h"
+#include "idr/Idr.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
+import idr.layout;
+
 namespace idr::lower {
+
+using layout::Layouts;
 
 class Facts {
 public:

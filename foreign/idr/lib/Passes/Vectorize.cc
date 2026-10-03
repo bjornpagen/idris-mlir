@@ -19,7 +19,6 @@
 // crashes or calls would do it in another order than the program's.
 
 #include "idr/Idr.h"
-#include "idr/Target.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -42,6 +41,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRVECTORIZE
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.target;
 
 namespace {
 
@@ -81,7 +82,7 @@ struct Vectorize : idr::impl::IdrVectorizeBase<Vectorize> {
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    unsigned bits = idr::vectorBits(module);
+    unsigned bits = idr::target::vectorBits(module);
     // As the walk meets them, each after the ops it holds: a generic in the
     // body of another comes before its holder and changes nothing outside
     // that body, and the holder, whose body holds that loop, stays scalar.

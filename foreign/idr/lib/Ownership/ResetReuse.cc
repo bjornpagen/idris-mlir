@@ -21,7 +21,7 @@
 
 #include "Ownership/Ownership.h"
 
-#include "Lower/Layout.h"
+import idr.layout;
 
 using namespace mlir;
 
@@ -31,7 +31,7 @@ namespace {
 
 class Reuser {
 public:
-  Reuser(func::FuncOp fn, lower::Layouts &layouts) : fn(fn), layouts(layouts) {}
+  Reuser(func::FuncOp fn, layout::Layouts &layouts) : fn(fn), layouts(layouts) {}
 
   std::pair<unsigned, unsigned> run() {
     SmallVector<MatchOp> matches;
@@ -138,14 +138,14 @@ private:
   }
 
   func::FuncOp fn;
-  lower::Layouts &layouts;
+  layout::Layouts &layouts;
   SymbolTableCollection symbols;
   unsigned takes = 0, reuses = 0;
 };
 
 } // namespace
 
-std::pair<unsigned, unsigned> insertResetReuse(func::FuncOp fn, lower::Layouts &layouts) {
+std::pair<unsigned, unsigned> insertResetReuse(func::FuncOp fn, layout::Layouts &layouts) {
   return Reuser(fn, layouts).run();
 }
 

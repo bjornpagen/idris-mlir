@@ -2,7 +2,6 @@
 // object file that, linked with the runtime's, is the whole program.
 
 #include "idr/Idr.h"
-#include "idr/Target.h"
 #include "idr/TargetEntry.h"
 
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
@@ -70,6 +69,8 @@
 #include "idris_rt.h"
 
 #include <unistd.h>
+
+import idr.target;
 
 namespace cl = llvm::cl;
 
@@ -680,7 +681,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
     return usage;
   }
   std::unique_ptr<llvm::TargetMachine> machine(
-      target.createTargetMachine(triple, cpu.name, cpu.features, idr::targetOptions(),
+      target.createTargetMachine(triple, cpu.name, cpu.features, idr::target::targetOptions(),
                                  llvm::Reloc::PIC_, std::nullopt, llvm::CodeGenOptLevel::Aggressive));
   if (!machine) {
     llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
@@ -714,7 +715,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
     return value.getName().starts_with("idris_rt_") &&
            !(function && function->hasFnAttribute(compilerMark));
   });
-  idr::optimize(*runtime, *machine);
+  idr::target::optimize(*runtime, *machine);
   for (const llvm::Function &function : *runtime)
     if (!function.isDeclaration() &&
         (!function.hasFnAttribute(cpuMark) || !function.hasFnAttribute(featuresMark))) {
@@ -987,7 +988,7 @@ int run() {
   std::string features =
       moduleTarget.getFeatures() ? moduleTarget.getFeatures().getFeaturesString() : "";
   std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, moduleTarget.getChip().getValue(), features, idr::targetOptions(), llvm::Reloc::PIC_,
+      triple, moduleTarget.getChip().getValue(), features, idr::target::targetOptions(), llvm::Reloc::PIC_,
       std::nullopt, llvm::CodeGenOptLevel::Aggressive));
   if (!machine) {
     llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
@@ -1017,7 +1018,7 @@ int run() {
   llvm::internalizeModule(*llvmModule,
                           [](const llvm::GlobalValue &value) { return value.getName() == "main"; });
   stage = llvmTiming.nest("optimize");
-  idr::optimize(*llvmModule, *machine);
+  idr::target::optimize(*llvmModule, *machine);
   stage = llvmTiming.nest("codegen");
 
   if (emitKind == "llvm")

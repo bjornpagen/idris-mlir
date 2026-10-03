@@ -3,17 +3,37 @@
 // JIT mode.
 #pragma once
 
-#include "Lower/Layout.h"
+#include "idr/Idr.h"
+
+#include "idris_rt.h"
 
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringMap.h"
 
+#include <expected>
+#include <memory>
 #include <string>
 
+import idr.layout;
+
 namespace idr::lower {
+
+// The layouts idr-lower builds values in (idr.layout).
+using layout::Cell;
+using layout::CellInfo;
+using layout::codeName;
+using layout::Element;
+using layout::Label;
+using layout::Layouts;
+using layout::Slot;
+using layout::SumLayout;
+using layout::tagMask;
 
 class Runtime {
 public:
@@ -130,9 +150,6 @@ private:
   // per op, and a module can hold many thousands.
   mlir::SymbolTableCollection symbols;
 };
-
-// The name of the code of the label numbered `id`.
-std::string codeName(unsigned id);
 
 // The message of a crash: its cause and the Idris location.
 std::string crashMessage(mlir::Location loc, llvm::StringRef cause);

@@ -14,7 +14,6 @@
 // inlined counting with its size where it is called. A caller that takes in
 // a body without Idris's proof of termination loses its own (facts::inlined).
 
-#include "Passes/Scc.h"
 #include "idr/Idr.h"
 
 #include "mlir/Analysis/CallGraph.h"
@@ -33,6 +32,7 @@ namespace idr {
 } // namespace idr
 
 import idr.facts;
+import idr.graph;
 
 namespace {
 
@@ -90,7 +90,7 @@ Decisions decide(ModuleOp module) {
   llvm::DenseMap<func::FuncOp, int64_t> sizes;
   // Tarjan's components come callees first.
   for (const SmallVector<func::FuncOp> &component :
-       idr::passes::stronglyConnected<func::FuncOp>(
+       idr::graph::stronglyConnected<func::FuncOp>(
            functions, [&](func::FuncOp fn) { return callees.lookup(fn); })) {
     if (component.size() != 1)
       continue;

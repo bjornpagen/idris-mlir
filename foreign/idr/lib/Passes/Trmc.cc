@@ -25,7 +25,6 @@
 // neither touch memory nor can fail, which the call then moves past: the
 // call's result has no other use.
 
-#include "Passes/Tail.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -38,36 +37,20 @@ namespace idr {
 #include "idr/Passes.h.inc"
 } // namespace idr
 
-namespace {
+import idr.graph;
 
-// Whether `op` is the constructor of a box: an idr.con or idr.reuse.
-bool buildsBox(Operation *op) {
-  return isa_and_nonnull<idr::ConOp, idr::ReuseOp>(op) && isa<idr::BoxType>(idr::unrestricted(op->getResult(0).getType()));
-}
+using idr::graph::fieldsOf;
+using idr::graph::isSelfCall;
+using idr::graph::Modulo;
+using idr::graph::moduloAt;
+using idr::graph::passesOnPrevious;
+
+namespace {
 
 SymbolRefAttr ctorOf(Operation *op) {
   if (auto con = dyn_cast<idr::ConOp>(op))
     return con.getCtor();
   return cast<idr::ReuseOp>(op).getCtor();
-}
-
-OperandRange fieldsOf(Operation *op) {
-  if (auto con = dyn_cast<idr::ConOp>(op))
-    return con.getFields();
-  return cast<idr::ReuseOp>(op).getFields();
-}
-
-bool isSelfCall(Operation *op, func::FuncOp fn) {
-  auto call = dyn_cast_or_null<func::CallOp>(op);
-  return call && call.getCallee() == fn.getSymName();
-}
-
-// Whether `terminator` ends a tail position and passes on exactly the
-// results of the op before it.
-bool passesOnPrevious(Operation *terminator) {
-  Operation *prev = terminator->getPrevNode();
-  return isa<func::ReturnOp, idr::YieldOp>(terminator) && prev &&
-         llvm::equal(prev->getResults(), terminator->getOperands());
 }
 
 // The match in tail position right before `terminator`, or null.
@@ -87,46 +70,6 @@ void forTails(Block &block, function_ref<void(Block &)> f) {
     return;
   }
   f(block);
-}
-
-// A tail modulo constructor: the self call whose result is field `index`
-// of the constructor `built`, which the block's terminator passes on. The
-// result may enter or leave a grade on its way to the field (`grades`,
-// nearest the field first): a grade has no runtime form, and goes with
-// the call.
-struct Modulo {
-  func::CallOp call;
-  Operation *built;
-  unsigned index;
-  SmallVector<Operation *, 2> grades;
-};
-
-std::optional<Modulo> moduloAt(Block &block, func::FuncOp fn) {
-  Operation *terminator = block.getTerminator();
-  Operation *built = terminator->getPrevNode();
-  if (!passesOnPrevious(terminator) || !buildsBox(built))
-    return std::nullopt;
-  for (auto [index, field] : llvm::enumerate(fieldsOf(built))) {
-    SmallVector<Operation *, 2> grades;
-    Value source = field;
-    while (Operation *def = source.getDefiningOp()) {
-      if (!isa<idr::LinEnterOp, idr::LinUseOp>(def) || !def->hasOneUse())
-        break;
-      grades.push_back(def);
-      source = def->getOperand(0);
-    }
-    auto call = source.getDefiningOp<func::CallOp>();
-    if (!call || !isSelfCall(call, fn) || call->getBlock() != &block || !call->hasOneUse() ||
-        call->getNumResults() != 1)
-      continue;
-    bool movable = true;
-    for (Operation *op = call->getNextNode(); op != built; op = op->getNextNode())
-      movable = movable &&
-                (llvm::is_contained(grades, op) || (isMemoryEffectFree(op) && isSpeculatable(op)));
-    if (movable)
-      return Modulo{call, built, static_cast<unsigned>(index), std::move(grades)};
-  }
-  return std::nullopt;
 }
 
 // The terminator of `block` with no operands, in place of the one it has.
@@ -213,27 +156,6 @@ void rewriteClone(OpBuilder &b, Block &block, func::FuncOp fn, func::FuncOp clon
   idr::DestWriteOp::create(b, terminator->getLoc(), hole, terminator->getOperand(0));
   endWithNothing(b, block);
 }
-
-} // namespace
-
-// Whether `call` is the self call of a tail modulo constructor, in a block
-// in tail position: idr-trmc writes its result into the constructor the
-// block returns, which it builds before the call.
-bool idr::passes::inTailPositionModuloConstructor(func::CallOp call) {
-  auto fn = call->getParentOfType<func::FuncOp>();
-  if (!fn || !isSelfCall(call, fn))
-    return false;
-  Block &block = *call->getBlock();
-  std::optional<Modulo> tail = moduloAt(block, fn);
-  if (!tail || tail->call != call)
-    return false;
-  Operation *terminator = block.getTerminator();
-  Operation *match = terminator->getParentOp();
-  return isa<func::ReturnOp>(terminator) ||
-         (isa<idr::MatchOp, idr::MatchLitOp>(match) && inTailPosition(match));
-}
-
-namespace {
 
 struct Trmc : idr::impl::IdrTrmcBase<Trmc> {
   void runOnOperation() override {

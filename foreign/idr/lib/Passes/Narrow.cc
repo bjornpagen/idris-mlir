@@ -3,13 +3,12 @@
 // versioned so that its copy proves it.
 //
 // The analysis is MLIR's, seeing our ops through their ranges
-// (Dialect/BigRanges.h); this pass only reads it and rewrites. Nothing it
+// (idr.ranges); this pass only reads it and rewrites. Nothing it
 // learns is stored: the rewritten IR is the fact. A narrowed op becomes
 // `arith` on the values, which idr.big.to_int and idr.big.from_int convert
 // where the web meets a big it does not prove; the pairs they form inside
 // a web fold away.
 
-#include "Dialect/BigRanges.h"
 #include "Ownership/Ownership.h"
 #include "idr/Idr.h"
 
@@ -28,6 +27,8 @@ namespace idr {
 #define GEN_PASS_DEF_IDRNARROW
 #include "idr/Passes.h.inc"
 } // namespace idr
+
+import idr.ranges;
 
 using namespace mlir;
 using namespace mlir::dataflow;

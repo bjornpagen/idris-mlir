@@ -1,6 +1,5 @@
 // The idr ops: syntax, verifiers, folders and interfaces.
 
-#include "Dialect/BigRanges.h"
 #include "idr/Idr.h"
 
 #include "mlir/IR/Builders.h"
@@ -237,6 +236,8 @@ ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
 
 #define GET_OP_CLASSES
 #include "idr/IdrOps.cc.inc"
+
+import idr.ranges;
 
 //===----------------------------------------------------------------------===//
 // Data declarations
