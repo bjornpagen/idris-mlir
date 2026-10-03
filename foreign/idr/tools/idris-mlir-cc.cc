@@ -319,6 +319,18 @@ void markAnnotated(llvm::Module &member) {
   }
 }
 
+// Whether code compiled for one triple runs where code for the other does:
+// the same architecture, vendor, operating system and its version, and
+// environment, however each is spelled. Clang writes the triple it was given
+// in its normal form (arm64-apple-macosx14.0 becomes
+// arm64-apple-macosx14.0.0), so the spelling is not compared.
+bool sameTarget(const llvm::Triple &a, const llvm::Triple &b) {
+  return a.getArch() == b.getArch() && a.getSubArch() == b.getSubArch() &&
+         a.getVendor() == b.getVendor() && a.getOS() == b.getOS() &&
+         a.getOSVersion() == b.getOSVersion() && a.getEnvironment() == b.getEnvironment() &&
+         a.getObjectFormat() == b.getObjectFormat();
+}
+
 // The runtime is constant-initialized, and its `used` markers exist
 // for separate compilation only. LinkOnlyNeeded always links appending
 // globals, so constructors would run in every program, and `used` would keep
@@ -327,7 +339,7 @@ void markAnnotated(llvm::Module &member) {
 // dropped too. Prepared bitcode passes through unchanged: it is a member
 // that was prepared already.
 bool prepareMember(llvm::Module &member, llvm::StringRef name) {
-  if (member.getTargetTriple().str() != targetTriple) {
+  if (!sameTarget(member.getTargetTriple(), llvm::Triple(targetTriple))) {
     llvm::errs() << "idris-mlir-cc: runtime member " << name << " is compiled for "
                  << member.getTargetTriple().str() << ", and programs for " << targetTriple
                  << "\n";
