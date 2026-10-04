@@ -1059,10 +1059,15 @@ step_stage2_darwin() {
   run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)" \
     "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
-  run "build (hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" distribution
-  build_mib=$(size_mib "$build")
+  # install-distribution, not distribution: the latter also depends on
+  # install-distribution-stripped, so a parallel build installs every
+  # archive twice at once, and the two installs of one destination race
+  # (one unlinks the file as the other copies it). We want the unstripped
+  # libraries the tools build against, and installing each file once is
+  # also what makes the step deterministic.
   rm -rf "$llvm_macos"
-  run install "$ninja" -C "$build" install-distribution
+  run "build and install (hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" install-distribution
+  build_mib=$(size_mib "$build")
   # compiler-rt's builtins, then libc++ and libc++abi, with the clang just
   # installed.
   eval "set -- $(args_builtins_darwin | quote_lines)"
