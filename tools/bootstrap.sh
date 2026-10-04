@@ -1350,6 +1350,13 @@ idris_make() {
     CHEZ=$chez
     PATH=$idris_prefix/bin:$PATH
     export CHEZ PATH
+    # Idris's C support library uses GMP. On Linux gmp.h is a system header;
+    # on Darwin it is only the pinned sysroot's, so its include and library
+    # directories are named for the host's C compiler (command-line
+    # variables, which reach the sub-makes).
+    if [ "$host_kind" = darwin ]; then
+      set -- "$@" "CPPFLAGS=-I$sysroot/usr/include" "LDFLAGS=-L$sysroot/usr/lib"
+    fi
     cd "$root/third_party/Idris2" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez"
   )
 }
