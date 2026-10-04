@@ -277,11 +277,18 @@ for name in $names; do
   for label; do
     out=$work/$label.out
     [ -f "$out" ] || continue
-    if { [ "$label" = 'Idris Chez' ] || [ "$compare" = bytes ]; } && ! cmp -s "$out" "$reference"; then
-      die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
+    if [ "$compare" = bytes ]; then
+      # The whole check is byte for byte; outputs may be binary (a PBM
+      # image), which the number comparison below must not parse.
+      cmp -s "$out" "$reference" ||
+        die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
+    else
+      if [ "$label" = 'Idris Chez' ] && ! cmp -s "$out" "$reference"; then
+        die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
+      fi
+      agree "$out" "$reference" ||
+        die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
     fi
-    agree "$out" "$reference" ||
-      die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
   done
 done
 
