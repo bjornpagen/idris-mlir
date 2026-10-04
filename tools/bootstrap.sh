@@ -462,12 +462,15 @@ static_pie() {
 }
 
 # mh_pie OBJDUMP FILE: a Mach-O executable is position-independent when its
-# header names MH_PIE. The Darwin toolchain's check where Linux's is
-# static_pie: the target's programs are dynamic PIE executables linked
-# against libSystem, not static PIE.
+# header's flags name PIE (MH_PIE; llvm-objdump prints the flag as `PIE`).
+# The Darwin toolchain's check where Linux's is static_pie: the target's
+# programs are dynamic PIE executables linked against libSystem, not static
+# PIE.
 mh_pie() {
   mh_pie_out=$("$1" --macho --private-headers "$2") || die "$1 cannot read $2"
-  case $mh_pie_out in *MH_PIE*) ;; *) die "$2 is not position-independent (no MH_PIE)" ;; esac
+  printf '%s\n' "$mh_pie_out" |
+    awk '{ for (i = 1; i <= NF; i++) if ($i == "PIE") { found = 1 } } END { exit !found }' ||
+    die "$2 is not position-independent (no PIE flag)"
 }
 
 # arm64_only OBJDUMP FILE: every Mach-O header in FILE, each slice of a
