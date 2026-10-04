@@ -14,13 +14,34 @@
 # is the test: the day an optimization stops keeping those values off the
 # heap, it fails.
 
-# The calls LLVM makes by itself, for copies and fills.
-codegen_symbols='memcpy memset memmove'
+# The calls LLVM makes by itself for the target (copies, fills, and what
+# else its code generation emits): the build writes them from the target
+# entry (runtime/CMakeLists.txt, codegen-symbols). A build that predates
+# the file falls back to the copy and fill calls every target has.
+codegen_symbols=$(cat "$dev_prefix/runtime/codegen-symbols" 2> /dev/null) ||
+  codegen_symbols='memcpy memset memmove'
+
+# The prefix the object format puts before a C name ("" on ELF, "_" on
+# Mach-O), a target entry fact the build writes (runtime/symbol-prefix): a
+# tool that prints a symbol prints it with the prefix, and no allowed list
+# spells one, so every comparison here is in C names.
+symbol_prefix=$(cat "$dev_prefix/runtime/symbol-prefix" 2> /dev/null) || symbol_prefix=
+
+# c_names: each line of stdin with the object format's symbol prefix taken
+# off.
+c_names() {
+  if [ -n "$symbol_prefix" ]; then
+    sed "s/^$symbol_prefix//"
+  else
+    cat
+  fi
+}
 
 # runtime_symbols: what the runtime object every program links defines
 # and imports (its native half: the bitcode in it names the same symbols).
 runtime_symbols() {
-  "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir_cc" --print-runtime)" 2> /dev/null | sort -u
+  "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir_cc" --print-runtime)" 2> /dev/null |
+    sort -u | c_names
 }
 
 # allowed_symbols TEST: the calls allowed to the program of the test
@@ -36,11 +57,12 @@ allowed_symbols() {
 # object_imports OBJECT TEST: the object's undefined symbols (llvm-nm) are
 # among those allowed to the program of the test directory TEST.
 object_imports() {
-  if ! "$llvm_bin/llvm-nm" --undefined-only --format=just-symbols "$1" > "$work/nm.out" 2> "$work/nm.err"; then
+  if ! "$llvm_bin/llvm-nm" --undefined-only --format=just-symbols "$1" > "$work/nm.raw" 2> "$work/nm.err"; then
     say "object: llvm-nm failed"
     show "$work/nm.err"
     return
   fi
+  c_names < "$work/nm.raw" > "$work/nm.out"
   object_allowed=" $(allowed_symbols "$2" | tr '\n' ' ') "
   object_extra=
   for object_symbol in $(sort -u "$work/nm.out"); do

@@ -66,6 +66,16 @@ The value the loop ends with is `lb + max(ceildiv(ub - lb, step), 0) * step`:
 drop the `SubIOp` of `one`, and select `lb` when `ub <= lb`. Update
 `uplift-while.mlir` to match.
 
+## Status upstream
+
+Fixed on main by 6e714c8d9 ("[MLIR][SCF] Fix upliftWhileToForLoop post-loop
+IV value", [#225476](https://github.com/llvm/llvm-project/pull/225476)),
+for [#219616](https://github.com/llvm/llvm-project/issues/219616), which
+someone else reported (checked at ed390ca4, October 2026). It is not on
+`release/23.x`, so the pin has the bug and the workaround stays until the
+pin moves past that commit. A negative step is a separate open issue,
+[#225256](https://github.com/llvm/llvm-project/issues/225256).
+
 ## Our workaround
 
 `idr-tail-loops` uplifts a counted loop only when nothing uses the value its

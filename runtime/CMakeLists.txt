@@ -197,6 +197,22 @@ target_compile_definitions(idris_rt PRIVATE
 # The same number for the tests, which build parts of the runtime for
 # another page size and must not assume this one (tests/toolchain).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
+# The library calls code generation makes for the target, as C names (the
+# entry's symbol prefix is a separate fact): the copy and fill functions
+# every target calls, then the target entry's JIT_LIBRARY_CALLS (what
+# LLVM's code for the target calls beyond them, which idr-eval's JIT binds
+# too). The e2e tests read it (tests/lib/heap.sh) to allow a program's
+# object exactly the calls its code generation makes, so the list lives in
+# the target entry and nowhere else.
+set(IDRIS_MLIR_CODEGEN_SYMBOLS "")
+foreach(codegen_call memcpy memset memmove ${IDRIS_MLIR_JIT_LIBRARY_CALLS})
+	string(APPEND IDRIS_MLIR_CODEGEN_SYMBOLS "${codegen_call}\n")
+endforeach()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_SYMBOLS}")
+# The prefix the object format puts before a C name ("_" on Mach-O), which
+# a test takes off a symbol the linker tool prints (tests/lib/heap.sh).
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/symbol-prefix"
+	CONTENT "${IDRIS_MLIR_SYMBOL_PREFIX}\n")
 # The function that fills in the processor's features before the test reads
 # them, where no static constructor does.
 if(IDRIS_MLIR_RUNTIME_CPU_INIT)

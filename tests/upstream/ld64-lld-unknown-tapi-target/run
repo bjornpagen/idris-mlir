@@ -1,8 +1,11 @@
 #!/bin/sh
 # The upstream bug upstream/ld64-lld-unknown-tapi-target still reproduces
-# with the pinned ld64.lld: it refuses a .tbd that names a target LLVM
-# 23.1.2 does not know (the macOS 27 SDK's arm64e.x1), so every link
-# against libSystem in that SDK fails. When this test fails because
+# with the pinned ld64.lld: it refuses a .tbd that names a target its LLVM
+# does not know (the macOS 27 SDK's arm64e.x1 for LLVM 23.1.2), so every
+# link against libSystem in such an SDK fails. unknown.tbd names
+# unknown-macos, which no LLVM knows, so learning one more target (as
+# arm64e.x1 is learned after 23.1.2) does not make this pass; only reading
+# stubs with SkipUnknownTriples does. When this test fails because
 # unknown.tbd links, ld64.lld reads newer stubs: drop the PINS.md entry
 # darwin-ld64-tapi, go back to -fuse-ld=lld in the pinned clang's
 # configuration file (tools/bootstrap.sh) and the Darwin target entry's

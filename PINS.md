@@ -142,9 +142,10 @@ which the top-level CMake configure gate reads.
   reproducer
 - workaround: `idr-tail-loops` uplifts a counted loop only when nothing
   uses the value its counter ends with; any other stays an `scf.while`
-- retire: when the uplift gives the value the loop ends with
+- retire: when the uplift gives the value the loop ends with, which it does
+  once the pin has main's 6e714c8d9 (#225476; not on release/23.x)
   (`tests/upstream/uplift-final-counter` fails)
-- upstream: upstream/uplift-final-counter (not yet filed)
+- upstream: upstream/uplift-final-counter (fixed on main)
 
 ## inline-unreachable
 
@@ -276,7 +277,10 @@ which the top-level CMake configure gate reads.
   never sees INT32_MIN % -1, an op that reads its operands unsigned sees
   no negative word; any other loop keeps its 64-bit lanes
 - retire: when the narrowing asks this itself
-  (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then
+  (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then.
+  The shift goes first: main's 44a4dbf32 (#218495) stops narrowing a shift
+  whose amount can reach the width; once the pin has it, `exact` keeps the
+  remainders alone
 - upstream: upstream/int-range-narrowing-exactness (not yet filed)
 
 ## while-move-if-down-duplicates
@@ -298,7 +302,7 @@ which the top-level CMake configure gate reads.
   context with the idr dialect loaded collects it: the pipeline's
   `canonicalize` steps, `idr-canonicalize` and the evaluator's lowering
 - retire: when the pin has upstream's fix, which assigns each condition
-  operand on its own (on main, in 24.1.0);
+  operand on its own (main's a65eb8723, #219458; in 24.1.0);
   `tests/upstream/while-move-if-down-duplicates` fails then. Delete
   `ReadForwardedOnce` and `tests/idr/canon/while-forwarded-twice`
 - upstream: upstream/while-move-if-down-duplicates (fixed on main)
@@ -427,8 +431,12 @@ which the top-level CMake configure gate reads.
 - workaround: Darwin links are made by the host's `ld64` (`/usr/bin/ld`),
   which reads its own SDK; the pinned `ld64.lld` stays the linker on Linux
 - retire: when `ld64.lld` reads a stub with an unknown target (the fix is
-  `SkipUnknownTriples = true` in `lld/MachO/InputFiles.cpp`); then restore
-  `-fuse-ld=lld`, `--icf=all`, and delete the upstream report and its test
+  `SkipUnknownTriples = true` in `macho::loadDylib`,
+  `lld/MachO/DriverUtils.cpp`); then restore `-fuse-ld=lld`, `--icf=all`,
+  and delete the upstream report and its test. A pin with `arm64e.x1`
+  (main's b8007a8e4, #222721; release/23.x's 532fa5afb, after 23.1.2)
+  reads the macOS 27 SDK but not the next SDK's new target, and the test
+  still reproduces then
 - upstream: `upstream/ld64-lld-unknown-tapi-target/`
 
 ## cmake-import-std-uuid

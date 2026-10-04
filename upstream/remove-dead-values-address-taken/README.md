@@ -62,6 +62,15 @@ with `ub.poison` (as the pass already does for dead op results) instead of
 dropping them; or have liveness treat the arguments of a call whose callee
 `processFuncOp` skips as live.
 
+## Status upstream
+
+Not filed yet. The open pull request
+[#208881](https://github.com/llvm/llvm-project/pull/208881), written for
+`remove-dead-values-unreachable`'s issues, would fix this case too; it is
+not merged (checked at main ed390ca4, October 2026). Add
+`address-taken.mlir` to that pull request as a test rather than filing an
+issue of its own.
+
 ## Our workaround
 
 `PINS.md`: `remove-dead-values-address-taken`. `idr-prune`

@@ -5,7 +5,10 @@
 # remui of a word that may be negative, whose result then changes. When
 # this fails, the bug is fixed: delete `exact` in idr-narrow-lanes, whose
 # fit then suffices, the PINS.md entry int-range-narrowing-exactness, the
-# report and this test (upstream/README.md).
+# report and this test (upstream/README.md). The shift is fixed on main
+# (44a4dbf32) and the remainders are not, so a bump past that commit fails
+# the shrui line alone: then drop the shift from `exact`, the report, its
+# input and this test, and keep the rest.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 input=$root/upstream/int-range-narrowing-exactness/narrowing.mlir
 bounded "$llvm_bin/mlir-opt" "$input" --arith-int-range-narrowing="int-bitwidths-supported=32" \

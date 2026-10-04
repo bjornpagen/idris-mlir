@@ -6,6 +6,27 @@
 # compile-time evaluation, whose program must behave the same. Two
 # compilations per fixture, and no suite that compiles them all again.
 
+# stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
+# same text, except that the numbered lines LINES (one number per line) hold
+# libm results, whose last places are the platform libm's, not the
+# program's: libm is not correctly rounded, and the runtime calls the
+# platform's, so a value recorded on one platform may differ from another's
+# by a few units in the last place (four here). Every other line, and the
+# number of lines, must agree exactly.
+stdout_within_a_few_ulp() {
+  awk -v lines="$3" '
+    BEGIN { while ((getline n < lines) > 0) libm[n] = 1 }
+    NR == FNR { expected[FNR] = $0; n1 = FNR; next }
+    { n2 = FNR
+      if ($0 == expected[FNR]) next
+      if (!(FNR in libm)) exit 1
+      a = expected[FNR] + 0; b = $0 + 0
+      m = (a < 0 ? -a : a); if ((b < 0 ? -b : b) > m) m = (b < 0 ? -b : b)
+      d = a - b; if (d < 0) d = -d
+      if (d > m * 2 ^ -50) exit 1 }
+    END { if (n1 != n2) exit 1 }' "$1" "$2"
+}
+
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
 # stdin against its expected-stdout and expected-exit or expected-crash,
 # with the checks of its modules (module_checks). The stock Chez
@@ -77,6 +98,9 @@ e2e_io() {
       : > "$io_expected_stdout"
     fi
     if cmp -s "$io_expected_stdout" "$work/ours.out"; then
+      say "stdout: as expected"
+    elif [ -f "$io_fixture/libm-lines" ] &&
+         stdout_within_a_few_ulp "$io_expected_stdout" "$work/ours.out" "$io_fixture/libm-lines"; then
       say "stdout: as expected"
     else
       say "stdout: differs from expected-stdout"

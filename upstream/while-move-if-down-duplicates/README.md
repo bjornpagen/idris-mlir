@@ -96,9 +96,16 @@ rewriter.modifyOpInPlace(conditionOp, [&] {
 ```
 
 and add `twice.mlir`'s loop to `mlir/test/Dialect/SCF/canonicalize.mlir`.
-`main` has this fix (checked at `1e60b852`, October 2026): the pattern now
-assigns into the specific operand, as above. It is not in 23.1.x; the next
-release with it is 24.1.0.
+
+## Status upstream
+
+Fixed on main by a65eb8723 ("[mlir][scf] Fix WhileMoveIfDown with
+duplicated scf.condition operands",
+[#219458](https://github.com/llvm/llvm-project/pull/219458)), for
+[#219456](https://github.com/llvm/llvm-project/issues/219456) (checked at
+ed390ca4, October 2026): the pattern now assigns into the specific operand,
+as above. It is not on `release/23.x`; the next release with it is 24.1.0,
+and the workaround stays until the pin moves past that commit.
 
 ## Our workaround
 

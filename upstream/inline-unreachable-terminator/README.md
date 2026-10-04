@@ -55,6 +55,16 @@ Two parts:
    and the block after the call becomes unreachable, which later cleanups
    remove.
 
+## Status upstream
+
+Not filed yet. The open issue
+[#206083](https://github.com/llvm/llvm-project/issues/206083) is the same
+family, with `vector.yield` as the terminator the inliner cannot handle; its
+pull request [#206218](https://github.com/llvm/llvm-project/pull/206218)
+fixes the vector dialect only, so `ub.unreachable` still aborts (checked at
+main ed390ca4, October 2026). File this one citing #206083, or ask there
+for part 1 of the fix, which covers both.
+
 ## Our workaround
 
 `PINS.md`: `inline-unreachable`. No function body the compiler writes ends

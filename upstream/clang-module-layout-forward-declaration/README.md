@@ -39,6 +39,13 @@ next step before filing.
 The unit compiles: the definition of `DenseMap<Operation *, DenseSetEmpty,
 ...>` is reachable through the imported wrapper module.
 
+## Status upstream
+
+Not filed yet, and not known to be fixed (checked at main ed390ca4,
+October 2026). Main's 08eb97dea
+([#219926](https://github.com/llvm/llvm-project/pull/219926)) may be
+related; that is unconfirmed. Once reduced, run the reduction against main.
+
 ## Our workaround
 
 `Escape.cppm`'s worklist and caller sets hold `func::FuncOp` (they only ever

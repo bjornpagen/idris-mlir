@@ -36,6 +36,13 @@ filing.
 The unit compiles, as it does with `#include <new>` in a global module
 fragment.
 
+## Status upstream
+
+Likely already reported: the open issue
+[#189252](https://github.com/llvm/llvm-project/issues/189252) looks like
+this bug (checked at main ed390ca4, October 2026). Once reduced, confirm it
+against that issue and add the reduction there rather than filing again.
+
 ## Our workaround
 
 `Retarget.cppm` builds the feature string in `llvm::SmallString`, which

@@ -113,6 +113,20 @@ Add the three functions of `narrowing.mlir` to
 `mlir/test/Dialect/Arith/int-range-narrowing.mlir`, expecting their ops to
 stay on `i64`.
 
+## Status upstream
+
+The shift (case 1) is fixed on main by 44a4dbf32 ("[MLIR][Arith] Don't
+narrow shifts whose amount can exceed the target width",
+[#218495](https://github.com/llvm/llvm-project/pull/218495)), for
+[#218191](https://github.com/llvm/llvm-project/issues/218191); it is not
+on `release/23.x`. The remainders are not (checked at ed390ca4, October
+2026): `remsi` still has no check for the narrow minimum rem -1, and the
+unsigned ops still allow either cast
+(`IntRangeOptimizations.cpp:396-402` there). Cases 2 and 3 are not filed
+yet; file them as one report that cites the shift fix. When the pin moves
+past 44a4dbf32, drop the shift from this report, `narrowing.mlir`, its
+check and `exact`, and keep the rest.
+
 ## Our workaround
 
 `idr-narrow-lanes` narrows a run of vectorized loops only when every wide

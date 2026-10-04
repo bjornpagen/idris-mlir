@@ -67,6 +67,16 @@ arguments. The same check belongs wherever the pass treats a value without
 liveness state as dead: a value is only dead if the analysis reached its
 uses.
 
+## Status upstream
+
+Already reported by others: the open issues
+[#206920](https://github.com/llvm/llvm-project/issues/206920) and
+[#203226](https://github.com/llvm/llvm-project/issues/203226) are this bug,
+and the open pull request
+[#208881](https://github.com/llvm/llvm-project/pull/208881) fixes it; it is
+not merged (checked at main ed390ca4, October 2026). Add `uncalled.mlir`
+and `unreachable.mlir` to those issues rather than filing again.
+
 ## Our workaround
 
 `PINS.md`: `prune-before-remove-dead-values`. `idr-prune`
