@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize -o %t.mlir
 // RUN: mlir-opt %t.mlir --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir -o %t.ll
-// RUN: clang -Wno-override-module %t.ll -o %t
+// RUN: %cc -Wno-override-module %t.ll -o %t
 // RUN: %status 14 %t
 // A loop whose scf.condition forwards one scf.if result twice, the shape of
 // upstream/while-move-if-down-duplicates: it runs once, both after-region

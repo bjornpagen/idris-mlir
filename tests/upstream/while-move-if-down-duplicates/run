@@ -15,7 +15,7 @@ returns() {
     --reconcile-unrealized-casts > "$work/$1.llvm.mlir" 2>> "$work/err" &&
     bounded "$llvm_bin/mlir-translate" --mlir-to-llvmir "$work/$1.llvm.mlir" \
       > "$work/$1.ll" 2>> "$work/err" &&
-    bounded "$pinned_cc" -Wno-override-module "$work/$1.ll" -o "$work/$1" 2>> "$work/err" ||
+    link_program -Wno-override-module "$work/$1.ll" -o "$work/$1" 2>> "$work/err" ||
     return 1
   bounded "$work/$1"
   echo $?
