@@ -99,7 +99,10 @@ These are measurements of one shared x86-64 development container (4
 CPUs), not of a quiet machine: the run-to-run spread reaches 15%, and the C
 column itself moved by up to 2x between days, so each ratio is read
 against its own run's C. ack runs in 4 ms; it measures compile-time
-specialization. The arm64 macOS run comes with that port.
+specialization. The arm64 macOS host the port targets is measured by the
+same command, with the machine idle on AC power
+(`make bench ARGS='--record bench/runs/<date>-<rev>-darwin-arm64'`); its
+record, made on that machine, sits beside Linux's here.
 [bench/](bench/README.md) says what each program measures and why each
 gap is what it is; the [full results](bench/runs/2026-10-03-861acdc/results.md)
 hold every compiler's times, the compile times and the comparison with
