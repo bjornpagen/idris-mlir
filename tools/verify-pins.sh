@@ -106,13 +106,16 @@ check() {
           [ -d "$sdk" ] || fail "the macOS SDK path $sdk is not a directory"
           [ -f "$llvm_prefix/provenance.json" ] ||
             fail "Build the pinned LLVM/MLIR with tools/bootstrap.sh stage2 first"
-          # The pinned libc++ and compiler-rt's builtins: on Darwin the
-          # builtins are one OS library (libclang_rt.osx.a), not the
+          # The pinned libc++ is installed beside the clang
+          # ($llvm_prefix/lib/libc++.a); compiler-rt's builtins are one OS
+          # library under the clang's resource directory
+          # (lib/clang/<major>/lib/darwin/libclang_rt.osx.a), not the
           # per-triple libclang_rt.builtins.a Linux installs.
-          for runtime in libc++.a 'libclang_rt.*.a'; do
-            found=$(find "$llvm_prefix/lib/clang" -name "$runtime" -print -quit 2> /dev/null)
-            [ -n "$found" ] || fail "the pinned clang has no $runtime under $llvm_prefix/lib/clang; rerun tools/bootstrap.sh stage2"
-          done
+          [ -f "$llvm_prefix/lib/libc++.a" ] ||
+            fail "the pinned clang has no $llvm_prefix/lib/libc++.a; rerun tools/bootstrap.sh stage2"
+          found=$(find "$llvm_prefix/lib/clang" -name 'libclang_rt.*.a' -print -quit 2> /dev/null)
+          [ -n "$found" ] ||
+            fail "the pinned clang has no libclang_rt.*.a under $llvm_prefix/lib/clang; rerun tools/bootstrap.sh stage2"
           stamp=$sysroot/provenance/gmp.json
           [ -f "$stamp" ] || fail "The sysroot has no gmp; run: tools/bootstrap.sh gmp"
           got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
