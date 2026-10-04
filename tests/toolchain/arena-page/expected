@@ -1,0 +1,2 @@
+an arena block keeps its bytes across a page boundary
+cell: exit 0

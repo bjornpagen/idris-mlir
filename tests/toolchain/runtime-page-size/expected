@@ -1,0 +1,3 @@
+built for this system's page size: exit 0
+built for another page size: exit 1
+  | idris-mlir: the runtime is built for a PAGESIZE-byte page, and this system has a SYSTEM-byte page

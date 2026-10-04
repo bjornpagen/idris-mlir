@@ -1,0 +1,48 @@
+#!/bin/sh
+# The runtime's startup page-size check (rt.platform::checkPageSize, the
+# first thing idris_rt_start does): a runtime built for a page size other
+# than the system's refuses to start with a named error, so a target entry
+# whose page size is wrong is caught at a program's entry, not as a subtle
+# misalignment later. The check is a partition of rt.platform
+# (runtime/Platform/Posix/Memory.cppm), so it is compiled here as the
+# target entry compiles the runtime, once for this system's page size and
+# once for a deliberately wrong one (twice as large).
+step_limit=300
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+page=$(getconf PAGESIZE)
+wrong=$((page * 2))
+case $(uname -m) in
+  arm64 | aarch64) cpu=Platform/Aarch64/Cpu.cppm; features=cpu_aarch64.h ;;
+  *) cpu=Platform/X86_64/Cpu.cppm; features=cpu_x86_64.h ;;
+esac
+
+# build NAME PAGESIZE: rt.platform, compiled for PAGESIZE as an entry
+# compiles it, with a caller of checkPageSize(), into $work/NAME.
+build() {
+  if bounded "$llvm_bin/clang++" -std=c++26 -fno-exceptions -fno-rtti -O1 \
+      -I "$root/runtime" \
+      -DIDRIS_RT_CPU_FEATURES_FILE="\"$features\"" \
+      -DIDRIS_RT_PAGE_SIZE="$2" \
+      "$root/runtime/Platform/Platform.cppm" \
+      "$root/runtime/Platform/Posix/Faults.cppm" \
+      "$root/runtime/Platform/Posix/Memory.cppm" \
+      "$root/runtime/Platform/Posix/Stacks.cppm" \
+      "$root/runtime/$cpu" \
+      "$here/check.cc" -o "$work/$1" > "$work/cc.log" 2>&1; then
+    return 0
+  fi
+  say "$1: does not compile"
+  show "$work/cc.log"
+  return 1
+}
+build right "$page" || exit 0
+build wrong "$wrong" || exit 0
+
+( bounded "$work/right" ) > "$work/right.out" 2> "$work/right.err"
+say "built for this system's page size: exit $?"
+sed 's/^/  | /' "$work/right.err"
+( bounded "$work/wrong" ) > "$work/wrong.out" 2> "$work/wrong.err"
+say "built for another page size: exit $?"
+# The message names the two page sizes; say them as roles, not numbers, so
+# the expected output is the same on a 4 KiB page as on a 16 KiB one.
+sed "s/$wrong/PAGESIZE/g; s/$page/SYSTEM/g; s/^/  | /" "$work/wrong.err"
