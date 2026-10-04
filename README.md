@@ -99,10 +99,27 @@ These are measurements of one shared x86-64 development container (4
 CPUs), not of a quiet machine: the run-to-run spread reaches 15%, and the C
 column itself moved by up to 2x between days, so each ratio is read
 against its own run's C. ack runs in 4 ms; it measures compile-time
-specialization. The arm64 macOS host the port targets is measured by the
-same command, with the machine idle on AC power
-(`make bench ARGS='--record bench/runs/<date>-<rev>-darwin-arm64'`); its
-record, made on that machine, sits beside Linux's here.
+specialization.
+
+The same twenty-six on arm64 macOS, measured by the same command on
+2026-10-04 at 15f1a53 on an Apple M2 Max (12 CPUs, 16 KiB pages, macOS
+on AC power; the desktop's own applications were running), for CPU
+apple-m1, with the stack at macOS's 64 MiB hard limit:
+
+![This compiler against clang -O2 on arm64 macOS](bench/runs/2026-10-04-15f1a53-darwin-arm64/vs-c.svg)
+
+![This compiler against Idris on Chez Scheme on arm64 macOS](bench/runs/2026-10-04-15f1a53-darwin-arm64/vs-chez.svg)
+
+Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
+on 6 (fannkuch-redux, fasta, k-nucleotide, pidigits, reverse-complement,
+spectral-norm); against Idris on Chez Scheme it is faster on all 26, from
+1.07x (regex-redux) to 153x (spectral-norm-linear). Against its own C
+the Mac run is behind the Linux one on the allocation-heavy programs
+(binary-trees, cfold, deriv), on fannkuch-redux and on pidigits, and
+ahead on fib, rbtree and reverse-complement; why is not measured yet.
+Its [results](bench/runs/2026-10-04-15f1a53-darwin-arm64/results.md)
+hold every time and compare each ratio with the Linux record's.
+
 [bench/](bench/README.md) says what each program measures and why each
 gap is what it is; the [full results](bench/runs/2026-10-03-861acdc/results.md)
 hold every compiler's times, the compile times and the comparison with

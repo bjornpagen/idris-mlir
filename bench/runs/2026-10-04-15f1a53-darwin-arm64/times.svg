@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="692" viewBox="0 0 840 692" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="100%" height="100%" fill="#0d1117"/>
+<text x="190.0" y="24.0" text-anchor="start" font-size="16" fill="#c9d1d9" font-weight="600">Best time of each compiler, per benchmark</text>
+<rect x="190.0" y="36" width="10" height="10" fill="#58a6ff"/>
+<text x="204.0" y="45.0" text-anchor="start" font-size="12" fill="#c9d1d9">this compiler</text>
+<rect x="313.0" y="36" width="10" height="10" fill="#d29922"/>
+<text x="327.0" y="45.0" text-anchor="start" font-size="12" fill="#c9d1d9">Idris Chez</text>
+<rect x="415.0" y="36" width="10" height="10" fill="#8b949e"/>
+<text x="429.0" y="45.0" text-anchor="start" font-size="12" fill="#c9d1d9">clang -O2</text>
+<line x1="190.0" y1="64" x2="190.0" y2="642" stroke="#30363d"/>
+<text x="190.0" y="660.0" text-anchor="middle" font-size="11" fill="#8b949e">10 ms</text>
+<line x1="330.0" y1="64" x2="330.0" y2="642" stroke="#30363d"/>
+<text x="330.0" y="660.0" text-anchor="middle" font-size="11" fill="#8b949e">100 ms</text>
+<line x1="470.0" y1="64" x2="470.0" y2="642" stroke="#30363d"/>
+<text x="470.0" y="660.0" text-anchor="middle" font-size="11" fill="#8b949e">1 s</text>
+<line x1="610.0" y1="64" x2="610.0" y2="642" stroke="#30363d"/>
+<text x="610.0" y="660.0" text-anchor="middle" font-size="11" fill="#8b949e">10 s</text>
+<line x1="750.0" y1="64" x2="750.0" y2="642" stroke="#30363d"/>
+<text x="750.0" y="660.0" text-anchor="middle" font-size="11" fill="#8b949e">100 s</text>
+<text x="180.0" y="84.0" text-anchor="end" font-size="12" fill="#c9d1d9">ack</text>
+<rect x="190" y="75.0" width="6.9" height="3" fill="#58a6ff"><title>ack, this compiler: 0.011 s</title></rect>
+<rect x="190" y="79.0" width="247.3" height="3" fill="#d29922"><title>ack, Idris Chez: 0.584 s</title></rect>
+<rect x="190" y="83.0" width="157.7" height="3" fill="#8b949e"><title>ack, clang -O2: 0.134 s</title></rect>
+<text x="180.0" y="106.0" text-anchor="end" font-size="12" fill="#c9d1d9">ackdyn</text>
+<rect x="190" y="97.0" width="162.7" height="3" fill="#58a6ff"><title>ackdyn, this compiler: 0.145 s</title></rect>
+<rect x="190" y="101.0" width="247.4" height="3" fill="#d29922"><title>ackdyn, Idris Chez: 0.585 s</title></rect>
+<rect x="190" y="105.0" width="157.1" height="3" fill="#8b949e"><title>ackdyn, clang -O2: 0.132 s</title></rect>
+<text x="180.0" y="128.0" text-anchor="end" font-size="12" fill="#c9d1d9">binary-trees</text>
+<rect x="190" y="119.0" width="368.4" height="3" fill="#58a6ff"><title>binary-trees, this compiler: 4.278 s</title></rect>
+<rect x="190" y="123.0" width="468.3" height="3" fill="#d29922"><title>binary-trees, Idris Chez: 22.144 s</title></rect>
+<rect x="190" y="127.0" width="431.5" height="3" fill="#8b949e"><title>binary-trees, clang -O2: 12.080 s</title></rect>
+<text x="180.0" y="150.0" text-anchor="end" font-size="12" fill="#c9d1d9">cfold</text>
+<rect x="190" y="141.0" width="122.6" height="3" fill="#58a6ff"><title>cfold, this compiler: 0.075 s</title></rect>
+<rect x="190" y="145.0" width="214.5" height="3" fill="#d29922"><title>cfold, Idris Chez: 0.341 s</title></rect>
+<rect x="190" y="149.0" width="140.2" height="3" fill="#8b949e"><title>cfold, clang -O2: 0.100 s</title></rect>
+<text x="180.0" y="172.0" text-anchor="end" font-size="12" fill="#c9d1d9">collatz</text>
+<rect x="190" y="163.0" width="228.1" height="3" fill="#58a6ff"><title>collatz, this compiler: 0.426 s</title></rect>
+<rect x="190" y="167.0" width="427.9" height="3" fill="#d29922"><title>collatz, Idris Chez: 11.381 s</title></rect>
+<rect x="190" y="171.0" width="227.8" height="3" fill="#8b949e"><title>collatz, clang -O2: 0.424 s</title></rect>
+<text x="180.0" y="194.0" text-anchor="end" font-size="12" fill="#c9d1d9">deriv</text>
+<rect x="190" y="185.0" width="247.5" height="3" fill="#58a6ff"><title>deriv, this compiler: 0.586 s</title></rect>
+<rect x="190" y="189.0" width="316.0" height="3" fill="#d29922"><title>deriv, Idris Chez: 1.809 s</title></rect>
+<rect x="190" y="193.0" width="291.1" height="3" fill="#8b949e"><title>deriv, clang -O2: 1.200 s</title></rect>
+<text x="180.0" y="216.0" text-anchor="end" font-size="12" fill="#c9d1d9">fannkuch-linear</text>
+<rect x="190" y="207.0" width="169.4" height="3" fill="#58a6ff"><title>fannkuch-linear, this compiler: 0.162 s</title></rect>
+<rect x="190" y="211.0" width="328.8" height="3" fill="#d29922"><title>fannkuch-linear, Idris Chez: 2.230 s</title></rect>
+<rect x="190" y="215.0" width="172.8" height="3" fill="#8b949e"><title>fannkuch-linear, clang -O2: 0.172 s</title></rect>
+<text x="180.0" y="238.0" text-anchor="end" font-size="12" fill="#c9d1d9">fannkuch-redux</text>
+<rect x="190" y="229.0" width="188.9" height="3" fill="#58a6ff"><title>fannkuch-redux, this compiler: 0.224 s</title></rect>
+<rect x="190" y="233.0" width="391.6" height="3" fill="#d29922"><title>fannkuch-redux, Idris Chez: 6.265 s</title></rect>
+<rect x="190" y="237.0" width="172.8" height="3" fill="#8b949e"><title>fannkuch-redux, clang -O2: 0.172 s</title></rect>
+<text x="180.0" y="260.0" text-anchor="end" font-size="12" fill="#c9d1d9">fasta</text>
+<rect x="190" y="251.0" width="120.4" height="3" fill="#58a6ff"><title>fasta, this compiler: 0.072 s</title></rect>
+<rect x="190" y="255.0" width="176.4" height="3" fill="#d29922"><title>fasta, Idris Chez: 0.182 s</title></rect>
+<rect x="190" y="259.0" width="82.9" height="3" fill="#8b949e"><title>fasta, clang -O2: 0.039 s</title></rect>
+<text x="180.0" y="282.0" text-anchor="end" font-size="12" fill="#c9d1d9">fib</text>
+<rect x="190" y="273.0" width="143.6" height="3" fill="#58a6ff"><title>fib, this compiler: 0.106 s</title></rect>
+<rect x="190" y="277.0" width="320.7" height="3" fill="#d29922"><title>fib, Idris Chez: 1.953 s</title></rect>
+<rect x="190" y="281.0" width="152.4" height="3" fill="#8b949e"><title>fib, clang -O2: 0.123 s</title></rect>
+<text x="180.0" y="304.0" text-anchor="end" font-size="12" fill="#c9d1d9">harmonic</text>
+<rect x="190" y="295.0" width="182.2" height="3" fill="#58a6ff"><title>harmonic, this compiler: 0.200 s</title></rect>
+<rect x="190" y="299.0" width="353.8" height="3" fill="#d29922"><title>harmonic, Idris Chez: 3.365 s</title></rect>
+<rect x="190" y="303.0" width="181.4" height="3" fill="#8b949e"><title>harmonic, clang -O2: 0.197 s</title></rect>
+<text x="180.0" y="326.0" text-anchor="end" font-size="12" fill="#c9d1d9">k-nucleotide</text>
+<rect x="190" y="317.0" width="341.6" height="3" fill="#58a6ff"><title>k-nucleotide, this compiler: 2.754 s</title></rect>
+<rect x="190" y="321.0" width="407.9" height="3" fill="#d29922"><title>k-nucleotide, Idris Chez: 8.200 s</title></rect>
+<rect x="190" y="325.0" width="84.8" height="3" fill="#8b949e"><title>k-nucleotide, clang -O2: 0.040 s</title></rect>
+<text x="180.0" y="348.0" text-anchor="end" font-size="12" fill="#c9d1d9">mandelbrot</text>
+<rect x="190" y="339.0" width="189.7" height="3" fill="#58a6ff"><title>mandelbrot, this compiler: 0.226 s</title></rect>
+<rect x="190" y="343.0" width="349.5" height="3" fill="#d29922"><title>mandelbrot, Idris Chez: 3.134 s</title></rect>
+<rect x="190" y="347.0" width="189.3" height="3" fill="#8b949e"><title>mandelbrot, clang -O2: 0.225 s</title></rect>
+<text x="180.0" y="370.0" text-anchor="end" font-size="12" fill="#c9d1d9">mandelbrot-pbm</text>
+<rect x="190" y="361.0" width="270.9" height="3" fill="#58a6ff"><title>mandelbrot-pbm, this compiler: 0.861 s</title></rect>
+<rect x="190" y="365.0" width="435.7" height="3" fill="#d29922"><title>mandelbrot-pbm, Idris Chez: 12.948 s</title></rect>
+<rect x="190" y="369.0" width="275.1" height="3" fill="#8b949e"><title>mandelbrot-pbm, clang -O2: 0.923 s</title></rect>
+<text x="180.0" y="392.0" text-anchor="end" font-size="12" fill="#c9d1d9">nbody</text>
+<rect x="190" y="383.0" width="175.0" height="3" fill="#58a6ff"><title>nbody, this compiler: 0.178 s</title></rect>
+<rect x="190" y="387.0" width="374.4" height="3" fill="#d29922"><title>nbody, Idris Chez: 4.722 s</title></rect>
+<rect x="190" y="391.0" width="183.3" height="3" fill="#8b949e"><title>nbody, clang -O2: 0.204 s</title></rect>
+<text x="180.0" y="414.0" text-anchor="end" font-size="12" fill="#c9d1d9">nqueens</text>
+<rect x="190" y="405.0" width="241.6" height="3" fill="#58a6ff"><title>nqueens, this compiler: 0.532 s</title></rect>
+<rect x="190" y="409.0" width="397.9" height="3" fill="#d29922"><title>nqueens, Idris Chez: 6.949 s</title></rect>
+<rect x="190" y="413.0" width="249.0" height="3" fill="#8b949e"><title>nqueens, clang -O2: 0.600 s</title></rect>
+<text x="180.0" y="436.0" text-anchor="end" font-size="12" fill="#c9d1d9">pidigits</text>
+<rect x="190" y="427.0" width="253.2" height="3" fill="#58a6ff"><title>pidigits, this compiler: 0.644 s</title></rect>
+<rect x="190" y="431.0" width="361.7" height="3" fill="#d29922"><title>pidigits, Idris Chez: 3.833 s</title></rect>
+<rect x="190" y="435.0" width="228.6" height="3" fill="#8b949e"><title>pidigits, clang -O2: 0.430 s</title></rect>
+<text x="180.0" y="458.0" text-anchor="end" font-size="12" fill="#c9d1d9">qsort</text>
+<rect x="190" y="449.0" width="279.9" height="3" fill="#58a6ff"><title>qsort, this compiler: 0.998 s</title></rect>
+<rect x="190" y="453.0" width="405.7" height="3" fill="#d29922"><title>qsort, Idris Chez: 7.901 s</title></rect>
+<rect x="190" y="457.0" width="276.0" height="3" fill="#8b949e"><title>qsort, clang -O2: 0.936 s</title></rect>
+<text x="180.0" y="480.0" text-anchor="end" font-size="12" fill="#c9d1d9">rbtree</text>
+<rect x="190" y="471.0" width="224.4" height="3" fill="#58a6ff"><title>rbtree, this compiler: 0.401 s</title></rect>
+<rect x="190" y="475.0" width="300.5" height="3" fill="#d29922"><title>rbtree, Idris Chez: 1.400 s</title></rect>
+<rect x="190" y="479.0" width="265.6" height="3" fill="#8b949e"><title>rbtree, clang -O2: 0.789 s</title></rect>
+<text x="180.0" y="502.0" text-anchor="end" font-size="12" fill="#c9d1d9">rbtree-ck</text>
+<rect x="190" y="493.0" width="282.7" height="3" fill="#58a6ff"><title>rbtree-ck, this compiler: 1.046 s</title></rect>
+<rect x="190" y="497.0" width="358.7" height="3" fill="#d29922"><title>rbtree-ck, Idris Chez: 3.651 s</title></rect>
+<rect x="190" y="501.0" width="294.1" height="3" fill="#8b949e"><title>rbtree-ck, clang -O2: 1.261 s</title></rect>
+<text x="180.0" y="524.0" text-anchor="end" font-size="12" fill="#c9d1d9">regex-redux</text>
+<rect x="190" y="515.0" width="365.2" height="3" fill="#58a6ff"><title>regex-redux, this compiler: 4.061 s</title></rect>
+<rect x="190" y="519.0" width="369.2" height="3" fill="#d29922"><title>regex-redux, Idris Chez: 4.338 s</title></rect>
+<text x="180.0" y="546.0" text-anchor="end" font-size="12" fill="#c9d1d9">reverse-complement</text>
+<rect x="190" y="537.0" width="120.8" height="3" fill="#58a6ff"><title>reverse-complement, this compiler: 0.073 s</title></rect>
+<rect x="190" y="541.0" width="347.5" height="3" fill="#d29922"><title>reverse-complement, Idris Chez: 3.033 s</title></rect>
+<rect x="190" y="545.0" width="33.0" height="3" fill="#8b949e"><title>reverse-complement, clang -O2: 0.017 s</title></rect>
+<text x="180.0" y="568.0" text-anchor="end" font-size="12" fill="#c9d1d9">spectral-norm</text>
+<rect x="190" y="559.0" width="305.0" height="3" fill="#58a6ff"><title>spectral-norm, this compiler: 1.508 s</title></rect>
+<rect x="190" y="563.0" width="551.4" height="3" fill="#d29922"><title>spectral-norm, Idris Chez: 86.811 s</title></rect>
+<rect x="190" y="567.0" width="285.8" height="3" fill="#8b949e"><title>spectral-norm, clang -O2: 1.100 s</title></rect>
+<text x="180.0" y="590.0" text-anchor="end" font-size="12" fill="#c9d1d9">spectral-norm-linear</text>
+<rect x="190" y="581.0" width="246.6" height="3" fill="#58a6ff"><title>spectral-norm-linear, this compiler: 0.578 s</title></rect>
+<rect x="190" y="585.0" width="552.6" height="3" fill="#d29922"><title>spectral-norm-linear, Idris Chez: 88.573 s</title></rect>
+<rect x="190" y="589.0" width="286.5" height="3" fill="#8b949e"><title>spectral-norm-linear, clang -O2: 1.114 s</title></rect>
+<text x="180.0" y="612.0" text-anchor="end" font-size="12" fill="#c9d1d9">tak</text>
+<rect x="190" y="603.0" width="123.6" height="3" fill="#58a6ff"><title>tak, this compiler: 0.076 s</title></rect>
+<rect x="190" y="607.0" width="262.4" height="3" fill="#d29922"><title>tak, Idris Chez: 0.748 s</title></rect>
+<rect x="190" y="611.0" width="123.5" height="3" fill="#8b949e"><title>tak, clang -O2: 0.076 s</title></rect>
+<text x="180.0" y="634.0" text-anchor="end" font-size="12" fill="#c9d1d9">unionfind</text>
+<rect x="190" y="625.0" width="134.0" height="3" fill="#58a6ff"><title>unionfind, this compiler: 0.091 s</title></rect>
+<rect x="190" y="629.0" width="293.8" height="3" fill="#d29922"><title>unionfind, Idris Chez: 1.255 s</title></rect>
+<rect x="190" y="633.0" width="141.0" height="3" fill="#8b949e"><title>unionfind, clang -O2: 0.102 s</title></rect>
+<text x="470.0" y="680.0" text-anchor="middle" font-size="11" fill="#8b949e">best wall-clock time, log scale; a missing bar: that compiler has no version of the program</text>
+</svg>

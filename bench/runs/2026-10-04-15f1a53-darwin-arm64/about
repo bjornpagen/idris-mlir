@@ -1,0 +1,8 @@
+Measured on 2026-10-04 at 15:42 UTC, at 15f1a53.
+
+Host: Darwin 27.0.0 arm64, Apple M2 Max, 12 CPUs.
+Stack: 65520 KiB (ulimit -s), the most this system allows.
+
+- this compiler: 15f1a53, for arm64-apple-macosx14.0, CPU apple-m1; link flags: --target=arm64-apple-macosx14.0 -Wl,-dead_strip /Users/bjorn/Documents/idris-mlir/.toolchain/sysroot/usr/lib/libgmp.a
+- Idris Chez: Idris 2, version 0.8.0-1c630e67c; Chez Scheme 10.4.1
+- clang -O2: clang version 23.1.2 (https://github.com/llvm/llvm-project.git 85ac560262434c9ccfc0c183ec22d4138ed647fb)

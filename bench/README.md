@@ -29,9 +29,7 @@ program built by every compiler, best of 5 runs, measured on 2026-10-03
 at 861acdc on a shared development container (x86-64, 4 CPUs, a Xeon at
 2.10 GHz) with LLVM 23.1.2 and Chez Scheme 10.4.1. Its results page holds
 the full table, the compile times and the comparison with the record
-before it. The macOS record, on the arm64 host, is recorded beside this
-one with `make bench ARGS='--record bench/runs/<date>-<rev>-darwin-arm64'`
-on that machine.
+before it. The arm64 macOS record is beside it, below.
 
 ![This compiler against clang -O2](runs/2026-10-03-861acdc/vs-c.svg)
 
@@ -52,6 +50,35 @@ Since the record before it (2026-10-02, 903d127): fannkuch-redux went from
 value), spectral-norm-linear from 0.99x to 1.99x (idr-narrow-lanes' 32-bit
 lanes) and reverse-complement from 0.08x to 0.12x; the rest moved within
 the spread.
+
+The arm64 macOS record is
+[`runs/2026-10-04-15f1a53-darwin-arm64`](runs/2026-10-04-15f1a53-darwin-arm64/results.md):
+the same programs and command, best of 5 runs, measured on 2026-10-04 at
+15f1a53 on an Apple M2 Max (12 CPUs, 16 KiB pages) on AC power, with the
+desktop's own applications running, so not a quiet machine either. This
+compiler targets apple-m1 there and links dynamic executables against
+libSystem with the host's ld64; clang's C is built for the same CPU and
+linked the same way, and the stack is macOS's 64 MiB hard limit, which
+cfold fits.
+
+![This compiler against clang -O2 on arm64 macOS](runs/2026-10-04-15f1a53-darwin-arm64/vs-c.svg)
+
+![This compiler against Idris on Chez Scheme on arm64 macOS](runs/2026-10-04-15f1a53-darwin-arm64/vs-chez.svg)
+
+![Best time of each compiler on arm64 macOS](runs/2026-10-04-15f1a53-darwin-arm64/times.svg)
+
+Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
+on 6 (fannkuch-redux, fasta, k-nucleotide, pidigits, reverse-complement
+and spectral-norm); against Idris on Chez Scheme it is faster on all 26,
+from 1.07x (regex-redux) to 153x (spectral-norm-linear). Compiling a
+program takes 1.0 to 7.1 seconds. Its results page compares each ratio
+with the Linux record's, each against its own run's C: the Mac is behind
+on the allocation-heavy programs (binary-trees, cfold, deriv), on
+fannkuch-redux and on pidigits, ahead on fib, rbtree, unionfind and
+reverse-complement, and k-nucleotide, whose C runs in 40 ms there, falls
+from 0.05x to 0.01x. ack takes 11 ms there against Linux's 4 ms; an
+empty program starts in about 2 ms on this Mac, so start-up is not all of
+the difference, and it is not measured further yet.
 
 How to read them. The run-to-run spread on this container reaches 15%, so
 a ratio within that of 1 is parity. The C column itself moved by up to 2x
