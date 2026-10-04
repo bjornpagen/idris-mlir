@@ -1,0 +1,67 @@
+prepared runtime: one object
+api: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc leak: the same output, live cells and exit status (0) with the prepared runtime as with the archive
+rc crash: the same output, live cells and exit status (1) with the prepared runtime as with the archive
+the prepared runtime needs:
+  _CCRandomGenerateBytes
+  ___aarch64_cpu_features
+  ___error
+  ___gmp_set_memory_functions
+  ___gmpz_add
+  ___gmpz_and
+  ___gmpz_cdiv_q
+  ___gmpz_clear
+  ___gmpz_cmp
+  ___gmpz_fdiv_q
+  ___gmpz_fits_slong_p
+  ___gmpz_get_si
+  ___gmpz_get_str
+  ___gmpz_init
+  ___gmpz_ior
+  ___gmpz_limbs_read
+  ___gmpz_mod
+  ___gmpz_mul
+  ___gmpz_roinit_n
+  ___gmpz_set
+  ___gmpz_set_d
+  ___gmpz_set_si
+  ___gmpz_set_str
+  ___gmpz_set_ui
+  ___gmpz_sizeinbase
+  ___gmpz_sub
+  ___gmpz_xor
+  ___init_cpu_features_resolver
+  ___stack_chk_fail
+  ___stack_chk_guard
+  ___ulock_wait
+  ___ulock_wake
+  __exit
+  __tlv_bootstrap
+  _abort
+  _bzero
+  _clock_gettime
+  _fsync
+  _getenv
+  _getrlimit
+  _ldexp
+  _mach_task_self_
+  _mach_vm_map
+  _madvise
+  _memcpy
+  _memmove
+  _mmap
+  _mprotect
+  _munmap
+  _pthread_attr_destroy
+  _pthread_attr_init
+  _pthread_attr_setstack
+  _pthread_create
+  _pthread_join
+  _read
+  _sigaction
+  _sigaltstack
+  _strlen
+  _sysconf
+  _write
+  _writev

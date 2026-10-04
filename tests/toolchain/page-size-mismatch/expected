@@ -1,0 +1,3 @@
+built for the system's page: exit 0, the program ran, nothing on stderr
+built for a smaller page: exit 1, the program did not run, stderr names the page it was built for and the system's
+built for a larger page: exit 1, the program did not run, stderr names the page it was built for and the system's

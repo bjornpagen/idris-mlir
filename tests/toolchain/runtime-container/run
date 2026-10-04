@@ -36,11 +36,16 @@ if cmp -s "$work/beside.o" "$work/beside2.o" && cmp -s "$work/beside.bc" "$work/
 else
   say "prepared beside, twice: differs"
 fi
-if [ "$(od -An -tx1 -N4 "$work/beside.bc" | tr -d ' \n')" = 4243c0de ]; then
-  say "beside: the bitcode in a file of its own, next to the object"
-else
-  say "beside: no bitcode next to the object"
-fi
+# Raw bitcode ('B' 'C' 0xc0 0xde), or the wrapper LLVM writes on Darwin so
+# that the system archiver reads it (0x0B17C0DE, then the offset and size);
+# parseBitcodeFile reads both, so either is the bitcode in a file of its own.
+beside_magic=$(od -An -tx1 -N4 "$work/beside.bc" | tr -d ' \n')
+case $beside_magic in
+  4243c0de | dec0170b)
+    say "beside: the bitcode in a file of its own, next to the object" ;;
+  *)
+    say "beside: no bitcode next to the object" ;;
+esac
 
 cat > "$work/sum.mlir" <<'MLIR'
 module attributes {idr.program} {

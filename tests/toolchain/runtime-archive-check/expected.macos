@@ -7,9 +7,9 @@ cxx: exit 1
   |   _Znwm
 ctor: exit 1
   | runtime check: the runtime has static constructors or destructors:
-  |   ctor.a(ctor.o): .init_array
+  |   ctor.a(ctor.o): __mod_init_func
 blind: exit 1
-  | runtime check: blind.a defines no idris_rt_start once '' is taken off its names, so nothing was checked
+  | runtime check: blind.a defines no idris_rt_start once '_' is taken off its names, so nothing was checked
 macho-clean: exit 0
   | runtime check: no C++ runtime symbol referenced, no static constructors
 macho-cxx: exit 1

@@ -1,0 +1,28 @@
+elf-clean: exit 0
+  | runtime check: no C++ runtime symbol referenced, no static constructors
+elf-ctor: exit 1
+  | runtime check: the runtime has static constructors or destructors:
+  |   elf-ctor.a(elf-ctor.o): .init_array
+elf-cxx: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm
+elf-cxx-clean: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm
+elf-clean-cxx: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm
+macho-clean: exit 0
+  | runtime check: no C++ runtime symbol referenced, no static constructors
+macho-ctor: exit 1
+  | runtime check: the runtime has static constructors or destructors:
+  |   macho-ctor.a(macho-ctor.o): __mod_init_func
+macho-cxx: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm
+macho-cxx-clean: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm
+macho-clean-cxx: exit 1
+  | runtime check: the runtime references the C++ runtime:
+  |   _Znwm

@@ -1,0 +1,6 @@
+a block of two pages and more, off a page boundary: keeps its bytes across every page it spans
+a block that starts a fresh chunk: starts on a page and keeps its bytes
+a block larger than a chunk: keeps its bytes at its start and across its last pages
+a cell of more than a page, from the arena: persistent, and keeps its bytes
+every block 16-byte aligned: yes
+arena: exit 0
