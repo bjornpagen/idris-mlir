@@ -302,11 +302,14 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
 
 /* The exit status of a program that the runtime ends with a message on
  * standard error ("idris-mlir: <cause>"): a crash, the stack running out, a
- * CPU without the features the program was compiled to use. */
+ * CPU without the features the program was compiled to use, a system whose
+ * page size is not the one the runtime is built for. */
 #define IDRIS_RT_CRASHED 1
 
 /* The program's entry, which @main calls with the program and the
- * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h). When the
+ * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h). First,
+ * when the system's page size is not the target's the runtime is built for,
+ * it names both and ends the process with IDRIS_RT_CRASHED. When the
  * CPU lacks one of them, it names them and ends the process with
  * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir-cc
  * keeps it there. Otherwise it runs body on a reserved stack
@@ -323,10 +326,12 @@ int32_t idris_rt_start(int64_t (*body)(void), uint64_t cpu);
  * evaluation's child share: runs fn(arg) on a new thread whose stack is
  * reserved address space, committed as it is touched, of the largest size
  * from `most` bytes down by halves to 64 MiB (or `most`, when smaller)
- * that the machine grants, with `guard` inaccessible bytes below it. A fault on the guard is the stack
+ * that the machine grants, with `guard` inaccessible bytes below it. Both
+ * are rounded up to whole pages, and the guard is at least one. A fault on the guard is the stack
  * running out: exhausted() runs, on a signal stack of its own, and must end
  * the process with only async-signal-safe calls. Any other fault gets the
- * action it had before. One runner runs at a time in a process. Returns 0
+ * action it had before. One runner runs at a time in a process. It checks
+ * the page size first, as idris_rt_start does. Returns 0
  * once fn has returned, or -1 when no stack could be reserved. */
 int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                           void (*exhausted)(void));

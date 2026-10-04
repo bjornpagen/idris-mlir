@@ -1,0 +1,24 @@
+#!/bin/sh
+# Compile-time evaluation's arena hands out blocks that cross pages of the
+# target's page size and chunks of whole pages: a block of more than two
+# pages off a page boundary, one that starts a fresh chunk, one larger than
+# a chunk and a cell of more than a page each keep every byte, and every
+# block is 16-byte aligned. The page size is the build's (runtime/page-size,
+# the target entry's), never a constant of the test.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+runtime=$build/runtime/libidris_rt.a
+page=$(cat "$build/runtime/page-size" 2> /dev/null)
+case $page in
+  '' | *[!0-9]*)
+    say "the build records no page size ($build/runtime/page-size)"
+    exit 0 ;;
+esac
+if ! link_program -O1 -I"$root/runtime" "-DTEST_PAGE_SIZE=$page" "$here/arena.c" "$runtime" \
+    -o "$work/arena" > "$work/cc.log" 2>&1; then
+  say "arena: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+bounded "$work/arena"
+say "arena: exit $?"

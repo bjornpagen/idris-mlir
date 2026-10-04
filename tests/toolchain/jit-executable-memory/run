@@ -1,0 +1,109 @@
+#!/bin/sh
+# Compile-time evaluation runs code its JIT wrote, which LLVM's in-process
+# memory manager maps writable, then executable and never writable again
+# (no MAP_JIT): macOS lets a process do that unless it runs under the
+# hardened runtime, which kills a process that runs such code, after
+# mprotect has said yes; then only the entitlement
+# com.apple.security.cs.allow-unsigned-executable-memory lets it, and
+# com.apple.security.cs.allow-jit, which is for MAP_JIT memory, does not.
+# idris-mlir-cc, copied and signed each way, compiles tests/idr/e2e/eval.mlir
+# (whose closed calls idr-eval evaluates): as the build signs it, and with
+# that entitlement, it evaluates them; under the hardened runtime without
+# it, it rejects the compilation with an error that names the entitlement,
+# rather than taking every call to have failed. --no-eval compiles under
+# any signature. Every program prints what the build's own compiler's does.
+# Every copy may load libraries signed by others
+# (com.apple.security.cs.disable-library-validation), which has nothing to
+# do with executable memory.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+source=$root/tests/idr/e2e/eval.mlir
+runtime=$("$idris_mlir_cc" --print-runtime)
+
+# entitlements NAME KEY...: a property list that grants each KEY.
+entitlements() {
+  entitlements_name=$1
+  shift
+  {
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+      '<plist version="1.0"><dict>'
+    for entitlements_key in com.apple.security.cs.disable-library-validation "$@"; do
+      printf '<key>%s</key><true/>\n' "$entitlements_key"
+    done
+    printf '%s\n' '</dict></plist>'
+  } > "$work/$entitlements_name.plist"
+}
+
+# signed NAME [ENTITLEMENTS]: idris-mlir-cc copied to $work/NAME, signed ad
+# hoc under the hardened runtime with ENTITLEMENTS' property list, or as
+# the build signed it when none is named.
+signed() {
+  cp "$idris_mlir_cc" "$work/$1"
+  [ $# -gt 1 ] || return 0
+  if ! bounded codesign --force --sign - --options runtime --entitlements "$work/$2.plist" \
+      "$work/$1" > "$work/codesign.log" 2>&1; then
+    say "$1: cannot be signed"
+    show "$work/codesign.log"
+    return 1
+  fi
+}
+
+# compile NAME OPTION...: eval.mlir compiled by $work/NAME: its exit status,
+# whether it was killed, whether a call was evaluated, whether an error
+# names the entitlement, and what the program it made prints.
+compile() {
+  compile_name=$1
+  shift
+  bounded "$work/$compile_name" "$source" -o "$work/$compile_name.o" --remarks=idr-eval "$@" \
+    > "$work/$compile_name.log" 2>&1
+  compile_status=$?
+  if grep -q '\[Passed\] Evaluated' "$work/$compile_name.log"; then
+    evaluated="calls evaluated"
+  else
+    evaluated="no call evaluated"
+  fi
+  if grep -q 'com.apple.security.cs.allow-unsigned-executable-memory' "$work/$compile_name.log"; then
+    named=", the error names the entitlement"
+  else
+    named=
+  fi
+  printed="no program"
+  if [ "$compile_status" -eq 0 ]; then
+    if link_program "$work/$compile_name.o" "$runtime" -o "$work/$compile_name.exe" \
+        > "$work/ld.log" 2>&1; then
+      bounded "$work/$compile_name.exe" > "$work/$compile_name.out" 2>&1
+      if cmp -s "$work/$compile_name.out" "$work/reference.out"; then
+        printed="the program prints what the build's compiler's prints"
+      else
+        printed="the program prints something else"
+      fi
+    else
+      printed="the program does not link"
+    fi
+  fi
+  say "${compile_name}${*:+ $*}: exit $compile_status, $evaluated$named, $printed"
+  [ "$compile_status" -lt 128 ] || show "$work/$compile_name.log"
+}
+
+# What the build's own compiler makes of it, the reference.
+if ! bounded "$idris_mlir_cc" "$source" -o "$work/reference.o" > "$work/reference.log" 2>&1 ||
+   ! link_program "$work/reference.o" "$runtime" -o "$work/reference" > "$work/ld.log" 2>&1; then
+  say "reference: does not compile or link"
+  show "$work/reference.log" "$work/ld.log"
+  exit 0
+fi
+bounded "$work/reference" > "$work/reference.out" 2>&1
+
+entitlements libraries
+entitlements jit com.apple.security.cs.allow-jit
+entitlements unsigned com.apple.security.cs.allow-unsigned-executable-memory
+signed as-built || exit 0
+signed hardened libraries || exit 0
+signed hardened-allow-jit jit || exit 0
+signed hardened-allow-unsigned unsigned || exit 0
+compile as-built
+compile hardened
+compile hardened --no-eval
+compile hardened-allow-jit
+compile hardened-allow-unsigned

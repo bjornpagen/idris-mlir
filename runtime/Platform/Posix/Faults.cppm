@@ -14,8 +14,9 @@ void (*faultHandler)(uintptr_t) = nullptr;
 struct sigaction previousSegv {};
 struct sigaction previousBus {};
 
-// A stack running into its guard is SIGSEGV on Linux and may be SIGBUS on
-// macOS, so both are caught.
+// A stack running into its guard is SIGSEGV on Linux and SIGBUS on macOS,
+// which reports a fault on a mapped page it may not touch as a bus error;
+// both carry the faulting address in si_addr, so both are caught.
 void onSignal(int signal, siginfo_t *info, void *) {
   faultHandler(reinterpret_cast<uintptr_t>(info->si_addr));
   sigaction(signal, signal == SIGBUS ? &previousBus : &previousSegv, nullptr);

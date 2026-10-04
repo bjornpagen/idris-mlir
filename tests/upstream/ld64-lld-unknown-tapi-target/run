@@ -1,0 +1,39 @@
+#!/bin/sh
+# The upstream bug upstream/ld64-lld-unknown-tapi-target still reproduces
+# with the pinned ld64.lld: it refuses a .tbd that names a target LLVM
+# 23.1.2 does not know (the macOS 27 SDK's arm64e.x1), so every link
+# against libSystem in that SDK fails. When this test fails because
+# unknown.tbd links, ld64.lld reads newer stubs: drop the PINS.md entry
+# darwin-ld64-tapi, go back to -fuse-ld=lld in the pinned clang's
+# configuration file (tools/bootstrap.sh) and the Darwin target entry's
+# IDRIS_MLIR_EXECUTABLE_FLAGS (CMakeLists.txt), and delete the report and
+# this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+report=$root/upstream/ld64-lld-unknown-tapi-target
+
+if ! bounded "$llvm_bin/clang" --target=x86_64-apple-macosx14.0 -c "$report/min.c" \
+    -o "$work/min.o" > "$work/cc.log" 2>&1; then
+  say "min.o: does not compile (the pinned clang has no X86 target?)"
+  show "$work/cc.log"
+  exit 0
+fi
+# known.tbd names targets LLVM knows: it must link, or the fixture itself
+# is wrong and a failure below would prove nothing.
+bounded "$llvm_bin/ld64.lld" -arch x86_64 -platform_version macos 14.0 14.0 \
+  -o "$work/known.out" "$work/min.o" "$report/known.tbd" > "$work/known.log" 2>&1
+known_status=$?
+if [ "$known_status" -eq 0 ]; then
+  say "known.tbd: links"
+else
+  say "known.tbd: does not link (the fixture is wrong, not the bug)"
+  sed 's/^/  | /' "$work/known.log"
+fi
+bounded "$llvm_bin/ld64.lld" -arch x86_64 -platform_version macos 14.0 14.0 \
+  -o "$work/unknown.out" "$work/min.o" "$report/unknown.tbd" > "$work/unknown.log" 2>&1
+unknown_status=$?
+if [ "$unknown_status" -ne 0 ] && grep -q 'unknown target' "$work/unknown.log"; then
+  say "unknown.tbd: still reproduces (ld64.lld refuses an unknown target)"
+else
+  say "unknown.tbd: no longer reproduces (exit $unknown_status)"
+  sed 's/^/  | /' "$work/unknown.log"
+fi

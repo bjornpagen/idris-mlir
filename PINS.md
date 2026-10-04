@@ -409,6 +409,28 @@ which the top-level CMake configure gate reads.
 - retire: as in cpp-starter
 - upstream: none — platform ABI facts
 
+## darwin-ld64-tapi
+
+- symptom: the pinned `ld64.lld` (LLVM 23.1.2) cannot read a `.tbd` whose
+  `targets` list names a target it does not know. The macOS 27 SDK's
+  `libSystem.tbd` names `arm64e.x1-macos` and `arm64e.x1-maccatalyst`, so
+  every Darwin link against `libSystem` — the runtime's, GMP's, and every
+  program's — fails with `could not load TAPI file ...: unknown target`.
+  The `TextAPIReader` has a `SkipUnknownTriples` option
+  (`llvm/lib/TextAPI/TextStub.cpp:402`), but `ld64.lld` never sets it
+- sites: tools/bootstrap.sh — `config_file_darwin`, which no longer passes
+  `-fuse-ld=lld`, and CMakeLists.txt — the `arm64-apple-macosx14.0` entry's
+  `IDRIS_MLIR_EXECUTABLE_FLAGS`, which carries no `-fuse-ld=lld` and drops
+  `--icf=all` (the host's `ld64` has no ICF). The report, reproducer and
+  check are `upstream/ld64-lld-unknown-tapi-target/` and
+  `tests/upstream/ld64-lld-unknown-tapi-target/`
+- workaround: Darwin links are made by the host's `ld64` (`/usr/bin/ld`),
+  which reads its own SDK; the pinned `ld64.lld` stays the linker on Linux
+- retire: when `ld64.lld` reads a stub with an unknown target (the fix is
+  `SkipUnknownTriples = true` in `lld/MachO/InputFiles.cpp`); then restore
+  `-fuse-ld=lld`, `--icf=all`, and delete the upstream report and its test
+- upstream: `upstream/ld64-lld-unknown-tapi-target/`
+
 ## cmake-import-std-uuid
 
 - symptom: `import std` is experimental in CMake, gated by

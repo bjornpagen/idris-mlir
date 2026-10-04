@@ -32,7 +32,14 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/idris-rt-check.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
-if ! "$nm" --print-file-name "$archive" > "$work/nm" 2> "$work/nm.err"; then
+# Each member's names twice: its native code's, which every link reads, and
+# those of the bitcode it carries, which joins every program. llvm-nm reads
+# a member that carries bitcode (an ELF fat LTO object's .llvm.lto, a Mach-O
+# object's __LLVM,__bitcode) as that bitcode alone unless told not to, so a
+# reference only the native code makes (one codegen adds, or a weak one)
+# would otherwise go unseen.
+if ! { "$nm" --print-file-name --no-llvm-bc "$archive" && "$nm" --print-file-name "$archive"; } \
+    > "$work/nm" 2> "$work/nm.err"; then
   echo "runtime check: $nm failed on $archive"
   cat "$work/nm.err"
   exit 1
@@ -66,7 +73,11 @@ if ! "$objdump" --section-headers "$archive" > "$work/sections" 2> "$work/objdum
   cat "$work/objdump.err"
   exit 1
 fi
-# Each section is a line `INDEX NAME SIZE ...` under a member's header.
+# Each section is a line `INDEX NAME SIZE ...` under a member's header. On
+# Mach-O the name is the section's alone, without its segment
+# (__mod_init_func, not __DATA,__mod_init_func); the bitcode a member
+# carries is a section of its own (__bitcode, __cmdline; .llvm.lto) that
+# names no constructor.
 awk -v names="$constructors" '
   BEGIN { n = split(names, list, " ") }
   /:[[:space:]]+file format / { member = $1; sub(/:$/, "", member) }

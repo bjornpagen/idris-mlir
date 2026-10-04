@@ -1,0 +1,63 @@
+#!/bin/sh
+# A runtime built for another page size than the system's refuses to start:
+# idris_rt_start checks first that the target entry's page size
+# (IDRIS_MLIR_PAGE_SIZE, which the build records in runtime/page-size) is
+# the system's, and otherwise names both, runs nothing and exits as a
+# crash. The page size is rt.platform's :memory partition's, so that
+# partition alone is compiled here, as the build compiles it, once for the
+# build's page size and once each for a smaller and a larger one, and linked
+# ahead of the build's runtime archive, whose own copy of it the link then
+# leaves out: the program is the build's runtime, built for that page size.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+runtime=$build/runtime/libidris_rt.a
+page=$(cat "$build/runtime/page-size" 2> /dev/null)
+case $page in
+  '' | *[!0-9]*)
+    say "the build records no page size ($build/runtime/page-size)"
+    exit 0 ;;
+esac
+target=$("$idris_mlir_cc" --print-target-triple)
+
+# program NAME PAGE: start.c with rt.platform:memory built for PAGE, then the
+# build's runtime, into $work/NAME.
+program() {
+  if ! bounded "$llvm_bin/clang++" --target="$target" -std=c++26 -fno-exceptions -fno-rtti -O2 \
+      -I"$root/runtime" "-DIDRIS_RT_PAGE_SIZE=$2" -c "$root/runtime/Platform/Posix/Memory.cppm" \
+      -o "$work/$1-memory.o" > "$work/cc.log" 2>&1; then
+    say "$1: rt.platform:memory does not compile"
+    show "$work/cc.log"
+    return 1
+  fi
+  if ! link_program -O1 -I"$root/runtime" "$here/start.c" "$work/$1-memory.o" "$runtime" \
+      -o "$work/$1" > "$work/cc.log" 2>&1; then
+    say "$1: does not link"
+    show "$work/cc.log"
+    return 1
+  fi
+}
+
+# start NAME PAGE: the program built for PAGE: its exit status, whether its
+# body ran, and whether what it said names the page size it was built for
+# and the build's, which is the system's (runtime-start runs the build's
+# runtime here).
+start() {
+  program "$1" "$2" || return
+  ( bounded "$work/$1" ) > "$work/$1.out" 2> "$work/$1.err"
+  start_status=$?
+  if grep -qx ran "$work/$1.out"; then ran="the program ran"; else ran="the program did not run"; fi
+  if [ ! -s "$work/$1.err" ]; then
+    said="nothing on stderr"
+  elif grep -q -- "$2" "$work/$1.err" && grep -q -- "$page" "$work/$1.err"; then
+    said="stderr names the page it was built for and the system's"
+  else
+    said="stderr does not name both pages"
+  fi
+  say "built for $3: exit $start_status, $ran, $said"
+  [ "$said" != "stderr does not name both pages" ] || show "$work/$1.err"
+}
+
+start same "$page" "the system's page"
+start smaller "$((page / 2))" "a smaller page"
+start larger "$((page * 4))" "a larger page"

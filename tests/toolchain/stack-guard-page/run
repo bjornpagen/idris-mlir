@@ -1,0 +1,30 @@
+#!/bin/sh
+# The reserved-stack runner rounds the stack and the guard up to whole pages
+# of the target's page size, and the guard is never less than one: a
+# recursion runs into it after at least the stack it asked for and at most
+# that rounded up to a page, and the fault on it (SIGBUS on Darwin, SIGSEGV
+# on Linux) reaches the runner's handler on its own stack, which ends the
+# process as exhaustion. Asked for three pages and a byte with a one-byte
+# guard, for the same with no guard at all, and for a single byte, the
+# handler exits 10 each time (guard.c). The page size is the build's
+# (runtime/page-size); runtime-start runs the program's entry on its stack.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+runtime=$build/runtime/libidris_rt.a
+page=$(cat "$build/runtime/page-size" 2> /dev/null)
+case $page in
+  '' | *[!0-9]*)
+    say "the build records no page size ($build/runtime/page-size)"
+    exit 0 ;;
+esac
+if ! link_program -O1 -I"$root/runtime" "-DTEST_PAGE_SIZE=$page" "$here/guard.c" "$runtime" \
+    -o "$work/guard" > "$work/cc.log" 2>&1; then
+  say "guard: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+for mode in rounded no-guard tiny; do
+  ( bounded "$work/guard" "$mode" ) > "$work/out" 2> "$work/err"
+  say "$mode: exit $?"
+  sed 's/^/  stderr | /' "$work/err"
+done

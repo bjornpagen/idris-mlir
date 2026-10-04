@@ -1,0 +1,68 @@
+#!/bin/sh
+# A program as the target links it is laid out in pages of the target's page
+# size (the build's runtime/page-size): every segment it loads starts on a
+# page in memory and at the same offset in a page of the file, so the
+# loader maps it whole pages at a time, and an ELF segment asks for at least
+# that alignment. A Mach-O program has its __PAGEZERO, the unmapped
+# segment at address 0 that the Mach-O linkers give a 64-bit executable,
+# at least 4 GiB, so that no 32-bit value read as an address is mapped.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+runtime=$build/runtime/libidris_rt.a
+page=$(cat "$build/runtime/page-size" 2> /dev/null)
+case $page in
+  '' | *[!0-9]*)
+    say "the build records no page size ($build/runtime/page-size)"
+    exit 0 ;;
+esac
+program=$work/start
+if ! link_program -O1 -I"$root/runtime" "$root/tests/toolchain/page-size-mismatch/start.c" \
+    "$runtime" -o "$program" > "$work/cc.log" 2>&1; then
+  say "start: does not link"
+  show "$work/cc.log"
+  exit 0
+fi
+
+# Each loaded segment as `NAME ADDRESS OFFSET ALIGN` (decimal; ALIGN 0 where
+# the format has none), from the object format's own headers.
+if "$llvm_bin/llvm-objdump" --file-headers "$program" 2> /dev/null | grep -q 'file format mach-o'; then
+  "$llvm_bin/llvm-objdump" --macho --private-headers "$program" | awk '
+    $1 == "cmd" { segment = ($2 == "LC_SEGMENT_64") }
+    segment && $1 == "segname" { name = $2 }
+    segment && $1 == "vmaddr" { address = $2 }
+    segment && $1 == "vmsize" { size = $2 }
+    segment && $1 == "fileoff" { print name, address, $2, 0, size; segment = 0 }
+  ' > "$work/segments"
+else
+  "$llvm_bin/llvm-readelf" --program-headers --wide "$program" | awk '
+    $1 == "LOAD" { print "LOAD", $3, $2, $NF, $6 }
+  ' > "$work/segments"
+fi
+# Every number decimal: awk reads 0x... as 0, so strtonum is not assumed.
+while read -r name address offset align size; do
+  printf '%s %d %d %d %d\n' "$name" "$address" "$offset" "$align" "$size"
+done < "$work/segments" > "$work/decimal"
+
+if [ ! -s "$work/decimal" ]; then
+  say "no segment read from the program"
+  exit 0
+fi
+awk -v page="$page" '
+  $1 != "__PAGEZERO" && ($2 % page != $3 % page || ($4 != 0 && $4 < page) ||
+                         ($4 == 0 && ($2 % page != 0 || $3 % page != 0))) {
+    print "  | " $0
+  }' "$work/decimal" > "$work/misaligned"
+if [ -s "$work/misaligned" ]; then
+  say "segments not laid out in the target's pages:"
+  cat "$work/misaligned"
+else
+  say "every loaded segment is laid out in the target's pages"
+fi
+if grep -q '^__' "$work/decimal"; then
+  if awk '$1 == "__PAGEZERO" && $2 == 0 && $5 >= 4294967296 { found = 1 } END { exit !found }' \
+      "$work/decimal"; then
+    :
+  else
+    say "no __PAGEZERO of at least 4 GiB at address 0"
+  fi
+fi

@@ -4,6 +4,16 @@
 // runtime's entry points, which idris-mlir-cc links natively, and the libc
 // functions LLVM may call are bound through an absolute-symbol table, so the
 // JITed code runs the same runtime and libm as executables.
+//
+// The code's memory is JITLink's in-process memory manager's (LLJIT's
+// default on every target entry's triple): it maps each allocation readable
+// and writable, links into it, then makes code readable and executable and
+// never writable again (sys::Memory::protectMappedMemory, with the
+// instruction cache flushed), all by the system's page. It never maps MAP_JIT
+// memory, which Darwin needs only under the hardened runtime, and there only
+// with an entitlement; whether this process may run what it wrote is the
+// evaluation child's probe (refusesJitCode), so a system that refuses is an
+// error that says so, not a child killed for no reason it gives.
 // PIN(orc-lljit) — see PINS.md
 module;
 // The target entry's library calls, an X-macro, and the runtime's entry
@@ -34,12 +44,20 @@ public:
                                       std::string &error);
 
   llvm::ArrayRef<Entry> getEntries() const { return entries; }
+  // A function of the same code that does nothing: what runs first, to see
+  // that this process may run the code its JIT wrote.
+  Entry getProbe() const { return probe; }
   // The address of the global `name` defines, or null when it defines none.
   const void *address(llvm::StringRef name) const;
 
 private:
+  // What the JIT's session reported while it linked (a failed mapping or
+  // protection, say), which its lookups only summarize. It outlives the
+  // session, which may report as it ends.
+  std::string reported;
   std::unique_ptr<llvm::orc::LLJIT> jit;
   llvm::SmallVector<Entry> entries;
+  Entry probe = nullptr;
 };
 
 } // namespace idr::eval
@@ -108,6 +126,28 @@ llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols()
 
 std::string describe(llvm::Error error) { return llvm::toString(std::move(error)); }
 
+constexpr llvm::StringLiteral probeName = "__idr_jit_probe";
+
+// The probe, an entry that returns at once, added to the code it probes, so
+// that it shares its pages and their protection.
+void addProbe(mlir::ModuleOp module) {
+  mlir::MLIRContext *ctx = module.getContext();
+  mlir::OpBuilder b(ctx);
+  b.setInsertionPointToEnd(module.getBody());
+  auto type = mlir::LLVM::LLVMFunctionType::get(mlir::LLVM::LLVMVoidType::get(ctx),
+                                                {mlir::LLVM::LLVMPointerType::get(ctx)});
+  auto probe = mlir::LLVM::LLVMFuncOp::create(b, module.getLoc(), probeName, type);
+  b.setInsertionPointToStart(probe.addEntryBlock(b));
+  mlir::LLVM::ReturnOp::create(b, module.getLoc(), mlir::ValueRange{});
+}
+
+// The error of a lookup, with what the session reported as it failed: the
+// lookup names the symbols it could not materialize, the report says why.
+std::string describe(llvm::Error error, const std::string &reported) {
+  std::string text = describe(std::move(error));
+  return reported.empty() ? text : text + ": " + reported;
+}
+
 // The #llvm.target of the module or of the first module around it that has
 // one: the program being evaluated.
 mlir::LLVM::TargetAttr targetOf(mlir::Operation *op) {
@@ -163,6 +203,7 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
     error = describe(machine.takeError());
     return nullptr;
   }
+  addProbe(module);
   auto context = std::make_unique<llvm::LLVMContext>();
   std::unique_ptr<llvm::Module> code = mlir::translateModuleToLLVMIR(module, *context);
   if (!code) {
@@ -184,6 +225,10 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   }
   auto result = std::unique_ptr<Jit>(new Jit);
   result->jit = std::move(*made);
+  std::string &reported = result->reported;
+  result->jit->getExecutionSession().setErrorReporter([&reported](llvm::Error err) {
+    reported += (reported.empty() ? "" : "; ") + describe(std::move(err));
+  });
   llvm::orc::SymbolMap table;
   for (auto [name, address] : symbols())
     table[result->jit->mangleAndIntern(name)] = {
@@ -218,11 +263,17 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   for (const std::string &name : names) {
     auto address = result->jit->lookup(name);
     if (!address) {
-      error = describe(address.takeError());
+      error = describe(address.takeError(), result->reported);
       return nullptr;
     }
     result->entries.push_back(address->toPtr<Entry>());
   }
+  auto probe = result->jit->lookup(probeName);
+  if (!probe) {
+    error = describe(probe.takeError(), result->reported);
+    return nullptr;
+  }
+  result->probe = probe->toPtr<Entry>();
   return result;
 }
 

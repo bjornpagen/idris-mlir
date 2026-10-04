@@ -28,9 +28,9 @@
 #   ninja     Ninja, built with the pinned CMake            -> .toolchain/ninja
 #   stage2    LLVM, MLIR, clang, lld, clang-tidy and the    -> .toolchain/llvm-macos
 #             test tools, built natively by Apple clang,
-#             then compiler-rt's builtins and a static
-#             libc++/libc++abi built into the clang's
-#             resource directory by that clang
+#             then, by the pinned clang, compiler-rt's
+#             builtins into its resource directory and a
+#             static libc++/libc++abi beside it
 #   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
 #             pinned clang
 #   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
@@ -83,10 +83,19 @@ lock=$root/toolchain.lock.json
 # builds musl and the LLVM runtimes, and those build the stage-2
 # LLVM/MLIR/clang/lld, statically on musl and libc++. On Darwin there is
 # one stage: Apple clang builds the pinned LLVM/MLIR/clang/lld natively in
-# .toolchain/llvm-macos, and that clang then builds the pinned runtimes
-# (compiler-rt's builtins and a static libc++/libc++abi) into its own
-# resource directory. The target programs are compiled for is the triple
+# .toolchain/llvm-macos, and that clang then builds the pinned runtimes:
+# compiler-rt's builtins into its own resource directory, a static
+# libc++/libc++abi beside it. The target programs are compiled for is the triple
 # below, and every fact of it is decided in CMakeLists.txt's target entry.
+say() {
+  printf '%s\n' "$*"
+}
+
+die() {
+  printf 'bootstrap: error: %s\n' "$*" >&2
+  exit 1
+}
+
 host_kind=
 case $(uname -s) in
   Linux) host_kind=linux ;;
@@ -108,12 +117,24 @@ logs=$toolchain/logs
 builds=$toolchain/build
 host_cc=${CC:-cc}
 host_cxx=${CXX:-c++}
+# machine_fact SYSCTL GETCONF: a fact of the machine, from the kernel that
+# decides it: sysctl's SYSCTL on Darwin, getconf's GETCONF on Linux, whose
+# sysctl has no hw names. Neither stands in for the other: a sandbox that
+# hides sysctl from this script must let it through, not get a guess.
+machine_fact() {
+  case $host_kind in
+    darwin) machine_fact_out=$(sysctl -n "$1" 2> /dev/null) || machine_fact_out= ;;
+    *) machine_fact_out=$(getconf "$2" 2> /dev/null) || machine_fact_out= ;;
+  esac
+  case $machine_fact_out in
+    '' | *[!0-9]*) die "the host does not say its $1 (sysctl -n $1 on Darwin, getconf $2 on Linux)" ;;
+  esac
+  printf '%s\n' "$machine_fact_out"
+}
 # The page size, recorded in every stamp and read at a program's entry
-# (CMakeLists.txt's target entry): 16384 on this machine's Apple Silicon,
-# where Linux x86-64 uses 4096. sysctl hw.pagesize is not readable in every
-# sandbox; getconf always is.
-page_size=$(getconf PAGESIZE 2> /dev/null) || page_size=
-case $page_size in '' | *[!0-9]*) die "getconf PAGESIZE names no page size" ;; esac
+# (CMakeLists.txt's target entry): 16384 on Apple Silicon, where Linux
+# x86-64 uses 4096.
+page_size=$(machine_fact hw.pagesize PAGESIZE) || exit 1
 if [ "$host_kind" = darwin ]; then
   triple=arm64-apple-macosx14.0
   llvm_prefix=$llvm_macos
@@ -127,15 +148,6 @@ else
   sdk=
   sdk_version=
 fi
-
-say() {
-  printf '%s\n' "$*"
-}
-
-die() {
-  printf 'bootstrap: error: %s\n' "$*" >&2
-  exit 1
-}
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
@@ -183,9 +195,8 @@ esac
 if [ -n "${IDRIS_MLIR_JOBS-}" ]; then
   jobs=$IDRIS_MLIR_JOBS
 else
-  cores=$(getconf _NPROCESSORS_ONLN 2> /dev/null) || cores=1
+  cores=$(machine_fact hw.ncpu _NPROCESSORS_ONLN) || exit 1
   memory_kib=$(memory_kib 2> /dev/null) || memory_kib=0
-  case $cores in '' | *[!0-9]*) cores=1 ;; esac
   case $memory_kib in '' | *[!0-9]*) memory_kib=0 ;; esac
   jobs=$((memory_kib / 5242880))
   if [ "$jobs" -gt "$cores" ]; then jobs=$cores; fi
@@ -364,18 +375,21 @@ need_disk() {
   fi
 }
 
-# build_dir [resume]: the step's build directory, $build. With `resume`, one
-# that a failed run with the same inputs left is kept.
+# build_dir [resume [KEY]]: the step's build directory, $build. With `resume`,
+# one that a failed run left is kept when it was built from the same KEY: by
+# default the step's inputs, or the digest of the part of them that the
+# directory's long build reads.
 build_dir() {
   build=$builds/$step
+  build_key=${2:-$step_inputs}
   resumed=no
-  if [ "${1-}" = resume ] && [ -f "$build/.inputs" ] && [ "$(cat "$build/.inputs")" = "$step_inputs" ]; then
+  if [ "${1-}" = resume ] && [ -f "$build/.inputs" ] && [ "$(cat "$build/.inputs")" = "$build_key" ]; then
     say "    resuming in $build"
     resumed=yes
   else
     rm -rf "$build"
     mkdir -p "$build"
-    printf '%s\n' "$step_inputs" > "$build/.inputs"
+    printf '%s\n' "$build_key" > "$build/.inputs"
   fi
 }
 
@@ -388,15 +402,17 @@ used_kib() {
 }
 
 # The most memory in use on the machine while a build runs,
-# sampled every 5 seconds (there is no /usr/bin/time here).
+# sampled every 5 seconds (there is no /usr/bin/time here), until the
+# build stops or the bootstrap is gone (killed, it cannot stop it).
 sampler=
 sample_memory() {
   peak_file=$logs/$step.peak
   baseline_kib=$(used_kib)
   echo "$baseline_kib" > "$peak_file"
+  sample_owner=$$
   (
     peak=0
-    while :; do
+    while alive "$sample_owner"; do
       now=$(used_kib)
       case $now in '' | *[!0-9]*) now=0 ;; esac
       if [ "$now" -gt "$peak" ]; then
@@ -452,6 +468,15 @@ static_pie() {
 mh_pie() {
   mh_pie_out=$("$1" --macho --private-headers "$2") || die "$1 cannot read $2"
   case $mh_pie_out in *MH_PIE*) ;; *) die "$2 is not position-independent (no MH_PIE)" ;; esac
+}
+
+# arm64_only OBJDUMP FILE: every Mach-O header in FILE, each slice of a
+# universal file and each member of an archive, is arm64's: the Darwin
+# toolchain is native, with no x86_64 code anywhere in it.
+arm64_only() {
+  arm64_only_out=$("$1" --macho --arch=all --private-header "$2") || die "$1 cannot read $2"
+  arm64_only_cpus=$(printf '%s\n' "$arm64_only_out" | awk '$1 ~ /^MH_(MAGIC|CIGAM)/ { print $2 }' | sort -u)
+  [ "$arm64_only_cpus" = ARM64 ] || die "$2 is not arm64 alone (CPU types: $(echo $arm64_only_cpus))"
 }
 
 # clone_pinned TOOL DEST: a shallow clone of the lock's tag, at the lock's
@@ -572,11 +597,20 @@ config_file_linux() {
 CFG
 }
 
-# Darwin: the C library and headers are libSystem in the SDK; the pinned
-# libc++/libc++abi and compiler-rt's builtins are the ones built beside
-# this clang; GMP is the sysroot beside it; ld64.lld links dynamic PIE
-# executables. -nostdinc++ keeps the SDK's libc++ headers out of the way
-# of the pinned ones.
+# Darwin: the C library and headers are libSystem in the SDK, which
+# upstream clang does not look for itself; compiler-rt's builtins are in
+# this clang's resource directory; GMP is the sysroot beside it, its headers
+# system headers as on Linux; the host's ld64 links dynamic PIE executables.
+# PIN(darwin-ld64-tapi): the pinned ld64.lld cannot read the SDK's
+# libSystem.tbd — macOS 27 lists an arm64e.x1 target LLVM 23.1.2 does not
+# know — so the link is the host's ld64; see PINS.md. The
+# pinned libc++ is installed beside the clang, where the Darwin driver takes
+# its headers before the SDK's (as system headers) and CMake's import std
+# finds libc++.modules.json; -L makes -lc++ the static libc++.a there, not
+# the SDK's libc++.tbd. The file is read for the triple named on the
+# command line (--target, CMAKE_<LANG>_COMPILER_TARGET): clang's default
+# triple on Darwin is the host's arm64-apple-darwin<kernel version>, never
+# the triple LLVM was configured with, so every caller names the target.
 config_file_darwin() {
   cat << CFG
 # idris-mlir's toolchain for $triple, written by tools/bootstrap.sh:
@@ -588,12 +622,12 @@ config_file_darwin() {
 -isysroot
 $sdk
 --rtlib=compiler-rt
--nostdinc++
--I<CFGDIR>/../include/c++/v1
 -L<CFGDIR>/../lib
--I<CFGDIR>/../../sysroot/usr/include
+-isystem<CFGDIR>/../../sysroot/usr/include
 -L<CFGDIR>/../../sysroot/usr/lib
--fuse-ld=lld
+# PIN(darwin-ld64-tapi): no -fuse-ld=lld. The pinned ld64.lld refuses the
+# macOS 27 SDK's libSystem.tbd (an arm64e.x1 target it does not know), so
+# the link is the host's ld64, which reads its own SDK. See PINS.md.
 CFG
 }
 
@@ -698,32 +732,39 @@ recipe_runtimes() {
   args_libcxx
 }
 
-# Darwin's runtimes, built by the just-installed pinned clang and installed
-# into its own resource directory: compiler-rt's builtins for osx arm64,
-# then a static libc++/libc++abi, which the configuration file beside the
-# clang names. They are part of the one stage, so a change to either
-# restales stage2 (recipe_stage2_darwin).
+# Darwin's runtimes, built by the just-installed pinned clang through its
+# configuration file: compiler-rt's builtins for osx arm64 into its
+# resource directory, then a static libc++/libc++abi beside it. They are
+# part of the one stage, so a change to either restales stage2
+# (recipe_stage2_darwin), but not its LLVM build (recipe_stage2_darwin_llvm).
+# compiler-rt picks a Darwin library's architectures itself, every one the
+# SDK and the compiler support (x86_64 too: this LLVM targets X86), unless
+# its cached list says which; kernel extensions are not built for.
 args_builtins_darwin() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_C_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_CXX_COMPILER=$llvm_macos/bin/clang++" \
-    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" \
+    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_MAKE_PROGRAM=$ninja" \
+    "-DCMAKE_C_COMPILER_TARGET=$triple" "-DCMAKE_CXX_COMPILER_TARGET=$triple" \
+    "-DCMAKE_ASM_COMPILER_TARGET=$triple" \
     "-DCMAKE_OSX_ARCHITECTURES=arm64" "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
-    -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=ON -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
-    -DCOMPILER_RT_BUILD_CRT=ON -DCOMPILER_RT_ENABLE_IOS=OFF -DCOMPILER_RT_ENABLE_WATCHOS=OFF \
-    -DCOMPILER_RT_ENABLE_TVOS=OFF -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=ON -DDARWIN_osx_BUILTIN_ARCHS=arm64 \
+    -DDARWIN_osx_SKIP_CC_KEXT=ON -DCOMPILER_RT_ENABLE_IOS=OFF -DCOMPILER_RT_ENABLE_WATCHOS=OFF \
+    -DCOMPILER_RT_ENABLE_TVOS=OFF -DCOMPILER_RT_ENABLE_XROS=OFF \
     "-DCOMPILER_RT_INSTALL_PATH=$llvm_macos/lib/clang/$llvm_major"
 }
 
+# libSystem is Darwin's unwinder, so libc++abi is built without LLVM's.
 args_libcxx_darwin() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_C_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_CXX_COMPILER=$llvm_macos/bin/clang++" \
-    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" \
+    "-DCMAKE_ASM_COMPILER=$llvm_macos/bin/clang" "-DCMAKE_MAKE_PROGRAM=$ninja" \
+    "-DCMAKE_C_COMPILER_TARGET=$triple" "-DCMAKE_CXX_COMPILER_TARGET=$triple" \
+    "-DCMAKE_ASM_COMPILER_TARGET=$triple" \
     "-DCMAKE_OSX_ARCHITECTURES=arm64" "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0" \
-    -DCMAKE_C_COMPILER_WORKS=ON -DCMAKE_CXX_COMPILER_WORKS=ON -DCMAKE_ASM_COMPILER_WORKS=ON \
     "-DCMAKE_INSTALL_PREFIX=$llvm_macos" \
     '-DLLVM_ENABLE_RUNTIMES=libcxxabi;libcxx' \
     -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF \
-    -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_STATIC=ON \
+    -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_STATIC=ON -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
     -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON \
     -DLIBCXX_CXX_ABI=libcxxabi -DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON \
     -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXX_INCLUDE_TESTS=OFF
@@ -781,16 +822,17 @@ recipe_stage2_linux() {
 }
 
 # What the Darwin stage installs. Its own C++ library is the pinned
-# libc++/libc++abi (built after it, into its resource directory), so
-# LLVM's headers and libraries go with it, as on Linux.
+# libc++/libc++abi (built after it, beside it), so LLVM's headers and
+# libraries go with it, as on Linux.
 stage2_components_darwin='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
 # Darwin's one stage: Apple clang builds LLVM, MLIR, clang, lld and
 # clang-tidy natively, as a shared-library build (LLVM_BUILD_STATIC=OFF), no
 # LTO (an Apple-clang link of LLVM's bitcode is not this build's to make),
 # assertions on. It is not statically linked to musl and libc++: the
-# pinned runtimes are built after it and installed into its resource
-# directory (step_stage2), and the configuration file beside it names them.
+# pinned runtimes are built after it and installed beside it and into its
+# resource directory (step_stage2), where its configuration file and its
+# driver find them.
 args_stage2_darwin() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" \
@@ -814,12 +856,19 @@ args_runtimes_darwin() {
 }
 
 recipe_stage2_darwin() {
-  printf '%s\n' "apple clang $("$host_cc" --version 2>&1 | head -n 1)" \
-    "sdk $sdk_version" "page $page_size" \
-    "targets AArch64;X86" "stage2_components_darwin"
-  args_stage2_darwin
+  recipe_stage2_darwin_llvm
+  printf '%s\n' "page $page_size"
   args_runtimes_darwin
   config_file
+}
+
+# What the hours of the Darwin stage read: the stage's build directory
+# resumes when these did not change, whatever happened to the runtimes or
+# the configuration file, which are rebuilt in minutes.
+recipe_stage2_darwin_llvm() {
+  printf '%s\n' "llvm $llvm_revision" "apple clang $("$host_cc" --version 2>&1 | head -n 1)" \
+    "sdk $sdk_version"
+  args_stage2_darwin
 }
 
 args_gmp() {
@@ -838,11 +887,12 @@ args_gmp_linux() {
 }
 
 # GMP on arm64 macOS: no run-time CPU dispatch to ask for (--enable-fat is
-# x86's), built by the pinned clang for the host it runs on.
+# x86's), built by the pinned clang for the target, which it names so that
+# the clang reads its configuration file (config_file_darwin).
 args_gmp_darwin() {
   printf '%s\n' --prefix=/usr --build=aarch64-apple-darwin --host=aarch64-apple-darwin \
     --with-pic --disable-shared --enable-static \
-    "CC=$llvm_macos/bin/clang" 'CFLAGS=-O2 -pipe -ffp-contract=off' \
+    "CC=$llvm_macos/bin/clang --target=$triple" 'CFLAGS=-O2 -pipe -ffp-contract=off' \
     "AR=$llvm_macos/bin/llvm-ar" "NM=$llvm_macos/bin/llvm-nm" "RANLIB=$llvm_macos/bin/llvm-ranlib"
 }
 
@@ -1044,15 +1094,17 @@ CC
 
 # Stage 2 on Darwin: Apple clang builds LLVM, MLIR, clang, lld and
 # clang-tidy natively, then the pinned clang builds compiler-rt's builtins
-# and a static libc++/libc++abi into its resource directory. The runtimes
-# are part of the stage, so its one stamp records them too.
+# into its resource directory and a static libc++/libc++abi beside it. The
+# runtimes are part of the stage, so its one stamp records them too; its
+# build directory resumes on the LLVM build's inputs alone.
 step_stage2_darwin() {
   begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, one stage with Apple clang, plus compiler-rt and libc++" || return 0
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
   # One snapshot serves both the compiler and its runtimes.
   clone_pinned llvm "$llvm_source"
-  build_dir resume
+  stage2_llvm_inputs=$(recipe_stage2_darwin_llvm | digest) || exit 1
+  build_dir resume "$stage2_llvm_inputs"
   if [ "$resumed" = no ]; then need_disk 40 "the Darwin LLVM/MLIR build and install, runtimes included"; fi
   eval "set -- $(args_stage2 | quote_lines)"
   sample_memory
@@ -1068,25 +1120,32 @@ step_stage2_darwin() {
   rm -rf "$llvm_macos"
   run "build and install (hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" install-distribution
   build_mib=$(size_mib "$build")
-  # compiler-rt's builtins, then libc++ and libc++abi, with the clang just
-  # installed.
+  # The configuration file first: without its SDK the clang just installed
+  # finds no C library, and the runtimes are built as everything after them
+  # is. Then compiler-rt's builtins, then libc++ and libc++abi, each from a
+  # fresh build directory, so that no cache outlives a change to its recipe.
+  # The sysroot the file names exists from here on, before GMP is in it,
+  # so that no link warns of a missing directory.
+  config_file > "$llvm_macos/bin/$triple.cfg"
+  mkdir -p "$sysroot/usr/include" "$sysroot/usr/lib"
+  rm -rf "$build/builtins" "$build/runtimes" "$build/check"
   eval "set -- $(args_builtins_darwin | quote_lines)"
-  run "configure the builtins" "$cmake" -S "$llvm_source/compiler-rt/lib/builtins" -B "$build/builtins" "$@"
+  run "configure the builtins" "$cmake" -S "$llvm_source/compiler-rt/lib/builtins" -B "$build/builtins" "$@" \
+    "-DCMAKE_MAKE_PROGRAM=$ninja"
   run "build the builtins" "$ninja" -C "$build/builtins" -j "$jobs"
   run "install the builtins" "$ninja" -C "$build/builtins" install
   eval "set -- $(args_libcxx_darwin | quote_lines)"
   run "configure libc++ and libc++abi" "$cmake" -S "$llvm_source/runtimes" -B "$build/runtimes" "$@" \
-    "-DPython3_EXECUTABLE=$(command -v python3)"
+    "-DCMAKE_MAKE_PROGRAM=$ninja" "-DPython3_EXECUTABLE=$(command -v python3)"
   run "build libc++ and libc++abi" "$ninja" -C "$build/runtimes" -j "$jobs"
   run "install libc++ and libc++abi" "$ninja" -C "$build/runtimes" install
   stop_sampling
-  config_file > "$llvm_macos/bin/$triple.cfg"
   for stage2_file in bin/clang bin/clang++ bin/ld64.lld bin/clang-tidy bin/opt bin/llc bin/llvm-nm \
     bin/llvm-ar bin/llvm-readelf bin/mlir-opt bin/mlir-translate bin/mlir-tblgen bin/FileCheck \
     bin/not bin/count lib/cmake/llvm/LLVMConfig.cmake lib/cmake/mlir/MLIRConfig.cmake \
-    lib/libLLVMSupport.a lib/libMLIRIR.a lib/libc++.a lib/libc++abi.a \
-    include/c++/v1/vector include/mlir/IR/MLIRContext.h \
-    "lib/clang/$llvm_major/include/stddef.h"; do
+    lib/libLLVMSupport.a lib/libMLIRIR.a lib/libc++.a lib/libc++abi.a lib/libc++.modules.json \
+    share/libc++/v1/std.cppm include/c++/v1/vector include/mlir/IR/MLIRContext.h \
+    "lib/clang/$llvm_major/include/stddef.h" "lib/clang/$llvm_major/lib/darwin/libclang_rt.osx.a"; do
     [ -e "$llvm_macos/$stage2_file" ] || die "stage 2 installed no $stage2_file"
   done
   version_is "$llvm_macos/bin/clang" "clang version $llvm_version"
@@ -1095,13 +1154,29 @@ step_stage2_darwin() {
   version_is "$llvm_macos/bin/FileCheck" "LLVM version $llvm_version"
   mh_pie "$llvm_macos/bin/llvm-objdump" "$llvm_macos/bin/clang"
   mh_pie "$llvm_macos/bin/llvm-objdump" "$llvm_macos/bin/mlir-opt"
+  for stage2_file in bin/clang bin/mlir-opt lib/libc++.a "lib/clang/$llvm_major/lib/darwin/libclang_rt.osx.a"; do
+    arm64_only "$llvm_macos/bin/llvm-objdump" "$llvm_macos/$stage2_file"
+  done
+  # CMake's import std reads the module manifest where the driver names it.
+  stage2_modules=$("$llvm_macos/bin/clang++" "--target=$triple" -print-file-name=libc++.modules.json)
+  [ "$(cd "$(dirname "$stage2_modules")" 2> /dev/null && pwd -P)" = "$(cd "$llvm_macos/lib" && pwd -P)" ] ||
+    die "the pinned clang++ names $stage2_modules as libc++.modules.json, not the one in $llvm_macos/lib"
   mkdir -p "$build/check"
   printf '#include <stdio.h>\nint main(void) { puts("c ok"); return 0; }\n' > "$build/check/c.c"
-  printf '#include <cstdio>\n#include <vector>\nint main() { std::vector<int> v{1, 2}; std::printf("c++ ok %%zu\\n", v.size()); }\n' > "$build/check/cc.cc"
-  run "check: a C program on the SDK" "$llvm_macos/bin/clang" -O2 "$build/check/c.c" -o "$build/check/c"
-  run "check: a C++26 program with the pinned libc++" "$llvm_macos/bin/clang++" -std=c++26 -O2 "$build/check/cc.cc" -o "$build/check/cc"
+  printf '#include <cstdio>\n#include <vector>\nint main() { std::vector<int> v{1, 2}; std::printf("c++ ok %%zu %%d\\n", v.size(), _LIBCPP_VERSION / 10000); }\n' > "$build/check/cc.cc"
+  run "check: a C program on the SDK" "$llvm_macos/bin/clang" "--target=$triple" -O2 "$build/check/c.c" -o "$build/check/c"
+  run "check: a C++26 program with the pinned libc++" "$llvm_macos/bin/clang++" "--target=$triple" -std=c++26 -O2 \
+    "$build/check/cc.cc" -o "$build/check/cc"
   [ "$("$build/check/c")" = "c ok" ] || die "the C check program did not print its line"
-  [ "$("$build/check/cc")" = "c++ ok 2" ] || die "the C++ check program did not print its line"
+  [ "$("$build/check/cc")" = "c++ ok 2 $llvm_major" ] ||
+    die "the C++ check program did not print its line with the pinned libc++'s version $llvm_major"
+  stage2_dylibs=$("$llvm_macos/bin/llvm-objdump" --macho --dylibs-used "$build/check/cc") ||
+    die "llvm-objdump cannot read $build/check/cc"
+  case $stage2_dylibs in *libc++*) die "the C++ check program links a shared libc++, not the pinned static one" ;; esac
+  for stage2_file in c cc; do
+    mh_pie "$llvm_macos/bin/llvm-objdump" "$build/check/$stage2_file"
+    arm64_only "$llvm_macos/bin/llvm-objdump" "$build/check/$stage2_file"
+  done
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
     tag "$llvm_tag" version "$llvm_version" triple "$triple" sdk "$sdk" sdk_version "$sdk_version" \
     page_size "$page_size" inputs "$step_inputs" jobs "$jobs" \
@@ -1278,13 +1353,41 @@ idris_make() {
 
 # --- Main ---------------------------------------------------------------
 
+# alive PID: the process exists. A sandbox may refuse to signal a process
+# it did not start; only "no such process" means it is gone.
+alive() {
+  alive_error=$(kill -0 "$1" 2>&1) && return 0
+  case $alive_error in *'o such process'*) return 1 ;; esac
+  return 0
+}
+
+# One bootstrap at a time, since two in one build directory build over each
+# other. The lock is the kernel's (flock) on the toolchain directory,
+# through descriptor 9, which every process of the run inherits: it is held
+# while any of them lives, a killed bootstrap's orphaned ninja included,
+# and released by the kernel when the last one exits. No file stands for
+# it, so a run never finds a stale one and nobody can remove a live one.
+# The holder file only names the process for the message.
 mkdir -p "$toolchain"
-mutex=$toolchain/.bootstrap.lock
-mkdir "$mutex" 2> /dev/null ||
-  die "another tools/bootstrap.sh is running; if none is, remove $mutex"
+holder=$toolchain/.bootstrap.holder
+command -v python3 > /dev/null 2>&1 || die "tools/bootstrap.sh needs python3 on PATH (it takes the lock)"
+exec 9< "$toolchain"
+lock_status=0
+python3 -c 'import fcntl, sys
+try: fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError: sys.exit(3)' || lock_status=$?
+case $lock_status in
+  0) ;;
+  3)
+    lock_holder=$(cat "$holder" 2> /dev/null) || lock_holder=
+    die "another tools/bootstrap.sh${lock_holder:+ (process $lock_holder)}, or a build it started, is running in $toolchain"
+    ;;
+  *) die "cannot lock $toolchain (python3's flock failed)" ;;
+esac
+echo $$ > "$holder"
 cleanup() {
   if [ -n "$sampler" ]; then kill "$sampler" 2> /dev/null || true; fi
-  rmdir "$mutex" 2> /dev/null || true
+  rm -f "$holder"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM

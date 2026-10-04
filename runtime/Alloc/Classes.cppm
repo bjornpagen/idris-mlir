@@ -18,6 +18,12 @@ import :cells;
 
 static_assert(snmalloc::DefaultPal::address_bits <= rt::alloc::heapAddressBits,
               "every heap address fits the bits the dying list keeps");
+// snmalloc decommits and zeroes by its own page, which must be the target
+// entry's (rt.platform checks that one against the system's at startup):
+// POSIX platforms take it from SNMALLOC_PAGESIZE, which the build sets to
+// it, and Apple's platform has its own constant.
+static_assert(snmalloc::OS_PAGE_SIZE == IDRIS_RT_PAGE_SIZE,
+              "snmalloc's page is the target entry's page");
 
 #define IDRIS_RT_DEFINE_SIZE_CLASS(S)                                                     \
   static_assert(snmalloc::sizeclass_to_size(snmalloc::size_to_sizeclass_const(S)) == (S), \

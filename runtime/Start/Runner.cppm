@@ -30,7 +30,9 @@ void onFault(uintptr_t address) {
 // The signal handler's own stack, below the guard, so that the stack it
 // reports on cannot have grown over it. A megabyte of address space, of
 // which a handler touches a few pages; the action a fault had before, LLVM's
-// crash report in idris-mlir-cc, runs on it too.
+// crash report in idris-mlir-cc, runs on it too. It is far above what any
+// system asks of one (MINSIGSTKSZ and SIGSTKSZ: 32 and 128 KiB on Darwin
+// arm64, a few KiB on Linux x86-64), and a whole number of pages on each.
 constexpr size_t alternateSize = size_t{1} << 20;
 constexpr size_t smallest = size_t{1} << 26;
 
@@ -51,12 +53,22 @@ void runTask(void *argument) {
 
 } // namespace
 
+// The region is [alternate stack | guard | stack], each a whole number of
+// the target's pages: the guard is never less than a page, whatever the
+// caller asks, so a fault anywhere on it is caught, and the stack is at
+// least `most` bytes rounded up to a page, as pthread_attr_setstack requires
+// on Darwin. The compiler's tools and the evaluation child run here without
+// idris_rt_start, so the page size is checked here too.
 extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                                      void (*exhausted)(void)) {
-  size_t page = rt::platform::pageSize();
-  size_t alternate = roundUp(alternateSize, page);
-  guard = roundUp(guard, page);
-  size_t size = roundUp(most, page);
+  rt::platform::checkPageSize();
+  constexpr size_t page = rt::platform::pageSize();
+  constexpr size_t alternate = (alternateSize + page - 1) / page * page;
+  // No address space is this large; the bound keeps the sums below from
+  // wrapping around, and the halving below finds what the machine grants.
+  constexpr size_t largest = SIZE_MAX >> 2;
+  guard = roundUp(guard == 0 ? 1 : guard < largest ? guard : largest, page);
+  size_t size = roundUp(most < largest ? most : largest, page);
   size_t least = size < smallest ? size : smallest;
   if (least < page)
     least = page;

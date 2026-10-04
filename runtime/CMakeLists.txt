@@ -170,15 +170,21 @@ target_compile_definitions(idris_rt PRIVATE
 	# no thread teardown of its own, since both of the others need a static
 	# destructor (pthread keys register one with [[gnu::destructor]]) or the
 	# C++ runtime: a thread's cached memory is returned only if the
-	# C library calls _malloc_thread_cleanup, which musl does not, and
-	# programs are single-threaded; its own small STL; getentropy and
-	# waiting on an address, which every system of the target entries has;
-	# and what the entry says of the system.
+	# C library calls _malloc_thread_cleanup, which neither musl nor
+	# libSystem does, and programs are single-threaded; its own small STL;
+	# getentropy and waiting on an address, which every system of the target
+	# entries has (Apple's platform draws entropy from CommonCrypto and waits
+	# with __ulock_wait below a macOS 14.4 deployment target, both in
+	# libSystem); the target entry's page, which its POSIX platforms take
+	# from SNMALLOC_PAGESIZE (Apple's has the same number as a constant, and
+	# rt.alloc:classes checks both); and what the entry says of the system.
+	# snmalloc maps no executable memory, so nothing of MAP_JIT concerns it.
 	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
 	SNMALLOC_USE_THREAD_CLEANUP
 	SNMALLOC_USE_SELF_VENDORED_STL
 	SNMALLOC_PLATFORM_HAS_GETENTROPY
 	SNMALLOC_USE_WAIT_ON_ADDRESS=1
+	SNMALLOC_PAGESIZE=${IDRIS_MLIR_PAGE_SIZE}
 	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
 	# The bits of a stack address (rt.rc).
 	IDRIS_RT_STACK_ADDRESS_BITS=${IDRIS_MLIR_STACK_ADDRESS_BITS}
@@ -186,6 +192,9 @@ target_compile_definitions(idris_rt PRIVATE
 	# with the system's (rt.platform:memory). The target entry's one number.
 	IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
 )
+# The same number for the tests, which build parts of the runtime for
+# another page size and must not assume this one (tests/toolchain).
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
 # The function that fills in the processor's features before the test reads
 # them, where no static constructor does.
 if(IDRIS_MLIR_RUNTIME_CPU_INIT)

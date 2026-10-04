@@ -34,7 +34,10 @@ char *arenaEnd = nullptr;
 // The size is a multiple of 64 MiB, and reserve() maps whole pages of
 // whatever the system's page size is (rt.platform), so this bounds how much
 // address space a chunk asks for, not a page-aligned quantity of its own.
+// A block is 16-byte aligned and may span pages, never chunks: one larger
+// than a chunk gets one of its own, of whole chunks.
 constexpr size_t chunkSize = size_t{1} << 26;
+static_assert(chunkSize % IDRIS_RT_PAGE_SIZE == 0, "a chunk is whole pages");
 
 // The meter of the running call, when it is metered: the ticks and arena
 // bytes it has left, and the lowest address its stack may reach.
@@ -72,6 +75,10 @@ extern "C" IDRIS_RT_COMPILER_ONLY void idris_rt_eval_tick(void) {
 }
 
 extern "C" IDRIS_RT_COMPILER_ONLY void *idris_rt_arena_alloc(size_t size) {
+  // No machine grants this much, and rounding it up below would wrap around
+  // to a small block.
+  if (size > SIZE_MAX - chunkSize)
+    _exit(IDRIS_RT_EVAL_EXHAUSTED);
   size = (size + 15) & ~size_t{15};
   if (metered) {
     if (size > bytesLeft)

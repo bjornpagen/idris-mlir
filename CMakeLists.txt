@@ -201,9 +201,13 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# macOS user space ends below 2^47 on arm64: only an mmap that asks for
 	# a higher address gets one, and no stack does.
 	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
-	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
-	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
-	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,-dead_strip -Wl,--icf=all)
+	# A dynamic PIE against libSystem, linked by the host's ld64.
+	# PIN(darwin-ld64-tapi): no -fuse-ld=lld. The pinned ld64.lld cannot
+	# read the macOS 27 SDK's libSystem.tbd (an arm64e.x1 target LLVM
+	# 23.1.2 does not know), so the link is the platform's ld64, which
+	# reads its own SDK; it has no ICF, so no --icf. See PINS.md.
+	set(IDRIS_MLIR_EXECUTABLE_FLAGS "")
+	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,-dead_strip)
 	# The pinned clang's configuration file names the sysroot beside it;
 	# GMP is its one library on Darwin. The path is derived from the
 	# compiler the preset names, so a toolchain elsewhere still resolves.

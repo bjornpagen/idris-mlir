@@ -9,6 +9,15 @@
 // for the rest, and so does a call that spends its budget. Every call runs
 // metered, within a budget of ticks, arena bytes and stack of its own,
 // counted, so the same call spends the same on every machine.
+//
+// What the child does after fork holds on every target entry's system: it
+// allocates (glibc's, musl's and libSystem's malloc all reinitialize their
+// locks in a fork child), starts one thread, on a stack it maps, and runs
+// code the parent's JIT finished mapping before it forked; it ends with
+// _exit, so nothing the parent registered runs. It uses no framework that
+// Darwin forbids after fork without exec (CoreFoundation, libdispatch's
+// queues, XPC), and libSystem gives the child its own task port, so a
+// mach_vm call (snmalloc's) maps into the child, not the parent.
 module;
 // The runtime's evaluation entry points and exit statuses, and the system's
 // processes, pipes, signals and clocks: C, and macros, which no import
@@ -206,6 +215,49 @@ Records parse(llvm::StringRef bytes) {
 } // namespace idr::eval
 
 export namespace idr::eval {
+
+// Why this process may not run the code its JIT wrote, or nothing when it
+// may. The probe, a function of that code that returns at once, runs in a
+// child of its own: a system that refuses to run what a process wrote
+// kills the process that tries (Darwin's hardened runtime does, with
+// SIGKILL, though mprotect made the pages executable), and every call would
+// otherwise read as killed for want of memory. One probe that ran tells for
+// the whole process. When no child can start, it tells nothing, and the
+// run that follows says why.
+std::optional<std::string> refusesJitCode(Jit::Entry probe) {
+  static bool runs = false;
+  if (runs)
+    return std::nullopt;
+  pid_t pid = fork();
+  if (pid == 0) {
+    probe(nullptr);
+    _exit(0);
+  }
+  if (pid < 0)
+    return std::nullopt;
+  int status = 0;
+  while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+  }
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    runs = true;
+    return std::nullopt;
+  }
+  std::string ended = WIFSIGNALED(status)
+                          ? "was killed by signal " + std::to_string(WTERMSIG(status))
+                          : "exited with status " + std::to_string(WEXITSTATUS(status));
+  std::string why =
+      "unsupported (executable memory): compile-time evaluation cannot run here: a function its "
+      "JIT compiled, which returns at once, " +
+      ended +
+      ". The JIT maps its code writable, then executable and never writable again, and this "
+      "system refuses to run it";
+  if (llvm::Triple(llvm::sys::getProcessTriple()).isOSDarwin())
+    why += ". Under macOS's hardened runtime, a process may run such code only with the "
+           "entitlement com.apple.security.cs.allow-unsigned-executable-memory "
+           "(com.apple.security.cs.allow-jit covers MAP_JIT memory, which LLVM's JIT does not "
+           "map): sign idris-mlir-cc without the hardened runtime, or with that entitlement";
+  return why + " (or compile with --no-eval)";
+}
 
 // Runs entries[first...] in a child. `words[i]` is the number of 8-byte
 // result slots entry i fills; entry i runs within `budgets[i]`;
