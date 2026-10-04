@@ -47,8 +47,12 @@ for file in $(find compiler/src -name '*.idr' | sort); do
   # Idris's constants exist only where the Idris API is imported: in
   # IdrisMLIR.Frontend.
   case $file in compiler/src/IdrisMLIR/Frontend/*) frontend=1 ;; *) frontend=0 ;; esac
-  awk -v file="$file" -v literals="$literals" -v terms="$terms" -v constants="$constants" -v frontend="$frontend" \
-      -v source="$source_literal" '
+  # The literal regex holds \( and \), which BSD awk's -v strips as escapes
+  # (it would read `((-?[0-9]...)` and match nothing); the environment is
+  # handed over verbatim, so both awks see the same regex.
+  IDRIS_MLIR_SOURCE_LITERAL="$source_literal" \
+  awk -v file="$file" -v literals="$literals" -v terms="$terms" -v constants="$constants" -v frontend="$frontend" '
+    BEGIN { source = ENVIRON["IDRIS_MLIR_SOURCE_LITERAL"] }
     {
       n = $0; sub(/:.*/, "", n); text = $0; sub(/^[0-9]*:/, "", text)
       pattern = ""; expr = text
