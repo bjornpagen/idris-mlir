@@ -118,6 +118,13 @@ endif()
 #                                       or "" for a file beside the object
 #                                       (an object format with no such
 #                                       section, Mach-O's)
+#   IDRIS_MLIR_RUNTIME_SECTIONS         the flags that put each function and
+#                                       datum in its own section, for the
+#                                       linker to drop the unused ones, or
+#                                       "" where the object's bitcode
+#                                       forbids them (clang rejects
+#                                       -ffunction-sections with
+#                                       -fembed-bitcode)
 #   IDRIS_MLIR_STACK_ADDRESS_BITS       the bits of a stack address, which
 #                                       the runtime's freeing keeps in a
 #                                       dying cell
@@ -166,6 +173,7 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# LTO object's, is excluded from every link.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
 	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION ".llvm.lto")
+	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
 	# User space ends below 2^47 on Linux on x86-64: only an mmap that asks
 	# for a higher address gets one, and no stack does.
 	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
@@ -196,8 +204,12 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# Mach-O: each member carries its bitcode embedded (IRObjectFile reads
 	# it), and the prepared runtime keeps the joined bitcode in a .bc file
 	# beside its object, Mach-O having no section every link leaves out.
+	# -fembed-bitcode rejects -ffunction-sections/-fdata-sections, and
+	# Apple's default subsections_via_symbols already gives -dead_strip its
+	# granularity, so the runtime's sections are left to the object format.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -fembed-bitcode=all)
 	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION "")
+	set(IDRIS_MLIR_RUNTIME_SECTIONS "")
 	# macOS user space ends below 2^47 on arm64: only an mmap that asks for
 	# a higher address gets one, and no stack does.
 	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)

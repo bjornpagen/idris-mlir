@@ -7,8 +7,8 @@
 # Mach-O archives (x86-64 Mach-O, which the pinned LLVM writes), so that
 # neither format's check passes for want of reading anything.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-check=$root/build/dev/runtime/check-archive
-archive=$root/build/dev/runtime/libidris_rt.a
+check=$dev_prefix/runtime/check-archive
+archive=$dev_prefix/runtime/libidris_rt.a
 
 # check NAME CHECK... ARCHIVE: the check's exit status and what it printed,
 # with the work directory's path taken out.

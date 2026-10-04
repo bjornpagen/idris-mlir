@@ -25,12 +25,15 @@ case $(uname -s) in
   *) llvm_prefix=$toolchain/llvm-musl ;;
 esac
 llvm_bin=$llvm_prefix/bin
-# The configure preset `make build` uses (CMakePresets.json): the Darwin one
-# is the same build with .toolchain/llvm-macos as the pinned compiler.
+# The configure preset `make build` uses (CMakePresets.json) and the
+# directory it builds into: the Darwin preset is the same build with
+# .toolchain/llvm-macos as the pinned compiler, into build/dev-darwin (its
+# preset name).
 case $(uname -s) in
   Darwin) dev_preset=dev-darwin ;;
   *) dev_preset=dev ;;
 esac
+dev_prefix=$root/build/$dev_preset
 # The C compiler that links programs (both compile flows, the benchmarks): the
 # stage-2 clang, whose configuration file names the sysroot, compiler-rt,
 # libunwind, lld and static-PIE output on Linux, and the SDK and the pinned
@@ -41,9 +44,9 @@ pinned_cc=$llvm_bin/clang
 sysroot=$toolchain/sysroot
 cmake=$toolchain/cmake/bin/cmake
 # What `make build` makes.
-idris_mlir_cc=$root/build/dev/foreign/idr/idris-mlir-cc
-idris_mlir_opt=$root/build/dev/foreign/idr/idris-mlir-opt
-idris_mlir_tblgen=$root/build/dev/foreign/idr/idris-mlir-tblgen
+idris_mlir_cc=$dev_prefix/foreign/idr/idris-mlir-cc
+idris_mlir_opt=$dev_prefix/foreign/idr/idris-mlir-opt
+idris_mlir_tblgen=$dev_prefix/foreign/idr/idris-mlir-tblgen
 
 # stamp_field PREFIX KEY: a string of PREFIX/provenance.json, the stamp a
 # bootstrap writes once every step of it succeeded.

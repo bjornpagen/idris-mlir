@@ -5,9 +5,9 @@
 
 # crashes_in_place SOURCE TARGET FILE MESSAGE: says whether clang still
 # prints MESSAGE when it compiles SOURCE as the build's TARGET (an object
-# file under build/dev) would compile FILE.
+# file under the dev build) would compile FILE.
 crashes_in_place() {
-  in_place_command=$(cd "$root/build/dev" &&
+  in_place_command=$(cd "$dev_prefix" &&
     "$toolchain/ninja/bin/ninja" -t commands "$2" 2> /dev/null | tail -n 1)
   if [ -z "$in_place_command" ]; then
     say "${1##*/}: no build (make build)"
@@ -15,7 +15,7 @@ crashes_in_place() {
   fi
   in_place_command=$(printf '%s\n' "$in_place_command" |
     sed "s| -o [^ ]*\\.o | -o $work/unit.o |; s|-fmodule-output=[^ ]*|-fmodule-output=$work/unit.pcm|; s| -c [^ ]*$3| -c $1|")
-  (cd "$root/build/dev" && eval "bounded $in_place_command") > "$work/in-place.log" 2>&1
+  (cd "$dev_prefix" && eval "bounded $in_place_command") > "$work/in-place.log" 2>&1
   if grep -qF "$4" "$work/in-place.log"; then
     say "${1##*/}: still crashes clang"
   else

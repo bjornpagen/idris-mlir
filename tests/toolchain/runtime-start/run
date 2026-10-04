@@ -6,7 +6,7 @@
 # the stack's size; a processor without what the program needs is refused
 # before the program runs.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-runtime=$root/build/dev/runtime/libidris_rt.a
+runtime=$dev_prefix/runtime/libidris_rt.a
 if ! link_program -O1 -I"$root/runtime" "$here/start.c" "$runtime" -o "$work/start" \
     > "$work/cc.log" 2>&1; then
   say "start: does not build"

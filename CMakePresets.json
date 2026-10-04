@@ -34,7 +34,6 @@
         "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/llvm-macos/bin/clang++",
         "CMAKE_C_COMPILER_TARGET": "arm64-apple-macosx14.0",
         "CMAKE_CXX_COMPILER_TARGET": "arm64-apple-macosx14.0",
-        "CMAKE_LINKER_TYPE": "LLD",
         "CMAKE_AR": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-ar",
         "CMAKE_RANLIB": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-ranlib",
         "CMAKE_NM": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-nm",

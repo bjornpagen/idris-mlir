@@ -663,4 +663,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 2027766871-935026 3012840158-26161
+-- fingerprint: 3233121202-935241 3012840158-26161

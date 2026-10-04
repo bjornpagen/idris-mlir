@@ -5,7 +5,7 @@
 # asks for is two pages, so it always reaches a second page; a few odd
 # small allocations first keep it off the arena's own page boundary.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-runtime=$root/build/dev/runtime/libidris_rt.a
+runtime=$dev_prefix/runtime/libidris_rt.a
 if ! link_program -O1 -I"$root/runtime" "$here/cell.c" "$runtime" -o "$work/cell" \
     > "$work/cc.log" 2>&1; then
   say "cell: does not build"

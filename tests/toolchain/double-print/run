@@ -5,7 +5,7 @@
 # Chez's text for each class of tests/lib/chez-divergences it applies.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
-runtime=$root/build/dev/runtime/libidris_rt.a
+runtime=$dev_prefix/runtime/libidris_rt.a
 build_test() {
   if link_program -O1 -I"$root/runtime" "$1" "$runtime" -o "$2" > "$work/cc.log" 2>&1; then
     say "${2##*/}: built"

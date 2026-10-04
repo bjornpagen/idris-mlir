@@ -61,7 +61,7 @@ lit() {
          /\\$/ { sub(/\\$/, ""); joined = joined $0; next }
          { print joined $0; joined = "" }
          END { if (joined != "") print joined }' > "$work/lit.lines"
-  PATH=$root/build/dev/foreign/idr:$llvm_bin:$PATH
+  PATH=$dev_prefix/foreign/idr:$llvm_bin:$PATH
   export PATH
   lit_n=0
   while IFS= read -r lit_line; do

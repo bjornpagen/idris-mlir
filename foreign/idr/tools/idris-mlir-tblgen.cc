@@ -365,7 +365,11 @@ std::string valuesType(StringRef single, char arity) {
 void emitOp(const Operator &op, llvm::raw_ostream &os) {
   if (op.getNumSuccessors() != 0)
     llvm::PrintFatalError(op.getLoc(), "the Idris side writes no op with successors");
-  StringRef mnemonic = StringRef(op.getOperationName()).drop_front(op.getDialectName().size() + 1);
+  // getOperationName returns a std::string by value: keep it alive while the
+  // mnemonic and the literal below read it (a StringRef bound to the
+  // temporary would dangle).
+  std::string operationName = op.getOperationName();
+  StringRef mnemonic = StringRef(operationName).drop_front(op.getDialectName().size() + 1);
   std::string name = camel(mnemonic, false) + "Op";
 
   std::vector<Parameter> implicits, explicits;
@@ -433,7 +437,7 @@ void emitOp(const Operator &op, llvm::raw_ostream &os) {
   os << "Op\n" << name;
   for (const Parameter &p : explicits)
     os << ' ' << p.name;
-  os << " =\n  MkOp " << literal(op.getOperationName()) << ' ' << listOf(operands) << ' '
+  os << " =\n  MkOp " << literal(operationName) << ' ' << listOf(operands) << ' '
      << dictionaryOf(properties) << ' ' << listOf(regions) << " [] " << listOf(results)
      << "\n\n";
 }

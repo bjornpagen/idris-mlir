@@ -1,7 +1,7 @@
 #!/bin/sh
 # A large big's digits are in its cell, one load from its word.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-runtime=$root/build/dev/runtime/libidris_rt.a
+runtime=$dev_prefix/runtime/libidris_rt.a
 if ! link_program -O1 -I"$root/runtime" "$here/cell.c" "$runtime" -o "$work/cell" \
      > "$work/cc.log" 2>&1; then
   say "cell: does not build"

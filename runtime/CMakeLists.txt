@@ -27,6 +27,9 @@ endforeach()
 #   raises every runtime function to the program's CPU;
 # - bitcode with the native code, as the target's entry carries it: bitcode
 #   for programs, native code for idris-mlir-cc;
+# - each function and datum in its own section, so the linker drops the
+#   unused ones (the target entry's IDRIS_MLIR_RUNTIME_SECTIONS, which is
+#   empty where the object's bitcode forbids them);
 # - no FP contraction.
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
@@ -34,8 +37,7 @@ target_compile_options(idris_mlir_runtime_profile INTERFACE
 	${IDRIS_MLIR_RUNTIME_BASELINE}
 	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
 	-ffp-contract=off
-	-ffunction-sections
-	-fdata-sections
+	${IDRIS_MLIR_RUNTIME_SECTIONS}
 )
 target_compile_definitions(idris_mlir_runtime_profile INTERFACE NDEBUG)
 

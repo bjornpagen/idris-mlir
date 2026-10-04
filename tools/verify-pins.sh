@@ -140,8 +140,9 @@ check() {
         fail "Pinned $1 missing or stale; run: tools/bootstrap.sh $1"
       ;;
     built)
-      for path in compiler/build/exec/idris-mlir build/dev/foreign/idr/idris-mlir-cc \
-                  build/dev/foreign/idr/idris-mlir-opt; do
+      for path in compiler/build/exec/idris-mlir \
+                  "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-cc" \
+                  "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-opt"; do
         [ -f "$root/$path" ] || fail "$path is missing; run: make build"
       done
       ;;

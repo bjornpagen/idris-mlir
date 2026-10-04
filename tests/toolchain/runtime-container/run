@@ -11,7 +11,7 @@
 step_limit=300
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 runtime=$("$idris_mlir_cc" --print-runtime)
-archive=$root/build/dev/runtime/libidris_rt.a
+archive=$dev_prefix/runtime/libidris_rt.a
 
 # prepare NAME [OPTION...]: the archive prepared into $work/NAME.o.
 prepare() {
