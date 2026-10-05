@@ -143,10 +143,13 @@ module_directives() {
 
 # module_checks FIXTURE EMITTED DUMPS: every check of the compilation's
 # modules that the fixture holds: translate.check, FileChecked on full Core
-# (01-translate.core); mlir.check (check_mlir); mlir.expect (check_expect).
+# (01-translate.core); mlir.check (check_mlir); mlir.expect (check_expect);
+# covers, the prelude module whose every export the program uses
+# (covers_prelude, on the program's Core).
 module_checks() {
   [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$3/01-translate.core"
   [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
   [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
+  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "${2%.mlir}.core"
   return 0
 }

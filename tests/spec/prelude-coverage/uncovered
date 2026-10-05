@@ -1,0 +1,16 @@
+# The modules of the stock prelude with no program yet that uses each of
+# their run-time exports (a tests/programs fixture marked `covers`). This
+# list only shrinks.
+Builtin
+PrimIO
+Prelude
+Prelude.Cast
+Prelude.EqOrd
+Prelude.Interfaces
+Prelude.Interpolation
+Prelude.IO
+Prelude.Num
+Prelude.Ops
+Prelude.Show
+Prelude.Types
+Prelude.Uninhabited

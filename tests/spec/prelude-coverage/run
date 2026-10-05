@@ -1,0 +1,43 @@
+#!/bin/sh
+# Every module of the stock prelude has a program that uses each of its
+# run-time exports: a fixture under tests/programs marked `covers MODULE`
+# (tests/lib/prelude.sh), whose check, in make test, reads the module's
+# exports from the pinned Idris and the program's use of them from its Core,
+# and whose output Chez checks. The modules are the pinned prelude's own
+# list (its prelude.ipkg), so a module the pin adds is asked for at once.
+#
+# A ratchet: `uncovered` lists the modules with no such fixture today, and
+# only shrinks. A module with no fixture that is not listed fails, and so
+# does a listed one that has a fixture now, so that whoever covers a module
+# removes its line.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+ipkg=third_party/Idris2/libs/prelude/prelude.ipkg
+awk '
+  /^modules[[:space:]]*=/ { listing = 1; sub(/^modules[[:space:]]*=/, "") }
+  listing {
+    n = split($0, names, ",")
+    for (i = 1; i <= n; i++) { gsub(/[[:space:]]/, "", names[i]); if (names[i] != "") print names[i] }
+    if ($0 !~ /,[[:space:]]*$/) listing = 0
+  }' "$ipkg" | sort -u > "$work/modules"
+if [ -s "$work/modules" ]; then say "prelude modules: read from $ipkg"; else say "prelude modules: none read from $ipkg"; fi
+
+for covers in tests/programs/*/*/covers; do
+  [ -f "$covers" ] && first_word "$covers"
+done | sort -u > "$work/covered"
+comm -23 "$work/modules" "$work/covered" > "$work/found"
+
+grep -v '^[[:space:]]*#' "$here/uncovered" | grep -v '^[[:space:]]*$' | sort -u > "$work/uncovered"
+comm -23 "$work/found" "$work/uncovered" > "$work/new"
+comm -13 "$work/found" "$work/uncovered" > "$work/stale"
+if [ -s "$work/new" ]; then
+  say "prelude modules with no covers fixture (add one):"
+  cat "$work/new"
+else
+  say "no prelude module without a covers fixture that is not listed"
+fi
+if [ -s "$work/stale" ]; then
+  say "listed as uncovered but covered now (remove the lines):"
+  cat "$work/stale"
+fi
+say "covered: $(wc -l < "$work/covered" | tr -d ' ') of $(wc -l < "$work/modules" | tr -d ' ') modules"

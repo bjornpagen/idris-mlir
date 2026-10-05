@@ -30,6 +30,8 @@
 #                     the file's first word says, so many iterations that a
 #                     loop keeping one frame per iteration exhausts the 1 MiB
 #                     stack it runs on; the file says what loops (e2e.sh)
+#     covers          the program uses every run-time export of the prelude
+#                     module the file names, as its Core shows (prelude.sh)
 #
 # The helpers are in tests/lib, one file per concern, sourced below after
 # the limits, each after what it uses:
@@ -44,6 +46,7 @@
 #     oracle.sh        Oracle.idr, and the generated semantics tests
 #     chez.sh          the stock Chez backend as an oracle, and its text of a
 #                      Double read as this compiler's (chez-doubles.ss)
+#     prelude.sh       a prelude module whose every export a program uses
 #     e2e.sh           the end-to-end programs, each compiled twice
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
@@ -99,7 +102,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing compile run heap mlir expect oracle chez properties e2e \
+for lib_file in harness timing compile run heap mlir expect oracle chez prelude properties e2e \
                 profile determinism lit fuzz two-levels idris-lex bench upstream; do
   . "$root/tests/lib/$lib_file.sh"
 done
