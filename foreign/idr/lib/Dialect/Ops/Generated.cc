@@ -196,6 +196,42 @@ OpFoldResult foldDivision(Division op, typename Division::FoldAdaptor adaptor) {
   return IntegerAttr::get(op.getType(), Division::quotient ? q : r);
 }
 
+// Idris's shift (Idr_ShiftOp): `a` moved `amount` places, left or right,
+// the other way when a signed amount is negative; a right shift fills with
+// the sign when signed and with zeros when not, and the bits past the width
+// are dropped, so from the width up a shift leaves only the fill.
+APInt idrisShift(const APInt &a, const APInt &amount, bool left, bool isSigned) {
+  unsigned width = a.getBitWidth();
+  bool toLeft = left;
+  APInt places = amount;
+  if (isSigned && amount.isNegative()) {
+    toLeft = !toLeft;
+    // The most negative amount stays negative, which reads as a huge count.
+    places = -amount;
+  }
+  if (places.uge(width)) {
+    if (toLeft || !isSigned || !a.isNegative())
+      return APInt::getZero(width);
+    return APInt::getAllOnes(width);
+  }
+  unsigned n = static_cast<unsigned>(places.getZExtValue());
+  if (toLeft)
+    return a.shl(n);
+  return isSigned ? a.ashr(n) : a.lshr(n);
+}
+
+template <typename Shift>
+OpFoldResult foldShift(Shift op, typename Shift::FoldAdaptor adaptor) {
+  auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
+  if (rhs && rhs.getValue().isZero())
+    return op.getLhs();
+  auto lhs = dyn_cast_or_null<IntegerAttr>(adaptor.getLhs());
+  if (!lhs || !rhs)
+    return {};
+  return IntegerAttr::get(op.getType(),
+                          idrisShift(lhs.getValue(), rhs.getValue(), Shift::left, op.getIsSigned()));
+}
+
 } // namespace
 
 #include "idr/IdrInterfaces.cc.inc"

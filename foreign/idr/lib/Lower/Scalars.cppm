@@ -1,5 +1,6 @@
 // idr.lower:scalars: the patterns of crashes, forged worlds, loops that
-// need not end, and the scalar operations that check their operands.
+// need not end, and the scalar operations whose meaning is more than
+// arith's.
 
 export module idr.lower:scalars;
 
@@ -109,6 +110,51 @@ struct LowerDivision : IdrPattern<OpT> {
   }
 };
 
+// A shift defined for every amount, as idrisShift folds it: the count of
+// places is taken masked to the width, so no arith shift is ever poison,
+// and the amounts from the width up select the fill instead.
+template <typename OpT>
+struct LowerShift : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value a = adaptor.getLhs(), amount = adaptor.getRhs();
+    Type type = a.getType();
+    unsigned width = type.getIntOrFloatBitWidth();
+    auto constant = [&](uint64_t value) -> Value {
+      return arith::ConstantOp::create(rewriter, loc, IntegerAttr::get(type, APInt(width, value)));
+    };
+    auto cmp = [&](arith::CmpIPredicate p, Value x, Value y) -> Value {
+      return arith::CmpIOp::create(rewriter, loc, p, x, y);
+    };
+    Value zero = constant(0);
+    bool isSigned = op.getIsSigned();
+    // The places to move, and whether a signed amount turns the direction.
+    Value turned = isSigned ? cmp(arith::CmpIPredicate::slt, amount, zero) : Value();
+    Value places = !isSigned ? amount
+                             : Value(arith::SelectOp::create(
+                                   rewriter, loc, turned,
+                                   arith::SubIOp::create(rewriter, loc, zero, amount), amount));
+    Value huge = cmp(arith::CmpIPredicate::uge, places, constant(width));
+    Value masked = arith::AndIOp::create(rewriter, loc, places, constant(width - 1));
+    Value leftward = arith::SelectOp::create(
+        rewriter, loc, huge, zero, arith::ShLIOp::create(rewriter, loc, a, masked));
+    Value fill = isSigned ? Value(arith::ShRSIOp::create(rewriter, loc, a, constant(width - 1)))
+                          : zero;
+    Value rightward = arith::SelectOp::create(
+        rewriter, loc, huge, fill,
+        isSigned ? Value(arith::ShRSIOp::create(rewriter, loc, a, masked))
+                 : Value(arith::ShRUIOp::create(rewriter, loc, a, masked)));
+    Value result = OpT::left ? leftward : rightward;
+    if (isSigned)
+      result = arith::SelectOp::create(rewriter, loc, turned, OpT::left ? rightward : leftward,
+                                       result);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 struct LowerToChar : IdrPattern<ToCharOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ToCharOp op, OpAdaptor adaptor,
@@ -155,12 +201,13 @@ struct LowerToByte : IdrPattern<ToByteOp> {
 
 // The patterns of crashes, of what has no runtime form (a forged world),
 // of the effect a loop that need not end keeps, and of the scalar
-// operations that check their operands: division, chars and bytes.
+// operations whose meaning is more than arith's: division, shifts, chars and
+// bytes.
 export void populateScalarPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                    layout::Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCrash, LowerWorldNew, LowerMayLoop, LowerToChar, LowerToByte,
-               LowerDivision<DivOp>, LowerDivision<ModOp>>(converter, patterns.getContext(),
-                                                           layouts, runtime);
+               LowerDivision<DivOp>, LowerDivision<ModOp>, LowerShift<ShlOp>, LowerShift<ShrOp>>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::lower

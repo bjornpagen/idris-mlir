@@ -162,6 +162,34 @@ A primitive's meaning comes from, in this order:
 - **Also:** the two-levels casts of literals are compared with Idris's
   evaluator again, no longer set aside as host-dependent.
 
+### Shifts of a fixed-width integer: Idris's, as Chez runs them
+
+- **Idris:** the evaluator hands a shift to the primitive of the Chez it
+  runs on (`Core/Primitives.idr`: `shiftl (I x) (I y) = I (prim__shl_Int x
+  y)`), so Chez's is Idris's: Scheme's `ash`, then, for a left shift, the
+  result wrapped to the type (`blodwen-bits-shl-signed`,
+  `blodwen-bits-shl`).
+- **Ours:** `idr.shl` and `idr.shr`, defined for every amount:
+  - the value moved by the amount, left or right, the other way when a
+    signed amount is negative, a right shift filling with the sign when
+    signed and with zeros when not;
+  - from the width up, only the fill is left: 0, or -1 for a negative value
+    shifted right;
+  - the result wrapped to the type, always a value of it.
+  - The folder (`idrisShift`, `foreign/idr/lib/Dialect/Ops/Generated.cc`)
+    and the lowering (`LowerShift`, `Lower/Scalars.cppm`) compute that one
+    meaning; the lowering masks the count to the width, so no arith shift
+    is ever poison.
+- **Was:** rejected, `unsupported (primitive): shift left`, which kept
+  base's `Data.Bits` on Int from compiling.
+- **Divergence:** `shift-wrapped`, a signed right shift by a negative
+  amount, the one shift Chez does not wrap.
+- **Tests:** the generated `prim-<type>-shift-0` tables, checked against
+  Idris's evaluator, Chez and this compiler with and without compile-time
+  evaluation; `tests/idr/fold/shift.mlir`.
+- **Integer shifts** have no op yet and are refused, `unsupported
+  (primitive)`.
+
 ### Kept, with their authority
 
 - **Integer div and mod are Euclidean**, the remainder in [0, |b|).

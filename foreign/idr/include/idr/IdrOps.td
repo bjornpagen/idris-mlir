@@ -638,6 +638,36 @@ def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
   let summary = "Idris mod: Euclidean when signed, crashes on zero";
 }
 
+// Idris's shifts of a fixed-width integer, as its Chez backend has them:
+// the value shifted arithmetically (Scheme's ash) by the amount, then
+// wrapped to the type's width. So a left shift by the width or more is 0,
+// a right shift by it or more is the sign (0 or -1; 0 when unsigned), and
+// a negative amount shifts the other way. Defined for every amount, unlike
+// arith's shifts, which are poison from the width up.
+class Idr_ShiftOp<string mnemonic, bit isLeft>
+    : Idr_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
+  let arguments = (ins UnitAttr:$is_signed, Idr_Int:$lhs, Idr_Int:$rhs);
+  let results = (outs Idr_Int:$result);
+  let assemblyFormat = [{
+    custom<Signedness>($is_signed) `` $lhs `,` $rhs attr-dict `:` type($result)
+  }];
+  let hasFolder = 1;
+  let extraClassDeclaration = "static constexpr bool left = "
+                              # !if(isLeft, "true", "false") # ";";
+  let extraClassDefinition = [{
+    ::mlir::OpFoldResult $cppClass::fold(FoldAdaptor adaptor) {
+      return foldShift(*this, adaptor);
+    }
+  }];
+}
+
+def Idr_ShlOp : Idr_ShiftOp<"shl", 1> {
+  let summary = "Idris shiftL: defined for every amount, wrapped to the width";
+}
+def Idr_ShrOp : Idr_ShiftOp<"shr", 0> {
+  let summary = "Idris shiftR: arithmetic, defined for every amount";
+}
+
 def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "an integer as a Char: itself if a scalar value, else 0";

@@ -116,6 +116,8 @@ using idr::ReadBytesOp;
 using idr::registerCallEffects;
 using idr::ResultCarriesOperand;
 using idr::ShareOp;
+using idr::ShlOp;
+using idr::ShrOp;
 using idr::fieldType;
 using idr::heldAs;
 using idr::StrConcatOp;

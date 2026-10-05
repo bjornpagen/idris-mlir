@@ -95,6 +95,28 @@ remainder t a b = if t.signed then wrap t (snd (euclid a b)) else a `mod` b
 bitwise : IntType -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
 bitwise t op a b = wrap t (op (modulo a (pow2 t.width)) (modulo b (pow2 t.width)))
 
+||| `n` divided by `m > 0`, rounded down.
+floorDiv : Integer -> Integer -> Integer
+floorDiv n m = if n >= 0 then n `div` m else negate ((negate n + m - 1) `div` m)
+
+||| A shift as Scheme's `ash` and then wrapped to the type: `a` moved `s`
+||| places, left or right, the other way when `s` is negative.
+shifted : IntType -> (left : Bool) -> Integer -> Integer -> Integer
+shifted t left a s =
+  let places = if left then s else negate s
+  in if places >= 0 then wrap t (a * pow2 (cast places))
+                    else wrap t (floorDiv a (pow2 (cast (negate places))))
+
+||| The shift amounts of a type: within its width, at it and past it, and a
+||| signed type's negative ones for a left shift. A negative amount of a
+||| signed right shift is left out: Chez's result there leaves the type's
+||| range, which this compiler wraps (tests/lib/chez-divergences).
+shiftAmounts : IntType -> (left : Bool) -> List Integer
+shiftAmounts t left =
+  let w = cast {to = Integer} t.width
+      within = [0, 1, 3, w - 1, w, w + 1]
+  in if t.signed && left then within ++ [-1, -3] else within
+
 ||| An Idris expression of type t with value v, built from an Int literal.
 lit : IntType -> Integer -> String
 lit t v =
@@ -130,10 +152,13 @@ tables t =
       divs = [(binary t "div" a b, t, quotient t a b) | (a, b) <- ds]
       mods = [(binary t "mod" a b, t, remainder t a b) | (a, b) <- ds]
       bits = [(binary t op a b, t, bitwise t f a b) | (op, f) <- logical, (a, b) <- pairs vs]
+      shifts = [(binary t op a s, t, shifted t left a s)
+               | (op, left) <- [("shl", True), ("shr", False)], a <- vs, s <- shiftAmounts t left]
       cmp = [(binary t op a b, int, if f a b then 1 else 0) | (op, f) <- comparisons, (a, b) <- pairs vs]
       casts = [("(prim__cast_" ++ t.name ++ u.name ++ " " ++ lit t a ++ ")", u, wrap u a)
               | u <- types, u.name /= t.name, a <- vs]
-  in [("arith", arith), ("div", divs), ("mod", mods), ("bitwise", bits), ("compare", cmp), ("cast", casts)]
+  in [("arith", arith), ("div", divs), ("mod", mods), ("bitwise", bits), ("shift", shifts),
+      ("compare", cmp), ("cast", casts)]
 
 chunks : Nat -> List a -> List (List a)
 chunks n [] = []

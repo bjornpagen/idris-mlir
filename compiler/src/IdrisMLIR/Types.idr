@@ -219,6 +219,10 @@ Show Lit where
 public export
 data ArithOp = Add | Sub | Mul | Div | Mod | And | Or | Xor
 
+||| The direction of a shift of a fixed-width integer (idr.shl, idr.shr).
+public export
+data Shift = ShiftLeft | ShiftRight
+
 public export
 data Cmp = CLt | CLte | CEq | CGte | CGt
 
@@ -247,7 +251,7 @@ Show Builder where
 ||| integers, characters and doubles; on strings; on `Integer`.
 public export
 data Prim
-  = IntOp ArithOp IntTy | FloatOp FArith | Negate | Math MathFn
+  = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
   | Compare Cmp Scalar | Cast Scalar Scalar
   | StrAppend | StrCons | StrLength | StrHead | StrTail | StrIndex | StrReverse | StrSubstr
   | StrCompare Cmp
@@ -322,8 +326,14 @@ Show MathFn where
   show Ceiling = "ceiling"
 
 export
+Show Shift where
+  show ShiftLeft = "shl"
+  show ShiftRight = "shr"
+
+export
 Show Prim where
   show (IntOp op t) = show op ++ "_" ++ show t
+  show (IntShift s t) = show s ++ "_" ++ show t
   show (FloatOp op) = show op ++ "_Double"
   show Negate = "neg_Double"
   show (Math f) = show f ++ "_Double"
@@ -365,6 +375,7 @@ scalarTy SDouble = DoubleT
 public export
 primArgs : Prim -> List Ty
 primArgs (IntOp _ t) = [IntT t, IntT t]
+primArgs (IntShift _ t) = [IntT t, IntT t]
 primArgs (FloatOp _) = [DoubleT, DoubleT]
 primArgs Negate = [DoubleT]
 primArgs (Math Pow) = [DoubleT, DoubleT]

@@ -157,6 +157,12 @@ prim ix l (IntOp op t) [a, b] = do
     Xor => Arith.xoriOp x y
     Div => Idr.divOp {isSigned = signed t} x y
     Mod => Idr.modOp {isSigned = signed t} x y)
+prim ix l (IntShift s t) [a, b] = do
+  x <- operand ix a
+  y <- operand ix b
+  value ix l (IntT t) (case s of
+    ShiftLeft => Idr.shlOp {isSigned = signed t} x y
+    ShiftRight => Idr.shrOp {isSigned = signed t} x y)
 prim ix l (FloatOp op) [a, b] = do
   x <- operand ix a
   y <- operand ix b

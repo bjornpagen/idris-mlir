@@ -333,8 +333,6 @@ mutual
         Neg DoubleType => supported
         Neg IntegerType => supported
         Neg _ => reject fc ctx.owner Primitive "negate"
-        ShiftL _ => reject fc ctx.owner Primitive "shift left"
-        ShiftR _ => reject fc ctx.owner Primitive "shift right"
         _ => supported
         where
           supported : Core (Term a)

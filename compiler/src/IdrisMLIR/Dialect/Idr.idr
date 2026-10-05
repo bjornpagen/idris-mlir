@@ -527,6 +527,18 @@ shareOp : (value : Value) -> (result : MlirType) -> Op
 shareOp value result =
   MkOp "idr.share" [value] [] [] [] [result]
 
+||| `idr.shl`: Idris shiftL: defined for every amount, wrapped to the width
+export
+shlOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shlOp lhs rhs result =
+  MkOp "idr.shl" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+
+||| `idr.shr`: Idris shiftR: arithmetic, defined for every amount
+export
+shrOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shrOp lhs rhs result =
+  MkOp "idr.shr" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+
 ||| `idr.str.append`: the concatenation of two strings
 export
 strAppendOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
@@ -663,4 +675,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 3233121202-935241 3012840158-26161
+-- fingerprint: 1743572328-938693 1352625558-26717
