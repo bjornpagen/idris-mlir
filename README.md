@@ -102,23 +102,28 @@ against its own run's C. ack runs in 4 ms; it measures compile-time
 specialization.
 
 The same twenty-six on arm64 macOS, measured by the same command on
-2026-10-04 at 15f1a53 on an Apple M2 Max (12 CPUs, 16 KiB pages, macOS
+2026-10-05 at 2cb1436 on an Apple M2 Max (12 CPUs, 16 KiB pages, macOS
 on AC power; the desktop's own applications were running), for CPU
 apple-m1, with the stack at macOS's 64 MiB hard limit:
 
-![This compiler against clang -O2 on arm64 macOS](bench/runs/2026-10-04-15f1a53-darwin-arm64/vs-c.svg)
+![This compiler against clang -O2 on arm64 macOS](bench/runs/2026-10-05-2cb1436-darwin-arm64/vs-c.svg)
 
-![This compiler against Idris on Chez Scheme on arm64 macOS](bench/runs/2026-10-04-15f1a53-darwin-arm64/vs-chez.svg)
+![This compiler against Idris on Chez Scheme on arm64 macOS](bench/runs/2026-10-05-2cb1436-darwin-arm64/vs-chez.svg)
 
-Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
+Against clang -O2 it is faster on 7 programs, within 15% on 12 and slower
 on 6 (fannkuch-redux, fasta, k-nucleotide, pidigits, reverse-complement,
 spectral-norm); against Idris on Chez Scheme it is faster on all 26, from
-1.07x (regex-redux) to 153x (spectral-norm-linear). Against its own C
-the Mac run is behind the Linux one on the allocation-heavy programs
-(binary-trees, cfold, deriv), on fannkuch-redux and on pidigits, and
-ahead on fib, rbtree and reverse-complement; why is not measured yet.
-Its [results](bench/runs/2026-10-04-15f1a53-darwin-arm64/results.md)
-hold every time and compare each ratio with the Linux record's.
+1.05x (regex-redux) to 152x (spectral-norm-linear). k-nucleotide is the
+C's algorithm since this record (a packed hash table over `IOArray`s),
+0.35x of C where the previous program was 0.01x on the Mac. Its
+[results](bench/runs/2026-10-05-2cb1436-darwin-arm64/results.md) hold
+every time and compare each ratio with the previous Mac record's, whose
+[results](bench/runs/2026-10-04-15f1a53-darwin-arm64/results.md) compare
+them with the Linux record's: against its own C the Mac is behind on the
+allocation-heavy programs (binary-trees, cfold, deriv), on fannkuch-redux
+and on pidigits, and ahead on fib, rbtree and reverse-complement; the
+Mac's C is the faster of the two by up to 3x (fannkuch-redux's runs in
+0.172 s there against 0.546 s), which lowers every ratio against it.
 
 [bench/](bench/README.md) says what each program measures and why each
 gap is what it is; the [full results](bench/runs/2026-10-03-861acdc/results.md)

@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="690" viewBox="0 0 840 690" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="100%" height="100%" fill="#0d1117"/>
+<text x="190.0" y="24.0" text-anchor="start" font-size="16" fill="#c9d1d9" font-weight="600">This compiler against clang -O2</text>
+<text x="190.0" y="46.0" text-anchor="start" font-size="12" fill="#8b949e">green: this compiler is faster; red: slower; log scale</text>
+<line x1="190.0" y1="64" x2="190.0" y2="620" stroke="#30363d"/>
+<text x="190.0" y="638.0" text-anchor="middle" font-size="11" fill="#8b949e">10x slower</text>
+<line x1="376.7" y1="64" x2="376.7" y2="620" stroke="#8b949e"/>
+<text x="376.7" y="638.0" text-anchor="middle" font-size="11" fill="#8b949e">even</text>
+<line x1="563.3" y1="64" x2="563.3" y2="620" stroke="#30363d"/>
+<text x="563.3" y="638.0" text-anchor="middle" font-size="11" fill="#8b949e">10x faster</text>
+<line x1="750.0" y1="64" x2="750.0" y2="620" stroke="#30363d"/>
+<text x="750.0" y="638.0" text-anchor="middle" font-size="11" fill="#8b949e">100x faster</text>
+<text x="180.0" y="85.0" text-anchor="end" font-size="12" fill="#c9d1d9">ack</text>
+<rect x="376.7" y="74" width="200.4" height="14" fill="#3fb950"/>
+<text x="583.1" y="85.0" text-anchor="start" font-size="12" fill="#c9d1d9">12x faster</text>
+<text x="180.0" y="107.0" text-anchor="end" font-size="12" fill="#c9d1d9">binary-trees</text>
+<rect x="376.7" y="96" width="84.1" height="14" fill="#3fb950"/>
+<text x="466.8" y="107.0" text-anchor="start" font-size="12" fill="#c9d1d9">2.82x faster</text>
+<text x="180.0" y="129.0" text-anchor="end" font-size="12" fill="#c9d1d9">deriv</text>
+<rect x="376.7" y="118" width="57.1" height="14" fill="#3fb950"/>
+<text x="439.8" y="129.0" text-anchor="start" font-size="12" fill="#c9d1d9">2.02x faster</text>
+<text x="180.0" y="151.0" text-anchor="end" font-size="12" fill="#c9d1d9">spectral-norm-linear</text>
+<rect x="376.7" y="140" width="51.6" height="14" fill="#3fb950"/>
+<text x="434.3" y="151.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.89x faster</text>
+<text x="180.0" y="173.0" text-anchor="end" font-size="12" fill="#c9d1d9">rbtree</text>
+<rect x="376.7" y="162" width="33.3" height="14" fill="#3fb950"/>
+<text x="416.0" y="173.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.51x faster</text>
+<text x="180.0" y="195.0" text-anchor="end" font-size="12" fill="#c9d1d9">cfold</text>
+<rect x="376.7" y="184" width="15.8" height="14" fill="#3fb950"/>
+<text x="398.4" y="195.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.21x faster</text>
+<text x="180.0" y="217.0" text-anchor="end" font-size="12" fill="#c9d1d9">rbtree-ck</text>
+<rect x="376.7" y="206" width="15.0" height="14" fill="#3fb950"/>
+<text x="397.7" y="217.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.20x faster</text>
+<text x="180.0" y="239.0" text-anchor="end" font-size="12" fill="#c9d1d9">nqueens</text>
+<rect x="376.7" y="228" width="10.9" height="14" fill="#3fb950"/>
+<text x="393.5" y="239.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.14x faster</text>
+<text x="180.0" y="261.0" text-anchor="end" font-size="12" fill="#c9d1d9">unionfind</text>
+<rect x="376.7" y="250" width="9.3" height="14" fill="#3fb950"/>
+<text x="392.0" y="261.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.12x faster</text>
+<text x="180.0" y="283.0" text-anchor="end" font-size="12" fill="#c9d1d9">nbody</text>
+<rect x="376.7" y="272" width="8.2" height="14" fill="#3fb950"/>
+<text x="390.8" y="283.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.11x faster</text>
+<text x="180.0" y="305.0" text-anchor="end" font-size="12" fill="#c9d1d9">fib</text>
+<rect x="376.7" y="294" width="7.2" height="14" fill="#3fb950"/>
+<text x="389.8" y="305.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.09x faster</text>
+<text x="180.0" y="327.0" text-anchor="end" font-size="12" fill="#c9d1d9">fannkuch-linear</text>
+<rect x="376.7" y="316" width="5.0" height="14" fill="#3fb950"/>
+<text x="387.7" y="327.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.06x faster</text>
+<text x="180.0" y="349.0" text-anchor="end" font-size="12" fill="#c9d1d9">mandelbrot-pbm</text>
+<rect x="376.7" y="338" width="4.7" height="14" fill="#3fb950"/>
+<text x="387.4" y="349.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.06x faster</text>
+<text x="180.0" y="371.0" text-anchor="end" font-size="12" fill="#c9d1d9">mandelbrot</text>
+<rect x="376.7" y="360" width="1.8" height="14" fill="#3fb950"/>
+<text x="384.4" y="371.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.02x faster</text>
+<text x="180.0" y="393.0" text-anchor="end" font-size="12" fill="#c9d1d9">collatz</text>
+<rect x="376.3" y="382" width="0.3" height="14" fill="#f85149"/>
+<text x="382.7" y="393.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.00x slower</text>
+<text x="180.0" y="415.0" text-anchor="end" font-size="12" fill="#c9d1d9">tak</text>
+<rect x="376.2" y="404" width="0.5" height="14" fill="#f85149"/>
+<text x="382.7" y="415.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.01x slower</text>
+<text x="180.0" y="437.0" text-anchor="end" font-size="12" fill="#c9d1d9">qsort</text>
+<rect x="374.7" y="426" width="2.0" height="14" fill="#f85149"/>
+<text x="382.7" y="437.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.02x slower</text>
+<text x="180.0" y="459.0" text-anchor="end" font-size="12" fill="#c9d1d9">harmonic</text>
+<rect x="374.6" y="448" width="2.1" height="14" fill="#f85149"/>
+<text x="382.7" y="459.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.03x slower</text>
+<text x="180.0" y="481.0" text-anchor="end" font-size="12" fill="#c9d1d9">ackdyn</text>
+<rect x="368.7" y="470" width="8.0" height="14" fill="#f85149"/>
+<text x="382.7" y="481.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.10x slower</text>
+<text x="180.0" y="503.0" text-anchor="end" font-size="12" fill="#c9d1d9">fannkuch-redux</text>
+<rect x="358.2" y="492" width="18.4" height="14" fill="#f85149"/>
+<text x="382.7" y="503.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.26x slower</text>
+<text x="180.0" y="525.0" text-anchor="end" font-size="12" fill="#c9d1d9">spectral-norm</text>
+<rect x="352.8" y="514" width="23.8" height="14" fill="#f85149"/>
+<text x="382.7" y="525.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.34x slower</text>
+<text x="180.0" y="547.0" text-anchor="end" font-size="12" fill="#c9d1d9">pidigits</text>
+<rect x="342.5" y="536" width="34.2" height="14" fill="#f85149"/>
+<text x="382.7" y="547.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.52x slower</text>
+<text x="180.0" y="569.0" text-anchor="end" font-size="12" fill="#c9d1d9">fasta</text>
+<rect x="326.5" y="558" width="50.2" height="14" fill="#f85149"/>
+<text x="382.7" y="569.0" text-anchor="start" font-size="12" fill="#c9d1d9">1.86x slower</text>
+<text x="180.0" y="591.0" text-anchor="end" font-size="12" fill="#c9d1d9">k-nucleotide</text>
+<rect x="291.0" y="580" width="85.6" height="14" fill="#f85149"/>
+<text x="382.7" y="591.0" text-anchor="start" font-size="12" fill="#c9d1d9">2.88x slower</text>
+<text x="180.0" y="613.0" text-anchor="end" font-size="12" fill="#c9d1d9">reverse-complement</text>
+<rect x="267.2" y="602" width="109.4" height="14" fill="#f85149"/>
+<text x="382.7" y="613.0" text-anchor="start" font-size="12" fill="#c9d1d9">3.86x slower</text>
+<text x="190.0" y="664.0" text-anchor="start" font-size="11" fill="#8b949e">not shown, no version to compare with: regex-redux</text>
+</svg>
