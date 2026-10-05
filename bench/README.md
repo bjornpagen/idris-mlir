@@ -102,8 +102,8 @@ literals and `show` resolve at compile time and cost nothing. **The
 Benchmarks Game** (binary-trees, fannkuch-redux, fasta, k-nucleotide,
 mandelbrot-pbm, nbody, pidigits, regex-redux, reverse-complement,
 spectral-norm): written as an Idris programmer writes them first, with
-lists where the game uses arrays except fannkuch-redux on base's
-`IOArray`; regex-redux carries its own small regex engine and has no C
+lists where the game uses arrays except fannkuch-redux and k-nucleotide on
+base's `IOArray`; regex-redux carries its own small regex engine and has no C
 version, so Chez is its only reference; fannkuch-linear and
 spectral-norm-linear are the same two programs over `Linear.Array`.
 **Counting Immutable Beans' programs** (rbtree, rbtree-ck, cfold, deriv,
@@ -224,17 +224,14 @@ unionfind over `Linear.Array`.
   before. A line packed only to be written is written as its list is
   walked, without the string (idr.io.put_list, 2026-10-02): about 5% off
   each. What remains is the list itself: a cons cell per character read.
-- **k-nucleotide** (2.4x faster than Chez, 18x slower than C): the
-  fragments are counted in a `Data.SortedMap String Int`, which keeps the
-  `Ord String` it was built with in the map's constructors. The frontend
-  holds that dictionary as a compile-time value of the map's data instance
-  (`Frontend.Translate.Dictionaries`), so a lookup compares strings with
-  the primitive and the field costs nothing at runtime. What remains is the
-  program as written: the sequence is a `List Char`, a `String` is packed
-  for each of the 1.75 million fragments counted, and each count rebuilds
-  the path of a persistent 2-3 tree, where the C hashes fragments packed
-  into integers in place. In the 2026-10-03 record: 4.807 s, Chez 11.555
-  s, clang 0.260 s; the compilation takes 11 s.
+- **k-nucleotide** is the C's algorithm since 2026-10-05: the sequence is an
+  `IOArray` of two-bit codes, each fragment a key packed two bits a
+  nucleotide and rolled along it with `Data.Bits`, counted in an
+  open-addressing table of `IOArray`s whose empty slots (`Nothing`) are the
+  unused ones, with the same hash as the C (`key ^ (key >> 15)`). The
+  records up to 2026-10-04 measured the earlier program, which counted
+  `String`s in a `Data.SortedMap` against the C's hash table; it needed
+  `Data.Bits`' shifts on `Int`, which this compiler refused until then.
 - **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
   `System.File`, byte for byte as the C does.
 

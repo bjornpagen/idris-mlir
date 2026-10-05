@@ -16,7 +16,7 @@ static Table table_new(size_t n) {
 }
 
 static long *table_at(Table *t, unsigned long long key) {
-  size_t i = (key * 0x9E3779B97F4A7C15ull) & t->mask;
+  size_t i = (key ^ (key >> 15)) & t->mask;
   while (t->slots[i].used && t->slots[i].key != key) i = (i + 1) & t->mask;
   if (!t->slots[i].used) { t->slots[i].used = 1; t->slots[i].key = key; }
   return &t->slots[i].count;
