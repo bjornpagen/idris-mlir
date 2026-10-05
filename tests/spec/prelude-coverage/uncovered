@@ -7,7 +7,6 @@ Prelude
 Prelude.Interfaces
 Prelude.Interpolation
 Prelude.IO
-Prelude.Num
 Prelude.Ops
 Prelude.Show
 Prelude.Types

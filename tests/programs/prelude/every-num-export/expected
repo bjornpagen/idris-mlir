@@ -1,0 +1,15 @@
+compile: exit 0
+artifacts: prog.core prog.mlir prog.o prog
+run: exit status as expected
+stdout: as expected
+stderr: empty
+object: no undefined symbol outside the allowed set
+prelude Prelude.Num: 22 exports, each used (10 compile-time only: Abs Fractional Integral MkAbs MkFractional MkIntegral MkNeg MkNum Neg Num)
+budget: kept
+dumps: parse and verify
+simplify: idempotent
+quantities: kept
+chez: compile exit 0
+chez: same stdout and exit status
+no-eval budget: kept
+no-eval: same stdout and exit status
