@@ -10,7 +10,12 @@
 #
 # A type, and a definition whose result is a type or an equality (a
 # proof), has no run time: it is named apart, as compile-time only, and
-# not asked of the program.
+# not asked of the program. So is an interface's constructor (MkEq), which
+# the pinned Idris names in the interface's :doc: this compiler resolves
+# every implementation at compile time, specialising each method call to
+# the implementation it is given, so the record is never built (an
+# implementation chosen at run time is refused), and the methods' uses are
+# what the program's Core shows.
 
 # prelude_exports MODULE: what MODULE exports, one `name<TAB>type` per line,
 # an operator with its parentheses, as :browse prints it.
@@ -38,6 +43,19 @@ compile_time_only() {
   }'
 }
 
+# interface_constructors MODULE NAME...: the constructors of the interfaces
+# among the NAMEs that MODULE exports, one per line, as their :doc names
+# them, all asked of one session of the pinned Idris.
+interface_constructors() {
+  ic_module=$1
+  shift
+  { for ic_name in "$@"; do printf ':doc %s.%s\n' "$ic_module" "$ic_name"; done; printf ':q\n'; } |
+    (cd "$work" && bounded "$idris2" --no-banner --no-color) 2> /dev/null |
+    awk '
+      /^Main> / { inside = ($0 ~ /^Main> interface /) }
+      inside && /^  Constructor: / { sub(/^  Constructor: /, ""); print }'
+}
+
 # covers_prelude MODULE CORE: every run-time export of MODULE is used by the
 # program whose Core is CORE.
 covers_prelude() {
@@ -49,13 +67,21 @@ covers_prelude() {
     show "$work/browse.err"
     return
   fi
+  # The type formers among the exports, whose interfaces' constructors are
+  # compile-time values.
+  : > "$work/type-formers"
+  while IFS="$(printf '\t')" read -r cp_name cp_type; do
+    case $cp_type in *Type) printf '%s\n' "$cp_name" >> "$work/type-formers" ;; esac
+  done < "$work/exports"
+  # shellcheck disable=SC2046 # one name per line, each a word
+  interface_constructors "$cp_module" $(cat "$work/type-formers") > "$work/interface-constructors"
   : > "$work/compile-time"
   : > "$work/missing"
   cp_total=0
   cp_used=0
   while IFS="$(printf '\t')" read -r cp_name cp_type; do
     cp_total=$((cp_total + 1))
-    if compile_time_only "$cp_type"; then
+    if compile_time_only "$cp_type" || grep -qxF -- "$cp_name" "$work/interface-constructors"; then
       printf '%s\n' "$cp_name" >> "$work/compile-time"
     elif core_uses "$cp_module" "$cp_name" "$cp_core"; then
       cp_used=$((cp_used + 1))
