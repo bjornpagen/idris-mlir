@@ -1,0 +1,5 @@
+message: 131072 bytes
+idr-eval: ends
+crash: reported, with its whole cause
+crashing call: stays for runtime
+next call: evaluated

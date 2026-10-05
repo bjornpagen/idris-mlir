@@ -28,6 +28,7 @@ module;
 #include <csignal>
 #include <cstring>
 #include <ctime>
+#include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -145,17 +146,43 @@ void runCalls(void *argument) {
   _exit(0);
 }
 
-std::string readAll(int fd) {
-  std::string all;
+// Everything the child writes to its two pipes, read from both as it comes:
+// a child that blocks writing one (a crash report longer than the pipe
+// holds, which is 16 KiB on Darwin) while the parent waits for the other to
+// end would hold both processes for ever.
+struct Streams {
+  std::string results;
+  std::string report;
+};
+
+Streams readBoth(int results, int report) {
+  Streams streams;
+  std::string *into[2] = {&streams.results, &streams.report};
+  pollfd fds[2] = {{results, POLLIN, 0}, {report, POLLIN, 0}};
   char buffer[1 << 16];
-  while (true) {
-    ssize_t got = read(fd, buffer, sizeof buffer);
-    if (got < 0 && errno == EINTR)
-      continue;
-    if (got <= 0)
-      return all;
-    all.append(buffer, static_cast<size_t>(got));
+  int open = 2;
+  while (open > 0) {
+    if (poll(fds, 2, -1) < 0) {
+      if (errno == EINTR)
+        continue;
+      return streams;
+    }
+    for (int i = 0; i < 2; ++i) {
+      if (fds[i].fd < 0 || (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) == 0)
+        continue;
+      ssize_t got = read(fds[i].fd, buffer, sizeof buffer);
+      if (got < 0 && errno == EINTR)
+        continue;
+      if (got <= 0) {
+        // A negative descriptor is one poll leaves out.
+        fds[i].fd = -1;
+        --open;
+        continue;
+      }
+      into[i]->append(buffer, static_cast<size_t>(got));
+    }
   }
+  return streams;
 }
 
 // The complete records at the start of the bytes the child wrote, and
@@ -290,9 +317,10 @@ Run runInChild(llvm::ArrayRef<Jit::Entry> entries, llvm::ArrayRef<size_t> words,
     run.message = "no evaluation child: " + std::string(strerror(errno));
     return run;
   }
-  Records records = parse(readAll(results[0]));
+  Streams streams = readBoth(results[0], report[0]);
+  Records records = parse(streams.results);
   run.results = std::move(records.results);
-  std::string reported = readAll(report[0]);
+  std::string reported = std::move(streams.report);
   close(results[0]);
   close(report[0]);
   int status = 0;

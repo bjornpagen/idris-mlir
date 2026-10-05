@@ -1,0 +1,56 @@
+#!/bin/sh
+# A call whose crash message is longer than any pipe holds (16 KiB on Darwin,
+# 64 KiB on Linux): the evaluation child writes the whole message to its
+# report pipe while its results pipe is still open, so idr-eval must read
+# both as they come; reading one to its end first leaves the two processes
+# waiting for each other until the step's time limit. The crash leaves the
+# call in place, with a Missed remark, and the call after it still runs.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+message=$(awk 'BEGIN { s = "x"; for (i = 0; i < 17; i++) s = s s; print s }')
+cat > "$work/long.mlir" << EOF
+module {
+  func.func private @shout(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+    idr.crash "a long crash report: $message"
+    %c = arith.constant 0 : i64
+    return %c : i64
+  }
+  func.func private @half(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %c = arith.constant 14 : i64
+    %q = idr.div signed %c, %x : i64
+    return %q : i64
+  }
+  func.func @Prog.main() -> (i64, i64) {
+    %z = arith.constant 0 : i64
+    %a = func.call @shout(%z) : (i64) -> i64
+    %two = arith.constant 2 : i64
+    %b = func.call @half(%two) : (i64) -> i64
+    return %a, %b : i64, i64
+  }
+}
+EOF
+say "message: $(printf '%s' "$message" | wc -c | tr -d ' ') bytes"
+
+if bounded "$idris_mlir_opt" --mlir-disable-threading "$work/long.mlir" --idr-eval \
+    --remarks-filter=idr-eval -o "$work/out.mlir" 2> "$work/remarks"; then
+  say "idr-eval: ends"
+else
+  say "idr-eval: exit $bounded_status"
+  head -c 400 "$work/remarks" | sed 's/^/  | /'
+  exit 0
+fi
+if grep -q 'Missed.*Crashed.*Function=shout.*a long crash report: xxxx' "$work/remarks"; then
+  say "crash: reported, with its whole cause"
+else
+  say "crash: not reported as Missed with its cause"
+fi
+if grep -q 'call @shout' "$work/out.mlir"; then
+  say "crashing call: stays for runtime"
+else
+  say "crashing call: gone"
+fi
+if grep -q 'arith.constant 7 : i64' "$work/out.mlir"; then
+  say "next call: evaluated"
+else
+  say "next call: not evaluated"
+fi
