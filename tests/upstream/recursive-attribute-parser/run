@@ -1,16 +1,25 @@
 #!/bin/sh
 # The upstream bug upstream/recursive-attribute-parser still reproduces with
 # the pinned mlir-opt: an array attribute nested 100,000 deep overflows an
-# 8 MiB stack. When this fails, the bug is fixed: idris-mlir-cc may drop its
-# reserved stack, and the PINS.md entry mlir-recursion, the report and this
-# test go (upstream/README.md).
+# 8 MiB stack, while the same attribute nested 1,000 deep parses under the
+# same limit, so the crash is the depth's. How the overflow ends differs by
+# system (SIGSEGV with LLVM's stack dump on Linux, SIGILL with none on
+# arm64 macOS), so only that a signal ends it is checked. When this fails,
+# the bug is fixed: idris-mlir-cc may drop its reserved stack, and the
+# PINS.md entry mlir-recursion, the report and this test go
+# (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-sh "$root/upstream/recursive-attribute-parser/nested.sh" 100000 > "$work/nested.mlir"
-( ulimit -s 8192 && bounded "$llvm_bin/mlir-opt" "$work/nested.mlir" ) > /dev/null 2> "$work/err"
-status=$?
-if [ "$status" -ge 128 ] && grep -q "MLIR Parser" "$work/err"; then
+nested() {
+  sh "$root/upstream/recursive-attribute-parser/nested.sh" "$1" > "$work/nested$1.mlir"
+  ( ulimit -s 8192 && bounded "$llvm_bin/mlir-opt" "$work/nested$1.mlir" ) > /dev/null 2> "$work/err$1"
+}
+nested 1000
+shallow=$?
+nested 100000
+deep=$?
+if [ "$shallow" -eq 0 ] && [ "$deep" -ge 128 ] && [ "$deep" -ne 137 ]; then
   say "nested: still reproduces (the parser overflows the stack)"
 else
-  say "nested: no longer reproduces (exit $status)"
-  head -n 20 "$work/err" | sed 's/^/  | /'
+  say "nested: no longer reproduces (1,000 deep: exit $shallow; 100,000 deep: exit $deep)"
+  head -n 20 "$work/err100000" | sed 's/^/  | /'
 fi
