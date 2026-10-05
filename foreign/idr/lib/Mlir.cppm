@@ -136,6 +136,7 @@ module;
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -792,6 +793,7 @@ using llvm::MachineModuleInfo;
 using llvm::make_early_inc_range;
 using llvm::make_filter_range;
 using llvm::make_range;
+using llvm::Mangler;
 using llvm::map_to_vector;
 using llvm::MapVector;
 using llvm::MCSubtargetInfo;
