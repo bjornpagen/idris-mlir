@@ -9,6 +9,7 @@ import Core.Core
 import Core.Env
 import Core.Normalise
 import Core.TT
+import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -188,6 +189,30 @@ solved tm =
        defs <- get Ctxt
        normaliseHoles defs [] tm
      else pure tm
+
+||| A metavariable applied to its arguments, as the solution the type checker
+||| gave it, which Idris's evaluator and its compilers follow too. Idris
+||| leaves a solved one in a checked term when it solved it after the term
+||| was elaborated (a lambda postponed until its type was known). The
+||| solution is a closed term: lambdas over the scope the metavariable was
+||| made in, the arguments, and `let`s for that scope's `let`s; both are
+||| substituted. `Nothing` for a metavariable without a solution, a hole.
+export
+solution : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
+           FC -> Name -> List (TT vars) -> Core (Maybe (TT vars))
+solution fc n args = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => internal fc ("the metavariable " ++ show n ++ " is not in the context")
+  case definition def of
+    PMDef _ [] (STerm _ tm) _ _ => pure (Just (apply (embedClosed tm) args zero Subst.empty))
+    PMDef {} => internal fc ("the solution of " ++ show n ++ " is not a term")
+    _ => pure Nothing
+  where
+    apply : {drop, vs : Scope} -> TT (drop ++ vs) -> List (TT vs) -> SizeOf drop -> SubstEnv drop vs -> TT vs
+    apply (Bind _ _ (Lam {}) sc) (a :: as) drop env = apply sc as (suc drop) (a :: env)
+    apply (Bind _ _ (Let _ _ val _) sc) as drop env = apply (subst val sc) as drop env
+    apply tm as drop env = foldl (App fc) (substs drop env tm) as
 
 ||| The quantities of a definition's parameters, as its type binds them.
 quantities : {auto c : Ref Ctxt Defs} -> Name -> Core (List RigCount)

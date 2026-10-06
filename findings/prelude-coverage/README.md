@@ -1,41 +1,30 @@
-# Prelude coverage: what blocks the four modules left
+# Prelude coverage: what blocks the two modules left
 
 The coverage check (`tests/lib/prelude.sh`, `tests/spec/prelude-coverage`)
-covers 10 of the 14 prelude modules. The fixtures written for the other
-four are kept here, outside the test tree, until what blocks them is
-fixed; each compiles what it can and agrees with Chez on it, with and
-without compile-time evaluation. Each is moved back to
-`tests/programs/prelude/` with its transcript accepted once its module's
-line says every export is used: Interfaces and Show once the compiler
-bugs below are fixed, IO and PrimIO once threads and pointers are
-admitted or ruled out.
+covers 12 of the 14 prelude modules. The fixtures written for the other
+two, IO and PrimIO, are kept here, outside the test tree, until threads
+and pointers are admitted or ruled out, which is a decision still to make;
+each compiles what it can and agrees with Chez on it, with and without
+compile-time evaluation. Each is moved back to `tests/programs/prelude/`
+with its transcript accepted once its module's line says every export is
+used.
 
 ## The compiler
 
-- **`Show (DPair a p)` is refused** (`every-show-export`), as an
-  implementation chosen at run time; Chez prints `(3 ** "x")`:
+- **A nested traversal that chooses a constructor stops `idr-simplify`**
+  with `null operand found` on a specialized lambda's call; Chez prints
+  `Right [[10]]`. No module's coverage waits on it. Without the inner
+  `if`, or with the inner lambda a named function, it compiles:
 
   ```idris
-  main = printLn (the (DPair Int (\_ => String)) (3 ** "x"))
+  main = do
+    c <- getChar
+    let n = the Int (cast (ord c) - 48)
+    printLn (for [n] (\x => for [x] (\y => the (Either Int Int) (if y > 0 then Right (x + y) else Left y))))
   ```
 
-  The implementation takes `{y : a} -> Show (p y)`, a function from the
-  index to a dictionary, which the frontend meets as a run-time closure
-  although the type checker fixes the implementation at every index.
-
-- **A solved postponed metavariable is refused**
-  (`every-interfaces-export`), as `unsupported (laziness): hole or
-  metavariable Main.{postpone:852}`; Chez prints `Right [2, 4]`:
-
-  ```idris
-  main = printLn (for (the (List Int) [1, 2]) (\x => if x > 0 then Right (x * 2) else Left x))
-  ```
-
-  `term` in `Frontend/Translate/Terms.idr` refuses every `Meta`; a solved
-  one should be followed to its definition. The reason is mislabelled too.
-
-- **Threads and pointers are not admitted** (`every-io-export`,
-  `every-primio-export`): `fork`, `threadWait`, `prim__castPtr`,
+- **Threads and pointers are not admitted**, pending a decision whether
+  to admit them (`every-io-export`, `every-primio-export`): `fork`, `threadWait`, `prim__castPtr`,
   `prim__forgetPtr`, `prim__nullPtr` (`not admitted from its trusted
   module`, `admittedFromPrimIO` in `Registry/Libraries.idr`), and
   `onCollect`, `onCollectAny`, `prim__nullAnyPtr`, `prim__getNullAnyPtr`,
@@ -78,9 +67,8 @@ Idris or the compiler, nothing written down in the script:
 of types only: their run-time uses are `0` and `add_Nat`, which no registry
 entry writes.
 
-Coverage lines today, each fixture run from `tests/programs/prelude/`
-(Interfaces and Show with the line that meets their bug removed):
-Interfaces 107 exports, each used; Show 16, each used; IO 23, 12 used, not
+Coverage lines today, each fixture run from `tests/programs/prelude/`:
+IO 23 exports, 12 used, not
 `fork`, `onCollect`, `onCollectAny`, `prim__fork`, `prim__getString`,
 `prim__threadWait`, `threadWait`; PrimIO 21, 7 used and `unsafePerformIO`
 an escape hatch, not `prim__castPtr`, `prim__forgetPtr`,

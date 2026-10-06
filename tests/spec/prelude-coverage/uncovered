@@ -2,6 +2,4 @@
 # their run-time exports (a tests/programs fixture marked `covers`). This
 # list only shrinks.
 PrimIO
-Prelude.Interfaces
 Prelude.IO
-Prelude.Show

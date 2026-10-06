@@ -85,22 +85,30 @@ instanceName n args = do
 marker : Nat -> ClosedTerm
 marker i = Ref EmptyFC Bound (MN "idris-mlir-binder" (cast i))
 
-||| Which arguments of a constructor are the data type's parameters: each
-||| binder of its type is replaced by a marker, and the markers found at the
-||| parameter positions of the return type name them.
-paramLayout : List Nat -> ClosedTerm -> List (Maybe Nat)
-paramLayout params ty =
-  let (n, ret) = markAll 0 ty
+||| Which arguments of a constructor are the data type's parameters, whose
+||| values the data instance gives: each binder of its type is replaced by a
+||| marker, and the markers found at the parameter positions of the return
+||| type name them. Only a parameter the instance keeps (`kept`, a type)
+||| has its value there; at any other, the instance is erased, and an
+||| argument the constructor holds at runtime (`MkTag : (n : Nat) -> Tag
+||| n`, which Idris finds at the same place in every constructor) is a
+||| field.
+paramLayout : List Nat -> List Nat -> ClosedTerm -> List (Maybe Nat)
+paramLayout params kept ty =
+  let (n, ret, rigs) = markAll 0 ty
       args = snd (spine ret [])
       found = mapMaybe (\p => (,p) <$> (getAt p args >>= markerOf)) params
-  in map (\i => lookup i found) (upto n)
+  in map (\i => lookup i found >>= given (getAt i rigs)) (upto n)
   where
     upto : Nat -> List Nat
     upto Z = []
     upto (S k) = upto k ++ [k]
-    markAll : Nat -> ClosedTerm -> (Nat, ClosedTerm)
-    markAll i (Bind _ _ (Pi {}) sc) = markAll (S i) (subst (marker i) sc)
-    markAll i t = (i, t)
+    markAll : Nat -> ClosedTerm -> (Nat, ClosedTerm, List RigCount)
+    markAll i (Bind _ _ (Pi _ rig _ _) sc) =
+      let (n, ret, rigs) = markAll (S i) (subst (marker i) sc) in (n, ret, rig :: rigs)
+    markAll i t = (i, t, [])
+    given : Maybe RigCount -> Nat -> Maybe Nat
+    given rig p = if elem p kept || maybe True isErased rig then Just p else Nothing
     markerOf : ClosedTerm -> Maybe Nat
     markerOf (Ref _ _ (MN "idris-mlir-binder" k)) = Just (cast k)
     markerOf _ = Nothing
@@ -402,7 +410,7 @@ mutual
       put TState ({ building $= insert inst } st)
       loc <- toLoc (location def)
       let ps = params
-      conList <- traverse (constructor inst args ps) datacons
+      conList <- traverse (constructor inst args ps keep) datacons
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
       update TState { building $= delete inst
                     , datas $= insert inst (MkDecl inst (shown tname) sorted loc)
@@ -429,8 +437,8 @@ mutual
         pure (field :: rest)
       walk _ _ _ _ _ = pure []
 
-      constructor : DataId -> List ClosedTerm -> List Nat -> Name -> Core Con
-      constructor inst targs ps dcon = do
+      constructor : DataId -> List ClosedTerm -> List Nat -> List Nat -> Name -> Core Con
+      constructor inst targs ps keep dcon = do
         def <- lookupDef fc owner dcon
         let cname = show (fullname def)
         DCon tag arity _ <- pure (definition def)
@@ -440,7 +448,7 @@ mutual
         -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
         -- with the quantity that makes a field linear.
         ty <- normaliseClosed (type def)
-        let layout = paramLayout ps ty
+        let layout = paramLayout ps keep ty
         -- Every match binds `arity` arguments: a layout of another length
         -- would misplace every field after the first difference.
         when (length layout /= arity) $
