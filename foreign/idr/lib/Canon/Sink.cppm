@@ -99,22 +99,63 @@ bool sinkable(Operation *value, Operation *match) {
   return (static_cast<int64_t>(regions) - 1) * size <= kSinkBudget;
 }
 
+// The op nearest before `match` in its block that sinkable() accepts, or
+// null. Every such op has a user inside the match, so two searches find it:
+// scanning back from the match, which costs the ops before it, and
+// collecting the ops of the block that the match's regions use, which costs
+// the ops inside it. The rewrite driver revisits a match whenever anything
+// inside it changes: a match late in a long block (a `do` block unfolded)
+// makes the scan long, a match that nests dozens deep (as case-of-case makes
+// them) the walk. The two run a step each in turn, and the first to finish
+// answers.
+Operation *nearestSinkable(Operation *match) {
+  Block *block = match->getBlock();
+  Operation *scanned = match;
+  SmallVector<std::pair<Block::iterator, Block::iterator>> walk;
+  for (Region &region : match->getRegions())
+    for (Block &inner : region)
+      walk.emplace_back(inner.begin(), inner.end());
+  llvm::SmallPtrSet<Operation *, 8> used;
+  while (true) {
+    Operation *previous = scanned->getPrevNode();
+    if (!previous)
+      return nullptr;
+    if (sinkable(previous, match))
+      return previous;
+    scanned = previous;
+
+    while (!walk.empty() && walk.back().first == walk.back().second)
+      walk.pop_back();
+    if (walk.empty())
+      break;
+    Operation &op = *walk.back().first++;
+    for (Value operand : op.getOperands())
+      if (Operation *def = operand.getDefiningOp(); def && def->getBlock() == block)
+        used.insert(def);
+    for (Region &region : op.getRegions())
+      for (Block &inner : region)
+        walk.emplace_back(inner.begin(), inner.end());
+  }
+  // The walk is done: what is left are the used ops before the last one
+  // scanned, latest first.
+  SmallVector<Operation *> left;
+  for (Operation *def : used)
+    if (def->isBeforeInBlock(scanned))
+      left.push_back(def);
+  llvm::sort(left, [](Operation *a, Operation *b) { return b->isBeforeInBlock(a); });
+  for (Operation *def : left)
+    if (sinkable(def, match))
+      return def;
+  return nullptr;
+}
+
 template <typename Match>
 struct SinkIntoRegions : OpRewritePattern<Match> {
   explicit SinkIntoRegions(MLIRContext *context) : OpRewritePattern<Match>(context) {
     this->setDebugName("idr-sink-into-regions");
   }
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    // The candidates are the ops before the match in its block. Visiting the
-    // values its regions use instead would walk all of its nested regions
-    // each time the match is revisited, and the rewrite driver revisits a
-    // match whenever anything inside it changes: in a function whose matches
-    // nest dozens deep, as case-of-case makes them, that dominated
-    // compilation.
-    Operation *value = nullptr;
-    for (Operation *def = op->getPrevNode(); def && !value; def = def->getPrevNode())
-      if (sinkable(def, op))
-        value = def;
+    Operation *value = nearestSinkable(op);
     if (!value)
       return failure();
     for (Region *region : usersIn(value, op)) {
