@@ -80,12 +80,24 @@ namespace idr::eval {
 
 namespace {
 
-// The child's stack: at most 2^46 bytes of address space, committed as it is
-// touched, above a guard of 16 MiB. A metered call's stack budget ends it
-// before the guard; a fault on the guard is the machine's limit, exhaustion.
+// The child's stack: twice the largest stack budget of the calls it runs,
+// committed as it is touched, above a guard of 16 MiB. A metered call's
+// stack budget ends it before the guard: the meter checks the stack where
+// the call's code enters a function or goes round a loop, so it overshoots
+// by at most a frame and the runtime functions that frame calls, and
+// reading its results back recurses once per cell of at most a mebibyte
+// of them, both far less than a budget. A fault on the guard is the
+// machine's limit, exhaustion. The reservation is no larger: mapping and
+// unmapping one costs time in proportion to its size, on every fork.
 // idris_rt_run_on_stack rounds both up to the system's page; neither is a
 // page size, and nothing here assumes one.
-constexpr size_t stackMost = size_t{1} << 46;
+size_t stackFor(llvm::ArrayRef<Budget> budgets) {
+  uint64_t most = 0;
+  for (const Budget &budget : budgets)
+    if (budget.stack > most)
+      most = budget.stack;
+  return static_cast<size_t>(2 * most);
+}
 constexpr size_t stackGuard = size_t{1} << 24;
 
 // The child's own failure, an internal error.
@@ -141,7 +153,8 @@ void runCalls(void *argument) {
 
 [[noreturn]] void child(Work &work, int report) {
   idris_rt_eval_begin(report);
-  if (idris_rt_run_on_stack(runCalls, &work, stackMost, stackGuard, stackExhausted) != 0)
+  if (idris_rt_run_on_stack(runCalls, &work, stackFor(work.budgets.drop_front(work.first)),
+                            stackGuard, stackExhausted) != 0)
     _exit(IDRIS_RT_EVAL_EXHAUSTED);
   _exit(0);
 }
