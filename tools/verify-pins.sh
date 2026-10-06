@@ -15,6 +15,10 @@
 #               the lock's revisions
 #   cmake, ninja, chez
 #               the pinned tool's stamp names the lock's revision
+#
+# Idris, LLVM (its runtimes too) and Chez Scheme are also stale when their
+# stamp records other patches than upstream/*/<project>.patch carry now
+# (tools/patches.sh).
 #   built       the tools `make build` makes exist
 #   test-tools  the pinned LLVM has FileCheck, not and count
 #
@@ -26,12 +30,23 @@
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
+. "$root/tools/patches.sh"
 idris_source=${IDRIS_MLIR_IDRIS_SOURCE:-$root/third_party/Idris2}
 lock=$root/toolchain.lock.json
 
 fail() {
   echo "error: $*" >&2
   exit 1
+}
+
+# patched PROJECT STAMP STEP: the stamp records the patches PROJECT carries
+# now (tools/patches.sh); a tool built without one of them, or with one
+# that has changed since, is stale.
+patched() {
+  patched_got=$(sed -n 's/.*"patches"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$2" 2> /dev/null | head -n 1)
+  patched_want=$(patch_stamp "$1") || fail "cannot read upstream/*/$1.patch"
+  [ "$patched_got" = "$patched_want" ] ||
+    fail "Local $3 was not built with the patches upstream/*/$1.patch carry now; rerun tools/bootstrap.sh $3"
 }
 
 # lock_field TOOL KEY: a string of toolchain.lock.json. Schemas 3 and 4 both
@@ -80,6 +95,7 @@ check() {
       source_revision
       [ "$(stamp_field "$prefix" idris2_revision)" = "$revision" ] ||
         fail "Local Idris toolchain is stale; rerun tools/bootstrap.sh idris"
+      patched idris "$prefix/provenance.json" idris
       # Idris runs on the Chez Scheme it was built with: the pinned one.
       check chez
       [ "$(stamp_field "$prefix" chez_revision)" = "$(lock_field chez revision)" ] ||
@@ -91,6 +107,7 @@ check() {
         fail "Build the pinned MLIR tools with tools/bootstrap.sh llvm first"
       [ "$(stamp_field "$prefix" llvm_revision)" = "$(lock_field llvm revision)" ] ||
         fail "Local LLVM tools are stale; rerun tools/bootstrap.sh llvm"
+      patched llvm "$prefix/provenance.json" llvm
       ;;
     sysroot)
       # What programs link against, by host. On Linux the sysroot holds
@@ -121,6 +138,7 @@ check() {
           got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
           [ "$got" = "$(lock_field gmp revision)" ] ||
             fail "The sysroot's gmp is stale; rerun tools/bootstrap.sh gmp"
+          patched llvm "$llvm_prefix/provenance.json" stage2
           ;;
         *)
           for part in musl:musl runtimes:llvm gmp:gmp; do
@@ -131,6 +149,7 @@ check() {
             [ "$got" = "$(lock_field "${part#*:}" revision)" ] ||
               fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
           done
+          patched llvm "$sysroot/provenance/runtimes.json" runtimes
           ;;
       esac
       ;;
@@ -138,6 +157,7 @@ check() {
       want=$(lock_field "$1" revision)
       { [ -n "$want" ] && [ "$(stamp_field "$toolchain/$1" revision)" = "$want" ]; } ||
         fail "Pinned $1 missing or stale; run: tools/bootstrap.sh $1"
+      if [ "$1" = chez ]; then patched chez "$toolchain/chez/provenance.json" chez; fi
       ;;
     built)
       for path in compiler/build/exec/idris-mlir \

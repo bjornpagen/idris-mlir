@@ -51,6 +51,16 @@
 # included, succeeded. The long builds (stage1, stage2) resume in
 # their build directory after a failure, when their inputs did not change.
 #
+# A bug in a pinned upstream is fixed by a patch to its source, kept with
+# the bug's report as upstream/<bug>/<project>.patch (tools/patches.sh). The
+# steps that build LLVM's runtimes and tools (runtimes, stage2), Chez
+# Scheme and Idris 2 build a copy of the pinned source with their
+# project's patches applied in name order, and fail naming the patch that
+# does not apply. The patches are inputs of those steps and their stamps
+# record them, so a changed or added patch rebuilds the step and everything
+# built with it, and tools/verify-pins.sh refuses a tool built without it.
+# Stage 1 builds the pristine pin: it only compiles the next stages.
+#
 # Environment:
 #   IDRIS_MLIR_TOOLCHAIN   the directory instead of .toolchain
 #   IDRIS_MLIR_JOBS        parallel compile jobs (default: the cores, at most
@@ -76,6 +86,8 @@ unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LIBS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_P
 root=$(cd "$(dirname "$0")/.." && pwd)
 # The host's tools where Linux and macOS differ: SHA-256, the memory.
 . "$root/tools/host.sh"
+# The patches carried on the pinned upstreams.
+. "$root/tools/patches.sh"
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 lock=$root/toolchain.lock.json
 # The host decides which recipe runs. On Linux the pinned toolchain is
@@ -318,6 +330,14 @@ quote_lines() {
   sed "s/'/'\\\\''/g; s/^/'/; s/\$/'/" | tr '\n' ' '
 }
 
+# patch_inputs PROJECT: the project's patches as lines of a recipe, one per
+# patch; none when it carries none, so that a recipe without patches is
+# what it is without the mechanism.
+patch_inputs() {
+  patch_inputs_record=$(patch_record "$1") || die "cannot read upstream/*/$1.patch"
+  [ -z "$patch_inputs_record" ] || printf '%s\n' "$patch_inputs_record" | sed 's/^/patch /'
+}
+
 # --- Running a step -----------------------------------------------------
 
 # begin STEP WHAT: prints `up to date` and returns 1 when the step's stamp
@@ -517,13 +537,71 @@ submodule() {
   printf '%s\n' "$submodule_link"
 }
 
-# export_source PATH DEST: the pinned commit's files, with one timestamp, so
-# no generated file looks stale and the checkout is never written to.
+# export_source CHECKOUT DEST [PROJECT]: the files of the checkout's commit,
+# with one timestamp, so no generated file looks stale and the checkout is
+# never written to; then PROJECT's patches, applied to them.
 export_source() {
   rm -rf "$2"
   mkdir -p "$2"
-  git -C "$root/$1" archive --format=tar HEAD | tar -xf - -C "$2" || die "cannot export $1"
-  [ -f "$2/configure" ] || die "exporting $1 gave no configure script"
+  git -C "$1" archive --format=tar HEAD | tar -xf - -C "$2" || die "cannot export $1"
+  [ -n "$(ls -A "$2")" ] || die "exporting $1 gave no files"
+  if [ $# -ge 3 ]; then apply_patches "$3" "$2"; fi
+}
+
+# apply_patches PROJECT DIR: the project's patches, in the order they apply,
+# to DIR, a fresh copy of its pinned source; a patch that does not apply
+# fails the step and names the patch. Git reads DIR as the top of the tree:
+# DIR may lie in another checkout (.toolchain is in this one), whose git
+# would take the patch's paths from its own top and skip them unsaid.
+apply_patches() {
+  apply_patches_project=$1
+  apply_patches_dir=$2
+  apply_patches_list=$(patches "$1" | quote_lines) || die "cannot list upstream/*/$1.patch"
+  eval "set -- $apply_patches_list"
+  for apply_patches_file; do
+    run "apply ${apply_patches_file#"$root"/}" in_dir "$apply_patches_dir" \
+      env "GIT_CEILING_DIRECTORIES=${apply_patches_dir%/*}" git apply --verbose "$apply_patches_file"
+  done
+  if [ $# -gt 0 ]; then say "    $apply_patches_project: $# patches applied"; fi
+}
+
+# llvm_tree: the llvm-project the runtimes and stage 2 build from, as
+# $llvm_tree: the pinned checkout itself while no patch is carried;
+# otherwise a copy of it with the patches applied, in .toolchain/build. The
+# copy is kept, and reused, while the revision and the patches are the
+# same, so that the runtimes and stage 2 share it and a resumed build reads
+# the files it was configured with, with the same timestamps.
+llvm_tree() {
+  clone_pinned llvm "$llvm_source"
+  llvm_tree_patches=$(patch_inputs llvm) || exit 1
+  if [ -z "$llvm_tree_patches" ]; then
+    llvm_tree=$llvm_source
+    return 0
+  fi
+  llvm_tree=$builds/llvm-project
+  llvm_tree_key=$(printf 'llvm %s\n%s\n' "$llvm_revision" "$llvm_tree_patches" | digest)
+  if [ -f "$llvm_tree.inputs" ] && [ "$(cat "$llvm_tree.inputs")" = "$llvm_tree_key" ]; then
+    say "    patched llvm-project: $llvm_tree"
+    return 0
+  fi
+  rm -f "$llvm_tree.inputs"
+  say "    patched llvm-project: exporting $llvm_source to $llvm_tree"
+  export_source "$llvm_source" "$llvm_tree" llvm
+  printf '%s\n' "$llvm_tree_key" > "$llvm_tree.inputs"
+}
+
+# llvm_tree_done: stage 2, the last step to read the patched copy, has
+# installed what it built from it.
+llvm_tree_done() {
+  rm -rf "$builds/llvm-project" "$builds/llvm-project.inputs"
+}
+
+# llvm_revision_flags: the revision LLVM's tools name in their version,
+# the pin's, whichever tree they are built from: a patched copy is no
+# checkout of its own, and lies inside this one.
+llvm_revision_flags() {
+  printf '%s\n' "-DLLVM_FORCE_VC_REVISION=$llvm_revision" \
+    "-DLLVM_FORCE_VC_REPOSITORY=$(lock_value llvm repository)"
 }
 
 # verify_release TOOL PATH: the lock's release tarball, when it can be
@@ -730,7 +808,9 @@ args_libcxx() {
 recipe_runtimes() {
   recipe_stage1_inputs=$(inputs stage1) || exit 1
   recipe_musl_inputs=$(inputs musl) || exit 1
-  printf '%s\n' "llvm $llvm_revision" "stage1 $recipe_stage1_inputs" "musl $recipe_musl_inputs"
+  printf '%s\n' "llvm $llvm_revision"
+  patch_inputs llvm
+  printf '%s\n' "stage1 $recipe_stage1_inputs" "musl $recipe_musl_inputs"
   args_builtins
   args_libcxx
 }
@@ -786,6 +866,7 @@ args_stage2() {
 
 recipe_stage2() {
   printf '%s\n' "llvm $llvm_revision"
+  patch_inputs llvm
   if [ "$host_kind" = darwin ]; then
     recipe_stage2_darwin
   else
@@ -869,8 +950,9 @@ recipe_stage2_darwin() {
 # resumes when these did not change, whatever happened to the runtimes or
 # the configuration file, which are rebuilt in minutes.
 recipe_stage2_darwin_llvm() {
-  printf '%s\n' "llvm $llvm_revision" "apple clang $("$host_cc" --version 2>&1 | head -n 1)" \
-    "sdk $sdk_version"
+  printf '%s\n' "llvm $llvm_revision"
+  patch_inputs llvm
+  printf '%s\n' "apple clang $("$host_cc" --version 2>&1 | head -n 1)" "sdk $sdk_version"
   args_stage2_darwin
 }
 
@@ -926,6 +1008,7 @@ args_chez() {
 
 recipe_chez() {
   printf '%s\n' "chez $chez_revision"
+  patch_inputs chez
   args_chez
 }
 
@@ -940,8 +1023,9 @@ find_chez() {
 recipe_idris() {
   recipe_idris_revision=$(submodule third_party/Idris2) || exit 1
   recipe_chez_inputs=$(inputs chez) || exit 1
-  printf '%s\n' "idris2 $recipe_idris_revision" "chez $recipe_chez_inputs" \
-    "make bootstrap install install-api"
+  printf '%s\n' "idris2 $recipe_idris_revision"
+  patch_inputs idris
+  printf '%s\n' "chez $recipe_chez_inputs" "make bootstrap install install-api"
 }
 
 # --- Steps --------------------------------------------------------------
@@ -1031,7 +1115,7 @@ step_musl() {
     die "the host's Linux UAPI headers are missing; install its kernel headers package (linux-libc-dev)"
   fi
   build_dir
-  export_source third_party/musl "$build/src"
+  export_source "$root/third_party/musl" "$build/src"
   mkdir -p "$build/out"
   rm -rf "$sysroot"
   mkdir -p "$sysroot/usr/include"
@@ -1058,19 +1142,19 @@ step_runtimes() {
   begin runtimes "compiler-rt's builtins, libunwind, libc++abi and libc++, with stage 1" || return 0
   require stage1 musl
   need git python3
-  clone_pinned llvm "$llvm_source"
+  llvm_tree
   resource=$stage1/lib/clang/$llvm_major
   build_dir
   rm -rf "$resource/lib/$triple"
   eval "set -- $(args_builtins | quote_lines)"
-  run "configure the builtins" "$cmake" -S "$llvm_source/compiler-rt/lib/builtins" -B "$build/builtins" "$@"
+  run "configure the builtins" "$cmake" -S "$llvm_tree/compiler-rt/lib/builtins" -B "$build/builtins" "$@"
   run "build the builtins" "$ninja" -C "$build/builtins" -j "$jobs"
   run "install the builtins" "$ninja" -C "$build/builtins" install
   for builtins_file in libclang_rt.builtins.a clang_rt.crtbegin.o clang_rt.crtend.o; do
     [ -f "$resource/lib/$triple/$builtins_file" ] || die "the builtins build installed no $resource/lib/$triple/$builtins_file"
   done
   eval "set -- $(args_libcxx | quote_lines)"
-  run "configure libunwind, libc++abi and libc++" "$cmake" -S "$llvm_source/runtimes" -B "$build/runtimes" "$@" \
+  run "configure libunwind, libc++abi and libc++" "$cmake" -S "$llvm_tree/runtimes" -B "$build/runtimes" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)"
   run "build libunwind, libc++abi and libc++" "$ninja" -C "$build/runtimes" -j "$jobs"
   run "install libunwind, libc++abi and libc++" env "DESTDIR=$build/stage" "$ninja" -C "$build/runtimes" install
@@ -1091,7 +1175,7 @@ CC
   [ "$("$build/check")" = "libc++ on musl ok" ] || die "the C++ check program did not print its line"
   static_pie "$stage1/bin/llvm-readelf" "$build/check"
   write_stamp "$(stamp_of runtimes)" step runtimes revision "$llvm_revision" tag "$llvm_tag" \
-    inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    inputs "$step_inputs" patches "$(patch_stamp llvm)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
 }
 
@@ -1105,13 +1189,13 @@ step_stage2_darwin() {
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
   # One snapshot serves both the compiler and its runtimes.
-  clone_pinned llvm "$llvm_source"
+  llvm_tree
   stage2_llvm_inputs=$(recipe_stage2_darwin_llvm | digest) || exit 1
   build_dir resume "$stage2_llvm_inputs"
   if [ "$resumed" = no ]; then need_disk 40 "the Darwin LLVM/MLIR build and install, runtimes included"; fi
-  eval "set -- $(args_stage2 | quote_lines)"
+  eval "set -- $({ args_stage2; llvm_revision_flags; } | quote_lines)"
   sample_memory
-  run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
+  run configure "$cmake" -S "$llvm_tree/llvm" -B "$build" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)" \
     "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
   # install-distribution, not distribution: the latter also depends on
@@ -1133,12 +1217,12 @@ step_stage2_darwin() {
   mkdir -p "$sysroot/usr/include" "$sysroot/usr/lib"
   rm -rf "$build/builtins" "$build/runtimes" "$build/check"
   eval "set -- $(args_builtins_darwin | quote_lines)"
-  run "configure the builtins" "$cmake" -S "$llvm_source/compiler-rt/lib/builtins" -B "$build/builtins" "$@" \
+  run "configure the builtins" "$cmake" -S "$llvm_tree/compiler-rt/lib/builtins" -B "$build/builtins" "$@" \
     "-DCMAKE_MAKE_PROGRAM=$ninja"
   run "build the builtins" "$ninja" -C "$build/builtins" -j "$jobs"
   run "install the builtins" "$ninja" -C "$build/builtins" install
   eval "set -- $(args_libcxx_darwin | quote_lines)"
-  run "configure libc++ and libc++abi" "$cmake" -S "$llvm_source/runtimes" -B "$build/runtimes" "$@" \
+  run "configure libc++ and libc++abi" "$cmake" -S "$llvm_tree/runtimes" -B "$build/runtimes" "$@" \
     "-DCMAKE_MAKE_PROGRAM=$ninja" "-DPython3_EXECUTABLE=$(command -v python3)"
   run "build libc++ and libc++abi" "$ninja" -C "$build/runtimes" -j "$jobs"
   run "install libc++ and libc++abi" "$ninja" -C "$build/runtimes" install
@@ -1182,10 +1266,11 @@ step_stage2_darwin() {
   done
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
     tag "$llvm_tag" version "$llvm_version" triple "$triple" sdk "$sdk" sdk_version "$sdk_version" \
-    page_size "$page_size" inputs "$step_inputs" jobs "$jobs" \
+    page_size "$page_size" inputs "$step_inputs" patches "$(patch_stamp llvm)" jobs "$jobs" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
     install_mib "$(size_mib "$llvm_macos")" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  llvm_tree_done
   finish
 }
 
@@ -1200,12 +1285,12 @@ step_stage2() {
   need git python3
   # Objects that carry bitcode and native code, then one copy of
   # the libraries installed; measured, the stamp says how much it took.
-  clone_pinned llvm "$llvm_source"
+  llvm_tree
   build_dir resume
   if [ "$resumed" = no ]; then need_disk 13 "the stage-2 build and install"; fi
-  eval "set -- $(args_stage2 | quote_lines)"
+  eval "set -- $({ args_stage2; llvm_revision_flags; } | quote_lines)"
   sample_memory
-  run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
+  run configure "$cmake" -S "$llvm_tree/llvm" -B "$build" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)" \
     "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
   run "build (many hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" distribution
@@ -1246,9 +1331,11 @@ step_stage2() {
   static_pie "$llvm_musl/bin/llvm-readelf" "$build/check/cc"
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
     tag "$llvm_tag" version "$llvm_version" lto "$lto" fat_lto_objects yes inputs "$step_inputs" \
+    patches "$(patch_stamp llvm)" \
     jobs "$jobs" seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
     install_mib "$(size_mib "$llvm_musl")" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  llvm_tree_done
   finish
 }
 
@@ -1266,7 +1353,7 @@ step_gmp() {
   submodule third_party/gmp gmp > /dev/null
   verify_release gmp third_party/gmp
   build_dir
-  export_source third_party/gmp "$build/src"
+  export_source "$root/third_party/gmp" "$build/src"
   mkdir -p "$build/out"
   eval "set -- $(args_gmp | quote_lines)"
   run configure in_dir "$build/out" "$build/src/configure" "$@"
@@ -1304,6 +1391,7 @@ step_chez() {
     git -C "$build/src" submodule update --init --depth 1
   chez_changes=$(git -C "$build/src" status --porcelain --untracked-files=no) || die "git status failed in $build/src"
   [ -z "$chez_changes" ] || die "$build/src or its submodules differ from the pinned commit's gitlinks"
+  apply_patches chez "$build/src"
   eval "set -- $(args_chez | quote_lines)"
   run configure in_dir "$build/src" ./configure "$@" "--installprefix=$chez_prefix"
   run build in_dir "$build/src" make -j "$jobs"
@@ -1316,20 +1404,31 @@ step_chez() {
   [ "$chez_says" = "($chez_machine #t)" ] || die "the installed scheme is $chez_says, not ($chez_machine #t)"
   write_stamp "$(stamp_of chez)" step chez revision "$chez_revision" tag "$chez_tag" \
     version "$chez_version" machine "$chez_machine" inputs "$step_inputs" \
-    host_compiler "$("$host_cc" --version 2>&1 | head -n 1)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    patches "$(patch_stamp chez)" host_compiler "$("$host_cc" --version 2>&1 | head -n 1)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
 }
 
 # Idris 2 on the pinned Chez Scheme. Its C support library is a shared
 # object in the Chez process, a host program, so the host's C compiler
 # builds it. PIN(idris-support-host-cc) — see PINS.md
+# It is built in a copy of the checkout, with its patches applied, which is
+# no checkout of its own: Idris's Makefile is told the version it would
+# read from the checkout's git, nothing at a tagged release, else the
+# commit's 9-character hash.
 step_idris() {
   begin idris "Idris 2 and its API, on Chez Scheme $chez_tag" || return 0
   require chez
   need git make
   idris_revision=$(submodule third_party/Idris2) || exit 1
   chez=$(find_chez) || exit 1
-  build=$builds/idris
+  if git -C "$root/third_party/Idris2" describe --exact-match --tags > /dev/null 2>&1; then
+    idris_version_tag=
+  else
+    idris_version_tag=$(git -C "$root/third_party/Idris2" rev-parse --short=9 HEAD) ||
+      die "git rev-parse failed in third_party/Idris2"
+  fi
+  build_dir
+  export_source "$root/third_party/Idris2" "$build/src" idris
   rm -rf "$idris_prefix"
   run bootstrap idris_make bootstrap
   run install idris_make install
@@ -1337,7 +1436,7 @@ step_idris() {
   "$idris_prefix/bin/idris2" --version > /dev/null 2>&1 || die "the installed idris2 does not run"
   write_stamp "$(stamp_of idris)" step idris idris2_revision "$idris_revision" scheme "$chez" \
     scheme_version "$("$chez" --version 2>&1 | head -n 1)" chez_revision "$chez_revision" \
-    inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    inputs "$step_inputs" patches "$(patch_stamp idris)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
 }
 
@@ -1357,7 +1456,7 @@ idris_make() {
     if [ "$host_kind" = darwin ]; then
       set -- "$@" "CPPFLAGS=-I$sysroot/usr/include" "LDFLAGS=-L$sysroot/usr/lib"
     fi
-    cd "$root/third_party/Idris2" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez"
+    cd "$build/src" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez" "VERSION_TAG=$idris_version_tag"
   )
 }
 
