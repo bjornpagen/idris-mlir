@@ -78,8 +78,13 @@ LogicalResult program(ModuleOp module) {
   for (auto data : module.getOps<DataOp>())
     datas[data.getSymNameAttr()] = data;
 
-  // Every sum or box type names a declaration of its kind.
-  auto checkType = [&](Operation *op, Type type) -> WalkResult {
+  // Every sum or box type names a declaration of its kind. Whether one does
+  // depends on the type alone, so one walker, which visits each attribute
+  // and type once however many ops hold it, checks them all; `at` is the
+  // op being walked, which an error names.
+  Operation *at = nullptr;
+  auto checkType = [&](Type type) -> WalkResult {
+    Operation *op = at;
     auto check = [&](FlatSymbolRefAttr name, bool boxed) -> WalkResult {
       DataOp data = datas.lookup(name.getAttr());
       if (!data) {
@@ -100,17 +105,19 @@ LogicalResult program(ModuleOp module) {
       return check(box.getName(), true);
     return WalkResult::advance();
   };
+  AttrTypeWalker walker;
+  walker.addWalk(checkType);
   WalkResult types = module.walk([&](Operation *op) -> WalkResult {
-    auto walkType = [&](Type type) { return checkType(op, type); };
-    if (op->getAttrDictionary().walk(walkType).wasInterrupted())
+    at = op;
+    if (walker.walk(op->getAttrDictionary()).wasInterrupted())
       return WalkResult::interrupt();
     for (Type type : op->getResultTypes())
-      if (type.walk(walkType).wasInterrupted())
+      if (walker.walk(type).wasInterrupted())
         return WalkResult::interrupt();
     for (Region &region : op->getRegions())
       for (Block &block : region)
         for (Type type : block.getArgumentTypes())
-          if (type.walk(walkType).wasInterrupted())
+          if (walker.walk(type).wasInterrupted())
             return WalkResult::interrupt();
     return WalkResult::advance();
   });

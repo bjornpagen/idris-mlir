@@ -210,6 +210,7 @@ using mlir::ArrayAttr;
 using mlir::ArrayRef;
 using mlir::AsmParser;
 using mlir::AsmPrinter;
+using mlir::AttrTypeWalker;
 using mlir::Attribute;
 using mlir::BitVector;
 using mlir::Block;
