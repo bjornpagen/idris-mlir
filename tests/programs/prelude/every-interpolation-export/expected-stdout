@@ -1,0 +1,13 @@
+plain
+
+hello, world
+worldworld
+nested <world> and empty  end
+escapes tab	here \{not interpolated}
+red, green and blue
+blue
+moss (green)
+swatch: brick world (red)
+void kept out!
+either
+[red][blue][green]

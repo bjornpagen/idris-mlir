@@ -5,7 +5,6 @@ Builtin
 PrimIO
 Prelude
 Prelude.Interfaces
-Prelude.Interpolation
 Prelude.IO
 Prelude.Ops
 Prelude.Show
