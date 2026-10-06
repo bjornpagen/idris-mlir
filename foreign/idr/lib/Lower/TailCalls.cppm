@@ -119,10 +119,11 @@ export LogicalResult makeTailCalls(ModuleOp module, TailCallCounts &counts) {
 
   // The functions only the module's calls reach.
   DenseSet<Operation *> internal;
+  graph::SymbolUses symbolUses(module);
   for (auto fn : module.getOps<LLVM::LLVMFuncOp>()) {
     if (fn.isExternal() || !fn.isPrivate() || fn.isVarArg())
       continue;
-    std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(fn, module);
+    std::optional<ArrayRef<SymbolTable::SymbolUse>> uses = symbolUses.of(fn);
     if (!uses || llvm::any_of(*uses, [&](const SymbolTable::SymbolUse &use) {
           auto call = dyn_cast<LLVM::CallOp>(use.getUser());
           return !call || call.getCalleeAttr() != use.getSymbolRef();

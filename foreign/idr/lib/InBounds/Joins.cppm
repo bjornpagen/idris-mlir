@@ -8,6 +8,7 @@ export module idr.inbounds:joins;
 
 import idr.mlir;
 import idr.dialect;
+import idr.graph;
 
 using namespace mlir;
 
@@ -33,10 +34,11 @@ export Value arrayRoot(Value array) {
 export class Calls {
 public:
   explicit Calls(ModuleOp module) {
+    graph::SymbolUses symbolUses(module);
     for (auto fn : module.getOps<func::FuncOp>()) {
       if (!fn.isPrivate() || fn.isExternal())
         continue;
-      std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(fn, module);
+      std::optional<ArrayRef<SymbolTable::SymbolUse>> uses = symbolUses.of(fn);
       if (!uses)
         continue;
       SmallVector<func::CallOp> calls;

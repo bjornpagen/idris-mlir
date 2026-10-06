@@ -15,5 +15,6 @@ idr_library(idr_inbounds
 	LINKS
 		idr_mlir
 		idr_ods
+		idr_graph
 		idr_narrow
 )

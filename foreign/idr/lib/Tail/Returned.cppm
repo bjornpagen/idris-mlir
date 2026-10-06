@@ -21,6 +21,7 @@
 export module idr.tail:returned;
 
 import idr.mlir;
+import idr.graph;
 
 using namespace mlir;
 
@@ -50,8 +51,9 @@ struct Returned {
 class ReturnedArguments {
 public:
   explicit ReturnedArguments(ModuleOp module) : module(module) {
+    idr::graph::SymbolUses uses(module);
     for (auto fn : module.getOps<func::FuncOp>())
-      if (eligible(fn)) {
+      if (eligible(fn, uses)) {
         functions.push_back(fn);
         results[fn].assign(fn.getNumResults(), Returned());
       }
@@ -126,10 +128,10 @@ public:
 private:
   // Whether every use of `fn` is a direct call, so that its signature is the
   // pass's to change; the calls are kept.
-  bool eligible(func::FuncOp fn) {
+  bool eligible(func::FuncOp fn, const idr::graph::SymbolUses &symbolUses) {
     if (fn.isExternal() || fn.isPublic() || fn.getNumResults() == 0)
       return false;
-    std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(fn, module);
+    std::optional<ArrayRef<SymbolTable::SymbolUse>> uses = symbolUses.of(fn);
     if (!uses)
       return false;
     SmallVector<func::CallOp> &direct = calls[fn];
