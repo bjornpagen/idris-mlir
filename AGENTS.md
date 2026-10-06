@@ -53,7 +53,8 @@ numbers.
   them. User code may not.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
-  or move the pin as a side effect of other work.
+  or move the pin as a side effect of other work; a patch to Idris applies
+  to the copy the bootstrap builds, never to the checkout.
 - Install build dependencies under .toolchain/ through `make bootstrap`. Do
   not modify the user's global compiler installation or shell configuration.
 - Reject what the compiler cannot compile with an explicit `unsupported`
@@ -66,11 +67,19 @@ numbers.
   dropped silently; do not keep one there.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
-- A workaround for upstream behaviour (LLVM, MLIR, Idris) needs a bug report
-  in `upstream/` (see upstream/README.md): reduce it to upstream dialects and
-  tools, and add the report, its reproducer, its `tests/upstream/` check and
-  its `PINS.md` entry in the same change. If it does not reproduce upstream,
-  the bug is ours: fix it instead.
+- A bug in a pinned upstream (LLVM, MLIR, clang, lld, Chez Scheme, Idris) is
+  fixed in that upstream, by a patch to its source, not worked around in
+  ours: a workaround hides the bug from upstream, drifts from it, and every
+  pass written after it has to know it. Reduce it to upstream dialects and
+  tools first; if it does not reproduce there, the bug is ours: fix it.
+  Prefer upstream's own fix, backported, to one of ours. The patch lives
+  with the bug's report as `upstream/<bug>/<project>.patch`, and
+  `tools/bootstrap.sh` applies it to the pinned source it builds; add the
+  report, the reproducer, the patch, its `tests/upstream/` check and its
+  `PINS.md` entry in the same change, and delete the workaround it
+  replaces. Every patch has a written plan to upstream it (where it goes,
+  the upstream test, its status); sending it is separate work. A patch goes
+  when the pin moves past upstream's fix (see upstream/README.md).
 - Tests check behaviour: exit status, produced artifacts, the property a
   pass guarantees. Not clone numbers, function order or SSA names. A test
   that goes stale on an unrelated change was a bad test; fix or delete it.

@@ -6,10 +6,18 @@ because the pinned toolchain, platform or dependency requires it, or a
 deliberate deviation from cpp-starter. Each `PIN(name)` site in the tree
 points at its entry here; the essay lives here, once.
 
+A bug in a pinned upstream is fixed by a patch to its source, carried in
+`upstream/<bug>/` and applied by `tools/bootstrap.sh` (upstream/README.md);
+its entry's workaround is that patch, and the entry goes when the pin moves
+past upstream's fix. Where code of ours still stands in for a patch, because
+the toolchain has not been rebuilt with it or because the bug has no patch
+yet, the entry says what that code is and when it goes.
+
 Tombstone ritual: on every toolchain bump, read this file top to bottom,
-re-test every retire condition, and delete what upstream fixed — one file,
-one sweep. Retired with the LLVM-only toolchain: `lint-graph-unbuilt`
-(stage 2 builds clang and clang-tidy) and
+re-test every retire condition, and delete what upstream fixed, with the
+patches the new pin has upstream's fix for — one file, one sweep. Retired
+with the LLVM-only toolchain: `lint-graph-unbuilt` (stage 2 builds clang
+and clang-tidy) and
 `cmake-ipo-probe-ordering` (no IPO probe and no `-freflection` remain).
 
 The accepted toolchain release series live only in `toolchain.lock.json`,
@@ -74,19 +82,23 @@ which the top-level CMake configure gate reads.
   `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
   symbols by default
 - sites: foreign/idr/lib/Eval/Jit.cppm (`idr-eval`)
-- workaround: ORC's `LLJIT` directly, which `ExecutionEngine` wraps, with
-  `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
+- workaround: `upstream/execution-engine-process-symbols/llvm.patch`
+  (drafted): `ExecutionEngineOptions::linkProcessSymbols = false` creates
+  the engine without the process's symbols. Until the toolchain is rebuilt
+  with it, `idr-eval` uses ORC's `LLJIT` directly, which `ExecutionEngine`
+  wraps, with `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
   `absoluteSymbols` table that binds the runtime's functions, and the libm
   functions lowered code may call, to `idris-mlir-cc`'s own copies; the
   library functions LLVM calls only on some targets (Darwin's `bzero`,
   `__exp10`, ...) are the target entry's `IDRIS_MLIR_JIT_LIBRARY_CALLS`,
   bound from the process by a `DynamicLibrarySearchGenerator` that allows
-  those names alone, which only a target with a dynamic loader names
-- retire: when `ExecutionEngine` can be created without the process's
-  symbols (upstream/execution-engine-process-symbols); re-read at every LLVM
-  bump
-- upstream: upstream/execution-engine-process-symbols (not yet filed): an
-  option to create the engine without the process's symbols
+  those names alone, which only a target with a dynamic loader names. With
+  the patch, `idr-eval` creates an `ExecutionEngine` without the process's
+  symbols and registers those functions, and its own `LLJIT` setup goes
+- retire: drop the patch when the pin has upstream's option; re-read at
+  every LLVM bump
+- upstream: upstream/execution-engine-process-symbols (not yet filed); plan
+  in its README: a pull request
 
 ## prune-before-remove-dead-values
 
@@ -101,14 +113,19 @@ which the top-level CMake configure gate reads.
   `canonicalize` or `idr-eval`), so running `sccp` first is not enough
 - sites: foreign/idr/lib/Simplify/Prune.cppm (`idr-prune`),
   foreign/idr/lib/Simplify/Round.cppm (the round of the simplify loop)
-- workaround: `idr-prune` runs before `remove-dead-values` and empties,
+- workaround: `upstream/remove-dead-values-unreachable/llvm.patch` (open
+  pull request #208881): the pass gives the remaining uses of a dead
+  argument `ub.poison`. Until the toolchain is rebuilt with it, `idr-prune`
+  runs before `remove-dead-values` and empties,
   with the same analyses, every block they prove unreachable: a match
   region ends in `ub.unreachable`, a function returns poison. `symbol-dce`
   runs between them, since emptying code can leave a function nothing
-  refers to, which the analysis would find unreachable in turn
-- retire: when `remove-dead-values` leaves unreachable code alone or erases
-  it at a bump; `tests/upstream/remove-dead-values-unreachable` fails then
-- upstream: upstream/remove-dead-values-unreachable (not yet filed)
+  refers to, which the analysis would find unreachable in turn. Whether
+  `idr-prune` stays as an optimization once it is no longer needed is
+  measured then
+- retire: drop the patch when the pin has #208881
+- upstream: upstream/remove-dead-values-unreachable (reported by others,
+  #206920, #203226); plan in its README: our reproducers to #208881
 
 ## remove-dead-values-address-taken
 
@@ -121,13 +138,14 @@ which the top-level CMake configure gate reads.
   Arity raising and apply of a known closure make such direct calls
 - sites: foreign/idr/lib/Simplify/Prune.cppm (`idr-prune`),
   foreign/idr/lib/Facts/Evaluation.cppm (a poison operand is no value to evaluate)
-- workaround: `idr-prune`, right before `remove-dead-values`, makes each
-  call of such a function pass `ub.poison` for every parameter the
-  function never reads
-- retire: when `remove-dead-values` keeps the operands of calls whose
-  callee's signature it keeps (`tests/upstream/remove-dead-values-address-taken`
-  fails)
-- upstream: upstream/remove-dead-values-address-taken (not yet filed)
+- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`, which
+  gives such an operand `ub.poison` (this bug has no patch of its own).
+  Until the toolchain is rebuilt with it, `idr-prune`, right before
+  `remove-dead-values`, makes each call of such a function pass `ub.poison`
+  for every parameter the function never reads
+- retire: drop the patch when the pin has #208881
+- upstream: upstream/remove-dead-values-address-taken (not yet filed);
+  plan in its README: its reproducer as a test of #208881
 
 ## uplift-final-counter
 
@@ -140,12 +158,14 @@ which the top-level CMake configure gate reads.
   foreign/idr/tools/idris-mlir-opt.cc registers upstream's test pass
   `test-scf-uplift-while-to-for`, which the pinned mlir-opt lacks, for the
   reproducer
-- workaround: `idr-tail-loops` uplifts a counted loop only when nothing
-  uses the value its counter ends with; any other stays an `scf.while`
-- retire: when the uplift gives the value the loop ends with, which it does
-  once the pin has main's 6e714c8d9 (#225476; not on release/23.x)
-  (`tests/upstream/uplift-final-counter` fails)
-- upstream: upstream/uplift-final-counter (fixed on main)
+- workaround: `upstream/uplift-final-counter/llvm.patch`, main's 6e714c8d9
+  (#225476) backported. Until the toolchain is rebuilt with it,
+  `idr-tail-loops` uplifts a counted loop only when nothing uses the value
+  its counter ends with; any other stays an `scf.while`
+- retire: drop the patch when the pin has 6e714c8d9 (not on release/23.x);
+  idris-mlir-opt's copy of the test pass stays while the pinned mlir-opt
+  has no test passes
+- upstream: upstream/uplift-final-counter (fixed on main); nothing to send
 
 ## inline-unreachable
 
@@ -159,15 +179,19 @@ which the top-level CMake configure gate reads.
   which foreign/idr/lib/Simplify/Prune.cppm and
   foreign/idr/lib/Tail/WhileDo.cppm use),
   foreign/idr/lib/Verify/Program.cppm (the program's verifier)
-- workaround: no function body ends in `ub.unreachable`: one that never
+- workaround: `upstream/inline-unreachable-terminator/llvm.patch`
+  (drafted): the inliner inlines a block that ends in a terminator that
+  does not return as a block of its own, and the `ub` dialect keeps
+  `ub.unreachable` as its end. Until the toolchain is rebuilt with it, no
+  function body ends in `ub.unreachable`: one that never
   returns (a crash, a body Idris proved impossible, a match none of whose
   regions returns) returns `ub.poison` instead, which is never reached; the
   program's verifier refuses a body that ends in `ub.unreachable`, after
   every pass. A match region that crashes still ends in `ub.unreachable`
   and stays a region, which the lowering lowers
-- retire: when the inliner handles `ub.unreachable` at a bump;
-  `tests/upstream/inline-unreachable-terminator` fails then
-- upstream: upstream/inline-unreachable-terminator (not yet filed)
+- retire: drop the patch when the pin's inliner handles `ub.unreachable`
+- upstream: upstream/inline-unreachable-terminator (not yet filed); plan in
+  its README: an issue and a pull request citing #206083
 
 ## mlir-recursion
 
@@ -189,9 +213,13 @@ which the top-level CMake configure gate reads.
   in proportion to the size, at start, exit and every fork).
   Running out of it is a named error in the tools and exhaustion in the
   child. idris-mlir-reduce does not have it
-- retire: when MLIR parses and prints nested attributes from a worklist;
-  `tests/upstream/recursive-attribute-parser` fails then
-- upstream: upstream/recursive-attribute-parser (not yet filed)
+- retire: when MLIR parses, prints and walks nested attributes from a
+  worklist; `tests/upstream/recursive-attribute-parser` fails then. There is
+  no patch: the fix is a design change across the parser, the printer and
+  the sub-element walks (its README says why), so this code stays until
+  upstream has it
+- upstream: upstream/recursive-attribute-parser (not yet filed); plan in its
+  README: an issue, then an RFC
 
 ## bytecode-deferred-quadratic
 
@@ -200,15 +228,19 @@ which the top-level CMake configure gate reads.
   text). Compile-time evaluation's results are as deep as the program's
   values: a computed list of 20,000 elements took 45 s to read back
 - sites: foreign/idr/lib/Eval/Encoding.cppm (`encodeResults`, `decodeResults`)
-- workaround: the evaluation child sends a call's results as bytecode of
+- workaround: `upstream/bytecode-deferred-quadratic/llvm.patch` (drafted):
+  the reader resolves deferred entries from a stack, in linear time. Until
+  the toolchain is rebuilt with it, the evaluation child sends a call's
+  results as bytecode of
   a flat table of their distinct parts, each after the parts it holds,
   which it names by position; the compiler rebuilds the constants from the
   table in order. No attribute in the table is nested more than a few
-  levels, and a shared part is in it once
-- retire: when the bytecode reader resolves deferred entries in linear
-  time; `tests/upstream/bytecode-deferred-quadratic` fails then. The table
-  may stay regardless, as it keeps sharing without the reader's help
-- upstream: upstream/bytecode-deferred-quadratic (not yet filed)
+  levels, and a shared part is in it once. The table may stay after the
+  rebuild, as it keeps sharing without the reader's help: measure then
+- retire: drop the patch when the pin's reader resolves deferred entries in
+  linear time
+- upstream: upstream/bytecode-deferred-quadratic (not yet filed); plan in
+  its README: an issue and a pull request
 
 ## simplify-structural-fixpoint
 
@@ -224,19 +256,23 @@ which the top-level CMake configure gate reads.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
 - sites: foreign/idr/lib/Simplify/Structural.cppm (`structural`), and
   foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
-- workaround: `idr-simplify` is its own loop over the round and decides the
+- workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted,
+  part 1 of the report's fix): `sccp` keeps the constants the module holds.
+  Until the toolchain is rebuilt with it, and for as long as the measure
+  below says so, `idr-simplify` is its own loop over the round and decides the
   fixpoint by a structural hash of the module: constants by their value at
   each use, other values by their position in the walk, so a constant
   remade at another address hashes the same. Over its round budget it fails
   with `unsupported (compile-time budget)`, where the composite pass would
   warn and go on
-- retire: when `composite-fixed-point-pass{pipeline=sccp}` converges on a
-  module `sccp` leaves as it is (`tests/upstream/composite-fixed-point-sccp`
-  fails). Then measure whether a round at its fixpoint keeps its
-  `OperationFingerPrint`; if it does, `structural` goes, and the loop may be
-  a `composite-fixed-point-pass` over the round once its budget can be an
-  error and its statistics ours
-- upstream: upstream/composite-fixed-point-sccp (not yet filed)
+- retire: with the patch, `composite-fixed-point-pass{pipeline=sccp}`
+  converges on a module `sccp` leaves as it is. Then measure whether a
+  round at its fixpoint keeps its `OperationFingerPrint`; if it does,
+  `structural` goes, and the loop may be a `composite-fixed-point-pass` over
+  the round once its budget can be an error and its statistics ours. Drop
+  the patch when the pin's `sccp` keeps existing constants
+- upstream: upstream/composite-fixed-point-sccp (not yet filed); plan in
+  its README: an issue and a pull request
 
 ## vectorize-precondition-body
 
@@ -251,16 +287,18 @@ which the top-level CMake configure gate reads.
   its vector code. idr-vectorize tiled such a loop before vectorizing it, and
   its scalar tiles ran the body column by column within each group of rows
 - sites: foreign/idr/lib/Vectorize/Tiles.cppm (`vectorizable`)
-- workaround: idr-vectorize decides with the precondition and
+- workaround: `upstream/vectorize-precondition-body/llvm.patch` (drafted):
+  the precondition checks a reduction's body too. Until the toolchain is
+  rebuilt with it, idr-vectorize decides with the precondition and
   `linalg::hasOnlyScalarElementwiseOp` of the body, the check upstream
   makes of an all-parallel generic, before it changes anything; a generic it
   refuses stays whole, and convert-linalg-to-loops runs its body in the
   program's order. A tile of a generic it took that the vectorizer refuses
   is its error, and fails the pass
-- retire: when the precondition refuses such a body
-  (`tests/upstream/vectorize-precondition-body` fails); `vectorizable` then
-  asks the precondition alone
-- upstream: upstream/vectorize-precondition-body (not yet filed)
+- retire: with the patch, `vectorizable` asks the precondition alone; drop
+  the patch when the pin's precondition refuses such a body
+- upstream: upstream/vectorize-precondition-body (not yet filed); plan in
+  its README: an issue and a pull request
 
 ## int-range-narrowing-exactness
 
@@ -274,17 +312,19 @@ which the top-level CMake configure gate reads.
   wide op gives 0), and a `remui` of a word that may be negative, which
   the narrow op reads as another number
 - sites: foreign/idr/lib/Narrow/Widths.cppm (`exact`)
-- workaround: idr-narrow-lanes versions a vectorized loop only when every
+- workaround: `upstream/int-range-narrowing-exactness/llvm.patch`: main's
+  44a4dbf32 (#218495, the shift) backported, and the remainders drafted.
+  Until the toolchain is rebuilt with it, idr-narrow-lanes versions a
+  vectorized loop only when every
   integer op in it wider than 32 bits is an arith op whose 32-bit form
   computes the same: a shift's amount stays below 32, a signed remainder
   never sees INT32_MIN % -1, an op that reads its operands unsigned sees
-  no negative word; any other loop keeps its 64-bit lanes
-- retire: when the narrowing asks this itself
-  (`tests/upstream/int-range-narrowing-exactness` fails); `exact` goes then.
-  The shift goes first: main's 44a4dbf32 (#218495) stops narrowing a shift
-  whose amount can reach the width; once the pin has it, `exact` keeps the
-  remainders alone
-- upstream: upstream/int-range-narrowing-exactness (not yet filed)
+  no negative word; any other loop keeps its 64-bit lanes. With the patch
+  the narrowing asks this itself, and `exact` goes
+- retire: when the pin has 44a4dbf32 the backported part leaves the patch;
+  drop the rest when the pin's narrowing handles the remainders
+- upstream: upstream/int-range-narrowing-exactness (remainders not yet
+  filed); plan in its README: an issue and a pull request for them
 
 ## while-move-if-down-duplicates
 
@@ -297,18 +337,20 @@ which the top-level CMake configure gate reads.
   then value: the loop computes something else
 - sites: foreign/idr/lib/Canon/ReadForwardedOnce.cppm (`ReadForwardedOnce`,
   added by `IdrDialect::getCanonicalizationPatterns`)
-- workaround: the idr dialect's canonicalization, at a benefit above
+- workaround: `upstream/while-move-if-down-duplicates/llvm.patch`, main's
+  a65eb8723 (#219458) backported. Until the toolchain is rebuilt with it,
+  the idr dialect's canonicalization, at a benefit above
   upstream's patterns, has the after region of an `scf.while` read a value
   its condition forwards at several positions, when it is an `scf.if`
   result, through the first argument only; the pattern then sets that one
   argument right, and the others are unused. Every canonicalization of a
   context with the idr dialect loaded collects it: the pipeline's
   `canonicalize` steps, `idr-canonicalize` and the evaluator's lowering
-- retire: when the pin has upstream's fix, which assigns each condition
-  operand on its own (main's a65eb8723, #219458; in 24.1.0);
-  `tests/upstream/while-move-if-down-duplicates` fails then. Delete
-  `ReadForwardedOnce` and `tests/idr/canon/while-forwarded-twice`
-- upstream: upstream/while-move-if-down-duplicates (fixed on main)
+- retire: with the patch, delete `ReadForwardedOnce` and
+  `tests/idr/canon/while-forwarded-twice`; drop the patch when the pin has
+  a65eb8723 (in 24.1.0)
+- upstream: upstream/while-move-if-down-duplicates (fixed on main); nothing
+  to send
 
 ## clang-module-layout-forward-declaration
 
@@ -319,9 +361,11 @@ which the top-level CMake configure gate reads.
 - sites: foreign/idr/lib/Stack/Escape.cppm (the escape analysis's caller
   and worklist sets)
 - workaround: the sets hold `func::FuncOp`, which is what they hold
-- retire: when tests/upstream/clang-module-layout-forward-declaration fails
-  (the pinned clang compiles the report's unit); the sets may stay typed
-- upstream: upstream/clang-module-layout-forward-declaration (not reduced yet)
+- retire: when a patch or the pin lets the pinned clang compile the
+  report's unit (tests/upstream/clang-module-layout-forward-declaration);
+  the sets may stay typed. There is no patch yet: the crash is not reduced
+- upstream: upstream/clang-module-layout-forward-declaration (not reduced
+  yet); plan in its README: reduce, then file or backport
 
 ## clang-module-predeclared-new
 
@@ -331,9 +375,11 @@ which the top-level CMake configure gate reads.
   builds `std::string`s from an imported wrapper of libc++
 - sites: foreign/idr/lib/Driver/Retarget.cppm (`retarget`)
 - workaround: the feature string is an `llvm::SmallString`
-- retire: when tests/upstream/clang-module-predeclared-new fails (the pinned
-  clang compiles the report's unit)
-- upstream: upstream/clang-module-predeclared-new (not reduced yet)
+- retire: when a patch or the pin lets the pinned clang compile the
+  report's unit (tests/upstream/clang-module-predeclared-new). There is no
+  patch yet: the crash is not reduced
+- upstream: upstream/clang-module-predeclared-new (not reduced yet; likely
+  #189252); plan in its README: reduce, then add to #189252
 
 ## llvm-force-enable-stats
 
@@ -431,16 +477,18 @@ which the top-level CMake configure gate reads.
   `--icf=all` (the host's `ld64` has no ICF). The report, reproducer and
   check are `upstream/ld64-lld-unknown-tapi-target/` and
   `tests/upstream/ld64-lld-unknown-tapi-target/`
-- workaround: Darwin links are made by the host's `ld64` (`/usr/bin/ld`),
-  which reads its own SDK; the pinned `ld64.lld` stays the linker on Linux
-- retire: when `ld64.lld` reads a stub with an unknown target (the fix is
-  `SkipUnknownTriples = true` in `macho::loadDylib`,
-  `lld/MachO/DriverUtils.cpp`); then restore `-fuse-ld=lld`, `--icf=all`,
-  and delete the upstream report and its test. A pin with `arm64e.x1`
-  (main's b8007a8e4, #222721; release/23.x's 532fa5afb, after 23.1.2)
-  reads the macOS 27 SDK but not the next SDK's new target, and the test
-  still reproduces then
-- upstream: `upstream/ld64-lld-unknown-tapi-target/`
+- workaround: `upstream/ld64-lld-unknown-tapi-target/llvm.patch`:
+  release/23.x's 532fa5afb (`arm64e.x1`) backported, and
+  `SkipUnknownTriples = true` in `macho::loadDylib` drafted, so the pinned
+  `ld64.lld` reads the macOS 27 SDK and the next one's. Until the toolchain
+  is rebuilt with it, Darwin links are made by the host's `ld64`
+  (`/usr/bin/ld`), which reads its own SDK; the pinned `ld64.lld` stays the
+  linker on Linux. With the patch, restore `-fuse-ld=lld` and `--icf=all`
+- retire: when the pin has 532fa5afb the backported part leaves the patch;
+  drop the rest when the pin's `ld64.lld` reads a stub with an unknown
+  target
+- upstream: `upstream/ld64-lld-unknown-tapi-target/` (not yet filed); plan
+  in its README: an issue and a pull request for `SkipUnknownTriples`
 
 ## cmake-import-std-uuid
 
