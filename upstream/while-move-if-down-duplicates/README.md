@@ -109,27 +109,24 @@ and the workaround stays until the pin moves past that commit.
 
 ## Our workaround
 
-The `canonicalize` steps of our pipeline after `idr-tail-loops` run
-`WhileMoveIfDown` on the loops it makes, and `idr-canonicalize` and the
-compile-time evaluator's lowering collect the same patterns. The idr dialect
-adds a canonicalization of its own (`ReadForwardedOnce`, at a higher
-benefit than upstream's patterns, so it runs first on a loop): when an
-`scf.condition` forwards one `scf.if` result at several positions, the
-after region reads it through the first of them only. `WhileMoveIfDown` then
-gives that argument the then value, and the others, which nothing reads,
-are removed (`PINS.md`: `while-move-if-down-duplicates`).
+None: the patch below is carried. The `canonicalize` steps of our pipeline
+after `idr-tail-loops` run `WhileMoveIfDown` on the loops it makes, and
+`idr-canonicalize` and the compile-time evaluator's lowering collect the
+same patterns; before the patch, a canonicalization of the idr dialect had
+the after region read a value its condition forwards twice through the
+first argument only.
 
-We have no Idris program that reaches the bug without it. The loop
+We have no Idris program that reaches the bug without that. The loop
 `idr-tail-loops` makes for a function whose decision is a string or
 `Integer` literal match ends in that match, an `scf.if` after lowering, and
 a self call that passes one value as two arguments makes two of its results
 yield the same values, which the region-branch patterns merge into one
-result forwarded twice (`tests/programs/basic/string-loop-one-value-twice`). In the runs we
-looked at, `ReplaceIfYieldWithConditionOrValue` makes the loop's condition
-the if's before the results merge, and `WhileMoveIfDown` takes the loop then,
-with every operand distinct. Whether it does depends on the order in which
-the greedy driver visits the ops, not on anything a pass of ours
-guarantees, so the workaround stays until the fix is in the pin.
+result forwarded twice (`tests/programs/basic/string-loop-one-value-twice`).
+In the runs we looked at, `ReplaceIfYieldWithConditionOrValue` makes the
+loop's condition the if's before the results merge, and `WhileMoveIfDown`
+takes the loop then, with every operand distinct. Whether it does depends
+on the order in which the greedy driver visits the ops, not on anything a
+pass of ours guarantees, so the fix belongs in the pattern.
 
 ## Patch
 

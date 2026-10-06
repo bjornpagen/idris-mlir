@@ -15,7 +15,6 @@ idr_library(idr_canon
 		Merge.cppm
 		PutList.cppm
 		PutStr.cppm
-		ReadForwardedOnce.cppm
 		Rebuild.cppm
 		Sink.cppm
 	LINKS

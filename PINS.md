@@ -330,20 +330,10 @@ which the top-level CMake configure gate reads.
   condition forwards that result at several positions, the after-region
   arguments of the later ones keep the else value where the loop needs the
   then value: the loop computes something else
-- sites: foreign/idr/lib/Canon/ReadForwardedOnce.cppm (`ReadForwardedOnce`,
-  added by `IdrDialect::getCanonicalizationPatterns`)
+- sites: none in our code; the patch
 - workaround: `upstream/while-move-if-down-duplicates/llvm.patch`, main's
-  a65eb8723 (#219458) backported. Until the toolchain is rebuilt with it,
-  the idr dialect's canonicalization, at a benefit above
-  upstream's patterns, has the after region of an `scf.while` read a value
-  its condition forwards at several positions, when it is an `scf.if`
-  result, through the first argument only; the pattern then sets that one
-  argument right, and the others are unused. Every canonicalization of a
-  context with the idr dialect loaded collects it: the pipeline's
-  `canonicalize` steps, `idr-canonicalize` and the evaluator's lowering
-- retire: with the patch, delete `ReadForwardedOnce` and
-  `tests/idr/canon/while-forwarded-twice`; drop the patch when the pin has
-  a65eb8723 (in 24.1.0)
+  a65eb8723 (#219458) backported
+- retire: drop the patch when the pin has a65eb8723 (in 24.1.0)
 - upstream: upstream/while-move-if-down-duplicates (fixed on main); nothing
   to send
 
