@@ -1,0 +1,106 @@
+#!/bin/sh
+# A bug in a pinned upstream is fixed by a patch carried in upstream/
+# (upstream/README.md), and the tree keeps that as data: every
+# upstream/<bug>/ has a README with an upstreaming plan, and either a patch
+# or the reason it has none; every patch is named for a project of
+# tools/patches.sh, and applies to that project's pinned source, alone and
+# after the patches before it, as tools/bootstrap.sh applies them. The
+# pinned sources are only read: each patch is checked against one with
+# `git apply --check`, and the patches are applied in order to a copy of
+# the files they touch.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+. "$root/tools/patches.sh"
+
+: > "$work/readmes"
+for dir in "$root"/upstream/*/; do
+  bug=$(basename "$dir")
+  readme=$dir/README.md
+  if [ ! -f "$readme" ]; then
+    say "$bug: no README.md" >> "$work/readmes"
+    continue
+  fi
+  grep -qx '## Upstreaming plan' "$readme" || say "$bug: no '## Upstreaming plan'" >> "$work/readmes"
+  patch_files=$(find "$dir" -maxdepth 1 -type f -name '*.patch')
+  reason=no
+  if grep -qx '## Why there is no patch' "$readme"; then reason=yes; fi
+  if [ -z "$patch_files" ] && [ "$reason" = no ]; then
+    say "$bug: no patch, and no '## Why there is no patch'" >> "$work/readmes"
+  fi
+  if [ -n "$patch_files" ] && [ "$reason" = yes ]; then
+    say "$bug: a patch, and '## Why there is no patch'" >> "$work/readmes"
+  fi
+  if [ -n "$patch_files" ] && ! grep -qx '## Patch' "$readme"; then
+    say "$bug: a patch, and no '## Patch' saying what it does" >> "$work/readmes"
+  fi
+  for file in $(find "$dir" -maxdepth 1 -type f -name '*.patch' -exec basename {} \;); do
+    case " $patch_projects " in
+      *" ${file%.patch} "*) ;;
+      *) say "$bug: $file names no project (tools/patches.sh: $patch_projects)" >> "$work/readmes" ;;
+    esac
+  done
+done
+if [ -s "$work/readmes" ]; then
+  say "upstream/ does not keep the policy:"
+  cat "$work/readmes"
+else
+  say "upstream/: every bug has a README with an upstreaming plan, and a patch or the reason it has none"
+fi
+
+# check_project PROJECT SOURCE WHAT: PROJECT's patches against SOURCE, a
+# checkout of its pinned commit.
+check_project() {
+  patches "$1" > "$work/$1.list"
+  if [ ! -s "$work/$1.list" ]; then
+    say "$1: its patches apply to the pinned source, alone and in order"
+    return 0
+  fi
+  if [ -z "$2" ] || ! git -C "$2" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    say "$1: no checkout of $3 to check its patches against"
+    return 0
+  fi
+  : > "$work/$1.failed"
+  : > "$work/$1.paths"
+  while IFS= read -r patch; do
+    name=${patch#"$root"/}
+    git -C "$2" apply --check "$patch" > "$work/$1.out" 2>&1 ||
+      { say "$name does not apply to $3:"; show "$work/$1.out"; } >> "$work/$1.failed"
+    git -C "$2" apply --numstat "$patch" 2> /dev/null | cut -f3 >> "$work/$1.paths"
+  done < "$work/$1.list"
+  copy=$work/$1-copy
+  mkdir -p "$copy"
+  git -C "$copy" init -q
+  sort -u "$work/$1.paths" | while IFS= read -r path; do
+    if git -C "$2" cat-file -e "HEAD:$path" 2> /dev/null; then
+      mkdir -p "$copy/$(dirname "$path")"
+      git -C "$2" show "HEAD:$path" > "$copy/$path"
+    fi
+  done
+  while IFS= read -r patch; do
+    git -C "$copy" apply "$patch" > "$work/$1.out" 2>&1 ||
+      { say "${patch#"$root"/} does not apply after the patches before it:"; show "$work/$1.out"; } >> "$work/$1.failed"
+  done < "$work/$1.list"
+  if [ -s "$work/$1.failed" ]; then
+    cat "$work/$1.failed"
+  else
+    say "$1: its patches apply to the pinned source, alone and in order"
+  fi
+}
+
+# LLVM: the checkout the bootstrap builds from, at the lock's revision.
+llvm_source=$toolchain/llvm-project
+llvm_pin=$("$root/tools/verify-pins.sh" lock llvm revision)
+if [ -n "$(patches llvm)" ] && [ "$(git -C "$llvm_source" rev-parse HEAD 2> /dev/null)" != "$llvm_pin" ]; then
+  say "llvm: $llvm_source is not a checkout at the lock's revision; run: tools/bootstrap.sh stage2"
+else
+  check_project llvm "$llvm_source" "the pinned llvm-project"
+fi
+# Idris: third_party/Idris2 at its gitlink, unmodified.
+idris_source=${IDRIS_MLIR_IDRIS_SOURCE:-$root/third_party/Idris2}
+if [ -n "$(patches idris)" ] && ! "$root/tools/verify-pins.sh" source > "$work/idris.pin" 2>&1; then
+  say "idris: third_party/Idris2 is not its pinned commit:"
+  show "$work/idris.pin"
+else
+  check_project idris "$idris_source" "third_party/Idris2"
+fi
+# Chez Scheme: the bootstrap clones it for its build and keeps no checkout.
+check_project chez "" "the pinned Chez Scheme (the bootstrap keeps none)"

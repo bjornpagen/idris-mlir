@@ -3,3 +3,6 @@ error: Pinned cmake missing or stale; run: tools/bootstrap.sh cmake
 a stale stamp: exit 1
 error: Pinned cmake missing or stale; run: tools/bootstrap.sh cmake
 a stamp at the lock's revision: exit 0
+a stamp with a patch the tree does not carry: exit 1
+error: Local chez was not built with the patches upstream/*/chez.patch carry now; rerun tools/bootstrap.sh chez
+a stamp with the tree's patches: exit 0

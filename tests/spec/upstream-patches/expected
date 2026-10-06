@@ -1,0 +1,4 @@
+upstream/: every bug has a README with an upstreaming plan, and a patch or the reason it has none
+llvm: its patches apply to the pinned source, alone and in order
+idris: its patches apply to the pinned source, alone and in order
+chez: its patches apply to the pinned source, alone and in order

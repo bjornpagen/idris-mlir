@@ -1,16 +1,27 @@
 #!/bin/sh
 # A pinned tool whose provenance stamp is missing or names another revision
-# than the lock is refused; one at the lock's revision is used.
+# than the lock is refused; one at the lock's revision is used. So is one
+# built with other patches than upstream/ carries (tools/patches.sh): Chez
+# Scheme's stamp, at the lock's revision, with a patch the tree does not
+# carry and then with the tree's own.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-mkdir -p "$work/toolchain/cmake"
+. "$root/tools/patches.sh"
+mkdir -p "$work/toolchain/cmake" "$work/toolchain/chez"
 verify() {
-  IDRIS_MLIR_TOOLCHAIN=$work/toolchain "$root/tools/verify-pins.sh" cmake > "$work/out" 2>&1
+  IDRIS_MLIR_TOOLCHAIN=$work/toolchain "$root/tools/verify-pins.sh" "$2" > "$work/out" 2>&1
   say "$1: exit $?"
   cat "$work/out"
 }
-verify "no stamp"
+verify "no stamp" cmake
 printf '{"revision": "%s"}\n' 0000000000000000000000000000000000000000 > "$work/toolchain/cmake/provenance.json"
-verify "a stale stamp"
+verify "a stale stamp" cmake
 printf '{\n  "revision": "%s"\n}\n' "$("$root/tools/verify-pins.sh" lock cmake revision)" \
   > "$work/toolchain/cmake/provenance.json"
-verify "a stamp at the lock's revision"
+verify "a stamp at the lock's revision" cmake
+chez_revision=$("$root/tools/verify-pins.sh" lock chez revision)
+printf '{\n  "revision": "%s",\n  "patches": "%s"\n}\n' "$chez_revision" "not-a-bug 0000" \
+  > "$work/toolchain/chez/provenance.json"
+verify "a stamp with a patch the tree does not carry" chez
+printf '{\n  "revision": "%s",\n  "patches": "%s"\n}\n' "$chez_revision" "$(patch_stamp chez)" \
+  > "$work/toolchain/chez/provenance.json"
+verify "a stamp with the tree's patches" chez
