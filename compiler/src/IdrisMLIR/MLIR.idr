@@ -314,49 +314,56 @@ dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) 
 typed : Value -> String
 typed v = v.name ++ ": " ++ v.type.text
 
+||| The name of an op's results, as its statement binds them.
+named : Maybe String -> Nat -> String
+named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
+named (Just r) _ = r ++ " = "
+named Nothing _ = ""
+
+-- The text is written as pieces, each function's before the `rest` it is
+-- given, and joined once (showModule): appending two strings copies both,
+-- so building an op's text from its regions' texts would copy every
+-- statement once per region around it and once per statement after it in
+-- its block, which grows with the square of the module.
 mutual
   ||| `"dialect.op"(operands) <{properties}> (regions) {attributes} : type`,
   ||| its regions indented by `d`.
-  showOp : Nat -> Op -> String
-  showOp d (MkOp name operands properties regions attributes results) =
-    quoted name ++ "(" ++ commaSeparated (map (.name) operands) ++ ")" ++
-    dictionary "<{" "}>" properties ++
-    (case regions of
-       [] => ""
-       _ => " (" ++ showRegions d regions ++ ")") ++
-    dictionary "{" "}" attributes ++
-    " : " ++ (functionType (map (.type) operands) results).text
+  opText : Nat -> Op -> List String -> List String
+  opText d (MkOp name operands properties regions attributes results) rest =
+    let after = dictionary "{" "}" attributes :: " : " ::
+                (functionType (map (.type) operands) results).text :: rest
+    in quoted name :: "(" :: commaSeparated (map (.name) operands) :: ")" ::
+       dictionary "<{" "}>" properties ::
+       (case regions of
+          [] => after
+          _ => " (" :: regionsText d regions (")" :: after))
 
-  showRegions : Nat -> List Region -> String
-  showRegions d [] = ""
-  showRegions d [r] = showRegion d r
-  showRegions d (r :: rs) = showRegion d r ++ ", " ++ showRegions d rs
+  regionsText : Nat -> List Region -> List String -> List String
+  regionsText d [] rest = rest
+  regionsText d [r] rest = regionText d r rest
+  regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
 
   ||| The block is labelled even when it has no arguments: the generic form
   ||| reads `{}` as a region of no blocks, and a block of no ops is one
   ||| only by its label.
-  showRegion : Nat -> Region -> String
-  showRegion d (MkRegion arguments statements) =
-    "{\n" ++ indent d ++ "^bb0" ++
+  regionText : Nat -> Region -> List String -> List String
+  regionText d (MkRegion arguments statements) rest =
+    "{\n" :: indent d :: "^bb0" ::
     (case arguments of
        [] => ""
-       _ => "(" ++ commaSeparated (map typed arguments) ++ ")") ++ ":\n" ++
-    showStatements (S d) statements ++ indent d ++ "}"
+       _ => "(" ++ commaSeparated (map typed arguments) ++ ")") :: ":\n" ::
+    statementsText (S d) statements (indent d :: "}" :: rest)
 
-  showStatements : Nat -> List Statement -> String
-  showStatements d [] = ""
-  showStatements d (s :: ss) = showStatement d s ++ showStatements d ss
+  statementsText : Nat -> List Statement -> List String -> List String
+  statementsText d [] rest = rest
+  statementsText d (s :: ss) rest = statementText d s (statementsText d ss rest)
 
-  showStatement : Nat -> Statement -> String
-  showStatement d (MkStatement result op at) =
-    indent d ++ named result (length op.results) ++ showOp d op ++ " " ++ location at ++ "\n"
-    where
-      named : Maybe String -> Nat -> String
-      named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
-      named (Just r) _ = r ++ " = "
-      named Nothing _ = ""
+  statementText : Nat -> Statement -> List String -> List String
+  statementText d (MkStatement result op at) rest =
+    indent d :: named result (length op.results) ::
+    opText d op (" " :: location at :: "\n" :: rest)
 
 ||| A module: its op, in the generic form too, with what it holds.
 export
 showModule : Op -> String
-showModule m = showOp 0 m ++ "\n"
+showModule m = fastConcat (opText 0 m ["\n"])
