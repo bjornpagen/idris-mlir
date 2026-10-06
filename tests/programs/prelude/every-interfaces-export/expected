@@ -4,7 +4,7 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-prelude Prelude.Interfaces: 107 exports; 65 used, these not: Additive Additive All All All All Any Any Any Any Compose Compose Compose Compose Compose Compose Compose Compose Multiplicative Multiplicative
+prelude Prelude.Interfaces: 107 exports, each used (22 compile-time only: Alternative Applicative Bifoldable Bifunctor Bitraversable Foldable Functor MkAlternative MkApplicative MkBifoldable MkBifunctor MkBitraversable MkFoldable MkFunctor MkMonad MkMonoid MkSemigroup MkTraversable Monad Monoid Semigroup Traversable)
 budget: kept
 dumps: parse and verify
 simplify: idempotent

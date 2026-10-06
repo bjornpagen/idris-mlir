@@ -1,21 +1,20 @@
-# Prelude coverage: what blocks the four modules left
+# Prelude coverage: what blocks the two modules left
 
 The coverage check (`tests/lib/prelude.sh`, `tests/spec/prelude-coverage`)
-covers 10 of the 14 prelude modules. The fixtures written for the other
-four are kept here, outside the test tree, until what blocks them is
-fixed; each compiles what it can and agrees with Chez on it, with and
-without compile-time evaluation. Each is moved back to
-`tests/programs/prelude/` with its transcript accepted once its module's
-line says every export is used: Interfaces and Show now that a
-`Show (DPair a p)` chosen at run time and a solved metavariable compile,
-IO and PrimIO once threads and pointers are admitted or ruled out.
+covers 12 of the 14 prelude modules. The fixtures written for the other
+two, IO and PrimIO, are kept here, outside the test tree, until threads
+and pointers are admitted or ruled out, which is a decision still to make;
+each compiles what it can and agrees with Chez on it, with and without
+compile-time evaluation. Each is moved back to `tests/programs/prelude/`
+with its transcript accepted once its module's line says every export is
+used.
 
 ## The compiler
 
 - **A nested traversal that chooses a constructor stops `idr-simplify`**
   with `null operand found` on a specialized lambda's call; Chez prints
-  `Right [[10]]`. Without the inner `if`, or with the inner lambda a named
-  function, it compiles:
+  `Right [[10]]`. No module's coverage waits on it. Without the inner
+  `if`, or with the inner lambda a named function, it compiles:
 
   ```idris
   main = do
@@ -24,8 +23,8 @@ IO and PrimIO once threads and pointers are admitted or ruled out.
     printLn (for [n] (\x => for [x] (\y => the (Either Int Int) (if y > 0 then Right (x + y) else Left y))))
   ```
 
-- **Threads and pointers are not admitted** (`every-io-export`,
-  `every-primio-export`): `fork`, `threadWait`, `prim__castPtr`,
+- **Threads and pointers are not admitted**, pending a decision whether
+  to admit them (`every-io-export`, `every-primio-export`): `fork`, `threadWait`, `prim__castPtr`,
   `prim__forgetPtr`, `prim__nullPtr` (`not admitted from its trusted
   module`, `admittedFromPrimIO` in `Registry/Libraries.idr`), and
   `onCollect`, `onCollectAny`, `prim__nullAnyPtr`, `prim__getNullAnyPtr`,
@@ -69,7 +68,7 @@ of types only: their run-time uses are `0` and `add_Nat`, which no registry
 entry writes.
 
 Coverage lines today, each fixture run from `tests/programs/prelude/`:
-Interfaces 107 exports, each used; Show 16, each used; IO 23, 12 used, not
+IO 23 exports, 12 used, not
 `fork`, `onCollect`, `onCollectAny`, `prim__fork`, `prim__getString`,
 `prim__threadWait`, `threadWait`; PrimIO 21, 7 used and `unsafePerformIO`
 an escape hatch, not `prim__castPtr`, `prim__forgetPtr`,
