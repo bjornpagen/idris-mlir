@@ -6,7 +6,5 @@ PrimIO
 Prelude
 Prelude.Interfaces
 Prelude.IO
-Prelude.Ops
 Prelude.Show
 Prelude.Types
-Prelude.Uninhabited

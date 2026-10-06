@@ -1,0 +1,85 @@
+nat: 0 3 7 7 0 15
+nat num: 11 1 12
+nat eq: True False True True
+nat ord: LT EQ GT GT True 9
+nat integer: 42 17 0 0
+count: 6 1 2
+maybe: "5" "none"
+whenJust: 4
+maybe eq: True False True
+maybe ord: LT GT True
+maybe monoid: Just 4 Just 1 Nothing
+maybe functor: Just 2 Nothing
+maybe applicative: Just 5 Nothing
+maybe alternative: Just 5 Just 6 Nothing
+maybe monad: Just 3 Nothing Nothing
+maybe foldable: 15 0 False True
+maybe traversable: Just (Just 3) Nothing Just Nothing
+either: 7 -1
+either eq: True True False
+either ord: LT GT LT
+either functor: Right 8 Left "z"
+either bifunctor: Left 1 Right 8
+either bifoldable: 101 109 False
+either bitraversable: Just (Left "x!") Nothing
+either applicative: Right 3 Left "a" Left "b"
+either monad: Right 4 Left "e"
+either foldable: 9 1 True False
+either traversable: Just (Right 3) Nothing Just (Left "n")
+equivalence: 9 11 2 0
+via value: Yes 3 Yes 3
+dec proof: Yes No
+via proof: Yes No No No
+list append: [1, 2, 3, 4, 5, 6, 7] [0, 1, 2, 3, 4, 5, 6] [1, 2] []
+list length: 6 6 16
+list filter: [4, 5, 6] [1, 2] [100, 2, 4, 6]
+list mapMaybe: [1, 2] [3] [0, 4]
+list reverse: [6, 5, 4, 3, 2, 1] [3, 2, 1, 0]
+list map: [10, 20, 30, 40, 50, 60] [2, 3, 4, 5, 6, 7] ['a', 'B', 'C'] [-1, -2, -3, -4, -5, -6]
+list bind: [1, 10, 2, 20, 3, 30] [0, 7, 7, 8, 8] [2, 4, 6]
+list eq: True False True
+list ord: LT GT EQ True
+list foldable: [1, 2, 3, 4, 5, 6] [6, 5, 4, 3, 2, 1] False True [1, 2, 3, 4, 5, 6] "123456" 21 720
+list applicative: [5] [11, 21, 20, 40] [(1, 'a'), (1, 'b'), (2, 'a'), (2, 'b')]
+list alternative: [1, 2, 3] []
+list traversable: Just [1, 2, 3, 4, 5, 6] Nothing Just ['a', 'b']
+list search: True False True True Just 3 Nothing
+snoc fish: [<1, 2, 3, 4, 5, 6] [1, 2, 3, 4, 5, 6]
+snoc append: [<1, 2, 3, 4, 9] [<1, 2, 3, 4, 7, 8]
+snoc length: 4 4 9
+snoc filter: [<2, 4] [<1, 3] [<3, 4, 10]
+snoc mapMaybe: [<1, 3] [<4] [<5, 9]
+snoc reverse: [<4, 3, 2, 1] [<0, 4, 3, 2, 1]
+snoc eq: True False True
+snoc ord: LT LT EQ
+stream: [0, 1, 2, 3, 4] 1 [1, 2, 4, 8, 16, 32] [2, 4, 8] [4, 8, 16]
+stream cons: [7, 8, 10, 12]
+stream map: [0, 3, 6, 9]
+stream until: [0, 1, 2, 3, 4, 5] [0, 1, 2, 3, 4] [1, 2, 4, 8, 16, 32, 64, 128]
+range nat: [[1, 2, 3, 4, 5], [5, 4, 3, 2], [1, 3, 5, 7, 9], [9, 6, 3], [4, 5, 6], [10, 8, 6, 4]]
+range int: [[-2, -1, 0, 1, 2], [3, 2, 1, 0], [1, 4, 7, 10], [10, 7, 4, 1, -2], [-1, 0, 1], [0, -5, -10]]
+range integer: [[1, 2, 3], [0, 10, 20, 30], [99, 100], [1, 2, 3]]
+range char: [['a', 'b', 'c', 'd', 'e'], ['a', 'c', 'e', 'g', 'i'], ['x', 'y', 'z'], ['z', 'x', 'v']]
+string: 12 ["Hello, World!", "dlroW ,olleH", "World", "", ">Hello, World"]
+string uncons: Just ('a', "bc") Nothing
+string pack: "idr" "mlir" ['a', 'b', 'c'] ['x', 'y', 'z']
+string concat: ["abcdef", "xy", "", "pq"]
+upper lower: [False, True, False, False, False, False, False, False, False, False, False, True, False] [True, False, False, False, False, False, True, False, True, False, False, False, False]
+alpha digit: [True, True, False, False, False, False, True, False, True, False, False, True, False] [False, False, True, False, False, False, False, False, False, False, False, False, True] [True, True, True, False, False, False, True, False, True, False, False, True, True]
+space nl: [False, False, False, True, True, True, False, False, False, False, False, False, False] [False, False, False, False, False, True, False, False, False, False, False, False, False] True True
+hex oct control: [True, False, True, False, False, False, False, False, True, False, False, False, True] [False, False, True, False, False, False, False, False, False, False, False, False, True] [False, False, False, False, True, True, False, False, False, True, True, False, False]
+case: ['A', 'Z', '5', ' ', '\t', '\n', 'X', '#', 'F', '\DEL', '\159', 'G', '7'] ['a', 'z', '5', ' ', '\t', '\n', 'x', '#', 'f', '\DEL', '\159', 'g', '7']
+chr ord: 'A' 122 'b'
+constants: [3.141592653589793, 2.718281828459045]
+exp log pow: [2.718281828459045, 2.302585092994046, 1024.0, 1.4142135623730951, 1.4142135623730951]
+trig: [0.479425538604203, 0.8775825618903728, 0.5463024898437905, 0.5235987755982988, 1.0471975511965976, 0.7853981633974483]
+hyperbolic: [1.1752011936438014, 1.5430806348152437, 0.4621171572600098]
+rounding: [2.0, -3.0, 3.0, -2.0]
+pair bifunctor: (2, 3)
+pair bifoldable: 3 14 False
+pair bitraversable: Just (1, 'A') Nothing
+pair functor: ('k', 2)
+pair foldable: 3 4 False
+pair traversable: Just ('a', 4) Nothing
+pair applicative: ("", 3) ("f;4;", 41)
+pair monad: ("1;11;", 110)

@@ -63,8 +63,19 @@ covers_prelude() {
   cp_core=$2
   prelude_exports "$cp_module" > "$work/exports"
   if [ ! -s "$work/exports" ]; then
-    say "prelude $cp_module: the pinned Idris lists no export"
-    show "$work/browse.err"
+    # :browse prints the same nothing for a module that exports nothing
+    # (Prelude.Ops declares only fixities) and for one that does not exist,
+    # so the pinned Idris is asked to import it: a module it imports and
+    # that lists no export has nothing a program could use. Its --check
+    # exits 0 on an error too, so an error is told by what it prints.
+    printf 'module Imports\nimport %s\n' "$cp_module" > "$work/Imports.idr"
+    (cd "$work" && bounded "$idris2" --no-banner --no-color --check Imports.idr) > "$work/import.out" 2>&1
+    if ! grep -q '^Error:' "$work/import.out"; then
+      say "prelude $cp_module: exports nothing at run time"
+    else
+      say "prelude $cp_module: the pinned Idris neither lists an export nor imports the module"
+      show "$work/import.out" "$work/browse.err"
+    fi
     return
   fi
   # The type formers among the exports, whose interfaces' constructors are

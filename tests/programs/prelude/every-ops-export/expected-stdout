@@ -1,0 +1,12 @@
+arith: 5 9 14 10 4
+fraction: 5.0 10.0
+compare: True False True True True False
+div mod: 6 6 0 13
+bool: True True True True
+equivalence: True False False
+list: [1, 2, 3, 4] True 3
+snoc: [1, 2, 3]
+monad: Just 19 Nothing Just 3 Just 2 Just 3 Just 7
+applicative: Just 1 Just 3 Just 'b' Just 'x' Just 'y' Just 5 Just 7
+semigroup: "abcdef" [1, 2, 3]
+compose: 15 10 -5 10 10 "7"

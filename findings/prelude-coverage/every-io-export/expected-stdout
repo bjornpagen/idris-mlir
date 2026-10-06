@@ -1,0 +1,11 @@
+app: hello, Ada
+x!
+1
+['x', 'x']
+3
+io: yz
+'r'
+liftIO
+liftIO1
+5
+primIO1
