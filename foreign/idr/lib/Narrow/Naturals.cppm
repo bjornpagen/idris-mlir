@@ -41,7 +41,8 @@ public:
   }
 };
 
-LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
+// The ranges of `root`'s values, as idr-narrow and idr-in-bounds read them.
+export LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
   solver.load<DeadCodeAnalysis>();
   solver.load<SparseConstantPropagation>();
   solver.load<NaturalRanges>();

@@ -11,6 +11,7 @@ import :constantStack;
 import :continuations;
 import :countedLoop;
 import :countsNothing;
+import :inBounds;
 import :everyCycleHasBreaker;
 import :facts;
 import :folds;
@@ -44,6 +45,8 @@ Check lookup(StringRef name) {
       .Case("quantities-kept", quantitiesKept)
       .Case("reuses-in-place", reusesInPlace)
       .Case("counts-nothing", countsNothing)
+      .Case("in-bounds", inBounds)
+      .Case("bounds-checked", boundsChecked)
       .Case("tests-nothing", testsNothing)
       .Case("resets-unshared", resetsUnshared)
       .Case("reuses-every-cell", reusesEveryCell)

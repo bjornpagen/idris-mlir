@@ -17,6 +17,7 @@ idr_library(idr_expect
 		EveryCycleHasBreaker.cppm
 		Facts.cppm
 		Folds.cppm
+		InBounds.cppm
 		Lookup.cppm
 		Named.cppm
 		NarrowedLanes.cppm

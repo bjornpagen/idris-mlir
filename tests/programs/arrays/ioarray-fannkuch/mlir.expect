@@ -5,3 +5,7 @@
 # are borrowed, their elements are atoms).
 idr-simplify: no-closures no-heap-allocation=@Main.loop
 idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.next counts-nothing=@Main.copy counts-nothing=@Main.loop
+# The sizes the arrays were made with are carried beside them through every
+# loop and call, so base's tests of each index prove every access within
+# its array and no access keeps a check of its own.
+idr-in-bounds: in-bounds=@Main.rev in-bounds=@Main.flips in-bounds=@Main.next in-bounds=@Main.copy

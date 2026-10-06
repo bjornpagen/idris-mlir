@@ -24,6 +24,10 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // On loops, which it versions, and after counting, whose counts of
       // the bigs it proves small it removes.
       "idr-narrow",
+      // On the loops and words idr-narrow leaves, and right before the
+      // lowering that reads its claims, which rest on facts nothing
+      // between would check.
+      "idr-in-bounds",
       "idr-lower",
       // The loops over arrays are linalg ops after lowering: each with a
       // parallel dimension is tiled by the target's lanes and vectorized,

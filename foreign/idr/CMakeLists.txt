@@ -171,6 +171,7 @@ foreach(area
 		Facts
 		Fold
 		Graph
+		InBounds
 		Inline
 		Layout
 		Lower
@@ -222,6 +223,7 @@ target_link_libraries(idr_dialect
 		idr_verify
 		idr_defunctionalize
 		idr_narrow
+		idr_inbounds
 		idr_simplify
 		idr_tail
 		idr_vectorize

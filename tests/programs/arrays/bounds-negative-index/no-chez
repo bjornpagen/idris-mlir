@@ -1,0 +1,4 @@
+Base's array primitives assume the index is within the array, and Chez
+runs them at optimize level 3, where vector-ref checks no index and reads
+past the vector's end. This compiler ends the program, explicitly, at the
+access outside the array.

@@ -1,0 +1,4 @@
+# The sizes base's IOArray keeps beside its arrays are their lengths, so
+# its own tests of each index prove every access within its array: the
+# fill's, and the reads of `ends`, which the root inlines.
+idr-in-bounds: in-bounds=@$36$idris$45$mlir.root in-bounds=@Main.fill

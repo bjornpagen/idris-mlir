@@ -330,6 +330,32 @@ def IdrNarrow : Pass<"idr-narrow", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
+  let summary = "Mark the array accesses proven within their arrays in_bounds";
+  let description = [{
+    An access is proven when no integers satisfy what is known at it and an
+    index below 0 or at least the array's length, as MLIR's Presburger
+    library decides: the conditions of the matches, ifs and loops on its
+    path, the accesses that ran before it, the linear definitions of the
+    integers involved (wrapping exactly), integer range analysis, and the
+    length relation: an integer that is the length of an array, clamped at
+    0, wherever both are in scope. The relation starts at `idr.array.new`
+    and `idr.array.generate` and follows the pair through the values bound
+    from several places (region branch arguments and results, the
+    parameters of a private function every use of which is a direct call,
+    a call's results, a select), as the greatest fixpoint: a pair holds
+    when every place binding it gives a pair that holds.
+
+    A proven access gets `in_bounds`, which drops its crash cause, so that
+    lowering emits no check. The claim rests on facts no local verifier
+    sees, so the pass runs right before lowering.
+  }];
+  let statistics = [
+    Statistic<"numProved", "proved", "Array accesses proven in bounds">,
+    Statistic<"numChecked", "checked", "Array accesses left checked">,
+  ];
+}
+
 def IdrStack : Pass<"idr-stack", "::mlir::ModuleOp"> {
   let summary = "Put the cells of boxes that never leave their frame on the stack";
   let description = [{
@@ -596,6 +622,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         (idr.reuse), and at least one is;
       - `counts-nothing=@f`: no idr.dup or idr.drop in @f, other than a dup of
         static data, which holds no count;
+      - `in-bounds=@f`: every array access in @f is proven within its array
+        (`in_bounds`), and there is at least one;
+      - `bounds-checked=@f`: some array access in @f keeps its check;
       - `tests-nothing=@f`: every take in @f is of an exclusive value and
         every reuse builds in an exclusive cell, so no count or null is
         tested; and there is at least one take;

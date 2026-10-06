@@ -12,6 +12,7 @@ export import :constantStack;
 export import :continuations;
 export import :countedLoop;
 export import :countsNothing;
+export import :inBounds;
 export import :everyCycleHasBreaker;
 export import :facts;
 export import :folds;

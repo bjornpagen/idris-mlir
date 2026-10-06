@@ -14,6 +14,8 @@ module;
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Analysis/Presburger/IntegerRelation.h"
+#include "mlir/Analysis/Presburger/PresburgerSpace.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Bytecode/BytecodeReader.h"
 #include "mlir/Bytecode/BytecodeWriter.h"
@@ -53,6 +55,7 @@ module;
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/IRMapping.h"
@@ -102,6 +105,7 @@ module;
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/DynamicAPInt.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -241,6 +245,7 @@ using mlir::DenseI64ArrayAttr;
 using mlir::DenseIntElementsAttr;
 using mlir::DenseMap;
 using mlir::DenseSet;
+using mlir::DominanceInfo;
 using mlir::Diagnostic;
 using mlir::DiagnosticSeverity;
 using mlir::Dialect;
@@ -559,6 +564,7 @@ using mlir::arith::IntegerOverflowFlags;
 using mlir::arith::invertPredicate;
 using mlir::arith::MaxSIOp;
 using mlir::arith::MaxUIOp;
+using mlir::arith::MinSIOp;
 using mlir::arith::MinUIOp;
 using mlir::arith::MulIOp;
 using mlir::arith::OrIOp;
@@ -637,6 +643,8 @@ using mlir::memref::SubViewOp;
 
 export namespace mlir::presburger {
 using mlir::presburger::BoundType;
+using mlir::presburger::IntegerPolyhedron;
+using mlir::presburger::PresburgerSpace;
 } // namespace mlir::presburger
 
 export namespace mlir::remark {
@@ -735,6 +743,7 @@ using llvm::createStringError;
 using llvm::DataLayout;
 using llvm::DenseMap;
 using llvm::DenseSet;
+using llvm::DynamicAPInt;
 using llvm::drop_begin;
 using llvm::dyn_cast;
 using llvm::dyn_cast_or_null;

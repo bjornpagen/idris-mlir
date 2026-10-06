@@ -1,0 +1,17 @@
+// idr.inbounds: the array accesses proven within their arrays, each marked
+// `in_bounds` so that lowering emits no check. Base's arrays check an index
+// against the size they keep beside the array, and the access checks it
+// again; once a record of the two is taken apart, only the knowledge that
+// the size is the array's length (lengths, over the values bound at
+// joins, joins) lets the first check prove the second. The proof is a
+// system of linear constraints over the integers (system, of linear
+// expressions, linear), from the path to the access (paths), decided
+// exactly (prove).
+export module idr.inbounds;
+
+export import :joins;
+export import :lengths;
+export import :linear;
+export import :paths;
+export import :prove;
+export import :system;
