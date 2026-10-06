@@ -3,8 +3,8 @@
 // length, the memref's dimension (layout::Layouts::components). The
 // runtime allocates and frees the cell; the elements are read and written
 // here, with a bounds check before each, since an index is a value the
-// program computed: the index against the length, two registers, so that a
-// check the program's own test made redundant folds away.
+// program computed: the index against the length, two registers. An access
+// idr-in-bounds proved (`in_bounds`, which its crash cause reads) has none.
 //
 // Two element layouts. An element of one uncounted machine word (an
 // integer, a double, a character, a byte, the tag of an enumeration) is

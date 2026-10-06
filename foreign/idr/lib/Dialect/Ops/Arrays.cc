@@ -11,9 +11,8 @@ using namespace idr;
 
 namespace {
 
-// An index is a value the program computed, so it may be out of bounds;
-// the check against the length (memref.dim) that the program's own test
-// made redundant folds away after lowering.
+// An index is a value the program computed, so it may be out of bounds,
+// unless idr-in-bounds proved the access in bounds.
 constexpr StringRef outOfBounds = "array index out of bounds";
 
 } // namespace
@@ -44,8 +43,12 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
 }
 
 std::optional<StringRef> ArrayNewOp::getCrashCause() { return std::nullopt; }
-std::optional<StringRef> ArrayGetOp::getCrashCause() { return outOfBounds; }
-std::optional<StringRef> ArraySetOp::getCrashCause() { return outOfBounds; }
+std::optional<StringRef> ArrayGetOp::getCrashCause() {
+  return getInBounds() ? std::nullopt : std::optional(outOfBounds);
+}
+std::optional<StringRef> ArraySetOp::getCrashCause() {
+  return getInBounds() ? std::nullopt : std::optional(outOfBounds);
+}
 
 void ArrayNewOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {

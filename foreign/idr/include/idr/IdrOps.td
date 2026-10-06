@@ -1263,13 +1263,28 @@ def Idr_ArrayNewOp : Idr_ArrayOp<"new", [DeclareOpInterfaceMethods<ReifyRankedSh
   }];
 }
 
+// An access (get, set) checks its index against the array's length and
+// crashes outside it, unless it is `in_bounds`: a claim, made by
+// idr-in-bounds alone, that the index is within the array whenever the
+// access runs, so that the lowering emits no check. It is part of the op,
+// not a discardable attribute, so that no pass drops a proof unseen and a
+// rewrite that builds a new access starts unproven; like an arith overflow
+// flag it stays true under any rewrite that keeps the program's meaning,
+// since an access is never speculated (it is IO in the world's order).
+// What it rests on (the conditions on the path, the length every caller
+// passes beside the array) no local verifier sees, so the pass runs right
+// before the lowering that reads it.
+
 // The element at `index`, which must be in bounds, else the program
 // crashes.
 def Idr_ArrayGetOp : Idr_ArrayOp<"get"> {
   let summary = "the element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, I64:$index, Idr_WorldType:$world);
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, Idr_WorldType:$world,
+                       UnitProp:$in_bounds);
   let results = (outs AnyType:$value, Idr_WorldType:$next);
-  let assemblyFormat = "$array `[` $index `]` `,` $world attr-dict `:` type($array) `->` type($value)";
+  let assemblyFormat = [{
+    (`in_bounds` $in_bounds^)? $array `[` $index `]` `,` $world attr-dict `:` type($array) `->` type($value)
+  }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::MemRefType getArrayType() {
@@ -1282,9 +1297,12 @@ def Idr_ArrayGetOp : Idr_ArrayOp<"get"> {
 // be in bounds, else the program crashes; the old element is released.
 def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
   let summary = "writes an element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world);
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world,
+                       UnitProp:$in_bounds);
   let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "$array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)";
+  let assemblyFormat = [{
+    (`in_bounds` $in_bounds^)? $array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)
+  }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::MemRefType getArrayType() {

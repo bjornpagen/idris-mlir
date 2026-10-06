@@ -54,6 +54,7 @@ using mlir::tblgen::AttrOrTypeDef;
 using mlir::tblgen::AttrOrTypeParameter;
 using mlir::tblgen::EnumInfo;
 using mlir::tblgen::NamedAttribute;
+using mlir::tblgen::NamedProperty;
 using mlir::tblgen::NamedRegion;
 using mlir::tblgen::NamedTypeConstraint;
 using mlir::tblgen::Operator;
@@ -386,8 +387,15 @@ void emitOp(const Operator &op, llvm::raw_ostream &os) {
       continue;
     }
     const auto *attribute = llvm::dyn_cast_if_present<NamedAttribute *>(arg);
-    if (!attribute)
+    if (!attribute) {
+      // A property that is no attribute and has a default is a pass's own
+      // claim (an access's in_bounds): the Idris side cannot make it, and
+      // writes the op at its default.
+      const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg);
+      if (property && property->prop.hasDefaultValue())
+        continue;
       llvm::PrintFatalError(op.getLoc(), "the Idris side writes no property that is not an attribute");
+    }
     if (attribute->attr.isDerivedAttr())
       continue;
     std::string param = parameter(attribute->name, "attribute" + llvm::Twine(index));
