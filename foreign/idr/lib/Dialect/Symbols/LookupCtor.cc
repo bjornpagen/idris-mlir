@@ -14,7 +14,6 @@ CtorOp idr::lookupCtor(DataOp data, StringRef ctor) {
 CtorOp idr::lookupCtor(Operation *from, SymbolRefAttr ctor) {
   if (ctor.getNestedReferences().size() != 1)
     return nullptr;
-  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
-      from, FlatSymbolRefAttr::get(ctor.getRootReference()));
-  return lookupCtor(data, ctor.getLeafReference());
+  return lookupCtor(lookupSymbol<DataOp>(from, ctor.getRootReference()),
+                    ctor.getLeafReference());
 }

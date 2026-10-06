@@ -17,7 +17,7 @@ namespace {
 
 // What a call of the label `name` may do.
 facts::Effects label(Operation *from, StringAttr name) {
-  return facts::of(SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(from, name));
+  return facts::of(lookupSymbol<func::FuncOp>(from, name));
 }
 
 // What the closures in a constant may do, through its captures and fields.

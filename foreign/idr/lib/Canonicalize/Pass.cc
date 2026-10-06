@@ -53,9 +53,19 @@ struct Canonicalize : idr::impl::IdrCanonicalizeBase<Canonicalize> {
     return success();
   }
 
+  // Run nested under a symbol table whose symbols a parent pass holds as an
+  // analysis (idr-inline does), the effects of a call, which the driver
+  // asks of every call each time it simplifies the regions, look the
+  // callee up there: the pass manager keeps a nested pass from adding or
+  // erasing a symbol of its parent.
   void runOnOperation() override {
-    idr::canonicalize::Counted counted =
-        idr::canonicalize::applyCounted(getOperation(), *patterns, config);
+    Operation *op = getOperation();
+    std::optional<idr::SymbolScope> scope;
+    if (Operation *parent = op->getParentOp())
+      if (Operation *table = SymbolTable::getNearestSymbolTable(parent))
+        if (auto symbols = getCachedParentAnalysis<SymbolTable>(table))
+          scope.emplace(table, symbols->get());
+    idr::canonicalize::Counted counted = idr::canonicalize::applyCounted(op, *patterns, config);
     numRewrites += counted.rewrites;
     if (succeeded(counted.converged))
       return;

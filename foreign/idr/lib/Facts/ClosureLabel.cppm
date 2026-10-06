@@ -14,8 +14,7 @@ export namespace idr::facts {
 // sum of closures (an `idr.data ... closures`), named after its label's
 // function. Null for any other constructor.
 StringAttr closureLabel(Operation *from, SymbolRefAttr ctor) {
-  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
-      from, FlatSymbolRefAttr::get(ctor.getRootReference()));
+  auto data = lookupSymbol<DataOp>(from, ctor.getRootReference());
   return data && data.getClosures() ? ctor.getLeafReference() : StringAttr();
 }
 

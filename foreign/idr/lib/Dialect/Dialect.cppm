@@ -167,6 +167,7 @@ using idr::QType;
 using idr::LinUseOp;
 using idr::lookupCtor;
 using idr::lookupData;
+using idr::lookupSymbol;
 using idr::MatchLitOp;
 using idr::MatchOp;
 using idr::MayCrash;

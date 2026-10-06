@@ -9,5 +9,5 @@ DataOp idr::lookupData(Operation *from, Type type) {
   FlatSymbolRefAttr name = getSumName(type);
   if (!name)
     return nullptr;
-  return SymbolTable::lookupNearestSymbolFrom<DataOp>(from, name);
+  return lookupSymbol<DataOp>(from, name.getAttr());
 }

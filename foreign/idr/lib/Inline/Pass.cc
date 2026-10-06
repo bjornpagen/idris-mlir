@@ -67,6 +67,10 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       return region && decisions.inlined.contains(region->getParentOp());
     };
     CallGraph &graph = getAnalysis<CallGraph>();
+    // The module's symbols, for the pipeline it runs on each function
+    // (idr-canonicalize): inlining adds none and erases the dead functions
+    // only after the last pipeline has run.
+    (void)getAnalysis<SymbolTable>();
     Inliner inliner(module, graph, *this, getAnalysisManager(), runPipelineHelper, config,
                     profitable);
     if (failed(inliner.doInlining()))

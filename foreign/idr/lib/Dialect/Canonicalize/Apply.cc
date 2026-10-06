@@ -25,7 +25,7 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
     llvm::append_range(operands, closure.getCaptures());
   } else if (ClosureAttr constant; matchPattern(closureValue, m_Constant(&constant))) {
     callee = constant.getCallee();
-    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(apply, callee);
+    auto fn = lookupSymbol<func::FuncOp>(apply, callee.getAttr());
     if (!fn || constant.getCaptures().size() > fn.getNumArguments())
       return failure();
     auto captures = llvm::zip(constant.getCaptures(), fn.getArgumentTypes());

@@ -318,6 +318,37 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
+// While a SymbolScope is open on a thread, lookupSymbol (and so lookupData,
+// lookupCtor and the effects of a call) answers a lookup in `op`, a symbol
+// table, from `table` instead of scanning `op`'s body, which takes as long
+// as the module is large. Whoever opens one guarantees that no symbol of
+// `op` is added, erased or renamed while it is open, as the pass manager
+// does for a pass that runs nested under `op`.
+class SymbolScope {
+public:
+  SymbolScope(mlir::Operation *op, mlir::SymbolTable &table);
+  ~SymbolScope();
+  SymbolScope(const SymbolScope &) = delete;
+  SymbolScope &operator=(const SymbolScope &) = delete;
+
+  // The scope open on this thread for `op`, or null.
+  static SymbolScope *of(mlir::Operation *op);
+  mlir::SymbolTable &symbols() const { return table; }
+
+private:
+  mlir::Operation *op;
+  mlir::SymbolTable &table;
+  SymbolScope *outer;
+};
+
+// The symbol `name` of the symbol table nearest `from` (`from` included),
+// as SymbolTable::lookupNearestSymbolFrom finds it, or null.
+mlir::Operation *lookupSymbol(mlir::Operation *from, mlir::StringAttr name);
+template <typename T>
+T lookupSymbol(mlir::Operation *from, mlir::StringAttr name) {
+  return llvm::dyn_cast_or_null<T>(lookupSymbol(from, name));
+}
+
 // The cons constructor of the list type `list` the string builders walk
 // (a box of a nil without fields and a cons of `element` and the list), or
 // null with an error at `op`.

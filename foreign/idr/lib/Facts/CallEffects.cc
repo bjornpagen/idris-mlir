@@ -39,8 +39,8 @@ struct CallEffects : MemoryEffectOpInterface::ExternalModel<CallEffects, func::C
   void getEffects(Operation *op,
                   SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) const {
     auto call = cast<func::CallOp>(op);
-    idr::facts::Effects what = idr::facts::of(
-        SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr()));
+    idr::facts::Effects what =
+        idr::facts::of(idr::lookupSymbol<func::FuncOp>(call, call.getCalleeAttr().getAttr()));
     for (Value operand : call.getOperands())
       what |= idr::facts::passed(call, operand);
     if (what.io) {
