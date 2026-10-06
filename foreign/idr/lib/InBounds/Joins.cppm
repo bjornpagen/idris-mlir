@@ -78,6 +78,14 @@ export struct Join {
   SmallVector<Value> incoming;
 };
 
+// Where `value` is among `inputs`.
+export std::optional<unsigned> positionIn(ValueRange inputs, Value value) {
+  for (auto [i, input] : llvm::enumerate(inputs))
+    if (input == value)
+      return i;
+  return std::nullopt;
+}
+
 namespace {
 
 // What every predecessor of `successor` gives the input at `position`.
@@ -89,13 +97,6 @@ SmallVector<Value> forwarded(RegionBranchOpInterface branch, RegionSuccessor suc
   for (RegionBranchPoint point : points)
     values.push_back(branch.getSuccessorOperands(point, successor)[position]);
   return values;
-}
-
-std::optional<unsigned> positionIn(ValueRange inputs, Value value) {
-  for (auto [i, input] : llvm::enumerate(inputs))
-    if (input == value)
-      return i;
-  return std::nullopt;
 }
 
 std::optional<Join> argumentJoin(BlockArgument arg, const Calls &calls) {

@@ -4,6 +4,7 @@
 idr_library(idr_inbounds
 	MODULES
 		InBounds.cppm
+		Induction.cppm
 		Joins.cppm
 		Lengths.cppm
 		Linear.cppm

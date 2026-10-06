@@ -99,6 +99,20 @@ void bodyFacts(Operation *parent, Region &region, System &system) {
 
 } // namespace
 
+// Whether a value is known at `op`: computed before it on every path, or in
+// the before block of a loop whose body holds `op`, which runs right after
+// that block, on what it computed.
+export std::function<bool(Value)> knownAt(Operation *op, DominanceInfo &dominance) {
+  return [op, &dominance](Value value) {
+    if (dominance.properlyDominates(value, op))
+      return true;
+    Block *block = value.getParentBlock();
+    auto loop = dyn_cast_or_null<scf::WhileOp>(block->getParentOp());
+    return loop && block == &loop.getBefore().front() &&
+           loop.getAfter().isAncestor(op->getParentRegion());
+  };
+}
+
 // Adds what the path from its function's entry to `access` says.
 export void pathFacts(Operation *access, System &system) {
   Operation *op = access;

@@ -5,10 +5,11 @@
 // the size is the array's length (lengths, over the values bound at
 // joins, joins) lets the first check prove the second. The proof is a
 // system of linear constraints over the integers (system, of linear
-// expressions, linear), from the path to the access (paths), decided
-// exactly (prove).
+// expressions, linear), from the path to the access (paths) and the bounds
+// its loops keep their counters in (induction), decided exactly (prove).
 export module idr.inbounds;
 
+export import :induction;
 export import :joins;
 export import :lengths;
 export import :linear;

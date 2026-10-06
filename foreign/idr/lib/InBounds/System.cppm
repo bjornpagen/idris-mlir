@@ -3,7 +3,8 @@
 // library decides exactly. A column is an SSA integer, as its latest value
 // at the access, or an array's length, or a witness the encoding needs.
 // Every constraint is true of the run: a value's range (MLIR's integer
-// range analysis, else its type's), its definition by a linear op, the
+// range analysis, else its type's, within the bounds a loop keeps its
+// carried values in, induction), its definition by a linear op, the
 // condition each enclosing branch took. A constraint left out only makes
 // the system prove less, so an op the encoding does not know is a column
 // with its range alone.
@@ -36,10 +37,18 @@ constexpr unsigned definitionLimit = 96;
 
 } // namespace
 
+// The least and the greatest value of an integer.
+export using Bounds = std::pair<DynamicAPInt, DynamicAPInt>;
+
+// The bounds a loop-carried integer is proven to keep at every iteration;
+// none for any other value, or when none is known.
+export using CarriedBounds = std::function<std::optional<Bounds>(Value)>;
+
 export class System {
 public:
-  System(DataFlowSolver &solver, std::function<bool(Value)> admissible)
-      : solver(solver), admissible(std::move(admissible)) {}
+  System(DataFlowSolver &solver, std::function<bool(Value)> admissible,
+         CarriedBounds carried = nullptr)
+      : solver(solver), admissible(std::move(admissible)), carried(std::move(carried)) {}
 
   // The column of the integer `value`, with its range, and its definition
   // when it is known at the access (`admissible`).
@@ -48,7 +57,7 @@ public:
       return Linear::of(it->second);
     unsigned column = count++;
     columns[value] = column;
-    if (std::optional<std::pair<DynamicAPInt, DynamicAPInt>> bounds = rangeOf(value))
+    if (std::optional<Bounds> bounds = rangeOf(value))
       within(Linear::of(column), bounds->first, bounds->second);
     if (admissible(value))
       define(value, Linear::of(column));
@@ -82,20 +91,23 @@ public:
     atLeastZero(Linear::constantOf(hi) - e);
   }
 
-  // The range of `value`: the analysis's, else its type's; none for an
-  // index, whose width is the target's.
-  std::optional<std::pair<DynamicAPInt, DynamicAPInt>> rangeOf(Value value) const {
+  // The range of `value`: the analysis's, else its type's, within the
+  // bounds its loop keeps it in; none for an index, whose width is the
+  // target's.
+  std::optional<Bounds> rangeOf(Value value) const {
     std::optional<unsigned> width = widthOf(value.getType());
     if (!width || *width == 0)
       return std::nullopt;
+    DynamicAPInt half = power(*width - 1);
+    Bounds bounds{-half, half - DynamicAPInt(1)};
     auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
     if (state && !state->getValue().isUninitialized()) {
       const ConstantIntRanges &range = state->getValue().getValue();
-      return std::pair{DynamicAPInt(range.smin().getSExtValue()),
-                       DynamicAPInt(range.smax().getSExtValue())};
+      bounds = {DynamicAPInt(range.smin().getSExtValue()), DynamicAPInt(range.smax().getSExtValue())};
     }
-    DynamicAPInt half = power(*width - 1);
-    return std::pair{-half, half - DynamicAPInt(1)};
+    if (std::optional<Bounds> kept = carried ? carried(value) : std::nullopt)
+      bounds = {std::max(bounds.first, kept->first), std::min(bounds.second, kept->second)};
+    return bounds;
   }
 
   // `x pred y` held, or did not.
@@ -188,7 +200,7 @@ public:
       return;
     }
     // None of the literals: the range loses each at its ends.
-    std::optional<std::pair<DynamicAPInt, DynamicAPInt>> bounds = rangeOf(value);
+    std::optional<Bounds> bounds = rangeOf(value);
     if (!bounds)
       return;
     auto [lo, hi] = *bounds;
@@ -351,6 +363,7 @@ private:
 
   DataFlowSolver &solver;
   std::function<bool(Value)> admissible;
+  CarriedBounds carried;
   DenseMap<Value, unsigned> columns;
   DenseMap<Value, unsigned> lengths;
   SmallVector<Row> rows;
