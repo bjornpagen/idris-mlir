@@ -3,6 +3,7 @@ module IdrisMLIR.Frontend.Main
 
 import Compiler.Common
 import Core.Context
+import Core.Context.Log
 import Core.Core
 import Core.Directory
 import Core.Normalise
@@ -307,12 +308,13 @@ compileIO c _ tmpDir outputDir tm outfile = do
     Just p => checkPragmas m p
     Nothing => reject fc "main" ProgramShape
                  ("loads " ++ show m ++ ", a module of the project whose source is missing")
-  checkReachable fc [main]
-  prog <- translateIOProgram fc main
+  logTime 2 "Checking what main reaches" $ checkReachable fc [main]
+  prog <- logTime 2 "Translating to Core" $ translateIOProgram fc main
   (dir, dumpMlir) <- dumpDir base
-  (core, mlir) <- middle fc dir prog
-  write corePath core
-  write mlirPath mlir
+  (core, mlir) <- logTime 2 "Printing Core and emitting MLIR" $ middle fc dir prog
+  logTime 2 "Writing Core and MLIR" $ do
+    write corePath core
+    write mlirPath mlir
   -- The rest of the chain, with the pinned tools.
   let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
   ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !ccOptions) (base ++ ".cc.stderr"))
