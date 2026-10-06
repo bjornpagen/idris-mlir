@@ -77,3 +77,19 @@ issue of its own.
 (`foreign/idr/lib/Simplify/Prune.cppm`), right before `remove-dead-values`,
 makes each call of such a function pass `ub.poison` for every parameter
 the function never reads.
+
+## Why there is no patch
+
+The fix is `remove-dead-values-unreachable`'s patch (#208881): replacing a
+dead argument's remaining uses with `ub.poison` covers a call of an
+address-taken function as it covers unreachable code, and that patch adds
+`address-taken.mlir` to the upstream test. Two patches appending to the
+same test file would not apply one after the other.
+
+## Upstreaming plan
+
+- Where: a comment on #208881 with `address-taken.mlir`, asking for it as
+  a test; no issue of its own.
+- Upstream test: the `@address_taken_callee` module in
+  `remove-dead-values-unreachable/llvm.patch`.
+- Status: not sent. Goes with `remove-dead-values-unreachable`.

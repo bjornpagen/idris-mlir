@@ -74,3 +74,23 @@ end a body that never returns with `ub.poison` and `func.return`, which is
 never reached, and the program's verifier refuses a body that ends in
 `ub.unreachable`. `ub.unreachable` appears only at the end of match
 regions, which the inliner does not see as callees.
+
+## Patch
+
+`llvm.patch` implements both parts of the proposed fix: the single-block
+fast path only for a `ReturnLike` terminator, the inliner pass treating
+such a callee as multi-block for a caller region that must stay one
+block, and `UBInlinerInterface::handleTerminator(Operation *, Block *)`
+as a no-op. Tests in `mlir/test/Dialect/UB/inlining.mlir`. Drafted
+against the pin; compiles (syntax-checked against the installed headers);
+not yet built or run.
+
+## Upstreaming plan
+
+- Where: a pull request to llvm/llvm-project citing #206083, whose
+  `vector.yield` case part 1 also fixes; a new issue with `never.mlir`.
+- Upstream test: the two cases the patch adds to
+  `mlir/test/Dialect/UB/inlining.mlir`; run `check-mlir`, since any
+  dialect whose single-block callee ends in a terminator that is not
+  `ReturnLike` now takes the multi-block path.
+- Status: not sent.

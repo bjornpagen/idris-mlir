@@ -83,3 +83,21 @@ and `unreachable.mlir` to those issues rather than filing again.
 (`foreign/idr/lib/Simplify/Prune.cppm`) runs the same analyses before
 `remove-dead-values` and empties every block they prove unreachable, and
 `symbol-dce` then removes the functions that only that code referred to.
+
+## Patch
+
+`llvm.patch`: the open pull request #208881, unchanged (the cleanup
+replaces a dead argument's remaining uses with `ub.poison` instead of
+dropping them), with `uncalled.mlir`, `unreachable.mlir` and
+`../remove-dead-values-address-taken/address-taken.mlir` added to
+`mlir/test/Transforms/remove-dead-values.mlir`. It fixes
+`remove-dead-values-address-taken` too. Drafted against the pin; not yet
+built.
+
+## Upstreaming plan
+
+- Where: review of #208881; comment on #206920 and #203226 with the two
+  reproducers, and on the pull request with the address-taken one.
+- Upstream test: the three modules this patch adds to
+  `remove-dead-values.mlir`, offered to #208881.
+- Status: not sent. The patch is dropped when the pin includes #208881.

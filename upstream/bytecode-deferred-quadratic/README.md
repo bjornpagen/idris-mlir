@@ -73,3 +73,22 @@ results to the compiler as bytecode of a flat table of their parts, each
 naming the parts it holds by position (`foreign/idr/lib/Eval/Reify.h`), so
 no attribute in it is nested more than a few levels deep, whatever the
 depth of the value.
+
+## Patch
+
+`llvm.patch` implements the proposed fix: `resolveEntry`'s slow path is a
+stack, a failed entry staying under the entries it deferred, so a chain
+of n deferrals resolves in one pass down and one back up. A round-trip
+test of an attribute nested 300 deep
+(`mlir/test/Bytecode/deeply_nested_chain.mlir`). Drafted against the pin;
+compiles (syntax-checked against the installed headers); not yet built,
+run or timed.
+
+## Upstreaming plan
+
+- Where: an issue with this report and the timing table, and a pull
+  request to llvm/llvm-project (MLIR bytecode) fixing it.
+- Upstream test: `deeply_nested_chain.mlir`; the time itself is measured
+  by `nested.sh` at 8,000, 16,000 and 32,000 levels, quoted in the pull
+  request.
+- Status: not sent.

@@ -48,3 +48,18 @@ against that issue and add the reduction there rather than filing again.
 `Retarget.cppm` builds the feature string in `llvm::SmallString`, which
 allocates through `malloc`, so no `std::string` is built in that unit
 (`PINS.md`, `clang-module-predeclared-new`).
+
+## Why there is no patch
+
+The crash is not reduced: it reproduces only inside this repository's
+module graph, and without a reduction neither the cause in clang nor a
+fix is known. A patch would be a guess.
+
+## Upstreaming plan
+
+- Where: reduce it first (cvise or by hand, over a copy of the units the
+  check compiles); confirm it is #189252 and add the reduction there. If
+  that issue gets a fix, backport it as `llvm.patch`.
+- Upstream test: the reduction, as a `clang/test/Modules` test in
+  `split-file` form.
+- Status: not reduced; likely already reported (#189252).

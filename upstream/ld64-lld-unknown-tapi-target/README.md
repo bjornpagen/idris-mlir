@@ -93,3 +93,21 @@ still refuses `unknown.tbd`.
 `IDRIS_MLIR_EXECUTABLE_FLAGS` in `CMakeLists.txt`). The pinned `ld64.lld`
 stays the linker on the target's terms the moment upstream reads newer
 stubs; until then the platform's linker is the one that can.
+
+## Patch
+
+`llvm.patch` is `release/23.x`'s 532fa5afb (#224185, main's b8007a8e4:
+LLVM knows `arm64e.x1`) backported unchanged, and the proposed fix on
+top: `macho::loadDylib` reads a stub with `SkipUnknownTriples = true`.
+Test: `lld/test/MachO/tapi-unknown-target.s`, a link against a stub that
+lists `unknown-macos`. Drafted against the pin; not yet built or run (lld's
+private headers are not installed, so it was not syntax-checked; the
+change is one argument to a call whose signature was read).
+
+## Upstreaming plan
+
+- Where: an issue with this report, and a pull request to
+  llvm/llvm-project (lld MachO) with the `SkipUnknownTriples` part alone.
+- Upstream test: `tapi-unknown-target.s`.
+- Status: not sent. When the pin moves past 532fa5afb (23.1.3, if there
+  is one), the backported part leaves the patch.

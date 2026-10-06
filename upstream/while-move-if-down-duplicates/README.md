@@ -130,3 +130,17 @@ the if's before the results merge, and `WhileMoveIfDown` takes the loop then,
 with every operand distinct. Whether it does depends on the order in which
 the greedy driver visits the ops, not on anything a pass of ours
 guarantees, so the workaround stays until the fix is in the pin.
+
+## Patch
+
+`llvm.patch` is main's a65eb8723 (#219458) as `git format-patch` wrote
+it, unchanged; it applies to the pin as is.
+
+## Upstreaming plan
+
+- Where: nothing to send; it is upstream. Optionally ask for it on
+  `release/23.x`.
+- Upstream test: the commit's own case in
+  `mlir/test/Dialect/SCF/canonicalize.mlir`.
+- Status: backported. The patch is dropped when the pin moves past
+  a65eb8723 (24.1.0).

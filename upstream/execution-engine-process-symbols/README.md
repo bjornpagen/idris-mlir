@@ -53,3 +53,23 @@ ORC's `LLJIT`, which `ExecutionEngine` wraps, with
 `setLinkProcessSymbolsByDefault(false)` and an `absoluteSymbols` table of
 the runtime's functions and the libc and libm functions that lowered code
 calls, all linked into `idris-mlir-cc`.
+
+## Patch
+
+`llvm.patch` implements the proposed fix: `ExecutionEngineOptions::
+linkProcessSymbols` (default `true`); when `false`, `create` adds no
+process-symbol generator and builds the `LLJIT` with
+`setLinkProcessSymbolsByDefault(false)`. Building the `LLJIT` or opening
+the process's symbols now fails `create` with an error instead of
+aborting. A unit test in `mlir/unittests/ExecutionEngine/Invoke.cpp`.
+Drafted against the pin; `ExecutionEngine.cpp` compiles (syntax-checked
+against the installed headers); not yet built or run.
+
+## Upstreaming plan
+
+- Where: a pull request to llvm/llvm-project (MLIR ExecutionEngine), with
+  this report as its description; no issue needed.
+- Upstream test: the `WithoutProcessSymbols` unit test the patch adds.
+  This bug has no `tests/upstream` check, since no `mlir-opt` command
+  shows it; the unit test is its check upstream.
+- Status: not sent.

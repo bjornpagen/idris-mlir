@@ -1,0 +1,64 @@
+Subject: [PATCH] [mlir] sccp: keep the constants the IR already holds
+
+composite-fixed-point-pass with sccp in its pipeline never converges: on
+a module at its fixpoint it runs the pipeline max-iterations times and
+warns. It decides convergence by OperationFingerPrint, a hash of object
+identity, and sccp remakes every constant it meets even when it
+propagates nothing: a constant's own result has a constant lattice, and
+the OperationFolder that rewrite() creates fresh is never told about the
+constants the IR already holds, so getOrCreateConstant materializes a new
+one, the uses move to it and the original is erased. The module prints
+the same, but every constant has a new address.
+-mlir-print-ir-after-change prints after sccp for the same reason.
+
+rewrite() now gives the folder each ConstantLike operation it meets
+(insertKnownConstant), as the greedy driver does before it rewrites
+anything, and moves on: every later getOrCreateConstant of that value
+returns it, and a run that propagates nothing changes nothing.
+
+Test: sccp-fixed-point.mlir, the composite pass over sccp converging in
+one run without warning.
+---
+ mlir/lib/Transforms/SCCP.cpp               |  9 +++++++++
+ mlir/test/Transforms/sccp-fixed-point.mlir | 13 +++++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/mlir/lib/Transforms/SCCP.cpp b/mlir/lib/Transforms/SCCP.cpp
+index 471fa64e78574df0f130fdbc9086411e4fbfb6d9..1329ede6ac7b71e8b2bdc154c9839eff8af0459f 100644
+--- a/mlir/lib/Transforms/SCCP.cpp
++++ b/mlir/lib/Transforms/SCCP.cpp
+@@ -82,6 +82,15 @@ static void rewrite(DataFlowSolver &solver, MLIRContext *context,
+     Block *block = worklist.pop_back_val();
+ 
+     for (Operation &op : llvm::make_early_inc_range(*block)) {
++      // A constant the IR already holds is the one the folder hands out for
++      // its value, as the greedy driver does, so that a run that propagates
++      // nothing leaves the IR as it was instead of remaking every constant.
++      // The folder may hoist it, or erase it for an equal one it knows.
++      if (op.hasTrait<OpTrait::ConstantLike>()) {
++        folder.insertKnownConstant(&op);
++        continue;
++      }
++
+       builder.setInsertionPoint(&op);
+ 
+       // Replace any result with constants.
+diff --git a/mlir/test/Transforms/sccp-fixed-point.mlir b/mlir/test/Transforms/sccp-fixed-point.mlir
+new file mode 100644
+index 0000000000000000000000000000000000000000..a165365cf636fc1fcc43936624bd2633e1195a60
+--- /dev/null
++++ b/mlir/test/Transforms/sccp-fixed-point.mlir
+@@ -0,0 +1,13 @@
++// RUN: mlir-opt %s --composite-fixed-point-pass='pipeline=sccp max-iterations=1' -verify-diagnostics | FileCheck %s
++
++// sccp leaves a function it propagates nothing in as it was, its constants
++// included, so the composite pass sees the same fingerprint after one run
++// and converges without warning.
++
++// CHECK-LABEL: func @one
++// CHECK-NEXT:    arith.constant 1 : i32
++// CHECK-NEXT:    return
++func.func @one() -> i32 {
++  %c = arith.constant 1 : i32
++  return %c : i32
++}

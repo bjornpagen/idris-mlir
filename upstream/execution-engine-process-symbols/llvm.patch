@@ -1,0 +1,161 @@
+Subject: [PATCH] [mlir] ExecutionEngine: an option to leave out the process's symbols
+
+mlir::ExecutionEngine::create always adds a generator for the current
+process's symbols, and LLJITBuilder links a process-symbols JITDylib by
+default; both look the process up through the dynamic loader
+(dlopen(NULL)), and create() aborts in cantFail when that fails, as it
+always does in a statically linked executable. There is no way to create
+an engine whose code calls only what the caller registers.
+
+- ExecutionEngineOptions::linkProcessSymbols, true by default (today's
+  behaviour). False: create() adds no process-symbol generator and builds
+  the LLJIT with setLinkProcessSymbolsByDefault(false), so JIT-compiled
+  code resolves symbols from sharedLibPaths and registerSymbols alone.
+- A failure to build the LLJIT or to open the process's symbols is
+  returned from create() as an error instead of aborting.
+
+Test: a unit test in Invoke.cpp creates engines without the process's
+symbols; a call of a registered function runs, a call of abs, which the
+process has, fails to resolve.
+---
+ .../mlir/ExecutionEngine/ExecutionEngine.h    |  7 +++
+ mlir/lib/ExecutionEngine/ExecutionEngine.cpp  | 29 +++++----
+ mlir/unittests/ExecutionEngine/Invoke.cpp     | 59 +++++++++++++++++++
+ 3 files changed, 83 insertions(+), 12 deletions(-)
+
+diff --git a/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h b/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
+index 5bd71d68d253a19933200ce93dc20bd458739208..8675dbf057cb19bdd9666522bf5a2226607a9813 100644
+--- a/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
++++ b/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
+@@ -96,6 +96,13 @@ struct ExecutionEngineOptions {
+   /// notify the llvm's global GDB notification listener.
+   bool enableGDBNotificationListener = true;
+ 
++  /// If `linkProcessSymbols` is set, JIT-compiled code may call any symbol of
++  /// the current process, which is looked up through the dynamic loader.
++  /// Unset, it may call only what `sharedLibPaths` and `registerSymbols`
++  /// provide; a process without a dynamic loader (a statically linked
++  /// executable) must unset it, since the lookup fails there.
++  bool linkProcessSymbols = true;
++
+   /// If `enablePerfNotificationListener` is set, the JIT compiler will notify
+   /// the llvm's global Perf notification listener.
+   bool enablePerfNotificationListener = true;
+diff --git a/mlir/lib/ExecutionEngine/ExecutionEngine.cpp b/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
+index 49a88e0000511bce74079602f100cddf66ff18f6..d8eee7cd136e187c45cd7c45bf2ea34ab65ae86e 100644
+--- a/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
++++ b/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
+@@ -373,26 +373,31 @@ ExecutionEngine::create(Operation *m, const ExecutionEngineOptions &options,
+   };
+ 
+   // Create the LLJIT by calling the LLJITBuilder with 2 callbacks.
+-  auto jit =
+-      cantFail(llvm::orc::LLJITBuilder()
+-                   .setCompileFunctionCreator(compileFunctionCreator)
+-                   .setObjectLinkingLayerCreator(objectLinkingLayerCreator)
+-                   .setDataLayout(dataLayout)
+-                   .create());
++  auto jit = llvm::orc::LLJITBuilder()
++                 .setCompileFunctionCreator(compileFunctionCreator)
++                 .setObjectLinkingLayerCreator(objectLinkingLayerCreator)
++                 .setDataLayout(dataLayout)
++                 .setLinkProcessSymbolsByDefault(options.linkProcessSymbols)
++                 .create();
++  if (!jit)
++    return jit.takeError();
+ 
+   // Add a ThreadSafemodule to the engine and return.
+   ThreadSafeModule tsm(std::move(llvmModule), std::move(ctx));
+   if (options.transformer)
+     cantFail(tsm.withModuleDo(
+         [&](llvm::Module &module) { return options.transformer(&module); }));
+-  cantFail(jit->addIRModule(std::move(tsm)));
+-  engine->jit = std::move(jit);
++  cantFail((*jit)->addIRModule(std::move(tsm)));
++  engine->jit = std::move(*jit);
+ 
+   // Resolve symbols that are statically linked in the current process.
+-  llvm::orc::JITDylib &mainJD = engine->jit->getMainJITDylib();
+-  mainJD.addGenerator(
+-      cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+-          dataLayout.getGlobalPrefix())));
++  if (options.linkProcessSymbols) {
++    auto processSymbols = DynamicLibrarySearchGenerator::GetForCurrentProcess(
++        dataLayout.getGlobalPrefix());
++    if (!processSymbols)
++      return processSymbols.takeError();
++    engine->jit->getMainJITDylib().addGenerator(std::move(*processSymbols));
++  }
+ 
+   // Build a runtime symbol map from the exported symbols and register them.
+   auto runtimeSymbolMap = [&](llvm::orc::MangleAndInterner interner) {
+diff --git a/mlir/unittests/ExecutionEngine/Invoke.cpp b/mlir/unittests/ExecutionEngine/Invoke.cpp
+index 4061d16a8380775232aa95fbd6b62c7e9433f58b..0d46479384cabb73dda11ee8fed7b032e426c12d 100644
+--- a/mlir/unittests/ExecutionEngine/Invoke.cpp
++++ b/mlir/unittests/ExecutionEngine/Invoke.cpp
+@@ -340,6 +340,65 @@ TEST(NativeMemRefJit, MAYBE_JITCallback) {
+     ASSERT_EQ(elt, coefficient * count++);
+ }
+ 
++static int32_t negate(int32_t x) { return -x; }
++
++// Without the process's symbols, JIT-compiled code calls only what is
++// registered: `abs`, which the process has, is not found, and a registered
++// function is.
++TEST(MLIRExecutionEngine, SKIP_WITHOUT_JIT(WithoutProcessSymbols)) {
++  DialectRegistry registry;
++  registerAllDialects(registry);
++  registerBuiltinDialectTranslation(registry);
++  registerLLVMDialectTranslation(registry);
++  MLIRContext context(registry);
++  // An engine without the process's symbols for a function `call` that
++  // calls `callee`, with `negate` registered.
++  auto engineCalling = [&](StringRef callee)
++      -> std::unique_ptr<ExecutionEngine> {
++    std::string moduleStr = (R"mlir(
++    func.func private @)mlir" + callee + R"mlir((i32) -> i32
++    func.func @call(%arg0 : i32) -> i32 attributes { llvm.emit_c_interface } {
++      %res = call @)mlir" + callee + R"mlir((%arg0) : (i32) -> i32
++      return %res : i32
++    }
++    )mlir").str();
++    OwningOpRef<ModuleOp> module =
++        parseSourceString<ModuleOp>(moduleStr, &context);
++    if (!module || failed(lowerToLLVMDialect(*module)))
++      return nullptr;
++    ExecutionEngineOptions options;
++    options.linkProcessSymbols = false;
++    auto jitOrError = ExecutionEngine::create(*module, options);
++    if (!jitOrError) {
++      llvm::consumeError(jitOrError.takeError());
++      return nullptr;
++    }
++    std::unique_ptr<ExecutionEngine> jit = std::move(jitOrError.get());
++    jit->registerSymbols([&](llvm::orc::MangleAndInterner interner) {
++      llvm::orc::SymbolMap symbolMap;
++      symbolMap[interner("negate")] = {
++          llvm::orc::ExecutorAddr::fromPtr(negate),
++          llvm::JITSymbolFlags::Exported};
++      return symbolMap;
++    });
++    return jit;
++  };
++
++  int result = 0;
++  std::unique_ptr<ExecutionEngine> registered = engineCalling("negate");
++  ASSERT_TRUE(!!registered);
++  llvm::Error error =
++      registered->invoke("call", 42, ExecutionEngine::Result<int>(result));
++  ASSERT_TRUE(!error);
++  ASSERT_EQ(result, -42);
++
++  std::unique_ptr<ExecutionEngine> process = engineCalling("abs");
++  ASSERT_TRUE(!!process);
++  error = process->invoke("call", -42, ExecutionEngine::Result<int>(result));
++  ASSERT_TRUE(!!error);
++  llvm::consumeError(std::move(error));
++}
++
+ static int initCnt = 0;
+ // A helper function that will be called during the JIT's initialization.
+ static void initCallback() { initCnt += 1; }

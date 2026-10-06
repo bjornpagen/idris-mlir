@@ -1,0 +1,185 @@
+Subject: [PATCH] [mlir] remove-dead-values: replace a dead argument's remaining uses with poison
+
+remove-dead-values erases a function's dead arguments after dropping all
+their uses. Two kinds of use survive the pass and are left with a null
+operand ("null operand found", or an assertion in matchPattern during the
+region-branch canonicalization):
+
+- ops in a function or region that dead-code analysis never visits (a
+  private function nothing live calls, or a call under a condition that
+  constant propagation rules out): their operands have no liveness state
+  and count as dead, but the ops are not in the cleanup list
+  (#206920, #203226);
+- a direct call of a function the pass must leave alone because it is
+  named other than as a callee (func.constant), which passes a value the
+  callee never reads.
+
+The fix is the open pull request #208881, unchanged: the cleanup replaces
+the remaining uses of each dead argument with ub.poison, as it already
+does for dead op results, instead of dropping them. Tests: the pull
+request's, and three reproducers from idris-mlir (a call in a region ruled
+out by a constant, an uncalled private function, a call of an
+address-taken function).
+---
+ mlir/lib/Transforms/RemoveDeadValues.cpp     |  17 ++-
+ mlir/test/Transforms/remove-dead-values.mlir | 122 +++++++++++++++++++
+ 2 files changed, 136 insertions(+), 3 deletions(-)
+
+diff --git a/mlir/lib/Transforms/RemoveDeadValues.cpp b/mlir/lib/Transforms/RemoveDeadValues.cpp
+index 6e55bc390be233ea12dccd044d2f50e35f9c96a0..247c66aacef3ae35e6662ef5d2014a68368b2ab2 100644
+--- a/mlir/lib/Transforms/RemoveDeadValues.cpp
++++ b/mlir/lib/Transforms/RemoveDeadValues.cpp
+@@ -640,9 +640,20 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+       llvm::interleaveComma(f.nonLiveRets.set_bits(), os);
+       os << "]";
+     });
+-    // Drop all uses of the dead arguments.
+-    for (auto deadIdx : f.nonLiveArgs.set_bits())
+-      f.funcOp.getArgument(deadIdx).dropAllUses();
++    // Replace remaining uses of the dead arguments with poison values. Simply
++    // dropping the uses would leave null operands behind in ops that survive
++    // the pass (e.g. a side-effecting op in an unreachable function, whose
++    // values are initialized as dead by the liveness analysis).
++    for (auto deadIdx : f.nonLiveArgs.set_bits()) {
++      BlockArgument arg = f.funcOp.getArgument(deadIdx);
++      // Avoid creating an unused poison value if there are no uses to replace.
++      if (arg.use_empty())
++        continue;
++      rewriter.setInsertionPointToStart(arg.getOwner());
++      Value poison =
++          ub::PoisonOp::create(rewriter, arg.getLoc(), arg.getType());
++      rewriter.replaceAllUsesWith(arg, poison);
++    }
+     // Some functions may not allow erasing arguments or results. These calls
+     // return failure in such cases without modifying the function, so it's okay
+     // to proceed.
+diff --git a/mlir/test/Transforms/remove-dead-values.mlir b/mlir/test/Transforms/remove-dead-values.mlir
+index 390a448060b7f9c804397e9b49c50fcdcc9cba74..c7ed5af7411eac763edb9a51eb8ab6b3ba63df37 100644
+--- a/mlir/test/Transforms/remove-dead-values.mlir
++++ b/mlir/test/Transforms/remove-dead-values.mlir
+@@ -895,3 +895,125 @@ module @func_with_non_call_users {
+   }
+   spirv.EntryPoint "GLCompute" @callee
+ }
++
++// -----
++
++// Verify that the upper bound of a for loop inside an unreachable
++// function is correctly replaced with a poison value.
++// CHECK-LABEL: module @unreachable_func_with_for_loops
++// CHECK-NEXT:    func.func private @main_func() {
++// CHECK-NEXT:      %[[ARG3:.*]] = ub.poison : index
++// CHECK-NEXT:      %[[C0:.*]] = ub.poison : index
++// CHECK-NEXT:      %[[C1:.*]] = ub.poison : index
++// CHECK-NEXT:      %[[C10:.*]] = ub.poison : index
++// CHECK-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[C10]] step %[[C1]] {
++// CHECK-NEXT:        gpu.barrier
++// CHECK-NEXT:      }
++// CHECK-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[ARG3]] step %[[C1]] {
++// CHECK-NEXT:        gpu.barrier
++// CHECK-NEXT:      }
++// CHECK-NEXT:      return
++
++// CHECK-CANONICALIZE-LABEL: module @unreachable_func_with_for_loops
++// CHECK-CANONICALIZE-NEXT:    func.func private @main_func() {
++// CHECK-CANONICALIZE-NEXT:      %[[ARG3:.*]] = ub.poison : index
++// CHECK-CANONICALIZE-NEXT:      %[[C0:.*]] = ub.poison : index
++// CHECK-CANONICALIZE-NEXT:      %[[C1:.*]] = ub.poison : index
++// CHECK-CANONICALIZE-NEXT:      %[[C10:.*]] = ub.poison : index
++// CHECK-CANONICALIZE-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[C10]] step %[[C1]] {
++// CHECK-CANONICALIZE-NEXT:        gpu.barrier
++// CHECK-CANONICALIZE-NEXT:      }
++// CHECK-CANONICALIZE-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[ARG3]] step %[[C1]] {
++// CHECK-CANONICALIZE-NEXT:        gpu.barrier
++// CHECK-CANONICALIZE-NEXT:      }
++// CHECK-CANONICALIZE-NEXT:      return
++module @unreachable_func_with_for_loops {
++  func.func private @main_func(%arg0: index, %arg1: memref<?xf32>, %arg2: index, %arg3: index) {
++    %cst = arith.constant 0.000000e+00 : f32
++    %c0 = arith.constant 0 : index
++    %c1 = arith.constant 1 : index
++    %c10 = arith.constant 10 : index
++    scf.for %arg4 = %c0 to %c10 step %c1 {
++      %0 = memref.load %arg1[%arg4] : memref<?xf32>
++      gpu.barrier
++    }
++    scf.for %arg4 = %c0 to %arg3 step %c1 {
++      %0 = memref.load %arg1[%arg4] : memref<?xf32>
++      gpu.barrier
++    }
++    return
++  }
++}
++
++// -----
++
++// A private function whose only call is in a region constant propagation
++// rules out is never visited by the liveness analysis: its arguments count
++// as dead, and the ops that still use them take poison instead of a null
++// operand.
++// CHECK-LABEL: module @call_in_dead_region
++// CHECK:         func.func private @g(
++// CHECK:           %[[P:.*]] = ub.poison : i32
++// CHECK:           call @ext(%[[P]])
++// CHECK-CANONICALIZE-LABEL: module @call_in_dead_region
++// CHECK-CANONICALIZE:         call @ext(
++module @call_in_dead_region {
++  func.func private @ext(i32)
++  func.func private @g(%x: i32) {
++    func.call @ext(%x) : (i32) -> ()
++    return
++  }
++  func.func @main(%v: i32) {
++    %false = arith.constant false
++    scf.if %false {
++      func.call @g(%v) : (i32) -> ()
++    }
++    return
++  }
++}
++
++// -----
++
++// The same for a private function nothing calls.
++// CHECK-LABEL: module @uncalled
++// CHECK:         func.func private @g(
++// CHECK:           %[[P:.*]] = ub.poison : i32
++// CHECK:           call @ext(%[[P]])
++// CHECK-CANONICALIZE-LABEL: module @uncalled
++// CHECK-CANONICALIZE:         call @ext(
++module @uncalled {
++  func.func private @ext(i32)
++  func.func private @g(%x: i32) {
++    func.call @ext(%x) : (i32) -> ()
++    return
++  }
++}
++
++// -----
++
++// @ignores keeps its signature, since a func.constant names it, and never
++// reads its parameter, so the value @caller passes it is dead: the call
++// keeps its operand, which becomes poison.
++// CHECK-LABEL: module @address_taken_callee
++// CHECK:         func.func private @caller(
++// CHECK:           %[[P:.*]] = ub.poison : i64
++// CHECK:           call @ignores(%[[P]])
++// CHECK-CANONICALIZE-LABEL: module @address_taken_callee
++// CHECK-CANONICALIZE:         call @ignores(
++module @address_taken_callee {
++  func.func private @ignores(%x: i64) -> i64 {
++    %c = arith.constant 7 : i64
++    return %c : i64
++  }
++  func.func private @caller(%a: i64, %b: i64) -> i64 {
++    %t = func.call @ignores(%b) : (i64) -> i64
++    %u = arith.addi %a, %t : i64
++    return %u : i64
++  }
++  func.func @main(%a: i64) -> i64 {
++    %f = func.constant @ignores : (i64) -> i64
++    %r = func.call_indirect %f(%a) : (i64) -> i64
++    %t = func.call @caller(%r, %a) : (i64, i64) -> i64
++    return %t : i64
++  }
++}

@@ -134,3 +134,24 @@ op in it is an arith op whose 32-bit form computes what it computes: a
 shift's amount stays below 32, a signed remainder never sees
 INT32_MIN % -1, and an op that reads its operands unsigned sees no
 negative word (`PINS.md`: `int-range-narrowing-exactness`).
+
+## Patch
+
+`llvm.patch` is main's 44a4dbf32 (#218495, the shift) backported
+unchanged, and the proposed fix for the remainders on top: `remsi` does
+not narrow when the dividend's range holds the target width's signed
+minimum and the divisor's holds -1, and the ops that read their operands
+unsigned get `CastKind::Unsigned`. Tests for each in
+`mlir/test/Dialect/Arith/int-range-narrowing.mlir`. Drafted against the
+pin; compiles (syntax-checked against the installed headers); not yet
+built or run.
+
+## Upstreaming plan
+
+- Where: one issue for the two remainder cases citing #218495, and a
+  pull request to llvm/llvm-project with the remainder part alone (the
+  shift is upstream).
+- Upstream test: `@remsi_narrow_min_by_minus_one`, `@remsi_above_narrow_min`
+  and `@remui_of_negative` in `int-range-narrowing.mlir`.
+- Status: not sent. When the pin moves past 44a4dbf32, the backported
+  part leaves the patch; the rest stays until upstream has it.

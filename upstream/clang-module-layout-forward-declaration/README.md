@@ -52,3 +52,20 @@ related; that is unconfirmed. Once reduced, run the reduction against main.
 hold functions) instead of `Operation *`, which instantiates no
 `DenseSet<Operation *>` in that unit (`PINS.md`,
 `clang-module-layout-forward-declaration`).
+
+## Why there is no patch
+
+The crash is not reduced: it reproduces only inside this repository's
+module graph, and without a reduction neither the cause in clang nor a
+fix is known. A patch would be a guess.
+
+## Upstreaming plan
+
+- Where: reduce it first (cvise or by hand, over a copy of the units the
+  check compiles, keeping `-fmodule-output=` per unit); run the reduction
+  against main and against 08eb97dea (#219926), which may be related.
+  If main still crashes, file an issue with the reduction; if a commit
+  fixes it, backport that commit as `llvm.patch`.
+- Upstream test: the reduction, as a `clang/test/Modules` test in
+  `split-file` form.
+- Status: not reduced, not filed.

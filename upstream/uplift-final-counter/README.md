@@ -81,3 +81,17 @@ pin moves past that commit. A negative step is a separate open issue,
 `idr-tail-loops` uplifts a counted loop only when nothing uses the value its
 counter ends with (`PINS.md`: `uplift-final-counter`). Idris loops return
 what they accumulate, so the counter's final value is rarely used.
+
+## Patch
+
+`llvm.patch` is main's 6e714c8d9 (#225476) as `git format-patch` wrote
+it, unchanged; it applies to the pin as is.
+
+## Upstreaming plan
+
+- Where: nothing to send; it is upstream. Optionally ask for it on
+  `release/23.x`.
+- Upstream test: the commit's own update of
+  `mlir/test/Dialect/SCF/uplift-while.mlir`.
+- Status: backported. The patch is dropped when the pin moves past
+  6e714c8d9, which is on main and not on `release/23.x`.

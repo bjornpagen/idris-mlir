@@ -1,0 +1,105 @@
+From a65eb8723eab7c35798a5349e8d739d2bb2c5ef8 Mon Sep 17 00:00:00 2001
+From: Samarth Narang <70980689+snarang181@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 07:49:59 +0100
+Subject: [PATCH] [mlir][scf] Fix WhileMoveIfDown with duplicated scf.condition
+ operands (#219458)
+
+---
+ mlir/lib/Dialect/SCF/IR/SCF.cpp         | 26 ++++++++++------
+ mlir/test/Dialect/SCF/canonicalize.mlir | 41 +++++++++++++++++++++++++
+ 2 files changed, 58 insertions(+), 9 deletions(-)
+
+diff --git a/mlir/lib/Dialect/SCF/IR/SCF.cpp b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+index 3388fa49..d83fab07 100644
+--- a/mlir/lib/Dialect/SCF/IR/SCF.cpp
++++ b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+@@ -3473,17 +3473,25 @@ struct WhileMoveIfDown : public OpRewritePattern<scf::WhileOp> {
+     Location loc = op.getLoc();
+ 
+     // Replace uses of ifOp results in the conditionOp with the yielded values
+-    // from the ifOp branches.
++    // from the ifOp branches: the after-region argument takes the `then` value,
++    // while the condition operand -- which becomes a while result once the
++    // condition is false -- takes the `else` value.
++    //
++    // The same ifOp result may be forwarded to several condition operands, so
++    // assign into the specific operand instead of replacing all uses of the
++    // ifOp result, which would also rewrite the operands not yet visited.
+     for (auto [idx, arg] : llvm::enumerate(conditionOp.getArgs())) {
+       auto it = llvm::find(ifOp->getResults(), arg);
+-      if (it != ifOp->getResults().end()) {
+-        size_t ifOpIdx = it.getIndex();
+-        Value thenValue = ifOp.thenYield()->getOperand(ifOpIdx);
+-        Value elseValue = ifOp.elseYield()->getOperand(ifOpIdx);
+-
+-        rewriter.replaceAllUsesWith(ifOp->getResults()[ifOpIdx], elseValue);
+-        rewriter.replaceAllUsesWith(op.getAfterArguments()[idx], thenValue);
+-      }
++      if (it == ifOp->getResults().end())
++        continue;
++      size_t ifOpIdx = it.getIndex();
++      rewriter.replaceAllUsesWith(op.getAfterArguments()[idx],
++                                  ifOp.thenYield()->getOperand(ifOpIdx));
++      unsigned argIdx = idx;
++      Value elseValue = ifOp.elseYield()->getOperand(ifOpIdx);
++      rewriter.modifyOpInPlace(conditionOp, [&] {
++        conditionOp.getArgsMutable()[argIdx].assign(elseValue);
++      });
+     }
+ 
+     // Collect additional used values from before region.
+diff --git a/mlir/test/Dialect/SCF/canonicalize.mlir b/mlir/test/Dialect/SCF/canonicalize.mlir
+index e89ad458..4766b1f1 100644
+--- a/mlir/test/Dialect/SCF/canonicalize.mlir
++++ b/mlir/test/Dialect/SCF/canonicalize.mlir
+@@ -1110,6 +1110,47 @@ func.func @while_move_if_down() -> i32 {
+ 
+ // -----
+ 
++// The same scf.if result may be forwarded to several scf.condition operands.
++// Every corresponding after-region argument must receive the *then* value,
++// while the while op's results receive the *else* value.
++
++// CHECK-LABEL: @while_move_if_down_duplicate_forward
++func.func @while_move_if_down_duplicate_forward() -> i32 {
++  %0:2 = scf.while () : () -> (i32, i32) {
++    %else_value = "test.get_some_value0" () : () -> (i32)
++    %condition = "test.condition"() : () -> i1
++    %res = scf.if %condition -> (i32) {
++      %then_value = "test.get_some_value1" () : () -> (i32)
++      scf.yield %then_value : i32
++    } else {
++      scf.yield %else_value : i32
++    }
++    scf.condition(%condition) %res, %res : i32, i32
++  } do {
++  ^bb0(%first: i32, %second: i32):
++    "test.use0" (%first) : (i32) -> ()
++    "test.use1" (%second) : (i32) -> ()
++    scf.yield
++  }
++  return %0#1 : i32
++}
++// CHECK:           %[[WHILE_RES:.*]] = scf.while : () -> i32 {
++// CHECK:             %[[else_value:.*]] = "test.get_some_value0"() : () -> i32
++// CHECK:             %[[condition:.*]] = "test.condition"() : () -> i1
++// The while result is the else value.
++// CHECK:             scf.condition(%[[condition]]) %[[else_value]] : i32
++// CHECK:           } do {
++// CHECK:           ^bb0(%{{.*}}: i32):
++// CHECK:             %[[then_value:.*]] = "test.get_some_value1"() : () -> i32
++// Both forwarded positions must observe the then value, not the else value.
++// CHECK:             "test.use0"(%[[then_value]]) : (i32) -> ()
++// CHECK:             "test.use1"(%[[then_value]]) : (i32) -> ()
++// CHECK:             scf.yield
++// CHECK:           }
++// CHECK:           return %[[WHILE_RES]] : i32
++
++// -----
++
+ // CHECK-LABEL: @while_cond_true
+ func.func @while_cond_true() -> i1 {
+   %0 = scf.while () : () -> i1 {
+-- 
+2.54.0 (Apple Git-157)
+

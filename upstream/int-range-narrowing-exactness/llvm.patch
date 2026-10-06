@@ -1,0 +1,146 @@
+Subject: [PATCH] [mlir][arith] Don't narrow shifts and remainders whose narrow form differs
+
+arith-int-range-narrowing rewrites an elementwise op on a narrower type
+when the ranges of its operands and results fit it. For three kinds of op
+the narrow op then computes something else:
+
+- a shift whose amount can reach the narrow width (poison there): this is
+  main's 44a4dbf32a6b ("[MLIR][Arith] Don't narrow shifts whose amount can
+  exceed the target width", #218495), backported unchanged;
+- remsi whose dividend can be the narrow signed minimum while its divisor
+  can be -1: 0 in the wide type, an overflow in the narrow one (undefined
+  behaviour once it is llvm.srem);
+- the ops that read their operands as unsigned (divui, ceildivui, remui,
+  maxui, minui, shrui), which kept CastKind::Both: a sign truncation of a
+  negative operand is another number to them, so (2^64 - 2) % 7 = 0
+  became (2^32 - 2) % 7 = 2. They now get CastKind::Unsigned, as the
+  signed ops get Signed.
+
+Tests for each case in int-range-narrowing.mlir.
+---
+ .../Transforms/IntRangeOptimizations.cpp      | 24 ++++++-
+ .../Dialect/Arith/int-range-narrowing.mlir    | 67 +++++++++++++++++++
+ 2 files changed, 90 insertions(+), 1 deletion(-)
+
+diff --git a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
+index 298c0dc2f3bdaf84edec3bd0144fbc864b7e9604..8a1f93d0046c8afea1114e57927c4128705a0e24 100644
+--- a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
++++ b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
+@@ -385,16 +385,38 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
+       }
+       // For operations that explicitly treat the values as signed, we should
+       // only do signed casts, if those are deemed possible as such based on the
+-      // value range.
++      // value range. Likewise, operations that read their operands as unsigned
++      // must only see unsigned truncations: a sign truncation of a negative
++      // value is another number to them in the narrow type.
+       auto castKindForOp =
+           llvm::TypeSwitch<Operation *, CastKind>(op)
+               .Case<arith::DivSIOp, arith::CeilDivSIOp, arith::FloorDivSIOp,
+                     arith::RemSIOp, arith::MaxSIOp, arith::MinSIOp,
+                     arith::ShRSIOp>([](auto) { return CastKind::Signed; })
++              .Case<arith::DivUIOp, arith::CeilDivUIOp, arith::RemUIOp,
++                    arith::MaxUIOp, arith::MinUIOp, arith::ShRUIOp>(
++                  [](auto) { return CastKind::Unsigned; })
+               .Default(CastKind::Both);
+       castKind = mergeCastKinds(castKind, castKindForOp);
+       if (castKind == CastKind::None)
+         continue;
++      // A shift by an amount >= the bitwidth is poison, so only narrow shifts
++      // when the shift amount (second operand) stays below the target width.
++      if (isa<arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp>(op) &&
++          !ranges[1].umax().ult(targetBitwidth))
++        continue;
++      // The signed minimum of the target width remainder -1 is 0 in the wide
++      // type but overflows in the narrow one (undefined behaviour once
++      // lowered to `llvm.srem`), and the result range cannot rule it out.
++      if (isa<arith::RemSIOp>(op)) {
++        unsigned width = ranges[0].smin().getBitWidth();
++        APInt narrowMin =
++            APInt::getSignedMinValue(targetBitwidth).sext(width);
++        APInt minusOne = APInt::getAllOnes(width);
++        if (ranges[0].smin().sle(narrowMin) && ranges[1].smin().sle(minusOne) &&
++            ranges[1].smax().sge(minusOne))
++          continue;
++      }
+       Type targetType = getTargetType(srcType, targetBitwidth);
+       if (targetType == srcType)
+         continue;
+diff --git a/mlir/test/Dialect/Arith/int-range-narrowing.mlir b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
+index 5938f24868cb959b4ef591c9756b335daa3f54c7..7ec47b0266bfe119861ba3120a66f9a3df8f6006 100644
+--- a/mlir/test/Dialect/Arith/int-range-narrowing.mlir
++++ b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
+@@ -321,6 +321,73 @@ func.func @unsigned_ops_out_of_narrowed_signed_range() -> (i64, i64, i64, i64, i
+   return %3, %4, %5, %6, %7, %8 : i64, i64, i64, i64, i64, i64
+ }
+ 
++//===----------------------------------------------------------------------===//
++// Shift ops must not be narrowed when the shift amount can reach the target
++// bitwidth, since a shift >= the bitwidth is poison. Here the value fits in
++// i32 but the amount [0, 63] does not, so narrowing must be skipped.
++//===----------------------------------------------------------------------===//
++
++// CHECK-LABEL: func.func @shrsi_amount_out_of_narrowed_range
++// CHECK: arith.shrsi {{.*}} : i64
++// CHECK-NOT: arith.shrsi {{.*}} : i32
++func.func @shrsi_amount_out_of_narrowed_range() -> i64 {
++  %0 = test.with_bounds { umin = 0 : i64, umax = 4 : i64, smin = 0 : i64, smax = 4 : i64 } : i64
++  %1 = test.with_bounds { umin = 0 : i64, umax = 63 : i64, smin = 0 : i64, smax = 63 : i64 } : i64
++  %2 = arith.shrsi %0, %1 : i64
++  return %2 : i64
++}
++
++// When the amount is provably below the target bitwidth, narrowing is safe.
++//
++// CHECK-LABEL: func.func @shrui_amount_in_narrowed_range
++// CHECK: arith.shrui {{.*}} : i32
++func.func @shrui_amount_in_narrowed_range() -> i64 {
++  %0 = test.with_bounds { umin = 0 : i64, umax = 4 : i64, smin = 0 : i64, smax = 4 : i64 } : i64
++  %1 = test.with_bounds { umin = 0 : i64, umax = 31 : i64, smin = 0 : i64, smax = 31 : i64 } : i64
++  %2 = arith.shrui %0, %1 : i64
++  return %2 : i64
++}
++
++//===----------------------------------------------------------------------===//
++// arith.remsi must not be narrowed when the dividend can be the target
++// width's signed minimum while the divisor can be -1: that remainder is 0 in
++// the wide type and overflows in the narrow one.
++//===----------------------------------------------------------------------===//
++
++// CHECK-LABEL: func.func @remsi_narrow_min_by_minus_one
++// CHECK: arith.remsi {{.*}} : i64
++func.func @remsi_narrow_min_by_minus_one() -> i64 {
++  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2147483648 : i64, smax = 0 : i64 } : i64
++  %1 = test.with_bounds { umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 } : i64
++  %2 = arith.remsi %0, %1 : i64
++  return %2 : i64
++}
++
++// Without the signed minimum in the dividend's range, narrowing is safe.
++//
++// CHECK-LABEL: func.func @remsi_above_narrow_min
++// CHECK: arith.remsi {{.*}} : i32
++func.func @remsi_above_narrow_min() -> i64 {
++  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2147483647 : i64, smax = 0 : i64 } : i64
++  %1 = test.with_bounds { umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 } : i64
++  %2 = arith.remsi %0, %1 : i64
++  return %2 : i64
++}
++
++//===----------------------------------------------------------------------===//
++// Ops that read their operands as unsigned must not take a sign truncation:
++// -2 is 2^64 - 2 to the wide op and 2^32 - 2 to the narrow one.
++//===----------------------------------------------------------------------===//
++
++// CHECK-LABEL: func.func @remui_of_negative
++// CHECK: arith.remui {{.*}} : i64
++func.func @remui_of_negative() -> i64 {
++  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2 : i64, smax = 0 : i64 } : i64
++  %1 = test.with_bounds { umin = 7 : i64, umax = 7 : i64, smin = 7 : i64, smax = 7 : i64 } : i64
++  %2 = arith.remui %0, %1 : i64
++  return %2 : i64
++}
++
+ //===----------------------------------------------------------------------===//
+ // arith.muli
+ //===----------------------------------------------------------------------===//

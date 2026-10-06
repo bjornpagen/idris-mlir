@@ -125,3 +125,22 @@ decides the fixpoint with a structural hash of the module (`structural`):
 constants by their value at each use, other values by their position in the
 walk. Over its round budget it fails with a named error where the composite
 pass warns and goes on.
+
+## Patch
+
+`llvm.patch` implements part 1 of the proposed fix: `sccp`'s `rewrite`
+gives the folder each constant it meets (`insertKnownConstant`) and keeps
+it. Part 2 (a structural fingerprint for the composite pass) is not in
+it: part 1 ends this case, and part 2 changes a public utility, which is
+for upstream to decide. Test: `mlir/test/Transforms/sccp-fixed-point.mlir`.
+Drafted against the pin; compiles (syntax-checked against the installed
+headers); not yet built or run.
+
+## Upstreaming plan
+
+- Where: an issue with this report, and a pull request to
+  llvm/llvm-project with part 1; part 2 proposed in the issue.
+- Upstream test: `sccp-fixed-point.mlir`; run `check-mlir`, since `sccp`
+  now hoists an existing constant where it used to make a new one, which
+  may reorder constants in other tests' expected output.
+- Status: not sent.

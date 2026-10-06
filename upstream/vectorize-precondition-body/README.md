@@ -96,3 +96,21 @@ precondition and `hasOnlyScalarElementwiseOp` of the body, the check
 upstream makes of an all-parallel generic, before it tiles anything. A
 generic it refuses stays whole, and `convert-linalg-to-loops` runs its body
 in the program's order.
+
+## Patch
+
+`llvm.patch` implements the proposed fix: `vectorizeLinalgOpPrecondition`
+checks, for a reduction, that every op of the body is one
+`vectorizeOneOp` maps (a hook's op, a constant, an `affine.apply`, or an
+elementwise-mappable op), so `vectorize` fails before it builds anything.
+Test: `mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir`,
+`@rows` left whole. Drafted against the pin; compiles (syntax-checked
+against the installed headers); not yet built or run.
+
+## Upstreaming plan
+
+- Where: an issue with this report and `body.mlir`, and a pull request to
+  llvm/llvm-project (Linalg vectorization).
+- Upstream test: `reduction-body-unsupported.mlir`; run `check-mlir` for
+  the vectorization tests whose reductions hold ops the check now refuses.
+- Status: not sent.

@@ -59,3 +59,27 @@ and compile-time evaluation's child runs its calls, on a stack reserved as
 large as the address space allows (the runtime's `idris_rt_run_on_stack`),
 so the depth is bounded by memory, not by the default 8 MiB stack.
 `idris-mlir-opt` runs on the same stack; `idris-mlir-reduce` does not.
+
+## Why there is no patch
+
+Neither proposed fix lets the workaround go. A depth bound turns the
+crash into a diagnostic but refuses the values compile-time evaluation
+makes, which the reserved stack lets the compiler handle today; it would
+be a regression for us. A worklist parser and printer for builtin
+attributes would make the reproducer pass, but the recursion is also in
+the alias collection, in `AttrTypeWalker` and `AttrTypeReplacer`, and in
+every dialect's attribute parser that calls `parseAttribute` for its
+parameters (the idr dialect's constants among them), so the compiler
+would still need its large stack. The fix is a change of design across
+the parser, the printer and the sub-element walks, which needs upstream's
+agreement before code.
+
+## Upstreaming plan
+
+- Where: an issue with this report and `nested.sh`, then an RFC on
+  LLVM Discourse (MLIR) for iterative parsing, printing and sub-element
+  walking of nested attributes, citing the bytecode reader's worklist.
+- Upstream test: `nested.sh 10000` round-tripping through `mlir-opt` on
+  an 8 MiB stack.
+- Status: not filed. Until upstream agrees on the design, the workaround
+  stays and this directory carries no patch.
