@@ -6,7 +6,11 @@ seven are kept here, outside the test tree, until what blocks them is
 fixed; each compiles what it can and agrees with Chez on it, with and
 without compile-time evaluation. Each is moved back to
 `tests/programs/prelude/` with its transcript accepted once its module's
-line says every export is used. Prelude (the top module) has no fixture yet.
+line says every export is used. Prelude (the top module) has no fixture:
+it defines nothing and re-exports its submodules, so `:browse Prelude`
+lists 356 names that Core writes under their defining modules
+(`Prelude.IO.putStrLn`); the check has to leave re-exports out, each being
+covered where it is defined.
 
 ## The compiler
 
