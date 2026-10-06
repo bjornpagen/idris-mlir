@@ -2,9 +2,11 @@
 # The compile times the golden tests recorded (tests/lib/timing.sh,
 # `record_time`): the slowest compilations, each broken down by
 # idris-mlir-cc's --timing into JIT compilation, evaluation and everything
-# else. It reports; it gates nothing.
+# else; with --against, what slowed down since an earlier record. It
+# reports; it gates nothing.
 #
-#     tests/compile-times.sh [--top N] [--no-breakdown] [TIMING-DIR]
+#     tests/compile-times.sh [--top N] [--no-breakdown] [--against OLD-DIR]
+#                            [TIMING-DIR]
 #
 # TIMING-DIR is tests/build/timing by default, where every run of `make
 # test` (and of the other suites that compile) leaves one file per test:
@@ -22,18 +24,33 @@
 # its nested timers; a report without such rows shows n/a. The wall time of
 # the whole compilation (the frontend, idris-mlir-cc and the link) is the
 # recorded one.
+#
+# --against OLD-DIR compares with the records of an earlier run (a copy of
+# tests/build/timing taken before `make test` writes it again): a
+# compilation of the same test, the same compilation of its run, in both.
+# It prints the totals of those and the N whose time grew the most, by the
+# ratio of the two, among those that took a second or more in either: a
+# change that makes compilation grow faster than the program shows there
+# first, on the largest programs. The times are wall times under the load
+# of the run that recorded them, so compare runs made alike.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 
+usage() {
+  echo "usage: $0 [--top N] [--no-breakdown] [--against OLD-DIR] [TIMING-DIR]" >&2
+  exit 2
+}
 top=10
 breakdown=yes
+against=
 dir=$root/tests/build/timing
 while [ $# -gt 0 ]; do
   case $1 in
-    --top) [ $# -ge 2 ] || { echo "usage: $0 [--top N] [--no-breakdown] [TIMING-DIR]" >&2; exit 2; }; top=$2; shift ;;
+    --top) [ $# -ge 2 ] || usage; top=$2; shift ;;
     --no-breakdown) breakdown= ;;
-    -*) echo "usage: $0 [--top N] [--no-breakdown] [TIMING-DIR]" >&2; exit 2 ;;
+    --against) [ $# -ge 2 ] || usage; against=$2; shift ;;
+    -*) usage ;;
     *) dir=$1 ;;
   esac
   shift
@@ -47,17 +64,32 @@ if [ ! -f "$1" ]; then
   echo "no timing records in $dir: run make test first" >&2
   exit 1
 fi
+if [ -n "$against" ]; then
+  set -- "$against"/*.tsv
+  if [ ! -f "$1" ]; then
+    echo "no timing records in $against" >&2
+    exit 1
+  fi
+fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-times.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
 
+# records DIR: every record in DIR, as `<ms> TAB <test> TAB <exit> TAB
+# <what> TAB <module> TAB <n>`, the nth compilation of the test.
+records() {
+  for record in "$1"/*.tsv; do
+    [ -f "$record" ] || continue
+    test=${record##*/}
+    test=$(printf '%s' "${test%.tsv}" | sed 's|__|/|g')
+    awk -F'\t' -v test="$test" \
+      'NF >= 4 { print $1 "\t" test "\t" $2 "\t" $3 "\t" $4 "\t" FNR }' "$record"
+  done
+}
+
 # Every record, as `<ms> TAB <test> TAB <exit> TAB <what> TAB <module>`.
-for record in "$dir"/*.tsv; do
-  test=${record##*/}
-  test=$(printf '%s' "${test%.tsv}" | sed 's|__|/|g')
-  awk -F'\t' -v test="$test" 'NF >= 4 { print $1 "\t" test "\t" $2 "\t" $3 "\t" $4 }' "$record"
-done | sort -t "$(printf '\t')" -k1,1nr > "$tmp/all"
+records "$dir" | cut -f 1-5 | sort -t "$(printf '\t')" -k1,1nr > "$tmp/all"
 
 count=$(wc -l < "$tmp/all" | tr -d ' ')
 total=$(awk -F'\t' '{ s += $1 } END { printf "%.1f", s / 1000 }' "$tmp/all")
@@ -127,3 +159,29 @@ head -n "$top" "$tmp/all" | while IFS="$(printf '\t')" read -r ms test status wh
   fi
   echo "| $test | $what | $status | $wall | $cc | $jit | $evaluation | $rest |"
 done
+
+[ -n "$against" ] || exit 0
+records "$against" > "$tmp/old"
+records "$dir" > "$tmp/new"
+# `<ratio> TAB <test> TAB <what> TAB <old ms> TAB <new ms>` for each
+# compilation in both, the same compilation of the same test.
+awk -F'\t' '
+  NR == FNR { old[$2 "\t" $6] = $1; oldWhat[$2 "\t" $6] = $4; next }
+  ($2 "\t" $6) in old && oldWhat[$2 "\t" $6] == $4 {
+    o = old[$2 "\t" $6] + 0; n = $1 + 0
+    printf "%.3f\t%s\t%s\t%d\t%d\n", (o > 0 ? n / o : 0), $2, $4, o, n
+  }' "$tmp/old" "$tmp/new" > "$tmp/pairs"
+echo
+awk -F'\t' -v against="$against" '
+  { o += $4; n += $5 }
+  END {
+    printf "Against %s: %d compilations in both, %.1f s then, %.1f s now (x%.2f).\n",
+      against, NR, o / 1000, n / 1000, (o > 0 ? n / o : 0)
+  }' "$tmp/pairs"
+echo
+echo "The $top that grew the most, of those that took a second or more:"
+echo
+echo "| test | compilation | then s | now s | now/then |"
+echo "| --- | --- | ---: | ---: | ---: |"
+awk -F'\t' '$4 >= 1000 || $5 >= 1000' "$tmp/pairs" | sort -t "$(printf '\t')" -k1,1nr |
+  head -n "$top" | awk -F'\t' '{ printf "| %s | %s | %.3f | %.3f | %.2f |\n", $2, $3, $4 / 1000, $5 / 1000, $1 }'
