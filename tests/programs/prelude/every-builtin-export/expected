@@ -4,7 +4,7 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-prelude Builtin: 47 exports; 20 used, these not: MkDPair assert_linear assert_smaller believe_me idris_crash .fst .snd
+prelude Builtin: 47 exports, each used (20 compile-time only: (===) DPair.DPair Equal FromChar FromDouble FromString LPair MkFromChar MkFromDouble MkFromString Pair Refl DPair.Res Unit Void mkDPairInjectiveFst mkDPairInjectiveSnd sym trans (~=~); 4 escape hatches, which user code may not write: assert_linear assert_smaller believe_me idris_crash)
 budget: kept
 dumps: parse and verify
 simplify: idempotent
