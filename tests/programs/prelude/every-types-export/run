@@ -1,0 +1,8 @@
+#!/bin/sh
+# Every run-time export of Prelude.Types is one program, so each
+# compilation instantiates over a hundred definitions: idris-mlir-cc takes
+# most of a minute on it, without compile-time evaluation the longest.
+step_limit=120
+test_limit=600
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+e2e_io .

@@ -1,8 +1,8 @@
-# Prelude coverage: what blocks the seven modules left
+# Prelude coverage: what blocks the six modules left
 
 The coverage check (`tests/lib/prelude.sh`, `tests/spec/prelude-coverage`)
-covers 7 of the 14 prelude modules. The fixtures written for the other
-seven are kept here, outside the test tree, until what blocks them is
+covers 8 of the 14 prelude modules. The fixtures written for five of the
+other six are kept here, outside the test tree, until what blocks them is
 fixed; each compiles what it can and agrees with Chez on it, with and
 without compile-time evaluation. Each is moved back to
 `tests/programs/prelude/` with its transcript accepted once its module's
@@ -87,8 +87,8 @@ Likewise `Z` and `S` count as used where Core names them, which is in the
 indices of types only: their run-time uses are `0` and `add_Nat`.
 
 Coverage lines today, each with its fixture moved back (Interfaces and
-Show with the line that meets their bug removed): Types 122 exports, each
-used, 11 lowered; Builtin 47, each used, 4 escape hatches; Interfaces 107,
+Show with the line that meets their bug removed): Builtin 47, each used,
+4 escape hatches; Interfaces 107,
 each used; Show 16, each used; IO 23, 12 used, not `fork`, `onCollect`,
 `onCollectAny`, `prim__fork`, `prim__getString`, `prim__threadWait`,
 `threadWait`; PrimIO 21, 7 used and `unsafePerformIO` an escape hatch, not
