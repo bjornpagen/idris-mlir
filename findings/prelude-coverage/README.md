@@ -1,16 +1,14 @@
-# Prelude coverage: what blocks the five modules left
+# Prelude coverage: what blocks the four modules left
 
 The coverage check (`tests/lib/prelude.sh`, `tests/spec/prelude-coverage`)
-covers 9 of the 14 prelude modules. The fixtures written for four of the
-other five are kept here, outside the test tree, until what blocks them is
+covers 10 of the 14 prelude modules. The fixtures written for the other
+four are kept here, outside the test tree, until what blocks them is
 fixed; each compiles what it can and agrees with Chez on it, with and
 without compile-time evaluation. Each is moved back to
 `tests/programs/prelude/` with its transcript accepted once its module's
-line says every export is used. Prelude (the top module) has no fixture:
-it defines nothing and re-exports its submodules, so `:browse Prelude`
-lists 356 names that Core writes under their defining modules
-(`Prelude.IO.putStrLn`); the check has to leave re-exports out, each being
-covered where it is defined.
+line says every export is used: Interfaces and Show once the compiler
+bugs below are fixed, IO and PrimIO once threads and pointers are
+admitted or ruled out.
 
 ## The compiler
 
@@ -86,10 +84,10 @@ braces as it already writes an implementation after its method
 Likewise `Z` and `S` count as used where Core names them, which is in the
 indices of types only: their run-time uses are `0` and `add_Nat`.
 
-Coverage lines today, each with its fixture moved back (Interfaces and
-Show with the line that meets their bug removed): Interfaces 107,
-each used; Show 16, each used; IO 23, 12 used, not `fork`, `onCollect`,
-`onCollectAny`, `prim__fork`, `prim__getString`, `prim__threadWait`,
-`threadWait`; PrimIO 21, 7 used and `unsafePerformIO` an escape hatch, not
-`prim__castPtr`, `prim__forgetPtr`, `prim__getNullAnyPtr`,
-`prim__nullAnyPtr`, `prim__nullPtr`; Prelude exports nothing of its own.
+Coverage lines today, each fixture run from `tests/programs/prelude/`
+(Interfaces and Show with the line that meets their bug removed):
+Interfaces 107 exports, each used; Show 16, each used; IO 23, 12 used, not
+`fork`, `onCollect`, `onCollectAny`, `prim__fork`, `prim__getString`,
+`prim__threadWait`, `threadWait`; PrimIO 21, 7 used and `unsafePerformIO`
+an escape hatch, not `prim__castPtr`, `prim__forgetPtr`,
+`prim__getNullAnyPtr`, `prim__nullAnyPtr`, `prim__nullPtr`.

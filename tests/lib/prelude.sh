@@ -280,7 +280,7 @@ covers_prelude() {
     elif [ "$cp_others" -eq 0 ]; then
       say "prelude $cp_module: exports nothing at run time"
     else
-      say "prelude $cp_module: exports nothing of its own; its $cp_others exports are other modules', each covered where it is defined"
+      say "prelude $cp_module: exports nothing of its own; its $cp_others exports are other modules', each left to the module that defines it"
     fi
     return
   fi
