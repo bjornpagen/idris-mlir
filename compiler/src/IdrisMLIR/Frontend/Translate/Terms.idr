@@ -167,14 +167,17 @@ mutual
     loc <- toLoc fc
     def <- lookupDef fc ctx.owner name
     let full = fullname def
+    -- What a hook lowers a call of this definition to stands for it, the
+    -- registry's entry it applied.
+    let lowered = Just (shown (show full))
     case definition def of
       -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
       PMDef _ params _ _ _ => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
                                    arrayLoopOf (hooksOf full)) of
-        (Just m, _, _) => natOperation fc loc m (length params) (type def) args
-        (_, Just b, _) => builderCall fc loc (length params) b (type def) args
+        (Just m, _, _) => natOperation fc loc lowered m (length params) (type def) args
+        (_, Just b, _) => builderCall fc loc lowered (length params) b (type def) args
         (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
         _ =>
           if identityOnLast (hooksOf full) && length args >= length params
@@ -182,7 +185,7 @@ mutual
                let (now, rest) = splitAt (length params) args
                v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
                applyAll loc v rest
-             else call fc loc full (length params) (type def) args
+             else call fc loc full Nothing (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
@@ -190,10 +193,10 @@ mutual
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
-        Just (Right (ArraySize fixed)) => arraySize fc loc arity fixed (type def) args
+        Just (Right (ArraySize fixed)) => arraySize fc loc lowered arity fixed (type def) args
         Just (Right (Handle h)) => applyAll loc (Literal loc h) args
-        Just (Right (Builds b)) => builderCall fc loc arity b (type def) args
-        Just (Right (Alias q)) => aliasCall fc loc q args
+        Just (Right (Builds b)) => builderCall fc loc lowered arity b (type def) args
+        Just (Right (Alias q)) => aliasCall fc loc lowered q args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
@@ -242,12 +245,12 @@ mutual
           isStatic (ValueParam _ _) = False
           isStatic _ = True
 
-      call : FC -> Loc -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      call fc loc name arity ty xs = do
+      call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      call fc loc name lowered arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         inst <- request fc ctx.owner name kinds
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (Call loc inst) (drop arity xs)
+        finish loc kinds given (Call loc inst lowered) (drop arity xs)
 
       -- A call of a monomorphic library function the registry names, on
       -- runtime arguments: saturated, and the ones past its arity applied.
@@ -262,7 +265,7 @@ mutual
           | False => reject fc (show q) HookShape "the registry names a library function with compile-time arguments"
         inst <- request fc ctx.owner (fullname def) kinds
         pure (\ns => let (now, rest) = splitAt arity ns in
-                     foldl (App loc) (Call loc inst now) rest)
+                     foldl (App loc) (Call loc inst Nothing now) rest)
         where
           isRuntime : PKind -> Bool
           isRuntime (ValueParam _ _) = True
@@ -270,22 +273,23 @@ mutual
 
       -- A function on naturals, as the primitives it means (the registry's
       -- `NatOperation`); partially applied, it is eta-expanded like a call.
-      natOperation : FC -> Loc -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      natOperation fc loc m arity ty xs = do
+      natOperation : FC -> Loc -> Maybe Shown -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      natOperation fc loc lowered m arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         given <- arguments loc kinds (take arity xs)
         case m of
-          Primitive p => finish loc kinds given (PrimApp loc p) (drop arity xs)
+          Primitive p => finish loc kinds given (PrimApp loc p lowered) (drop arity xs)
           Clamped p =>
             finish loc kinds given
-                   (\ns => PrimApp loc NatFromBig [PrimApp loc p (map (\n => PrimApp loc NatToBig [n]) ns)])
+                   (\ns => PrimApp loc NatFromBig lowered
+                             [PrimApp loc p lowered (map (\n => PrimApp loc NatToBig lowered [n]) ns)])
                    (drop arity xs)
           Tested c q => do
             toBool <- libraryCall fc loc q
-            finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) ns]) (drop arity xs)
+            finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) lowered ns]) (drop arity xs)
           OnIntegers q => do
             f <- libraryCall fc loc q
-            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig [n]) ns)) (drop arity xs)
+            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig lowered [n]) ns)) (drop arity xs)
 
       -- A constructor of a `Nat`-like type is a natural: zero is 0, a
       -- successor adds 1.
@@ -297,7 +301,7 @@ mutual
         let Just i = succArg kinds
           | Nothing => internal fc "a successor without one runtime argument"
         finish loc kinds given
-               (\xs => PrimApp loc NatAdd (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
+               (\xs => PrimApp loc NatAdd Nothing (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
 
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term a)
       constructor fc loc def arity xs = do
@@ -341,25 +345,25 @@ mutual
             Just p => do
               args' <- traverse (term ctx env) (take arity xs)
               let kinds = map (\t => ValueParam (Held Many t) Nothing) (primArgs p)
-              finish loc kinds args' (PrimApp loc p) (drop arity xs)
+              finish loc kinds args' (PrimApp loc p Nothing) (drop arity xs)
 
       -- A string built once from a list: the primitive at the list's
       -- instance, which the one parameter's type names.
-      builderCall : FC -> Loc -> Nat -> Builder -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      builderCall fc loc arity b ty xs = do
+      builderCall : FC -> Loc -> Maybe Shown -> Nat -> Builder -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      builderCall fc loc lowered arity b ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
         let [ValueParam (Held _ (DataT d)) _] = kinds
           | _ => internal fc "a string built from something other than a list"
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (PrimApp loc (StrBuild b d)) (drop arity xs)
+        finish loc kinds given (PrimApp loc (StrBuild b d) lowered) (drop arity xs)
 
       -- A call of the library function a foreign definition stands for.
-      aliasCall : FC -> Loc -> QName -> List (TT vars) -> Core (Term a)
-      aliasCall fc loc q xs = do
+      aliasCall : FC -> Loc -> Maybe Shown -> QName -> List (TT vars) -> Core (Term a)
+      aliasCall fc loc lowered q xs = do
         target <- lookupDef fc ctx.owner (toName q)
         let PMDef _ params _ _ _ = definition target
           | _ => internal fc (show q ++ " is not a function to stand for")
-        call fc loc (fullname target) (length params) (type target) xs
+        call fc loc (fullname target) lowered (length params) (type target) xs
 
       ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
       ioCall fc loc arity op ty xs = do
@@ -417,7 +421,7 @@ mutual
           | _ => internal fc "an array loop with an unexpected type"
         if all word tys
            then finish loc kinds given (loopTerm loc loop tys res) (drop arity xs)
-           else call fc loc name arity ty xs
+           else call fc loc name Nothing arity ty xs
         where
           word : Ty -> Bool
           word (IntT _) = True
@@ -427,15 +431,15 @@ mutual
 
       -- The length of an array: at the element its type argument fixes, or
       -- at the fixed element of a type that has none (a buffer's bytes).
-      arraySize : FC -> Loc -> Nat -> Maybe Ty -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      arraySize fc loc arity Nothing ty xs = do
+      arraySize : FC -> Loc -> Maybe Shown -> Nat -> Maybe Ty -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arraySize fc loc lowered arity Nothing ty xs = do
         (kinds, [el], given, _) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array's length without its one element type"
-        finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
-      arraySize fc loc arity (Just el) ty xs = do
+        finish loc kinds given (PrimApp loc (ArrayLength el) lowered) (drop arity xs)
+      arraySize fc loc lowered arity (Just el) ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (PrimApp loc (ArrayLength el)) (drop arity xs)
+        finish loc kinds given (PrimApp loc (ArrayLength el) lowered) (drop arity xs)
   application ctx env afc fn args = case headStep fn args of
     Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)
     Nothing => do

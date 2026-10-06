@@ -138,7 +138,7 @@ translateIOProgram fc main = do
   loc <- toLoc (location !(lookupDef fc owner main))
   -- w is the parameter; `m` is main's value, and `f` its action.
   let body : Term (Fin 1)
-      body = Let loc Many (Call loc inst [])                                  -- m
+      body = Let loc Many (Call loc inst Nothing [])                          -- m
                (Case loc (Bound FZ)
                   [MkAlt mkIO.id [action]                                    -- f
                      (App loc (Var loc (Bound FZ)) (Var loc (Free (Free FZ))))]

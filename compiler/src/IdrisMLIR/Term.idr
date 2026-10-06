@@ -84,12 +84,17 @@ mutual
     Var : Loc -> a -> Term a
     Literal : Loc -> Lit -> Term a
     Erased : Loc -> Term a
-    PrimApp : Loc -> Prim -> List (Term a) -> Term a
+    ||| A primitive, and the library definition it stands for when the
+    ||| registry lowered that definition's call to it: the dump writes it,
+    ||| so that what a program uses can be read off its Core, and nothing
+    ||| computes with it.
+    PrimApp : Loc -> Prim -> (standsFor : Maybe Shown) -> List (Term a) -> Term a
     ||| An IO primitive; its arguments end with the world, and it returns the
     ||| `IORes` instance named here.
     Effect : Loc -> IOOp -> List (Term a) -> DataId -> Term a
-    ||| A saturated call.
-    Call : Loc -> FnId -> List (Term a) -> Term a
+    ||| A saturated call, and the library definition it stands for when the
+    ||| registry lowered that definition's call to it, as for a primitive.
+    Call : Loc -> FnId -> (standsFor : Maybe Shown) -> List (Term a) -> Term a
     ||| A saturated constructor application; parameters are not fields.
     ConApp : Loc -> ConId -> List (Term a) -> Term a
     ||| `let`, with how its variable is used; an erased `let` binds the
@@ -178,9 +183,9 @@ mutual
     VarF : Loc -> a -> TermF f a
     LiteralF : Loc -> Lit -> TermF f a
     ErasedF : Loc -> TermF f a
-    PrimAppF : Loc -> Prim -> List (f a) -> TermF f a
+    PrimAppF : Loc -> Prim -> Maybe Shown -> List (f a) -> TermF f a
     EffectF : Loc -> IOOp -> List (f a) -> DataId -> TermF f a
-    CallF : Loc -> FnId -> List (f a) -> TermF f a
+    CallF : Loc -> FnId -> Maybe Shown -> List (f a) -> TermF f a
     ConAppF : Loc -> ConId -> List (f a) -> TermF f a
     LetF : Loc -> Use -> f a -> f (Under 1 a) -> TermF f a
     CaseF : Loc -> a -> List (AltF f a) -> Maybe (f a) -> TermF f a
@@ -213,9 +218,9 @@ hmap : ({0 c : Type} -> f c -> g c) -> TermF f a -> TermF g a
 hmap h (VarF l x) = VarF l x
 hmap h (LiteralF l x) = LiteralF l x
 hmap h (ErasedF l) = ErasedF l
-hmap h (PrimAppF l p as) = PrimAppF l p (map h as)
+hmap h (PrimAppF l p stands as) = PrimAppF l p stands (map h as)
 hmap h (EffectF l op as res) = EffectF l op (map h as) res
-hmap h (CallF l fn as) = CallF l fn (map h as)
+hmap h (CallF l fn stands as) = CallF l fn stands (map h as)
 hmap h (ConAppF l c as) = ConAppF l c (map h as)
 hmap h (LetF l q v b) = LetF l q (h v) (h b)
 hmap h (CaseF l x alts d) = CaseF l x (map (\(MkAltF c fs b) => MkAltF c fs (h b)) alts) (map h d)
@@ -239,9 +244,9 @@ mutual
   para alg (Var l x) = alg (VarF l x)
   para alg (Literal l x) = alg (LiteralF l x)
   para alg (Erased l) = alg (ErasedF l)
-  para alg (PrimApp l p as) = alg (PrimAppF l p (paraAll alg as))
+  para alg (PrimApp l p stands as) = alg (PrimAppF l p stands (paraAll alg as))
   para alg (Effect l op as res) = alg (EffectF l op (paraAll alg as) res)
-  para alg (Call l fn as) = alg (CallF l fn (paraAll alg as))
+  para alg (Call l fn stands as) = alg (CallF l fn stands (paraAll alg as))
   para alg (ConApp l c as) = alg (ConAppF l c (paraAll alg as))
   para alg (Let l q v b) = alg (LetF l q (sub alg v) (sub alg b))
   para alg (Case l x alts d) = alg (CaseF l x (paraAlts alg alts) (paraMaybe alg d))
@@ -387,16 +392,19 @@ under : {k : Nat} -> (b -> Nat) -> Under k b -> Nat
 under ix (Bound i) = finToNat i
 under ix (Free x) = k + ix x
 
+||| The library definition a lowered primitive or call stands for, in braces
+||| after its head, as an implementation is written after its method.
+standing : Maybe Shown -> String
+standing Nothing = ""
+standing (Just q) = "{" ++ show q ++ "}"
+
 printer : TermF Printed b -> Printed b
 printer (VarF _ x) ix d = "#" ++ show (ix x)
 printer (LiteralF _ x) ix d = show x
 printer (ErasedF _) ix d = "erased"
-printer (PrimAppF _ p as) ix d = show p ++ args as ix d
-  where
-    args : List (Printed b) -> Printed b
-    args as ix d = "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
+printer (PrimAppF _ p stands as) ix d = show p ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer (EffectF _ op as _) ix d = "io." ++ show op ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer (CallF _ fn as) ix d = show fn ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
+printer (CallF _ fn stands as) ix d = show fn ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer (ConAppF _ c as) ix d =
   show c.dataId ++ "::" ++ show c ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer (LetF _ q v b) ix d =

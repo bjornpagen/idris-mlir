@@ -197,7 +197,7 @@ alg : {0 b : Type} -> Index -> Owner -> TermF (Sub Em) b -> Em b
 alg ix own (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix own (LiteralF l x) env _ = Just <$> literal ix l x
 alg ix own (ErasedF l) env _ = Just <$> erasedValue ix l
-alg ix own (PrimAppF l p as) env _ = do
+alg ix own (PrimAppF l p _ as) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing
   Just <$> prim ix l p vs
@@ -205,7 +205,7 @@ alg ix own (EffectF l op as res) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (ioArgs op ++ [WorldT]))
     | Nothing => pure Nothing
   Just <$> io ix l op vs res
-alg ix own (CallF l fn as) env _ = do
+alg ix own (CallF l fn _ as) env _ = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
   Just vs <- operands ix l env as (toList f.params)
