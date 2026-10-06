@@ -1,2 +1,2 @@
-unreachable: still reproduces (exit 1, null operand)
-uncalled: still reproduces (exit 1, null operand)
+unreachable: fixed (the dead argument's uses take poison)
+uncalled: fixed (the dead argument's uses take poison)

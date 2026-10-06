@@ -133,8 +133,8 @@ gives the folder each constant it meets (`insertKnownConstant`) and keeps
 it. Part 2 (a structural fingerprint for the composite pass) is not in
 it: part 1 ends this case, and part 2 changes a public utility, which is
 for upstream to decide. Test: `mlir/test/Transforms/sccp-fixed-point.mlir`.
-Drafted against the pin; compiles (syntax-checked against the installed
-headers); not yet built or run.
+Built into the pinned toolchain; the test passes with its `mlir-opt`, and
+`tests/upstream/composite-fixed-point-sccp` checks the reproducer.
 
 ## Upstreaming plan
 

@@ -1,1 +1,1 @@
-deep: still reproduces (4 times the depth takes more than 8 times as long)
+deep: fixed (4 times the depth takes at most 8 times as long)

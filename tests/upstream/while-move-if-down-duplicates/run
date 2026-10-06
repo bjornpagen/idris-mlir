@@ -1,12 +1,11 @@
 #!/bin/sh
-# The upstream bug upstream/while-move-if-down-duplicates still reproduces
-# with the pinned MLIR: canonicalize changes what a loop computes when its
-# scf.condition forwards one scf.if result twice. The program runs as it
-# is and after canonicalize; its exit status is what it returns. When this
-# fails, the bug is fixed: delete the idr dialect's ReadForwardedOnce and
-# its test tests/idr/canon/while-forwarded-twice, the PINS.md entry
-# while-move-if-down-duplicates, the report and this test
-# (upstream/README.md).
+# The pinned MLIR, with upstream/while-move-if-down-duplicates/llvm.patch,
+# no longer shows the bug: canonicalize keeps what a loop computes when its
+# scf.condition forwards one scf.if result twice, where llvmorg-23.1.2
+# changes it. The program runs as it is and after canonicalize; its exit
+# status is what it returns. When the pin has a65eb8723 (in 24.1.0), the
+# patch goes, and with it the PINS.md entry while-move-if-down-duplicates,
+# the report and this test (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 input=$root/upstream/while-move-if-down-duplicates/twice.mlir
 # returns NAME FILE: builds FILE and prints the status it exits with.
@@ -26,9 +25,9 @@ before=$(returns input "$input") && after=$(returns canonical "$work/canonical.m
   show "$work/err"
   exit 0
 }
-if [ "$before" = 14 ] && [ "$after" = 7 ]; then
-  say "twice: still reproduces (returns 14, and 7 after canonicalize)"
+if [ "$before" = 14 ] && [ "$after" = 14 ]; then
+  say "twice: fixed (returns 14, and 14 after canonicalize)"
 else
-  say "twice: no longer reproduces (returns $before, and $after after canonicalize)"
+  say "twice: still reproduces (returns $before, and $after after canonicalize)"
   show "$work/canonical.mlir"
 fi

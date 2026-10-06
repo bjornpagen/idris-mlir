@@ -1,31 +1,32 @@
 #!/bin/sh
-# The upstream bug upstream/int-range-narrowing-exactness still reproduces
-# with the pinned mlir-opt: arith-int-range-narrowing makes i32 ops of a
+# The pinned mlir-opt, with upstream/int-range-narrowing-exactness/llvm.patch,
+# no longer shows the bug: arith-int-range-narrowing keeps as i64 ops a
 # shift whose amount reaches 40, a remsi that may see INT32_MIN % -1 and a
-# remui of a word that may be negative, whose result then changes. When
-# this fails, the bug is fixed: delete `exact` in idr-narrow-lanes, whose
-# fit then suffices, the PINS.md entry int-range-narrowing-exactness, the
-# report and this test (upstream/README.md). The shift is fixed on main
-# (44a4dbf32) and the remainders are not, so a bump past that commit fails
-# the shrui line alone: then drop the shift from `exact`, the report, its
-# input and this test, and keep the rest.
+# remui of a word that may be negative, so the remui still computes what
+# the input program does, where llvmorg-23.1.2 makes i32 ops of all three.
+# The shift is fixed on main (44a4dbf32) and the remainders are not: when
+# the pin has that commit, its part of the patch goes; when the pin's
+# narrowing handles the remainders, the rest goes, and with it the PINS.md
+# entry int-range-narrowing-exactness, the report and this test
+# (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 input=$root/upstream/int-range-narrowing-exactness/narrowing.mlir
 bounded "$llvm_bin/mlir-opt" "$input" --arith-int-range-narrowing="int-bitwidths-supported=32" \
   > "$work/narrowed.mlir" 2>&1
 status=$?
 for op in shrui remsi remui; do
-  if [ "$status" -eq 0 ] && grep -q "arith\.$op .* : i32\$" "$work/narrowed.mlir"; then
-    say "$op: still reproduces (made an i32 op)"
+  if [ "$status" -eq 0 ] && grep -q "arith\.$op .* : i64\$" "$work/narrowed.mlir" &&
+     ! grep -q "arith\.$op .* : i32\$" "$work/narrowed.mlir"; then
+    say "$op: fixed (stays an i64 op)"
   else
-    say "$op: no longer reproduces (exit $status)"
+    say "$op: still reproduces (exit $status)"
     show "$work/narrowed.mlir"
   fi
 done
 bounded "$llvm_bin/mlir-opt" "$work/narrowed.mlir" --inline --canonicalize > "$work/folded.mlir" 2>&1
-if sed -n '/@remu_of_minus_two/,/return/p' "$work/folded.mlir" | grep -q 'arith.constant 2 : i64'; then
-  say "remui of -2 by 7: still reproduces (2, where the input program gives 0)"
+if sed -n '/@remu_of_minus_two/,/return/p' "$work/folded.mlir" | grep -q 'arith.constant 0 : i64'; then
+  say "remui of -2 by 7: fixed (0, as the input program gives)"
 else
-  say "remui of -2 by 7: no longer reproduces"
+  say "remui of -2 by 7: still reproduces"
   show "$work/folded.mlir"
 fi

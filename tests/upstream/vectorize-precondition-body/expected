@@ -1,1 +1,1 @@
-body: still reproduces (the reduction is vectorized in part, then refused)
+body: fixed (the reduction is left whole, with no vector code)

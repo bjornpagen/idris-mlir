@@ -1,2 +1,2 @@
-sccp: still reproduces (warns at max-iterations on a module it leaves as it is)
-canonicalize: converges after one run, as the control
+sccp: converges after one run
+canonicalize: converges after one run

@@ -46,30 +46,35 @@ and every symbol comes from `sharedLibPaths` and `registerSymbols`. In any
 case, the failure should become an `Expected` error from `create` instead of
 `cantFail`.
 
-## Our workaround
+## Why there is no patch
 
-`PINS.md`: `orc-lljit`. `idr-eval` (`foreign/idr/lib/Eval/Jit.cc`) uses
-ORC's `LLJIT`, which `ExecutionEngine` wraps, with
-`setLinkProcessSymbolsByDefault(false)` and an `absoluteSymbols` table of
-the runtime's functions and the libc and libm functions that lowered code
-calls, all linked into `idris-mlir-cc`.
+idris-mlir does not create an `ExecutionEngine`, so it carries no fix for
+it. Compile-time evaluation (`foreign/idr/lib/Eval/Jit.cppm`) builds ORC's
+`LLJIT`, which `ExecutionEngine` wraps, for reasons of its own beyond this
+bug: the engine links through RuntimeDyld (`RTDyldObjectLinkingLayer` with a
+`SectionMemoryManager`) where the evaluator relies on JITLink's in-process
+memory manager and its page protections; it adds a packed-argument wrapper
+for every function with external linkage; and it keeps the execution
+session to itself, whose error reports the evaluator quotes when a lookup
+fails. With `LLJIT` the evaluator links no process symbol by default and
+binds the runtime's functions, the libm functions lowered code calls and
+the target entry's library calls itself.
 
-## Patch
-
-`llvm.patch` implements the proposed fix: `ExecutionEngineOptions::
-linkProcessSymbols` (default `true`); when `false`, `create` adds no
-process-symbol generator and builds the `LLJIT` with
-`setLinkProcessSymbolsByDefault(false)`. Building the `LLJIT` or opening
-the process's symbols now fails `create` with an error instead of
-aborting. A unit test in `mlir/unittests/ExecutionEngine/Invoke.cpp`.
-Drafted against the pin; `ExecutionEngine.cpp` compiles (syntax-checked
-against the installed headers); not yet built or run.
+The proposed fix is drafted as `pull-request.diff`, for the pull request:
+`ExecutionEngineOptions::linkProcessSymbols` (default `true`); when
+`false`, `create` adds no process-symbol generator and builds the `LLJIT`
+with `setLinkProcessSymbolsByDefault(false)`. Building the `LLJIT` or
+opening the process's symbols now fails `create` with an error instead of
+aborting. A unit test in `mlir/unittests/ExecutionEngine/Invoke.cpp`. It
+applies to the pin and `ExecutionEngine.cpp` compiles with it; the unit
+test has not been run.
 
 ## Upstreaming plan
 
 - Where: a pull request to llvm/llvm-project (MLIR ExecutionEngine), with
   this report as its description; no issue needed.
-- Upstream test: the `WithoutProcessSymbols` unit test the patch adds.
+- Upstream test: the `WithoutProcessSymbols` unit test `pull-request.diff`
+  adds.
   This bug has no `tests/upstream` check, since no `mlir-opt` command
   shows it; the unit test is its check upstream.
 - Status: not sent.

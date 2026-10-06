@@ -1,1 +1,1 @@
-never: still reproduces (the inliner aborts)
+never: fixed (inlined; the body ends in ub.unreachable)

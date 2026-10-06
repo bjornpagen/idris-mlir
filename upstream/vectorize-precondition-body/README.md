@@ -104,8 +104,9 @@ checks, for a reduction, that every op of the body is one
 `vectorizeOneOp` maps (a hook's op, a constant, an `affine.apply`, or an
 elementwise-mappable op), so `vectorize` fails before it builds anything.
 Test: `mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir`,
-`@rows` left whole. Drafted against the pin; compiles (syntax-checked
-against the installed headers); not yet built or run.
+`@rows` left whole. Built into the pinned toolchain; the test passes with
+its `mlir-opt`, and `tests/upstream/vectorize-precondition-body` checks
+the reproducer.
 
 ## Upstreaming plan
 

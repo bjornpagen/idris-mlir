@@ -1,0 +1,31 @@
+#!/bin/sh
+# The pinned mlir-opt, with upstream/forward-dataflow-callee-lookup/llvm.patch,
+# no longer shows the bug: sccp over a module of 4 times as many functions,
+# each calling the next, takes about 4 times as long, where llvmorg-23.1.2,
+# which finds each call's callee by a scan of the module, takes about 16
+# times. Each size's time is the best of three runs, so that the load of
+# other tests does not decide the ratio. When the pin's forward analyses
+# resolve callees from a symbol table, the patch goes, and with it the
+# PINS.md entry forward-dataflow-callee-lookup, the report and this test
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+milliseconds() {
+  sh "$root/upstream/forward-dataflow-callee-lookup/calls.sh" "$1" > "$work/c$1.mlir"
+  best=
+  for run in 1 2 3; do
+    start=$(now_ns) || return 1
+    bounded "$llvm_bin/mlir-opt" "$work/c$1.mlir" --sccp -o /dev/null || return 1
+    end=$(now_ns) || return 1
+    took=$(( (end - start) / 1000000 ))
+    if [ -z "$best" ] || [ "$took" -lt "$best" ]; then best=$took; fi
+  done
+  echo "$best"
+}
+small=$(milliseconds 4000) && large=$(milliseconds 16000) || { say "mlir-opt failed"; exit 0; }
+# Lookups from a table take about 4 times as long for 4 times the
+# functions; a scan per call, 16 times.
+if [ "$large" -le $((small * 8)) ]; then
+  say "calls: fixed (4 times the functions take at most 8 times as long)"
+else
+  say "calls: still reproduces (${small} ms, then ${large} ms)"
+fi

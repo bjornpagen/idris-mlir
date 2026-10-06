@@ -1,1 +1,1 @@
-twice: still reproduces (returns 14, and 7 after canonicalize)
+twice: fixed (returns 14, and 14 after canonicalize)

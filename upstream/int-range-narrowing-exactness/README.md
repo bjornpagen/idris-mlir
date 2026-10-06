@@ -142,9 +142,10 @@ unchanged, and the proposed fix for the remainders on top: `remsi` does
 not narrow when the dividend's range holds the target width's signed
 minimum and the divisor's holds -1, and the ops that read their operands
 unsigned get `CastKind::Unsigned`. Tests for each in
-`mlir/test/Dialect/Arith/int-range-narrowing.mlir`. Drafted against the
-pin; compiles (syntax-checked against the installed headers); not yet
-built or run.
+`mlir/test/Dialect/Arith/int-range-narrowing.mlir`. Built into the pinned
+toolchain; `tests/upstream/int-range-narrowing-exactness` checks the
+reproducer. The lit test uses the test dialect's `test.with_bounds`,
+which the pinned build does not have, so it has not been run.
 
 ## Upstreaming plan
 

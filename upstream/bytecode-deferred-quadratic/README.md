@@ -80,9 +80,11 @@ depth of the value.
 stack, a failed entry staying under the entries it deferred, so a chain
 of n deferrals resolves in one pass down and one back up. A round-trip
 test of an attribute nested 300 deep
-(`mlir/test/Bytecode/deeply_nested_chain.mlir`). Drafted against the pin;
-compiles (syntax-checked against the installed headers); not yet built,
-run or timed.
+(`mlir/test/Bytecode/deeply_nested_chain.mlir`). Built into the pinned
+toolchain: the test round-trips (with `--allow-unregistered-dialect`, the
+pinned build having no test dialect), the array nested 32,000 deep reads
+back in 0.04 s where it took 1.72 s, and prints as the text it was made
+from; `tests/upstream/bytecode-deferred-quadratic` checks the scaling.
 
 ## Upstreaming plan
 

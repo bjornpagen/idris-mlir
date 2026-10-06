@@ -87,12 +87,11 @@ still refuses `unknown.tbd`.
 
 ## Our workaround
 
-`PINS.md`: `darwin-ld64-tapi`. Darwin links are made by the host's `ld64`
-(`/usr/bin/ld`), which reads its own SDK, not by the pinned `ld64.lld`
-(`tools/bootstrap.sh`'s `config_file_darwin` and the Darwin target entry's
-`IDRIS_MLIR_EXECUTABLE_FLAGS` in `CMakeLists.txt`). The pinned `ld64.lld`
-stays the linker on the target's terms the moment upstream reads newer
-stubs; until then the platform's linker is the one that can.
+`PINS.md`: `darwin-ld64-tapi`. None in code: the patch below is carried,
+and every Darwin link is the pinned `ld64.lld`'s (`tools/bootstrap.sh`'s
+`config_file_darwin`, and the Darwin target entry's
+`IDRIS_MLIR_EXECUTABLE_FLAGS`, with `--icf=all`, in `CMakeLists.txt`).
+Before the patch, those links were made by the host's `ld64`.
 
 ## Patch
 
@@ -100,9 +99,11 @@ stubs; until then the platform's linker is the one that can.
 LLVM knows `arm64e.x1`) backported unchanged, and the proposed fix on
 top: `macho::loadDylib` reads a stub with `SkipUnknownTriples = true`.
 Test: `lld/test/MachO/tapi-unknown-target.s`, a link against a stub that
-lists `unknown-macos`. Drafted against the pin; not yet built or run (lld's
-private headers are not installed, so it was not syntax-checked; the
-change is one argument to a call whose signature was read).
+lists `unknown-macos`. Built into the pinned toolchain, unchanged from the
+draft: its `ld64.lld` links `unknown.tbd`
+(`tests/upstream/ld64-lld-unknown-tapi-target`) and every Darwin program
+against the macOS 27 SDK. lld's lit tests have not been run (the pinned
+build has no test targets).
 
 ## Upstreaming plan
 

@@ -164,7 +164,7 @@ suites =
       ])
   , ("test-idr", subpools "idr" "the idr dialect and its passes")
   , ("test-mlir-tools", sequence
-      [ pool "upstream: the bugs in upstream/ still reproduce" ["upstream"] ])
+      [ pool "upstream: each bug of upstream/ on its reproducer, with the pinned (patched) tools" ["upstream"] ])
   ]
 
 ||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.

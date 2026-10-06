@@ -1,4 +1,4 @@
-shrui: still reproduces (made an i32 op)
-remsi: still reproduces (made an i32 op)
-remui: still reproduces (made an i32 op)
-remui of -2 by 7: still reproduces (2, where the input program gives 0)
+shrui: fixed (stays an i64 op)
+remsi: fixed (stays an i64 op)
+remui: fixed (stays an i64 op)
+remui of -2 by 7: fixed (0, as the input program gives)

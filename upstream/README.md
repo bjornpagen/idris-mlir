@@ -67,22 +67,23 @@ directory, its test and its `PINS.md` entry go too.
 In the Upstream column, `#N` is an issue or pull request of
 llvm/llvm-project on GitHub, and a hash is a commit on its main; it was
 last checked against main at ed390ca4 (October 2026). In the Patch column,
-a backport is unchanged upstream code; a drafted patch was written here
-against the pin and has not been built yet.
+a backport is unchanged upstream code; a patch of ours was written here
+against the pin.
 
 | Bug | Project | Patch | Upstream | Upstreaming | `PINS.md` |
 | --- | --- | --- | --- | --- | --- |
 | [remove-dead-values-unreachable](remove-dead-values-unreachable/README.md) | MLIR | `llvm.patch`: open #208881, with our tests | reported: #206920, #203226; fix in review: #208881 | comment on #208881 and the issues with the reproducers | `prune-before-remove-dead-values` |
 | [remove-dead-values-address-taken](remove-dead-values-address-taken/README.md) | MLIR | none: `remove-dead-values-unreachable`'s fixes it | not yet; fix in review: #208881 | test offered to #208881 | `remove-dead-values-address-taken` |
-| [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | `llvm.patch`: drafted | not yet; same family: #206083 (`vector.yield`) | new issue and pull request citing #206083 | `inline-unreachable` |
+| [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | `llvm.patch`: ours | not yet; same family: #206083 (`vector.yield`) | new issue and pull request citing #206083 | `inline-unreachable` |
 | [uplift-final-counter](uplift-final-counter/README.md) | MLIR | `llvm.patch`: backport of 6e714c8d9 | fixed on main (6e714c8d9, #225476) | none: upstream | `uplift-final-counter` |
-| [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | `llvm.patch`: drafted | not yet | pull request | `orc-lljit` |
+| [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | none: idris-mlir uses `LLJIT`, not `ExecutionEngine`; the fix is drafted as `pull-request.diff` | not yet | pull request | `orc-lljit` |
 | [recursive-attribute-parser](recursive-attribute-parser/README.md) | MLIR | none: needs a design upstream agrees on | not yet | issue, then an RFC | `mlir-recursion` |
-| [bytecode-deferred-quadratic](bytecode-deferred-quadratic/README.md) | MLIR | `llvm.patch`: drafted | not yet | issue and pull request | `bytecode-deferred-quadratic` |
-| [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | `llvm.patch`: drafted (part 1 of the fix) | not yet | issue and pull request | `simplify-structural-fixpoint` |
-| [vectorize-precondition-body](vectorize-precondition-body/README.md) | MLIR | `llvm.patch`: drafted | not yet | issue and pull request | `vectorize-precondition-body` |
-| [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | `llvm.patch`: backport of 44a4dbf32, and the remainders drafted | shift fixed on main (44a4dbf32, #218495); remainders not yet | issue and pull request for the remainders | `int-range-narrowing-exactness` |
+| [bytecode-deferred-quadratic](bytecode-deferred-quadratic/README.md) | MLIR | `llvm.patch`: ours | not yet | issue and pull request | `bytecode-deferred-quadratic` |
+| [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | `llvm.patch`: ours (part 1 of the fix) | not yet | issue and pull request | `simplify-structural-fixpoint` |
+| [forward-dataflow-callee-lookup](forward-dataflow-callee-lookup/README.md) | MLIR | `llvm.patch`: ours | not yet (main at 155462f440f still scans) | pull request, NFC | `forward-dataflow-callee-lookup` |
+| [vectorize-precondition-body](vectorize-precondition-body/README.md) | MLIR | `llvm.patch`: ours | not yet | issue and pull request | `vectorize-precondition-body` |
+| [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | `llvm.patch`: backport of 44a4dbf32, and the remainders ours | shift fixed on main (44a4dbf32, #218495); remainders not yet | issue and pull request for the remainders | `int-range-narrowing-exactness` |
 | [while-move-if-down-duplicates](while-move-if-down-duplicates/README.md) | MLIR | `llvm.patch`: backport of a65eb8723 | fixed on main (a65eb8723, #219458) | none: upstream | `while-move-if-down-duplicates` |
 | [clang-module-layout-forward-declaration](clang-module-layout-forward-declaration/README.md) | clang | none: not reduced | not yet | reduce, then file or backport | `clang-module-layout-forward-declaration` |
 | [clang-module-predeclared-new](clang-module-predeclared-new/README.md) | clang | none: not reduced | likely reported: #189252 | reduce, then add to #189252 | `clang-module-predeclared-new` |
-| [ld64-lld-unknown-tapi-target](ld64-lld-unknown-tapi-target/README.md) | lld | `llvm.patch`: backport of 532fa5afb (`arm64e.x1`), and `SkipUnknownTriples` drafted | not yet; `arm64e.x1` known on main (b8007a8e4, #222721) and in release/23.x after 23.1.2 (532fa5afb, #224185) | issue and pull request for `SkipUnknownTriples` | `darwin-ld64-tapi` |
+| [ld64-lld-unknown-tapi-target](ld64-lld-unknown-tapi-target/README.md) | lld | `llvm.patch`: backport of 532fa5afb (`arm64e.x1`), and `SkipUnknownTriples` ours | not yet; `arm64e.x1` known on main (b8007a8e4, #222721) and in release/23.x after 23.1.2 (532fa5afb, #224185) | issue and pull request for `SkipUnknownTriples` | `darwin-ld64-tapi` |

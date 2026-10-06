@@ -81,9 +81,9 @@ regions, which the inliner does not see as callees.
 fast path only for a `ReturnLike` terminator, the inliner pass treating
 such a callee as multi-block for a caller region that must stay one
 block, and `UBInlinerInterface::handleTerminator(Operation *, Block *)`
-as a no-op. Tests in `mlir/test/Dialect/UB/inlining.mlir`. Drafted
-against the pin; compiles (syntax-checked against the installed headers);
-not yet built or run.
+as a no-op. Tests in `mlir/test/Dialect/UB/inlining.mlir`. Built into
+the pinned toolchain; the test passes with its `mlir-opt`, and
+`tests/upstream/inline-unreachable-terminator` checks the reproducer.
 
 ## Upstreaming plan
 

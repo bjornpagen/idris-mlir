@@ -681,10 +681,10 @@ CFG
 # Darwin: the C library and headers are libSystem in the SDK, which
 # upstream clang does not look for itself; compiler-rt's builtins are in
 # this clang's resource directory; GMP is the sysroot beside it, its headers
-# system headers as on Linux; the host's ld64 links dynamic PIE executables.
-# PIN(darwin-ld64-tapi): the pinned ld64.lld cannot read the SDK's
-# libSystem.tbd — macOS 27 lists an arm64e.x1 target LLVM 23.1.2 does not
-# know — so the link is the host's ld64; see PINS.md. The
+# system headers as on Linux; the pinned ld64.lld links dynamic PIE
+# executables. PIN(darwin-ld64-tapi): it reads the SDK's stubs, whose
+# targets a newer SDK may name before LLVM knows them, with the patch that
+# skips those targets; see PINS.md. The
 # pinned libc++ is installed beside the clang, where the Darwin driver takes
 # its headers before the SDK's (as system headers) and CMake's import std
 # finds libc++.modules.json; -L makes -lc++ the static libc++.a there, not
@@ -706,9 +706,7 @@ $sdk
 -L<CFGDIR>/../lib
 -isystem<CFGDIR>/../../sysroot/usr/include
 -L<CFGDIR>/../../sysroot/usr/lib
-# PIN(darwin-ld64-tapi): no -fuse-ld=lld. The pinned ld64.lld refuses the
-# macOS 27 SDK's libSystem.tbd (an arm64e.x1 target it does not know), so
-# the link is the host's ld64, which reads its own SDK. See PINS.md.
+-fuse-ld=lld
 CFG
 }
 

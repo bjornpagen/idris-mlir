@@ -1,2 +1,2 @@
 known.tbd: links
-unknown.tbd: still reproduces (ld64.lld refuses an unknown target)
+unknown.tbd: links

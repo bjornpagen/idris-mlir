@@ -1,17 +1,19 @@
 #!/bin/sh
-# The upstream bug upstream/inline-unreachable-terminator still reproduces
-# with the pinned mlir-opt. When this fails, the bug is fixed: let Emit,
-# idr-prune and idr-tail-loops end a body that never returns in
-# ub.unreachable again, drop the program verifier's rule against it, and
-# delete the PINS.md entry inline-unreachable, the report and this test
+# The pinned mlir-opt, with upstream/inline-unreachable-terminator/llvm.patch,
+# no longer shows the bug: the inliner inlines a callee whose body ends in
+# ub.unreachable, which stays the end of its block, where llvmorg-23.1.2
+# aborts. When the pin's inliner handles ub.unreachable, the patch goes, and
+# with it the PINS.md entry inline-unreachable, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-"$llvm_bin/mlir-opt" "$root/upstream/inline-unreachable-terminator/never.mlir" --inline \
+bounded "$llvm_bin/mlir-opt" "$root/upstream/inline-unreachable-terminator/never.mlir" --inline \
   > "$work/out.mlir" 2> "$work/err"
 status=$?
-if [ "$status" -ge 128 ] && grep -q 'must implement handleTerminator' "$work/err"; then
-  say "never: still reproduces (the inliner aborts)"
+sed -n '/func.func @main/,/^  }/p' "$work/out.mlir" > "$work/main.mlir"
+if [ "$status" -eq 0 ] && grep -q 'ub.unreachable' "$work/main.mlir" &&
+   ! grep -q 'call @never' "$work/main.mlir"; then
+  say "never: fixed (inlined; the body ends in ub.unreachable)"
 else
-  say "never: no longer reproduces (exit $status)"
-  sed 's/^/  | /' "$work/err"
+  say "never: still reproduces (exit $status)"
+  sed 's/^/  | /' "$work/err" "$work/out.mlir"
 fi

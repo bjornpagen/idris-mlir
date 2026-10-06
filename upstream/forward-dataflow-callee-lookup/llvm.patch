@@ -1,0 +1,85 @@
+Subject: [PATCH] [mlir][dataflow] Resolve callees from a symbol table in the forward analyses
+
+AbstractSparseForwardDataFlowAnalysis::visitCallOperation and
+AbstractDenseForwardDataFlowAnalysis::visitCallOperation ask whether a
+callee is external with CallOpInterface::resolveCallable(), which looks
+the symbol up by scanning the ops of the nearest symbol table. Every visit
+of a call scans the module, so an interprocedural forward analysis over a
+module of n functions that call each other takes time quadratic in n:
+sccp, int-range-optimizations and remove-dead-values over a chain of
+16,000 calls spend almost all their time in the scan. The backward
+analyses in the same files, and DeadCodeAnalysis, which every sparse
+forward analysis runs with, already resolve callees through a
+SymbolTableCollection.
+
+The forward analyses now keep a SymbolTableCollection of their own, as
+DeadCodeAnalysis does, and resolve with resolveCallableInTable. Their
+constructors and the classes derived from them are unchanged, and a
+lookup resolves the same symbol as before. NFC but for the time.
+---
+ mlir/include/mlir/Analysis/DataFlow/DenseAnalysis.h  | 4 ++++
+ mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h | 4 ++++
+ mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp         | 4 ++--
+ mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp        | 4 ++--
+ 4 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/mlir/include/mlir/Analysis/DataFlow/DenseAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/DenseAnalysis.h
+index 82f86d0..3c3c015 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/DenseAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/DenseAnalysis.h
+@@ -189,6 +189,10 @@ private:
+   void visitCallOperation(CallOpInterface call,
+                           const AbstractDenseLattice &before,
+                           AbstractDenseLattice *after);
++
++  /// The symbol tables that resolve the callees of call operations, so that
++  /// each lookup is O(1) instead of a scan of the symbol table's ops.
++  SymbolTableCollection symbolTable;
+ };
+ 
+ //===----------------------------------------------------------------------===//
+diff --git a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+index df50d8d..5159a4b 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+@@ -286,6 +286,10 @@ private:
+   visitRegionSuccessors(ProgramPoint *point, RegionBranchOpInterface branch,
+                         RegionSuccessor successor,
+                         ArrayRef<AbstractSparseLattice *> lattices);
++
++  /// The symbol tables that resolve the callees of call operations, so that
++  /// each lookup is O(1) instead of a scan of the symbol table's ops.
++  SymbolTableCollection symbolTable;
+ };
+ 
+ //===----------------------------------------------------------------------===//
+diff --git a/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp b/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
+index a2a9018..0ae7f96 100644
+--- a/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
+@@ -100,8 +100,8 @@ void AbstractDenseForwardDataFlowAnalysis::visitCallOperation(
+   // Allow for customizing the behavior of calls to external symbols, including
+   // when the analysis is explicitly marked as non-interprocedural.
+   auto isExternalCallable = [&]() {
+-    auto callable =
+-        dyn_cast_if_present<CallableOpInterface>(call.resolveCallable());
++    auto callable = dyn_cast_if_present<CallableOpInterface>(
++        call.resolveCallableInTable(&symbolTable));
+     return callable && !callable.getCallableRegion();
+   };
+   if (!getSolverConfig().isInterprocedural() || isExternalCallable()) {
+diff --git a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
+index 3d9a375..6d8b86d 100644
+--- a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
+@@ -233,8 +233,8 @@ LogicalResult AbstractSparseForwardDataFlowAnalysis::visitCallOperation(
+   // If the call operation is to an external function, attempt to infer the
+   // results from the call arguments.
+   auto isExternalCallable = [&]() {
+-    auto callable =
+-        dyn_cast_if_present<CallableOpInterface>(call.resolveCallable());
++    auto callable = dyn_cast_if_present<CallableOpInterface>(
++        call.resolveCallableInTable(&symbolTable));
+     return callable && !callable.getCallableRegion();
+   };
+   if (!getSolverConfig().isInterprocedural() || isExternalCallable()) {

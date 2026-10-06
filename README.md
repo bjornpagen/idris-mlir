@@ -171,7 +171,7 @@ make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Chez, Idri
 make build                   # the C++ dev preset and the compiler
 make test                    # compiler, profile, e2e (incl. the Chez diff and the dumps' properties), bench
 make test-idr                # the idr dialect, with FileCheck
-make test-mlir-tools         # the upstream bugs in upstream/ still reproduce
+make test-mlir-tools         # each bug in upstream/ on its reproducer, with the pinned tools
 make bench                   # bench/run.sh
 ```
 

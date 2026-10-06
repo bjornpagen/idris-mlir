@@ -15,7 +15,7 @@
 #                          input); after compiler changes
 #   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
 #                          contract changes
-#   make test-mlir-tools   tests/upstream, the upstream bugs still reproduce with the
+#   make test-mlir-tools   tests/upstream, each upstream bug on its reproducer with the
 #                          pinned tools; after changing upstream MLIR usage
 #   make compile SRC=Main.idr OUT=prog
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments

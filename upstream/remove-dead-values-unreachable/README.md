@@ -91,8 +91,11 @@ replaces a dead argument's remaining uses with `ub.poison` instead of
 dropping them), with `uncalled.mlir`, `unreachable.mlir` and
 `../remove-dead-values-address-taken/address-taken.mlir` added to
 `mlir/test/Transforms/remove-dead-values.mlir`. It fixes
-`remove-dead-values-address-taken` too. Drafted against the pin; not yet
-built.
+`remove-dead-values-address-taken` too. Built into the pinned toolchain;
+the test cases it adds pass with its `mlir-opt`, under both prefixes (the
+rest of the file uses the test dialect, which the pinned build does not
+have), and `tests/upstream/remove-dead-values-unreachable` checks the
+reproducers.
 
 ## Upstreaming plan
 

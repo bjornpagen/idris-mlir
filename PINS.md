@@ -82,21 +82,16 @@ which the top-level CMake configure gate reads.
   `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
   symbols by default
 - sites: foreign/idr/lib/Eval/Jit.cppm (`idr-eval`)
-- workaround: `upstream/execution-engine-process-symbols/llvm.patch`
-  (drafted): `ExecutionEngineOptions::linkProcessSymbols = false` creates
-  the engine without the process's symbols. Until the toolchain is rebuilt
-  with it, `idr-eval` uses ORC's `LLJIT` directly, which `ExecutionEngine`
-  wraps, with `setLinkProcessSymbolsByDefault(false)` (`LLJIT.h:415`) and an
-  `absoluteSymbols` table that binds the runtime's functions, and the libm
-  functions lowered code may call, to `idris-mlir-cc`'s own copies; the
-  library functions LLVM calls only on some targets (Darwin's `bzero`,
-  `__exp10`, ...) are the target entry's `IDRIS_MLIR_JIT_LIBRARY_CALLS`,
-  bound from the process by a `DynamicLibrarySearchGenerator` that allows
-  those names alone, which only a target with a dynamic loader names. With
-  the patch, `idr-eval` creates an `ExecutionEngine` without the process's
-  symbols and registers those functions, and its own `LLJIT` setup goes
-- retire: drop the patch when the pin has upstream's option; re-read at
-  every LLVM bump
+- workaround: none: `idr-eval` builds ORC's `LLJIT`, which
+  `ExecutionEngine` wraps, because it needs what the engine does not give
+  (JITLink's memory manager, the session's error reports, no wrapper per
+  function; upstream/execution-engine-process-symbols/README.md says
+  which). It links no process symbol by default and binds the runtime's
+  functions, the libm functions lowered code calls and the target entry's
+  `IDRIS_MLIR_JIT_LIBRARY_CALLS` itself. The upstream fix is drafted as
+  that directory's `pull-request.diff`, not carried
+- retire: this entry goes once `Jit.cppm` says so in its own words: the
+  `LLJIT` is the design, not a stand-in
 - upstream: upstream/execution-engine-process-symbols (not yet filed); plan
   in its README: a pull request
 
@@ -352,6 +347,25 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/while-move-if-down-duplicates (fixed on main); nothing
   to send
 
+## forward-dataflow-callee-lookup
+
+- symptom: at llvmorg-23.1.2, the sparse and dense forward data-flow
+  analyses find the callee of every call they visit with
+  `resolveCallable()`, a scan of the module's ops
+  (`mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp:237`,
+  `DenseAnalysis.cpp:104`), so `sccp`, `int-range-optimizations`,
+  `remove-dead-values` and our analyses take time quadratic in the number
+  of functions: 8 to 9 percent of a compile of `k-nucleotide`
+- sites: none in our code; the patch
+- workaround: `upstream/forward-dataflow-callee-lookup/llvm.patch`: the
+  forward analyses own a `SymbolTableCollection`, as `DeadCodeAnalysis`
+  does, and resolve callees through it
+- retire: drop the patch when the pin's forward analyses resolve callees
+  from a symbol table (`tests/upstream/forward-dataflow-callee-lookup`
+  then shows it with the pristine tools)
+- upstream: upstream/forward-dataflow-callee-lookup (not yet filed); plan
+  in its README: a pull request
+
 ## clang-module-layout-forward-declaration
 
 - symptom: at llvmorg-23.1.2, clang aborts ("Cannot get layout of forward
@@ -471,19 +485,16 @@ which the top-level CMake configure gate reads.
   program's — fails with `could not load TAPI file ...: unknown target`.
   The `TextAPIReader` has a `SkipUnknownTriples` option
   (`llvm/lib/TextAPI/TextStub.cpp:402`), but `ld64.lld` never sets it
-- sites: tools/bootstrap.sh — `config_file_darwin`, which no longer passes
-  `-fuse-ld=lld`, and CMakeLists.txt — the `arm64-apple-macosx14.0` entry's
-  `IDRIS_MLIR_EXECUTABLE_FLAGS`, which carries no `-fuse-ld=lld` and drops
-  `--icf=all` (the host's `ld64` has no ICF). The report, reproducer and
-  check are `upstream/ld64-lld-unknown-tapi-target/` and
-  `tests/upstream/ld64-lld-unknown-tapi-target/`
+- sites: tools/bootstrap.sh — `config_file_darwin`, whose `-fuse-ld=lld`
+  makes every Darwin link the pinned `ld64.lld`'s, as CMakeLists.txt's
+  `arm64-apple-macosx14.0` entry does for programs (with `--icf=all`). The
+  report, reproducer and check are `upstream/ld64-lld-unknown-tapi-target/`
+  and `tests/upstream/ld64-lld-unknown-tapi-target/`
 - workaround: `upstream/ld64-lld-unknown-tapi-target/llvm.patch`:
   release/23.x's 532fa5afb (`arm64e.x1`) backported, and
-  `SkipUnknownTriples = true` in `macho::loadDylib` drafted, so the pinned
-  `ld64.lld` reads the macOS 27 SDK and the next one's. Until the toolchain
-  is rebuilt with it, Darwin links are made by the host's `ld64`
-  (`/usr/bin/ld`), which reads its own SDK; the pinned `ld64.lld` stays the
-  linker on Linux. With the patch, restore `-fuse-ld=lld` and `--icf=all`
+  `SkipUnknownTriples = true` in `macho::loadDylib`, so the pinned
+  `ld64.lld` reads the macOS 27 SDK and the next one's. No code of ours
+  stands in for it
 - retire: when the pin has 532fa5afb the backported part leaves the patch;
   drop the rest when the pin's `ld64.lld` reads a stub with an unknown
   target
