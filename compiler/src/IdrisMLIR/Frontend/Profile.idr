@@ -152,11 +152,13 @@ treeMentionsWorld (Case _ _ _ alts) = any alt alts
 treeMentionsWorld (STerm _ t) = mentionsWorld t
 treeMentionsWorld _ = False
 
+||| What a definition refers to, with the metavariables its body mentions:
+||| the translation follows a solved one to its solution.
 refsOf : GlobalDef -> List Name
 refsOf def =
   let fromType = keys (getRefs (UN (Basic "")) (type def)) in
   case definition def of
-    PMDef _ _ tree _ _ => fromType ++ keys (getRefs (UN (Basic "")) tree)
+    PMDef _ _ tree _ _ => fromType ++ keys (getRefs (UN (Basic "")) tree) ++ keys (getMetas tree)
     TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
     _ => fromType
 

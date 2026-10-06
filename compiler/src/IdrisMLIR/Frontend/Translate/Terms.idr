@@ -146,7 +146,10 @@ mutual
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
   term ctx env (TForce fc _ arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
   term ctx env (TDelayed fc _ _) = Erased <$> toLoc (bestFC ctx fc)
-  term ctx env (Meta fc n _ _) = reject (bestFC ctx fc) ctx.owner Laziness ("hole or metavariable " ++ show n)
+  term ctx env (Meta fc n _ args) = do
+    Just tm <- solution (bestFC ctx fc) n args
+      | Nothing => reject (bestFC ctx fc) ctx.owner EscapeHatch ("the hole " ++ show n)
+    term ctx env tm
   term ctx env (As fc _ _ pat) = term ctx env pat
   term ctx env tm@(App fc _ _) = let (fn, args) = spine tm [] in application ctx env fc fn args
   term ctx env tm@(Ref fc _ _) = application ctx env fc tm []
@@ -203,7 +206,7 @@ mutual
         (Just op, _) => ioCall fc loc arity op (type def) args
         (_, Just op) => arrayCall fc loc arity op (type def) args
         _ => reject fc ctx.owner EscapeHatch ("extern function " ++ show full)
-      Hole {} => reject fc ctx.owner Laziness ("hole " ++ show full)
+      Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
       _ => internal fc ("a reference to " ++ show full)
     where
       applyAll : Loc -> Term a -> List (TT vars) -> Core (Term a)
