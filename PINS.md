@@ -182,9 +182,11 @@ which the top-level CMake configure gate reads.
   runtime/start.cc (`idris_rt_run_on_stack`)
 - workaround: idris-mlir-cc runs the whole compilation, idris-mlir-opt
   its run, and the evaluation child its calls, on the runtime's
-  reserved-stack runner: up to 2^44, 2^44 and (the child, whose calls have
+  reserved-stack runner: up to 2^40, 2^40 and (the child, whose calls have
   stack budgets) twice its calls' largest stack budget of address space,
-  committed as touched, above a guard, so the depth is bounded by memory.
+  committed as touched, above a guard, so the depth is bounded by memory
+  (2^40 bytes is more than a compiling machine has; reserving costs time
+  in proportion to the size, at start, exit and every fork).
   Running out of it is a named error in the tools and exhaustion in the
   child. idris-mlir-reduce does not have it
 - retire: when MLIR parses and prints nested attributes from a worklist;

@@ -18,10 +18,13 @@ namespace idr::driver {
 namespace {
 
 // The compilation runs on the runtime's reserved-stack runner, on a stack
-// as large as the address space allows, committed as it is touched: MLIR's
-// parser, printer and walks recurse over nested constants, and compile-time
-// evaluation builds them as large as the program's own values (no limits
-// but the machine's). PIN(mlir-recursion) — see PINS.md
+// committed as it is touched: MLIR's parser, printer and walks recurse over
+// nested constants, and compile-time evaluation builds them as large as the
+// program's own values (no limits but the machine's). The stack is 2^40
+// bytes, more than the memory of a machine that compiles, so memory runs
+// out first; no more, since reserving costs time in proportion to the
+// size, at the start, at the exit and at every fork of compile-time
+// evaluation. PIN(mlir-recursion) — see PINS.md
 struct Compilation {
   int status = failure;
 };
@@ -45,7 +48,7 @@ export namespace idr::driver {
 // Runs `run` on the runtime's reserved-stack runner; its exit status.
 int runOnLargeStack() {
   Compilation compilation;
-  if (idris_rt_run_on_stack(compile, &compilation, size_t{1} << 44, size_t{1} << 20,
+  if (idris_rt_run_on_stack(compile, &compilation, size_t{1} << 40, size_t{1} << 20,
                             compilationExhausted) != 0) {
     llvm::errs() << "idris-mlir-cc: no stack could be reserved for the compilation\n";
     return failure;
