@@ -4,12 +4,14 @@
 # them from its checked context, so the list follows the pin and is never
 # written down here. Which the program uses is this compiler's: its Core
 # (prog.core) names every definition once the frontend has resolved it,
-# by its full name, namespaces and all, as Prelude.Types.List.length[Int](
-# and a constructor after its type, as
-# Prelude.Types.(<=>)[...]::MkEquivalence(. And the program's output is
-# compared with Chez's as every e2e program's is, so what it uses is also
-# what it computes right. A module's exports are the definitions it makes
-# itself: one it re-exports is covered in the module that defines it.
+# by its full name, namespaces and all, as Prelude.Types.List.length[Int](,
+# a constructor after its type, as Prelude.Types.(<=>)[...]::MkEquivalence(,
+# and a definition the compiler's registry lowers another way in braces
+# after what its call became, as add_Nat{Prelude.Types.plus}(. And the
+# program's output is compared with Chez's as every e2e program's is, so
+# what it uses is also what it computes right. A module's exports are the
+# definitions it makes itself: one it re-exports is covered in the module
+# that defines it.
 #
 # A type, and a definition whose result is a type or an equality (a
 # proof), has no run time: it is named apart, as compile-time only, and
@@ -18,10 +20,8 @@
 # every implementation at compile time, specialising each method call to
 # the implementation it is given, so the record is never built (an
 # implementation chosen at run time is refused), and the methods' uses are
-# what the program's Core shows. Two more kinds are named apart when Core
-# does not name them: an escape hatch, which user code may not write, and
-# a definition the compiler's registry lowers another way, whose calls
-# Core writes as what they mean (Nat's plus as add_Nat).
+# what the program's Core shows. One more kind is named apart when Core
+# does not name it: an escape hatch, which user code may not write.
 
 # The pinned prelude's source, from which the pinned Idris built the
 # prelude it loads: its IDE mode names a definition's module by the file it
@@ -231,22 +231,6 @@ escape_hatch() {
       END { exit !found }' "$eh_dir/out"
 }
 
-# registry_lowered: the definitions the compiler's registry gives a faster
-# lowering, one full name per line. The registry (compiler/src/IdrisMLIR/
-# Registry.idr and its tables) is the one record of them; the pinned Idris
-# checks it from its source and evaluates its entries, and nothing of it is
-# copied here.
-registry_lowered() {
-  printf '%s\n:q\n' 'mapMaybe (\e => case kind e.hook of { Faster => map (show . fst) (site e); Stricter => Nothing }) entries' |
-    (cd "$work" && bounded "$idris2" --no-banner --no-color --source-dir "$root/compiler/src" \
-       --build-dir "$work/registry-build" "$root/compiler/src/IdrisMLIR/Registry.idr") 2> /dev/null |
-    awk '
-      /^IdrisMLIR\.Registry> \[/ {
-        s = $0
-        while (match(s, /"[^"]*"/)) { print substr(s, RSTART + 1, RLENGTH - 2); s = substr(s, RSTART + RLENGTH) }
-      }'
-}
-
 # covers_prelude MODULE CORE: every run-time export of MODULE is used by the
 # program whose Core is CORE.
 covers_prelude() {
@@ -303,24 +287,17 @@ covers_prelude() {
       printf '%s\t%s\n' "$cp_full" "$cp_implicit" >> "$work/unused"
     fi
   done < "$work/own"
-  # What Core does not name may be an escape hatch, or lowered by the
-  # registry; anything else is missing.
+  # What Core does not name may be an escape hatch; anything else is
+  # missing.
   : > "$work/escape-hatches"
-  : > "$work/lowered"
   : > "$work/missing"
-  if [ -s "$work/unused" ]; then
-    registry_lowered > "$work/registry"
-    [ -s "$work/registry" ] || say "prelude $cp_module: the compiler's registry could not be read"
-    while IFS="$(printf '\t')" read -r cp_full cp_implicit; do
-      if [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
-        printf '%s\n' "$cp_full" >> "$work/escape-hatches"
-      elif grep -qxF -- "$cp_full" "$work/registry"; then
-        printf '%s\n' "$cp_full" >> "$work/lowered"
-      else
-        printf '%s\n' "$cp_full" >> "$work/missing"
-      fi
-    done < "$work/unused"
-  fi
+  while IFS="$(printf '\t')" read -r cp_full cp_implicit; do
+    if [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
+      printf '%s\n' "$cp_full" >> "$work/escape-hatches"
+    else
+      printf '%s\n' "$cp_full" >> "$work/missing"
+    fi
+  done < "$work/unused"
   cp_compile=$(wc -l < "$work/compile-time" | tr -d ' ')
   cp_apart=" ($cp_compile compile-time only: $(names_in "$cp_module" "$work/compile-time")"
   cp_hatches=$(wc -l < "$work/escape-hatches" | tr -d ' ')
@@ -328,9 +305,6 @@ covers_prelude() {
     cp_apart="$cp_apart; 1 escape hatch, which user code may not write: $(names_in "$cp_module" "$work/escape-hatches")"
   elif [ "$cp_hatches" -gt 1 ]; then
     cp_apart="$cp_apart; $cp_hatches escape hatches, which user code may not write: $(names_in "$cp_module" "$work/escape-hatches")"
-  fi
-  if [ -s "$work/lowered" ]; then
-    cp_apart="$cp_apart; $(wc -l < "$work/lowered" | tr -d ' ') lowered by the compiler's registry, which Core does not name: $(names_in "$cp_module" "$work/lowered")"
   fi
   if [ -s "$work/missing" ]; then
     say "prelude $cp_module: $cp_total exports; $cp_used used, these not: $(names_in "$cp_module" "$work/missing")$cp_apart)"
@@ -346,11 +320,13 @@ names_in() {
 }
 
 # core_uses NAME CORE: whether CORE names the definition of full name NAME:
-# as NAME followed by what ends a name in Core (anything after an operator's
-# or a projection's closing parenthesis), or as a constructor, NS.Type::name(
-# with the type's arguments in brackets after its name, NS the constructor's
-# namespace, the type one name or an operator in parentheses, and an
-# operator without its parentheses (Prelude.Basics.List[Int]::::( is (::)).
+# as NAME followed by what ends a name in Core, the brace that closes the
+# definition a lowered primitive stands for among them (anything after an
+# operator's or a projection's closing parenthesis), or as a constructor,
+# NS.Type::name( with the type's arguments in brackets after its name, NS
+# the constructor's namespace, the type one name or an operator in
+# parentheses, and an operator without its parentheses
+# (Prelude.Basics.List[Int]::::( is (::)).
 core_uses() {
   awk -v full="$1" '
     # Whether `s` ends in NS.Type, after one balanced [...] if it has one.
@@ -378,7 +354,7 @@ core_uses() {
         bare = substr(full, k + 1)
       }
       space = substr(full, 1, k - 1)
-      ends = "[{( )],:"
+      ends = "[{}( )],:"
       constructor = "::" bare "("
       qualified = space
       gsub(/[][\\.^$*+?(){}|]/, "\\\\&", qualified)

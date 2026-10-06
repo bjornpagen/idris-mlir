@@ -4,7 +4,7 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-prelude Prelude.Types: 122 exports, each used (8 compile-time only: (<=>) Dec Either Maybe MkRange Nat Range Stream.Stream; 11 lowered by the compiler's registry, which Core does not name: compareNat equalNat fastConcat fastPack fastUnpack integerToNat minus mult natToInteger pack plus)
+prelude Prelude.Types: 122 exports, each used (8 compile-time only: (<=>) Dec Either Maybe MkRange Nat Range Stream.Stream)
 budget: kept
 dumps: parse and verify
 simplify: idempotent

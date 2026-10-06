@@ -60,29 +60,23 @@ Idris or the compiler, nothing written down in the script:
   defined in another module is left to that module: all 356 of `Prelude`'s.
 - Core is read for the full name (`Prelude.Types.List.length[`,
   `Prelude.Types.<=>.(.leftToRight)[`,
-  `Prelude.Interfaces.Num.Semigroup.Additive`) and for a constructor after
+  `Prelude.Interfaces.Num.Semigroup.Additive`), for a constructor after
   a type of its namespace (`Prelude.Types.(<=>)[...]::MkEquivalence(`,
-  `Builtin.DPair.DPair[...]::MkDPair(`).
+  `Builtin.DPair.DPair[...]::MkDPair(`), and for a definition the
+  compiler's registry lowers another way in braces after what its call
+  became, as Core writes an implementation after its method
+  (`add_Nat{Prelude.Types.plus}(`, `pack<...>{Prelude.Types.fastPack}(`,
+  `Prelude.Types.unpack{Prelude.Types.fastUnpack}(`): so a lowered
+  definition is asked of the program like any other.
 - An export Core does not name is asked of the compiler under test: a
   program whose `main` only names it, refused as `the escape hatch NAME`,
   `NAME` or `uses NAME` (world), names an escape hatch. A `%foreign`
   refusal does not: that is a foreign function the compiler does not
   implement (`prim__fork`), a gap.
-- Otherwise, if the compiler's registry gives it a faster lowering, it is
-  named apart as lowered: the pinned Idris checks
-  `compiler/src/IdrisMLIR/Registry.idr` from source and evaluates its
-  `entries`, so the registry stays the one record of the map.
 
-What the check cannot read is whether the program uses a lowered
-definition: Core writes `plus` as `add_Nat`, which `S` and `+` on `Nat`
-write too, and `natToInteger` as a cast, with no trace of the definition
-the registry replaced. The smallest compiler-side addition that would let
-the check ask lowered definitions of the program like any other: the
-frontend's Core writing the entry it applied after the primitive, in
-braces as it already writes an implementation after its method
-(`add_Nat{Prelude.Types.plus}`, `pack<...>{Prelude.Types.fastPack}`).
-Likewise `Z` and `S` count as used where Core names them, which is in the
-indices of types only: their run-time uses are `0` and `add_Nat`.
+`Z` and `S` count as used where Core names them, which is in the indices
+of types only: their run-time uses are `0` and `add_Nat`, which no registry
+entry writes.
 
 Coverage lines today, each fixture run from `tests/programs/prelude/`
 (Interfaces and Show with the line that meets their bug removed):
