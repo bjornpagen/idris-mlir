@@ -57,7 +57,7 @@ translateInstance p = do
   result <- coreType fc owner ValueType !(normaliseClosed resTy)
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
-  body <- tree (MkCtx owner fc complete) env treeCT
+  body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def)) treeCT
   loc <- toLoc fc
   tot <- isTotal fc p.name
   let facts = MkFacts (MkFact tot FromIdris)

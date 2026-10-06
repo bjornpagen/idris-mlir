@@ -198,7 +198,15 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
        then do
          let (Just v, vals') = nextStatic vals
            | _ => reject fc owner StaticArgument "an implementation that is not known statically"
-         val <- v.written
+         written <- v.written
+         -- An implementation can be a function of a runtime value
+         -- (`{y : a} -> Show (p y)`, applied to the first component of a
+         -- dependent pair), which Idris resolved at every value: constant
+         -- in it, or using it only where it is erased (`Show (Tag y)`).
+         -- What the function returns is then a compile-time value, seen
+         -- once the projections and applications that lead to it are
+         -- reduced; one that still needs the value is chosen at runtime.
+         val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
          when !(runtimeDependent val) $
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
