@@ -19,7 +19,9 @@ what mechanism, with a staged plan); `dictionary-fields-opaque-types.md`
 differs only through an opaque definition, and the runtime tag that would
 accept them); `list-length-stack.md` (the Prelude's `length` keeps a frame
 per element, and a list of about 33 million characters exhausts the
-program's stack). Nothing here is a specification: the code is, and a note
-becomes work only when a plan picks it up. The research streams behind the
+program's stack); `upstream-idris/` (which upstream programs the runtime
+runs, and which compiler refusals stop the rest). Nothing here is a
+specification: the code is, and a note becomes work only when a plan picks
+it up. The research streams behind the
 2026-09 redesign were removed once their work landed; `git log -- findings`
 has them.
