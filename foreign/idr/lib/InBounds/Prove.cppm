@@ -17,6 +17,7 @@ import :joins;
 import :linear;
 import :lengths;
 import :paths;
+import :quotients;
 import :system;
 
 using namespace mlir;
@@ -58,6 +59,9 @@ bool provenInBounds(Operation *access, Value array, Value index, DataFlowSolver 
           lengths.related(size, root))
         system.lengthIs(size, root);
   }
+  // Quotients are read after the path and the lengths, which are what can
+  // show the dividend is non-negative.
+  relateQuotients(system);
   return bounded && system.emptyWith(Linear().plus(i, DynamicAPInt(-1)).plus(-1)) &&
          system.emptyWith(i - length);
 }

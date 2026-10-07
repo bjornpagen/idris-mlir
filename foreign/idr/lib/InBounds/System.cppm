@@ -5,9 +5,10 @@
 // Every constraint is true of the run: a value's range (MLIR's integer
 // range analysis, else its type's, within the bounds a loop keeps its
 // carried values in, induction), its definition by a linear op, the
-// condition each enclosing branch took. A constraint left out only makes
-// the system prove less, so an op the encoding does not know is a column
-// with its range alone.
+// condition each enclosing branch took, and a Euclidean quotient of a
+// value the system has already proved non-negative by a positive constant.
+// A constraint left out only makes the system prove less, so an op the
+// encoding does not know is a column with its range alone.
 //
 // Integers are machine words, which wrap: `x + y` is `x + y - 2^w k` for
 // some k in [-1, 1] (k = 0 under nsw, whose overflow is no value), and an
@@ -64,6 +65,9 @@ public:
       define(value, Linear::of(column));
     return Linear::of(column);
   }
+
+  // Whether `value`'s definition is known at the access this system is for.
+  bool known(Value value) const { return admissible(value); }
 
   // The length of the array `array` (its root's, which views share).
   Linear lengthOf(Value array) {

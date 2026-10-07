@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@count,in-bounds=@related,in-bounds=@guarded,in-bounds=@positive,in-bounds=@carried,in-bounds=@made,in-bounds=@sameSide,in-bounds=@unsignedLength,in-bounds=@forDim,in-bounds=@emptyNegative,in-bounds=@givenBack,in-bounds=@givenUse,in-bounds=@givenSecond,in-bounds=@givenAgain -o /dev/null
+// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@count,in-bounds=@related,in-bounds=@guarded,in-bounds=@positive,in-bounds=@carried,in-bounds=@made,in-bounds=@sameSide,in-bounds=@unsignedLength,in-bounds=@forDim,in-bounds=@emptyNegative,in-bounds=@givenBack,in-bounds=@givenUse,in-bounds=@givenSecond,in-bounds=@givenAgain,in-bounds=@half,in-bounds=@quarter,in-bounds=@part,in-bounds=@dimHalf,in-bounds=@unsignedHalf,in-bounds=@halfBack -o /dev/null
 // RUN: idris-mlir-opt %s --idr-in-bounds | FileCheck %s
 // An access is proven when what holds on its path leaves no index outside
 // its array: a loop between 0 and the size of the array it made; a size and the
@@ -11,7 +11,12 @@
 // array, so a second access there is proven whatever the first was. A
 // call that returns the array it was given — that value, the linear use
 // of it, another argument, or the same array from its recursive call —
-// leaves the caller's length on what came back.
+// leaves the caller's length on what came back. Dividing a non-negative
+// word by a positive constant stays inside that word: half of a length
+// the path has shown positive, half of that again, half of an index
+// already inside the array, half of the array's own length when that
+// length is positive, and the same unsigned quotient. The array a call
+// gives back keeps the length, so half of it is inside too.
 // CHECK-LABEL: func.func @again(
 // CHECK: idr.array.get %
 // CHECK: idr.array.set in_bounds
@@ -283,6 +288,108 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %b[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  // `n > 0`, so `n / 2` is at least 0 and strictly below the length `n`.
+  func.func @half(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %pos = arith.cmpi sgt, %n, %z : i64
+    %r = scf.if %pos -> !idr.world {
+      %i = idr.div signed %n, %two : i64
+      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  // Half of `n` is non-negative because `n` is, so half of that half is too.
+  func.func @quarter(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %pos = arith.cmpi sgt, %n, %z : i64
+    %r = scf.if %pos -> !idr.world {
+      %h = idr.div signed %n, %two : i64
+      %i = idr.div signed %h, %two : i64
+      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  // `k` is not the length. The path has `0 <= k < n`, so `k / 2` is too.
+  func.func @part(%n: i64, %k: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %lo = arith.cmpi sge, %k, %z : i64
+    %hi = arith.cmpi slt, %k, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %i = idr.div signed %k, %two : i64
+      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  // The dimension is the length, hence non-negative, and the path excludes 0.
+  func.func @dimHalf(%a: memref<?xi64>, %w: !idr.world) -> !idr.world {
+    %c0 = arith.constant 0 : index
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %len = memref.dim %a, %c0 : memref<?xi64>
+    %l = arith.index_cast %len : index to i64
+    %pos = arith.cmpi sgt, %l, %z : i64
+    %r = scf.if %pos -> !idr.world {
+      %i = idr.div signed %l, %two : i64
+      %s1 = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  // Unsigned division of a non-negative word by a positive constant is the
+  // Euclidean quotient.
+  func.func @unsignedHalf(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %pos = arith.cmpi sgt, %n, %z : i64
+    %r = scf.if %pos -> !idr.world {
+      %i = idr.div %n, %two : i64
+      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  func.func @halfBack(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %two = arith.constant 2 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %b = func.call @handBack(%a) : (memref<?xi64>) -> memref<?xi64>
+    %pos = arith.cmpi sgt, %n, %z : i64
+    %r = scf.if %pos -> !idr.world {
+      %i = idr.div signed %n, %two : i64
       %s1 = idr.array.set %b[%i], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {

@@ -6,8 +6,9 @@
 // joins and the components a constructor stored, joins) lets the first
 // check prove the second. The proof is a
 // system of linear constraints over the integers (system, of linear
-// expressions, linear), from the path to the access (paths) and the bounds
-// its loops keep their counters in (induction), decided exactly (prove).
+// expressions, linear), from the path to the access (paths), a Euclidean
+// quotient of a non-negative value (quotients), and the bounds its loops
+// keep their counters in (induction), decided exactly (prove).
 export module idr.inbounds;
 
 export import :components;
@@ -17,4 +18,5 @@ export import :lengths;
 export import :linear;
 export import :paths;
 export import :prove;
+export import :quotients;
 export import :system;

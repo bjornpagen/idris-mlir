@@ -359,9 +359,11 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     index below 0 or at least the array's length, as MLIR's Presburger
     library decides: the conditions of the matches, ifs and loops on its
     path, the accesses that ran before it, the linear definitions of the
-    integers involved (wrapping exactly), integer range analysis, and the
-    length relation: an integer that is the length of an array, clamped at
-    0, wherever both are in scope. The relation starts at `idr.array.new`
+    integers involved (wrapping exactly), the Euclidean quotient of a value
+    already proved non-negative divided by a positive constant, integer
+    range analysis, and the length relation: an integer that is the length
+    of an array, clamped at 0, wherever both are in scope. The relation
+    starts at `idr.array.new`
     and `idr.array.generate` and follows the pair through the values bound
     from several places (region branch arguments and results, the
     parameters of a private function every use of which is a direct call,
