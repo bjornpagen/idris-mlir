@@ -366,7 +366,13 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     from several places (region branch arguments and results, the
     parameters of a private function every use of which is a direct call,
     a call's results, a select), as the greatest fixpoint: a pair holds
-    when every place binding it gives a pair that holds. A component of a
+    when every place binding it gives a pair that holds.     A call that gives
+    an array back keeps the relation when every return is that argument:
+    the same value, or a borrow, a share, a linear enter, a linear use or a
+    constructor rebuilt from it, including that value read out of the
+    record the call returns. A return that can be some other array keeps
+    nothing.
+    A component of a
     record — a field, a take's field, a match case's argument — has the
     length of the component its constructor stored. A size the array was
     made from also relates when a branch or a max clamps it at 0 to the

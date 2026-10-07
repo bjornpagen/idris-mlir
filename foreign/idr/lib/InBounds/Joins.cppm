@@ -15,6 +15,40 @@ using namespace mlir;
 
 namespace idr::inbounds {
 
+// A component of the record it was read from. A match's case argument is
+// the scrutinee's field; its default binds the scrutinee, which is not a
+// component. Views are not stripped here: the caller does that, so a walk
+// that asks which component a value is does not follow a call while it asks.
+export struct Component {
+  Value record;
+  StringAttr ctor;
+  uint64_t index;
+};
+
+export std::optional<Component> componentOf(Value value) {
+  if (auto field = value.getDefiningOp<FieldOp>())
+    return Component{field.getValue(), field.getCtorAttr().getAttr(), field.getIndex()};
+  if (auto take = value.getDefiningOp<TakeOp>()) {
+    ResultRange fields = take.getFields();
+    for (auto [i, field] : llvm::enumerate(fields))
+      if (field == value)
+        return Component{take.getValue(), take.getCtor().getLeafReference(), i};
+  }
+  auto arg = dyn_cast<BlockArgument>(value);
+  if (!arg || !arg.getOwner()->isEntryBlock())
+    return std::nullopt;
+  auto match = dyn_cast<MatchOp>(arg.getOwner()->getParentOp());
+  if (!match)
+    return std::nullopt;
+  unsigned number = arg.getOwner()->getParent()->getRegionNumber();
+  if (number >= match.getCases().size())
+    return std::nullopt;
+  auto ctor = dyn_cast<FlatSymbolRefAttr>(match.getCases()[number]);
+  if (!ctor)
+    return std::nullopt;
+  return Component{match.getScrutinee(), ctor.getAttr(), arg.getArgNumber()};
+}
+
 // The array an access reads or writes: a view or a share of an owned
 // array is that array, of its length, and so is the array a linear
 // position was entered with.

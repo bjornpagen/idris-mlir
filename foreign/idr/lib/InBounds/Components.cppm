@@ -49,31 +49,13 @@ struct Proj {
 };
 
 // `value` as a component of the record it was read from, or none when it
-// was computed on its own. A match's case argument is the scrutinee's
-// field; its default binds the scrutinee, which is not a component.
+// was computed on its own. Views are the array under them, so a borrow of
+// a field is that field.
 std::optional<Proj> projectionOf(Value value) {
-  value = arrayRoot(value);
-  if (auto field = value.getDefiningOp<FieldOp>())
-    return Proj{field.getValue(), field.getCtorAttr().getAttr(), field.getIndex()};
-  if (auto take = value.getDefiningOp<TakeOp>()) {
-    ResultRange fields = take.getFields();
-    for (auto [i, field] : llvm::enumerate(fields))
-      if (field == value)
-        return Proj{take.getValue(), take.getCtor().getLeafReference(), i};
-  }
-  auto arg = dyn_cast<BlockArgument>(value);
-  if (!arg || !arg.getOwner()->isEntryBlock())
+  std::optional<Component> component = componentOf(arrayRoot(value));
+  if (!component)
     return std::nullopt;
-  auto match = dyn_cast<MatchOp>(arg.getOwner()->getParentOp());
-  if (!match)
-    return std::nullopt;
-  unsigned number = arg.getOwner()->getParent()->getRegionNumber();
-  if (number >= match.getCases().size())
-    return std::nullopt;
-  auto ctor = dyn_cast<FlatSymbolRefAttr>(match.getCases()[number]);
-  if (!ctor)
-    return std::nullopt;
-  return Proj{match.getScrutinee(), ctor.getAttr(), arg.getArgNumber()};
+  return Proj{component->record, component->ctor, component->index};
 }
 
 bool sameCtor(ConOp con, StringAttr ctor) { return con.getCtor().getLeafReference() == ctor; }

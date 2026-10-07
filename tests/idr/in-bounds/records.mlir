@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@fields,in-bounds=@matched,in-bounds=@chosen,in-bounds=@clamped,in-bounds=@maxsi,in-bounds=@fill,in-bounds=@sorted,bounds-checked=@apart,bounds-checked=@open,bounds-checked=@grown,bounds-checked=@wrapped,bounds-checked=@wrappedNext,bounds-checked=@predecessor -o /dev/null
+// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@fields,in-bounds=@matched,in-bounds=@chosen,in-bounds=@clamped,in-bounds=@maxsi,in-bounds=@fill,in-bounds=@sorted,in-bounds=@rebuilt,in-bounds=@packed,in-bounds=@passed,bounds-checked=@apart,bounds-checked=@open,bounds-checked=@grown,bounds-checked=@wrapped,bounds-checked=@wrappedNext,bounds-checked=@predecessor -o /dev/null
 // A size and the array it describes stay related when one constructor
 // stored both, and after that record is read apart: two fields, the
 // arguments of the constructor's match, or the record chosen by one
@@ -12,6 +12,9 @@
 // upward beside an array it does not grow; an index below n - 1 when n
 // may be the smallest word, where n - 1 is the largest. A caller's
 // counter being at least 0 is not a fact of the callee that receives it.
+// A call that returns the record it was given, rebuilt around the same
+// array, or that array read out of the record it returns, keeps the
+// length that stayed outside.
 module {
   idr.data @Pair {
     idr.ctor @MkPair (i64, memref<?xi64>)
@@ -353,6 +356,84 @@ module {
     }
     return %r#2 : !idr.world
   }
+  func.func private @rewrap(%rec: !idr.data<@Arr>) -> !idr.data<@Arr> {
+    %arr = idr.field %rec[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
+    %b = idr.con @Arr::@MkArr(%arr) : (memref<?xi64>) -> !idr.data<@Arr>
+    return %b : !idr.data<@Arr>
+  }
+  func.func @rebuilt(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
+    %back = func.call @rewrap(%rec) : (!idr.data<@Arr>) -> !idr.data<@Arr>
+    %arr = idr.field %back[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %arr[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  func.func private @pack(%rec: !idr.data<@Arr>) -> !idr.data<@Pair> {
+    %arr = idr.field %rec[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
+    %z = arith.constant 0 : i64
+    %p = idr.con @Pair::@MkPair(%z, %arr) : (i64, memref<?xi64>) -> !idr.data<@Pair>
+    return %p : !idr.data<@Pair>
+  }
+  func.func @packed(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
+    %back = func.call @pack(%rec) : (!idr.data<@Arr>) -> !idr.data<@Pair>
+    %arr = idr.field %back[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %arr[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  func.func private @inner(%rec: !idr.data<@Arr>) -> !idr.data<@Arr> {
+    return %rec : !idr.data<@Arr>
+  }
+  func.func private @outer(%rec: !idr.data<@Arr>) -> !idr.data<@Pair> {
+    %back = func.call @inner(%rec) : (!idr.data<@Arr>) -> !idr.data<@Arr>
+    %arr = idr.field %back[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
+    %z = arith.constant 0 : i64
+    %p = idr.con @Pair::@MkPair(%z, %arr) : (i64, memref<?xi64>) -> !idr.data<@Pair>
+    return %p : !idr.data<@Pair>
+  }
+  // The array comes back from a call, and that call's result is what the
+  // outer function returns inside a record. The field read outside is the
+  // array the caller passed.
+  func.func @passed(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
+    %back = func.call @outer(%rec) : (!idr.data<@Arr>) -> !idr.data<@Pair>
+    %arr = idr.field %back[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %arr[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
   func.func private @predecessor(%n: i64, %rec: !idr.data<@Arr>, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64

@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=bounds-checked=@onePast,bounds-checked=@negativeIndex,bounds-checked=@negativeSize,bounds-checked=@unrelated,bounds-checked=@mixed,bounds-checked=@public,bounds-checked=@taken,bounds-checked=@backEdge,bounds-checked=@madeOff,bounds-checked=@otherSide,bounds-checked=@unsignedSize,bounds-checked=@wraps,bounds-checked=@poisonSize,bounds-checked=@laterSize -o /dev/null
+// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=bounds-checked=@onePast,bounds-checked=@negativeIndex,bounds-checked=@negativeSize,bounds-checked=@unrelated,bounds-checked=@mixed,bounds-checked=@public,bounds-checked=@taken,bounds-checked=@backEdge,bounds-checked=@madeOff,bounds-checked=@otherSide,bounds-checked=@unsignedSize,bounds-checked=@wraps,bounds-checked=@poisonSize,bounds-checked=@laterSize,bounds-checked=@returnedOther,bounds-checked=@returnedEither,bounds-checked=@returnedFresh -o /dev/null
 // Each access here may run with its index outside its array, so each keeps
 // its check: one past the end; below 0; an empty array of a negative size;
 // the size of another array, passed at the one call, at one call of two,
@@ -7,7 +7,9 @@
 // above the array's; a size and an array chosen by different conditions;
 // an unsigned index below a negative size, which is any index; a size
 // that wraps; a size poison on one path, beside an array; and a size a
-// loop's before block computes anew beside the array it carries.
+// loop's before block computes anew beside the array it carries. A call
+// that returns a different array, either the argument or another array,
+// or an array it allocated, does not keep the caller's length.
 module {
   func.func @onePast(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
@@ -241,5 +243,76 @@ module {
       scf.yield %k, %b, %s2 : i64, memref<?xi64>, !idr.world
     }
     return %r#2 : !idr.world
+  }
+
+  func.func private @handOther(%a: memref<?xi64>, %c: memref<?xi64>) -> memref<?xi64> {
+    return %c : memref<?xi64>
+  }
+  func.func @returnedOther(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %c, %w2 = idr.array.new %m, %z, %w1 : i64 -> memref<?xi64>
+    %b = func.call @handOther(%a, %c) : (memref<?xi64>, memref<?xi64>) -> memref<?xi64>
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %b[%i], %i, %w2 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w2 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  func.func private @handEither(%a: memref<?xi64>, %n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+    %z = arith.constant 0 : i64
+    %neg = arith.cmpi slt, %n, %z : i64
+    %negI = arith.extui %neg : i1 to i64
+    %r:2 = idr.match_lit %negI : i64 -> (memref<?xi64>, !idr.world) {
+    case 0 {
+      idr.yield %a, %w : memref<?xi64>, !idr.world
+    }
+    default {
+      %c, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+      idr.yield %c, %w1 : memref<?xi64>, !idr.world
+    }
+    }
+    return %r#0, %r#1 : memref<?xi64>, !idr.world
+  }
+  func.func @returnedEither(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %b, %w2 = func.call @handEither(%a, %n, %w1) : (memref<?xi64>, i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %b[%i], %i, %w2 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w2 : !idr.world
+    }
+    return %r : !idr.world
+  }
+
+  func.func private @handFresh(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+    %z = arith.constant 0 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    return %a, %w1 : memref<?xi64>, !idr.world
+  }
+  func.func @returnedFresh(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %a, %w1 = func.call @handFresh(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %lo = arith.cmpi sge, %i, %z : i64
+    %hi = arith.cmpi slt, %i, %n : i64
+    %ok = arith.andi %lo, %hi : i1
+    %r = scf.if %ok -> !idr.world {
+      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      scf.yield %s1 : !idr.world
+    } else {
+      scf.yield %w1 : !idr.world
+    }
+    return %r : !idr.world
   }
 }

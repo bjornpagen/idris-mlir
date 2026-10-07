@@ -11,6 +11,7 @@ idr_library(idr_inbounds
 		Linear.cppm
 		Paths.cppm
 		Prove.cppm
+		Returned.cppm
 		System.cppm
 	GLUE
 		Pass.cc

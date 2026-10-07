@@ -26,8 +26,14 @@
 // call) is related when every place binding them gives a related pair; a
 // value bound at a join and one fixed around it (a size defined before the
 // loop that carries the array) when every place gives a value related to
-// the fixed one. Pairs reach each other in cycles (a loop gives back what
-// it took), so the answer is the greatest fixpoint: every pair reached is
+// the fixed one. A call that gives the array back — the same value, or a
+// borrow, a share, a linear enter, a linear use or a constructor rebuilt
+// from it, or that value read out of the record the call returns — is that
+// array, so the pair is the one the caller passed. A size the same call
+// gives back as an argument is that argument too. A return that can be
+// some other array leaves the pair unrelated. Pairs reach each other in
+// cycles (a loop gives back what it took), so the answer is the greatest
+// fixpoint: every pair reached is
 // taken to hold, and each that needs a pair that fails, or that comes from
 // anything else, fails, until none changes. What remains holds by
 // induction over the run: each binding of a pair that holds is made of
@@ -43,6 +49,7 @@ import idr.dialect;
 import :components;
 import :joins;
 import :paths;
+import :returned;
 import :system;
 
 using namespace mlir;
@@ -84,7 +91,20 @@ public:
   // Whether the array `array` has `size` clamped at 0 elements wherever
   // both are in scope.
   bool related(Value size, Value array) {
-    Pair start{size, arrayRoot(array)};
+    // A call that returns the array it was given is that array. Follow it
+    // before the pair is asked, a bounded number of times: each step is an
+    // operand of the call, and past the bound the pair stays unrelated.
+    array = arrayRoot(array);
+    for (unsigned hop = 0; hop < 64; ++hop) {
+      std::optional<GivenBack> back = arrayGivenBack(array);
+      if (!back || back->value == array)
+        break;
+      if (std::optional<GivenBack> sizeBack = arrayGivenBack(size);
+          sizeBack && sizeBack->call == back->call)
+        size = sizeBack->value;
+      array = arrayRoot(back->value);
+    }
+    Pair start{size, array};
     if (auto it = index.find(start); it == index.end())
       solve(start);
     return nodes[index.lookup(start)].state == State::Held;
