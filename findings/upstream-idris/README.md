@@ -88,6 +88,7 @@ compiler.
   an unexpected root term (`node/node025`, whose `main` is `HasIO io => io ()`).
 - `idris2/basic/basic037` is a hole. Chez compiles it. This compiler
   stops with `internal error: a reference to Main.someFunction`.
-- `allschemes/memo002` is a chain of `Lazy Nat` additions that is instant
-  when each suspension is forced once. The compile did not finish in four
-  minutes. The strict twin, `allschemes/memo001`, runs and matches.
+- `allschemes/memo002` is a chain of `Lazy Nat` additions. Chez forces
+  each suspension once. The compile did not finish in four minutes. The
+  strict twin, `allschemes/memo001`, runs and matches. Forcing a `Lazy`
+  runs its closure again; `lazy-constants.md` records that.
