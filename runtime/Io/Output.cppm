@@ -16,8 +16,8 @@ namespace {
 
 using rt::io::bufferSize;
 
-// Written through a volatile pointer, so that LLVM makes no memcpy of the
-// copy loop.
+// Filled by copyOut, whose stores stay stores: a memcpy of them can be
+// dropped or moved past outputLength, which is what publishes them.
 char output[bufferSize];
 size_t outputLength = 0;
 
@@ -32,9 +32,7 @@ void putBytes(const char *p, size_t n) {
     writeAll(1, p, n);
     return;
   }
-  volatile char *to = output + outputLength;
-  for (size_t i = 0; i < n; ++i)
-    to[i] = p[i];
+  copyOut(output + outputLength, p, n);
   outputLength += n;
 }
 

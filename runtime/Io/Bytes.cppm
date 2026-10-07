@@ -51,9 +51,7 @@ extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes,
     size_t available = inputLength - inputPosition;
     auto wanted = static_cast<size_t>(count - got);
     size_t step = available < wanted ? available : wanted;
-    volatile char *to = p + got;
-    for (size_t i = 0; i < step; ++i)
-      to[i] = input[inputPosition + i];
+    copyOut(p + got, input + inputPosition, step);
     inputPosition += step;
     got += static_cast<int64_t>(step);
   }

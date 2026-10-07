@@ -34,7 +34,7 @@ extern "C" int64_t idris_rt_big_to_int(idris_rt_big a) {
 }
 
 extern "C" idris_rt_big idris_rt_big_from_double(double x) {
-  if (x > -4611686018427387904.0 && x < 4611686018427387904.0)
+  if (x > -smallBound && x < smallBound)
     return small(static_cast<int64_t>(x));
   Result r;
   mpz_set_d(r.get(), x);

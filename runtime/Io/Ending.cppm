@@ -30,9 +30,7 @@ void reportLiveCells() {
   char *end = line + sizeof line;
   end[-1] = '\n';
   char *start = rt::strings::formatUnsigned(idris_rt_live_cells(), end - 1) - prefixLength;
-  volatile char *to = start;
-  for (size_t i = 0; i < prefixLength; ++i)
-    to[i] = prefix[i];
+  rt::io::copyOut(start, prefix, prefixLength);
   rt::io::writeAll(2, start, static_cast<size_t>(end - start));
 }
 

@@ -36,8 +36,6 @@ void onFault(uintptr_t address) {
 constexpr size_t alternateSize = size_t{1} << 20;
 constexpr size_t smallest = size_t{1} << 26;
 
-size_t roundUp(size_t n, size_t page) { return (n + page - 1) / page * page; }
-
 struct Task {
   void (*fn)(void *);
   void *arg;
@@ -63,12 +61,12 @@ extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most,
                                      void (*exhausted)(void)) {
   rt::platform::checkPageSize();
   constexpr size_t page = rt::platform::pageSize();
-  constexpr size_t alternate = (alternateSize + page - 1) / page * page;
+  constexpr size_t alternate = rt::platform::roundUp(alternateSize, page);
   // No address space is this large; the bound keeps the sums below from
   // wrapping around, and the halving below finds what the machine grants.
   constexpr size_t largest = SIZE_MAX >> 2;
-  guard = roundUp(guard == 0 ? 1 : guard < largest ? guard : largest, page);
-  size_t size = roundUp(most < largest ? most : largest, page);
+  guard = rt::platform::roundUp(guard == 0 ? 1 : guard < largest ? guard : largest, page);
+  size_t size = rt::platform::roundUp(most < largest ? most : largest, page);
   size_t least = size < smallest ? size : smallest;
   if (least < page)
     least = page;

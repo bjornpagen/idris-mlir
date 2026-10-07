@@ -1,16 +1,13 @@
-// rt.platform:cpu: the features of an AArch64 processor, as compiler-rt
-// reads them for function multiversioning, which __builtin_cpu_supports
-// tests: clang has no __builtin_cpu_init on AArch64. Where compiler-rt reads
-// them in a static constructor (Linux's hardware capabilities), they are
-// there before main; Apple's compiler-rt reads them (from sysctl) only when
-// a function asks, in the function the target entry names
+// rt.platform:cpu: the features of an AArch64 processor, as function
+// multiversioning tests them. There is no __builtin_cpu_init on AArch64.
+// Where compiler-rt fills the bits in a static constructor, this calls
+// nothing first; where it reads them only when a function asks (Apple's,
+// from sysctl), it calls the function the target entry names
 // (IDRIS_RT_CPU_FEATURES_INIT), which may be called any number of times.
+// The bits themselves are cpuFeatureBits.
 // PIN(runtime-quarantine) — see PINS.md
 module;
-// The target entry's list of features, an X-macro, which no import carries.
-#include "cpu_features.h"
-
-#include <stdint.h>
+#include "Platform/CpuBits.h"
 
 #ifdef IDRIS_RT_CPU_FEATURES_INIT
 extern "C" void IDRIS_RT_CPU_FEATURES_INIT(void) noexcept;
@@ -28,13 +25,7 @@ export namespace rt::platform {
 #ifdef IDRIS_RT_CPU_FEATURES_INIT
   IDRIS_RT_CPU_FEATURES_INIT();
 #endif
-  uint64_t features = 0;
-#define IDRIS_RT_CPU_TEST(bit, test, name)                                                       \
-  if (__builtin_cpu_supports(test))                                                              \
-    features |= uint64_t{1} << (bit);
-  IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_TEST)
-#undef IDRIS_RT_CPU_TEST
-  return features;
+  return cpuFeatureBits();
 }
 
 } // namespace rt::platform

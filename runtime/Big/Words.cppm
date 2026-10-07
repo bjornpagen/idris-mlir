@@ -8,8 +8,9 @@ module;
 export module rt.big:words;
 
 static_assert(sizeof(mp_limb_t) == sizeof(uint64_t), "a limb is 64 bits");
-static_assert(sizeof(idris_rt_bignum) == 16 && alignof(idris_rt_bignum) == 8,
-              "a bignum's limbs start 16 bytes into its cell, aligned for a limb");
+static_assert(sizeof(idris_rt_bignum) == 2 * IDRIS_RT_WORD_BYTES &&
+                  alignof(idris_rt_bignum) == IDRIS_RT_WORD_BYTES,
+              "a bignum's limbs start two words into its cell, aligned for a limb");
 // A large big's word is its cell's address itself: cells are 8-aligned, so
 // the address is even, which is the whole tag, and no other bit of the word
 // is borrowed. Hardware that prefetches what looks like a heap pointer
@@ -21,6 +22,11 @@ namespace rt::big {
 
 inline constexpr int64_t smallMin = -(int64_t{1} << 62);
 inline constexpr int64_t smallMax = (int64_t{1} << 62) - 1;
+// The least magnitude that does not fit a small word, as a double. 2^62 is
+// exactly a double and smallMax is not, so every double inside (-bound, bound)
+// truncates into [smallMin, smallMax].
+inline constexpr double smallBound = 0x1p62;
+static_assert(smallBound == -static_cast<double>(smallMin));
 
 bool isSmall(idris_rt_big a) { return (a & 1) != 0; }
 int64_t smallValue(idris_rt_big a) { return a >> 1; }

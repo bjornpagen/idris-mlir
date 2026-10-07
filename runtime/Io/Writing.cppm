@@ -16,6 +16,13 @@ namespace rt::io {
 // small write's worth on every target.
 inline constexpr size_t bufferSize = 4096;
 
+// Stores, which stay stores. A memcpy a compiler invents for the same copy
+// can be dropped or moved past the length that publishes the bytes.
+inline void copyOut(volatile char *to, const char *from, size_t n) {
+  for (size_t i = 0; i < n; ++i)
+    to[i] = from[i];
+}
+
 } // namespace rt::io
 
 export namespace rt::io {

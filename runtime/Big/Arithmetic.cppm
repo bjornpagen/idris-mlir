@@ -20,6 +20,27 @@ import :words;
 
 using namespace rt::big;
 
+namespace {
+
+// Truncating division's remainder takes the dividend's sign. The Euclidean
+// pair has the remainder in [0, |y|), so a negative remainder moves one
+// quotient step the other way. y is not zero.
+void euclidean(int64_t x, int64_t y, int64_t &q, int64_t &r) {
+  q = x / y;
+  r = x % y;
+  if (r >= 0)
+    return;
+  if (y > 0) {
+    --q;
+    r += y;
+  } else {
+    ++q;
+    r -= y;
+  }
+}
+
+} // namespace
+
 extern "C" idris_rt_big idris_rt_big_add(idris_rt_big a, idris_rt_big b) {
   if (isSmall(a) && isSmall(b))
     return ofInt64(smallValue(a) + smallValue(b));
@@ -55,10 +76,8 @@ extern "C" idris_rt_big idris_rt_big_mul(idris_rt_big a, idris_rt_big b) {
 
 extern "C" idris_rt_big idris_rt_big_div(idris_rt_big a, idris_rt_big b) {
   if (isSmall(a) && isSmall(b)) {
-    int64_t x = smallValue(a), y = smallValue(b);
-    int64_t q = x / y;
-    if (x % y < 0)
-      q = y > 0 ? q - 1 : q + 1;
+    int64_t q, r;
+    euclidean(smallValue(a), smallValue(b), q, r);
     return ofInt64(q);
   }
   return binary(a, b, signOf(b) > 0 ? mpz_fdiv_q : mpz_cdiv_q);
@@ -66,10 +85,8 @@ extern "C" idris_rt_big idris_rt_big_div(idris_rt_big a, idris_rt_big b) {
 
 extern "C" idris_rt_big idris_rt_big_mod(idris_rt_big a, idris_rt_big b) {
   if (isSmall(a) && isSmall(b)) {
-    int64_t x = smallValue(a), y = smallValue(b);
-    int64_t r = x % y;
-    if (r < 0)
-      r = y > 0 ? r + y : r - y;
+    int64_t q, r;
+    euclidean(smallValue(a), smallValue(b), q, r);
     return small(r);
   }
   return binary(a, b, mpz_mod);

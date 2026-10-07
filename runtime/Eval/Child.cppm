@@ -79,14 +79,14 @@ extern "C" IDRIS_RT_COMPILER_ONLY void *idris_rt_arena_alloc(size_t size) {
   // to a small block.
   if (size > SIZE_MAX - chunkSize)
     _exit(IDRIS_RT_EVAL_EXHAUSTED);
-  size = (size + 15) & ~size_t{15};
+  size = rt::platform::roundUp(size, 16);
   if (metered) {
     if (size > bytesLeft)
       overBudget();
     bytesLeft -= size;
   }
   if (size > static_cast<size_t>(arenaEnd - arenaNext)) {
-    size_t chunk = size > chunkSize ? (size + chunkSize - 1) & ~(chunkSize - 1) : chunkSize;
+    size_t chunk = size > chunkSize ? rt::platform::roundUp(size, chunkSize) : chunkSize;
     char *block = rt::platform::reserve(chunk);
     if (block == nullptr)
       _exit(IDRIS_RT_EVAL_EXHAUSTED);

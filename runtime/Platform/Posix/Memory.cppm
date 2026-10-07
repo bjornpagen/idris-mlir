@@ -18,6 +18,11 @@ export namespace rt::platform {
 // it first.
 constexpr size_t pageSize() noexcept { return IDRIS_RT_PAGE_SIZE; }
 
+// `n` rounded up to a multiple of `unit`. The caller keeps `n + unit - 1`
+// from wrapping. A page is one unit; so is an alignment or a chunk that is
+// a power of two, for which this is the same as masking.
+constexpr size_t roundUp(size_t n, size_t unit) noexcept { return (n + unit - 1) / unit * unit; }
+
 // The target entry's page size must be the system's, or every region, guard
 // and alignment the runtime makes would use the wrong page, and so would
 // snmalloc, whose page is the same number (rt.alloc:classes). The system's is

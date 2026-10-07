@@ -22,15 +22,25 @@ namespace {
 #endif
 constexpr unsigned stackAddressBits = IDRIS_RT_STACK_ADDRESS_BITS;
 
+// The next cell's address occupies the count and the tag field of info.
+// objs, kind and the stack bit stay, which is all releasing the cell reads.
+// The tag field is the header's (IDRIS_RT_TAG_LIMIT), not a second width.
+constexpr unsigned addressLowBits = 32;
+constexpr unsigned addressHighBits = 16;
+static_assert(IDRIS_RT_TAG_LIMIT == (1u << addressHighBits));
+constexpr uint32_t tagField = IDRIS_RT_TAG_LIMIT - 1u;
+
 // The cells whose count reached 0 and whose references are still to be
 // released: a stack threaded through the cells. A dying cell's count and
-// tag are dead, 48 bits, which hold the next cell's address: a heap cell's
-// has no more bits than the allocator's pagemap covers (rt.alloc), and a
-// stack cell's no more than the target's stacks (above). Its objs, kind and
-// stack bit, which releasing it reads, stay.
+// tag are dead, addressLowBits + addressHighBits bits, which hold the next
+// cell's address: a heap cell's has no more bits than the allocator's
+// pagemap covers (rt.alloc), and a stack cell's no more than the target's
+// stacks (above).
 class Dying {
-  static_assert(rt::alloc::heapAddressBits <= 32 + 16, "a heap address fits a count and a tag");
-  static_assert(stackAddressBits <= 32 + 16, "a stack address fits a count and a tag");
+  static_assert(rt::alloc::heapAddressBits <= addressLowBits + addressHighBits,
+                "a heap address fits a count and a tag");
+  static_assert(stackAddressBits <= addressLowBits + addressHighBits,
+                "a stack address fits a count and a tag");
 
 public:
   bool empty() const { return top == nullptr; }
@@ -38,13 +48,13 @@ public:
   void push(idris_rt_header *cell) {
     auto next = reinterpret_cast<uintptr_t>(top);
     cell->count = static_cast<uint32_t>(next);
-    cell->info = (cell->info & 0xFFFF0000u) | static_cast<uint32_t>(next >> 32);
+    cell->info = (cell->info & ~tagField) | static_cast<uint32_t>(next >> addressLowBits);
     top = cell;
   }
 
   idris_rt_header *pop() {
     idris_rt_header *cell = top;
-    uintptr_t next = uintptr_t{cell->count} | uintptr_t{cell->info & 0xFFFFu} << 32;
+    uintptr_t next = uintptr_t{cell->count} | uintptr_t{cell->info & tagField} << addressLowBits;
     top = reinterpret_cast<idris_rt_header *>(next);
     return cell;
   }
@@ -54,9 +64,11 @@ private:
 };
 
 // A cell's object slots: after the header, and in a closure after its code
-// pointer too. Strings and bignums have none.
+// pointer too, one word each. Strings and bignums have none.
 void **slotsOf(idris_rt_header *cell) {
-  size_t offset = idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_CLOSURE ? 16 : 8;
+  size_t offset = IDRIS_RT_WORD_BYTES;
+  if (idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_CLOSURE)
+    offset += IDRIS_RT_WORD_BYTES;
   return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
 }
 
