@@ -55,7 +55,11 @@ moduleIdent : List String -> ModuleIdent
 moduleIdent path = unsafeFoldModuleIdent (reverse path)
 
 ||| Where Idris found the TTC it loaded a module from. The module it
-||| elaborates from source is in no TTC, and is the project's.
+||| elaborates from source is in no TTC, and is the project's. An
+||| installed module's TTC is `<package>-<version>/<ttc version>/<path>.ttc`.
+||| That directory is the package, under the prefix or on the package
+||| search path alike: a test installs into a fresh prefix and leaves the
+||| libraries on the search path. The module's name says nothing about it.
 homeOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Home
 homeOf ident = do
   defs <- get Ctxt
@@ -64,17 +68,8 @@ homeOf ident = do
     Just file => do
       let own = ModuleIdent.toPath ident <.> "ttc"
       bdir <- ttcBuildDirectory
-      global <- pkgGlobalDirectory
-      pure $ if dropBase bdir file == Just own then Project else
-        case map splitPath (dropBase global file) of
-          Just (dir :: _) =>
-            -- An installed package's directory is its name and its
-            -- version: `base-0.8.0`, `mlir-linear-0.1.0`.
-            case packageName dir of
-              Just name => if dropBase (global </> dir </> show ttcVersion) file == Just own
-                              then Installed name else Elsewhere
-              Nothing => Elsewhere
-          _ => Elsewhere
+      pure $ if dropBase bdir file == Just own then Project
+             else fromMaybe Elsewhere (installed own (splitPath file))
   where
     ||| The name before a package directory's `-<version>`.
     packageName : String -> Maybe String
@@ -84,6 +79,20 @@ homeOf ident = do
           if not (null ver) && not (null name) && all (\c => isDigit c || c == '.') ver
              then Just (pack (reverse name)) else Nothing
         _ => Nothing
+    ||| The package whose directory sits above this TTC's version directory.
+    installed : String -> List String -> Maybe Home
+    installed own parts = search parts
+      where
+        ver : String
+        ver = show ttcVersion
+        search : List String -> Maybe Home
+        search (dir :: v :: rest) =
+          if v == ver && splitPath own == rest then
+            case packageName dir of
+              Just name => Just (Installed name)
+              Nothing => search (v :: rest)
+          else search (v :: rest)
+        search _ = Nothing
 
 ||| Where the code of a module comes from (the registry's library table),
 ||| by the package Idris loaded it from, never by its name alone.

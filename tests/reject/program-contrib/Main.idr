@@ -1,9 +1,9 @@
 -- expect: program, line 6
--- packages: base
+-- packages: contrib
 module Main
 
 import Prelude
-import Debug.Trace
+import Language.JSON
 
 main : IO ()
 main = putStrLn "hi"
