@@ -76,7 +76,7 @@ against the pin.
 | [remove-dead-values-address-taken](remove-dead-values-address-taken/README.md) | MLIR | none: `remove-dead-values-unreachable`'s fixes it | not yet; fix in review: #208881 | test offered to #208881 | `remove-dead-values-address-taken` |
 | [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | `llvm.patch`: ours | not yet; same family: #206083 (`vector.yield`) | new issue and pull request citing #206083 | `inline-unreachable` |
 | [uplift-final-counter](uplift-final-counter/README.md) | MLIR | `llvm.patch`: backport of 6e714c8d9 | fixed on main (6e714c8d9, #225476) | none: upstream | `uplift-final-counter` |
-| [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | none: idris-mlir uses `LLJIT`, not `ExecutionEngine`; the fix is drafted as `pull-request.diff` | not yet | pull request | `orc-lljit` |
+| [execution-engine-process-symbols](execution-engine-process-symbols/README.md) | MLIR | none: idris-mlir uses `LLJIT`, not `ExecutionEngine`; the fix is drafted as `pull-request.diff` | not yet | pull request | none |
 | [recursive-attribute-parser](recursive-attribute-parser/README.md) | MLIR | none: needs a design upstream agrees on | not yet | issue, then an RFC | `mlir-recursion` |
 | [bytecode-deferred-quadratic](bytecode-deferred-quadratic/README.md) | MLIR | `llvm.patch`: ours | not yet | issue and pull request | `bytecode-deferred-quadratic` |
 | [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | `llvm.patch`: ours (part 1 of the fix) | not yet | issue and pull request | `simplify-structural-fixpoint` |

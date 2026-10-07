@@ -72,29 +72,6 @@ which the top-level CMake configure gate reads.
 - retire: when either zone gets code
 - upstream: none — a deviation from cpp-starter
 
-## orc-lljit
-
-- symptom: upstream's `mlir::ExecutionEngine`, the natural engine for
-  compile-time evaluation, aborts in a static-musl process: creating
-  it calls `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))`
-  (`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395` at
-  llvmorg-23.1.2), which needs `dlopen(NULL)`, and a static musl
-  `idris-mlir-cc` has no dynamic loader; `LLJITBuilder` also links process
-  symbols by default
-- sites: foreign/idr/lib/Eval/Jit.cppm (`idr-eval`)
-- workaround: none: `idr-eval` builds ORC's `LLJIT`, which
-  `ExecutionEngine` wraps, because it needs what the engine does not give
-  (JITLink's memory manager, the session's error reports, no wrapper per
-  function; upstream/execution-engine-process-symbols/README.md says
-  which). It links no process symbol by default and binds the runtime's
-  functions, the libm functions lowered code calls and the target entry's
-  `IDRIS_MLIR_JIT_LIBRARY_CALLS` itself. The upstream fix is drafted as
-  that directory's `pull-request.diff`, not carried
-- retire: this entry goes once `Jit.cppm` says so in its own words: the
-  `LLJIT` is the design, not a stand-in
-- upstream: upstream/execution-engine-process-symbols (not yet filed); plan
-  in its README: a pull request
-
 ## prune-before-remove-dead-values
 
 - symptom: at llvmorg-23.1.2, `remove-dead-values` finds a function or a

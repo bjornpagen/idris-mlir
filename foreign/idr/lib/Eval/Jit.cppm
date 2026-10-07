@@ -1,6 +1,10 @@
 // idr.eval:jit: compiling a round of compile-time evaluation: ORC's
-// LLJIT, not mlir::ExecutionEngine, which aborts in a static musl process
-// (PINS.md: orc-lljit). Nothing is linked from the process by name: the
+// LLJIT, which mlir::ExecutionEngine wraps, built here because the
+// evaluation needs what the engine does not give: JITLink and its memory
+// manager (the engine links through RuntimeDyld), the session's error
+// reports, no wrapper for each function, and no symbol of the process
+// linked by default, which a static executable has no dynamic loader to
+// find. Nothing is linked from the process by name: the
 // runtime's entry points, which idris-mlir-cc links natively, and the libc
 // functions LLVM may call are bound through an absolute-symbol table, so the
 // JITed code runs the same runtime and libm as executables.
@@ -14,7 +18,6 @@
 // with an entitlement; whether this process may run what it wrote is the
 // evaluation child's probe (refusesJitCode), so a system that refuses is an
 // error that says so, not a child killed for no reason it gives.
-// PIN(orc-lljit) — see PINS.md
 module;
 // The target entry's library calls, an X-macro, and the runtime's entry
 // points and their macros, which no import carries; the C library's
