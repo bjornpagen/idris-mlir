@@ -279,22 +279,22 @@ The sizes were not shrunk.
 - **pidigits:** C uses GMP in place; ours allocates a new `mpz` per
   operation and matches it. The in-place form waits for exclusivity on
   bigs.
-- **fasta, reverse-complement:** `List Char` where C has byte buffers, and
-  input read a character at a time. Before `pack` built its string once
-  (idr.str.pack, 2026-10-02) fasta took 0.38 s of which 0.098 s was
-  computation and 0.002 s output, the rest a string per character; it now
-  takes about its computation, and reverse-complement 2.8x less than
-  before. A line packed only to be written is written as its list is
-  walked, without the string (idr.io.put_list, 2026-10-02): about 5% off
-  each. What remains is the list itself: a cons cell per character read.
-- **k-nucleotide** is the C's algorithm since 2026-10-05: the sequence is an
-  `IOArray` of two-bit codes, each fragment a key packed two bits a
-  nucleotide and rolled along it with `Data.Bits`, counted in an
-  open-addressing table of `IOArray`s whose empty slots (`Nothing`) are the
-  unused ones, with the same hash as the C (`key ^ (key >> 15)`). The
-  records up to 2026-10-04 measured the earlier program, which counted
-  `String`s in a `Data.SortedMap` against the C's hash table; it needed
-  `Data.Bits`' shifts on `Int`, which this compiler refused until then.
+- **fasta, fasta-redux, reverse-complement:** byte buffers. fasta copies
+  the repeated ALU into one doubled buffer and still searches the cumulative
+  probabilities in order, which is what the game requires of it; fasta-redux
+  loads each random nucleotide from a byte table of every residue.
+  reverse-complement complements through a 256-byte table and reverses each
+  sequence in place. A line is written from the buffer.
+- **k-nucleotide** is the C's algorithm: the sequence is one code byte a
+  nucleotide, each fragment a key packed two bits a nucleotide and rolled
+  along it, counted in one open-addressing table of the key beside its
+  count. The table holds twice as many slots as there are fragments, or
+  twice the 4^k possible keys when that is fewer, and an empty slot is a
+  zero key, with the same hash as the C (`key ^ (key >> 15)`). The records
+  up to 2026-10-04 measured the earlier program, which counted `String`s in
+  a `Data.SortedMap`; it needed `Data.Bits`' shifts on `Int`, which this
+  compiler refused until then. The fill of a fresh table writes every slot,
+  where the C's `calloc` leaves a page untouched until a store.
 - **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
   `System.File`, byte for byte as the C does.
 
