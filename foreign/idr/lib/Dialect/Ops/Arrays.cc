@@ -15,6 +15,15 @@ namespace {
 // unless idr-in-bounds proved the access in bounds.
 constexpr StringRef outOfBounds = "array index out of bounds";
 
+// The body and the loop itself. The body is its own successor, so the
+// region runs again; the loop is a successor too, because an empty array
+// skips the body and a finished iteration leaves. The size is not a
+// constant the op can read here, so neither edge is dropped.
+void arrayLoopSuccessors(Operation *op, Region &body, SmallVectorImpl<RegionSuccessor> &regions) {
+  regions.push_back(RegionSuccessor(&body));
+  regions.push_back(RegionSuccessor(op));
+}
+
 } // namespace
 
 LogicalResult ArrayNewOp::verify() {
@@ -168,4 +177,51 @@ void ArrayGenerateOp::getEffects(
 void ArrayFoldOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   ops::ioEffects(getCrashCause(), Value(), effects);
+}
+
+// RegionBranchOpInterface. From outside and from the body alike: the body
+// may run, and the loop may be done.
+void ArrayGenerateOp::getSuccessorRegions(RegionBranchPoint,
+                                          SmallVectorImpl<RegionSuccessor> &regions) {
+  arrayLoopSuccessors(*this, getBody(), regions);
+}
+
+// Nothing is forwarded. The fill is stored as element 0, and the body
+// stores what it yields; neither is an SSA successor.
+OperandRange ArrayGenerateOp::getEntrySuccessorOperands(RegionSuccessor) {
+  return MutableOperandRange(*this, /*start=*/0, /*length=*/0);
+}
+
+void ArrayFoldOp::getSuccessorRegions(RegionBranchPoint,
+                                      SmallVectorImpl<RegionSuccessor> &regions) {
+  arrayLoopSuccessors(*this, getBody(), regions);
+}
+
+// The accumulator the body starts from, and the result of an empty array.
+// Both edges take it; the element and the index are not among them.
+OperandRange ArrayFoldOp::getEntrySuccessorOperands(RegionSuccessor) {
+  return MutableOperandRange(getInitMutable());
+}
+
+ValueRange ArrayFoldOp::getSuccessorInputs(RegionSuccessor successor) {
+  if (successor.isOperation())
+    return getResults().slice(0, 1);
+  if (getBody().empty() || getBody().front().getNumArguments() == 0)
+    return {};
+  return getBody().front().getArguments().slice(0, 1);
+}
+
+// The fold's own check compares the accumulator with its grade removed, so
+// an owned word and the word are the same value on the edge.
+bool ArrayFoldOp::areTypesCompatible(Type lhs, Type rhs) {
+  return unrestricted(lhs) == unrestricted(rhs);
+}
+
+// A generate stores the yielded word in the new array. Forwarding it would
+// invent an SSA edge the loop does not have. A fold's yield is the next
+// accumulator, and a match's yield is the match's results.
+MutableOperandRange YieldOp::getMutableSuccessorOperands(RegionSuccessor) {
+  if (isa<ArrayGenerateOp>((*this)->getParentOp()))
+    return MutableOperandRange(*this, /*start=*/0, /*length=*/0);
+  return MutableOperandRange(*this);
 }
