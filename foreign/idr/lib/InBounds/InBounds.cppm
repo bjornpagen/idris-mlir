@@ -8,7 +8,8 @@
 // system of linear constraints over the integers (system, of linear
 // expressions, linear), from the path to the access (paths), a Euclidean
 // quotient of a non-negative value (quotients), a masked index below a
-// capacity already proved a positive power of two (masks), and the bounds
+// capacity already proved a positive power of two, doubling included when
+// the double stays below the sign (masks), and the bounds
 // its loops keep their counters in (induction), decided exactly (prove).
 export module idr.inbounds;
 

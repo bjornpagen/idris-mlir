@@ -363,7 +363,10 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     already proved non-negative divided by a positive constant, a masked
     index below a capacity already proved a positive power of two when the
     mask is that capacity minus one and the array's length is that
-    capacity, integer range analysis, and the length relation: an integer
+    capacity (doubling one, by a multiply by two or a shift left by one,
+    stays a power of two when the value doubled is below half the sign bit,
+    so the double stays below the sign), integer range analysis, and the
+    length relation: an integer
     that is the length
     of an array, clamped at 0, wherever both are in scope. The relation
     starts at `idr.array.new`
