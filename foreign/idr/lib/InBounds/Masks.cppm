@@ -9,6 +9,17 @@
 // place is the smallest word, whose array is empty, and an amount the path
 // does not bound may be that place or past the width, where an Idris shift
 // fills with zero.
+//
+// Doubling keeps the fact. The value doubled is a positive power of two
+// already in hand, and each step is a multiply by 2 or a shift left by 1,
+// so a `2^k` becomes `2^(k+1)`. The result stays at most `2^(width-2)`,
+// below the sign, when `k` is at most `width-3`: the value before the step
+// is then below `2^(width-2)`, and so below `2^(width-1)`. A shift of 1
+// whose amount the path keeps that small is the same bound one place
+// further, still in `0 .. width-2`. A double that may be of `2^(width-2)`
+// reaches the sign bit — the smallest word, whose array is empty — and is
+// not given the fact. A value only known to be positive is not a power of
+// two, and neither is its double.
 export module idr.inbounds:masks;
 
 import idr.mlir;
@@ -54,37 +65,129 @@ bool atMost(System &system, Value value, int64_t hi) {
   return system.emptyWith(system.of(value) - Linear::constantOf(DynamicAPInt(hi + 1)));
 }
 
-// `1` shifted by an amount the system keeps in `0 .. width-2`.
-bool shiftedOne(System &system, Value value, unsigned width) {
-  Value amount;
+// Past this many doublings followed, the rest stay unrelated: an answer is
+// then only weaker.
+constexpr unsigned powerLimit = 96;
+
+// `2^exp` as a signed word. `exp` is at most 62, so the bit sits below the sign.
+int64_t place(unsigned exp) { return int64_t(1) << exp; }
+
+// The exponent of `v` when it is `2^k` for a `k` in `0 .. width-2`.
+std::optional<unsigned> exponentOf(const DynamicAPInt &v, unsigned width) {
+  if (!positivePowerOfTwo(v, width))
+    return std::nullopt;
+  unsigned exp = 0;
+  for (DynamicAPInt x = v; x > 1; x /= 2)
+    ++exp;
+  return exp;
+}
+
+// Whether `value` is the constant `k`.
+bool isConstant(Value value, int64_t k) {
+  APInt constant;
+  return matchPattern(value, m_ConstantInt(&constant)) && constant.getBitWidth() <= 64 &&
+         constant.getSExtValue() == k;
+}
+
+// The amount, when `value` is `1` shifted by it.
+std::optional<Value> shiftOfOne(Value value) {
   APInt one;
   if (auto arithShift = value.getDefiningOp<arith::ShLIOp>()) {
-    if (!matchPattern(arithShift.getLhs(), m_ConstantInt(&one)) || !one.isOne())
-      return false;
-    amount = arithShift.getRhs();
-  } else if (auto idrisShift = value.getDefiningOp<ShlOp>()) {
-    if (!matchPattern(idrisShift.getLhs(), m_ConstantInt(&one)) || !one.isOne())
-      return false;
-    amount = idrisShift.getRhs();
-  } else {
-    return false;
+    if (matchPattern(arithShift.getLhs(), m_ConstantInt(&one)) && one.isOne())
+      return arithShift.getRhs();
+    return std::nullopt;
   }
-  // `width - 2` fits a signed word: a column is at most 64 bits.
-  return nonNegative(system, amount) && atMost(system, amount, static_cast<int64_t>(width - 2));
+  if (auto idrisShift = value.getDefiningOp<ShlOp>()) {
+    if (matchPattern(idrisShift.getLhs(), m_ConstantInt(&one)) && one.isOne())
+      return idrisShift.getRhs();
+  }
+  return std::nullopt;
+}
+
+// The value doubled, when `value` is that value multiplied by 2 or shifted
+// left by 1. A shift of the constant 1 is the amount's power, not a double.
+std::optional<Value> doubledBase(Value value) {
+  if (auto mul = value.getDefiningOp<arith::MulIOp>()) {
+    if (isConstant(mul.getRhs(), 2))
+      return mul.getLhs();
+    if (isConstant(mul.getLhs(), 2))
+      return mul.getRhs();
+    return std::nullopt;
+  }
+  if (auto arithShift = value.getDefiningOp<arith::ShLIOp>()) {
+    if (isConstant(arithShift.getRhs(), 1))
+      return arithShift.getLhs();
+    return std::nullopt;
+  }
+  if (auto idrisShift = value.getDefiningOp<ShlOp>()) {
+    if (isConstant(idrisShift.getRhs(), 1))
+      return idrisShift.getLhs();
+  }
+  return std::nullopt;
+}
+
+// The greatest amount in `0 .. width-2` the system allows, when every
+// amount it allows is in that range.
+std::optional<unsigned> shiftExponent(System &system, Value amount, unsigned width) {
+  int64_t hi = static_cast<int64_t>(width - 2);
+  if (!nonNegative(system, amount) || !atMost(system, amount, hi))
+    return std::nullopt;
+  unsigned lo = 0;
+  unsigned top = width - 2;
+  while (lo < top) {
+    unsigned mid = lo + (top - lo) / 2;
+    if (atMost(system, amount, static_cast<int64_t>(mid)))
+      top = mid;
+    else
+      lo = mid + 1;
+  }
+  return lo;
+}
+
+// A positive power of two known to be at most `2^exp` is at most
+// `2^(exp-1)` when the system proves it is below `2^exp`. A bound the
+// system does not have leaves `exp`: the range of a shift is often the
+// whole word, and that is not a proof that the top power is absent.
+unsigned tighten(System &system, Value value, unsigned exp) {
+  while (exp > 0 && atMost(system, value, place(exp) - 1))
+    --exp;
+  return exp;
+}
+
+// The greatest `k` in `0 .. width-2` such that every integer `value` may be
+// is `2^k'` for some `k' <= k`. None when the facts do not pin it to those
+// powers.
+std::optional<unsigned> exponent(System &system, Value value, unsigned width, unsigned depth) {
+  if (depth > powerLimit || width < 2)
+    return std::nullopt;
+  std::optional<unsigned> raw;
+  APInt constant;
+  if (matchPattern(value, m_ConstantInt(&constant)) && constant.getBitWidth() <= 64) {
+    raw = exponentOf(DynamicAPInt(constant.getSExtValue()), width);
+  } else if (std::optional<Value> amount = shiftOfOne(value)) {
+    raw = shiftExponent(system, *amount, width);
+  } else if (std::optional<Value> base = doubledBase(value)) {
+    // One more place still below the sign: the base is at most
+    // `2^(width-3)`, so the double is at most `2^(width-2)`.
+    if (std::optional<unsigned> below = exponent(system, *base, width, depth + 1))
+      if (*below + 1 <= width - 2)
+        raw = *below + 1;
+  }
+  if (!raw) {
+    if (std::optional<Bounds> bounds = system.rangeOf(value);
+        bounds && bounds->first == bounds->second)
+      raw = exponentOf(bounds->first, width);
+  }
+  if (!raw)
+    return std::nullopt;
+  return tighten(system, value, *raw);
 }
 
 // Whether `value` is a positive power of two from a fact the system already
-// has: a constant, a shift of one, or a range of that one value.
+// has: a constant, a shift of one, a double of one that stays below the
+// sign, or a range of that one value.
 bool provedPowerOfTwo(System &system, Value value, unsigned width) {
-  if (width < 2)
-    return false;
-  APInt constant;
-  if (matchPattern(value, m_ConstantInt(&constant)))
-    return positivePowerOfTwo(DynamicAPInt(constant.getSExtValue()), width);
-  if (shiftedOne(system, value, width))
-    return true;
-  std::optional<Bounds> bounds = system.rangeOf(value);
-  return bounds && bounds->first == bounds->second && positivePowerOfTwo(bounds->first, width);
+  return exponent(system, value, width, 0).has_value();
 }
 
 // `mask`, when it is some capacity minus one. The subtraction of one from
