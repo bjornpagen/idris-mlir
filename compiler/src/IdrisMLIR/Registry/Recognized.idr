@@ -147,4 +147,9 @@ recognized =
   , spelling "prim__believe_me"
   , spelling "prim__crash"
   , spelling "believe_me"
-  , spelling "idris_crash" ]
+  , spelling "idris_crash"
+  -- A trusted library may crash with a string (Data.Buffer.getNat's
+  -- corrupt length). The spelling above still rejects it in user source,
+  -- and a user definition that reaches the function is rejected because
+  -- the reach is not from a trusted definition.
+  , MkEntry (Def (MkQName ["Builtin"] "idris_crash")) (Typed Hole) LibraryCrash [] ]

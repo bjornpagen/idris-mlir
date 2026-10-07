@@ -341,6 +341,12 @@ crashOp : (message : String) -> Op
 crashOp message =
   MkOp "idr.crash" [] [("message", stringAttr message)] [] [] []
 
+||| `idr.crash_str`: ends the program with a string's text
+export
+crashStrOp : (message : Value) -> Op
+crashStrOp message =
+  MkOp "idr.crash_str" [message] [] [] [] []
+
 ||| `idr.ctor`: declares one constructor of an idr.data type
 export
 ctorOp : (symName : String) -> (fieldTypes : List MlirType) -> Op
@@ -406,6 +412,36 @@ export
 intHeadOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
 intHeadOp value result =
   MkOp "idr.int_head" [value] (unitIf "is_signed" isSigned) [] [] [result]
+
+||| `idr.io.buffer_copy`: bytes copied from one buffer into another
+export
+ioBufferCopyOp : (src : Value) -> (srcOffset : Value) -> (len : Value) -> (dst : Value) -> (dstOffset : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferCopyOp src srcOffset len dst dstOffset world next =
+  MkOp "idr.io.buffer_copy" [src, srcOffset, len, dst, dstOffset, world] [] [] [] [next]
+
+||| `idr.io.buffer_get_string`: a buffer's bytes read as a string
+export
+ioBufferGetStringOp : (buffer : Value) -> (offset : Value) -> (len : Value) -> (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
+ioBufferGetStringOp buffer offset len world str next =
+  MkOp "idr.io.buffer_get_string" [buffer, offset, len, world] [] [] [] [str, next]
+
+||| `idr.io.buffer_load`: a machine word read from a buffer at a byte offset
+export
+ioBufferLoadOp : (buffer : Value) -> (offset : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+ioBufferLoadOp buffer offset world value next =
+  MkOp "idr.io.buffer_load" [buffer, offset, world] [] [] [] [value, next]
+
+||| `idr.io.buffer_set_string`: a string's bytes written into a buffer
+export
+ioBufferSetStringOp : (buffer : Value) -> (offset : Value) -> (str : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferSetStringOp buffer offset str world next =
+  MkOp "idr.io.buffer_set_string" [buffer, offset, str, world] [] [] [] [next]
+
+||| `idr.io.buffer_store`: a machine word written into a buffer at a byte offset
+export
+ioBufferStoreOp : (buffer : Value) -> (offset : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferStoreOp buffer offset value world next =
+  MkOp "idr.io.buffer_store" [buffer, offset, value, world] [] [] [] [next]
 
 ||| `idr.io.eof`
 export
@@ -557,6 +593,12 @@ strAppendOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 strAppendOp lhs rhs result =
   MkOp "idr.str.append" [lhs, rhs] [] [] [] [result]
 
+||| `idr.str.bytes_length`: the number of bytes of a string
+export
+strBytesLengthOp : (str : Value) -> (result : MlirType) -> Op
+strBytesLengthOp str result =
+  MkOp "idr.str.bytes_length" [str] [] [] [] [result]
+
 ||| `idr.str.cmp`: compares two strings
 export
 strCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
@@ -687,4 +729,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 1802734145-949536 57384480-27080
+-- fingerprint: 1695126272-958321 3258542741-29196

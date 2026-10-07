@@ -6,6 +6,7 @@ import idr.mlir;
 import idr.layout;
 
 import :arrays;
+import :buffers;
 import :bigs;
 import :cells;
 import :counting;
@@ -26,6 +27,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateCountingPatterns(patterns, converter, layouts, runtime, fields);
   populateBigPatterns(patterns, converter, layouts, runtime);
   populateArrayPatterns(patterns, converter, layouts, runtime);
+  populateBufferPatterns(patterns, converter, layouts, runtime);
   populateStringPatterns(patterns, converter, layouts, runtime);
   populateCellPatterns(patterns, converter, layouts, runtime);
   populateScalarPatterns(patterns, converter, layouts, runtime);

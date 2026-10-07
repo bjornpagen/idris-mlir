@@ -299,9 +299,30 @@ int64_t idris_rt_io_eof(int64_t handle);
 /* How many processors are online, read when asked. -1 when the system does
  * not say, which System.Info.getNProcessors turns into Nothing. */
 int64_t idris_rt_io_n_processors(void);
+/* The address of [offset, offset + bytes) in a byte array, or a crash when
+ * the span does not lie in the array's `length` bytes. A zero-length span
+ * at `length` is in range. The pointer is the first byte of the span, which
+ * need not be aligned: a load or a store through it uses the target's own
+ * endianness. */
+char *idris_rt_buffer_at(idris_rt_array *buf, int64_t length, int64_t offset, int64_t bytes);
+/* Copies `n` bytes from one byte array to another. Each span must lie in
+ * its array. The ranges may overlap. */
+void idris_rt_io_buffer_copy(idris_rt_array *src, int64_t src_len, int64_t src_off, int64_t n,
+                             idris_rt_array *dst, int64_t dst_len, int64_t dst_off);
+/* Writes a string's bytes at `offset`. The span is the string's byte
+ * length and must lie in the array. */
+void idris_rt_io_buffer_set_string(idris_rt_array *buf, int64_t length, int64_t offset,
+                                   const idris_rt_str *str);
+/* The bytes [offset, offset + n) of a byte array as a string. Ill-formed
+ * UTF-8 is replaced as idris_rt_str_from_bytes replaces it. A new string.
+ * The span must lie in the array. */
+const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *buf, int64_t length,
+                                                  int64_t offset, int64_t n);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status IDRIS_RT_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
+/* Ends the program with "idris-mlir: " and the string's bytes. */
+IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
 
 /* The exit status of a program that the runtime ends with a message on
  * standard error ("idris-mlir: <cause>"): a crash, the stack running out, a

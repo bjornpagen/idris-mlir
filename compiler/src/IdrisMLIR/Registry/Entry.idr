@@ -246,6 +246,16 @@ data Hook
     ||| user's source. Handler:
     ||| `Frontend.Profile.checkReachable`, `Frontend.Profile.checkPragmas`.
     Forbidden Rule
+  | ||| The number of bytes of a string (`stringByteLength`): the length of
+    ||| its UTF-8. Handler: `Frontend.Translate.application`.
+    StrBytes
+  | ||| A deprecated name. The text names the replacement, and a program that
+    ||| calls the name is rejected. Handler: `Frontend.Profile.checkReachable`.
+    Deprecated String
+  | ||| A trusted library's crash of a string (`idris_crash`): its body ends
+    ||| the program with that string. A user's call stays rejected. Handler:
+    ||| `Frontend.Profile.checkReachable`, `Frontend.Translate.primitive`.
+    LibraryCrash
 
 ||| The only kinds of hook. A `faster` hook is another lowering with the same
 ||| meaning; a `stricter` hook adds a rejection. Removing a hook may change
@@ -275,6 +285,9 @@ kind (NatOperation _) = Faster
 kind (ArrayLoop _) = Faster
 kind (SystemInfo _) = Faster
 kind (Forbidden _) = Stricter
+kind StrBytes = Faster
+kind (Deprecated _) = Stricter
+kind LibraryCrash = Faster
 
 ------------------------------------------------------------------------------
 -- Entries

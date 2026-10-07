@@ -3,6 +3,7 @@
 // PIN(runtime-quarantine) — see PINS.md
 export module rt.io;
 
+export import :buffer;
 export import :bytes;
 export import :ending;
 export import :input;

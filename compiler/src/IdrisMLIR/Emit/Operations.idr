@@ -208,6 +208,7 @@ prim ix l (Cast from to) [a] = case (from, to) of
 prim ix l StrAppend [a, b] = value ix l StrT (Idr.strAppendOp !(operand ix a) !(operand ix b))
 prim ix l StrCons [c, s] = value ix l StrT (Idr.strConsOp !(operand ix c) !(operand ix s))
 prim ix l StrLength [s] = value ix l (IntT IdrisInt) (Idr.strLengthOp !(operand ix s))
+prim ix l StrBytes [s] = value ix l (IntT IdrisInt) (Idr.strBytesLengthOp !(operand ix s))
 prim ix l StrHead [s] = value ix l CharT (Idr.strHeadOp !(operand ix s))
 prim ix l StrTail [s] = value ix l StrT (Idr.strTailOp !(operand ix s))
 prim ix l StrIndex [s, i] = value ix l CharT (Idr.strIndexOp !(operand ix s) !(operand ix i))
@@ -317,18 +318,23 @@ io ix l op vs res = do
       twoResults e (Idr.arrayGetOp !(operand ix a) !(operand ix i) !(operand ix w0))
     (Array SetArray e, [a, i, x, w0]) =>
       withUnit mk !(nextWorld (Idr.arraySetOp !(operand ix a) !(operand ix i) !(operand ix x) !(operand ix w0)))
-    -- A buffer is an array of bytes: a new one is zero bytes, a byte read
-    -- as an Int is widened, an Int written as a byte must be one.
+    -- A buffer is an array of bytes. A new one is zero bytes. A wider value
+    -- is that many bytes at the offset, loaded or stored as the target's
+    -- own word, so the endianness is the machine's.
     (BufferNew, [n, w0]) => do
       z <- value ix l byte (Arith.constantOp (integerAttr 0 (integerType 8)))
       twoResults (ArrayT byte) (Idr.arrayNewOp !(operand ix n) !(operand ix z) !(operand ix w0))
-    (BufferGet, [a, i, w0]) => do
-      (b, w) <- twoResults byte (Idr.arrayGetOp !(operand ix a) !(operand ix i) !(operand ix w0))
-      x <- value ix l (IntT IdrisInt) (Arith.extuiOp !(operand ix b))
-      pure (x, w)
-    (BufferSet, [a, i, x, w0]) => do
-      b <- value ix l byte (Idr.toByteOp !(operand ix x))
-      withUnit mk !(nextWorld (Idr.arraySetOp !(operand ix a) !(operand ix i) !(operand ix b) !(operand ix w0)))
+    (BufferLoad t, [a, i, w0]) =>
+      twoResults t (Idr.ioBufferLoadOp !(operand ix a) !(operand ix i) !(operand ix w0))
+    (BufferStore _, [a, i, x, w0]) =>
+      withUnit mk !(nextWorld (Idr.ioBufferStoreOp !(operand ix a) !(operand ix i) !(operand ix x) !(operand ix w0)))
+    (BufferCopy, [s, so, n, d, dof, w0]) =>
+      withUnit mk !(nextWorld (Idr.ioBufferCopyOp !(operand ix s) !(operand ix so) !(operand ix n)
+                                                 !(operand ix d) !(operand ix dof) !(operand ix w0)))
+    (BufferSetString, [a, i, s, w0]) =>
+      withUnit mk !(nextWorld (Idr.ioBufferSetStringOp !(operand ix a) !(operand ix i) !(operand ix s) !(operand ix w0)))
+    (BufferGetString, [a, i, n, w0]) =>
+      twoResults StrT (Idr.ioBufferGetStringOp !(operand ix a) !(operand ix i) !(operand ix n) !(operand ix w0))
     -- Bytes between a buffer and a standard stream's handle.
     (WriteBytes, [h, a, o, n, w0]) =>
       twoResults (IntT IdrisInt) (Idr.ioWriteBytesOp !(operand ix h) !(operand ix a) !(operand ix o)

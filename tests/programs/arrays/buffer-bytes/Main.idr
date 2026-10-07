@@ -1,8 +1,7 @@
 module Main
 
 -- base's Data.Buffer as an array of bytes: a new buffer is zero bytes;
--- bytes are written as Bits8 or from an Int and read back either way; the
--- size is the array's length.
+-- a byte is written and read as Bits8; the size is the array's length.
 
 import Prelude
 import Data.Buffer
@@ -34,8 +33,8 @@ main = do
   printLn t
   last <- getBits8 buf 15
   printLn last
-  setByte buf 2 200
-  printLn !(bufferData buf)
+  setBits8 buf 2 200
+  printLn !(bufferData' buf)
   Just empty <- newBuffer 0
     | Nothing => putStrLn "no buffer"
   printLn !(rawSize empty)

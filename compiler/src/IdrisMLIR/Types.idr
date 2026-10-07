@@ -272,6 +272,12 @@ data Prim
   | ||| The number of elements of an array of this element type: the
     ||| dimension of its memref.
     ArrayLength Ty
+  | ||| The number of bytes of a string, which is the length of its UTF-8,
+    ||| interior zeros included.
+    StrBytes
+  | ||| A trusted library's `idris_crash` of a string: the program ends with
+    ||| that string, and the operation does not return.
+    CrashStr
   | ||| A string built once from a list, the Prelude's own `%transform` of
     ||| `pack` to `fastPack` and of `concat` to `fastConcat`: the string of
     ||| the list's characters, or the concatenation of its strings. The
@@ -363,6 +369,8 @@ Show Prim where
   show NatToBig = "cast_NatInteger"
   show NatFromBig = "cast_IntegerNat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
+  show StrBytes = "strBytes"
+  show CrashStr = "crashStr"
   show (StrBuild b d) = show b ++ "<" ++ show d ++ ">"
 
 public export
@@ -406,6 +414,8 @@ primArgs (NatCompare _) = [NatT, NatT]
 primArgs NatToBig = [NatT]
 primArgs NatFromBig = [BigT]
 primArgs (ArrayLength e) = [ArrayT e]
+primArgs StrBytes = [StrT]
+primArgs CrashStr = [StrT]
 primArgs (StrBuild _ d) = [DataT d]
 
 ------------------------------------------------------------------------------
@@ -445,8 +455,14 @@ data IOOp = PutStr | PutChar
           | GetLine   -- a line of input, without its end
           | Array ArrayOp Ty
           | BufferNew -- a buffer of zero bytes
-          | BufferGet -- a byte of a buffer, as an Int
-          | BufferSet -- an Int written as a byte, which it must be
+          | ||| A machine word read from a buffer at a byte offset: an integer
+            ||| or a double, in the target's endianness.
+            BufferLoad Ty
+          | ||| A machine word written into a buffer at a byte offset.
+            BufferStore Ty
+          | BufferCopy -- bytes copied from one buffer into another
+          | BufferSetString -- a string's UTF-8 written into a buffer
+          | BufferGetString -- a buffer's bytes read as a string
           | WriteBytes -- bytes of a buffer to a handle; how many were written
           | ReadBytes  -- bytes from a handle into a buffer; how many were read
           | Eof        -- whether a read on the handle met the end of input
@@ -460,8 +476,11 @@ Show IOOp where
   show GetLine = "getLine"
   show (Array op e) = show op ++ "<" ++ show e ++ ">"
   show BufferNew = "bufferNew"
-  show BufferGet = "bufferGet"
-  show BufferSet = "bufferSet"
+  show (BufferLoad t) = "bufferLoad<" ++ show t ++ ">"
+  show (BufferStore t) = "bufferStore<" ++ show t ++ ">"
+  show BufferCopy = "bufferCopy"
+  show BufferSetString = "bufferSetString"
+  show BufferGetString = "bufferGetString"
   show WriteBytes = "writeBytes"
   show ReadBytes = "readBytes"
   show Eof = "eof"
@@ -478,8 +497,11 @@ ioArgs (Array NewArray e) = [IntT IdrisInt, e]
 ioArgs (Array GetArray e) = [ArrayT e, IntT IdrisInt]
 ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]
 ioArgs BufferNew = [IntT IdrisInt]
-ioArgs BufferGet = [ArrayT (IntT UInt8), IntT IdrisInt]
-ioArgs BufferSet = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
+ioArgs (BufferLoad _) = [ArrayT (IntT UInt8), IntT IdrisInt]
+ioArgs (BufferStore t) = [ArrayT (IntT UInt8), IntT IdrisInt, t]
+ioArgs BufferCopy = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt, ArrayT (IntT UInt8), IntT IdrisInt]
+ioArgs BufferSetString = [ArrayT (IntT UInt8), IntT IdrisInt, StrT]
+ioArgs BufferGetString = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs WriteBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs ReadBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs Eof = [IntT UInt64]

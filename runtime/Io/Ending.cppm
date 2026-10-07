@@ -46,3 +46,12 @@ extern "C" void idris_rt_crash(const char *msg, size_t len) {
   rt::io::writeAll(2, msg, len);
   _exit(IDRIS_RT_CRASHED);
 }
+
+extern "C" void idris_rt_crash_str(const idris_rt_str *s) {
+  idris_rt_flush();
+  static constexpr char prefix[] = "idris-mlir: ";
+  rt::io::writeAll(2, prefix, sizeof prefix - 1);
+  rt::io::writeAll(2, idris_rt_str_bytes(s), static_cast<size_t>(idris_rt_str_bytes_length(s)));
+  rt::io::writeAll(2, "\n", 1);
+  _exit(IDRIS_RT_CRASHED);
+}

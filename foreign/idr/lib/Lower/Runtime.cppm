@@ -57,7 +57,7 @@ public:
           callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
       // A crash does not return, which lets LLVM treat what follows as
       // unreachable without the runtime's bitcode (JIT mode has none).
-      if (name == "idris_rt_crash" || name == "idris_rt_eval_crash")
+      if (name == "idris_rt_crash" || name == "idris_rt_crash_str" || name == "idris_rt_eval_crash")
         callee.setPassthroughAttr(b.getArrayAttr({b.getStringAttr("noreturn")}));
     }
     auto op = LLVM::CallOp::create(b, loc, callee, args);

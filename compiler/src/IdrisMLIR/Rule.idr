@@ -32,6 +32,8 @@ data Rule
     RawPointer
   | CompiledModule | IdentityHook | HookShape
   | CompileBudget | Layout
+  | ||| A name Idris has deprecated. The message names its replacement.
+    Deprecated
 
 export
 Show Rule where
@@ -61,6 +63,7 @@ Show Rule where
   show HookShape = "hook"
   show CompileBudget = "compile-time budget"
   show Layout = "layout"
+  show Deprecated = "deprecated"
 
 ||| Every reason, to read one back from its phrase.
 allRules : List Rule
@@ -70,7 +73,7 @@ allRules =
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
   , EscapeHatch, UserPragma, Threads, Finalizer, RawPointer
   , CompiledModule, IdentityHook, HookShape
-  , CompileBudget, Layout ]
+  , CompileBudget, Layout, Deprecated ]
 
 ||| A reason by its phrase, as `idris-mlir-cc` reports it.
 export

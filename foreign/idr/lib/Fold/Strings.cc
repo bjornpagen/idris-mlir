@@ -93,6 +93,13 @@ OpFoldResult StrLengthOp::fold(FoldAdaptor adaptor) {
   });
 }
 
+OpFoldResult StrBytesLengthOp::fold(FoldAdaptor adaptor) {
+  Type type = getType();
+  return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
+    return wrapped(type, idris_rt_str_bytes_length(s));
+  });
+}
+
 OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {
   auto i = dyn_cast_or_null<IntegerAttr>(adaptor.getIndex());
   if (!i)

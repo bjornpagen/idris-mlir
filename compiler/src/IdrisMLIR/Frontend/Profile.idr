@@ -184,7 +184,7 @@ refsOf def =
 export
 checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> List Name -> Core ()
-checkReachable fc roots = go empty (map (\r => (r, [])) roots)
+checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
   where
     userFC : List (Name, FC) -> FC
     userFC [] = fc
@@ -194,9 +194,9 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
     via [] = ""
     via path = " (reached through " ++ joinBy " -> " (map (show . fst) (reverse path)) ++ ")"
 
-    go : SortedSet String -> List (Name, List (Name, FC)) -> Core ()
+    go : SortedSet String -> List (Name, List (Name, FC), Bool) -> Core ()
     go seen [] = pure ()
-    go seen ((n, path) :: rest) = do
+    go seen ((n, path, fromTrusted) :: rest) = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact n (gamma defs)
         | Nothing => go seen rest
@@ -228,11 +228,25 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
           Just Finalizer => reject (userFC here) owner Finalizer (exclusion Finalizer key ++ via here)
           Just RawPointer => reject (userFC here) owner RawPointer (exclusion RawPointer key ++ via here)
           _ => pure ()
+        -- A deprecated name is rejected wherever it is reached. The hook's
+        -- text names the replacement.
+        case deprecatedOf (hooksOf full) of
+          Just msg => reject (userFC here) owner Deprecated msg
+          Nothing => pure ()
+        -- A trusted library may crash with a string. The reach has to come
+        -- from a trusted definition: a user's call of the same function is
+        -- still an escape hatch, and believe_me stays one either way.
+        let libraryCrash = fromTrusted && libraryCrashOf (hooksOf full)
+        let builtinCrash = fromTrusted && case definition def of
+                                            Builtin Crash => True
+                                            _ => False
         when (isEscapeHatch def) $
-          reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
+          unless (libraryCrash || builtinCrash) $
+            reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
         case definition def of
           Builtin BelieveMe => reject (userFC here) owner EscapeHatch ("believe_me" ++ via here)
-          Builtin Crash => reject (userFC here) owner EscapeHatch ("idris_crash" ++ via here)
+          Builtin Crash => unless fromTrusted $
+            reject (userFC here) owner EscapeHatch ("idris_crash" ++ via here)
           Hole {} => reject (userFC here) owner EscapeHatch ("the hole " ++ key ++ via here)
           -- Only the IO primitives the registry lists may be reached: an
           -- `%extern` one by its name, a `%foreign` one by its spec.
@@ -241,6 +255,7 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
                     isJust (systemFactOf (hooksOf full))) $
               reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
           ForeignDef _ specs => case foreignHookOf full specs of
+            Just (Right (Deprecated msg)) => reject (userFC here) owner Deprecated msg
             Just (Right _) => pure ()
             Just (Left wrong) => reject (userFC here) key HookShape wrong
             Nothing => reject (userFC here) owner EscapeHatch ("%foreign " ++ key ++ via here)
@@ -260,4 +275,4 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
             _ => pure ()
         -- A library's own totality assertions are trusted.
         let refs' = if trusted then filter (not . assertion . qname) refs else refs
-        go (insert key seen) (rest ++ map (\r => (r, here)) refs')
+        go (insert key seen) (rest ++ map (\r => (r, here, trusted)) refs')
