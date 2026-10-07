@@ -21,6 +21,15 @@ data Rule
   | Primitive | StringPrimitive
   | RuntimeClosure
   | EscapeHatch | UserPragma
+  | ||| Threads (`fork`, `threadWait`): no scheduler, and shared mutable
+    ||| state the counting heap does not have.
+    Threads
+  | ||| A collector finalizer (`onCollect`). Release is the counting walk;
+    ||| nothing runs at collection.
+    Finalizer
+  | ||| A raw pointer, or a value read through one (`getEnv`). References
+    ||| the compiler keeps are heap values it accounts for.
+    RawPointer
   | CompiledModule | IdentityHook | HookShape
   | CompileBudget | Layout
 
@@ -44,6 +53,9 @@ Show Rule where
   show RuntimeClosure = "runtime closure"
   show EscapeHatch = "escape hatch"
   show UserPragma = "pragma"
+  show Threads = "threads"
+  show Finalizer = "finalizer"
+  show RawPointer = "raw pointer"
   show CompiledModule = "compiled module"
   show IdentityHook = "identity hook"
   show HookShape = "hook"
@@ -56,7 +68,8 @@ allRules =
   [ ProgramShape, TrustedLibrary, WorldUse, IOPrimitive, ValueType
   , DependentField, DictionaryField, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
-  , EscapeHatch, UserPragma, CompiledModule, IdentityHook, HookShape
+  , EscapeHatch, UserPragma, Threads, Finalizer, RawPointer
+  , CompiledModule, IdentityHook, HookShape
   , CompileBudget, Layout ]
 
 ||| A reason by its phrase, as `idris-mlir-cc` reports it.

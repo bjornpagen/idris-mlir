@@ -113,8 +113,9 @@ moduleOrigin _ _ = Untrusted
 ------------------------------------------------------------------------------
 
 ||| What `PrimIO` admits: the IO types and their operations, and `AnyPtr`,
-||| the type of a file handle. Its other definitions (the other pointers,
-||| threads and their foreign calls) are not admitted.
+||| the type of a file handle. Threads, collector finalizers and raw
+||| pointers are outside the language, refused by name; anything else of
+||| `PrimIO` is not admitted.
 admittedFromPrimIO : List String
 admittedFromPrimIO =
   [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"

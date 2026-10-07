@@ -107,11 +107,38 @@ indexSpaces =
           (Pi Q1 world (ioRes Hole)))))))
       Fold ]
 
+------------------------------------------------------------------------------
+-- Outside the language
+------------------------------------------------------------------------------
+
+||| A definition the language this compiler implements does not include.
+||| The refusal does not depend on the type, so the shape is a hole:
+||| validation checks that the library still defines it.
+ruledOut : List String -> String -> Rule -> Entry
+ruledOut ns name rule =
+  MkEntry (Def (MkQName ns name)) (Typed Hole) (Forbidden rule) [rule]
+
+||| Threads (`fork`, `threadWait` and the primitives they call), collector
+||| finalizers, and raw pointers. `getEnv` reads an environment variable
+||| through a raw pointer.
+outsideLanguage : List Entry
+outsideLanguage =
+  map (\n => ruledOut ["Prelude", "IO"] n Threads)
+      ["fork", "prim__fork", "threadWait", "prim__threadWait"] ++
+  map (\n => ruledOut ["Prelude", "IO"] n Finalizer) ["onCollect", "onCollectAny"] ++
+  [ ruledOut ["Prelude", "IO"] "prim__getString" RawPointer
+  , ruledOut ["PrimIO"] "prim__castPtr" RawPointer
+  , ruledOut ["PrimIO"] "prim__forgetPtr" RawPointer
+  , ruledOut ["PrimIO"] "prim__nullPtr" RawPointer
+  , ruledOut ["PrimIO"] "prim__nullAnyPtr" RawPointer
+  , ruledOut ["PrimIO"] "prim__getNullAnyPtr" RawPointer
+  , ruledOut ["System"] "getEnv" RawPointer ]
+
 ||| The table.
 export
 recognized : List Entry
 recognized =
-  naturals ++ indexSpaces ++
+  naturals ++ indexSpaces ++ outsideLanguage ++
   [ identity "replace"
   , identity "rewrite__impl"
   , rootOnly "unsafePerformIO" (Pi Q0 TypeOfTypes (Pi QW (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))

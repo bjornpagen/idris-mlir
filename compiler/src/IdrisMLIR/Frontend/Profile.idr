@@ -44,6 +44,15 @@ forbiddenBy [] = Nothing
 forbiddenBy (Forbidden rule :: _) = Just rule
 forbiddenBy (_ :: hs) = forbiddenBy hs
 
+||| What a refusal of a forbidden definition says. Threads, finalizers and
+||| raw pointers name why they are outside the language; every other
+||| forbidden definition is a use of it.
+exclusion : Rule -> String -> String
+exclusion Threads n = n ++ " starts a thread, which is outside the language this compiler implements"
+exclusion Finalizer n = n ++ " registers a collector finalizer, which is outside the language this compiler implements"
+exclusion RawPointer n = n ++ " is a raw pointer, which is outside the language this compiler implements"
+exclusion _ n = "uses " ++ n
+
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
 firstForbidden : List Name -> Maybe (Name, Rule)
@@ -203,6 +212,15 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
           Untrusted => reject (userFC path) (maybe key (show . fst) (head' path)) TrustedLibrary
                          (key ++ " is in " ++ show loc.place ++ ", which is not a trusted library module" ++ via path)
           _ => pure ()
+        -- Threads, finalizers and raw pointers are outside the language
+        -- wherever they are reached. The world's forbidden operations are
+        -- not: the program root is one, and user code is refused where it
+        -- names them.
+        case forbiddenBy (hooksOf full) of
+          Just Threads => reject (userFC here) owner Threads (exclusion Threads key ++ via here)
+          Just Finalizer => reject (userFC here) owner Finalizer (exclusion Finalizer key ++ via here)
+          Just RawPointer => reject (userFC here) owner RawPointer (exclusion RawPointer key ++ via here)
+          _ => pure ()
         when (isEscapeHatch def) $
           reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
         case definition def of
@@ -226,7 +244,7 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
         -- User code may not use what the registry forbids, nor forge a world.
         unless trusted $ do
           case firstForbidden refs of
-            Just (r, rule) => reject (location def) key rule ("uses " ++ show r)
+            Just (r, rule) => reject (location def) key rule (exclusion rule (show r))
             Nothing => pure ()
           case definition def of
             PMDef _ _ tree _ _ =>

@@ -1,6 +1,8 @@
 # Findings
 
-Decisions the user took, each in one note (`decision-*.md`);
+Decisions the user took, each in one note (`decision-*.md`, including
+`decision-threads-pointers.md`: threads, collector finalizers and raw
+pointers are outside the language);
 `decision-primitive-semantics.md` says where a primitive's meaning comes
 from: Idris's own definition, then the standard it implements, then a
 decision of ours written there, with Chez the oracle and not the
