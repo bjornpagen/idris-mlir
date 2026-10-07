@@ -121,14 +121,13 @@ every pass that remakes an operation in place.
 
 `PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
 (`foreign/idr/lib/Simplify/Pass.cc`) is its own loop over the round and
-decides the fixpoint with a structural hash of the module (`structural`):
-constants by their value at each use, other values by their position in the
-walk. The patch stops `sccp` remaking constants, and a round of `sccp`
-alone then keeps `OperationFingerPrint`. The round does not:
-`remove-dead-values` rebuilds every call of a private function even when it
-erases no result, so a round at the structural fixpoint still has a new
-fingerprint. The loop stays. Over its round budget it fails with a named
-error where the composite pass warns and goes on.
+decides the fixpoint by `OperationFingerPrint`. The patch stops `sccp`
+remaking constants. `idr-dead-values` leaves a call `remove-dead-values`
+would rebuild without erasing a result, so a round at the fixpoint keeps
+the fingerprint (`tests/idr/canon/upstream-passes`,
+`tests/idr/loops/tail-loop`). The loop stays: this pass warns and goes on
+at its budget, and the round's statistics and remarks are the loop's. Over
+its round budget the loop fails with a named error.
 
 ## Patch
 

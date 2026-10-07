@@ -74,9 +74,11 @@ issue of its own.
 ## Our workaround
 
 None: `remove-dead-values-unreachable`'s patch is carried, and the call
-passes `ub.poison` for such a parameter itself. Before the patch,
-`idr-prune` made each call of such a function pass `ub.poison` for every
-parameter the function never reads, right before `remove-dead-values`.
+passes `ub.poison` for such a parameter itself. That patch still builds a
+new call when it erases no result; the early return that leaves such a
+call as it is is recorded there, for the next toolchain build. Before the
+patch, `idr-prune` made each call of such a function pass `ub.poison` for
+every parameter the function never reads, right before `remove-dead-values`.
 
 ## Why there is no patch
 

@@ -82,11 +82,17 @@ which the top-level CMake configure gate reads.
   (`mlir/lib/Transforms/RemoveDeadValues.cpp:649`, the region-branch
   canonicalization at `:833`, `Matchers.h:491`). It drops the uses of a
   dead block argument and of a dead result the same way
-- sites: none in our code; the patch
+- sites: foreign/idr/lib/Simplify/DeadValues.cppm (`idr-dead-values`),
+  until the patch returns early; the patch itself has no other site
 - workaround: `upstream/remove-dead-values-unreachable/llvm.patch`: the open
   pull request #208881 and the same for block arguments and results: the
-  pass gives every value it erases ub.poison for its remaining uses. Before
-  it, idr-prune emptied the code the analyses prove unreachable right
+  pass gives every value it erases ub.poison for its remaining uses. The
+  patch still erases no result of a call by building a new call
+  (`eraseOpResults` on an empty set). The next toolchain build adds an
+  early return to `dropUsesAndEraseResults` when that set is empty; until
+  then `idr-dead-values` runs the pass on a copy and keeps the module when
+  the copy still hashes the same. Before the patch, idr-prune emptied the
+  code the analyses prove unreachable right
   before `remove-dead-values`, and `symbol-dce` ran between them; with the
   patch the two left k-nucleotide's and every-types-export's objects byte
   for byte as they were, in as many rounds and as much time, so they went.
@@ -96,8 +102,9 @@ which the top-level CMake configure gate reads.
   canonicalization now asks which regions a match can take (the one its
   constant scrutinee selects), so it needs no emptied region
   (foreign/idr/lib/Canon/MatchPatterns.cppm, `EndAfterNoYield`)
-- retire: drop the patch when the pin has #208881 and a fix for block
-  arguments and results
+- retire: drop the patch when the pin has #208881, a fix for block
+  arguments and results, and `dropUsesAndEraseResults` left unchanged when
+  it erases nothing; `idr-dead-values` then becomes the pass itself
 - upstream: upstream/remove-dead-values-unreachable (reported by others,
   #206920, #203226); plan in its README: our reproducers to #208881
 
@@ -212,28 +219,21 @@ which the top-level CMake configure gate reads.
   it never has the same fingerprint twice: on a module at its fixpoint the
   composite pass runs the pipeline `max-iterations` times and warns.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
-- sites: foreign/idr/lib/Simplify/Structural.cppm (`structural`), and
-  foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
+- sites: foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
 - workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted,
   part 1 of the report's fix): `sccp` keeps the constants the module holds.
   `idr-simplify` is still its own loop over the round and decides the
-  fixpoint by a structural hash of the module: constants by their value at
-  each use, other values by their position in the walk, so an operation
-  remade at another address hashes the same. Over its round budget it fails
-  with `unsupported (compile-time budget)`, where the composite pass would
-  warn and go on
-- retire: with the patch, `composite-fixed-point-pass{pipeline=sccp}`
-  converges, and a round of `sccp` alone keeps `OperationFingerPrint`. A
-  round of `idr-simplify` at that fixpoint does not.
-  `remove-dead-values` rebuilds every call of a private function, by
-  `eraseOpResults`, even when it erases no result, so the new call has a
-  new address; on `tests/idr/canon/upstream-passes` and
-  `tests/idr/loops/tail-loop` the round `structural` says changed nothing
-  has a new fingerprint. `structural` and the loop stay until a round at
-  that fixpoint keeps `OperationFingerPrint`. The loop may then be a
-  `composite-fixed-point-pass` over the round once its budget can be an
-  error and its statistics ours. Drop the patch when the pin's `sccp` keeps
-  existing constants
+  fixpoint by `OperationFingerPrint`. A round at that fixpoint keeps it:
+  `sccp` no longer remakes constants, and `idr-dead-values` does not rebuild
+  a call `remove-dead-values` would leave unchanged
+  (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
+  loop stays, rather than `composite-fixed-point-pass`, because that pass
+  warns and goes on at its budget, and the round's statistics and remarks
+  are the loop's. Over its round budget the loop fails with
+  `unsupported (compile-time budget)`
+- retire: the loop may become a `composite-fixed-point-pass` over the round
+  once its budget can be an error and its statistics ours. Drop the patch
+  when the pin's `sccp` keeps existing constants
 - upstream: upstream/composite-fixed-point-sccp (not yet filed); plan in
   its README: an issue and a pull request
 

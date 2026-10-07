@@ -8,12 +8,12 @@
 // user error `unsupported (compile-time budget)`, not a hang.
 //
 // PIN(simplify-structural-fixpoint) — see PINS.md
-// "Unchanged" is structural() (Structural.cppm), not OperationFingerPrint.
-// sccp keeps the constants the module already holds, so a round of it alone
-// keeps the fingerprint. remove-dead-values does not: it rebuilds every
-// call of a private function even when no result of that call is dead, and
-// the new call has a new address. A round at the structural fixpoint
-// therefore still has a new fingerprint.
+// "Unchanged" is OperationFingerPrint. sccp keeps the constants the module
+// already holds, and idr-dead-values leaves a call remove-dead-values would
+// rebuild without changing, so a round at the fixpoint keeps the
+// fingerprint. The loop is still ours: composite-fixed-point-pass warns and
+// goes on when the budget runs out, and the round's statistics and remarks
+// are the loop's.
 //
 // The round's passes run in the loop's own pipeline, whose statistics the
 // pass manager never prints: the loop shows them as its own. After each
@@ -22,6 +22,7 @@
 
 #include "idr/Idr.h"
 
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -72,7 +73,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
     llvm::scope_exit finish([&] { report(module); });
-    std::array<uint8_t, 20> before = idr::simplify::structural(module);
+    OperationFingerPrint before(module);
     unsigned budget = maxRounds;
     for (unsigned rounds = 1; rounds <= budget; ++rounds) {
       auto started = std::chrono::steady_clock::now();
@@ -80,7 +81,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
         return signalPassFailure();
       ++numRounds;
       idr::simplify::trace(module, rounds, std::chrono::steady_clock::now() - started);
-      std::array<uint8_t, 20> after = idr::simplify::structural(module);
+      OperationFingerPrint after(module);
       if (after == before) {
         remark::passed(module.getLoc(),
                        remark::RemarkOpts::name("idr-simplify").category("idr-simplify"))

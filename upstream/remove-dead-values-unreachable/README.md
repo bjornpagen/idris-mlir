@@ -118,7 +118,17 @@ decides from the region the constant selects.
 replaces a dead argument's remaining uses with `ub.poison` instead of
 dropping them), and the same at the two other places the cleanup dropped
 uses: a dead block argument's and a dead result's remaining uses take
-`ub.poison` too. `uncalled.mlir`, `unreachable.mlir`,
+`ub.poison` too. It does not yet leave an unchanged call as it is. The
+cleanup asks `eraseOpResults` for every call of a private function that
+returns a value, and `eraseOpResults` builds a new operation even when the
+set of results to erase is empty (`dropUsesAndEraseResults`). The module
+prints the same and the new call has a new address, so
+`OperationFingerPrint` changes. The next toolchain build adds, at the start
+of `dropUsesAndEraseResults`, a return when that set is empty. Until that
+build, `idr-dead-values` runs the pass on a copy and keeps the module when
+the copy still hashes the same (`foreign/idr/lib/Simplify/DeadValues.cppm`).
+
+`uncalled.mlir`, `unreachable.mlir`,
 `../remove-dead-values-address-taken/address-taken.mlir`, `dead-result.mlir`
 and `dead-block-arg.mlir` are added to
 `mlir/test/Transforms/remove-dead-values.mlir`. It fixes

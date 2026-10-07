@@ -65,6 +65,7 @@ module;
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/SymbolTable.h"
@@ -235,6 +236,7 @@ using mlir::createConvertLinalgToLoopsPass;
 using mlir::createConvertToLLVMPass;
 using mlir::createCSEPass;
 using mlir::createReconcileUnrealizedCastsPass;
+using mlir::createRemoveDeadValuesPass;
 using mlir::createSCFToControlFlowPass;
 using mlir::DataFlowConfig;
 using mlir::DataFlowSolver;
@@ -331,6 +333,7 @@ using mlir::OpConversionPattern;
 using mlir::OperandRange;
 using mlir::Operation;
 using mlir::OperationEquivalence;
+using mlir::OperationFingerPrint;
 using mlir::OperationName;
 using mlir::OperationState;
 using mlir::OpFoldResult;
@@ -367,6 +370,7 @@ using mlir::RegionBranchPoint;
 using mlir::RegionBranchSuccessorMapping;
 using mlir::RegionBranchTerminatorOpInterface;
 using mlir::RegionSuccessor;
+using mlir::RemoveDeadValuesPassOptions;
 using mlir::registerAllDialects;
 using mlir::registerAllExtensions;
 using mlir::registerAllPasses;
