@@ -90,9 +90,10 @@ pull request.
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: a pull request to llvm/llvm-project (MLIR data-flow analysis),
   marked NFC, with this report's table before and after.
 - Upstream test: none of its own, being NFC; `mlir/test/Analysis/DataFlow`
   and the `sccp`, `int-range-optimizations` and `remove-dead-values` tests
   cover the lookups it changes.
-- Status: not sent.

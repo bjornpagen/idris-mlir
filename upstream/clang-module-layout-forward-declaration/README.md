@@ -61,11 +61,12 @@ fix is known. A patch would be a guess.
 
 ## Upstreaming plan
 
+Status: not ready.
+
 - Where: reduce it first (cvise or by hand, over a copy of the units the
   check compiles, keeping `-fmodule-output=` per unit); run the reduction
   against main and against 08eb97dea (#219926), which may be related.
-  If main still crashes, file an issue with the reduction; if a commit
-  fixes it, backport that commit as `llvm.patch`.
+  If a commit fixes it, backport that commit as `llvm.patch`. Nothing is
+  sent until it is reduced.
 - Upstream test: the reduction, as a `clang/test/Modules` test in
   `split-file` form.
-- Status: not reduced, not filed.

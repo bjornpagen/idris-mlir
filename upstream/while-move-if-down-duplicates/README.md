@@ -135,9 +135,9 @@ it, unchanged; it applies to the pin as is.
 
 ## Upstreaming plan
 
-- Where: nothing to send; it is upstream. Optionally ask for it on
-  `release/23.x`.
+Status: carried backport, not filed.
+
+- Where: nothing to send. The patch is carried until the pin moves past
+  a65eb8723 (24.1.0).
 - Upstream test: the commit's own case in
   `mlir/test/Dialect/SCF/canonicalize.mlir`.
-- Status: backported. The patch is dropped when the pin moves past
-  a65eb8723 (24.1.0).

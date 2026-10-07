@@ -123,8 +123,12 @@ every pass that remakes an operation in place.
 (`foreign/idr/lib/Simplify/Pass.cc`) is its own loop over the round and
 decides the fixpoint with a structural hash of the module (`structural`):
 constants by their value at each use, other values by their position in the
-walk. Over its round budget it fails with a named error where the composite
-pass warns and goes on.
+walk. The patch stops `sccp` remaking constants, and a round of `sccp`
+alone then keeps `OperationFingerPrint`. The round does not:
+`remove-dead-values` rebuilds every call of a private function even when it
+erases no result, so a round at the structural fixpoint still has a new
+fingerprint. The loop stays. Over its round budget it fails with a named
+error where the composite pass warns and goes on.
 
 ## Patch
 
@@ -138,9 +142,10 @@ Built into the pinned toolchain; the test passes with its `mlir-opt`, and
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: an issue with this report, and a pull request to
   llvm/llvm-project with part 1; part 2 proposed in the issue.
 - Upstream test: `sccp-fixed-point.mlir`; run `check-mlir`, since `sccp`
   now hoists an existing constant where it used to make a new one, which
   may reorder constants in other tests' expected output.
-- Status: not sent.

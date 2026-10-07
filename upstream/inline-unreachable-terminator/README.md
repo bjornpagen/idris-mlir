@@ -93,10 +93,11 @@ the pinned toolchain; the test passes with its `mlir-opt`, and
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: a pull request to llvm/llvm-project citing #206083, whose
   `vector.yield` case part 1 also fixes; a new issue with `never.mlir`.
 - Upstream test: the two cases the patch adds to
   `mlir/test/Dialect/UB/inlining.mlir`; run `check-mlir`, since any
   dialect whose single-block callee ends in a terminator that is not
   `ReturnLike` now takes the multi-block path.
-- Status: not sent.

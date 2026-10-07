@@ -2,15 +2,16 @@
 // simplify loop that changed nothing hashes the same.
 //
 // PIN(simplify-structural-fixpoint) — see PINS.md
-// "Unchanged" is structural(), not OperationFingerPrint. OperationFingerPrint
-// hashes op pointers, and sccp replaces every constant value by a new
-// constant op on every run (SCCP.cpp:54-60, replaceWithConstant), as
-// remove-dead-values also rebuilds ops, so an unchanged module never has the
-// same fingerprint twice. Nor is it the module's text: the constants that
-// sccp and canonicalize materialize at the start of a block come out in
-// another order on every round. structural() hashes what an op is, not where
-// it lives: constants are hashed as their values at each use, and other
-// values by their position in the walk.
+// "Unchanged" is structural(), not OperationFingerPrint. The fingerprint
+// hashes the addresses of ops and values. sccp keeps the constants the
+// module already holds, so a round of it alone keeps the fingerprint.
+// remove-dead-values does not: erasing no result of a call still builds a
+// new call in its place, and the new call has a new address. A round at
+// this fixpoint therefore still has a new fingerprint. Nor is "unchanged"
+// the module's text: constants materialized at the start of a block come
+// out in another order on every round. structural() hashes what an op is,
+// not where it lives: constants are hashed as their values at each use,
+// and other values by their position in the walk.
 export module idr.simplify:structural;
 
 import idr.mlir;
