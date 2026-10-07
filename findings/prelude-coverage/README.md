@@ -18,7 +18,10 @@ pointers. Those exports are decided exclusions
 
 and nothing else by name. `unsafePerformIO` stays an escape hatch, which
 the check asks of the compiler. An export the compiler cannot handle, and
-which is not one of those names, still fails the fixture.
+which is not one of those names, still fails the fixture. `%foreign` and
+the C ABI are the same kind of exclusion, recorded in that note; they are
+not names in the list above. A `Data.Buffer` operation is a runtime
+primitive, not that exclusion, and not a prelude export.
 
 `System.getEnv` is the same raw-pointer decision. It is not a prelude
 export, so the prelude check does not list it; the compiler refuses it.

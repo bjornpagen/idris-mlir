@@ -51,6 +51,12 @@ numbers.
   (`unsafePerformIO`, a forged world): its effects happen where the value
   is demanded, in program order with every other effect, as Chez runs
   them. User code may not.
+- `%foreign` and the C ABI are outside the language, as threads, collector
+  finalizers and raw pointers are. Do not implement `%foreign`, `%extern`
+  as a C export, a C calling convention, libffi, or declaring or calling a
+  C symbol from user code. The refusal is `unsupported` and names
+  `%foreign` or the extern; never ignore the pragma. A `Data.Buffer`
+  operation is a runtime primitive, with its one meaning in `runtime/`.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work; a patch to Idris applies

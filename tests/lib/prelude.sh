@@ -213,9 +213,10 @@ interface_constructors() {
 # of believe_me and idris_crash), so it is asked: a program whose main only
 # names NAME (partial, as NAME may be) is refused, and what it refuses is
 # NAME itself, as `the escape hatch NAME`, `NAME` or `uses NAME`. Not what
-# NAME reaches, and not NAME as `%foreign NAME` or `%extern NAME`: a
-# foreign function the compiler has no entry for is one it does not
-# implement, a gap rather than a design.
+# NAME reaches, and not NAME as `%foreign NAME` or `%extern NAME`.
+# `%foreign`, and `%extern` as a C export, are outside the language: not
+# an escape hatch, and not a primitive left to implement. A buffer
+# operation is a runtime primitive; this check does not see `Data.Buffer`.
 escape_hatch() {
   eh_dir=$work/probe-$(printf '%s' "$2" | cksum | awk '{ print $1 }')
   mkdir -p "$eh_dir"
