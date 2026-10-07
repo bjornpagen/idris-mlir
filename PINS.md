@@ -192,16 +192,9 @@ which the top-level CMake configure gate reads.
   quadratic in n (4.5 s for a builtin array 32,000 deep, 0.18 s from
   text). Compile-time evaluation's results are as deep as the program's
   values: a computed list of 20,000 elements took 45 s to read back
-- sites: foreign/idr/lib/Eval/Encoding.cppm (`encodeResults`, `decodeResults`)
+- sites: none in our code; the patch
 - workaround: `upstream/bytecode-deferred-quadratic/llvm.patch` (drafted):
-  the reader resolves deferred entries from a stack, in linear time. Until
-  the toolchain is rebuilt with it, the evaluation child sends a call's
-  results as bytecode of
-  a flat table of their distinct parts, each after the parts it holds,
-  which it names by position; the compiler rebuilds the constants from the
-  table in order. No attribute in the table is nested more than a few
-  levels, and a shared part is in it once. The table may stay after the
-  rebuild, as it keeps sharing without the reader's help: measure then
+  the reader resolves deferred entries from a stack, in linear time
 - retire: drop the patch when the pin's reader resolves deferred entries in
   linear time
 - upstream: upstream/bytecode-deferred-quadratic (not yet filed); plan in
@@ -223,19 +216,24 @@ which the top-level CMake configure gate reads.
   foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
 - workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted,
   part 1 of the report's fix): `sccp` keeps the constants the module holds.
-  Until the toolchain is rebuilt with it, and for as long as the measure
-  below says so, `idr-simplify` is its own loop over the round and decides the
+  `idr-simplify` is still its own loop over the round and decides the
   fixpoint by a structural hash of the module: constants by their value at
-  each use, other values by their position in the walk, so a constant
+  each use, other values by their position in the walk, so an operation
   remade at another address hashes the same. Over its round budget it fails
   with `unsupported (compile-time budget)`, where the composite pass would
   warn and go on
 - retire: with the patch, `composite-fixed-point-pass{pipeline=sccp}`
-  converges on a module `sccp` leaves as it is. Then measure whether a
-  round at its fixpoint keeps its `OperationFingerPrint`; if it does,
-  `structural` goes, and the loop may be a `composite-fixed-point-pass` over
-  the round once its budget can be an error and its statistics ours. Drop
-  the patch when the pin's `sccp` keeps existing constants
+  converges, and a round of `sccp` alone keeps `OperationFingerPrint`. A
+  round of `idr-simplify` at that fixpoint does not.
+  `remove-dead-values` rebuilds every call of a private function, by
+  `eraseOpResults`, even when it erases no result, so the new call has a
+  new address; on `tests/idr/canon/upstream-passes` and
+  `tests/idr/loops/tail-loop` the round `structural` says changed nothing
+  has a new fingerprint. `structural` and the loop stay until a round at
+  that fixpoint keeps `OperationFingerPrint`. The loop may then be a
+  `composite-fixed-point-pass` over the round once its budget can be an
+  error and its statistics ours. Drop the patch when the pin's `sccp` keeps
+  existing constants
 - upstream: upstream/composite-fixed-point-sccp (not yet filed); plan in
   its README: an issue and a pull request
 
