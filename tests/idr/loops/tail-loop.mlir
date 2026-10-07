@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-tail-loops -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@count,constant-stack=@upto,constant-stack=@spin,constant-stack=@sum,constant-stack=@echo -o /dev/null
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@upto -o /dev/null
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@upto,counted-loop=@until -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@count -o /dev/null 2> %t.count.err
 // RUN: FileCheck %s --check-prefix=COUNT < %t.count.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@fib -o /dev/null 2> %t.fib.err
@@ -9,8 +9,9 @@
 // A self tail call in a region of a match whose results are returned
 // becomes a loop, so the stack stays constant; a call that is not in tail
 // position stays, and the stack grows with it. A loop that counts up to a
-// bound becomes an scf.for; one that counts down to zero keeps its test
-// against zero, and is an scf.while.
+// bound becomes an scf.for, whether or not its result is the counter; one
+// that counts down to zero keeps its test against zero, and is an
+// scf.while.
 // COUNT: error: expected counted-loop: a loop of @count has no trip count
 // FIB: error: expected constant-stack: the stack grows with the recursion of @fib
 // A partial function's loop keeps idr.may_loop, which keeps it alive when
@@ -53,6 +54,23 @@ module attributes {idr.program} {
       %sq = arith.muli %i, %i : i64
       %a = arith.addi %acc, %sq : i64
       %x = func.call @upto(%j, %n, %a) : (i64, i64, i64) -> i64
+      idr.yield %x : i64
+    }
+    }
+    return %r : i64
+  }
+  // until i n = if i < n then until (i + 3) n else i
+  func.func private @until(%i: i64, %n: i64) -> i64 attributes {idr.total} {
+    %lt = arith.cmpi slt, %i, %n : i64
+    %b = arith.extui %lt : i1 to i64
+    %r = idr.match_lit %b : i64 -> (i64) {
+    case 0 {
+      idr.yield %i : i64
+    }
+    default {
+      %c3 = arith.constant 3 : i64
+      %j = arith.addi %i, %c3 : i64
+      %x = func.call @until(%j, %n) : (i64, i64) -> i64
       idr.yield %x : i64
     }
     }

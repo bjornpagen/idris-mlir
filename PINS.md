@@ -149,14 +149,11 @@ which the top-level CMake configure gate reads.
   the counter with its value in the last iteration, one step short of the
   value the loop ends with, and below the lower bound when the loop runs
   no iteration
-- sites: foreign/idr/lib/Tail/Loops.cppm (`counterUsedAfter`);
-  foreign/idr/tools/idris-mlir-opt.cc registers upstream's test pass
+- sites: foreign/idr/tools/idris-mlir-opt.cc registers upstream's test pass
   `test-scf-uplift-while-to-for`, which the pinned mlir-opt lacks, for the
   reproducer
 - workaround: `upstream/uplift-final-counter/llvm.patch`, main's 6e714c8d9
-  (#225476) backported. Until the toolchain is rebuilt with it,
-  `idr-tail-loops` uplifts a counted loop only when nothing uses the value
-  its counter ends with; any other stays an `scf.while`
+  (#225476) backported; `idr-tail-loops` uplifts every counted loop
 - retire: drop the patch when the pin has 6e714c8d9 (not on release/23.x);
   idris-mlir-opt's copy of the test pass stays while the pinned mlir-opt
   has no test passes

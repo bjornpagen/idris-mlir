@@ -4,8 +4,10 @@
 // RUN: FileCheck %s < %t.out
 // Loops of every shape idr-tail-loops makes run as the recursion they
 // replace: a count up to a bound (an scf.for), a count down to zero, a
-// fold over a list, output before the decision, and an IO fold whose
-// result is its recursive call's rebuilt (record eta).
+// fold over a list, output before the decision, an IO fold whose
+// result is its recursive call's rebuilt (record eta), and a count up to a
+// bound that returns its counter (an scf.for whose counter ends past the
+// bound by part of a step, or at its start when it never runs).
 // CHECK: 285
 // CHECK-NEXT: 7
 // CHECK-NEXT: 6
@@ -16,6 +18,8 @@
 // CHECK-NEXT: 1
 // CHECK-NEXT: 2
 // CHECK-NEXT: 3
+// CHECK-NEXT: 12
+// CHECK-NEXT: 5
 module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit ()
@@ -40,6 +44,23 @@ module attributes {idr.program} {
       %sq = arith.muli %i, %i : i64
       %a = arith.addi %acc, %sq : i64
       %x = func.call @upto(%j, %n, %a) : (i64, i64, i64) -> i64
+      idr.yield %x : i64
+    }
+    }
+    return %r : i64
+  }
+  // until i n = if i < n then until (i + 3) n else i
+  func.func private @until(%i: i64, %n: i64) -> i64 attributes {idr.total} {
+    %lt = arith.cmpi slt, %i, %n : i64
+    %b = arith.extui %lt : i1 to i64
+    %r = idr.match_lit %b : i64 -> (i64) {
+    case 0 {
+      idr.yield %i : i64
+    }
+    default {
+      %c3 = arith.constant 3 : i64
+      %j = arith.addi %i, %c3 : i64
+      %x = func.call @until(%j, %n) : (i64, i64) -> i64
       idr.yield %x : i64
     }
     }
@@ -135,6 +156,13 @@ module attributes {idr.program} {
     %r = func.call @traverse(%l1, %w7) : (!idr.box<@List>, !idr.world) -> !idr.data<@IORes>
     %unit = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
     %w8 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
-    return %unit, %w8 : !idr.data<@Unit>, !idr.world
+    %c5 = arith.constant 5 : i64
+    %f = func.call @until(%c0, %c10) : (i64, i64) -> i64
+    %w9 = idr.io.put_int signed %f, %w8 : i64
+    %w10 = idr.io.put_char %nl, %w9
+    %z = func.call @until(%c5, %c2) : (i64, i64) -> i64
+    %w11 = idr.io.put_int signed %z, %w10 : i64
+    %w12 = idr.io.put_char %nl, %w11
+    return %unit, %w12 : !idr.data<@Unit>, !idr.world
   }
 }

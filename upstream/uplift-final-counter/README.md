@@ -78,9 +78,10 @@ pin moves past that commit. A negative step is a separate open issue,
 
 ## Our workaround
 
-`idr-tail-loops` uplifts a counted loop only when nothing uses the value its
-counter ends with (`PINS.md`: `uplift-final-counter`). Idris loops return
-what they accumulate, so the counter's final value is rarely used.
+None: the patch below is carried, and `idr-tail-loops` uplifts every
+counted loop, whether or not the value its counter ends with is used.
+Before the patch, it uplifted only a loop whose counter's final value
+nothing used.
 
 ## Patch
 
