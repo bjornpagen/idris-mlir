@@ -16,6 +16,7 @@ import :induction;
 import :joins;
 import :linear;
 import :lengths;
+import :masks;
 import :paths;
 import :quotients;
 import :system;
@@ -60,8 +61,11 @@ bool provenInBounds(Operation *access, Value array, Value index, DataFlowSolver 
         system.lengthIs(size, root);
   }
   // Quotients are read after the path and the lengths, which are what can
-  // show the dividend is non-negative.
+  // show the dividend is non-negative. A mask is read after the same facts:
+  // the path is what bounds a shift, and the length relation is what says
+  // the array has that capacity.
   relateQuotients(system);
+  relateMask(system, lengths, dominance, access, array, index);
   return bounded && system.emptyWith(Linear().plus(i, DynamicAPInt(-1)).plus(-1)) &&
          system.emptyWith(i - length);
 }

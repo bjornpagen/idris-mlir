@@ -5,8 +5,10 @@
 // Every constraint is true of the run: a value's range (MLIR's integer
 // range analysis, else its type's, within the bounds a loop keeps its
 // carried values in, induction), its definition by a linear op, the
-// condition each enclosing branch took, and a Euclidean quotient of a
-// value the system has already proved non-negative by a positive constant.
+// condition each enclosing branch took, a Euclidean quotient of a value the
+// system has already proved non-negative by a positive constant, and a
+// masked word `x & (c - 1)` below `c` when `c` is already a positive power
+// of two and the array's length is `c`.
 // A constraint left out only makes the system prove less, so an op the
 // encoding does not know is a column with its range alone.
 //

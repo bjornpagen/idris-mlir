@@ -9,6 +9,7 @@ idr_library(idr_inbounds
 		Joins.cppm
 		Lengths.cppm
 		Linear.cppm
+		Masks.cppm
 		Paths.cppm
 		Prove.cppm
 		Quotients.cppm

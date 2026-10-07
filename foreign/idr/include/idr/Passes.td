@@ -360,8 +360,11 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     library decides: the conditions of the matches, ifs and loops on its
     path, the accesses that ran before it, the linear definitions of the
     integers involved (wrapping exactly), the Euclidean quotient of a value
-    already proved non-negative divided by a positive constant, integer
-    range analysis, and the length relation: an integer that is the length
+    already proved non-negative divided by a positive constant, a masked
+    index below a capacity already proved a positive power of two when the
+    mask is that capacity minus one and the array's length is that
+    capacity, integer range analysis, and the length relation: an integer
+    that is the length
     of an array, clamped at 0, wherever both are in scope. The relation
     starts at `idr.array.new`
     and `idr.array.generate` and follows the pair through the values bound
