@@ -55,9 +55,9 @@ and that every directory has a plan (`tests/spec/upstream-patches`).
    (reusing one someone else filed), the upstream test, the status.
    Sending it is its own piece of work, done as the plan says; the table
    below is where its status is kept. A fix already on main is carried
-   until the pin moves past it and is not filed. One that is only partly
-   on main is filed for the rest. A report with nothing to send yet is
-   not ready.
+   until the pin moves past it and is not filed. A backport that adds
+   cases that fix did not test is rerun on trunk, then decided. A report
+   with nothing to send yet is not ready.
 
 A bug that cannot be patched yet (not reduced, or a fix upstream must
 agree on first) says why in its README, keeps its workaround and its
@@ -72,8 +72,9 @@ llvm/llvm-project on GitHub, and a hash is a commit on its main; it was
 last checked against main at ed390ca4 (October 2026). In the Patch column,
 a backport is unchanged upstream code; a patch of ours was written here
 against the pin. In the Upstreaming column, `carried backport, not filed`
-is kept until the pin moves past it; `file upstream` is sent as the
-report's plan says; `not ready` has nothing to send yet.
+is kept until the pin moves past it; `backport, retest on trunk` means
+retest on trunk, then decide; `file upstream` is sent as the report's
+plan says; `not ready` has nothing to send yet.
 
 | Bug | Project | Patch | Upstream | Upstreaming | `PINS.md` |
 | --- | --- | --- | --- | --- | --- |
@@ -87,7 +88,7 @@ report's plan says; `not ready` has nothing to send yet.
 | [composite-fixed-point-sccp](composite-fixed-point-sccp/README.md) | MLIR | `llvm.patch`: ours (part 1 of the fix) | not yet | file upstream: issue and pull request | `simplify-structural-fixpoint` |
 | [forward-dataflow-callee-lookup](forward-dataflow-callee-lookup/README.md) | MLIR | `llvm.patch`: ours | not yet (main at 155462f440f still scans) | file upstream: pull request, NFC | `forward-dataflow-callee-lookup` |
 | [vectorize-precondition-body](vectorize-precondition-body/README.md) | MLIR | `llvm.patch`: ours | not yet | file upstream: issue and pull request | `vectorize-precondition-body` |
-| [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | `llvm.patch`: backport of 44a4dbf32, and the remainders ours | shift fixed on main (44a4dbf32, #218495); remainders not yet (161d9dca) | file upstream: issue and pull request for the remainders | `int-range-narrowing-exactness` |
+| [int-range-narrowing-exactness](int-range-narrowing-exactness/README.md) | MLIR | `llvm.patch`: backport of 44a4dbf32, and the remainders ours | shift fixed on main (44a4dbf32, #218495); remainders not yet (161d9dca) | backport, retest on trunk | `int-range-narrowing-exactness` |
 | [while-move-if-down-duplicates](while-move-if-down-duplicates/README.md) | MLIR | `llvm.patch`: backport of a65eb8723 | fixed on main (a65eb8723, #219458) | carried backport, not filed | `while-move-if-down-duplicates` |
 | [clang-module-layout-forward-declaration](clang-module-layout-forward-declaration/README.md) | clang | none: not reduced | not yet | not ready | `clang-module-layout-forward-declaration` |
 | [clang-module-predeclared-new](clang-module-predeclared-new/README.md) | clang | none: not reduced | likely reported: #189252 | not ready | `clang-module-predeclared-new` |

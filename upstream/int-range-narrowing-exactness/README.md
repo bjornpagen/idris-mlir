@@ -122,10 +122,11 @@ narrow shifts whose amount can exceed the target width",
 on `release/23.x`. The remainders are not (checked at 161d9dca, October
 2026): `remsi` still has no check for the narrow minimum rem -1, and the
 unsigned ops still allow either cast
-(`IntRangeOptimizations.cpp:396-402` there). Cases 2 and 3 are the part
-this report sends. When the pin moves past 44a4dbf32, drop the shift
-from this report, `narrowing.mlir`, its check and `exact`, and keep the
-rest.
+(`IntRangeOptimizations.cpp:396-402` there). The remainder cases are
+tests the shift fix did not include, and they have not been run on
+trunk. When the pin moves past 44a4dbf32, drop the shift from this
+report, `narrowing.mlir`, its check and `exact`, and keep the rest
+until that retest decides them.
 
 ## Our workaround
 
@@ -151,17 +152,14 @@ which the pinned build does not have, so it has not been run.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: backport, retest on trunk.
 
-The shift backport is already on main and is not filed. One issue for
-the two remainder cases, citing #218495, and a pull request with the
-remainder part alone.
+The shift fix is the backport. The two remainder cases are tests that
+fix did not include. Rerun `@remsi_narrow_min_by_minus_one`,
+`@remsi_above_narrow_min` and `@remui_of_negative` on trunk, and only
+then decide whether they deserve a patch.
 
-- Where: llvm/llvm-project. `remsi` does not narrow when the dividend's
-  range holds the target width's signed minimum and the divisor's holds
-  -1, and the ops that read their operands unsigned get
-  `CastKind::Unsigned`.
-- Upstream test: `@remsi_narrow_min_by_minus_one`, `@remsi_above_narrow_min`
-  and `@remui_of_negative` in `int-range-narrowing.mlir`.
-- When the pin moves past 44a4dbf32, the backported part leaves the
-  patch; the rest stays until upstream has it.
+- Where: nothing to send until that retest.
+- Upstream test: those three functions in `int-range-narrowing.mlir`.
+- When the pin moves past 44a4dbf32, the backported shift leaves the
+  patch; the remainder cases stay until the retest decides them.
