@@ -149,6 +149,7 @@ target_sources(idris_rt
 	PRIVATE
 		FILE_SET rt_platform TYPE CXX_MODULES FILES
 			Platform/Platform.cppm
+			Platform/CpuBits.cppm
 			Platform/Posix/Faults.cppm
 			Platform/Posix/Memory.cppm
 			Platform/Posix/Stacks.cppm

@@ -7,13 +7,15 @@
 // The bits themselves are cpuFeatureBits.
 // PIN(runtime-quarantine) — see PINS.md
 module;
-#include "Platform/CpuBits.h"
+#include <stdint.h>
 
 #ifdef IDRIS_RT_CPU_FEATURES_INIT
 extern "C" void IDRIS_RT_CPU_FEATURES_INIT(void) noexcept;
 #endif
 
 export module rt.platform:cpu;
+
+import :cpubits;
 
 export namespace rt::platform {
 

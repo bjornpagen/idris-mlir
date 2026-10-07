@@ -5,6 +5,5 @@
 # no import can carry.
 foreign/idr/lib/Driver/NativeRuns.cppm: cpu_features.h
 foreign/idr/lib/Lower/Lowering.cppm: cpu_features.h
-runtime/Platform/Aarch64/Cpu.cppm: cpu_features.h
-runtime/Platform/X86_64/Cpu.cppm: cpu_features.h
+runtime/Platform/CpuBits.cppm: cpu_features.h
 runtime/Start/Entry.cppm: cpu_features.h

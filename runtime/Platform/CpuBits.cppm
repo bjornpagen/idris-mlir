@@ -1,14 +1,15 @@
-// The bits of IDRIS_RT_CPU_FEATURES the processor state already holds.
-// Both processor partitions read them here, after their own startup. The
-// startup is the target difference; the bits are not.
+// rt.platform:cpubits: the bits of IDRIS_RT_CPU_FEATURES the processor
+// state already holds. Both processor partitions read them here, after
+// their own startup. The startup is the target difference; the bits are not.
 // PIN(runtime-quarantine) — see PINS.md
-#pragma once
-
+module;
 #include "cpu_features.h"
 
 #include <stdint.h>
 
-namespace rt::platform {
+export module rt.platform:cpubits;
+
+export namespace rt::platform {
 
 // Compiled for the target's baseline, and kept there: it runs from the
 // processor test, before anything shows that the processor has more. Inlined

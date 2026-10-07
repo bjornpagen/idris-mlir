@@ -4,9 +4,11 @@
 // without which those features are unusable.
 // PIN(runtime-quarantine) — see PINS.md
 module;
-#include "Platform/CpuBits.h"
+#include <stdint.h>
 
 export module rt.platform:cpu;
+
+import :cpubits;
 
 export namespace rt::platform {
 
