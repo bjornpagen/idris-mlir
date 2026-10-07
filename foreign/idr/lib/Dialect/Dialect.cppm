@@ -49,6 +49,7 @@ using idr::ConOp;
 using idr::ConstantOp;
 using idr::CrashOp;
 using idr::CrashResource;
+using idr::createIdrAccumulate;
 using idr::createIdrBindingTimes;
 using idr::createIdrCanonicalize;
 using idr::createIdrContify;

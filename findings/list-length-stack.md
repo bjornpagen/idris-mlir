@@ -1,29 +1,18 @@
-# The Prelude's length keeps a frame per element
+# The Prelude's length is a loop
 
-`length` on a list is not a tail call: the element stays until the rest is
-counted. The program's stack is a gibibyte (the process limit when that is
-larger). A list of 32724036 characters is counted; a list of 33677161
-characters ends with `idris-mlir: stack exhausted`.
+`length (x :: xs) = S (length xs)` reaches the passes as an addition of
+the recursive result. Addition associates and commutes, and its identity
+is zero, so the one is added to a sum carried down and the call is the
+last thing that tail does. The function the program calls seeds that sum
+at zero. A list of 33677161 elements, the size at which a gibibyte stack ended
+with `idris-mlir: stack exhausted`, is counted on a 1 MiB stack.
 
-Reading those characters and reversing the list does not, and neither does
-counting them in an `Int` accumulator. The official regex-redux input is
-50833411 characters. Its matcher and its replacements finish; the crash is
-the first `length`. `bench/regex-redux` counts with an accumulator so the
-run can finish. The program below is the crash, on however many characters
-stdin holds.
+Counting had hidden the addition: it borrowed the recursive result and
+dropped it afterwards, so the call was no longer what the tail added. The
+rewrite runs first, while the result is still the operand of the addition.
+A call whose result is inspected, or added to another call of the same
+function, stays a call.
 
-```idris
-module Main
-
-import Prelude
-
-readAll : List Char -> IO (List Char)
-readAll acc = do
-  c <- getChar
-  if ord c == 255 then pure (reverse acc) else readAll (c :: acc)
-
-main : IO ()
-main = do
-  input <- readAll []
-  printLn (length input)
-```
+Chez counts in constant stack too: its runtime form of `length` is the
+tail-recursive one. `bench/regex-redux` still counts with an `Int`
+accumulator.
