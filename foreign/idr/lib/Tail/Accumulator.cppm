@@ -15,6 +15,13 @@
 // wanted, and the stack grows with them. The addition has to be the tail.
 // Counting borrows a call's result and drops it after the addition, so
 // this runs first, while the result is still what the tail adds.
+//
+// A countdown is that sum with nothing else in it. `f(0) = 0` and
+// `f(n) = f(n - 1) + 1`, the predecessor a match on a natural uses to
+// show the argument shrank, is `f(n) = n`: n ones. The clone would add
+// one on each step down to zero, which is the same value and does not
+// finish when n is the whole range of a word. The function returns its
+// argument, or that argument as an Integer when the sum is a big.
 export module idr.tail:accumulator;
 
 import idr.mlir;
@@ -26,14 +33,132 @@ using namespace mlir;
 namespace idr {
 namespace {
 
-// Whether `value` is the constant natural or integer 0, the identity of
-// addition.
-bool isZero(Value value) {
+// Whether `value` is the constant natural or integer whose decimal text
+// is `digits`. Zero is the identity of addition.
+bool isDigits(Value value, StringRef digits) {
   auto constant = value.getDefiningOp<idr::ConstantOp>();
   if (!constant)
     return false;
   auto big = dyn_cast<idr::BigAttr>(constant.getValue());
-  return big && big.getValue() == "0";
+  return big && big.getValue() == digits;
+}
+
+bool isZero(Value value) { return isDigits(value, "0"); }
+
+// `f(0) = 0`, `f(n) = f(n - 1) + 1` on one natural. The result is that
+// natural, or the same value as an Integer when the sum is a big. The
+// constants may sit in the function or in the branch: simplification
+// lifts them out of the match.
+bool countdownIdentity(func::FuncOp fn, bool &asBig) {
+  asBig = false;
+  if (fn.isExternal() || fn.getNumArguments() != 1 || fn.getNumResults() != 1)
+    return false;
+  BlockArgument arg = fn.getArgument(0);
+  if (!isa<idr::NatType>(arg.getType()))
+    return false;
+  Type result = fn.getResultTypes()[0];
+  if (isa<idr::BigType>(result))
+    asBig = true;
+  else if (!isa<idr::NatType>(result))
+    return false;
+
+  Block &entry = fn.getBody().front();
+  idr::MatchLitOp match;
+  func::ReturnOp ret;
+  for (Operation &op : entry) {
+    if (isa<idr::ConstantOp>(op))
+      continue;
+    if (auto lit = dyn_cast<idr::MatchLitOp>(op)) {
+      if (match)
+        return false;
+      match = lit;
+      continue;
+    }
+    if (auto returned = dyn_cast<func::ReturnOp>(op)) {
+      if (ret)
+        return false;
+      ret = returned;
+      continue;
+    }
+    return false;
+  }
+  if (!match || !ret || match.getNumResults() != 1 || match.getScrutinee() != arg ||
+      ret.getNumOperands() != 1 || ret.getOperand(0) != match.getResult(0))
+    return false;
+  if (match.getCases().size() != 1 || !match.getDefaultRegion())
+    return false;
+  auto zeroCase = dyn_cast<idr::BigAttr>(match.getCases()[0]);
+  if (!zeroCase || zeroCase.getValue() != "0")
+    return false;
+
+  auto yielded = [](Block &block) -> Value {
+    Value value;
+    for (Operation &op : block) {
+      if (isa<idr::ConstantOp>(op))
+        continue;
+      auto yield = dyn_cast<idr::YieldOp>(op);
+      if (!yield || yield.getNumOperands() != 1 || value)
+        return Value();
+      value = yield.getOperand(0);
+    }
+    return value;
+  };
+  Region &zero = match.getCaseRegion(0);
+  if (!zero.hasOneBlock())
+    return false;
+  Value zeroValue = yielded(zero.front());
+  if (!zeroValue || !isZero(zeroValue))
+    return false;
+
+  Region &other = *match.getDefaultRegion();
+  if (!other.hasOneBlock())
+    return false;
+  idr::BigPredOp pred;
+  func::CallOp call;
+  idr::BigAddOp add;
+  for (Operation &op : other.front()) {
+    if (isa<idr::ConstantOp>(op) || isa<idr::YieldOp>(op))
+      continue;
+    if (auto p = dyn_cast<idr::BigPredOp>(op)) {
+      if (pred)
+        return false;
+      pred = p;
+    } else if (auto c = dyn_cast<func::CallOp>(op)) {
+      if (call)
+        return false;
+      call = c;
+    } else if (auto a = dyn_cast<idr::BigAddOp>(op)) {
+      if (add)
+        return false;
+      add = a;
+    } else {
+      return false;
+    }
+  }
+  if (!pred || !call || !add || pred.getValue() != arg)
+    return false;
+  if (call.getCallee() != fn.getSymName() || call.getNumOperands() != 1 ||
+      call.getOperand(0) != pred.getResult())
+    return false;
+  Value sum = call.getResult(0);
+  Value addend = add.getLhs() == sum ? add.getRhs() : add.getRhs() == sum ? add.getLhs() : Value();
+  if (!addend || !isDigits(addend, "1"))
+    return false;
+  auto yield = dyn_cast<idr::YieldOp>(other.front().getTerminator());
+  return yield && yield.getNumOperands() == 1 && yield.getOperand(0) == add.getResult();
+}
+
+void returnArgument(func::FuncOp fn, bool asBig) {
+  Block &entry = fn.getBody().front();
+  entry.dropAllDefinedValueUses();
+  while (!entry.empty())
+    entry.front().erase();
+  OpBuilder b(fn.getContext());
+  b.setInsertionPointToStart(&entry);
+  Value result = fn.getArgument(0);
+  if (asBig)
+    result = idr::NatToBigOp::create(b, fn.getLoc(), result).getResult();
+  func::ReturnOp::create(b, fn.getLoc(), result);
 }
 
 // Whether `value` is computed from a call of `callee`.
@@ -222,6 +347,11 @@ export Accumulated accumulate(ModuleOp module) {
   SymbolTable symbols(module);
   OpBuilder b(ctx);
   for (auto fn : llvm::make_early_inc_range(module.getOps<func::FuncOp>())) {
+    bool asBig = false;
+    if (countdownIdentity(fn, asBig)) {
+      returnArgument(fn, asBig);
+      continue;
+    }
     StringRef callee = fn.getSymName();
     std::optional<Plan> plan = planOf(fn, callee);
     if (!plan)
