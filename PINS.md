@@ -589,8 +589,12 @@ which the top-level CMake configure gate reads.
 - workaround: each is pinned by commit to its release tag; the lock records
   the official release tarball and its SHA-256 (as buildroot and Homebrew
   publish it). The musl and gmp steps fetch the tarball when they can and
-  refuse a SHA-256 or a set of files that differs from the pinned commit;
-  when they cannot, they say so and the stamp records `not verified`
+  refuse a SHA-256 that differs, or a file the release ships that the
+  pinned commit lacks or holds otherwise; the files the commit has beyond
+  the release (GMP's release leaves out its development tests, and one
+  x86-64 assembly file, `mpn/x86_64/addaddmul_1msb0.asm`) are named in the
+  stamp. The build is the commit's files either way. When they cannot
+  fetch it, they say so and the stamp records `not verified`
 - retire: when the official hosts are reachable and the check has passed
   once
 - upstream: none

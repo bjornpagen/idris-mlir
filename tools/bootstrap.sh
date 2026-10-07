@@ -605,8 +605,11 @@ llvm_revision_flags() {
 }
 
 # verify_release TOOL PATH: the lock's release tarball, when it can be
-# fetched, has the lock's SHA-256 and exactly the files of the pinned commit
-# (PINS.md: mirrored-sources). Sets release_check.
+# fetched, has the lock's SHA-256, and every file it ships is the pinned
+# commit's, byte for byte (PINS.md: mirrored-sources). A release may ship
+# fewer files than its repository (GMP's leaves out its development
+# tests); those the commit has beyond the release are named in the check.
+# Sets release_check.
 verify_release() {
   release_url=$(lock_value "$1" release) || exit 1
   release_sha256=$(lock_value "$1" release_sha256) || exit 1
@@ -629,9 +632,23 @@ verify_release() {
   release_tree=$(cd "$release_dir/files/$release_top" && git init -q && git add -A -f && git write-tree) ||
     die "git cannot hash the files of $release_url"
   release_want=$(git -C "$root/$2" rev-parse 'HEAD^{tree}') || die "git rev-parse failed in $2"
-  [ "$release_tree" = "$release_want" ] ||
-    die "the files of $release_url (tree $release_tree) differ from $2 (tree $release_want)"
-  release_check="verified against $release_url"
+  if [ "$release_tree" = "$release_want" ]; then
+    release_check="verified against $release_url"
+  else
+    # Each file as `<blob> TAB <path>`, the mode left out: a release's
+    # tarball does not keep every executable bit its repository records.
+    git -C "$release_dir/files/$release_top" ls-tree -r "$release_tree" | awk -F '\t' '{ split($1, f, " "); print f[3] "\t" $2 }' |
+      sort > "$release_dir/shipped" || die "git cannot list the files of $release_url"
+    git -C "$root/$2" ls-tree -r HEAD | awk -F '\t' '{ split($1, f, " "); print f[3] "\t" $2 }' |
+      sort > "$release_dir/pinned" || die "git ls-tree failed in $2"
+    release_differs=$(comm -23 "$release_dir/shipped" "$release_dir/pinned" | cut -f2 | head -n 5)
+    [ -z "$release_differs" ] ||
+      die "$release_url ships files that $2 lacks or holds otherwise: $(echo $release_differs)"
+    release_extra=$(cut -f2 "$release_dir/shipped" | sort > "$release_dir/shipped.paths" &&
+      cut -f2 "$release_dir/pinned" | sort | comm -23 - "$release_dir/shipped.paths") ||
+      die "cannot compare the files of $release_url with $2"
+    release_check="verified against $release_url, whose $(wc -l < "$release_dir/shipped" | tr -d ' ') files are $2's; $2 also has $(printf '%s\n' "$release_extra" | grep -c .) the release does not ship: $(echo $release_extra)"
+  fi
   say "    release: $release_check"
   rm -rf "$release_dir"
 }
