@@ -9,7 +9,6 @@ idr_library(idr_inlining
 		Pass.cc
 	LINKS
 		idr_mlir
-		idr_ods
 		idr_facts
 		idr_graph
 )
