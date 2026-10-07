@@ -13,9 +13,13 @@ Threads, collector finalizers, raw pointers, `unsafePerformIO` in the
 test's own source, network, and the packages this compiler does not
 implement are skipped, with that reason.
 
-The groups `--list` names, run here: 538 passed, 84 failed, 20 skipped.
-Of the skips, 10 are not a commitment, 7 are threads, 2 are raw pointers
-and 1 is network.
+The groups `--list` names, run here: 567 passed, 47 failed, 28 skipped.
+Of the skips, 10 are not a commitment, 7 are threads, 10 are raw pointers
+and 1 is network. A module of the installed prelude or base is trusted
+because its checked file lives in that package. Contrib, linear, network
+and test stay untrusted. Threads, collector finalizers, raw pointers,
+signals, processes and buffers stay unsupported, and a test that reaches
+one fails or skips for that reason.
 
 # Upstream Idris tests and the runtime
 

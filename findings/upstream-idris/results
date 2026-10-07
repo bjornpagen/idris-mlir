@@ -1,9 +1,9 @@
-fail	allbackends/basic048	Error: Module':6:1--6:13:mlir backend: Module'.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Module'.main)
-fail	allbackends/evaluator004	Error: Issue735:8:1--8:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	allbackends/evaluator005	Error: Issue1200:5:1--5:13:mlir backend: Issue1200.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Issue1200.main)
-fail	allbackends/issue2362	Error: Issue2362:3:1--3:17:mlir backend: Issue2362: unsupported (program): imports Data.Vect, which is neither a user module nor a trusted module
-fail	allbackends/perf006	Error: Issue775:1:1--1:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	allbackends/popen2	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
+pass	allbackends/basic048	
+fail	allbackends/evaluator004	Error: Issue735:8:1--8:13:mlir backend: Main.main: unsupported (type): Type in a runtime position
+pass	allbackends/evaluator005	
+fail	allbackends/issue2362	stdout mismatch: line 2: stock "True" / ours "False"
+pass	allbackends/perf006	
+skip	allbackends/popen2	raw pointer
 skip	allschemes/channels001	threads
 skip	allschemes/channels002	threads
 skip	allschemes/channels003	threads
@@ -13,61 +13,61 @@ skip	allschemes/channels006	threads
 fail	allschemes/double001	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
 fail	allschemes/double002	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
 fail	allschemes/double003	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
-fail	allschemes/ffi001	Error: Main:1:1--1:18:mlir backend: Main: unsupported (program): imports System.FFI, which is neither a user module nor a trusted module
-fail	allschemes/memo001	Error: Memo:68:1--68:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	allschemes/memo002	Error: Memo:68:1--68:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	allschemes/memo003	Error: Memo:15:1--15:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	allschemes/memo004	Error: Main:1:1--1:22:mlir backend: Main: unsupported (program): imports Data.List.Lazy, which is neither a user module nor a trusted module
-fail	allschemes/memo005	Error: Main:1:1--1:22:mlir backend: Main: unsupported (program): imports Data.List.Lazy, which is neither a user module nor a trusted module
-fail	allschemes/scheme001	Error: CastStringDouble:5:1--5:13:mlir backend: CastStringDouble.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through CastStringDouble.main)
-fail	allschemes/scheme002	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.Term, which is neither a user module nor a trusted module
+fail	allschemes/ffi001	Error: Main:6:1--6:9:mlir backend: Main: unsupported (pragma): the pragma %foreign
+pass	allschemes/memo001	
+fail	allschemes/memo002	timed out after 240s
+pass	allschemes/memo003	
+fail	allschemes/memo004	stdout mismatch: line 18: stock "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" / ours "> s 0"
+fail	allschemes/memo005	Error: Main:17:1--17:9:mlir backend: Main: unsupported (pragma): the pragma %foreign
+fail	allschemes/scheme001	stdout mismatch: line 4: stock "-1.0" / ours "inf"
+fail	allschemes/scheme002	Error: TermSize:3:1--3:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Term.prim__getTermLines (reached through Main.main)
 pass	base/control_app001	
 pass	base/control_monad_instances	
-fail	base/data_bits001	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.Bits, which is neither a user module nor a trusted module
-fail	base/data_bits002	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.Bits, which is neither a user module nor a trusted module
-fail	base/data_fin	Error: Main:1:1--1:16:mlir backend: Main: unsupported (program): imports Data.Fin, which is neither a user module nor a trusted module
-fail	base/data_integral	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports Data.Integral, which is neither a user module nor a trusted module
-fail	base/data_list001	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.List, which is neither a user module nor a trusted module
-fail	base/data_list002	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.List, which is neither a user module nor a trusted module
-fail	base/data_list003	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.List, which is neither a user module nor a trusted module
-fail	base/data_listone001	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.List, which is neither a user module nor a trusted module
+pass	base/data_bits001	
+fail	base/data_bits002	Error: Data.Fin:116:1--119:51:mlir backend: Data.Fin.strengthen: unsupported (match): a match on an erased value with more than one alternative
+fail	base/data_fin	Error: Num:7:1--7:13:mlir backend: Main.main: unsupported (escape hatch): the escape hatch Builtin.believe_me (reached through Main.main)
+pass	base/data_integral	
+pass	base/data_list001	
+pass	base/data_list002	
+pass	base/data_list003	
+pass	base/data_listone001	
 pass	base/data_nat	
-fail	base/data_ref_monadstate	Error: RefMonadState:3:1--3:37:mlir backend: RefMonadState: unsupported (program): imports Control.Monad.State.Interface, which is neither a user module nor a trusted module
+fail	base/data_ref_monadstate	Error: RefMonadState:16:1--16:13:mlir backend: RefMonadState.main: unsupported (escape hatch): %extern Data.IORef.prim__writeIORef (reached through RefMonadState.main)
 pass	base/data_singleton	
-fail	base/data_snoclist001	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports Data.SnocList, which is neither a user module nor a trusted module
-fail	base/data_snoclist002	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports Data.SnocList, which is neither a user module nor a trusted module
+pass	base/data_snoclist001	
+pass	base/data_snoclist002	
 pass	base/data_string	
-fail	base/data_string_lines001	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports Data.String, which is neither a user module nor a trusted module
-fail	base/data_string_parse_double	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports Data.String, which is neither a user module nor a trusted module
+pass	base/data_string_lines001	
+fail	base/data_string_parse_double	Error: Double:3:1--3:13:mlir backend: Main.main: unsupported (escape hatch): the escape hatch Builtin.believe_me (reached through Main.main)
 pass	base/data_string_parse_proof	
-fail	base/data_string_unlines001	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports Data.String, which is neither a user module nor a trusted module
-fail	base/data_vect001	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.Vect, which is neither a user module nor a trusted module
-fail	base/data_vect002	Error: Main:1:1--1:17:mlir backend: Main: unsupported (program): imports Data.Vect, which is neither a user module nor a trusted module
+pass	base/data_string_unlines001	
+pass	base/data_vect001	
+pass	base/data_vect002	
 pass	base/deriving_foldable	
 pass	base/deriving_functor	
 pass	base/deriving_show	
 pass	base/deriving_traversable	
-fail	base/sortedmap_001	Error: Main:1:1--1:22:mlir backend: Main: unsupported (program): imports Data.SortedMap, which is neither a user module nor a trusted module
-fail	base/system_directory	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
+fail	base/sortedmap_001	Error: Data.SortedMap.Dependent:211:3--211:65:mlir backend: Data.SortedMap.Dependent.M: unsupported (dependent field): a field type that depends on another field: (Data.SortedMap.Dependent.Tree [__] Int \(Data.SortedMap.
+fail	base/system_directory	Error: ReadDir:8:1--8:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Directory.prim__openDir (reached through Main.main)
 skip	base/system_env	raw pointer
-fail	base/system_errno	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
-fail	base/system_file001	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
-fail	base/system_fileError	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
-fail	base/system_file_copyFile	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
-fail	base/system_file_fGetChars	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
-fail	base/system_file_fRead	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.File, which is neither a user module nor a trusted module
-fail	base/system_file_popen	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports Data.String, which is neither a user module nor a trusted module
-fail	base/system_file_remove	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
-fail	base/system_get_environment	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
-fail	base/system_info001	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports System.Info, which is neither a user module nor a trusted module
+fail	base/system_errno	Error: Test:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Errno.prim__strerror (reached through Main.main)
+skip	base/system_file001	raw pointer
+skip	base/system_fileError	raw pointer
+skip	base/system_file_copyFile	raw pointer
+skip	base/system_file_fGetChars	raw pointer
+skip	base/system_file_fRead	raw pointer
+skip	base/system_file_popen	raw pointer
+fail	base/system_file_remove	Error: Test:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.File.ReadWrite.prim__writeLine (reached through Main.main)
+fail	base/system_get_environment	Error: Test:3:1--3:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.prim__getEnvPair (reached through Main.main)
+fail	base/system_info001	Error: NumProcessors:3:1--3:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Info.prim__getNProcessors (reached through Main.main)
 skip	base/system_info_os001	raw pointer
-fail	base/system_run	Error: Main:1:1--1:19:mlir backend: Main: unsupported (program): imports Data.String, which is neither a user module nor a trusted module
-fail	base/system_signal001	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports System.Signal, which is neither a user module nor a trusted module
-fail	base/system_signal002	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports System.Signal, which is neither a user module nor a trusted module
-fail	base/system_signal003	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports System.Signal, which is neither a user module nor a trusted module
-fail	base/system_signal004	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports System.Signal, which is neither a user module nor a trusted module
-fail	base/system_system	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
-fail	base/system_time001	Error: Main:1:1--1:14:mlir backend: Main: unsupported (program): imports System, which is neither a user module nor a trusted module
+skip	base/system_run	raw pointer
+fail	base/system_signal001	Error: IgnoreSignal:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Signal.prim__ignoreSignal (reached through Main.main)
+fail	base/system_signal002	Error: HandleSignal:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Signal.prim__collectSignal (reached through Main.main)
+fail	base/system_signal003	Error: DefaultSignal:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Signal.prim__ignoreSignal (reached through Main.main)
+fail	base/system_signal004	Error: HandleManySignals:6:1--6:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.Signal.prim__collectSignal (reached through Main.main)
+fail	base/system_system	Error: Test:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.prim__system (reached through Main.main)
+fail	base/system_time001	Error: Time:4:1--4:13:mlir backend: Main.main: unsupported (escape hatch): %foreign System.prim__time (reached through Main.main)
 pass	base/ttimp_show001	
 fail	base/void_error	Error: Main:2:35--2:45:mlir backend: Main: unsupported (escape hatch): the escape hatch believe_me
 pass	idris2/basic/basic001	
@@ -122,9 +122,9 @@ pass	idris2/basic/basic050
 pass	idris2/basic/basic051	
 pass	idris2/basic/basic052	
 pass	idris2/basic/basic053	
-fail	idris2/basic/basic054	Error: Issue1023:1:1--1:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
-fail	idris2/basic/basic055	Error: Main:6:1--6:19:mlir backend: Main: unsupported (program): imports Data.Stream, which is neither a user module nor a trusted module
-fail	idris2/basic/basic056	Error: Main:1:1--1:15:mlir backend: Main: unsupported (program): imports Data.So, which is neither a user module nor a trusted module
+pass	idris2/basic/basic054	
+fail	idris2/basic/basic055	Error: BitOps:53:1--53:29:mlir backend: Main.shiftRInteger: unsupported (primitive): primitive prim__shr_Integer
+pass	idris2/basic/basic056	
 pass	idris2/basic/basic057	
 pass	idris2/basic/basic058	
 pass	idris2/basic/basic059	
@@ -137,20 +137,20 @@ pass	idris2/basic/basic065
 pass	idris2/basic/basic066	
 pass	idris2/basic/basic067	
 fail	idris2/basic/basic068	Error: Main:16:3--16:8:mlir backend: Main: unsupported (pragma): the pragma %hide
-fail	idris2/basic/basic069	Error: DebugInfo:1:1--1:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/basic/basic069	
 pass	idris2/basic/basic070	
 pass	idris2/basic/basic071	
 pass	idris2/basic/basic072	
 pass	idris2/basic/basic073	
 pass	idris2/basic/basic074	
-fail	idris2/basic/basic075	Error: Issue2128:1:1--1:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/basic/basic075	
 pass	idris2/basic/basic076	
-fail	idris2/basic/basic077	Error: MultiArg:16:1--16:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/basic/basic077	
 pass	idris2/basic/basic078	
 pass	idris2/basic/case002	
 pass	idris2/basic/dotted001	
 pass	idris2/basic/dotted002	
-fail	idris2/basic/idiom001	Error: Main:34:1--34:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/basic/idiom001	
 pass	idris2/basic/interpolation001	
 fail	idris2/basic/interpolation002	Error: mlir backend: unsupported (program): --exec test is not supported
 pass	idris2/basic/interpolation003	
@@ -168,7 +168,7 @@ pass	idris2/builtin/builtin008
 fail	idris2/builtin/builtin009	Error: Main:5:1--5:9:mlir backend: Main: unsupported (pragma): the pragma %builtin
 pass	idris2/builtin/builtin010	
 fail	idris2/builtin/builtin011	Error: Main:5:1--5:9:mlir backend: Main: unsupported (pragma): the pragma %builtin
-fail	idris2/builtin/builtin012	Error: Main:3:1--3:16:mlir backend: Main: unsupported (program): imports Data.Fin, which is neither a user module nor a trusted module
+fail	idris2/builtin/builtin012	Error: Main:5:1--5:9:mlir backend: Main: unsupported (pragma): the pragma %builtin
 pass	idris2/casetree/casetree001	
 pass	idris2/casetree/casetree002	
 pass	idris2/casetree/casetree003	
@@ -231,7 +231,7 @@ pass	idris2/data/record011
 pass	idris2/data/record012	
 pass	idris2/data/record013	
 pass	idris2/data/record014	
-fail	idris2/data/record015	Error: Issue2176:129:1--129:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/data/record015	
 pass	idris2/data/record016	
 pass	idris2/data/record017	
 pass	idris2/data/record018	
@@ -266,7 +266,7 @@ pass	idris2/error/error023
 pass	idris2/error/error024	
 pass	idris2/error/error025	
 pass	idris2/error/error026	
-fail	idris2/error/error027	Error: Issue2950:1:1--1:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+fail	idris2/error/error027	stdout mismatch: 1 lines against 0
 pass	idris2/error/error028	
 pass	idris2/error/error029	
 pass	idris2/error/error030	
@@ -357,7 +357,7 @@ pass	idris2/interface/interface025
 pass	idris2/interface/interface026	
 pass	idris2/interface/interface027	
 pass	idris2/interface/interface028	
-fail	idris2/interface/interface029	Error: ForwardImpl1:22:1--22:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/interface/interface029	
 pass	idris2/interface/interface030	
 pass	idris2/interface/interface031	
 pass	idris2/interface/interface032	
@@ -410,7 +410,7 @@ pass	idris2/misc/docs003
 pass	idris2/misc/docs004	
 pass	idris2/misc/docs005	
 pass	idris2/misc/eta001	
-fail	idris2/misc/golden001	Error: Main:3:1--3:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+fail	idris2/misc/golden001	Error: Test:3:1--3:19:mlir backend: Test: unsupported (program): imports Test.Golden, which is neither a user module nor a trusted module
 fail	idris2/misc/golden001/000-hello	stdout mismatch: line 1: stock "/Users/bjorn/Documents/idris-mlir-wt-idris-tests/.toolchain/idris2/bin/idris2" / ours "/Users/bjorn/Documents/idris-mlir-wt-idris-tests/tests/upstream-idris/as-idris"
 pass	idris2/misc/import001	
 pass	idris2/misc/import002	
@@ -438,7 +438,7 @@ pass	idris2/misc/params003
 pass	idris2/misc/params004	
 pass	idris2/misc/pretty001	
 pass	idris2/misc/pretty002	
-fail	idris2/misc/primloop	Error: PrimLoop:11:1--11:13:mlir backend: PrimLoop.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through PrimLoop.main)
+pass	idris2/misc/primloop	
 pass	idris2/misc/quantifiers001	
 skip	idris2/misc/real001	threads
 pass	idris2/misc/real002	
@@ -462,7 +462,7 @@ pass	idris2/perf/perf003
 pass	idris2/perf/perf004	
 pass	idris2/perf/perf005	
 pass	idris2/perf/perf007	
-fail	idris2/perf/perf008	Error: Main:1:1--1:16:mlir backend: Main: unsupported (program): imports Data.Fin, which is neither a user module nor a trusted module
+fail	idris2/perf/perf008	Error: FinPerf:17:1--17:13:mlir backend: Main.main: unsupported (escape hatch): the escape hatch Builtin.believe_me (reached through Main.main)
 pass	idris2/perf/perf009	
 pass	idris2/perf/perf010	
 pass	idris2/perf/perf011	
@@ -483,7 +483,7 @@ pass	idris2/reflection/reflection010
 pass	idris2/reflection/reflection011	
 pass	idris2/reflection/reflection012	
 pass	idris2/reflection/reflection013	
-fail	idris2/reflection/reflection014	Error: Main:1:1--1:27:mlir backend: Main: unsupported (program): imports Language.Reflection, which is neither a user module nor a trusted module
+fail	idris2/reflection/reflection014	Error: Main:3:1--3:10:mlir backend: Main: unsupported (pragma): the pragma %language
 pass	idris2/reflection/reflection015	
 pass	idris2/reflection/reflection016	
 pass	idris2/reflection/reflection017	
@@ -502,10 +502,10 @@ pass	idris2/reflection/reflection030
 pass	idris2/reflection/reflection031	
 pass	idris2/reflection/reflection032	
 pass	idris2/reflection/reflection033	
-fail	idris2/reflection/reflection034	Error: Main:1:1--1:27:mlir backend: Main: unsupported (program): imports Language.Reflection, which is neither a user module nor a trusted module
-fail	idris2/reflection/reflection034_2	Error: Main:1:1--1:27:mlir backend: Main: unsupported (program): imports Language.Reflection, which is neither a user module nor a trusted module
+fail	idris2/reflection/reflection034	Error: Main:3:1--3:10:mlir backend: Main: unsupported (pragma): the pragma %language
+fail	idris2/reflection/reflection034_2	Error: Main:3:1--3:10:mlir backend: Main: unsupported (pragma): the pragma %language
 pass	idris2/reflection/reflection035	
-fail	idris2/reflection/reflection036	Error: Main:1:1--1:27:mlir backend: Main: unsupported (program): imports Language.Reflection, which is neither a user module nor a trusted module
+fail	idris2/reflection/reflection036	Error: Main:3:1--3:10:mlir backend: Main: unsupported (pragma): the pragma %language
 pass	idris2/reg/reg001	
 pass	idris2/reg/reg002	
 pass	idris2/reg/reg003	
@@ -605,7 +605,7 @@ pass	idris2/total/total031
 pass	idris2/warning/warning001	
 pass	idris2/warning/warning002	
 pass	idris2/warning/warning003	
-fail	idris2/warning/warning004	Error: Main1:6:1--6:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/warning/warning004	
 pass	idris2/warning/warning005	
 pass	idris2/warning/warning006	
 pass	idris2/with/with001	
@@ -619,9 +619,9 @@ pass	idris2/with/with009
 pass	idris2/with/with010	
 skip	idris2/with/with011	not a commitment
 pass	idris2/with/with012	
-fail	prelude/bind001	Error: Main:1:1--1:21:mlir backend: Main: unsupported (program): imports Data.SnocList, which is neither a user module nor a trusted module
+pass	prelude/bind001	
 pass	prelude/char001	
-fail	prelude/double001	Error: Types:89:1--89:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	prelude/double001	
 pass	prelude/nat001	
 pass	prelude/operators001	
 pass	prelude/reg001	

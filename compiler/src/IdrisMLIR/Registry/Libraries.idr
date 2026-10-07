@@ -8,27 +8,21 @@ import IdrisMLIR.Registry.Name
 
 %default total
 
-||| The areas of a trusted package that the profile trusts, by their top
-||| namespace. `System` holds the IO of files, the clock and the process:
-||| its definitions are admitted like any trusted module's, and a foreign
-||| function of its that is reached without a registry entry is rejected
-||| where it is reached, as anywhere.
+||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
+||| the prelude, base, and the packages this compiler ships itself
+||| (`libs/`: `mlir-linear`), which it implements in full. The compiler
+||| implements Idris 2 for programs over the upstream prelude and base; the
+||| other packages shipped with Idris (contrib, linear, network, test) are
+||| no commitment, and what they covered comes from `libs/`. A module of
+||| prelude or base is one of these because its TTC lives in that package,
+||| not because its name was listed.
 public export
-data Area = Data | Control | Decidable | Syntax | System
-
-||| The libraries the compiler knows: `Builtin` and `PrimIO`, the Prelude's
-||| modules, the trusted areas of base, and the packages this compiler
-||| ships itself (`libs/`: `mlir-linear`), which it implements in full. The
-||| compiler implements Idris 2 for programs over the upstream prelude and
-||| base; the other packages shipped with Idris (contrib, linear, network,
-||| test) are no commitment, and what they covered comes from `libs/`.
-public export
-data Lib = Builtin | PrimIO | Prelude | Base Area | InHouse
+data Lib = Builtin | PrimIO | Prelude | Base | InHouse
 
 ||| Where Idris found the TTC of a module: in the project's own build
-||| directory, built from the user's source; in the pinned installation's
-||| package of that name; or anywhere else. A module's name says nothing
-||| about which of these it is, so trust never follows from a name.
+||| directory, built from the user's source; in an installed package of
+||| that name; or anywhere else. A module's name says nothing about which
+||| of these it is, so trust never follows from a name.
 public export
 data Home = Project | Installed String | Elsewhere
 
@@ -65,11 +59,11 @@ record Row where
 |||
 |||                         trusted admitted break-last report
 row : Lib -> Row
-row Builtin  = MkRow        True    True     True       True
-row PrimIO   = MkRow        True    False    True       True
-row Prelude  = MkRow        True    True     False      True
-row (Base _) = MkRow        True    True     False      False
-row InHouse  = MkRow        True    True     False      False
+row Builtin = MkRow        True    True     True       True
+row PrimIO  = MkRow        True    False    True       True
+row Prelude = MkRow        True    True     False      True
+row Base    = MkRow        True    True     False      False
+row InHouse = MkRow        True    True     False      False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
@@ -84,27 +78,19 @@ covers : Purpose -> Origin -> Bool
 covers p (Library l) = column p (row l)
 covers _ _ = False
 
-||| A trusted area, by its top namespace.
-area : String -> Maybe Area
-area "Data" = Just Data
-area "Control" = Just Control
-area "Decidable" = Just Decidable
-area "Syntax" = Just Syntax
-area "System" = Just System
-area _ = Nothing
-
-||| The origin of the code in a module, by where its TTC is and the
-||| module's path, outermost first. The Prelude package holds `Builtin`,
-||| `PrimIO` and the Prelude; a trusted area of base is its top namespace
-||| within that package; every module of a package this compiler ships is
-||| its own.
+||| The origin of the code in a module, by the package its TTC lives in.
+||| Every module of the prelude package is trusted: `Builtin` and `PrimIO`
+||| keep the rows that admit them differently, and the rest of that package
+||| is the Prelude. Every module of base is base. Every module of a package
+||| this compiler ships is its own. A module of any other installed package
+||| is untrusted, whatever it is named.
 export
 moduleOrigin : Home -> List String -> Origin
 moduleOrigin Project _ = User
-moduleOrigin (Installed "prelude") ["Builtin"] = Library Builtin
-moduleOrigin (Installed "prelude") ["PrimIO"] = Library PrimIO
-moduleOrigin (Installed "prelude") ("Prelude" :: _) = Library Prelude
-moduleOrigin (Installed "base") (top :: _) = maybe Untrusted (Library . Base) (area top)
+moduleOrigin (Installed "prelude") ("Builtin" :: _) = Library Builtin
+moduleOrigin (Installed "prelude") ("PrimIO" :: _) = Library PrimIO
+moduleOrigin (Installed "prelude") _ = Library Prelude
+moduleOrigin (Installed "base") _ = Library Base
 moduleOrigin (Installed "mlir-linear") _ = Library InHouse
 moduleOrigin _ _ = Untrusted
 
