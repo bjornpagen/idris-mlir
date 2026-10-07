@@ -52,42 +52,49 @@ lanes) and reverse-complement from 0.08x to 0.12x; the rest moved within
 the spread.
 
 The arm64 macOS record is
-[`runs/2026-10-05-2cb1436-darwin-arm64`](runs/2026-10-05-2cb1436-darwin-arm64/results.md):
-the same programs and command, best of 5 runs, measured on 2026-10-05 at
-2cb1436 on an Apple M2 Max (12 CPUs, 16 KiB pages) on AC power, with the
+[`runs/2026-10-07-f5a4dff9-darwin-arm64`](runs/2026-10-07-f5a4dff9-darwin-arm64/results.md):
+twenty-seven programs, best of 5 runs, measured on 2026-10-07 at
+f5a4dff9 on an Apple M2 Max (12 CPUs, 16 KiB pages) on AC power, with the
 desktop's own applications running, so not a quiet machine either. This
-compiler targets apple-m1 there and links dynamic executables against
-libSystem with the host's ld64; clang's C is built for the same CPU and
-linked the same way, and the stack is macOS's 64 MiB hard limit, which
-cfold fits.
+compiler targets apple-m1 there and links dynamic executables with lld;
+clang's C is built for the same CPU and linked the same way, and the stack
+is macOS's 64 MiB hard limit, which cfold fits.
 
-![This compiler against clang -O2 on arm64 macOS](runs/2026-10-05-2cb1436-darwin-arm64/vs-c.svg)
+![This compiler against clang -O2 on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/vs-c.svg)
 
-![This compiler against Idris on Chez Scheme on arm64 macOS](runs/2026-10-05-2cb1436-darwin-arm64/vs-chez.svg)
+![This compiler against Idris on Chez Scheme on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/vs-chez.svg)
 
-![Best time of each compiler on arm64 macOS](runs/2026-10-05-2cb1436-darwin-arm64/times.svg)
+![Best time of each compiler on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/times.svg)
 
-Against clang -O2 it is faster on 7 programs, within 15% on 12 and slower
-on 6 (fannkuch-redux, fasta, k-nucleotide, pidigits, reverse-complement
-and spectral-norm); against Idris on Chez Scheme it is faster on all 26,
-from 1.05x (regex-redux) to 152x (spectral-norm-linear). Compiling a
-program takes 1.1 to 16.4 seconds; k-nucleotide is the slow one now, and
-why is not measured yet. Its results page
-compares each ratio with the previous Mac record's: k-nucleotide, the C's
-algorithm since this record, is 0.35x of C (0.130 s against 0.045 s)
-where the previous program was 0.01x, and the rest moved within the
-spread (rbtree's -23% is clang's C, 0.789 s then and 0.631 s now, ours
-0.401 s and 0.418 s). The previous Mac record
+Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
+on 8 (fannkuch-redux, fasta, fasta-redux, k-nucleotide, pidigits,
+regex-redux, reverse-complement and spectral-norm); against Idris on Chez
+Scheme it is faster on all 27, from 1.12x (regex-redux) to 152x
+(spectral-norm-linear). Compiling a program takes 1.0 to 14.0 seconds;
+k-nucleotide is the slow one. Its results page compares each ratio with
+the previous Mac record's. The game programs are at the size the game
+measures. Past the spread, k-nucleotide went from 0.35x of C to 0.22x and
+reverse-complement from 0.26x to 0.12x; rbtree, still at 4200000, went
+from 1.51x to 1.76x (clang's C, 0.631 s then and 0.718 s now, ours 0.418 s
+and 0.409 s). fasta-redux is new, at 0.25x of C, and regex-redux's C
+column is new, 0.21x. The rest moved within the spread, fannkuch-redux
+included (0.80x then, 0.78x at 12). The previous Mac record
+([`runs/2026-10-05-2cb1436-darwin-arm64`](runs/2026-10-05-2cb1436-darwin-arm64/results.md))
+compares each ratio with the record before it: k-nucleotide, the C's
+algorithm since that record, is 0.35x of C (0.130 s against 0.045 s)
+where the program before it was 0.01x, and the rest of that comparison
+moved within the spread (rbtree's -23% is clang's C, 0.789 s then and
+0.631 s now, ours 0.401 s and 0.418 s). The record before that
 ([`runs/2026-10-04-15f1a53-darwin-arm64`](runs/2026-10-04-15f1a53-darwin-arm64/results.md))
 compares each ratio with the Linux record's, each against its own run's
 C: the Mac is behind on the allocation-heavy programs (binary-trees,
 cfold, deriv), on fannkuch-redux and on pidigits, and ahead on fib,
 rbtree, unionfind and reverse-complement. The Mac's C is the faster of the
 two by up to 3x (fannkuch-redux's runs in 0.172 s there against 0.546 s
-on Linux), which lowers every ratio against it. ack takes 12 ms here
-against Linux's 4 ms; an empty program starts in about 2 ms on this Mac,
-so start-up is not all of the difference, and it is not measured further
-yet.
+on Linux), which lowers every ratio against it. ack takes 12 ms in the
+2026-10-05 record against Linux's 4 ms; an empty program starts in about
+2 ms on this Mac, so start-up is not all of the difference, and it is not
+measured further yet.
 
 How to read them. The run-to-run spread on this container reaches 15%, so
 a ratio within that of 1 is parity. The C column itself moved by up to 2x
@@ -155,23 +162,17 @@ are an accumulator: the Prelude's `length` keeps a frame per element, and
 the input is longer than the program's stack.
 
 The game's own cutoff for a measured run is several minutes. This suite
-kills a run at 300 seconds (times `IDRIS_MLIR_TIME_SCALE`). Scaled from
-the Chez column of the 2026-10-05 arm64 record, three official sizes pass
-that kill and four do not, and the sizes were not shrunk to hide it:
+kills a run at 300 seconds (times `IDRIS_MLIR_TIME_SCALE`). The 2026-10-07
+arm64 record is the official sizes, and every program finished. Chez's
+best times for the four the previous record's column scaled past that
+kill:
 
-- `fannkuch-redux` at 12 is about 130 times the work of 10. Chez took
-  6.3 s at 10, so about 14 minutes at 12.
-- `fannkuch-linear` at 12 is the same factor on Chez's 2.3 s, about the
-  300 s kill.
-- `k-nucleotide` at fasta 25000000 is 100 times the sequence. Chez took
-  4.9 s at 250000, so about 8 minutes.
-- `reverse-complement` at fasta 25000000 is the same factor on Chez's
-  3.1 s, just past 300 s.
+- `fannkuch-redux` at 12 took 1163.295 s.
+- `fannkuch-linear` at 12 took 383.179 s.
+- `k-nucleotide` at fasta 25000000 took 522.836 s.
+- `reverse-complement` at fasta 25000000 took 309.447 s.
 
-`fasta`, `n-body`, `regex-redux`, `mandelbrot-pbm`, `pidigits`,
-`spectral-norm` and `binary-trees` stay under it on that scaling
-(`mandelbrot-pbm` at 16000 is about 16 times the pixels of 4000, and Chez
-took 13 s there). A later record is what actually happens.
+The sizes were not shrunk.
 
 ### Per program
 
