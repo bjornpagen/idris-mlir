@@ -409,14 +409,10 @@ def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
     match region they never reach ends in `ub.unreachable`, and a function
     they never reach returns `ub.poison`. At the pin, `remove-dead-values`
     crashes on such code (`PINS.md`: `prune-before-remove-dead-values`).
-    A call of a function that a closure names passes `ub.poison` for each
-    parameter the function never reads, which `remove-dead-values` would
-    otherwise leave null (`PINS.md`: `remove-dead-values-address-taken`).
   }];
   let dependentDialects = ["::mlir::ub::UBDialect"];
   let statistics = [
     Statistic<"numEmptied", "emptied", "Unreachable function bodies and match regions emptied">,
-    Statistic<"numPoisoned", "poisoned", "Unread parameters passed poison">,
   ];
 }
 

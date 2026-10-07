@@ -17,9 +17,8 @@ struct Prune : idr::impl::IdrPruneBase<Prune> {
     mlir::FailureOr<idr::simplify::Pruned> pruned = idr::simplify::prune(getOperation());
     if (mlir::failed(pruned))
       return signalPassFailure();
-    numPoisoned += pruned->poisoned;
     numEmptied += pruned->emptied;
-    if (!pruned->emptied && !pruned->poisoned)
+    if (!pruned->emptied)
       markAllAnalysesPreserved();
   }
 };

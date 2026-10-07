@@ -52,8 +52,8 @@ std::optional<Evaluation> canEvaluate(Operation *op, SymbolTable &symbols) {
   }
   for (Value operand : operands) {
     Attribute value;
-    // Poison, which idr-prune passes for a parameter nothing reads, is no
-    // value to materialize.
+    // Poison, which remove-dead-values passes for a parameter nothing reads,
+    // is no value to materialize.
     if (!matchPattern(operand, m_Constant(&value)) || isa<ub::PoisonAttr>(value))
       return std::nullopt;
     out.args.push_back(value);

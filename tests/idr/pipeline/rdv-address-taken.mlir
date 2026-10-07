@@ -1,11 +1,9 @@
-// RUN: idris-mlir-opt %s --idr-prune --remove-dead-values > %t.mlir
+// RUN: idris-mlir-opt %s --remove-dead-values > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// @f is named by a closure, so remove-dead-values keeps its parameters, but
-// at the pin it still finds %y, which @g passes to the parameter @f never
-// reads, dead: it erases the parameter of @g and leaves the call a null
-// operand (PINS.md: remove-dead-values-address-taken). Raising and apply of
-// a known closure make such calls. idr-prune passes poison there first, so
-// the parameter of @g goes and the call keeps its operands.
+// @f is named by a closure, so remove-dead-values keeps its parameters,
+// and finds %y, which @g passes to the parameter @f never reads, dead: the
+// parameter of @g goes, and the call passes poison in its place. Raising
+// and apply of a known closure make such calls.
 // CHECK-LABEL: func.func private @g(
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: i64) -> i64
 // CHECK-NEXT: %[[P:.*]] = ub.poison : i64

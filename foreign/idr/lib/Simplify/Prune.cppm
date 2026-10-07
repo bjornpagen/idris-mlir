@@ -11,15 +11,6 @@
 // and match region: a match region ends in `ub.unreachable`, and a function
 // body returns `ub.poison` (returnNever).
 // Nothing reachable changes, so the program means what it meant.
-//
-// remove-dead-values also leaves alone the parameters of a function that a
-// closure names, since not every use of it is a call, but still treats a
-// value passed to one that the function never reads as dead: it erases that
-// value, a parameter of the caller or the op that made it, and the call
-// keeps a null operand (PINS.md: remove-dead-values-address-taken). Raising
-// and apply of a known closure make such calls. So a
-// call of such a function passes `ub.poison` for each parameter it never
-// reads, which nothing reads either.
 export module idr.simplify:prune;
 
 import idr.mlir;
@@ -53,60 +44,18 @@ void empty(Block &block) {
     ub::UnreachableOp::create(b, parent->getLoc());
 }
 
-// The functions some symbol use other than a call's callee names: a closure,
-// a closure constant.
-llvm::DenseSet<StringAttr> addressTaken(ModuleOp module) {
-  llvm::DenseSet<StringAttr> taken;
-  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&module.getBodyRegion()))
-    for (const SymbolTable::SymbolUse &use : *uses)
-      if (!isa<func::CallOp>(use.getUser()))
-        taken.insert(use.getSymbolRef().getRootReference());
-  return taken;
-}
-
-// Passes poison for every parameter of an address-taken function that it
-// never reads. Returns the number of operands it replaced.
-unsigned guardUnreadParameters(ModuleOp module) {
-  llvm::DenseSet<StringAttr> taken = addressTaken(module);
-  SymbolTable symbols(module);
-  unsigned changed = 0;
-  module.walk([&](func::CallOp call) {
-    if (!taken.contains(call.getCalleeAttr().getAttr()))
-      return;
-    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
-    if (!callee || callee.isExternal() || callee.getNumArguments() != call.getNumOperands())
-      return;
-    for (BlockArgument param : callee.getArguments()) {
-      Value operand = call.getOperand(param.getArgNumber());
-      if (!param.use_empty() || idr::isWorld(param.getType()) || idr::isErased(param.getType()) ||
-          operand.getDefiningOp<ub::PoisonOp>())
-        continue;
-      OpBuilder b(call);
-      call.setOperand(param.getArgNumber(),
-                      ub::PoisonOp::create(b, call.getLoc(), param.getType()));
-      ++changed;
-    }
-  });
-  return changed;
-}
-
 } // namespace
 
 namespace idr::simplify {
 
-// What `prune` changed: the operands it made poison, and the blocks it
-// emptied.
+// What `prune` changed: the blocks it emptied.
 export struct Pruned {
-  uint64_t poisoned = 0;
   uint64_t emptied = 0;
 };
 
-// Empties the unreachable code of `module`, after passing poison for the
-// parameters address-taken functions never read. Fails when the analyses
-// fail.
+// Empties the unreachable code of `module`. Fails when the analyses fail.
 export FailureOr<Pruned> prune(ModuleOp module) {
   Pruned pruned;
-  pruned.poisoned = guardUnreadParameters(module);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
   loadBaselineAnalyses(solver);
   if (failed(solver.initializeAndRun(module)))

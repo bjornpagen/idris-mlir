@@ -73,10 +73,10 @@ issue of its own.
 
 ## Our workaround
 
-`PINS.md`: `remove-dead-values-address-taken`. `idr-prune`
-(`foreign/idr/lib/Simplify/Prune.cppm`), right before `remove-dead-values`,
-makes each call of such a function pass `ub.poison` for every parameter
-the function never reads.
+None: `remove-dead-values-unreachable`'s patch is carried, and the call
+passes `ub.poison` for such a parameter itself. Before the patch,
+`idr-prune` made each call of such a function pass `ub.poison` for every
+parameter the function never reads, right before `remove-dead-values`.
 
 ## Why there is no patch
 
