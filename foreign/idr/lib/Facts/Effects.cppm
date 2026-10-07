@@ -1,5 +1,11 @@
-// idr.facts:effects: what running some code may do.
+// idr.facts:effects: what running some code may do. The working form is three
+// flags; `idr.effects` stores the same fact as the dialect's `Effect` bits,
+// and `bits` / `from` are that form.
 export module idr.facts:effects;
+
+import idr.dialect;
+
+using namespace idr;
 
 export namespace idr::facts {
 
@@ -18,6 +24,23 @@ struct Effects {
     crash |= other.crash;
     diverge |= other.diverge;
     return *this;
+  }
+
+  // `idr.effects`'s bits.
+  Effect bits() const {
+    Effect stored = Effect::none;
+    if (io)
+      stored = stored | Effect::io;
+    if (crash)
+      stored = stored | Effect::crash;
+    if (diverge)
+      stored = stored | Effect::diverge;
+    return stored;
+  }
+
+  static Effects from(Effect stored) {
+    return {bitEnumContainsAny(stored, Effect::io), bitEnumContainsAny(stored, Effect::crash),
+            bitEnumContainsAny(stored, Effect::diverge)};
   }
 };
 

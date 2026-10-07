@@ -23,6 +23,7 @@ export import :prepare;
 export import :preparedbitcode;
 export import :preparemember;
 export import :readruntime;
+export import :report;
 export import :retarget;
 export import :run;
 export import :runonlargestack;

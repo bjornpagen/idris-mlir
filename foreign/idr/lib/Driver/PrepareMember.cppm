@@ -5,6 +5,7 @@ export module idr.driver:preparemember;
 import idr.mlir;
 
 import :markannotated;
+import :report;
 import :options;
 import :sametarget;
 
@@ -19,9 +20,8 @@ export namespace idr::driver {
 // that was prepared already.
 bool prepareMember(llvm::Module &member, llvm::StringRef name) {
   if (!sameTarget(member.getTargetTriple(), llvm::Triple(targetTriple))) {
-    llvm::errs() << "idris-mlir-cc: runtime member " << name << " is compiled for "
-                 << member.getTargetTriple().str() << ", and programs for " << targetTriple
-                 << "\n";
+    Report() << "runtime member " << name << " is compiled for " << member.getTargetTriple().str()
+             << ", and programs for " << targetTriple;
     return false;
   }
   markAnnotated(member);
@@ -35,9 +35,9 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
         global->eraseFromParent();
         continue;
       }
-      llvm::errs() << "idris-mlir-cc: runtime member " << name
-                   << " has static constructors or destructors; the runtime must be "
-                      "constant-initialized\n";
+      Report() << "runtime member " << name
+               << " has static constructors or destructors; the runtime must be "
+                  "constant-initialized";
       return false;
     }
   for (llvm::StringRef array : {"llvm.used", "llvm.compiler.used"})
@@ -45,8 +45,8 @@ bool prepareMember(llvm::Module &member, llvm::StringRef name) {
       global->eraseFromParent();
   for (const llvm::GlobalVariable &global : member.globals())
     if (global.hasAppendingLinkage()) {
-      llvm::errs() << "idris-mlir-cc: unsupported (runtime): runtime member " << name
-                   << " defines the appending global " << global.getName() << "\n";
+      Report() << "unsupported (runtime): runtime member " << name
+               << " defines the appending global " << global.getName();
       return false;
     }
   return true;

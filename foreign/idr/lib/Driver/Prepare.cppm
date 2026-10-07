@@ -12,6 +12,7 @@ import :externalize;
 import :isprepared;
 import :marks;
 import :options;
+import :report;
 import :readruntime;
 import :retarget;
 
@@ -38,25 +39,23 @@ export namespace idr::driver {
 // whichever bodies were inlined.
 int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &cpu) {
   if (runtimePath.empty()) {
-    llvm::errs() << "idris-mlir-cc: --prepare-runtime needs --runtime to name the archive\n";
+    Report() << "--prepare-runtime needs --runtime to name the archive";
     return usage;
   }
   // Only these formats mark a section for every link to leave out
   // (embedBufferInModule's exclusion); in any other, the bitcode would ship
   // in every executable.
   if (!runtimeBitcodeSection.empty() && !triple.isOSBinFormatELF() && !triple.isOSBinFormatCOFF()) {
-    llvm::errs() << "idris-mlir-cc: unsupported --runtime-bitcode-section=" << runtimeBitcodeSection
-                 << ": a " << triple.str()
-                 << " object has no section every link leaves out; the bitcode goes beside the "
-                    "object (--runtime-bitcode-section='')\n";
+    Report() << "unsupported --runtime-bitcode-section=" << runtimeBitcodeSection << ": a "
+             << triple.str()
+             << " object has no section every link leaves out; the bitcode goes beside the "
+                "object (--runtime-bitcode-section='')";
     return usage;
   }
-  std::unique_ptr<llvm::TargetMachine> machine(
-      target.createTargetMachine(triple, cpu.name, cpu.features, idr::target::targetOptions(),
-                                 llvm::Reloc::PIC_, std::nullopt, llvm::CodeGenOptLevel::Aggressive));
+  std::unique_ptr<llvm::TargetMachine> machine =
+      idr::target::machine(target, triple, cpu.name, cpu.features);
   if (!machine) {
-    llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
-                 << "\n";
+    Report() << "internal error: no target machine for " << targetTriple;
     return failure;
   }
   llvm::LLVMContext context;
@@ -64,8 +63,8 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
   if (!runtime)
     return failure;
   if (isPrepared(*runtime)) {
-    llvm::errs() << "idris-mlir-cc: runtime " << runtimePath
-                 << " is prepared already; --prepare-runtime reads the archive\n";
+    Report() << "runtime " << runtimePath
+             << " is prepared already; --prepare-runtime reads the archive";
     return usage;
   }
   llvm::StringMap<std::pair<std::string, std::string>> compiledFor;
@@ -90,8 +89,8 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
   for (const llvm::Function &function : *runtime)
     if (!function.isDeclaration() &&
         (!function.hasFnAttribute(cpuMark) || !function.hasFnAttribute(featuresMark))) {
-      llvm::errs() << "idris-mlir-cc: internal error: the optimization made the runtime function "
-                   << function.getName() << " without the marks of what it was compiled for\n";
+      Report() << "internal error: the optimization made the runtime function " << function.getName()
+               << " without the marks of what it was compiled for";
       return failure;
     }
   if (!externalize(*runtime))
@@ -119,7 +118,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
     std::string path = besideObject(outputPath);
     beside = std::make_unique<llvm::ToolOutputFile>(path, error, llvm::sys::fs::OF_None);
     if (error) {
-      llvm::errs() << "idris-mlir-cc: cannot write " << path << ": " << error.message() << "\n";
+      cannotWrite(path, error);
       return failure;
     }
     beside->os() << bitcode;

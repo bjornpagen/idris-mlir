@@ -12,6 +12,7 @@ import :emit;
 import :linkruntime;
 import :options;
 import :prepare;
+import :report;
 import :retarget;
 import :settarget;
 import :writeoutput;
@@ -60,11 +61,11 @@ int run() {
   context.disableMultithreading();
 
   if (emitKind != "obj" && emitKind != "asm" && emitKind != "llvm" && emitKind != "mlir") {
-    llvm::errs() << "idris-mlir-cc: --emit must be obj, asm, llvm or mlir\n";
+    Report() << "--emit must be obj, asm, llvm or mlir";
     return usage;
   }
   if (checkOnly == !outputPath.empty()) {
-    llvm::errs() << "idris-mlir-cc: give either -o or --check\n";
+    Report() << "give either -o or --check";
     return usage;
   }
   llvm::InitializeNativeTarget();
@@ -75,7 +76,7 @@ int run() {
   std::string error;
   const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
   if (!target) {
-    llvm::errs() << "idris-mlir-cc: " << error << "\n";
+    Report() << error;
     return failure;
   }
   std::optional<Cpu> cpu = selectCpu(*target, triple);
@@ -107,7 +108,7 @@ int run() {
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
   if (mlir::failed(setTarget(*module, *cpu)) || verdict.errors) {
-    llvm::errs() << "idris-mlir-cc: internal error: the module's target could not be set\n";
+    Report() << "internal error: the module's target could not be set";
     return failure;
   }
 
@@ -119,7 +120,7 @@ int run() {
       auto file = mlir::remark::detail::LLVMRemarkStreamer::createToFile(
           remarksFile, llvm::remarks::Format::YAML);
       if (mlir::failed(file)) {
-        llvm::errs() << "idris-mlir-cc: cannot write the remarks to " << remarksFile << "\n";
+        Report() << "cannot write the remarks to " << remarksFile;
         return usage;
       }
       streamer = std::move(*file);
@@ -182,12 +183,23 @@ int run() {
                 llvm::any_of(idr::pipelineSteps(),
                              [&](llvm::StringRef s) { return stepName(s) == name; });
     if (!mechanism && !step) {
-      llvm::errs() << "idris-mlir-cc: --without names " << name
-                   << ", which is neither a pipeline step nor reuse, borrow or sink\n";
+      Report() << "--without names " << name
+               << ", which is neither a pipeline step nor reuse, borrow or sink";
       return usage;
     }
     omitted.insert(name);
   }
+  // Every step is one pass manager, registered the same way: statistics when
+  // they are on, MLIR's own pass-manager options, and this compilation's
+  // timer. The step's text is the pipeline it runs.
+  auto configure = [&](mlir::PassManager &pm) {
+    if (statistics)
+      pm.enableStatistics(mlir::PassDisplayMode::List);
+    if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
+      return false;
+    pm.enableTiming(rootTiming);
+    return true;
+  };
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
@@ -205,21 +217,17 @@ int run() {
         text = "idr-rc{" + llvm::join(options, " ") + "}";
     }
     mlir::PassManager pm(&context);
-    if (statistics)
-      pm.enableStatistics(mlir::PassDisplayMode::List);
-    // MLIR's pass manager options, on every pass manager.
-    if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
+    if (!configure(pm))
       return usage;
-    pm.enableTiming(rootTiming);
     if (mlir::failed(mlir::parsePassPipeline(text, pm))) {
-      llvm::errs() << "idris-mlir-cc: internal error: bad pipeline step " << text << "\n";
+      Report() << "internal error: bad pipeline step " << text;
       return failure;
     }
     bool ran = mlir::succeeded(pm.run(*module));
     if (!ran || verdict.errors) {
       if (!verdict.rejected)
-        llvm::errs() << "idris-mlir-cc: internal error: step " << index << " (" << step << ") "
-                     << (ran ? "reported an error" : "failed") << "\n";
+        Report() << "internal error: step " << index << " (" << step << ") "
+                 << (ran ? "reported an error" : "failed");
       return status(verdict);
     }
     if (!dump(*module, index, stepName(step)))
@@ -242,24 +250,22 @@ int run() {
   auto moduleTarget =
       (*module)->getAttrOfType<mlir::LLVM::TargetAttr>(mlir::LLVM::LLVMDialect::getTargetAttrName());
   if (!moduleTarget) {
-    llvm::errs() << "idris-mlir-cc: internal error: the module lost its #llvm.target\n";
+    Report() << "internal error: the module lost its #llvm.target";
     return failure;
   }
   std::string features =
       moduleTarget.getFeatures() ? moduleTarget.getFeatures().getFeaturesString() : "";
-  std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, moduleTarget.getChip().getValue(), features, idr::target::targetOptions(), llvm::Reloc::PIC_,
-      std::nullopt, llvm::CodeGenOptLevel::Aggressive));
+  std::unique_ptr<llvm::TargetMachine> machine = idr::target::machine(
+      *target, triple, moduleTarget.getChip().getValue(), features);
   if (!machine) {
-    llvm::errs() << "idris-mlir-cc: internal error: no target machine for " << targetTriple
-                 << "\n";
+    Report() << "internal error: no target machine for " << targetTriple;
     return failure;
   }
 
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
   if (!llvmModule || verdict.errors) {
-    llvm::errs() << "idris-mlir-cc: internal error: translation to LLVM IR failed\n";
+    Report() << "internal error: translation to LLVM IR failed";
     return failure;
   }
   llvmModule->setTargetTriple(triple);

@@ -6,6 +6,7 @@ idr_library(idr_facts
 		Facts.cppm
 		BreaksLast.cppm
 		ClosureLabel.cppm
+		Contained.cppm
 		Effects.cppm
 		Evaluation.cppm
 		Infer.cppm

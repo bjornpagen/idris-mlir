@@ -4,6 +4,8 @@ export module idr.driver:namesapart;
 
 import idr.mlir;
 
+import :report;
+
 namespace idr::driver {
 
 // The name the linker sees for a symbol, as LLVM's Mangler writes it from the
@@ -41,9 +43,9 @@ bool namesApart(const llvm::Module &program, const llvm::Module &runtime) {
     auto named = runtimeNames.find(linkerName(value));
     if (named == runtimeNames.end())
       continue;
-    llvm::errs() << "idris-mlir-cc: the program defines " << value.getName() << ", which the runtime "
-                 << (named->second->isDeclaration() ? "refers to" : "defines")
-                 << " too: the runtime's references would bind to the program's definition\n";
+    Report() << "the program defines " << value.getName() << ", which the runtime "
+             << (named->second->isDeclaration() ? "refers to" : "defines")
+             << " too: the runtime's references would bind to the program's definition";
     return false;
   }
   return true;

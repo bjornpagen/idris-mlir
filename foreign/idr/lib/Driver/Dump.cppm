@@ -5,6 +5,7 @@ export module idr.driver:dump;
 import idr.mlir;
 
 import :options;
+import :report;
 
 export namespace idr::driver {
 
@@ -18,7 +19,7 @@ bool dump(mlir::ModuleOp module, unsigned index, llvm::StringRef name) {
   std::error_code error;
   llvm::raw_fd_ostream out(path, error);
   if (error) {
-    llvm::errs() << "idris-mlir-cc: cannot write " << path << ": " << error.message() << "\n";
+    cannotWrite(path, error);
     return false;
   }
   module->print(out, mlir::OpPrintingFlags().enableDebugInfo());

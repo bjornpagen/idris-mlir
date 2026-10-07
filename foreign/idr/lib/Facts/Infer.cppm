@@ -135,10 +135,8 @@ llvm::SmallVector<std::pair<func::FuncOp, Effects>> infer(ModuleOp module) {
   };
   llvm::SmallVector<std::pair<func::FuncOp, Effects>> out;
   for (auto &[fn, found] : facts) {
-    Effects effects;
-    effects.io = bitEnumContainsAny(found.reached, idr::Effect::io) || takes(fn);
-    effects.crash = bitEnumContainsAny(found.reached, idr::Effect::crash);
-    effects.diverge = bitEnumContainsAny(found.reached, idr::Effect::diverge);
+    Effects effects = Effects::from(found.reached);
+    effects.io |= takes(fn);
     out.emplace_back(fn, effects);
   }
   return out;

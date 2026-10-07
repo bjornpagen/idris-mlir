@@ -11,6 +11,7 @@ export module idr.driver:runonlargestack;
 import idr.mlir;
 
 import :options;
+import :report;
 import :run;
 
 namespace idr::driver {
@@ -50,7 +51,7 @@ int runOnLargeStack() {
   Compilation compilation;
   if (idris_rt_run_on_stack(compile, &compilation, size_t{1} << 40, size_t{1} << 20,
                             compilationExhausted) != 0) {
-    llvm::errs() << "idris-mlir-cc: no stack could be reserved for the compilation\n";
+    Report() << "no stack could be reserved for the compilation";
     return failure;
   }
   return compilation.status;

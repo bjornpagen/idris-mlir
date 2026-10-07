@@ -10,6 +10,7 @@ idr_library(idr_support
 		RaiseAction.cppm
 		SpecializeCloneAction.cppm
 		Statistics.cppm
+		TaggedAction.cppm
 	LINKS
 		idr_mlir
 )

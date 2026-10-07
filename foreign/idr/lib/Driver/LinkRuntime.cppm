@@ -7,6 +7,7 @@ import :namesapart;
 import :nativeruns;
 import :options;
 import :readruntime;
+import :report;
 
 export namespace idr::driver {
 
@@ -32,7 +33,7 @@ bool linkRuntime(llvm::Module &program, const llvm::Target &target, const llvm::
       if (value.hasAvailableExternallyLinkage())
         value.setLinkage(llvm::GlobalValue::ExternalLinkage);
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded)) {
-    llvm::errs() << "idris-mlir-cc: internal error: linking the runtime into the program failed\n";
+    Report() << "internal error: linking the runtime into the program failed";
     return false;
   }
   return true;

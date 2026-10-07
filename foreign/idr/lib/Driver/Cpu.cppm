@@ -4,6 +4,7 @@ export module idr.driver:cpu;
 import idr.mlir;
 
 import :options;
+import :report;
 
 export namespace idr::driver {
 
@@ -29,9 +30,9 @@ std::optional<Cpu> selectCpu(const llvm::Target &target, const llvm::Triple &tri
   std::unique_ptr<llvm::MCSubtargetInfo> subtarget(
       target.createMCSubtargetInfo(triple, cpu.name, cpu.features));
   if (!subtarget || !subtarget->isCPUStringValid(cpu.name)) {
-    llvm::errs() << "idris-mlir-cc: unsupported --cpu=" << targetCpu << ": " << cpu.name
-                 << " is not a CPU that LLVM knows for " << triple.str()
-                 << " (use native or an LLVM CPU name)\n";
+    Report() << "unsupported --cpu=" << targetCpu << ": " << cpu.name
+             << " is not a CPU that LLVM knows for " << triple.str()
+             << " (use native or an LLVM CPU name)";
     return std::nullopt;
   }
   return cpu;

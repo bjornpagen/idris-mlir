@@ -4,6 +4,7 @@ export module idr.driver:readruntime;
 import idr.mlir;
 
 import :members;
+import :report;
 import :options;
 import :preparedbitcode;
 import :preparemember;
@@ -20,8 +21,7 @@ std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm
   auto buffer = llvm::MemoryBuffer::getFile(runtimePath, /*IsText=*/false,
                                             /*RequiresNullTerminator=*/false);
   if (!buffer) {
-    llvm::errs() << "idris-mlir-cc: cannot read runtime " << runtimePath << ": "
-                 << buffer.getError().message() << "\n";
+    Report() << "cannot read runtime " << runtimePath << ": " << buffer.getError().message();
     return nullptr;
   }
   std::unique_ptr<llvm::Module> runtime;
@@ -29,16 +29,15 @@ std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm
     std::unique_ptr<llvm::MemoryBuffer> beside;
     auto bitcode = preparedBitcode((*buffer)->getMemBufferRef(), beside);
     if (!bitcode) {
-      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath
-                   << " carries no bitcode where its container keeps it; the runtime is what "
-                      "--prepare-runtime wrote, or the archive it reads: "
-                   << llvm::toString(bitcode.takeError()) << "\n";
+      Report() << "runtime " << runtimePath
+               << " carries no bitcode where its container keeps it; the runtime is what "
+                  "--prepare-runtime wrote, or the archive it reads: "
+               << llvm::toString(bitcode.takeError());
       return nullptr;
     }
     auto module = llvm::parseBitcodeFile(*bitcode, context);
     if (!module) {
-      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
-                   << llvm::toString(module.takeError()) << "\n";
+      Report() << "runtime " << runtimePath << ": " << llvm::toString(module.takeError());
       return nullptr;
     }
     if (!prepareMember(**module, runtimePath))
@@ -55,15 +54,13 @@ std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm
     for (const Member &member : members) {
       auto module = llvm::parseBitcodeFile(member.bitcode, context);
       if (!module) {
-        llvm::errs() << "idris-mlir-cc: runtime member " << member.name << ": "
-                     << llvm::toString(module.takeError()) << "\n";
+        Report() << "runtime member " << member.name << ": " << llvm::toString(module.takeError());
         return nullptr;
       }
       if (!prepareMember(**module, member.name))
         return nullptr;
       if (runtimeLinker.linkInModule(std::move(*module))) {
-        llvm::errs() << "idris-mlir-cc: runtime member " << member.name
-                     << " does not link with the members before it\n";
+        Report() << "runtime member " << member.name << " does not link with the members before it";
         return nullptr;
       }
     }

@@ -10,6 +10,7 @@ export module idr.driver:main;
 import idr.mlir;
 
 import :options;
+import :report;
 import :runonlargestack;
 
 export namespace idr::driver {
@@ -63,8 +64,8 @@ int main(int argc, char **argv) {
     return ok;
   }
   if (inputPath.empty() != prepareRuntime) {
-    llvm::errs() << (prepareRuntime ? "idris-mlir-cc: --prepare-runtime takes no input file\n"
-                                    : "idris-mlir-cc: no input file (see --help)\n");
+    Report() << (prepareRuntime ? "--prepare-runtime takes no input file"
+                                : "no input file (see --help)");
     return usage;
   }
   return runOnLargeStack();

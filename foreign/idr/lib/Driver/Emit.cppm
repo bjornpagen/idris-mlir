@@ -3,6 +3,7 @@ export module idr.driver:emit;
 
 import idr.mlir;
 
+import :report;
 import :writeoutput;
 
 export namespace idr::driver {
@@ -13,7 +14,7 @@ bool emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::CodeGenFileT
     auto *pwrite = static_cast<llvm::raw_pwrite_stream *>(&os);
     llvm::legacy::PassManager codegen;
     if (machine.addPassesToEmitFile(codegen, *pwrite, nullptr, fileType)) {
-      llvm::errs() << "idris-mlir-cc: the target cannot emit object files\n";
+      Report() << "the target cannot emit object files";
       return false;
     }
     codegen.run(module);

@@ -4,6 +4,7 @@ export module idr.driver:members;
 import idr.mlir;
 
 import :options;
+import :report;
 
 export namespace idr::driver {
 
@@ -20,8 +21,7 @@ struct Member {
 bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
   if (!archive) {
-    llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
-                 << llvm::toString(archive.takeError()) << "\n";
+    Report() << "runtime " << runtimePath << ": " << llvm::toString(archive.takeError());
     return false;
   }
   llvm::Error error = llvm::Error::success();
@@ -29,7 +29,7 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     auto name = child.getName();
     auto buffer = child.getMemoryBufferRef();
     if (!name || !buffer) {
-      llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": unreadable member\n";
+      Report() << "runtime " << runtimePath << ": unreadable member";
       llvm::consumeError(name.takeError());
       llvm::consumeError(buffer.takeError());
       llvm::consumeError(std::move(error));
@@ -37,17 +37,16 @@ bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &m
     }
     auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
     if (!bitcode) {
-      llvm::errs() << "idris-mlir-cc: runtime member " << *name
-                   << " carries no bitcode, which every member of the runtime's archive must: "
-                   << llvm::toString(bitcode.takeError()) << "\n";
+      Report() << "runtime member " << *name
+               << " carries no bitcode, which every member of the runtime's archive must: "
+               << llvm::toString(bitcode.takeError());
       llvm::consumeError(std::move(error));
       return false;
     }
     members.push_back({name->str(), *bitcode});
   }
   if (error) {
-    llvm::errs() << "idris-mlir-cc: runtime " << runtimePath << ": "
-                 << llvm::toString(std::move(error)) << "\n";
+    Report() << "runtime " << runtimePath << ": " << llvm::toString(std::move(error));
     return false;
   }
   return true;

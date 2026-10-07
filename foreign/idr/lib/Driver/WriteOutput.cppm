@@ -5,6 +5,7 @@ export module idr.driver:writeoutput;
 import idr.mlir;
 
 import :options;
+import :report;
 
 export namespace idr::driver {
 
@@ -14,7 +15,7 @@ bool writeOutput(llvm::function_ref<bool(llvm::raw_ostream &)> write) {
   std::error_code error;
   auto file = std::make_unique<llvm::ToolOutputFile>(outputPath, error, llvm::sys::fs::OF_None);
   if (error) {
-    llvm::errs() << "idris-mlir-cc: cannot write " << outputPath << ": " << error.message() << "\n";
+    cannotWrite(outputPath, error);
     return false;
   }
   if (!write(file->os()))

@@ -26,6 +26,7 @@ idr_library(idr_driver
 		PrepareMember.cppm
 		PreparedBitcode.cppm
 		ReadRuntime.cppm
+		Report.cppm
 		Retarget.cppm
 		Run.cppm
 		RunOnLargeStack.cppm

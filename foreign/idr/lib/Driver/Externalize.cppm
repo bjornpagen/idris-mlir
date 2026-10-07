@@ -4,6 +4,8 @@ export module idr.driver:externalize;
 
 import idr.mlir;
 
+import :report;
+
 export namespace idr::driver {
 
 // The optimized runtime's symbols, so that a program's object can name each
@@ -15,9 +17,9 @@ bool externalize(llvm::Module &runtime) {
     if (value.isDeclaration())
       continue;
     if (!llvm::isa<llvm::GlobalObject>(value) || !value.hasName()) {
-      llvm::errs() << "idris-mlir-cc: internal error: the optimization left the runtime "
-                   << (value.hasName() ? "alias " : "an unnamed global ") << value.getName()
-                   << ", which the native half cannot name\n";
+      Report() << "internal error: the optimization left the runtime "
+               << (value.hasName() ? "alias " : "an unnamed global ") << value.getName()
+               << ", which the native half cannot name";
       return false;
     }
     if (value.hasLocalLinkage()) {
