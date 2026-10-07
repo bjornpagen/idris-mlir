@@ -537,7 +537,9 @@ def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
 }
 
 def Idr_YieldOp : Idr_Op<"yield", [Pure, ReturnLike, Terminator,
-    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp"]>]> {
+    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp"]>,
+    DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
+        ["getMutableSuccessorOperands"]>]> {
   let summary = "ends a region of a match, or the body of an array loop, with its results";
   let arguments = (ins Variadic<AnyType>:$results);
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
@@ -1313,7 +1315,13 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 
 // The two loops over an array's index space, graded region ops: the body
 // runs once per index it covers, in index order, and what its ops perform
-// the loop performs (RecursiveMemoryEffects). Their elements are machine
+// the loop performs (RecursiveMemoryEffects). The body is its own
+// successor, as an scf.for body's is, so a pass that asks which regions
+// run again sees the loop instead of a list of op names. A fold forwards
+// its accumulator along both edges (the init into the body, and into the
+// result when the array is empty; the yield back into the body and out as
+// the result). A generate forwards nothing: the yielded word is stored in
+// the new array, not passed as an SSA value. Their elements are machine
 // words (an integer or a float type), which a memref holds and a vector
 // lane computes; the frontend emits them only then, and the library's own
 // definition compiles as written for any other element. Lowering makes
@@ -1328,6 +1336,7 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 // empty array, and the array's shape is known from its size, as
 // array.new's.
 def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects, SingleBlock,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getEntrySuccessorOperands"]>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the body's value at each index";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
@@ -1346,7 +1355,9 @@ def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects, Singl
 // accumulator (`init` first, which moves in), the element (as array.get
 // gives it) and the index (an i64), and yields the next accumulator; the
 // result is the last.
-def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects, SingleBlock]> {
+def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects, SingleBlock,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, [
+        "getEntrySuccessorOperands", "getSuccessorInputs", "areTypesCompatible"]>]> {
   let summary = "an array folded from the left in index order";
   let arguments = (ins Idr_ArrayValue:$array, AnyType:$init, Idr_WorldType:$world);
   let results = (outs AnyType:$result, Idr_WorldType:$next);
