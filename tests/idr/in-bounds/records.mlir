@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@fields,in-bounds=@matched,in-bounds=@chosen,in-bounds=@clamped,in-bounds=@maxsi,in-bounds=@fill,in-bounds=@sorted,bounds-checked=@apart,bounds-checked=@open,bounds-checked=@grown,bounds-checked=@wrapped,bounds-checked=@wrappedNext -o /dev/null
+// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@fields,in-bounds=@matched,in-bounds=@chosen,in-bounds=@clamped,in-bounds=@maxsi,in-bounds=@fill,in-bounds=@sorted,bounds-checked=@apart,bounds-checked=@open,bounds-checked=@grown,bounds-checked=@wrapped,bounds-checked=@wrappedNext,bounds-checked=@predecessor -o /dev/null
 // A size and the array it describes stay related when one constructor
 // stored both, and after that record is read apart: two fields, the
 // arguments of the constructor's match, or the record chosen by one
@@ -10,7 +10,8 @@
 // None of these is: a constructor that stores some other array's size;
 // a record anyone may pass (the function is public); a size carried
 // upward beside an array it does not grow; an index below n - 1 when n
-// may be the smallest word, where n - 1 is the largest.
+// may be the smallest word, where n - 1 is the largest. A caller's
+// counter being at least 0 is not a fact of the callee that receives it.
 module {
   idr.data @Pair {
     idr.ctor @MkPair (i64, memref<?xi64>)
@@ -317,5 +318,69 @@ module {
       scf.yield %w1 : !idr.world
     }
     return %r : !idr.world
+  }
+
+  // The caller counts n up from 0 and builds the array from n clamped at
+  // 0. The callee's own counter starts at 0 and steps while it is below
+  // n - 1. The caller's bound does not enter the callee, and the clamp
+  // does not make n at least 0, so n may be the smallest word: n - 1 is
+  // then the largest, and the counter is inside the comparison and
+  // outside the array. The access one past that counter follows an
+  // access that did run, which has already excluded that word.
+  func.func @count(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %one = arith.constant 1 : i64
+    %r:3 = scf.while (%k = %n, %i = %z, %s = %w) : (i64, i64, !idr.world) -> (i64, i64, !idr.world) {
+      %c = arith.cmpi slt, %i, %k : i64
+      scf.condition(%c) %k, %i, %s : i64, i64, !idr.world
+    } do {
+    ^bb0(%k: i64, %i: i64, %s: !idr.world):
+      %neg = arith.cmpi slt, %i, %z : i64
+      %negI = arith.extui %neg : i1 to i64
+      %made = idr.match_lit %negI : i64 -> (i64) {
+      case 0 {
+        idr.yield %i : i64
+      }
+      default {
+        idr.yield %z : i64
+      }
+      }
+      %a, %s1 = idr.array.new %made, %z, %s : i64 -> memref<?xi64>
+      %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
+      %s2 = func.call @predecessor(%i, %rec, %s1) : (i64, !idr.data<@Arr>, !idr.world) -> !idr.world
+      %j = arith.addi %i, %one : i64
+      scf.yield %k, %j, %s2 : i64, i64, !idr.world
+    }
+    return %r#2 : !idr.world
+  }
+  func.func private @predecessor(%n: i64, %rec: !idr.data<@Arr>, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %one = arith.constant 1 : i64
+    %r:4 = scf.while (%k = %n, %a = %rec, %i = %z, %s = %w) : (i64, !idr.data<@Arr>, i64, !idr.world) -> (i64, !idr.data<@Arr>, i64, !idr.world) {
+      %last = arith.subi %k, %one : i64
+      %c = arith.cmpi slt, %i, %last : i64
+      %e = arith.extui %c : i1 to i64
+      %d:5 = idr.match_lit %e : i64 -> (i1, i64, !idr.data<@Arr>, i64, !idr.world) {
+      case 0 {
+        %false = arith.constant false
+        %p = ub.poison : i64
+        %u = ub.poison : !idr.data<@Arr>
+        idr.yield %false, %p, %u, %p, %s : i1, i64, !idr.data<@Arr>, i64, !idr.world
+      }
+      default {
+        %arr = idr.field %a[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
+        %v, %s1 = idr.array.get %arr[%i], %s : memref<?xi64> -> i64
+        %j = arith.addi %i, %one : i64
+        %s2 = idr.array.set %arr[%j], %v, %s1 : memref<?xi64>, i64
+        %true = arith.constant true
+        idr.yield %true, %k, %a, %j, %s2 : i1, i64, !idr.data<@Arr>, i64, !idr.world
+      }
+      }
+      scf.condition(%d#0) %d#1, %d#2, %d#3, %d#4 : i64, !idr.data<@Arr>, i64, !idr.world
+    } do {
+    ^bb0(%k: i64, %a: !idr.data<@Arr>, %i: i64, %s: !idr.world):
+      scf.yield %k, %a, %i, %s : i64, !idr.data<@Arr>, i64, !idr.world
+    }
+    return %r#3 : !idr.world
   }
 }
