@@ -8,7 +8,6 @@ export import :bindingtime;
 export import :bindingtimes;
 export import :clones;
 export import :eraseunused;
-export import :foreachreference;
 export import :hasstructure;
 export import :interpreter;
 export import :isclosed;

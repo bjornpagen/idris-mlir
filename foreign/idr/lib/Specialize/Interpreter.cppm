@@ -5,9 +5,9 @@ export module idr.specialize:interpreter;
 
 import idr.mlir;
 import idr.dialect;
+import idr.graph;
 
 import :bindingtime;
-import :foreachreference;
 
 using namespace mlir;
 
@@ -32,7 +32,7 @@ struct Abstract {
 class Interpreter {
 public:
   Interpreter(mlir::func::FuncOp main, const llvm::DenseSet<mlir::Operation *> &cycle,
-              mlir::SymbolTable &symbols);
+              const idr::graph::References &references);
 
   llvm::SmallVector<BindingTime> run();
 
@@ -45,15 +45,15 @@ private:
 
   mlir::func::FuncOp main;
   const llvm::DenseSet<mlir::Operation *> &cycle;
-  mlir::SymbolTable &symbols;
+  const idr::graph::References &references;
   llvm::SmallVector<bool> same, smaller, other;
   llvm::StringSet<> visited;
   llvm::SmallVector<std::pair<mlir::func::FuncOp, llvm::SmallVector<Abstract>>> work;
 };
 
 Interpreter::Interpreter(func::FuncOp main, const llvm::DenseSet<Operation *> &cycle,
-                         SymbolTable &symbols)
-    : main(main), cycle(cycle), symbols(symbols), same(main.getNumArguments(), false),
+                         const idr::graph::References &references)
+    : main(main), cycle(cycle), references(references), same(main.getNumArguments(), false),
       smaller(main.getNumArguments(), false), other(main.getNumArguments(), false) {}
 
 SmallVector<BindingTime> Interpreter::run() {
@@ -119,15 +119,16 @@ void Interpreter::visit(func::FuncOp fn, ArrayRef<Abstract> args) {
     known[value] = out;
     return out;
   };
-  forEachReference(fn, symbols, [&](func::FuncOp target, Operation *op) {
+  for (const idr::graph::References::Site &site : references.of(fn)) {
+    func::FuncOp target = site.target;
     if (!cycle.contains(target.getOperation()))
-      return;
+      continue;
     SmallVector<Abstract> passed(target.getNumArguments());
-    if (auto call = dyn_cast<func::CallOp>(op)) {
+    if (auto call = dyn_cast<func::CallOp>(site.at)) {
       for (auto [i, operand] : llvm::enumerate(call.getOperands()))
         if (i < passed.size())
           passed[i] = eval(eval, operand);
-    } else if (auto closure = dyn_cast<ClosureOp>(op)) {
+    } else if (auto closure = dyn_cast<ClosureOp>(site.at)) {
       // The captures are the leading parameters; the rest come from the
       // applies of the closure, which may pass anything.
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
@@ -135,7 +136,7 @@ void Interpreter::visit(func::FuncOp fn, ArrayRef<Abstract> args) {
           passed[i] = eval(eval, capture);
     }
     refer(target, passed);
-  });
+  }
 }
 
 void Interpreter::refer(func::FuncOp target, ArrayRef<Abstract> args) {

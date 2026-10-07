@@ -9,6 +9,7 @@ idr_library(idr_graph
 		IsSelfCall.cppm
 		ModuloAt.cppm
 		PassesOnPrevious.cppm
+		References.cppm
 		Scc.cppm
 		SymbolUses.cppm
 		Trips.cppm

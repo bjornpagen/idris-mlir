@@ -8,7 +8,6 @@ idr_library(idr_specialize
 		BindingTimes.cppm
 		Clones.cppm
 		EraseUnused.cppm
-		ForEachReference.cppm
 		HasStructure.cppm
 		Interpreter.cppm
 		IsClosed.cppm
