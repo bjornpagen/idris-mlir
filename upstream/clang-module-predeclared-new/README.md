@@ -57,9 +57,10 @@ fix is known. A patch would be a guess.
 
 ## Upstreaming plan
 
+Status: not ready.
+
 - Where: reduce it first (cvise or by hand, over a copy of the units the
-  check compiles); confirm it is #189252 and add the reduction there. If
-  that issue gets a fix, backport it as `llvm.patch`.
+  check compiles). It is likely #189252. If that issue gets a fix,
+  backport it as `llvm.patch`. Nothing is sent until it is reduced.
 - Upstream test: the reduction, as a `clang/test/Modules` test in
   `split-file` form.
-- Status: not reduced; likely already reported (#189252).

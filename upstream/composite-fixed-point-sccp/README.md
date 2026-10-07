@@ -142,9 +142,10 @@ Built into the pinned toolchain; the test passes with its `mlir-opt`, and
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: an issue with this report, and a pull request to
   llvm/llvm-project with part 1; part 2 proposed in the issue.
 - Upstream test: `sccp-fixed-point.mlir`; run `check-mlir`, since `sccp`
   now hoists an existing constant where it used to make a new one, which
   may reorder constants in other tests' expected output.
-- Status: not sent.

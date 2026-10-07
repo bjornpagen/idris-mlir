@@ -131,6 +131,8 @@ checks the reproducers.
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: review of #208881; comment on #206920 and #203226 with the two
   reproducers, and on the pull request with the address-taken one. The
   block-argument and result parts go to #208881 as a suggestion, or as a
@@ -138,5 +140,5 @@ checks the reproducers.
   `dead-block-arg.mlir`.
 - Upstream test: the five modules this patch adds to
   `remove-dead-values.mlir`.
-- Status: not sent. The patch is dropped when the pin includes #208881 and
-  a fix for the other two places.
+- The patch is dropped when the pin includes #208881 and a fix for the
+  other two places.

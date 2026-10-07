@@ -88,8 +88,9 @@ same test file would not apply one after the other.
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: a comment on #208881 with `address-taken.mlir`, asking for it as
-  a test; no issue of its own.
+  a test; no issue of its own. Goes with `remove-dead-values-unreachable`.
 - Upstream test: the `@address_taken_callee` module in
   `remove-dead-values-unreachable/llvm.patch`.
-- Status: not sent. Goes with `remove-dead-values-unreachable`.

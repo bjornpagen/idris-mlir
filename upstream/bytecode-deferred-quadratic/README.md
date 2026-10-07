@@ -91,9 +91,10 @@ from; `tests/upstream/bytecode-deferred-quadratic` checks the scaling.
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: an issue with this report and the timing table, and a pull
   request to llvm/llvm-project (MLIR bytecode) fixing it.
 - Upstream test: `deeply_nested_chain.mlir`; the time itself is measured
   by `nested.sh` at 8,000, 16,000 and 32,000 levels, quoted in the pull
   request.
-- Status: not sent.
