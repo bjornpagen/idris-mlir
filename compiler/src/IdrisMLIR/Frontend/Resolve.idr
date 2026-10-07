@@ -9,6 +9,7 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.Env
+import Core.Name.Namespace
 import Core.Normalise
 import Core.Options
 import Core.TT
@@ -89,6 +90,41 @@ homeOf ident = do
 export
 originOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Origin
 originOf ident = pure (moduleOrigin !(homeOf ident) (modulePath ident))
+
+||| The checked module Idris reloads as the file just elaborated has no name.
+unnamed : (String, (ModuleIdent, Bool, Namespace)) -> Bool
+unnamed (_, (m, _, _)) = null (unsafeUnfoldModuleIdent m)
+
+||| The file just elaborated, recovered from the checked module Idris
+||| reloads with no name. Its path is the file's, which need not be the
+||| module's: a file with no module header is `Main` whatever it is called.
+elaboratedFile : {auto c : Ref Ctxt Defs} -> Core (Maybe String)
+elaboratedFile = do
+  defs <- get Ctxt
+  let ttcs = map fst (filter unnamed defs.allImported)
+  case ttcs of
+    [ttc] => do
+      bdir <- ttcBuildDirectory
+      let Just rel = dropBase bdir ttc
+        | Nothing => pure Nothing
+      d <- getDirs
+      let stem = dropExtensions rel
+      let base = maybe stem (\srcdir => srcdir </> stem) (source_dir d)
+      firstAvailable (map (base ++) listOfExtensionsStr)
+    _ => pure Nothing
+
+||| The source of a module of the project. It is the file named for the
+||| module, except the main module, which Idris allows to be any file: that
+||| file is the one just elaborated.
+export
+moduleSource : {auto c : Ref Ctxt Defs} -> FC -> ModuleIdent -> Core (Maybe String)
+moduleSource fc ident = do
+  named <- catch (Just <$> nsToSource fc ident) (\_ => pure Nothing)
+  if ident == nsAsModuleIdent mainNS
+    then do
+      elaborated <- elaboratedFile
+      pure (elaborated <|> named)
+    else pure named
 
 ------------------------------------------------------------------------------
 -- Hooks

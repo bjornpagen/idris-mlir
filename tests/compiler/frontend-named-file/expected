@@ -1,0 +1,4 @@
+Count.idr: compile exit 0
+Count.idr: printed 7
+Named.idr: compile exit 0
+Named.idr: printed 7

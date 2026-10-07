@@ -8,7 +8,8 @@
 // condition each enclosing branch took, a Euclidean quotient of a value the
 // system has already proved non-negative by a positive constant, and a
 // masked word `x & (c - 1)` below `c` when `c` is already a positive power
-// of two and the array's length is `c`.
+// of two, doubling included when the double stays below the sign, and the
+// array's length is `c`.
 // A constraint left out only makes the system prove less, so an op the
 // encoding does not know is a column with its range alone.
 //
