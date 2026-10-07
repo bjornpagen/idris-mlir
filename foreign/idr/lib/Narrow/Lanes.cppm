@@ -21,12 +21,14 @@
 // inputs as arguments and tried at powers of two from 2^31 down (a binary
 // search over the exponent: a smaller bound fits whatever a larger one
 // does), the analysis run on it each time, and the largest B kept at which
-// every elementwise integer op in it wider than 32 bits fits, and is one
-// whose 32-bit form computes what it computes (`exact`). Interval
+// every elementwise integer op in it wider than 32 bits fits. Interval
 // arithmetic over the body is what the analysis computes, so the body's
 // own arithmetic decides the bound. The narrowing then runs on that copy
-// under the analysis of the chosen B, and the copy is cloned into the
-// version; the function itself is never analysed.
+// under the analysis of the chosen B, and leaves wide an op whose 32-bit
+// form would compute something else (a shift by 32 or more, a signed
+// remainder that may see INT32_MIN % -1, an op that reads a negative word
+// unsigned); the copy is cloned into the version, and the function itself
+// is never analysed.
 export module idr.narrow:lanes;
 
 import idr.mlir;
@@ -84,7 +86,7 @@ LogicalResult versionLanes(IRRewriter &rewriter, scf::ForOp loop, Lanes &done) {
   if (failed(least))
     return internal("the analysis of a copy failed");
   if (!*least)
-    return wide("its integer ops do not all compute the same in 32 bits under any bound on the sizes");
+    return wide("its integer ops do not all fit 32 bits under any bound on the sizes");
   unsigned low = minExponent, high = maxExponent;
   while (low < high) {
     unsigned mid = (low + high + 1) / 2;

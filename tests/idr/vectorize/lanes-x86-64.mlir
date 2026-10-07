@@ -16,12 +16,13 @@
 // the squares fit i32 below 2^15, the rows' (i + j) * (i + j + 1) below
 // 2^14, its division by 2 floored as Idris's `div` is (a signed
 // remainder by 2 included). A body no bound above 2^8 makes fit (the
-// eighth power) stays one loop on 64-bit lanes, and so does each body
-// whose ops fit but whose 32-bit forms would compute something else
-// (@inexact): a shift by up to 40, poison on i32; a signed remainder
-// that sees INT32_MIN % -1 at index 1 (the loop's first, element 0 being
-// the fill), which overflows on i32; an unsigned remainder of a word that
-// is negative at index 1, read as another number on i32. The whole
+// eighth power) stays one loop on 64-bit lanes. An op whose 32-bit form
+// would compute something else keeps its 64-bit lanes, in a version or
+// not, whatever the ops around it do (@inexact): a shift by up to 40,
+// poison on i32; a signed remainder that sees INT32_MIN % -1 at index 1
+// (the loop's first, element 0 being the fill), which overflows on i32;
+// an unsigned remainder of a word that is negative at index 1, read as
+// another number on i32. The whole
 // pipeline reaches the LLVM dialect with the 32-bit lanes in it. The lanes
 // are x86-64-v3's four, the CPU this x86-64 test names.
 // CHECK-LABEL: func.func private @squares(
@@ -44,13 +45,15 @@
 // CHECK-NOT: scf.if
 // CHECK: return
 // CHECK-LABEL: func.func private @inexact(
-// CHECK-NOT: scf.if
+// CHECK-NOT: arith.shrui {{.*}} : vector<4xi32>
 // CHECK: arith.shrui {{.*}} : vector<4xi64>
-// CHECK-NOT: scf.if
+// CHECK-NOT: arith.shrui {{.*}} : vector<4xi32>
+// CHECK-NOT: arith.remsi {{.*}} : vector<4xi32>
 // CHECK: arith.remsi {{.*}} : vector<4xi64>
-// CHECK-NOT: scf.if
+// CHECK-NOT: arith.remsi {{.*}} : vector<4xi32>
+// CHECK-NOT: arith.remui {{.*}} : vector<4xi32>
 // CHECK: arith.remui {{.*}} : vector<4xi64>
-// CHECK-NOT: scf.if
+// CHECK-NOT: arith.remui {{.*}} : vector<4xi32>
 // CHECK: return
 // CHECK-LABEL: func.func private @rows(
 // CHECK: arith.cmpi ule

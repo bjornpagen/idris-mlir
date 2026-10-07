@@ -129,11 +129,13 @@ check and `exact`, and keep the rest.
 
 ## Our workaround
 
-`idr-narrow-lanes` narrows a run of vectorized loops only when every wide
-op in it is an arith op whose 32-bit form computes what it computes: a
-shift's amount stays below 32, a signed remainder never sees
-INT32_MIN % -1, and an op that reads its operands unsigned sees no
-negative word (`PINS.md`: `int-range-narrowing-exactness`).
+None: the patch below is carried. `idr-narrow-lanes` versions a vectorized
+loop when its wide integer ops fit 32 bits, and upstream's narrowing of the
+copy leaves wide each op whose 32-bit form would compute something else.
+Before the patch, it versioned a loop only when every such op was an arith
+op whose 32-bit form computes what it computes (a shift's amount below 32,
+no INT32_MIN % -1, no negative word read unsigned), a second copy of the
+narrowing's own decision.
 
 ## Patch
 

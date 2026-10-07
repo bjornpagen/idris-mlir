@@ -1,5 +1,5 @@
-// idr.narrow:widths: what a vectorized loop computes on, what it reads
-// from outside, and whether an op's 32-bit form computes what it does.
+// idr.narrow:widths: what a vectorized loop computes on, and what it reads
+// from outside.
 export module idr.narrow:widths;
 
 import idr.mlir;
@@ -62,44 +62,6 @@ std::optional<ConstantIntRanges> rangeOf(DataFlowSolver &solver, Value value) {
   if (!state || state->getValue().isUninitialized())
     return std::nullopt;
   return state->getValue().getValue();
-}
-
-// Whether `range` holds the 32-bit word `word`, read signed.
-bool holds(const ConstantIntRanges &range, const APInt &word) {
-  APInt wide = word.sext(range.smin().getBitWidth());
-  return range.smin().sle(wide) && range.smax().sge(wide);
-}
-
-// PIN(int-range-narrowing-exactness): whether the 32-bit form of `op`,
-// whose operands and results fit a signed 32-bit word, computes what `op`
-// computes. The arith ops are the ones whose 32-bit forms are known, and
-// for three of them the fit is not enough, which is all upstream's
-// narrowing asks: a shift by 32 or more is poison in 32 bits; INT32_MIN %
-// -1 overflows there (the division traps) where it is 0 in 64; and an op
-// that reads its operands unsigned reads a negative word as another number
-// in each width, which a remainder sees.
-bool exact(Operation *op, DataFlowSolver &solver) {
-  if (!isa_and_nonnull<arith::ArithDialect>(op->getDialect()))
-    return false;
-  auto operand = [&](unsigned i) { return rangeOf(solver, op->getOperand(i)); };
-  if (isa<arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp>(op)) {
-    std::optional<ConstantIntRanges> amount = operand(1);
-    if (!amount || amount->umax().uge(32))
-      return false;
-  }
-  if (isa<arith::RemSIOp>(op)) {
-    std::optional<ConstantIntRanges> dividend = operand(0), divisor = operand(1);
-    if (!dividend || !divisor ||
-        (holds(*dividend, APInt::getSignedMinValue(32)) && holds(*divisor, APInt::getAllOnes(32))))
-      return false;
-  }
-  if (isa<arith::DivUIOp, arith::CeilDivUIOp, arith::RemUIOp, arith::ShRUIOp, arith::MaxUIOp,
-          arith::MinUIOp>(op))
-    return llvm::all_of(op->getOperands(), [&](Value value) {
-      std::optional<ConstantIntRanges> range = rangeOf(solver, value);
-      return range && range->smin().isNonNegative();
-    });
-  return true;
 }
 
 // What `op` computes on: whether on integers wider than 32 bits (an

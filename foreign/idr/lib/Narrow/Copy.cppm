@@ -64,8 +64,10 @@ public:
   }
 
   // Whether, under `solver`'s analysis, every op of the copied loop that
-  // computes on integers wider than 32 bits fits 32 bits and computes the
-  // same there (the stand-ins before it read the inputs, which fit nothing).
+  // computes on integers wider than 32 bits fits 32 bits (the stand-ins
+  // before it read the inputs, which fit nothing). Whether its 32-bit form
+  // computes the same is the narrowing's to decide: it leaves wide an op
+  // whose 32-bit form would compute something else.
   bool fits(DataFlowSolver &solver) {
     auto fit = [&](Value value) {
       if (ConstantIntRanges::getStorageBitwidth(value.getType()) == 0)
@@ -76,8 +78,7 @@ public:
     return !copy
                 ->walk([&](Operation *op) {
                   if (!widthOf(op).wide ||
-                      (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit) &&
-                       exact(op, solver)))
+                      (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit)))
                     return WalkResult::advance();
                   return WalkResult::interrupt();
                 })

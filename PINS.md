@@ -299,16 +299,12 @@ which the top-level CMake configure gate reads.
   -1 of the narrow type (undefined behaviour once `llvm.srem`, where the
   wide op gives 0), and a `remui` of a word that may be negative, which
   the narrow op reads as another number
-- sites: foreign/idr/lib/Narrow/Widths.cppm (`exact`)
+- sites: none in our code; the patch. idr-narrow-lanes versions a
+  vectorized loop when its wide integer ops fit 32 bits, and the narrowing
+  of its copy leaves wide an op whose 32-bit form would compute something
+  else (tests/idr/vectorize/lanes-loops, lanes-x86-64)
 - workaround: `upstream/int-range-narrowing-exactness/llvm.patch`: main's
-  44a4dbf32 (#218495, the shift) backported, and the remainders drafted.
-  Until the toolchain is rebuilt with it, idr-narrow-lanes versions a
-  vectorized loop only when every
-  integer op in it wider than 32 bits is an arith op whose 32-bit form
-  computes the same: a shift's amount stays below 32, a signed remainder
-  never sees INT32_MIN % -1, an op that reads its operands unsigned sees
-  no negative word; any other loop keeps its 64-bit lanes. With the patch
-  the narrowing asks this itself, and `exact` goes
+  44a4dbf32 (#218495, the shift) backported, and the remainders ours
 - retire: when the pin has 44a4dbf32 the backported part leaves the patch;
   drop the rest when the pin's narrowing handles the remainders
 - upstream: upstream/int-range-narrowing-exactness (remainders not yet
