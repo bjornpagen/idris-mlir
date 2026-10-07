@@ -20,8 +20,11 @@
 # every implementation at compile time, specialising each method call to
 # the implementation it is given, so the record is never built (an
 # implementation chosen at run time is refused), and the methods' uses are
-# what the program's Core shows. One more kind is named apart when Core
-# does not name it: an escape hatch, which user code may not write.
+# what the program's Core shows. Two more kinds are named apart when Core
+# does not name them. An escape hatch, which user code may not write, is
+# asked of the compiler. A decided exclusion is outside the language
+# (threads, collector finalizers, raw pointers): those names are the only
+# ones written down here, and a later export is still asked of the compiler.
 
 # The pinned prelude's source, from which the pinned Idris built the
 # prelude it loads: its IDE mode names a definition's module by the file it
@@ -231,6 +234,21 @@ escape_hatch() {
       END { exit !found }' "$eh_dir/out"
 }
 
+# decided_exclusion FULL: whether FULL is outside the language, by the
+# decision on threads, collector finalizers and raw pointers. The only
+# names written down in this check. A name that is not one of these is
+# asked of the program and, if Core does not name it, of the compiler.
+decided_exclusion() {
+  case $1 in
+    Prelude.IO.fork | Prelude.IO.prim__fork | Prelude.IO.threadWait | Prelude.IO.prim__threadWait | \
+    Prelude.IO.onCollect | Prelude.IO.onCollectAny | Prelude.IO.prim__getString | \
+    PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__nullPtr | \
+    PrimIO.prim__nullAnyPtr | PrimIO.prim__getNullAnyPtr)
+      return 0 ;;
+  esac
+  return 1
+}
+
 # covers_prelude MODULE CORE: every run-time export of MODULE is used by the
 # program whose Core is CORE.
 covers_prelude() {
@@ -287,12 +305,16 @@ covers_prelude() {
       printf '%s\t%s\n' "$cp_full" "$cp_implicit" >> "$work/unused"
     fi
   done < "$work/own"
-  # What Core does not name may be an escape hatch; anything else is
-  # missing.
+  # What Core does not name may be a decided exclusion or an escape hatch;
+  # anything else is missing. The exclusion is recognized by name, so a
+  # probe is not asked to compile a program that reaches it.
   : > "$work/escape-hatches"
+  : > "$work/decided"
   : > "$work/missing"
   while IFS="$(printf '\t')" read -r cp_full cp_implicit; do
-    if [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
+    if decided_exclusion "$cp_full"; then
+      printf '%s\n' "$cp_full" >> "$work/decided"
+    elif [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
       printf '%s\n' "$cp_full" >> "$work/escape-hatches"
     else
       printf '%s\n' "$cp_full" >> "$work/missing"
@@ -305,6 +327,12 @@ covers_prelude() {
     cp_apart="$cp_apart; 1 escape hatch, which user code may not write: $(names_in "$cp_module" "$work/escape-hatches")"
   elif [ "$cp_hatches" -gt 1 ]; then
     cp_apart="$cp_apart; $cp_hatches escape hatches, which user code may not write: $(names_in "$cp_module" "$work/escape-hatches")"
+  fi
+  cp_decided=$(wc -l < "$work/decided" | tr -d ' ')
+  if [ "$cp_decided" -eq 1 ]; then
+    cp_apart="$cp_apart; 1 decided exclusion, which is outside the language this compiler implements: $(names_in "$cp_module" "$work/decided")"
+  elif [ "$cp_decided" -gt 1 ]; then
+    cp_apart="$cp_apart; $cp_decided decided exclusions, which are outside the language this compiler implements: $(names_in "$cp_module" "$work/decided")"
   fi
   if [ -s "$work/missing" ]; then
     say "prelude $cp_module: $cp_total exports; $cp_used used, these not: $(names_in "$cp_module" "$work/missing")$cp_apart)"

@@ -1,5 +1,3 @@
 # The modules of the stock prelude with no program yet that uses each of
 # their run-time exports (a tests/programs fixture marked `covers`). This
 # list only shrinks.
-PrimIO
-Prelude.IO

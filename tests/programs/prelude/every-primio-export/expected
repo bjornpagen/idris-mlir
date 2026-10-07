@@ -4,7 +4,7 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-prelude PrimIO: 21 exports; 7 used, these not: prim__castPtr prim__forgetPtr prim__getNullAnyPtr prim__nullAnyPtr prim__nullPtr unsafePerformIO
+prelude PrimIO: 21 exports, each used (8 compile-time only: AnyPtr GCAnyPtr GCPtr IO IORes PrimIO Ptr ThreadID; 1 escape hatch, which user code may not write: unsafePerformIO; 5 decided exclusions, which are outside the language this compiler implements: prim__castPtr prim__forgetPtr prim__getNullAnyPtr prim__nullAnyPtr prim__nullPtr)
 budget: kept
 dumps: parse and verify
 simplify: idempotent
