@@ -38,6 +38,24 @@
 // CHECK-NOT: @depth$acc
 // CHECK-LABEL: func.func private @depth(
 // CHECK: func.call @depth(
+// A countdown that adds one from zero is the argument, the sum of that
+// many ones. Adding two is the accumulator clone, not the argument.
+// CHECK-LABEL: func.func private @down(
+// CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
+// CHECK-NEXT: return %[[N]]
+// CHECK-LABEL: func.func private @twos(
+// CHECK: call @twos$acc(
+// CHECK-LABEL: func.func private @twos$acc(
+// CHECK: idr.big.add
+// The same countdown after simplification has lifted the constants out of
+// the branches. A sum of big ones is the argument as an Integer.
+// CHECK-LABEL: func.func private @down_out(
+// CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
+// CHECK-NEXT: return %[[N]]
+// CHECK-LABEL: func.func private @as_integer(
+// CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
+// CHECK-NEXT: %[[I:.*]] = idr.nat.to_big %[[N]]
+// CHECK-NEXT: return %[[I]]
 // BOTH: expected constant-stack: the stack grows with the recursion of @both
 // DEPTH: expected constant-stack: the stack grows with the recursion of @depth
 module {
@@ -132,5 +150,73 @@ module {
     }
     }
     return %r : !idr.nat
+  }
+
+  func.func private @down(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+    %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
+    case #idr.big<"0"> {
+      %zero = idr.constant #idr.big<"0"> : !idr.nat
+      idr.yield %zero : !idr.nat
+    }
+    default {
+      %p = idr.big.pred %n
+      %c = func.call @down(%p) : (!idr.nat) -> !idr.nat
+      %one = idr.constant #idr.big<"1"> : !idr.nat
+      %s = idr.big.add %c, %one : !idr.nat
+      idr.yield %s : !idr.nat
+    }
+    }
+    return %r : !idr.nat
+  }
+
+  func.func private @twos(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+    %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
+    case #idr.big<"0"> {
+      %zero = idr.constant #idr.big<"0"> : !idr.nat
+      idr.yield %zero : !idr.nat
+    }
+    default {
+      %p = idr.big.pred %n
+      %c = func.call @twos(%p) : (!idr.nat) -> !idr.nat
+      %two = idr.constant #idr.big<"2"> : !idr.nat
+      %s = idr.big.add %c, %two : !idr.nat
+      idr.yield %s : !idr.nat
+    }
+    }
+    return %r : !idr.nat
+  }
+
+  func.func private @down_out(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+    %one = idr.constant #idr.big<"1"> : !idr.nat
+    %zero = idr.constant #idr.big<"0"> : !idr.nat
+    %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
+    case #idr.big<"0"> {
+      idr.yield %zero : !idr.nat
+    }
+    default {
+      %p = idr.big.pred %n
+      %c = func.call @down_out(%p) : (!idr.nat) -> !idr.nat
+      %s = idr.big.add %c, %one : !idr.nat
+      idr.yield %s : !idr.nat
+    }
+    }
+    return %r : !idr.nat
+  }
+
+  func.func private @as_integer(%n: !idr.nat) -> !idr.big attributes {idr.total} {
+    %one = idr.constant #idr.big<"1"> : !idr.big
+    %zero = idr.constant #idr.big<"0"> : !idr.big
+    %r = idr.match_lit %n : !idr.nat -> (!idr.big) {
+    case #idr.big<"0"> {
+      idr.yield %zero : !idr.big
+    }
+    default {
+      %p = idr.big.pred %n
+      %c = func.call @as_integer(%p) : (!idr.nat) -> !idr.big
+      %s = idr.big.add %c, %one : !idr.big
+      idr.yield %s : !idr.big
+    }
+    }
+    return %r : !idr.big
   }
 }
