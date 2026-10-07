@@ -45,16 +45,10 @@ unsigned widestWord(linalg::GenericOp op) {
   return bits;
 }
 
-// Whether the vectorizer takes the generic at these sizes. It maps an op of
-// the body to vectors only when the op is elementwise-mappable, a constant,
-// an index or the yield; upstream's precondition checks that of the body of
-// an all-parallel generic, but of a reduction's only the types and the
-// combiner, and says yes to a body the vectorizer then refuses. The body is
-// checked here for every generic, as upstream checks an all-parallel one.
-// PIN(vectorize-precondition-body) — see PINS.md
+// Whether the vectorizer takes the generic at these sizes, as its
+// precondition says, the ops of the body included.
 bool vectorizable(linalg::GenericOp op, ArrayRef<int64_t> sizes, ArrayRef<bool> scalable) {
-  return succeeded(linalg::vectorizeOpPrecondition(op, sizes, scalable)) &&
-         linalg::hasOnlyScalarElementwiseOp(op.getRegion());
+  return succeeded(linalg::vectorizeOpPrecondition(op, sizes, scalable));
 }
 
 

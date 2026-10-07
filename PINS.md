@@ -278,17 +278,13 @@ which the top-level CMake configure gate reads.
   `linalg::vectorize` then refuses (`:1380-1382`), after building part of
   its vector code. idr-vectorize tiled such a loop before vectorizing it, and
   its scalar tiles ran the body column by column within each group of rows
-- sites: foreign/idr/lib/Vectorize/Tiles.cppm (`vectorizable`)
-- workaround: `upstream/vectorize-precondition-body/llvm.patch` (drafted):
-  the precondition checks a reduction's body too. Until the toolchain is
-  rebuilt with it, idr-vectorize decides with the precondition and
-  `linalg::hasOnlyScalarElementwiseOp` of the body, the check upstream
-  makes of an all-parallel generic, before it changes anything; a generic it
-  refuses stays whole, and convert-linalg-to-loops runs its body in the
-  program's order. A tile of a generic it took that the vectorizer refuses
-  is its error, and fails the pass
-- retire: with the patch, `vectorizable` asks the precondition alone; drop
-  the patch when the pin's precondition refuses such a body
+- sites: none in our code; the patch. idr-vectorize decides with the
+  precondition alone (foreign/idr/lib/Vectorize/Tiles.cppm, `vectorizable`),
+  before it changes anything; a generic it refuses stays whole, and
+  convert-linalg-to-loops runs its body in the program's order
+- workaround: `upstream/vectorize-precondition-body/llvm.patch`: the
+  precondition checks a reduction's body too
+- retire: drop the patch when the pin's precondition refuses such a body
 - upstream: upstream/vectorize-precondition-body (not yet filed); plan in
   its README: an issue and a pull request
 

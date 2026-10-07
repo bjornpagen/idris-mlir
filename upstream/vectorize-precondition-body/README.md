@@ -90,12 +90,11 @@ anything, as it does for the all-parallel generic.
 
 ## Our workaround
 
-`PINS.md`: `vectorize-precondition-body`. `idr-vectorize`
-(`foreign/idr/lib/Vectorize/Tiles.cppm`, `vectorizable`) decides with the
-precondition and `hasOnlyScalarElementwiseOp` of the body, the check
-upstream makes of an all-parallel generic, before it tiles anything. A
-generic it refuses stays whole, and `convert-linalg-to-loops` runs its body
-in the program's order.
+None: the patch below is carried. `idr-vectorize`
+(`foreign/idr/lib/Vectorize/Tiles.cppm`, `vectorizable`) asks the
+precondition alone before it tiles anything; a generic it refuses stays
+whole, and `convert-linalg-to-loops` runs its body in the program's order.
+Before the patch it also asked `hasOnlyScalarElementwiseOp` of the body.
 
 ## Patch
 
