@@ -101,7 +101,15 @@ imports ident path = do
 -- Pragmas
 ------------------------------------------------------------------------------
 
-||| Lexes a user module's source with Idris's lexer and rejects any pragma.
+||| Pragmas the pinned elaborator has already discharged before this
+||| backend sees the term. `%default` is the totality it requires.
+||| `%hide` and `%unhide` resolve names. `%logging` is the driver's log.
+||| The token is not a second copy of any of those.
+discharged : List String
+discharged = ["default", "hide", "unhide", "logging"]
+
+||| Lexes a user module's source with Idris's lexer and rejects a pragma
+||| the elaborator has not already discharged.
 export
 checkPragmas : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                ModuleIdent -> String -> Core ()
@@ -126,9 +134,8 @@ checkPragmas ident path = do
       Nothing => pure ()
     check : WithBounds Token -> Core ()
     check tok = case tok.val of
-      -- %default only sets the totality Idris requires.
-      Pragma "default" => pure ()
-      Pragma p => reject (at tok) (show ident) UserPragma ("the pragma %" ++ p)
+      Pragma p => unless (elem p discharged) $
+                    reject (at tok) (show ident) UserPragma ("the pragma %" ++ p)
       HoleIdent h => reject (at tok) (show ident) EscapeHatch ("the hole ?" ++ h)
       Ident n => spelled tok n
       DotSepIdent _ n => spelled tok n
