@@ -1,6 +1,7 @@
 // idr.inbounds:joins: the values bound from several places, each from one
 // value per place: the arguments a region branch forwards and the results
-// it gives (scf.while, scf.for, scf.if, idr.match, idr.match_lit), a private
+// it gives (scf.while, scf.for, scf.if, idr.match, idr.match_lit, the loops
+// over arrays), a private
 // function's parameters, a call's results, a select. What each place gives
 // is said by the ops' own interfaces and by the module's symbol uses, so a
 // new region op is a join the moment it describes its branches.
