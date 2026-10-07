@@ -50,8 +50,9 @@ declaredAt e = fst <$> site e
 export
 foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hook)
 foreignHook q specs = do
-  -- Two entries may declare one spec at two names (Chez writes a byte
-  -- from an Int or a Bits8 alike): the entry declared at this name wins.
+  -- Two entries may declare one spec at two names (Chez names one
+  -- bytevector operation for a deprecated Int spelling and for Bits8):
+  -- the entry declared at this name wins.
   e <- case find (\e => declares e specs && declaredAt e == Just q) entries of
          Just e => Just e
          Nothing => find (\e => declares e specs) entries

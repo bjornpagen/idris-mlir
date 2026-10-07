@@ -8,6 +8,7 @@ idr_library(idr_lower
 		Lower.cppm
 		ArrayView.cppm
 		Arrays.cppm
+		Buffers.cppm
 		Bigs.cppm
 		BuildBox.cppm
 		Cells.cppm

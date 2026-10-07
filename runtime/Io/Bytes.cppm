@@ -12,22 +12,9 @@ import :input;
 import :output;
 import :writing;
 
-namespace {
-
-// The bytes [offset, offset + count) of a byte array, or a crash.
-char *byteRange(idris_rt_array *bytes, int64_t length, int64_t offset, int64_t count) {
-  if (offset < 0 || count < 0 || offset > length || count > length - offset) {
-    static constexpr char message[] = "idris-mlir: a byte range outside the buffer\n";
-    idris_rt_crash(message, sizeof message - 1);
-  }
-  return reinterpret_cast<char *>(bytes + 1) + offset;
-}
-
-} // namespace
-
 extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
                                            int64_t offset, int64_t count) {
-  const char *p = byteRange(bytes, length, offset, count);
+  const char *p = idris_rt_buffer_at(bytes, length, offset, count);
   auto n = static_cast<size_t>(count);
   if (handle == 1) {
     rt::io::putBytes(p, n);
@@ -43,7 +30,7 @@ extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes
 extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
                                           int64_t offset, int64_t count) {
   using namespace rt::io;
-  char *p = byteRange(bytes, length, offset, count);
+  char *p = idris_rt_buffer_at(bytes, length, offset, count);
   if (handle != 0)
     return 0;
   int64_t got = 0;

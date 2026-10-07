@@ -19,6 +19,7 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -177,18 +178,20 @@ mutual
       -- A hook for the identity on the one runtime argument, the
       -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
       -- to); the rest are proofs and types.
-      PMDef _ params _ _ _ => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
-                                   arrayLoopOf (hooksOf full)) of
-        (Just m, _, _) => natOperation fc loc lowered m (length params) (type def) args
-        (_, Just b, _) => builderCall fc loc lowered (length params) b (type def) args
-        (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
-        _ =>
-          if identityOnLast (hooksOf full) && length args >= length params
-             then do
-               let (now, rest) = splitAt (length params) args
-               v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
-               applyAll loc v rest
-             else call fc loc full Nothing (length params) (type def) args
+      PMDef _ params _ _ _ => case deprecatedOf (hooksOf full) of
+        Just msg => reject fc ctx.owner Deprecated msg
+        Nothing => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
+                         arrayLoopOf (hooksOf full)) of
+          (Just m, _, _) => natOperation fc loc lowered m (length params) (type def) args
+          (_, Just b, _) => builderCall fc loc lowered (length params) b (type def) args
+          (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
+          _ =>
+            if identityOnLast (hooksOf full) && length args >= length params
+               then do
+                 let (now, rest) = splitAt (length params) args
+                 v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
+                 applyAll loc v rest
+               else call fc loc full Nothing (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
       Builtin {arity} op => primitive fc loc full arity op args
@@ -200,6 +203,8 @@ mutual
         Just (Right (Handle h)) => applyAll loc (Literal loc h) args
         Just (Right (Builds b)) => builderCall fc loc lowered arity b (type def) args
         Just (Right (Alias q)) => aliasCall fc loc lowered q args
+        Just (Right StrBytes) => strBytes fc loc lowered arity (type def) args
+        Just (Right (Deprecated msg)) => reject fc ctx.owner Deprecated msg
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
@@ -336,7 +341,17 @@ mutual
       primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (TT vars) -> Core (Term a)
       primitive fc loc name arity op xs = case op of
         BelieveMe => reject fc ctx.owner EscapeHatch "believe_me"
-        Crash => reject fc ctx.owner EscapeHatch "idris_crash"
+        -- A user's crash is rejected. A trusted library's is the string it
+        -- is given: the program ends with that string and does not return.
+        Crash => do
+          here <- toLoc ctx.fc
+          if covers Trusted here.origin
+            then case last' (take arity xs) of
+              Just m => do
+                s <- term ctx env m
+                pure (PrimApp loc CrashStr Nothing [s])
+              Nothing => reject fc ctx.owner EscapeHatch "idris_crash"
+            else reject fc ctx.owner EscapeHatch "idris_crash"
         Neg DoubleType => supported
         Neg IntegerType => supported
         Neg _ => reject fc ctx.owner Primitive "negate"
@@ -431,6 +446,13 @@ mutual
           word CharT = True
           word DoubleT = True
           word _ = False
+
+      -- The number of bytes of a string: pure, the length of its UTF-8.
+      strBytes : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      strBytes fc loc lowered arity ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty []
+        given <- arguments loc kinds (take arity xs)
+        finish loc kinds given (PrimApp loc StrBytes lowered) (drop arity xs)
 
       -- The length of an array: at the element its type argument fixes, or
       -- at the fixed element of a type that has none (a buffer's bytes).

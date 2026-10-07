@@ -1,4 +1,0 @@
-Chez runs the library at optimize level 3, where bytevector-u8-set! checks
-nothing and stores the low byte of 256; Data.Buffer only assumes the value
-is a byte. This compiler ends the program, explicitly, instead of writing
-a byte the program did not name.

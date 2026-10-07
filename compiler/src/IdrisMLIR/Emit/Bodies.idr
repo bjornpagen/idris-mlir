@@ -191,6 +191,14 @@ alg : {0 b : Type} -> Index -> Owner -> TermF (Sub Em) b -> Em b
 alg ix own (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix own (LiteralF l x) env _ = Just <$> literal ix l x
 alg ix own (ErasedF l) env _ = Just <$> erasedValue ix l
+-- A trusted library's crash of a string ends the program and does not
+-- return. The string is the cause the runtime prints.
+alg ix own (PrimAppF l CrashStr _ as) env _ = do
+  Just [s] <- operands ix l env as [Held Many StrT]
+    | _ => pure Nothing
+  statement l (Idr.crashStrOp !(operand ix s))
+  statement l UB.unreachableOp
+  pure Nothing
 alg ix own (PrimAppF l p _ as) env _ = do
   Just vs <- operands ix l env as (map (Held Many) (primArgs p))
     | Nothing => pure Nothing

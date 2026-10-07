@@ -1,7 +1,7 @@
 module Main
 
--- An Int written as a byte must be one: 256 ends the program, as Chez's
--- bytevector-u8-set! refuses it.
+-- A word that does not lie in the buffer ends the program, as Chez's
+-- bytevector access does.
 
 import Prelude
 import Data.Buffer
@@ -11,5 +11,5 @@ main = do
   Just buf <- newBuffer 4
     | Nothing => putStrLn "no buffer"
   putStrLn "before"
-  setByte buf 1 256
+  printLn !(getBits16 buf 3)
   putStrLn "after"

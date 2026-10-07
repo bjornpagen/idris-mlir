@@ -58,6 +58,7 @@ target_sources(idr_dialect PRIVATE
 	Crashes/KnownNonZero.cc
 	Ops/Arrays.cc
 	Ops/Bigs.cc
+	Ops/Buffer.cc
 	Ops/Bytes.cc
 	Ops/Closure.cc
 	Ops/Con.cc

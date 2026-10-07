@@ -127,6 +127,7 @@ target_sources(idris_rt
 	PRIVATE
 		FILE_SET rt_io TYPE CXX_MODULES FILES
 			Io/Io.cppm
+			Io/Buffer.cppm
 			Io/Bytes.cppm
 			Io/Ending.cppm
 			Io/Input.cppm

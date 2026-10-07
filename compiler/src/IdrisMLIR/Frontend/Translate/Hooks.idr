@@ -74,3 +74,24 @@ arrayLoopOf : List Hook -> Maybe ArrayLoop
 arrayLoopOf = firstOf (\h => case h of
   ArrayLoop l => Just l
   _ => Nothing)
+
+||| Whether a definition's calls are the byte length of a string.
+export
+strBytesOf : List Hook -> Bool
+strBytesOf = isJust . firstOf (\h => case h of
+  StrBytes => Just ()
+  _ => Nothing)
+
+||| The replacement a deprecated name names, if the registry rejects it.
+export
+deprecatedOf : List Hook -> Maybe String
+deprecatedOf = firstOf (\h => case h of
+  Deprecated replacement => Just replacement
+  _ => Nothing)
+
+||| Whether a definition is a trusted library's crash of a string.
+export
+libraryCrashOf : List Hook -> Bool
+libraryCrashOf = isJust . firstOf (\h => case h of
+  LibraryCrash => Just ()
+  _ => Nothing)

@@ -116,6 +116,44 @@ bufferPrimitive : String -> String -> Shape -> IOOp -> Entry
 bufferPrimitive spec name shape op =
   MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName bufferModule name) shape) (IOCall op) [IOPrimitive]
 
+||| An integer primitive type, as a buffer's load or store names it.
+intOf : IntTy -> Shape
+intOf t = Prim (IntP t)
+
+||| A double.
+dbl : Shape
+dbl = Prim DoubleP
+
+||| A value written at a byte offset: buffer, offset, value, world.
+stored : Shape -> Shape
+stored val = Pi QW buffer (Pi QW int (Pi QW val (Pi Q1 world (ioRes unit))))
+
+||| A value read at a byte offset: buffer, offset, world.
+loaded : Shape -> Shape
+loaded val = Pi QW buffer (Pi QW int (Pi Q1 world (ioRes val)))
+
+||| A deprecated `%foreign` buffer name. The text names the replacement.
+deprecatedForeign : String -> String -> Shape -> String -> Entry
+deprecatedForeign spec name shape replacement =
+  MkEntry (Foreign (MkSpec "scheme" spec))
+          (Declared (MkQName bufferModule name) shape)
+          (Deprecated replacement) [Deprecated]
+
+||| A deprecated buffer definition written in Idris. The shape is a hole:
+||| the refusal does not depend on the type, and validation checks that the
+||| library still defines the name.
+deprecatedDef : String -> String -> Entry
+deprecatedDef name replacement =
+  MkEntry (Def (MkQName bufferModule name)) (Typed Hole) (Deprecated replacement) [Deprecated]
+
+||| A machine word written into a buffer, by its Chez spec.
+bufferStore : String -> String -> Shape -> Ty -> Entry
+bufferStore spec name shape ty = bufferPrimitive spec name shape (BufferStore ty)
+
+||| A machine word read from a buffer, by its Chez spec.
+bufferLoad : String -> String -> Shape -> Ty -> Entry
+bufferLoad spec name shape ty = bufferPrimitive spec name shape (BufferLoad ty)
+
 ||| The table: Idris's backend contract as the compiler implements it.
 export
 primitives : List Entry
@@ -148,25 +186,62 @@ primitives =
             (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
                       (Pi Q0 TypeOfTypes (Pi QW (arrayData Hole) int)))
             (ArraySize Nothing) [Primitive]
-  -- base's Data.Buffer, a mutable array of bytes, by the Chez specs it
-  -- declares: a new buffer is zero bytes; a byte is read as its Bits8 or as
-  -- an Int, and written from either, an Int outside 0 to 255 being a
-  -- crash, as Chez's bytevector-u8-set! refuses it; its size is the
-  -- array's dimension.
+  -- base's Data.Buffer is an array of bytes. Its size is the array's
+  -- length. A byte is that element (setBits8, getBits8). A wider value is
+  -- the target's own load or store of those bytes, so the endianness is
+  -- the machine's, as Chez's native-endianness is. setByte, getByte and
+  -- bufferData are deprecated names: a program that calls one is rejected,
+  -- and the message names the replacement. They share Chez's byte spec
+  -- with the Bits8 operations; the declared name picks the entry.
   , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType (Just byte)) [IOPrimitive]
   , bufferPrimitive "blodwen-new-buffer" "prim__newBuffer"
                     (Pi QW int (Pi Q1 world (ioRes buffer))) BufferNew
-  , bufferPrimitive "blodwen-buffer-setbyte" "prim__setByte"
-                    (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes unit))))) BufferSet
+  , deprecatedForeign "blodwen-buffer-setbyte" "prim__setByte"
+                      (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes unit)))))
+                      "setByte is deprecated; use setBits8"
+  , deprecatedDef "setByte" "setByte is deprecated; use setBits8"
   , bufferPrimitive "blodwen-buffer-setbyte" "prim__setBits8"
                     (Pi QW buffer (Pi QW int (Pi QW bits8 (Pi Q1 world (ioRes unit))))) (Array SetArray byte)
-  , bufferPrimitive "blodwen-buffer-getbyte" "prim__getByte"
-                    (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes int)))) BufferGet
+  , deprecatedForeign "blodwen-buffer-getbyte" "prim__getByte"
+                      (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes int))))
+                      "getByte is deprecated; use getBits8"
+  , deprecatedDef "getByte" "getByte is deprecated; use getBits8"
   , bufferPrimitive "blodwen-buffer-getbyte" "prim__getBits8"
                     (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes bits8)))) (Array GetArray byte)
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi QW buffer int))
             (ArraySize (Just byte)) [Primitive]
+  , bufferStore "blodwen-buffer-setbits16" "prim__setBits16" (stored (intOf UInt16)) (IntT UInt16)
+  , bufferLoad "blodwen-buffer-getbits16" "prim__getBits16" (loaded (intOf UInt16)) (IntT UInt16)
+  , bufferStore "blodwen-buffer-setbits32" "prim__setBits32" (stored (intOf UInt32)) (IntT UInt32)
+  , bufferLoad "blodwen-buffer-getbits32" "prim__getBits32" (loaded (intOf UInt32)) (IntT UInt32)
+  , bufferStore "blodwen-buffer-setbits64" "prim__setBits64" (stored (intOf UInt64)) (IntT UInt64)
+  , bufferLoad "blodwen-buffer-getbits64" "prim__getBits64" (loaded (intOf UInt64)) (IntT UInt64)
+  , bufferStore "blodwen-buffer-setint8" "prim__setInt8" (stored (intOf SInt8)) (IntT SInt8)
+  , bufferLoad "blodwen-buffer-getint8" "prim__getInt8" (loaded (intOf SInt8)) (IntT SInt8)
+  , bufferStore "blodwen-buffer-setint16" "prim__setInt16" (stored (intOf SInt16)) (IntT SInt16)
+  , bufferLoad "blodwen-buffer-getint16" "prim__getInt16" (loaded (intOf SInt16)) (IntT SInt16)
+  , bufferStore "blodwen-buffer-setint32" "prim__setInt32" (stored (intOf SInt32)) (IntT SInt32)
+  , bufferLoad "blodwen-buffer-getint32" "prim__getInt32" (loaded (intOf SInt32)) (IntT SInt32)
+  , bufferStore "blodwen-buffer-setint64" "prim__setInt64" (stored (intOf SInt64)) (IntT SInt64)
+  , bufferLoad "blodwen-buffer-getint64" "prim__getInt64" (loaded (intOf SInt64)) (IntT SInt64)
+  , bufferStore "blodwen-buffer-setint" "prim__setInt" (stored int) (IntT IdrisInt)
+  , bufferLoad "blodwen-buffer-getint" "prim__getInt" (loaded int) (IntT IdrisInt)
+  , bufferStore "blodwen-buffer-setdouble" "prim__setDouble" (stored dbl) DoubleT
+  , bufferLoad "blodwen-buffer-getdouble" "prim__getDouble" (loaded dbl) DoubleT
+  , MkEntry (Foreign (MkSpec "scheme" "blodwen-stringbytelen"))
+            (Declared (MkQName bufferModule "stringByteLength") (Pi QW (Prim StringP) int))
+            StrBytes [Primitive]
+  , bufferPrimitive "blodwen-buffer-setstring" "prim__setString"
+                    (Pi QW buffer (Pi QW int (Pi QW (Prim StringP) (Pi Q1 world (ioRes unit)))))
+                    BufferSetString
+  , bufferPrimitive "blodwen-buffer-getstring" "prim__getString"
+                    (Pi QW buffer (Pi QW int (Pi QW int (Pi Q1 world (ioRes (Prim StringP))))))
+                    BufferGetString
+  , bufferPrimitive "blodwen-buffer-copydata" "prim__copyData"
+                    (Pi QW buffer (Pi QW int (Pi QW int (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes unit)))))))
+                    BufferCopy
+  , deprecatedDef "bufferData" "bufferData is deprecated; use bufferData'"
   -- base's System.File on the standard streams: a FilePtr is an AnyPtr,
   -- a machine word, which only the three handles inhabit, the runtime's
   -- own meaning of them; the byte transfers of System.File.Buffer; and

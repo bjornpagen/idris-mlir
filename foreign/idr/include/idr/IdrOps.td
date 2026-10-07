@@ -595,6 +595,19 @@ def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>]> {
   let assemblyFormat = "$message attr-dict";
 }
 
+// A trusted library's crash of a string it computed. The message is the
+// string's text. The op does not return; Emit follows it with unreachable.
+def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+  let summary = "ends the program with a string's text";
+  let arguments = (ins Idr_StrType:$message);
+  let assemblyFormat = "$message attr-dict";
+  let extraClassDefinition = [{
+    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
+      return ::llvm::StringRef("idris_crash");
+    }
+  }];
+}
+
 // Created by idr-tail-loops in loops of functions that are
 // not total, and by idr-lower in JIT mode on entry to them, where it is the
 // tick that lets idr-eval stop a call that does not end; never written by
@@ -841,6 +854,16 @@ def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the number of characters of a string";
+  let arguments = (ins Idr_StrType:$str);
+  let results = (outs I64:$result);
+  let assemblyFormat = "$str attr-dict";
+}
+
+// The number of bytes of a string, the length of its UTF-8, interior zeros
+// included. Folded by calling the runtime, as str.length is.
+def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime]> {
+  let hasFolder = 1;
+  let summary = "the number of bytes of a string";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs I64:$result);
   let assemblyFormat = "$str attr-dict";
@@ -1208,6 +1231,79 @@ def Idr_EofOp : Idr_IOOp<"eof"> {
   let arguments = (ins I64:$handle, Idr_WorldType:$world);
   let results = (outs I64:$ended, Idr_WorldType:$next);
   let assemblyFormat = "$handle `,` $world attr-dict";
+}
+
+// A machine word in a buffer of bytes, at a byte offset. The span is
+// `sizeof` the word. It must lie in the buffer, else the program crashes
+// (idris_rt_buffer_at, the same check a byte transfer uses). The load and
+// the store are the target's own, at alignment 1, so the endianness is the
+// machine's and an offset need not be aligned. Not a runtime call: the
+// value's width is the op's type.
+class Idr_BufferAccessOp<string mnemonic, list<Trait> traits = []>
+    : Idr_Op<"io." # mnemonic, !listconcat(traits, [
+        Idr_PerformsIO,
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+        DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>])>;
+
+def Idr_BufferLoadOp : Idr_BufferAccessOp<"buffer_load"> {
+  let summary = "a machine word read from a buffer at a byte offset";
+  let arguments = (ins Idr_ArrayValue:$buffer, I64:$offset, Idr_WorldType:$world);
+  let results = (outs AnyTypeOf<[I8, I16, I32, I64, F64]>:$value, Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $buffer `[` $offset `]` `,` $world attr-dict `:` type($buffer) `->` type($value)
+  }];
+  let hasVerifier = 1;
+}
+
+def Idr_BufferStoreOp : Idr_BufferAccessOp<"buffer_store"> {
+  let summary = "a machine word written into a buffer at a byte offset";
+  let arguments = (ins Idr_ArrayValue:$buffer, I64:$offset,
+                       AnyTypeOf<[I8, I16, I32, I64, F64]>:$value, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $buffer `[` $offset `]` `,` $value `,` $world attr-dict `:` type($buffer) `,` type($value)
+  }];
+  let hasVerifier = 1;
+}
+
+// Bytes copied from one buffer into another. The two spans must each lie in
+// their buffer. Overlap is allowed: the copy is memmove.
+def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [Idr_CallsRuntime]> {
+  let summary = "bytes copied from one buffer into another";
+  let arguments = (ins Idr_ArrayValue:$src, I64:$src_offset, I64:$len,
+                       Idr_ArrayValue:$dst, I64:$dst_offset, Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $src `[` $src_offset `,` $len `]` `,` $dst `[` $dst_offset `]` `,` $world attr-dict
+    `:` type($src) `,` type($dst)
+  }];
+  let hasVerifier = 1;
+}
+
+// A string's UTF-8 written at an offset. The span is the string's byte
+// length, interior zeros included, and must lie in the buffer.
+def Idr_BufferSetStringOp : Idr_BufferAccessOp<"buffer_set_string", [Idr_CallsRuntime]> {
+  let summary = "a string's bytes written into a buffer";
+  let arguments = (ins Idr_ArrayValue:$buffer, I64:$offset, Idr_StrType:$str,
+                       Idr_WorldType:$world);
+  let results = (outs Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $buffer `[` $offset `]` `,` $str `,` $world attr-dict `:` type($buffer)
+  }];
+  let hasVerifier = 1;
+}
+
+// A buffer's bytes read as a string. Ill-formed UTF-8 is replaced as
+// idris_rt_str_from_bytes replaces it. A new string.
+def Idr_BufferGetStringOp : Idr_BufferAccessOp<"buffer_get_string", [Idr_CallsRuntime]> {
+  let summary = "a buffer's bytes read as a string";
+  let arguments = (ins Idr_ArrayValue:$buffer, I64:$offset, I64:$len, Idr_WorldType:$world);
+  let results = (outs Idr_StrValue:$str, Idr_WorldType:$next);
+  let assemblyFormat = [{
+    $buffer `[` $offset `,` $len `]` `,` $world attr-dict `:` type($buffer)
+    custom<StrResult>(type($str))
+  }];
+  let hasVerifier = 1;
 }
 
 // A world forged where a trusted library runs an IO action for a pure
