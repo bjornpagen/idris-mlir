@@ -76,10 +76,11 @@ agreement before code.
 
 ## Upstreaming plan
 
-- Where: an issue with this report and `nested.sh`, then an RFC on
-  LLVM Discourse (MLIR) for iterative parsing, printing and sub-element
-  walking of nested attributes, citing the bytecode reader's worklist.
+Status: not ready.
+
+- Where: an RFC on LLVM Discourse (MLIR) first, for iterative parsing,
+  printing and sub-element walking of nested attributes, citing the
+  bytecode reader's worklist. Until upstream agrees on the design, the
+  workaround stays and this directory carries no patch.
 - Upstream test: `nested.sh 10000` round-tripping through `mlir-opt` on
   an 8 MiB stack.
-- Status: not filed. Until upstream agrees on the design, the workaround
-  stays and this directory carries no patch.

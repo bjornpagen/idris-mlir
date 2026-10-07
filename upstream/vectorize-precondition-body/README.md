@@ -112,8 +112,9 @@ its `mlir-opt`, as the 14 other tests of that directory still do, and
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: an issue with this report and `body.mlir`, and a pull request to
   llvm/llvm-project (Linalg vectorization).
 - Upstream test: `reduction-body-unsupported.mlir`; run `check-mlir` for
   the vectorization tests whose reductions hold ops the check now refuses.
-- Status: not sent.

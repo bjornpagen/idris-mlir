@@ -119,13 +119,13 @@ The shift (case 1) is fixed on main by 44a4dbf32 ("[MLIR][Arith] Don't
 narrow shifts whose amount can exceed the target width",
 [#218495](https://github.com/llvm/llvm-project/pull/218495)), for
 [#218191](https://github.com/llvm/llvm-project/issues/218191); it is not
-on `release/23.x`. The remainders are not (checked at ed390ca4, October
+on `release/23.x`. The remainders are not (checked at 161d9dca, October
 2026): `remsi` still has no check for the narrow minimum rem -1, and the
 unsigned ops still allow either cast
-(`IntRangeOptimizations.cpp:396-402` there). Cases 2 and 3 are not filed
-yet; file them as one report that cites the shift fix. When the pin moves
-past 44a4dbf32, drop the shift from this report, `narrowing.mlir`, its
-check and `exact`, and keep the rest.
+(`IntRangeOptimizations.cpp:396-402` there). Cases 2 and 3 are the part
+this report sends. When the pin moves past 44a4dbf32, drop the shift
+from this report, `narrowing.mlir`, its check and `exact`, and keep the
+rest.
 
 ## Our workaround
 
@@ -151,10 +151,17 @@ which the pinned build does not have, so it has not been run.
 
 ## Upstreaming plan
 
-- Where: one issue for the two remainder cases citing #218495, and a
-  pull request to llvm/llvm-project with the remainder part alone (the
-  shift is upstream).
+Status: file upstream.
+
+The shift backport is already on main and is not filed. One issue for
+the two remainder cases, citing #218495, and a pull request with the
+remainder part alone.
+
+- Where: llvm/llvm-project. `remsi` does not narrow when the dividend's
+  range holds the target width's signed minimum and the divisor's holds
+  -1, and the ops that read their operands unsigned get
+  `CastKind::Unsigned`.
 - Upstream test: `@remsi_narrow_min_by_minus_one`, `@remsi_above_narrow_min`
   and `@remui_of_negative` in `int-range-narrowing.mlir`.
-- Status: not sent. When the pin moves past 44a4dbf32, the backported
-  part leaves the patch; the rest stays until upstream has it.
+- When the pin moves past 44a4dbf32, the backported part leaves the
+  patch; the rest stays until upstream has it.

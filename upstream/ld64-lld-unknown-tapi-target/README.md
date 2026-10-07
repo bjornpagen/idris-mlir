@@ -75,7 +75,7 @@ Concretely, `macho::loadDylib` in `lld/MachO/DriverUtils.cpp` should call
 
 ## Status upstream
 
-Not filed yet. The macOS 27 symptom is fixed: main teaches LLVM
+The macOS 27 symptom is fixed: main teaches LLVM
 `arm64e.x1` in b8007a8e4 ("[ld64.lld, llvm-otool] Minimal arm64e.x1
 support", [#222721](https://github.com/llvm/llvm-project/pull/222721)),
 backported to `release/23.x` as 532fa5afb
@@ -83,7 +83,7 @@ backported to `release/23.x` as 532fa5afb
 `llvmorg-23.1.2` tag, so in 23.1.3 if there is one. The general bug is
 not: main (checked at ed390ca4, October 2026) still reads a `.tbd` without
 `SkipUnknownTriples`, in the same call (`DriverUtils.cpp:267` there), and
-still refuses `unknown.tbd`.
+still refuses `unknown.tbd`. That skip stays local.
 
 ## Our workaround
 
@@ -107,8 +107,13 @@ build has no test targets).
 
 ## Upstreaming plan
 
-- Where: an issue with this report, and a pull request to
-  llvm/llvm-project (lld MachO) with the `SkipUnknownTriples` part alone.
-- Upstream test: `tapi-unknown-target.s`.
-- Status: not sent. When the pin moves past 532fa5afb (23.1.3, if there
-  is one), the backported part leaves the patch.
+Status: carried backport, not filed.
+
+The unknown-triple skip is ours and stays local. `macho::loadDylib`
+reading a stub with `SkipUnknownTriples` is not sent. The `arm64e.x1`
+part is already on main (b8007a8e4, #222721) and on `release/23.x` after
+23.1.2 (532fa5afb, #224185).
+
+- Where: nothing to send. The patch is carried until the pin moves past
+  532fa5afb (23.1.3, if there is one).
+- Upstream test: `tapi-unknown-target.s`, kept with the local skip.

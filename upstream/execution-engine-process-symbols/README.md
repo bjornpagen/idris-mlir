@@ -71,10 +71,11 @@ test has not been run.
 
 ## Upstreaming plan
 
+Status: file upstream.
+
 - Where: a pull request to llvm/llvm-project (MLIR ExecutionEngine), with
   this report as its description; no issue needed.
 - Upstream test: the `WithoutProcessSymbols` unit test `pull-request.diff`
   adds.
   This bug has no `tests/upstream` check, since no `mlir-opt` command
   shows it; the unit test is its check upstream.
-- Status: not sent.
