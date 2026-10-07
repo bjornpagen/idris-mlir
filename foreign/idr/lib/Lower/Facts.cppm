@@ -19,7 +19,7 @@ namespace {
 // Whether a value of `type` is one pointer to a cell: a box, a closure or a
 // string. Static data and live cells alike are 8-aligned and start with an
 // 8-byte header.
-bool isCell(Type type) { return isa<BoxType, FnType, StrType>(unrestricted(type)); }
+bool isCell(Type type) { return isa<BoxType, FnType, LazyType, StrType>(unrestricted(type)); }
 
 // The attributes of a pointer to a cell.
 SmallVector<NamedAttribute> cellFacts(Builder &b) {

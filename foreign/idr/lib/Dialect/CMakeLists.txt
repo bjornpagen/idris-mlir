@@ -67,6 +67,7 @@ target_sources(idr_dialect PRIVATE
 	Ops/Dest.cc
 	Ops/Field.cc
 	Ops/Generated.cc
+	Ops/Lazy.cc
 	Ops/Lin.cc
 	Ops/Matches.cc
 	Ops/Scalars.cc

@@ -66,6 +66,11 @@ References::References(ModuleOp module, SymbolTable &symbols) {
           sites[fn.getOperation()].push_back({target, op});
         return;
       }
+      if (auto suspend = dyn_cast<idr::SuspendOp>(op)) {
+        if (auto target = symbols.lookup<func::FuncOp>(suspend.getCalleeAttr().getAttr()))
+          sites[fn.getOperation()].push_back({target, op});
+        return;
+      }
       op->getAttrDictionary().walk([&](idr::ClosureAttr closure) {
         if (auto target = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr()))
           sites[fn.getOperation()].push_back({target, op});

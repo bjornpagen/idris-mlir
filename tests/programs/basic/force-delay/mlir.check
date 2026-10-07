@@ -1,7 +1,6 @@
 // input: after idr-simplify
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.choose
-// Both Lazy arguments are forced where they are known: a Lazy value is a
-// closure of no arguments, and forcing a known one is a call, inlined.
+// Both Lazy arguments are forced where they are known.
 // choose is inlined at its call; what remains is a match on the runtime
 // character whose alternatives are the literals.
 // CHECK: idr.match_lit

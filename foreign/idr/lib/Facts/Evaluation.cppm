@@ -47,6 +47,14 @@ std::optional<Evaluation> canEvaluate(Operation *op, SymbolTable &symbols) {
     callee = closure.getCallee();
     llvm::append_range(out.args, closure.getCaptures());
     operands = apply.getArgs();
+  } else if (auto force = dyn_cast<ForceOp>(op)) {
+    // The body, once, with the captures. The cell update is what shares a
+    // force that this round does not replace.
+    ClosureAttr closure;
+    if (!matchPattern(force.getSuspension(), m_Constant(&closure)))
+      return std::nullopt;
+    callee = closure.getCallee();
+    llvm::append_range(out.args, closure.getCaptures());
   } else {
     return std::nullopt;
   }
@@ -60,6 +68,13 @@ std::optional<Evaluation> canEvaluate(Operation *op, SymbolTable &symbols) {
   }
   // The callee, then every function the constants name as closures.
   out.callee = symbols.lookup<func::FuncOp>(callee.getAttr());
+  // A suspension that may not return is left to be forced at runtime.
+  // Evaluating it replaces the force with a value that holds the next
+  // suspension, and the next round evaluates that one: a chain that does
+  // not end never reaches the round's fixpoint, because each round's budget
+  // starts over.
+  if (isa<ForceOp>(op) && of(out.callee).diverge)
+    return std::nullopt;
   SmallVector<func::FuncOp> runners{out.callee};
   for (Attribute arg : out.args)
     arg.walk([&](Attribute nested) {

@@ -68,12 +68,27 @@ LogicalResult idr::ops::verifyConstant(Operation *op, SymbolTableCollection &sym
     if (captures > inputs.size())
       return op->emitOpError("has a closure with more captures than ")
              << closure.getCallee() << " has parameters";
-    auto expected = FnType::get(op->getContext(), inputs.drop_front(captures),
-                                fn.getResultTypes());
-    if (expected != type)
+    // A suspension's function has no arguments past its captures: the cell
+    // is the whole value, and forcing it passes nothing more.
+    if (auto lazy = dyn_cast<LazyType>(type)) {
+      // idr-rc grades the function's return; the constant stays a plain
+      // cell, and the carrier is what the two still share.
+      if (captures != inputs.size() || fn.getNumResults() != 1 ||
+          unrestricted(fn.getResultTypes()[0]) != unrestricted(lazy.getValue()) ||
+          llvm::any_of(inputs, isWorld))
+        return op->emitOpError("has a suspension of ")
+               << closure.getCallee() << ", where " << type << " is expected";
+      return verifyConstants(op, symbols, closure.getCaptures(), inputs, checked);
+    }
+    // The function's signature carries the grades reference counting added.
+    // The constant names the same carriers at the quantities Idris proved.
+    auto actual = dyn_cast<FnType>(unrestricted(type));
+    if (!actual || !sameCarriers(inputs.drop_front(captures), actual.getInputs()) ||
+        !sameCarriers(fn.getResultTypes(), actual.getResults()))
       return op->emitOpError("has a closure of ")
-             << closure.getCallee() << ", of type " << expected << ", where " << type
-             << " is expected";
+             << closure.getCallee() << ", of type "
+             << FnType::get(op->getContext(), inputs.drop_front(captures), fn.getResultTypes())
+             << ", where " << type << " is expected";
     return verifyConstants(op, symbols, closure.getCaptures(),
                            inputs.take_front(captures), checked);
   }

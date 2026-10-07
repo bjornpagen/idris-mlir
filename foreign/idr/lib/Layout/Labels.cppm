@@ -13,6 +13,9 @@ struct Label {
   unsigned captures;
   // The callee's type before idr-lower converts it.
   mlir::FunctionType type;
+  // A suspension: the cell is large enough for the value as well as the
+  // captures, and the code pointer is replaced when the value is written.
+  bool suspension = false;
 
   // A closure label's parameters: its captures, then its arguments.
   llvm::ArrayRef<mlir::Type> captureTypes() const { return type.getInputs().take_front(captures); }

@@ -103,8 +103,9 @@ signed _ = True
 mutual
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
   ||| `Nat`-like type, an integer that is never negative, the same
-  ||| big at runtime; `FunT` and `LazyT` are closures, `FunT` binding its argument as a
-  ||| lambda does; `DataT` is a data instance, whose declaration says
+  ||| big at runtime; `FunT` is a closure, binding its argument as a lambda
+  ||| does; `LazyT` is a suspension, one cell whose value is shared by every
+  ||| force; `DataT` is a data instance, whose declaration says
   ||| whether it is an unboxed sum or a box; `ArrayT` is a mutable array of
   ||| its element type, `Data.IOArray.Prims.ArrayData`, read and written
   ||| through the world.

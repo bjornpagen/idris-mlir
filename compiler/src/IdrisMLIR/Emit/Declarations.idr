@@ -52,13 +52,21 @@ function ix root f = do
   rt <- mlirType ix f.result
   args <- traverse (operand ix) (toList params)
   body <- epilogue ix f.loc rt res ops
-  let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private"} sym
+  -- One cell for a lazy constant. Inlining the function that builds it
+  -- would build a fresh cell at every use, and each force would run the
+  -- body again.
+  let shared = f.arity == 0 && lazyResult f.result
+  let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private",
+                        noInline = shared} sym
                        (functionType (map (\a : Value => a.type) args) [rt])
                        (MkRegion args body)
   inner <- gets (.lifted)
   pure (MkStatement Nothing ({ attributes := attributes (own f) } fn) (Named f.idrisName f.loc)
         :: (inner <>> []))
   where
+    lazyResult : Ty -> Bool
+    lazyResult (LazyT _) = True
+    lazyResult _ = False
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
     alg' = alg ix (MkOwner (mangle f.id.name) f.idrisName (inherited f))
     plain' : E (Maybe Val) -> E (Maybe Val)

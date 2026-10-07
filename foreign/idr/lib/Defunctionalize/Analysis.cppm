@@ -34,10 +34,15 @@ public:
   LogicalResult initialize(Operation *top) override {
     top->walk([&](idr::ConstantOp constant) {
       constant.getValue().walk([&](idr::ConAttr con) {
-        for (auto [i, field] : llvm::enumerate(con.getFields()))
-          if (auto closure = dyn_cast<idr::ClosureAttr>(field))
+        for (auto [i, field] : llvm::enumerate(con.getFields())) {
+          auto closure = dyn_cast<idr::ClosureAttr>(field);
+          if (!closure)
+            continue;
+          Type declared = module.fieldType(con.getCtor(), static_cast<unsigned>(i));
+          if (declared && isClosureType(declared))
             joinField(con.getCtor(), static_cast<unsigned>(i),
                       Labels::of(closure.getCallee().getAttr()));
+        }
       });
     });
     return SparseForwardDataFlowAnalysis::initialize(top);
@@ -48,7 +53,8 @@ public:
     if (auto closure = dyn_cast<idr::ClosureOp>(op))
       return set(results[0], Labels::of(closure.getCalleeAttr().getAttr()));
     if (auto constant = dyn_cast<idr::ConstantOp>(op)) {
-      if (auto closure = dyn_cast<idr::ClosureAttr>(constant.getValue()))
+      if (auto closure = dyn_cast<idr::ClosureAttr>(constant.getValue());
+          closure && isClosureType(constant.getType()))
         return set(results[0], Labels::of(closure.getCallee().getAttr()));
       return success();
     }
@@ -124,11 +130,19 @@ public:
     for (idr::ClosureOp closure : module.closures.lookup(name))
       for (auto [capture, argument] : llvm::zip(closure.getCaptures(), arguments))
         join(argument, *getLatticeElementFor(point, capture));
-    for (ArrayAttr captures : module.constantClosures.lookup(name))
+    for (idr::SuspendOp suspend : module.suspends.lookup(name))
+      for (auto [capture, argument] : llvm::zip(suspend.getCaptures(), arguments))
+        join(argument, *getLatticeElementFor(point, capture));
+    auto joinCaptures = [&](ArrayAttr captures) {
       for (auto [capture, argument] : llvm::zip(captures, arguments))
         if (auto closure = dyn_cast<idr::ClosureAttr>(capture))
           propagateIfChanged(argument, static_cast<LabelLattice *>(argument)->join(
                                            Labels::of(closure.getCallee().getAttr())));
+    };
+    for (ArrayAttr captures : module.constantClosures.lookup(name))
+      joinCaptures(captures);
+    for (ArrayAttr captures : module.suspendConstants.lookup(name))
+      joinCaptures(captures);
 
     bool isLabel = module.closures.count(name) || module.constantClosures.count(name);
     for (idr::ApplyOp apply : module.applies) {

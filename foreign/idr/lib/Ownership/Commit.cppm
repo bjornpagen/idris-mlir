@@ -86,6 +86,15 @@ public:
              llvm::zip(yield->getOpOperands(), yield->getParentOp()->getResultTypes()))
           if (failed(meet(b, operand, expected)))
             return WalkResult::interrupt();
+      } else if (auto suspend = dyn_cast<SuspendOp>(op)) {
+        // A capture is the function's parameter. An exclusive value is
+        // shared into that owned parameter, as a call's argument is.
+        auto fn = symbols.lookupNearestSymbolFrom<func::FuncOp>(suspend, suspend.getCalleeAttr());
+        if (fn)
+          for (auto [operand, expected] :
+               llvm::zip(suspend.getCapturesMutable(), fn.getArgumentTypes()))
+            if (failed(meet(b, operand, expected)))
+              return WalkResult::interrupt();
       }
       return WalkResult::advance();
     });

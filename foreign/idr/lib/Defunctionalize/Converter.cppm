@@ -50,6 +50,12 @@ struct Converter : Decided {
     return module.function(label).getArgumentTypes().drop_back(arity(type));
   }
 
+  // A suspension's value may be a closure. `was` is the function's result
+  // type before retype, so the lazy type can follow it to the sum.
+  llvm::DenseMap<StringAttr, Type> suspensionResults();
+  Type adapt(Type type, const llvm::DenseMap<Type, Type> &next);
+  void adaptLazy(const llvm::DenseMap<StringAttr, Type> &was);
+
   void retype() {
     for (func::FuncOp fn : module.op.getOps<func::FuncOp>()) {
       SmallVector<Type> inputs, outputs;
@@ -287,7 +293,9 @@ struct Converter : Decided {
     decide();
 
     OpBuilder b(ctx);
+    llvm::DenseMap<StringAttr, Type> was = suspensionResults();
     retype();
+    adaptLazy(was);
     declareSums(b);
     coerceCalls(b);
     coerceSinks(b);

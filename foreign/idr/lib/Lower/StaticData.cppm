@@ -43,7 +43,7 @@ public:
       message = it->second;
     } else {
       auto type = LLVM::LLVMArrayType::get(b.getI8Type(), text.size());
-      message = global(b, loc, "__idr_msg_", type, [&](OpBuilder &init) -> Value {
+      message = global(b, loc, "__idr_msg_", type, /*isConstant=*/true, [&](OpBuilder &init) -> Value {
         return LLVM::ConstantOp::create(init, loc, type, init.getStringAttr(text));
       });
       messages[text] = message;
@@ -95,7 +95,8 @@ public:
       if (auto con = dyn_cast<ConAttr>(value)) {
         auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
         const layout::Cell &cell = layouts.box(ctor);
-        cellGlobal = staticCell(b, loc, "__idr_box_", cell, [&](OpBuilder &init, unsigned i) {
+        cellGlobal = staticCell(b, loc, "__idr_box_", cell, /*isConstant=*/true,
+                                [&](OpBuilder &init, unsigned i) {
           return constant(init, loc, con.getFields()[i], ctor.getFieldType(i));
         });
       } else {
@@ -103,7 +104,10 @@ public:
         const layout::Label &label = layouts.label(layouts.labelId(
             closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size())));
         const layout::Cell &cell = layouts.closure(label);
-        cellGlobal = staticCell(b, loc, "__idr_closure_", cell,
+        // A suspension is written when it is forced. A constant cell is
+        // not: the store would fault.
+        bool frozen = !isa<LazyType>(unrestricted(type));
+        cellGlobal = staticCell(b, loc, "__idr_closure_", cell, frozen,
                                 [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
                                   if (i == 0)
                                     return {code(init, loc, label)};
@@ -143,13 +147,13 @@ public:
   ArrayRef<unsigned> usedLabels() const { return usedCode.getArrayRef(); }
 
 private:
-  LLVM::GlobalOp global(OpBuilder &b, Location loc, StringRef prefix, Type type,
+  LLVM::GlobalOp global(OpBuilder &b, Location loc, StringRef prefix, Type type, bool isConstant,
                         function_ref<Value(OpBuilder &)> init) {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(module.getBody());
     std::string name = (prefix + Twine(globals++)).str();
-    auto global = LLVM::GlobalOp::create(b, loc, type, /*isConstant=*/true, LLVM::Linkage::Private,
-                                         name, Attribute(), /*alignment=*/IDRIS_RT_WORD_BYTES);
+    auto global = LLVM::GlobalOp::create(b, loc, type, isConstant, LLVM::Linkage::Private, name,
+                                         Attribute(), /*alignment=*/IDRIS_RT_WORD_BYTES);
     b.createBlock(&global.getInitializerRegion());
     LLVM::ReturnOp::create(b, loc, init(b));
     return global;
@@ -169,6 +173,7 @@ private:
   // A cell as static data, count 0: its header, then the components of
   // each field in the cell's address order.
   LLVM::GlobalOp staticCell(OpBuilder &b, Location loc, StringRef prefix, const layout::Cell &cell,
+                            bool isConstant,
                             function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
     // A packed struct with the padding as bytes of its own, so that LLVM puts
     // each component at the offset the layout chose, whatever data layout the
@@ -195,7 +200,7 @@ private:
     }
     padTo(cell.size);
     auto structType = LLVM::LLVMStructType::getLiteral(ctx, members, /*isPacked=*/true);
-    return global(b, loc, prefix, structType, [&](OpBuilder &init) -> Value {
+    return global(b, loc, prefix, structType, isConstant, [&](OpBuilder &init) -> Value {
       SmallVector<SmallVector<Value>> fields;
       for (unsigned field = 0; field < cell.fields.size(); ++field)
         fields.push_back(components(init, field));
@@ -221,7 +226,8 @@ private:
       bool ascii = idris_rt_ascii(bytes.data(), bytes.size());
       auto scalars = static_cast<int64_t>(idris_rt_utf8_count(bytes.data(), bytes.size()));
       uint32_t info = layout::CellInfo::string(ascii).word();
-      auto global = this->global(b, loc, "__idr_str_", type, [&](OpBuilder &init) -> Value {
+      auto global = this->global(b, loc, "__idr_str_", type, /*isConstant=*/true,
+                                 [&](OpBuilder &init) -> Value {
         SmallVector<Value> values{i32Constant(init, loc, 0), i32Constant(init, loc, info),
                                   i64Constant(init, loc, static_cast<int64_t>(bytes.size())),
                                   i64Constant(init, loc, scalars)};
@@ -262,7 +268,8 @@ private:
       auto i64 = b.getI64Type();
       auto limbsType = LLVM::LLVMArrayType::get(i64, count);
       auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), {i32, i32, i64, limbsType});
-      auto global = this->global(b, loc, "__idr_big_", type, [&](OpBuilder &init) -> Value {
+      auto global = this->global(b, loc, "__idr_big_", type, /*isConstant=*/true,
+                                 [&](OpBuilder &init) -> Value {
         Value limbsValue = LLVM::ConstantOp::create(
             init, loc, limbsType,
             DenseElementsAttr::get(

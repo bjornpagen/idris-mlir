@@ -29,6 +29,11 @@ struct Module {
   // The closure ops and closure constants (their captures) of each label.
   llvm::DenseMap<StringAttr, SmallVector<idr::ClosureOp>> closures;
   llvm::DenseMap<StringAttr, SmallVector<ArrayAttr>> constantClosures;
+  // Suspensions name a function the way a closure does, but the cell is not
+  // a sum: the captures still flow into the function, and the function is
+  // not a label an apply may call.
+  llvm::DenseMap<StringAttr, SmallVector<idr::SuspendOp>> suspends;
+  llvm::DenseMap<StringAttr, SmallVector<ArrayAttr>> suspendConstants;
   SmallVector<idr::ApplyOp> applies;
   // Functions referenced other than by a call, closure or constant.
   llvm::DenseSet<StringAttr> escaping;
@@ -90,18 +95,23 @@ struct Module {
     op.walk([&](Operation *inner) {
       if (auto closure = dyn_cast<idr::ClosureOp>(inner))
         closures[closure.getCalleeAttr().getAttr()].push_back(closure);
+      else if (auto suspend = dyn_cast<idr::SuspendOp>(inner))
+        suspends[suspend.getCalleeAttr().getAttr()].push_back(suspend);
       else if (auto apply = dyn_cast<idr::ApplyOp>(inner))
         applies.push_back(apply);
       else if (auto constant = dyn_cast<idr::ConstantOp>(inner))
-        closuresIn(constant.getValue(), constant.getType(), [&](idr::ClosureAttr c, Type) {
-          constantClosures[c.getCallee().getAttr()].push_back(c.getCaptures());
+        closuresIn(constant.getValue(), constant.getType(), [&](idr::ClosureAttr c, Type type) {
+          auto &into = isa<idr::LazyType>(idr::unrestricted(type)) ? suspendConstants
+                                                                  : constantClosures;
+          into[c.getCallee().getAttr()].push_back(c.getCaptures());
         });
     });
     if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(op.getOperation()))
       for (const SymbolTable::SymbolUse &use : *uses)
-        // A clone names itself (idr.clone); no closure escapes there.
-        if (!isa<func::CallOp, func::FuncOp, idr::ClosureOp, idr::ConstantOp, idr::ConOp,
-                 idr::FieldOp, idr::MatchOp>(use.getUser()))
+        // A clone names itself (idr.clone); no closure escapes there. A
+        // suspension names its function the way a closure does.
+        if (!isa<func::CallOp, func::FuncOp, idr::ClosureOp, idr::SuspendOp, idr::ConstantOp,
+                 idr::ConOp, idr::FieldOp, idr::MatchOp>(use.getUser()))
           escaping.insert(use.getSymbolRef().getRootReference());
   }
 };

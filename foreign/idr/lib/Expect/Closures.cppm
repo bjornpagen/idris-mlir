@@ -20,7 +20,9 @@ export LogicalResult noClosures(ModuleOp module, StringRef) {
       found = "a closure is built";
     else if (isa<ApplyOp>(op))
       found = "a closure is applied";
-    else if (auto constant = dyn_cast<ConstantOp>(op); constant && isa<ClosureAttr>(constant.getValue()))
+    else if (auto constant = dyn_cast<ConstantOp>(op);
+             constant && isa<ClosureAttr>(constant.getValue()) &&
+             !isa<LazyType>(constant.getType()))
       found = "a closure is a constant";
     else
       return;

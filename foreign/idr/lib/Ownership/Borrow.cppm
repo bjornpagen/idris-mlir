@@ -49,6 +49,8 @@ public:
     module.walk([&](Operation *op) {
       if (auto closure = dyn_cast<ClosureOp>(op))
         named.insert(closure.getCalleeAttr().getAttr());
+      if (auto suspend = dyn_cast<SuspendOp>(op))
+        named.insert(suspend.getCalleeAttr().getAttr());
       op->getAttrDictionary().walk(
           [&](ClosureAttr closure) { named.insert(closure.getCallee().getAttr()); });
     });
@@ -173,7 +175,7 @@ private:
       } else if (auto apply = dyn_cast<ApplyOp>(op)) {
         for (Value arg : apply.getArgs())
           ownIfParam(arg);
-      } else if (isa<ConOp, ClosureOp, ReuseOp>(op)) {
+      } else if (isa<ConOp, ClosureOp, SuspendOp, ReuseOp>(op)) {
         for (Value operand : op->getOperands())
           ownIfParam(operand);
       } else if (isa<func::ReturnOp, YieldOp>(op)) {

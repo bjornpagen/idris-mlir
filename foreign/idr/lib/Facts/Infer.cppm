@@ -57,6 +57,8 @@ Found local(func::FuncOp fn, SymbolTableCollection &symbols) {
       reach(op, call.getCalleeAttr());
     else if (auto closure = dyn_cast<idr::ClosureOp>(op))
       reach(op, closure.getCalleeAttr());
+    else if (auto suspend = dyn_cast<idr::SuspendOp>(op))
+      reach(op, suspend.getCalleeAttr());
     else if (auto con = dyn_cast<idr::ConOp>(op))
       reachLabel(op, con.getCtor());
     else if (isa<CallOpInterface>(op) && !isa<idr::ApplyOp>(op))

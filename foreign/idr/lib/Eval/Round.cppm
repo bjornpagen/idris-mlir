@@ -37,6 +37,7 @@ constexpr llvm::StringLiteral codesName = "__idr_codes";
 // (encodeResults), or "too-large" or "unreadable" and why not.
 constexpr llvm::StringLiteral sentResults = "results";
 constexpr llvm::StringLiteral sentTooLarge = "too-large";
+constexpr llvm::StringLiteral sentMemoized = "memoized";
 constexpr llvm::StringLiteral sentUnreadable = "unreadable";
 
 std::string runName(size_t i) { return ("__idr_run_" + Twine(i)).str(); }
@@ -151,11 +152,14 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
   Reifier reifier(*layouts, std::move(codes), resultBytes);
   auto reify = [&](size_t i, ArrayRef<uint64_t> slots) -> SmallVector<std::string> {
     auto values = reifier.results(resultTypes[i], slots);
-    if (!values)
-      return {(values.error().why == Unread::Why::TooLarge ? sentTooLarge
-                                                                       : sentUnreadable)
-                  .str(),
-              values.error().message};
+    if (!values) {
+      StringRef kind = sentUnreadable;
+      if (values.error().why == Unread::Why::TooLarge)
+        kind = sentTooLarge;
+      else if (values.error().why == Unread::Why::Memoized)
+        kind = sentMemoized;
+      return {kind.str(), values.error().message};
+    }
     std::expected<std::string, std::string> bytes = encodeResults(*values, ctx);
     if (!bytes)
       return {sentUnreadable.str(), bytes.error()};
@@ -168,13 +172,16 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
       Call call = site(next);
       if (result.texts.size() != 2)
         return internal(next, "the evaluation child sent no results");
-      if (result.texts[0] == sentTooLarge) {
-        remark::missed(call.op->getLoc(), remark::RemarkOpts::name("TooLarge")
+      if (result.texts[0] == sentTooLarge || result.texts[0] == sentMemoized) {
+        remark::missed(call.op->getLoc(), remark::RemarkOpts::name(result.texts[0] == sentTooLarge
+                                                                       ? "TooLarge"
+                                                                       : "Memoized")
                                               .category("idr-eval")
                                               .function(call.callee.getSymName()))
             << ("the call of @" + call.callee.getSymName() + " stays: " + result.texts[1]).str();
         cache[keys[next++]].stays = true;
-        ++stats.stayedLarge;
+        if (result.texts[0] == sentTooLarge)
+          ++stats.stayedLarge;
         continue;
       }
       if (result.texts[0] != sentResults)

@@ -88,7 +88,9 @@ def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
   let assemblyFormat = "`<` $name `>`";
 }
 
-// `!idr.fn<(A...) -> (R...)>`; Lazy and Inf are `!idr.fn<() -> (a)>`.
+// `!idr.fn<(A...) -> (R...)>`. A suspension is `!idr.lazy<T>`, not a
+// function: defunctionalization would turn a function into a sum and the
+// cell would no longer be the one that was forced.
 def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface]> {
   let summary = "a closure";
   let parameters = (ins ArrayRefParameter<"::mlir::Type">:$inputs,
@@ -97,6 +99,21 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface]> {
   let extraClassDeclaration = [{
     ::mlir::FunctionType getFunctionType() const;
   }];
+}
+
+// One cell. Its code pointer is the state: the first force writes the
+// value over the payload and replaces that pointer, and every later force
+// returns what was written. A flag beside the payload could disagree with
+// it; the pointer cannot.
+def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface]> {
+  let summary = "a suspension of one value, forced once into this cell";
+  let parameters = (ins "::mlir::Type":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let builders = [
+    TypeBuilderWithInferredContext<(ins "::mlir::Type":$value), [{
+      return $_get(value.getContext(), value);
+    }]>
+  ];
 }
 
 def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface]> {
@@ -166,6 +183,9 @@ def Idr_BigValue : Idr_AtAnyGrade<"::idr::BigType", "an Integer at any grade">;
 def Idr_NatValue : Idr_AtAnyGrade<"::idr::NatType", "a natural at any grade">;
 def Idr_BigOrNatValue : Idr_AtAnyGrade<"::idr::BigType, ::idr::NatType", "an Integer or a natural at any grade">;
 def Idr_BoxValue : Idr_AtAnyGrade<"::idr::BoxType", "a box at any grade">;
+// The cell, plain before idr-rc and owned after it. The value inside stays
+// the carrier: ownership is the grade of this reference, not a second type.
+def Idr_LazyValue : Idr_AtAnyGrade<"::idr::LazyType", "a suspension at any grade">;
 def Idr_SumValue : Idr_AtAnyGrade<"::idr::DataType, ::idr::BoxType", "a constructor value at any grade">;
 // A constructor value at any quantity that holds no reference of its own:
 // what a match takes apart, whose regions bind its fields at its grade.
@@ -561,12 +581,43 @@ def Idr_ClosureOp : Idr_Op<"closure", [Pure,
   let hasVerifier = 1;
 }
 
+// Builds the cell. Does not run the function: a force does, and only the
+// first one. Folding to #idr.closure keeps one constant for every use, the
+// same attribute a closure uses, at this type.
+def Idr_SuspendOp : Idr_Op<"suspend", [Pure,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "a suspension of a function: every parameter is a capture";
+  let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$captures);
+  let results = (outs Idr_LazyValue:$result);
+  let assemblyFormat = [{
+    $callee `(` $captures `)` attr-dict `:` functional-type($captures, $result)
+  }];
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
+// Reads the cell. Not a call of a shared suspension: that would run the
+// body at every use. A suspension with this one use is the call, at this
+// point. Memory-effect-free so an unused force is erased, and not
+// speculatable so one is not hoisted into a path that did not force.
+def Idr_ForceOp : Idr_Op<"force", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "the value of a suspension, computed on the first force and shared";
+  let arguments = (ins Idr_LazyValue:$suspension);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$suspension attr-dict `:` type($suspension) `->` type($result)";
+  let hasVerifier = 1;
+  let hasCanonicalizer = 1;
+}
+
 // The callee is a value, so the effects are unknown.
 def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     TypesMatchWith<"callee input types match argument types", "callee", "args",
-                   "::llvm::cast<FnType>($_self).getInputs()">,
+                   "::llvm::cast<FnType>($_self).getInputs()",
+                   "::idr::sameCarriers">,
     TypesMatchWith<"callee result types match result types", "callee", "results",
-                   "::llvm::cast<FnType>($_self).getResults()">]> {
+                   "::llvm::cast<FnType>($_self).getResults()",
+                   "::idr::sameCarriers">]> {
   let summary = "applies a closure to arguments";
   let arguments = (ins Idr_FnType:$callee, Variadic<AnyType>:$args,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
@@ -1394,8 +1445,9 @@ def Idr_TokenType : Idr_Type<"Token", "token"> {
 // holds none), a box, a closure, a token, an array, and an unboxed sum with
 // a slot of any of these; at any grade, since a linear field read from a
 // cell that lives on needs a reference of its own.
-def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_StrType,
-                                      Idr_BigType, Idr_NatType, Idr_TokenType, Idr_ArrayType]>;
+def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_LazyType,
+                                      Idr_StrType, Idr_BigType, Idr_NatType, Idr_TokenType,
+                                      Idr_ArrayType]>;
 def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
     Type<And<[CPred<"::llvm::isa<::idr::QType>($_self)">,
               SubstLeaves<"$_self", "::idr::unrestricted($_self)",

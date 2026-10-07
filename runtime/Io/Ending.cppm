@@ -36,8 +36,11 @@ void reportLiveCells() {
 
 } // namespace
 
+extern "C" void idris_rt_release_persistent(void);
+
 extern "C" void idris_rt_main_return(void) {
   idris_rt_flush();
+  idris_rt_release_persistent();
   reportLiveCells();
 }
 
