@@ -132,6 +132,26 @@ bigOp And = Idr.bigAndOp
 bigOp Or = Idr.bigOrOp
 bigOp Xor = Idr.bigXorOp
 
+||| Fixed-width arithmetic. The bitwise and wrapping ops are `arith`, whose
+||| integers are signless; division and remainder are Euclidean, so they
+||| read the signedness Idris's type has.
+intArith : ArithOp -> Bool -> Value -> Value -> MlirType -> Op
+intArith Add _ x y = Arith.addiOp x y
+intArith Sub _ x y = Arith.subiOp x y
+intArith Mul _ x y = Arith.muliOp x y
+intArith And _ x y = Arith.andiOp x y
+intArith Or _ x y = Arith.oriOp x y
+intArith Xor _ x y = Arith.xoriOp x y
+intArith Div s x y = Idr.divOp {isSigned = s} x y
+intArith Mod s x y = Idr.modOp {isSigned = s} x y
+
+||| Double arithmetic, `arith`'s.
+floatArith : FArith -> Value -> Value -> MlirType -> Op
+floatArith FAdd x y = Arith.addfOp x y
+floatArith FSub x y = Arith.subfOp x y
+floatArith FMul x y = Arith.mulfOp x y
+floatArith FDiv x y = Arith.divfOp x y
+
 ||| A comparison's `i1` as an `Int`.
 extend : Index -> Loc -> Value -> E Val
 extend ix l c = value ix l (IntT IdrisInt) (Arith.extuiOp c)
@@ -148,15 +168,7 @@ prim : Index -> Loc -> Prim -> List Val -> E Val
 prim ix l (IntOp op t) [a, b] = do
   x <- operand ix a
   y <- operand ix b
-  value ix l (IntT t) (case op of
-    Add => Arith.addiOp x y
-    Sub => Arith.subiOp x y
-    Mul => Arith.muliOp x y
-    And => Arith.andiOp x y
-    Or => Arith.oriOp x y
-    Xor => Arith.xoriOp x y
-    Div => Idr.divOp {isSigned = signed t} x y
-    Mod => Idr.modOp {isSigned = signed t} x y)
+  value ix l (IntT t) (intArith op (signed t) x y)
 prim ix l (IntShift s t) [a, b] = do
   x <- operand ix a
   y <- operand ix b
@@ -166,11 +178,7 @@ prim ix l (IntShift s t) [a, b] = do
 prim ix l (FloatOp op) [a, b] = do
   x <- operand ix a
   y <- operand ix b
-  value ix l DoubleT (case op of
-    FAdd => Arith.addfOp x y
-    FSub => Arith.subfOp x y
-    FMul => Arith.mulfOp x y
-    FDiv => Arith.divfOp x y)
+  value ix l DoubleT (floatArith op x y)
 prim ix l Negate [a] = value ix l DoubleT (Arith.negfOp !(operand ix a))
 prim ix l (Math f) as = case mathOp f !(traverse (operand ix) as) of
   Just build => value ix l DoubleT build

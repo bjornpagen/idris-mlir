@@ -4,63 +4,73 @@ module IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Registry
 import IdrisMLIR.Types
 
+import Data.Maybe
+
 %default covering
+
+||| The first hook that yields a value. Every reader of a hook asks this,
+||| so a new hook is one case here and nowhere else a list is walked.
+firstOf : (Hook -> Maybe a) -> List Hook -> Maybe a
+firstOf _ [] = Nothing
+firstOf f (h :: hs) = case f h of
+  Just x => Just x
+  Nothing => firstOf f hs
 
 ||| Is a definition the identity on its last argument?
 export
 identityOnLast : List Hook -> Bool
-identityOnLast [] = False
-identityOnLast (IdentityOnLastArgument :: _) = True
-identityOnLast (_ :: hs) = identityOnLast hs
+identityOnLast = isJust . firstOf (\h => case h of
+  IdentityOnLastArgument => Just ()
+  _ => Nothing)
 
 ||| The IO operation a definition's calls are.
 export
 ioCallOf : List Hook -> Maybe IOOp
-ioCallOf [] = Nothing
-ioCallOf (IOCall op :: _) = Just op
-ioCallOf (_ :: hs) = ioCallOf hs
+ioCallOf = firstOf (\h => case h of
+  IOCall op => Just op
+  _ => Nothing)
 
 ||| The array operation a definition's calls are.
 export
 arrayCallOf : List Hook -> Maybe ArrayOp
-arrayCallOf [] = Nothing
-arrayCallOf (ArrayCall op :: _) = Just op
-arrayCallOf (_ :: hs) = arrayCallOf hs
+arrayCallOf = firstOf (\h => case h of
+  ArrayCall op => Just op
+  _ => Nothing)
 
 ||| The element of an external type that is an array: `Nothing` when its
 ||| type argument names it, `Just` a fixed one.
 export
 arrayElementOf : List Hook -> Maybe (Maybe Ty)
-arrayElementOf [] = Nothing
-arrayElementOf (ArrayType e :: _) = Just e
-arrayElementOf (_ :: hs) = arrayElementOf hs
+arrayElementOf = firstOf (\h => case h of
+  ArrayType e => Just e
+  _ => Nothing)
 
 ||| The string a definition's calls build from their list, if the registry
 ||| says they build one.
 export
 builderOf : List Hook -> Maybe Builder
-builderOf [] = Nothing
-builderOf (Builds b :: _) = Just b
-builderOf (_ :: hs) = builderOf hs
+builderOf = firstOf (\h => case h of
+  Builds b => Just b
+  _ => Nothing)
 
 ||| Is a type constructor the external type that is a machine word?
 export
 isWordType : List Hook -> Bool
-isWordType [] = False
-isWordType (WordType :: _) = True
-isWordType (_ :: hs) = isWordType hs
+isWordType = isJust . firstOf (\h => case h of
+  WordType => Just ()
+  _ => Nothing)
 
 ||| What a function on naturals means, if it is one the registry knows.
 export
 natOperationOf : List Hook -> Maybe NatMeaning
-natOperationOf [] = Nothing
-natOperationOf (NatOperation m :: _) = Just m
-natOperationOf (_ :: hs) = natOperationOf hs
+natOperationOf = firstOf (\h => case h of
+  NatOperation m => Just m
+  _ => Nothing)
 
 ||| The loop over an array's index space a definition is, if the registry
 ||| knows it as one.
 export
 arrayLoopOf : List Hook -> Maybe ArrayLoop
-arrayLoopOf [] = Nothing
-arrayLoopOf (ArrayLoop l :: _) = Just l
-arrayLoopOf (_ :: hs) = arrayLoopOf hs
+arrayLoopOf = firstOf (\h => case h of
+  ArrayLoop l => Just l
+  _ => Nothing)
