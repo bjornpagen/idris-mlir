@@ -5,7 +5,7 @@
 # function, of a dead result and of a dead block argument, where
 # llvmorg-23.1.2 leaves them a null operand. When the pin
 # has upstream's fix (#208881), the patch goes, and with it the PINS.md
-# entry prune-before-remove-dead-values, the report and this test
+# entry remove-dead-values-unreachable, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 for input in unreachable uncalled dead-result dead-block-arg; do

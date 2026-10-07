@@ -61,7 +61,6 @@ using idr::createIdrLoopBreakers;
 using idr::createIdrLower;
 using idr::createIdrNarrow;
 using idr::createIdrNarrowLanes;
-using idr::createIdrPrune;
 using idr::createIdrRc;
 using idr::createIdrReturnedArguments;
 using idr::createIdrSimplify;

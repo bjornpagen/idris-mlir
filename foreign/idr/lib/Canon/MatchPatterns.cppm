@@ -58,19 +58,24 @@ struct DropCoveredDefault : OpRewritePattern<MatchOp> {
   }
 };
 
-// A match none of whose regions yields never completes, so nothing after it
-// in its block runs: that block, a region of another match or a function
-// body, ends in ub.unreachable right after it, as a region does after a
-// crash. Case-of-case copies a consumer into every region, so one region of
-// a match may yield the result of a match that never completes, followed by
-// what consumes it there.
+// A match that can take no region that yields never completes, so nothing
+// after it in its block runs: that block, a region of another match or a
+// function body, ends in ub.unreachable right after it, as a region does
+// after a crash. The regions it can take are all of them, or the one its
+// constant scrutinee selects, whatever the others do. Case-of-case copies a
+// consumer into every region, so one region of a match may yield the result
+// of a match that never completes, followed by what consumes it there.
 template <typename Match>
 struct EndAfterNoYield : OpRewritePattern<Match> {
   using OpRewritePattern<Match>::OpRewritePattern;
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    if (llvm::any_of(op->getRegions(), [](Region &region) {
-          return region.empty() || !isa<ub::UnreachableOp>(region.front().getTerminator());
-        }))
+    auto neverCompletes = [](Region &region) {
+      return !region.empty() && isa<ub::UnreachableOp>(region.front().getTerminator());
+    };
+    Attribute scrutinee;
+    Region *taken = matchPattern(op->getOperand(0), m_Constant(&scrutinee)) ? op.getTakenRegion(scrutinee)
+                                                                            : nullptr;
+    if (taken ? !neverCompletes(*taken) : !llvm::all_of(op->getRegions(), neverCompletes))
       return failure();
     Block *block = op->getBlock();
     if (!isa<MatchOp, MatchLitOp, func::FuncOp>(block->getParentOp()) ||

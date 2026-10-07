@@ -72,7 +72,7 @@ against the pin.
 
 | Bug | Project | Patch | Upstream | Upstreaming | `PINS.md` |
 | --- | --- | --- | --- | --- | --- |
-| [remove-dead-values-unreachable](remove-dead-values-unreachable/README.md) | MLIR | `llvm.patch`: open #208881, with our tests | reported: #206920, #203226; fix in review: #208881 | comment on #208881 and the issues with the reproducers | `prune-before-remove-dead-values` |
+| [remove-dead-values-unreachable](remove-dead-values-unreachable/README.md) | MLIR | `llvm.patch`: open #208881, the same for block arguments and results, with our tests | reported: #206920, #203226; fix in review: #208881 | comment on #208881 and the issues with the reproducers | `remove-dead-values-unreachable` |
 | [remove-dead-values-address-taken](remove-dead-values-address-taken/README.md) | MLIR | none: `remove-dead-values-unreachable`'s fixes it | not yet; fix in review: #208881 | test offered to #208881 | `remove-dead-values-address-taken` |
 | [inline-unreachable-terminator](inline-unreachable-terminator/README.md) | MLIR | `llvm.patch`: ours | not yet; same family: #206083 (`vector.yield`) | new issue and pull request citing #206083 | `inline-unreachable` |
 | [uplift-final-counter](uplift-final-counter/README.md) | MLIR | `llvm.patch`: backport of 6e714c8d9 | fixed on main (6e714c8d9, #225476) | none: upstream | `uplift-final-counter` |

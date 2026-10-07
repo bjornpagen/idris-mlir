@@ -323,3 +323,30 @@ func.func @never_yields(%b: i64, %c: i64) -> i64 {
   %f = idr.field %q[@MkP, 0] : !idr.data<@P> -> i64
   return %f : i64
 }
+
+// A match on a constant takes the one region the constant selects: when
+// that region crashes, the match never completes whatever the others
+// yield, and nothing after it runs, here a function body's apply and
+// return.
+// CHECK-LABEL: func.func @taken_never_completes(
+// CHECK-NOT: idr.apply
+// CHECK: idr.crash "taken"
+// CHECK-NOT: idr.apply
+// CHECK-NOT: return
+// CHECK: ub.unreachable
+// CHECK-NEXT: }
+func.func @taken_never_completes(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
+  %t = arith.constant 1 : i64
+  %r = idr.match_lit %t : i64 -> (i64) {
+  case 0 {
+    %z = arith.constant 0 : i64
+    idr.yield %z : i64
+  }
+  default {
+    idr.crash "taken"
+    ub.unreachable
+  }
+  }
+  %y = idr.apply %f(%r) : !idr.fn<(i64) -> (i64)>
+  return %y : i64
+}

@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --sccp --idr-prune --remove-dead-values > %t.mlir
+// RUN: idris-mlir-opt %s --sccp --remove-dead-values > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // A clone is the function of its key for every call idr-specialize makes of
 // it, in later rounds too, not only for the callers it has now: here its

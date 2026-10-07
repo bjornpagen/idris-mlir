@@ -4,11 +4,7 @@
 // function whose body is a crash ends in ub.unreachable after it; the
 // inliner inlines it into a function body, the block after the call
 // following in a block that nothing reaches, but not into a match region,
-// which is one block (SingleBlock). Every private function here has a
-// caller: remove-dead-values at the pin erases the arguments of a function
-// it finds unreachable but keeps their uses
-// (upstream/remove-dead-values-unreachable), which idr-prune prevents in the
-// pipeline.
+// which is one block (SingleBlock).
 
 module attributes {idr.program} {
   idr.data @Maybe {

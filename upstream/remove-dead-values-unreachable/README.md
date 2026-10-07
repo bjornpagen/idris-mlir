@@ -102,10 +102,15 @@ there too.
 
 ## Our workaround
 
-`PINS.md`: `prune-before-remove-dead-values`. `idr-prune`
-(`foreign/idr/lib/Simplify/Prune.cppm`) runs the same analyses before
-`remove-dead-values` and empties every block they prove unreachable, and
-`symbol-dce` then removes the functions that only that code referred to.
+None: the patch below is carried. Before it, `idr-prune` ran the same
+analyses before `remove-dead-values` and emptied every block they prove
+unreachable, and `symbol-dce` then removed the functions that only that
+code referred to. With the patch, the simplify round without them gave
+k-nucleotide and every-types-export the same objects, byte for byte, in
+as many rounds, so both went. What emptying did beyond the bug (a region a
+constant rules out ended in `ub.unreachable`, so that a match whose taken
+region crashes was seen never to complete) the match canonicalization now
+decides from the region the constant selects.
 
 ## Patch
 

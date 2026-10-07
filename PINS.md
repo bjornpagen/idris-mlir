@@ -72,7 +72,7 @@ which the top-level CMake configure gate reads.
 - retire: when either zone gets code
 - upstream: none — a deviation from cpp-starter
 
-## prune-before-remove-dead-values
+## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2, `remove-dead-values` finds a function or a
   block unreachable (dead-code analysis never visits it: a private function
@@ -80,22 +80,24 @@ which the top-level CMake configure gate reads.
   value there dead and erases the function's arguments, but keeps the ops
   that still use them, and then crashes on the null operand
   (`mlir/lib/Transforms/RemoveDeadValues.cpp:649`, the region-branch
-  canonicalization at `:833`, `Matchers.h:491`). The constants that make a
-  region unreachable can appear after `sccp` in the same round (from
-  `canonicalize` or `idr-eval`), so running `sccp` first is not enough
-- sites: foreign/idr/lib/Simplify/Prune.cppm (`idr-prune`),
-  foreign/idr/lib/Simplify/Round.cppm (the round of the simplify loop)
-- workaround: `upstream/remove-dead-values-unreachable/llvm.patch` (open
-  pull request #208881): the pass gives the remaining uses of a dead
-  argument `ub.poison`. Until the toolchain is rebuilt with it, `idr-prune`
-  runs before `remove-dead-values` and empties,
-  with the same analyses, every block they prove unreachable: it ends in
-  `ub.unreachable`. `symbol-dce`
-  runs between them, since emptying code can leave a function nothing
-  refers to, which the analysis would find unreachable in turn. Whether
-  `idr-prune` stays as an optimization once it is no longer needed is
-  measured then
-- retire: drop the patch when the pin has #208881
+  canonicalization at `:833`, `Matchers.h:491`). It drops the uses of a
+  dead block argument and of a dead result the same way
+- sites: none in our code; the patch
+- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`: the open
+  pull request #208881 and the same for block arguments and results: the
+  pass gives every value it erases ub.poison for its remaining uses. Before
+  it, idr-prune emptied the code the analyses prove unreachable right
+  before `remove-dead-values`, and `symbol-dce` ran between them; with the
+  patch the two left k-nucleotide's and every-types-export's objects byte
+  for byte as they were, in as many rounds and as much time, so they went.
+  Emptying also did one thing more: it ended the regions a constant rules
+  out in ub.unreachable, so that the match canonicalization saw a match
+  whose other regions crash never complete and cut the code after it. The
+  canonicalization now asks which regions a match can take (the one its
+  constant scrutinee selects), so it needs no emptied region
+  (foreign/idr/lib/Canon/MatchPatterns.cppm, `EndAfterNoYield`)
+- retire: drop the patch when the pin has #208881 and a fix for block
+  arguments and results
 - upstream: upstream/remove-dead-values-unreachable (reported by others,
   #206920, #203226); plan in its README: our reproducers to #208881
 
@@ -143,8 +145,8 @@ which the top-level CMake configure gate reads.
   patterns likewise skip a region that ends in `ub.unreachable`
 - sites: none in our code; the patch. A body that never returns (a crash,
   a body Idris proved impossible, a match none of whose regions returns)
-  ends in `ub.unreachable`, as Emit writes it and idr-prune, idr-tail-loops
-  and the match canonicalization leave it. The match ops and the array
+  ends in `ub.unreachable`, as Emit writes it and idr-tail-loops and the
+  match canonicalization leave it. The match ops and the array
   loops declare `SingleBlock`, which the inliner reads: it inlines such a
   callee into a function body, and leaves a call of it in a match region a
   call, since the block after it would be a second block of the region

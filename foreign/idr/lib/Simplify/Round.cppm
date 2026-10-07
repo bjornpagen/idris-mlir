@@ -20,14 +20,6 @@ namespace idr::simplify {
 // breaker, and inlining and canonicalization only copy references that
 // exist, so no iteration closes a new cycle.
 //
-// idr-prune runs right before remove-dead-values: at llvmorg-23.1.2,
-// remove-dead-values erases the arguments of a function that dead-code
-// analysis never reaches, while ops there still use them, and then folds
-// those ops with a null operand (RemoveDeadValues.cpp, processFuncOp and the
-// region-branch canonicalization at the end of runOnOperation). symbol-dce
-// then removes the functions that only the emptied code referred to, which
-// the analysis would find unreachable in turn.
-//
 // Specialization takes no option: it is finite by construction, and its
 // budget is an assertion of its own.
 export SmallVector<std::string> simplifyRound(unsigned inlineIterations) {
@@ -42,8 +34,6 @@ export SmallVector<std::string> simplifyRound(unsigned inlineIterations) {
       "idr-canonicalize",
       "cse",
       "idr-eval",
-      "idr-prune",
-      "symbol-dce",
       // Without its own canonicalization, which runs region-branch patterns
       // on the matches alone: a field one of them folds leaves the
       // constructor it read dead but in place, still holding a world or a

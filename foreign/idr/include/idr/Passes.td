@@ -402,20 +402,6 @@ def IdrReturnedArguments : Pass<"idr-returned-arguments", "::mlir::ModuleOp"> {
   ];
 }
 
-def IdrPrune : Pass<"idr-prune", "::mlir::ModuleOp"> {
-  let summary = "Empty the code dead-code analysis proves unreachable";
-  let description = [{
-    Runs right before `remove-dead-values`, with the analyses it runs: a
-    match region they never reach ends in `ub.unreachable`, and a function
-    they never reach returns `ub.poison`. At the pin, `remove-dead-values`
-    crashes on such code (`PINS.md`: `prune-before-remove-dead-values`).
-  }];
-  let dependentDialects = ["::mlir::ub::UBDialect"];
-  let statistics = [
-    Statistic<"numEmptied", "emptied", "Unreachable function bodies and match regions emptied">,
-  ];
-}
-
 def IdrCanonicalize : Pass<"idr-canonicalize"> {
   let summary = "canonicalize, with the rewrites of each pattern counted";
   let description = [{
@@ -454,7 +440,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing";
   let description = [{
     Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
-    int-range-optimizations, idr-canonicalize, cse, idr-eval, idr-prune, symbol-dce,
+    int-range-optimizations, idr-canonicalize, cse, idr-eval,
     remove-dead-values and symbol-dce, again and again, until a round
     leaves the module unchanged, up to where constants are. Every member
     of the round is finite, so the rounds end; `max-rounds` asserts it: a
