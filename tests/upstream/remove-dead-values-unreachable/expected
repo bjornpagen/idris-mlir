@@ -1,2 +1,4 @@
-unreachable: fixed (the dead argument's uses take poison)
-uncalled: fixed (the dead argument's uses take poison)
+unreachable: fixed (the dead value's uses take poison)
+uncalled: fixed (the dead value's uses take poison)
+dead-result: fixed (the dead value's uses take poison)
+dead-block-arg: fixed (the dead value's uses take poison)

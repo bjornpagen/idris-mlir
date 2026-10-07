@@ -3,65 +3,41 @@ Subject: [PATCH] [mlir][linalg] vectorizeOpPrecondition: check the body of a red
 linalg::vectorizeOpPrecondition ("Return success if the operation can be
 vectorized") accepts a linalg.generic with a reduction dimension whose
 body holds an op the vectorizer cannot map, such as an scf.if or a
-func.call. vectorizeLinalgOpPrecondition checks the body's ops only
-through isElementwise, for an all-parallel op; for a reduction it checks
-the combiner alone (reductionPreconditions). linalg::vectorize then
-builds the reads of every operand and maps the body op by op, and fails
-on the first op vectorizeOneOp refuses, leaving the vector code it built
-in the function. A client that asks the precondition and transforms the
-op first (tiles it, say) is left with the transformed op and no vectors.
+func.call. vectorizeLinalgOpPrecondition checks the body's ops with
+hasOnlyScalarElementwiseOp only through isElementwise, for an
+all-parallel op; for a reduction it checks the combiner alone
+(reductionPreconditions). linalg::vectorize then builds the reads of
+every operand and maps the body op by op, and fails on the first op
+vectorizeOneOp refuses, leaving the vector code it built in the function.
+A client that asks the precondition and transforms the op first (tiles
+it, say) is left with the transformed op and no vectors.
 
-vectorizeLinalgOpPrecondition now checks, for an op that goes the generic
-way, that every op of its body is one vectorizeOneOp maps: an op a custom
-hook takes (linalg.yield, linalg.index, a tensor.extract its precondition
-accepts), a constant, an affine.apply (expanded first) or an
-elementwise-mappable op. Then vectorize fails before it builds anything,
-as it does for the all-parallel op.
+vectorizeLinalgOpPrecondition now asks hasOnlyScalarElementwiseOp of the
+body of every op that goes the generic way, as isElementwise does of an
+all-parallel one, so vectorize fails before it builds anything. The
+tensor.extract ops of the body are checked by the custom precondition
+above it, as before.
 
 Test: reduction-body-unsupported.mlir, a reduction with an scf.if in its
 body is left whole, with no vector op built.
 ---
- .../Linalg/Transforms/Vectorization.cpp       | 25 ++++++++++++
- .../reduction-body-unsupported.mlir           | 39 +++++++++++++++++++
- 2 files changed, 64 insertions(+)
+ .../Dialect/Linalg/Transforms/Vectorization.cpp    |  8 +++++
+ .../vectorization/reduction-body-unsupported.mlir  | 39 ++++++++++++++++++++++
+ 2 files changed, 47 insertions(+)
 
 diff --git a/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp b/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp
-index 21ca3108efcd6e14b1720dbf8acc3b4446e01b39..538553fd324856834967a1ed9a09548187856ce8 100644
+index 21ca310..3e2c186 100644
 --- a/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp
 +++ b/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp
-@@ -2221,6 +2221,25 @@ static LogicalResult vectorizeConvOpPrecondition(linalg::LinalgOp convOp) {
-   return success();
- }
- 
-+/// Whether vectorizeOneOp maps every op of the body of `linalgOp` to vector
-+/// ops: an op a custom hook takes (`linalg.yield`, `linalg.index`, a
-+/// `tensor.extract` its precondition accepts), a constant, an `affine.apply`
-+/// (expanded before the body is vectorized) or an elementwise-mappable op.
-+/// vectorizeAsLinalgGeneric fails on any other op only after it has built
-+/// part of the vector code.
-+static bool hasOnlyVectorizableBodyOps(LinalgOp linalgOp,
-+                                       bool vectorizeNDExtract) {
-+  return llvm::all_of(linalgOp->getRegion(0).front(), [&](Operation &op) {
-+    if (isa<linalg::YieldOp, linalg::IndexOp, affine::AffineApplyOp,
-+            arith::ConstantOp, func::ConstantOp>(op))
-+      return true;
-+    if (isa<tensor::ExtractOp>(op))
-+      return succeeded(
-+          tensorExtractVectorizationPrecondition(&op, vectorizeNDExtract));
-+    return OpTrait::hasElementwiseMappableTraits(&op);
-+  });
-+}
-+
- static LogicalResult vectorizeLinalgOpPrecondition(
-     LinalgOp linalgOp, ArrayRef<int64_t> inputVectorSizes,
-     bool vectorizeNDExtract, bool flatten1DDepthwiseConv) {
-@@ -2284,6 +2303,12 @@ static LogicalResult vectorizeLinalgOpPrecondition(
+@@ -2284,6 +2284,14 @@ static LogicalResult vectorizeLinalgOpPrecondition(
      LDBG() << "precondition failed: reduction preconditions";
      return failure();
    }
-+  // isElementwise checks the body of an all-parallel op; check a
-+  // reduction's as well, before anything is built.
-+  if (!hasOnlyVectorizableBodyOps(linalgOp, vectorizeNDExtract)) {
++  // isElementwise checks the body of an all-parallel op; the body of any
++  // other op that is vectorized as a generic must pass the same check,
++  // since vectorizeAsLinalgGeneric fails on an op it cannot map only after
++  // it has built part of the vector code.
++  if (!hasOnlyScalarElementwiseOp(linalgOp->getRegion(0))) {
 +    LDBG() << "precondition failed: an op of the body cannot be vectorized";
 +    return failure();
 +  }
@@ -70,7 +46,7 @@ index 21ca3108efcd6e14b1720dbf8acc3b4446e01b39..538553fd324856834967a1ed9a095481
  
 diff --git a/mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir b/mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir
 new file mode 100644
-index 0000000000000000000000000000000000000000..7182596c907df8b6e7b6c59bc90ca8249f7e94b7
+index 0000000..7182596
 --- /dev/null
 +++ b/mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir
 @@ -0,0 +1,39 @@

@@ -98,14 +98,17 @@ Before the patch it also asked `hasOnlyScalarElementwiseOp` of the body.
 
 ## Patch
 
-`llvm.patch` implements the proposed fix: `vectorizeLinalgOpPrecondition`
-checks, for a reduction, that every op of the body is one
-`vectorizeOneOp` maps (a hook's op, a constant, an `affine.apply`, or an
-elementwise-mappable op), so `vectorize` fails before it builds anything.
-Test: `mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir`,
-`@rows` left whole. Built into the pinned toolchain; the test passes with
-its `mlir-opt`, and `tests/upstream/vectorize-precondition-body` checks
-the reproducer.
+`llvm.patch` implements the proposed fix with the check upstream already
+has: `vectorizeLinalgOpPrecondition` asks `hasOnlyScalarElementwiseOp` of
+the body of every op that goes the generic way, as `isElementwise` asks it
+of an all-parallel one (the custom precondition before it has already
+checked the body's `tensor.extract` ops), so `vectorize` fails before it
+builds anything. An earlier draft wrote a helper of its own for the body,
+which repeated `hasOnlyScalarElementwiseOp`. Test:
+`mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir`,
+`@rows` left whole. Built into the pinned toolchain: the test passes with
+its `mlir-opt`, as the 14 other tests of that directory still do, and
+`tests/upstream/vectorize-precondition-body` checks the reproducer.
 
 ## Upstreaming plan
 
