@@ -7,6 +7,8 @@ import idr.dialect;
 import idr.ownership;
 import idr.ranges;
 
+import :naturals;
+
 using namespace mlir;
 using namespace mlir::dataflow;
 
@@ -44,11 +46,11 @@ public:
       return {0, 0};
     if (auto it = made.find(value); it != made.end())
       return it->second;
-    auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
     // Code the analysis never reached has no range, and proves nothing.
-    if (!state || state->getValue().isUninitialized())
+    std::optional<ConstantIntRanges> range = rangeOf(solver, value);
+    if (!range)
       return {};
-    Bounds bounds = ranges::boundsOf(state->getValue().getValue());
+    Bounds bounds = ranges::boundsOf(*range);
     if (isa<NatType>(value.getType()) && bounds.hi && (!bounds.lo || *bounds.lo < 0))
       bounds.lo = 0;
     return bounds;

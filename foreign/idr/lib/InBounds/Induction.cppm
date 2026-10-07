@@ -88,12 +88,20 @@ void backEdges(Operation *at, Value again, Value next, SmallVectorImpl<BackEdge>
     edges.push_back({at, again, next});
     return;
   }
+  // Predecessor order, which getPredecessorValues walks: the value passed
+  // back and, when it travels with the condition, the condition, place by
+  // place. The point itself is what the values do not say, and the proof
+  // reads the path at that point.
+  SmallVector<Value> nexts;
+  branch.getPredecessorValues(results, static_cast<int>(*nextAt), nexts);
+  SmallVector<Value> agains;
+  if (together)
+    branch.getPredecessorValues(results, static_cast<int>(*againAt), agains);
   SmallVector<RegionBranchPoint> points;
   branch.getPredecessors(results, points);
-  for (RegionBranchPoint point : points) {
-    OperandRange operands = branch.getSuccessorOperands(point, results);
+  for (auto [i, point] : llvm::enumerate(points)) {
     Operation *from = point.isParent() ? branch.getOperation() : point.getTerminatorPredecessorOrNull();
-    backEdges(from, together ? operands[*againAt] : again, operands[*nextAt], edges);
+    backEdges(from, together ? agains[i] : again, nexts[i], edges);
   }
 }
 

@@ -116,19 +116,6 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
-// Linearity has no runtime form: entering and using a linear value is the
-// value itself. Nor has non-negativity: a natural is the Integer it is.
-template <typename OpT>
-struct LowerAsItself : IdrPattern<OpT> {
-  using IdrPattern<OpT>::IdrPattern;
-  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    ValueRange value = adaptor.getOperands().front();
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(value.begin(), value.end())});
-    return success();
-  }
-};
-
 // A pending field is stored as poison: it is written through its
 // destination before anything reads it.
 struct LowerPending : IdrPattern<PendingOp> {

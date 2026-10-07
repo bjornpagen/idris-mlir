@@ -6,6 +6,7 @@ export module idr.specialize:specializer;
 
 import idr.mlir;
 import idr.dialect;
+import idr.graph;
 
 import :bindingtimes;
 import :clones;
@@ -74,10 +75,21 @@ Specializer::Specializer(ModuleOp root)
     : module(root), clones(root), times(root, clones.symbols()) {}
 
 LogicalResult Specializer::run() {
+  // The functions present when the run starts were read once, before
+  // anything changed. A clone is made during the run, and its calls are
+  // what canonicalization left, so they are read when the clone is reached.
+  idr::graph::References references(module, clones.symbols());
   llvm::append_range(work, module.getOps<func::FuncOp>());
+  const size_t known = work.size();
   for (size_t i = 0; i < work.size(); ++i) {
     SmallVector<func::CallOp> calls;
-    work[i].walk([&](func::CallOp call) { calls.push_back(call); });
+    if (i < known) {
+      for (const idr::graph::References::Site &site : references.of(work[i]))
+        if (auto call = dyn_cast<func::CallOp>(site.at))
+          calls.push_back(call);
+    } else {
+      work[i].walk([&](func::CallOp call) { calls.push_back(call); });
+    }
     for (func::CallOp call : calls) {
       FailureOr<func::CallOp> raised = raise(call);
       if (failed(raised))

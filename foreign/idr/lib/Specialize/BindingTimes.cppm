@@ -30,7 +30,6 @@ import idr.dialect;
 import idr.graph;
 
 import :bindingtime;
-import :foreachreference;
 import :interpreter;
 
 using namespace mlir;
@@ -56,30 +55,30 @@ private:
 namespace idr::specialize {
 
 BindingTimes::BindingTimes(ModuleOp module, SymbolTable &symbols) {
+  idr::graph::References references(module, symbols);
   SmallVector<func::FuncOp> functions;
   for (auto fn : module.getOps<func::FuncOp>()) {
     times[fn.getOperation()].assign(fn.getNumArguments(), BindingTime::Free);
     if (!fn.isExternal())
       functions.push_back(fn);
   }
-  llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> references;
+  llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> edges;
   for (func::FuncOp fn : functions) {
-    SmallVector<func::FuncOp> &out = references[fn];
-    forEachReference(fn, symbols, [&](func::FuncOp target, Operation *) {
-      if (!llvm::is_contained(out, target))
-        out.push_back(target);
-    });
+    SmallVector<func::FuncOp> &out = edges[fn];
+    for (const idr::graph::References::Site &site : references.of(fn))
+      if (!llvm::is_contained(out, site.target))
+        out.push_back(site.target);
   }
   for (const SmallVector<func::FuncOp> &component : idr::graph::stronglyConnected<func::FuncOp>(
-           functions, [&](func::FuncOp fn) { return references.lookup(fn); })) {
+           functions, [&](func::FuncOp fn) { return edges.lookup(fn); })) {
     func::FuncOp first = component.front();
-    if (component.size() == 1 && !llvm::is_contained(references.lookup(first), first))
+    if (component.size() == 1 && !llvm::is_contained(edges.lookup(first), first))
       continue;
     llvm::DenseSet<Operation *> cycle;
     for (func::FuncOp fn : component)
       cycle.insert(fn.getOperation());
     for (func::FuncOp fn : component)
-      times[fn.getOperation()] = Interpreter(fn, cycle, symbols).run();
+      times[fn.getOperation()] = Interpreter(fn, cycle, references).run();
   }
 }
 

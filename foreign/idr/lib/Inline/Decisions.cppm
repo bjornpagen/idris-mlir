@@ -2,7 +2,6 @@
 export module idr.inlining:decisions;
 
 import idr.mlir;
-import idr.dialect;
 import idr.graph;
 
 using namespace mlir;
@@ -39,6 +38,7 @@ export struct Decisions {
 // inlined counting with its size where it is called.
 export Decisions decide(ModuleOp module) {
   SymbolTable symbols(module);
+  idr::graph::References references(module, symbols);
   SmallVector<func::FuncOp> functions;
   llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> callees;
   llvm::DenseMap<func::FuncOp, int64_t> calls;
@@ -47,35 +47,22 @@ export Decisions decide(ModuleOp module) {
     if (fn.isExternal())
       continue;
     functions.push_back(fn);
-    bool leaf = true;
-    fn.getBody().walk([&](Operation *op) {
-      if (isa<CallOpInterface>(op))
-        leaf = false;
-      if (auto call = dyn_cast<func::CallOp>(op)) {
-        auto target = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
-        if (!target)
-          return;
+    if (!references.hasCall(fn))
+      leaves.insert(fn);
+    for (const idr::graph::References::Site &site : references.of(fn)) {
+      func::FuncOp target = site.target;
+      if (isa<func::CallOp>(site.at)) {
         if (target == fn) {
           selfCalls.insert(fn);
-          return;
+          continue;
         }
         ++calls[target];
         if (!target.getNoInline() && !llvm::is_contained(callees[fn], target))
           callees[fn].push_back(target);
-        return;
+        continue;
       }
-      if (auto closure = dyn_cast<idr::ClosureOp>(op)) {
-        if (auto target = symbols.lookup<func::FuncOp>(closure.getCalleeAttr().getAttr()))
-          ++calls[target];
-        return;
-      }
-      op->getAttrDictionary().walk([&](idr::ClosureAttr closure) {
-        if (auto target = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr()))
-          ++calls[target];
-      });
-    });
-    if (leaf)
-      leaves.insert(fn);
+      ++calls[target];
+    }
   }
 
   Decisions out;
@@ -89,15 +76,12 @@ export Decisions decide(ModuleOp module) {
     func::FuncOp fn = component.front();
     if (fn.getNoInline() || selfCalls.contains(fn))
       continue;
-    int64_t size = 0;
-    fn.getBody().walk([&](Operation *op) {
-      ++size;
-      if (auto call = dyn_cast<func::CallOp>(op)) {
-        auto target = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
-        if (target && out.inlined.contains(target.getOperation()))
-          size += sizes.lookup(target) - 1;
-      }
-    });
+    int64_t size = references.ops(fn);
+    for (const idr::graph::References::Site &site : references.of(fn)) {
+      func::FuncOp target = site.target;
+      if (isa<func::CallOp>(site.at) && out.inlined.contains(target.getOperation()))
+        size += sizes.lookup(target) - 1;
+    }
     sizes[fn] = size;
     bool leaf = leaves.contains(fn) && size <= kLeafSize;
     if (leaf || (calls.lookup(fn) - 1) * (size - kSmall) <= kProduct) {

@@ -58,41 +58,33 @@ Value notFinite(OpBuilder &b, Location loc, Value x) {
   return arith::XOrIOp::create(b, loc, finite, yes);
 }
 
-// Where the op crashes; checked before the call, whose runtime
-// function assumes it does not.
-Value crashCondition(StrIndexOp, OpBuilder &b, Location loc, Runtime &runtime,
-                     ArrayRef<Value> args) {
-  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::uge, args[1],
-                               stringLength(b, loc, runtime, args[0]));
-}
 Value emptyString(OpBuilder &b, Location loc, Runtime &runtime, Value s) {
   return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, stringLength(b, loc, runtime, s),
                                constantI64(b, loc, 0));
-}
-Value crashCondition(StrHeadOp, OpBuilder &b, Location loc, Runtime &runtime,
-                     ArrayRef<Value> args) {
-  return emptyString(b, loc, runtime, args[0]);
-}
-Value crashCondition(StrTailOp, OpBuilder &b, Location loc, Runtime &runtime,
-                     ArrayRef<Value> args) {
-  return emptyString(b, loc, runtime, args[0]);
 }
 // Zero is the small word 1.
 Value bigZero(OpBuilder &b, Location loc, Value big) {
   return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, big, constantI64(b, loc, 1));
 }
-Value crashCondition(BigDivOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
-  return bigZero(b, loc, args[1]);
-}
-Value crashCondition(BigModOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
-  return bigZero(b, loc, args[1]);
-}
-Value crashCondition(BigFromDoubleOp, OpBuilder &b, Location loc, Runtime &,
-                     ArrayRef<Value> args) {
-  return notFinite(b, loc, args[0]);
-}
-Value crashCondition(ToIntOp, OpBuilder &b, Location loc, Runtime &, ArrayRef<Value> args) {
-  return notFinite(b, loc, args[0]);
+
+// Where the op crashes; checked before the call, whose runtime function
+// assumes it does not. Only these ops have one, so the check is absent for
+// every other call.
+template <typename OpT>
+  requires llvm::is_one_of<OpT, StrIndexOp, StrHeadOp, StrTailOp, BigDivOp, BigModOp,
+                           BigFromDoubleOp, ToIntOp>::value
+Value crashCondition(OpT, OpBuilder &b, Location loc, Runtime &runtime, ArrayRef<Value> args) {
+  if constexpr (std::is_same_v<OpT, StrIndexOp>)
+    return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::uge, args[1],
+                                 stringLength(b, loc, runtime, args[0]));
+  else if constexpr (llvm::is_one_of<OpT, StrHeadOp, StrTailOp>::value)
+    return emptyString(b, loc, runtime, args[0]);
+  else if constexpr (llvm::is_one_of<OpT, BigDivOp, BigModOp>::value)
+    return bigZero(b, loc, args[1]);
+  else {
+    static_assert(llvm::is_one_of<OpT, BigFromDoubleOp, ToIntOp>::value);
+    return notFinite(b, loc, args[0]);
+  }
 }
 
 // The range an op states for its result whatever its operands are, as
@@ -175,24 +167,7 @@ struct LowerCompare : IdrPattern<OpT> {
     Location loc = op.getLoc();
     Value order = this->runtime.call(rewriter, loc, op.getHelper(), rewriter.getI32Type(),
                                      ValueRange{adaptor.getLhs(), adaptor.getRhs()});
-    arith::CmpIPredicate predicate;
-    switch (op.getPredicate()) {
-    case CmpPredicate::eq:
-      predicate = arith::CmpIPredicate::eq;
-      break;
-    case CmpPredicate::lt:
-      predicate = arith::CmpIPredicate::slt;
-      break;
-    case CmpPredicate::lte:
-      predicate = arith::CmpIPredicate::sle;
-      break;
-    case CmpPredicate::gt:
-      predicate = arith::CmpIPredicate::sgt;
-      break;
-    case CmpPredicate::gte:
-      predicate = arith::CmpIPredicate::sge;
-      break;
-    }
+    arith::CmpIPredicate predicate = signedPredicate(op.getPredicate());
     Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI32IntegerAttr(0));
     rewriter.replaceOpWithNewOp<arith::CmpIOp>(op, predicate, order, zero);
     return success();

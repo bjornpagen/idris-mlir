@@ -4,6 +4,7 @@ export module idr.narrow:copy;
 
 import idr.mlir;
 
+import :naturals;
 import :widths;
 
 using namespace mlir;

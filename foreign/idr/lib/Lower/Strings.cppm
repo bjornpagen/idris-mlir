@@ -89,70 +89,55 @@ Value isAscii(OpBuilder &b, Location loc, Value c) {
                                arith::ConstantOp::create(b, loc, b.getI32IntegerAttr(0x80)));
 }
 
-struct LowerStrPack : IdrPattern<StrPackOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(StrPackOp op, OneToNOpAdaptor adaptor,
+// pack and concat walk a list the same way: once for the bytes, the scalar
+// values and whether the result is ASCII, then once to write each element
+// after the last. A character's sizes are computed here; a string's are the
+// runtime's.
+template <typename OpT>
+struct LowerStringOfList : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    constexpr bool packing = std::is_same_v<OpT, StrPackOp>;
     Location loc = op.getLoc();
-    CtorOp cons = listCons(op, op.getList().getType(), rewriter.getI32Type());
+    Type element = packing ? Type(rewriter.getI32Type()) : Type(StrType::get(this->getContext()));
+    CtorOp cons = listCons(op, op.getList().getType(), element);
     if (!cons)
       return failure();
     Value cell = adaptor.getList().front();
     Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
     SmallVector<Value> counts =
-        walk(rewriter, loc, layouts, runtime, cons, cell,
+        walk(rewriter, loc, this->layouts, this->runtime, cons, cell,
              {constantI64(rewriter, loc, 0), constantI64(rewriter, loc, 0), yes},
              [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
-               Value c = head.front();
-               Value bytes = arith::AddIOp::create(b, l, carried[0], utf8Length(b, l, c));
-               Value scalars = arith::AddIOp::create(b, l, carried[1], constantI64(b, l, 1));
-               Value ascii = arith::AndIOp::create(b, l, carried[2], isAscii(b, l, c));
+               Value item = head.front();
+               Value bytes, scalars, ascii;
+               if constexpr (packing) {
+                 bytes = arith::AddIOp::create(b, l, carried[0], utf8Length(b, l, item));
+                 scalars = arith::AddIOp::create(b, l, carried[1], constantI64(b, l, 1));
+                 ascii = arith::AndIOp::create(b, l, carried[2], isAscii(b, l, item));
+               } else {
+                 bytes = arith::AddIOp::create(
+                     b, l, carried[0],
+                     this->runtime.call(b, l, "idris_rt_str_bytes_length", b.getI64Type(), item));
+                 scalars = arith::AddIOp::create(
+                     b, l, carried[1],
+                     this->runtime.call(b, l, "idris_rt_str_length", b.getI64Type(), item));
+                 Value partAscii =
+                     this->runtime.call(b, l, "idris_rt_str_is_ascii", b.getI32Type(), item);
+                 Value nonzero = arith::CmpIOp::create(
+                     b, l, arith::CmpIPredicate::ne, partAscii,
+                     arith::ConstantOp::create(b, l, b.getI32IntegerAttr(0)));
+                 ascii = arith::AndIOp::create(b, l, carried[2], nonzero);
+               }
                return SmallVector<Value>{bytes, scalars, ascii};
              });
-    Value s = allocate(rewriter, loc, runtime, counts[0], counts[1], counts[2]);
-    walk(rewriter, loc, layouts, runtime, cons, cell, {constantI64(rewriter, loc, 0)},
+    Value s = allocate(rewriter, loc, this->runtime, counts[0], counts[1], counts[2]);
+    walk(rewriter, loc, this->layouts, this->runtime, cons, cell, {constantI64(rewriter, loc, 0)},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
-           Value next = runtime.call(b, l, "idris_rt_str_put_char", b.getI64Type(),
-                                     ValueRange{s, carried[0], head.front()});
-           return SmallVector<Value>{next};
-         });
-    rewriter.replaceOpWithMultiple(op, {{s}});
-    return success();
-  }
-};
-
-struct LowerStrConcat : IdrPattern<StrConcatOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(StrConcatOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    CtorOp cons = listCons(op, op.getList().getType(), StrType::get(getContext()));
-    if (!cons)
-      return failure();
-    Value cell = adaptor.getList().front();
-    Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
-    SmallVector<Value> counts =
-        walk(rewriter, loc, layouts, runtime, cons, cell,
-             {constantI64(rewriter, loc, 0), constantI64(rewriter, loc, 0), yes},
-             [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
-               Value part = head.front();
-               Value bytes = arith::AddIOp::create(
-                   b, l, carried[0],
-                   runtime.call(b, l, "idris_rt_str_bytes_length", b.getI64Type(), part));
-               Value scalars = arith::AddIOp::create(
-                   b, l, carried[1], runtime.call(b, l, "idris_rt_str_length", b.getI64Type(), part));
-               Value partAscii = runtime.call(b, l, "idris_rt_str_is_ascii", b.getI32Type(), part);
-               Value nonzero = arith::CmpIOp::create(
-                   b, l, arith::CmpIPredicate::ne, partAscii,
-                   arith::ConstantOp::create(b, l, b.getI32IntegerAttr(0)));
-               Value ascii = arith::AndIOp::create(b, l, carried[2], nonzero);
-               return SmallVector<Value>{bytes, scalars, ascii};
-             });
-    Value s = allocate(rewriter, loc, runtime, counts[0], counts[1], counts[2]);
-    walk(rewriter, loc, layouts, runtime, cons, cell, {constantI64(rewriter, loc, 0)},
-         [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
-           Value next = runtime.call(b, l, "idris_rt_str_put_str", b.getI64Type(),
-                                     ValueRange{s, carried[0], head.front()});
+           StringRef put = packing ? "idris_rt_str_put_char" : "idris_rt_str_put_str";
+           Value next = this->runtime.call(b, l, put, b.getI64Type(),
+                                           ValueRange{s, carried[0], head.front()});
            return SmallVector<Value>{next};
          });
     rewriter.replaceOpWithMultiple(op, {{s}});
@@ -189,8 +174,8 @@ struct LowerPutList : IdrPattern<PutListOp> {
 // The string builders over lists, and the output of such a list.
 export void populateStringPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                    layout::Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerStrPack, LowerStrConcat, LowerPutList>(converter, patterns.getContext(),
-                                                           layouts, runtime);
+  patterns.add<LowerStringOfList<StrPackOp>, LowerStringOfList<StrConcatOp>, LowerPutList>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::lower

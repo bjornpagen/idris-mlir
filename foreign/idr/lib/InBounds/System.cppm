@@ -18,6 +18,7 @@ export module idr.inbounds:system;
 
 import idr.mlir;
 import idr.dialect;
+import idr.narrow;
 
 import :joins;
 import :linear;
@@ -100,11 +101,11 @@ public:
       return std::nullopt;
     DynamicAPInt half = power(*width - 1);
     Bounds bounds{-half, half - DynamicAPInt(1)};
-    auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
-    if (state && !state->getValue().isUninitialized()) {
-      const ConstantIntRanges &range = state->getValue().getValue();
-      bounds = {DynamicAPInt(range.smin().getSExtValue()), DynamicAPInt(range.smax().getSExtValue())};
-    }
+    // The analysis's range, as idr-narrow reads it. ranges::boundsOf would
+    // drop a bound outside the small range, and a word's proof needs the
+    // range the analysis gave, signed, at the word's width.
+    if (std::optional<ConstantIntRanges> range = narrow::rangeOf(solver, value))
+      bounds = {DynamicAPInt(range->smin().getSExtValue()), DynamicAPInt(range->smax().getSExtValue())};
     if (std::optional<Bounds> kept = carried ? carried(value) : std::nullopt)
       bounds = {std::max(bounds.first, kept->first), std::min(bounds.second, kept->second)};
     return bounds;
