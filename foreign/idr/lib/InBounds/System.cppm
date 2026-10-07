@@ -242,13 +242,13 @@ public:
   // The array `array` has `max(size, 0)` elements: its length is the
   // larger of the two, and equal to one, which a witness z in [0, 1]
   // chooses (no length or size reaches 2^63).
-  void lengthIs(Value size, Value array) {
-    DynamicAPInt big = power(63);
-    Linear n = of(size), length = lengthOf(array);
-    Linear z = fresh(DynamicAPInt(0), DynamicAPInt(1));
-    atLeastZero(length - n);
-    atLeastZero(Linear(n).plus(z, big) - length);
-    atLeastZero((Linear::constantOf(big) - length).plus(z, -big));
+  void lengthIs(Value size, Value array) { zero(lengthOf(array) - clamped(size)); }
+
+  // Whether `max(a, 0)` and `max(b, 0)` are the same integer.
+  bool sameClamp(Value a, Value b) {
+    if (!a.getType().isInteger(64) || !b.getType().isInteger(64))
+      return false;
+    return emptyWith((clamped(a) - clamped(b)).plus(-1)) && emptyWith((clamped(b) - clamped(a)).plus(-1));
   }
 
   // The values with columns, in the order they got them.
@@ -288,6 +288,18 @@ private:
     Linear e;
     bool equality;
   };
+
+  // `max(value, 0)`, below 2^63: a length.
+  Linear clamped(Value value) {
+    DynamicAPInt big = power(63);
+    Linear n = of(value);
+    Linear length = fresh(DynamicAPInt(0), big);
+    Linear z = fresh(DynamicAPInt(0), DynamicAPInt(1));
+    atLeastZero(length - n);
+    atLeastZero(Linear(n).plus(z, big) - length);
+    atLeastZero((Linear::constantOf(big) - length).plus(z, -big));
+    return length;
+  }
 
   // `x` as an unsigned word of `width` bits.
   Linear unsignedOf(Value x, unsigned width) {

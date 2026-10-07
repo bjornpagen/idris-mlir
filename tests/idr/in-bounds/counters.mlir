@@ -1,12 +1,13 @@
-// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@upTo,in-bounds=@decides,in-bounds=@down,in-bounds=@byTwo,in-bounds=@byAmount,in-bounds=@nested -o /dev/null
+// RUN: idris-mlir-opt %s --idr-in-bounds --idr-expect=holds=in-bounds=@upTo,in-bounds=@decides,in-bounds=@poisonExit,in-bounds=@down,in-bounds=@byTwo,in-bounds=@byAmount,in-bounds=@nested -o /dev/null
 // A loop's counter keeps the bound it starts at when every back edge
 // passes it on within that bound, which the loop's own guard decides: no
 // access below guards its index against 0, so each is proven only by the
 // counter's induction. Counting up from 0 below the size, in a loop that
 // tests before its body or that decides in one region whether to go round
-// (passing -1 on the way out, which no iteration sees); down from 9 to 0 in
-// an array of more than 9; by 2 below a bound 2 below the largest word; by an amount
-// from 0 to 255; and from where an outer counter stands.
+// (passing -1, or poison, on the way out, which no iteration sees); down
+// from 9 to 0 in an array of more than 9; by 2 below a bound 2 below the
+// largest word; by an amount from 0 to 255; and from where an outer
+// counter stands.
 module {
   func.func @upTo(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
@@ -44,6 +45,37 @@ module {
         %true = arith.constant true
         %p = ub.poison : !idr.world
         idr.yield %true, %j, %s1, %p : i1, i64, !idr.world, !idr.world
+      }
+      }
+      scf.condition(%d#0) %d#1, %d#2, %d#3 : i64, !idr.world, !idr.world
+    } do {
+    ^bb0(%i: i64, %s: !idr.world, %x: !idr.world):
+      scf.yield %i, %s : i64, !idr.world
+    }
+    return %r#2 : !idr.world
+  }
+
+  // Poison on the way out is not a value the next iteration steps from.
+  func.func @poisonExit(%n: i64, %w: !idr.world) -> !idr.world {
+    %z = arith.constant 0 : i64
+    %one = arith.constant 1 : i64
+    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %r:3 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world, !idr.world) {
+      %c = arith.cmpi slt, %i, %n : i64
+      %e = arith.extui %c : i1 to i64
+      %d:4 = idr.match_lit %e : i64 -> (i1, i64, !idr.world, !idr.world) {
+      case 0 {
+        %false = arith.constant false
+        %p = ub.poison : i64
+        %q = ub.poison : !idr.world
+        idr.yield %false, %p, %q, %s : i1, i64, !idr.world, !idr.world
+      }
+      default {
+        %s1 = idr.array.set %a[%i], %i, %s : memref<?xi64>, i64
+        %j = arith.addi %i, %one : i64
+        %true = arith.constant true
+        %q = ub.poison : !idr.world
+        idr.yield %true, %j, %s1, %q : i1, i64, !idr.world, !idr.world
       }
       }
       scf.condition(%d#0) %d#1, %d#2, %d#3 : i64, !idr.world, !idr.world

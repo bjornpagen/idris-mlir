@@ -212,8 +212,16 @@ private:
       edges.push_back({yield, Value(), next});
     if (edges.size() > edgeLimit)
       return std::nullopt;
+    // An edge whose condition is false leaves the loop. Its value, poison
+    // included, is not a step the next iteration takes, and none sees it.
+    auto goesRound = [](const BackEdge &edge) {
+      APInt k;
+      return !(edge.again && matchPattern(edge.again, m_ConstantInt(&k)) && k.isZero());
+    };
     llvm::erase_if(candidates, [&](const Candidate &c) {
-      return llvm::any_of(edges, [&](const BackEdge &edge) { return !isStep(loop, ranges, c, edge.next); });
+      return llvm::any_of(edges, [&](const BackEdge &edge) {
+        return goesRound(edge) && !isStep(loop, ranges, c, edge.next);
+      });
     });
     auto holds = [&](const Candidate &c) {
       for (const BackEdge &edge : edges) {

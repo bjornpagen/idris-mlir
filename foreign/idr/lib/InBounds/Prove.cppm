@@ -72,7 +72,7 @@ export FailureOr<Proved> prove(ModuleOp module) {
   if (failed(narrow::runSolver(solver, module)))
     return failure();
   DominanceInfo dominance(module);
-  Lengths lengths(module);
+  Lengths lengths(module, solver);
   Induction induction(solver, dominance);
   SmallVector<Operation *> proven;
   Proved done;

@@ -16,15 +16,18 @@ using namespace mlir;
 namespace idr::inbounds {
 
 // The array an access reads or writes: a view or a share of an owned
-// array is that array, of its length.
+// array is that array, of its length, and so is the array a linear
+// position was entered with.
 export Value arrayRoot(Value array) {
   while (true) {
-    if (auto borrow = array.getDefiningOp<BorrowOp>())
-      array = borrow.getValue();
-    else if (auto share = array.getDefiningOp<ShareOp>())
-      array = share.getValue();
-    else
+    Value next = ::idr::throughLinear(array);
+    if (auto borrow = next.getDefiningOp<BorrowOp>())
+      next = borrow.getValue();
+    else if (auto share = next.getDefiningOp<ShareOp>())
+      next = share.getValue();
+    if (next == array)
       return array;
+    array = next;
   }
 }
 

@@ -1,8 +1,24 @@
 // idr.inbounds:lengths: which integers are the lengths of which arrays.
 // `related(n, a)` holds when, wherever `n` and `a` are both in scope, the
 // array `a` has `max(n, 0)` elements: what `idr.array.new %n` gives, and
-// what the program then carries apart, a record of a size and an array
-// taken apart into two parameters or two loop arguments.
+// what the program then carries apart.
+//
+// A component of a record — a field read, a field a take yields, an
+// argument of a match case — has the length of the component the
+// constructor stored. Two values one constructor built stay related after
+// the record is taken apart; an array stored alone stays related to the
+// size it was built with. The constructor is what pairs them. A read of
+// another constructor's field is not that component, and a record no
+// constructor in scope built pairs nothing.
+//
+// A size the array was made from relates when it is that operand, or the
+// same integer clamped at 0. A branch (a match, an if) or a select or a
+// max has that clamp when every side does, which for a side is either the
+// values themselves or what the conditions choosing that side force. Those
+// conditions are how the value was built, so the equality holds wherever
+// the value is in scope, not only on the path that built it. A loop's own
+// guard is not part of it: a fact that holds only while the loop runs is
+// not a length everywhere the values are in scope.
 //
 // The relation of a pair is decided by where its values come from. An
 // array made of a size relates to that size. A pair bound at one join (two
@@ -16,32 +32,54 @@
 // anything else, fails, until none changes. What remains holds by
 // induction over the run: each binding of a pair that holds is made of
 // pairs that held. A poison array is no array any access may read, so it
-// relates to every size; a poison size relates to no array, since an
-// access that never branches on it would read the array unchecked.
+// relates to every size; a poison record likewise holds no component an
+// access may read. A poison size relates to no array, since an access that
+// never branches on it would read the array unchecked.
 export module idr.inbounds:lengths;
 
 import idr.mlir;
 import idr.dialect;
 
+import :components;
 import :joins;
+import :paths;
+import :system;
 
 using namespace mlir;
+using namespace mlir::dataflow;
 
 namespace idr::inbounds {
 
 namespace {
 
 // Past this many pairs reached from one question, the rest fail: an
-// answer is then only weaker.
+// answer is then only weaker. Past this many values followed while
+// walking one clamp, the rest fail the same way.
 constexpr size_t pairLimit = 4096;
+constexpr unsigned walkLimit = 64;
+constexpr unsigned edgeLimit = 64;
 
-int64_t clamped(const APInt &size) { return std::max<int64_t>(size.getSExtValue(), 0); }
+int64_t clampedConst(const APInt &size) { return std::max<int64_t>(size.getSExtValue(), 0); }
+
+// Erases `value` from `set` when destroyed, so a walk can visit it again
+// on another branch.
+struct Forget {
+  DenseSet<Value> *set = nullptr;
+  Value value;
+  Forget(DenseSet<Value> &set, Value value) : set(&set), value(value) {}
+  Forget(const Forget &) = delete;
+  Forget &operator=(const Forget &) = delete;
+  ~Forget() {
+    if (set)
+      set->erase(value);
+  }
+};
 
 } // namespace
 
 export class Lengths {
 public:
-  explicit Lengths(ModuleOp module) : calls(module) {}
+  explicit Lengths(ModuleOp module, DataFlowSolver &solver) : calls(module), solver(solver) {}
 
   // Whether the array `array` has `size` clamped at 0 elements wherever
   // both are in scope.
@@ -61,11 +99,95 @@ private:
     SmallVector<unsigned> neededBy;
   };
 
+  // Whether `max(size, 0)` and `max(made, 0)` are the same integer, from
+  // how `made` is built. A side that already is agrees without the
+  // conditions; one that is not must be forced by the conditions that
+  // choose it. A loop is not walked: its guard holds on its iterations,
+  // and the length is claimed wherever both values are in scope.
+  bool clampsEqual(Value size, Value made) {
+    Pair key{size, made};
+    if (auto it = clampCache.find(key); it != clampCache.end())
+      return it->second;
+    if (!clampOpen.insert(key).second)
+      return false;
+    DenseSet<Value> seen;
+    bool equal = agrees(size, made, seen);
+    clampOpen.erase(key);
+    clampCache[key] = equal;
+    return equal;
+  }
+
+  bool agrees(Value size, Value made, DenseSet<Value> &seen) {
+    if (!size.getType().isInteger(64) || !made.getType().isInteger(64))
+      return false;
+    if (size == made)
+      return true;
+    APInt a, b;
+    if (matchPattern(size, m_ConstantInt(&a)) && matchPattern(made, m_ConstantInt(&b)))
+      return clampedConst(a) == clampedConst(b);
+    if (seen.size() >= walkLimit || !seen.insert(made).second)
+      return false;
+    Forget forget(seen, made);
+    if (auto max = made.getDefiningOp<arith::MaxSIOp>()) {
+      auto floor = [](Value value) {
+        APInt k;
+        return matchPattern(value, m_ConstantInt(&k)) && !k.isStrictlyPositive();
+      };
+      if (floor(max.getLhs()))
+        return agrees(size, max.getRhs(), seen);
+      if (floor(max.getRhs()))
+        return agrees(size, max.getLhs(), seen);
+      return agrees(size, max.getLhs(), seen) && agrees(size, max.getRhs(), seen);
+    }
+    if (auto select = made.getDefiningOp<arith::SelectOp>();
+        select && select.getCondition().getType().isInteger(1))
+      return atPoint(select, select.getCondition(), true, size, select.getTrueValue(), seen) &&
+             atPoint(select, select.getCondition(), false, size, select.getFalseValue(), seen);
+    auto branch = dyn_cast_or_null<RegionBranchOpInterface>(made.getDefiningOp());
+    if (branch && !branch.hasLoop())
+      return eachEdge(branch, size, made, seen);
+    return false;
+  }
+
+  // `made`, at `at`, agrees with `size`. `condition` chose this side when
+  // it is set. A side that agrees on its own needs no condition.
+  bool atPoint(Operation *at, Value condition, bool holds, Value size, Value made,
+               DenseSet<Value> &seen) {
+    if (agrees(size, made, seen))
+      return true;
+    System system(solver, knownAt(at, dominance));
+    pathFacts(at, system);
+    if (condition)
+      system.assume(condition, holds);
+    return system.sameClamp(size, made);
+  }
+
+  bool eachEdge(RegionBranchOpInterface branch, Value size, Value made, DenseSet<Value> &seen) {
+    RegionSuccessor successor(branch.getOperation());
+    std::optional<unsigned> position = positionIn(branch.getSuccessorInputs(successor), made);
+    if (!position)
+      return false;
+    SmallVector<Value> values;
+    branch.getPredecessorValues(successor, static_cast<int>(*position), values);
+    SmallVector<RegionBranchPoint> points;
+    branch.getPredecessors(successor, points);
+    if (values.empty() || values.size() != points.size() || values.size() > edgeLimit)
+      return false;
+    for (auto [i, point] : llvm::enumerate(points)) {
+      Operation *at = point.isParent() ? branch.getOperation() : point.getTerminatorPredecessorOrNull();
+      if (!at || !atPoint(at, Value(), true, size, values[i], seen))
+        return false;
+    }
+    return true;
+  }
+
   // The pairs `pair` holds by, all needed; none when it cannot hold.
   std::optional<SmallVector<Pair>> needsOf(Pair pair) {
     auto [size, array] = pair;
     if (array.getDefiningOp<ub::PoisonOp>())
       return SmallVector<Pair>{};
+    if (ComponentPairs parts = componentPairs(calls, dominance, size, array); parts.component)
+      return parts.needs;
     std::optional<Join> sizeJoin = joinOf(size, calls);
     std::optional<Join> arrayJoin = joinOf(array, calls);
     SmallVector<Pair> needs;
@@ -95,7 +217,9 @@ private:
       return needs;
     APInt a, b;
     if (matchPattern(size, m_ConstantInt(&a)) && matchPattern(made, m_ConstantInt(&b)) &&
-        clamped(a) == clamped(b))
+        clampedConst(a) == clampedConst(b))
+      return needs;
+    if (clampsEqual(size, made))
       return needs;
     return std::nullopt;
   }
@@ -152,10 +276,13 @@ private:
   }
 
   Calls calls;
+  DataFlowSolver &solver;
   DominanceInfo dominance;
   DenseMap<Pair, unsigned> index;
   SmallVector<Pair> pairs;
   SmallVector<Node> nodes;
+  DenseMap<Pair, bool> clampCache;
+  DenseSet<Pair> clampOpen;
 };
 
 } // namespace idr::inbounds

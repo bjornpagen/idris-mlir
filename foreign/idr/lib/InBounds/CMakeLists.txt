@@ -3,6 +3,7 @@
 # unit that imports it.
 idr_library(idr_inbounds
 	MODULES
+		Components.cppm
 		InBounds.cppm
 		Induction.cppm
 		Joins.cppm
