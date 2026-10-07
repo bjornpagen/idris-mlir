@@ -14,16 +14,15 @@ namespace idr {
 using fold::compared;
 using fold::extended;
 using fold::Scope;
+using fold::strBinary;
 using fold::strUnary;
 using fold::wrapped;
 
 OpFoldResult StrAppendOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<StringAttr>(adaptor.getLhs());
-  auto b = dyn_cast_or_null<StringAttr>(adaptor.getRhs());
-  if (!a || !b)
-    return {};
-  Scope scope(getContext());
-  return scope.attr(idris_rt_str_append(scope.str(a), scope.str(b)));
+  return strBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(),
+                   [](Scope &scope, const idris_rt_str *a, const idris_rt_str *b) {
+                     return scope.attr(idris_rt_str_append(a, b));
+                   });
 }
 
 OpFoldResult StrConsOp::fold(FoldAdaptor adaptor) {
@@ -71,13 +70,20 @@ OpFoldResult StrReverseOp::fold(FoldAdaptor adaptor) {
   });
 }
 
+// Nothing for the empty string: head and tail crash on it, so the op stays.
+template <typename Fn>
+OpFoldResult strNonEmpty(MLIRContext *ctx, Attribute operand, Fn fn) {
+  return strUnary(ctx, operand, [&](Scope &scope, const idris_rt_str *s) -> OpFoldResult {
+    if (idris_rt_str_length(s) == 0)
+      return {};
+    return fn(scope, s);
+  });
+}
+
 OpFoldResult StrTailOp::fold(FoldAdaptor adaptor) {
-  return strUnary(getContext(), adaptor.getStr(),
-                  [](Scope &scope, const idris_rt_str *s) -> OpFoldResult {
-                    if (idris_rt_str_length(s) == 0)
-                      return {};
-                    return scope.attr(idris_rt_str_tail(s));
-                  });
+  return strNonEmpty(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
+    return scope.attr(idris_rt_str_tail(s));
+  });
 }
 
 OpFoldResult StrLengthOp::fold(FoldAdaptor adaptor) {
@@ -103,21 +109,18 @@ OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult StrHeadOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
-  return strUnary(getContext(), adaptor.getStr(),
-                  [&](Scope &, const idris_rt_str *s) -> OpFoldResult {
-                    if (idris_rt_str_length(s) == 0)
-                      return {};
-                    return wrapped(type, idris_rt_str_head(s));
-                  });
+  return strNonEmpty(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
+    return wrapped(type, idris_rt_str_head(s));
+  });
 }
 
 OpFoldResult StrCmpOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<StringAttr>(adaptor.getLhs());
-  auto b = dyn_cast_or_null<StringAttr>(adaptor.getRhs());
-  if (!a || !b)
-    return {};
-  Scope scope(getContext());
-  return compared(getContext(), getPredicate(), idris_rt_str_cmp(scope.str(a), scope.str(b)));
+  CmpPredicate predicate = getPredicate();
+  MLIRContext *ctx = getContext();
+  return strBinary(ctx, adaptor.getLhs(), adaptor.getRhs(),
+                   [&](Scope &, const idris_rt_str *a, const idris_rt_str *b) {
+                     return compared(ctx, predicate, idris_rt_str_cmp(a, b));
+                   });
 }
 
 OpFoldResult StrToIntOp::fold(FoldAdaptor adaptor) {

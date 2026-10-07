@@ -27,6 +27,27 @@ mlir::OpFoldResult strUnary(mlir::MLIRContext *ctx, mlir::Attribute operand, Fn 
 
 using BigOp = idris_rt_big (*)(idris_rt_big, idris_rt_big);
 
+// `fn` of two constant strings; nothing when either is no constant.
+template <typename Fn>
+OpFoldResult strBinary(MLIRContext *ctx, Attribute lhs, Attribute rhs, Fn fn) {
+  auto a = dyn_cast_or_null<StringAttr>(lhs);
+  auto b = dyn_cast_or_null<StringAttr>(rhs);
+  if (!a || !b)
+    return {};
+  Scope scope(ctx);
+  return fn(scope, scope.str(a), scope.str(b));
+}
+
+// `fn` of one constant big; nothing when it is no constant.
+template <typename Fn>
+OpFoldResult bigUnary(MLIRContext *ctx, Attribute operand, Fn fn) {
+  auto a = dyn_cast_or_null<BigAttr>(operand);
+  if (!a)
+    return {};
+  Scope scope(ctx);
+  return fn(scope, scope.big(a));
+}
+
 // `op` of two constant bigs; nothing when either is no constant.
 OpFoldResult bigBinary(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp op) {
   auto a = dyn_cast_or_null<BigAttr>(lhs), b = dyn_cast_or_null<BigAttr>(rhs);

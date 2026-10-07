@@ -8,10 +8,6 @@
 // when the result leaves the small range. The runtime's functions stay the
 // one meaning of each op: this is their small case restated, and the cold
 // path is the whole function.
-module;
-// llvm_unreachable is a macro.
-#include "llvm/Support/ErrorHandling.h"
-
 export module idr.lower:bigs;
 
 import idr.mlir;
@@ -101,60 +97,36 @@ struct LowerBigArith : IdrPattern<OpT> {
   }
 };
 
-// The predecessor of a natural that is not zero: a small one is at least the
-// word 3, so the word minus 2 is its predecessor and cannot overflow.
-struct LowerBigPred : IdrPattern<BigPredOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(BigPredOp op, OpAdaptor adaptor,
+// A small word computed inline, the runtime's function when the word is a
+// GMP integer. A predecessor is the word minus 2, which cannot overflow: a
+// small natural that is not zero is at least the word 3. A natural from an
+// Integer is the word, or the small 0 (the word 1) when a small word is
+// negative.
+template <typename OpT>
+struct LowerSmallUnary : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value a = adaptor.getValue();
-    Value result = arith::SubIOp::create(rewriter, loc, a, constantI64(rewriter, loc, 2),
-                                         arith::IntegerOverflowFlags::nsw);
+    Value result;
+    if constexpr (std::is_same_v<OpT, BigPredOp>) {
+      result = arith::SubIOp::create(rewriter, loc, a, constantI64(rewriter, loc, 2),
+                                     arith::IntegerOverflowFlags::nsw);
+    } else {
+      static_assert(std::is_same_v<OpT, NatFromBigOp>);
+      Value negative = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::slt, a,
+                                             constantI64(rewriter, loc, 0));
+      result = arith::SelectOp::create(rewriter, loc, negative, constantI64(rewriter, loc, 1), a);
+    }
     rewriter.replaceOp(op, unlessCold(rewriter, loc, lowBit(rewriter, loc, a), result,
                                       [&](OpBuilder &cold, Location at) {
-                                        return callRuntime<BigPredOp>(cold, at, runtime,
-                                                                      a.getType(), a);
+                                        return callRuntime<OpT>(cold, at, this->runtime, a.getType(),
+                                                                a);
                                       }));
     return success();
   }
 };
-
-// An Integer as a natural: a small negative one is the small 0 (the word
-// 1); a small word is negative exactly when its value is.
-struct LowerNatFromBig : IdrPattern<NatFromBigOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(NatFromBigOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value a = adaptor.getValue();
-    Value negative = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::slt, a,
-                                           constantI64(rewriter, loc, 0));
-    Value result = arith::SelectOp::create(rewriter, loc, negative, constantI64(rewriter, loc, 1), a);
-    rewriter.replaceOp(op, unlessCold(rewriter, loc, lowBit(rewriter, loc, a), result,
-                                      [&](OpBuilder &cold, Location at) {
-                                        return callRuntime<NatFromBigOp>(cold, at, runtime,
-                                                                         a.getType(), a);
-                                      }));
-    return success();
-  }
-};
-
-arith::CmpIPredicate signedPredicate(CmpPredicate predicate) {
-  switch (predicate) {
-  case CmpPredicate::eq:
-    return arith::CmpIPredicate::eq;
-  case CmpPredicate::lt:
-    return arith::CmpIPredicate::slt;
-  case CmpPredicate::lte:
-    return arith::CmpIPredicate::sle;
-  case CmpPredicate::gt:
-    return arith::CmpIPredicate::sgt;
-  case CmpPredicate::gte:
-    return arith::CmpIPredicate::sge;
-  }
-  llvm_unreachable("a comparison predicate");
-}
 
 // Two small words order as their values do. Each integer has one
 // representation, so equality needs only one small operand: a small word
@@ -263,7 +235,8 @@ struct LowerBigToInt : IdrPattern<BigToIntOp> {
 export void populateBigPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                 layout::Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerBigArith<BigAddOp>, LowerBigArith<BigSubOp>, LowerBigArith<BigMulOp>,
-               LowerBigPred, LowerNatFromBig, LowerBigCmp, LowerBigFromInt, LowerBigSmall, LowerBigToInt>(
+               LowerSmallUnary<BigPredOp>, LowerSmallUnary<NatFromBigOp>, LowerBigCmp,
+               LowerBigFromInt, LowerBigSmall, LowerBigToInt>(
       converter, patterns.getContext(), layouts, runtime);
 }
 

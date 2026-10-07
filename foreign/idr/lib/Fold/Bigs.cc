@@ -13,6 +13,7 @@ namespace idr {
 
 using fold::bigBinary;
 using fold::bigDivision;
+using fold::bigUnary;
 using fold::compared;
 using fold::extended;
 using fold::Scope;
@@ -45,11 +46,9 @@ OpFoldResult BigModOp::fold(FoldAdaptor adaptor) {
 }
 
 OpFoldResult BigNegOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
-  if (!a)
-    return {};
-  Scope scope(getContext());
-  return scope.attr(idris_rt_big_neg(scope.big(a)));
+  return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
+    return scope.attr(idris_rt_big_neg(a));
+  });
 }
 
 // Zero has no predecessor: a constant zero is on a path the match before
@@ -69,11 +68,9 @@ OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
 }
 
 OpFoldResult NatFromBigOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
-  if (!a)
-    return {};
-  Scope scope(getContext());
-  return scope.attr(idris_rt_nat_from_big(scope.big(a)));
+  return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
+    return scope.attr(idris_rt_nat_from_big(a));
+  });
 }
 
 OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {
@@ -128,19 +125,16 @@ OpFoldResult BigFromDoubleOp::fold(FoldAdaptor adaptor) {
 }
 
 OpFoldResult BigToDoubleOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
-  if (!a)
-    return {};
-  Scope scope(getContext());
-  return FloatAttr::get(getType(), idris_rt_big_to_double(scope.big(a)));
+  Type type = getType();
+  return bigUnary(getContext(), adaptor.getValue(), [&](Scope &, idris_rt_big a) {
+    return FloatAttr::get(type, idris_rt_big_to_double(a));
+  });
 }
 
 OpFoldResult BigShowOp::fold(FoldAdaptor adaptor) {
-  auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
-  if (!a)
-    return {};
-  Scope scope(getContext());
-  return scope.attr(idris_rt_big_show(scope.big(a)));
+  return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
+    return scope.attr(idris_rt_big_show(a));
+  });
 }
 
 OpFoldResult BigFromStrOp::fold(FoldAdaptor adaptor) {

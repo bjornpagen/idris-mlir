@@ -3,12 +3,15 @@
 // address of a component of a cell and the alignment it has there, and the
 // empty value of a counted component. The module's own, unexported.
 module;
-// The runtime's C ABI: the size of its words is a macro.
+// The runtime's C ABI: the size of its words is a macro. llvm_unreachable
+// is a macro.
 #include "idris_rt.h"
+#include "llvm/Support/ErrorHandling.h"
 
 export module idr.lower:words;
 
 import idr.mlir;
+import idr.dialect;
 
 using namespace mlir;
 
@@ -40,6 +43,24 @@ Value at(OpBuilder &b, Location loc, Value cell, unsigned offset) {
 // data layout that the translation does not have yet.
 unsigned alignAt(unsigned offset) {
   return static_cast<unsigned>(llvm::MinAlign(IDRIS_RT_WORD_BYTES, offset));
+}
+
+// idr's comparison, as a signed comparison of the values. A big's small
+// words and the runtime's three-way result both order that way.
+arith::CmpIPredicate signedPredicate(CmpPredicate predicate) {
+  switch (predicate) {
+  case CmpPredicate::eq:
+    return arith::CmpIPredicate::eq;
+  case CmpPredicate::lt:
+    return arith::CmpIPredicate::slt;
+  case CmpPredicate::lte:
+    return arith::CmpIPredicate::sle;
+  case CmpPredicate::gt:
+    return arith::CmpIPredicate::sgt;
+  case CmpPredicate::gte:
+    return arith::CmpIPredicate::sge;
+  }
+  llvm_unreachable("a comparison predicate");
 }
 
 // The empty value of a counted component: a null pointer, or the word 0.

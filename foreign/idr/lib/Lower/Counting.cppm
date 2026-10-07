@@ -186,34 +186,14 @@ struct LowerTake : IdrPattern<TakeOp> {
   }
 };
 
-// Forgetting exclusivity has no runtime form: the value is itself.
-struct LowerShare : IdrPattern<ShareOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ShareOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
-    return success();
-  }
-};
-
-// A view has no runtime form: it is the value itself.
-struct LowerBorrow : IdrPattern<BorrowOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(BorrowOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
-    return success();
-  }
-};
-
 } // namespace
 
 // The patterns of the ops that count references.
 export void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                      layout::Layouts &layouts, Runtime &runtime, const Fields &fields) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<LowerDup, LowerDrop, LowerBorrow, LowerShare, LowerTake>(converter, ctx, layouts,
-                                                                       runtime);
+  patterns.add<LowerDup, LowerDrop, LowerTake, LowerAsItself<BorrowOp>, LowerAsItself<ShareOp>>(
+      converter, ctx, layouts, runtime);
   patterns.add<LowerReuse>(converter, ctx, layouts, runtime, fields);
 }
 

@@ -137,61 +137,48 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   }
 };
 
-// A word read through the view; the components of any other element, each
-// counted one taking a reference of its own: the array keeps its own.
-struct LowerArrayGet : IdrPattern<ArrayGetOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ArrayGetOp op, OneToNOpAdaptor adaptor,
+// A word through the view; any other element by its slots. A read takes a
+// reference of each counted component, which the array keeps its own of. A
+// write drops the old element's reference and moves the new one in.
+template <typename OpT>
+struct LowerArrayAccess : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    constexpr bool reading = std::is_same_v<OpT, ArrayGetOp>;
     Location loc = op.getLoc();
-    FailureOr<layout::Element> element = elementOf(op, layouts);
+    FailureOr<layout::Element> element = elementOf(op, this->layouts);
     if (failed(element))
       return failure();
     ValueRange array = adaptor.getArray();
     Value index = adaptor.getIndex().front();
     if (std::optional<StringRef> cause = op.getCrashCause())
-      checkBounds(rewriter, loc, runtime, array[1], index, *cause);
-    if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, layouts)) {
-      Value elements = arrayView(rewriter, loc, runtime, view, array[0], array[1]);
-      Value word = memref::LoadOp::create(rewriter, loc, elements, asIndex(rewriter, loc, index));
-      rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{word}, SmallVector<Value>{}});
+      checkBounds(rewriter, loc, this->runtime, array[1], index, *cause);
+    if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, this->layouts)) {
+      Value elements = arrayView(rewriter, loc, this->runtime, view, array[0], array[1]);
+      if constexpr (reading) {
+        Value word = memref::LoadOp::create(rewriter, loc, elements, asIndex(rewriter, loc, index));
+        rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{word}, SmallVector<Value>{}});
+      } else {
+        memref::StoreOp::create(rewriter, loc, adaptor.getValue().front(), elements,
+                                asIndex(rewriter, loc, index));
+        rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+      }
       return success();
     }
-    SmallVector<Value> value = runtime.load(
-        rewriter, loc, elementAt(rewriter, loc, array[0], index, *element), element->slots);
-    runtime.inc(rewriter, loc, value, layouts.counted(op.getValue().getType()));
-    rewriter.replaceOpWithMultiple(op, {value, SmallVector<Value>{}});
-    return success();
-  }
-};
-
-// A word written through the view; for any other element the old one
-// loses the array's reference, and the new one moves in.
-struct LowerArraySet : IdrPattern<ArraySetOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ArraySetOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    FailureOr<layout::Element> element = elementOf(op, layouts);
-    if (failed(element))
-      return failure();
-    ValueRange array = adaptor.getArray();
-    Value index = adaptor.getIndex().front();
-    if (std::optional<StringRef> cause = op.getCrashCause())
-      checkBounds(rewriter, loc, runtime, array[1], index, *cause);
-    if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, layouts)) {
-      Value elements = arrayView(rewriter, loc, runtime, view, array[0], array[1]);
-      memref::StoreOp::create(rewriter, loc, adaptor.getValue().front(), elements,
-                              asIndex(rewriter, loc, index));
+    if constexpr (reading) {
+      SmallVector<Value> value = this->runtime.load(
+          rewriter, loc, elementAt(rewriter, loc, array[0], index, *element), element->slots);
+      this->runtime.inc(rewriter, loc, value, this->layouts.counted(op.getValue().getType()));
+      rewriter.replaceOpWithMultiple(op, {value, SmallVector<Value>{}});
+    } else {
+      Value at = elementAt(rewriter, loc, array[0], index, *element);
+      SmallVector<bool> counted = this->layouts.counted(op.getValue().getType());
+      SmallVector<Value> old = this->runtime.load(rewriter, loc, at, element->slots);
+      this->runtime.dec(rewriter, loc, old, counted);
+      this->runtime.store(rewriter, loc, at, element->slots, adaptor.getValue());
       rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
-      return success();
     }
-    Value at = elementAt(rewriter, loc, array[0], index, *element);
-    SmallVector<bool> counted = layouts.counted(op.getValue().getType());
-    SmallVector<Value> old = runtime.load(rewriter, loc, at, element->slots);
-    runtime.dec(rewriter, loc, old, counted);
-    runtime.store(rewriter, loc, at, element->slots, adaptor.getValue());
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
     return success();
   }
 };
@@ -220,8 +207,8 @@ struct LowerDim : OpConversionPattern<memref::DimOp> {
 // The patterns of arrays.
 export void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                   layout::Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerArrayNew, LowerArrayGet, LowerArraySet>(converter, patterns.getContext(),
-                                                            layouts, runtime);
+  patterns.add<LowerArrayNew, LowerArrayAccess<ArrayGetOp>, LowerArrayAccess<ArraySetOp>>(
+      converter, patterns.getContext(), layouts, runtime);
   patterns.add<LowerDim>(converter, patterns.getContext());
 }
 
