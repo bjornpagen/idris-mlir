@@ -123,4 +123,12 @@ namespace rt::rc {
   releaseAll(dying);
 }
 
+// What a persistent cell stored, released without freeing the cell: its
+// memory is the program's, and its header stays.
+void releaseKept(idris_rt_header *cell) {
+  Dying dying;
+  releaseOwned(cell, dying);
+  releaseAll(dying);
+}
+
 } // namespace rt::rc

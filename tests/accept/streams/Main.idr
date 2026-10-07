@@ -2,7 +2,7 @@
 -- stdout: 55\n
 module Main
 
--- Codata: an infinite Stream is a closure of no arguments, forced by name,
+-- Codata: an infinite Stream is a suspension, forced by name,
 -- and taken apart only as far as it is forced. The closed call of `take` is
 -- evaluated at compile time and the list never exists at runtime. (So is
 -- one of a consumer the Prelude declares covering, such as `takeBefore`,

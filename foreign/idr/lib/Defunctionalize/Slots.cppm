@@ -146,17 +146,21 @@ struct Slots {
       return field(con.getCtor(), index);
     if (auto closure = dyn_cast<idr::ClosureOp>(user))
       return argument(closure.getCalleeAttr().getAttr(), index);
+    if (auto suspend = dyn_cast<idr::SuspendOp>(user))
+      return argument(suspend.getCalleeAttr().getAttr(), index);
     if (isa<idr::LinEnterOp, idr::LinUseOp>(user))
       return values.lookup(user->getResult(0));
     return {};
   }
 
   // Ops whose closure operands, results and region arguments the pass
-  // follows. Those of any other op stay closures.
+  // follows. Those of any other op stay closures. A force's result is the
+  // closure its suspension returns, already keyed, so it is not an unknown
+  // incoming closure.
   static bool isFollowed(Operation *op) {
     return isa<func::FuncOp, func::CallOp, func::ReturnOp, idr::YieldOp, idr::ConOp,
-               idr::ClosureOp, idr::ApplyOp, idr::FieldOp, idr::MatchOp, idr::MatchLitOp,
-               idr::LinEnterOp, idr::LinUseOp,
+               idr::ClosureOp, idr::SuspendOp, idr::ForceOp, idr::ApplyOp, idr::FieldOp,
+               idr::MatchOp, idr::MatchLitOp, idr::LinEnterOp, idr::LinUseOp,
                idr::ConstantOp>(op);
   }
 
@@ -219,7 +223,24 @@ struct Slots {
           values[result] = field(
               SymbolRefAttr::get(dataName(read.getValue().getType()), {read.getCtorAttr()}),
               static_cast<unsigned>(read.getIndex()));
-        else
+        else if (auto force = dyn_cast<idr::ForceOp>(op)) {
+          // The value is what the suspension's function returns. The force
+          // does not name that function, so the labels would otherwise be
+          // unknown and the lazy type and the value would part.
+          Key produced;
+          Value suspension = force.getSuspension();
+          StringAttr name;
+          if (auto suspend = suspension.getDefiningOp<idr::SuspendOp>())
+            name = suspend.getCalleeAttr().getAttr();
+          else if (auto constant = suspension.getDefiningOp<idr::ConstantOp>())
+            if (auto closure = dyn_cast<idr::ClosureAttr>(constant.getValue()))
+              name = closure.getCallee().getAttr();
+          if (name)
+            produced = this->result(module.function(name), 0);
+          auto fnType = cast<idr::FnType>(idr::unrestricted(result.getType()));
+          values[result] = produced.first == fnType ? produced
+                                                    : keyOf(result.getType(), labelsOf(result));
+        } else
           values[result] = keyOf(result.getType(), labelsOf(result));
       }
     });
@@ -276,7 +297,10 @@ struct Slots {
       return;
     if (auto closure = dyn_cast<idr::ClosureAttr>(attr)) {
       StringAttr label = closure.getCallee().getAttr();
-      sources.push_back({label, slot});
+      // A suspension's slot is not a closure. Recording the function as a
+      // source would build a sum for it.
+      if (slot.first)
+        sources.push_back({label, slot});
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
         constantSources(capture, argument(label, static_cast<unsigned>(i)));
       return;

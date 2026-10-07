@@ -26,7 +26,7 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
     FlatSymbolRefAttr name = getSumName(type);
     return name && name.getAttr() == con.getCtor().getRootReference();
   }
-  return (isa<ClosureAttr>(value) && isa<FnType>(type)) ||
+  return (isa<ClosureAttr>(value) && (isa<FnType>(type) || isa<LazyType>(type))) ||
          (isa<BigAttr>(value) && isa<BigType>(type)) ||
          // A natural constant is never negative: the type proves it.
          (isa<BigAttr>(value) && isa<NatType>(type) &&

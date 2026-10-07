@@ -234,6 +234,16 @@ namespace idr {
 // The grade of a type: its own for !idr.q, (ω, ·) for a plain type.
 Grade gradeOf(mlir::Type type);
 
+// An application compares a closure's declared types with the values it is
+// given. Reference counting grades what a value owns after the closure type
+// is fixed; the quantity Idris proved stays, and the carrier is the value.
+template <typename Expected, typename Actual>
+bool sameCarriers(Expected &&expected, Actual &&actual) {
+  return llvm::equal(expected, actual, [](mlir::Type a, mlir::Type b) {
+    return gradeOf(a).quantity == gradeOf(b).quantity && unrestricted(a) == unrestricted(b);
+  });
+}
+
 // The type `value` at `grade`, in canonical form: `value` itself at
 // (ω, ·), and never a grade of a graded type.
 mlir::Type graded(Grade grade, mlir::Type value);

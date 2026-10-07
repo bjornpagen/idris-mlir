@@ -48,6 +48,11 @@ export
 destType : (value : MlirType) -> MlirType
 destType value = MkMlirType ("!idr.dest<" ++ value.text ++ ">")
 
+||| `!idr.lazy`: a suspension of one value, forced once into this cell
+export
+lazyType : (value : MlirType) -> MlirType
+lazyType value = MkMlirType ("!idr.lazy<" ++ value.text ++ ">")
+
 ||| `!idr.nat`: a natural number: a non-negative big
 export
 natType : MlirType
@@ -407,6 +412,12 @@ fieldOp : (value : Value) -> (ctor : String) -> (index : Integer) -> (result : M
 fieldOp value ctor index result =
   MkOp "idr.field" [value] [("ctor", flatSymbolRefAttr ctor), ("index", integerAttr index (integerType 64))] [] [] [result]
 
+||| `idr.force`: the value of a suspension, computed on the first force and shared
+export
+forceOp : (suspension : Value) -> (result : MlirType) -> Op
+forceOp suspension result =
+  MkOp "idr.force" [suspension] [] [] [] [result]
+
 ||| `idr.int_head`: the first character of an integer's decimal text
 export
 intHeadOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
@@ -683,6 +694,12 @@ strToIntOp : {default False isSigned : Bool} -> (str : Value) -> (result : MlirT
 strToIntOp str result =
   MkOp "idr.str.to_int" [str] (unitIf "is_signed" isSigned) [] [] [result]
 
+||| `idr.suspend`: a suspension of a function: every parameter is a capture
+export
+suspendOp : (callee : String) -> (captures : List Value) -> (result : MlirType) -> Op
+suspendOp callee captures result =
+  MkOp "idr.suspend" captures [("callee", flatSymbolRefAttr callee)] [] [] [result]
+
 ||| `idr.tag`: the constructor tag of a value
 export
 tagOp : (value : Value) -> (result : MlirType) -> Op
@@ -729,4 +746,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 1695126272-958321 3258542741-29196
+-- fingerprint: 2650355592-962250 1888143936-29899

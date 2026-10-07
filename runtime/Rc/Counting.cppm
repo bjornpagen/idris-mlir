@@ -34,3 +34,37 @@ extern "C" void idris_rt_free_cell(void *o) {
   if (rt::rc::isCounted(cell->count) && !rt::rc::isStack(cell->info))
     rt::alloc::freeCell(cell);
 }
+
+namespace {
+
+// Persistent suspensions that have stored a value. The nodes are raw
+// blocks, not cells. main's return walks the list and drops what they own.
+struct Kept {
+  idris_rt_header *cell;
+  Kept *next;
+};
+
+Kept *kept = nullptr;
+
+} // namespace
+
+extern "C" void idris_rt_lazy_kept(void *o) {
+  if (rt::alloc::arenaActive || !rt::rc::isObject(o))
+    return;
+  idris_rt_header *cell = rt::rc::headerOf(o);
+  if (rt::rc::isCounted(cell->count) || rt::rc::isStack(cell->info))
+    return;
+  auto *node = static_cast<Kept *>(rt::alloc::allocate(sizeof(Kept)));
+  node->cell = cell;
+  node->next = kept;
+  kept = node;
+}
+
+extern "C" void idris_rt_release_persistent(void) {
+  while (kept != nullptr) {
+    Kept *node = kept;
+    kept = node->next;
+    rt::rc::releaseKept(node->cell);
+    rt::alloc::release(node);
+  }
+}

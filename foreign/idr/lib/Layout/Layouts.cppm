@@ -52,6 +52,9 @@ public:
   // The cell of a boxed constructor, and of a closure of `label`.
   const Cell &box(CtorOp ctor) const;
   const Cell &closure(const Label &label) const;
+  // The cell a forced suspension of label `id` reads: the code pointer and
+  // the value. Null when the label is not a suspension.
+  const Cell *forced(unsigned id) const;
 
   // The labels closures of this module use (idr.closure ops and
   // #idr.closure constants, nested ones included), numbered in the order a
@@ -74,6 +77,9 @@ private:
   cellOf(llvm::ArrayRef<mlir::Type> fieldTypes, unsigned leading,
          llvm::function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info);
 
+  // Capture cells, and a second cell of a suspension's stored value.
+  bool placeClosures(mlir::Type pointer);
+
   mlir::ModuleOp module;
   mlir::DataLayout target;
   // Each layout has its own allocation, so that a reference to one stays
@@ -83,6 +89,7 @@ private:
   llvm::SmallVector<Label> labels;
   llvm::DenseMap<std::pair<mlir::Attribute, unsigned>, unsigned> labelIds;
   llvm::DenseMap<unsigned, std::unique_ptr<Cell>> closures;
+  llvm::DenseMap<unsigned, std::unique_ptr<Cell>> forcedCells;
 };
 
 } // namespace idr::layout
@@ -101,17 +108,52 @@ unsigned Layouts::alignmentOf(Type component) const {
 
 Layouts::Layouts(ModuleOp m) : module(m), target(m) {
   SymbolTable symbols(module);
-  auto note = [&](FlatSymbolRefAttr callee, unsigned captures) {
+  // A later note that the same label is a suspension sticks: a function
+  // closure of it must not clear that, or the cell would be too small for
+  // the value and the code pointer would never be replaced.
+  auto note = [&](FlatSymbolRefAttr callee, unsigned captures, bool suspension) {
     auto key = std::make_pair(Attribute(callee), captures);
     auto fn = symbols.lookup<func::FuncOp>(callee.getAttr());
-    if (fn && labelIds.try_emplace(key, static_cast<unsigned>(labels.size())).second)
-      labels.push_back({callee, captures, fn.getFunctionType()});
+    if (!fn)
+      return;
+    auto [it, inserted] = labelIds.try_emplace(key, static_cast<unsigned>(labels.size()));
+    if (inserted)
+      labels.push_back({callee, captures, fn.getFunctionType(), suspension});
+    else if (suspension)
+      labels[it->second].suspension = true;
+  };
+  auto noteValue = [&](auto &self, Attribute value, Type type) -> void {
+    type = unrestricted(type);
+    if (auto closure = dyn_cast<ClosureAttr>(value)) {
+      note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()),
+           isa<LazyType>(type));
+      auto fn = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr());
+      if (!fn)
+        return;
+      for (auto [capture, arg] : llvm::zip(closure.getCaptures(), fn.getArgumentTypes()))
+        self(self, capture, arg);
+      return;
+    }
+    auto con = dyn_cast<ConAttr>(value);
+    if (!con)
+      return;
+    auto data = symbols.lookup<DataOp>(con.getCtor().getRootReference());
+    auto ctor = data ? data.lookupSymbol<CtorOp>(con.getCtor().getLeafReference()) : CtorOp();
+    if (!ctor)
+      return;
+    for (auto [field, fieldType] :
+         llvm::zip(con.getFields(), ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
+      self(self, field, fieldType);
   };
   module.walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (auto closure = dyn_cast<ClosureOp>(op))
-      note(closure.getCalleeAttr(), static_cast<unsigned>(closure.getCaptures().size()));
+      note(closure.getCalleeAttr(), static_cast<unsigned>(closure.getCaptures().size()), false);
+    if (auto suspend = dyn_cast<SuspendOp>(op))
+      note(suspend.getCalleeAttr(), static_cast<unsigned>(suspend.getCaptures().size()), true);
+    if (auto constant = dyn_cast<ConstantOp>(op))
+      noteValue(noteValue, constant.getValue(), constant.getType());
     op->getAttrDictionary().walk([&](ClosureAttr closure) {
-      note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()));
+      note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()), false);
     });
   });
 }
@@ -160,21 +202,8 @@ FailureOr<Layouts> Layouts::of(ModuleOp m) {
       layouts.boxes[ctor] = std::make_unique<Cell>(std::move(*cell));
     }
   }
-  SymbolTable symbols(m);
-  for (auto [id, label] : llvm::enumerate(layouts.labels)) {
-    SmallVector<Type> fields{LLVM::LLVMPointerType::get(m.getContext())};
-    llvm::append_range(fields, label.captureTypes());
-    std::expected<Cell, std::string> cell =
-        layouts.cellOf(fields, 1, [](unsigned objs) { return CellInfo::closure(objs); });
-    if (!cell) {
-      symbols.lookup(label.callee.getAttr())->emitError()
-          << "unsupported (layout): a closure of @" << label.callee.getValue() << " with "
-          << label.captures << " captures cannot be built: " << cell.error();
-      fits = false;
-      continue;
-    }
-    layouts.closures[static_cast<unsigned>(id)] = std::make_unique<Cell>(std::move(*cell));
-  }
+  if (!layouts.placeClosures(pointer))
+    fits = false;
   if (!fits)
     return failure();
   return layouts;
@@ -234,7 +263,7 @@ SmallVector<Type> Layouts::components(Type type) {
     return {};
   type = unrestricted(type);
   // A destination is the address of a field's word.
-  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
+  if (isa<StrType, BoxType, FnType, LazyType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
   // An array is its cell and its length, the memref's dimension: a bounds
   // check compares two registers, so the one a program's own test made
@@ -253,7 +282,7 @@ SmallVector<bool> Layouts::counted(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
+  if (isa<StrType, BoxType, FnType, LazyType, TokenType, BigType, NatType>(type))
     return {true};
   if (isArray(type))
     return {true, false};
@@ -351,6 +380,11 @@ const Cell &Layouts::box(CtorOp ctor) const { return *boxes.find(ctor)->second; 
 
 const Cell &Layouts::closure(const Label &label) const {
   return *closures.find(labelId(label))->second;
+}
+
+const Cell *Layouts::forced(unsigned id) const {
+  auto it = forcedCells.find(id);
+  return it == forcedCells.end() ? nullptr : it->second.get();
 }
 
 unsigned Layouts::labelId(const Label &label) const {

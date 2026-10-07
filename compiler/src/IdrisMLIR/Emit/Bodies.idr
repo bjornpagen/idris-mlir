@@ -340,14 +340,14 @@ alg ix own (SuspendF l lbl caps body) env expected = do
                  _ => Nothing
   (sym, rt) <- lifted ix own l lbl capVals [] result (\cs, _ => body.result (\i => index i cs) result)
   captures <- traverse (operand ix) (toList capVals)
-  Just <$> value ix l (LazyT rt) (Idr.closureOp sym captures)
+  Just <$> value ix l (LazyT rt) (Idr.suspendOp sym captures)
 alg ix own (ResumeF l e) env expected = do
   Just ev <- plain ix l (e.result env Nothing)
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
   callee <- operand ix ev
-  Just <$> value ix l r (\rt => Idr.applyOp callee [] [rt])
+  Just <$> value ix l r (Idr.forceOp callee)
 -- The two loops over an array's index space: the body is a region taking
 -- the index (and for a fold the accumulator and the element), which yields
 -- the element (the next accumulator); a body that never returns ends in

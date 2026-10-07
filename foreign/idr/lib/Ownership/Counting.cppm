@@ -20,7 +20,8 @@ public:
     // A linear value is counted as the value it is; its quantity decides
     // only how it is used.
     type = unrestricted(type);
-    if (isa<StrType, BigType, NatType, BoxType, FnType, TokenType>(type) || isArray(type))
+    if (isa<StrType, BigType, NatType, BoxType, FnType, LazyType, TokenType>(type) ||
+        isArray(type))
       return true;
     auto data = dyn_cast<DataType>(type);
     if (!data)

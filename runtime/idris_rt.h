@@ -215,6 +215,13 @@ void idris_rt_inc(void *o);
  * constant stack however deep the structure is. */
 void idris_rt_dec(void *o);
 
+/* A persistent suspension (count 0, not a stack cell) has stored the value
+ * of its first force. The value stays reachable from that cell for the rest
+ * of the run, and idris_rt_main_return releases it, so the memo is not a
+ * live cell at exit. A counted cell needs no note: freeing it releases
+ * what it stored. */
+void idris_rt_lazy_kept(void *cell);
+
 /* Whether o is exclusive: count 1, and not a stack cell. */
 bool idris_rt_is_unique(const void *o);
 

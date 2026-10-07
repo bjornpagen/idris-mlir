@@ -33,7 +33,7 @@ mutual
                        Box => Idr.boxType (mangle d.name))
     Nothing => internal ("unknown data " ++ show d)
   mlirType ix (FunT a r) = pure (Idr.fnType [!(binderType ix a)] [!(mlirType ix r)])
-  mlirType ix (LazyT r) = pure (Idr.fnType [] [!(mlirType ix r)])
+  mlirType ix (LazyT r) = Idr.lazyType <$> mlirType ix r
   mlirType ix (ArrayT e) = memRefType <$> mlirType ix e
 
   ||| The contract type of what a binder binds: its quantity is in the

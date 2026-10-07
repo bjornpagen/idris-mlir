@@ -23,6 +23,8 @@ constexpr StringRef property = "no-heap-allocation";
 std::optional<std::string> allocation(Operation *op) {
   if (isa<ClosureOp>(op))
     return "a closure of @" + cast<ClosureOp>(op).getCallee().str() + " is built";
+  if (isa<SuspendOp>(op))
+    return "a suspension of @" + cast<SuspendOp>(op).getCallee().str() + " is built";
   // idr.lin.enter and idr.lin.use allocate a new value, not memory; a cell
   // idr-stack keeps in its frame is stack memory.
   if (auto effects = dyn_cast<MemoryEffectOpInterface>(op)) {

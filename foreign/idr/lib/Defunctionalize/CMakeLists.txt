@@ -11,6 +11,8 @@ idr_library(idr_defunctionalize
 		Labels.cppm
 		Slots.cppm
 		Sums.cppm
+	UNITS
+		AdaptLazy.cc
 	GLUE
 		Pass.cc
 	LINKS

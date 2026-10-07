@@ -11,6 +11,6 @@ bool idr::isFieldType(Type type) {
   type = unrestricted(type);
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<Float64Type, DataType, BoxType, FnType, StrType, BigType, NatType>(type) ||
+  return isa<Float64Type, DataType, BoxType, FnType, LazyType, StrType, BigType, NatType>(type) ||
          isArray(type);
 }

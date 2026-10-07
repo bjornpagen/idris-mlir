@@ -23,6 +23,9 @@ struct Unread {
   enum class Why {
     // They take more static data than a result may.
     TooLarge,
+    // A suspension already stored its value over the captures, so the thunk
+    // cannot be rebuilt as a constant. The call stays for runtime.
+    Memoized,
     // The memory holds what no layout describes: an internal error.
     Unreadable,
   };
@@ -220,13 +223,18 @@ Attribute Reifier::object(Type type, uint64_t word) {
       return {};
     return constructor(decl, ctor, [&](unsigned field) { return read(cell, layout.fields[field]); });
   }
-  // A closure: its code says which label it is of. Every closure keeps its
-  // code in the same place, right after the header.
+  // A closure or a suspension: its code says which label it is of. Every
+  // one keeps its code in the same place, right after the header. A
+  // suspension that has run has replaced that code, and the captures with
+  // the value, so there is no thunk to rebuild.
   uint64_t code = 0;
   std::memcpy(&code, cell + sizeof(idris_rt_header), sizeof(void *));
   auto found = codes.find(code);
-  if (found == codes.end())
+  if (found == codes.end()) {
+    if (isa<LazyType>(unrestricted(type)))
+      return refuse(Unread::Why::Memoized, "a suspension has already stored its value");
     return refuse(Unread::Why::Unreadable, "the code of a closure is no label's");
+  }
   const layout::Label &label = layouts.label(found->second);
   const layout::Cell &layout = layouts.closure(label);
   assert(layout.fields.front().front().offset == sizeof(idris_rt_header));

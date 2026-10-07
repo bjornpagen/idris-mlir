@@ -23,13 +23,14 @@ export Use useOf(OpOperand &operand, SymbolTableCollection &symbols) {
     func::FuncOp fn = callee(call, symbols);
     return fn && isBorrowed(fn, operand.getOperandNumber()) ? Use::Borrow : Use::Consume;
   }
-  if (auto apply = dyn_cast<ApplyOp>(op))
-    return operand.get() == apply.getCallee() && operand.getOperandNumber() == 0 ? Use::Borrow
-                                                                                : Use::Consume;
+  // The callee is operand 0. It may already be graded, so it is not
+  // getCallee(), which casts the value to the closure type.
+  if (isa<ApplyOp>(op))
+    return operand.getOperandNumber() == 0 ? Use::Borrow : Use::Consume;
   // A linear value moves into its one use and out of it again, with its
   // reference; so does a natural into the Integer it is, and a value
   // written to a destination into the cell.
-  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, ReuseOp, TakeOp, DropOp, LinEnterOp,
+  if (isa<func::ReturnOp, YieldOp, ConOp, ClosureOp, SuspendOp, ReuseOp, TakeOp, DropOp, LinEnterOp,
           LinUseOp, ShareOp, NatToBigOp, DestWriteOp, scf::ConditionOp, scf::YieldOp,
           scf::WhileOp>(op))
     return Use::Consume;

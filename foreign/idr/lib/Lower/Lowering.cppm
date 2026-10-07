@@ -96,13 +96,44 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, Runtime &runtime) {
   func::ReturnOp::create(b, loc, started);
 }
 
+// A function closure left in a constant. A suspension is a ClosureAttr at
+// !idr.lazy, and it stays: the cell is the value.
+bool functionClosure(Attribute value, Type type, SymbolTable &symbols) {
+  type = unrestricted(type);
+  if (auto closure = dyn_cast<ClosureAttr>(value)) {
+    if (!isa<LazyType>(type))
+      return true;
+    auto fn = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr());
+    if (!fn)
+      return true;
+    for (auto [capture, arg] : llvm::zip(closure.getCaptures(), fn.getArgumentTypes()))
+      if (functionClosure(capture, arg, symbols))
+        return true;
+    return false;
+  }
+  auto con = dyn_cast<ConAttr>(value);
+  if (!con)
+    return false;
+  auto data = symbols.lookup<DataOp>(con.getCtor().getRootReference());
+  auto ctor = data ? data.lookupSymbol<CtorOp>(con.getCtor().getLeafReference()) : CtorOp();
+  if (!ctor)
+    return true;
+  for (auto [field, fieldType] :
+       llvm::zip(con.getFields(), ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
+    if (functionClosure(field, fieldType, symbols))
+      return true;
+  return false;
+}
+
 // idr-defunctionalize has made every closure of the program a sum: only
 // idr-eval lowers code that still builds, applies or holds a closure.
+// A suspension is not one.
 LogicalResult checkNoClosures(ModuleOp module) {
-  WalkResult result = module.walk([](Operation *op) {
+  SymbolTable symbols(module);
+  WalkResult result = module.walk([&](Operation *op) {
     bool closure = isa<ClosureOp, ApplyOp>(op);
     if (auto constant = dyn_cast<ConstantOp>(op))
-      constant.getValue().walk([&](ClosureAttr) { closure = true; });
+      closure = functionClosure(constant.getValue(), constant.getType(), symbols);
     if (!closure)
       return WalkResult::advance();
     op->emitError("internal error: idr-lower: a closure is left after idr-defunctionalize");
@@ -210,6 +241,7 @@ export LogicalResult lowerModule(ModuleOp module, bool jit) {
   populatePatterns(patterns, converter, *layouts, runtime, fields);
   if (jit)
     populateClosurePatterns(patterns, converter, *layouts, runtime);
+  populateLazyPatterns(patterns, converter, *layouts, runtime);
 
   ConversionConfig config;
   config.allowPatternRollback = false;

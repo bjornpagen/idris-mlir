@@ -207,39 +207,141 @@ public:
   FunctionType codeType(const layout::Label &label) { return statics.codeType(label); }
 
   // Loads the captures from the closure, then calls the label's function with
-  // them before the arguments.
+  // them before the arguments. A suspension's code pointer is its state:
+  // the first entry computes the value, writes it over the payload and
+  // replaces the pointer, and every later entry returns what was written.
   void emitCode() {
     SymbolTableCollection &symbols = statics.symbolTables();
     OpBuilder b(module.getContext());
     b.setInsertionPointToEnd(module.getBody());
     for (unsigned id : statics.usedLabels()) {
       const layout::Label &label = layouts.label(id);
-      const layout::Cell &cell = layouts.closure(label);
-      auto callee = symbols.lookupSymbolIn<func::FuncOp>(module, label.callee);
-      Location loc = callee.getLoc();
-      FunctionType type = codeType(label);
-      auto fn = func::FuncOp::create(b, loc, layout::codeName(id), type);
-      symbols.getSymbolTable(module).insert(fn);
-      fn.setPrivate();
-      OpBuilder::InsertionGuard guard(b);
-      Block *entry = fn.addEntryBlock();
-      b.setInsertionPointToStart(entry);
-      // The closure keeps its captures, and the function takes each owned:
-      // one more reference each.
-      SmallVector<Value> args;
-      for (auto [capture, captureType] : llvm::zip_equal(ArrayRef(cell.fields).drop_front(),
-                                                         label.captureTypes())) {
-        SmallVector<Value> components = load(b, loc, entry->getArgument(0), capture);
-        inc(b, loc, components, layouts.counted(captureType));
-        llvm::append_range(args, components);
-      }
-      llvm::append_range(args, entry->getArguments().drop_front());
-      auto result = func::CallOp::create(b, loc, callee, args);
-      func::ReturnOp::create(b, loc, result.getResults());
+      if (const layout::Cell *evaluated = layouts.forced(id))
+        emitSuspension(b, symbols, id, label, *evaluated);
+      else
+        emitClosure(b, symbols, id, label);
     }
   }
 
 private:
+  void emitClosure(OpBuilder &b, SymbolTableCollection &symbols, unsigned id,
+                   const layout::Label &label) {
+    const layout::Cell &cell = layouts.closure(label);
+    auto callee = symbols.lookupSymbolIn<func::FuncOp>(module, label.callee);
+    Location loc = callee.getLoc();
+    FunctionType type = codeType(label);
+    auto fn = func::FuncOp::create(b, loc, layout::codeName(id), type);
+    symbols.getSymbolTable(module).insert(fn);
+    fn.setPrivate();
+    OpBuilder::InsertionGuard guard(b);
+    Block *entry = fn.addEntryBlock();
+    b.setInsertionPointToStart(entry);
+    // Two entries that differ only by which function they call are the same
+    // bytes apart from those names, and identical code folding keeps one.
+    // The label is a constant in the body, so each entry stays its own.
+    distinguish(b, loc, id);
+    // The closure keeps its captures, and the function takes each owned:
+    // one more reference each.
+    SmallVector<Value> args;
+    for (auto [capture, captureType] :
+         llvm::zip_equal(ArrayRef(cell.fields).drop_front(), label.captureTypes())) {
+      SmallVector<Value> components = load(b, loc, entry->getArgument(0), capture);
+      inc(b, loc, components, layouts.counted(captureType));
+      llvm::append_range(args, components);
+    }
+    llvm::append_range(args, entry->getArguments().drop_front());
+    auto result = func::CallOp::create(b, loc, callee, args);
+    func::ReturnOp::create(b, loc, result.getResults());
+  }
+
+  // The address of the entry that returns a suspension's stored value.
+  Value doneCode(OpBuilder &b, Location loc, FunctionType type, unsigned id) {
+    Value function = func::ConstantOp::create(b, loc, type, layout::lazyDoneName(id));
+    return UnrealizedConversionCastOp::create(b, loc, ptrType(b.getContext()), function).getResult(0);
+  }
+
+  // The info word of the stored value, keeping a stack mark if the cell
+  // has one: the count stays, and free still reads the new object slots.
+  void storeForcedInfo(OpBuilder &b, Location loc, Value cell, layout::CellInfo info) {
+    Value old = LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4), alignAt(4));
+    Value stack = LLVM::AndOp::create(b, loc, old, i32Constant(b, loc, IDRIS_RT_STACK_CELL));
+    Value word = arith::OrIOp::create(b, loc, i32Constant(b, loc, info.word()), stack);
+    LLVM::StoreOp::create(b, loc, word, at(b, loc, cell, 4), alignAt(4));
+  }
+
+  void emitSuspension(OpBuilder &b, SymbolTableCollection &symbols, unsigned id,
+                      const layout::Label &label, const layout::Cell &evaluated) {
+    const layout::Cell &uneval = layouts.closure(label);
+    auto callee = symbols.lookupSymbolIn<func::FuncOp>(module, label.callee);
+    Location loc = callee.getLoc();
+    FunctionType type = codeType(label);
+    Type resultType = label.type.getResult(0);
+    auto done = func::FuncOp::create(b, loc, layout::lazyDoneName(id), type);
+    auto enter = func::FuncOp::create(b, loc, layout::codeName(id), type);
+    symbols.getSymbolTable(module).insert(done);
+    symbols.getSymbolTable(module).insert(enter);
+    done.setPrivate();
+    enter.setPrivate();
+    ArrayRef<layout::Slot> resultSlots =
+        evaluated.fields.size() > 1 ? ArrayRef<layout::Slot>(evaluated.fields[1])
+                                    : ArrayRef<layout::Slot>();
+    {
+      OpBuilder::InsertionGuard guard(b);
+      Block *entry = done.addEntryBlock();
+      b.setInsertionPointToStart(entry);
+      SmallVector<Value> result = load(b, loc, entry->getArgument(0), resultSlots);
+      inc(b, loc, result, layouts.counted(resultType));
+      func::ReturnOp::create(b, loc, result);
+    }
+    {
+      OpBuilder::InsertionGuard guard(b);
+      Block *entry = enter.addEntryBlock();
+      b.setInsertionPointToStart(entry);
+      // Same as a closure's entry: the label is in the body, or folding
+      // would run one suspension's value for another.
+      distinguish(b, loc, id);
+      Value cell = entry->getArgument(0);
+      // The cell keeps its captures. The function takes an owned copy of
+      // each, so one more reference, released with the cell's own after
+      // the value is in hand: a value that is a capture is not freed
+      // before it is stored.
+      SmallVector<Value> args;
+      SmallVector<SmallVector<Value>> held;
+      SmallVector<Type> heldTypes;
+      for (auto [capture, captureType] :
+           llvm::zip_equal(ArrayRef(uneval.fields).drop_front(), label.captureTypes())) {
+        SmallVector<Value> components = load(b, loc, cell, capture);
+        inc(b, loc, components, layouts.counted(captureType));
+        held.push_back(components);
+        heldTypes.push_back(captureType);
+        llvm::append_range(args, components);
+      }
+      auto result = func::CallOp::create(b, loc, callee, args);
+      inc(b, loc, result.getResults(), layouts.counted(resultType));
+      for (auto [components, captureType] : llvm::zip_equal(held, heldTypes))
+        dec(b, loc, components, layouts.counted(captureType));
+      store(b, loc, cell, resultSlots, result.getResults());
+      store(b, loc, cell, evaluated.fields.front(), doneCode(b, loc, type, id));
+      storeForcedInfo(b, loc, cell, evaluated.info);
+      // A persistent cell is never freed, so the value it now owns would
+      // outlive the program. The runtime notes it and releases that value
+      // when main returns. Counted cells release theirs when they are freed.
+      if (!jit)
+        call(b, loc, "idris_rt_lazy_kept", Type(), cell);
+      func::ReturnOp::create(b, loc, result.getResults());
+    }
+  }
+
+  // Writes `id` where a later pass cannot drop it and identical code
+  // folding cannot treat it as a relocation. The slot is otherwise unused.
+  void distinguish(OpBuilder &b, Location loc, unsigned id) {
+    Value one = LLVM::ConstantOp::create(b, loc, b.getI64Type(), b.getI64IntegerAttr(1));
+    Value slot = LLVM::AllocaOp::create(b, loc, ptrType(b.getContext()), b.getI32Type(), one,
+                                        /*alignment=*/4);
+    LLVM::StoreOp::create(b, loc, i32Constant(b, loc, static_cast<int64_t>(id)), slot,
+                          /*alignment=*/4, /*isVolatile=*/true);
+  }
+
   // Calls `name` on the pointer of each counted component.
   void countEach(OpBuilder &b, Location loc, StringRef name, ValueRange components,
                  ArrayRef<bool> counted) {
