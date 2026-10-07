@@ -107,18 +107,71 @@ results are what the report makes. The first record,
 
 Three kinds of program. **Numeric** (ack, ackdyn, collatz, fib, harmonic,
 mandelbrot, nbody, tak): Idris over the stock Prelude, whose interfaces,
-literals and `show` resolve at compile time and cost nothing. **The
-Benchmarks Game** (binary-trees, fannkuch-redux, fasta, k-nucleotide,
-mandelbrot-pbm, nbody, pidigits, regex-redux, reverse-complement,
-spectral-norm): written as an Idris programmer writes them first, with
-lists where the game uses arrays except fannkuch-redux and k-nucleotide on
-base's `IOArray`; regex-redux carries its own small regex engine and has no C
-version, so Chez is its only reference; fannkuch-linear and
-spectral-norm-linear are the same two programs over `Linear.Array`.
-**Counting Immutable Beans' programs** (rbtree, rbtree-ck, cfold, deriv,
-nqueens, binary-trees, qsort, unionfind): the Perceus and Lean papers'
-benchmarks, written in Idris from the papers' repositories; qsort and
-unionfind over `Linear.Array`.
+literals and `show` resolve at compile time and cost nothing. `mandelbrot`
+counts points of the set; the game's program is `mandelbrot-pbm`, which
+writes the bitmap. **The Benchmarks Game**, below: the ten programs the
+game measures now, at the size it measures, plus `fasta-redux` from the
+retired set. `fannkuch-linear` and `spectral-norm-linear` are the same two
+programs over `Linear.Array`, at the same size. **Counting Immutable
+Beans' programs** (rbtree, rbtree-ck, cfold, deriv, nqueens, binary-trees,
+qsort, unionfind): the Perceus and Lean papers' benchmarks, written in
+Idris from the papers' repositories; qsort and unionfind over
+`Linear.Array`. `binary-trees` is both: the game's program, and that
+literature's.
+
+### The Benchmarks Game
+
+The ten programs the game measures, and the one retired program added
+here. The input is the size the game uses to measure. Each C file is the
+single-threaded C entry it follows; where the game's C is threaded, the
+table says so. `chameneos-redux` and `thread-ring` are not here: both
+require pre-emptive threads (OS threads, or the language's own), and this
+compiler has none. `meteor-contest` is not here either. Its board, the
+order of the solutions and the limit 2098 are published, and the smallest
+solution is the 50-digit string the description prints, but the ten piece
+shapes are not on that page. A coordinate list from a later port of the
+old solver does not produce that string, so there is no program to add.
+
+| program | input | C entry |
+| --- | --- | --- |
+| binary-trees | 21 | gcc #1, Kevin Carson. The other C entries are OpenMP or pthreads |
+| fannkuch-redux | 12 | gcc #1, the single-threaded count and rotate. gcc #3 (Ledrug Katz) and gcc #8 (Isaac Gouy) are the other single-threaded C entries; gcc #4 is SIMD |
+| fasta | 25000000 | gcc #1, a linear search of the cumulative probabilities. The game refuses a scaled lookup; gcc #2, #3 and #8 are that lookup |
+| k-nucleotide | fasta 25000000 | no single-threaded C entry. gcc #1 is the only one, and it is OpenMP plus khash. Ours is one core: the sequence packed two bits a nucleotide, counted in an open-addressing table, because a library hash table is what the game asks for and base has none |
+| mandelbrot-pbm | 16000 | gcc #8, Greg Buchholz, the single-threaded scalar bitmap. The other C entries are threaded |
+| n-body | 50000000 | gcc #1, Christoph Bauer, the symplectic integrator. The C entries are all single-threaded; gcc #4 and #9 add SIMD |
+| pidigits | 10000 | gcc #1, GMP, single-threaded. gcc #2 (Oleksii Prudkyi) is the other, also GMP |
+| regex-redux | fasta 5000000 | the patterns and the order of gcc #2, Mike Pall, the single-threaded entry. That entry links PCRE; gcc #5 links PCRE2 and is threaded. Ours uses POSIX `regex.h` (macOS libc and musl), and is the slower matcher. No PCRE is pinned |
+| reverse-complement | fasta 25000000 | gcc #4, Bob W, single-threaded. gcc #5 (Mr Ledrug) is the other single-threaded C entry; the rest are threaded |
+| spectral-norm | 5500 | gcc #8, the only single-threaded C entry. The others are OpenMP |
+| fasta-redux | 25000000 | no current C entry; the game no longer measures it. The retired page did not answer here (the live site has no such page, and archive.org did not connect), so the split is the one fasta's own rules still draw: this program indexes a table of every generator residue instead of searching the probabilities. The table is every residue, so the text is fasta's |
+
+`fannkuch-linear` takes 12, like `fannkuch-redux`. `spectral-norm-linear`
+takes 5500.
+
+`regex-redux` in Idris carries its own matcher for those patterns: base
+has no regex library. The C column calls the system one. The three lengths
+are an accumulator: the Prelude's `length` keeps a frame per element, and
+the input is longer than the program's stack.
+
+The game's own cutoff for a measured run is several minutes. This suite
+kills a run at 300 seconds (times `IDRIS_MLIR_TIME_SCALE`). Scaled from
+the Chez column of the 2026-10-05 arm64 record, three official sizes pass
+that kill and four do not, and the sizes were not shrunk to hide it:
+
+- `fannkuch-redux` at 12 is about 130 times the work of 10. Chez took
+  6.3 s at 10, so about 14 minutes at 12.
+- `fannkuch-linear` at 12 is the same factor on Chez's 2.3 s, about the
+  300 s kill.
+- `k-nucleotide` at fasta 25000000 is 100 times the sequence. Chez took
+  4.9 s at 250000, so about 8 minutes.
+- `reverse-complement` at fasta 25000000 is the same factor on Chez's
+  3.1 s, just past 300 s.
+
+`fasta`, `n-body`, `regex-redux`, `mandelbrot-pbm`, `pidigits`,
+`spectral-norm` and `binary-trees` stay under it on that scaling
+(`mandelbrot-pbm` at 16000 is about 16 times the pixels of 4000, and Chez
+took 13 s there). A later record is what actually happens.
 
 ### Per program
 

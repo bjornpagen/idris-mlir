@@ -7,6 +7,7 @@ deriv: prints the recorded output
 fannkuch-linear: prints the recorded output
 fannkuch-redux: prints the recorded output
 fasta: prints the recorded output
+fasta-redux: prints the recorded output
 fib: prints the recorded output
 harmonic: prints the recorded output
 k-nucleotide: prints the recorded output

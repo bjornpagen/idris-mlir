@@ -95,6 +95,15 @@ readAll acc = do
   c <- getChar
   if ord c == 255 then pure (reverse acc) else readAll (c :: acc)
 
+-- The Prelude's length keeps a frame per element. The input is longer than
+-- the program's stack, so the count is an accumulator.
+nelen : List a -> Int
+nelen = go 0
+  where
+    go : Int -> List a -> Int
+    go n [] = n
+    go n (_ :: xs) = go (n + 1) xs
+
 main : IO ()
 main = do
   input <- readAll []
@@ -102,6 +111,6 @@ main = do
   traverse_ (\v => putStrLn (v ++ " " ++ show (countMatches (parse v) seq 0))) variants
   let final = foldl (\s, (p, r) => subst (parse p) (unpack r) s) seq replacements
   putStrLn ""
-  printLn (length input)
-  printLn (length seq)
-  printLn (length final)
+  printLn (nelen input)
+  printLn (nelen seq)
+  printLn (nelen final)
