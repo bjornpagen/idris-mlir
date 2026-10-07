@@ -6,8 +6,9 @@ module Main
 -- refuses. The table holds every residue, so the sequences are fasta's.
 
 import Prelude
-import Data.IOArray
+import Data.Buffer
 import Data.List
+import System.File
 
 alu : List Char
 alu = unpack ("GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
@@ -20,9 +21,6 @@ alu = unpack ("GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
 
 aluLen : Int
 aluLen = cast (length alu)
-
-alu2 : List Char
-alu2 = alu ++ alu
 
 record Sym where
   constructor MkSym
@@ -56,47 +54,89 @@ pick [] _ = 'a'
 pick [MkSym c _] _ = c
 pick (MkSym c p :: rest) r = if r < p then c else pick rest r
 
--- One slot per residue. Built once, then each nucleotide is an index.
-lookup : List Sym -> IO (IOArray Int)
+-- A non-negative size is a buffer; a negative one is empty, and nothing here
+-- asks for a negative size.
+alloc : Int -> IO Buffer
+alloc n = do
+  Just buf <- newBuffer n
+    | Nothing => emptyBuffer
+  pure buf
+
+-- One byte per residue. Built once, then each nucleotide is an index.
+lookup : List Sym -> IO Buffer
 lookup tbl = do
-  arr <- newArray im
+  arr <- alloc im
   fill arr 0
   pure arr
   where
-    fill : IOArray Int -> Int -> IO ()
+    fill : Buffer -> Int -> IO ()
     fill arr s =
       if s >= im then pure ()
       else do
-        ignore (writeArray arr s (cast (ord (pick tbl (cast s / cast im)))))
+        setBits8 arr s (cast (ord (pick tbl (cast s / cast im))))
         fill arr (s + 1)
 
 lineLen : Int
 lineLen = 60
 
-repeatFasta : Int -> Int -> IO ()
-repeatFasta k n =
+-- alu ++ alu, so a line that starts before the end of alu copies straight
+-- through, the same slice `take` of `drop` took.
+aluBuffer : IO Buffer
+aluBuffer = do
+  let cs = alu ++ alu
+  let n = cast (length cs)
+  buf <- alloc n
+  fill buf cs 0
+  pure buf
+  where
+    fill : Buffer -> List Char -> Int -> IO ()
+    fill _ [] _ = pure ()
+    fill buf (c :: cs) i = do
+      setBits8 buf i (cast (ord c))
+      fill buf cs (i + 1)
+
+copySlice : Buffer -> Int -> Buffer -> Int -> IO ()
+copySlice src start dst n = go 0
+  where
+    go : Int -> IO ()
+    go i =
+      if i >= n then pure ()
+      else do
+        b <- getBits8 src (start + i)
+        setBits8 dst i b
+        go (i + 1)
+
+putLine : Buffer -> Int -> IO ()
+putLine line m = do
+  ignore (writeBufferData stdout line 0 m)
+  putChar '\n'
+
+repeatFasta : Buffer -> Buffer -> Int -> Int -> IO ()
+repeatFasta alu line k n =
   if n <= 0 then pure ()
   else do
     let m = min n lineLen
-    putStrLn (pack (take (cast m) (drop (cast k) alu2)))
-    repeatFasta ((k + m) `mod` aluLen) (n - m)
+    copySlice alu k line m
+    putLine line m
+    repeatFasta alu line ((k + m) `mod` aluLen) (n - m)
 
-gen : IOArray Int -> Int -> Int -> List Char -> IO (Int, List Char)
-gen _ s 0 acc = pure (s, reverse acc)
-gen arr s k acc = do
-  let s' = random s
-  Just code <- readArray arr s'
-    | Nothing => gen arr s' (k - 1) ('a' :: acc)
-  gen arr s' (k - 1) (chr code :: acc)
+gen : Buffer -> Buffer -> Int -> Int -> Int -> IO Int
+gen table line s k i =
+  if k <= 0 then pure s
+  else do
+    let s' = random s
+    c <- getBits8 table s'
+    setBits8 line i c
+    gen table line s' (k - 1) (i + 1)
 
-randomFasta : IOArray Int -> Int -> Int -> IO Int
-randomFasta arr seed n =
+randomFasta : Buffer -> Buffer -> Int -> Int -> IO Int
+randomFasta table line seed n =
   if n <= 0 then pure seed
   else do
     let m = min n lineLen
-    (seed', line) <- gen arr seed m []
-    putStrLn (pack line)
-    randomFasta arr seed' (n - m)
+    seed' <- gen table line seed m 0
+    putLine line m
+    randomFasta table line seed' (n - m)
 
 readInt : IO Int
 readInt = go 0
@@ -109,12 +149,14 @@ readInt = go 0
 main : IO ()
 main = do
   n <- readInt
+  alu <- aluBuffer
   iubTable <- lookup iub
   homoTable <- lookup homo
+  line <- alloc lineLen
   putStrLn ">ONE Homo sapiens alu"
-  repeatFasta 0 (n * 2)
+  repeatFasta alu line 0 (n * 2)
   putStrLn ">TWO IUB ambiguity codes"
-  s <- randomFasta iubTable 42 (n * 3)
+  s <- randomFasta iubTable line 42 (n * 3)
   putStrLn ">THREE Homo sapiens frequency"
-  _ <- randomFasta homoTable s (n * 5)
+  _ <- randomFasta homoTable line s (n * 5)
   pure ()
