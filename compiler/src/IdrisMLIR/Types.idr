@@ -450,6 +450,7 @@ data IOOp = PutStr | PutChar
           | WriteBytes -- bytes of a buffer to a handle; how many were written
           | ReadBytes  -- bytes from a handle into a buffer; how many were read
           | Eof        -- whether a read on the handle met the end of input
+          | NProcessors -- how many processors are online, or -1 when unknown
 
 export
 Show IOOp where
@@ -464,6 +465,7 @@ Show IOOp where
   show WriteBytes = "writeBytes"
   show ReadBytes = "readBytes"
   show Eof = "eof"
+  show NProcessors = "nProcessors"
 
 ||| The operand types of an IO primitive, before the world.
 public export
@@ -481,3 +483,4 @@ ioArgs BufferSet = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs WriteBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs ReadBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
 ioArgs Eof = [IntT UInt64]
+ioArgs NProcessors = []

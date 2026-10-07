@@ -344,4 +344,4 @@ backend : Codegen
 backend = MkCG compileProgram executeProgram Nothing Nothing
 
 main : IO ()
-main = mainWithCodegens [("mlir", backend)]
+main = mainWithCodegens [(codegenName, backend)]

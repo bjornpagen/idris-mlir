@@ -74,3 +74,10 @@ arrayLoopOf : List Hook -> Maybe ArrayLoop
 arrayLoopOf = firstOf (\h => case h of
   ArrayLoop l => Just l
   _ => Nothing)
+
+||| The string of `System.Info` a definition is, if the registry knows it.
+export
+systemFactOf : List Hook -> Maybe SystemFact
+systemFactOf = firstOf (\h => case h of
+  SystemInfo f => Just f
+  _ => Nothing)

@@ -7,4 +7,5 @@ export import :bytes;
 export import :ending;
 export import :input;
 export import :output;
+export import :processors;
 export import :writing;

@@ -120,6 +120,8 @@ mutual
     ||| A world forged where a trusted library runs an IO action for a pure
     ||| value (`unsafePerformIO`): the first world of a chain of its own.
     NewWorld : Loc -> Term a
+    ||| The operating system the target triple names, `System.Info.os`.
+    SystemOs : Loc -> Term a
     ||| An array made from its index space (`Linear.Array`'s generate):
     ||| `size` elements of the element type, each the body at its index
     ||| (`Bound 0`, an `Int`), `fill` being what base's primitive fills the
@@ -198,6 +200,7 @@ mutual
     UnreachableF : Loc -> TermF f a
     CrashF : Loc -> String -> TermF f a
     NewWorldF : Loc -> TermF f a
+    SystemOsF : Loc -> TermF f a
     ArrayGenF : Loc -> Ty -> f a -> f a -> f a -> f (Under 1 a) -> DataId -> TermF f a
     ArrayFoldF : Loc -> Ty -> Ty -> f a -> f a -> f a -> f (Under 3 a) -> DataId -> TermF f a
 
@@ -233,6 +236,7 @@ hmap h (ResumeF l e) = ResumeF l (h e)
 hmap h (UnreachableF l) = UnreachableF l
 hmap h (CrashF l m) = CrashF l m
 hmap h (NewWorldF l) = NewWorldF l
+hmap h (SystemOsF l) = SystemOsF l
 hmap h (ArrayGenF l e n x w body res) = ArrayGenF l e (h n) (h x) (h w) (h body) res
 hmap h (ArrayFoldF l e t arr z w body res) = ArrayFoldF l e t (h arr) (h z) (h w) (h body) res
 
@@ -259,6 +263,7 @@ mutual
   para alg (Unreachable l) = alg (UnreachableF l)
   para alg (Crash l m) = alg (CrashF l m)
   para alg (NewWorld l) = alg (NewWorldF l)
+  para alg (SystemOs l) = alg (SystemOsF l)
   para alg (ArrayGen l e n x w body res) =
     alg (ArrayGenF l e (sub alg n) (sub alg x) (sub alg w) (sub alg body) res)
   para alg (ArrayFold l e t arr z w body res) =
@@ -435,6 +440,7 @@ printer (ResumeF _ e) ix d = "force (" ++ e ix d ++ ")"
 printer (UnreachableF _) ix d = "unreachable"
 printer (CrashF _ m) ix d = "crash " ++ show m
 printer (NewWorldF _) ix d = "new-world"
+printer (SystemOsF _) ix d = "os"
 printer (ArrayGenF _ e n x w body _) ix d =
   "io.generate<" ++ show e ++ ">(" ++ n ix d ++ ", " ++ x ix d ++ ", " ++ w ix d ++ ") \\i => " ++
   body (under ix) d

@@ -296,6 +296,9 @@ int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t le
 /* 1 once a read on the handle met the end of input, as C's feof reports it,
  * else 0; only handle 0 is read. */
 int64_t idris_rt_io_eof(int64_t handle);
+/* How many processors are online, read when asked. -1 when the system does
+ * not say, which System.Info.getNProcessors turns into Nothing. */
+int64_t idris_rt_io_n_processors(void);
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status IDRIS_RT_CRASHED. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);

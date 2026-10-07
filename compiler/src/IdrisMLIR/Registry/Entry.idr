@@ -173,6 +173,12 @@ data NatMeaning
     ||| `compareNat` is `compareInteger`.
     OnIntegers QName
 
+||| A string `System.Info` substitutes from the compiler. `TargetOs` is the
+||| operating system the target triple names. `BackendName` is the name this
+||| backend is registered under.
+public export
+data SystemFact = TargetOs | BackendName
+
 ||| What the compiler does with a definition it knows: one constructor per
 ||| behaviour. Passes match on hooks, never on names, and each hook's
 ||| handler lives with the pass that meets it.
@@ -231,6 +237,10 @@ data Hook
     ||| body applies the function; at any other instance the definition
     ||| compiles as written. Handler: `Frontend.Translate.application`.
     ArrayLoop ArrayLoop
+  | ||| A string `System.Info` takes from the compiler: the target's
+    ||| operating system, or this backend's name. Handler:
+    ||| `Frontend.Translate.application`.
+    SystemInfo SystemFact
   | ||| Rejected where the user's code uses it, under the rule named:
     ||| a definition the user's definitions refer to, or a spelling in the
     ||| user's source. Handler:
@@ -263,6 +273,7 @@ kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster
 kind (ArrayLoop _) = Faster
+kind (SystemInfo _) = Faster
 kind (Forbidden _) = Stricter
 
 ------------------------------------------------------------------------------

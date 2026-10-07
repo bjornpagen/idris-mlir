@@ -1,0 +1,17 @@
+#!/bin/sh
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+case "$(uname)" in
+  Linux* | OpenBSD* | FreeBSD* | NetBSD*) os=unix ;;
+  Darwin*) os=darwin ;;
+  CYGWIN* | MINGW*) os=windows ;;
+  *) echo "unknown uname $(uname)" >&2; exit 1 ;;
+esac
+if [ "$os" = windows ]; then windows=yes; else windows=no; fi
+if ! n=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null); then
+  echo "neither nproc nor sysctl reported a processor count" >&2
+  exit 1
+fi
+printf '%s\n' "$os" "$windows" mlir "$n" > expected-stdout
+trap 'rm -f expected-stdout' EXIT
+e2e_io .

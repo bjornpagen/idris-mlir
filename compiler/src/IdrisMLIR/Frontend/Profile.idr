@@ -230,7 +230,8 @@ checkReachable fc roots = go empty (map (\r => (r, [])) roots)
           -- Only the IO primitives the registry lists may be reached: an
           -- `%extern` one by its name, a `%foreign` one by its spec.
           ExternDef _ =>
-            unless (isJust (ioCallOf (hooksOf full)) || isJust (arrayCallOf (hooksOf full))) $
+            unless (isJust (ioCallOf (hooksOf full)) || isJust (arrayCallOf (hooksOf full)) ||
+                    isJust (systemFactOf (hooksOf full))) $
               reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
           ForeignDef _ specs => case foreignHookOf full specs of
             Just (Right _) => pure ()

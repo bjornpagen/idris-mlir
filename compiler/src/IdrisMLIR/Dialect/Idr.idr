@@ -425,6 +425,12 @@ ioGetLineOp : (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
 ioGetLineOp world str next =
   MkOp "idr.io.get_line" [world] [] [] [] [str, next]
 
+||| `idr.io.n_processors`
+export
+ioNProcessorsOp : (world : Value) -> (count : MlirType) -> (next : MlirType) -> Op
+ioNProcessorsOp world count next =
+  MkOp "idr.io.n_processors" [world] [] [] [] [count, next]
+
 ||| `idr.io.put_char`
 export
 ioPutCharOp : (ch : Value) -> (world : Value) -> (next : MlirType) -> Op
@@ -514,6 +520,12 @@ export
 natToBigOp : (value : Value) -> (result : MlirType) -> Op
 natToBigOp value result =
   MkOp "idr.nat.to_big" [value] [] [] [] [result]
+
+||| `idr.os`: the operating system the target triple names
+export
+osOp : (result : MlirType) -> Op
+osOp result =
+  MkOp "idr.os" [] [] [] [] [result]
 
 ||| `idr.reuse`: builds a boxed constructor in a token's cell, or in a new one when it is null
 export
@@ -675,4 +687,4 @@ yieldOp results =
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 3935193474-947822 1352625558-26717
+-- fingerprint: 1802734145-949536 57384480-27080

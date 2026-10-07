@@ -69,6 +69,7 @@ target_sources(idr_dialect PRIVATE
 	Ops/Generated.cc
 	Ops/Lin.cc
 	Ops/Matches.cc
+	Ops/Os.cc
 	Ops/Scalars.cc
 	Ops/Strings.cc
 	Ops/Tag.cc

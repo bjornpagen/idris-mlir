@@ -337,6 +337,8 @@ io ix l op vs res = do
       twoResults (IntT IdrisInt) (Idr.ioReadBytesOp !(operand ix h) !(operand ix a) !(operand ix o)
                                               !(operand ix n) !(operand ix w0))
     (Eof, [h, w0]) => twoResults (IntT IdrisInt) (Idr.ioEofOp !(operand ix h) !(operand ix w0))
+    (NProcessors, [w0]) =>
+      twoResults (IntT IdrisInt) (Idr.ioNProcessorsOp !(operand ix w0))
     _ => internal ("the IO primitive " ++ show op ++ " with the wrong operands")
   con ix l mk [x, w]
   where

@@ -21,6 +21,12 @@ export
 mainModule : List String
 mainModule = ["Main"]
 
+||| The name this backend is registered under, which `System.Info.codegen`
+||| reports.
+export
+codegenName : String
+codegenName = "mlir"
+
 ------------------------------------------------------------------------------
 -- Shapes of the IO contract
 ------------------------------------------------------------------------------
@@ -201,4 +207,17 @@ primitives =
             (Builds Concat) [Primitive]
   , MkEntry (Foreign (MkSpec "scheme" "string-unpack"))
             (Declared (MkQName preludeTypes "fastUnpack") (Pi QW (Prim StringP) (list (Prim CharP))))
-            (Alias (MkQName preludeTypes "unpack")) [Primitive] ]
+            (Alias (MkQName preludeTypes "unpack")) [Primitive]
+  -- System.Info. The operating system and the backend name are strings the
+  -- compiler substitutes: the first is the target triple's, the second the
+  -- name this backend is registered under. The processor count is read when
+  -- the program asks. The C spec names that one operation; a C spec the
+  -- registry does not list stays rejected.
+  , MkEntry (Def (MkQName ["System", "Info"] "prim__os"))
+            (Typed (Prim StringP)) (SystemInfo TargetOs) [Primitive]
+  , MkEntry (Def (MkQName ["System", "Info"] "prim__codegen"))
+            (Typed (Prim StringP)) (SystemInfo BackendName) [Primitive]
+  , MkEntry (Foreign (MkSpec "C" "idris2_getNProcessors"))
+            (Declared (MkQName ["System", "Info"] "prim__getNProcessors")
+                      (Pi Q1 world (ioRes int)))
+            (IOCall NProcessors) [IOPrimitive] ]

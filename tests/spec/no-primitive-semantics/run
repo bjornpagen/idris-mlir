@@ -69,16 +69,16 @@ for file in $(find compiler/src -name '*.idr' | sort); do
         ok = match(args, "^[ \t]*" source "([^A-Za-z0-9_]|$)")
         if (!ok) {
           if (conversion) print "conversion" > "/dev/stderr"
-          else printf "%s:%s: a literal made from a computed value (%s)\n", file, n, name
+          else printf "%s:%s: a literal made from a computed value (%s): %s\n", file, n, name, text
         }
         rest = after
       }
       if (pattern ~ "(^|[^A-Za-z0-9_])(" terms ")([^A-Za-z0-9_]|$)" &&
           pattern ~ /(^|[^A-Za-z0-9_])LiteralF?([^A-Za-z0-9_]|$)/)
-        printf "%s:%s: a pattern that looks into a literal operand\n", file, n
+        printf "%s:%s: a pattern that looks into a literal operand: %s\n", file, n, text
       if (frontend && pattern ~ "\\((" constants ")[ \t]+[a-z_]") {
         if (conversion) print "conversion" > "/dev/stderr"
-        else printf "%s:%s: a pattern that binds the value of an Idris constant\n", file, n
+        else printf "%s:%s: a pattern that binds the value of an Idris constant: %s\n", file, n, text
       }
     }' "$work/code" >> "$work/found" 2>> "$work/conversions"
 done

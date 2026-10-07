@@ -145,7 +145,7 @@ suites =
       , pool "reject: programs rejected with a named rule" ["reject"]
       , pool "programs/semantics: the meaning of primitives, matches and crashes, against Idris's evaluator and Chez" ["programs/semantics"]
       , pool "programs/basic: language features" ["programs/basic"]
-      , pool "programs/io: input and output through the Prelude, System.File and Buffer" ["programs/io"]
+      , pool "programs/io: input and output through the Prelude, System.File, System.Info and Buffer" ["programs/io"]
       , pool "programs/prelude: the Prelude and base over strings, lists and doubles" ["programs/prelude"]
       , pool "programs/interfaces: interfaces resolved at compile time" ["programs/interfaces"]
       , pool "programs/eval: compile-time evaluation and specialization" ["programs/eval"]

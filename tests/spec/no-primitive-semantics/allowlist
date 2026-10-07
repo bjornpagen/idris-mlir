@@ -2,3 +2,4 @@
 # `path: text -- reason`. Serializing a literal is not computing with it.
 compiler/src/IdrisMLIR/MLIR.idr: decimal (prim__cast_DoubleString d) -- the MLIR text of a Double literal: the shortest decimal that reads back as the same bits; it computes nothing
 compiler/src/IdrisMLIR/Types.idr: show (LDouble d) = prim__cast_DoubleString d -- a Double literal in the .core dump; it computes nothing
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: LStr codegenName -- System.Info.codegen is the name this backend is registered under; the string is that name, not a value a primitive computes

@@ -1210,6 +1210,25 @@ def Idr_EofOp : Idr_IOOp<"eof"> {
   let assemblyFormat = "$handle `,` $world attr-dict";
 }
 
+// How many processors are online, read when the program asks
+// (idris_rt_io_n_processors). A system that does not say gives -1, which
+// System.Info.getNProcessors turns into Nothing.
+def Idr_NProcessorsOp : Idr_IOOp<"n_processors"> {
+  let arguments = (ins Idr_WorldType:$world);
+  let results = (outs I64:$count, Idr_WorldType:$next);
+  let assemblyFormat = "$world attr-dict";
+}
+
+// The operating system the target triple names, in the spelling Chez uses:
+// "darwin", "unix", "windows", or "unknown". Folded to that string. The
+// triple is the one the target entry wrote on the runtime.
+def Idr_OsOp : Idr_Op<"os", [Pure]> {
+  let summary = "the operating system the target triple names";
+  let results = (outs Idr_StrValue:$result);
+  let assemblyFormat = "attr-dict custom<StrResult>(type($result))";
+  let hasFolder = 1;
+}
+
 // A world forged where a trusted library runs an IO action for a pure
 // value (`unsafePerformIO`): the first world of a chain of its own, which
 // orders that chain; between chains, the effects order the ops, as they

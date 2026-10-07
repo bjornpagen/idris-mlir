@@ -381,3 +381,4 @@ alg ix own (CrashF l msg) env _ = do
   statement l UB.unreachableOp
   pure Nothing
 alg ix own (NewWorldF l) env _ = Just <$> value ix l WorldT Idr.worldNewOp
+alg ix own (SystemOsF l) env _ = Just <$> value ix l StrT Idr.osOp

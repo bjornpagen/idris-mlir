@@ -202,9 +202,12 @@ mutual
         Just (Right (Alias q)) => aliasCall fc loc lowered q args
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
-      ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full)) of
-        (Just op, _) => ioCall fc loc arity op (type def) args
-        (_, Just op) => arrayCall fc loc arity op (type def) args
+      ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full),
+                              systemFactOf (hooksOf full)) of
+        (Just op, _, _) => ioCall fc loc arity op (type def) args
+        (_, Just op, _) => arrayCall fc loc arity op (type def) args
+        (_, _, Just TargetOs) => applyAll loc (SystemOs loc) args
+        (_, _, Just BackendName) => applyAll loc (Literal loc (LStr codegenName)) args
         _ => reject fc ctx.owner EscapeHatch ("extern function " ++ show full)
       Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
       _ => internal fc ("a reference to " ++ show full)

@@ -131,6 +131,7 @@ target_sources(idris_rt
 			Io/Ending.cppm
 			Io/Input.cppm
 			Io/Output.cppm
+			Io/Processors.cppm
 			Io/Writing.cppm
 	PRIVATE
 		FILE_SET rt_eval TYPE CXX_MODULES FILES
@@ -152,6 +153,7 @@ target_sources(idris_rt
 			Platform/CpuBits.cppm
 			Platform/Posix/Faults.cppm
 			Platform/Posix/Memory.cppm
+			Platform/Posix/Processors.cppm
 			Platform/Posix/Stacks.cppm
 			${IDRIS_MLIR_RUNTIME_CPU_TEST}
 )

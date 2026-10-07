@@ -9,4 +9,5 @@ export module rt.platform;
 export import :cpu;
 export import :faults;
 export import :memory;
+export import :processors;
 export import :stacks;
