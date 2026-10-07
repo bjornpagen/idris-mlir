@@ -1,0 +1,35 @@
+#!/bin/sh
+# A file that is not named Main.idr is still the main module when it has no
+# module header, or when it says `module Main`. Its source is that file.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+compile_named() {
+  named=$1
+  cat > "$work/$named" <<'IDRIS'
+main : IO ()
+main = printLn (the Int (1 + 2 * 3))
+IDRIS
+  if [ "$2" = header ]; then
+    printf '%s\n%s\n' 'module Main' "$(cat "$work/$named")" > "$work/$named.body"
+    mv "$work/$named.body" "$work/$named"
+  fi
+  (cd "$work" && bounded "$idris_mlir" --no-banner --no-color --cg mlir -o prog "$named") \
+    > "$work/compile.log" 2>&1
+  say "$named: compile exit $?"
+  if [ -x "$work/build/exec/prog" ]; then
+    got=$("$work/build/exec/prog")
+    if [ "$got" = 7 ]; then
+      say "$named: printed 7"
+    else
+      say "$named: printed $(printf '%s' "$got")"
+      show "$work/compile.log"
+    fi
+  else
+    say "$named: no executable"
+    show "$work/compile.log"
+  fi
+  rm -rf "$work/build"
+}
+
+compile_named Count.idr none
+compile_named Named.idr header

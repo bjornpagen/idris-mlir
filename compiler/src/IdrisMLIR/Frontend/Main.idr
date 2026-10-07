@@ -290,7 +290,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
   let mods = mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
   user <- filterM (\m => isUser <$> originOf m) (nub mods)
   sources <- for user $ \m => do
-    path <- catch (Just <$> nsToSource fc m) (\_ => pure Nothing)
+    path <- moduleSource fc m
     pure (m, path)
   let userNames = map (show . fst) (filter (isJust . snd) sources)
   -- The user's own imports are of user modules or trusted ones, rejected

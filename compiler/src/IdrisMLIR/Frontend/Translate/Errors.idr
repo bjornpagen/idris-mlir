@@ -14,6 +14,8 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
 
+import Data.Maybe
+
 %default covering
 
 export
@@ -39,7 +41,7 @@ internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg)
 export
 toLoc : {auto c : Ref Ctxt Defs} -> FC -> Core Loc
 toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
-  file <- catch (nsToSource fc ident) (\_ => pure "")
+  file <- fromMaybe "" <$> moduleSource fc ident
   pure (MkLoc !(originOf ident) (shown (show ident)) file sl sc el ec)
 toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
 toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
