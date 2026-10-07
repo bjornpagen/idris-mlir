@@ -18,6 +18,10 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // functional code, where recursion is still a call and a match's
       // yield is its join point; every later step keeps its rule.
       "idr-stack",
+      // While a self call's result is still the operand of the addition a
+      // tail returns. Counting borrows that result and drops it after the
+      // addition, and the call would no longer be the tail.
+      "idr-accumulate",
       "idr-rc",
       "idr-trmc",
       "idr-tail-loops",
