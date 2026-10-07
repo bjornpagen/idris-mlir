@@ -1,0 +1,97 @@
+#!/bin/sh
+# Runs one group of the upstream Idris 2 tests against this compiler and
+# records every result.
+#
+#     tests/upstream-idris/run GROUP
+#     tests/upstream-idris/run --list
+#
+# GROUP is a directory under third_party/Idris2/tests (prelude, base,
+# idris2/basic, ...). --list prints the groups that are programs over the
+# prelude and base, which is the language this compiler implements. Other
+# groups (other backends, the IDE, packages this compiler does not
+# implement) are recorded as skipped when named. threads=N is how many
+# tests run at once, as make test's threads.
+#
+# findings/upstream-idris/results gains that group's lines and keeps every
+# other group's. One line is `pass`, `fail` or `skip`, the test, and for a
+# failure the first error or the output mismatch.
+root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/tools/toolchain.sh"
+. "$root/tests/upstream-idris/common.sh"
+export IDRIS_MLIR_ROOT=$root
+
+results=$root/findings/upstream-idris/results
+threads=${threads:-4}
+upstream=$root/third_party/Idris2/tests
+tab=$(printf '\t')
+
+if [ "${1-}" = --list ]; then
+  language_group
+  exit 0
+fi
+group=${1:?usage: tests/upstream-idris/run GROUP}
+[ -d "$upstream/$group" ] || {
+  printf '%s\n' "no upstream tests at third_party/Idris2/tests/$group" >&2
+  exit 2
+}
+
+list=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-upstream.XXXXXX") || exit 1
+find "$upstream/$group" \( -name build -o -name prefix \) -prune -o \
+  -name run -type f -print |
+  sed "s|^$upstream/||; s|/run\$||" | sort > "$list"
+if [ ! -s "$list" ]; then
+  printf '%s\n' "no tests in $group" >&2
+  rm -f "$list"
+  exit 2
+fi
+
+parts=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-upstream-group.XXXXXX") || exit 1
+trap 'rm -rf "$parts"; rm -f "$list"' EXIT
+mkdir -p "$root/findings/upstream-idris"
+
+outside=$(outside_reason "$group")
+if [ -n "$outside" ]; then
+  while IFS= read -r test; do
+    printf 'skip\t%s\t%s\n' "$test" "$outside" > "$parts/$(printf '%s' "$test" | tr '/' '_')"
+  done < "$list"
+else
+  running=0
+  while IFS= read -r test; do
+    slot=$(printf '%s' "$test" | tr '/' '_')
+    # The test must not inherit this loop's stdin: a REPL reads it and
+    # consumes the list of tests still to run.
+    "$root/tests/upstream-idris/one" "$test" > "$parts/$slot" < /dev/null &
+    running=$((running + 1))
+    if [ "$running" -ge "$threads" ]; then
+      wait || true
+      running=0
+    fi
+  done < "$list"
+  wait || true
+fi
+
+: > "$parts/all"
+while IFS= read -r test; do
+  slot=$(printf '%s' "$test" | tr '/' '_')
+  if [ -s "$parts/$slot" ]; then
+    cat "$parts/$slot" >> "$parts/all"
+  else
+    printf 'fail\t%s\t%s\n' "$test" "the runner produced no result" >> "$parts/all"
+  fi
+done < "$list"
+sort -t "$tab" -k 2,2 "$parts/all" > "$parts/sorted"
+
+touch "$results"
+awk -F '\t' -v group="$group" '
+  $2 == group || index($2, group "/") == 1 { next }
+  { print }
+' "$results" > "$parts/kept"
+sort -t "$tab" -k 2,2 "$parts/kept" "$parts/sorted" > "$results.new"
+mv "$results.new" "$results"
+
+awk -F '\t' '
+  { n[$1]++ }
+  END {
+    printf "pass %d\nfail %d\nskip %d\n", n["pass"] + 0, n["fail"] + 0, n["skip"] + 0
+  }
+' "$parts/sorted"

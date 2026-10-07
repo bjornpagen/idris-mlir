@@ -1,0 +1,94 @@
+#!/bin/sh
+# The compiler an upstream run script receives as $1. Check, REPL and -o
+# go to idris-mlir. --exec is how upstream runs a program; this compiler
+# has no --exec, so that becomes -o and the program, which is what
+# tools/compile.sh does. --cg names whichever backend the script was
+# comparing; the one under test is mlir. Chez is run separately, as the
+# stock idris2, and is not reached through here.
+root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
+idris_mlir=$root/compiler/build/exec/idris-mlir
+[ -x "$idris_mlir" ] || {
+  printf '%s\n' "Error: $idris_mlir is missing; run make build"
+  exit 1
+}
+
+args=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-as-idris.XXXXXX") || exit 1
+trap 'rm -f "$args"' EXIT
+exec_fn=
+cg_next=no
+while [ $# -gt 0 ]; do
+  if [ "$cg_next" = yes ]; then
+    printf '%s\n' mlir >> "$args"
+    cg_next=no
+    shift
+    continue
+  fi
+  if [ "$exec_fn" = pending ]; then
+    exec_fn=$1
+    shift
+    continue
+  fi
+  case $1 in
+    --cg) printf '%s\n' --cg >> "$args"; cg_next=yes ;;
+    --exec) exec_fn=pending ;;
+    *) printf '%s\n' "$1" >> "$args" ;;
+  esac
+  shift
+done
+
+set --
+while IFS= read -r arg || [ -n "$arg" ]; do
+  set -- "$@" "$arg"
+done < "$args"
+
+if [ -z "$exec_fn" ] || [ "$exec_fn" = pending ]; then
+  exec "$idris_mlir" "$@"
+  exit 127
+fi
+if [ "$exec_fn" != main ]; then
+  printf '%s\n' "Error: mlir backend: unsupported (program): --exec $exec_fn is not supported"
+  exit 1
+fi
+
+out_name=
+prev=
+for arg in "$@"; do
+  if [ "$prev" = -o ]; then
+    out_name=$arg
+    prev=
+    continue
+  fi
+  case $arg in
+    -o) prev=-o ;;
+  esac
+done
+if [ -z "$out_name" ]; then
+  out_name=upstream-exec
+  set -- "$@" -o "$out_name"
+fi
+has_cg=no
+prev=
+for arg in "$@"; do
+  if [ "$prev" = --cg ]; then
+    has_cg=yes
+  fi
+  prev=$arg
+done
+if [ "$has_cg" = no ]; then
+  set -- --cg mlir "$@"
+fi
+
+log=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-as-idris.XXXXXX") || exit 1
+"$idris_mlir" "$@" < /dev/null > "$log" 2>&1
+status=$?
+if [ "$status" -ne 0 ] || [ ! -x "build/exec/$out_name" ]; then
+  cat "$log"
+  if [ "$status" -eq 0 ]; then
+    printf '%s\n' "Error: compiling produced no executable build/exec/$out_name"
+    status=1
+  fi
+  rm -f "$log"
+  exit "$status"
+fi
+rm -f "$log"
+exec "build/exec/$out_name"

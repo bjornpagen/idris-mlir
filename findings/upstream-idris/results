@@ -1,0 +1,642 @@
+fail	allbackends/basic048	Error: Module':6:1--6:13:mlir backend: Module'.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Module'.main)
+fail	allbackends/evaluator004	Error: Issue735:8:1--8:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allbackends/evaluator005	Error: Issue1200:5:1--5:13:mlir backend: Issue1200.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Issue1200.main)
+fail	allbackends/issue2362	Error: Issue2362:3:1--3:17:mlir backend: Issue2362: unsupported (program): imports Data.Vect, which is neither a user module nor a trusted module
+fail	allbackends/perf006	Error: Issue775:1:1--1:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allbackends/popen2	Error: Test:22:1--22:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+skip	allschemes/channels001	threads
+skip	allschemes/channels002	threads
+skip	allschemes/channels003	threads
+skip	allschemes/channels004	threads
+skip	allschemes/channels005	threads
+skip	allschemes/channels006	threads
+fail	allschemes/double001	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
+fail	allschemes/double002	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
+fail	allschemes/double003	Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
+fail	allschemes/ffi001	Error: Struct:12:1--12:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/memo001	Error: Memo:68:1--68:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/memo002	Error: Memo:68:1--68:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/memo003	Error: Memo:15:1--15:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/memo004	Error: Memo:21:1--21:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/memo005	Error: Memo:24:1--24:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	allschemes/scheme001	Error: CastStringDouble:5:1--5:13:mlir backend: CastStringDouble.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through CastStringDouble.main)
+fail	allschemes/scheme002	Error: TermSize:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/control_app001	
+pass	base/control_monad_instances	
+fail	base/data_bits001	Error: BitOps:358:1--358:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_bits002	Error: BitRotate:87:1--87:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_fin	Error: Num:7:1--7:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_integral	Error: Integral:44:1--44:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_list001	Error: List:34:1--34:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_list002	Error: Prefix:14:1--14:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_list003	Error: Elem:26:1--26:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_listone001	Error: Elem:44:1--44:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/data_nat	
+fail	base/data_ref_monadstate	Error: RefMonadState:3:1--3:37:mlir backend: RefMonadState: unsupported (program): imports Control.Monad.State.Interface, which is neither a user module nor a trusted module
+pass	base/data_singleton	
+fail	base/data_snoclist001	Error: SL:6:1--6:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_snoclist002	Error: Elem:26:1--26:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/data_string	
+fail	base/data_string_lines001	Error: Lines:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_string_parse_double	Error: Double:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/data_string_parse_proof	
+fail	base/data_string_unlines001	Error: Unlines:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_vect001	Error: Vect:44:1--44:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/data_vect002	Error: Elem:26:1--26:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/deriving_foldable	
+pass	base/deriving_functor	
+pass	base/deriving_show	
+pass	base/deriving_traversable	
+fail	base/sortedmap_001	Error: SortedMapTest:51:1--51:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_directory	Error: ReadDir:8:1--8:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+skip	base/system_env	raw pointer
+fail	base/system_errno	Error: Test:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file001	Error: ReadFilePage:27:1--28:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_fileError	Error: FileErrors:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file_copyFile	Error: CopyFile:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file_fGetChars	Error: ReadFile:11:1--11:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file_fRead	Error: ReadFile:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file_popen	Error: Popen:6:1--6:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_file_remove	Error: Test:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_get_environment	Error: Test:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_info001	Error: NumProcessors:3:1--3:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+skip	base/system_info_os001	raw pointer
+fail	base/system_run	Error: Run:6:1--6:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_signal001	Error: IgnoreSignal:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_signal002	Error: HandleSignal:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_signal003	Error: DefaultSignal:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_signal004	Error: HandleManySignals:6:1--6:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_system	Error: Test:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	base/system_time001	Error: Time:4:1--4:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	base/ttimp_show001	
+fail	base/void_error	Error: Main:2:35--2:45:mlir backend: Main: unsupported (escape hatch): the escape hatch believe_me
+pass	idris2/basic/basic001	
+pass	idris2/basic/basic002	
+pass	idris2/basic/basic003	
+pass	idris2/basic/basic004	
+pass	idris2/basic/basic005	
+pass	idris2/basic/basic006	
+pass	idris2/basic/basic007	
+pass	idris2/basic/basic008	
+pass	idris2/basic/basic009	
+pass	idris2/basic/basic010	
+pass	idris2/basic/basic011	
+pass	idris2/basic/basic012	
+pass	idris2/basic/basic013	
+pass	idris2/basic/basic014	
+pass	idris2/basic/basic015	
+pass	idris2/basic/basic016	
+pass	idris2/basic/basic017	
+pass	idris2/basic/basic018	
+pass	idris2/basic/basic019	
+pass	idris2/basic/basic020	
+pass	idris2/basic/basic021	
+pass	idris2/basic/basic022	
+pass	idris2/basic/basic023	
+pass	idris2/basic/basic024	
+pass	idris2/basic/basic025	
+pass	idris2/basic/basic026	
+pass	idris2/basic/basic027	
+pass	idris2/basic/basic028	
+pass	idris2/basic/basic029	
+pass	idris2/basic/basic030	
+pass	idris2/basic/basic031	
+pass	idris2/basic/basic032	
+pass	idris2/basic/basic033	
+pass	idris2/basic/basic034	
+pass	idris2/basic/basic035	
+pass	idris2/basic/basic036	
+pass	idris2/basic/basic037	
+pass	idris2/basic/basic038	
+pass	idris2/basic/basic039	
+pass	idris2/basic/basic040	
+pass	idris2/basic/basic041	
+pass	idris2/basic/basic042	
+pass	idris2/basic/basic043	
+pass	idris2/basic/basic044	
+pass	idris2/basic/basic045	
+pass	idris2/basic/basic046	
+pass	idris2/basic/basic047	
+pass	idris2/basic/basic049	
+pass	idris2/basic/basic050	
+pass	idris2/basic/basic051	
+pass	idris2/basic/basic052	
+pass	idris2/basic/basic053	
+fail	idris2/basic/basic054	Error: Issue1023:1:1--1:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	idris2/basic/basic055	Error: BitOps:308:1--308:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	idris2/basic/basic056	Error: DoubleLit:31:1--31:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/basic/basic057	
+pass	idris2/basic/basic058	
+pass	idris2/basic/basic059	
+pass	idris2/basic/basic060	
+pass	idris2/basic/basic061	
+pass	idris2/basic/basic062	
+pass	idris2/basic/basic063	
+pass	idris2/basic/basic064	
+pass	idris2/basic/basic065	
+pass	idris2/basic/basic066	
+pass	idris2/basic/basic067	
+fail	idris2/basic/basic068	Error: Issue2138:38:1--38:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	idris2/basic/basic069	Error: DebugInfo:1:1--1:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/basic/basic070	
+pass	idris2/basic/basic071	
+pass	idris2/basic/basic072	
+pass	idris2/basic/basic073	
+pass	idris2/basic/basic074	
+fail	idris2/basic/basic075	Error: Issue2128:1:1--1:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/basic/basic076	
+fail	idris2/basic/basic077	Error: MultiArg:16:1--16:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/basic/basic078	
+pass	idris2/basic/case002	
+pass	idris2/basic/dotted001	
+pass	idris2/basic/dotted002	
+fail	idris2/basic/idiom001	Error: Main:34:1--34:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+pass	idris2/basic/interpolation001	
+fail	idris2/basic/interpolation002	Error: mlir backend: unsupported (program): --exec test is not supported
+pass	idris2/basic/interpolation003	
+pass	idris2/basic/interpolation004	
+pass	idris2/basic/literals001	
+pass	idris2/basic/rewrite001	
+pass	idris2/builtin/builtin001	
+pass	idris2/builtin/builtin002	
+pass	idris2/builtin/builtin003	
+pass	idris2/builtin/builtin004	
+pass	idris2/builtin/builtin005	
+pass	idris2/builtin/builtin006	
+pass	idris2/builtin/builtin007	
+pass	idris2/builtin/builtin008	
+fail	idris2/builtin/builtin009	Error: Test:15:1--15:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/builtin/builtin010	
+fail	idris2/builtin/builtin011	Error: Test:20:1--20:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	idris2/builtin/builtin012	Error: Issue1799:10:1--10:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/casetree/casetree001	
+pass	idris2/casetree/casetree002	
+pass	idris2/casetree/casetree003	
+pass	idris2/casetree/casetree004	
+pass	idris2/casetree/casetree005	
+pass	idris2/casetree/heuristics001	
+pass	idris2/coverage/coverage001	
+pass	idris2/coverage/coverage002	
+pass	idris2/coverage/coverage003	
+pass	idris2/coverage/coverage004	
+pass	idris2/coverage/coverage005	
+pass	idris2/coverage/coverage006	
+pass	idris2/coverage/coverage007	
+pass	idris2/coverage/coverage008	
+pass	idris2/coverage/coverage009	
+pass	idris2/coverage/coverage010	
+pass	idris2/coverage/coverage011	
+pass	idris2/coverage/coverage012	
+pass	idris2/coverage/coverage013	
+pass	idris2/coverage/coverage014	
+pass	idris2/coverage/coverage015	
+pass	idris2/coverage/coverage016	
+pass	idris2/coverage/coverage017	
+pass	idris2/coverage/coverage018	
+pass	idris2/coverage/coverage019	
+pass	idris2/coverage/coverage020	
+pass	idris2/coverage/coverage021	
+pass	idris2/coverage/coverage022	
+pass	idris2/coverage/coverage023	
+pass	idris2/coverage/coverage024	
+pass	idris2/coverage/coverage025	
+pass	idris2/coverage/coverage026	
+pass	idris2/coverage/coverage027	
+pass	idris2/coverage/coverage028	
+pass	idris2/coverage/coverage029	
+pass	idris2/coverage/coverage030	
+pass	idris2/coverage/coverage031	
+pass	idris2/coverage/impossible001	
+pass	idris2/coverage/impossible002	
+pass	idris2/coverage/impossible003	
+pass	idris2/coverage/impossible004	
+pass	idris2/coverage/impossible005	
+pass	idris2/data/data001	
+pass	idris2/data/data002	
+pass	idris2/data/data003	
+pass	idris2/data/data004	
+pass	idris2/data/data005	
+pass	idris2/data/data006	
+pass	idris2/data/record001	
+pass	idris2/data/record002	
+pass	idris2/data/record003	
+pass	idris2/data/record004	
+pass	idris2/data/record005	
+pass	idris2/data/record006	
+pass	idris2/data/record007	
+pass	idris2/data/record008	
+pass	idris2/data/record009	
+pass	idris2/data/record010	
+pass	idris2/data/record011	
+pass	idris2/data/record012	
+pass	idris2/data/record013	
+pass	idris2/data/record014	
+fail	idris2/data/record015	Error: Issue2176:129:1--129:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/data/record016	
+pass	idris2/data/record017	
+pass	idris2/data/record018	
+pass	idris2/data/record019	
+pass	idris2/data/record020	
+pass	idris2/data/record021	
+pass	idris2/data/record022	
+pass	idris2/data/record023	
+pass	idris2/error/error001	
+pass	idris2/error/error002	
+pass	idris2/error/error003	
+pass	idris2/error/error004	
+pass	idris2/error/error005	
+pass	idris2/error/error006	
+pass	idris2/error/error007	
+pass	idris2/error/error008	
+pass	idris2/error/error009	
+pass	idris2/error/error010	
+pass	idris2/error/error011	
+pass	idris2/error/error012	
+pass	idris2/error/error013	
+pass	idris2/error/error014	
+pass	idris2/error/error015	
+pass	idris2/error/error016	
+pass	idris2/error/error017	
+pass	idris2/error/error018	
+pass	idris2/error/error019	
+pass	idris2/error/error020	
+pass	idris2/error/error021	
+pass	idris2/error/error022	
+pass	idris2/error/error023	
+pass	idris2/error/error024	
+pass	idris2/error/error025	
+pass	idris2/error/error026	
+fail	idris2/error/error027	Error: Issue2950:1:1--1:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/error/error028	
+pass	idris2/error/error029	
+pass	idris2/error/error030	
+pass	idris2/error/error032	
+pass	idris2/error/error033	
+pass	idris2/error/error034	
+pass	idris2/error/perror001	
+pass	idris2/error/perror002	
+pass	idris2/error/perror003	
+pass	idris2/error/perror004	
+pass	idris2/error/perror005	
+pass	idris2/error/perror006	
+pass	idris2/error/perror007	
+pass	idris2/error/perror008	
+pass	idris2/error/perror009	
+pass	idris2/error/perror010	
+pass	idris2/error/perror011	
+pass	idris2/error/perror012	
+pass	idris2/error/perror013	
+pass	idris2/error/perror014	
+pass	idris2/error/perror015	
+pass	idris2/error/perror016	
+pass	idris2/error/perror017	
+pass	idris2/error/perror018	
+pass	idris2/error/perror019	
+pass	idris2/error/perror020	
+pass	idris2/error/perror021	
+pass	idris2/error/perror022	
+pass	idris2/error/perror023	
+pass	idris2/error/perror024	
+pass	idris2/error/perror025	
+pass	idris2/error/perror026	
+pass	idris2/error/perror027	
+pass	idris2/error/perror028	
+pass	idris2/error/perror029	
+pass	idris2/error/perror030	
+pass	idris2/error/perror031	
+pass	idris2/error/perror032	
+pass	idris2/error/perror033	
+pass	idris2/error/perror034	
+pass	idris2/error/perror035	
+pass	idris2/error/perror036	
+pass	idris2/error/withMatches	
+pass	idris2/evaluator/evaluator001	
+pass	idris2/evaluator/evaluator002	
+pass	idris2/evaluator/evaluator003	
+pass	idris2/evaluator/evaluator004	
+pass	idris2/evaluator/evaluator005	
+pass	idris2/evaluator/interpreter001	
+pass	idris2/evaluator/interpreter002	
+pass	idris2/evaluator/interpreter003	
+pass	idris2/evaluator/interpreter004	
+pass	idris2/evaluator/interpreter005	
+pass	idris2/evaluator/interpreter006	
+fail	idris2/evaluator/interpreter007	Main> Main> Main> Error: mlir backend: unsupported (program): --exec is not supported
+fail	idris2/evaluator/interpreter008	stdout mismatch: line 12: stock "Main> Encountered unimplemented hole Main.{n:1}" / ours "Main> Error: mlir backend: unsupported (program): --exec is not supported"
+pass	idris2/evaluator/spec001	
+pass	idris2/failing/failing001	
+pass	idris2/failing/failing002	
+pass	idris2/failing/failing003	
+pass	idris2/failing/failing004	
+pass	idris2/false/false001	
+pass	idris2/interface/interface001	
+pass	idris2/interface/interface002	
+pass	idris2/interface/interface003	
+pass	idris2/interface/interface004	
+pass	idris2/interface/interface005	
+pass	idris2/interface/interface006	
+pass	idris2/interface/interface007	
+pass	idris2/interface/interface008	
+pass	idris2/interface/interface009	
+pass	idris2/interface/interface010	
+pass	idris2/interface/interface011	
+pass	idris2/interface/interface012	
+pass	idris2/interface/interface013	
+pass	idris2/interface/interface014	
+pass	idris2/interface/interface015	
+pass	idris2/interface/interface016	
+pass	idris2/interface/interface017	
+pass	idris2/interface/interface018	
+pass	idris2/interface/interface019	
+pass	idris2/interface/interface020	
+pass	idris2/interface/interface021	
+pass	idris2/interface/interface022	
+pass	idris2/interface/interface023	
+skip	idris2/interface/interface024	not a commitment
+pass	idris2/interface/interface025	
+pass	idris2/interface/interface026	
+pass	idris2/interface/interface027	
+pass	idris2/interface/interface028	
+fail	idris2/interface/interface029	Error: ForwardImpl1:22:1--22:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/interface/interface030	
+pass	idris2/interface/interface031	
+pass	idris2/interface/interface032	
+pass	idris2/interface/interface033	
+pass	idris2/interface/interface034	
+pass	idris2/interface/interface035	
+pass	idris2/interface/interface036	
+pass	idris2/linear/linear001	
+pass	idris2/linear/linear002	
+pass	idris2/linear/linear003	
+skip	idris2/linear/linear005	not a commitment
+pass	idris2/linear/linear006	
+pass	idris2/linear/linear007	
+pass	idris2/linear/linear008	
+pass	idris2/linear/linear009	
+skip	idris2/linear/linear010	not a commitment
+skip	idris2/linear/linear011	network
+pass	idris2/linear/linear012	
+pass	idris2/linear/linear013	
+pass	idris2/linear/linear014	
+pass	idris2/linear/linear015	
+pass	idris2/linear/linear016	
+pass	idris2/linear/linear017	
+pass	idris2/linear/linear018	
+pass	idris2/linear/linear019	
+pass	idris2/linear/linear020	
+pass	idris2/literate/literate001	
+pass	idris2/literate/literate002	
+pass	idris2/literate/literate003	
+pass	idris2/literate/literate004	
+pass	idris2/literate/literate005	
+pass	idris2/literate/literate006	
+pass	idris2/literate/literate007	
+pass	idris2/literate/literate008	
+pass	idris2/literate/literate009	
+pass	idris2/literate/literate010	
+pass	idris2/literate/literate011	
+pass	idris2/literate/literate012	
+pass	idris2/literate/literate013	
+pass	idris2/literate/literate014	
+pass	idris2/literate/literate015	
+pass	idris2/literate/literate016	
+pass	idris2/literate/literate017	
+pass	idris2/literate/literate018	
+pass	idris2/literate/literate019	
+pass	idris2/literate/literate020	
+pass	idris2/misc/docs001	
+pass	idris2/misc/docs002	
+pass	idris2/misc/docs003	
+pass	idris2/misc/docs004	
+pass	idris2/misc/docs005	
+pass	idris2/misc/eta001	
+fail	idris2/misc/golden001	Error: Main:3:1--3:13:mlir backend: Main.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through Main.main)
+fail	idris2/misc/golden001/000-hello	stdout mismatch: line 1: stock "/Users/bjorn/Documents/idris-mlir-wt-idris-tests/.toolchain/idris2/bin/idris2" / ours "/Users/bjorn/Documents/idris-mlir-wt-idris-tests/tests/upstream-idris/as-idris"
+pass	idris2/misc/import001	
+pass	idris2/misc/import002	
+pass	idris2/misc/import003	
+pass	idris2/misc/import004	
+pass	idris2/misc/import005	
+pass	idris2/misc/import006	
+pass	idris2/misc/import007	
+fail	idris2/misc/import008	Error: Mod:3:1--3:12:mlir backend: Mod: unsupported (program): imports Conf, which is neither a user module nor a trusted module
+pass	idris2/misc/import009	
+pass	idris2/misc/inlining001	
+pass	idris2/misc/lazy001	
+skip	idris2/misc/lazy002	not a commitment
+pass	idris2/misc/lazy003	
+skip	idris2/misc/lazy004	not a commitment
+skip	idris2/misc/lazy005	not a commitment
+pass	idris2/misc/namespace001	
+pass	idris2/misc/namespace002	
+pass	idris2/misc/namespace003	
+pass	idris2/misc/namespace004	
+fail	idris2/misc/namespace005	Error: Main0:8:1--8:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/misc/params001	
+pass	idris2/misc/params002	
+pass	idris2/misc/params003	
+pass	idris2/misc/params004	
+pass	idris2/misc/pretty001	
+pass	idris2/misc/pretty002	
+fail	idris2/misc/primloop	Error: PrimLoop:11:1--11:13:mlir backend: PrimLoop.main: unsupported (library): Builtin.Unit is in Builtin, which is not a trusted library module (reached through PrimLoop.main)
+pass	idris2/misc/quantifiers001	
+skip	idris2/misc/real001	threads
+pass	idris2/misc/real002	
+pass	idris2/misc/unification001	
+pass	idris2/misc/with003	
+pass	idris2/operators/operators001	
+pass	idris2/operators/operators002	
+pass	idris2/operators/operators003	
+pass	idris2/operators/operators004	
+pass	idris2/operators/operators005	
+pass	idris2/operators/operators006	
+pass	idris2/operators/operators007	
+pass	idris2/operators/operators008	
+pass	idris2/operators/operators009	
+pass	idris2/operators/operators010	
+pass	idris2/operators/operators011	
+pass	idris2/operators/operators012	
+pass	idris2/perf/perf001	
+pass	idris2/perf/perf002	
+pass	idris2/perf/perf003	
+pass	idris2/perf/perf004	
+pass	idris2/perf/perf005	
+pass	idris2/perf/perf007	
+fail	idris2/perf/perf008	Error: FinPerf:17:1--17:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/perf/perf009	
+pass	idris2/perf/perf010	
+pass	idris2/perf/perf011	
+fail	idris2/perf/perf012	Error: Main:1:1--1:9:mlir backend: Main: unsupported (pragma): the pragma %logging
+pass	idris2/perf/perf013	
+pass	idris2/perf/perf2202	
+pass	idris2/reflection/bindvar_mn	
+pass	idris2/reflection/reflection001	
+pass	idris2/reflection/reflection002	
+pass	idris2/reflection/reflection003	
+pass	idris2/reflection/reflection004	
+pass	idris2/reflection/reflection005	
+pass	idris2/reflection/reflection006	
+pass	idris2/reflection/reflection007	
+pass	idris2/reflection/reflection008	
+pass	idris2/reflection/reflection009	
+pass	idris2/reflection/reflection010	
+pass	idris2/reflection/reflection011	
+pass	idris2/reflection/reflection012	
+pass	idris2/reflection/reflection013	
+fail	idris2/reflection/reflection014	Error: refdecl:28:1--28:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/reflection/reflection015	
+pass	idris2/reflection/reflection016	
+pass	idris2/reflection/reflection017	
+pass	idris2/reflection/reflection018	
+pass	idris2/reflection/reflection019	
+pass	idris2/reflection/reflection020	
+pass	idris2/reflection/reflection021	
+pass	idris2/reflection/reflection022	
+pass	idris2/reflection/reflection023	
+pass	idris2/reflection/reflection024	
+pass	idris2/reflection/reflection025	
+pass	idris2/reflection/reflection026	
+pass	idris2/reflection/reflection027	
+pass	idris2/reflection/reflection028	
+pass	idris2/reflection/reflection030	
+pass	idris2/reflection/reflection031	
+pass	idris2/reflection/reflection032	
+pass	idris2/reflection/reflection033	
+fail	idris2/reflection/reflection034	Error: ResugarTerm:31:1--31:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+fail	idris2/reflection/reflection034_2	Error: LocalVars:24:1--24:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/reflection/reflection035	
+fail	idris2/reflection/reflection036	Error: GetFC:12:1--12:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/reg/reg001	
+pass	idris2/reg/reg002	
+pass	idris2/reg/reg003	
+pass	idris2/reg/reg004	
+pass	idris2/reg/reg005	
+pass	idris2/reg/reg006	
+pass	idris2/reg/reg007	
+pass	idris2/reg/reg008	
+pass	idris2/reg/reg009	
+pass	idris2/reg/reg010	
+pass	idris2/reg/reg011	
+pass	idris2/reg/reg012	
+pass	idris2/reg/reg013	
+pass	idris2/reg/reg014	
+pass	idris2/reg/reg015	
+pass	idris2/reg/reg016	
+pass	idris2/reg/reg017	
+pass	idris2/reg/reg018	
+pass	idris2/reg/reg019	
+pass	idris2/reg/reg020	
+pass	idris2/reg/reg021	
+pass	idris2/reg/reg022	
+pass	idris2/reg/reg023	
+pass	idris2/reg/reg024	
+pass	idris2/reg/reg025	
+pass	idris2/reg/reg026	
+pass	idris2/reg/reg027	
+pass	idris2/reg/reg028	
+pass	idris2/reg/reg029	
+pass	idris2/reg/reg030	
+pass	idris2/reg/reg031	
+pass	idris2/reg/reg032	
+pass	idris2/reg/reg033	
+pass	idris2/reg/reg034	
+pass	idris2/reg/reg035	
+pass	idris2/reg/reg036	
+pass	idris2/reg/reg037	
+pass	idris2/reg/reg038	
+pass	idris2/reg/reg039	
+pass	idris2/reg/reg040	
+pass	idris2/reg/reg041	
+pass	idris2/reg/reg042	
+pass	idris2/reg/reg043	
+pass	idris2/reg/reg044	
+pass	idris2/reg/reg045	
+pass	idris2/reg/reg046	
+pass	idris2/reg/reg047	
+skip	idris2/reg/reg048	not a commitment
+skip	idris2/reg/reg049	not a commitment
+skip	idris2/reg/reg050	not a commitment
+pass	idris2/reg/reg051	
+pass	idris2/reg/reg052	
+pass	idris2/reg/reg053	
+pass	idris2/reg/reg054	
+pass	idris2/reg/reg055	
+pass	idris2/reg/reg056	
+pass	idris2/reg/reg057	
+pass	idris2/reg/reg058	
+pass	idris2/reg/reg059	
+pass	idris2/termination/termination001	
+pass	idris2/total/positivity001	
+pass	idris2/total/positivity002	
+pass	idris2/total/positivity003	
+pass	idris2/total/positivity004	
+pass	idris2/total/positivity005	
+pass	idris2/total/total001	
+pass	idris2/total/total002	
+pass	idris2/total/total003	
+pass	idris2/total/total004	
+pass	idris2/total/total005	
+pass	idris2/total/total006	
+pass	idris2/total/total007	
+pass	idris2/total/total008	
+pass	idris2/total/total009	
+pass	idris2/total/total010	
+pass	idris2/total/total011	
+pass	idris2/total/total012	
+pass	idris2/total/total013	
+pass	idris2/total/total014	
+pass	idris2/total/total015	
+pass	idris2/total/total016	
+pass	idris2/total/total017	
+pass	idris2/total/total018	
+pass	idris2/total/total019	
+pass	idris2/total/total020	
+pass	idris2/total/total021	
+pass	idris2/total/total022	
+pass	idris2/total/total023	
+pass	idris2/total/total024	
+pass	idris2/total/total025	
+pass	idris2/total/total026	
+pass	idris2/total/total027	
+pass	idris2/total/total028	
+pass	idris2/total/total029	
+pass	idris2/total/total030	
+pass	idris2/total/total031	
+pass	idris2/warning/warning001	
+pass	idris2/warning/warning002	
+pass	idris2/warning/warning003	
+fail	idris2/warning/warning004	Error: Main1:6:1--6:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	idris2/warning/warning005	
+pass	idris2/warning/warning006	
+pass	idris2/with/with001	
+pass	idris2/with/with002	
+pass	idris2/with/with004	
+pass	idris2/with/with005	
+pass	idris2/with/with006	
+pass	idris2/with/with007	
+pass	idris2/with/with008	
+pass	idris2/with/with009	
+pass	idris2/with/with010	
+skip	idris2/with/with011	not a commitment
+pass	idris2/with/with012	
+fail	prelude/bind001	Error: bind:9:1--9:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	prelude/char001	
+fail	prelude/double001	Error: Types:89:1--89:13:mlir backend: main: unsupported (program): loads Main, a module of the project whose source is missing
+pass	prelude/nat001	
+pass	prelude/operators001	
+pass	prelude/reg001	
+pass	prelude/unpack	
+pass	typedd-book/chapter01	
+pass	typedd-book/chapter02	
+pass	typedd-book/chapter03	
+pass	typedd-book/chapter04	
+pass	typedd-book/chapter05	
+pass	typedd-book/chapter06	
+pass	typedd-book/chapter07	
+pass	typedd-book/chapter08	
+pass	typedd-book/chapter09	
+pass	typedd-book/chapter10	
+pass	typedd-book/chapter11	
+pass	typedd-book/chapter12	
+pass	typedd-book/chapter13	
+pass	typedd-book/chapter14	
