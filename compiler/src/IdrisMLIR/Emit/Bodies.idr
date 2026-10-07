@@ -144,24 +144,18 @@ inFunction act = do
   modify { next := st.next, ops := st.ops }
   pure (x, inner <>> [])
 
-||| The end of a function's body, of result type `rt`: its value, returned.
-||| A body that never returns ends in `ub.unreachable` inside its regions
-||| only; at the top level a poison value is returned in its place, because
-||| the pinned inliner cannot inline a body that ends in `ub.unreachable`
-||| (PINS.md: inline-unreachable).
+||| The end of a function's body, of result type `rt`: its value, returned,
+||| or, for a body that never returns, `ub.unreachable`, once.
 export
 epilogue : Index -> Loc -> MlirType -> Maybe Val -> List Statement -> E (List Statement)
 epilogue ix l rt (Just v) ops = pure (ops ++ [MkStatement Nothing (Func.returnOp [!(operand ix v)]) (At l)])
 epilogue ix l rt Nothing ops =
-  pure (reverse (dropEnd (reverse ops)) ++
-        [ MkStatement (Just never) (UB.poisonOp rt) (At l)
-        , MkStatement Nothing (Func.returnOp [MkValue never rt]) (At l) ])
+  pure (if endsUnreachable (reverse ops) then ops
+        else ops ++ [MkStatement Nothing UB.unreachableOp (At l)])
   where
-    never : String
-    never = "%never"
-    dropEnd : List Statement -> List Statement
-    dropEnd (s :: rest) = if s.op.name == UB.unreachableOp.name then rest else s :: rest
-    dropEnd [] = []
+    endsUnreachable : List Statement -> Bool
+    endsUnreachable (s :: _) = s.op.name == UB.unreachableOp.name
+    endsUnreachable [] = False
 
 ||| A lifted function: private, its captures first, then its parameters.
 ||| Its body is the closure's, and it is what the closure calls.

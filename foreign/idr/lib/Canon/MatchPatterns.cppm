@@ -59,12 +59,11 @@ struct DropCoveredDefault : OpRewritePattern<MatchOp> {
 };
 
 // A match none of whose regions yields never completes, so nothing after it
-// in its block runs: that block, a region of another match, ends in
-// ub.unreachable right after it, as a region does after a crash. Case-of-case
-// copies a consumer into every region, so one region of a match may yield
-// the result of a match that never completes, followed by what consumes it
-// there. A function body keeps its return: a body never ends in
-// ub.unreachable (PINS.md: inline-unreachable).
+// in its block runs: that block, a region of another match or a function
+// body, ends in ub.unreachable right after it, as a region does after a
+// crash. Case-of-case copies a consumer into every region, so one region of
+// a match may yield the result of a match that never completes, followed by
+// what consumes it there.
 template <typename Match>
 struct EndAfterNoYield : OpRewritePattern<Match> {
   using OpRewritePattern<Match>::OpRewritePattern;
@@ -74,7 +73,7 @@ struct EndAfterNoYield : OpRewritePattern<Match> {
         }))
       return failure();
     Block *block = op->getBlock();
-    if (!isa<MatchOp, MatchLitOp>(block->getParentOp()) ||
+    if (!isa<MatchOp, MatchLitOp, func::FuncOp>(block->getParentOp()) ||
         isa<ub::UnreachableOp>(op->getNextNode()))
       return failure();
     while (&block->back() != op.getOperation())

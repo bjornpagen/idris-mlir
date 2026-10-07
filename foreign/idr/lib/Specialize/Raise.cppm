@@ -158,6 +158,9 @@ void push(Operation *term, unsigned index, Consumer c, Value result, ValueRange 
 std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp callee) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse() || facts::takesWorld(callee))
     return std::nullopt;
+  // A callee that never returns has no closure to raise.
+  if (callee.isExternal() || !isa<func::ReturnOp>(callee.getBody().front().getTerminator()))
+    return std::nullopt;
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
   if (!e || e->apply->getBlock() != call->getBlock())
     return std::nullopt;

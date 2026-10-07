@@ -20,5 +20,4 @@ idr_library(idr_tail
 		idr_mlir
 		idr_ods
 		idr_graph
-		idr_simplify
 )

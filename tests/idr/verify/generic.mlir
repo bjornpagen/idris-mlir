@@ -74,7 +74,7 @@ func.func @f(%v: i64) {
 // -----
 
 func.func @f(%v: i64) {
-  // expected-error @+1 {{region #0 is empty}}
+  // expected-error @+1 {{expects a non-empty block}}
   "idr.match_lit"(%v) <{cases = [0]}> ({
   ^bb0:
   }, {

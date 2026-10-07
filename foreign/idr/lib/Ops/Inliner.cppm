@@ -10,9 +10,7 @@ using namespace idr;
 
 namespace {
 
-// Every idr op may be inlined anywhere. (No function body ends in
-// ub.unreachable, which the inliner cannot handle: PINS.md:
-// inline-unreachable.)
+// Every idr op may be inlined anywhere.
 struct IdrInliner : DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
   bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }

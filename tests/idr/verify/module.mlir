@@ -134,9 +134,9 @@ module attributes {idr.program} {
 
 // -----
 
-// No function body ends in ub.unreachable, which the pinned inliner cannot
-// inline: a body that never returns returns poison, which is never
-// reached. A match region may end in ub.unreachable.
+// A body that never returns ends in ub.unreachable, as a match region that
+// crashes does: after a match none of whose regions returns, or after a
+// crash.
 module attributes {idr.program} {
   func.func private @never(%x: i64) -> i64 {
     idr.match_lit %x : i64 -> () {
@@ -149,12 +149,10 @@ module attributes {idr.program} {
       ub.unreachable
     }
     }
-    %p = ub.poison : i64
-    return %p : i64
+    ub.unreachable
   }
   func.func private @crashes() -> i64 {
     idr.crash "no"
-    // expected-error @+1 {{ends the body of @crashes, where a body that never returns returns poison}}
     ub.unreachable
   }
   func.func @a() -> i64 {

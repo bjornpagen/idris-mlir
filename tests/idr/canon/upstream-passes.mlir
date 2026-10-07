@@ -1,11 +1,12 @@
 // RUN: idris-mlir-opt %s -split-input-file --remove-dead-values | FileCheck %s --check-prefix=RDV
 // RUN: idris-mlir-opt %s -split-input-file --inline | FileCheck %s --check-prefix=INLINE
 // Upstream's remove-dead-values and inline work on matches and closures. A
-// function whose body is a crash returns ub.poison after it,
-// so the inliner inlines it: it cannot inline a body that ends in
-// ub.unreachable (upstream/inline-unreachable-terminator). Every private
-// function here has a caller: remove-dead-values at the pin erases the
-// arguments of a function it finds unreachable but keeps their uses
+// function whose body is a crash ends in ub.unreachable after it; the
+// inliner inlines it into a function body, the block after the call
+// following in a block that nothing reaches, but not into a match region,
+// which is one block (SingleBlock). Every private function here has a
+// caller: remove-dead-values at the pin erases the arguments of a function
+// it finds unreachable but keeps their uses
 // (upstream/remove-dead-values-unreachable), which idr-prune prevents in the
 // pipeline.
 
@@ -21,8 +22,7 @@ module attributes {idr.program} {
   }
   func.func private @fail(%x: i64) -> i64 {
     idr.crash "unhandled input for fail"
-    %never = ub.poison : i64
-    return %never : i64
+    ub.unreachable
   }
   // RDV-LABEL: func.func private @get(
   // RDV-SAME: %{{.*}}: !idr.data<@Maybe>, %[[D:.*]]: i64) -> i64 {
@@ -64,14 +64,17 @@ module attributes {idr.program} {
 module {
   func.func private @fail(%x: i64) -> i64 {
     idr.crash "unhandled input for fail"
-    %never = ub.poison : i64
-    return %never : i64
+    ub.unreachable
   }
   // INLINE-LABEL: func.func @crash_inlined
   // INLINE: idr.match_lit
   // INLINE: default {
-  // INLINE-NEXT: idr.crash "unhandled input for fail"
+  // INLINE-NEXT: call @fail(
   // INLINE-NEXT: idr.yield %{{.*}} : i64
+  // INLINE-LABEL: func.func @crash_in_body
+  // INLINE-NEXT: idr.crash "unhandled input for fail"
+  // INLINE-NEXT: ub.unreachable
+  // INLINE-NEXT: }
   // RDV-LABEL: func.func @crash_inlined
   // RDV: default {
   // RDV-NEXT: call @fail()
@@ -85,6 +88,12 @@ module {
       idr.yield %f : i64
     }
     }
+    return %r : i64
+  }
+  func.func @crash_in_body(%x: i64) -> i64 {
+    %f = func.call @fail(%x) : (i64) -> i64
+    %c1 = arith.constant 1 : i64
+    %r = arith.addi %f, %c1 : i64
     return %r : i64
   }
 }

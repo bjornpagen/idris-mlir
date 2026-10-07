@@ -10,13 +10,11 @@ using namespace idr;
 export namespace idr::ops {
 
 // Every region ends in idr.yield with the match's result types, or in
-// ub.unreachable after a crash.
+// ub.unreachable after a crash. Each region is one block that is not empty
+// (SingleBlock), so it has an op to end in.
 LogicalResult verifyMatchRegions(Operation *op) {
   for (auto [index, region] : llvm::enumerate(op->getRegions())) {
-    Block &block = region.front();
-    if (block.empty())
-      return op->emitOpError("region #") << index << " is empty";
-    Operation *terminator = &block.back();
+    Operation *terminator = &region.front().back();
     if (isa<ub::UnreachableOp>(terminator))
       continue;
     auto yield = dyn_cast<YieldOp>(terminator);

@@ -89,8 +89,8 @@ which the top-level CMake configure gate reads.
   pull request #208881): the pass gives the remaining uses of a dead
   argument `ub.poison`. Until the toolchain is rebuilt with it, `idr-prune`
   runs before `remove-dead-values` and empties,
-  with the same analyses, every block they prove unreachable: a match
-  region ends in `ub.unreachable`, a function returns poison. `symbol-dce`
+  with the same analyses, every block they prove unreachable: it ends in
+  `ub.unreachable`. `symbol-dce`
   runs between them, since emptying code can leave a function nothing
   refers to, which the analysis would find unreachable in turn. Whether
   `idr-prune` stays as an optimization once it is no longer needed is
@@ -141,21 +141,17 @@ which the top-level CMake configure gate reads.
   `ub.unreachable`: the `ub` dialect's inliner interface does not implement
   it, and no hook of ours sees that terminator. The inliner's region
   patterns likewise skip a region that ends in `ub.unreachable`
-- sites: compiler/src/IdrisMLIR/Emit/Bodies.idr (`epilogue`),
-  foreign/idr/lib/Simplify/ReturnNever.cppm (`idr::simplify::returnNever`,
-  which foreign/idr/lib/Simplify/Prune.cppm and
-  foreign/idr/lib/Tail/WhileDo.cppm use),
-  foreign/idr/lib/Verify/Program.cppm (the program's verifier)
-- workaround: `upstream/inline-unreachable-terminator/llvm.patch`
-  (drafted): the inliner inlines a block that ends in a terminator that
-  does not return as a block of its own, and the `ub` dialect keeps
-  `ub.unreachable` as its end. Until the toolchain is rebuilt with it, no
-  function body ends in `ub.unreachable`: one that never
-  returns (a crash, a body Idris proved impossible, a match none of whose
-  regions returns) returns `ub.poison` instead, which is never reached; the
-  program's verifier refuses a body that ends in `ub.unreachable`, after
-  every pass. A match region that crashes still ends in `ub.unreachable`
-  and stays a region, which the lowering lowers
+- sites: none in our code; the patch. A body that never returns (a crash,
+  a body Idris proved impossible, a match none of whose regions returns)
+  ends in `ub.unreachable`, as Emit writes it and idr-prune, idr-tail-loops
+  and the match canonicalization leave it. The match ops and the array
+  loops declare `SingleBlock`, which the inliner reads: it inlines such a
+  callee into a function body, and leaves a call of it in a match region a
+  call, since the block after it would be a second block of the region
+- workaround: `upstream/inline-unreachable-terminator/llvm.patch`: the
+  inliner inlines a block that ends in a terminator that does not return
+  as a block of its own, and the `ub` dialect keeps `ub.unreachable` as its
+  end
 - retire: drop the patch when the pin's inliner handles `ub.unreachable`
 - upstream: upstream/inline-unreachable-terminator (not yet filed); plan in
   its README: an issue and a pull request citing #206083

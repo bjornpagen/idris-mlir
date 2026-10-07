@@ -493,7 +493,7 @@ def Idr_DestWriteOp : Idr_Op<"dest.write", [
 // Region i < cases.size() is the case cases[i]; one more region is the default.
 class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
     : Idr_Op<mnemonic, !listconcat(traits, [RecursiveMemoryEffects,
-        RecursivelySpeculatable,
+        RecursivelySpeculatable, SingleBlock,
         DeclareOpInterfaceMethods<RegionBranchOpInterface,
             ["getEntrySuccessorRegions", "getRegionInvocationBounds",
              "getSuccessorInputs"]>])> {
@@ -1327,7 +1327,7 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 // moves in as array.new's does. A negative size, the least included, is an
 // empty array, and the array's shape is known from its size, as
 // array.new's.
-def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects,
+def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects, SingleBlock,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the body's value at each index";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
@@ -1346,7 +1346,7 @@ def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects,
 // accumulator (`init` first, which moves in), the element (as array.get
 // gives it) and the index (an i64), and yields the next accumulator; the
 // result is the last.
-def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects]> {
+def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects, SingleBlock]> {
   let summary = "an array folded from the left in index order";
   let arguments = (ins Idr_ArrayValue:$array, AnyType:$init, Idr_WorldType:$world);
   let results = (outs AnyType:$result, Idr_WorldType:$next);

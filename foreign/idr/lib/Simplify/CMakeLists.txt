@@ -8,7 +8,6 @@ idr_library(idr_simplify
 		Breakers.cppm
 		Contify.cppm
 		Prune.cppm
-		ReturnNever.cppm
 		Round.cppm
 		Structural.cppm
 		Trace.cppm

@@ -1,10 +1,7 @@
 // input: emitted
 // A body that cannot return: impossible alternatives are left out, and no
-// value of the result type is invented; the body returns ub.poison, which
-// is never reached (a function body never ends in ub.unreachable, which
-// the pinned inliner cannot inline). It never runs.
+// value of the result type is invented; the body is ub.unreachable alone.
+// It never runs.
 // CHECK-LABEL: func.func {{.*}}@Prog.never(
-// CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
-// CHECK: %[[P:[^ ]+]] = ub.poison : i64
-// CHECK-NOT: {{idr\.match|constant|ub\.unreachable|func\.func}}
-// CHECK: return %[[P]] : i64
+// CHECK-NEXT: ub.unreachable
+// CHECK-NEXT: }

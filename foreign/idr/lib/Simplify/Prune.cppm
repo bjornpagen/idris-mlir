@@ -8,40 +8,26 @@
 // but keeps the ops that use them, and then crashes on their null operands.
 // So idr-prune, with dead-code analysis and constant propagation loaded as
 // remove-dead-values loads them, empties every unreachable function body
-// and match region: a match region ends in `ub.unreachable`, and a function
-// body returns `ub.poison` (returnNever).
+// and match region: it ends in `ub.unreachable`.
 // Nothing reachable changes, so the program means what it meant.
 export module idr.simplify:prune;
 
 import idr.mlir;
 import idr.dialect;
 
-import :returnNever;
-
 using namespace mlir;
 using namespace mlir::dataflow;
 
 namespace {
 
-// Whether `block` is empty already: nothing but `ub.unreachable`, or a
-// function body that returns only poison.
-bool isEmptied(Block &block) {
-  Operation *terminator = block.getTerminator();
-  if (isa<ub::UnreachableOp>(terminator))
-    return &block.front() == terminator;
-  return isa<func::ReturnOp>(terminator) &&
-         llvm::all_of(block.without_terminator(), llvm::IsaPred<ub::PoisonOp>);
-}
+// Whether `block` is empty already: nothing but `ub.unreachable`.
+bool isEmptied(Block &block) { return isa<ub::UnreachableOp>(block.front()); }
 
 void empty(Block &block) {
   while (!block.empty())
     block.back().erase();
-  Operation *parent = block.getParentOp();
   OpBuilder b = OpBuilder::atBlockEnd(&block);
-  if (auto fn = dyn_cast<func::FuncOp>(parent))
-    idr::simplify::returnNever(b, parent->getLoc(), fn);
-  else
-    ub::UnreachableOp::create(b, parent->getLoc());
+  ub::UnreachableOp::create(b, block.getParentOp()->getLoc());
 }
 
 } // namespace

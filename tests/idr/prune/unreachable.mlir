@@ -1,13 +1,12 @@
 // RUN: idris-mlir-opt %s --idr-prune | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-prune --symbol-dce --remove-dead-values | FileCheck %s --check-prefix=RDV
 // The match region that the constant 1 rules out, and @g, which only that
-// region calls, are unreachable: idr-prune ends the region in
-// ub.unreachable and makes @g return poison. remove-dead-values then keeps
-// the module valid (upstream/remove-dead-values-unreachable), and the dead
-// region and @g are gone.
+// region calls, are unreachable: idr-prune ends the region and the body of
+// @g in ub.unreachable. remove-dead-values then keeps the module valid
+// (upstream/remove-dead-values-unreachable), and the dead region and @g
+// are gone.
 // CHECK-LABEL: func.func private @g(
-// CHECK-NEXT: %[[P:.*]] = ub.poison : i64
-// CHECK-NEXT: return %[[P]] : i64
+// CHECK-NEXT: ub.unreachable
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: case 0 {
 // CHECK-NEXT: ub.unreachable

@@ -9,7 +9,6 @@ export module idr.tail:whileDo;
 
 import idr.mlir;
 import idr.dialect;
-import idr.simplify;
 
 import :decision;
 
@@ -285,7 +284,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
     func::ReturnOp::create(b, result.getLoc(), result.getResults());
   } else {
     // A region that crashes: the function never returns there.
-    idr::simplify::returnNever(b, exit->getLoc(), fn);
+    ub::UnreachableOp::create(b, exit->getLoc());
   }
   exit->erase();
   match->erase();

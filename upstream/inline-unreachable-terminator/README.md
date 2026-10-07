@@ -67,13 +67,19 @@ for part 1 of the fix, which covers both.
 
 ## Our workaround
 
-`PINS.md`: `inline-unreachable`. No function body the compiler writes ends
-in `ub.unreachable`: `Emit` (`epilogue` in
-`compiler/src/IdrisMLIR/Emit/Bodies.idr`), `idr-prune` and `idr-tail-loops`
-end a body that never returns with `ub.poison` and `func.return`, which is
-never reached, and the program's verifier refuses a body that ends in
-`ub.unreachable`. `ub.unreachable` appears only at the end of match
-regions, which the inliner does not see as callees.
+None: the patch below is carried, and a function body that never returns
+ends in `ub.unreachable`, as a match region that crashes does. Before the
+patch, `Emit` (`epilogue` in `compiler/src/IdrisMLIR/Emit/Bodies.idr`),
+`idr-prune` and `idr-tail-loops` ended such a body with `ub.poison` and
+`func.return`, never reached, and the program's verifier refused a body
+that ended in `ub.unreachable`.
+
+The inliner's test of whether the caller's region may take a second block
+reads the `SingleBlock` trait alone (it says so: it does not account for
+`SizedRegion`). The idr dialect's match ops and array loops have one block
+per region (`SizedRegion<1>`) and now declare `SingleBlock` too, so that a
+call of a function that never returns, in such a region, stays a call
+instead of leaving the region two blocks.
 
 ## Patch
 

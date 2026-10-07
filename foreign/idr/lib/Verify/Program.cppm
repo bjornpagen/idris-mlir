@@ -13,10 +13,9 @@ using namespace idr;
 export namespace idr::verify {
 
 // One root, the only public function, of type () -> i64 or
-// (!idr.world) -> (...); no function body ending in ub.unreachable; every
-// attribute read by someone; every sum or box type naming a declaration of
-// its kind; containment through unboxed sums acyclic; and the linearity of
-// every function. Runs before the ops inside the module are verified, so it
+// (!idr.world) -> (...); every attribute read by someone; every sum or box
+// type naming a declaration of its kind; containment through unboxed sums
+// acyclic; and the linearity of every function. Runs before the ops inside the module are verified, so it
 // assumes nothing that their verifiers check.
 LogicalResult program(ModuleOp module) {
   // One root, which is the only public function, of one of the two kinds.
@@ -36,16 +35,6 @@ LogicalResult program(ModuleOp module) {
     return roots.front().emitOpError("is the root, so its type must be () -> i64 or "
                                      "(!idr.world) -> (...), not ")
            << root;
-
-  // No function body ends in ub.unreachable, which the pinned inliner
-  // cannot inline: a body that never returns returns poison, which is never
-  // reached (returnNever). A match region may end in it.
-  // PIN(inline-unreachable) — see PINS.md
-  for (auto fn : module.getOps<func::FuncOp>())
-    for (Block &block : fn.getBody())
-      if (!block.empty() && isa<ub::UnreachableOp>(block.back()))
-        return block.back().emitOpError("ends the body of @")
-               << fn.getSymName() << ", where a body that never returns returns poison";
 
   // Every attribute in the program is read by someone: an inherent one by
   // its op, a discardable one by its dialect or by one of our tools.
