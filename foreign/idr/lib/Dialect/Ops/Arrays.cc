@@ -219,9 +219,13 @@ bool ArrayFoldOp::areTypesCompatible(Type lhs, Type rhs) {
 
 // A generate stores the yielded word in the new array. Forwarding it would
 // invent an SSA edge the loop does not have. A fold's yield is the next
-// accumulator, and a match's yield is the match's results.
-MutableOperandRange YieldOp::getMutableSuccessorOperands(RegionSuccessor) {
-  if (isa<ArrayGenerateOp>((*this)->getParentOp()))
+// accumulator, and a match's yield is the match's results. The successor
+// says which: inlining a match moves this terminator into the enclosing
+// block before asking what it forwards, and that block may be a generate.
+MutableOperandRange YieldOp::getMutableSuccessorOperands(RegionSuccessor successor) {
+  Operation *target = successor.isOperation() ? successor.getSuccessorOp()
+                                              : successor.getSuccessor()->getParentOp();
+  if (isa_and_nonnull<ArrayGenerateOp>(target))
     return MutableOperandRange(*this, /*start=*/0, /*length=*/0);
   return MutableOperandRange(*this);
 }
