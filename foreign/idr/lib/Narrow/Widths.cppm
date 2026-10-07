@@ -5,7 +5,6 @@ export module idr.narrow:widths;
 import idr.mlir;
 
 using namespace mlir;
-using namespace mlir::dataflow;
 
 namespace idr::narrow {
 
@@ -53,15 +52,6 @@ bool testable(Value value) {
 // Whether a word of `range` fits a signed 32-bit one.
 bool fits32(const ConstantIntRanges &range) {
   return range.smin().getSignificantBits() <= 32 && range.smax().getSignificantBits() <= 32;
-}
-
-// The range `solver` gives `value`; none where it gives none, as in code
-// the analysis never reached.
-std::optional<ConstantIntRanges> rangeOf(DataFlowSolver &solver, Value value) {
-  auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
-  if (!state || state->getValue().isUninitialized())
-    return std::nullopt;
-  return state->getValue().getValue();
 }
 
 // What `op` computes on: whether on integers wider than 32 bits (an

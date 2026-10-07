@@ -49,4 +49,15 @@ export LogicalResult runSolver(DataFlowSolver &solver, Operation *root) {
   return solver.initializeAndRun(root);
 }
 
+// The range the solver recorded for `value`; none where the analysis never
+// reached it, which proves nothing. The one read of the lattice: idr-narrow
+// turns it into the bounds of a big, idr-narrow-lanes tests whether it fits
+// 32 bits, and idr-in-bounds takes it as the range of a word.
+export std::optional<ConstantIntRanges> rangeOf(DataFlowSolver &solver, Value value) {
+  auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
+  if (!state || state->getValue().isUninitialized())
+    return std::nullopt;
+  return state->getValue().getValue();
+}
+
 } // namespace idr::narrow

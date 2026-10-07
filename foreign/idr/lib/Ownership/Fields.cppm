@@ -6,15 +6,21 @@ export module idr.ownership:fields;
 import idr.mlir;
 import idr.dialect;
 
+import :usersin;
+
 using namespace mlir;
 
 namespace idr::ownership {
 
 // Whether `use` is at `at` in `block` or after it, itself or inside an op
-// there: where a take placed at `at` has already run.
+// there: where a take placed at `at` has already run. heldIn answers
+// "strictly after an op", so the op before `at` (anywhere, when `at` is
+// the block's start).
 bool fromPoint(Block &block, Block::iterator at, OpOperand &use) {
-  Operation *top = block.findAncestorOpInBlock(*use.getOwner());
-  return top && at != block.end() && !top->isBeforeInBlock(&*at);
+  if (at == block.end())
+    return false;
+  Operation *after = at == block.begin() ? nullptr : &*std::prev(at);
+  return heldIn(block, use, after);
 }
 
 // The fields of `box`, built by `ctor`, that a take of it gives: the

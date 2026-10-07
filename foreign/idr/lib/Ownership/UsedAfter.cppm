@@ -4,6 +4,7 @@ export module idr.ownership:usedafter;
 import idr.mlir;
 
 import :arrayloop;
+import :usersin;
 
 using namespace mlir;
 
@@ -18,11 +19,10 @@ export bool usedAfter(Value value, Operation *op) {
     Block *block = at->getBlock();
     if (!block)
       return false;
-    for (Operation *user : value.getUsers()) {
-      Operation *top = block->findAncestorOpInBlock(*user);
-      if (top && at->isBeforeInBlock(top))
-        return true;
-    }
+    // A use later in this block, or inside an op that is: the uses usersIn
+    // lists after `at`.
+    if (!usersIn(value, *block, at).empty())
+      return true;
     if (block == home || isa<func::FuncOp>(block->getParentOp()))
       return false;
     // The body of a loop runs again: the next iteration uses the value.

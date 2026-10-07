@@ -9,6 +9,7 @@ import idr.dialect;
 import :borrowed;
 import :counting;
 import :readfrom;
+import :regions;
 import :isstatic;
 import :usedafter;
 
@@ -59,10 +60,11 @@ private:
     case Class::Static:
       return true;
     case Class::Owned:
+      // Used again after `op`, or inside a region of it: a match uses its
+      // scrutinee as it starts, so a use in one of its regions keeps it
+      // alive there too. usedIn is what counting asks of a region.
       return usedAfter(value, op) ||
-             (op->getNumRegions() != 0 && llvm::any_of(value.getUsers(), [&](Operation *user) {
-                return op->isProperAncestor(user);
-              }));
+             llvm::any_of(op->getRegions(), [&](Region &region) { return usedIn(value, region); });
     case Class::Borrowed:
       break;
     }

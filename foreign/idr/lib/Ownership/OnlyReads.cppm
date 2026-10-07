@@ -5,6 +5,8 @@ export module idr.ownership:onlyreads;
 import idr.mlir;
 import idr.dialect;
 
+import :usersin;
+
 using namespace mlir;
 
 namespace idr::ownership {
@@ -25,13 +27,17 @@ export FieldOp onlyReads(Value box) {
       first = read;
   }
   // Every use is in the first read's block, at it or after it: from there
-  // on the constructor is known.
+  // on the constructor is known. The uses in the block are usersIn's; one
+  // before the first read makes that list longer than the uses at the
+  // first read or after it, and a use outside the block is in neither.
   Block *block = first->getBlock();
-  for (Operation *user : box.getUsers()) {
-    Operation *top = block->findAncestorOpInBlock(*user);
-    if (!top || top->isBeforeInBlock(first))
-      return nullptr;
-  }
+  Operation *before = first->getPrevNode();
+  if (usersIn(box, *block, before).size() != usersIn(box, *block, nullptr).size())
+    return nullptr;
+  if (llvm::any_of(box.getUsers(), [&](Operation *user) {
+        return !block->findAncestorOpInBlock(*user);
+      }))
+    return nullptr;
   return first;
 }
 

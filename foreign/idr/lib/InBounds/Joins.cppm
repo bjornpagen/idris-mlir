@@ -88,14 +88,15 @@ export std::optional<unsigned> positionIn(ValueRange inputs, Value value) {
 
 namespace {
 
-// What every predecessor of `successor` gives the input at `position`.
+// What every predecessor of `successor` gives the input at `position`, in
+// predecessor order. Two values bound at one join line up place by place,
+// and that order is the one the interface walks. The inverse successor
+// mapping lists the same operands, in the hash order of the operands, which
+// would pair a size with another place's array.
 SmallVector<Value> forwarded(RegionBranchOpInterface branch, RegionSuccessor successor,
                              unsigned position) {
-  SmallVector<RegionBranchPoint> points;
-  branch.getPredecessors(successor, points);
   SmallVector<Value> values;
-  for (RegionBranchPoint point : points)
-    values.push_back(branch.getSuccessorOperands(point, successor)[position]);
+  branch.getPredecessorValues(successor, static_cast<int>(position), values);
   return values;
 }
 
