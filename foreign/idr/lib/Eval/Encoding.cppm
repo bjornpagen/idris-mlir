@@ -36,15 +36,21 @@ export namespace idr::eval {
 // bytecode of a flat table of their distinct parts, each part after the
 // parts it holds, which it names by position. A constructor or closure
 // part is [its constructor or function, the positions of its fields or
-// captures]; any other part is the constant itself. The table is as deep
-// as one part whatever the depth of the results, so it is read in time
-// linear in its size, and a part shared by many is in it once.
+// captures]; any other part is the constant itself.
+//
+// The table stays because it keeps sharing. Bytecode writes an idr.con by
+// its assembly, and that text repeats a shared part at every use: a tree
+// of 21 distinct constructors, each the two-fold parent of the one below,
+// is 44 MB and takes 6.5 s to read back, where the same tree named by
+// position is those 21 parts. The reader's deferred entries are linear
+// with the carried patch, and a chain, which shares nothing, already is;
+// the table is what stores a shared part once. The walk below is a stack
+// because a result is as deep as the data it is (a list of a million
+// elements).
 std::expected<std::string, std::string> encodeResults(ArrayRef<Attribute> values,
                                                      MLIRContext *ctx) {
   llvm::DenseMap<Attribute, int64_t> position;
   SmallVector<Attribute> table;
-  // Each part after its own parts, by a walk with an explicit stack, since
-  // a result is as deep as the data it is (a list of a million elements).
   struct Visit {
     Attribute value;
     bool expanded;

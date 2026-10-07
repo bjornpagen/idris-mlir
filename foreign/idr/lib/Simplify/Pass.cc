@@ -8,8 +8,12 @@
 // user error `unsupported (compile-time budget)`, not a hang.
 //
 // PIN(simplify-structural-fixpoint) — see PINS.md
-// "Unchanged" is structural() (Structural.cppm), not OperationFingerPrint,
-// which no two rounds share.
+// "Unchanged" is structural() (Structural.cppm), not OperationFingerPrint.
+// sccp keeps the constants the module already holds, so a round of it alone
+// keeps the fingerprint. remove-dead-values does not: it rebuilds every
+// call of a private function even when no result of that call is dead, and
+// the new call has a new address. A round at the structural fixpoint
+// therefore still has a new fingerprint.
 //
 // The round's passes run in the loop's own pipeline, whose statistics the
 // pass manager never prints: the loop shows them as its own. After each
