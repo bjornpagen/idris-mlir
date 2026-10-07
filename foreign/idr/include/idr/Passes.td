@@ -262,6 +262,28 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrAccumulate : Pass<"idr-accumulate", "::mlir::ModuleOp"> {
+  let summary = "Make a recursion that adds its own result a tail call with an accumulator";
+  let description = [{
+    A self call whose result a tail position adds (an `idr.big.add` of the
+    call and a value the call does not compute) becomes a tail call. The
+    function keeps its signature and calls a clone with zero, addition's
+    identity; the clone carries the sum so far, adds before it calls
+    itself, and adds that sum to whatever another tail would have returned.
+    Addition associates and commutes, so the sum on the way down is the sum
+    on the way back. idr-tail-loops then makes the clone a loop. A self call
+    in any other position, or added to another self call, stays a call of
+    the function.
+
+    Runs before idr-rc. Counting borrows the call's result and drops it
+    after the addition, and the call is then no longer what the tail adds.
+  }];
+  let statistics = [
+    Statistic<"numFunctions", "functions", "Functions given an accumulator clone">,
+    Statistic<"numTails", "tails", "Additions of a self call that became the carried sum">,
+  ];
+}
+
 def IdrTrmc : Pass<"idr-trmc", "::mlir::ModuleOp"> {
   let summary = "Make a recursion that returns a constructor around its own result a tail call with a destination";
   let description = [{
