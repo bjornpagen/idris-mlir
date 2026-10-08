@@ -72,59 +72,86 @@ already uses for a result of an operation it deletes.
 ## Cause
 
 `RunLivenessAnalysis` runs with dead-code analysis, so it never visits code
-that analysis finds unreachable. A value there has no liveness state and is
-marked dead (`mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp:233` for a
-result, `:243` for a block argument: "has no liveness info, mark dead").
+that analysis finds unreachable. Since #153973 it then gives every value
+there a state that says dead
+(`mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp:233` for a result, `:243`
+for a block argument).
 
-`processFuncOp` (`mlir/lib/Transforms/RemoveDeadValues.cpp:271`) then marks
-a private function's arguments non-live when that state is missing
-(`markLives` at `:292-293`, recorded at `:298`). The cleanup drops every
-use (`:645`) and erases the arguments (`eraseArguments`, `:649`). The
-operations that used them are not in the cleanup list, because the
-analysis never looked at them either, so they keep null operands.
+The pass walks every op, unreachable or not, and erases most of what uses a
+dead value: a simple op with a dead operand goes (`processSimpleOp`,
+`RemoveDeadValues.cpp:230`), and its results' uses take `ub.poison` when it
+is erased (`:745-755`). Two kinds of op stay: a call (the walk skips every
+`CallOpInterface` op, `:807`, and its operands change only when its callee's
+arguments go) and a region branch op with side effects whose dead operand
+is not forwarded to a region (the bounds of `scf.for`, `affine.for`).
 
-The cleanup drops uses the same way for a dead block argument
-(`RemoveDeadValues.cpp:597`, then `eraseArgument`) and for a dead result
-(`dropUsesAndEraseResults` at `:201`, the drop at `:207`, called from the
-result cleanup at `:721`). A use in code the analysis never reached is left
-null. That includes the result of a call whose callee's result goes, used
-again from a call in that code.
+Three cleanups drop the uses of the value they erase instead of poisoning
+them: a dead function argument (`:645`, before `eraseArguments` at `:649`),
+a dead block argument (`:597`, before `eraseArgument`), and a dead result
+(`dropUsesAndEraseResults`, `:201`, the drop at `:207`, called at `:721`). A
+use by one of the ops above is left null. The three ways in:
+
+- a private function nothing live calls, or whose only call is in a region
+  a constant rules out: all its arguments are dead (`processFuncOp`,
+  `:271`, `markLives` at `:292`);
+- a block argument whose only use is in such a region;
+- a callee result dead at every call the analysis visits: `processFuncOp`
+  erases it from every call (`:360-363`), including a call in such a region
+  whose result is used there.
 
 ## Patch
 
-`llvm.patch` is the open pull request #208881, unchanged, plus the same
-replacement at the two other drops. #208881 replaces each dead function
-argument's remaining uses with `ub.poison` instead of calling
-`dropAllUses`. The patch does that for a dead block argument and for a
-dead result as well, through `createPoisonedValue`
-(`RemoveDeadValues.cpp:521`), which is what the operand cleanup already
-uses. It appends six modules to `mlir/test/Transforms/remove-dead-values.mlir`:
+`llvm.patch` is the open pull request #208881, unchanged, plus a follow-up
+on top of it.
 
-- `@unreachable_func_with_for_loops`, the test #208881 already has
-- `@call_in_dead_region`, from `unreachable.mlir`
-- `@uncalled`, from `uncalled.mlir`
-- `@address_taken_callee`, the reproducer of
-  `remove-dead-values-address-taken` (an extra test of the function-argument
-  change, for this same pull request)
-- `@dead_result_used_in_unreachable_code`, from `dead-result.mlir`
-- `@dead_block_argument_used_in_unreachable_code`, from `dead-block-arg.mlir`
+Pull request #208881 replaces the remaining uses of each dead function
+argument with `ub.poison` instead of calling `dropAllUses`, and adds
+`@unreachable_func_with_for_loops` (#206920).
 
-The patch does not yet leave an unchanged call as it is. The cleanup asks
-`eraseOpResults` for every call of a private function that returns a value,
-and `eraseOpResults` builds a new operation even when the set of results to
-erase is empty (`dropUsesAndEraseResults`). The module prints the same and
-the new call has a new address, so `OperationFingerPrint` changes. The next
-toolchain build adds, at the start of `dropUsesAndEraseResults`, a return
-when that set is empty. Until that build, `idr-dead-values` runs the pass
-on a copy and keeps the module when the copy still hashes the same
-(`foreign/idr/lib/Simplify/DeadValues.cppm`).
+The follow-up makes that the only way the pass retires a value: one helper,
+`replaceUsesWithPoison`, puts a `ub.poison` at the value's definition (the
+start of the block for an argument, before the op for a result) and
+replaces every use with it, and does nothing for an unused value. The
+function-argument cleanup, the block-argument cleanup, the result cleanup
+(`dropUsesAndEraseResults`, renamed `poisonUsesAndEraseResults`) and the
+erasure of whole ops all call it; `createPoisonedValue` moves up so the
+helper can use it, and the pass has no `dropAllUses` left. Poison that ends
+up unused is already removed at the end of the cleanup.
 
-Built into the pinned toolchain, the test cases it adds pass with its
-`mlir-opt`, under both prefixes, and it leaves the output of every other
-case of the file as it was (the rest of the file uses the test dialect,
-which the pinned build does not have, so FileCheck cannot run all of it).
-`tests/upstream/remove-dead-values-unreachable` checks the reproducers in
-this directory.
+Tests appended to `mlir/test/Transforms/remove-dead-values.mlir`, each with
+the same `CHECK` and `CHECK-CANONICALIZE` lines:
+
+- `@unreachable_func_with_for_loops`, #208881's own;
+- `@call_in_dead_region`, from `unreachable.mlir` (a call left in a
+  function only a dead region calls); fixed by #208881;
+- `@address_taken_callee`, the module of
+  `remove-dead-values-address-taken`, exactly as that directory posts it;
+  fixed by #208881;
+- `@dead_result_used_in_unreachable_code`, from `dead-result.mlir`; fixed
+  by the follow-up;
+- `@dead_block_argument_used_in_unreachable_code`, from
+  `dead-block-arg.mlir`; fixed by the follow-up.
+
+`uncalled.mlir` is the case #208881's own test already covers, so it has no
+module of its own upstream; `tests/upstream/remove-dead-values-unreachable`
+still checks it.
+
+Checked against llvmorg-23.1.2 with `mlir-opt` binaries linked from the
+pinned libraries plus the patched `RemoveDeadValues.cpp`: each new module
+passes FileCheck under both prefixes with the full patch; with #208881
+alone the first three pass and the last two fail with `null operand found`;
+the pinned `mlir-opt` fails all five. Every module that was already in the
+file produces byte-identical output with and without the patch (the ones
+using the test dialect cannot be parsed by that build, under either). The
+changed lines are clang-formatted.
+
+The patch still rebuilds a call whose result set to erase is empty: the
+cleanup lists every call of a private function that returns a value, and
+`eraseOpResults` builds a new op even for an empty set. The module prints
+the same, but `OperationFingerPrint` changes, so `idr-dead-values` runs the
+pass on a copy and keeps the module when the copy still hashes the same
+(`foreign/idr/lib/Simplify/DeadValues.cppm`). That is a separate change,
+not in this patch.
 
 ## Workaround
 
@@ -138,29 +165,23 @@ ended in `ub.unreachable`, so that a match whose taken region crashes was
 seen never to complete) the match canonicalization now decides from the
 region the constant selects.
 
-The patch is dropped when the pin includes #208881 and the same
-`ub.poison` replacement for a dead block argument and a dead result. The
-early return in `dropUsesAndEraseResults`, when the set to erase is empty,
-is a later local change; `idr-dead-values` stops re-running the pass on a
-copy once that return is in the toolchain.
+The patch is dropped when the pin includes #208881 and the follow-up.
+`idr-dead-values` keeps running the pass on a copy until `remove-dead-values`
+leaves a call with nothing to erase as it is.
 
 ## Upstreaming plan
 
 Status: file upstream.
 
-- Where: a review comment on the open pull request
-  [#208881](https://github.com/llvm/llvm-project/pull/208881), and the same
-  comment on
-  [#206920](https://github.com/llvm/llvm-project/issues/206920) and
-  [#203226](https://github.com/llvm/llvm-project/issues/203226). The text
-  is `submission.md`. The block-argument and result parts are a follow-up
-  pull request on top of #208881; its title and body are in that file too.
-  `remove-dead-values-address-taken` is the extra test for #208881, not a
-  second bug report.
-- Upstream test: the six modules `llvm.patch` adds to
-  `mlir/test/Transforms/remove-dead-values.mlir`. `@call_in_dead_region`,
-  `@uncalled` and `@address_taken_callee` belong on #208881.
+- Where: a comment on the open pull request
+  [#208881](https://github.com/llvm/llvm-project/pull/208881), and a short
+  one on [#206920](https://github.com/llvm/llvm-project/issues/206920) and
+  [#203226](https://github.com/llvm/llvm-project/issues/203226); then a
+  follow-up pull request stacked on #208881 for block arguments and
+  results. No new issue. The texts are in `submission.md`.
+  `@address_taken_callee` is posted by `remove-dead-values-address-taken`,
+  not from here.
+- Upstream test: `@call_in_dead_region` offered to #208881;
   `@dead_result_used_in_unreachable_code` and
-  `@dead_block_argument_used_in_unreachable_code` belong on the follow-up.
-- The patch is dropped when the pin includes #208881 and the `ub.poison`
-  replacement for a dead block argument and a dead result.
+  `@dead_block_argument_used_in_unreachable_code` in the follow-up.
+- The patch is dropped when the pin includes #208881 and the follow-up.

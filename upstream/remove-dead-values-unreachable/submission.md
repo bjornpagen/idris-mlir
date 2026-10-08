@@ -1,194 +1,364 @@
+Approach changed: the old patch added three inline poison loops at the three erase sites; now one helper, replaceUsesWithPoison, is the only way the pass removes a use, so no erased value can leave a null operand behind.
+
 # Submission
 
-Status: file. Review comments, and a follow-up, on the open pull request
-https://github.com/llvm/llvm-project/pull/208881, and the same comment on
-https://github.com/llvm/llvm-project/issues/206920 and
-https://github.com/llvm/llvm-project/issues/203226. Paste the comment
-below on all three. The follow-up is a new pull request for the
-block-argument and result parts; #208881 changes only the function-argument
-drop. There is no new issue.
+Status: file. Three texts, in this order: a comment on the open pull
+request https://github.com/llvm/llvm-project/pull/208881, a short comment
+on https://github.com/llvm/llvm-project/issues/206920 and
+https://github.com/llvm/llvm-project/issues/203226, and a follow-up pull
+request stacked on #208881. There is no new issue.
 
-Author the commit as Bjorn, as an individual. This work was done outside
-any employer. Do not name an employer. Do not add an Assisted-by trailer.
-Do not add Contributed-by lines in the source. Do not @mention anyone.
+Author: Bjorn, as an individual; the work was done outside any employer.
+No employer, no Assisted-by or Co-authored-by trailer, no Contributed-by
+line, no @mentions. LLVM reviews on GitHub pull requests (Phabricator is
+read-only, not Bugzilla); a pull request is one commit, squash-merged with
+the title and body below as its message.
 
-LLVM reviews this on GitHub pull requests. Phabricator is read-only. Not
-Bugzilla. Each pull request is one self-contained commit. Squash and merge,
-so the pull request title and body become the commit.
+`@address_taken_callee` is posted on #208881 by
+`remove-dead-values-address-taken`. It is not repeated here.
 
-`remove-dead-values-address-taken` is the extra test for #208881, not a
-second bug report. Its reproducer is the `@address_taken_callee` module in
-`llvm.patch` and in the comment below. Do not file an issue from that
-directory.
+Which part of `llvm.patch` is whose:
 
-## Comment
+- #208881 (jjppp's, unchanged): the hunk at `cleanUpDeadVals` step 4 that
+  replaces the uses of a dead function argument with `ub.poison`, and the
+  test module `@unreachable_func_with_for_loops`.
+- Offered to #208881 in the comment: the test module `@call_in_dead_region`.
+- From `remove-dead-values-address-taken`: the test module
+  `@address_taken_callee`.
+- The follow-up pull request: everything else, which is the diff under
+  "Follow-up pull request" below. It applies to the head of #208881 as it
+  is (both #208881's files start from the blobs at llvmorg-23.1.2:
+  `6e55bc390` and `390a44806`).
 
-Paste the following on https://github.com/llvm/llvm-project/pull/208881,
-https://github.com/llvm/llvm-project/issues/206920 and
-https://github.com/llvm/llvm-project/issues/203226.
+## Comment on #208881
 
 ----- paste -----
 
-`--remove-dead-values` drops the uses of a value it is about to erase. Liveness never visits code that dead-code analysis has ruled out, and a value with no liveness state is marked dead (`mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp:233` for a result, `:243` for a block argument). An operation in that code is not on the cleanup list, so after the drop it keeps a null operand. On llvmorg-23.1.2, `mlir-opt --remove-dead-values` then reports `null operand found`, or asserts in `matchPattern` (`mlir/include/mlir/IR/Matchers.h:491`) from the region-branch canonicalization at the end of the pass (`mlir/lib/Transforms/RemoveDeadValues.cpp:833`).
-
-https://github.com/llvm/llvm-project/pull/208881 replaces the remaining uses of a dead function argument with `ub.poison` before erasing it (`RemoveDeadValues.cpp:645`). That fixes the unreachable private function in https://github.com/llvm/llvm-project/issues/206920 and https://github.com/llvm/llvm-project/issues/203226. The pass already gives `ub.poison` to a use of a result of an operation it deletes, and a side-effecting operation in unreachable code has to stay, so poison is the right replacement there.
-
-The cleanup still drops uses in two other places, which that pull request does not change:
-
-- a dead block argument (`RemoveDeadValues.cpp:597`, then `eraseArgument`)
-- a dead result (`dropUsesAndEraseResults` at `RemoveDeadValues.cpp:201`, the drop at `:207`, called from the result cleanup at `:721`)
-
-A follow-up on top of #208881 gives those uses `ub.poison` as well.
-
-Tests for `mlir/test/Transforms/remove-dead-values.mlir`, beside `@unreachable_func_with_for_loops`, which is already on #208881. Each exits 1 with `null operand found` at llvmorg-23.1.2. After the poison replacement, the surviving call takes `ub.poison`.
-
-`@call_in_dead_region`. The only call of `@g` is under `scf.if` of a false constant, so liveness never enters `@g` and its argument is dead. This is the function-argument fix on #208881.
+The same null operand comes up in reachable functions as well, so I think poisoning the uses at the point the pass erases a value is the right fix, rather than erasing the body of an uncalled function. Since #153973, liveness marks every value in code that dead-code analysis rules out as dead. The pass keeps two kinds of ops there that may still use such a value: calls, which the walk skips, and region branch ops with side effects, whose non-forwarded operands it does not touch. Function arguments are one of three places where the cleanup calls `dropAllUses`. The other two are block arguments (step 2) and op results (`dropUsesAndEraseResults`, step 6). These fail the same way at llvmorg-23.1.2, and after this PR as well:
 
 ```mlir
 func.func private @ext(i32)
-
-func.func private @g(%x: i32) {
-  func.call @ext(%x) : (i32) -> ()
-  return
-}
-
-func.func @main(%v: i32) {
-  %false = arith.constant false
-  scf.if %false {
-    func.call @g(%v) : (i32) -> ()
-  }
-  return
-}
-```
-
-`@uncalled`. Nothing calls `@g`. Same function-argument fix.
-
-```mlir
-func.func private @ext(i32)
-
-func.func private @g(%x: i32) {
-  func.call @ext(%x) : (i32) -> ()
-  return
-}
-```
-
-`@address_taken_callee`. Another test of that same function-argument change, not a separate bug. `@ignores` is named by `func.constant`, so the pass leaves its signature alone, and it never reads its parameter. The argument `@caller` passes is dead, and `func.call @ignores` is left with a null operand. `ub.poison` for that argument keeps the call.
-
-```mlir
-func.func private @ignores(%x: i64) -> i64 {
-  %c = arith.constant 7 : i64
-  return %c : i64
-}
-
-func.func private @caller(%a: i64, %b: i64) -> i64 {
-  %t = func.call @ignores(%b) : (i64) -> i64
-  %u = arith.addi %a, %t : i64
-  return %u : i64
-}
-
-func.func @main(%a: i64) -> i64 {
-  %f = func.constant @ignores : (i64) -> i64
-  %r = func.call_indirect %f(%a) : (i64) -> i64
-  %t = func.call @caller(%r, %a) : (i64, i64) -> i64
-  return %t : i64
-}
-```
-
-`@dead_block_argument_used_in_unreachable_code`. `%a` is used only under `scf.if` of a call of `@never`, which returns false. Liveness marks `%a` dead, and `RemoveDeadValues.cpp:597` still drops that use. #208881 does not change this line. The follow-up does. On llvmorg-23.1.2 the error is `null operand found` at `func.call @ext(%a)`.
-
-```mlir
-func.func private @ext(i32)
-
 func.func private @never() -> i1 {
   %false = arith.constant false
   return %false : i1
 }
-
 func.func @main(%v: i32) {
   %no = func.call @never() : () -> i1
   cf.br ^bb1(%v : i32)
 ^bb1(%a: i32):
   scf.if %no {
-    func.call @ext(%a) : (i32) -> ()
+    func.call @ext(%a) : (i32) -> ()   // null operand found
   }
   return
 }
 ```
 
-`@dead_result_used_in_unreachable_code`. The result of `@f` is dead at the call liveness visits, so that result is removed, and the call of `@f` under the false condition keeps a null operand (`dropUsesAndEraseResults`). #208881 does not change this. The follow-up does. On llvmorg-23.1.2 the error is `null operand found` at `func.call @ext(%s)`.
-
 ```mlir
 func.func private @ext(i32)
-
 func.func private @never() -> i1 {
   %false = arith.constant false
   return %false : i1
 }
-
 func.func private @f() -> i32 {
   %c = arith.constant 1 : i32
   return %c : i32
 }
-
 func.func @main() {
   %r = func.call @f() : () -> i32
   %no = func.call @never() : () -> i1
   scf.if %no {
     %s = func.call @f() : () -> i32
-    func.call @ext(%s) : (i32) -> ()
+    func.call @ext(%s) : (i32) -> ()   // null operand found
   }
   return
 }
 ```
 
-The FileCheck modules for these five, plus `@unreachable_func_with_for_loops`, are the tests appended to `mlir/test/Transforms/remove-dead-values.mlir` in the patch carried against llvmorg-23.1.2. `@call_in_dead_region`, `@uncalled` and `@address_taken_callee` belong on #208881. `@dead_block_argument_used_in_unreachable_code` and `@dead_result_used_in_unreachable_code` belong on the follow-up.
+I'll put up a follow-up stacked on this PR. It moves the poison replacement into one helper, which all four places that erase a value use (function arguments, block arguments, op results and erased ops), so the pass has no `dropAllUses` left. Here is one more test for this PR, if you want it. The surviving user is a call rather than an `scf.for`, and `@g` does have a caller, just in a region that is never executed:
+
+```mlir
+// Verify that a call in an unreachable function keeps its operand: @g is only
+// called from a region that is never executed, so the liveness analysis does
+// not visit @g and its argument is dead. The use of the argument by the call
+// of @ext is replaced with poison.
+// CHECK-LABEL: module @call_in_dead_region
+// CHECK:         func.func private @g() {
+// CHECK-NEXT:      %[[P:.*]] = ub.poison : i32
+// CHECK-NEXT:      call @ext(%[[P]]) : (i32) -> ()
+// CHECK-CANONICALIZE-LABEL: module @call_in_dead_region
+// CHECK-CANONICALIZE:         func.func private @g() {
+// CHECK-CANONICALIZE-NEXT:      %[[P:.*]] = ub.poison : i32
+// CHECK-CANONICALIZE-NEXT:      call @ext(%[[P]]) : (i32) -> ()
+module @call_in_dead_region {
+  func.func private @ext(i32)
+  func.func private @g(%x: i32) {
+    func.call @ext(%x) : (i32) -> ()
+    return
+  }
+  func.func @main(%v: i32) {
+    %false = arith.constant false
+    scf.if %false {
+      func.call @g(%v) : (i32) -> ()
+    }
+    return
+  }
+}
+```
+
+----- end -----
+
+## Comment on #206920 and #203226
+
+Paste the same text on both.
+
+----- paste -----
+
+I checked this against llvmorg-23.1.2. The reproducer here no longer crashes with #208881 applied. The same null operand also comes from a dead block argument or a dead call result that is used only in code that is never executed. A follow-up stacked on #208881 covers those two.
 
 ----- end -----
 
 ## Follow-up pull request
 
-One commit, based on the branch of #208881. The commit is the two remaining
-drops and their two tests
-(`@dead_block_argument_used_in_unreachable_code`,
-`@dead_result_used_in_unreachable_code`). The function-argument change, and
-`@unreachable_func_with_for_loops`, `@call_in_dead_region`, `@uncalled` and
-`@address_taken_callee`, stay on #208881. Squash and merge: the title below
-is the pull request title, and the body is the pull request body. Together,
-with a blank line between them, they are the commit. The body already names
-#208881, so leave that text as it is.
+Open it after #208881 is merged, or stacked on its branch before that.
+Once it has a number, add "Follow-up: #N" to the issue comment above.
 
 ### Title
 
 ```
-[mlir] Poison remaining uses of dead block arguments and results
+[mlir] Poison remaining uses of every value remove-dead-values erases
 ```
 
 ### Body
 
 ```
-remove-dead-values drops every use of a value it erases. Liveness never
-visits code that dead-code analysis has ruled out, and a value with no
-liveness state is marked dead, so a use in that code is left null. The
-module then fails verification ("null operand found"), or the pass
-asserts in matchPattern while canonicalizing region-branch operations.
+The liveness analysis marks every value in code that it finds unreachable
+as dead, but remove-dead-values keeps some ops there that may still use
+such a value: calls, which the walk skips, and region branch ops with side
+effects, whose non-forwarded operands it does not touch. #208881 replaces
+the uses of an erased function argument with ub.poison, as the pass already
+did for the results of an erased op. The cleanup of a dead block argument
+and of a dead op result still drops the uses, and leaves such an op with a
+null operand ("null operand found"). This happens when the block argument
+is used only in a region that is never executed, or when the result of a
+call is erased because it is dead at every reachable call of the callee
+but a call in such a region still uses it.
 
-#208881 replaces the remaining uses of a dead function argument with
-ub.poison, which is what the pass already does for a result of an
-operation it deletes. Two other drops still leave a null operand.
+Add replaceUsesWithPoison, which replaces all uses of a value with a
+ub.poison created at the value's definition, and use it for every value
+the pass erases: function arguments, block arguments, op results and the
+results of erased ops. The pass no longer calls dropAllUses.
 
-A dead block argument is dropped before eraseArgument. A block argument
-whose only use is in a region the analysis does not visit (an scf.if
-whose condition is a call of a function that returns false) keeps that
-use as a null operand.
+Tests: @dead_result_used_in_unreachable_code and
+@dead_block_argument_used_in_unreachable_code in remove-dead-values.mlir.
+```
 
-A dead result is dropped in dropUsesAndEraseResults, before
-eraseOpResults. The result of a call is removed because the callee's
-result is dead at every call the analysis visits, and another call of
-that function, in code the analysis skipped, still uses it.
+### Diff
 
-Replace those uses with ub.poison before the value goes, so an operation
-the pass does not delete stays valid. Tests:
-@dead_block_argument_used_in_unreachable_code and
-@dead_result_used_in_unreachable_code in
-mlir/test/Transforms/remove-dead-values.mlir.
+This is the commit's diff against the head of #208881. It is the same
+change as the follow-up part of `llvm.patch`, without the test modules that
+belong to #208881 and to `remove-dead-values-address-taken`.
+
+```diff
+diff --git a/mlir/lib/Transforms/RemoveDeadValues.cpp b/mlir/lib/Transforms/RemoveDeadValues.cpp
+index 247c66a..4bcd97f 100644
+--- a/mlir/lib/Transforms/RemoveDeadValues.cpp
++++ b/mlir/lib/Transforms/RemoveDeadValues.cpp
+@@ -196,15 +196,38 @@ static void collectNonLiveValues(DenseSet<Value> &nonLiveSet, ValueRange range,
+   }
+ }
+ 
+-/// Drop the uses of the i-th result of `op` and then erase it iff toErase[i]
+-/// is 1.
+-static void dropUsesAndEraseResults(RewriterBase &rewriter, Operation *op,
+-                                    BitVector toErase) {
++/// Create a ub.poison op for the given value. If it has no uses, return an
++/// "empty" value.
++static Value createPoisonedValue(OpBuilder &b, Value value) {
++  if (value.use_empty())
++    return Value();
++  return ub::PoisonOp::create(b, value.getLoc(), value.getType()).getResult();
++}
++
++/// Replace all uses of `value`, which is about to be erased, with a ub.poison
++/// value. Every value that the liveness analysis does not reach is dead, so an
++/// op that this pass keeps in code that the analysis found unreachable (e.g., a
++/// call or a region branch op with side effects) may still use a value that
++/// this pass erases. Dropping such a use would leave a null operand behind.
++static void replaceUsesWithPoison(RewriterBase &rewriter, Value value) {
++  OpBuilder::InsertionGuard guard(rewriter);
++  if (Operation *defOp = value.getDefiningOp())
++    rewriter.setInsertionPoint(defOp);
++  else
++    rewriter.setInsertionPointToStart(cast<BlockArgument>(value).getOwner());
++  if (Value poison = createPoisonedValue(rewriter, value))
++    rewriter.replaceAllUsesWith(value, poison);
++}
++
++/// Replace the uses of the i-th result of `op` with poison and then erase it
++/// iff toErase[i] is 1.
++static void poisonUsesAndEraseResults(RewriterBase &rewriter, Operation *op,
++                                      BitVector toErase) {
+   assert(op->getNumResults() == toErase.size() &&
+          "expected the number of results in `op` and the size of `toErase` to "
+          "be the same");
+   for (auto idx : toErase.set_bits())
+-    op->getResult(idx).dropAllUses();
++    replaceUsesWithPoison(rewriter, op->getResult(idx));
+   rewriter.eraseOpResults(op, toErase);
+ }
+ 
+@@ -516,14 +539,6 @@ static void processBranchOp(BranchOpInterface branchOp, RunLivenessAnalysis &la,
+   }
+ }
+ 
+-/// Create a ub.poison op for the given value. If it has no uses, return an
+-/// "empty" value.
+-static Value createPoisonedValue(OpBuilder &b, Value value) {
+-  if (value.use_empty())
+-    return Value();
+-  return ub::PoisonOp::create(b, value.getLoc(), value.getType()).getResult();
+-}
+-
+ namespace {
+ /// A listener that keeps track of ub.poison ops.
+ struct TrackingListener : public RewriterBase::Listener {
+@@ -594,7 +609,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+     for (int i = b.nonLiveArgs.size() - 1; i >= 0; --i) {
+       if (!b.nonLiveArgs[i])
+         continue;
+-      b.b->getArgument(i).dropAllUses();
++      replaceUsesWithPoison(rewriter, b.b->getArgument(i));
+       b.b->eraseArgument(i);
+     }
+   }
+@@ -640,20 +655,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+       llvm::interleaveComma(f.nonLiveRets.set_bits(), os);
+       os << "]";
+     });
+-    // Replace remaining uses of the dead arguments with poison values. Simply
+-    // dropping the uses would leave null operands behind in ops that survive
+-    // the pass (e.g. a side-effecting op in an unreachable function, whose
+-    // values are initialized as dead by the liveness analysis).
+-    for (auto deadIdx : f.nonLiveArgs.set_bits()) {
+-      BlockArgument arg = f.funcOp.getArgument(deadIdx);
+-      // Avoid creating an unused poison value if there are no uses to replace.
+-      if (arg.use_empty())
+-        continue;
+-      rewriter.setInsertionPointToStart(arg.getOwner());
+-      Value poison =
+-          ub::PoisonOp::create(rewriter, arg.getLoc(), arg.getType());
+-      rewriter.replaceAllUsesWith(arg, poison);
+-    }
++    for (auto deadIdx : f.nonLiveArgs.set_bits())
++      replaceUsesWithPoison(rewriter, f.funcOp.getArgument(deadIdx));
+     // Some functions may not allow erasing arguments or results. These calls
+     // return failure in such cases without modifying the function, so it's okay
+     // to proceed.
+@@ -729,7 +732,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+          << OpWithFlags(r.op,
+                         OpPrintingFlags().skipRegions().printGenericOpForm());
+     });
+-    dropUsesAndEraseResults(rewriter, r.op, r.nonLive);
++    poisonUsesAndEraseResults(rewriter, r.op, r.nonLive);
+   }
+ 
+   // 7. Operations
+@@ -753,19 +756,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+     // it's a poison value which will be cleaned up later if it can be cleaned
+     // up. This keeps the IR valid for further simplification and
+     // canonicalization.
+-    auto opResults = op->getResults();
+-    for (Value opResult : opResults) {
+-      // Early continue for the case where the op result has no uses. No need to
+-      // create a poison op here.
+-      if (opResult.use_empty())
+-        continue;
+-
+-      rewriter.setInsertionPoint(op);
+-      Value poisonedValue = createPoisonedValue(rewriter, opResult);
+-      rewriter.replaceAllUsesWith(opResult, poisonedValue);
+-    }
+-
+-    op->dropAllUses();
++    for (Value result : op->getResults())
++      replaceUsesWithPoison(rewriter, result);
+     rewriter.eraseOp(op);
+   }
+ 
+diff --git a/mlir/test/Transforms/remove-dead-values.mlir b/mlir/test/Transforms/remove-dead-values.mlir
+index 207ce48..aa8d709 100644
+--- a/mlir/test/Transforms/remove-dead-values.mlir
++++ b/mlir/test/Transforms/remove-dead-values.mlir
+@@ -944,3 +944,71 @@ module @unreachable_func_with_for_loops {
+     return
+   }
+ }
++
++// -----
++
++// Verify that the uses of a dead result in unreachable code are replaced with
++// poison. The result of @f is dead at the only call that the liveness analysis
++// visits, so it is erased from every call of @f, including the call in the
++// region that is never executed (@never returns false).
++// CHECK-LABEL: module @dead_result_used_in_unreachable_code
++// CHECK:         scf.if
++// CHECK-NEXT:      %[[P:.*]] = ub.poison : i32
++// CHECK-NEXT:      func.call @f() : () -> ()
++// CHECK-NEXT:      func.call @ext(%[[P]]) : (i32) -> ()
++// CHECK-CANONICALIZE-LABEL: module @dead_result_used_in_unreachable_code
++// CHECK-CANONICALIZE:         scf.if
++// CHECK-CANONICALIZE-NEXT:      %[[P:.*]] = ub.poison : i32
++// CHECK-CANONICALIZE-NEXT:      func.call @f() : () -> ()
++// CHECK-CANONICALIZE-NEXT:      func.call @ext(%[[P]]) : (i32) -> ()
++module @dead_result_used_in_unreachable_code {
++  func.func private @ext(i32)
++  func.func private @never() -> i1 {
++    %false = arith.constant false
++    return %false : i1
++  }
++  func.func private @f() -> i32 {
++    %c = arith.constant 1 : i32
++    return %c : i32
++  }
++  func.func @main() {
++    %r = func.call @f() : () -> i32
++    %no = func.call @never() : () -> i1
++    scf.if %no {
++      %s = func.call @f() : () -> i32
++      func.call @ext(%s) : (i32) -> ()
++    }
++    return
++  }
++}
++
++// -----
++
++// Verify that the uses of a dead block argument in unreachable code are
++// replaced with poison. %a is only used in a region that is never executed.
++// CHECK-LABEL: module @dead_block_argument_used_in_unreachable_code
++// CHECK:         ^bb1:
++// CHECK-NEXT:      %[[P:.*]] = ub.poison : i32
++// CHECK-NEXT:      scf.if
++// CHECK-NEXT:        func.call @ext(%[[P]]) : (i32) -> ()
++// CHECK-CANONICALIZE-LABEL: module @dead_block_argument_used_in_unreachable_code
++// CHECK-CANONICALIZE:         ^bb1:
++// CHECK-CANONICALIZE-NEXT:      %[[P:.*]] = ub.poison : i32
++// CHECK-CANONICALIZE-NEXT:      scf.if
++// CHECK-CANONICALIZE-NEXT:        func.call @ext(%[[P]]) : (i32) -> ()
++module @dead_block_argument_used_in_unreachable_code {
++  func.func private @ext(i32)
++  func.func private @never() -> i1 {
++    %false = arith.constant false
++    return %false : i1
++  }
++  func.func @main(%v: i32) {
++    %no = func.call @never() : () -> i1
++    cf.br ^bb1(%v : i32)
++  ^bb1(%a: i32):
++    scf.if %no {
++      func.call @ext(%a) : (i32) -> ()
++    }
++    return
++  }
++}
 ```
