@@ -131,10 +131,11 @@ can run at once.
 - **Change:**
   - consumption becomes `MemFree` of a reference resource, conditional on
     the grade; `useOf` goes;
-  - `borrow` is the view's grade; `idr.stage` goes;
-  - `CountedTypeInterface`;
+  - the owned stage is read from the grades (views stay plain);
+    `idr.stage` goes;
+  - one `holdsReferences` function, since a type cannot look up an
+    unboxed sum's declaration;
   - `std::optional` instead of `ub.poison` sentinels;
-  - `nested` visibility instead of the clone's self-reference;
   - idr-canonicalize wraps upstream's pass;
   - `missed` remarks where passes decline.
 - **Proof:**
@@ -182,17 +183,17 @@ can run at once.
 **W7. Thunks as memo sums** (`concurrency.md` §2.3–2.5).
 
 - **Change:**
-  - thunks join defunctionalization; `idr.lazy.settle`;
+  - thunks join defunctionalization as memo sums;
   - `Running` as the black hole; captures moved at entry;
-  - TLS CAF cells and the module's CAF table; `idris_rt_lazy_kept` goes;
+  - static memo cells marked by their kind and released by
+    `@__idr_release_cafs`; `idris_rt_lazy_kept` goes;
   - the one-shot force at `excl`;
-  - no memo for a world-forging body.
+  - no memo for a body that reaches an observable effect.
 - **Proof:**
   - `stream-share` forces each cell once;
   - `allschemes/memo002` compiles and runs;
   - a self-forcing CAF ends with the named crash;
   - a thunk consuming a long list keeps its peak live cells bounded;
-  - a new property that no heap cell stores a code address;
   - no bench regression on the lazy programs.
 
 **W8. Flat constants, immutable static data** (S4).
