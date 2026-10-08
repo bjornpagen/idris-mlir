@@ -200,13 +200,12 @@ a named class in `tests/lib/chez-divergences`.
   arrays and lists), installed per checkout under `build/idris2`.
 - `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
   benchmarks against C and Chez.
-- `findings/`: decisions taken (`decision-*.md`) and research notes with
-  staged plans; `findings/one-representation.md` is the cleanup plan for
-  everything the compiler still represents twice.
+- `findings/`: decisions taken (`decision-*.md`) and the design notes
+  with their ordered work; `findings/README.md` is the map.
 - `tools/`: the toolchain's bootstrap and the compile chain;
   `tools/bisect.sh SOURCE TAG` finds the action of TAG (an evaluation, a
   clone) after which a program behaves differently than with `--no-eval`.
-- `upstream/`: upstream bugs we work around, written to be filed.
+- `upstream/`: upstream bugs we carry patches for, each written to be filed.
 - `PINS.md`: every pinned workaround and deviation.
 - `sources/`: vendored papers, upstream docs and source snapshots.
 
