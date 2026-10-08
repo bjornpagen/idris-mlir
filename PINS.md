@@ -128,6 +128,7 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/remove-dead-values-address-taken (not yet filed);
   plan in its README: its test as a comment on #208881, or a test-only
   pull request if #208881 lands without one
+
 ## uplift-final-counter
 
 - symptom: at llvmorg-23.1.2, `scf::upliftWhileToForLoop`
