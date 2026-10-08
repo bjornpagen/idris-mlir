@@ -1,64 +1,79 @@
-Subject: [PATCH] [mlir] sccp: keep the constants the IR already holds
+Subject: [PATCH] [mlir][SCCP] Keep the constants the IR already holds
 
-composite-fixed-point-pass with sccp in its pipeline never converges: on
-a module at its fixpoint it runs the pipeline max-iterations times and
-warns. It decides convergence by OperationFingerPrint, a hash of object
-identity, and sccp remakes every constant it meets even when it
-propagates nothing: a constant's own result has a constant lattice, and
-the OperationFolder that rewrite() creates fresh is never told about the
-constants the IR already holds, so getOrCreateConstant materializes a new
-one, the uses move to it and the original is erased. The module prints
-the same, but every constant has a new address.
--mlir-print-ir-after-change prints after sccp for the same reason.
+sccp's rewrite replaces every value whose lattice is a constant with
+the OperationFolder's constant for it. A constant operation's own
+result has such a lattice, and the folder, made fresh for each run,
+does not know the constants the IR already holds, so every run
+materializes an equal constant without a location, moves the uses to
+it and erases the original. A constant that is not trivially dead,
+such as emitc.constant, is kept, and each run adds a duplicate. A run
+that propagates nothing still changes the IR, so
+composite-fixed-point-pass, which compares OperationFingerPrints,
+never sees sccp converge, and -mlir-print-ir-after-change prints
+after it.
 
-rewrite() now gives the folder each ConstantLike operation it meets
-(insertKnownConstant), as the greedy driver does before it rewrites
-anything, and moves on: every later getOrCreateConstant of that value
-returns it, and a run that propagates nothing changes nothing.
+rewrite() now gives each constant it reaches to the folder
+(insertKnownConstant), as the greedy driver does, and leaves it: a
+constant is already the form the rewrite produces, and looking it up
+in the folder would still erase its location. The folder hands it out
+for its value from then on, so the output of sccp is its own fixed
+point. Constants are given as the walk reaches them rather than up
+front, so a constant nested in an operation sccp erases goes with it
+instead of being hoisted out.
 
-Test: sccp-fixed-point.mlir, the composite pass over sccp converging in
-one run without warning.
+The new RUN line in sccp.mlir runs sccp under
+composite-fixed-point-pass and checks that it stops after the second
+run, without a warning, with the output of one run.
+
+Part of #<new>.
 ---
- mlir/lib/Transforms/SCCP.cpp               |  9 +++++++++
- mlir/test/Transforms/sccp-fixed-point.mlir | 13 +++++++++++++
- 2 files changed, 22 insertions(+)
+ mlir/lib/Transforms/SCCP.cpp   | 13 +++++++++++++
+ mlir/test/Transforms/sccp.mlir |  6 ++++++
+ 2 files changed, 19 insertions(+)
 
 diff --git a/mlir/lib/Transforms/SCCP.cpp b/mlir/lib/Transforms/SCCP.cpp
-index 471fa64e78574df0f130fdbc9086411e4fbfb6d9..1329ede6ac7b71e8b2bdc154c9839eff8af0459f 100644
+index 471fa64e78574df0f130fdbc9086411e4fbfb6d9..521c397d867204ab0825a22f56983fa7eb2ddcba 100644
 --- a/mlir/lib/Transforms/SCCP.cpp
 +++ b/mlir/lib/Transforms/SCCP.cpp
-@@ -82,6 +82,15 @@ static void rewrite(DataFlowSolver &solver, MLIRContext *context,
+@@ -20,6 +20,7 @@
+ #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+ #include "mlir/IR/Builders.h"
+ #include "mlir/IR/Dialect.h"
++#include "mlir/IR/Matchers.h"
+ #include "mlir/Interfaces/SideEffectInterfaces.h"
+ #include "mlir/Pass/Pass.h"
+ #include "mlir/Transforms/FoldUtils.h"
+@@ -82,6 +83,18 @@ static void rewrite(DataFlowSolver &solver, MLIRContext *context,
      Block *block = worklist.pop_back_val();
  
      for (Operation &op : llvm::make_early_inc_range(*block)) {
-+      // A constant the IR already holds is the one the folder hands out for
-+      // its value, as the greedy driver does, so that a run that propagates
-+      // nothing leaves the IR as it was instead of remaking every constant.
-+      // The folder may hoist it, or erase it for an equal one it knows.
-+      if (op.hasTrait<OpTrait::ConstantLike>()) {
-+        folder.insertKnownConstant(&op);
++      // A constant is already in the form this rewrite produces. Give it to the
++      // folder, which then hands it out for its value instead of materializing
++      // an equal one. The folder may hoist it, or replace it with an equal
++      // constant it already holds. Constants are given as the walk reaches
++      // them, not up front, so that one nested in an operation erased below is
++      // erased with it rather than hoisted out of it.
++      Attribute value;
++      if (matchPattern(&op, m_Constant(&value))) {
++        folder.insertKnownConstant(&op, value);
 +        continue;
 +      }
 +
        builder.setInsertionPoint(&op);
  
        // Replace any result with constants.
-diff --git a/mlir/test/Transforms/sccp-fixed-point.mlir b/mlir/test/Transforms/sccp-fixed-point.mlir
-new file mode 100644
-index 0000000000000000000000000000000000000000..a165365cf636fc1fcc43936624bd2633e1195a60
---- /dev/null
-+++ b/mlir/test/Transforms/sccp-fixed-point.mlir
-@@ -0,0 +1,13 @@
-+// RUN: mlir-opt %s --composite-fixed-point-pass='pipeline=sccp max-iterations=1' -verify-diagnostics | FileCheck %s
+diff --git a/mlir/test/Transforms/sccp.mlir b/mlir/test/Transforms/sccp.mlir
+index 251a74dc20647864e2c630736918c7e8c903ec76..9ae4e96983f5a55a6fc0e9b1f1ccad664d5031fc 100644
+--- a/mlir/test/Transforms/sccp.mlir
++++ b/mlir/test/Transforms/sccp.mlir
+@@ -1,4 +1,10 @@
+ // RUN: mlir-opt -allow-unregistered-dialect %s -pass-pipeline="builtin.module(func.func(sccp))" -split-input-file | FileCheck %s
++// RUN: mlir-opt -allow-unregistered-dialect %s -pass-pipeline="builtin.module(func.func(composite-fixed-point-pass{pipeline=sccp max-iterations=2}))" -split-input-file -verify-diagnostics | FileCheck %s
 +
-+// sccp leaves a function it propagates nothing in as it was, its constants
-+// included, so the composite pass sees the same fingerprint after one run
-+// and converges without warning.
-+
-+// CHECK-LABEL: func @one
-+// CHECK-NEXT:    arith.constant 1 : i32
-+// CHECK-NEXT:    return
-+func.func @one() -> i32 {
-+  %c = arith.constant 1 : i32
-+  return %c : i32
-+}
++/// The second RUN line checks that the output of sccp is its own fixed point:
++/// sccp run again on it changes nothing, not even the identity of a constant,
++/// so the composite pass stops after the second run without a warning and
++/// prints what one run of sccp prints.
+ 
+ /// Check simple forward constant propagation without any control flow.
+ 

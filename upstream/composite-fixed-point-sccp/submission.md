@@ -7,31 +7,26 @@ No employer in the author name, the email, or the message. No
 `Assisted-by`. No `Co-authored-by`. No `@` mentions.
 
 The patch file is `llvm.patch` in this directory. Apply it as that one
-commit. It is part 1 only: `sccp` keeps the constants the IR already
-holds. Part 2 stays a proposal in the issue.
+commit. It is part 1 only; part 2 stays a proposal in the issue.
 
 Open the issue, then the pull request. The squash commit message is the
 pull request title, a blank line, and the pull request body. When the
-issue number exists, add `Fixes #<number>` as the last line of the pull
-request body.
+issue number exists, replace `#<new>` in the last line of the pull request
+body (and of the commit message in `llvm.patch`) with it.
 
 ## Issue title
 
-[mlir] composite-fixed-point-pass never converges with sccp in its pipeline
+[mlir] sccp changes the IR on every run; composite-fixed-point-pass never converges
 
 ## Issue body
 
-At `llvmorg-23.1.2`, `composite-fixed-point-pass` runs a pipeline that has
-`sccp` in it until `max-iterations`, and then warns, on a module that is
-already at the pipeline's fixpoint. The pass decides convergence by
-`OperationFingerPrint`, which hashes the addresses of the module's
-operations, blocks and values, and `sccp` erases every constant it meets and
-makes an equal one even when it propagates nothing, so the fingerprint is
-new after every run although the module is the same.
-
-## Reproduce
-
-One constant, used by an operation that cannot fold it:
+At `llvmorg-23.1.2`, a run of `sccp` that propagates nothing still changes
+the IR: it replaces every constant by an equal one it makes. The module
+prints the same, but each constant is a new operation without its
+location, and a constant that is not trivially dead is kept, so each run
+adds a duplicate. `composite-fixed-point-pass`, which decides convergence
+by `OperationFingerPrint` (a hash of object identity), never sees a
+pipeline with `sccp` in it converge.
 
 ```mlir
 func.func @one() -> i32 {
@@ -52,130 +47,72 @@ module {
 }
 ```
 
-`mlir-opt` exits 0 with the module unchanged. `--log-actions-to=-` shows
-`sccp` running six times; `--mlir-print-ir-after=sccp` prints the same
-module after every run; `mlir-opt one.mlir --sccp` prints the same module,
-and so does `--sccp` on that output. `pipeline=sccp,canonicalize` and the
-default `max-iterations` warn the same way. On the same module,
-`pipeline=canonicalize`, `pipeline=cse` and `pipeline=remove-dead-values`
-each converge after one run, and so does `pipeline=sccp` on a module with
-no constant in it.
+`pipeline=canonicalize` and `pipeline=cse` converge after one run on the
+same module. With `-mlir-print-debuginfo`, the constant after `--sccp` is
+at `loc(unknown)`, and `--sccp --mlir-print-ir-after-all
+--mlir-print-ir-after-change` prints after `sccp`. With an `emitc.constant`
+used by an `emitc.switch` in place of the `arith.constant`, `--sccp --sccp
+--sccp` leaves four `emitc.constant` operations.
 
-Expected: `sccp` runs once and the pass converges, as it does whenever the
-pipeline leaves the module as it is.
+Cause: `rewrite` in `mlir/lib/Transforms/SCCP.cpp` replaces every value
+whose lattice is a constant with `OperationFolder::getOrCreateConstant`'s
+constant for it, and erases the operation if it is trivially dead. A
+constant operation's own result has such a lattice. The folder is made
+fresh for each run and is never told about the constants the IR already
+holds (the greedy driver tells its folder with `insertKnownConstant`
+before it rewrites), so it materializes a new constant with an erased
+location; the original is erased, or kept when it is not trivially dead
+(`emitc.constant` does not declare itself free of memory effects).
 
-The same comparison makes `-mlir-print-ir-after-change` print after `sccp`:
+Proposed fix, in two parts:
 
-```
-$ mlir-opt one.mlir --sccp --mlir-print-ir-after-all --mlir-print-ir-after-change -o /dev/null
-// -----// IR Dump After SCCPPass: sccp //----- //
-module {
-  ...
-```
-
-With `--canonicalize` or `--cse` in place of `--sccp` nothing is printed.
-
-## Cause
-
-Two things meet.
-
-`CompositeFixedPointPass::runOnOperation`
-(`mlir/lib/Transforms/CompositePass.cpp:68-91`) runs its pipeline, takes an
-`OperationFingerPrint` of the operation and stops when it equals the one
-taken before the run. `OperationFingerPrint`
-(`mlir/lib/IR/OperationSupport.cpp:933-975`) hashes, for every operation in
-the walk, its address, its parent's, its blocks' and their arguments', its
-operands' (the `Value`s) and its successors', and the uniqued attributes,
-properties, location and result types. It is a fingerprint of object
-identity: two modules that print the same have different fingerprints
-whenever an operation was erased and an equal one made. (The loop also
-checks the count after each run, so `max-iterations=N` runs the pipeline
-N + 1 times.)
-
-`sccp`'s `rewrite` (`mlir/lib/Transforms/SCCP.cpp:67-110`) walks every
-operation and, for each result whose lattice is a constant,
-`replaceWithConstant` (`SCCP.cpp:42-62`) asks
-`OperationFolder::getOrCreateConstant`
-(`mlir/lib/Transforms/Utils/FoldUtils.cpp:207-220`) for a constant of that
-value, replaces all uses of the result with it, and erases the operation if
-that left it trivially dead (`SCCP.cpp:93-99`). A constant operation's own
-result has a constant lattice: the analysis folds every operation with its
-operands' constants (`mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp:75-100`),
-and a constant folds to its value. The folder is made fresh for each run
-(`SCCP.cpp:77`) and `rewrite` never tells it about the constants the module
-already has (`OperationFolder::insertKnownConstant`, `FoldUtils.cpp:113-172`,
-which the greedy driver calls for every constant it meets before it rewrites
-anything, `mlir/lib/Transforms/Utils/GreedyPatternRewriteDriver.cpp:855-882`),
-so `tryGetOrCreateConstant` (`FoldUtils.cpp:309-323`) finds nothing under the
-key and materializes a new constant at the front of the entry block; the uses
-move to it and the original is erased. The module prints the same, every
-constant and every operation that used one has a new address, and the
-fingerprint differs; the composite pass runs the pipeline again, which does
-the same again, until `max-iterations`. `-mlir-print-ir-after-change`
-(`mlir/lib/Pass/IRPrinting.cpp:107-115`) compares the same fingerprint.
-
-## Proposed fix
-
-Two parts, independent; either one ends this case. The first stops `sccp`
-from remaking what it has; the second makes the composite pass right for
-every pass that remakes an operation in place.
-
-1. `sccp`: in `rewrite`, give the folder the constants the block already
-   holds before replacing anything, as the greedy driver does: for an
-   operation with the `ConstantLike` trait, `folder.insertKnownConstant(&op)`
-   and move on. The folder then records it (or replaces it by an earlier
-   equal constant it has recorded), and every later `getOrCreateConstant` of
-   that value returns it. A run of `sccp` on a module at its fixpoint then
-   touches nothing.
-2. `composite-fixed-point-pass`: decide the fixpoint on the IR. A
-   fingerprint that hashes each operation by its name, attributes,
-   properties, result types and location, which
-   `OperationEquivalence::computeHash` (`OperationSupport.cpp:678-714` at
-   `llvmorg-23.1.2`) already does, with each operand hashed as the position
-   of its defining value in a pre-order numbering of the block arguments and
-   results, and an operand that is a constant hashed by its value. An
-   operation remade in place, or a constant remade elsewhere in its block,
-   then hashes the same. `OperationFingerPrint` keeps its use as an identity
-   check, which the greedy driver's expensive pattern-API checks rely on.
-
-The pull request implements part 1 and adds
-`mlir/test/Transforms/sccp-fixed-point.mlir`: the composite pass over
-`sccp` with `max-iterations=1` converges and does not warn. Part 2 is the
-proposal above. It would change a public utility, and that decision is
-separate from part 1. `sccp` can hoist an existing constant where it used
-to make a new one, so `check-mlir` may need the expected order of constants
-in other tests updated.
+1. `sccp`: give each constant the walk reaches to the folder
+   (`insertKnownConstant`) and leave it, so the folder hands it out for its
+   value and a run that propagates nothing changes nothing. This is a bug
+   in `sccp` on its own, since the `emitc.constant` case grows the IR.
+2. `composite-fixed-point-pass`: decide the fixpoint on the IR rather than
+   on identity, so a pass that remakes an operation in place still
+   converges. A fingerprint that hashes each operation as
+   `OperationEquivalence::computeHash` does (name, attributes, properties,
+   result types, location), with each operand hashed as the position of
+   its defining value in a pre-order numbering of the block arguments and
+   results. `OperationFingerPrint` would keep its use as an identity check
+   in the greedy driver's and the dialect conversion's expensive checks.
+   This changes what a public utility promises, so it is a proposal for
+   discussion here.
 
 ## Pull request title
 
-[mlir] sccp: keep the constants the IR already holds
+[mlir][SCCP] Keep the constants the IR already holds
 
 ## Pull request body
 
-composite-fixed-point-pass with sccp in its pipeline never converges: on
-a module at its fixpoint it runs the pipeline max-iterations times and
-warns. It decides convergence by OperationFingerPrint, a hash of object
-identity, and sccp remakes every constant it meets even when it
-propagates nothing: a constant's own result has a constant lattice, and
-the OperationFolder that rewrite() creates fresh is never told about the
-constants the IR already holds, so getOrCreateConstant materializes a new
-one, the uses move to it and the original is erased. The module prints
-the same, but every constant has a new address.
--mlir-print-ir-after-change prints after sccp for the same reason.
+sccp's rewrite replaces every value whose lattice is a constant with
+the OperationFolder's constant for it. A constant operation's own
+result has such a lattice, and the folder, made fresh for each run,
+does not know the constants the IR already holds, so every run
+materializes an equal constant without a location, moves the uses to
+it and erases the original. A constant that is not trivially dead,
+such as emitc.constant, is kept, and each run adds a duplicate. A run
+that propagates nothing still changes the IR, so
+composite-fixed-point-pass, which compares OperationFingerPrints,
+never sees sccp converge, and -mlir-print-ir-after-change prints
+after it.
 
-rewrite() now gives the folder each ConstantLike operation it meets
-(insertKnownConstant), as the greedy driver does before it rewrites
-anything, and moves on: every later getOrCreateConstant of that value
-returns it, and a run that propagates nothing changes nothing.
+rewrite() now gives each constant it reaches to the folder
+(insertKnownConstant), as the greedy driver does, and leaves it: a
+constant is already the form the rewrite produces, and looking it up
+in the folder would still erase its location. The folder hands it out
+for its value from then on, so the output of sccp is its own fixed
+point. Constants are given as the walk reaches them rather than up
+front, so a constant nested in an operation sccp erases goes with it
+instead of being hoisted out.
 
-Part 2 is only described in the issue: the composite pass would decide
-its fixpoint on the IR, so a pass that remakes an operation in place
-still converges.
+The new RUN line in sccp.mlir runs sccp under
+composite-fixed-point-pass and checks that it stops after the second
+run, without a warning, with the output of one run.
 
-Test: sccp-fixed-point.mlir, the composite pass over sccp converging in
-one run without warning. Run check-mlir: sccp now hoists an existing
-constant where it used to make a new one, which may reorder constants in
-other tests' expected output.
+Part of #<new>.
 
 ## Patch file
 
