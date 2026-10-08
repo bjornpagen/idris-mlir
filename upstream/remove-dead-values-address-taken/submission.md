@@ -1,57 +1,46 @@
 # Submission
 
-Status: file as a comment and a test on https://github.com/llvm/llvm-project/pull/208881. No new issue. No second pull request.
+Where: a comment on https://github.com/llvm/llvm-project/pull/208881.
+No new issue, no pull request of its own. Author is Bjorn, as an
+individual, work done outside any employer. No @mentions.
 
-Not Bugzilla. Author is Bjorn, individual, work done outside any employer. No Assisted-by. No @mentions.
+Paste everything between the markers.
 
-The patch that fixes it is `remove-dead-values-unreachable/llvm.patch`.
+----- paste -----
 
-Paste the comment below. Leave this header out.
-
-## Comment
-
-Please add `@address_taken_callee` to `mlir/test/Transforms/remove-dead-values.mlir` as a test of this pull request. Replacing the remaining uses of a dead function argument with `ub.poison` covers a direct call of an address-taken function.
-
-`processFuncOp` skips a private function when any user of its symbol is not a call, such as `func.constant`. The signature stays, every call keeps its operands, and that function gets no cleanup entry. Liveness still marks the caller's argument dead, because the callee never reads the parameter. The cleanup drops that argument's uses and erases it, and the call is left with a null operand.
-
-At llvmorg-23.1.2, `mlir-opt --remove-dead-values` on the function bodies in the test below exits 1:
-
-```
-error: null operand found
-  %t = func.call @ignores(%b) : (i64) -> i64
-       ^
-note: see current operation: %0 = "func.call"(<<NULL VALUE>>) <{callee = @ignores}> : (<<NULL TYPE>>) -> i64
-```
-
-When the value passed is an operation result, the pass already replaces it with `ub.poison` and the module stays valid. The same replacement for the dead block argument leaves `@caller` passing `ub.poison : i64` to `@ignores`.
+Another case this fixes, with a test for `mlir/test/Transforms/remove-dead-values.mlir`. A callee named by a non-call op keeps its signature (`processFuncOp` skips it), so its calls keep their operands; when it never reads a parameter, liveness marks the argument the private caller passes dead, and the caller's cleanup drops that use. At llvmorg-23.1.2 this fails with `null operand found` at `func.call @ignores`; with this PR the call takes `ub.poison`. A public callee in place of `func.constant` fails and is fixed the same way.
 
 ```mlir
-// @ignores keeps its signature, since a func.constant names it, and never
-// reads its parameter, so the value @caller passes it is dead: the call
-// keeps its operand, which becomes poison.
+// RUN: mlir-opt %s -remove-dead-values="canonicalize=0" -split-input-file | FileCheck %s
+// RUN: mlir-opt %s -remove-dead-values="canonicalize=1" -split-input-file | FileCheck %s --check-prefix=CHECK-CANONICALIZE
+
+// Verify that a function referenced by a non-call op (func.constant) keeps
+// its signature, and that a call of it passes poison for an argument of the
+// caller that the pass erases because the callee never reads it.
 // CHECK-LABEL: module @address_taken_callee
-// CHECK:         func.func private @caller(
-// CHECK:           %[[P:.*]] = ub.poison : i64
-// CHECK:           call @ignores(%[[P]])
+// CHECK:         func.func private @ignores(%{{.*}}: i64) -> i64
+// CHECK:         func.func private @caller() -> i64
+// CHECK-NEXT:      %[[P:.*]] = ub.poison : i64
+// CHECK-NEXT:      call @ignores(%[[P]]) : (i64) -> i64
 // CHECK-CANONICALIZE-LABEL: module @address_taken_callee
-// CHECK-CANONICALIZE:         call @ignores(
+// CHECK-CANONICALIZE:         func.func private @caller() -> i64
+// CHECK-CANONICALIZE-NEXT:      %[[P:.*]] = ub.poison : i64
+// CHECK-CANONICALIZE-NEXT:      call @ignores(%[[P]]) : (i64) -> i64
 module @address_taken_callee {
   func.func private @ignores(%x: i64) -> i64 {
     %c = arith.constant 7 : i64
     return %c : i64
   }
-  func.func private @caller(%a: i64, %b: i64) -> i64 {
+  func.func private @caller(%b: i64) -> i64 {
     %t = func.call @ignores(%b) : (i64) -> i64
-    %u = arith.addi %a, %t : i64
-    return %u : i64
-  }
-  func.func @main(%a: i64) -> i64 {
-    %f = func.constant @ignores : (i64) -> i64
-    %r = func.call_indirect %f(%a) : (i64) -> i64
-    %t = func.call @caller(%r, %a) : (i64, i64) -> i64
     return %t : i64
+  }
+  func.func @main(%a: i64) -> (i64, (i64) -> i64) {
+    %f = func.constant @ignores : (i64) -> i64
+    %t = func.call @caller(%a) : (i64) -> i64
+    return %t, %f : i64, (i64) -> i64
   }
 }
 ```
 
-I am Bjorn, an individual. This work was done outside any employer.
+----- end -----
