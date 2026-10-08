@@ -56,6 +56,11 @@ For `@caller`, which is private and only called, `processFuncOp` marks
 use of `%b` (`:643-645`) and erases it (`:649`). The call of `@ignores`
 is one of those uses, and nothing else touches it.
 
+Trunk (7208ba24, 2026-10-08) is the same: `processFuncOp` now also skips a
+function with uses it cannot see (`RemoveDeadValues.cpp:280-292`), which
+keeps more signatures, and the cleanup still drops the dead argument's
+uses (`:657`). Read, not run: trunk was not built here.
+
 ## Fix
 
 [llvm/llvm-project#208881](https://github.com/llvm/llvm-project/pull/208881)
@@ -65,7 +70,9 @@ use is lost, not in why the use survives, so the call of `@ignores` takes
 `ub.poison : i64`. Checked with the pinned `RemoveDeadValues.cpp` plus
 only #208881's source change, linked into an `mlir-opt`: the reproducer
 and the public variant exit 0 and verify, and the test in `submission.md`
-passes under both of the file's RUN lines.
+passes under both of the file's RUN lines as a standalone file. As a
+diff appending it to trunk's `remove-dead-values.mlir`, it passes
+`git apply --check`.
 
 The carried fix is `remove-dead-values-unreachable/llvm.patch`, which
 includes #208881's function-argument change and this test.
@@ -82,8 +89,11 @@ apply after the first.
 
 Status: file as a comment on
 https://github.com/llvm/llvm-project/pull/208881 (open, approved, not
-merged). No new issue. No second pull request. Author is Bjorn,
-individual, work done outside any employer. No @mentions.
+merged at trunk 7208ba24; its source change applies to trunk, its test
+hunk no longer does). Trunk's `remove-dead-values.mlir` has no case like
+this one. No new issue. No second pull request unless #208881 lands
+without such a test; `submission.md` says what to send then. Author is
+Bjorn, individual, work done outside any employer. No @mentions.
 
 - Where: one comment on #208881; the text is `submission.md`.
 - Upstream test: the `@address_taken_callee` module in `submission.md`,

@@ -112,20 +112,22 @@ which the top-level CMake configure gate reads.
 
 - symptom: at llvmorg-23.1.2, `remove-dead-values` leaves alone the
   parameters of a function that is named other than as a callee (by an
-  `idr.closure` or a closure constant), but still finds a value that a
-  direct call passes to one of those parameters dead when the function
-  never reads it: it erases the value (a parameter of the caller, or the op
-  that made it) and the call keeps a null operand ("null operand found").
-  Arity raising and apply of a known closure make such direct calls
+  `idr.closure` or a closure constant, or because it is public), but still
+  finds a value that a direct call passes to one of those parameters dead
+  when the function never reads it: it erases the value (a parameter of
+  the caller, or the op that made it) and the call keeps a null operand
+  ("null operand found"). Arity raising and apply of a known closure make
+  such direct calls
 - sites: none in our code; the patch. The poison it passes is no value
   to evaluate at compile time (foreign/idr/lib/Facts/Evaluation.cppm), as
   any poison operand is not
 - workaround: `upstream/remove-dead-values-unreachable/llvm.patch`, which
   gives such an operand `ub.poison` (this bug has no patch of its own)
-- retire: drop the patch when the pin has #208881
+- retire: drop the patch when the pin has #208881 (open, approved; trunk
+  7208ba24 still drops the uses)
 - upstream: upstream/remove-dead-values-address-taken (not yet filed);
-  plan in its README: its reproducer as a test of #208881
-
+  plan in its README: its test as a comment on #208881, or a test-only
+  pull request if #208881 lands without one
 ## uplift-final-counter
 
 - symptom: at llvmorg-23.1.2, `scf::upliftWhileToForLoop`
