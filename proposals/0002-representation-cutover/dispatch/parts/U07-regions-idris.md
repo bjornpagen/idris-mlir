@@ -12,6 +12,9 @@ Mandatory findings: F-clo-6 F-prim-2
 2. **One region node.** `ArrayGen` and `ArrayFold` become the one
    generic `Region` constructor over the generated `IdrRegionPrim`, and
    Emit has one case for it. Mandatory.
+3. **`Term.Effect` over `IdrPrim`** (C8.3, review R10). It becomes
+   `Effect : Loc -> IdrPrim -> List Ty -> List (Term a) -> DataId -> Term a`,
+   and the frontend fills its `List Ty` from the call. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -22,18 +25,21 @@ Mandatory findings: F-clo-6 F-prim-2
 - `CS/Emit/Monad.idr`
 - `CS/Frontend/Translate/Terms.idr`
 - `CS/Frontend/Translate/Closed.idr`
+- `CS/Emit/Attributes.idr`
 
 **Excluded:**
 
 - `CS/Types.idr` and `CS/Emit/Operations.idr`, which are U17's: it
   generates `IdrRegionPrim` and `regionArity`, and removes `ArrayLoop`.
 - `CS/Dialect/Idr.idr`, which is generated.
-- The registry, which is U18's.
+- The registry and `CS/Frontend/Translate/Hooks.idr`, which are U18's
+  (`Hook.IOCall` carries an `IdrPrim`).
 - `foreign/idr/tools/idris-mlir-tblgen.cc`, U17's.
 
 ## Read first
 
-- `contracts.md` C4.1, C4.2, C4.4, C8.2 and C13.
+- `contracts.md` C4.1, C4.2, C4.3 step 4, C4.4, C8.2, C8.3 and C13.
+- `review.md` R10.
 - `findings.md` F-clo-6 and F-prim-2.
 - `CS/Term.idr`, all of it: `Lam`, `Suspend`, `ArrayGen`, `ArrayFold`,
   `TermF`, `hmap`, `para`, `lam`, `delay`, the printer.
@@ -43,6 +49,9 @@ Mandatory findings: F-clo-6 F-prim-2
 - `CS/Frontend/Translate/{Terms,Closed}.idr`, wherever `lam`, `delay`,
   `Lam`, `Suspend` or the array loops are built.
 - `CS/Ids.idr` (`Label`).
+- `CS/Emit/Attributes.idr` (`inherited`, `own`, `lifted`).
+- `CS/Term.idr`'s `Effect` and `CS/Frontend/Translate/Terms.idr`'s
+  `ioCall` and array case.
 
 ## Fixed decisions
 
@@ -66,11 +75,18 @@ Mandatory findings: F-clo-6 F-prim-2
     block argument.
   - The region op's location is the lambda's.
   - Emit no longer creates any function for a lambda or a suspension.
-- **Attributes.** The attributes a lifted function got (`Owner.inherited`
-  and the lifted mark) are not lost. `idr-isolate` (U08) copies them
-  from the enclosing function when it outlines. Write down, in your
-  handoff, the exact attribute names a lifted function carries today, so
-  that U08's list matches. U08 reads `Emit/Bodies.idr` too.
+- **Attributes.** What a lifted function got is fixed in C4.3 step 4:
+  `idr.break_last` when the enclosing function has it, and `idr.total`
+  always. `idr-isolate` (U08) gives them. `Emit/Attributes.idr`'s
+  `lifted` and `inherited` go; `own` keeps its meaning with
+  `inherited`'s one line inlined.
+- **`Effect`'s types.** The `List Ty` holds the type arguments today's
+  `IOOp` constructors carry: `[e]` for an array primitive, `[t]` for
+  `BufferLoad t` and `BufferStore t`, `[]` otherwise. `Terms.idr` reads
+  them from the call, as it does today. No table.
+- **Emit's effect case.** `Emit/Bodies.idr`'s `EffectF` case calls U17's
+  `effect : Index -> Loc -> IdrPrim -> List Ty -> List Val -> DataId -> E (Maybe Val)`
+  (C8.3) and nothing else.
 - **The generic region case.**
   - Operands are emitted as the two array-loop cases emit them
     today.
@@ -83,6 +99,8 @@ Mandatory findings: F-clo-6 F-prim-2
 ## Inputs
 
 - `IdrRegionPrim`, `regionArity` and `regionOp` (generated, C8.2).
+- `IdrPrim` (generated) and `effect` from `Emit/Operations.idr` (U17,
+  C8.3).
 - `Idr.lambdaOp` and `Idr.delayOp` from the generated mirror (C1.1
   item 4).
 
@@ -105,6 +123,10 @@ Mandatory findings: F-clo-6 F-prim-2
   state and its readers.
 - **`Ids.idr`.** Remove `Label` if nothing else reads it; check with
   `grep -rn Label compiler/src`.
+- **`Emit/Attributes.idr`.** Remove `lifted` and `inherited`.
+- **`Effect`.** Change the constructor, `EffectF`, and their cases in
+  `Term.idr`. `Terms.idr` builds `Effect l p tys args d` from the hook's
+  `IdrPrim` (U18) and the call's type arguments.
 
 ## Delete
 
@@ -114,13 +136,16 @@ Mandatory findings: F-clo-6 F-prim-2
 - `ArrayGen`, `ArrayFold`, `ArrayGenF` and `ArrayFoldF`, and their
   cases.
 - `Label`, if it has no other reader.
+- `Emit/Attributes.idr`'s `lifted` and `inherited`.
+- `Effect`'s `IOOp` payload, and every `IOOp` pattern in your files.
 
 ## NOT TO DO
 
 - Do not outline anything on the Idris side.
 - Do not change how applications (`App`, `Idr.applyOp`) or forces
   (`Resume`, `Idr.forceOp`) are emitted.
-- Do not change `Types.idr` (U17).
+- Do not change `Types.idr` or `Emit/Operations.idr` (U17), or the
+  registry and `Hooks.idr` (U18).
 - Do not add a region form for anything but lambdas, delays and the two
   region primitives.
 
@@ -147,6 +172,5 @@ Mandatory findings: F-clo-6 F-prim-2
 ## Stop and return
 
 You are done when the constructors and Emit's cases are as above and
-the Delete list is empty of survivors. Return the changed paths, the
-lifted-function attribute list for U08,
+the Delete list is empty of survivors. Return the changed paths,
 `Verification: NotRun (swarm policy)`, and seams.

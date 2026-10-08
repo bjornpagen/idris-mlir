@@ -7,12 +7,14 @@ Mandatory findings: F-poison-1
 
 1. **The sentinels.** The C2.4 sites in `IDR/Narrow`, `IDR/Tail` and
    `IDR/Specialize` use no `ub.poison` sentinel. Mandatory.
-2. **The grade.** `IDR/Narrow/Words.cppm` decides whether a big is
-   counted from its grade (`own`, `excl` or `borrow`), not from the
-   module's stage (C2.2). Mandatory.
+2. **The stage.** `IDR/Narrow/Words.cppm` asks
+   `ownership::inOwnedStage(module)` once per pass, instead of reading
+   the module's stage attribute (C2.2). Mandatory.
 3. **The guards.** Every total op these areas build gets its guard
    (C3.2), and every place they read `idr.lazy` or closure types after
    defunctionalization is removed. Mandatory.
+4. **The walk rule** (C7.2) in `IDR/Specialize/{KeyOf,Specialization,ShapeOf,UnrollSize}.cppm`.
+   Mandatory.
 
 ## Owner / exclusive writes
 
@@ -28,20 +30,21 @@ Mandatory findings: F-poison-1
 
 ## Read first
 
-- `contracts.md` C2.2, C2.4, C3.1, C3.2 and C13.
+- `contracts.md` C2.2, C2.4, C3.1, C3.2, C7.2 and C13.
+- `review.md` R1 and R3.
 - `findings.md` F-poison-1 and F-own-2.
 - `IDR/Narrow/{Words,Facts,Versions,Naturals}.cppm`.
 - `IDR/Tail/{Returned,Loop}.cppm`.
-- `IDR/Specialize/ShapeOf.cppm`.
+- `IDR/Specialize/{KeyOf,Specialization,ShapeOf,UnrollSize}.cppm`.
 - `grep -rn 'create<\|::create(' foreign/idr/lib/Narrow foreign/idr/lib/Tail foreign/idr/lib/Specialize`,
   for the creators of partial ops.
 
 ## Fixed decisions
 
 - **The sentinel rule** is C2.4's, verbatim.
-- **Counted bigs.** A big value is counted iff its type's permission is
-  `own`, `excl` or `borrow`. That is the grade test replacing the
-  module-attribute test at `Words.cppm:42-43`.
+- **Counted bigs.** `Words.cppm:42-43`'s module-attribute test becomes
+  `inOwnedStage(module)`, asked once per pass and passed down. Views
+  stay plain (C2.2), so a big's own type does not say it.
 - **Guards.** A narrowed division (`idr.div` or `idr.mod` built by
   Narrow on words) gets `idr.check.nonzero` on its divisor, unless the
   divisor is proved nonzero where it is built. The cause is
@@ -49,7 +52,8 @@ Mandatory findings: F-poison-1
 
 ## Inputs
 
-- The grades (U03).
+- `ownership::inOwnedStage` (U03).
+- `ConAttr`'s C7.2 accessors (U19).
 - The guard ops (C1.1 item 2) and their builders.
 
 ## Outputs
@@ -59,6 +63,10 @@ Mandatory findings: F-poison-1
 ## Implement
 
 - Per the fixed decisions.
+- **Walkers.** The four `Specialize` units follow a list constant's
+  spine through `getRunCells()` and `getTail()`, never `getFields()[s]`.
+  A key or a shape computed from a run is the same as from the nested
+  form, since the attribute is the same value.
 
 ## Delete
 
@@ -83,11 +91,11 @@ Mandatory findings: F-poison-1
 ## Escalate if
 
 - A Narrow or Tail decision depended on the stage attribute in a way
-  the grade cannot express. Report the site.
+  `inOwnedStage` cannot express. Report the site.
 
 ## Stop and return
 
-You are done when the three outcomes hold. Return the changed paths,
+You are done when the four outcomes hold. Return the changed paths,
 `Verification: NotRun (swarm policy)`, and seams.
 
 ## Common obligations
@@ -109,10 +117,12 @@ You are done when the three outcomes hold. Return the changed paths,
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

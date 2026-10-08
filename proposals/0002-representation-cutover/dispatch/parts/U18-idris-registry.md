@@ -14,7 +14,15 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
    - Their `RawPointer` exclusions go.
 
    Mandatory, under O1's default.
-3. **Exclusions by name.**
+3. **The hooks carry generated primitives** (C8.3, review R10).
+   `Hook.IOCall` carries an `IdrPrim`, and `Hook.ArrayLoop` an
+   `IdrRegionPrim` (`Registry/Entry.idr`). `Frontend/Translate/Hooks.idr`
+   (`ioCallOf`, `arrayLoopOf`) follows. Mandatory.
+4. **`OSClock` and `exitWith`** (C9.1, C9.4, review R11).
+   `System.Clock.OSClock` gets a `WordType` entry; the clock primitives
+   are recognized by their `scheme:` spec; `System.exitWith` is
+   recognized by name. Mandatory.
+5. **Exclusions by name.**
    - `System.Signal` is ruled out as `Signal`;
    - `System.Concurrency` as `Threads`;
    - `system`, `popen`, `pclose` and `popen2` with its accessors as
@@ -28,17 +36,22 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
   `Primitives.idr`, `Recognized.idr`)
 - `CS/Registry.idr`
 - `CS/Frontend/Translate/Types.idr`
+- `CS/Frontend/Translate/Hooks.idr`
 
 **Excluded:**
 
 - `CS/Rule.idr`, where the coordinator adds `Cycle`, `Uniqueness`,
   `Signal` and `Process`.
 - `CS/Types.idr` (U17 defines `Prim` and `Op`).
+- `CS/Term.idr` and `CS/Frontend/Translate/Terms.idr` (U07 builds
+  `Term.Effect` from your hooks).
 - `third_party/Idris2`, which is read-only.
 
 ## Read first
 
 - `contracts.md` C9 (all), C8.3, C8.4, C1.6 and C13.
+- `review.md` R10 and R11.
+- `CS/Registry/Entry.idr` (`Hook`) and `CS/Frontend/Translate/Hooks.idr`.
 - `findings.md` F-base-1 and F-base-3 to F-base-6.
 - `CS/Registry/*`, all of it, especially:
   - `Primitives.idr:90-298` (the `filePrimitive` entries, `filePtr`,
@@ -64,15 +77,30 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
     their last argument;
   - `prim__getNullAnyPtr` gives the literal handle `-1`, as
     `Handle (LInt UInt64 18446744073709551615)`.
+- **`OSClock`.** `System.Clock.OSClock` (`data OSClock : Type where
+  [external]`) gets a `WordType` entry beside `AnyPtr`'s and `Ptr`'s.
+  Its values are immediate (C9.4).
+- **Clocks by `scheme:` spec.** The clock primitives have only `scheme:`
+  and `RefC:` specs (`Clock.idr:119-121`), so they are recognized by the
+  `scheme:` one.
+- **`exitWith`.** Base's `exitWith` is
+  `primIO . believe_me . prim__exit . cast`, and `believe_me` is
+  rejected. So `System.exitWith` is recognized by name, as `idr.io.exit`
+  followed by `ub.unreachable`. This is the one wrapper recognized by
+  name; `exitFailure` and `exitSuccess` reach it through base's code.
+- **The hooks.** `Hook.IOCall` carries an `IdrPrim` and
+  `Hook.ArrayLoop` an `IdrRegionPrim`, both generated (C8.2). `ioCallOf`
+  and `arrayLoopOf` return them.
 - **The exclusions** are `ruledOut` entries naming each module's
   `prim__` definitions and the public functions a program calls, with
   the rule C9.5 gives. A program that reaches one gets
   `unsupported (signal)`, `unsupported (threads)` or
   `unsupported (process)` at the use.
-- **`RawPointer`** stays for `prim__malloc` and anything else raw.
-  The `ruledOut` entries for `prim__getString`, `prim__nullPtr`,
-  `prim__forgetPtr`, `prim__nullAnyPtr`, `prim__getNullAnyPtr` and
-  `System.getEnv` go.
+- **`RawPointer`** stays only for `System.FFI`'s allocation primitives
+  (`prim__malloc` and its kin). `prim__castPtr` and `prim__forgetPtr`
+  are identity hooks, never `RawPointer`. The `ruledOut` entries for
+  `prim__getString`, `prim__nullPtr`, `prim__forgetPtr`,
+  `prim__nullAnyPtr`, `prim__getNullAnyPtr` and `System.getEnv` go.
 
 ## Inputs
 
@@ -89,17 +117,22 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 
 - Per the fixed decisions. Group the new entries by base module, as
   `Primitives.idr` groups today's.
+- **`Entry.idr` and `Hooks.idr`.** Change `Hook.IOCall` and
+  `Hook.ArrayLoop`'s payloads and their readers in your files.
 
 ## Delete
 
 - The six `ruledOut ... RawPointer` entries listed above.
 - Each `IOCall` or `Prim` mapping that U17's `Op p` replaces. Rewrite
   it; never keep both.
+- The `IOOp` and `ArrayLoop` payloads of `Hook`, and every pattern on
+  them in `Hooks.idr`.
 
 ## NOT TO DO
 
-- Do not recognize a base wrapper function by name, replacing its body.
-  Under O1, base's own code runs unchanged.
+- Do not recognize a base wrapper function by name, replacing its body,
+  except `System.exitWith` (above). Under O1, base's own code runs
+  unchanged.
 - Do not add entries for `contrib`, `network` or `linear` modules.
 - Do not edit `Rule.idr`.
 - Do not change any existing entry's Idris name or shape.
@@ -107,7 +140,9 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 ## Acceptance
 
 - `T/registry` passes. U23 adds entries for the new primitives.
-- A program calling `getEnv "HOME"` compiles. One calling
+- A program calling `getEnv "HOME"` compiles, and so does one calling
+  `exitWith (ExitFailure 3)` and one reading `clockTime Monotonic`. One
+  calling
   `System.Signal.collectSignal` is rejected with `unsupported (signal)`.
   One calling `System.system "true"` is rejected with
   `unsupported (process)`. U23 writes the fixtures.

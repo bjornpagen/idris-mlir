@@ -16,11 +16,15 @@ Mandatory findings: F-prim-1 F-guard-4
      `ArrayLoop` are gone (C8.3).
 
    Mandatory.
-3. **Emit.** `Emit/Operations.idr` has one generic case for `Op p`. It
-   emits `guardOf`'s guard, with today's cause text, right before each
-   partial primitive (C3.1, C3.2, C8.3). Mandatory.
+3. **Emit.** `Emit/Operations.idr` has one generic case for `Op p`, and
+   exports one function for an effect,
+   `effect : Index -> Loc -> IdrPrim -> List Ty -> List Val -> DataId -> E (Maybe Val)`
+   (C8.3), which U07's `EffectF` case calls. Both emit `guardOf`'s
+   guard, with today's cause text, right before each partial primitive
+   (C3.1, C3.2). Mandatory.
 4. **The frontend.** `Frontend/Translate/Primitives.idr` builds `Op p`
-   where it built a 1:1 `Prim` or `IOOp`. Mandatory.
+   where it built a 1:1 pure `Prim`. Effects are built by U07's
+   `Terms.idr` from U18's hooks. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -41,6 +45,7 @@ Mandatory findings: F-prim-1 F-guard-4
 ## Read first
 
 - `contracts.md` C8 (all), C3.1, C3.2, C1.1 items 2, 3 and 7, and C13.
+- `review.md` R10.
 - `findings.md` F-prim-1 and F-guard-4.
 - `foreign/idr/tools/idris-mlir-tblgen.cc`, all of it: how ops, builders
   and enums are generated today.
@@ -68,8 +73,14 @@ Mandatory findings: F-prim-1 F-guard-4
   are never `IdrPrim`s.
 - **The cause texts** are today's, copied exactly from the C++ crash
   causes C3.1 cites.
-- **A primitive's operand types** come from its Idris type, as the
-  registry's shape gives it, not from a table in `Types.idr`.
+- **An effect's type arguments** come from `Term.Effect`'s `List Ty`
+  (U07, C8.3): `[e]` for an array primitive, `[t]` for `BufferLoad t`
+  and `BufferStore t`, `[]` otherwise. `effect` reads them; nothing
+  looks them up in a table in `Types.idr`. A pure `Op p`'s operand
+  types are its operands' own types.
+- **`effect`** does four things, in order: the guard (`guardOf`) for a
+  partial primitive, the op by `primOp`, the world when
+  `primPerformsIO p`, and the `IORes` instance named by the `DataId`.
 
 ## Inputs
 
@@ -93,10 +104,11 @@ Mandatory findings: F-prim-1 F-guard-4
 - **`Types.idr`.** Replace each 1:1 constructor with `Op p`. Keep the
   rest. Remove the hand-written IO primitive type, its operand table and
   `ArrayLoop`, with their `Show` instances (see Delete).
-- **`Emit/Operations.idr`.** Write the generic `Op p` case, with world
-  threading and the `IORes` building that the IO cases do today. Add
-  `guardOf` and the guard emission. Remove the per-constructor cases
-  the generic one covers.
+- **`Emit/Operations.idr`.** Write the generic `Op p` case, and
+  `effect` with the world threading and the `IORes` building that the IO
+  cases do today. Add `guardOf` and the guard emission. Remove the
+  per-constructor cases the generic ones cover. Keep the function
+  Bodies calls for `PrimAppF`.
 - **`Frontend/Translate/Primitives.idr`.** Adapt it to the new `Prim`.
 - Write the mapping table into your handoff.
 
@@ -130,8 +142,9 @@ Mandatory findings: F-prim-1 F-guard-4
 
 - A 1:1 primitive's op has an inherent attribute that C8.1 did not
   exclude. Report the op; the coordinator removes its trait.
-- The registry's shape cannot give an operand's Idris type. Report the
-  primitive.
+- An IO primitive needs a type argument that is neither an array's
+  element nor a buffer word's type. Report it, with where the frontend
+  can read it.
 
 ## Stop and return
 
@@ -158,10 +171,12 @@ are as above. Return the changed paths, the mapping table for U18,
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

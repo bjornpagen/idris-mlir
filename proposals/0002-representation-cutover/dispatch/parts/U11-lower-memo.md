@@ -81,9 +81,9 @@ Mandatory findings: F-mode-2 F-clo-1 F-lazy-1 F-lazy-2 F-lazy-3 F-lazy-7 F-poiso
 - **The force's result** is owned, as today: one reference the caller
   holds.
 - **Borrowed parameters** follow C5.3, "Captures and borrowed
-  parameters": a moved capture passed to a `borrow` parameter is decd
-  after the call, and a `by_name` capture is inc'd only for an owned
-  parameter.
+  parameters": a moved capture passed to a borrowed parameter (one
+  whose type is plain, C2.2) is decd after the call, and a `by_name`
+  capture is inc'd only for an owned parameter.
 - **A memo sum with one label** emits no switch between labels. It
   still tests `running` and `forced`.
 

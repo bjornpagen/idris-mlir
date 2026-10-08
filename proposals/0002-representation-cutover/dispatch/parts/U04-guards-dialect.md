@@ -10,14 +10,17 @@ Mandatory findings: F-guard-1 F-guard-6
    - has no crash cause;
    - folds only where its guard's predicate holds;
    - is speculatable only by C3.3's rule.
-3. **Guards built where needed.** Every C++ pass that builds one of
-   those ops on an unproved operand builds its guard first (C3.2).
+3. **Guards built where needed.** Every C++ pass in your files that
+   builds one of those ops on an unproved operand builds its guard first
+   (C3.2).
 4. **The array ops' consumption.** The array ops report consumption
    (C2.1 table).
-5. **Folders build runs.** List folders build `#idr.con` runs with
-   `ConAttr::getRun` (C7.2).
+5. **Constants as runs.** Folders and builders build `#idr.con` lists
+   with `ConAttr::getRun`, and walkers follow the walk rule (C7.2).
+6. **Rewrites that matched a partial op** look through a `nonempty`
+   guard (C3.4).
 
-All five are mandatory.
+All six are mandatory.
 
 ## Owner / exclusive writes
 
@@ -32,10 +35,15 @@ All five are mandatory.
 - `IDR/Dialect/Crashes`
 - `IDR/Fold`
 - `IDR/Ops`
+- `IDR/Dialect/Ops/Generated.cc`
+- `IDR/Canon`
 
 **Excluded:**
 
 - `INC/` (the coordinator writes the ODS).
+- `IDR/Dialect/Canonicalize.td`, the coordinator's. Its `HeadOfCons`
+  and `HeadOfShow*` patterns gain a `nonempty` guard in their source
+  pattern there. Report the exact DRR text you need.
 - `IDR/Lower` (U05 lowers the guards).
 - `IDR/InBounds` (U06 removes the guards it proves).
 - `CS/` (U17 emits the guards from Idris).
@@ -46,33 +54,53 @@ All five are mandatory.
 
 - `contracts.md` C1.1 items 2 and 3, C2.1, C3.1 to C3.4, C7.2 and C13.
 - `findings.md` F-guard-1, F-guard-5 and F-guard-6.
+- `review.md` R4 and R6.
 - Every `getCrashCause` in your files.
 - `IDR/Dialect/Crashes/*.cc` (`knownFinite`, `knownNonEmpty`,
   `knownNonZero`).
-- The folders in `IDR/Fold`, and `IDR/Ops/IoEffects.cppm` (`ioEffects`).
+- The folders in `IDR/Fold`, `IDR/Dialect/Ops/Generated.cc`'s
+  `foldDivision`, and `IDR/Ops/IoEffects.cppm` (`ioEffects`).
+- `IDR/Canon/Feeds.cppm` and `IDR/Canon/MatchPatterns.cppm`.
+- `IDR/Ops/Constants.cppm` and `IDR/Ops/Untyped.cppm`.
 - The pinned `mlir/Interfaces/SideEffectInterfaces.h`
   (`ConditionallySpeculatable`, `Speculation::Speculatability`).
 
 ## Fixed decisions
 
-- **One predicate per guard kind.**
+- **One predicate per guard kind for constants.**
   `bool idr::checkHolds(CheckKind kind, ArrayRef<Attribute> constants)`
   in `Check.cc`. `CheckKind` is
-  `{Nonzero, InBounds, Nonempty, Byte, Finite, Range}`. It is the only
-  place a precondition is written, and it is declared for your files in
-  a partition you choose.
+  `{Nonzero, InBounds, Nonempty, Byte, Finite, Range}`. It is declared
+  for your files in a partition you choose.
+- **`IDR/Dialect/Crashes` stays.** `knownNonZero`, `knownNonEmpty` and
+  `knownFinite` keep their meaning and become the guards' folders'
+  predicates (C3.4).
+- **A guard's folder returns its operand** exactly when:
+  - `nonzero`: `knownNonZero` holds of the operand;
+  - `finite`: `knownFinite` holds;
+  - `nonempty`: `knownNonEmpty` holds, which covers `str.cons` and
+    every string built with a character or a number in it;
+  - `in_bounds`, `byte`, `range`: `checkHolds` holds of constant
+    operands;
+  - or the operand is the result of an identical guard.
+
+  Otherwise it does not fold, and a failing constant keeps its crash.
+  No folder reads an analysis.
 - **`idr::checkSpeculatability(Operation *op, ArrayRef<unsigned> guarded)`**
-  returns `Speculatable` iff each guarded operand is the result of that
-  operand's guard op, or a constant for which `checkHolds` holds.
-  Otherwise it returns `NotSpeculatable`. Every total op's
+  returns `Speculatable` iff each guarded operand is either:
+  - the result of a guard whose length or size operand is the length of
+    the op's own string, array or buffer: `idr.str.length` of the op's
+    string operand, or `arith.index_cast` of `memref.dim` of its array
+    or buffer operand. For `nonzero`, `nonempty`, `byte` and `finite`
+    it is that operand's own guard;
+  - or a constant for which `checkHolds` holds.
+
+  Otherwise `NotSpeculatable` (C3.3). Every total op's
   `getSpeculatability` calls it, with the operand indices C3.1 guards.
-- **A guard folds to its operand** when its constants satisfy
-  `checkHolds`, when the operand's type proves it (`!idr.nat` is never
-  negative), or when the operand is the result of an identical guard.
-  A guard never folds when the predicate fails.
 - **A total op's folder** computes nothing where `checkHolds` fails on
-  its constant operands, so the compiler never computes a division by
-  zero.
+  its constant operands. That includes `foldDivision` in
+  `Generated.cc`, the total `div` and `mod` folder: APInt division by
+  zero aborts the compiler.
 - **Range inference.** Each guard with `InferIntRangeInterface`
   intersects the operand's range with its condition.
 - **Causes.** The cause strings are today's crash texts (C3.1). They
@@ -83,13 +111,15 @@ All five are mandatory.
 
 - The C1.1 items 2 and 3 ODS (guards; total ops without `Idr_MayCrash`).
 - `idr::consumedEffects` (C1.4).
-- `ConAttr::getRun` (C7.2).
+- `ConAttr::getRun`, `getRunCells`, `getTail` and `getField` (C7.2),
+  U19's.
 
 ## Outputs
 
 - `Check.cc`: the guards' `fold`, `inferResultRanges`, `checkHolds` and
   `checkSpeculatability`.
 - The total ops without causes.
+- The DRR text for the coordinator's `Canonicalize.td`.
 - The list of other lanes' creators, for your handoff.
 
 ## Implement
@@ -105,13 +135,17 @@ All five are mandatory.
     `MemAlloc` on allocating results.
   - `ops::ioEffects(getCrashCause(), ...)` becomes `ioEffects` without
     the crash part, in `IDR/Ops/IoEffects.cppm`.
-- **`IDR/Dialect/Crashes`.** Fold `KnownNonZero.cc`, `KnownNonEmpty.cc`
-  and `KnownFinite.cc` into `checkHolds`'s cases, and delete them. If
-  the type-proof part is wanted, keep it as private helpers of
-  `Check.cc`.
-- **`IDR/Fold`.** Each folder of a partial op folds through
-  `checkHolds`. `StringOfList.cc` and `Lists.cppm` build lists with
-  `ConAttr::getRun`.
+- **`IDR/Dialect/Crashes`.** Keep the three predicates. Delete only
+  what served crash causes and nothing else reads.
+- **`IDR/Fold` and `Generated.cc`.** Each folder of a total op folds
+  through `checkHolds`. `StringOfList.cc` and `Lists.cppm` build lists
+  with `ConAttr::getRun`.
+- **`IDR/Canon`.** `Feeds.cppm`'s consumer test sees through a
+  `nonempty` guard to the `str.head` behind it. `MatchPatterns.cppm`
+  keeps calling `knownNonEmpty`.
+- **`IDR/Ops`.** `Constants.cppm`, the constant verifier that runs after
+  every pass, walks a run's cells and tail, never `getFields()[s]`.
+  `Untyped.cppm` rebuilds a list constant with `getRun`.
 - **Creators.** Grep `foreign/idr/lib` for `create` of each C1.1 item 3
   op (`DivOp`, `ModOp`, `StrIndexOp`, `StrHeadOp`, `StrTailOp`,
   `BigDivOp`, `BigModOp`, `ToByteOp`, `ToIntOp`, `BigFromDoubleOp`,
@@ -125,29 +159,35 @@ All five are mandatory.
 
 - `getCrashCause` of every op C1.1 item 3 lists.
 - The `in_bounds` property's reads in `Arrays.cc` (`getInBounds()`).
-- `IDR/Dialect/Crashes/Known{NonZero,NonEmpty,Finite}.cc` once
-  `checkHolds` covers them. Their unit lines are in the coordinator's
-  `IDR/Dialect/CMakeLists.txt`; name them in your handoff.
 - The crash halves of `ops::ioEffects`.
+- Any constant walk in your files that steps a list by
+  `getFields()[s]`.
 
 ## NOT TO DO
 
 - Do not change any crash text.
 - Do not make a total op `AlwaysSpeculatable`.
 - Do not fold a failing guard.
+- Do not fold a guard by an analysis (range, dominance): that is
+  `idr-in-bounds`'s (U06).
+- Do not delete `knownNonZero`, `knownNonEmpty` or `knownFinite`.
 - Do not add a guard kind beyond the six.
 - Do not change `idr.crash` or `idr.crash_str`: they keep their causes.
 - Do not write the lowering (U05) or the proofs (U06).
 
 ## Acceptance
 
-- **Folding.** For each guard: a proving constant folds it; a failing
-  constant does not; an identical guard's result folds it. U22 writes
+- **Folding.** For each guard: a proving operand folds it; a failing
+  constant does not; an identical guard's result folds it.
+  `str.head (check.nonempty (str.cons c s))` folds to `c` through the
+  guard's folder and the coordinator's pattern. U22 writes
   `T/idr/guards/fold-*` from C12.
-- **Speculation.** `licm` does not hoist `idr.str.index` whose operand
-  is not a guard's result out of an `scf.if`. With the guard in place,
-  `idr.str.index` stays below it. U22 writes `T/idr/guards/speculation`.
-- **Folders.** `idr.div` of constants `7, 0` does not fold.
+- **Speculation.** In an `scf.while` whose condition is
+  `%i < idr.str.length %s`, `idr.str.index %s, %i` with its guard proved
+  away stays in the loop under `loop-invariant-code-motion`. U22 writes
+  `T/idr/guards/speculation`.
+- **Folders.** `idr.div` of constants `7, 0` does not fold, and the
+  compiler does not abort on it.
 - **Search.** `grep -rn getCrashCause foreign/idr/lib/Dialect/Ops`
   finds only `Crash.cc` and the guards.
 - **Tempting partial:** keeping `getCrashCause` on the total ops,
@@ -156,17 +196,21 @@ All five are mandatory.
 - **Tempting partial:** `AlwaysSpeculatable` on the total ops.
   Rejected by F-guard-6: an index proved by a path condition would be
   hoisted out of it.
+- **Tempting partial:** folding guards on constants only. Rejected by
+  R4: it kills `HeadOfCons` and today's string folds.
 
 ## Escalate if
 
 - An op not in C1.1 item 3 crashes today (has `Idr_MayCrash` and is not
   `crash` or `crash_str`). Report it.
 - A creator cannot know the cause text. Report the site.
+- A total op's length operand is not reachable as C3.3 states. Report
+  the op.
 
 ## Stop and return
 
 You are done when `Check.cc` exists, the total ops are total, the
-creators in your files build guards, and the Delete list is empty of
-survivors. Return the changed paths, the creator list for other lanes,
-the unit lines for the coordinator,
-`Verification: NotRun (swarm policy)`, and seams.
+creators in your files build guards, the walkers and builders follow
+C7.2, and the Delete list is empty of survivors. Return the changed
+paths, the creator list for other lanes, the DRR text for the
+coordinator, `Verification: NotRun (swarm policy)`, and seams.

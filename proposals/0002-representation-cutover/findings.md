@@ -206,8 +206,13 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
   here and at every force on Chez, which runs every non-CAF `Delay` by
   name.
 - **Evidence:** `third_party/Idris2/src/Compiler/Scheme/Common.idr`
-  (`defaultLaziness`).
-- **Correction:** C5.1 (`by_name`), C5.3.
+  (`defaultLaziness`). A top-level `Delay` is memoized there
+  (`schDef` gives `(define n (delay …))`).
+- **Refinement (review R8):** a forged world is not an observable
+  effect by itself. `Linear.Array`, `runST` and `strerror` forge worlds
+  and reach only array and buffer ops, or none.
+- **Correction:** C5.1 (`by_name` when the label reaches an observable
+  effect, never for a static constant's label; O3), C5.3.
 
 ## F-lazy-9 A suspension's cell is sized per label for the code-pointer protocol
 
@@ -231,8 +236,18 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 - **Evidence:**
   - `Ownership/Stage.cppm`;
   - it is read in `Ownership/{Verify,Rc,Borrowed,OpChecks}.cppm`,
-    `Narrow/Words.cppm:42-43` and `Dialect/Verify/Attributes.cc:45-47`.
-- **Correction:** C2.2.
+    `Narrow/Words.cppm:42-43` and `Dialect/Verify/Attributes.cc:45-47`;
+    `Rc.cppm:39` refuses a module that has it and `Rc.cppm:61` sets it
+    between the signatures and the counts, which read it;
+  - it is declared besides: the dialect's discardable attribute
+    (`include/idr/IdrOps.td:45`), the generated Idris helper
+    `stageDiscardable` (`compiler/src/IdrisMLIR/Dialect/Idr.idr:136-139`),
+    and the docs at `include/idr/Passes.td:550` and `IdrOps.td:1550`;
+  - 14 files under `tests/idr` write `module attributes {idr.stage = "owned"}`.
+- **Correction:** C2.2 (O6): the stage is derived from the grades, true
+  when any value has `own` or `excl`; views stay plain. A `borrow` grade
+  on views, the first proposal, fails 31 ODS operand constraints,
+  `memref.dim` and three verifiers (review R1).
 
 ## F-own-3 "Holds references" is decided per site
 
@@ -381,7 +396,8 @@ Every entry in this group has the same correction: C2.4.
 - **Evidence:** `PINS.md` `mlir-recursion` and
   `bytecode-deferred-quadratic`: "a computed list of 10,000 elements is
   a constant nested 10,000 deep".
-- **Correction:** C7.1, C7.2.
+- **Correction:** C7.1 (the canonical form), C7.2 (the API, the walk
+  rule, and every walker and builder with its lane; review R3).
 
 ## F-const-2 Reify builds a list one nested `#idr.con` at a time
 

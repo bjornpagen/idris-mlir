@@ -1,13 +1,16 @@
 # 0002: the representation cutover
 
-**Status:** proposed. This is a swarm packet, not yet launched.
+**Status:** proposed. This is a swarm packet, not yet launched. Its
+adversarial review (`review.md`) is folded in: see "Rulings on the
+adversarial review".
 
 The packet makes the compiler hold each thing it knows once, in the
 representation MLIR already has a name for, and deletes the special case
 that held it before.
 
-- **Reference counting.** Ownership is declared on the ops and carried
-  in the grades. The `isa` table and the `idr.stage` attribute go.
+- **Reference counting.** Ownership is declared on the ops, and the
+  owned stage is read from the grades. The `isa` table and the
+  `idr.stage` attribute go.
 - **Partial ops.** A partial op becomes a guard plus a total op. The
   three statements of every precondition, and the `in_bounds` claim,
   go.
@@ -57,17 +60,14 @@ that start at once.
   - `idris_rt.h` and `Rule.idr`.
 
   The coordinator applies C1 at dispatch. Lanes write against its text.
-- **Verification timing:** no lane builds or runs a test (C13). The tree
-  is red mid-swarm by design: lanes write against declarations other
-  lanes are writing. The coordinator runs AGENTS.md's checks at
-  integration, with repairs and reruns as a phase:
-  1. `make check`
-  2. `make build`
-  3. `make test`
-  4. `make test-idr`
-  5. `make test-mlir-tools`
-
-  Tests are authored concurrently by U22 and U23.
+- **Verification timing:** no lane builds or runs a suite, `make check`
+  included (C13). `make check` builds the test runner, and it is red
+  mid-swarm by design: `spec/dialects-current` until the dialect mirror
+  is regenerated, `spec/file-size` while a unit is mid-split. A lane runs
+  only the one spec test its acceptance names, from that test's
+  directory. The coordinator runs AGENTS.md's checks at integration, in
+  the order of `work-units.md` "Integration", with repairs and reruns as
+  a phase. Tests are authored concurrently by U22 and U23.
 - **Commit policy:** lanes do not commit. The coordinator commits to
   `main` at integration, in a few commits that each stage only this
   packet's paths, after the suites are green. Then it pushes `main` and
@@ -78,7 +78,8 @@ that start at once.
   one long serialization, and it is confined to the integration tail:
   every other lane's code builds on today's toolchain, and only the two
   clang workarounds' deletion and the dead-values deletion need the
-  patched one.
+  patched one. Those three changes of U01's are held out of the tree
+  until the rebuild (C13).
 - **Deletions allowed:** everything under "The Elon pass" and "Retired
   mechanisms". No user data exists. A test is deleted only when it
   tested a retired mechanism and nothing else.
@@ -95,7 +96,7 @@ that start at once.
    tables and module attributes move onto ops and types, where MLIR's
    generic passes and the verifier see them:
    - consumption is declared on each op in ODS (C2.1);
-   - a view is a grade (C2.2);
+   - the owned stage is a fact of the grades, not an attribute (C2.2);
    - a precondition is a guard op (C3).
 
    Each old copy is deleted in the same lane that writes the new one.
@@ -134,9 +135,9 @@ These requirements are deleted, not implemented:
 | A closure has a runtime form | `idr-eval` | **Deleted** with the mode (C6.1). |
 | A thunk is a code pointer the force calls | The self-updating model | **Deleted.** The state is a constructor; the force switches on it (C5.3). |
 | A forced constant thunk is written in static memory, and the runtime lists it | A constant thunk is static data | **Deleted in part.** The list goes: a compiler-made function releases the forced values (C5.5). The cell is still written once, and its kind marks it. Making it per shard belongs to the shards work, because static data may point at it (C5.5, "Why not thread-local"). |
-| Every force memoizes | "The memo is what Lazy means" | **Deleted.** Chez runs `Delay` by name. The memo is our complexity guarantee, decided per thunk (C5.3). |
+| Every force memoizes | "The memo is what Lazy means" | **Deleted.** Chez runs a non-top-level `Delay` by name and memoizes a top-level one. Ours memoizes every thunk except one whose label reaches an observable effect, and never one a static constant names (C5.1, O3). |
 | `useOf` lists every consuming op | No place on the op to say it | **Deleted.** Consumption is declared in ODS beside the op (C2.1). |
-| A module attribute marks the owned stage | A plain type meant two things | **Deleted.** The view is `borrow` (C2.2). |
+| A module attribute marks the owned stage | A plain type meant two things | **Deleted.** The stage is read from the grades: a module is owned when any value has `own` or `excl` (C2.2, O6). Views stay plain. |
 | A proved access is marked `in_bounds` | No place to put a proof | **Deleted.** A proof is the absence of the guard (C3.5). |
 | `idr-in-bounds` must run right before the lowering | The claim rested on facts nothing re-checks | **Deleted.** The pass runs where its index systems see the most (C1.3). |
 | Closure conversion happens in Idris | The frontend built closures for Emit | **Deleted.** `makeRegionIsolatedFromAbove` (C4.3). |
@@ -188,7 +189,9 @@ These are decisions, not questions.
   constant. The cell keeps the thunk kind, so the shards work can find
   every one. §2.4 records the correction.
 - **The cycle check excludes memo cells.** No recursive `let` of values
-  exists in Idris, so a memo cannot reach itself (C10.1).
+  exists in Idris, so a heap memo cannot reach itself. A static memo cell
+  can, through persistent cells, which are never counted, so nothing
+  leaks (C10.1).
 - **A guard's cause is data.** The crash text is the guard's `cause`
   attribute, copied from today's message, so messages do not move.
 - **Handles, not addresses.** Null is `-1`, because `0` is already
@@ -196,6 +199,44 @@ These are decisions, not questions.
 - **`OSClock` is immediate** (C9.4). No allocation and no leak.
 - **The two GC clocks are invalid.** This is the divergence class
   `gc-clock`.
+
+## Rulings on the adversarial review
+
+`review.md` found that four contracts would have made lanes write code
+that does not compile or does not verify, and that several others left a
+literal worker to guess. Each finding was checked against the source and
+folded in. The review's own packet edits (its list of eight) stand.
+
+| # | Finding | Ruling | Where |
+|---|---|---|---|
+| R1 | A `borrow` grade on views fails 31 ODS operand constraints, `memref.dim` and three verifiers | **Accepted.** Views stay plain; the stage is derived (O6). | C2.2, U03, U21 |
+| R2 | The trait table does not compile for `idr.con`, the ODS-effect ops and `idr.force` | **Accepted.** `idr.con` keeps its own effects and calls `consumedEffects`; ops whose effects ODS declares get the interface only; `idr.force` is not in the table. | C2.1, C1.1 item 5, U03, U09 |
+| R3 | Runs make every spine walk quadratic, and two attributes could denote one value | **Accepted.** A canonical form, an iteration API, the walk rule, and every walker listed with its lane. | C7, U03, U04, U09, U10, U12, U13, U14, U19, U21 |
+| R4 | Guards that fold only on constants kill `HeadOfCons` and the string folds | **Accepted.** Guards fold on today's `known*` predicates; `Crashes` stays; the rewrites see through `nonempty`; no folder reads an analysis. | C3.4, U04, coordinator (`Canonicalize.td`) |
+| R5 | A guard on a string or a big passes a reference through, uncounted | **Accepted.** `nonzero` and `nonempty` take their operand over, and the result has its grade. | C2.1, U03 |
+| R6 | The speculation rule does not tie the guard to the op's own string or array | **Accepted.** The guard's length is the op's own operand's length. | C3.3, U04 |
+| R7 | An unknown lazy key is a regression in programs and a contradiction in the evaluator | **Accepted.** Slots follow arrays; an unknown key is `unsupported` from the pass, and leaves the round for runtime in the evaluator. | C5.1, C6.4, U09, U14 |
+| R8 | `by_name` by the `io` bit catches linear arrays and `runST`, and diverges from Chez on CAFs | **Accepted.** `by_name` is "reaches an observable effect", and never for a static constant's label (O3). | C5.1, U09 |
+| R9 | `memo-shared-stream` asserts the opposite of `by_name`; `environment-arguments` prints `argv[0]` | **Accepted.** The first observes the memo by time; the second prints `length !getArgs`. | C12, U23 |
+| R10 | Deleting `IOOp` needs edits in `Term.Effect`, `Hook.IOCall` and an unowned `Hooks.idr`; array types are not in the registry's shape | **Accepted.** `Effect` carries `IdrPrim` and `List Ty` from the call; the hooks carry generated primitives; `Hooks.idr` joins U18. | C8.3, U07, U17, U18 |
+| R11 | Environment and directory strings leak; `exitWith` is rejected; `OSClock` has no type entry; clock specs name no C function | **Accepted.** Runtime-owned string slots and `releaseHandles()`; `exitWith` by name; `OSClock` a `WordType`; clocks by `scheme:` spec. | C1.5, C9.1, C9.4, U16, U18 |
+| R12 | Files the contracts change that no lane owns; memo label bodies dead to every solver; two units at their limit | **Accepted.** `Con.cc`, `Generated.cc`, `Canon`, `Hooks.idr`, `Attributes.idr`, `Sharing` and `T/toolchain` are assigned; `labels` on the memo sum keeps the bodies live; U09 and U10 split as they edit. | `ownership.json`, C1.1 item 5, U09, U10 |
+| R13 | `make check` is not build-free and is red mid-swarm; the `IDR/Simplify` change needs the patched MLIR | **Accepted.** Lanes run only their named spec test; U01's three C++ changes are held out until the rebuild. | C13, work-units, U01 |
+
+**The smaller points**, all accepted:
+
+- `idr.lambda` and `idr.delay` are `Pure`, as `idr.closure` and
+  `idr.suspend` are (C1.1 item 4).
+- The in-place promise is read from two ops: an `idr.reuse` whose token
+  comes from an `idr.take` of the parameter. The message names the
+  call, with a note at a dup, and no provenance is added (C10.2).
+- Static memo cells can form a cycle, through persistent cells only
+  (C10.1).
+- C6.3 holds as written.
+
+**The disagreements table.** The first two rows are the owner's: O6 and
+O3 record the defaults and the alternatives. The last two were settled
+by the review itself.
 
 ## Owner decisions
 
@@ -216,9 +257,13 @@ Each has a default chosen so that lanes can start. One word vetoes it.
     exclusions under a new rule, which the owner names.
 - **O3. Memo per thunk** (`findings/README.md` proposed decision 3, as
   C5 implements it).
-  - Default: yes.
+  - Default: yes. A label is `by_name` when its function reaches an
+    `Idr_PerformsIO` op other than an array or buffer op (output, input,
+    a file, a clock), and never when a static constant names it (C5.1).
+    `trace` runs by name, as Chez runs it; `Linear.Array`, `runST` and
+    `strerror` keep their memo.
   - On a veto: every force memoizes, as today. The `by_name` attribute
-    and the one-shot row go, and the divergence on world-forging thunks
+    and the one-shot row go, and the divergence on effectful thunks
     stays.
 - **O4. Process creation is outside the language for now**,
   `unsupported (process)` (open question 3 of `findings/README.md`).
@@ -230,6 +275,17 @@ Each has a default chosen so that lanes can start. One word vetoes it.
   - Default: yes. It becomes the default when the benchmarks pass it,
     which is `findings/README.md` proposed decision 6, after
     qualification.
+- **O6. Views stay plain; the owned stage is derived** (C2.2, review
+  R1).
+  - Default: yes. `ownership::inOwnedStage(ModuleOp)` is true when any
+    value has `own` or `excl`. `idr.stage` goes, and no ODS constraint
+    changes.
+  - On a veto ("views are `borrow`"): C1.1 changes every operand
+    constraint that takes a view (31 declarations), a graded-array
+    length op replaces `memref.dim`, `fieldType` and `view` split into
+    declared and view, and `Con.cc`, `Field.cc`, `Matches.cc` and
+    `Tag.cc` join U03. That is a sweep of its own, and it would be a
+    packet of its own.
 
 ## The frontier: 23 lanes, disjoint writes, all start at dispatch
 
@@ -237,13 +293,13 @@ Each has a default chosen so that lanes can start. One word vetoes it.
 |---|---|---|---|
 | U01 | Clang crashes and dead-values fixed by patches; workarounds deleted | `upstream/clang-module-*` (2), `upstream/remove-dead-values-unreachable`, their `tests/upstream/` dirs, `IDR/Stack/Escape.cppm`, `IDR/Driver/Retarget.cppm`, `IDR/Simplify` | C11 |
 | U02 | The cycle check; the linearity verifier's sentinel; `idr-canonicalize` on upstream's pass | `IDR/Verify`, `IDR/Canonicalize` | C10.1, C2.4, C1.6 |
-| U03 | Consumption declared and derived; the `borrow` grade; one holds-references; `idr.stage` gone; the force's grade | `IDR/Ownership`, `IDR/Facts`, `IDR/Dialect/{Grades,Types,Effects,Verify}`, `IDR/Dialect/Dialect/Initialize.cc`, `IDR/Dialect/Ops/{Lin,Dest}.cc` | C1.1 item 1, C1.4, C2, C5.4 |
-| U04 | Guards' folders and speculation; the total ops lose their causes | `IDR/Dialect/Ops/{Check,Scalars,Strings,Bigs,Arrays,Buffer,Bytes,Crash}.cc`, `IDR/Dialect/Crashes`, `IDR/Fold`, `IDR/Ops` | C1.1 items 2 and 3, C3.1 to C3.4, C7.2 |
+| U03 | Consumption declared and derived; the owned stage derived (O6); one holds-references; `idr.stage` gone; the force's and the guards' grades | `IDR/Ownership`, `IDR/Facts`, `IDR/Dialect/{Grades,Types,Effects,Verify}`, `IDR/Dialect/Dialect/Initialize.cc`, `IDR/Dialect/Ops/{Lin,Dest,Con}.cc` | C1.1 item 1, C1.4, C2, C5.4, C7.2 |
+| U04 | Guards' folders and speculation; the total ops lose their causes; rewrites see through guards | `IDR/Dialect/Ops/{Check,Scalars,Strings,Bigs,Arrays,Buffer,Bytes,Crash,Generated}.cc`, `IDR/Dialect/Crashes`, `IDR/Fold`, `IDR/Ops`, `IDR/Canon` | C1.1 items 2 and 3, C3.1 to C3.4, C7.2 |
 | U05 | The guards' lowering; no check in the total ops' lowering | `IDR/Lower/{Checks,Scalars,Strings,Bigs,Arrays,Buffers,Words,RuntimeCalls}.cppm` | C3.6 |
 | U06 | `idr-in-bounds` erases the guards it proves; `in-bounds=`, `no-guards=` | `IDR/InBounds`, `IDR/Expect` | C3.5, C2.4 |
-| U07 | The Idris side writes `idr.lambda`, `idr.delay` and `Region`; closure conversion leaves Idris | `CS/Term.idr`, `CS/Ids.idr`, `CS/Emit/{Bodies,Declarations,Monad}.idr`, `CS/Frontend/Translate/{Terms,Closed}.idr` | C4.1, C4.2, C8.2 |
+| U07 | The Idris side writes `idr.lambda`, `idr.delay` and `Region`; closure conversion leaves Idris; `Term.Effect` over `IdrPrim` | `CS/Term.idr`, `CS/Ids.idr`, `CS/Emit/{Bodies,Declarations,Monad,Attributes}.idr`, `CS/Frontend/Translate/{Terms,Closed}.idr` | C4.1, C4.2, C8.2, C8.3 |
 | U08 | `idr-isolate`; the region ops' verifiers | `IDR/Isolate`, `IDR/Dialect/Ops/Regions.cc` | C1.1 item 4, C4.3 |
-| U09 | Lazy keys become memo sums; `by_name`; no `!idr.lazy` after defunctionalization | `IDR/Defunctionalize`, `IDR/Dialect/Ops/{Lazy,Data}.cc` | C1.1 item 5, C5.1 |
+| U09 | Lazy keys become memo sums; arrays in Slots; `by_name`; unknown keys `unsupported` | `IDR/Defunctionalize`, `IDR/Dialect/Ops/{Lazy,Data}.cc` | C1.1 item 5, C5.1, C7.2 |
 | U10 | Layout without labels or code; memo cells sized once | `IDR/Layout` | C5.2, C2.3 |
 | U11 | `Runtime` without a mode or closures; the force's lowering | `IDR/Lower/{Runtime,Closures,Cells,BuildBox,Fields}.cppm` | C5.3, C6.1 |
 | U12 | Static memo cells marked by kind, `@__idr_release_cafs`, runs lowered by a loop | `IDR/Lower/StaticData.cppm` | C5.5, C7.2 |
@@ -252,12 +308,12 @@ Each has a default chosen so that lanes can start. One word vetoes it.
 | U15 | One crash entry; `argc`/`argv`; no closure kind; `idris_rt_caf_release` | `RT/{Rc,Start,Eval,Alloc}` | C1.5, C5.6, C6.5 |
 | U16 | Base's surface in the runtime; handles; both targets | `RT/Platform`, `RT/Io`, `RT/CMakeLists.txt` | C9 |
 | U17 | Generated `IdrPrim`/`IdrRegionPrim`; `Prim` reduced; `IOOp` gone; guards emitted | `CS/Types.idr`, `CS/Emit/Operations.idr`, `CS/Frontend/Translate/Primitives.idr`, `foreign/idr/tools/idris-mlir-tblgen.cc` | C8, C3.2 |
-| U18 | Base's surface registered; pointers as handles; `signal`, `threads`, `process` by name | `CS/Registry`, `CS/Registry.idr`, `CS/Frontend/Translate/Types.idr` | C9.1, C9.2, C9.5, C8.4 |
-| U19 | `#idr.con` runs | `IDR/Dialect/Attrs` | C7 |
+| U18 | Base's surface registered; pointers as handles; hooks over `IdrPrim`; `exitWith` and `OSClock`; `signal`, `threads`, `process` by name | `CS/Registry`, `CS/Registry.idr`, `CS/Frontend/Translate/{Types,Hooks}.idr` | C9.1, C9.2, C9.4, C9.5, C8.3, C8.4 |
+| U19 | `#idr.con` runs in canonical form, and their API | `IDR/Dialect/Attrs`, `IDR/Sharing` | C7 |
 | U20 | `idr-demand` and `--demand in-place` | `IDR/Demand`, `IDR/Driver/{Options,Run}.cppm`, `CS/Frontend/Main.idr` | C10.2, C1.3 |
-| U21 | Narrow, Tail and Specialize without sentinels and on the `borrow` grade | `IDR/Narrow`, `IDR/Tail`, `IDR/Specialize` | C2.2, C2.4 |
+| U21 | Narrow, Tail and Specialize without sentinels, on the derived stage, by the walk rule | `IDR/Narrow`, `IDR/Tail`, `IDR/Specialize` | C2.2, C2.4, C7.2 |
 | U22 | The dialect suite's discriminators; retired mechanisms out of `tests/idr` | `T/idr` | C12 |
-| U23 | The program suites' discriminators, rejections and divergence class | `T/{programs,accept,reject,properties,lib,registry,compiler}`, `T/Main.idr` | C12 |
+| U23 | The program suites' discriminators, rejections and divergence class; the runtime's C clients | `T/{programs,accept,reject,properties,lib,registry,compiler,toolchain}`, `T/Main.idr` | C12, C1.5 |
 | coordinator | Hubs (C1), PINS, findings, README, AGENTS, integration, qualification | see `ownership.json` | all |
 
 `IDR` is `foreign/idr/lib`, `RT` is `runtime`, `CS` is
@@ -294,10 +350,10 @@ did not survive the source.
 | F-lazy-5 | kept list deleted; `idris_rt_caf_release` | U15 |
 | F-lazy-6 | lazy keys become memo sums | U09 |
 | F-lazy-7 | the one-shot force on `excl` | U11 |
-| F-lazy-8 | `by_name` | U09 |
+| F-lazy-8 | `by_name` for observable effects, never for a static constant's label (O3) | U09 |
 | F-lazy-9 | one size per memo sum | U10 |
 | F-own-1 | consumption in ODS; `useOf` derived | U03 |
-| F-own-2 | the `borrow` grade; `idr.stage` deleted | U03 |
+| F-own-2 | the stage derived from the grades (O6); `idr.stage` deleted | U03 |
 | F-own-3 | `idr::holdsReferences` | U03 |
 | F-own-4 | refuted (`RemoveDeadValues.cpp:278`) | coordinator |
 | F-own-5 | `createCanonicalizerPass(GreedyRewriteConfig)` | U02 |

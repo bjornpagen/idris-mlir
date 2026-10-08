@@ -47,9 +47,12 @@ Mandatory findings: F-clo-7
   - the new function `<enclosing>$lam<n>` or `<enclosing>$delay<n>`,
     with `n` counting per enclosing function in walk order from 0;
   - captures first, in the returned order, then the parameters;
-  - each `idr.yield` becomes `func.return`;
-  - the enclosing function's inheritable attributes and the lifted mark
-    are copied;
+  - the region's own terminator, when it is an `idr.yield`, becomes
+    `func.return`; the `idr.yield`s of matches nested in the body stay;
+  - `idr.break_last` is copied from the enclosing function when it has
+    it, and `idr.total` is set always (C4.3 step 4);
+  - the new function's location is `NameLoc(<enclosing function's
+    NameLoc name>, <region op's location>)` (C4.3 step 4);
   - the op is replaced with `idr.closure @name(captures)` or
     `idr.suspend @name(captures)`.
 - **Moving the captures to the front.**
@@ -144,10 +147,12 @@ paths, the hub text if C1.1 item 4 needs adjusting,
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

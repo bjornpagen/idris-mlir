@@ -46,9 +46,12 @@ Mandatory findings: F-clo-7
   - the new function `<enclosing>$lam<n>` or `<enclosing>$delay<n>`,
     with `n` counting per enclosing function in walk order from 0;
   - captures first, in the returned order, then the parameters;
-  - each `idr.yield` becomes `func.return`;
-  - the enclosing function's inheritable attributes and the lifted mark
-    are copied;
+  - the region's own terminator, when it is an `idr.yield`, becomes
+    `func.return`; the `idr.yield`s of matches nested in the body stay;
+  - `idr.break_last` is copied from the enclosing function when it has
+    it, and `idr.total` is set always (C4.3 step 4);
+  - the new function's location is `NameLoc(<enclosing function's
+    NameLoc name>, <region op's location>)` (C4.3 step 4);
   - the op is replaced with `idr.closure @name(captures)` or
     `idr.suspend @name(captures)`.
 - **Moving the captures to the front.**

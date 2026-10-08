@@ -41,10 +41,10 @@ Mandatory findings: none
 - **The directories:**
   - `guards/` (new);
   - `isolate/` (new);
-  - `defunc/memo-*`;
+  - `defunc/memo-*` and `defunc/unknown-lazy`;
   - `lower/` for `force-*`, `static-thunk`, `no-mode`, `entry` and
     `meter`;
-  - `ownership/` for `consumed-effects` and `borrow-grade`;
+  - `ownership/` for `consumed-effects` and `owned-stage`;
   - `constants/` (new);
   - `verify/` (new), for `cycle`;
   - and the restated `in-bounds/` tests.
@@ -62,9 +62,20 @@ Mandatory findings: none
 ## Implement
 
 - One test per C12 `idr/` row, at least.
-- For `guards/speculation`, run `licm` on a loop that holds an `scf.if`
-  over the length, with the index guard erased, and check that
-  `idr.str.index` is still inside the `if`.
+- For `guards/speculation`, use an `scf.while` whose condition is
+  `%i < idr.str.length %s`, with `%s` and `%i` loop-invariant and
+  `idr.str.index %s, %i` (its guard proved away) at the top level of the
+  after region. Run `loop-invariant-code-motion` and check that the index
+  is still in the loop. `licm` visits only a loop body's top-level ops,
+  so an op inside an `scf.if` would prove nothing (C12).
+- For `ownership/owned-stage`, write a module with no `idr.stage` and
+  an `!idr.own` value that is never consumed, and check with
+  `-verify-diagnostics` that the owned-stage rule rejects it. At ee4ce8e
+  it passes, since the rule runs only under the attribute. Check also
+  that `idr-rc`'s output carries no `idr.stage`.
+- For `constants/run`, check that a list written cell by cell in text and
+  the same list written as a run print the same, and that both
+  round-trip through bytecode.
 - Restate the old tests.
 
 ## Delete
@@ -119,10 +130,12 @@ and seams.
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

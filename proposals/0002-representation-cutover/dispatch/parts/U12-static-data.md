@@ -55,10 +55,11 @@ Mandatory findings: F-lazy-4 F-poison-4 F-const-3
   `@__idr_release_cafs` once per module. It holds one
   `llvm.call @idris_rt_caf_release(%addr)` per static memo cell, where
   `%addr` is `llvm.mlir.addressof` of its global.
-- **Runs.** `ConAttr::isRun()` and `getRunLength()` say whether a
-  constant is a run. Lower its cells from the tail back to the head in
-  one loop, each pointing at the previous global. A plain con lowers as
-  today.
+- **Runs.** `ConAttr::isRun()` says whether a constant is a run. Lower
+  `getTail()` first, then `getRunCells()` from the last back to the
+  first in one loop, each cell pointing at the global before it. Never
+  step by `getFields()[s]`, which rebuilds the suffix (C7.2). A plain
+  con lowers as today.
 - **`frozen`.** Every static cell is `constant`, unless it is a memo-sum
   box.
 

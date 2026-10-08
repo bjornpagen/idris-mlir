@@ -8,8 +8,10 @@ Mandatory findings: F-base-2 F-base-7
 1. **One runtime function per op.** Every op of C9.2 and C9.3 has one
    runtime function, `idris_rt_io_<name>` or `idris_rt_handle_<name>`,
    with C1.5's signature. Its meaning is C9.2's: the C support
-   function's. It works on x86_64 Linux and arm64 macOS, and every OS
-   call goes through `RT/Platform/Posix`. Mandatory.
+   function's, and for the clocks, which have only `scheme:` and `RefC:`
+   specs, Chez's `blodwen-clock-*` (C9.4). It works on x86_64 Linux and
+   arm64 macOS, and every OS call goes through `RT/Platform/Posix`.
+   Mandatory.
 2. **The handle table.** It holds files, directories, file times and
    strings, behind the `i64` handles of C9.1: 0, 1 and 2 are the
    standard streams, -1 is null, and every other value is a slot.
@@ -21,6 +23,10 @@ Mandatory findings: F-base-2 F-base-7
 5. **The argument functions.** `idr.io.arg_count` and `idr.io.arg` read
    `rt::start::argumentCount()` and `rt::start::argument(i)` (U15).
    Mandatory.
+6. **Who owns a string handle, and the end** (C9.1, review R11).
+   Strings from `env_get`, `env_pair` and `dir_entry` are the runtime's;
+   `rt::io::releaseHandles()` releases the whole table before the
+   live-cell count; `exit` reports no count. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -39,6 +45,9 @@ Mandatory findings: F-base-2 F-base-7
 ## Read first
 
 - `contracts.md` C9 (all), C1.5 and C13.
+- `review.md` R11.
+- `third_party/Idris2/support/chez/support-sep.ss`, the
+  `blodwen-clock-*` definitions.
 - `findings.md` F-base-1, F-base-2 and F-base-7.
 - `third_party/Idris2/support/c/idris_file.c`, `idris_directory.c`,
   `idris_support.c`, `idris_term.c` and `idris_clock.c` (or the files
@@ -58,6 +67,19 @@ Mandatory findings: F-base-2 F-base-7
   - Freed slots are reused.
   - `idr.io.handle_free` and `file_close` / `dir_close` free their
     slots. The string in a string slot loses its reference.
+  - **Runtime-owned strings.** The runtime keeps one string slot for the
+    environment operations (`env_get`, `env_pair`) and one per open
+    directory (`dir_entry`), as `getenv`'s and `readdir`'s bytes are
+    the C library's. Each call of its kind replaces the slot's string;
+    `dir_close` releases the directory's. `handle_free` of such a handle
+    does nothing, since base never frees them.
+  - **Program-owned strings.** `file_read_line` and `file_read_chars`
+    give a fresh slot that base frees (`getStringAndFree`) through
+    `handle_free`.
+  - **`rt::io::releaseHandles()`**, exported from `RT/Io`, releases every
+    slot and its string. `idris_rt_main_return` calls it before it
+    writes the live-cell count, so a program that reads its environment
+    ends with 0 live cells.
   - `idris_rt_handle_string(h)` returns the slot's string with one new
     reference.
 - **The standard streams** are 0, 1 and 2.
@@ -71,13 +93,14 @@ Mandatory findings: F-base-2 F-base-7
   `strerror` returns a new runtime string.
 - **Strings** returned as a handle (`file_read_line`, `file_read_chars`,
   `dir_current`, `dir_entry`, `env_get`, `env_pair`) are new runtime
-  strings placed in a string slot. At end of input or on failure the
-  result is null, exactly when the C support function returns `NULL`.
+  strings placed in a string slot, owned as above. At end of input or on
+  failure the result is null, exactly when the C support function
+  returns `NULL`.
 - **`OSClock`** is `seconds << 30 | nanoseconds` from `clock_gettime`
   (`CLOCK_MONOTONIC`, `CLOCK_REALTIME`, `CLOCK_PROCESS_CPUTIME_ID`,
-  `CLOCK_THREAD_CPUTIME_ID`). It is -1 when that fails, and -1 always
-  for the two GC clocks. `clock_valid`, `clock_second` and
-  `clock_nanosecond` unpack it.
+  `CLOCK_THREAD_CPUTIME_ID`), the clocks `blodwen-clock-*` read. It is -1
+  when that fails, and -1 always for the two GC clocks. `clock_valid`,
+  `clock_second` and `clock_nanosecond` unpack it.
 - **The target-specific parts** are one function each in
   `RT/Platform/Posix/` (C9.6):
   - the `stat` time fields;
@@ -87,7 +110,9 @@ Mandatory findings: F-base-2 F-base-7
 
   `RT/Io` calls them.
 - **`exit`** writes pending output, as `idris_rt_main_return` does, then
-  calls `_exit(status)` through the platform layer.
+  calls `_exit(status)` through the platform layer. It writes no
+  live-cell count: a program that exits with live data is not a leak
+  (C9.1).
 
 ## Inputs
 
@@ -114,6 +139,8 @@ Mandatory findings: F-base-2 F-base-7
 
 - The "any other handle reads nothing and gives 0" branches of
   `read_bytes`, `write_bytes` and `eof`, which file handles replace.
+- Nothing else: `RT/Io/Ending.cppm`'s count stays, now after
+  `releaseHandles()`.
 
 ## NOT TO DO
 
@@ -133,8 +160,11 @@ Mandatory findings: F-base-2 F-base-7
 - `fGetLine stdin` and `getLine` interleave on one input without loss.
 - A program that opens and closes 10^6 files in a loop keeps a bounded
   handle table, because slots are reused.
-- `make check`'s runtime checks (`check-archive.sh` and its symbol rules)
-  pass. You may run `make check`.
+- `T/toolchain/runtime-archive-check` (`check-archive.sh` and its
+  symbol rules) passes. It needs a build, so the coordinator runs it at
+  integration. You run no test.
+- U23's `environment-arguments` and `directory-listing` end with 0 live
+  cells, and `exit-with` exits 3 with its output and no count.
 - **Tempting partial:** returning the `FILE *` as the handle. Rejected:
   an address in Idris code is exactly what O1 excludes, and `0` would
   never be null.
@@ -151,8 +181,7 @@ Mandatory findings: F-base-2 F-base-7
 You are done when every C9.2 and C9.3 function exists on both targets'
 code paths, and the existing transfer ops serve file handles. Return the
 changed paths, the symbol list for the coordinator to check against
-C1.5, `Verification: make check (run) / builds NotRun (swarm policy)`,
-and seams.
+C1.5, `Verification: NotRun (swarm policy)`, and seams.
 
 ## Common obligations
 
@@ -173,10 +202,12 @@ and seams.
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

@@ -40,10 +40,10 @@ Mandatory findings: none
 - **The directories:**
   - `guards/` (new);
   - `isolate/` (new);
-  - `defunc/memo-*`;
+  - `defunc/memo-*` and `defunc/unknown-lazy`;
   - `lower/` for `force-*`, `static-thunk`, `no-mode`, `entry` and
     `meter`;
-  - `ownership/` for `consumed-effects` and `borrow-grade`;
+  - `ownership/` for `consumed-effects` and `owned-stage`;
   - `constants/` (new);
   - `verify/` (new), for `cycle`;
   - and the restated `in-bounds/` tests.
@@ -61,9 +61,20 @@ Mandatory findings: none
 ## Implement
 
 - One test per C12 `idr/` row, at least.
-- For `guards/speculation`, run `licm` on a loop that holds an `scf.if`
-  over the length, with the index guard erased, and check that
-  `idr.str.index` is still inside the `if`.
+- For `guards/speculation`, use an `scf.while` whose condition is
+  `%i < idr.str.length %s`, with `%s` and `%i` loop-invariant and
+  `idr.str.index %s, %i` (its guard proved away) at the top level of the
+  after region. Run `loop-invariant-code-motion` and check that the index
+  is still in the loop. `licm` visits only a loop body's top-level ops,
+  so an op inside an `scf.if` would prove nothing (C12).
+- For `ownership/owned-stage`, write a module with no `idr.stage` and
+  an `!idr.own` value that is never consumed, and check with
+  `-verify-diagnostics` that the owned-stage rule rejects it. At ee4ce8e
+  it passes, since the rule runs only under the attribute. Check also
+  that `idr-rc`'s output carries no `idr.stage`.
+- For `constants/run`, check that a list written cell by cell in text and
+  the same list written as a run print the same, and that both
+  round-trip through bytecode.
 - Restate the old tests.
 
 ## Delete

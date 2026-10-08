@@ -1,4 +1,4 @@
-# U03 — Ownership declared on ops and grades: consumption, the borrow grade, one holds-references
+# U03 — Ownership declared on ops and grades: consumption, the derived owned stage, one holds-references
 
 Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 
@@ -10,17 +10,24 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
    - `idr::consumedEffects(...)`, which reports `Free` on
      `ReferenceResource` for owned operands after `idr-rc`.
 
-   `useOf`'s `isa` list is gone. Mandatory.
-2. **Views.** `idr-rc` writes `(u, borrow)` for views. `idr.stage` and
-   `IDR/Ownership/Stage.cppm` are gone, and every reader reads the
-   grade. Mandatory.
+   `useOf`'s `isa` list is gone. `idr.con`'s own effects and
+   speculation call `consumedEffects` (C2.1). Mandatory.
+2. **The owned stage is derived** (C2.2, O6).
+   `bool ownership::inOwnedStage(ModuleOp)` replaces `idr.stage`. Views
+   stay plain `T`. `idr.stage` and `IDR/Ownership/Stage.cppm` are gone.
+   Mandatory.
 3. **One "holds references".** `idr::holdsReferences(type, symbols, scope)`
    replaces the private walks in Ownership. Mandatory.
 4. **The force's grade.** `idr-rc` passes `idr.force`'s operand owned at
    its last use, and `excl` where `ExclusiveAnalysis` proves it (C5.4).
    Mandatory.
-5. **Sentinels.** The C2.4 sites in `IDR/Ownership` and
+5. **The guards' grade.** `idr-rc` grades the result of
+   `idr.check.nonzero` and `idr.check.nonempty` as it graded the
+   operand, which the guard takes over (C2.1, review R5). Mandatory.
+6. **Sentinels.** The C2.4 sites in `IDR/Ownership` and
    `IDR/Facts/Evaluation.cppm` use no sentinel. Mandatory.
+7. **The walk rule** (C7.2) in `IDR/Ownership/ReachesOnlyAtoms.cppm`
+   and `IDR/Facts/Passed.cppm`. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -33,24 +40,33 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 - `IDR/Dialect/Dialect/Initialize.cc`
 - `IDR/Dialect/Ops/Lin.cc`
 - `IDR/Dialect/Ops/Dest.cc`
+- `IDR/Dialect/Ops/Con.cc`
 
 **Excluded:**
 
-- `INC/` (the coordinator applies C1.1 item 1 and C1.4).
+- `INC/` (the coordinator applies C1.1 item 1, C1.4, and the removal of
+  `idr.stage` from `IdrOps.td`).
 - `IDR/Dialect/Ops/Arrays.cc` (U04 adds `consumedEffects` to the array
   ops' effects).
-- `IDR/Dialect/Ops/Lazy.cc` (U09 adds it to `idr.force`'s).
-- `IDR/Narrow/Words.cppm`, U21's, which reads the grade per C2.2.
+- `IDR/Dialect/Ops/Check.cc` (U04's guards).
+- `IDR/Dialect/Ops/Lazy.cc` (U09: `ForceOp::getEffects`).
+- `IDR/Narrow/Words.cppm`, U21's, which asks `inOwnedStage` (C2.2).
 - `IDR/Layout`, U10's: `Layouts::counted` stays.
+- `IDR/Dialect/Ops/Field.cc`, `Matches.cc` and `Tag.cc`: views stay
+  plain, so their verifiers do not change.
 
 ## Read first
 
-- `contracts.md` C1.1 item 1, C1.4, C2 (all), C5.4 and C13.
+- `contracts.md` C1.1 item 1, C1.4, C2 (all), C3.1 (the guards), C5.4,
+  C7.2 and C13.
 - `findings.md` F-own-1, F-own-2, F-own-3 and F-poison-5.
+- `review.md` R1, R2 and R5.
 - `IDR/Ownership/{UseOf,Stage,Rc,Verify,Borrowed,OpChecks,Counting,Ops}.cppm`
   and `Ops.cc`, `IDR/Ownership/Borrow.cppm`, `Commit.cppm`,
-  `ExclusiveAnalysis.cppm` and `Take.cppm`.
+  `ExclusiveAnalysis.cppm`, `Take.cppm` and `ReachesOnlyAtoms.cppm`.
+- `IDR/Facts/Passed.cppm`.
 - `IDR/Dialect/Grades/{View,IsOwned,Owned}.cc`.
+- `IDR/Dialect/Ops/Con.cc`.
 - `IDR/Dialect/Verify/Attributes.cc`.
 - `INC/Idr.h`'s grade section.
 
@@ -63,21 +79,35 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
     values of `scf.condition`, and the inits of `scf.while`;
   - for `func.call`, true unless the callee borrows the parameter (the
     existing `isBorrowed`);
-  - false otherwise.
+  - false otherwise, and false for `idr.force` (C2.1).
 - **`idr::consumedEffects(op, effects)`** adds
   `MemoryEffects::Free::get()` on `ReferenceResource::get()`, with the
   operand's value, for each operand `consumes` names whose grade is
   `own` or `excl`.
-- **`idr::view(type)`** keeps its signature. It gives `(q, Borrow)` for a
-  counted carrier (one that `Idr_CountedValueType` admits, looking
-  through the grade), else `(q, ·)` (C2.2).
-- **A function is in the owned stage** when any value in it has
-  permission `borrow`, `own` or `excl` (C2.2).
-- **The new verifier rule:** in such a function, no value of a counted
-  carrier has permission `·`.
+- **`idr.con`** has `Idr_Consumes<"0">`, the interface only. Its
+  `getEffects` in `Con.cc` reports what it reports today (`Allocate` for
+  a box) and then calls `consumedEffects`. Its `getSpeculatability` is
+  today's (`NotSpeculatable` for a box, `Speculatable` for a sum), except
+  that a sum with an `own` or `excl` field is `NotSpeculatable`: hoisted
+  out of a branch, it would take a reference on a path that never gave
+  it one.
+- **`idr::view(type)`** is unchanged: views are plain.
+- **`ownership::inOwnedStage(ModuleOp)`** is true when any operand,
+  result or block argument in the module has permission `own` or
+  `excl`. One walk. Callers ask once per pass or per verification, and
+  pass the answer down.
+- **`idr-rc`** grades as it goes, so it hands its own stage to
+  `Counting` and `isBorrowed` explicitly instead of asking the module.
+- **`OpChecks.cppm`** needs no module query. A `dup`'s result and a
+  `drop`'s operand are owned by their ODS types.
 - **`idr.force`'s operand** is owned at its last use, and `excl` when
   `ExclusiveAnalysis` proves the cell exclusive there, exactly as
-  `idr.take`'s is. Otherwise it is a view.
+  `idr.take`'s is. Otherwise it is a view. This is the one place that
+  makes a force an owned use.
+- **A guard's result** (`check.nonzero`, `check.nonempty`) gets its
+  operand's grade, which `SameOperandsAndResultType` requires. The guard
+  is a consuming use of the operand. `ReadFrom.cppm` does not treat the
+  result as a view.
 
 ## Inputs
 
@@ -85,15 +115,17 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
   `ConsumingOpInterface`, `Idr_Consumes` and `Idr_ConsumesOnly`.
 - The C1.4 declarations.
 - The C2.1 table.
+- `ConAttr`'s C7.2 accessors (`getRunCells`, `getTail`, `getField`),
+  U19's.
 
 ## Outputs
 
 - `IDR/Dialect/Effects/Consumed.cc`, defining `idr::consumes` and
   `idr::consumedEffects`.
 - `IDR/Dialect/Types/Counted.cc`, defining `idr::holdsReferences`.
-- The `consumedEffects` calls in `Lin.cc`, `Dest.cc` and
+- `inOwnedStage`, exported from the `idr.ownership` module.
+- The `consumedEffects` calls in `Con.cc`, `Lin.cc`, `Dest.cc` and
   `IDR/Ownership/Ops.cc`'s `getEffects`.
-- The borrow-graded `idr-rc`, and every Ownership reader on grades.
 
 ## Implement
 
@@ -111,18 +143,21 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 
   It looks through `!idr.q`. `IDR/Ownership/Counting.cppm`'s `counted`
   and every other such walk in your files call it.
-- **Grades.** `IDR/Dialect/Grades/View.cc` writes `Borrow` per the fixed
-  decision. `idr-rc` (`Rc.cppm`, `Commit.cppm`, `Borrow.cppm`) writes the
-  view grade wherever it writes plain `T` today.
-- **Readers of the stage.** Replace each one with a grade test:
-  - `Rc.cppm`: "already in the owned stage" becomes "any value
-    graded";
-  - `Borrowed.cppm`: a borrowed parameter is one whose type's permission
-    is `Borrow`;
-  - `OpChecks.cppm`: dup and drop need an owned or borrowed operand;
-  - `Verify.cppm`: the owned-stage verifier runs on every function in
-    the owned stage, and gains the new rule;
+- **`Con.cc`.** `getEffects` and `getSpeculatability` per the fixed
+  decision. Its verifier is unchanged.
+- **The stage.** Replace each reader of `idr.stage`:
+  - `Rc.cppm`: "already in the owned stage" asks `inOwnedStage` once;
+    the stage it builds is passed to `Counting` and `isBorrowed`;
+  - `Borrowed.cppm`: takes the stage as a parameter;
+  - `OpChecks.cppm`: no query;
+  - `Verify.cppm`: the owned-stage verifier asks `inOwnedStage` once
+    per module verification;
   - `IDR/Dialect/Verify/Attributes.cc`: the `idr.stage` entry goes.
+- **The guards.** `Rc.cppm` (and `Commit.cppm` where it writes result
+  grades) gives a guard's result its operand's grade.
+- **The walkers.** `ReachesOnlyAtoms.cppm` and `Passed.cppm` follow a
+  list's spine through `getRunCells()` and `getTail()`, never
+  `getFields()[s]` (C7.2).
 - **`Initialize.cc`.** Change it only if a new interface or resource
   needs registering; ODS-declared ones do not.
 - **`Lin.cc`, `Dest.cc`, `IDR/Ownership/Ops.cc`.** Their ops' existing
@@ -131,8 +166,9 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 
 ## Delete
 
-- `IDR/Ownership/Stage.cppm`, every `stageAttr`/`ownedStage` import and
-  use, and the `idr.stage` entry in `IDR/Dialect/Verify/Attributes.cc`.
+- `IDR/Ownership/Stage.cppm`, every import and use of its stage
+  attribute, and the `idr.stage` entry in
+  `IDR/Dialect/Verify/Attributes.cc`.
 - The `isa<...>` list in `useOf`.
 - `counted` in `IDR/Ownership/Counting.cppm`, and every other private
   holds-references walk in your files.
@@ -140,30 +176,34 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 
 ## NOT TO DO
 
+- Do not grade views. A `borrow` grade on views is O6's alternative,
+  not this lane (C2.2).
 - Do not change what `idr-rc` decides: placement, borrowing, reuse and
-  exclusivity stay. Only how views are written, and the force's operand,
-  change.
+  exclusivity stay. Only the stage, the force's operand and the guards'
+  results change.
 - Do not change `Layouts::counted`.
 - Do not add a type interface for holds-references (C2.3 refutes it).
 - Do not add effects to ops outside the C2.1 table.
-- Do not edit the array or lazy ops' files.
+- Do not edit the array, guard or lazy ops' files.
 
 ## Acceptance
 
-- After `idr-rc`, every value of a reference-holding carrier in a graded
-  function has permission `borrow`, `own` or `excl`. The new verifier
-  rule holds on every module `idr-rc` produces from `T/idr/` and
-  `T/programs/`; the coordinator runs it.
+- After `idr-rc`, no module carries `idr.stage`, and
+  `grep -rln 'idr\.stage' foreign/idr/lib` finds nothing outside
+  `IDR/Narrow`, which U21 adapts.
+- The owned-stage rule runs on a module with an `own` value and no
+  `idr.stage`: an owned value that is never consumed is rejected. U22
+  writes `T/idr/ownership/owned-stage`.
 - Before `idr-rc`, `idr.con` with plain fields has no effects:
   `isMemoryEffectFree` holds, and `canonicalize` erases an unused one.
   After it, an unused `idr.con` of owned fields is kept by
   `remove-dead-values`. U22 writes `T/idr/ownership/consumed-effects`.
-- `IDR/Ownership/Stage.cppm` is gone, and `grep -rln 'idr\.stage' foreign/idr/lib`
-  finds nothing outside `IDR/Narrow`, which U21 adapts.
+- A guard on a string's last use takes it over: no `drop` of the operand
+  comes before the result's last read.
 - Program outputs and `IDRIS_RT_LIVE=1` counts are unchanged. That is
   the coordinator's run.
 - **Tempting partial:** keeping `idr.stage` "as a cache" beside the
-  grades. Rejected: two homes for one fact.
+  derived stage. Rejected: two homes for one fact.
 - **Tempting partial:** making the effects unconditional. Rejected: it
   makes every `idr.con` impure before `idr-rc` and stops the simplify
   loop's DCE.
@@ -176,9 +216,11 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
   and the ODS text that works.
 - A reader of the stage outside your files and U21's appears. Report
   the path.
+- A module with no `own` or `excl` value still has a counted value whose
+  stage matters. Report the case.
 
 ## Stop and return
 
-You are done when the five outcomes are in your files and the Delete
+You are done when the seven outcomes are in your files and the Delete
 list has no survivor. Return the changed paths, `Verification: NotRun (swarm policy)`,
 and seams.

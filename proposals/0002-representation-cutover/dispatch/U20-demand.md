@@ -6,8 +6,9 @@ Mandatory findings: F-prom-2
 ## Permitted outcome
 
 1. **The pass.** `idr-demand{promises=in-place}` rejects a call that
-   passes a shared value to a quantity-1 parameter its callee matches
-   and rebuilds at the same size. The message is C10.2's,
+   passes a value other than `excl` to a promised parameter: a
+   quantity-1 parameter whose cell an `idr.reuse` in the callee takes
+   from an `idr.take` of it (C10.2). The message is C10.2's,
    `unsupported (uniqueness): ...`, at the call. Without `promises`, the
    pass does nothing. Mandatory.
 2. **The flags.** `idris-mlir-cc --demand in-place` and
@@ -38,9 +39,11 @@ Mandatory findings: F-prom-2
 - `contracts.md` C10.2, C1.2, C1.3 and C13.
 - `findings.md` F-prom-2.
 - `README.md` at the repository root, "Why not Lean 4".
-- `IDR/Expect/ReusesInPlace.cppm` (what "rebuilt in place" is), and
-  `IDR/Expect/TestsNothing.cppm`.
-- `IDR/Ownership/ExclusiveAnalysis.cppm` and `Exclusive.cppm`.
+- `review.md`, the smaller point on C10.2.
+- `IDR/Ownership/Take.cppm` and the `idr.take` and `idr.reuse` ops, the
+  two ops the promise reads.
+- `IDR/Ownership/Cells.cppm` (`Sharing`: `Unknown`, `Exclusive`,
+  `Shared`, with no reason).
 - `IDR/Driver/{Options,Run}.cppm` (how options become pipeline steps;
   how `--no-eval` works).
 - `CS/Frontend/Main.idr:100-120` (directives).
@@ -48,18 +51,20 @@ Mandatory findings: F-prom-2
 
 ## Fixed decisions
 
-- **Which parameters.** A parameter `p` of `f` is checked when:
+- **Which parameters.** A parameter `p` of `f` is promised when:
   - its type has quantity 1 (`isLinear`);
-  - `f`'s body matches `p` and, on a path, builds a constructor of the
-    same cell size from it. That is the same test
-    `IDR/Expect/ReusesInPlace.cppm` uses. Call it, or repeat its few
-    lines; do not change it.
-- **Which calls.** Every `func.call` of `f` must pass `p` with grade
-  `excl`. A call that passes `own` or `borrow` is rejected.
-- **The reason** names the dup or the use that kept the value shared.
-  Read it from `ExclusiveAnalysis`'s state at the call: the value's
-  defining dup, or the later use. If the analysis gives no reason, the
-  message says "it may be shared" without one.
+  - an `idr.reuse` in `f` takes its token from an `idr.take` whose
+    operand is `p`, or the region argument a match of `p` binds it to.
+
+  That is a fact of two ops in `f`'s body. It needs no analysis, and it
+  does not use `idr-expect`'s per-function `reuses-in-place` property.
+- **Which calls.** Every `func.call` of `f` must pass a promised `p`
+  with grade `excl`. A call that passes it `own`, or as a plain view, is
+  rejected.
+- **The note.** When the argument is the result of an `idr.dup`, a note
+  at the dup says `shared here`. That is read from the operand's
+  defining op. Nothing else is reported: `ExclusiveAnalysis` keeps no
+  reason, and you add none.
 - **The flags.** `--demand <list>` is a comma list, and only `in-place`
   is known. An unknown promise is a usage error. `Run.cppm` replaces the
   `idr-demand` step's text with `idr-demand{promises=in-place}` when it
@@ -70,7 +75,7 @@ Mandatory findings: F-prom-2
 
 - `createIdrDemand` and its `promises` option (the coordinator).
 - The `Uniqueness` rule (C1.6), used by its phrase only.
-- `ExclusiveAnalysis` (U03 keeps it).
+- The `excl` grade `idr-rc` writes (U03).
 
 ## Outputs
 
@@ -90,6 +95,7 @@ Mandatory findings: F-prom-2
 - Do not change `idr-rc`'s decisions.
 - Do not add a promise beyond `in-place`.
 - Do not check functions that do not rebuild in place.
+- Do not add provenance to `ExclusiveAnalysis` or any U03 file.
 
 ## Acceptance
 
@@ -104,8 +110,9 @@ Mandatory findings: F-prom-2
 
 ## Escalate if
 
-- `ExclusiveAnalysis` cannot be queried at a call after `idr-rc`.
-  Report the API you need from U03.
+- A leet fixture that rebuilds in place is rejected under the
+  directive. Report the call: either the fixture shares the value, or
+  `idr-rc` does not write `excl` where it could.
 
 ## Stop and return
 
@@ -131,10 +138,12 @@ paths, `Verification: NotRun (swarm policy)`, and seams.
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

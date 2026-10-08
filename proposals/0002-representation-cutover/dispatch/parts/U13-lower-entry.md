@@ -29,6 +29,9 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
    Mandatory.
 5. **The sentinels.** The C2.4 sites in `Lower/{Lowering,TailPosition,Matches,Loops,Facts}.cppm`
    use no sentinel. Mandatory.
+6. **The walk rule** (C7.2). `Lowering.cppm`'s `functionClosure`, which
+   collects the functions a constant names, walks a run's cells and
+   tail, never `getFields()[s]`. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -62,8 +65,8 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
 
 ## Read first
 
-- `contracts.md` C6.1 to C6.3, C1.2, C1.3, C1.5, C5.1, C5.5, C2.4 and
-  C13.
+- `contracts.md` C6.1 to C6.3, C1.2, C1.3, C1.5, C5.1, C5.5, C2.4, C7.2
+  and C13.
 - `findings.md` F-mode-1, F-mode-4, F-mode-5 and F-mode-6.
 - `IDR/Lower/Lowering.cppm`, all of it.
 - `IDR/Lower/{Pass.cc,Counting.cppm,StackCell.cppm,Lower.cppm,Patterns.cppm,CMakeLists.txt}`.
@@ -87,7 +90,9 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
   right before each `llvm.call_intrinsic "llvm.sideeffect"`. It declares
   `llvm.func @idris_rt_eval_tick()` if absent.
 - **`checkNoClosures`** also rejects any `!idr.lazy` type or
-  `idr.suspend` op, with the internal error of C5.1.
+  `idr.suspend` op. It stays an internal error: `idr-defunctionalize`
+  already reported an unknown key as `unsupported` (C5.1), so reaching
+  it means a pass after that one made a closure.
 - **The partitions** in `Lower.cppm` are today's list, plus `:checks`,
   `:entry` and `:meter`, minus none: `Closures.cppm` keeps its name and
   holds the force (U11).
@@ -99,6 +104,7 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
 - `createIdrEntry` and `createIdrMeter` from `Passes.td` (the
   coordinator).
 - `@__idr_release_cafs`, always present (U12).
+- `ConAttr`'s C7.2 accessors, U19's.
 
 ## Outputs
 
@@ -117,6 +123,7 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
   `TailCalls/Pass.cc`.
 - **`Lower.cppm`, `Patterns.cppm` and `CMakeLists.txt`** per outcome 4.
 - **Sentinels.** Apply C2.4 to the six sites.
+- **`functionClosure`.** Walk constants by C7.2's walk rule.
 
 ## Delete
 
@@ -160,6 +167,6 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
 
 ## Stop and return
 
-You are done when the five outcomes are in your files and the Delete
+You are done when the six outcomes are in your files and the Delete
 list is empty of survivors. Return the changed paths,
 `Verification: NotRun (swarm policy)`, and seams.

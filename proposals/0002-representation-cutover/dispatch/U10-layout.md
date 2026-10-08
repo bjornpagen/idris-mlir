@@ -12,6 +12,8 @@ Mandatory findings: F-clo-4 F-lazy-9
    constructor, as boxes do. Mandatory.
 2. **No labels or code.** Layout keeps no label table, no code names
    and no closure or forced-suspension cells. Mandatory.
+3. **The walk rule** (C7.2). `Layouts.cppm` follows a list constant's
+   spine through `getRunCells()` and `getTail()`. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -25,7 +27,8 @@ Mandatory findings: F-clo-4 F-lazy-9
 
 ## Read first
 
-- `contracts.md` C5.1, C5.2, C1.5 (the kind) and C13.
+- `contracts.md` C5.1, C5.2, C1.5 (the kind), C7.2 and C13.
+- `review.md` R12 (the unit size).
 - `findings.md` F-clo-4 and F-lazy-9.
 - `IDR/Layout/*`, all of it, especially:
   - `Layouts.cppm:40-100` and `:230-400`;
@@ -55,6 +58,7 @@ Mandatory findings: F-clo-4 F-lazy-9
 - Memo-sum declarations (C5.1): `idr.data ... box memo`.
 - `idr::isMemo` (C1.4), defined by U09.
 - `IDRIS_RT_KIND_THUNK` (C1.5).
+- `ConAttr`'s C7.2 accessors, U19's.
 
 ## Outputs
 
@@ -69,6 +73,11 @@ Mandatory findings: F-clo-4 F-lazy-9
 - **Write the kind** into the info word per the fixed decisions.
 - **Remove every label and closure path.** Nothing lowers closures, and
   nothing reads code.
+- **Split `Layouts.cppm`.** It is at exactly 400 lines today. Split it by
+  concept as you edit (boxes, sums, constants), so that no unit passes
+  400 and `T/spec/file-size/allowed` gains no line.
+- **Walkers.** Wherever `Layouts.cppm` walks a constant's fields along a
+  list, it walks the run's cells and tail.
 
 ## Delete
 
@@ -130,10 +139,12 @@ gone. Return the changed paths, the names of any accessor beyond `isMemo`,
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

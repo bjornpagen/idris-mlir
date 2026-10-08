@@ -54,7 +54,9 @@ Mandatory findings: F-prom-1 F-own-5 F-poison-7
     declarations.
   - A cycle through at least one array edge is rejected.
   - A memo sum (`idr.data ... memo`, C5.1) is an ordinary node; its
-    cells are not mutable edges.
+    cells are not mutable edges. A static memo cell can reach itself (a
+    constant `fibs`), but only through persistent cells, which are never
+    counted, so nothing leaks (C10.1). The rule ignores it.
 - **The message**, at the first `idr.array.new` whose element type is on
   the cycle, else at the module:
   `unsupported (cycle): an array of <T> can hold a reference to itself through <T> -> <U> -> ... -> <T>`.

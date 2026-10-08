@@ -62,6 +62,13 @@ All are mandatory.
 - **You may run** the pinned clang, `mlir-opt` and `idris-mlir-reduce`
   on your own reproducers, as `T/upstream/*/run` do. You may not build
   the tree or the toolchain.
+- **Held out until the rebuild** (C13). Your three C++ changes, the two
+  sites and the `IDR/Simplify` deletion, need the patched toolchain: the
+  clang fix for the first two, and the patched `remove-dead-values` for
+  the third, without which the simplify round's fingerprint fixpoint
+  never settles. Write them as usual. The coordinator keeps them out of
+  the tree until integration step 5 and applies them after
+  `make bootstrap`. List them in your handoff as one group.
 - **If a crash does not reproduce** outside our tree at the pin, or the
   dead-values behaviour does not reproduce with upstream ops alone, the
   bug is ours. Fix it in your owned files instead, say so, and delete
@@ -129,9 +136,10 @@ All are mandatory.
     `expected` records it today;
   - shows "no longer crashes" against the patched tool when the
     coordinator rebuilds it.
-- `make check` passes `tests/spec/upstream-patches`: every patch applies
-  to the pinned source alone and after the ones before it, and every
-  directory has a plan. You may run this; it builds nothing.
+- `tests/spec/upstream-patches` passes when run alone (common
+  obligations): every patch applies to the pinned source alone and after
+  the ones before it, and every directory has a plan. Run it; it builds
+  nothing. Do not run `make check`.
 - `grep -n PIN IDR/Stack/Escape.cppm IDR/Driver/Retarget.cppm` finds no
   marker for either crash.
 - `grep -rn DeadValues IDR/Simplify` finds nothing.
@@ -156,11 +164,11 @@ You are done when:
 - the three directories are complete;
 - the three sites are written plainly;
 - the Simplify deletion is done;
-- `make check`'s upstream-patches test passes.
+- `tests/spec/upstream-patches`, run alone, passes.
 
 Return the changed paths, the PINS text, the `Passes.td` line,
-`Verification: make check (run) / builds NotRun (swarm policy)`, and any
-seams.
+the held-out group (C13), `Verification: spec/upstream-patches (run) /
+builds NotRun (swarm policy)`, and any seams.
 
 ## Common obligations
 
@@ -181,10 +189,12 @@ seams.
   coordinator hands it to you as your assignment.
 - **The tree is red by design.** Other lanes write the declarations you
   use at the same time, and the coordinator writes the hubs (C1).
-  - Do not run `make build`, `make test`, `make test-idr`,
-    `make test-mlir-tools`, cmake, ninja, the Idris compiler, or any
-    test.
-  - `make check` builds nothing; you may run it.
+  - Do not run `make check`, `make build`, `make test`,
+    `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
+    compiler, or any suite. `make check` builds the test runner, and it
+    is red mid-swarm by design (C13); do not fix what it shows.
+  - You may run the one spec test your acceptance names, and only it:
+    `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
     run.

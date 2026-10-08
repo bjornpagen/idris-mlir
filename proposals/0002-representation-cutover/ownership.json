@@ -57,7 +57,8 @@
         "IDR/Dialect/Verify",
         "IDR/Dialect/Dialect/Initialize.cc",
         "IDR/Dialect/Ops/Lin.cc",
-        "IDR/Dialect/Ops/Dest.cc"
+        "IDR/Dialect/Ops/Dest.cc",
+        "IDR/Dialect/Ops/Con.cc"
       ],
       "findings": ["F-own-1", "F-own-2", "F-own-3", "F-poison-5"]
     },
@@ -74,7 +75,9 @@
         "IDR/Dialect/Ops/Crash.cc",
         "IDR/Dialect/Crashes",
         "IDR/Fold",
-        "IDR/Ops"
+        "IDR/Ops",
+        "IDR/Dialect/Ops/Generated.cc",
+        "IDR/Canon"
       ],
       "findings": ["F-guard-1", "F-guard-6"]
     },
@@ -106,7 +109,8 @@
         "CS/Emit/Declarations.idr",
         "CS/Emit/Monad.idr",
         "CS/Frontend/Translate/Terms.idr",
-        "CS/Frontend/Translate/Closed.idr"
+        "CS/Frontend/Translate/Closed.idr",
+        "CS/Emit/Attributes.idr"
       ],
       "findings": ["F-clo-6", "F-prim-2"]
     },
@@ -193,12 +197,12 @@
     },
     "U18": {
       "title": "The registry: base's surface recognized, pointers as handles, exclusions by name",
-      "writes": ["CS/Registry", "CS/Registry.idr", "CS/Frontend/Translate/Types.idr"],
+      "writes": ["CS/Registry", "CS/Registry.idr", "CS/Frontend/Translate/Types.idr", "CS/Frontend/Translate/Hooks.idr"],
       "findings": ["F-base-1", "F-base-3", "F-base-4", "F-base-5", "F-base-6"]
     },
     "U19": {
       "title": "Flat constants: #idr.con runs",
-      "writes": ["IDR/Dialect/Attrs"],
+      "writes": ["IDR/Dialect/Attrs", "IDR/Sharing"],
       "findings": ["F-const-1"]
     },
     "U20": {
@@ -231,7 +235,8 @@
         "T/lib",
         "T/Main.idr",
         "T/registry",
-        "T/compiler"
+        "T/compiler",
+        "T/toolchain"
       ],
       "findings": []
     }
