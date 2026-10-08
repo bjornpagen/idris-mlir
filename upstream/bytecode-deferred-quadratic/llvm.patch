@@ -1,47 +1,48 @@
 Subject: [PATCH] [mlir][bytecode] Resolve deferred attributes and types in linear time
 
 Reading an attribute nested n deep from bytecode takes time quadratic in
-n: 3.8 s for a builtin array nested 32,000 deep and 15.9 s at 64,000,
-against 0.06 s and 0.12 s from text. A parse that reaches
-maxAttrTypeDepth stops at the entry it would recurse into, and
-AttrTypeReader::resolveEntry resolves that entry before parsing the
-first one again. The slow path kept the pending entries in a deque: a
-failed entry went to the back, and the entry it deferred to the front
-unless it was already queued. For a chain e0 -> e5 -> e10 -> ... the
-first pass leaves e_last, e0, e5, ...; from then on each entry is
+n, and a file whose attributes refer to each other in a cycle makes the
+reader loop forever.
+
+A parse that reaches maxAttrTypeDepth stops at the entry it would recurse
+into, and AttrTypeReader::resolveEntry resolves that entry before parsing
+the first one again. The slow path kept the pending entries in a deque:
+a failed entry went to the back, and the entry it deferred to went to the
+front unless it was already queued. For a chain e0 -> e5 -> e10 -> ...
+the first pass leaves e_last, e0, e5, ...; from then on each entry is
 retried before the one it waits on, fails on it again and goes to the
-back, so each pass over the deque resolves one entry. Entries that refer
-to each other in a cycle never leave the deque, and the reader hangs on
-such a file.
+back, so each pass over the deque resolves one entry. In a cycle no entry
+ever resolves.
 
 A parse returns at the first entry it defers, so a failed entry waits on
-exactly one other. The slow path now keeps those waits as a path, a
-chain of entries each waiting on the one above it: the entry the top
-parse stopped at goes on top, and once it resolves the entry below it is
-parsed again. An entry joins the path at most once, so a chain of n
-deferred entries takes O(n) parses, and an entry that waits on one
-already on the path is a cycle, reported as an error. The deferred
-worklist becomes the one deferred entry a failed parse can record.
+exactly one other. Keep those waits as a path, each entry waiting on the
+one above it: the entry the top parse stopped at goes on top, and once it
+resolves, the entry below it is parsed again. An entry joins the path at
+most once, so a chain of n deferred entries takes O(n) parses. An entry
+that waits on one already on the path closes a cycle, and the reader now
+fails with "cyclic reference to attribute index: N" (or type) instead of
+hanging. deferredWorklist becomes deferredEntry, the one entry a failed
+parse can record.
 
-| depth  | text   | bytecode, before | bytecode, after |
-| ------ | ------ | ---------------- | --------------- |
-| 500    | 0.02 s | 0.02 s           | 0.02 s          |
-| 4,000  | 0.02 s | 0.07 s           | 0.02 s          |
-| 32,000 | 0.06 s | 3.83 s           | 0.05 s          |
-| 64,000 | 0.12 s | 15.91 s          | 0.07 s          |
+Reading a builtin array nested 32,000 deep goes from 3.8 s to 0.05 s, and
+64,000 deep from 15.9 s to 0.07 s; from text it takes 0.06 s and 0.12 s.
+Measured on x86_64 Linux at llvmorg-23.1.2, whose BytecodeReader.cpp is
+the same as main's, with the file built by clang 18 at -O2, best of three.
 
 op_with_properties_deeply_nested_attr.mlir round-trips a chain of
-attributes then types 80 deep, and invalid_attr_type_section.mlir reads
-a file whose arrays refer to each other in a cycle.
+attributes then types 80 deep. invalid_attr_type_section.mlir reads a
+file whose arrays refer to each other in a cycle; like the other files in
+invalid/, it is checked-in bytecode, since the writer cannot produce a
+cycle: it is a 10-deep array with one index changed.
 ---
- mlir/lib/Bytecode/Reader/BytecodeReader.cpp   | 137 +++++++-----------
+ mlir/lib/Bytecode/Reader/BytecodeReader.cpp   | 133 +++++++-----------
  .../invalid-attr_type_section-cycle.mlirbc    | Bin 0 -> 154 bytes
  .../invalid/invalid_attr_type_section.mlir    |   7 +
- ...op_with_properties_deeply_nested_attr.mlir |   8 +
- 4 files changed, 71 insertions(+), 81 deletions(-)
+ ...op_with_properties_deeply_nested_attr.mlir |   8 ++
+ 4 files changed, 69 insertions(+), 79 deletions(-)
 
 diff --git a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
-index 96ead28d0aa4065b3496459092032e677d5f7fee..463ccc6c4a3ea037a401da597821a63ba8d4ee56 100644
+index 96ead28d0aa4065b3496459092032e677d5f7fee..bee9d7284dae11cfbc562db8de9bee16a0b6b8fa 100644
 --- a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
 +++ b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
 @@ -19,6 +19,7 @@
@@ -65,16 +66,14 @@ index 96ead28d0aa4065b3496459092032e677d5f7fee..463ccc6c4a3ea037a401da597821a63b
  ///   deferred parsing is achieved by reporting a failure when parsing a nested
  ///   attribute/type and registering the index of the encountered attribute/type
 -///   in the deferred parsing worklist. Hence, a failure with deffered entry
--///   does not constitute a failure, it also requires that folks return on
--///   first failure rather than attempting additional parses.
++///   as the deferred entry. Hence, a failure with deffered entry
+ ///   does not constitute a failure, it also requires that folks return on
+ ///   first failure rather than attempting additional parses.
 -/// - `deferredWorklist`: A list of attribute/type indices that we could not
 -///   parse due to hitting the depth limit. The worklist is used to capture the
 -///   indices of attributes/types that need to be parsed/reparsed when we hit
 -///   the depth limit. This enables moving the tracking of what needs to be
 -///   parsed to the heap.
-+///   as the deferred entry. Hence, a failure with deffered entry does not
-+///   constitute a failure, it also requires that folks return on first failure
-+///   rather than attempting additional parses.
 +/// - `deferredEntry`: The attribute/type index that the last failed parse
 +///   could not parse due to hitting the depth limit. It has to be resolved
 +///   before that parse is retried. This enables moving the tracking of what
@@ -144,8 +143,8 @@ index 96ead28d0aa4065b3496459092032e677d5f7fee..463ccc6c4a3ea037a401da597821a63b
 +  // entry above it is resolved, until one stops at a deferred entry again.
 +  // Every entry is thus re-parsed only once the entry it waits on is
 +  // resolved, and joins the path at most once: a chain of n deferred entries
-+  // takes O(n) parses. An entry that waits on one already on the path refers
-+  // to itself.
++  // takes O(n) parses. An entry that waits on one already on the path is part
++  // of a reference cycle, which is malformed.
    static_assert((std::is_same_v<T, Type> || std::is_same_v<T, Attribute>) &&
                  "Only support resolving Attributes and Types");
 -

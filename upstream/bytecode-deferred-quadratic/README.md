@@ -118,12 +118,19 @@ files for each: `op_with_properties_deeply_nested_attr.mlir` round-trips
 a chain of arrays then tuple types 80 deep, and
 `invalid/invalid_attr_type_section.mlir` reads the cyclic file above.
 
-Checked here: the patch applies to the pinned tree; both lit cases pass
-with the patched reader (the round trip with `--allow-unregistered-dialect`,
-as this build has no test dialect) and the cycle case times out with the
-pinned one; the pinned and patched readers print the same module for 68
-random nested attribute and type modules (shared parts, depths 3 to 27).
-`tests/upstream/bytecode-deferred-quadratic` checks the scaling.
+The same file is the pull request: `BytecodeReader.cpp` and both test
+files are identical on llvm-project main at 7208ba24 (2026-10-08), and
+the patch applies there and to the pin.
+
+Checked here: the patch applies to the pinned tree and to main; the
+patched file compiles against main's headers and is clang-format clean on
+the changed lines; with the patched reader linked into the pinned
+toolchain (assertions on), both lit cases and the file's existing
+`INDEX` and `TRAILING_DATA` cases pass (the round trip with
+`--allow-unregistered-dialect`, as this build has no test dialect), the
+cycle case times out with the pinned reader, and the pinned and patched
+readers print the same module for random nested attribute and type
+modules. `tests/upstream/bytecode-deferred-quadratic` checks the scaling.
 
 Not changed by the patch: an attribute whose many elements are each
 nested deeper than 5 (an array of k elements nested 10 deep) still reads
@@ -135,15 +142,20 @@ change.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file upstream. Not fixed on main at 7208ba24, and no issue or
+pull request reports it.
 
-- Where: a new GitHub issue and a pull request to llvm/llvm-project
-  (MLIR bytecode). The paste is `submission.md` in this directory: the
-  issue is this report with the timing table, and the pull request is
-  one commit, `llvm.patch`, tagged `[mlir]`.
+- Where: a GitHub issue and a pull request to llvm/llvm-project (MLIR
+  bytecode). The paste is `submission.md` in this directory: the issue
+  holds the timing table and the cycle file, and the pull request is one
+  commit, `llvm.patch`, titled
+  `[mlir][bytecode] Resolve deferred attributes and types in linear time`.
 - Upstream test: the `deeply_nested_chain` case of
   `op_with_properties_deeply_nested_attr.mlir` and the `CYCLE` case of
   `invalid/invalid_attr_type_section.mlir`; the time itself is measured
   by `nested.sh`, quoted in the issue.
 - Open upstream: pull request #229910 (custom encodings for mutable
-  types) also rewrites this worklist; whichever lands second rebases.
+  types) rewrites the same loop without changing its order, so it fixes
+  neither symptom; this goes to main on its own, and whichever lands
+  second rebases (`submission.md` says how, and what #229910 should do
+  for a self-reference past the depth limit).

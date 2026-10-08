@@ -205,17 +205,23 @@ which the top-level CMake configure gate reads.
 
 ## bytecode-deferred-quadratic
 
-- symptom: MLIR's bytecode reader reads an attribute nested n deep in time
-  quadratic in n (4.5 s for a builtin array 32,000 deep, 0.18 s from
-  text). Compile-time evaluation's results are as deep as the program's
-  values: a computed list of 20,000 elements took 45 s to read back
+- symptom: at llvmorg-23.1.2, MLIR's bytecode reader reads an attribute
+  nested n deep in time quadratic in n (3.8 s for a builtin array 32,000
+  deep, 0.06 s from text), and never returns on a file whose attributes
+  refer to each other in a cycle (`AttrTypeReader::resolveEntry`,
+  `mlir/lib/Bytecode/Reader/BytecodeReader.cpp:1371-1459`). Compile-time
+  evaluation's results are as deep as the program's values: a computed
+  list of 20,000 elements took 45 s to read back
 - sites: none in our code; the patch
-- workaround: `upstream/bytecode-deferred-quadratic/llvm.patch` (drafted):
-  the reader resolves deferred entries from a stack, in linear time
-- retire: drop the patch when the pin's reader resolves deferred entries in
-  linear time
+- workaround: `upstream/bytecode-deferred-quadratic/llvm.patch`: the
+  reader keeps the entries waiting on a deferred parse as a path, each
+  waiting on the one above it, so a chain of n deferrals takes O(n) parses
+  and a cycle fails with `cyclic reference to attribute index: N`
+- retire: drop the patch when the pin's reader resolves deferred entries
+  in linear time and rejects cycles (the patch's two tests pass unpatched)
 - upstream: upstream/bytecode-deferred-quadratic (not yet filed); plan in
-  its README: an issue and a pull request
+  its README: an issue and a pull request against main, where the reader
+  is unchanged
 
 ## simplify-structural-fixpoint
 
