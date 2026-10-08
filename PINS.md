@@ -223,22 +223,26 @@ which the top-level CMake configure gate reads.
   composite pass runs the pipeline `max-iterations` times and warns.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
 - sites: foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
-- workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted,
-  part 1 of the report's fix): `sccp` keeps the constants the module holds.
-  `idr-simplify` is still its own loop over the round and decides the
-  fixpoint by `OperationFingerPrint`. A round at that fixpoint keeps it:
-  `sccp` no longer remakes constants, and `idr-dead-values` does not rebuild
-  a call `remove-dead-values` would leave unchanged
+- workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted;
+  applies unchanged to llvm main): `sccp` hands each constant it reaches
+  to its `OperationFolder` (`insertKnownConstant`) and leaves it, so a run
+  that propagates nothing keeps the module's fingerprint. `idr-simplify`
+  is still its own loop over the round and decides the fixpoint by
+  `OperationFingerPrint`. A round at that fixpoint keeps it: `sccp` no
+  longer remakes constants, and `idr-dead-values` does not rebuild a call
+  `remove-dead-values` would leave unchanged
   (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
   loop stays, rather than `composite-fixed-point-pass`, because that pass
   warns and goes on at its budget, and the round's statistics and remarks
   are the loop's. Over its round budget the loop fails with
   `unsupported (compile-time budget)`
 - retire: the loop may become a `composite-fixed-point-pass` over the round
-  once its budget can be an error and its statistics ours. Drop the patch
-  when the pin's `sccp` keeps existing constants
-- upstream: upstream/composite-fixed-point-sccp (not yet filed); plan in
-  its README: an issue and a pull request
+  once its budget can be an error (main has `on-convergence-failure`) and
+  its statistics ours. Drop the patch when the pin's `sccp` keeps existing
+  constants
+- upstream: upstream/composite-fixed-point-sccp (not yet filed; still
+  broken on main at 7208ba24); plan in its README: an issue and a pull
+  request
 
 ## vectorize-precondition-body
 

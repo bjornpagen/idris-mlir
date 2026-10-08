@@ -81,8 +81,9 @@ compares the same fingerprint.
 
 Two parts. Part 1 is an `sccp` bug on its own: a run that propagates
 nothing must leave the IR as it is, and the `emitc.constant` case grows the
-IR, which no change to the composite pass can hide. Part 2 makes the
-composite pass right for any pass that remakes an operation in place.
+IR, which no change to the composite pass can hide. Part 2 would make
+the composite pass right for any pass that remakes an operation in place;
+it is a note here, not sent (see the plan).
 
 1. `sccp`: `rewrite` gives each constant it reaches to the folder
    (`insertKnownConstant`) and does not replace it. The folder then hands
@@ -119,42 +120,67 @@ its round budget the loop fails with a named error.
 
 `llvm.patch` is part 1: in `rewrite` (`SCCP.cpp`), an operation that
 matches `m_Constant` is given to the folder with `insertKnownConstant` and
-skipped. The skip is the one branch, and it is honest: a constant is the
-form the rewrite produces, and routing it through the folder would erase
-its location. Seeding the folder up front with a walk, as the greedy driver
-does, was tried and rejected: it hoists the constants out of a loop `sccp`
-then erases and leaves them dead (`@loop_inner_control_flow` in
-`sccp-structured.mlir`).
+skipped. The same diff applies to llvm main, so there is no separate
+`pull-request.diff`. The skip is the one branch, and it is honest: a
+constant is the form the rewrite produces, and routing it through
+`getOrCreateConstant` would erase its location. The fix stays in `sccp`
+rather than in `OperationFolder`: the folder uniques the constants its
+client tells it about, and the greedy driver, its other client, already
+tells it; making `getOrCreateConstant` search the IR for an equal
+constant would change that contract for every client and still miss a
+constant outside the insertion block. Seeding the folder up front with a
+walk, as the greedy driver does, was tried and rejected: it hoists the
+constants out of a loop `sccp` then erases and leaves them dead
+(`@loop_inner_control_flow` in `sccp-structured.mlir`).
+
+One behaviour change beyond the fix, stated in the pull request: a
+constant in a block the analysis found dead is now hoisted to the entry
+block and uniqued, as `canonicalize` does, where `sccp` used to leave it.
 
 Test: a second RUN line in `mlir/test/Transforms/sccp.mlir` runs every
 case under `composite-fixed-point-pass{pipeline=sccp max-iterations=2}`
-with `-verify-diagnostics` and the same CHECK lines: one run of `sccp`
-reaches its fixed point. `sccp.mlir`, `sccp-structured.mlir` and
-`sccp-callgraph.mlir` are the only tests in the tree that run `sccp`.
+with `-verify-diagnostics` and the same CHECK lines. `-verify-diagnostics`
+turns the non-convergence warning into a failure, so the line checks the
+property (a second run of `sccp` keeps the fingerprint), and the CHECK
+lines check that wrapping `sccp` does not change its output.
+`max-iterations=2` because the first run legitimately changes the input.
+`sccp.mlir`, `sccp-structured.mlir` and `sccp-callgraph.mlir` are the
+only tests in the tree that run `sccp`.
 
 Verified with an `mlir-opt` linked from the pinned static libraries and the
-patched `SCCP.cpp`: all three `sccp` test files pass as they are; the new
-RUN line passes, and fails with the unpatched `mlir-opt` (a warning per
-function); the same RUN line added to `sccp-structured.mlir` and
-`sccp-callgraph.mlir` passes too. The three `sccp.mlir` cases that use the
-test dialect (`@simple_produced_operand`, `@inplace_fold`,
-`@op_with_region`) could not be run here, since the installed `mlir-opt`
-has no test dialect; they were removed from the local copy. `one.mlir`
-converges with `max-iterations=1`, keeps the constant's location, and
-`-mlir-print-ir-after-change` prints nothing after `sccp`.
-`tests/upstream/composite-fixed-point-sccp` checks the reproducer.
+patched pinned `SCCP.cpp`: `sccp-structured.mlir` and `sccp-callgraph.mlir`
+pass as they are; the patched pin `sccp.mlir` and the patched main
+`sccp.mlir` pass both RUN lines, and the new line fails with the unpatched
+`mlir-opt` (a warning on 11 of 16 functions). Cases the pinned `mlir-opt`
+cannot run were removed from the local copies: the three test-dialect cases
+(`@simple_produced_operand`, `@inplace_fold`, `@op_with_region`), and from
+the main copy `@no_crash_acc_kernel_environment` (newer syntax) and
+`@no_inplace_extract_fold_of_speculative_constant` (needs #213933). The
+patched `SCCP.cpp` from main passes `clang-format` and `-fsyntax-only`
+against main's headers. `one.mlir` converges with `max-iterations=1`,
+keeps the constant's location, and `-mlir-print-ir-after-change` prints
+nothing after `sccp`. `tests/upstream/composite-fixed-point-sccp` checks
+the reproducer.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file upstream. Still broken on llvm main at 7208ba24 (2026-10-08):
+`SCCP.cpp`, `FoldUtils.cpp` and the composite pass's fingerprint check are
+unchanged from the pin, and no issue or pull request addresses it (searched
+llvm/llvm-project for sccp, insertKnownConstant and
+composite-fixed-point-pass; the nearest are #213933, which reverts in-place
+folds during the analysis, and #218394, which makes the composite pass's
+convergence failure configurable).
 
 - Where: a GitHub issue and a pull request to llvm/llvm-project. Not
-  Bugzilla. The text to paste is `submission.md`: the issue carries the
-  report and both parts, part 2 as a proposal; the pull request is one
-  commit, `llvm.patch`, which is part 1, and its body is the squash commit
-  message. It refers to the issue as "Part of", since part 2 stays open.
+  Bugzilla. The text to paste is `submission.md`. The issue is the `sccp`
+  bug only; the pull request is one commit, `llvm.patch`, which applies
+  unchanged to main and to the pin, and its body is the squash commit
+  message, ending `Fixes #<issue>`. Part 2 is not in the issue: with
+  `sccp` fixed, nothing in the tree is known to need it, and it changes
+  what a public utility promises; it would be its own RFC if a pass is
+  found that remakes an operation in place.
 - Upstream test: the second RUN line in `mlir/test/Transforms/sccp.mlir`;
   run `check-mlir`, which runs the test-dialect cases that could not be
   run here.
-- Dropped when the pin includes the fix to `sccp`; part 2 is separate work
-  and does not hold the patch.
+- Dropped when the pin includes the fix to `sccp`.
