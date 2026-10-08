@@ -408,5 +408,25 @@ The coordinator does this after integration.
 `sh proposals/0002-representation-cutover/validate.sh`:
 
 ```json
-(filled in by the coordinator after the last edit)
+{
+  "documents": 54,
+  "links": 8,
+  "findings": 59,
+  "mapped": 59,
+  "lanes": 23,
+  "dispatches": 23,
+  "writers": 24,
+  "retiredMechanisms": 20,
+  "failures": 0
+}
 ```
+
+The validator was checked for sensitivity on a scratch copy. Each
+perturbation below fails it with the named check:
+
+- a write set given to two lanes (a write intersection, and an owned
+  path the dispatch does not name);
+- a finding moved to another owner in the map (an owner mismatch);
+- a retired name and a "wait for U09" put into a lane's prose;
+- a lost binding rule;
+- a broken link.
