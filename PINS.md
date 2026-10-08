@@ -148,11 +148,13 @@ which the top-level CMake configure gate reads.
 
 ## inline-unreachable
 
-- symptom: the upstream inliner's default `handleTerminator`
-  (`DialectInlinerInterface.td`) aborts on a callee whose body ends in
-  `ub.unreachable`: the `ub` dialect's inliner interface does not implement
-  it, and no hook of ours sees that terminator. The inliner's region
-  patterns likewise skip a region that ends in `ub.unreachable`
+- symptom: the upstream inliner aborts on a single-block callee whose
+  body ends in `ub.unreachable`: its fast path erases the terminator and
+  continues the block with the operations after the call, the hook that
+  declines it (`allowSingleBlockOptimization`) is asked of the caller's
+  dialect, and the `ub` dialect declines nothing and implements no
+  `handleTerminator`. The inliner's region patterns likewise skip a region
+  that ends in `ub.unreachable`
 - sites: none in our code; the patch. A body that never returns (a crash,
   a body Idris proved impossible, a match none of whose regions returns)
   ends in `ub.unreachable`, as Emit writes it and idr-tail-loops and the
@@ -161,12 +163,15 @@ which the top-level CMake configure gate reads.
   callee into a function body, and leaves a call of it in a match region a
   call, since the block after it would be a second block of the region
 - workaround: `upstream/inline-unreachable-terminator/llvm.patch`: the
-  inliner inlines a block that ends in a terminator that does not return
-  as a block of its own, and the `ub` dialect keeps `ub.unreachable` as its
-  end
-- retire: drop the patch when the pin's inliner handles `ub.unreachable`
-- upstream: upstream/inline-unreachable-terminator (not yet filed); plan in
-  its README: an issue and a pull request citing #206083
+  hook is asked of the terminator's dialect, the `ub` dialect declines
+  the fast path for `ub.unreachable` and keeps it as the end of its
+  block, and the inliner pass leaves a call of such a callee in a region
+  that must stay one block
+- retire: drop the patch when the pin has the merged fix (not on main at
+  7208ba24)
+- upstream: upstream/inline-unreachable-terminator (not yet filed);
+  `pull-request.diff` is the change against main; plan in its README: an
+  issue and a pull request, #206083 named as a separate case
 
 ## mlir-recursion
 

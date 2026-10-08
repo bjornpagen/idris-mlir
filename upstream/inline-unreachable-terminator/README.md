@@ -85,16 +85,22 @@ multi-block `handleTerminator`.
 
 ## Status upstream
 
-Not filed. The open issue
+Not filed. Still broken on `main` at 7208ba24 (2026-10-08): the fast
+path, `InlinerInterface::allowSingleBlockOptimization` and
+`UBInlinerInterface` are unchanged since `llvmorg-23.1.2`. The hook
+itself came from [#122646](https://github.com/llvm/llvm-project/pull/122646),
+for `llvm.unreachable` in an `llvm.func`; its review left dialects whose
+regions keep one block to "something else". It is the mechanism trunk
+has for this case; there is no trait or interface that says a terminator
+does not return. The open issue
 [#206083](https://github.com/llvm/llvm-project/issues/206083) is the same
 abort with `vector.yield` as the terminator of an `llvm.func`.
 `vector.yield` is `ReturnLike` and keeps the fast path, so this patch does
 not close it; its pull request
 [#206218](https://github.com/llvm/llvm-project/pull/206218), still open,
 changes the vector dialect only, and reviewers there consider that input
-invalid IR. On `main` (October 2026) `allowSingleBlockOptimization` still
-asks the parent op's dialect and `UBInlinerInterface` is unchanged. File a
-new issue and a pull request; the text to paste is `submission.md`.
+invalid IR. File a new issue and a pull request; the text to paste is
+`submission.md`.
 
 ## Our workaround
 
@@ -114,36 +120,43 @@ instead of leaving the region two blocks.
 
 ## Patch
 
-`llvm.patch` against `llvmorg-23.1.2`: `InliningUtils.cpp` asks the
-terminator's dialect; `Inliner.cpp` threads the inliner interface into
-`shouldInline` and counts a declined fast path as needing new blocks;
-`UBOps.cpp` declines it for `ub.unreachable` and keeps the op in the
-multi-block hook; `DialectInlinerInterface.td` documents which dialect the
-hook is asked of. Tests in `mlir/test/Transforms/inlining.mlir`.
+`llvm.patch` against `llvmorg-23.1.2`, which `tools/bootstrap.sh`
+applies, and `pull-request.diff`, the same change against `main` at
+7208ba24, which this repository does not apply. They differ only in the
+call of `shouldInline` in `inlineCallsInSCC`, which `main` also gates on
+`blockedEdges` (#211377). `InliningUtils.cpp` asks the terminator's
+dialect; `Inliner.cpp` passes the inliner interface to `shouldInline`
+and counts a declined fast path as needing new blocks; `UBOps.cpp`
+declines it for `ub.unreachable` and keeps the op in the multi-block
+hook; `DialectInlinerInterface.td` documents which dialect the hook is
+asked of. Tests in `mlir/test/Transforms/inlining.mlir`.
 `tests/upstream/inline-unreachable-terminator` checks `never.mlir`.
 
-Verified: `git apply --check` on the pinned tree; the three changed `.cpp`
-files compiled against the installed headers and linked into an
-`mlir-opt` with the test dialect. With it, the patched
-`Transforms/inlining.mlir` passes all five RUN lines (the unpatched
-`mlir-opt` aborts on it), and every other `-inline` test in `mlir/test`
-gives the same result as the unpatched build. Not run: `check-mlir` in a
-full build. On `main`, the `Inliner.cpp` hunk needs a rebase (the call of
-`shouldInline` in `inlineCallsInSCC` changed); the other hunks apply.
+Verified: `llvm.patch` applies to the pinned tree and
+`pull-request.diff` to `main` (`git apply --check`). Against the pin,
+the three changed `.cpp` files compiled and linked into an `mlir-opt`
+with the test dialect: the patched `Transforms/inlining.mlir` passes all
+five RUN lines (the unpatched `mlir-opt` aborts on it), and every other
+`-inline` test in `mlir/test` gives the same result as the unpatched
+build. Against `main`'s headers (generated files from the pinned
+`mlir-tblgen`), `Inliner.cpp` and `InliningUtils.cpp` pass
+`-fsyntax-only`; `UBOps.cpp` fails only in `ub.poison`'s generated code,
+which the pinned `mlir-tblgen` cannot produce for `main`. Changed lines
+are clang-format clean. Not run: a build of `main` or `check-mlir`.
 
 ## Upstreaming plan
 
-Status: file a new issue and a pull request. LLVM uses GitHub pull
-requests (https://llvm.org/docs/GitHub.html), not Bugzilla. The text to
-paste is `submission.md`.
+Status: file a new issue and a pull request, with the text in
+`submission.md`. LLVM uses GitHub pull requests
+(https://llvm.org/docs/GitHub.html), not Bugzilla.
 
-- Where: a new issue, with `never.mlir` and `llvm-unreachable.mlir`, and
-  a pull request of one commit, rebased onto `main`. The pull request
-  title and body are the squash commit message. It mentions #206083 as
-  the same abort for `vector.yield`, which it does not fix.
+- Where: a new issue with `never.mlir` and `llvm-unreachable.mlir`, and a
+  pull request of one commit, `pull-request.diff`, against `main`. The
+  pull request title and body are the squash commit message; the body
+  ends `Fixes #<issue>`.
 - Upstream test: the three cases the patch adds to
   `mlir/test/Transforms/inlining.mlir`, next to the existing multi-block
-  callee cases. Run `check-mlir`.
+  callee cases. Run `check-mlir` on `main` before opening it.
 - Author: Bjorn, as an individual, outside any employer. No
   `Assisted-by` trailer, and no `Contributed-by` in the source.
 - Dropped when the pin moves past the merged fix.

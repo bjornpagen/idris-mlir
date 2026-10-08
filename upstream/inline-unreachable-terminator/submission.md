@@ -4,49 +4,39 @@ Approach changed: the old patch took the single-block fast path only for ReturnL
 
 ## Status
 
-File a new issue and a pull request, both on
-https://github.com/llvm/llvm-project.
-
-LLVM uses GitHub pull requests (https://llvm.org/docs/GitHub.html), not
-Bugzilla.
+Still broken on `main` at 7208ba24 (2026-10-08): `inlineRegionImpl`,
+`InlinerInterface::allowSingleBlockOptimization` and `UBInlinerInterface`
+are as at `llvmorg-23.1.2`. No open issue or pull request covers it. File
+one issue and one pull request on https://github.com/llvm/llvm-project.
+LLVM uses GitHub issues and pull requests, not Bugzilla.
 
 ## Author
 
 Bjorn, as an individual, outside any employer. Commit with a personal
-email that the GitHub account publishes
-(https://llvm.org/docs/GitHub.html, "Email Addresses").
+email that the GitHub account publishes. No `Assisted-by` trailer, no
+`Contributed-by`, no `@` mentions in the issue, the pull request, or a
+comment.
 
-Leave off any `Assisted-by` trailer. Leave `Contributed-by` out of the
-commit message and out of the source.
+## Diff
 
-## Commit
-
-One commit, on a branch from a recent `main`, pushed to a fork. The pull
-request title and body are the squash commit message: GitHub's
-squash-merge uses them, and the messages of commits in the pull request
-are not used (https://llvm.org/docs/GitHub.html). Use the title and body
-below as that one commit's message.
-
-## Patch
-
-`llvm.patch` (against `llvmorg-23.1.2`). On `main`, the `Inliner.cpp`
-hunk that passes `inlinerIface` to `shouldInline` needs a hand rebase:
-the call in `inlineCallsInSCC` now also checks `blockedEdges`. The other
-hunks apply. Tests live in the patch, in
-`mlir/test/Transforms/inlining.mlir`. Run `check-mlir`.
+`pull-request.diff` in this directory, against `main` at 7208ba24. It is
+one commit whose message is the pull request title and body below. It
+has no `From:` line: apply it with `git apply` and commit it as yourself
+with that message. It is the same
+change as `llvm.patch`, which this repository applies to
+`llvmorg-23.1.2`; only the call of `shouldInline` in `inlineCallsInSCC`
+differs, because `main` also checks `blockedEdges` there. Run
+`check-mlir` before opening the pull request.
 
 ## Steps
 
 1. Open https://github.com/llvm/llvm-project/issues/new and paste the
-   issue title and issue body.
-2. Apply `llvm.patch` on a fork of `llvm/llvm-project`, one commit, and
-   open the pull request into `main`. Paste the pull request title and
-   body.
-3. After the issue exists, add `Fixes #<issue number>` as the last
-   paragraph of the pull request body. Leave #206083 open: this change
-   does not touch `vector.yield`.
-
-No `@` mentions in the issue or the pull request.
+   issue title and body.
+2. Push the commit to a branch of a fork and open the pull request into
+   `main` with the title and body below; GitHub squash-merges, and the
+   landed commit is that title and body.
+3. Replace `#<issue>` in the last line of the body with the issue
+   number.
 
 ## Issue title
 
@@ -57,10 +47,10 @@ No `@` mentions in the issue or the pull request.
 ## Issue body
 
 ```
-At llvmorg-23.1.2 and on main, `mlir-opt --inline` aborts when it
-inlines a single-block callee whose terminator does not return to the
-caller.
+`mlir-opt --inline` aborts when it inlines a single-block callee whose
+terminator does not return to the caller.
 
+    // never.mlir
     func.func private @never() -> i32 {
       ub.unreachable
     }
@@ -70,15 +60,15 @@ caller.
       return %0 : i32
     }
 
-`mlir-opt never.mlir --inline`:
-
+    $ mlir-opt never.mlir --inline
     must implement handleTerminator in the case of one inlined block
     UNREACHABLE executed at .../mlir/Transforms/DialectInlinerInterface.h.inc:81!
 
 The LLVM dialect declines the single-block fast path for
-llvm.unreachable, but only when the caller is an llvm.func. Called from
-a func.func, it asserts instead:
+llvm.unreachable, but that only takes effect when the caller is an
+llvm.func:
 
+    // llvm-unreachable.mlir
     llvm.func @never() -> i32 {
       llvm.unreachable
     }
@@ -88,64 +78,69 @@ a func.func, it asserts instead:
       return %0 : i32
     }
 
+    $ mlir-opt llvm-unreachable.mlir --inline
     Assertion `isa<To>(Val) && "cast<Ty>() argument of incompatible type!"'
-    failed (cast<LLVM::ReturnOp> in the LLVM dialect's handleTerminator)
+    failed.
 
-The same happens for that call inside an scf.for in an llvm.func.
+The cast is the cast<LLVM::ReturnOp> in the LLVM dialect's single-block
+handleTerminator. The same call inside an scf.for in an llvm.func aborts
+the same way.
 
 Expected: the callee is inlined, its terminator stays the end of its
-block, and the code after the call becomes unreachable. In a region that
-must stay one block, such as an scf.for body, the call stays.
+block, and the operations after the call move to a block that nothing
+branches to. Inside a region that must stay one block, such as an scf.for
+body, the call is left alone.
 
-The single-block fast path in inlineRegionImpl
-(mlir/lib/Transforms/Utils/InliningUtils.cpp) erases the terminator and
-continues the block with the operations after the call.
-InlinerInterface::allowSingleBlockOptimization, which lets a dialect
-decline that, asks the dialect of the op enclosing the inlined block,
-which is the caller's, not the terminator's. The ub dialect declines
-nothing and implements neither handleTerminator.
+Reproduced with llvmorg-23.1.2. On main (7208ba24) the code involved is
+unchanged: InlinerInterface::allowSingleBlockOptimization asks the
+dialect of the op enclosing the inlined block, which is the caller's, not
+the terminator's, and the ub dialect declines nothing and implements
+neither handleTerminator.
 
-#206083 is the same abort for vector.yield in an llvm.func. vector.yield
-is ReturnLike, so it is a different case.
+#206083 is a different abort on the same path: vector.yield as the
+terminator of an llvm.func.
 ```
 
 ## Pull request title
 
 ```
-[mlir] Fix inlining of single-block callees that do not return
+[mlir][inliner] Fix inlining of single-block callees that do not return
 ```
 
 ## Pull request body
 
 ```
-The inliner's single-block fast path forwards the callee's terminator
-operands to the call results, erases the terminator, and continues the
-block with the operations after the call. That is only correct for a
-terminator that returns to the caller, and allowSingleBlockOptimization
-is how a dialect declines it. InlinerInterface asks that hook of
-the dialect of the op enclosing the inlined block, which after
-cloning is the caller's, not the terminator's. The LLVM dialect's
-opt-out for llvm.unreachable therefore only takes effect when the
-caller is an llvm.func: inlined into a func.func or an scf.for,
-llvm.unreachable takes the fast path and handleTerminator asserts in
-cast<LLVM::ReturnOp>. The ub dialect declines nothing, so a callee
-ending in ub.unreachable aborts in the default handleTerminator.
+The inliner's single-block fast path forwards the operands of the
+callee's terminator to the call results, erases the terminator, and
+continues the block with the operations after the call. That is only
+correct for a terminator that returns to the caller.
+allowSingleBlockOptimization, added for llvm.unreachable in #122646, is
+how a dialect declines the fast path, but InlinerInterface asks it of
+the dialect of the op enclosing the inlined block, which after cloning
+is the caller, not the callee. The LLVM dialect's opt-out therefore only
+works when the caller is an llvm.func: inlined into a func.func, or into
+an scf.for body, llvm.unreachable takes the fast path and the LLVM
+handleTerminator asserts in cast<LLVM::ReturnOp>. The ub dialect
+declines nothing, so a callee ending in ub.unreachable reaches the
+default single-block handleTerminator, which is llvm_unreachable.
 
-The hook is now asked of the dialect of the terminator, as
-handleTerminator is. The inliner pass treats a single-block callee
-whose terminator declines the fast path like a multi-block one, so
-it is not inlined into a region that must stay a single block. The
-ub dialect declines the fast path for ub.unreachable and leaves it in
-place in the multi-block handleTerminator. This has to come from the
-dialect: ub.unreachable and transform.yield are both successor-less
-terminators without ReturnLike, and only one of them returns.
+allowSingleBlockOptimization is now asked of the dialect of the inlined
+block's terminator, as handleTerminator already is. A dialect that
+implements the hook is now asked about its own terminators rather than
+about blocks inlined into its ops; the LLVM dialect's implementation
+needs no change. The inliner pass treats a single-block callee that
+declines the fast path like a multi-block callee, so it does not inline
+it into a region that must stay one block and leaves the call instead.
+The ub dialect declines the fast path for ub.unreachable and keeps it as
+the end of its block in the multi-block handleTerminator. The decision
+stays with the dialect because no generic property separates the cases:
+ub.unreachable and transform.yield are both successor-less terminators
+without ReturnLike, and only transform.yield returns.
 
-https://github.com/llvm/llvm-project/issues/206083 is the same abort
-for vector.yield, which is ReturnLike and keeps the fast path; this
-does not fix it.
+Tests in mlir/test/Transforms/inlining.mlir: a func.func ending in
+ub.unreachable is inlined into a func.func and stays a call inside
+scf.for, and an llvm.func ending in llvm.unreachable is inlined into a
+func.func.
 
-Tests in mlir/test/Transforms/inlining.mlir: a callee ending
-in ub.unreachable is inlined into a function and stays a call in
-scf.for, and an llvm.func ending in llvm.unreachable is inlined into
-a func.func.
+Fixes #<issue>
 ```
