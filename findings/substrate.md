@@ -611,7 +611,7 @@ heap cells and counted.
 are threads with queues.
 
 **`composite-fixed-point-pass`** stays rejected for the simplify loop, for
-the measured `sccp` reason in `upstream/composite-fixed-point-sccp`.
+the measured `sccp` reason in `upstream/02-composite-fixed-point-sccp`.
 
 ## 5. Requirements deleted
 

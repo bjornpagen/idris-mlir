@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/bytecode-deferred-quadratic/llvm.patch,
+# The pinned mlir-opt, with upstream/03-bytecode-deferred-quadratic/llvm.patch,
 # no longer shows the bug: it reads an array attribute nested 4 times as
 # deep from bytecode in about 4 times as long, where llvmorg-23.1.2 takes
 # about 16 times. Each depth's time is the best of three reads, so that the
@@ -10,7 +10,7 @@
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 stack_max
 milliseconds() {
-  sh "$root/upstream/bytecode-deferred-quadratic/nested.sh" "$1" > "$work/n$1.mlir"
+  sh "$root/upstream/03-bytecode-deferred-quadratic/nested.sh" "$1" > "$work/n$1.mlir"
   bounded "$llvm_bin/mlir-opt" "$work/n$1.mlir" --emit-bytecode -o "$work/n$1.mlirbc" || return 1
   best=
   for run in 1 2 3; do

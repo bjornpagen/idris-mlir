@@ -291,7 +291,7 @@ Each has a default chosen so that lanes can start. One word vetoes it.
 
 | Lane | Outcome | Exclusive writes | Consumes |
 |---|---|---|---|
-| U01 | Clang crashes and dead-values fixed by patches; workarounds deleted | `upstream/clang-module-*` (2), `upstream/remove-dead-values-unreachable`, their `tests/upstream/` dirs, `IDR/Stack/Escape.cppm`, `IDR/Driver/Retarget.cppm`, `IDR/Simplify` | C11 |
+| U01 | Clang crashes and dead-values fixed by patches; workarounds deleted | `upstream/clang-module-*` (2), `upstream/06-remove-dead-values-unreachable`, their `tests/upstream/` dirs, `IDR/Stack/Escape.cppm`, `IDR/Driver/Retarget.cppm`, `IDR/Simplify` | C11 |
 | U02 | The cycle check; the linearity verifier's sentinel; `idr-canonicalize` on upstream's pass | `IDR/Verify`, `IDR/Canonicalize` | C10.1, C2.4, C1.6 |
 | U03 | Consumption declared and derived; the owned stage derived (O6); one holds-references; `idr.stage` gone; the force's and the guards' grades | `IDR/Ownership`, `IDR/Facts`, `IDR/Dialect/{Grades,Types,Effects,Verify}`, `IDR/Dialect/Dialect/Initialize.cc`, `IDR/Dialect/Ops/{Lin,Dest,Con}.cc` | C1.1 item 1, C1.4, C2, C5.4, C7.2 |
 | U04 | Guards' folders and speculation; the total ops lose their causes; rewrites see through guards | `IDR/Dialect/Ops/{Check,Scalars,Strings,Bigs,Arrays,Buffer,Bytes,Crash,Generated}.cc`, `IDR/Dialect/Crashes`, `IDR/Fold`, `IDR/Ops`, `IDR/Canon` | C1.1 items 2 and 3, C3.1 to C3.4, C7.2 |

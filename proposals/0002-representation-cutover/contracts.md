@@ -1612,7 +1612,7 @@ For each of `clang-module-layout-forward-declaration` and
 
 U01 reduces "remove-dead-values rebuilds a call when nothing is erased"
 to upstream ops and `mlir-opt`. If it reproduces, the fix is a hunk in
-`upstream/remove-dead-values-unreachable/llvm.patch`: the pass leaves an
+`upstream/06-remove-dead-values-unreachable/llvm.patch`: the pass leaves an
 op untouched when it erases none of its operands or results. Its
 reproducer is added beside the others, and a check goes in
 `tests/upstream/remove-dead-values-unreachable`. `IDR/Simplify`'s round

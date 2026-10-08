@@ -2,6 +2,6 @@
 // RUN: idris-mlir-opt %t.mlir -o %t.out.mlir
 // RUN: FileCheck %s < %t.out.mlir
 // An attribute nested 100,000 deep, which overflows the stack of the
-// pinned mlir-opt (upstream/recursive-attribute-parser), parses and prints
+// pinned mlir-opt (upstream/10-recursive-attribute-parser), parses and prints
 // back: idris-mlir-opt runs on the runtime's reserved stack.
 // CHECK: module attributes {test.nested = {{\[+\]+}}}

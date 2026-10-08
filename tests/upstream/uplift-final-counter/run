@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned MLIR, with upstream/uplift-final-counter/llvm.patch, no longer
+# The pinned MLIR, with upstream/13-uplift-final-counter/llvm.patch, no longer
 # shows the bug: the uplift of a loop that counts to 10 returns 10, where
 # llvmorg-23.1.2 returns 9. The pinned mlir-opt has no test passes, so
 # idris-mlir-opt runs upstream's test pass of the same name, whose pattern
@@ -8,7 +8,7 @@
 # idris-mlir-opt's copy of the test pass, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-"$idris_mlir_opt" "$root/upstream/uplift-final-counter/counter.mlir" \
+"$idris_mlir_opt" "$root/upstream/13-uplift-final-counter/counter.mlir" \
   --test-scf-uplift-while-to-for > "$work/out.mlir" 2>&1
 status=$?
 returned=$(sed -n 's/^ *return \(%[^ ]*\) : index$/\1/p' "$work/out.mlir")

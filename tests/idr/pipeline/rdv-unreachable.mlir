@@ -4,7 +4,7 @@
 // region calls, are unreachable. remove-dead-values, as the simplify round
 // runs it, erases @g's argument and the result the region used, and gives
 // their remaining uses poison: the module stays valid
-// (upstream/remove-dead-values-unreachable). With its canonicalization the
+// (upstream/06-remove-dead-values-unreachable). With its canonicalization the
 // dead region goes, and symbol-dce then removes @g.
 // CHECK-LABEL: func.func private @g(
 // CHECK-NEXT: %[[P:.*]] = ub.poison : i64

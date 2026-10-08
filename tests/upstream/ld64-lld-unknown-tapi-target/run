@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned ld64.lld, with upstream/ld64-lld-unknown-tapi-target/llvm.patch,
+# The pinned ld64.lld, with upstream/15-ld64-lld-unknown-tapi-target/llvm.patch,
 # no longer shows the bug: it reads a .tbd that names a target its LLVM does
 # not know, skipping that target, where llvmorg-23.1.2 refuses the file (and
 # so every link against the macOS 27 SDK's libSystem, which names
@@ -9,7 +9,7 @@
 # ld64.lld reads such stubs, the patch goes, and with it the PINS.md entry
 # darwin-ld64-tapi, the report and this test (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-report=$root/upstream/ld64-lld-unknown-tapi-target
+report=$root/upstream/15-ld64-lld-unknown-tapi-target
 
 if ! bounded "$llvm_bin/clang" --target=x86_64-apple-macosx14.0 -c "$report/min.c" \
     -o "$work/min.o" > "$work/cc.log" 2>&1; then

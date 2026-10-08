@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/int-range-narrowing-exactness/llvm.patch,
+# The pinned mlir-opt, with upstream/09-int-range-narrowing-exactness/llvm.patch,
 # no longer shows the bug: arith-int-range-narrowing keeps as i64 ops a
 # shift whose amount reaches 40, a remsi that may see INT32_MIN % -1 and a
 # remui of a word that may be negative, so the remui still computes what
@@ -10,7 +10,7 @@
 # entry int-range-narrowing-exactness, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-input=$root/upstream/int-range-narrowing-exactness/narrowing.mlir
+input=$root/upstream/09-int-range-narrowing-exactness/narrowing.mlir
 bounded "$llvm_bin/mlir-opt" "$input" --arith-int-range-narrowing="int-bitwidths-supported=32" \
   > "$work/narrowed.mlir" 2>&1
 status=$?

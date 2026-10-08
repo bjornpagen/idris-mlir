@@ -1,5 +1,5 @@
 #!/bin/sh
-# The upstream bug upstream/recursive-attribute-parser still reproduces with
+# The upstream bug upstream/10-recursive-attribute-parser still reproduces with
 # the pinned mlir-opt: an array attribute nested 100,000 deep overflows an
 # 8 MiB stack, while the same attribute nested 1,000 deep parses under the
 # same limit, so the crash is the depth's. How the overflow ends differs by
@@ -10,7 +10,7 @@
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 nested() {
-  sh "$root/upstream/recursive-attribute-parser/nested.sh" "$1" > "$work/nested$1.mlir"
+  sh "$root/upstream/10-recursive-attribute-parser/nested.sh" "$1" > "$work/nested$1.mlir"
   ( ulimit -s 8192 && bounded "$llvm_bin/mlir-opt" "$work/nested$1.mlir" ) > /dev/null 2> "$work/err$1"
 }
 nested 1000

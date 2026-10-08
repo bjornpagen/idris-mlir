@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/remove-dead-values-unreachable/llvm.patch,
+# The pinned mlir-opt, with upstream/06-remove-dead-values-unreachable/llvm.patch,
 # no longer shows the bug: remove-dead-values gives ub.poison to the uses,
 # in code dead-code analysis never reaches, of the dead arguments of a
 # function, of a dead result and of a dead block argument, where
@@ -9,7 +9,7 @@
 # remove-dead-values-unreachable, the report and this test.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 for input in unreachable uncalled dead-result dead-block-arg; do
-  bounded "$llvm_bin/mlir-opt" "$root/upstream/remove-dead-values-unreachable/$input.mlir" \
+  bounded "$llvm_bin/mlir-opt" "$root/upstream/06-remove-dead-values-unreachable/$input.mlir" \
     --remove-dead-values > "$work/out.mlir" 2> "$work/err"
   status=$?
   if [ "$status" -eq 0 ] && grep -q 'call @ext(%.*) : (i32) -> ()' "$work/out.mlir" &&

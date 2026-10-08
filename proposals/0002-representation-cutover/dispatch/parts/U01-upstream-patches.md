@@ -21,12 +21,12 @@ All are mandatory.
 
 ## Owner / exclusive writes
 
-- `upstream/clang-module-layout-forward-declaration`
-- `upstream/clang-module-predeclared-new`
-- `upstream/remove-dead-values-unreachable`
-- `T/upstream/clang-module-layout-forward-declaration`
-- `T/upstream/clang-module-predeclared-new`
-- `T/upstream/remove-dead-values-unreachable`
+- `upstream/11-clang-module-layout-forward-declaration`
+- `upstream/12-clang-module-predeclared-new`
+- `upstream/06-remove-dead-values-unreachable`
+- `T/upstream/11-clang-module-layout-forward-declaration`
+- `T/upstream/12-clang-module-predeclared-new`
+- `T/upstream/06-remove-dead-values-unreachable`
 - `IDR/Stack/Escape.cppm`
 - `IDR/Driver/Retarget.cppm`
 - `IDR/Simplify`
@@ -49,7 +49,7 @@ All are mandatory.
 - `findings.md` F-up-1, F-up-2 and F-up-3.
 - The two `upstream/clang-module-*/README.md` files and their reduction
   plans.
-- `upstream/remove-dead-values-unreachable/` in full.
+- `upstream/06-remove-dead-values-unreachable/` in full.
 - `IDR/Simplify/{Pass.cc,Round.cppm,DeadValues.cppm,DeadValues/Pass.cc}`.
 
 ## Fixed decisions

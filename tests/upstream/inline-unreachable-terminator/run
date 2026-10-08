@@ -1,12 +1,12 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/inline-unreachable-terminator/llvm.patch,
+# The pinned mlir-opt, with upstream/07-inline-unreachable-terminator/llvm.patch,
 # no longer shows the bug: the inliner inlines a callee whose body ends in
 # ub.unreachable, which stays the end of its block, where llvmorg-23.1.2
 # aborts. When the pin's inliner handles ub.unreachable, the patch goes, and
 # with it the PINS.md entry inline-unreachable, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-bounded "$llvm_bin/mlir-opt" "$root/upstream/inline-unreachable-terminator/never.mlir" --inline \
+bounded "$llvm_bin/mlir-opt" "$root/upstream/07-inline-unreachable-terminator/never.mlir" --inline \
   > "$work/out.mlir" 2> "$work/err"
 status=$?
 sed -n '/func.func @main/,/^  }/p' "$work/out.mlir" > "$work/main.mlir"

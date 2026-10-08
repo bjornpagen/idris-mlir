@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/remove-dead-values-unreachable/llvm.patch,
+# The pinned mlir-opt, with upstream/06-remove-dead-values-unreachable/llvm.patch,
 # no longer shows this bug either: a direct call of a function remove-dead-
 # values must leave alone, which never reads the value the call passes,
 # keeps its operand as ub.poison, where llvmorg-23.1.2 leaves it null. When
@@ -7,7 +7,7 @@
 # PINS.md entry remove-dead-values-address-taken, the report and this test
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-bounded "$llvm_bin/mlir-opt" "$root/upstream/remove-dead-values-address-taken/address-taken.mlir" \
+bounded "$llvm_bin/mlir-opt" "$root/upstream/01-remove-dead-values-address-taken/address-taken.mlir" \
   --remove-dead-values > "$work/out.mlir" 2> "$work/err"
 status=$?
 if [ "$status" -eq 0 ] && grep -q 'ub.poison : i64' "$work/out.mlir" &&

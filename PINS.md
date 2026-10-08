@@ -84,7 +84,7 @@ which the top-level CMake configure gate reads.
   dead block argument and of a dead result the same way
 - sites: foreign/idr/lib/Simplify/DeadValues.cppm (`idr-dead-values`,
   which runs the pass on a copy); the patch itself has no other site
-- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`: every
+- workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`: every
   value the pass erases (function argument, block argument, result, result
   of an erased op) gives its remaining uses a ub.poison at its definition,
   through one helper, `replaceUsesWithPoison`; the pass drops no use. The
@@ -106,7 +106,7 @@ which the top-level CMake configure gate reads.
   together with a fix for block arguments and results); `idr-dead-values`
   runs the pass on a copy until `remove-dead-values` leaves a call with
   nothing to erase as it is
-- upstream: upstream/remove-dead-values-unreachable (function arguments
+- upstream: upstream/06-remove-dead-values-unreachable (function arguments
   reported by others, #206920, #203226, open PR #208881); plan in its
   README: a new issue and a pull request against main for all four sites
 
@@ -123,11 +123,11 @@ which the top-level CMake configure gate reads.
 - sites: none in our code; the patch. The poison it passes is no value
   to evaluate at compile time (foreign/idr/lib/Facts/Evaluation.cppm), as
   any poison operand is not
-- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`, which
+- workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, which
   gives such an operand `ub.poison` (this bug has no patch of its own)
 - retire: drop the patch when the pin has #208881 or our
   remove-dead-values-unreachable pull request (neither on main at 7208ba24)
-- upstream: upstream/remove-dead-values-address-taken (not yet filed);
+- upstream: upstream/01-remove-dead-values-address-taken (not yet filed);
   plan in its README: its test as a comment on #208881, or a test-only
   pull request if #208881 lands without one
 
@@ -141,12 +141,12 @@ which the top-level CMake configure gate reads.
 - sites: foreign/idr/tools/idris-mlir-opt.cc registers upstream's test pass
   `test-scf-uplift-while-to-for`, which the pinned mlir-opt lacks, for the
   reproducer
-- workaround: `upstream/uplift-final-counter/llvm.patch`, main's 6e714c8d9
+- workaround: `upstream/13-uplift-final-counter/llvm.patch`, main's 6e714c8d9
   (#225476) backported; `idr-tail-loops` uplifts every counted loop
 - retire: drop the patch when the pin has 6e714c8d9 (not on release/23.x);
   idris-mlir-opt's copy of the test pass stays while the pinned mlir-opt
   has no test passes
-- upstream: upstream/uplift-final-counter (fixed on main); nothing to send
+- upstream: upstream/13-uplift-final-counter (fixed on main); nothing to send
 
 ## inline-unreachable
 
@@ -164,14 +164,14 @@ which the top-level CMake configure gate reads.
   loops declare `SingleBlock`, which the inliner reads: it inlines such a
   callee into a function body, and leaves a call of it in a match region a
   call, since the block after it would be a second block of the region
-- workaround: `upstream/inline-unreachable-terminator/llvm.patch`: the
+- workaround: `upstream/07-inline-unreachable-terminator/llvm.patch`: the
   hook is asked of the terminator's dialect, the `ub` dialect declines
   the fast path for `ub.unreachable` and keeps it as the end of its
   block, and the inliner pass leaves a call of such a callee in a region
   that must stay one block
 - retire: drop the patch when the pin has the merged fix (not on main at
   7208ba24)
-- upstream: upstream/inline-unreachable-terminator (not yet filed);
+- upstream: upstream/07-inline-unreachable-terminator (not yet filed);
   `pull-request.diff` is the change against main; plan in its README: an
   issue and a pull request, #206083 named as a separate case
 
@@ -200,7 +200,7 @@ which the top-level CMake configure gate reads.
   no patch: the fix is a design change across the parser, the printer and
   the sub-element walks (its README says why), so this code stays until
   upstream has it
-- upstream: upstream/recursive-attribute-parser (not yet filed); plan in its
+- upstream: upstream/10-recursive-attribute-parser (not yet filed); plan in its
   README: an issue, then an RFC
 
 ## bytecode-deferred-quadratic
@@ -213,13 +213,13 @@ which the top-level CMake configure gate reads.
   evaluation's results are as deep as the program's values: a computed
   list of 20,000 elements took 45 s to read back
 - sites: none in our code; the patch
-- workaround: `upstream/bytecode-deferred-quadratic/llvm.patch`: the
+- workaround: `upstream/03-bytecode-deferred-quadratic/llvm.patch`: the
   reader keeps the entries waiting on a deferred parse as a path, each
   waiting on the one above it, so a chain of n deferrals takes O(n) parses
   and a cycle fails with `cyclic reference to attribute index: N`
 - retire: drop the patch when the pin's reader resolves deferred entries
   in linear time and rejects cycles (the patch's two tests pass unpatched)
-- upstream: upstream/bytecode-deferred-quadratic (not yet filed); plan in
+- upstream: upstream/03-bytecode-deferred-quadratic (not yet filed); plan in
   its README: an issue and a pull request against main, where the reader
   is unchanged
 
@@ -236,7 +236,7 @@ which the top-level CMake configure gate reads.
   composite pass runs the pipeline `max-iterations` times and warns.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
 - sites: foreign/idr/lib/Simplify/Pass.cc (the loop in `runOnOperation`)
-- workaround: `upstream/composite-fixed-point-sccp/llvm.patch` (drafted;
+- workaround: `upstream/02-composite-fixed-point-sccp/llvm.patch` (drafted;
   applies unchanged to llvm main): `sccp` hands each constant it reaches
   to its `OperationFolder` (`insertKnownConstant`) and leaves it, so a run
   that propagates nothing keeps the module's fingerprint. `idr-simplify`
@@ -253,7 +253,7 @@ which the top-level CMake configure gate reads.
   once its budget can be an error (main has `on-convergence-failure`) and
   its statistics ours. Drop the patch when the pin's `sccp` keeps existing
   constants
-- upstream: upstream/composite-fixed-point-sccp (not yet filed; still
+- upstream: upstream/02-composite-fixed-point-sccp (not yet filed; still
   broken on main at 7208ba24); plan in its README: an issue and a pull
   request
 
@@ -273,14 +273,14 @@ which the top-level CMake configure gate reads.
   precondition alone (foreign/idr/lib/Vectorize/Tiles.cppm, `vectorizable`),
   before it changes anything; a generic it refuses stays whole, and
   convert-linalg-to-loops runs its body in the program's order
-- workaround: `upstream/vectorize-precondition-body/llvm.patch`: the
+- workaround: `upstream/04-vectorize-precondition-body/llvm.patch`: the
   precondition and `vectorizeOneOp` share one rule for a body op no hook
   takes (a constant or an ElementwiseMappable op), and the precondition
   checks it for every body op of every linalg op, so `vectorize` fails
   before it creates any IR
 - retire: drop the patch when the pin's precondition refuses such a body
   (the pull request, `pull-request.diff`, landing on main)
-- upstream: upstream/vectorize-precondition-body (not yet filed; still
+- upstream: upstream/04-vectorize-precondition-body (not yet filed; still
   broken on main at 7208ba24); plan in its README: an issue and a pull
   request
 
@@ -299,11 +299,11 @@ which the top-level CMake configure gate reads.
   vectorized loop when its wide integer ops fit 32 bits, and the narrowing
   of its copy leaves wide an op whose 32-bit form would compute something
   else (tests/idr/vectorize/lanes-loops, lanes-x86-64)
-- workaround: `upstream/int-range-narrowing-exactness/llvm.patch`: main's
+- workaround: `upstream/09-int-range-narrowing-exactness/llvm.patch`: main's
   44a4dbf32 (#218495, the shift) backported, and the remainders ours
 - retire: when the pin has 44a4dbf32 the backported part leaves the patch;
   drop the rest when the pin's narrowing handles the remainders
-- upstream: upstream/int-range-narrowing-exactness (remainders not yet
+- upstream: upstream/09-int-range-narrowing-exactness (remainders not yet
   filed); plan in its README: an issue and a pull request for them
 
 ## while-move-if-down-duplicates
@@ -316,10 +316,10 @@ which the top-level CMake configure gate reads.
   arguments of the later ones keep the else value where the loop needs the
   then value: the loop computes something else
 - sites: none in our code; the patch
-- workaround: `upstream/while-move-if-down-duplicates/llvm.patch`, main's
+- workaround: `upstream/14-while-move-if-down-duplicates/llvm.patch`, main's
   a65eb8723 (#219458) backported
 - retire: drop the patch when the pin has a65eb8723 (in 24.1.0)
-- upstream: upstream/while-move-if-down-duplicates (fixed on main); nothing
+- upstream: upstream/14-while-move-if-down-duplicates (fixed on main); nothing
   to send
 
 ## forward-dataflow-callee-lookup
@@ -332,7 +332,7 @@ which the top-level CMake configure gate reads.
   `remove-dead-values` and our analyses take time quadratic in the number
   of functions: 8 to 9 percent of a compile of `k-nucleotide`
 - sites: none in our code; the patch
-- workaround: `upstream/forward-dataflow-callee-lookup/llvm.patch`: the
+- workaround: `upstream/05-forward-dataflow-callee-lookup/llvm.patch`: the
   solver builds one `SymbolTableCollection` per `initializeAndRun`, the
   span over which the IR does not change, and hands it to its analyses;
   the forward analyses resolve callees through it, and `DeadCodeAnalysis`
@@ -340,7 +340,7 @@ which the top-level CMake configure gate reads.
 - retire: drop the patch when the pin's forward analyses resolve callees
   from a symbol table (`tests/upstream/forward-dataflow-callee-lookup`
   then shows it with the pristine tools)
-- upstream: upstream/forward-dataflow-callee-lookup (not yet filed; still
+- upstream: upstream/05-forward-dataflow-callee-lookup (not yet filed; still
   present on main at 7208ba24); plan in its README: a pull request
 
 ## clang-module-layout-forward-declaration
@@ -355,7 +355,7 @@ which the top-level CMake configure gate reads.
 - retire: when a patch or the pin lets the pinned clang compile the
   report's unit (tests/upstream/clang-module-layout-forward-declaration);
   the sets may stay typed. There is no patch yet: the crash is not reduced
-- upstream: upstream/clang-module-layout-forward-declaration (not reduced
+- upstream: upstream/11-clang-module-layout-forward-declaration (not reduced
   yet); plan in its README: reduce, then file or backport
 
 ## clang-module-predeclared-new
@@ -369,7 +369,7 @@ which the top-level CMake configure gate reads.
 - retire: when a patch or the pin lets the pinned clang compile the
   report's unit (tests/upstream/clang-module-predeclared-new). There is no
   patch yet: the crash is not reduced
-- upstream: upstream/clang-module-predeclared-new (not reduced yet; likely
+- upstream: upstream/12-clang-module-predeclared-new (not reduced yet; likely
   #189252); plan in its README: reduce, then add to #189252
 
 ## llvm-force-enable-stats
@@ -465,9 +465,9 @@ which the top-level CMake configure gate reads.
 - sites: tools/bootstrap.sh — `config_file_darwin`, whose `-fuse-ld=lld`
   makes every Darwin link the pinned `ld64.lld`'s, as CMakeLists.txt's
   `arm64-apple-macosx14.0` entry does for programs (with `--icf=all`). The
-  report, reproducer and check are `upstream/ld64-lld-unknown-tapi-target/`
+  report, reproducer and check are `upstream/15-ld64-lld-unknown-tapi-target/`
   and `tests/upstream/ld64-lld-unknown-tapi-target/`
-- workaround: `upstream/ld64-lld-unknown-tapi-target/llvm.patch`:
+- workaround: `upstream/15-ld64-lld-unknown-tapi-target/llvm.patch`:
   release/23.x's 532fa5afb (`arm64e.x1`) backported, and
   `SkipUnknownTriples = true` in `macho::loadDylib`, so the pinned
   `ld64.lld` reads the macOS 27 SDK and the next one's. No code of ours
@@ -475,7 +475,7 @@ which the top-level CMake configure gate reads.
 - retire: when the pin has 532fa5afb the backported part leaves the patch;
   drop the rest when the pin's `ld64.lld` reads a stub with an unknown
   target
-- upstream: `upstream/ld64-lld-unknown-tapi-target/` (not yet filed); plan
+- upstream: `upstream/15-ld64-lld-unknown-tapi-target/` (not yet filed); plan
   in its README: an issue and a pull request for `SkipUnknownTriples`
 
 ## cmake-import-std-uuid
