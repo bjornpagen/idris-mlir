@@ -62,21 +62,25 @@ data: main (JIT-compiled code and `registerSymbols`), the platform, then
 the process. Building the LLJIT, opening the process included, returns an
 error from `create` instead of aborting.
 
-One behaviour changes for default users: `ExecutionEngine::lookup`
-searches only the main JITDylib (`LLJIT::lookupLinkerMangled`), so it no
-longer returns process symbols that happened to be materialized there.
-JIT-compiled code still calls them through the link order. Libraries in
+`ExecutionEngine::lookup` searches the main JITDylib's link order, so it
+finds a name where the JIT-compiled code finds it. With the default
+options it returns what it did before (the platform JITDylib between main
+and the process defines only ORC's `__lljit.*` helpers); with the option
+off it, too, sees only the symbols the engine is given. Libraries in
 `sharedLibPaths` that do not implement the init/destroy protocol are
-reached only through the process (they are opened `RTLD_GLOBAL`), which the
-option's documentation states.
+reached only through the process (they are opened `RTLD_GLOBAL`), which
+the option's documentation states.
 
-Verified against the pin: the diff applies (`git apply --check`); the
-pinned `Invoke.cpp` unit tests and the new `WithoutProcessSymbols` (9
-tests) pass when built against the patched `ExecutionEngine.cpp` with the
-pinned googletest and the installed static libraries; a static-PIE musl
-program creates an engine with the option off, calls a registered
-function, gets an error (not an abort) for an unregistered one, and gets
-an error from `create` with the option on.
+Verified: the diff applies to llvm main (7208ba24) and to the pin
+(`git apply --check`); the patched `ExecutionEngine.cpp` and `Invoke.cpp`
+of llvm main pass `-fsyntax-only` against llvm main's headers. Against
+the pin: the `Invoke.cpp` unit tests and the new `WithoutProcessSymbols`
+(9 tests) pass when built against the patched `ExecutionEngine.cpp` with
+the pinned googletest and the installed static libraries, and the test's
+`lookup` check fails against a `lookup` that searches main alone; a
+static-PIE musl program creates an engine with the option off, calls a
+registered function, gets an error (not an abort) for an unregistered
+one, and gets an error from `create` with the option on.
 
 ## Why there is no patch
 
@@ -98,9 +102,10 @@ The report is still a pull request we intend to send, drafted as
 
 ## Upstreaming plan
 
-Status: file upstream. Upstream `main` has not changed this code
-(`ExecutionEngine.cpp` differs from the pin only in unrelated data-layout
-and IRBuilder lines), and no open pull request covers it.
+Status: file upstream. Upstream `main` (7208ba24, 2026-10-08) has not
+changed this code (`ExecutionEngine.cpp` differs from the pin only in
+unrelated data-layout and IRBuilder lines), and no issue or pull request
+on llvm/llvm-project covers it.
 
 - Where: one pull request to llvm/llvm-project (MLIR ExecutionEngine), as
   `submission.md` says. No issue, and not a Bugzilla bug. The pull

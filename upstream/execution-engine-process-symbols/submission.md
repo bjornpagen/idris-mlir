@@ -38,21 +38,23 @@ fails, as it always does in a statically linked executable. There is no
 way to create an engine whose code calls only the symbols it is given.
 
 The process's symbols now come from one place: the LLJIT's
-process-symbols JITDylib, which create() sets up itself, and
-ExecutionEngineOptions::enableProcessSymbols (true by default, today's
-behaviour) decides whether it holds the generator. The JITDylib always
-exists, since the generic IR platform links it and does not start
-without it. Whether JIT-compiled code may reach the host process is the
-caller's choice, as it is in LLJITBuilder, so it stays an option. A
-failure to build the LLJIT, opening the process included, is returned
-from create() instead of aborting.
+process-symbols JITDylib, which create() sets up itself, and the new
+ExecutionEngineOptions::enableProcessSymbols (true by default) decides
+whether it holds the generator. The JITDylib always exists, since the
+generic IR platform links it and does not start without it. Whether
+JIT-compiled code may reach the host process is the caller's choice, as
+it is in LLJITBuilder, so it stays an option.
 
-ExecutionEngine::lookup searches the main JITDylib only, so it no longer
-returns symbols of the process; it returns JIT-compiled and registered
-symbols, as before.
+ExecutionEngine::lookup now searches the main JITDylib's link order,
+which ends with the process-symbols JITDylib, so it resolves a name the
+way the JIT-compiled code does. With the default options it returns
+what it returned before; the platform JITDylib in between defines only
+ORC's own __lljit.* helpers. A failure to build the LLJIT, opening the
+process included, is returned from create() instead of aborting, as
+create() already does when it cannot detect the host.
 
 Test: WithoutProcessSymbols in mlir/unittests/ExecutionEngine/Invoke.cpp
-calls labs from JIT-compiled code: it resolves with the process's
-symbols, fails to resolve without them, and resolves to the registered
-function when one is registered under that name.
+calls labs from JIT-compiled code and looks it up. Both succeed with the
+process's symbols and fail without them, and the call reaches the
+registered function when one is registered under that name.
 ```

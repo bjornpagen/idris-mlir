@@ -10,31 +10,33 @@ fails, as it always does in a statically linked executable. There is no
 way to create an engine whose code calls only the symbols it is given.
 
 The process's symbols now come from one place: the LLJIT's
-process-symbols JITDylib, which create() sets up itself, and
-ExecutionEngineOptions::enableProcessSymbols (true by default, today's
-behaviour) decides whether it holds the generator. The JITDylib always
-exists, since the generic IR platform links it and does not start
-without it. Whether JIT-compiled code may reach the host process is the
-caller's choice, as it is in LLJITBuilder, so it stays an option. A
-failure to build the LLJIT, opening the process included, is returned
-from create() instead of aborting.
+process-symbols JITDylib, which create() sets up itself, and the new
+ExecutionEngineOptions::enableProcessSymbols (true by default) decides
+whether it holds the generator. The JITDylib always exists, since the
+generic IR platform links it and does not start without it. Whether
+JIT-compiled code may reach the host process is the caller's choice, as
+it is in LLJITBuilder, so it stays an option.
 
-ExecutionEngine::lookup searches the main JITDylib only, so it no longer
-returns symbols of the process; it returns JIT-compiled and registered
-symbols, as before.
+ExecutionEngine::lookup now searches the main JITDylib's link order,
+which ends with the process-symbols JITDylib, so it resolves a name the
+way the JIT-compiled code does. With the default options it returns
+what it returned before; the platform JITDylib in between defines only
+ORC's own __lljit.* helpers. A failure to build the LLJIT, opening the
+process included, is returned from create() instead of aborting, as
+create() already does when it cannot detect the host.
 
 Test: WithoutProcessSymbols in mlir/unittests/ExecutionEngine/Invoke.cpp
-calls labs from JIT-compiled code: it resolves with the process's
-symbols, fails to resolve without them, and resolves to the registered
-function when one is registered under that name.
+calls labs from JIT-compiled code and looks it up. Both succeed with the
+process's symbols and fail without them, and the call reaches the
+registered function when one is registered under that name.
 ---
- .../mlir/ExecutionEngine/ExecutionEngine.h    | 10 ++++
- mlir/lib/ExecutionEngine/ExecutionEngine.cpp  | 43 +++++++++-----
- mlir/unittests/ExecutionEngine/Invoke.cpp     | 56 +++++++++++++++++++
- 3 files changed, 94 insertions(+), 15 deletions(-)
+ .../mlir/ExecutionEngine/ExecutionEngine.h    | 10 +++
+ mlir/lib/ExecutionEngine/ExecutionEngine.cpp  | 55 +++++++++++------
+ mlir/unittests/ExecutionEngine/Invoke.cpp     | 61 +++++++++++++++++++
+ 3 files changed, 109 insertions(+), 17 deletions(-)
 
 diff --git a/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h b/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
-index 5bd71d6..8cf0312 100644
+index 5bd71d6..2eed64f 100644
 --- a/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
 +++ b/mlir/include/mlir/ExecutionEngine/ExecutionEngine.h
 @@ -99,6 +99,16 @@ struct ExecutionEngineOptions {
@@ -42,20 +44,20 @@ index 5bd71d6..8cf0312 100644
    /// the llvm's global Perf notification listener.
    bool enablePerfNotificationListener = true;
 +
-+  /// If `enableProcessSymbols` is set, the JIT-compiled code may call any
-+  /// symbol of the current process, looked up through the dynamic loader;
-+  /// this is also how it finds the symbols of the libraries in
-+  /// `sharedLibPaths` that do not implement the loading protocol. Otherwise,
-+  /// it may call only the symbols given to `registerSymbols` and those that
-+  /// libraries export from their init functions. A process that cannot look
-+  /// up its own symbols, such as a statically linked executable, must unset
-+  /// it, or `create` fails.
++  /// If `enableProcessSymbols` is set, the JIT-compiled code may call, and
++  /// `lookup` finds, any symbol of the current process, looked up through the
++  /// dynamic loader; this is also how they find the symbols of the libraries
++  /// in `sharedLibPaths` that do not implement the loading protocol.
++  /// Otherwise, they see only the symbols given to `registerSymbols` and
++  /// those that libraries export from their init functions. A process that
++  /// cannot look up its own symbols, such as a statically linked executable,
++  /// must unset it, or `create` fails.
 +  bool enableProcessSymbols = true;
  };
  
  /// JIT-backed execution engine for MLIR. Assumes the IR can be converted to
 diff --git a/mlir/lib/ExecutionEngine/ExecutionEngine.cpp b/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
-index 49a88e0..9ac9e5c 100644
+index c8f4e81..ad0c210 100644
 --- a/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
 +++ b/mlir/lib/ExecutionEngine/ExecutionEngine.cpp
 @@ -372,27 +372,40 @@ ExecutionEngine::create(Operation *m, const ExecutionEngineOptions &options,
@@ -114,18 +116,45 @@ index 49a88e0..9ac9e5c 100644
  
    // Build a runtime symbol map from the exported symbols and register them.
    auto runtimeSymbolMap = [&](llvm::orc::MangleAndInterner interner) {
+@@ -416,7 +429,15 @@ ExecutionEngine::lookupPacked(StringRef name) const {
+ }
+ 
+ Expected<void *> ExecutionEngine::lookup(StringRef name) const {
+-  auto expectedSymbol = jit->lookup(name);
++  // Look the name up as the JIT-compiled code resolves it: through the link
++  // order of the main JITDylib, which ends with the process's symbols.
++  llvm::orc::JITDylibSearchOrder searchOrder =
++      jit->getMainJITDylib().withLinkOrderDo(
++          [](const llvm::orc::JITDylibSearchOrder &linkOrder) {
++            return linkOrder;
++          });
++  auto expectedSymbol = jit->getExecutionSession().lookup(
++      searchOrder, jit->mangleAndIntern(name));
+ 
+   // JIT lookup may return an Error referring to strings stored internally by
+   // the JIT. If the Error outlives the ExecutionEngine, it would want have a
+@@ -432,7 +453,7 @@ Expected<void *> ExecutionEngine::lookup(StringRef name) const {
+     return makeStringError(errorMessage);
+   }
+ 
+-  if (void *fptr = expectedSymbol->toPtr<void *>())
++  if (void *fptr = expectedSymbol->getAddress().toPtr<void *>())
+     return fptr;
+   return makeStringError("looked up function is null");
+ }
 diff --git a/mlir/unittests/ExecutionEngine/Invoke.cpp b/mlir/unittests/ExecutionEngine/Invoke.cpp
-index 4061d16..efe889d 100644
+index 4061d16..b7cdab2 100644
 --- a/mlir/unittests/ExecutionEngine/Invoke.cpp
 +++ b/mlir/unittests/ExecutionEngine/Invoke.cpp
-@@ -340,6 +340,62 @@ TEST(NativeMemRefJit, MAYBE_JITCallback) {
+@@ -340,6 +340,67 @@ TEST(NativeMemRefJit, MAYBE_JITCallback) {
      ASSERT_EQ(elt, coefficient * count++);
  }
  
 +static int64_t negate(int64_t x) { return -x; }
 +
-+// Without the process's symbols, the JIT-compiled code calls only the symbols
-+// it is given: `labs`, which the process has, is not found unless registered.
++// Without the process's symbols, the JIT-compiled code and `lookup` see only
++// the symbols the engine is given: `labs`, which the process has, is not found
++// unless it is registered.
 +TEST(MLIRExecutionEngine, SKIP_WITHOUT_JIT(WithoutProcessSymbols)) {
 +  std::string moduleStr = R"mlir(
 +  func.func private @labs(i64) -> i64
@@ -153,6 +182,7 @@ index 4061d16..efe889d 100644
 +                                   ExecutionEngine::Result<int64_t>(result));
 +  ASSERT_TRUE(!error);
 +  ASSERT_EQ(result, 42);
++  ASSERT_TRUE(!!(*withProcess)->lookup("labs"));
 +
 +  jitOptions.enableProcessSymbols = false;
 +  auto withoutProcess = ExecutionEngine::create(*module, jitOptions);
@@ -162,6 +192,9 @@ index 4061d16..efe889d 100644
 +                       ExecutionEngine::Result<int64_t>(result));
 +  ASSERT_TRUE(!!error);
 +  llvm::consumeError(std::move(error));
++  auto labs = (*withoutProcess)->lookup("labs");
++  ASSERT_TRUE(!labs);
++  llvm::consumeError(labs.takeError());
 +
 +  auto registered = ExecutionEngine::create(*module, jitOptions);
 +  ASSERT_TRUE(!!registered);

@@ -266,10 +266,15 @@ which the top-level CMake configure gate reads.
   before it changes anything; a generic it refuses stays whole, and
   convert-linalg-to-loops runs its body in the program's order
 - workaround: `upstream/vectorize-precondition-body/llvm.patch`: the
-  precondition checks a reduction's body too
+  precondition and `vectorizeOneOp` share one rule for a body op no hook
+  takes (a constant or an ElementwiseMappable op), and the precondition
+  checks it for every body op of every linalg op, so `vectorize` fails
+  before it creates any IR
 - retire: drop the patch when the pin's precondition refuses such a body
-- upstream: upstream/vectorize-precondition-body (not yet filed); plan in
-  its README: an issue and a pull request
+  (the pull request, `pull-request.diff`, landing on main)
+- upstream: upstream/vectorize-precondition-body (not yet filed; still
+  broken on main at 7208ba24); plan in its README: an issue and a pull
+  request
 
 ## int-range-narrowing-exactness
 

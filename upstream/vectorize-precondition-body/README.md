@@ -100,15 +100,30 @@ Before the patch it also asked `hasOnlyScalarElementwiseOp` of the body.
 
 ## Patch
 
-`llvm.patch` implements the proposed fix: `isVectorizableWithoutHook` in
-`Vectorization.cpp`, used by `vectorizeOneOp` step 3 and by the per-op
-loop of `vectorizeLinalgOpPrecondition`, which now fails with
-`precondition failed: cannot vectorize scf.if` for `@rows`. The
-convolution and contraction paths do not walk the body with
-`vectorizeOneOp`, but the bodies they accept are arith ops, so the check
-leaves them as they were. An earlier version of the patch called
-`hasOnlyScalarElementwiseOp` once more, for reductions only, which kept
-the precondition's rule and the vectorizer's rule apart.
+`llvm.patch` implements the proposed fix for llvmorg-23.1.2:
+`isVectorizableWithoutHook` in `Vectorization.cpp`, used by
+`vectorizeOneOp` step 3 and by the per-op loop of
+`vectorizeLinalgOpPrecondition`, which now fails with `precondition
+failed: cannot vectorize scf.if` for `@rows`. The ops hooks take stay
+listed by kind in that loop (`tensor.extract` through its precondition,
+`linalg.yield`, `linalg.index`, and `affine.apply`, which is expanded
+before any hook runs): the hooks need the vectorization state, which
+does not exist yet when the precondition runs, so they cannot be one
+table without restructuring the vectorizer. The list can only err
+towards rejecting: a hook added without an entry makes the precondition
+refuse its op, never admit one `vectorizeOneOp` refuses, since the rule
+for every other op is the one predicate both call. Registering
+`CustomVectorizationPrecondition`s for `linalg.yield` and
+`linalg.index` would not replace it: an op a hook precondition admits
+skips the loop's operand and result type checks, which these two must
+still pass. The convolution and contraction paths
+do not walk the body with `vectorizeOneOp`, but the bodies they accept
+are arith ops, so the check leaves them as they were.
+
+`pull-request.diff` is the same change for llvm main (7208ba24); the
+two differ only in the test's `transform.get_parent_op`, whose unit
+attribute is spelled `<isolated_from_above>` on main and
+`{isolated_from_above}` at the pin.
 
 Test, added to the existing
 `mlir/test/Dialect/Linalg/vectorization/unsupported.mlir`: a static
@@ -119,19 +134,21 @@ driver does not converge, and the transform fails to apply; with it the
 function is printed unchanged.
 
 Verified against a `mlir-opt` linked from the pinned static libraries
-with the patched `Vectorization.cpp`: the new test passes (and fails with
-the unpatched `mlir-opt`), and the 23 other tests under `mlir/test` that
-drive the Linalg vectorizer and run without test-only passes pass with
-both. `tests/upstream/vectorize-precondition-body` checks `body.mlir`.
+with the patched `Vectorization.cpp`: the new test passes, and fails
+with the unpatched `mlir-opt`; the 45 test files under `mlir/test` that
+drive the Linalg vectorizer give the same results with both (25 pass;
+the rest need test-only passes, `mlir-translate` or an execution
+runner). `tests/upstream/vectorize-precondition-body` checks `body.mlir`.
 
 ## Upstreaming plan
 
 Status: file upstream.
 
-- Where: an issue (title, body and a static reproducer in
-  `submission.md`) and a pull request to llvm/llvm-project (Linalg
-  vectorization). No existing report was found.
+- Where: an issue and a pull request to llvm/llvm-project (Linalg
+  vectorization), text in `submission.md`; the pull request is
+  `pull-request.diff`. No existing report or pull request was found
+  (October 2026), and main at 7208ba24 still has the bug.
 - Upstream test: the new case at the end of
   `mlir/test/Dialect/Linalg/vectorization/unsupported.mlir`; run
-  `check-mlir` before sending (the four vectorizer tests that need
-  test-only passes or `mlir-translate` were not run here).
+  `check-mlir` on main before sending.
+- When it lands, the pin moves past it and `llvm.patch` goes.
