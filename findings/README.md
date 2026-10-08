@@ -95,7 +95,11 @@ accepts, so they are the user's to take. Each is argued where it is cited.
 ## The ordered work
 
 Each step is a research conclusion made concrete: what changes, and what
-proves it. Every step runs AGENTS.md's checks. W0 is this restructure. The
+proves it. Every step runs AGENTS.md's checks. W1 to W10 are compiled into
+one swarm packet, `proposals/0002-representation-cutover/`. It narrows W6
+to its first phase (closure conversion leaves Idris; regions do not yet
+live through the simplify loop), and records the corrections it made to
+`substrate.md` and `concurrency.md`. W0 is this restructure. The
 steps are ordered by what each needs; steps on separate lines of the graph
 can run at once.
 
@@ -165,7 +169,7 @@ can run at once.
 - **Change:**
   - `idr.lambda` and `idr.delay` with implicit captures;
   - `idr-isolate` on `makeRegionIsolatedFromAbove`;
-  - the four Lazy.cc patterns become two region rules;
+  - the four Lazy.cc patterns become two region rules (phase 2);
   - closure conversion leaves Idris;
   - `ArrayGen`/`ArrayFold` become one generic node;
   - `Prim` and `IOOp` are generated.

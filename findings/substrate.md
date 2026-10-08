@@ -101,7 +101,7 @@ at 4cfce76, which cb65104 deleted; the open ones are carried here.
 | 5 | Consumption as an `isa` table | Ownership/UseOf.cppm | about 20 op kinds | S2 |
 | 6 | A module attribute that changes what a plain type means | `idr.stage` | 6 mentions (audit row 17) | S2 |
 | 7 | A partial op's precondition stated three times: the crash cause, the lowering's check and the folder's guard | 17 `Idr_MayCrash` ops | 45 `getCrashCause` mentions (audit row 14) | S2 |
-| 8 | A discardable fact that removes a check (`in_bounds`), sound only by pipeline order | InBounds/*, Passes.td `idr-in-bounds` | — | S2 |
+| 8 | A claim that removes a check (`in_bounds`), sound only by pipeline order | InBounds/*, Passes.td `idr-in-bounds` | — | S2 |
 | 9 | `ub.poison` as "no value" | Lower/Cells, Narrow, InBounds, Ownership, Tail, Verify | 33 sites (audit counted 14) | S2 |
 | 10 | The two array loops as special constructors on both sides | Idris `ArrayGen`/`ArrayFold`; C++ `ArrayGenerateOp`, `ArrayFoldOp`, `isArrayLoop` | 16 Idris, 45 in 14 C++ files (audit §3 #3) | S1 |
 | 11 | The primitive set mirrored in Idris | `Prim`, `IOOp` in Types.idr | 2 types (audit row 2: stage 4a) | S5 |
@@ -204,11 +204,12 @@ is written in:
 2. a compile-time result holds it (idr-eval reifies a closure);
 3. a constant names it.
 
-Isolation and outlining happen at the first of those, once, by one pass
-(`idr-isolate`). Before that the lambda is a region. **conjecture**: on the
-benchmarks every lambda that survives the simplify loop is isolated by
-idr-defunctionalize's own need. Whether an eval result ever names one that
-was not is checked by step W6's round-trip test.
+Isolation and outlining happen once, by one pass (`idr-isolate`). In phase
+1 (proposal 0002) the pass runs first in the pipeline, so the simplify loop
+keeps the symbol form: closure conversion leaves Idris without every pass
+of the loop becoming region-aware in the same change. Phase 2 moves the
+pass to the first of the three needs above, and lets regions live through
+the loop, which is what the two region rules of S1.1 need.
 
 The audit placed this move last (its stage 5) because it touches every
 Idris lane. It is placed early here (W6) because S1 is the substrate the
@@ -290,17 +291,23 @@ Seventeen ops declare `Idr_MayCrash`, and `getCrashCause` appears 45 times
 - `idr.check.nonzero`
 - `idr.check.in_bounds`
 - `idr.check.byte`
-- `idr.check.char`
+- `idr.check.finite` (a Double cast to an integer)
 - `idr.check.nonempty`
 - `idr.check.range` (a range of a buffer)
 
 Each takes the value and returns it checked. It is the one `MayCrash` op of
 its kind, it carries the crash message, and it folds away when the value is
 proved: constant, `IntegerRangeAnalysis`, `ValueBoundsOpInterface`, or a
-dominating test. The op that consumes the checked value is total and
-speculatable, so `licm`, `control-flow-sink` and `cse` move it freely.
+dominating test. The op that consumes the checked value is total. It is
+speculatable only while its operand is the guard's result or a constant
+that passes the check: once a path condition has proved a guard away, a
+freely speculatable `str.index` would be hoisted above that condition and
+read out of bounds (proposal 0002, F-guard-6). There is no `char` guard:
+`to_char` is total, and `finite` is the kind that was missing.
 
-This also deletes the discardable `in_bounds` attribute (inventory row 8):
+This also deletes the `in_bounds` claim (inventory row 8). It is an
+inherent property, not a discardable attribute, but one pass sets it and
+the lowering trusts it on facts no verifier re-checks:
 
 - a proved guard is gone;
 - an unproved guard is still there;
@@ -315,9 +322,11 @@ This also deletes the discardable `in_bounds` attribute (inventory row 8):
 survives as per-site `counted(Type)` helpers in Ownership/Counting,
 Lower/Cells and Layout.
 
-**decision** A type interface, `CountedTypeInterface::holdsReferences()`,
-on every carrier type. A sum answers through its declaration, which the
-type already caches the way it caches box-ness.
+**decision** One function, `idr::holdsReferences(type, symbols, scope)`. A
+type interface cannot do it: an unboxed sum answers only through its
+declaration, which a type cannot look up (`DataType` holds only a name).
+`Layouts::counted`, which says which lowered components are counted
+pointers, is a different question and stays.
 
 #### S2.5 No sentinel values in the IR
 
@@ -329,9 +338,11 @@ C++ code using a poison value to mean "no value".
 **decision**:
 
 - C++ that means "no value" says `std::optional`.
-- A clone that names itself to keep "callers to come" (the reason the patch
-  is triggered: read audit §5) says it with symbol visibility (`nested`),
-  MLIR's own vocabulary for "may have callers this module does not show".
+- A clone that names itself to keep "callers to come" stays as it is.
+  Symbol visibility `nested` was proposed here and does not hold:
+  `remove-dead-values` keeps the parameters of a public function only
+  (read: `mlir/lib/Transforms/RemoveDeadValues.cpp:278`), and the
+  verifier allows one public function, the root.
 
 ### S3. One object model and one evaluation mode
 
@@ -420,7 +431,10 @@ data that is ever written.
 
 **decision** Its template becomes immutable: the label and its persistent
 captures. The first force on a shard writes a per-shard slot. That is
-STG's CAF list (`concurrency.md` §2.4). After it:
+STG's CAF list (`concurrency.md` §2.4). Proposal 0002 corrects this for
+its first cut: constant static data can point at the cell, so the cell
+stays one per process, written once and marked by its kind, until the
+shards work gives it a per-shard home. After it:
 
 - **The persistent invariant is unconditional.** Count 0 means immutable,
   never freed, and pointing only to persistent data (read: `idris_rt.h`, the
@@ -562,7 +576,6 @@ stated today; two are enforced.
 | `inlineRegion` (upstream inliner utilities) | S1.1 | four Lazy.cc patterns; closure specialization for captured constants |
 | Memory effects per operand on a resource | S2.1 | `useOf` |
 | `IntegerRangeAnalysis`, `ValueBoundsOpInterface` folding guards | S2.3 | the folders' guards; the `in_bounds` attribute |
-| Symbol visibility `nested` | S2.5 | the clone's self-reference |
 | `scf.forall`, `transform.structured.tile_using_forall` | S6 | — (new) |
 | `shard.grid`, `shard.process_linear_index` | S6, `concurrency.md` §4 | a core count and shard id of our own |
 | `llvm.intr.coro.*` and `llvm.call_intrinsic` for `coro.done`/`destroy`/`alloc` | waiting frames (`concurrency.md` §3) | — (new) |

@@ -186,9 +186,12 @@ an indirect call. Over a long-lived memoized stream (`fibs`) the test is
 predictable after the first force.
 
 The update is a write into a cell other references can see. That is what a
-memo is. **decision**: it is `idr.lazy.settle`, an op whose effect is a
-write on a memo resource, so no pass reorders it with a read of the same
-cell. The constructor fields reserve the larger of the captures and the
+memo is. **decision**: in the first cut (proposal 0002) the write happens
+in the force's lowering, below `idr-rc`, the last pass that reasons about
+references, so ownership stays one op's contract (view, owned or `excl`).
+An `idr.lazy.settle` op with a write on a memo resource, so that no pass
+reorders it with a read of the same cell, comes with phase 2, when passes
+that reason about references see the protocol. The constructor fields reserve the larger of the captures and the
 value. The `Layout/` code that sizes a suspension today stays, for the sum
 (read: `Layout/PlaceClosures.cc`).
 
@@ -213,6 +216,14 @@ initialized from it. In MLIR that is an `llvm.mlir.global` with
   runtime list.
 - **Static data becomes immutable without exception** (`substrate.md` S4.2).
 
+**Correction** (proposal 0002). A thread-local cell cannot be referenced
+from constant static data. A constant stream's tail is a static thunk, and
+a thread-local global's address is not a link-time constant. So the first
+cut keeps one memo cell per process, written once and marked by the thunk
+kind, with the compiler-made release function in place of the list. The
+per-shard copy needs one more indirection, for example static data
+holding a CAF index that a force resolves on the running shard. That is
+decided with the shards work (W14).
 ### 2.5 The memo is decided per thunk
 
 Stock Chez memoizes only 0-ary top-level lazy definitions, and every other
