@@ -43,7 +43,14 @@ All of 01-08 are still broken on llvm main at
 -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64 Linux) passes `ninja
 check-mlir`: 4102 passed, 630 unsupported, 1 expectedly failed, 0 failed;
 each patch's own tests ran and passed, as did the ExecutionEngine unit
-test. Re-run that before each pull request, on the then-current main.
+test. On the same build, each patch's own tests were then run with that
+patch's source change alone reverted: they fail without it (sccp,
+vectorize, remove-dead-values and inline fail; the bytecode cycle test
+loops; the ExecutionEngine test does not build without the new option)
+and pass with it. 01's test, run on main as a file of its own, fails
+without a fix and passes with only #208881's change and with 06's. 05
+adds no test. Each directory's `## Testing on main` has the details.
+Re-run `check-mlir` before each pull request, on the then-current main.
 
 | NN | bug | what goes out | status |
 | -- | --- | ------------- | ------ |

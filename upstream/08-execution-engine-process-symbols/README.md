@@ -82,6 +82,22 @@ static-PIE musl program creates an engine with the option off, calls a
 registered function, gets an error (not an abort) for an unregistered
 one, and gets an error from `create` with the option on.
 
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, with this patch's `ExecutionEngine.cpp`/`.h` changes alone
+reverted, `MLIRExecutionEngineTests` does not build (the test uses the
+new `enableProcessSymbols` option); with them back,
+`*ProcessSymbols*` passes, as do the other ExecutionEngine unit tests in
+the run above.
+
 ## Why there is no patch
 
 There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler

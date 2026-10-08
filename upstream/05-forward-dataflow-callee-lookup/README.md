@@ -147,8 +147,23 @@ nested module. The dense forward analysis has no in-tree pass outside
 the test passes, so its one-line change is checked only by compiling.
 Against `main`, the four changed sources compile with `main`'s headers
 (the interface `.inc` files regenerated from `main`'s `.td` where they
-differ); `main` itself was not built or tested here. `make test-idr`
-was not run against a toolchain bootstrapped with this patch.
+differ). On `main` itself, see Testing on main.
+
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+This patch adds no test: in-tree results do not change, and the
+`sccp`, `int-range-optimizations`, `remove-dead-values` and
+`Analysis/DataFlow` tests that exercise the lookups it moves pass in the
+run above. The dense forward analysis is exercised there only through
+its test passes.
 
 ## Upstreaming plan
 

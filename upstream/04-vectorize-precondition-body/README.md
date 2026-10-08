@@ -140,6 +140,20 @@ drive the Linalg vectorizer give the same results with both (25 pass;
 the rest need test-only passes, `mlir-translate` or an execution
 runner). `tests/upstream/vectorize-precondition-body` checks `body.mlir`.
 
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, with this patch's `Vectorization.cpp` change alone reverted:
+`Dialect/Linalg/vectorization/unsupported.mlir` fails;
+with the change back, it passes.
+
 ## Upstreaming plan
 
 Status: file upstream.
@@ -149,6 +163,6 @@ Status: file upstream.
   `pull-request.diff`. No existing report or pull request was found
   (October 2026), and main at 7208ba24 still has the bug.
 - Upstream test: the new case at the end of
-  `mlir/test/Dialect/Linalg/vectorization/unsupported.mlir`; run
-  `check-mlir` on main before sending.
+  `mlir/test/Dialect/Linalg/vectorization/unsupported.mlir` (see Testing
+  on main).
 - When it lands, the pin moves past it and `llvm.patch` goes.

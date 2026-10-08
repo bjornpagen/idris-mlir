@@ -162,6 +162,22 @@ keeps the constant's location, and `-mlir-print-ir-after-change` prints
 nothing after `sccp`. `tests/upstream/composite-fixed-point-sccp` checks
 the reproducer.
 
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, on the same build, with this patch's `SCCP.cpp` change alone
+reverted and `mlir-opt` rebuilt: `Transforms/sccp.mlir` fails (the new
+RUN line warns that the composite pass did not converge); with the
+change back, it passes. Every case of `sccp.mlir` ran, the test-dialect
+ones included.
+
 ## Upstreaming plan
 
 Status: file upstream. Still broken on llvm main at 7208ba24 (2026-10-08):
@@ -180,7 +196,6 @@ convergence failure configurable).
   `sccp` fixed, nothing in the tree is known to need it, and it changes
   what a public utility promises; it would be its own RFC if a pass is
   found that remakes an operation in place.
-- Upstream test: the second RUN line in `mlir/test/Transforms/sccp.mlir`;
-  run `check-mlir`, which runs the test-dialect cases that could not be
-  run here.
+- Upstream test: the second RUN line in `mlir/test/Transforms/sccp.mlir`
+  (see Testing on main).
 - Dropped when the pin includes the fix to `sccp`.

@@ -142,7 +142,22 @@ build. Against `main`'s headers (generated files from the pinned
 `mlir-tblgen`), `Inliner.cpp` and `InliningUtils.cpp` pass
 `-fsyntax-only`; `UBOps.cpp` fails only in `ub.poison`'s generated code,
 which the pinned `mlir-tblgen` cannot produce for `main`. Changed lines
-are clang-format clean. Not run: a build of `main` or `check-mlir`.
+are clang-format clean. On `main` itself, see Testing on main.
+
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, with this patch's source changes alone reverted (`Inliner.cpp`,
+`InliningUtils.cpp`, `UBOps.cpp`, the `.td` documentation):
+`Transforms/inlining.mlir` fails; with them back,
+it passes.
 
 ## Upstreaming plan
 
@@ -156,7 +171,8 @@ Status: file a new issue and a pull request, with the text in
   ends `Fixes #<issue>`.
 - Upstream test: the three cases the patch adds to
   `mlir/test/Transforms/inlining.mlir`, next to the existing multi-block
-  callee cases. Run `check-mlir` on `main` before opening it.
-- Author: Bjorn, as an individual, outside any employer. No
-  `Assisted-by` trailer, and no `Contributed-by` in the source.
+  callee cases (see Testing on main).
+- Author: Bjorn, as an individual, outside any employer, with
+  `Assisted-by: Claude Code` as the last line (llvm/docs/AIToolPolicy.md);
+  no `Contributed-by` in the source.
 - Dropped when the pin moves past the merged fix.

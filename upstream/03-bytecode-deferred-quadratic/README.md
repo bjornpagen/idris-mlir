@@ -140,6 +140,24 @@ from its first element; a parse that resumes where it stopped would need
 `DialectBytecodeReader` parsers that can be suspended, a different
 change.
 
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, with this patch's `BytecodeReader.cpp` change alone reverted:
+`Bytecode/invalid/invalid_attr_type_section.mlir` does not finish (the
+`CYCLE` case loops; the run was stopped by hand), and with the change
+back it passes. `op_with_properties_deeply_nested_attr.mlir` passes both
+ways: its 80-deep chain checks that the new path reads such input
+correctly, and is too small to show the time; the time is what the
+issue's `nested.sh` table measures.
+
 ## Upstreaming plan
 
 Status: file upstream. Not fixed on main at 7208ba24, and no issue or

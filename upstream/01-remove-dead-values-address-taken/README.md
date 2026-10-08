@@ -59,7 +59,7 @@ is one of those uses, and nothing else touches it.
 Trunk (7208ba24, 2026-10-08) is the same: `processFuncOp` now also skips a
 function with uses it cannot see (`RemoveDeadValues.cpp:280-292`), which
 keeps more signatures, and the cleanup still drops the dead argument's
-uses (`:657`). Read, not run: trunk was not built here.
+uses (`:657`). See Testing on main.
 
 ## Fix
 
@@ -74,8 +74,24 @@ passes under both of the file's RUN lines as a standalone file. As a
 diff appending it to trunk's `remove-dead-values.mlir`, it passes
 `git apply --check`.
 
-The carried fix is `remove-dead-values-unreachable/llvm.patch`, which
+The carried fix is `upstream/06-remove-dead-values-unreachable/llvm.patch`, which
 includes #208881's function-argument change and this test.
+
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+This bug's test is not in that build (it is a comment on #208881, not a
+diff). Run on main at 7208ba24 as its own file with
+`remove-dead-values.mlir`'s two RUN lines: it fails under both without a
+fix, passes under both with only #208881's source change, and passes
+under both with 06's change.
 
 ## Why there is no patch
 

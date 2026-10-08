@@ -139,10 +139,8 @@ the first three pass and the dead-result and dead-block-argument modules
 fail with `null operand found`. The pinned `mlir-opt` fails all five.
 Every module already in the file gives byte-identical output with and
 without the patch (the two that use the test dialect fail to parse in
-this build either way). The trunk file was syntax-checked only against
-trunk headers mixed with the pin's generated `.inc` files: the errors
-were all in lines the patch does not touch. The changed lines are
-clang-format clean under trunk's `.clang-format`.
+this build either way). The changed lines are clang-format clean under
+trunk's `.clang-format`. On main, see Testing on main.
 
 The patch still rebuilds a call whose set of results to erase is empty:
 the cleanup lists every call of a private function that returns a value,
@@ -163,6 +161,20 @@ both went. What emptying did beyond the bug (a region a constant rules out
 ended in `ub.unreachable`, so that a match whose taken region crashes was
 seen never to complete) the match canonicalization now decides from the
 region the constant selects.
+
+## Testing on main
+
+On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
+01-08 applied together (each directory's `pull-request.diff`, else its
+`llvm.patch`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
+630 unsupported, 1 expectedly failed, none failed.
+
+Then, with this patch's `RemoveDeadValues.cpp` change alone reverted:
+`Transforms/remove-dead-values.mlir` fails; with
+the change back, it passes.
 
 ## Upstreaming plan
 
