@@ -32,14 +32,17 @@ UNREACHABLE executed at .../mlir/Transforms/DialectInlinerInterface.h.inc:82!
 
 `UBInlinerInterface` (`mlir/lib/Dialect/UB/IR/UBOps.cpp:25-32`) makes every
 `ub` op legal to inline but implements neither `handleTerminator` hook, and
-`inlineRegionImpl` (`mlir/lib/Transforms/Utils/InliningUtils.cpp:330-340`)
-takes the single-block fast path for any single-block callee: it asks the
-terminator's dialect to replace the call's results with the terminator's
-operands, then erases the terminator and splices the rest of the caller's
-block after the inlined operations. `ub.unreachable` has no operands to
-forward, and nothing may follow it in its block, so the default hook
-(`DialectInlinerInterface.td:103-107`) is `llvm_unreachable`. The
-multi-block path would call the other default hook (`:86-89`), which is
+`inlineRegionImpl` (`mlir/lib/Transforms/Utils/InliningUtils.cpp:331`)
+takes the single-block fast path for any single-block callee. It asks the
+terminator's dialect (`InliningUtils.cpp:340`) to replace the call's
+results with the terminator's operands, then erases the terminator and
+splices the rest of the caller's block after the inlined operations
+(`:341-346`).
+`ub.unreachable` has no operands to forward, and nothing may follow it in
+its block, so the default hook (`DialectInlinerInterface.td:106-107`) is
+`llvm_unreachable`. The abort names the generated
+`DialectInlinerInterface.h.inc:82`, which is that default. The multi-block
+path would call the other default hook (`:89-90`), which is
 `llvm_unreachable` too.
 
 ## Proposed fix
@@ -59,11 +62,14 @@ Two parts:
 
 Not filed yet. The open issue
 [#206083](https://github.com/llvm/llvm-project/issues/206083) is the same
-family, with `vector.yield` as the terminator the inliner cannot handle; its
-pull request [#206218](https://github.com/llvm/llvm-project/pull/206218)
-fixes the vector dialect only, so `ub.unreachable` still aborts (checked at
-main ed390ca4, October 2026). File this one citing #206083, or ask there
-for part 1 of the fix, which covers both.
+family: `--inline` aborts in the default `handleTerminator` for a
+single-block callee. There the terminator is `vector.yield`, which is
+`ReturnLike`, so it stays on the fast path and this patch does not cover
+it. Its pull request
+[#206218](https://github.com/llvm/llvm-project/pull/206218) fixes the
+vector dialect only, and `ub.unreachable` still aborts (checked at main
+ed390ca4, October 2026). File a new issue and a pull request; the text
+to paste is `submission.md`.
 
 ## Our workaround
 
@@ -93,11 +99,19 @@ the pinned toolchain; the test passes with its `mlir-opt`, and
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file a new issue and a pull request. LLVM uses GitHub pull
+requests (https://llvm.org/docs/GitHub.html), not Bugzilla. The text to
+paste is `submission.md`.
 
-- Where: a pull request to llvm/llvm-project citing #206083, whose
-  `vector.yield` case part 1 also fixes; a new issue with `never.mlir`.
+- Where: a new issue, with `never.mlir`, and a pull request of one
+  commit. The pull request title and body are the squash commit message.
+  Cite https://github.com/llvm/llvm-project/issues/206083 as the same
+  family (`vector.yield`, which is `ReturnLike`; pull request
+  https://github.com/llvm/llvm-project/pull/206218 covers that dialect
+  only).
 - Upstream test: the two cases the patch adds to
-  `mlir/test/Dialect/UB/inlining.mlir`; run `check-mlir`, since any
-  dialect whose single-block callee ends in a terminator that is not
-  `ReturnLike` now takes the multi-block path.
+  `mlir/test/Dialect/UB/inlining.mlir`. Run `check-mlir`: a single-block
+  callee whose terminator is not `ReturnLike` now takes the multi-block
+  path.
+- Author: Bjorn, as an individual, outside any employer. No
+  `Assisted-by` trailer, and no `Contributed-by` in the source.

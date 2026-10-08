@@ -64,35 +64,79 @@ dropping them; or have liveness treat the arguments of a call whose callee
 
 ## Status upstream
 
-Not filed yet. The open pull request
-[#208881](https://github.com/llvm/llvm-project/pull/208881), written for
-`remove-dead-values-unreachable`'s issues, would fix this case too; it is
-not merged (checked at main ed390ca4, October 2026). Add
-`address-taken.mlir` to that pull request as a test rather than filing an
-issue of its own.
+Not filed. [llvm/llvm-project#208881](https://github.com/llvm/llvm-project/pull/208881)
+replaces the remaining uses of a dead function argument with `ub.poison`
+instead of dropping them, which fixes this call. It is open for the
+unreachable-function reports
+[#206920](https://github.com/llvm/llvm-project/issues/206920) and
+[#203226](https://github.com/llvm/llvm-project/issues/203226),
+and it is not merged (checked at main ed390ca4, October 2026). The
+address-taken call is a comment and a test on that pull request.
 
 ## Our workaround
 
-None: `remove-dead-values-unreachable`'s patch is carried, and the call
-passes `ub.poison` for such a parameter itself. That patch still builds a
-new call when it erases no result; the early return that leaves such a
-call as it is is recorded there, for the next toolchain build. Before the
-patch, `idr-prune` made each call of such a function pass `ub.poison` for
-every parameter the function never reads, right before `remove-dead-values`.
+None in this directory. `remove-dead-values-unreachable/llvm.patch` is the
+carried fix, and the call passes `ub.poison` for such a parameter. That
+patch still builds a new call when it erases no result: `eraseOpResults`
+builds a new operation even when the set of results to erase is empty.
+The next toolchain build adds an early return to
+`dropUsesAndEraseResults` when that set is empty. Until that build,
+`idr-dead-values` runs the pass on a copy and keeps the module when the
+copy still hashes the same
+(`foreign/idr/lib/Simplify/DeadValues.cppm`). Before the patch,
+`idr-prune` made each call of such a function pass `ub.poison` for every
+parameter the function never reads, right before `remove-dead-values`.
 
 ## Why there is no patch
 
-The fix is `remove-dead-values-unreachable`'s patch (#208881): replacing a
+This directory has no patch. The fix is
+`remove-dead-values-unreachable/llvm.patch`, the argument change from
+[#208881](https://github.com/llvm/llvm-project/pull/208881): replacing a
 dead argument's remaining uses with `ub.poison` covers a call of an
-address-taken function as it covers unreachable code, and that patch adds
-`address-taken.mlir` to the upstream test. Two patches appending to the
-same test file would not apply one after the other.
+address-taken function the same way it covers unreachable code. That
+patch adds module `@address_taken_callee` to
+`mlir/test/Transforms/remove-dead-values.mlir`. A second patch appending
+to that test file would not apply after the first.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file as a comment and a test on
+https://github.com/llvm/llvm-project/pull/208881. No new issue. No second
+pull request. Not Bugzilla. Author is Bjorn, individual, work done outside
+any employer. No Assisted-by. No @mentions.
 
-- Where: a comment on #208881 with `address-taken.mlir`, asking for it as
-  a test; no issue of its own. Goes with `remove-dead-values-unreachable`.
-- Upstream test: the `@address_taken_callee` module in
-  `remove-dead-values-unreachable/llvm.patch`.
+- Where: one comment on that pull request. The text to paste is
+  `submission.md` in this directory.
+- Upstream test: module `@address_taken_callee` below, for
+  `mlir/test/Transforms/remove-dead-values.mlir`. The body is
+  `address-taken.mlir`. `@caller` passes `ub.poison : i64` to `@ignores`.
+  `remove-dead-values-unreachable/llvm.patch` adds this same module.
+
+```mlir
+// @ignores keeps its signature, since a func.constant names it, and never
+// reads its parameter, so the value @caller passes it is dead: the call
+// keeps its operand, which becomes poison.
+// CHECK-LABEL: module @address_taken_callee
+// CHECK:         func.func private @caller(
+// CHECK:           %[[P:.*]] = ub.poison : i64
+// CHECK:           call @ignores(%[[P]])
+// CHECK-CANONICALIZE-LABEL: module @address_taken_callee
+// CHECK-CANONICALIZE:         call @ignores(
+module @address_taken_callee {
+  func.func private @ignores(%x: i64) -> i64 {
+    %c = arith.constant 7 : i64
+    return %c : i64
+  }
+  func.func private @caller(%a: i64, %b: i64) -> i64 {
+    %t = func.call @ignores(%b) : (i64) -> i64
+    %u = arith.addi %a, %t : i64
+    return %u : i64
+  }
+  func.func @main(%a: i64) -> i64 {
+    %f = func.constant @ignores : (i64) -> i64
+    %r = func.call_indirect %f(%a) : (i64) -> i64
+    %t = func.call @caller(%r, %a) : (i64, i64) -> i64
+    return %t : i64
+  }
+}
+```

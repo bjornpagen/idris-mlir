@@ -15,3 +15,5 @@
 The manifest asked for LangRef, GC/Statepoints, ORC/JITLink, DataLayout, the Programmer's
 Manual and Passes. **Correction:** LLVM's DataLayout has no separate file at this pin; it
 is specified in `LangRef.md`.
+
+`AIToolPolicy.md` is not from that revision. It is the page at `https://llvm.org/docs/AIToolPolicy.html`, fetched 2026-10-08. This one policy covers MLIR, Clang, and lld because they are llvm.org subprojects.

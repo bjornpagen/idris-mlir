@@ -48,10 +48,11 @@ case, the failure should become an `Expected` error from `create` instead of
 
 ## Why there is no patch
 
-idris-mlir does not create an `ExecutionEngine`, so it carries no fix for
-it. Compile-time evaluation (`foreign/idr/lib/Eval/Jit.cppm`) builds ORC's
-`LLJIT`, which `ExecutionEngine` wraps, for reasons of its own beyond this
-bug: the engine links through RuntimeDyld (`RTDyldObjectLinkingLayer` with a
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+uses `LLJIT`, so the bug does not affect it. Compile-time evaluation
+(`foreign/idr/lib/Eval/Jit.cppm`) builds ORC's `LLJIT`, which
+`ExecutionEngine` wraps, for reasons of its own beyond this bug: the
+engine links through RuntimeDyld (`RTDyldObjectLinkingLayer` with a
 `SectionMemoryManager`) where the evaluator relies on JITLink's in-process
 memory manager and its page protections; it adds a packed-argument wrapper
 for every function with external linkage; and it keeps the execution
@@ -60,22 +61,24 @@ fails. With `LLJIT` the evaluator links no process symbol by default and
 binds the runtime's functions, the libm functions lowered code calls and
 the target entry's library calls itself.
 
-The proposed fix is drafted as `pull-request.diff`, for the pull request:
+The report is still a pull request we intend to send. The proposed fix is
+drafted as `pull-request.diff`:
 `ExecutionEngineOptions::linkProcessSymbols` (default `true`); when
 `false`, `create` adds no process-symbol generator and builds the `LLJIT`
 with `setLinkProcessSymbolsByDefault(false)`. Building the `LLJIT` or
 opening the process's symbols now fails `create` with an error instead of
-aborting. A unit test in `mlir/unittests/ExecutionEngine/Invoke.cpp`. It
-applies to the pin and `ExecutionEngine.cpp` compiles with it; the unit
-test has not been run.
+aborting. The unit test is `WithoutProcessSymbols` in
+`mlir/unittests/ExecutionEngine/Invoke.cpp`. The diff applies to the pin
+and `ExecutionEngine.cpp` compiles with it; the unit test has not been run.
 
 ## Upstreaming plan
 
 Status: file upstream.
 
-- Where: a pull request to llvm/llvm-project (MLIR ExecutionEngine), with
-  this report as its description; no issue needed.
-- Upstream test: the `WithoutProcessSymbols` unit test `pull-request.diff`
-  adds.
-  This bug has no `tests/upstream` check, since no `mlir-opt` command
-  shows it; the unit test is its check upstream.
+- Where: one pull request to llvm/llvm-project (MLIR ExecutionEngine), as
+  `submission.md` says. No issue, and not a Bugzilla bug. The pull
+  request's title and body are the squash commit message.
+- Upstream test: `WithoutProcessSymbols` in
+  `mlir/unittests/ExecutionEngine/Invoke.cpp`, which `pull-request.diff`
+  adds. There is no `tests/upstream` check: no `mlir-opt` command shows
+  the bug, and the unit test is its check upstream.

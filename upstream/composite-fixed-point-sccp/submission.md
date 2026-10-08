@@ -1,4 +1,25 @@
-# [mlir] `composite-fixed-point-pass` never converges with `sccp` in its pipeline
+# Submission
+
+Paste into GitHub, repository `llvm/llvm-project`. Not Bugzilla.
+
+One commit. The author is Bjorn, as an individual, outside any employer.
+No employer in the author name, the email, or the message. No
+`Assisted-by`. No `Co-authored-by`. No `@` mentions.
+
+The patch file is `llvm.patch` in this directory. Apply it as that one
+commit. It is part 1 only: `sccp` keeps the constants the IR already
+holds. Part 2 stays a proposal in the issue.
+
+Open the issue, then the pull request. The squash commit message is the
+pull request title, a blank line, and the pull request body. When the
+issue number exists, add `Fixes #<number>` as the last line of the pull
+request body.
+
+## Issue title
+
+[mlir] composite-fixed-point-pass never converges with sccp in its pipeline
+
+## Issue body
 
 At `llvmorg-23.1.2`, `composite-fixed-point-pass` runs a pipeline that has
 `sccp` in it until `max-iterations`, and then warns, on a module that is
@@ -10,7 +31,7 @@ new after every run although the module is the same.
 
 ## Reproduce
 
-`one.mlir` (one constant, used by an operation that cannot fold it):
+One constant, used by an operation that cannot fold it:
 
 ```mlir
 func.func @one() -> i32 {
@@ -106,48 +127,56 @@ every pass that remakes an operation in place.
    equal constant it has recorded), and every later `getOrCreateConstant` of
    that value returns it. A run of `sccp` on a module at its fixpoint then
    touches nothing.
-2. `composite-fixed-point-pass`: decide the fixpoint on the IR, not on
-   addresses. A fingerprint that hashes each operation by its name,
-   attributes, properties, result types and location, which
-   `OperationEquivalence::computeHash` (`OperationSupport.cpp:678-714`)
-   already does, with each operand hashed as the position of its defining
-   value in a pre-order numbering of the block arguments and results, and an
-   operand that is a constant hashed by its value. An operation remade in
-   place, or a constant remade elsewhere in its block, then hashes the same.
-   `OperationFingerPrint` keeps its use as an identity check, which the
-   greedy driver's expensive pattern-API checks rely on.
+2. `composite-fixed-point-pass`: decide the fixpoint on the IR. A
+   fingerprint that hashes each operation by its name, attributes,
+   properties, result types and location, which
+   `OperationEquivalence::computeHash` (`OperationSupport.cpp:678-714` at
+   `llvmorg-23.1.2`) already does, with each operand hashed as the position
+   of its defining value in a pre-order numbering of the block arguments and
+   results, and an operand that is a constant hashed by its value. An
+   operation remade in place, or a constant remade elsewhere in its block,
+   then hashes the same. `OperationFingerPrint` keeps its use as an identity
+   check, which the greedy driver's expensive pattern-API checks rely on.
 
-## Our workaround
+The pull request implements part 1 and adds
+`mlir/test/Transforms/sccp-fixed-point.mlir`: the composite pass over
+`sccp` with `max-iterations=1` converges and does not warn. Part 2 is the
+proposal above. It would change a public utility, and that decision is
+separate from part 1. `sccp` can hoist an existing constant where it used
+to make a new one, so `check-mlir` may need the expected order of constants
+in other tests updated.
 
-`PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
-(`foreign/idr/lib/Simplify/Pass.cc`) is its own loop over the round and
-decides the fixpoint by `OperationFingerPrint`. The patch stops `sccp`
-remaking constants. `idr-dead-values` leaves a call `remove-dead-values`
-would rebuild without erasing a result, so a round at the fixpoint keeps
-the fingerprint (`tests/idr/canon/upstream-passes`,
-`tests/idr/loops/tail-loop`). The loop stays: this pass warns and goes on
-at its budget, and the round's statistics and remarks are the loop's. Over
-its round budget the loop fails with a named error.
+## Pull request title
 
-## Patch
+[mlir] sccp: keep the constants the IR already holds
 
-`llvm.patch` implements part 1 of the proposed fix: `sccp`'s `rewrite`
-gives the folder each constant it meets (`insertKnownConstant`) and keeps
-it. Part 2 (a structural fingerprint for the composite pass) is not in
-it: part 1 ends this case, and part 2 changes a public utility, which is
-for upstream to decide. Test: `mlir/test/Transforms/sccp-fixed-point.mlir`.
-Built into the pinned toolchain; the test passes with its `mlir-opt`, and
-`tests/upstream/composite-fixed-point-sccp` checks the reproducer.
+## Pull request body
 
-## Upstreaming plan
+composite-fixed-point-pass with sccp in its pipeline never converges: on
+a module at its fixpoint it runs the pipeline max-iterations times and
+warns. It decides convergence by OperationFingerPrint, a hash of object
+identity, and sccp remakes every constant it meets even when it
+propagates nothing: a constant's own result has a constant lattice, and
+the OperationFolder that rewrite() creates fresh is never told about the
+constants the IR already holds, so getOrCreateConstant materializes a new
+one, the uses move to it and the original is erased. The module prints
+the same, but every constant has a new address.
+-mlir-print-ir-after-change prints after sccp for the same reason.
 
-Status: file upstream.
+rewrite() now gives the folder each ConstantLike operation it meets
+(insertKnownConstant), as the greedy driver does before it rewrites
+anything, and moves on: every later getOrCreateConstant of that value
+returns it, and a run that propagates nothing changes nothing.
 
-- Where: a GitHub issue and a pull request to llvm/llvm-project. Not
-  Bugzilla. The text to paste is `submission.md`: the issue carries the
-  report, and part 2 as a proposal; the pull request is one commit,
-  `llvm.patch`, which is part 1, and its body is the squash commit
-  message.
-- Upstream test: `sccp-fixed-point.mlir`; run `check-mlir`, since `sccp`
-  now hoists an existing constant where it used to make a new one, which
-  may reorder constants in other tests' expected output.
+Part 2 is only described in the issue: the composite pass would decide
+its fixpoint on the IR, so a pass that remakes an operation in place
+still converges.
+
+Test: sccp-fixed-point.mlir, the composite pass over sccp converging in
+one run without warning. Run check-mlir: sccp now hoists an existing
+constant where it used to make a new one, which may reorder constants in
+other tests' expected output.
+
+## Patch file
+
+`llvm.patch`
