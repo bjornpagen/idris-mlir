@@ -101,57 +101,56 @@ use by one of the ops above is left null. The three ways in:
 
 ## Patch
 
-`llvm.patch` is the open pull request #208881, unchanged, plus a follow-up
-on top of it.
+`llvm.patch` (for the pin) and `pull-request.diff` (for llvm main) make
+the same change to `RemoveDeadValues.cpp`: one helper,
+`replaceUsesWithPoison`, replaces the uses of a value about to be erased
+with a `ub.poison` at its definition (the start of the block for an
+argument, before the op for a result) and does nothing for an unused
+value. The function-argument cleanup, the block-argument cleanup, the
+result cleanup (`dropUsesAndEraseResults`, renamed
+`poisonUsesAndEraseResults`) and the erasure of whole ops all call it, and
+the pass drops no use any more. Poison that ends up unused is already
+removed at the end of the cleanup.
 
-Pull request #208881 replaces the remaining uses of each dead function
-argument with `ub.poison` instead of calling `dropAllUses`, and adds
-`@unreachable_func_with_for_loops` (#206920).
+Both append to `mlir/test/Transforms/remove-dead-values.mlir`, with
+`CHECK` and `CHECK-CANONICALIZE` lines that check the property (the kept
+call takes a `ub.poison` of the type), not the order:
 
-The follow-up makes that the only way the pass retires a value: one helper,
-`replaceUsesWithPoison`, puts a `ub.poison` at the value's definition (the
-start of the block for an argument, before the op for a result) and
-replaces every use with it, and does nothing for an unused value. The
-function-argument cleanup, the block-argument cleanup, the result cleanup
-(`dropUsesAndEraseResults`, renamed `poisonUsesAndEraseResults`) and the
-erasure of whole ops all call it; `createPoisonedValue` moves up so the
-helper can use it, and the pass has no `dropAllUses` left. Poison that ends
-up unused is already removed at the end of the cleanup.
-
-Tests appended to `mlir/test/Transforms/remove-dead-values.mlir`, each with
-the same `CHECK` and `CHECK-CANONICALIZE` lines:
-
-- `@unreachable_func_with_for_loops`, #208881's own;
-- `@call_in_dead_region`, from `unreachable.mlir` (a call left in a
-  function only a dead region calls); fixed by #208881;
-- `@address_taken_callee`, the module of
-  `remove-dead-values-address-taken`, exactly as that directory posts it;
-  fixed by #208881;
-- `@dead_result_used_in_unreachable_code`, from `dead-result.mlir`; fixed
-  by the follow-up;
+- `@dead_function_argument_used_in_unreachable_code`, from
+  `unreachable.mlir`;
+- `@dead_result_used_in_unreachable_code`, from `dead-result.mlir`;
 - `@dead_block_argument_used_in_unreachable_code`, from
-  `dead-block-arg.mlir`; fixed by the follow-up.
+  `dead-block-arg.mlir`.
 
-`uncalled.mlir` is the case #208881's own test already covers, so it has no
-module of its own upstream; `tests/upstream/remove-dead-values-unreachable`
-still checks it.
+`llvm.patch` also carries two modules that are not part of the pull
+request: `@unreachable_func_with_for_loops`, the test of the open pull
+request #208881 (the same fix for function arguments alone), and
+`@address_taken_callee`, as `remove-dead-values-address-taken` posts it.
+The trunk test file has a module appended at the end since the pin, so
+the two diffs differ in their test hunk and are kept as two files.
+`uncalled.mlir` is the case #208881's test covers;
+`tests/upstream/remove-dead-values-unreachable` checks all four
+reproducers.
 
-Checked against llvmorg-23.1.2 with `mlir-opt` binaries linked from the
-pinned libraries plus the patched `RemoveDeadValues.cpp`: each new module
-passes FileCheck under both prefixes with the full patch; with #208881
-alone the first three pass and the last two fail with `null operand found`;
-the pinned `mlir-opt` fails all five. Every module that was already in the
-file produces byte-identical output with and without the patch (the ones
-using the test dialect cannot be parsed by that build, under either). The
-changed lines are clang-formatted.
+Checked against llvmorg-23.1.2 with an `mlir-opt` linked from the pinned
+libraries plus the patched `RemoveDeadValues.cpp`. Each of the five
+appended modules passes FileCheck under both prefixes. With #208881 alone
+the first three pass and the dead-result and dead-block-argument modules
+fail with `null operand found`. The pinned `mlir-opt` fails all five.
+Every module already in the file gives byte-identical output with and
+without the patch (the two that use the test dialect fail to parse in
+this build either way). The trunk file was syntax-checked only against
+trunk headers mixed with the pin's generated `.inc` files: the errors
+were all in lines the patch does not touch. The changed lines are
+clang-format clean under trunk's `.clang-format`.
 
-The patch still rebuilds a call whose result set to erase is empty: the
-cleanup lists every call of a private function that returns a value, and
-`eraseOpResults` builds a new op even for an empty set. The module prints
-the same, but `OperationFingerPrint` changes, so `idr-dead-values` runs the
-pass on a copy and keeps the module when the copy still hashes the same
-(`foreign/idr/lib/Simplify/DeadValues.cppm`). That is a separate change,
-not in this patch.
+The patch still rebuilds a call whose set of results to erase is empty:
+the cleanup lists every call of a private function that returns a value,
+and `eraseOpResults` builds a new op even for an empty set. The module
+prints the same, but `OperationFingerPrint` changes, so `idr-dead-values`
+runs the pass on a copy and keeps the module when the copy still hashes
+the same (`foreign/idr/lib/Simplify/DeadValues.cppm`). That is a separate
+matter and not part of this patch.
 
 ## Workaround
 
@@ -165,23 +164,20 @@ ended in `ub.unreachable`, so that a match whose taken region crashes was
 seen never to complete) the match canonicalization now decides from the
 region the constant selects.
 
-The patch is dropped when the pin includes #208881 and the follow-up.
-`idr-dead-values` keeps running the pass on a copy until `remove-dead-values`
-leaves a call with nothing to erase as it is.
-
 ## Upstreaming plan
 
 Status: file upstream.
 
-- Where: a comment on the open pull request
-  [#208881](https://github.com/llvm/llvm-project/pull/208881), and a short
-  one on [#206920](https://github.com/llvm/llvm-project/issues/206920) and
-  [#203226](https://github.com/llvm/llvm-project/issues/203226); then a
-  follow-up pull request stacked on #208881 for block arguments and
-  results. No new issue. The texts are in `submission.md`.
-  `@address_taken_callee` is posted by `remove-dead-values-address-taken`,
-  not from here.
-- Upstream test: `@call_in_dead_region` offered to #208881;
-  `@dead_result_used_in_unreachable_code` and
-  `@dead_block_argument_used_in_unreachable_code` in the follow-up.
-- The patch is dropped when the pin includes #208881 and the follow-up.
+- Where: a new issue (the block-argument and result cases; #206920 and
+  #203226 cover function arguments), a pull request against llvm main
+  (`pull-request.diff`), and a short comment on the open pull request
+  [#208881](https://github.com/llvm/llvm-project/pull/208881), which
+  fixes function arguments alone and has been approved but not merged
+  since 2026-07-18. A review suggestion on #208881 would reopen an
+  approved review, and a pull request stacked on someone else's branch
+  needs a user branch Bjorn cannot push, so the pull request stands on
+  trunk; whichever of the two lands second rebases. The texts and the
+  overlap with #208940 and #182711 are in `submission.md`.
+- Upstream test: the three modules listed under Patch.
+- The patch is dropped when the pin includes the pull request (or
+  #208881 together with a fix for block arguments and results).

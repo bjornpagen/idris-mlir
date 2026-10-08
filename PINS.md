@@ -82,16 +82,16 @@ which the top-level CMake configure gate reads.
   (`mlir/lib/Transforms/RemoveDeadValues.cpp:649`, the region-branch
   canonicalization at `:833`, `Matchers.h:491`). It drops the uses of a
   dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Simplify/DeadValues.cppm (`idr-dead-values`),
-  until the patch returns early; the patch itself has no other site
-- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`: the open
-  pull request #208881 and the same for block arguments and results: the
-  pass gives every value it erases ub.poison for its remaining uses. The
+- sites: foreign/idr/lib/Simplify/DeadValues.cppm (`idr-dead-values`,
+  which runs the pass on a copy); the patch itself has no other site
+- workaround: `upstream/remove-dead-values-unreachable/llvm.patch`: every
+  value the pass erases (function argument, block argument, result, result
+  of an erased op) gives its remaining uses a ub.poison at its definition,
+  through one helper, `replaceUsesWithPoison`; the pass drops no use. The
   patch still erases no result of a call by building a new call
-  (`eraseOpResults` on an empty set). The next toolchain build adds an
-  early return to `dropUsesAndEraseResults` when that set is empty; until
-  then `idr-dead-values` runs the pass on a copy and keeps the module when
-  the copy still hashes the same. Before the patch, idr-prune emptied the
+  (`eraseOpResults` on an empty set), so `idr-dead-values` runs the pass
+  on a copy and keeps the module when the copy still hashes the same.
+  Before the patch, idr-prune emptied the
   code the analyses prove unreachable right
   before `remove-dead-values`, and `symbol-dce` ran between them; with the
   patch the two left k-nucleotide's and every-types-export's objects byte
@@ -102,11 +102,13 @@ which the top-level CMake configure gate reads.
   canonicalization now asks which regions a match can take (the one its
   constant scrutinee selects), so it needs no emptied region
   (foreign/idr/lib/Canon/MatchPatterns.cppm, `EndAfterNoYield`)
-- retire: drop the patch when the pin has #208881, a fix for block
-  arguments and results, and `dropUsesAndEraseResults` left unchanged when
-  it erases nothing; `idr-dead-values` then becomes the pass itself
-- upstream: upstream/remove-dead-values-unreachable (reported by others,
-  #206920, #203226); plan in its README: our reproducers to #208881
+- retire: drop the patch when the pin has our pull request (or #208881
+  together with a fix for block arguments and results); `idr-dead-values`
+  runs the pass on a copy until `remove-dead-values` leaves a call with
+  nothing to erase as it is
+- upstream: upstream/remove-dead-values-unreachable (function arguments
+  reported by others, #206920, #203226, open PR #208881); plan in its
+  README: a new issue and a pull request against main for all four sites
 
 ## remove-dead-values-address-taken
 
@@ -123,8 +125,8 @@ which the top-level CMake configure gate reads.
   any poison operand is not
 - workaround: `upstream/remove-dead-values-unreachable/llvm.patch`, which
   gives such an operand `ub.poison` (this bug has no patch of its own)
-- retire: drop the patch when the pin has #208881 (open, approved; trunk
-  7208ba24 still drops the uses)
+- retire: drop the patch when the pin has #208881 or our
+  remove-dead-values-unreachable pull request (neither on main at 7208ba24)
 - upstream: upstream/remove-dead-values-address-taken (not yet filed);
   plan in its README: its test as a comment on #208881, or a test-only
   pull request if #208881 lands without one

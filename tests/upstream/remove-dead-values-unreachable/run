@@ -3,10 +3,10 @@
 # no longer shows the bug: remove-dead-values gives ub.poison to the uses,
 # in code dead-code analysis never reaches, of the dead arguments of a
 # function, of a dead result and of a dead block argument, where
-# llvmorg-23.1.2 leaves them a null operand. When the pin
-# has upstream's fix (#208881), the patch goes, and with it the PINS.md
-# entry remove-dead-values-unreachable, the report and this test
-# (upstream/README.md).
+# llvmorg-23.1.2 leaves them a null operand. When the pin has upstream's
+# fix for all of these (our pull request, or #208881 with a fix for block
+# arguments and results), the patch goes, and with it the PINS.md entry
+# remove-dead-values-unreachable, the report and this test.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 for input in unreachable uncalled dead-result dead-block-arg; do
   bounded "$llvm_bin/mlir-opt" "$root/upstream/remove-dead-values-unreachable/$input.mlir" \
