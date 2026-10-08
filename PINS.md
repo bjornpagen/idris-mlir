@@ -325,13 +325,15 @@ which the top-level CMake configure gate reads.
   of functions: 8 to 9 percent of a compile of `k-nucleotide`
 - sites: none in our code; the patch
 - workaround: `upstream/forward-dataflow-callee-lookup/llvm.patch`: the
-  forward analyses own a `SymbolTableCollection`, as `DeadCodeAnalysis`
-  does, and resolve callees through it
+  solver builds one `SymbolTableCollection` per `initializeAndRun`, the
+  span over which the IR does not change, and hands it to its analyses;
+  the forward analyses resolve callees through it, and `DeadCodeAnalysis`
+  uses it in place of the collection it kept across runs
 - retire: drop the patch when the pin's forward analyses resolve callees
   from a symbol table (`tests/upstream/forward-dataflow-callee-lookup`
   then shows it with the pristine tools)
-- upstream: upstream/forward-dataflow-callee-lookup (not yet filed); plan
-  in its README: a pull request
+- upstream: upstream/forward-dataflow-callee-lookup (not yet filed; still
+  present on main at 7208ba24); plan in its README: a pull request
 
 ## clang-module-layout-forward-declaration
 

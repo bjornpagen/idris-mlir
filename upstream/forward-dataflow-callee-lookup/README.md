@@ -33,29 +33,32 @@ $ for n in 4000 16000; do
   done
 ```
 
-Best of three, an `-O2` mlir-opt built from the pinned sources with and
-without `llvm.patch`, on a loaded 4-core machine:
+Best of three, on a loaded 4-core x86_64 machine, with an mlir-opt
+whose data-flow sources and three passes are built at `-O2` from the
+pinned sources with and without `llvm.patch` and linked against the
+pinned Release libraries:
 
 | functions | pass | llvmorg-23.1.2 | with `llvm.patch` |
 | --- | --- | --- | --- |
-| 4,000 | `--sccp` | 0.53 s | 0.19 s |
-| 4,000 | `--int-range-optimizations` | 0.89 s | 0.22 s |
-| 4,000 | `--remove-dead-values` | 0.57 s | 0.18 s |
-| 16,000 | `--sccp` | 9.56 s | 0.74 s |
-| 16,000 | `--int-range-optimizations` | 17.47 s | 1.88 s |
-| 16,000 | `--remove-dead-values` | 9.19 s | 1.04 s |
+| 4,000 | `--sccp` | 0.60 s | 0.25 s |
+| 4,000 | `--int-range-optimizations` | 1.22 s | 0.33 s |
+| 4,000 | `--remove-dead-values` | 0.71 s | 0.36 s |
+| 16,000 | `--sccp` | 8.80 s | 0.67 s |
+| 16,000 | `--int-range-optimizations` | 17.32 s | 1.02 s |
+| 16,000 | `--remove-dead-values` | 9.75 s | 1.29 s |
 
-Parsing alone takes 0.08 s and 0.29 s. Four times the functions take 18
-to 20 times as long unpatched, and about 4 times patched.
+Parsing the 16,000-function module alone takes about 0.3 s. Four times
+the functions take 8 to 14 times as long unpatched, and 2.7 to 3.6
+times patched.
 
 ## Cause
 
 `AbstractSparseForwardDataFlowAnalysis::visitCallOperation`
 (`mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp:237`) and
 `AbstractDenseForwardDataFlowAnalysis::visitCallOperation`
-(`mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp:104`) decide whether the
-callee is an external declaration with `call.resolveCallable()`, before
-they read the call's predecessors. With no `SymbolTableCollection` that is
+(`mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp:104`; the same lines on
+`main`) decide whether the callee is an external declaration with
+`call.resolveCallable()`, before they read the call's predecessors. With no `SymbolTableCollection` that is
 `SymbolTable::lookupNearestSymbolFrom`, a scan of the symbol table's ops
 comparing names. A call is visited again each time its operand lattices
 or its callee's return lattices change, so a module of n functions with a
@@ -73,20 +76,48 @@ it is shared by every analysis it runs, and its lifetime is
 
 ## Proposed fix
 
-The solver holds one `SymbolTableCollection` for the duration of
-`initializeAndRun`; `DataFlowAnalysis::getSymbolTables()` hands it to any
-analysis. The forward analyses resolve callees with
-`resolveCallableInTable(&getSymbolTables())`, and `DeadCodeAnalysis` drops
-its member and uses the same collection, so one set of tables serves the
-run and none outlives it. No constructor changes. The backward analyses
-keep their constructor parameter: removing it changes a public
-constructor of two base classes and their subclasses in and out of tree,
-so it is a follow-up, not part of an NFC change.
+The solver builds one `SymbolTableCollection` for each
+`initializeAndRun`, and `DataFlowAnalysis::getSymbolTables()` hands it
+to any analysis. The forward analyses resolve callees with
+`resolveCallableInTable(&getSymbolTables())`, and `DeadCodeAnalysis`
+drops its member and uses the same collection, so one set of tables
+serves the run and none outlives it. No constructor changes.
 
-Upstream `main` (checked at `783e429bf40`, 8 October 2026) still calls
-`resolveCallable()` in both forward analyses and keeps `DeadCodeAnalysis`'s
-own collection; the patch applies to it unchanged. No open issue or pull
-request covers it.
+The solver holds the collection through a pointer to a local of
+`initializeAndRun`, null outside a run, and `getSymbolTables()`
+asserts it is set. That is the lifetime of the fact it caches: symbol
+tables are valid only while the IR is frozen, and the solver only
+guarantees that during a run; outside one there is nothing a cache
+could hold that a later run may trust. An owned member reset per run
+would make the tables reachable between runs, where they are either
+stale or rebuilt with nobody bounding their lifetime, and resetting
+one needs API that `SymbolTableCollection` does not have (no `clear()`,
+and its user-declared virtual destructor leaves it without move
+assignment). The only code that runs during a run is an analysis's
+`initialize` and `visit`, which is where `getSymbolTables()` is called.
+Analyses that call `resolveCallable()` themselves, in or out of tree,
+see no change.
+
+Moving `DeadCodeAnalysis` onto the run's tables also changes one
+behaviour: its member lived as long as the solver, so a second
+`initializeAndRun` after the IR changed, which the solver's
+documentation describes, looked symbols up in tables built before the
+change. No in-tree pass re-runs a solver that way. The pull request
+says so, and is therefore not tagged NFC.
+
+The backward analyses keep their `SymbolTableCollection &` constructor
+parameter: removing it changes public constructors of two base classes
+and their subclasses in and out of tree, so it is a follow-up.
+
+Upstream `main` at `7208ba24` (8 October 2026) still calls
+`resolveCallable()` at the same two lines and keeps
+`DeadCodeAnalysis`'s own collection; `llvm.patch` applies to it
+unchanged. No issue or pull request covers it. #155088 (merged) made
+lookups stay inside the analysis root, for a race between function
+passes; this change keeps that and builds a collection per run, so no
+tables are shared between threads. The open #193112 edits
+`DataFlowFramework.h` near the same lines and may need a rebase of
+whichever lands second.
 
 ## Our workaround
 
@@ -96,34 +127,39 @@ every round, and the scans were 8 to 9 percent of a compile of
 
 ## Patch
 
-`llvm.patch` is the proposed fix as one commit: `DataFlowSolver` owns the
-run's `SymbolTableCollection` through a pointer that `initializeAndRun`
-sets to a local and clears on exit, `DataFlowAnalysis::getSymbolTables()`
-returns it, and the forward analyses and `DeadCodeAnalysis` resolve
-through it. It changes `DataFlowSolver`'s layout, so everything that
-includes `DataFlowFramework.h` rebuilds; it changes no result.
+`llvm.patch` is the pull request as one commit, generated against
+`main` at `7208ba24`; it applies to both `main` and the pin, so there is
+no separate trunk diff. `DataFlowSolver` points at the run's
+`SymbolTableCollection` while `initializeAndRun` runs,
+`DataFlowAnalysis::getSymbolTables()` returns it, and the forward
+analyses and `DeadCodeAnalysis` resolve through it. It adds a pointer
+to `DataFlowSolver` and removes a member from `DeadCodeAnalysis`, so
+everything that includes `DataFlowFramework.h` rebuilds.
 
-Checked against the pin: the patch applies; an `-O2` mlir-opt linked
-with the patched data-flow sources and the three passes gives byte-for-byte
-the same output and exit status as the unpatched one on every RUN line of
-the `sccp`, `int-range-optimizations` and `remove-dead-values` tests in
-`mlir/test` (24 runs; the ones that use the test dialect fail to parse in
-both, since that build has no test dialect), on `calls.sh 16000`, and on a
-module with declarations, address-taken functions and a nested module. The
-dense forward analysis has no in-tree pass outside the test passes, so its
-one-line change is checked only by compiling. `make test-idr` was not run
-against a toolchain bootstrapped with this patch.
+Checked against the pin: an mlir-opt linked with the patched data-flow
+sources and the three passes gives byte-for-byte the same output and
+exit status as the unpatched one on every RUN line of the `sccp`,
+`int-range-optimizations` and `remove-dead-values` tests in
+`mlir/test` (24 runs; the ones that use the test dialect fail to parse
+in both, since that build has no test dialect), on `calls.sh 16000`,
+and on a module with declarations, address-taken functions and a
+nested module. The dense forward analysis has no in-tree pass outside
+the test passes, so its one-line change is checked only by compiling.
+Against `main`, the four changed sources compile with `main`'s headers
+(the interface `.inc` files regenerated from `main`'s `.td` where they
+differ); `main` itself was not built or tested here. `make test-idr`
+was not run against a toolchain bootstrapped with this patch.
 
 ## Upstreaming plan
 
-Status: file a pull request only, marked NFC.
+Status: file a pull request only.
 
 - Where: one commit on a pull request to llvm/llvm-project (MLIR data-flow
-  analysis), tagged `[mlir][dataflow][NFC]`. The title and the squash
-  commit message are in `submission.md`. No Bugzilla report, and no new
-  issue.
-- Upstream test: none new, as for any NFC change; the existing `sccp`,
-  `int-range-optimizations`, `remove-dead-values` and
+  analysis), tagged `[mlir][dataflow]`. The title and the squash
+  commit message are in `submission.md`. No issue: a slowdown, not a
+  crash or a miscompile.
+- Upstream test: none new, since in-tree results do not change; the
+  existing `sccp`, `int-range-optimizations`, `remove-dead-values` and
   `mlir/test/Analysis/DataFlow` tests cover the lookups it moves, and the
   pull request quotes the 16,000-function timing.
 - Follow-up: move the backward analyses onto `getSymbolTables()` and drop

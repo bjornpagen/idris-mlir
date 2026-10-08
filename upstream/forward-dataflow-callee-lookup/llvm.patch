@@ -1,40 +1,49 @@
-Subject: [PATCH] [mlir][dataflow][NFC] Resolve callees from one symbol table per run
+Subject: [PATCH] [mlir][dataflow] Resolve callees through one symbol table per run
 
-AbstractSparseForwardDataFlowAnalysis::visitCallOperation and
-AbstractDenseForwardDataFlowAnalysis::visitCallOperation ask,
-on every visit of a call, whether the callee is an external
-declaration, using CallOpInterface::resolveCallable(). Without a
-SymbolTableCollection that is SymbolTable::lookupNearestSymbolFrom,
-a walk over the operations of the enclosing symbol table. A call is
-visited again whenever its operands or its callee's returns change,
-so an interprocedural forward analysis over a module of n functions
-that call each other does O(n^2) work. DeadCodeAnalysis, which every
+AbstractSparseForwardDataFlowAnalysis and
+AbstractDenseForwardDataFlowAnalysis check, on every visit of a call,
+whether the callee is an external declaration, with
+CallOpInterface::resolveCallable(). Without a SymbolTableCollection
+that is SymbolTable::lookupNearestSymbolFrom, a walk over the
+operations of the enclosing symbol table. A call is visited again
+whenever its operands or its callee's return values change, so an
+interprocedural forward analysis over a module of n functions that
+call one another does O(n^2) work. DeadCodeAnalysis, which every
 forward analysis runs with, already resolves the same callees through
 a SymbolTableCollection of its own.
 
-The solver now holds one SymbolTableCollection for the
-duration of initializeAndRun, and analyses reach it through
-DataFlowAnalysis::getSymbolTables(). The forward analyses resolve their
-callees through it, and DeadCodeAnalysis uses it instead of its member.
-The IR does not change during a run, so each lookup finds the same
-symbol as before; the tables are built on first use and none outlives
-the run that built it. The backward analyses keep resolving through
-the collection their constructors take: moving them onto the solver's
-changes their public constructors and is left to a separate change.
+Symbol tables stay valid while the IR does not change, which the
+solver guarantees for the duration of initializeAndRun. The solver now
+builds one SymbolTableCollection per run, and analyses reach it
+through a new protected DataFlowAnalysis::getSymbolTables(), which
+asserts that the solver is running. The forward analyses resolve
+callees through it, and DeadCodeAnalysis uses it in place of its
+member. As before, the forward analyses look callees up only when the
+analysis root is a symbol table, and each run has its own collection,
+so no tables are shared between threads.
 
-No test: results are unchanged and the existing sccp,
-int-range-optimizations and remove-dead-values tests cover these
-lookups. On a module of 16,000 functions, each calling the next,
---sccp goes from 9.6 s to 0.7 s and --int-range-optimizations from
-17.5 s to 1.9 s.
+DeadCodeAnalysis's collection used to live as long as the solver, so
+a second initializeAndRun after the IR changed, as the DataFlowSolver
+documentation describes, looked symbols up in tables built before the
+change. It now gets fresh tables. No in-tree pass re-runs a solver
+that way, and in-tree results are unchanged. The backward analyses
+keep the SymbolTableCollection their constructors take; moving them
+to the solver's changes public constructors and is left for a
+separate change.
+
+No new test: the sccp, int-range-optimizations, remove-dead-values
+and Analysis/DataFlow tests cover these lookups. On a module of
+16,000 functions, each calling the next, --sccp goes from 8.8 s to
+0.7 s and --int-range-optimizations from 17.3 s to 1.0 s (best of
+three; the same change on llvmorg-23.1.2, built with -O2, x86_64).
 ---
  mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h |  3 ---
- mlir/include/mlir/Analysis/DataFlowFramework.h         | 15 +++++++++++++++
+ mlir/include/mlir/Analysis/DataFlowFramework.h         | 17 +++++++++++++++++
  mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp        |  5 +++--
  mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp           |  4 ++--
  mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp          |  4 ++--
  mlir/lib/Analysis/DataFlowFramework.cpp                |  4 ++++
- 6 files changed, 26 insertions(+), 9 deletions(-)
+ 6 files changed, 28 insertions(+), 9 deletions(-)
 
 diff --git a/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h
 index 3b2914c..a7bb3d8 100644
@@ -51,10 +60,10 @@ index 3b2914c..a7bb3d8 100644
  
  } // end namespace dataflow
 diff --git a/mlir/include/mlir/Analysis/DataFlowFramework.h b/mlir/include/mlir/Analysis/DataFlowFramework.h
-index 30fed25..c2dd138 100644
+index 69485fe..b9dc960 100644
 --- a/mlir/include/mlir/Analysis/DataFlowFramework.h
 +++ b/mlir/include/mlir/Analysis/DataFlowFramework.h
-@@ -50,6 +50,8 @@ inline ChangeResult operator&(ChangeResult lhs, ChangeResult rhs) {
+@@ -51,6 +51,8 @@ inline ChangeResult operator&(ChangeResult lhs, ChangeResult rhs) {
    return lhs == ChangeResult::NoChange ? lhs : rhs;
  }
  
@@ -63,25 +72,27 @@ index 30fed25..c2dd138 100644
  /// Forward declare the analysis state class.
  class AnalysisState;
  
-@@ -446,6 +448,11 @@ private:
+@@ -461,6 +463,12 @@ private:
    /// The solver is working on the worklist.
    bool isRunning = false;
  
-+  /// The symbol tables of the current run, shared by all analyses. They are
-+  /// built on first lookup and discarded when the run ends: the IR does not
-+  /// change while the solver runs, but it may change between runs.
++  /// The symbol tables shared by all analyses during a run, or null when the
++  /// solver is not running. They are built on first lookup and discarded when
++  /// the run ends: the IR does not change while the solver runs, but it may
++  /// change between runs.
 +  SymbolTableCollection *symbolTables = nullptr;
 +
    /// The solver's work queue. Work items can be inserted to the front of the
    /// queue to be processed greedily, speeding up computations that otherwise
    /// quickly degenerate to quadratic due to propagation of state updates.
-@@ -716,6 +723,14 @@ protected:
+@@ -734,6 +742,15 @@ protected:
    /// Return the configuration of the solver used for this analysis.
    const DataFlowConfig &getSolverConfig() const { return solver.getConfig(); }
  
 +  /// Return the symbol tables shared by all analyses of the running solver.
 +  /// Look symbols up through them rather than by scanning a symbol table
-+  /// operation.
++  /// operation. Only available while the solver runs, i.e. from `initialize`
++  /// and `visit`.
 +  SymbolTableCollection &getSymbolTables() {
 +    assert(solver.symbolTables && "the solver is not running");
 +    return *solver.symbolTables;
@@ -129,7 +140,7 @@ index a2a9018..878ee55 100644
    };
    if (!getSolverConfig().isInterprocedural() || isExternalCallable()) {
 diff --git a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
-index 3d9a375..0b24b65 100644
+index bc61c19..caf4338 100644
 --- a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
 +++ b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
 @@ -233,8 +233,8 @@ LogicalResult AbstractSparseForwardDataFlowAnalysis::visitCallOperation(
@@ -144,7 +155,7 @@ index 3d9a375..0b24b65 100644
    };
    if (!getSolverConfig().isInterprocedural() || isExternalCallable()) {
 diff --git a/mlir/lib/Analysis/DataFlowFramework.cpp b/mlir/lib/Analysis/DataFlowFramework.cpp
-index e51ae7a..7c2516a 100644
+index a2aa380..a08630b 100644
 --- a/mlir/lib/Analysis/DataFlowFramework.cpp
 +++ b/mlir/lib/Analysis/DataFlowFramework.cpp
 @@ -116,6 +116,10 @@ LogicalResult DataFlowSolver::initializeAndRun(
