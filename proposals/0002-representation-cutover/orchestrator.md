@@ -11,7 +11,7 @@ Read, in order:
 4. `work-units.md`;
 5. `review.md`'s disagreements table.
 
-Do not start until the owner has said "launch". O1 to O5 in README have
+Do not start until the owner has said "launch". O1 to O6 in README have
 defaults, so no answer is needed unless the owner vetoes one.
 
 1. **Check the tree.** Record HEAD and `git status`. If HEAD is not
