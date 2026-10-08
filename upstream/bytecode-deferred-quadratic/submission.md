@@ -4,7 +4,8 @@ Approach changed: the old patch swapped the deque for a stack with no duplicate 
 
 Paste into GitHub on https://github.com/llvm/llvm-project: file the
 issue, then open the pull request. Author: Bjorn, as an individual, no
-employer. No @mentions.
+employer. No @mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 The pull request is one commit, `llvm.patch` in this directory. The same
 file applies to llvm-project main at 7208ba24 (2026-10-08) and to

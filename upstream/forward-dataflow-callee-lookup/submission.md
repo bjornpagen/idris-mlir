@@ -7,7 +7,8 @@ Status: file a pull request only.
 One pull request on llvm/llvm-project, one commit, the diff in
 `llvm.patch` (it applies unchanged to `main` at `7208ba24` and to
 `llvmorg-23.1.2`). No issue: this is a slowdown, not a crash or a
-miscompile. Author: Bjorn, as an individual, outside any employer.
+miscompile. Author: Bjorn, as an individual, outside any employer. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 The pull request title is the first line below; the body is the rest.
 Squash-and-merge uses both as the commit message.

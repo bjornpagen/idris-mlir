@@ -3,7 +3,8 @@
 Where: a comment on https://github.com/llvm/llvm-project/pull/208881
 (open, approved, not merged as of trunk 7208ba24, 2026-10-08). No new
 issue, no pull request of its own. Author is Bjorn, as an individual,
-work done outside any employer. No @mentions.
+work done outside any employer. No @mentions. The comment counts as a contribution under
+llvm/docs/AIToolPolicy.md: end it with `Assisted-by: <tool>`.
 
 If #208881 is merged before this is posted and the merged test file has
 no case like `@address_taken_callee`, post the test instead as its own

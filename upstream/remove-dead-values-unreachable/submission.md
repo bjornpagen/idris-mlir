@@ -8,7 +8,8 @@ and a pull request whose diff is `pull-request.diff` (against llvm main,
 checked with `git apply --check` at 7208ba24, 2026-10-08).
 
 Author: Bjorn, as an individual; the work was done outside any employer.
-No employer, no trailers, no @mentions. The pull request is one commit,
+No employer, no @mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md). The pull request is one commit,
 squash-merged with the title and body below as its message.
 
 Why a pull request of its own, and not a review suggestion on #208881:

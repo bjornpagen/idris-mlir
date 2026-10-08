@@ -4,7 +4,8 @@ Paste into GitHub, repository `llvm/llvm-project`. Not Bugzilla.
 
 One commit. The author is Bjorn, as an individual, outside any employer.
 No employer in the author name, the email, or the message. No
-`Assisted-by`. No `Co-authored-by`. No `@` mentions.
+`Co-authored-by`. No `@` mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 The pull request is `llvm.patch` in this directory, as that one commit. It
 applies unchanged to llvm main at 7208ba24 and to llvmorg-23.1.2, so there

@@ -13,9 +13,9 @@ LLVM uses GitHub issues and pull requests, not Bugzilla.
 ## Author
 
 Bjorn, as an individual, outside any employer. Commit with a personal
-email that the GitHub account publishes. No `Assisted-by` trailer, no
-`Contributed-by`, no `@` mentions in the issue, the pull request, or a
-comment.
+email that the GitHub account publishes. No `Contributed-by`, no `@`
+mentions in the issue, the pull request, or a comment. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 ## Diff
 

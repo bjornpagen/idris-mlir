@@ -13,8 +13,9 @@ the report.
   the title and body below.
 
 The author is Bjorn, as an individual, outside any employer. The commit
-and the pull request name no employer. No `Assisted-by` trailer. No
-`@` mentions in the title, the body, or a comment.
+and the pull request name no employer. No `@` mentions in the title,
+the body, or a comment. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 GitHub squash-merges, and the landed commit is the pull request title
 plus the full pull request body, so set them to the text below when
@@ -34,7 +35,7 @@ DynamicLibrarySearchGenerator for the current process to the main
 JITDylib, and LLJITBuilder creates its own "<Process Symbols>" JITDylib,
 linked after main and the platform. Both open the process through the
 dynamic loader (dlopen(NULL)), and create() aborts in cantFail when that
-fails, as it always does in a statically linked executable. There is no
+fails, as it does in a statically linked musl executable. There is no
 way to create an engine whose code calls only the symbols it is given.
 
 The process's symbols now come from one place: the LLJIT's

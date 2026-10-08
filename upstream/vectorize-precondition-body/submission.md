@@ -7,8 +7,9 @@ https://github.com/llvm/llvm-project, issue first. A search of the
 tracker and of open pull requests (October 2026) found no report and no
 fix; the code involved is unchanged on main at 7208ba24.
 
-The author is Bjorn, as an individual, outside any employer. No
-`Assisted-by` trailer, no sign-off, no `@` mentions.
+The author is Bjorn, as an individual, outside any employer. No sign-off, no `@`
+mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
+(llvm/docs/AIToolPolicy.md).
 
 ## Issue
 
