@@ -1,4 +1,6 @@
-# File the `ub.unreachable` inliner abort
+Approach changed: the old patch took the single-block fast path only for ReturnLike terminators, which broke transform.yield; now allowSingleBlockOptimization is asked of the terminator's dialect, as handleTerminator already is, and the inliner treats a declined fast path like a multi-block callee.
+
+# File the inliner abort on a callee that does not return
 
 ## Status
 
@@ -27,49 +29,37 @@ below as that one commit's message.
 
 ## Patch
 
-`llvm.patch` (against `llvmorg-23.1.2`; rebase onto current `main` if it
-does not apply). Apply it with `git apply` and make the one commit
-above.
-
-Tests live in the patch: `mlir/test/Dialect/UB/inlining.mlir` (a call of
-a function that never returns is inlined into a function, and stays a
-call in an `scf.for`). Run `check-mlir`.
+`llvm.patch` (against `llvmorg-23.1.2`). On `main`, the `Inliner.cpp`
+hunk that passes `inlinerIface` to `shouldInline` needs a hand rebase:
+the call in `inlineCallsInSCC` now also checks `blockedEdges`. The other
+hunks apply. Tests live in the patch, in
+`mlir/test/Transforms/inlining.mlir`. Run `check-mlir`.
 
 ## Steps
 
 1. Open https://github.com/llvm/llvm-project/issues/new and paste the
-   issue title and issue body. The `[mlir]` prefix is what the issue bot
-   uses to add the mlir label.
+   issue title and issue body.
 2. Apply `llvm.patch` on a fork of `llvm/llvm-project`, one commit, and
    open the pull request into `main`. Paste the pull request title and
    body.
 3. After the issue exists, add `Fixes #<issue number>` as the last
-   paragraph of the pull request body. Leave
-   https://github.com/llvm/llvm-project/issues/206083 open:
-   `vector.yield` is `ReturnLike`, so this change leaves that case on
-   the fast path.
+   paragraph of the pull request body. Leave #206083 open: this change
+   does not touch `vector.yield`.
 
 No `@` mentions in the issue or the pull request.
 
 ## Issue title
 
 ```
-[mlir] --inline aborts on a callee that ends in ub.unreachable
+[mlir] --inline aborts on a single-block callee that does not return
 ```
 
 ## Issue body
 
 ```
-## Symptom
-
-At llvmorg-23.1.2, `mlir-opt --inline` aborts when it inlines a
-single-block callee whose terminator is `ub.unreachable` (a function
-that never returns: it traps, or its body is proved impossible). The
-abort is still present on main at ed390ca4 (October 2026).
-
-## Reproducer
-
-never.mlir:
+At llvmorg-23.1.2 and on main, `mlir-opt --inline` aborts when it
+inlines a single-block callee whose terminator does not return to the
+caller.
 
     func.func private @never() -> i32 {
       ub.unreachable
@@ -80,77 +70,82 @@ never.mlir:
       return %0 : i32
     }
 
-## Command
-
-    mlir-opt never.mlir --inline
-
-## Actual
-
-`mlir-opt` aborts, exit status 134:
+`mlir-opt never.mlir --inline`:
 
     must implement handleTerminator in the case of one inlined block
-    UNREACHABLE executed at .../mlir/Transforms/DialectInlinerInterface.h.inc:82!
+    UNREACHABLE executed at .../mlir/Transforms/DialectInlinerInterface.h.inc:81!
 
-## Expected
+The LLVM dialect declines the single-block fast path for
+llvm.unreachable, but only when the caller is an llvm.func. Called from
+a func.func, it asserts instead:
 
-`mlir-opt` exits 0. `@main` becomes `ub.unreachable` (the call is gone),
-or the call stays.
+    llvm.func @never() -> i32 {
+      llvm.unreachable
+    }
 
-## Cause
+    func.func @main() -> i32 {
+      %0 = llvm.call @never() : () -> i32
+      return %0 : i32
+    }
 
-`inlineRegionImpl` (mlir/lib/Transforms/Utils/InliningUtils.cpp:331)
-takes the single-block fast path for any one-block callee the dialect
-allows. That path (InliningUtils.cpp:340) calls
-`handleTerminator(Operation *, ValueRange)` so the dialect can replace
-the call's results with the terminator's operands, then erases the
-terminator and splices the rest of the caller's block after the inlined
-operations (InliningUtils.cpp:341-346).
+    Assertion `isa<To>(Val) && "cast<Ty>() argument of incompatible type!"'
+    failed (cast<LLVM::ReturnOp> in the LLVM dialect's handleTerminator)
 
-`ub.unreachable` has no operands to forward, and nothing may follow it
-in its block. `UBInlinerInterface`
-(mlir/lib/Dialect/UB/IR/UBOps.cpp:25-32) makes every `ub` operation
-legal to inline and implements neither `handleTerminator` hook. The
-one-block default
-(mlir/include/mlir/Transforms/DialectInlinerInterface.td:106-107) is
-`llvm_unreachable` with the message above. The abort's
-`DialectInlinerInterface.h.inc:82` is that generated default. The
-multi-block overload's default (DialectInlinerInterface.td:89-90) is
-`llvm_unreachable` as well.
+The same happens for that call inside an scf.for in an llvm.func.
 
-https://github.com/llvm/llvm-project/issues/206083 is the same abort,
-with `vector.yield` as the terminator. `vector.yield` is `ReturnLike`,
-so it is a different case of the missing hook.
-https://github.com/llvm/llvm-project/pull/206218 fixes the vector
-dialect only.
+Expected: the callee is inlined, its terminator stays the end of its
+block, and the code after the call becomes unreachable. In a region that
+must stay one block, such as an scf.for body, the call stays.
+
+The single-block fast path in inlineRegionImpl
+(mlir/lib/Transforms/Utils/InliningUtils.cpp) erases the terminator and
+continues the block with the operations after the call.
+InlinerInterface::allowSingleBlockOptimization, which lets a dialect
+decline that, asks the dialect of the op enclosing the inlined block,
+which is the caller's, not the terminator's. The ub dialect declines
+nothing and implements neither handleTerminator.
+
+#206083 is the same abort for vector.yield in an llvm.func. vector.yield
+is ReturnLike, so it is a different case.
 ```
 
 ## Pull request title
 
 ```
-[mlir] Inline a callee that ends in ub.unreachable
+[mlir] Fix inlining of single-block callees that do not return
 ```
 
 ## Pull request body
 
 ```
-Inlining a single-block callee that ends in ub.unreachable aborts in
-the default handleTerminator. The single-block fast path treats that
-terminator as a return: it forwards the terminator's operands to the
-call's results, erases the terminator, and splices the rest of the
-caller's block after the inlined operations. ub.unreachable has nothing
-to forward, and nothing may follow it. The ub dialect implements
-neither handleTerminator hook, so the default is llvm_unreachable
-("must implement handleTerminator in the case of one inlined block").
+The inliner's single-block fast path forwards the callee's terminator
+operands to the call results, erases the terminator, and continues the
+block with the operations after the call. That is only correct for a
+terminator that returns to the caller, and allowSingleBlockOptimization
+is how a dialect declines it. InlinerInterface asks that hook of
+the dialect of the op enclosing the inlined block, which after
+cloning is the caller's, not the terminator's. The LLVM dialect's
+opt-out for llvm.unreachable therefore only takes effect when the
+caller is an llvm.func: inlined into a func.func or an scf.for,
+llvm.unreachable takes the fast path and handleTerminator asserts in
+cast<LLVM::ReturnOp>. The ub dialect declines nothing, so a callee
+ending in ub.unreachable aborts in the default handleTerminator.
+
+The hook is now asked of the dialect of the terminator, as
+handleTerminator is. The inliner pass treats a single-block callee
+whose terminator declines the fast path like a multi-block one, so
+it is not inlined into a region that must stay a single block. The
+ub dialect declines the fast path for ub.unreachable and leaves it in
+place in the multi-block handleTerminator. This has to come from the
+dialect: ub.unreachable and transform.yield are both successor-less
+terminators without ReturnLike, and only one of them returns.
 
 https://github.com/llvm/llvm-project/issues/206083 is the same abort
-for vector.yield. That operation is ReturnLike, and
-https://github.com/llvm/llvm-project/pull/206218 covers the vector
-dialect only, so a callee that ends in ub.unreachable still aborts.
+for vector.yield, which is ReturnLike and keeps the fast path; this
+does not fix it.
 
-The fast path is only right for a ReturnLike terminator. Any other
-single-block callee is inlined as a block of its own, and a caller
-region that must stay one block keeps the call.
-UBInlinerInterface::handleTerminator(Operation *, Block *) is empty, so
-ub.unreachable stays the terminator of the inlined block and the code
-after the call is unreachable.
+Tests in mlir/test/Transforms/inlining.mlir: a callee ending
+in ub.unreachable is inlined into a function and stays a call in
+scf.for, and an llvm.func ending in llvm.unreachable is inlined into
+a func.func.
 ```

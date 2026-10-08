@@ -1,152 +1,216 @@
-Subject: [PATCH] [mlir] Inline a callee whose block ends in a terminator that does not return
+Subject: [PATCH] [mlir] Fix inlining of single-block callees that do not
+ return
 
-Inlining a single-block callee that ends in ub.unreachable aborts
-("must implement handleTerminator in the case of one inlined block"): the
-inliner's single-block fast path asks the terminator's dialect to forward
-its operands to the call's results, then splices the rest of the caller's
-block after the inlined operations. ub.unreachable has nothing to forward,
-and nothing may follow it in its block; the ub dialect implements neither
-handleTerminator hook. #206083 is the same failure for vector.yield.
+The inliner's single-block fast path forwards the callee's terminator
+operands to the call results, erases the terminator, and continues the
+block with the operations after the call. That is only correct for a
+terminator that returns to the caller, and allowSingleBlockOptimization
+is how a dialect declines it. InlinerInterface asks that hook of
+the dialect of the op enclosing the inlined block, which after
+cloning is the caller's, not the terminator's. The LLVM dialect's
+opt-out for llvm.unreachable therefore only takes effect when the
+caller is an llvm.func: inlined into a func.func or an scf.for,
+llvm.unreachable takes the fast path and handleTerminator asserts in
+cast<LLVM::ReturnOp>. The ub dialect declines nothing, so a callee
+ending in ub.unreachable aborts in the default handleTerminator.
 
-- inlineRegionImpl takes the fast path only when the inlined block's
-  terminator is ReturnLike; any other single block is inlined as the
-  multi-block path does it, the rest of the caller's block moving to a
-  block of its own.
-- The inliner pass treats a single-block callee whose terminator is not
-  ReturnLike as it treats a multi-block callee: not inlined into a region
-  that must stay one block.
-- UBInlinerInterface implements handleTerminator(Operation *, Block *) as
-  a no-op: ub.unreachable stays the terminator of its inlined block, and
-  the block after the call has no predecessor from it.
+The hook is now asked of the dialect of the terminator, as
+handleTerminator is. The inliner pass treats a single-block callee
+whose terminator declines the fast path like a multi-block one, so
+it is not inlined into a region that must stay a single block. The
+ub dialect declines the fast path for ub.unreachable and leaves it in
+place in the multi-block handleTerminator. This has to come from the
+dialect: ub.unreachable and transform.yield are both successor-less
+terminators without ReturnLike, and only one of them returns.
 
-Tests in mlir/test/Dialect/UB/inlining.mlir: a call of a function that
-never returns is inlined into a function, and stays a call in an scf.for.
+https://github.com/llvm/llvm-project/issues/206083 is the same abort
+for vector.yield, which is ReturnLike and keeps the fast path; this
+does not fix it.
+
+Tests in mlir/test/Transforms/inlining.mlir: a callee ending
+in ub.unreachable is inlined into a function and stays a call in
+scf.for, and an llvm.func ending in llvm.unreachable is inlined into
+a func.func.
 ---
- mlir/lib/Dialect/UB/IR/UBOps.cpp            |  5 +++
- mlir/lib/Transforms/Utils/Inliner.cpp       |  9 +++++-
- mlir/lib/Transforms/Utils/InliningUtils.cpp | 13 ++++++--
- mlir/test/Dialect/UB/inlining.mlir          | 36 +++++++++++++++++++++
- 4 files changed, 60 insertions(+), 3 deletions(-)
+ .../Transforms/DialectInlinerInterface.td     |  6 ++-
+ mlir/lib/Dialect/UB/IR/UBOps.cpp              | 10 +++++
+ mlir/lib/Transforms/Utils/Inliner.cpp         | 17 +++++---
+ mlir/lib/Transforms/Utils/InliningUtils.cpp   | 12 +++---
+ mlir/test/Transforms/inlining.mlir            | 43 +++++++++++++++++++
+ 5 files changed, 75 insertions(+), 13 deletions(-)
 
+diff --git a/mlir/include/mlir/Transforms/DialectInlinerInterface.td b/mlir/include/mlir/Transforms/DialectInlinerInterface.td
+index 0975b84179d3c9aa95ad3dbc0f568d9a7ff00a19..158568d4d68150fddf2701cd8c3b25cc9958d812 100644
+--- a/mlir/include/mlir/Transforms/DialectInlinerInterface.td
++++ b/mlir/include/mlir/Transforms/DialectInlinerInterface.td
+@@ -181,7 +181,11 @@ def DialectInlinerInterface : DialectInterface<"DialectInlinerInterface"> {
+     >,
+     InterfaceMethod<[{
+         Returns true if the inliner can assume a fast path of not creating a new
+-        block, if there is only one block.
++        block, if there is only one block. This hook is invoked on the dialect of
++        that block's terminator. The fast path calls the single-block
++        `handleTerminator`, erases the terminator and continues the block with
++        the operations after the call, so it is only correct for a terminator
++        that returns control to the caller.
+       }],
+       "bool", "allowSingleBlockOptimization",
+       (ins "::mlir::iterator_range<::mlir::Region::iterator>":$inlinedBlocks),
 diff --git a/mlir/lib/Dialect/UB/IR/UBOps.cpp b/mlir/lib/Dialect/UB/IR/UBOps.cpp
-index ee523f9522953db3712e9960eaf8266be612d7ed..d9fb70b2975893f93c380fb25c6accc163853aed 100644
+index ee523f9522953db3712e9960eaf8266be612d7ed..3004952101b2dcb34b28b5e548a2110cf8788ceb 100644
 --- a/mlir/lib/Dialect/UB/IR/UBOps.cpp
 +++ b/mlir/lib/Dialect/UB/IR/UBOps.cpp
-@@ -29,6 +29,11 @@ struct UBInlinerInterface : public DialectInlinerInterface {
+@@ -29,6 +29,16 @@ struct UBInlinerInterface : public DialectInlinerInterface {
    bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final {
      return true;
    }
 +
-+  /// `ub.unreachable` never returns to the caller: it stays the terminator
-+  /// of its inlined block, and nothing branches from it to the block that
-+  /// receives the call's results.
-+  void handleTerminator(Operation *, Block *) const final {}
++  /// `ub.unreachable` does not return to the caller, so the operations after
++  /// the call cannot follow it in its block.
++  bool allowSingleBlockOptimization(
++      iterator_range<Region::iterator> inlinedBlocks) const final {
++    return !isa<UnreachableOp>(inlinedBlocks.begin()->getTerminator());
++  }
++
++  /// `ub.unreachable` stays the terminator of its inlined block.
++  void handleTerminator(Operation *op, Block *newDest) const final {}
  };
  } // namespace
  
 diff --git a/mlir/lib/Transforms/Utils/Inliner.cpp b/mlir/lib/Transforms/Utils/Inliner.cpp
-index 40950312d566f57c4ed17c854f1358c841d5c464..bfa7d9ada3d544fc2ddf913c44e10254e19b8652 100644
+index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba0b72f19e 100644
 --- a/mlir/lib/Transforms/Utils/Inliner.cpp
 +++ b/mlir/lib/Transforms/Utils/Inliner.cpp
-@@ -16,6 +16,7 @@
- #include "mlir/Transforms/Inliner.h"
- #include "mlir/IR/Threading.h"
- #include "mlir/Interfaces/CallInterfaces.h"
-+#include "mlir/Interfaces/ControlFlowInterfaces.h"
- #include "mlir/Interfaces/SideEffectInterfaces.h"
- #include "mlir/Support/DebugStringHelper.h"
- #include "mlir/Transforms/InliningUtils.h"
-@@ -723,9 +724,15 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
+@@ -456,7 +456,8 @@ private:
+                                  CGUseList &useList, CallGraphSCC &currentSCC);
+ 
+   /// Returns true if the given call should be inlined.
+-  bool shouldInline(ResolvedCall &resolvedCall);
++  bool shouldInline(const InlinerInterface &inlinerIface,
++                    ResolvedCall &resolvedCall);
+ 
+ private:
+   Inliner &inliner;
+@@ -629,7 +630,7 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
+     InlineHistoryT inlineHistoryID = callHistory[i];
+     bool inHistory =
+         inlineHistoryIncludes(it.targetNode, inlineHistoryID, inlineHistory);
+-    bool doInline = !inHistory && shouldInline(it);
++    bool doInline = !inHistory && shouldInline(inlinerIface, it);
+     CallOpInterface call = it.call;
+     LLVM_DEBUG({
+       if (doInline)
+@@ -700,7 +701,8 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
+ }
+ 
+ /// Returns true if the given call should be inlined.
+-bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
++bool Inliner::Impl::shouldInline(const InlinerInterface &inlinerIface,
++                                 ResolvedCall &resolvedCall) {
+   // Don't allow inlining terminator calls. We currently don't support this
+   // case.
+   if (resolvedCall.call->hasTrait<OpTrait::IsTerminator>())
+@@ -723,9 +725,12 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
  
    // Don't allow inlining if the callee has multiple blocks (unstructured
    // control flow) but we cannot be sure that the caller region supports that.
-+  // A callee whose one block does not return to the caller (it ends in
-+  // `ub.unreachable`, say) is inlined as a block of its own, too.
++  // A single block that may not take the place of the call (its terminator
++  // does not return to it) is inlined as a block of its own, too.
    if (!inliner.config.getCanHandleMultipleBlocks()) {
-     bool calleeHasMultipleBlocks =
+-    bool calleeHasMultipleBlocks =
 -        llvm::hasNItemsOrMore(*callableRegion, /*N=*/2);
++    bool calleeNeedsNewBlocks =
 +        llvm::hasNItemsOrMore(*callableRegion, /*N=*/2) ||
-+        (!callableRegion->empty() &&
-+         callableRegion->front().mightHaveTerminator() &&
-+         !callableRegion->front().getTerminator()->hasTrait<
-+             OpTrait::ReturnLike>());
++        !inlinerIface.allowSingleBlockOptimization(*callableRegion);
      // If both parent ops have the same type, it is safe to inline. Otherwise,
      // decide based on whether the op has the SingleBlock trait or not.
      // Note: This check does currently not account for
+@@ -736,7 +741,7 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
+              !resolvedCall.call->getParentOp()
+                   ->mightHaveTrait<OpTrait::SingleBlock>();
+     };
+-    if (calleeHasMultipleBlocks && !callerRegionSupportsMultipleBlocks())
++    if (calleeNeedsNewBlocks && !callerRegionSupportsMultipleBlocks())
+       return false;
+   }
+ 
 diff --git a/mlir/lib/Transforms/Utils/InliningUtils.cpp b/mlir/lib/Transforms/Utils/InliningUtils.cpp
-index 73107cfc36ea9d5cf480589abe971561d00a39b7..8536f9d7e74d0676fe3cbadcb2e12ad5d5d0cb6d 100644
+index 73107cfc36ea9d5cf480589abe971561d00a39b7..774e483846a06fa963abb8468dd4d7fad93b2d32 100644
 --- a/mlir/lib/Transforms/Utils/InliningUtils.cpp
 +++ b/mlir/lib/Transforms/Utils/InliningUtils.cpp
-@@ -17,6 +17,7 @@
- #include "mlir/IR/IRMapping.h"
- #include "mlir/IR/Operation.h"
- #include "mlir/Interfaces/CallInterfaces.h"
-+#include "mlir/Interfaces/ControlFlowInterfaces.h"
- #include "llvm/Support/Debug.h"
- #include "llvm/Support/DebugLog.h"
- #include "llvm/Support/raw_ostream.h"
-@@ -325,10 +326,18 @@ static LogicalResult inlineRegionImpl(
-     interface.processInlinedCallBlocks(call, newBlocks);
-   interface.processInlinedBlocks(newBlocks);
- 
--  bool singleBlockFastPath = interface.allowSingleBlockOptimization(newBlocks);
-+  // The fast path splices the rest of the caller's block after the inlined
-+  // operations, in place of a terminator that returns to the caller. Any
-+  // other terminator (one that never returns, such as `ub.unreachable`)
-+  // stays the end of its block, and the rest of the caller's block follows
-+  // in a block of its own.
-+  bool singleBlockFastPath =
-+      interface.allowSingleBlockOptimization(newBlocks) &&
-+      llvm::hasSingleElement(newBlocks) &&
-+      firstNewBlock->getTerminator()->hasTrait<OpTrait::ReturnLike>();
- 
-   // Handle the case where only a single block was inlined.
--  if (singleBlockFastPath && llvm::hasSingleElement(newBlocks)) {
-+  if (singleBlockFastPath) {
-     // Run the result attribute handler on the terminator operands.
-     Operation *firstBlockTerminator = firstNewBlock->getTerminator();
-     builder.setInsertionPoint(firstBlockTerminator);
-diff --git a/mlir/test/Dialect/UB/inlining.mlir b/mlir/test/Dialect/UB/inlining.mlir
-index cb76750044a3b8f4bc81d7d1a06289806baf2c4a..aafd251d7f508dfda8a4f45bf3b1ab3c85340ffe 100644
---- a/mlir/test/Dialect/UB/inlining.mlir
-+++ b/mlir/test/Dialect/UB/inlining.mlir
-@@ -11,3 +11,39 @@ func.func @test_inline(%ptr : !llvm.ptr) -> i32 {
-   %0 = call @func() : () -> i32
-   return %0 : i32
+@@ -143,15 +143,15 @@ void InlinerInterface::handleTerminator(Operation *op,
  }
-+
-+// -----
-+
-+// A callee that never returns is inlined: `ub.unreachable` stays the end of
-+// its block, and the code after the call, which nothing reaches, goes.
-+func.func private @never() -> i32 {
+ 
+ /// Returns true if the inliner can assume a fast path of not creating a
+-/// new block, if there is only one block.
++/// new block, if there is only one block. The fast path replaces the block's
++/// terminator with the operations after the call, so the dialect of that
++/// terminator decides, as it does in `handleTerminator`.
+ bool InlinerInterface::allowSingleBlockOptimization(
+     iterator_range<Region::iterator> inlinedBlocks) const {
+-  if (inlinedBlocks.empty()) {
++  if (inlinedBlocks.empty() || !inlinedBlocks.begin()->mightHaveTerminator())
+     return true;
+-  }
+-  auto *handler = getInterfaceFor(inlinedBlocks.begin()->getParentOp());
+-  assert(handler && "expected valid dialect handler");
+-  return handler->allowSingleBlockOptimization(inlinedBlocks);
++  auto *handler = getInterfaceFor(inlinedBlocks.begin()->getTerminator());
++  return !handler || handler->allowSingleBlockOptimization(inlinedBlocks);
+ }
+ 
+ Value InlinerInterface::handleArgument(OpBuilder &builder, Operation *call,
+diff --git a/mlir/test/Transforms/inlining.mlir b/mlir/test/Transforms/inlining.mlir
+index da3f1a28deaacd221cd0bc8f32600d8f130a8b96..ec1dfa9390fc16d1c537123463ef1c88cdc2cbd0 100644
+--- a/mlir/test/Transforms/inlining.mlir
++++ b/mlir/test/Transforms/inlining.mlir
+@@ -319,6 +319,49 @@ func.func @func_with_multiple_blocks_callee2(%arg0 : i32, %c : i1) {
+   return
+ }
+ 
++// A callee whose terminator does not return to the caller is inlined as a
++// block of its own: the terminator stays, and the operations after the call
++// move to a block that it does not branch to.
++func.func private @func_unreachable() -> i32 {
 +  ub.unreachable
 +}
 +
-+// CHECK-LABEL: func @inline_never
-+// CHECK-NEXT:    ub.unreachable
-+// CHECK-NEXT:  }
-+func.func @inline_never() -> i32 {
-+  %0 = call @never() : () -> i32
++// CHECK-LABEL: func @inline_unreachable(
++func.func @inline_unreachable() -> i32 {
++  // CHECK-NEXT: ub.unreachable
++  // CHECK-NEXT: ^{{.*}}(%[[RES:.*]]: i32):
++  // CHECK-NEXT: return %[[RES]]
++  %0 = call @func_unreachable() : () -> i32
 +  return %0 : i32
 +}
 +
-+// -----
-+
-+// Inlined into a region that must stay one block, it would need a second
-+// block for the code after the call: the call stays.
-+func.func private @never_returns() {
-+  ub.unreachable
-+}
-+
-+// CHECK-LABEL: func @never_in_loop
-+// CHECK:         scf.for
-+// CHECK-NEXT:      call @never_returns()
-+func.func @never_in_loop(%n: index) {
++// CHECK-LABEL: func @inline_unreachable_single_block_region(
++func.func @inline_unreachable_single_block_region(%n : index) {
 +  %c0 = arith.constant 0 : index
 +  %c1 = arith.constant 1 : index
++  // The call cannot be inlined because scf.for does not support unstructured
++  // control flow in its body.
++  // CHECK: scf.for
++  // CHECK-NEXT: call @func_unreachable()
 +  scf.for %i = %c0 to %n step %c1 {
-+    func.call @never_returns() : () -> ()
++    %0 = func.call @func_unreachable() : () -> i32
 +  }
 +  return
 +}
++
++llvm.func @llvm_func_unreachable() -> i32 {
++  llvm.unreachable
++}
++
++// CHECK-LABEL: func @inline_llvm_unreachable(
++func.func @inline_llvm_unreachable() -> i32 {
++  // CHECK-NEXT: llvm.unreachable
++  // CHECK-NEXT: ^{{.*}}(%[[RES:.*]]: i32):
++  // CHECK-NEXT: return %[[RES]]
++  %0 = llvm.call @llvm_func_unreachable() : () -> i32
++  return %0 : i32
++}
++
+ // Check that we can handle argument and result attributes.
+ test.conversion_func_op @handle_attr_callee_fn_multi_arg(%arg0 : i16, %arg1 : i16 {"test.handle_argument"}) -> (i16 {"test.handle_result"}, i16) {
+   %0 = arith.addi %arg0, %arg1 : i16
