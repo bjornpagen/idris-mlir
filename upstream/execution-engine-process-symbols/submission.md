@@ -1,3 +1,5 @@
+Approach changed: the old diff toggled two lookup paths with one flag and broke create(); now the process's symbols live only in the LLJIT's process-symbols JITDylib, which always exists, and the option decides only whether it holds the process generator.
+
 # Filing
 
 File one pull request, and nothing else. Do not open a GitHub issue. Do
@@ -6,47 +8,51 @@ the report.
 
 - Repository: https://github.com/llvm/llvm-project
 - Base: `main`
-- Diff: `pull-request.diff` in this directory. Apply that file as the
-  single commit of the branch (`git am`). Do not rewrite it.
+- Diff: `pull-request.diff` in this directory, one commit. It has no
+  `From:` line: apply it with `git apply` and commit it as yourself with
+  the title and body below.
 
 The author is Bjorn, as an individual, outside any employer. The commit
 and the pull request name no employer. No `Assisted-by` trailer. No
 `@` mentions in the title, the body, or a comment.
 
 GitHub squash-merges, and the landed commit is the pull request title
-plus the full pull request body. The message of the branch commit is not
-what lands, and a contributor without write access cannot edit the
-message at merge time, so set the title and the body to the text below
-when opening the pull request. The title is the subject line, tagged
-`[mlir]`. The body is the rest: why the change is needed, and the unit
-test `pull-request.diff` adds, `WithoutProcessSymbols` in
-`mlir/unittests/ExecutionEngine/Invoke.cpp`
-(`TEST(MLIRExecutionEngine, SKIP_WITHOUT_JIT(WithoutProcessSymbols))`).
+plus the full pull request body, so set them to the text below when
+opening the pull request.
 
 ## Title
 
 ```
-[mlir] ExecutionEngine: an option to leave out the process's symbols
+[mlir][ExecutionEngine] Make linking the process's symbols optional
 ```
 
 ## Body
 
 ```
-mlir::ExecutionEngine::create always adds a generator for the current
-process's symbols, and LLJITBuilder links a process-symbols JITDylib by
-default; both look the process up through the dynamic loader
-(dlopen(NULL)), and create() aborts in cantFail when that fails, as it
-always does in a statically linked executable. There is no way to create
-an engine whose code calls only what the caller registers.
+ExecutionEngine::create resolves the process's symbols twice: it adds a
+DynamicLibrarySearchGenerator for the current process to the main
+JITDylib, and LLJITBuilder creates its own "<Process Symbols>" JITDylib,
+linked after main and the platform. Both open the process through the
+dynamic loader (dlopen(NULL)), and create() aborts in cantFail when that
+fails, as it always does in a statically linked executable. There is no
+way to create an engine whose code calls only the symbols it is given.
 
-- ExecutionEngineOptions::linkProcessSymbols, true by default (today's
-  behaviour). False: create() adds no process-symbol generator and builds
-  the LLJIT with setLinkProcessSymbolsByDefault(false), so JIT-compiled
-  code resolves symbols from sharedLibPaths and registerSymbols alone.
-- A failure to build the LLJIT or to open the process's symbols is
-  returned from create() as an error instead of aborting.
+The process's symbols now come from one place: the LLJIT's
+process-symbols JITDylib, which create() sets up itself, and
+ExecutionEngineOptions::enableProcessSymbols (true by default, today's
+behaviour) decides whether it holds the generator. The JITDylib always
+exists, since the generic IR platform links it and does not start
+without it. Whether JIT-compiled code may reach the host process is the
+caller's choice, as it is in LLJITBuilder, so it stays an option. A
+failure to build the LLJIT, opening the process included, is returned
+from create() instead of aborting.
+
+ExecutionEngine::lookup searches the main JITDylib only, so it no longer
+returns symbols of the process; it returns JIT-compiled and registered
+symbols, as before.
 
 Test: WithoutProcessSymbols in mlir/unittests/ExecutionEngine/Invoke.cpp
-creates engines without the process's symbols; a call of a registered
-function runs, a call of abs, which the process has, fails to resolve.
+calls labs from JIT-compiled code: it resolves with the process's
+symbols, fails to resolve without them, and resolves to the registered
+function when one is registered under that name.
 ```

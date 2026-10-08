@@ -1,14 +1,15 @@
 # [mlir] `ExecutionEngine` cannot be created in a statically linked process
 
-At `llvmorg-23.1.2`, `mlir::ExecutionEngine::create` always adds a
-generator for the current process's symbols and aborts if that fails,
-which it always does in a static executable. There is no option to skip it.
+At `llvmorg-23.1.2`, `mlir::ExecutionEngine::create` always opens the
+current process's symbols through the dynamic loader and aborts in
+`cantFail` when that fails, which it always does in a static executable.
+There is no option to leave the process out.
 
 ## Reproduce
 
 No `mlir-opt` command shows this: it takes a statically linked program that
 creates an `ExecutionEngine`. Built with the pinned toolchain against musl
-with `-static` (as `idris-mlir-cc` is):
+as a static PIE (as `idris-mlir-cc` is):
 
 ```cpp
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
@@ -18,33 +19,64 @@ with `-static` (as `idris-mlir-cc` is):
 auto engine = mlir::ExecutionEngine::create(*module);
 ```
 
-The process aborts inside `create`, in the `cantFail` below: the error is
-that the process's own symbols cannot be opened (`dlopen(NULL)` needs a
-dynamic loader, which a static musl executable has none of).
+The process aborts inside `create`:
+
+```
+Failure value returned from cantFail wrapped call
+Dynamic loading not supported
+UNREACHABLE executed at llvm/include/llvm/Support/Error.h:810!
+```
 
 Expected: an `ExecutionEngine` that resolves only the symbols the caller
-registers (`registerSymbols`), or an error returned from `create`.
+gives it (`registerSymbols`), or an error returned from `create`.
 
 ## Cause
 
-`mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395`:
+The process's symbols are resolved in two places, and both need
+`dlopen(NULL)`:
 
-```cpp
-cantFail(llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
-    dataLayout.getGlobalPrefix()))
-```
+- `mlir/lib/ExecutionEngine/ExecutionEngine.cpp:393-395` adds
+  `cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(...))` to
+  the main JITDylib;
+- `LLJITBuilder` (`llvm/lib/ExecutionEngine/Orc/LLJIT.cpp:841`) creates
+  its own `<Process Symbols>` JITDylib with the same kind of generator and
+  links it after main and the platform. `ExecutionEngine.cpp:376-381`
+  builds it under `cantFail` too.
 
-and `LLJITBuilder` links the process's symbols by default as well
-(`LLJIT.h:415`, `setLinkProcessSymbolsByDefault`).
+The second one cannot simply be switched off:
+`setLinkProcessSymbolsByDefault(false)` leaves no process-symbols JITDylib,
+and the generic IR platform `ExecutionEngine` uses refuses to start without
+one (`LLJIT.cpp:1237`, "Native platforms require a process symbols
+JITDylib"). The draft of this fix that did that made `create` fail for
+every caller who turned the option off.
 
-## Proposed fix
+## The fix
 
-An `ExecutionEngineOptions` field, say `linkProcessSymbols` (default
-`true`, today's behaviour). When false, `create` adds no process-symbol
-generator and calls `setLinkProcessSymbolsByDefault(false)` on the builder,
-and every symbol comes from `sharedLibPaths` and `registerSymbols`. In any
-case, the failure should become an `Expected` error from `create` instead of
-`cantFail`.
+`pull-request.diff` keeps the process's symbols in one place. `create`
+sets up the LLJIT's process-symbols JITDylib itself
+(`setProcessSymbolsJITDylibSetup`); the JITDylib always exists, so the
+platform starts, and the new `ExecutionEngineOptions::enableProcessSymbols`
+(default `true`) decides whether it holds the process generator. The
+duplicate generator on the main JITDylib is gone. The link order is the
+data: main (JIT-compiled code and `registerSymbols`), the platform, then
+the process. Building the LLJIT, opening the process included, returns an
+error from `create` instead of aborting.
+
+One behaviour changes for default users: `ExecutionEngine::lookup`
+searches only the main JITDylib (`LLJIT::lookupLinkerMangled`), so it no
+longer returns process symbols that happened to be materialized there.
+JIT-compiled code still calls them through the link order. Libraries in
+`sharedLibPaths` that do not implement the init/destroy protocol are
+reached only through the process (they are opened `RTLD_GLOBAL`), which the
+option's documentation states.
+
+Verified against the pin: the diff applies (`git apply --check`); the
+pinned `Invoke.cpp` unit tests and the new `WithoutProcessSymbols` (9
+tests) pass when built against the patched `ExecutionEngine.cpp` with the
+pinned googletest and the installed static libraries; a static-PIE musl
+program creates an engine with the option off, calls a registered
+function, gets an error (not an abort) for an unregistered one, and gets
+an error from `create` with the option on.
 
 ## Why there is no patch
 
@@ -61,19 +93,14 @@ fails. With `LLJIT` the evaluator links no process symbol by default and
 binds the runtime's functions, the libm functions lowered code calls and
 the target entry's library calls itself.
 
-The report is still a pull request we intend to send. The proposed fix is
-drafted as `pull-request.diff`:
-`ExecutionEngineOptions::linkProcessSymbols` (default `true`); when
-`false`, `create` adds no process-symbol generator and builds the `LLJIT`
-with `setLinkProcessSymbolsByDefault(false)`. Building the `LLJIT` or
-opening the process's symbols now fails `create` with an error instead of
-aborting. The unit test is `WithoutProcessSymbols` in
-`mlir/unittests/ExecutionEngine/Invoke.cpp`. The diff applies to the pin
-and `ExecutionEngine.cpp` compiles with it; the unit test has not been run.
+The report is still a pull request we intend to send, drafted as
+`pull-request.diff`, which this repository does not apply.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file upstream. Upstream `main` has not changed this code
+(`ExecutionEngine.cpp` differs from the pin only in unrelated data-layout
+and IRBuilder lines), and no open pull request covers it.
 
 - Where: one pull request to llvm/llvm-project (MLIR ExecutionEngine), as
   `submission.md` says. No issue, and not a Bugzilla bug. The pull
