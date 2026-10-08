@@ -79,14 +79,16 @@ and `vectorize` leaves the function as it was.
 
 ## Proposed fix
 
-In `vectorizeLinalgOpPrecondition`, check the body of every op that will be
-vectorized as a generic (not a convolution, and not a contraction built as
-`vector.contract`) the way `vectorizeOneOp` will: each op is one a hook
-takes (with `tensorExtractVectorizationPrecondition` for `tensor.extract`),
-a constant, an `affine.apply` (which `convertAffineApply` expands first) or
-elementwise-mappable. `hasOnlyScalarElementwiseOp` is that check but for
-its stricter result types. Then `vectorize` fails before it builds
-anything, as it does for the all-parallel generic.
+The precondition and the vectorizer each hold their own idea of which body
+ops can be vectorized, and they agree only for an all-parallel op. Make
+them hold one: the rule `vectorizeOneOp` applies to an op no hook takes (a
+constant, or an ElementwiseMappable op) becomes a predicate that
+`vectorizeOneOp` and the precondition's per-op loop both call. That loop
+already asks `tensor.extract` the precondition of its hook; it then admits
+`linalg.yield` and `linalg.index` by kind (their hooks take every such
+op) and `affine.apply` (`convertAffineApply` expands it into arith ops
+first), and rejects every other op, for every linalg op, before
+`vectorize` builds anything.
 
 ## Our workaround
 
@@ -98,23 +100,38 @@ Before the patch it also asked `hasOnlyScalarElementwiseOp` of the body.
 
 ## Patch
 
-`llvm.patch` implements the proposed fix with the check upstream already
-has: `vectorizeLinalgOpPrecondition` asks `hasOnlyScalarElementwiseOp` of
-the body of every op that goes the generic way, as `isElementwise` asks it
-of an all-parallel one (the custom precondition before it has already
-checked the body's `tensor.extract` ops), so `vectorize` fails before it
-builds anything. An earlier draft wrote a helper of its own for the body,
-which repeated `hasOnlyScalarElementwiseOp`. Test:
-`mlir/test/Dialect/Linalg/vectorization/reduction-body-unsupported.mlir`,
-`@rows` left whole. Built into the pinned toolchain: the test passes with
-its `mlir-opt`, as the 14 other tests of that directory still do, and
-`tests/upstream/vectorize-precondition-body` checks the reproducer.
+`llvm.patch` implements the proposed fix: `isVectorizableWithoutHook` in
+`Vectorization.cpp`, used by `vectorizeOneOp` step 3 and by the per-op
+loop of `vectorizeLinalgOpPrecondition`, which now fails with
+`precondition failed: cannot vectorize scf.if` for `@rows`. The
+convolution and contraction paths do not walk the body with
+`vectorizeOneOp`, but the bodies they accept are arith ops, so the check
+leaves them as they were. An earlier version of the patch called
+`hasOnlyScalarElementwiseOp` once more, for reductions only, which kept
+the precondition's rule and the vectorizer's rule apart.
+
+Test, added to the existing
+`mlir/test/Dialect/Linalg/vectorization/unsupported.mlir`: a static
+reduction whose body holds an `scf.if`, vectorized with
+`vectorize_children_and_apply_patterns`. Without the patch
+`VectorizationPattern` changes the IR and then reports failure, the greedy
+driver does not converge, and the transform fails to apply; with it the
+function is printed unchanged.
+
+Verified against a `mlir-opt` linked from the pinned static libraries
+with the patched `Vectorization.cpp`: the new test passes (and fails with
+the unpatched `mlir-opt`), and the 23 other tests under `mlir/test` that
+drive the Linalg vectorizer and run without test-only passes pass with
+both. `tests/upstream/vectorize-precondition-body` checks `body.mlir`.
 
 ## Upstreaming plan
 
 Status: file upstream.
 
-- Where: an issue with this report and `body.mlir`, and a pull request to
-  llvm/llvm-project (Linalg vectorization).
-- Upstream test: `reduction-body-unsupported.mlir`; run `check-mlir` for
-  the vectorization tests whose reductions hold ops the check now refuses.
+- Where: an issue (title, body and a static reproducer in
+  `submission.md`) and a pull request to llvm/llvm-project (Linalg
+  vectorization). No existing report was found.
+- Upstream test: the new case at the end of
+  `mlir/test/Dialect/Linalg/vectorization/unsupported.mlir`; run
+  `check-mlir` before sending (the four vectorizer tests that need
+  test-only passes or `mlir-translate` were not run here).
