@@ -1,33 +1,58 @@
-Subject: [PATCH] [mlir][bytecode] Resolve deferred attribute entries in linear time
+Subject: [PATCH] [mlir][bytecode] Resolve deferred attributes and types in linear time
 
 Reading an attribute nested n deep from bytecode takes time quadratic in
-n (4.5 s for a builtin array 32,000 deep, against 0.18 s from text). An
-entry nested more than maxAttrTypeDepth deep is deferred, and
-AttrTypeReader::resolveEntry's slow path resolved deferrals from a deque:
-a failed entry went to the back and its dependencies to the front, unless
-already in the deque. For a chain e0 -> e5 -> e10 -> ... of deferrals the
-first pass leaves the deque as e_last, e0, e5, e10, ...; once e_last
-resolves, e0 is retried before e5, fails on e5 again and goes to the back
-without moving e5 forward, and so does every later entry: each pass over
-the deque resolves only its last element, n/5 passes of n/5 retries.
+n: 3.8 s for a builtin array nested 32,000 deep and 15.9 s at 64,000,
+against 0.06 s and 0.12 s from text. A parse that reaches
+maxAttrTypeDepth stops at the entry it would recurse into, and
+AttrTypeReader::resolveEntry resolves that entry before parsing the
+first one again. The slow path kept the pending entries in a deque: a
+failed entry went to the back, and the entry it deferred to the front
+unless it was already queued. For a chain e0 -> e5 -> e10 -> ... the
+first pass leaves e_last, e0, e5, ...; from then on each entry is
+retried before the one it waits on, fails on it again and goes to the
+back, so each pass over the deque resolves one entry. Entries that refer
+to each other in a cycle never leave the deque, and the reader hangs on
+such a file.
 
-The slow path is now a stack: a failed entry stays where it is with the
-entries it deferred pushed on top of it, so it is retried only once
-everything it waits on has been resolved, and each retry reaches past
-them. A chain of n deferrals takes one pass down and one back up. An
-entry pushed again after it was resolved reads at once.
+A parse returns at the first entry it defers, so a failed entry waits on
+exactly one other. The slow path now keeps those waits as a path, a
+chain of entries each waiting on the one above it: the entry the top
+parse stopped at goes on top, and once it resolves the entry below it is
+parsed again. An entry joins the path at most once, so a chain of n
+deferred entries takes O(n) parses, and an entry that waits on one
+already on the path is a cycle, reported as an error. The deferred
+worklist becomes the one deferred entry a failed parse can record.
 
-Test: deeply_nested_chain.mlir round-trips an attribute nested 300 deep.
+| depth  | text   | bytecode, before | bytecode, after |
+| ------ | ------ | ---------------- | --------------- |
+| 500    | 0.02 s | 0.02 s           | 0.02 s          |
+| 4,000  | 0.02 s | 0.07 s           | 0.02 s          |
+| 32,000 | 0.06 s | 3.83 s           | 0.05 s          |
+| 64,000 | 0.12 s | 15.91 s          | 0.07 s          |
+
+op_with_properties_deeply_nested_attr.mlir round-trips a chain of
+attributes then types 80 deep, and invalid_attr_type_section.mlir reads
+a file whose arrays refer to each other in a cycle.
 ---
- mlir/lib/Bytecode/Reader/BytecodeReader.cpp | 51 ++++++++-------------
- mlir/test/Bytecode/deeply_nested_chain.mlir |  9 ++++
- 2 files changed, 29 insertions(+), 31 deletions(-)
+ mlir/lib/Bytecode/Reader/BytecodeReader.cpp   | 137 +++++++-----------
+ .../invalid-attr_type_section-cycle.mlirbc    | Bin 0 -> 154 bytes
+ .../invalid/invalid_attr_type_section.mlir    |   7 +
+ ...op_with_properties_deeply_nested_attr.mlir |   8 +
+ 4 files changed, 71 insertions(+), 81 deletions(-)
 
 diff --git a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
-index 96ead28d0aa4065b3496459092032e677d5f7fee..686f3ba685fe1a84f4a5c127f26215a645783263 100644
+index 96ead28d0aa4065b3496459092032e677d5f7fee..463ccc6c4a3ea037a401da597821a63ba8d4ee56 100644
 --- a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
 +++ b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
-@@ -27,7 +27,6 @@
+@@ -19,6 +19,7 @@
+ #include "mlir/Support/LLVM.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/ScopeExit.h"
++#include "llvm/ADT/SetVector.h"
+ #include "llvm/ADT/StringExtras.h"
+ #include "llvm/ADT/StringRef.h"
+ #include "llvm/Support/Endian.h"
+@@ -27,7 +28,6 @@
  
  #include <cstddef>
  #include <cstdint>
@@ -35,10 +60,73 @@ index 96ead28d0aa4065b3496459092032e677d5f7fee..686f3ba685fe1a84f4a5c127f26215a6
  #include <list>
  #include <memory>
  #include <numeric>
-@@ -1394,13 +1393,13 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
-     return T();
+@@ -847,14 +847,13 @@ namespace {
+ ///   parsing deeply nested attributes to avoid potential stack overflows. The
+ ///   deferred parsing is achieved by reporting a failure when parsing a nested
+ ///   attribute/type and registering the index of the encountered attribute/type
+-///   in the deferred parsing worklist. Hence, a failure with deffered entry
+-///   does not constitute a failure, it also requires that folks return on
+-///   first failure rather than attempting additional parses.
+-/// - `deferredWorklist`: A list of attribute/type indices that we could not
+-///   parse due to hitting the depth limit. The worklist is used to capture the
+-///   indices of attributes/types that need to be parsed/reparsed when we hit
+-///   the depth limit. This enables moving the tracking of what needs to be
+-///   parsed to the heap.
++///   as the deferred entry. Hence, a failure with deffered entry does not
++///   constitute a failure, it also requires that folks return on first failure
++///   rather than attempting additional parses.
++/// - `deferredEntry`: The attribute/type index that the last failed parse
++///   could not parse due to hitting the depth limit. It has to be resolved
++///   before that parse is retried. This enables moving the tracking of what
++///   needs to be parsed to the heap.
+ class AttrTypeReader {
+   /// This class represents a single attribute or type entry.
+   template <typename T>
+@@ -959,9 +958,10 @@ public:
+   /// The kind of entry being parsed.
+   enum class EntryKind { Attribute, Type };
+ 
+-  /// Add an index to the deferred worklist for re-parsing.
++  /// Record the index that the current parse stopped at, to parse it before
++  /// re-parsing the current entry.
+   void addDeferredParsing(uint64_t index, EntryKind kind) {
+-    deferredWorklist.emplace_back(index, kind);
++    deferredEntry = {index, kind};
    }
  
+   /// Whether currently resolving.
+@@ -1017,11 +1017,12 @@ private:
+   /// Reference to the parser configuration.
+   const ParserConfig &parserConfig;
+ 
+-  /// Worklist for deferred attribute/type parsing. This is used to handle
++  /// The entry that the last failed parse stopped at, if it stopped at one
++  /// that was nested too deeply to parse eagerly. This is used to handle
+   /// deeply nested structures like CallSiteLoc iteratively.
+   /// - The first element is the index of the attribute/type to parse.
+   /// - The second element is the kind of entry being parsed.
+-  std::vector<std::pair<uint64_t, EntryKind>> deferredWorklist;
++  std::optional<std::pair<uint64_t, EntryKind>> deferredEntry;
+ 
+   /// Flag indicating if we are currently resolving an attribute or type.
+   bool resolving = false;
+@@ -1383,78 +1384,52 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
+ 
+   // Fast path: Try direct parsing without worklist overhead. This handles the
+   // common case where there are no deferred dependencies.
+-  assert(deferredWorklist.empty());
++  assert(!deferredEntry);
+   T result;
+   if (succeeded(readEntry(entries, index, result, entryType, depth))) {
+-    assert(deferredWorklist.empty());
++    assert(!deferredEntry);
+     return result;
+   }
+-  if (deferredWorklist.empty()) {
+-    // Failed with no deferred entries is error.
+-    return T();
+-  }
+-
 -  // Slow path: Use worklist to handle deferred dependencies. Use a deque to
 -  // iteratively resolve entries with dependencies.
 -  // - Pop from front to process
@@ -46,66 +134,77 @@ index 96ead28d0aa4065b3496459092032e677d5f7fee..686f3ba685fe1a84f4a5c127f26215a6
 -  // - Move failed entries to back (retry after dependencies)
 -  std::deque<std::pair<uint64_t, EntryKind>> worklist;
 -  llvm::DenseSet<std::pair<uint64_t, EntryKind>> inWorklist;
-+  // Slow path: resolve the deferred dependencies from a stack. An entry that
-+  // fails on entries it deferred stays where it is, with them pushed on top
-+  // of it, so that it is retried only once everything it waits on has been
-+  // resolved, and each retry reaches past them. A chain of n deferrals then
-+  // takes O(n) retries; retrying an entry before the ones it waits on, as a
-+  // queue does, would take O(n) passes over the chain.
-+  SmallVector<std::pair<uint64_t, EntryKind>> worklist;
+-
+-  EntryKind entryKind =
+-      std::is_same_v<T, Type> ? EntryKind::Type : EntryKind::Attribute;
  
-   EntryKind entryKind =
-       std::is_same_v<T, Type> ? EntryKind::Type : EntryKind::Attribute;
-@@ -1408,35 +1407,33 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
++  // Slow path: `path` is a chain of entries, each waiting on the entry above
++  // it. The parse of the top entry stopped at `deferredEntry`, which goes on
++  // top. Then each entry from the top down is parsed again, now that the
++  // entry above it is resolved, until one stops at a deferred entry again.
++  // Every entry is thus re-parsed only once the entry it waits on is
++  // resolved, and joins the path at most once: a chain of n deferred entries
++  // takes O(n) parses. An entry that waits on one already on the path refers
++  // to itself.
    static_assert((std::is_same_v<T, Type> || std::is_same_v<T, Attribute>) &&
                  "Only support resolving Attributes and Types");
- 
+-
 -  auto addToWorklistFront = [&](std::pair<uint64_t, EntryKind> entry) {
 -    if (inWorklist.insert(entry).second)
 -      worklist.push_front(entry);
-+  // Push the dependencies in reverse, so that the first one is tried first.
-+  auto pushDeferred = [&]() {
-+    worklist.append(deferredWorklist.rbegin(), deferredWorklist.rend());
-+    deferredWorklist.clear();
-   };
- 
-   // Add the original index and any dependencies from the fast path attempt.
-   worklist.emplace_back(index, entryKind);
+-  };
+-
+-  // Add the original index and any dependencies from the fast path attempt.
+-  worklist.emplace_back(index, entryKind);
 -  inWorklist.insert({index, entryKind});
 -  for (auto entry : llvm::reverse(deferredWorklist))
 -    addToWorklistFront(entry);
-+  pushDeferred();
- 
-   while (!worklist.empty()) {
+-
+-  while (!worklist.empty()) {
 -    auto [currentIndex, entryKind] = worklist.front();
 -    worklist.pop_front();
 -
 -    // Clear the deferred worklist before parsing to capture any new entries.
-+    auto [currentIndex, currentKind] = worklist.back();
-     deferredWorklist.clear();
- 
+-    deferredWorklist.clear();
+-
 -    if (entryKind == EntryKind::Type) {
-+    // An entry already resolved, through an earlier dependency, reads at
-+    // once; each one that reads leaves the stack.
-+    if (currentKind == EntryKind::Type) {
++  auto readPathEntry = [&](std::pair<uint64_t, EntryKind> entry) {
++    if (entry.second == EntryKind::Type) {
        Type result;
-       if (succeeded(readType(currentIndex, result, depth))) {
+-      if (succeeded(readType(currentIndex, result, depth))) {
 -        inWorklist.erase({currentIndex, entryKind});
-+        worklist.pop_back();
-         continue;
-       }
-     } else {
+-        continue;
+-      }
+-    } else {
 -      assert(entryKind == EntryKind::Attribute && "Unexpected entry kind");
-+      assert(currentKind == EntryKind::Attribute && "Unexpected entry kind");
-       Attribute result;
-       if (succeeded(readAttribute(currentIndex, result, depth))) {
+-      Attribute result;
+-      if (succeeded(readAttribute(currentIndex, result, depth))) {
 -        inWorklist.erase({currentIndex, entryKind});
-+        worklist.pop_back();
-         continue;
-       }
+-        continue;
+-      }
++      return readType(entry.first, result, depth);
      }
-@@ -1445,15 +1442,7 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
-       // Parsing failed with no deferred entries which implies an error.
++    Attribute result;
++    return readAttribute(entry.first, result, depth);
++  };
+ 
+-    if (deferredWorklist.empty()) {
+-      // Parsing failed with no deferred entries which implies an error.
++  EntryKind entryKind =
++      std::is_same_v<T, Type> ? EntryKind::Type : EntryKind::Attribute;
++  SetVector<std::pair<uint64_t, EntryKind>> path;
++  path.insert({index, entryKind});
++  do {
++    // Parsing failed with no deferred entry which implies an error.
++    if (!deferredEntry)
++      return T();
++    auto [deferredIndex, deferredKind] = *deferredEntry;
++    deferredEntry.reset();
++    if (!path.insert({deferredIndex, deferredKind})) {
++      emitError(fileLoc) << "cyclic reference to "
++                         << (deferredKind == EntryKind::Type ? "type"
++                                                             : "attribute")
++                         << " index: " << deferredIndex;
        return T();
      }
 -
@@ -117,22 +216,96 @@ index 96ead28d0aa4065b3496459092032e677d5f7fee..686f3ba685fe1a84f4a5c127f26215a6
 -      addToWorklistFront(entry);
 -
 -    deferredWorklist.clear();
-+    pushDeferred();
-   }
+-  }
++    while (!path.empty() && succeeded(readPathEntry(path.back())))
++      path.pop_back();
++  } while (!path.empty());
    return entries[index].entry;
  }
-diff --git a/mlir/test/Bytecode/deeply_nested_chain.mlir b/mlir/test/Bytecode/deeply_nested_chain.mlir
+ 
+@@ -1503,7 +1478,7 @@ LogicalResult AttrTypeReader::parseCustomEntry(Entry<T> &entry,
+     // Try parsing with callbacks first if available.
+     for (const auto &callback :
+          parserConfig.getBytecodeReaderConfig().getTypeCallbacks()) {
+-      size_t savedWorklistSize = deferredWorklist.size();
++      auto savedDeferredEntry = deferredEntry;
+       if (failed(
+               callback->read(dialectReader, entry.dialect->name, entry.entry)))
+         return failure();
+@@ -1512,16 +1487,16 @@ LogicalResult AttrTypeReader::parseCustomEntry(Entry<T> &entry,
+         return success();
+ 
+       // The callback fell through without consuming the encoding. Reset the
+-      // reader and restore the deferred worklist: any entries added during the
+-      // callback's partial read are stale and must not persist.
+-      deferredWorklist.resize(savedWorklistSize);
++      // reader and restore the deferred entry: any entry recorded during the
++      // callback's partial read is stale and must not persist.
++      deferredEntry = savedDeferredEntry;
+       reader = EncodingReader(entry.data, reader.getLoc());
+     }
+   } else {
+     // Try parsing with callbacks first if available.
+     for (const auto &callback :
+          parserConfig.getBytecodeReaderConfig().getAttributeCallbacks()) {
+-      size_t savedWorklistSize = deferredWorklist.size();
++      auto savedDeferredEntry = deferredEntry;
+       if (failed(
+               callback->read(dialectReader, entry.dialect->name, entry.entry)))
+         return failure();
+@@ -1530,9 +1505,9 @@ LogicalResult AttrTypeReader::parseCustomEntry(Entry<T> &entry,
+         return success();
+ 
+       // The callback fell through without consuming the encoding. Reset the
+-      // reader and restore the deferred worklist: any entries added during the
+-      // callback's partial read are stale and must not persist.
+-      deferredWorklist.resize(savedWorklistSize);
++      // reader and restore the deferred entry: any entry recorded during the
++      // callback's partial read is stale and must not persist.
++      deferredEntry = savedDeferredEntry;
+       reader = EncodingReader(entry.data, reader.getLoc());
+     }
+   }
+diff --git a/mlir/test/Bytecode/invalid/invalid-attr_type_section-cycle.mlirbc b/mlir/test/Bytecode/invalid/invalid-attr_type_section-cycle.mlirbc
 new file mode 100644
-index 0000000000000000000000000000000000000000..b701d3ec16e87c0648de78c6bd7219d5bcb13f99
---- /dev/null
-+++ b/mlir/test/Bytecode/deeply_nested_chain.mlir
-@@ -0,0 +1,9 @@
-+// RUN: mlir-opt %s --verify-roundtrip
+index 0000000000000000000000000000000000000000..4551dca78c4ca99ce2c62d37fb7fcabb974fe957
+GIT binary patch
+literal 154
+zcmXwvu?oU407P?MV=N(*QbdAubPZTnaTnU5^$(;O3N;Q*zuR9h4&K2V?p@b@2Gh0o
+zp}DxTYXl6Ds(7k_y3)lzy3(5mNhxL0U=C`~fCX5B6}bQHI2_YQWmclMfXWnsEg>QL
+jytGC6T&FosLA>7MI(rfQ5?x5}qqr_{oWf1)a!TL}4{Q|Q
+
+literal 0
+HcmV?d00001
+
+diff --git a/mlir/test/Bytecode/invalid/invalid_attr_type_section.mlir b/mlir/test/Bytecode/invalid/invalid_attr_type_section.mlir
+index 87beaa6dd7a0565c53b433c291108172056857eb..2e8973bd9663135c2f0a214c0bc724504a8d5480 100644
+--- a/mlir/test/Bytecode/invalid/invalid_attr_type_section.mlir
++++ b/mlir/test/Bytecode/invalid/invalid_attr_type_section.mlir
+@@ -14,3 +14,10 @@
+ 
+ // RUN: not mlir-opt %S/invalid-attr_type_section-trailing_data.mlirbc -allow-unregistered-dialect 2>&1 | FileCheck %s --check-prefix=TRAILING_DATA
+ // TRAILING_DATA: trailing characters found after Attribute assembly format: trailing
 +
-+// An attribute nested 300 deep: reading it from bytecode defers an entry
-+// every few levels, and the chain of deferrals resolves in one pass down
-+// and one back up.
++//===--------------------------------------------------------------------===//
++// Cycle
++//===--------------------------------------------------------------------===//
++
++// RUN: not mlir-opt %S/invalid-attr_type_section-cycle.mlirbc -allow-unregistered-dialect 2>&1 | FileCheck %s --check-prefix=CYCLE
++// CYCLE: cyclic reference to attribute index: {{[0-9]+}}
+diff --git a/mlir/test/Bytecode/op_with_properties_deeply_nested_attr.mlir b/mlir/test/Bytecode/op_with_properties_deeply_nested_attr.mlir
+index 6feae31aee806b48cbe074902f509663ed0dfb09..e91c20e75483a0f2b25174ded079336c48828194 100644
+--- a/mlir/test/Bytecode/op_with_properties_deeply_nested_attr.mlir
++++ b/mlir/test/Bytecode/op_with_properties_deeply_nested_attr.mlir
+@@ -12,3 +12,11 @@ func.func @deeply_nested_infinite_loop() -> i32 {
+   %0 = "test.constant"() {value = [[[[[[1 : i64]]]]]]} : () -> i32
+   return %0 : i32
+ }
++
++// -----
++// Make sure bytecode reader resolves a chain of deferred entries, attributes
++// then types, many times deeper than it parses eagerly.
 +func.func @deeply_nested_chain() -> i32 {
-+  %0 = "test.constant"() {value = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1 : i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]} : () -> i32
++  %0 = "test.constant"() {value = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<tuple<i32>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]} : () -> i32
 +  return %0 : i32
 +}
