@@ -50,16 +50,16 @@
   "fast_float": {
     "path": "third_party/fast_float",
     "repository": "https://github.com/fastfloat/fast_float.git",
-    "revision": "9498cc361e081f46c85c936a0677e271c1930a45",
-    "describe": "v8.3.0-16-g9498cc3",
-    "version": "8.3.0-16"
+    "revision": "f3f02c8ad0afd8181166dabce6a9e69f8aec24de",
+    "tag": "v8.3.1",
+    "version": "8.3.1"
   },
   "snmalloc": {
     "path": "third_party/snmalloc",
     "repository": "https://github.com/microsoft/snmalloc.git",
-    "revision": "e9f7b2ebd11fcadd5913c95d90770902e8126646",
-    "describe": "0.7.5-15-ge9f7b2e",
-    "version": "0.7.5-15"
+    "revision": "f126f1c94d624976d57568d2c6c8a80bc66549bc",
+    "tag": "0.7.6",
+    "version": "0.7.6"
   },
   "ryu": {
     "path": "third_party/ryu",
