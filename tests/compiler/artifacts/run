@@ -27,11 +27,12 @@ module Main
 
 import Prelude
 
-f : Integer -> Integer
-f x = prim__shl_Integer x 1
+f : Double -> Int
+f 0.5 = 1
+f _ = 0
 
 main : IO ()
-main = printLn (f 7)
+main = printLn (f 0.5)
 IDRIS
 compile_program "$work/Main.idr" "$work/build/exec/Main"
 say "compile an unsupported change: exit $compiled"

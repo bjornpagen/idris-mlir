@@ -1,3 +1,3 @@
 #!/bin/sh
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-profile_reject .
+e2e_io .
