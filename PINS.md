@@ -127,9 +127,10 @@ which the top-level CMake configure gate reads.
   gives such an operand `ub.poison` (this bug has no patch of its own)
 - retire: drop the patch when the pin has #208881 or our
   remove-dead-values-unreachable pull request (neither on main at 7208ba24)
-- upstream: upstream/01-remove-dead-values-address-taken (not yet filed);
-  plan in its README: its test as a comment on #208881, or a test-only
-  pull request if #208881 lands without one
+- upstream: upstream/01-remove-dead-values-address-taken; its test was
+  posted as a comment on #208881 on 2026-10-08
+  (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698);
+  a test-only pull request follows if #208881 lands without it
 
 ## uplift-final-counter
 

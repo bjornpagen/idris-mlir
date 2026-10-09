@@ -103,10 +103,14 @@ apply after the first.
 
 ## Upstreaming plan
 
-Status: file as a comment on
-https://github.com/llvm/llvm-project/pull/208881 (open, approved, not
-merged at trunk 7208ba24; its source change applies to trunk, its test
-hunk no longer does). Trunk's `remove-dead-values.mlir` has no case like
+Status: posted 2026-10-08 as a comment on
+https://github.com/llvm/llvm-project/pull/208881
+(https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698), with its prose unwrapped
+so GitHub does not render the hard line breaks. #208881 was open,
+approved and not merged then (its source change applies to trunk at
+7208ba24, its test hunk no longer does). Next: wait for #208881's author
+or reviewers; if it lands without the test, send the test-only pull
+request `submission.md` describes. Trunk's `remove-dead-values.mlir` has no case like
 this one. No new issue. No second pull request unless #208881 lands
 without such a test; `submission.md` says what to send then. Author is
 Bjorn, individual, work done outside any employer. No @mentions.

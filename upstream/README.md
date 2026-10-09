@@ -54,8 +54,8 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 
 | NN | bug | what goes out | status |
 | -- | --- | ------------- | ------ |
-| 01 | remove-dead-values-address-taken | a test, as a comment on #208881 (approved, unmerged) | send next |
-| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | ready |
+| 01 | remove-dead-values-address-taken | a test, as a comment on #208881 (approved, unmerged) | posted 2026-10-08 (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698); wait for #208881 |
+| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next |
 | 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | ready; overlaps open #229910 |
 | 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | ready |
 | 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | ready |
