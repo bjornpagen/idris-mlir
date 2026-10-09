@@ -88,6 +88,10 @@ export class Lengths {
 public:
   explicit Lengths(ModuleOp module, DataFlowSolver &solver)
       : module(module), calls(module), solver(solver) {}
+  // The returned arrays refer to `calls`, so a Lengths stays where it was
+  // built: neither copied nor moved.
+  Lengths(const Lengths &) = delete;
+  Lengths &operator=(const Lengths &) = delete;
 
   // Whether the array `array` has `size` clamped at 0 elements wherever
   // both are in scope.

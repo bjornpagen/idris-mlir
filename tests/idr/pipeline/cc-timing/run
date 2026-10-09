@@ -6,10 +6,11 @@
 # (as --dump-dir names them), and no step that did not run has one; the
 # passes a step ran are the rows nested in it; nothing at the top but the
 # parse, the steps, LLVM, the Rest and the Total; and no time is counted
-# twice at the top, so the Rest is not negative. MLIR keys a pass's timer by the pass's address, which a
-# step's pass can take after an earlier step's pass manager is gone: under
-# one timer for every step, a later pass's time went to the earlier pass's
-# row, under its name, and the later pass had none.
+# twice at the top, so the Rest is not negative. MLIR keys a pass's timer
+# by the pass's address, which a step's pass can take after an earlier
+# step's pass manager is gone: under one timer for every step, a later
+# pass's time went to the earlier pass's row, under its name, and the later
+# pass had none.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
 cat > "$work/main.mlir" << 'EOF'
