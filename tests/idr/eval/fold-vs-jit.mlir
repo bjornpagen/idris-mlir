@@ -63,6 +63,18 @@ module {
     %r = idr.str.head %a0
     return %r : i32
   }
+  func.func private @scalar_at(%a0: !idr.str, %a1: i64) -> i32 attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %r = idr.str.scalar_at %a0, %a1
+    return %r : i32
+  }
+  func.func private @scalar_end(%a0: !idr.str, %a1: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %r = idr.str.scalar_end %a0, %a1
+    return %r : i64
+  }
+  func.func private @drop_bytes(%a0: !idr.str, %a1: i64) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %r = idr.str.drop_bytes %a0, %a1
+    return %r : !idr.str
+  }
   func.func private @cmp_lt(%a0: !idr.str, %a1: !idr.str) -> i1 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.cmp lt %a0, %a1
     return %r : i1
@@ -1217,6 +1229,69 @@ module {
     %x0 = idr.constant "12.7" : !idr.str
     %r = func.call @to_int16(%x0) : (!idr.str) -> i16
     return %r : i16
+  }
+  // CHECK-LABEL: func.func @case121(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 128512 : i32
+  // CHECK-NEXT: return %[[V]] : i32
+  func.func @case121() -> i32 {
+    %x0 = idr.constant "a\F0\9F\98\80b" : !idr.str
+    %x1 = arith.constant 3 : i64
+    %r = func.call @scalar_at(%x0, %x1) : (!idr.str, i64) -> i32
+    return %r : i32
+  }
+  // CHECK-LABEL: func.func @case122(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 0 : i32
+  // CHECK-NEXT: return %[[V]] : i32
+  func.func @case122() -> i32 {
+    %x0 = idr.constant "h\C3\A9llo" : !idr.str
+    %x1 = arith.constant 6 : i64
+    %r = func.call @scalar_at(%x0, %x1) : (!idr.str, i64) -> i32
+    return %r : i32
+  }
+  // CHECK-LABEL: func.func @case123(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 6 : i64
+  // CHECK-NEXT: return %[[V]] : i64
+  func.func @case123() -> i64 {
+    %x0 = idr.constant "\E6\97\A5\E6\9C\AC" : !idr.str
+    %x1 = arith.constant 4 : i64
+    %r = func.call @scalar_end(%x0, %x1) : (!idr.str, i64) -> i64
+    return %r : i64
+  }
+  // CHECK-LABEL: func.func @case124(
+  // CHECK-NEXT: %[[V:[^ ]+]] = arith.constant 1 : i64
+  // CHECK-NEXT: return %[[V]] : i64
+  func.func @case124() -> i64 {
+    %x0 = idr.constant "abc" : !idr.str
+    %x1 = arith.constant -5 : i64
+    %r = func.call @scalar_end(%x0, %x1) : (!idr.str, i64) -> i64
+    return %r : i64
+  }
+  // CHECK-LABEL: func.func @case125(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "\C3\A9llo" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case125() -> !idr.str {
+    %x0 = idr.constant "h\C3\A9llo" : !idr.str
+    %x1 = arith.constant 2 : i64
+    %r = func.call @drop_bytes(%x0, %x1) : (!idr.str, i64) -> !idr.str
+    return %r : !idr.str
+  }
+  // CHECK-LABEL: func.func @case126(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "h\C3\A9llo" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case126() -> !idr.str {
+    %x0 = idr.constant "h\C3\A9llo" : !idr.str
+    %x1 = arith.constant 0 : i64
+    %r = func.call @drop_bytes(%x0, %x1) : (!idr.str, i64) -> !idr.str
+    return %r : !idr.str
+  }
+  // CHECK-LABEL: func.func @case127(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant "" : !idr.str
+  // CHECK-NEXT: return %[[V]] : !idr.str
+  func.func @case127() -> !idr.str {
+    %x0 = idr.constant "abc" : !idr.str
+    %x1 = arith.constant 99 : i64
+    %r = func.call @drop_bytes(%x0, %x1) : (!idr.str, i64) -> !idr.str
+    return %r : !idr.str
   }
 }
 
