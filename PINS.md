@@ -40,7 +40,14 @@ workaround; main's clang compiles the report's unit, where 23.1.2's
 crashed, so `Driver/Retarget.cppm` builds its feature string as
 `std::string` again). These retirements were observed where the pin was
 first built, arm64 macOS; `make build` and the suites on each target are
-their check, as for any change.
+their check, as for any change. Retired with the one recipe
+(2026-10-09): `stage2-thinlto`. Stage 2 is not LTO on any target: its
+libraries are native code that every build of our tools links as it is,
+a rebuild through the compiler cache relinks without optimizing LLVM
+again, and the tools' few percent of speed is not worth the bootstrap's
+hours. What programs gain from LTO is untouched: idris-mlir-cc joins the
+runtime's bitcode with each program's module, and our own code's Release
+build is full LTO.
 
 The LLVM pin is a commit of llvm main, not a release: the patch we carry
 for a bug we send upstream is then its pull request, one diff, not two.
@@ -596,29 +603,6 @@ which the top-level CMake configure gate reads.
 - workaround: 8 MiB, glibc's default, recorded in PT_GNU_STACK
 - retire: never while the tools link musl
 - upstream: none — musl's documented behaviour
-
-## stage2-thinlto
-
-- symptom: an ELF stage 2 (LLVM, MLIR, clang, lld) was meant to be built
-  with `LLVM_ENABLE_LTO=Full`. A full-LTO link is one single-threaded
-  process over the whole program: for clang, clang-tidy or mlir-opt that is
-  roughly 10 GB or more of memory and most of an hour each, on a machine
-  with 4 cores and 15 GB that also runs compile jobs, and it has not been
-  measured here
-- sites: tools/bootstrap.sh (`IDRIS_MLIR_STAGE2_LTO`, default `Thin`; the
-  ThinLTO backends are limited to two threads); CMakeLists.txt, where our
-  own code is still `-flto=full`
-- workaround: an ELF stage 2 is ThinLTO with fat objects. LLVM's tools are
-  ThinLTO-optimized; our Release build links LLVM's ThinLTO bitcode with
-  our full-LTO bitcode, so the two meet in one link but ThinLTO does not
-  import across them. A Mach-O stage 2 is not LTO at all: an object with
-  bitcode beside native code exists in ELF only, and our Debug build links
-  stage 2's libraries without LTO (tools/bootstrap.sh's target section).
-  The stamp of stage 2 records the LTO kind, the time, the peak memory and
-  the disk it took
-- retire: run `IDRIS_MLIR_STAGE2_LTO=Full tools/bootstrap.sh stage2` on a
-  machine where it fits, record the numbers here, and make Full the default
-- upstream: none
 
 ## runtime-quarantine
 

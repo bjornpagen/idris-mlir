@@ -196,7 +196,7 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
 - **Not tied to the LLVM pin, and unchanged by it:** `zones-on-demand`,
   `platform-gate-x86_64`, `versions-in-lock-file`, `no-stdexec`,
   `darwin-inert-mitigations`, `cmake-import-std-uuid`, `clang-libcxx`,
-  `no-sanitizer-runtimes`, `musl-thread-stacks`, `stage2-thinlto`,
+  `no-sanitizer-runtimes`, `musl-thread-stacks`,
   `runtime-quarantine`, `runtime-cx16`, `simdutf-dispatch`,
   `linux-uapi-from-host`, `mirrored-sources`, `idris-support-host-cc`.
 

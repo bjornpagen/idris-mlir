@@ -169,7 +169,7 @@ at the top of `tools/bootstrap.sh`. It is one recipe on both hosts: a
 stage-1 clang, the target's C library (musl on Linux, the SDK's libSystem
 on macOS), the LLVM runtimes, and a stage-2 LLVM/MLIR built by stage 1
 against them, with the backends of both targets. Only what the operating
-system forces differs (static or not, LTO with fat objects on ELF). The
+system forces differs (whether an executable is static). The
 long builds take hours and tens of GB of disk; with ccache, a rebuild
 recompiles only what changed. `make build` itself is incremental through
 Ninja and goes through no compiler cache: its units import C++ modules,

@@ -54,9 +54,6 @@
 #   IDRIS_MLIR_TOOLCHAIN   the directory instead of .toolchain
 #   IDRIS_MLIR_JOBS        parallel compile jobs (default: the cores, at most
 #                          one per 5 GiB of memory); one link at a time
-#   IDRIS_MLIR_STAGE2_LTO  Thin (default) or Full: the LTO of an ELF stage 2
-#                          (PINS.md: stage2-thinlto). A Mach-O stage 2 is not
-#                          LTO, and the variable is refused there
 #   IDRIS_MLIR_CCACHE      the compiler launcher of the LLVM builds: unset,
 #                          ccache on PATH or MacPorts' if there is one; a
 #                          path, that ccache; 0, none
@@ -128,10 +125,6 @@ llvm_targets='AArch64;X86'
 #   object_format   elf or macho: what an executable is, and what checks it
 #   libc            musl, built into the sysroot by the libc step; or sdk,
 #                   libSystem in the macOS SDK, which the step records
-#   stage2_lto      an LTO object that is also native code (fat LTO) exists
-#                   in ELF only, and our Debug build links stage 2's
-#                   libraries without LTO: so an ELF stage 2 is ThinLTO with
-#                   fat objects, and a Mach-O stage 2 is not LTO
 #   cxx_libdir      where clang's driver finds the C++ runtimes beside it:
 #                   the Linux driver searches lib/<triple>, the Darwin
 #                   driver names no such directory, and the configuration
@@ -231,22 +224,6 @@ for arg in "$@"; do
   esac
 done
 
-case $object_format in
-  elf)
-    lto=${IDRIS_MLIR_STAGE2_LTO:-Thin}
-    case $lto in
-      Thin | Full) ;;
-      *) usage "IDRIS_MLIR_STAGE2_LTO must be Thin or Full (got $lto)" ;;
-    esac
-    stage2_lto="$lto, with fat objects"
-    ;;
-  macho)
-    [ -z "${IDRIS_MLIR_STAGE2_LTO-}" ] ||
-      usage "IDRIS_MLIR_STAGE2_LTO is an ELF stage 2's: fat LTO objects are ELF-only, so a Mach-O stage 2 is not LTO"
-    lto=Off
-    stage2_lto=Off
-    ;;
-esac
 if [ -n "${IDRIS_MLIR_JOBS-}" ]; then
   jobs=$IDRIS_MLIR_JOBS
 else
@@ -950,9 +927,9 @@ recipe_ninja() {
   args_ninja
 }
 
-# Only what the next steps use: the compilers, the linker, the
-# archiver and nm for LTO objects, and the tools that read an executable
-# (readelf for ELF, objdump for Mach-O).
+# Only what the next steps use: the compilers, the linker, the archiver
+# and nm, and the tools that read an executable (readelf for ELF, objdump
+# for Mach-O).
 stage1_components='clang;clang-resource-headers;lld;llvm-ar;llvm-ranlib;llvm-nm;llvm-objdump;llvm-readobj;llvm-readelf'
 
 args_stage1() {
@@ -1056,16 +1033,13 @@ recipe_runtimes() {
 stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
 # Stage 2, by stage 1, against the runtimes beside it, assertions on, no
-# shared libraries or plugins. Statistics are forced on, so that
-# llvm-config.h says they count to every includer, as they do in an LLVM
-# with assertions: a pass statistic's layout follows it, and our Release
-# build defines NDEBUG. On ELF: static PIE, and LTO with fat objects, whose
-# bitcode serves the Release build of our tools and whose native code every
-# other build; a ThinLTO link runs two backend threads, so that it and two
-# compile jobs fit in 15 GB of memory. On Mach-O: a PIE linked against
-# libSystem (no executable is static there), and no LTO, since only an ELF
-# object carries bitcode beside native code.
-# PIN(stage2-thinlto): ThinLTO unless IDRIS_MLIR_STAGE2_LTO=Full — see PINS.md
+# shared libraries or plugins, and no LTO: its libraries are native code,
+# which every build of our tools links as it is, and a rebuild through the
+# compiler cache relinks without optimizing LLVM again. Statistics are
+# forced on, so that llvm-config.h says they count to every includer, as
+# they do in an LLVM with assertions: a pass statistic's layout follows it,
+# and our Release build defines NDEBUG. On ELF a static PIE; on Mach-O a PIE
+# linked against libSystem, since no executable is static there.
 args_stage2() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
@@ -1074,17 +1048,15 @@ args_stage2() {
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
     -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INSTALL_UTILS=ON \
-    -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DLLVM_ENABLE_PLUGINS=OFF -DCLANG_PLUGIN_SUPPORT=OFF \
-    "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components"
+    -DLLVM_ENABLE_LTO=OFF -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DLLVM_ENABLE_PLUGINS=OFF \
+    -DCLANG_PLUGIN_SUPPORT=OFF "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components"
   native_cmake_flags
   case $object_format in
     elf)
-      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld.lld" -DCMAKE_EXE_LINKER_FLAGS=-Wl,--thinlto-jobs=2 \
-        -DLLVM_ENABLE_PIC=OFF -DLLVM_BUILD_STATIC=ON "-DLLVM_ENABLE_LTO=$lto" -DLLVM_ENABLE_FATLTO=ON
+      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld.lld" -DLLVM_ENABLE_PIC=OFF -DLLVM_BUILD_STATIC=ON
       ;;
     macho)
-      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld64.lld" \
-        -DLLVM_ENABLE_PIC=ON -DLLVM_BUILD_STATIC=OFF -DLLVM_ENABLE_LTO=OFF
+      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld64.lld" -DLLVM_ENABLE_PIC=ON -DLLVM_BUILD_STATIC=OFF
       ;;
   esac
   llvm_without_host_libraries
@@ -1358,7 +1330,7 @@ CC
 # libraries is on disk, and the install runs the commands of
 # install-distribution without Ninja, which would rebuild the objects.
 step_stage2() {
-  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_name, with stage 1 (LTO: $stage2_lto)" || return 0
+  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_name, with stage 1" || return 0
   require cmake ninja stage1 libc runtimes
   need git python3
   llvm_tree
@@ -1418,7 +1390,7 @@ step_stage2() {
   done
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
     "$llvm_name_key" "$llvm_name" version "$llvm_version" triple "$triple" targets "$llvm_targets" \
-    libc "$libc" sdk "$sdk" sdk_version "$sdk_version" page_size "$page_size" lto "$stage2_lto" \
+    libc "$libc" sdk "$sdk" sdk_version "$sdk_version" page_size "$page_size" \
     inputs "$step_inputs" patches "$(patch_stamp llvm)" jobs "$jobs" compiler_cache "$ccache_state" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
@@ -1578,7 +1550,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-say "tools/bootstrap.sh:$steps ($jobs jobs; $triple; stage-2 LTO $stage2_lto; $ccache_state)"
+say "tools/bootstrap.sh:$steps ($jobs jobs; $triple; $ccache_state)"
 summary=
 for step in $steps; do
   "step_$step"

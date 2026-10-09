@@ -148,9 +148,8 @@ endforeach()
 #                                       that the target has live
 #   IDRIS_MLIR_TOOL_LINK_FLAGS          the link flags that make a tool an
 #                                       executable of the target, hardened
-#   IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS  the Release link's flags: how it
-#                                       takes LLVM's bitcode, and drops
-#                                       unused sections
+#   IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS  the Release link's own flags, such
+#                                       as dropping unused sections
 #
 # A program's link line is the pinned C compiler with its object, the
 # runtime and -o, then idris-mlir-cc --print-link-flags: --target with the
@@ -187,14 +186,12 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# Our tools: PIE code with CET and stack-clash probes; static-PIE on musl,
 	# read-only after relocation, no executable stack. PIN(musl-thread-stacks):
 	# LLVM takes the libc's default thread stack, which musl reads from
-	# PT_GNU_STACK — see PINS.md. The Release link takes the bitcode of
-	# LLVM's fat LTO objects, caches LLVM's ThinLTO backends, and drops
-	# unused sections (lld's ELF spellings).
+	# PT_GNU_STACK — see PINS.md. The Release link drops unused sections
+	# (lld's ELF spelling).
 	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection)
 	set(IDRIS_MLIR_TOOL_LINK_FLAGS -static-pie LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
 		LINKER:-z,nodlopen LINKER:-z,stack-size=8388608)
-	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS -Wl,--fat-lto-objects -Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache
-		-Wl,--thinlto-cache-policy=cache_size_bytes=2g LINKER:--gc-sections)
+	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS LINKER:--gc-sections)
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
 	# has, and a program compiled for a later one names what an older lacks.
@@ -238,9 +235,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_PAGE_SIZE 16384)
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
 	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
-	# plain arm64 Darwin process, and LLVM's libraries are native code here
-	# (no fat LTO objects in Mach-O), so the Release link has no bitcode of
-	# theirs to take — see PINS.md.
+	# plain arm64 Darwin process — see PINS.md.
 	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS "")
 	set(IDRIS_MLIR_TOOL_LINK_FLAGS "")
 	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS "")
@@ -293,9 +288,8 @@ target_compile_options(idris_mlir_warnings INTERFACE
 )
 
 # The language profile of our tools. No FP contraction anywhere. The Release
-# build of our code is full LTO; on ELF it is one LTO domain with LLVM and
-# MLIR, whose libraries carry bitcode next to native code (fat LTO objects).
-# PIN(stage2-thinlto): LLVM's own bitcode is ThinLTO — see PINS.md
+# build of our code is full LTO, linked with LLVM's and MLIR's libraries as
+# the native code stage 2 built them.
 add_library(idris_mlir_language_profile INTERFACE)
 target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
