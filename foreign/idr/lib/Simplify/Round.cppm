@@ -9,7 +9,7 @@ namespace idr::simplify {
 
 // The passes of one round of idr-simplify, as textual pipelines, in order.
 //
-// The inliner simplifies each function and inlines the calls that exposes
+// idr-inline simplifies each function and inlines the calls that exposes
 // until an iteration inlines nothing, not a fixed number of times (upstream's
 // default is 4): unfolding a sequence of n actions, as a `do` block of n
 // statements is (each `>>` applies the closure of the rest), takes n
@@ -22,12 +22,11 @@ namespace idr::simplify {
 //
 // Specialization takes no option: it is finite by construction, and its
 // budget is an assertion of its own.
-export SmallVector<std::string> simplifyRound(unsigned inlineIterations) {
+export SmallVector<std::string> simplifyRound() {
   return {
       "idr-loop-breakers",
       "idr-effects",
-      llvm::formatv("idr-inline{{default-pipeline=idr-canonicalize max-iterations={0}}",
-                    inlineIterations),
+      "idr-inline",
       "idr-specialize",
       "sccp",
       "int-range-optimizations",

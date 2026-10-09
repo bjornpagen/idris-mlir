@@ -208,8 +208,6 @@ target_compile_definitions(idris_rt PRIVATE
 	SNMALLOC_USE_WAIT_ON_ADDRESS=1
 	SNMALLOC_PAGESIZE=${IDRIS_MLIR_PAGE_SIZE}
 	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
-	# The bits of a stack address (rt.rc).
-	IDRIS_RT_STACK_ADDRESS_BITS=${IDRIS_MLIR_STACK_ADDRESS_BITS}
 	# The target's page size, which the runtime's startup check compares
 	# with the system's (rt.platform:memory). The target entry's one number.
 	IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
@@ -233,11 +231,6 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_S
 # a test takes off a symbol the linker tool prints (tests/lib/heap.sh).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/symbol-prefix"
 	CONTENT "${IDRIS_MLIR_SYMBOL_PREFIX}\n")
-# The function that fills in the processor's features before the test reads
-# them, where no static constructor does.
-if(IDRIS_MLIR_RUNTIME_CPU_INIT)
-	target_compile_definitions(idris_rt PRIVATE "IDRIS_RT_CPU_FEATURES_INIT=${IDRIS_MLIR_RUNTIME_CPU_INIT}")
-endif()
 target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 
 # No target imports std, which links the C++ library; the runtime scans

@@ -49,8 +49,7 @@ int main(int argc, char **argv) {
     return ok;
   }
   if (printTargetCpu) {
-    llvm::outs() << (targetCpu == "native" ? llvm::sys::getHostCPUName().str() : targetCpu)
-                 << "\n";
+    llvm::outs() << targetCpu << "\n";
     return ok;
   }
   if (printRuntime) {
@@ -66,6 +65,10 @@ int main(int argc, char **argv) {
   if (inputPath.empty() != prepareRuntime) {
     Report() << (prepareRuntime ? "--prepare-runtime takes no input file"
                                 : "no input file (see --help)");
+    return usage;
+  }
+  if (outputPath.empty()) {
+    Report() << "no output file (-o)";
     return usage;
   }
   return runOnLargeStack();

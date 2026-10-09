@@ -228,7 +228,7 @@ escape_hatch() {
   mkdir -p "$eh_dir"
   printf 'module Main\n\nimport Prelude\nimport %s\n\npartial\nmain : IO ()\nmain = let 0 probe : (%s) = %s in pure ()\n' \
     "$1" "$3" "$2" > "$eh_dir/Main.idr"
-  bounded env "IDRIS_MLIR=$idris_mlir" "$compile_sh" "$eh_dir/Main.idr" probe > "$eh_dir/out" 2>&1
+  bounded "$compile_sh" "$eh_dir/Main.idr" probe > "$eh_dir/out" 2>&1
   awk -v full="$2" '
       BEGIN { bare = full; sub(/^.*\./, "", bare) }
       match($0, /unsupported \((escape hatch|world)\): /) {

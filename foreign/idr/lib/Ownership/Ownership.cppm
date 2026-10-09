@@ -40,7 +40,6 @@ export import :loops;
 export import :noconstants;
 export import :onlyreads;
 export import :opchecks;
-export import :ownsignatures;
 export import :placement;
 export import :rc;
 export import :reachesonlyatoms;

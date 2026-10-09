@@ -1,4 +1,3 @@
--- stdout: 7\nx\n
 module Main
 
 import Prelude

@@ -1,6 +1,5 @@
-// idr-demand: checks the promises it is given, as idr.demand states them,
-// and changes nothing; with none it does nothing. An unknown promise is an
-// error, so a misspelled one cannot pass.
+// idr-demand: checks the in-place promise when it is asked to, as
+// idr.demand states it, and changes nothing.
 
 #include "idr/Idr.h"
 
@@ -19,18 +18,8 @@ struct Demand : idr::impl::IdrDemandBase<Demand> {
   using IdrDemandBase::IdrDemandBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
-    bool failed = false;
-    for (StringRef promise : promises) {
-      if (promise == "in-place") {
-        failed |= mlir::failed(idr::demand::inPlace(module));
-        continue;
-      }
-      module.emitError() << "idr-demand: no promise named " << promise;
-      failed = true;
-    }
     markAllAnalysesPreserved();
-    if (failed)
+    if (inPlace && failed(idr::demand::inPlace(getOperation())))
       signalPassFailure();
   }
 };

@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: \0303\0277!\n
 module Main
 
 -- The string built at runtime is stored in a constructor and taken out

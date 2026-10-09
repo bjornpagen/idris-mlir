@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: ready\n0\n
 module Main
 
 -- The action `report d` is built, then "ready" is written, then the action

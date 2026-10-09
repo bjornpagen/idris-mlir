@@ -430,8 +430,8 @@ which the top-level CMake configure gate reads.
   counted twice, and two pipelines on one op name, one run inside the
   other, share one timer. idr-simplify, idr-eval, idr-inline, idr-target
   and idr-canonicalize run pipelines so: without the patch, in
-  `idris-mlir-cc --timing`, their pipelines are rows of the step beside the
-  pass that runs them, and a step's rows add up to more than the step
+  `idris-mlir-cc --mlir-timing`, their pipelines are rows of the step beside
+  the pass that runs them, and a step's rows add up to more than the step
 - sites: none in our code; the patch. Each step of `idris-mlir-cc` has a
   timer of its own (foreign/idr/lib/Driver/Run.cppm), which is the root of
   the step's pass timing, so the misplaced rows stay inside the step
@@ -584,13 +584,13 @@ which the top-level CMake configure gate reads.
 - symptom: cpp-starter's `asan-ubsan` preset needs compiler-rt's sanitizer
   runtimes; the pinned toolchain builds only compiler-rt's builtins, on both
   targets, and on x86_64 Linux ASan does not support static executables
-- sites: CMakeLists.txt (`IDRIS_MLIR_RUNTIME_SANITIZERS` fails with this
-  pin's name), CMakePresets.json (`asan-ubsan`)
+- sites: CMakePresets.json, which has no `asan-ubsan` preset;
+  tests/spec/cpp-starter checks that it has none
 - workaround: every build keeps trap-mode UBSan (`-fsanitize=undefined
-  -fsanitize-trap=all`), which needs no runtime; the preset fails at
-  configure time instead of silently building something else
+  -fsanitize-trap=all`), which needs no runtime
 - retire: when a sanitizer build is worth building compiler-rt's
-  sanitizers for (and, on musl, dynamic executables)
+  sanitizers for (and, on musl, dynamic executables); the preset comes
+  back then, with what it builds
 - upstream: none
 
 ## musl-thread-stacks
@@ -623,7 +623,7 @@ which the top-level CMake configure gate reads.
 - sites: CMakeLists.txt, the x86_64 target entry — `-march=x86-64 -mcx16`
 - workaround: the runtime is compiled for the baseline plus CMPXCHG16B;
   idris-mlir-cc raises every runtime function to the program's CPU
-  (x86-64-v3 by default, which has it)
+  (x86-64-v3, which has it)
 - retire: never; every x86-64 CPU since 2006 has it
 - upstream: none
 

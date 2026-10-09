@@ -87,7 +87,6 @@ module;
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
-#include "mlir/Remark/RemarkStreamer.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/Timing.h"
 #include "mlir/Support/TypeID.h"
@@ -150,7 +149,6 @@ module;
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Passes/PassBuilder.h"
-#include "llvm/Remarks/RemarkFormat.h"
 #include "llvm/Support/CheckedArithmetic.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -657,20 +655,15 @@ using mlir::presburger::PresburgerSpace;
 export namespace mlir::remark {
 using mlir::remark::add;
 using mlir::remark::analysis;
-using mlir::remark::enableOptimizationRemarks;
 using mlir::remark::metric;
 using mlir::remark::missed;
 using mlir::remark::passed;
 using mlir::remark::reason;
-using mlir::remark::RemarkCategories;
-using mlir::remark::RemarkEmittingPolicyAll;
 using mlir::remark::RemarkOpts;
 } // namespace mlir::remark
 
 export namespace mlir::remark::detail {
 using mlir::remark::detail::InFlightRemark;
-using mlir::remark::detail::LLVMRemarkStreamer;
-using mlir::remark::detail::MLIRRemarkStreamerBase;
 } // namespace mlir::remark::detail
 
 export namespace mlir::scf {
@@ -967,13 +960,8 @@ using llvm::object::ObjectFile;
 using llvm::object::SectionRef;
 } // namespace llvm::object
 
-export namespace llvm::remarks {
-using llvm::remarks::Format;
-} // namespace llvm::remarks
-
 export namespace llvm::sys {
 using llvm::sys::getHostCPUFeatures;
-using llvm::sys::getHostCPUName;
 using llvm::sys::getProcessTriple;
 } // namespace llvm::sys
 

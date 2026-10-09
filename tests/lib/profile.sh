@@ -5,7 +5,7 @@
 # form that start a profile fixture; the status is 1 without one.
 header() {
   awk -v field="$2" '
-    !/^--[ \t]*(expect|message|exit|stdout|packages|directives):/ { exit }
+    !/^--[ \t]*(expect|message):/ { exit }
     {
       key = $0; sub(/^--[ \t]*/, "", key); sub(/:.*$/, "", key)
       if (key == field) { value = $0; sub(/^--[ \t]*[a-z]+:[ \t]*/, "", value); found = 1 }
@@ -32,19 +32,18 @@ profile_prepare() {
 }
 
 # profile_compile: $work/fixture/Main.idr to build/exec/Main, with the
-# packages and the directives its header names: `-- directives:
-# demand-in-place` makes the in-place promise, which a program can break.
+# installed packages its `packages` names; with `demand-in-place` it makes
+# the in-place promise, which a program can break.
 profile_compile() {
-  profile_main=$work/fixture/Main.idr
   profile_options=
-  for profile_package in $(header "$profile_main" packages); do
-    profile_options="$profile_options -p $profile_package"
-  done
-  for profile_directive in $(header "$profile_main" directives); do
-    profile_options="$profile_options --directive $profile_directive"
-  done
-  # shellcheck disable=SC2086 # the packages and directives are words
-  compile_program $profile_options "$profile_main" Main
+  if [ -f "$work/fixture/packages" ]; then
+    for profile_package in $(cat "$work/fixture/packages"); do
+      profile_options="$profile_options -p $profile_package"
+    done
+  fi
+  [ -f "$work/fixture/demand-in-place" ] && profile_options="$profile_options --directive demand-in-place"
+  # shellcheck disable=SC2086 # the packages and the promise are words
+  compile_program $profile_options "$work/fixture/Main.idr" Main
 }
 
 # profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
@@ -102,12 +101,13 @@ profile_reject() {
 }
 
 # profile_accept FIXTURE: `tests/accept/<desc>/`, a directory holding Main.idr
-# and its other modules: it compiles with every artifact
-# written. With `-- exit: <status>` or `-- stdout: <text with \n escapes>` in
-# its header it also runs, with those, and with nothing on stderr.
+# and its other modules: it compiles with every artifact written. With an
+# expected-stdout or an expected-exit beside it, it also runs, printing
+# that stdout (none without the file) and exiting with that status (0
+# without the file), with nothing on stderr.
 profile_accept() {
-  if [ -d "$1" ]; then accept_main=$1/Main.idr; else accept_main=$1; fi
-  profile_prepare "$1"
+  accept_fixture=$(cd "$1" && pwd)
+  profile_prepare "$accept_fixture"
   profile_compile
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
@@ -115,27 +115,21 @@ profile_accept() {
     return
   fi
   artifacts "$work/fixture" Main.core Main.mlir Main.o Main
-  accept_exit=$(header "$accept_main" exit)
-  accept_has_exit=$?
-  accept_stdout=$(header "$accept_main" stdout)
-  accept_has_stdout=$?
-  [ "$accept_has_exit" -eq 0 ] || [ "$accept_has_stdout" -eq 0 ] || return 0
+  [ -f "$accept_fixture/expected-stdout" ] || [ -f "$accept_fixture/expected-exit" ] || return 0
   run_ours accept "$work/fixture/build/exec/Main" /dev/null
-  if [ "$accept_has_exit" -eq 0 ]; then
-    accept_exit=$(printf '%s' "$accept_exit" | tr -d ' \t')
-    if [ "$ran" -eq "$accept_exit" ]; then
-      say "run: exit status as the header says"
-    else
-      say "run: exit $ran, the header says $accept_exit"
-    fi
+  accept_exit=0
+  [ -f "$accept_fixture/expected-exit" ] && accept_exit=$(first_word "$accept_fixture/expected-exit")
+  if [ "$ran" -eq "$accept_exit" ]; then
+    say "run: exit status as expected"
   else
-    say "run: exit $ran"
+    say "run: exit $ran, expected $accept_exit"
   fi
-  printf '%b' "$accept_stdout" > "$work/accept.expected"
+  : > "$work/accept.expected"
+  [ -f "$accept_fixture/expected-stdout" ] && cp "$accept_fixture/expected-stdout" "$work/accept.expected"
   if cmp -s "$work/accept.expected" "$work/accept.out"; then
-    say "stdout: as the header says"
+    say "stdout: as expected"
   else
-    say "stdout: differs from the header"
+    say "stdout: differs from expected-stdout"
     diff "$work/accept.expected" "$work/accept.out" | head -n 20 | sed 's/^/  | /'
   fi
   empty stderr "$work/accept.err"

@@ -14,7 +14,7 @@
 // only when test-convergence asks.
 // CHECK: remark: [Analysis] patterns | Category:idr-canonicalize | Function=append | {{.*}}={{[1-9][0-9]*}}
 // CHECK-NOT: Function=nothing
-// STOPPED: remark: [Missed] unconverged | Category:idr-canonicalize | Function=append | Reason="the greedy driver stopped before a fixpoint, at max-iterations=1 or max-num-rewrites=-1"
+// STOPPED: remark: [Missed] unconverged | Category:idr-canonicalize | Function=append | Reason="the greedy driver stopped before a fixpoint, at max-iterations=1"
 // STOPPED: IdrCanonicalize
 // STOPPED-DAG: (S) {{ *[1-9][0-9]*}} rewrites - Rewrites by patterns
 // STOPPED-DAG: (S) {{ *[1-9][0-9]*}} unconverged - Runs that stopped before a fixpoint

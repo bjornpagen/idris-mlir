@@ -31,7 +31,7 @@ if [ -n "$reason" ]; then
   exit 0
 fi
 
-limit=$(( ${UPSTREAM_TEST_LIMIT:-240} * ${IDRIS_MLIR_TIME_SCALE:-1} ))
+limit=240
 as_idris=$root/tests/upstream-idris/as-idris
 
 # prepare DEST: the upstream tests tree, so a script's `../../testutils.sh`

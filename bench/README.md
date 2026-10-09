@@ -164,10 +164,9 @@ are an accumulator: the Prelude's `length` keeps a frame per element, and
 the input is longer than the program's stack.
 
 The game's own cutoff for a measured run is several minutes. This suite
-kills a run at 300 seconds (times `IDRIS_MLIR_TIME_SCALE`). The 2026-10-07
-arm64 record is the official sizes, and every program finished. Chez's
-best times for the four the previous record's column scaled past that
-kill:
+kills a run at 300 seconds. The 2026-10-07 arm64 record is the official
+sizes, and every program finished. Chez's best times for the four the
+previous record's column scaled past that kill:
 
 - `fannkuch-redux` at 12 took 1163.295 s.
 - `fannkuch-linear` at 12 took 383.179 s.
@@ -220,9 +219,8 @@ The sizes were not shrunk.
   `ioarray-fannkuch` fixtures state those properties). There is no
   copying array to turn off: a linear array is mutable by construction on
   every backend. What can be turned off is each compiler mechanism:
-- **Ablation.** `idris-mlir-cc --without=STEP,...` (or `--directive
-  without=STEP,...` through `idris-mlir`) leaves pipeline steps out, or
-  idr-rc's mechanisms (`reuse`, `borrow`, `sink`). fannkuch-linear and
+- **Ablation.** `idris-mlir-cc --without=STEP,...` leaves pipeline steps
+  out, or idr-rc's mechanisms (`reuse`, `sink`). fannkuch-linear and
   unionfind, best of 3, each variant compiled and run alone (2026-10-01):
 
   | left out | fannkuch-linear | unionfind |
@@ -237,7 +235,6 @@ The sizes were not shrunk.
   | idr-defunctionalize | 0.215 | 0.203 |
   | idr-contify | 0.194 | 0.190 |
   | idr-trmc | 0.198 | 0.177 |
-  | borrow (borrow inference in idr-rc) | 0.196 | 0.163 |
   | idr-narrow | 0.197 | 0.167 |
 
   The linear library is plain Idris: `read` and `write` wrap base's array
@@ -308,9 +305,3 @@ The sizes were not shrunk.
   measures deep non-tail recursion.
 - `fib`: LLVM turns one of the two recursive calls into a loop, for this
   compiler and clang alike.
-
-## Allocation shapes
-
-`foreign/idr/bench/alloc/` benchmarks the heap traffic of the runtime's
-allocation patterns; it chose the allocator, and its README has the
-results.

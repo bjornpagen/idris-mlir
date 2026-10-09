@@ -5,9 +5,9 @@
 // __builtin_cpu_supports tests (function multiversioning's) and LLVM's,
 // which differ for some (fp16 is LLVM's fullfp16).
 // apple-m1 has bits 0 to 21; apple-m2 and apple-m3 add bf16, i8mm and bti,
-// apple-m4 the four of SME. A CPU named with --cpu may enable more, which
-// are not tested (apple-m4's wfxt, apple-m5's cssc and mte: Apple's
-// compiler-rt does not look for them).
+// apple-m4 the four of SME. A later CPU may enable more, which are not
+// tested (apple-m4's wfxt, apple-m5's cssc and mte: Apple's compiler-rt
+// does not look for them).
 // PIN(runtime-quarantine) — see PINS.md
 
 #pragma once

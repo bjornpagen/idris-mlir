@@ -20,18 +20,14 @@
 # N - 1 before it. That action's IR unit, the op it transforms, comes from a
 # compilation that logs the actions of TAG (-log-actions-to).
 #
-# Every compilation, link and run is bounded by BISECT_LIMIT seconds (300 by
-# default). IDRIS_MLIR_CC names the idris-mlir-cc to bisect (by default the
-# one `make build` makes), IDRIS_MLIR the idris-mlir that tools/compile.sh
-# runs. Exit status: 0 when the action is found; 1 when there is none to
-# find (the
-# program behaves as the reference, or already differs with no action of
-# TAG); 2 on a usage error or when the reference cannot be built.
+# Every compilation, link and run is bounded by 300 seconds. The
+# idris-mlir-cc it bisects is the one `make build` makes. Exit status: 0
+# when the action is found; 1 when there is none to find (the program
+# behaves as the reference, or already differs with no action of TAG); 2 on
+# a usage error or when the reference cannot be built.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
-idris_mlir_cc=${IDRIS_MLIR_CC:-$idris_mlir_cc}
-limit=${BISECT_LIMIT:-300}
 
 usage() {
   echo "usage: tools/bisect.sh SOURCE TAG [STDIN]" >&2
@@ -55,7 +51,7 @@ trap 'exit 2' HUP INT TERM
 
 [ -n "$timeout_cmd" ] || { echo "bisect: $timeout_missing" >&2; exit 2; }
 bounded() {
-  "$timeout_cmd" -k 5 "$limit" "$@"
+  "$timeout_cmd" -k 5 300 "$@"
 }
 
 # The contract text: SOURCE, or what tools/compile.sh leaves of the program,
@@ -71,8 +67,7 @@ case $source in
       done
     file=${source##*/}
     echo "bisect: compiling $source" >&2
-    if ! bounded env "IDRIS_MLIR=${IDRIS_MLIR:-$root/compiler/build/exec/idris-mlir}" \
-        "$root/tools/compile.sh" "$work/src/$file" "$work/program" > "$work/compile.log" 2>&1; then
+    if ! bounded "$root/tools/compile.sh" "$work/src/$file" "$work/program" > "$work/compile.log" 2>&1; then
       echo "bisect: $source does not compile:" >&2
       sed 's/^/  | /' "$work/compile.log" >&2
       exit 2

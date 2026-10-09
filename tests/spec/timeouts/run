@@ -1,9 +1,7 @@
 #!/bin/sh
 # A command that never ends is killed after the step limit and exits 124,
 # and a run script that never ends is killed after the test limit and says
-# so: the harness itself, with small limits (the scale fixed at 1, so the
-# output does not depend on make's time_scale).
-IDRIS_MLIR_TIME_SCALE=1
+# so: the harness itself, with small limits.
 step_limit=1
 test_limit=4
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

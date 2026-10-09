@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 3\n6\n
 module Main
 
 -- Recursive data built and consumed at compile time: a list and mutually

@@ -14,63 +14,39 @@ export namespace idr::driver {
 
 // Required unless a --print option asks only what the build decided.
 cl::opt<std::string> inputPath(cl::Positional, cl::desc("<input.mlir>"));
-cl::opt<std::string> outputPath("o", cl::desc("Output file (not with --check)"), cl::init(""));
-// Run the idr steps, whose user errors are rejections, and write nothing.
-cl::opt<bool> checkOnly("check",
-                        cl::desc("Stop before idr-lower and write nothing (exit status 3 "
-                                 "names a rejection)"),
-                        cl::init(false));
+cl::opt<std::string> outputPath("o", cl::desc("Output object file"), cl::init(""));
 // No compile-time evaluation.
 cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
 cl::list<std::string> without(
     "without", cl::CommaSeparated,
     cl::desc("Leave out these steps of the pipeline (an idr-* pass other than idr-lower) or these "
-             "mechanisms of idr-rc (reuse, borrow, sink), to measure what each one is worth"));
-// The promises idr-demand checks: a program that breaks one is rejected.
-// Without any, it checks none.
-cl::list<std::string> demand(
-    "demand", cl::CommaSeparated,
-    cl::desc("Reject a program that breaks these promises: in-place (every call passes a "
-             "parameter of quantity 1 that its function rebuilds in place exclusive)"));
-cl::opt<std::string> remarks("remarks",
-                             cl::desc("Print the remarks (passed, missed, failed and analysis) "
-                                      "of these categories (a regex), e.g. idr-eval"),
-                             cl::init(""));
-cl::opt<std::string> remarksFile("remarks-file",
-                                 cl::desc("Write the remarks of the categories --remarks names, "
-                                          "or of every category without it, to this YAML file"),
-                                 cl::init(""));
+             "mechanisms of idr-rc (reuse, sink), to measure what each one is worth"));
+// The promise idr-demand checks: a program that breaks it is rejected.
+// Without it, idr-demand checks nothing.
+cl::opt<bool> demandInPlace(
+    "demand-in-place",
+    cl::desc("Reject a program unless every call passes a parameter of quantity 1 that its "
+             "function rebuilds in place exclusive"),
+    cl::init(false));
 // Which actions -log-actions-to logs: otherwise every one, each pass
 // execution with the whole module.
 cl::list<std::string> logActionsTags(
     "log-actions-tags",
     cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-eval-call"),
     cl::CommaSeparated);
-cl::opt<bool> timing("timing", cl::desc("Report the time of each pass and LLVM stage"),
-                     cl::init(false));
-cl::opt<std::string> emitKind("emit", cl::desc("obj (default), asm, llvm or mlir"),
-                              cl::init("obj"));
-cl::opt<std::string> dumpAfter("dump-after",
-                               cl::desc("Dump the module after this step, or 'all'"),
-                               cl::init(""));
-cl::opt<std::string> dumpDir("dump-dir", cl::desc("Directory for --dump-after files"),
-                             cl::init("."));
-// The default is the target entry's (CMakeLists.txt), and an executable
-// names what an older CPU lacks (idris_rt_start). `native` is the machine
-// that compiles.
-cl::opt<std::string> targetCpu("cpu",
-                               cl::desc("Target CPU: " IDRIS_MLIR_TARGET_CPU
-                                        " (default), native, or any CPU name LLVM knows "
-                                        "for the target"),
-                               cl::init(IDRIS_MLIR_TARGET_CPU));
+// The module after each step, `<NN>-<step>.mlir` in this directory.
+cl::opt<std::string> dumpDir("dump-dir",
+                             cl::desc("Write the module after each step of the pipeline into "
+                                      "this directory, as <NN>-<step>.mlir"),
+                             cl::init(""));
 // The runtime, recorded at build time: the object --prepare-runtime wrote
 // from the runtime's archive, or that archive itself. Its bitcode joins the
 // program's module, and the same file is on every executable's link line
-// (--print-runtime). An empty path links no runtime.
+// (--print-runtime).
 cl::opt<std::string> runtimePath("runtime",
                                  cl::desc("The runtime whose bitcode joins the program, and "
                                           "which executables link: what --prepare-runtime "
-                                          "wrote, or the archive it reads ('' for none)"),
+                                          "wrote, or the archive it reads"),
                                  cl::init(IDRIS_MLIR_RUNTIME));
 // Where the prepared runtime keeps the bitcode that joins every program, as
 // the target entry's container says (CMakeLists.txt): in a section of its
@@ -90,7 +66,7 @@ cl::opt<bool> printRuntime("print-runtime",
 // it then optimizes again is the program, and the runtime code it inlines.
 cl::opt<bool> prepareRuntime("prepare-runtime",
                              cl::desc("Optimize the runtime archive --runtime names once, for "
-                                      "the default CPU, into the object -o: native code for "
+                                      "the target's CPU, into the object -o: native code for "
                                       "the link line with its bitcode for inlining, which "
                                       "every compilation then links (no input file)"),
                              cl::init(false));
@@ -108,7 +84,7 @@ cl::opt<bool> printLinkFlags("print-link-flags",
                                       "exit"),
                              cl::init(false));
 // What other compilers need to compile for the same machine, bench/run.sh's
-// C versions among them: the CPU --cpu selects, `native` resolved.
+// C versions among them.
 cl::opt<bool> printTargetCpu("print-target-cpu",
                              cl::desc("Print the CPU code is compiled for, and exit"),
                              cl::init(false));
@@ -119,9 +95,12 @@ cl::opt<bool> printTargetCpu("print-target-cpu",
 inline constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 
 // Code is compiled for the triple the runtime is built for (the target
-// entry's), which its bitcode carries. The module records it with the CPU as
-// its #llvm.target; every link of a program is for it too (the --target of
-// --print-link-flags).
+// entry's), which its bitcode carries, and for the entry's CPU, which every
+// machine of the target since that CPU has; an executable names what an
+// older one lacks (idris_rt_start). The module records both as its
+// #llvm.target (idr-target); every link of a program is for the triple too
+// (the --target of --print-link-flags).
 inline constexpr llvm::StringLiteral targetTriple = IDRIS_MLIR_TARGET_TRIPLE;
+inline constexpr llvm::StringLiteral targetCpu = IDRIS_MLIR_TARGET_CPU;
 
 } // namespace idr::driver

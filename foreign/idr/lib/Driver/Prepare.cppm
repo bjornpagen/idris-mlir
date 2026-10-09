@@ -6,7 +6,6 @@ import idr.mlir;
 import idr.target;
 
 import :besideobject;
-import :cpu;
 import :emit;
 import :externalize;
 import :isprepared;
@@ -18,7 +17,7 @@ import :retarget;
 
 export namespace idr::driver {
 
-// --prepare-runtime: the archive's members, joined, raised to the default
+// --prepare-runtime: the archive's members, joined, raised to the target's
 // CPU and optimized as a program is, with everything but the C ABI programs
 // reach (idris_rt_*, less the compiler's own entries) internal. Each
 // function first records what it was compiled for, so that retarget can
@@ -37,11 +36,7 @@ export namespace idr::driver {
 // native half, and runtime state (the allocator's thread-locals, the output
 // buffer, the live-cell count) is defined once, in the native half,
 // whichever bodies were inlined.
-int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &cpu) {
-  if (runtimePath.empty()) {
-    Report() << "--prepare-runtime needs --runtime to name the archive";
-    return usage;
-  }
+int prepare(const llvm::Target &target, const llvm::Triple &triple) {
   // Only these formats mark a section for every link to leave out
   // (embedBufferInModule's exclusion); in any other, the bitcode would ship
   // in every executable.
@@ -53,7 +48,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
     return usage;
   }
   std::unique_ptr<llvm::TargetMachine> machine =
-      idr::target::machine(target, triple, cpu.name, cpu.features);
+      idr::target::machine(target, triple, targetCpu, "");
   if (!machine) {
     Report() << "internal error: no target machine for " << targetTriple;
     return failure;
@@ -126,7 +121,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple, const Cpu &c
     llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"),
                               runtimeBitcodeSection);
   }
-  if (!emit(*runtime, *machine, llvm::CodeGenFileType::ObjectFile))
+  if (!emit(*runtime, *machine))
     return failure;
   if (beside)
     beside->keep();

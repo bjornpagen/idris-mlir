@@ -1,20 +1,19 @@
 #!/bin/sh
 # The compile times the golden tests recorded (tests/lib/timing.sh,
-# `record_time`): the slowest compilations, each broken down by
-# idris-mlir-cc's --timing into JIT compilation, evaluation and everything
-# else; with --against, what slowed down since an earlier record. It
-# reports; it gates nothing.
+# `record_time`): the ten slowest compilations, each broken down by
+# idris-mlir-cc's --mlir-timing into JIT compilation, evaluation and
+# everything else; with --against, what slowed down since an earlier
+# record. It reports; it gates nothing.
 #
-#     tests/compile-times.sh [--top N] [--no-breakdown] [--against OLD-DIR]
-#                            [TIMING-DIR]
+#     tests/compile-times.sh [--against OLD-DIR]
 #
-# TIMING-DIR is tests/build/timing by default, where every run of `make
-# test` (and of the other suites that compile) leaves one file per test:
+# The records are in tests/build/timing, where every run of `make test`
+# (and of the other suites that compile) leaves one file per test:
 # `<ms> TAB <exit> TAB <what> TAB <module>` per compilation, the module being
 # the .mlir Emit wrote, kept so that it can be compiled again here.
 #
-# The breakdown compiles each of the N slowest modules again with
-# `idris-mlir-cc MODULE -o OBJECT --timing` (and --no-eval if the recorded
+# The breakdown compiles each of the ten slowest modules again with
+# `idris-mlir-cc MODULE -o OBJECT --mlir-timing` (and --no-eval if the recorded
 # compilation had it), and reads MLIR's execution time report: a row is
 # `<seconds> (<percent>%) <name>`, and with several columns the last is the
 # wall time. Rows whose name contains "JIT" (any case) are JIT compilation;
@@ -28,7 +27,7 @@
 # --against OLD-DIR compares with the records of an earlier run (a copy of
 # tests/build/timing taken before `make test` writes it again): a
 # compilation of the same test, the same compilation of its run, in both.
-# It prints the totals of those and the N whose time grew the most, by the
+# It prints the totals of those and the ten whose time grew the most, by the
 # ratio of the two, among those that took a second or more in either: a
 # change that makes compilation grow faster than the program shows there
 # first, on the largest programs. The times are wall times under the load
@@ -38,26 +37,19 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 
 usage() {
-  echo "usage: $0 [--top N] [--no-breakdown] [--against OLD-DIR] [TIMING-DIR]" >&2
+  echo "usage: $0 [--against OLD-DIR]" >&2
   exit 2
 }
 top=10
-breakdown=yes
 against=
 dir=$root/tests/build/timing
 while [ $# -gt 0 ]; do
   case $1 in
-    --top) [ $# -ge 2 ] || usage; top=$2; shift ;;
-    --no-breakdown) breakdown= ;;
     --against) [ $# -ge 2 ] || usage; against=$2; shift ;;
-    -*) usage ;;
-    *) dir=$1 ;;
+    *) usage ;;
   esac
   shift
 done
-case $top in
-  '' | *[!0-9]*) echo "--top takes a number" >&2; exit 2 ;;
-esac
 
 set -- "$dir"/*.tsv
 if [ ! -f "$1" ]; then
@@ -99,7 +91,7 @@ echo
 # timing MODULE WHAT: idris-mlir-cc's report on MODULE, as
 # `<total> <jit> <eval>` in seconds, or nothing.
 timing() {
-  timing_flags=--timing
+  timing_flags=--mlir-timing
   case $2 in *no-eval*) timing_flags="$timing_flags --no-eval" ;; esac
   # shellcheck disable=SC2086 # the flags are words
   "$idris_mlir_cc" "$1" -o "$tmp/object.o" $timing_flags > "$tmp/timing.out" 2> "$tmp/timing.err" || return 0
@@ -131,19 +123,10 @@ timing() {
 
 echo "The $top slowest:"
 echo
-if [ -n "$breakdown" ]; then
-  echo "| test | compilation | exit | wall s | idris-mlir-cc s | JIT compilation s | evaluation s | everything else s |"
-  echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
-else
-  echo "| test | compilation | exit | wall s |"
-  echo "| --- | --- | ---: | ---: |"
-fi
+echo "| test | compilation | exit | wall s | idris-mlir-cc s | JIT compilation s | evaluation s | everything else s |"
+echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
 head -n "$top" "$tmp/all" | while IFS="$(printf '\t')" read -r ms test status what module; do
   wall=$(awk -v ms="$ms" 'BEGIN { printf "%.3f", ms / 1000 }')
-  if [ -z "$breakdown" ]; then
-    echo "| $test | $what | $status | $wall |"
-    continue
-  fi
   cc=n/a; jit=n/a; evaluation=n/a; rest=n/a
   if [ "$module" != - ] && [ -f "$module" ] && [ -x "$idris_mlir_cc" ]; then
     report=$(timing "$module" "$what")

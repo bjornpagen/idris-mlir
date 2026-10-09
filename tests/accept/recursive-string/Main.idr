@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 255\n
 module Main
 
 -- `digits` recurses on a runtime value, so the string it returns is not

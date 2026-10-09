@@ -1,7 +1,5 @@
--- expect: uniqueness, line 27
+-- expect: uniqueness, line 25
 -- message: which rebuilds it in place
--- directives: demand-in-place
--- packages: mlir-linear
 module Main
 
 import Prelude

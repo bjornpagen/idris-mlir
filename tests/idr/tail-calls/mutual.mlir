@@ -1,11 +1,11 @@
-// RUN: idris-mlir-cc %s -o %t.o --no-eval
+// RUN: rm -rf %t.dumps %t.calls && mkdir -p %t.dumps %t.calls
+// RUN: idris-mlir-cc %s -o %t.o --no-eval --dump-dir=%t.dumps
 // RUN: %cc %t.o -o %t
 // RUN: env IDRIS_RT_STACK=1048576 %t > %t.out
 // RUN: FileCheck %s < %t.out
-// RUN: idris-mlir-cc %s --emit=mlir -o %t.mlir --no-eval
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@Prog.main -o /dev/null
-// RUN: idris-mlir-cc %s --emit=mlir -o %t.calls.mlir --no-eval --without=idr-tail-calls
-// RUN: %status 1 idris-mlir-opt %t.calls.mlir --idr-expect=holds=constant-stack=@Prog.main -o /dev/null 2> %t.err
+// RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; idris-mlir-opt "$last" --idr-expect=holds=constant-stack=@Prog.main -o /dev/null'
+// RUN: idris-mlir-cc %s -o %t.calls.o --no-eval --without=idr-tail-calls --dump-dir=%t.calls
+// RUN: %status 1 sh -c 'for dump in %t.calls/*; do last=$dump; done; idris-mlir-opt "$last" --idr-expect=holds=constant-stack=@Prog.main -o /dev/null' 2> %t.err
 // RUN: FileCheck %s --check-prefix=GROWS < %t.err
 // Functions that call one another in tail position, none itself: a
 // recursion that idr-tail-loops makes no loop of (no_inline keeps the

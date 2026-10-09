@@ -14,7 +14,6 @@ import :counting;
 import :counts;
 import :exclusive;
 import :inownedstage;
-import :ownsignatures;
 import :reuse;
 
 using namespace mlir;
@@ -24,7 +23,6 @@ namespace idr::ownership {
 // What idr-rc's options turn on.
 export struct RcOptions {
   bool reuse;
-  bool borrow;
   bool sink;
 };
 
@@ -53,10 +51,7 @@ LogicalResult place(ModuleOp module, ArrayRef<func::FuncOp> functions, RcOptions
   }
   // Borrow inference decides the signatures, which nothing has graded yet.
   Counting deciding(module, /*ownedStage=*/false);
-  if (options.borrow)
-    counts.borrowed += inferBorrows(module, deciding);
-  else
-    ownSignatures(module, deciding);
+  counts.borrowed += inferBorrows(module, deciding);
   // The signatures are graded from here on: counting reads them.
   Counting counting(module, /*ownedStage=*/true);
   for (func::FuncOp fn : functions) {

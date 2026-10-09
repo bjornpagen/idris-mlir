@@ -14,8 +14,7 @@
 |||
 ||| `runtests --sem-expected <name>` prints the stdout a test's program must
 ||| print, the value `result` ends with when every case agrees, so that the
-||| value is stated once, here; and `runtests --sem-list` names every test the
-||| tables make.
+||| value is stated once, here.
 module Sem
 
 import Data.Bits
@@ -201,11 +200,6 @@ tests = do
   (title, table) <- tables t
   (part, chunk) <- zip [0 .. length table] (chunks maxCases table)
   pure ("prim-" ++ toLower t.name ++ "-" ++ title ++ "-" ++ show part, chunk)
-
-||| The name of every test, `prim-<type>-<table>-<part>`.
-export
-names : List String
-names = map fst tests
 
 ||| The program of a test, by its name.
 export

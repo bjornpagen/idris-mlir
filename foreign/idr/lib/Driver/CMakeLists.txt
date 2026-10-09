@@ -8,7 +8,6 @@ idr_library(idr_driver
 	MODULES
 		Driver.cppm
 		BesideObject.cppm
-		Cpu.cppm
 		Dump.cppm
 		Emit.cppm
 		Externalize.cppm

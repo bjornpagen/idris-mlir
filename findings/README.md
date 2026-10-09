@@ -239,7 +239,7 @@ can run at once.
 
 **W10. The in-place promise** (`substrate.md` §3).
 
-- **Change:** `--demand in-place`, then the default.
+- **Change:** `--demand-in-place`, then the default.
 - **Proof:**
   - the leet fixtures hold `tests-nothing`;
   - a fixture that passes a shared value to a quantity-1 rebuild is

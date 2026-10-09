@@ -11,7 +11,7 @@ now_ms() {
 # The timing record of this test: tests/build/timing/<test path, / as __>.tsv,
 # one line per compilation, `<ms> TAB <exit> TAB <what> TAB <module>`, where
 # <module> is the emitted .mlir kept next to it (or -), so that
-# tests/compile-times.sh can run idris-mlir-cc --timing on it again.
+# tests/compile-times.sh can run idris-mlir-cc --mlir-timing on it again.
 timing_dir=$root/tests/build/timing
 case $here in
   "$root/tests/"*) timing_id=$(printf '%s' "${here#"$root/tests/"}" | sed 's|/|__|g') ;;
@@ -53,7 +53,7 @@ record_time() {
 }
 
 # timing_rows REPORT: the rows of an execution time report (idris-mlir-cc
-# --timing, MLIR's tree display), in order, each as `<depth> TAB <seconds>
+# --mlir-timing, MLIR's tree display), in order, each as `<depth> TAB <seconds>
 # TAB <name>`: depth 0 for a row of the report's own (a step of the
 # pipeline, LLVM, Rest, Total), one more for each row it is nested in;
 # seconds the wall time, the last `<seconds> (<percent>%)` of the line.

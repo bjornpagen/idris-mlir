@@ -41,7 +41,7 @@ data Rule
     ||| knot.
     Cycle
   | ||| A value passed shared where a promise asked for it exclusive
-    ||| (`--demand in-place`).
+    ||| (`--demand-in-place`).
     Uniqueness
   | CompiledModule | IdentityHook | HookShape
   | CompileBudget | Layout

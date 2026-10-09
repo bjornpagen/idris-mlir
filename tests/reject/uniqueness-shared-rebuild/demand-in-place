@@ -1,0 +1,2 @@
+Compiled with the in-place promise, which this program breaks: the list
+is read again after the call that rebuilds it in place.

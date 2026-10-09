@@ -104,23 +104,16 @@ middle fc dir src = do
 -- idris-mlir-cc
 ------------------------------------------------------------------------------
 
-||| The directives idris-mlir-cc takes as options. `--directive no-eval`:
-||| `--no-eval`, which leaves every closed call to run at runtime (every e2e
-||| test compiles its program both ways: tests/lib/properties.sh,
-||| without_evaluation). `--directive demand-in-place`: `--demand in-place`,
-||| which rejects a call that passes a shared value to a parameter of
-||| quantity 1 that its function rebuilds in place. `--directive
-||| without=STEPS`: `--without=STEPS`, which leaves those pipeline steps or
-||| idr-rc mechanisms out, to measure what each is worth.
+||| The directives idris-mlir-cc takes as options, each its option of the
+||| same name. `--directive no-eval` leaves every closed call to run at
+||| runtime (every e2e test compiles its program both ways:
+||| tests/lib/properties.sh, without_evaluation). `--directive
+||| demand-in-place` rejects a call that passes a shared value to a
+||| parameter of quantity 1 that its function rebuilds in place.
 ccOptions : {auto c : Ref Ctxt Defs} -> Core (List String)
 ccOptions = do
   ds <- getDirectives (Other "mlir")
-  pure ((if elem "no-eval" ds then ["--no-eval"] else []) ++
-        (if elem "demand-in-place" ds then ["--demand", "in-place"] else []) ++
-        mapMaybe without ds)
-  where
-    without : String -> Maybe String
-    without d = if isPrefixOf "without=" d then Just ("--" ++ d) else Nothing
+  pure [ "--" ++ d | d <- ["no-eval", "demand-in-place"], elem d ds ]
 
 ||| A location in `idris-mlir-cc`'s text: `file:line:column`, 1-based.
 record Place where
@@ -319,7 +312,7 @@ compileIO c _ tmpDir outputDir tm outfile = do
     write corePath core
     write mlirPath mlir
   -- The rest of the chain, with the pinned tools.
-  let dumps = if dumpMlir then ["--dump-after=all", "--dump-dir=" ++ base ++ ".dump"] else []
+  let dumps = if dumpMlir then ["--dump-dir=" ++ base ++ ".dump"] else []
   ccVerdict fc prog [corePath, mlirPath, objPath] !(runCc ([mlirPath, "-o", objPath] ++ dumps ++ !ccOptions) (base ++ ".cc.stderr"))
   -- The pinned C compiler links the program's one object and the runtime's
   -- (what the program did not inline resolves there) into an executable

@@ -17,4 +17,4 @@ negative: exit 1
 million, IDRIS_RT_STACK=12x: exit 1
   stderr | idris-mlir: IDRIS_RT_STACK is not a number of bytes above 0
 cpu: exit 1
-  stderr | idris-mlir: this processor lacks, which the program was compiled to use (idris-mlir-cc --cpu)
+  stderr | idris-mlir: this processor lacks, which the program was compiled to use

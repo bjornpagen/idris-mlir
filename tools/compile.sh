@@ -9,15 +9,15 @@
 # SOURCE, with the packages and directives given. It runs in SOURCE's
 # directory and its output passes through; the exit status is that of the
 # step that failed, and on success the executable's path is printed last.
-# IDRIS_MLIR names the idris-mlir to run (by default the one `make build`
-# makes); the Idris environment is the caller's, the Makefile's.
+# The idris-mlir it runs is the one `make build` makes; the Idris
+# environment is the caller's, the Makefile's.
 #
-# Two directives reach idris-mlir-cc as options: `no-eval` passes
-# --no-eval and `without=STEPS` passes --without=STEPS; `dump-mlir` dumps
-# the module after every step under build/exec.
+# Two directives reach idris-mlir-cc as its options of the same name:
+# `no-eval` and `demand-in-place`; `dump-mlir` dumps the module after every
+# step under build/exec.
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
-idris_mlir=${IDRIS_MLIR:-$root/compiler/build/exec/idris-mlir}
+idris_mlir=$root/compiler/build/exec/idris-mlir
 
 usage() {
   echo "usage: tools/compile.sh [-p PACKAGE]... [--directive D]... SOURCE OUTPUT" >&2

@@ -1,9 +1,9 @@
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --canonicalize --cse | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-pipeline | FileCheck %s --check-prefix=LLVM
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --canonicalize --cse | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
+// RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
 // A loop over an array with a parallel dimension computes on the target's
-// lanes after idr-vectorize (four doubles on x86-64-v3, the CPU this x86-64
-// test names): its tile loop steps by the lanes, the full tiles read and
+// lanes after idr-vectorize (four doubles on x86-64-v3, the x86-64 target
+// entry's CPU): its tile loop steps by the lanes, the full tiles read and
 // write vectors without masks, and
 // the last tile masks. A row reduction (the generate over a fold) keeps its
 // reduction dimension at one lane, so each lane adds its row in index

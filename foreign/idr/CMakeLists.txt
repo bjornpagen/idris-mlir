@@ -43,7 +43,7 @@ llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIV
 # What every unit of foreign/idr is compiled with: the generated headers and
 # MLIR's and LLVM's as system headers, so that the project's warnings apply
 # to our code and not to theirs; LLVM's definitions; and the target entry's
-# triple and default CPU (CMakeLists.txt), which idr-target writes on every
+# triple and CPU (CMakeLists.txt), which idr-target writes on every
 # module and idris-mlir-cc prints. Programs are compiled for the triple the
 # runtime is built for.
 add_library(idr_build INTERFACE)
@@ -250,8 +250,7 @@ target_link_libraries(idris-mlir-opt PRIVATE
 
 add_executable(idris-mlir-cc tools/idris-mlir-cc.cc)
 # idr_driver: the driver, whose pipeline is idr_dialect's; MLIRDebug: the
-# action handlers (debug counters, action logging); MLIRRemarkStreamer:
-# --remarks-file.
+# action handlers (debug counters, action logging).
 target_link_libraries(idris-mlir-cc PRIVATE
 	idr_driver
 	idr_dialect
@@ -259,7 +258,6 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
 	MLIRRegisterAllPasses
-	MLIRRemarkStreamer
 	idris_mlir_language_profile
 )
 # The runtime every program links: the archive, checked before idris-mlir-cc

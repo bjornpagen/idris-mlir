@@ -1,4 +1,3 @@
--- stdout: 3\n
 module Main
 import Prelude
 

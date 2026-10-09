@@ -1,5 +1,5 @@
-// idr.driver:dump: --dump-after, the module after a step, into a file of
-// --dump-dir.
+// idr.driver:dump: --dump-dir, the module after each step, into a file of
+// that directory.
 export module idr.driver:dump;
 
 import idr.mlir;
@@ -9,10 +9,10 @@ import :report;
 
 export namespace idr::driver {
 
-// Writes the module after the step `name`, the `index`th, if --dump-after
-// asks for it; false if the file cannot be written.
+// Writes the module after the step `name`, the `index`th, if --dump-dir
+// names a directory; false if the file cannot be written.
 bool dump(mlir::ModuleOp module, unsigned index, llvm::StringRef name) {
-  if (dumpAfter.empty() || (dumpAfter != "all" && dumpAfter != name))
+  if (dumpDir.empty())
     return true;
   llvm::SmallString<128> path(dumpDir);
   llvm::sys::path::append(path, llvm::formatv("{0:02}-{1}.mlir", index, name).str());

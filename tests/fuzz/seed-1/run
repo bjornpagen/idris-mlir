@@ -2,10 +2,8 @@
 # The fuzzer (tests/Fuzz.idr) on seed 1: closed pure expressions over every
 # primitive, compiled with evaluation and with --no-eval, which must agree
 # with each other and print expected-runtime and expected-static, the libm
-# lines aside. IDRIS_MLIR_FUZZ_CASES and IDRIS_MLIR_FUZZ_ROUNDS make it
-# larger; the output stays the same.
-# Three compilations a seed, so that the added rounds need more than a
-# test's default time: half an hour for them all.
+# lines aside.
+# Three compilations of a generated program, given half an hour.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 fuzz 1

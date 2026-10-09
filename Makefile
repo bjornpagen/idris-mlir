@@ -21,13 +21,12 @@
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
-# in a process of its own; the whole run ends after 4 hours (times
-# time_scale), so that nothing can hold the tree for ever. They
-# take only='NAME...' and except='NAME...' (substrings of test paths such as
-# programs/basic/hello), threads=N (default: the number of CPUs),
-# INTERACTIVE=--interactive (offer to accept new output) and time_scale=N
-# (multiplies every timeout: each command a test runs gets 60 s
-# and each test 300 s, or what its run script sets). Each ends with the
+# in a process of its own; the whole run ends after 4 hours, so that nothing
+# can hold the tree for ever, each command a test runs after 60 s and each
+# test after 300 s, or what its run script sets. They take only='NAME...'
+# and except='NAME...' (substrings of test paths such as
+# programs/basic/hello), threads=N (default: the number of CPUs) and
+# INTERACTIVE=--interactive (offer to accept new output). Each ends with the
 # number of tests that passed and the list of those that failed, and fails
 # if any did.
 
@@ -67,14 +66,12 @@ threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null 
 only ?=
 except ?=
 INTERACTIVE ?=
-time_scale ?= 1
-export IDRIS_MLIR_TIME_SCALE := $(time_scale)
 GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
 # A runner that hangs fails instead of holding the tree's lock; without
 # coreutils' timeout (tools/host.sh) no test command runs.
 TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
-RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 $(shell echo $$(( 14400 * $(time_scale) ))) $(RUNNER) $(COMPILER)
+RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build prefix libs paths test test-idr \
         test-mlir-tools runner compile bench

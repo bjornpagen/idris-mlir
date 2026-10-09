@@ -29,11 +29,11 @@ filecheck() {
 #
 # and without either, the module after `idr-simplify`, the simplify loop,
 # where the eliminations are done and nothing is lowered yet. A step's
-# module is the file `<NN>-<step>.mlir` that idris-mlir-cc
-# --dump-after=all writes, found by the step's
-# name and not by its number, so it survives steps added before it; of two
-# dumps of a step (canonicalize runs more than once) the first is taken. A
-# step that left no dump fails the check, never falls back to another.
+# module is the file `<NN>-<step>.mlir` that idris-mlir-cc --dump-dir
+# writes, found by the step's name and not by its number, so it survives
+# steps added before it; of two dumps of a step (canonicalize runs more
+# than once) the first is taken. A step that left no dump fails the check,
+# never falls back to another.
 #
 # Emit writes the generic form, which says what each op is and nothing of
 # how its dialect prints it; idris-mlir-opt parses the emitted module and

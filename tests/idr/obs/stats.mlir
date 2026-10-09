@@ -1,6 +1,6 @@
-// RUN: idris-mlir-cc %s --check --stats 2> %t.stats
+// RUN: idris-mlir-cc %s -o %t.o --stats 2> %t.stats
 // RUN: FileCheck %s < %t.stats
-// RUN: idris-mlir-cc %s --check 2> %t.quiet
+// RUN: idris-mlir-cc %s -o %t.quiet.o 2> %t.quiet
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
 // --stats prints the statistics of every step's passes. The simplify loop
 // shows those of the passes its rounds run, which the pass manager never

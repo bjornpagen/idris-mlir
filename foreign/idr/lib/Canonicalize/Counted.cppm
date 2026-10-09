@@ -1,8 +1,8 @@
 // idr.canonicalize:counted: the rewrites of upstream's canonicalize,
 // counted by the listener its configuration names. The counts by pattern
 // are an Analysis remark, and a run that stops before its fixpoint (at
-// max-iterations or max-num-rewrites) is a Missed remark, both in the
-// category idr-canonicalize.
+// max-iterations) is a Missed remark, both in the category
+// idr-canonicalize.
 export module idr.canonicalize:counted;
 
 import idr.mlir;
@@ -25,9 +25,8 @@ public:
   }
 
   // Reports the run on `op` as remarks, the counts and whether it stopped
-  // before its fixpoint at those limits, and returns its rewrites.
-  uint64_t report(Operation *op, LogicalResult converged, int64_t maxIterations,
-                  int64_t maxNumRewrites) const {
+  // before its fixpoint at that limit, and returns its rewrites.
+  uint64_t report(Operation *op, LogicalResult converged, int64_t maxIterations) const {
     auto opts = remark::RemarkOpts::name("patterns").category("idr-canonicalize");
     if (auto symbol = op->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName()))
       opts = opts.function(symbol.getValue());
@@ -38,9 +37,8 @@ public:
       return run->total();
     opts.remarkName = "unconverged";
     remark::missed(op->getLoc(), opts)
-        << remark::reason("the greedy driver stopped before a fixpoint, at max-iterations={0} "
-                          "or max-num-rewrites={1}",
-                          maxIterations, maxNumRewrites);
+        << remark::reason("the greedy driver stopped before a fixpoint, at max-iterations={0}",
+                          maxIterations);
     return run->total();
   }
 

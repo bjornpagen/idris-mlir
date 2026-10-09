@@ -5,7 +5,6 @@ import idr.mlir;
 
 import :namesapart;
 import :nativeruns;
-import :options;
 import :readruntime;
 import :report;
 
@@ -17,13 +16,12 @@ export namespace idr::driver {
 // as they are, available_externally: the optimizer inlines what pays and
 // drops the rest, which the link line resolves in the native half, where
 // every piece of runtime state has its one definition. Otherwise (the
-// archive, or a program for a smaller CPU) every body the program reaches
-// becomes a definition of its own and compiles with the program, so that its
-// object is the whole program and the link line's runtime goes unused.
+// archive, or a runtime prepared for a larger CPU) every body the program
+// reaches becomes a definition of its own and compiles with the program, so
+// that its object is the whole program and the link line's runtime goes
+// unused.
 bool linkRuntime(llvm::Module &program, const llvm::Target &target, const llvm::Triple &triple,
                  const llvm::TargetMachine &machine) {
-  if (runtimePath.empty())
-    return true;
   std::unique_ptr<llvm::Module> runtime =
       readRuntime(program.getContext(), program.getTargetTriple(), program.getDataLayout());
   if (!runtime || !namesApart(program, *runtime))

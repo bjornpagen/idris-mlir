@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 55\n
 module Main
 
 -- Codata: an infinite Stream is a suspension, forced by name,

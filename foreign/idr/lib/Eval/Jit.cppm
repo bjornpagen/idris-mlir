@@ -229,7 +229,7 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   if (!lacking.empty()) {
     error = "compile-time evaluation runs code for " + target.getChip().str() +
             ", and this machine lacks" + lacking +
-            " (compile with --cpu=native, or --no-eval)";
+            " (compile with --no-eval)";
     return nullptr;
   }
   builder->setCPU(target ? target.getChip().str() : "generic");

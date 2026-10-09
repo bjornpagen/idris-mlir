@@ -22,10 +22,9 @@ idris_sources() {
   find compiler/src -name '*.idr' ! -path '*/build/*' \
     ! -path 'compiler/src/IdrisMLIR/Registry/*' ! -path 'compiler/src/IdrisMLIR/Registry.idr' | sort
 }
-# The dialect's own sources; bench/ holds prototypes that are not the compiler.
+# The dialect's own sources.
 dialect_sources() {
-  find foreign/idr -type f \( -name '*.cc' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) \
-    ! -path 'foreign/idr/bench/*' | sort
+  find foreign/idr -type f \( -name '*.cc' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) | sort
 }
 
 : > "$work/found"

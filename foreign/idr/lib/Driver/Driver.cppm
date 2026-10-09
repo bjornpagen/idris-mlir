@@ -5,7 +5,6 @@
 export module idr.driver;
 
 export import :besideobject;
-export import :cpu;
 export import :dump;
 export import :emit;
 export import :externalize;

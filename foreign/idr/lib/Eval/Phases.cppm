@@ -10,7 +10,7 @@ namespace idr::eval {
 
 // What one run of the pass spends on each phase of evaluating its fresh
 // calls, as the remark `round` of the category idr-eval reports it: the
-// pass manager's timing (--timing) sees the lowering pipelines it runs,
+// pass manager's timing (-mlir-timing) sees the lowering pipelines it runs,
 // but not the JIT or the child.
 struct Phases {
   using Clock = std::chrono::steady_clock;

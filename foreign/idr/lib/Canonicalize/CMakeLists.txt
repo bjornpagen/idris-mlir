@@ -5,7 +5,6 @@ idr_library(idr_canonicalize
 	MODULES
 		Canonicalize.cppm
 		Counted.cppm
-		Levels.cppm
 	GLUE
 		Pass.cc
 	LINKS

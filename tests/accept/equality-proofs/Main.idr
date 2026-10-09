@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: x\n
 module Main
 
 -- From v3 the proof combinators of Builtin (sym, trans, replace) are

@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 2\n
 module Main
 
 -- `report` divides, and its action runs as soon as it is built; no

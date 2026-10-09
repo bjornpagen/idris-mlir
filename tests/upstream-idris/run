@@ -9,8 +9,7 @@
 # idris2/basic, ...). --list prints the groups that are programs over the
 # prelude and base, which is the language this compiler implements. Other
 # groups (other backends, the IDE, packages this compiler does not
-# implement) are recorded as skipped when named. threads=N is how many
-# tests run at once, as make test's threads.
+# implement) are recorded as skipped when named. Four tests run at once.
 #
 # findings/upstream-idris/results gains that group's lines and keeps every
 # other group's. One line is `pass`, `fail` or `skip`, the test, and for a
@@ -21,7 +20,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 export IDRIS_MLIR_ROOT=$root
 
 results=$root/findings/upstream-idris/results
-threads=${threads:-4}
+threads=4
 upstream=$root/third_party/Idris2/tests
 tab=$(printf '\t')
 

@@ -7,7 +7,7 @@
 # status in $compiled; its wall time goes to the timing record.
 compile_program() {
   compile_started=$(now_ms)
-  bounded env "IDRIS_MLIR=$idris_mlir" "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
+  bounded "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
   compiled=$?
   record_time "$(( $(now_ms) - compile_started ))" "$@"
 }

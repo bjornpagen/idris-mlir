@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: one\nzero\n
 module Main
 
 -- An indexed data type at runtime: its index is compile-time information,

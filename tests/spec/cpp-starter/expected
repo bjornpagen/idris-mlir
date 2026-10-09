@@ -1,7 +1,7 @@
 preset dev
 preset release
-preset asan-ubsan
 preset lint
+no preset asan-ubsan
 CMakeLists.txt: set(CMAKE_CXX_STANDARD 26)
 CMakeLists.txt: -fno-exceptions -fno-rtti
 CMakeLists.txt: -Werror

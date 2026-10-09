@@ -1,5 +1,4 @@
--- expect: program, line 6
--- packages: contrib
+-- expect: program, line 5
 module Main
 
 import Prelude

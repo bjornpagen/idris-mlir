@@ -1,8 +1,8 @@
 // The processor features an x86-64 program may be compiled to use and
 // idris_rt_start tests (cpu_features.h): those of the microarchitecture
 // levels v2, v3 and v4 above the baseline. On x86-64 the name
-// __builtin_cpu_supports tests and LLVM's are the same. A CPU named with
-// --cpu may enable more, which are not tested.
+// __builtin_cpu_supports tests and LLVM's are the same. A larger CPU may
+// enable more, which are not tested.
 // PIN(runtime-quarantine) — see PINS.md
 
 #pragma once

@@ -17,9 +17,10 @@ export namespace idr::driver {
 // Whether the prepared runtime's native half runs wherever the program does:
 // the program's CPU has every feature of the CPU that half was compiled for
 // that the processor test at the program's entry can name
-// (IDRIS_RT_CPU_FEATURES), so the test covers both. The runtime is prepared
-// for the default CPU, so this holds for every program but one compiled for
-// a smaller CPU, which compiles the runtime's bodies itself.
+// (IDRIS_RT_CPU_FEATURES), so the test covers both. The build prepares the
+// runtime for the CPU every program is compiled for, so this fails only for
+// a runtime prepared elsewhere for a larger one, whose bodies the program
+// then compiles itself.
 bool nativeRuns(const llvm::Module &runtime, const llvm::Target &target, const llvm::Triple &triple,
                 const llvm::TargetMachine &machine) {
   if (!isPrepared(runtime))

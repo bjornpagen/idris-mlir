@@ -1,12 +1,14 @@
 #!/bin/sh
 # C++ follows bjornpagen/cpp-starter: its presets and its flags, with clang
-# and libc++ in place of GCC.
+# and libc++ in place of GCC. cpp-starter's asan-ubsan preset is left out
+# (PINS.md, no-sanitizer-runtimes): nothing may configure it.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 sed -n '/"configurePresets"/,/"buildPresets"/p' "$root/CMakePresets.json" |
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' > "$work/presets"
-for preset in dev release asan-ubsan lint; do
+for preset in dev release lint; do
   if grep -qx "$preset" "$work/presets"; then say "preset $preset"; else say "preset $preset: missing"; fi
 done
+if grep -qx asan-ubsan "$work/presets"; then say "preset asan-ubsan: present"; else say "no preset asan-ubsan"; fi
 for flag in 'set(CMAKE_CXX_STANDARD 26)' '-fno-exceptions -fno-rtti' '-Werror' \
             'idris_mlir_language_profile' 'PIN(clang-no-reflection)' 'PIN(clang-libcxx)'; do
   if grep -qF -- "$flag" "$root/CMakeLists.txt"; then say "CMakeLists.txt: $flag"; else say "CMakeLists.txt: no $flag"; fi

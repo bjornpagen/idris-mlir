@@ -559,7 +559,7 @@ stated today; two are enforced.
 - **The rejection:** a site that passes a shared one is
   `unsupported (uniqueness)`, naming the call and the reference that made
   the value shared.
-- **The switch:** behind `--demand in-place` until the benchmarks pass it.
+- **The switch:** behind `--demand-in-place` until the benchmarks pass it.
   Then it is the default, which is what the README promises.
 
 **The cycle check.**

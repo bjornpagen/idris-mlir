@@ -30,11 +30,13 @@ changes, as any golden test's. No other implementation is asked.
   `linear`, `arrays`), one pool each in Main.idr. The `prim-*` tests of
   `semantics` are generated (Sem.idr), their expected values computed from
   what each primitive means.
-- `accept/<name>/`: programs the profile compiles; a header line
-  `-- stdout:` or `-- exit:` also runs them.
+- `accept/<name>/`: programs the profile compiles; an `expected-stdout`
+  or `expected-exit` beside one also runs it.
 - `reject/<name>/`: programs rejected with one `unsupported (<rule>)` on
   the line the header `-- expect: <rule>, line N` names; the name starts
-  with the rule.
+  with the rule. A `packages` file beside a fixture of either kind names
+  the packages it compiles with, and a `demand-in-place` file makes the
+  in-place promise.
 - `compiler/`, `registry/`, `determinism/`, `toolchain/`, `fuzz/`,
   `two-levels/`, `bench/`: the other pools of `make test`, named for what
   they check.

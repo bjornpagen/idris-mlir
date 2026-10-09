@@ -96,12 +96,12 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // rounds open and close in the copy, and declares its statistics before
   // it runs, as every instance does.
   Simplify(const Simplify &other) : IdrSimplifyBase(other) {
-    (void)build(other.inlineIterations, other.maxRounds);
+    (void)build(other.maxRounds);
   }
 
   // The passes of one round, parsed from their textual pipelines.
-  static LogicalResult buildRound(OpPassManager &pm, unsigned iterations) {
-    for (const std::string &step : idr::simplify::simplifyRound(iterations))
+  static LogicalResult buildRound(OpPassManager &pm) {
+    for (const std::string &step : idr::simplify::simplifyRound())
       if (failed(parsePassPipeline(step, pm, llvm::errs())))
         return failure();
     return success();
@@ -110,7 +110,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // The loop: upstream's fixpoint of the round between the passes that open
   // and close it, which stops after the round past `budget`. The statistics
   // of the round's passes are this pass's.
-  LogicalResult build(unsigned iterations, unsigned budget) {
+  LogicalResult build(unsigned budget) {
     LogicalResult parsed = success();
     limit = std::min(budget, static_cast<unsigned>(std::numeric_limits<int>::max()));
     loop = OpPassManager(ModuleOp::getOperationName());
@@ -118,7 +118,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
         "IdrSimplifyLoop",
         [&](OpPassManager &pm) {
           pm.addPass(std::make_unique<OpenRound>(rounds));
-          parsed = buildRound(pm, iterations);
+          parsed = buildRound(pm);
           pm.addPass(std::make_unique<CloseRound>(rounds));
           // The pipeline lives as long as the loop's pass, which owns it.
           statistics.declare(*this, pm);
@@ -132,12 +132,12 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // most `limit` rounds.
   bool exhausted() const { return rounds.closed > limit; }
 
-  LogicalResult initialize(MLIRContext *) override { return build(inlineIterations, maxRounds); }
+  LogicalResult initialize(MLIRContext *) override { return build(maxRounds); }
 
   // The dialects a round's passes create must be loaded before any pass runs.
   void getDependentDialects(DialectRegistry &registry) const override {
     OpPassManager pm(ModuleOp::getOperationName());
-    if (succeeded(buildRound(pm, inlineIterations)))
+    if (succeeded(buildRound(pm)))
       pm.getDependentDialects(registry);
   }
 

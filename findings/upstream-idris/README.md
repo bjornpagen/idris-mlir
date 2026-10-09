@@ -4,7 +4,7 @@
 `third_party/Idris2/tests` against this compiler. `--list` prints the
 groups that are programs over the prelude and base. A test passes when
 its run script, given this compiler, prints the test's `expected` file, as
-upstream's own runner decides. `threads=N` is how many tests run at once.
+upstream's own runner decides. Four tests run at once.
 
 `results` is one line per test, tab-separated: `pass`, `fail` or `skip`,
 the test, and for a failure the first error or the output mismatch. The

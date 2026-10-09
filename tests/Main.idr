@@ -15,15 +15,13 @@
 |||     runtests <idris-mlir> [--suite check|test|test-idr|test-mlir-tools]
 |||              [--threads N] [--only NAMES] [--except NAMES] [--interactive]
 |||
-||| With `--list`, it prints each pool's tests instead of running them. A
-||| pool's directories are found with `testsInDir`; one that does not exist,
-||| or holds no test yet, adds none.
+||| A pool's directories are found with `testsInDir`; one that does not
+||| exist, or holds no test yet, adds none.
 |||
 ||| It also answers the `run` scripts that need Idris:
 |||
 |||     runtests --sem-program <name>   the program of a semantics test
 |||     runtests --sem-expected <name>  the stdout its program must print
-|||     runtests --sem-list             the names of the semantics tests
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||                                     a program of the fuzzer (Fuzz.idr)
 |||     runtests --two-levels-program primitives|prelude terms|main
@@ -162,17 +160,16 @@ root = do
     | Nothing => die "the current directory is unknown"
   pure (fromMaybe here (parent here))
 
-||| `--suite NAME`, `--list` and the other arguments.
-takeOwn : List String -> (Maybe String, Bool, List String)
-takeOwn ("--suite" :: name :: rest) = let (_, list, others) = takeOwn rest in (Just name, list, others)
-takeOwn ("--list" :: rest) = let (suite, _, others) = takeOwn rest in (suite, True, others)
-takeOwn (arg :: rest) = let (suite, list, others) = takeOwn rest in (suite, list, arg :: others)
-takeOwn [] = (Nothing, False, [])
+||| `--suite NAME` and the other arguments.
+takeOwn : List String -> (Maybe String, List String)
+takeOwn ("--suite" :: name :: rest) = let (_, others) = takeOwn rest in (Just name, others)
+takeOwn (arg :: rest) = let (suite, others) = takeOwn rest in (suite, arg :: others)
+takeOwn [] = (Nothing, [])
 
 runnerUsage : String
 runnerUsage = unlines
-  [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list] [Test.Golden options]"
-  , "       runtests --sem-program <name> | --sem-expected <name> | --sem-list | --lock"
+  [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [Test.Golden options]"
+  , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
   , "       runtests --fuzz-program <seed> <cases> runtime|static"
   , "       runtests --two-levels-program primitives|prelude terms|main"
   , Test.Golden.usage
@@ -184,16 +181,9 @@ suitePools Nothing = concat <$> sequence (map snd suites)
 suitePools (Just s) =
   maybe (die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)) id (lookup s suites)
 
-||| The tests each pool would run, without running them.
-listPools : Options -> List TestPool -> IO ()
-listPools opts pools = for_ pools $ \p => do
-  let tests = filterTests opts (testCases p)
-  putStrLn (poolName p ++ ": " ++ show (length tests))
-  traverse_ (putStrLn . ("  " ++)) tests
-
 runSuites : String -> List String -> IO ()
 runSuites prog args = do
-  let (suite, listing, rest) = takeOwn args
+  let (suite, rest) = takeOwn args
   Just opts <- options (prog :: rest)
     | Nothing => die runnerUsage
   r <- root
@@ -204,9 +194,7 @@ runSuites prog args = do
     die "no tests found: run the runner in tests/, through make"
   -- Accepting new output asks at each failure, one test at a time, which
   -- only Test.Golden's runner does.
-  if listing then listPools opts pools
-    else if opts.interactive then runnerWith opts pools
-    else runPools opts pools
+  if opts.interactive then runnerWith opts pools else runPools opts pools
 
 main : IO ()
 main = do
@@ -216,7 +204,6 @@ main = do
       maybe (die ("no semantics test " ++ name)) putStr (programOf name)
     ["--sem-expected", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
-    ["--sem-list"] => traverse_ putStrLn names
     ("--fuzz-program" :: fuzz) =>
       maybe (die "usage: runtests --fuzz-program <seed> <cases> runtime|static") putStr
             (Fuzz.programOf fuzz)

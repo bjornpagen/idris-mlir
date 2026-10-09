@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 63\n
 module Main
 
 -- A stream consumer the Prelude declares covering, `takeBefore`, in a

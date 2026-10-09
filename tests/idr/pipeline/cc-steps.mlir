@@ -1,5 +1,5 @@
 // RUN: rm -rf %t.dir && mkdir -p %t.dir
-// RUN: idris-mlir-cc %s -o %t.o --dump-after=all --dump-dir=%t.dir
+// RUN: idris-mlir-cc %s -o %t.o --dump-dir=%t.dir
 // RUN: ls %t.dir > %t.dumps
 // RUN: awk '!/^[0-9][0-9]-[a-z][a-z0-9-]*[.]mlir$/ { exit 1 } $0 + 0 != NR { exit 1 } END { if (NR < 2) exit 1 }' %t.dumps
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline -o %t.pipeline.mlir
@@ -7,7 +7,7 @@
 // RUN: idris-mlir-opt %t.pipeline.mlir -o %t.again.mlir
 // RUN: cmp %t.last.mlir %t.again.mlir
 // RUN: rm -rf %t.without && mkdir -p %t.without
-// RUN: idris-mlir-cc %s -o %t.without.o --without=idr-returned-arguments,idr-stack,sink,reuse --dump-after=all --dump-dir=%t.without
+// RUN: idris-mlir-cc %s -o %t.without.o --without=idr-returned-arguments,idr-stack,sink,reuse --dump-dir=%t.without
 // RUN: ls %t.without | not grep -q 'idr-returned-arguments\|idr-stack'
 // RUN: ls %t.without | grep -q 'idr-rc'
 // RUN: %status 2 idris-mlir-cc %s -o %t.bad.o --without=idr-lower

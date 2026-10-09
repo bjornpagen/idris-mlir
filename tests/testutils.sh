@@ -65,18 +65,15 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # again under `timeout` and, if the script is killed, prints that it timed
 # out, which no expected output holds, so the test fails. A run script that
 # does many compilations (the fuzzer) sets a larger
-# test_limit before sourcing this file. IDRIS_MLIR_TIME_SCALE (make's
-# time_scale) multiplies both, for a slower machine; a limit never passes a
-# test, it only ends one. coreutils' timeout is $timeout_cmd
-# (tools/host.sh).
+# test_limit before sourcing this file. A limit never passes a test, it
+# only ends one. coreutils' timeout is $timeout_cmd (tools/host.sh).
 . "$root/tools/host.sh"
 if [ -z "$timeout_cmd" ]; then
   printf '%s\n' "test: $timeout_missing, so the test could hang"
   exit 1
 fi
-time_scale=${IDRIS_MLIR_TIME_SCALE:-1}
-step_limit=$(( ${step_limit:-60} * time_scale ))
-test_limit=$(( ${test_limit:-300} * time_scale ))
+step_limit=${step_limit:-60}
+test_limit=${test_limit:-300}
 # The output is bounded too, at 256 KiB, since the runner reads all of it:
 # a longer one is cut, and says so, which fails the test.
 if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then

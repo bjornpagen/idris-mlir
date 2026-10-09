@@ -52,17 +52,14 @@
 #
 # Environment:
 #   IDRIS_MLIR_TOOLCHAIN   the directory instead of .toolchain
-#   IDRIS_MLIR_JOBS        parallel compile jobs (default: the cores, at most
-#                          one per 5 GiB of memory); one link at a time
-#   IDRIS_MLIR_CCACHE      the compiler launcher of the LLVM builds: unset,
-#                          ccache on PATH or MacPorts' if there is one; a
-#                          path, that ccache; 0, none
-#   IDRIS_MLIR_CCACHE_DIR  its cache (default: .toolchain/ccache)
-#   CCACHE_MAXSIZE         the cache's cap (default: 500G, room for many pins
-#                          and patch sets of LLVM, MLIR and clang)
-#   CC, CXX                the host's C and C++ compilers (default: cc, c++)
 #
-# The host provides: a C and C++ compiler, make, git, python3
+# The builds run as many compile jobs as there are cores, at most one per
+# 5 GiB of memory, and one link at a time. ccache on PATH, or MacPorts' if
+# there is one, is the compiler launcher of the LLVM builds, with its cache
+# in .toolchain/ccache, capped at 500G: room for many pins and patch sets of
+# LLVM, MLIR and clang.
+#
+# The host provides: a C and C++ compiler (cc and c++), make, git, python3
 # (LLVM's configure), m4 (GMP), tar, sha256sum, and curl to check release
 # tarballs; on Linux, its UAPI headers (linux-libc-dev) and GMP's headers
 # and library (libgmp-dev), which Idris's support library links; on Darwin,
@@ -108,8 +105,8 @@ cmake=$cmake_prefix/bin/cmake
 ninja=$ninja_prefix/bin/ninja
 logs=$toolchain/logs
 builds=$toolchain/build
-host_cc=${CC:-cc}
-host_cxx=${CXX:-c++}
+host_cc=cc
+host_cxx=c++
 # Every LLVM this builds has the backends of both targets, whichever host
 # builds it.
 llvm_targets='AArch64;X86'
@@ -214,8 +211,6 @@ for arg in "$@"; do
     cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 libc runtimes stage2" ;;
     all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris" ;;
-    musl) usage "musl is the libc step now, on every host: tools/bootstrap.sh libc" ;;
-    gcc) usage "gcc is retired: the pinned C compiler is the stage-2 clang; run: tools/bootstrap.sh llvm" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -224,19 +219,12 @@ for arg in "$@"; do
   esac
 done
 
-if [ -n "${IDRIS_MLIR_JOBS-}" ]; then
-  jobs=$IDRIS_MLIR_JOBS
-else
-  cores=$(machine_fact hw.ncpu _NPROCESSORS_ONLN) || exit 1
-  memory_kib=$(memory_kib 2> /dev/null) || memory_kib=0
-  case $memory_kib in '' | *[!0-9]*) memory_kib=0 ;; esac
-  jobs=$((memory_kib / 5242880))
-  if [ "$jobs" -gt "$cores" ]; then jobs=$cores; fi
-  if [ "$jobs" -lt 1 ]; then jobs=1; fi
-fi
-case $jobs in
-  '' | *[!0-9]* | 0) usage "IDRIS_MLIR_JOBS must be a positive number (got $jobs)" ;;
-esac
+cores=$(machine_fact hw.ncpu _NPROCESSORS_ONLN) || exit 1
+memory_kib=$(memory_kib 2> /dev/null) || memory_kib=0
+case $memory_kib in '' | *[!0-9]*) memory_kib=0 ;; esac
+jobs=$((memory_kib / 5242880))
+if [ "$jobs" -gt "$cores" ]; then jobs=$cores; fi
+if [ "$jobs" -lt 1 ]; then jobs=1; fi
 
 # ccache, the compiler launcher of every CMake build of LLVM's code (stage
 # 1, the runtimes, stage 2), when there is one: a rebuild after a patch, a
@@ -245,19 +233,12 @@ esac
 # with the toolchain, and paths under the toolchain directory are hashed
 # relative to it. The patched llvm-project is written just before it is
 # built, so the times of its headers say nothing, and ccache is told so.
-case ${IDRIS_MLIR_CCACHE-} in
-  0) ccache= ;;
-  '') ccache=$(host_path ccache) || ccache= ;;
-  *)
-    [ -x "$IDRIS_MLIR_CCACHE" ] || usage "IDRIS_MLIR_CCACHE names no executable: $IDRIS_MLIR_CCACHE"
-    ccache=$IDRIS_MLIR_CCACHE
-    ;;
-esac
+ccache=$(host_path ccache) || ccache=
 if [ -n "$ccache" ]; then
-  CCACHE_DIR=${IDRIS_MLIR_CCACHE_DIR:-$toolchain/ccache}
+  CCACHE_DIR=$toolchain/ccache
   CCACHE_BASEDIR=$toolchain
   CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime
-  CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-500G}
+  CCACHE_MAXSIZE=500G
   export CCACHE_DIR CCACHE_BASEDIR CCACHE_SLOPPINESS CCACHE_MAXSIZE
   ccache_state="ccache $CCACHE_DIR"
 else

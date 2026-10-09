@@ -29,15 +29,6 @@
       }
     },
     {
-      "name": "asan-ubsan",
-      "displayName": "AddressSanitizer + UndefinedBehaviorSanitizer (the pinned toolchain has no sanitizer runtimes; see PINS.md)",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "IDRIS_MLIR_RUNTIME_SANITIZERS": "ON"
-      }
-    },
-    {
       "name": "lint",
       "displayName": "Debug build checked by the pinned clang-tidy",
       "inherits": "base",
@@ -50,7 +41,6 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
     { "name": "lint", "configurePreset": "lint" }
   ]
 }

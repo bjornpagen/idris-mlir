@@ -50,15 +50,18 @@ signed() {
 }
 
 # compile NAME OPTION...: eval.mlir compiled by $work/NAME: its exit status,
-# whether it was killed, whether a call was evaluated, whether an error
-# names the entitlement, and what the program it made prints.
+# whether it was killed, whether a call was evaluated (MLIR's debug counter
+# counts the replacements of a call by its results, the action
+# idr-eval-call, and skips none), whether an error names the entitlement,
+# and what the program it made prints.
 compile() {
   compile_name=$1
   shift
-  bounded "$work/$compile_name" "$source" -o "$work/$compile_name.o" --remarks=idr-eval "$@" \
+  bounded "$work/$compile_name" "$source" -o "$work/$compile_name.o" \
+    -mlir-debug-counter=idr-eval-call-skip=-1 -mlir-print-debug-counter "$@" \
     > "$work/$compile_name.log" 2>&1
   compile_status=$?
-  if grep -q '\[Passed\] Evaluated' "$work/$compile_name.log"; then
+  if grep -q '^idr-eval-call *: {[1-9]' "$work/$compile_name.log"; then
     evaluated="calls evaluated"
   else
     evaluated="no call evaluated"

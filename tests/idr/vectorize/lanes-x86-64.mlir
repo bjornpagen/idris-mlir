@@ -1,10 +1,10 @@
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --idr-narrow-lanes --canonicalize --cse | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@rows,narrowed-lanes=@squares -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@eighth -o /dev/null 2> %t.err
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --canonicalize --cse | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@rows,narrowed-lanes=@squares -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@eighth -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=WIDE < %t.err
-// RUN: %status 1 idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@inexact -o /dev/null 2> %t.inexact
+// RUN: %status 1 idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@inexact -o /dev/null 2> %t.inexact
 // RUN: FileCheck %s --check-prefix=INEXACT < %t.inexact
-// RUN: idris-mlir-opt %s --idr-target=cpu=x86-64-v3 --idr-pipeline | FileCheck %s --check-prefix=LLVM
+// RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
 // After idr-narrow-lanes a vectorized loop whose body computes on the
 // 64-bit index has two versions: when the sizes it reads are at most a
 // bound (one test on entry), a copy whose integer lanes are i32, the
@@ -24,7 +24,7 @@
 // an unsigned remainder of a word that is negative at index 1, read as
 // another number on i32. The whole
 // pipeline reaches the LLVM dialect with the 32-bit lanes in it. The lanes
-// are x86-64-v3's four, the CPU this x86-64 test names.
+// are x86-64-v3's four, the x86-64 target entry's CPU.
 // CHECK-LABEL: func.func private @squares(
 // CHECK: arith.cmpi ule
 // CHECK: scf.if

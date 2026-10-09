@@ -1,26 +1,12 @@
-// RUN: idris-mlir-cc %s --check --remarks=idr-simplify --remarks-file=%t.yaml 2> %t.remarks
+// RUN: idris-mlir-opt %s --mlir-disable-threading --idr-target --idr-simplify --remarks-filter=idr-simplify -o /dev/null 2> %t.remarks
 // RUN: FileCheck %s < %t.remarks
-// RUN: FileCheck %s --check-prefix=YAML < %t.yaml
-// RUN: idris-mlir-cc %s --check --remarks-file=%t.all.yaml 2> %t.quiet
-// RUN: FileCheck %s --check-prefix=ALL < %t.all.yaml
-// RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
 // The simplify loop traces each of its rounds in an Analysis remark, with
-// the round's number among its facts (--remarks prints every kind); the
-// last round is the fixpoint, and the loop's statistics follow. With
-// --remarks-file the remarks go to a file too, as YAML documents: those of
-// --remarks' categories, or of all of them while none is printed.
+// the round's number among its facts (--remarks-filter prints every kind);
+// the last round is the fixpoint, and the loop's statistics follow.
 // CHECK: remark: [Analysis] round {{.*}}Category:idr-simplify {{.*}}round=1
 // CHECK: remark: [Passed] idr-simplify {{.*}}fixpoint{{.*}}changed nothing
 // CHECK-NOT: [Analysis] round
 // CHECK: remark: [Analysis] statistics {{.*}}Category:idr-simplify
-// YAML: --- !Analysis
-// YAML-NEXT: Pass: idr-simplify
-// YAML-NEXT: Name: round
-// YAML: --- !Passed
-// YAML-NEXT: Pass: idr-simplify
-// ALL: Pass: idr-simplify
-// ALL-NEXT: Name: round
-// QUIET-NOT: remark
 module attributes {idr.program} {
   func.func private @twice(%x: i64) -> i64 attributes {idr.total} {
     %y = arith.addi %x, %x : i64

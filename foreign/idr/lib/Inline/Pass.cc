@@ -25,17 +25,20 @@ namespace {
 struct Inline : idr::impl::IdrInlineBase<Inline> {
   using IdrInlineBase::IdrInlineBase;
 
-  // The default pipeline is parsed once, here, so that a pipeline that does
-  // not parse fails the pass instead of running nothing on every function.
+  // What the inliner runs on each function before it inlines into it:
+  // idr-canonicalize, which leaves what canonicalize leaves and counts it.
+  static constexpr StringLiteral simplifyEach = "idr-canonicalize";
+
+  // The pipeline is parsed once, here; a tool that has not registered
+  // idr-canonicalize fails the pass instead of running nothing on every
+  // function.
   LogicalResult initialize(MLIRContext *ctx) override {
-    std::string text = defaultPipeline;
     std::string error;
     llvm::raw_string_ostream os(error);
     OpPassManager parsed;
-    if (failed(parsePassPipeline(text, parsed, os)))
+    if (failed(parsePassPipeline(simplifyEach, parsed, os)))
       return emitError(UnknownLoc::get(ctx))
-             << "idr-inline: the default pipeline \"" << text
-             << "\" does not parse: " << StringRef(error).trim();
+             << "idr-inline: " << simplifyEach << " does not parse: " << StringRef(error).trim();
     pipeline = std::move(parsed);
     return success();
   }
@@ -50,9 +53,9 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     // The inliner hands a pass manager anchored on the function's op; the
     // parsed pipeline, anchored on any op, runs there.
     config.setDefaultPipeline([this](OpPassManager &pm) { pm = pipeline; });
-    unsigned iterations = maxIterations;
-    config.setMaxInliningIterations(iterations ? iterations
-                                               : std::numeric_limits<unsigned>::max());
+    // Until an iteration inlines nothing: the size rule, decided once,
+    // bounds what can be inlined.
+    config.setMaxInliningIterations(std::numeric_limits<unsigned>::max());
     config.setCloneCallback([clone = config.getCloneCallback()](
                                 OpBuilder &builder, Region *src, Block *inlineBlock,
                                 Block *postInsertBlock, IRMapping &mapper, bool cloned) {
@@ -81,7 +84,7 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
   // it.
   void getDependentDialects(DialectRegistry &registry) const override {
     OpPassManager pm(func::FuncOp::getOperationName());
-    if (succeeded(parsePassPipeline(defaultPipeline, pm, llvm::nulls())))
+    if (succeeded(parsePassPipeline(simplifyEach, pm, llvm::nulls())))
       pm.getDependentDialects(registry);
   }
 

@@ -1,16 +1,16 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: rm -rf %t.dumps %t-no-eval.dumps && mkdir -p %t.dumps %t-no-eval.dumps
+// RUN: idris-mlir-cc %s -o %t.o --dump-dir=%t.dumps
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// RUN: idris-mlir-cc %s -o %t-no-eval.o --no-eval
+// RUN: idris-mlir-cc %s -o %t-no-eval.o --no-eval --dump-dir=%t-no-eval.dumps
 // RUN: %cc %t-no-eval.o -o %t-no-eval
 // RUN: %t-no-eval | FileCheck %s
-// RUN: idris-mlir-cc %s -o %t.mlir --emit=mlir
-// RUN: FileCheck %s --check-prefix=EVALUATED < %t.mlir
-// RUN: idris-mlir-cc %s -o %t-no-eval.mlir --emit=mlir --no-eval
-// RUN: FileCheck %s --check-prefix=RUNTIME < %t-no-eval.mlir
+// RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=EVALUATED
+// RUN: sh -c 'for dump in %t-no-eval.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=RUNTIME
 // Evaluation changes when a result is computed, not what it is: the program
 // prints the same with and without --no-eval (as tests/equivalence
-// checks). With it, the call stays and runs.
+// checks). With it, the call stays in the module idris-mlir-cc ends with,
+// and runs.
 // CHECK: 832040 -1.5e-7 250
 // EVALUATED-NOT: @fib
 // RUNTIME: @fib

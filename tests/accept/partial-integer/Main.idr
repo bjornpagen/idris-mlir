@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 21\n
 module Main
 
 -- A closed call of a partial function is evaluated at compile time, as a

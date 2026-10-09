@@ -273,9 +273,9 @@ Some workarounds carry no PIN marker. Checked against the same diff:
      `mlir/include/mlir/Remark/LLVMRemarkImport.h:40`, `:50`;
      `mlir/docs/Remarks.md`, "Importing LLVM Remarks").
    - Could serve: the driver runs LLVM's O3 (`Target/Optimize.cppm`,
-     `Driver/Run.cppm`) with no diagnostic handler, so `--remarks` and
-     `--remarks-file` show none of LLVM's remarks (the vectorizer's, the
-     inliner's). Installed on the `LLVMContext`, the handler would file them
+     `Driver/Run.cppm`) with no diagnostic handler, so none of LLVM's
+     remarks (the vectorizer's, the inliner's) reaches MLIR's remark
+     engine. Installed on the `LLVMContext`, the handler would file them
      as `llvm-<pass>`, and a backend error would become an MLIR diagnostic
      that `Verdict` counts.
    - Replaces: no workaround. It is a new feature, and 0003 keeps new
@@ -421,10 +421,8 @@ complete.
   themselves, so it is unaffected (read).
 - **LLVM IR text:** metadata keeps persistent numbers, and `Module::print`
   no longer renumbers them (read: `llvm/docs/ReleaseNotes.md`, "Changes to
-  the LLVM IR"). `--emit llvm` prints with `llvmModule->print`
-  (`Driver/Run.cppm`). A test that compares that text needs
-  `Module::renumberMetadataForAssembly()` before printing (conjecture that
-  any such test exists).
+  the LLVM IR"). idris-mlir-cc prints no LLVM IR (it writes the object
+  only), so no test compares that text.
 - **`TargetOptions::AllowFPOpFusion` is gone**, with `FPOpFusion` (read:
   `llvm/include/llvm/Target/TargetOptions.h`). Our `FPOpFusion::Strict`
   went from `Target/TargetOptions.cppm`: at 23.1.2 it only split

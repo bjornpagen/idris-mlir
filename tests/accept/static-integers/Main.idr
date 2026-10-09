@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 1331246629686034420\n2\n
 module Main
 
 -- Integers that are constants in the optimized module are allowed: the

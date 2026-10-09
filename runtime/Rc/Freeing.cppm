@@ -14,13 +14,10 @@ import :objects;
 
 namespace {
 
-// The bits of a stack address: the target entry's (CMakeLists.txt), which
-// states them after checking its address space; no target inherits
-// another's.
-#ifndef IDRIS_RT_STACK_ADDRESS_BITS
-#error "the dying list keeps a stack cell's address: the target entry states its bits"
-#endif
-constexpr unsigned stackAddressBits = IDRIS_RT_STACK_ADDRESS_BITS;
+// The bits of a stack address. User space ends below 2^47 on every target
+// of ours: only an mmap that asks for a higher address gets one, and no
+// stack does. Dying's assertions check that a dying cell holds that many.
+constexpr unsigned stackAddressBits = 47;
 
 // The count holds the low 32 bits of the next cell's address, and the tag
 // field of info its high bits; objs, kind and the stack bit stay. An array

@@ -88,7 +88,7 @@ void runProgram(void *argument) {
     return;
   static constexpr char prefix[] = "idris-mlir: this processor lacks";
   static constexpr char suffix[] =
-      ", which the program was compiled to use (idris-mlir-cc --cpu)\n";
+      ", which the program was compiled to use\n";
   say(prefix, sizeof prefix - 1);
 #define IDRIS_RT_CPU_NAME(bit, test, name)                                                       \
   if ((missing >> (bit) & 1) != 0) {                                                             \

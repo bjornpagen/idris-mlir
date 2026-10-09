@@ -18,7 +18,7 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
   void runOnOperation() override {
     namespace own = idr::ownership;
     own::RcCounts counts;
-    mlir::LogicalResult ran = own::rc(getOperation(), {reuse, borrow, sink}, counts);
+    mlir::LogicalResult ran = own::rc(getOperation(), {reuse, sink}, counts);
     numTakes += counts.takes;
     numReuses += counts.reuses;
     numBorrowed += counts.borrowed;

@@ -1,4 +1,4 @@
-// idr.demand: the promises a program can be asked to keep, checked on the
+// idr.demand: the promise a program can be asked to keep, checked on the
 // grades idr-rc wrote.
 //
 // in-place: a function that takes a parameter of quantity 1 apart and

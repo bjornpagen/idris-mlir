@@ -15,8 +15,8 @@ export namespace idr::driver {
 // a function only the compiler's evaluation child calls, natively, and no
 // program: the prepared runtime has no entry for it, and what it alone sets
 // (the arena) is constant there. The other two record what a function was
-// compiled for, before --prepare-runtime optimizes it for the default CPU,
-// so that a compilation for any CPU raises it from there (retarget).
+// compiled for, before --prepare-runtime optimizes it for the target's CPU,
+// so that a compilation raises it from there (retarget).
 inline constexpr llvm::StringLiteral baselineMark = "idris-rt-baseline";
 inline constexpr llvm::StringLiteral compilerMark = "idris-rt-compiler";
 inline constexpr llvm::StringLiteral cpuMark = "idris-rt-cpu";

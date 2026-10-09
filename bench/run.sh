@@ -25,8 +25,7 @@
 # limit of about 64 MiB on macOS). The Idris environment is the Makefile's,
 # set here too, so that a direct run builds against this checkout's libs/
 # (`make build` makes its prefix). Every build and run is killed after 300
-# seconds times IDRIS_MLIR_TIME_SCALE, and a benchmark that times out
-# fails.
+# seconds, and a benchmark that times out fails.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -66,7 +65,7 @@ die() {
 
 [ -n "$timeout_cmd" ] || die "$timeout_missing, so a benchmark could hang"
 now_ns > /dev/null || die "no clock to time the benchmarks with"
-limit=$(( 300 * ${IDRIS_MLIR_TIME_SCALE:-1} ))
+limit=300
 
 # bounded CMD...: CMD, killed after $limit seconds; a timeout exits 124.
 bounded() {

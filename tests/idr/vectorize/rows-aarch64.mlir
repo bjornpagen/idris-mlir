@@ -1,8 +1,8 @@
-// RUN: idris-mlir-opt %s --idr-target=cpu=apple-m1 --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
-// RUN: idris-mlir-opt %s --idr-target=cpu=apple-m1 --idr-lower --idr-vectorize --canonicalize --cse | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-target=cpu=apple-m1 --idr-pipeline | FileCheck %s --check-prefix=LLVM
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
+// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --canonicalize --cse | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
 // The arm64 counterpart of rows-x86-64: the same loop over an array with a
-// parallel dimension, on the CPU this arm64 test names (apple-m1), whose
+// parallel dimension, on the arm64 target entry's CPU (apple-m1), whose
 // cache line and vector width are one 128-bit NEON register: four lanes of
 // a 32-bit element, two of a 64-bit one, so the f64 row loop steps by two
 // lanes. A row reduction keeps its reduction dimension at one lane and

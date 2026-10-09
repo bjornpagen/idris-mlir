@@ -4,7 +4,6 @@
 #define IDR_PASSES
 
 include "mlir/Pass/PassBase.td"
-include "mlir/Rewrite/PassUtil.td"
 
 def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
   let summary = "Compute idr.effects on every function";
@@ -32,19 +31,13 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
 def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
   let summary = "Give the module its target: triple, CPU, features, data layout";
   let description = [{
-    Writes the build's target triple and the CPU on the module as its
+    Writes the build's target triple and CPU on the module as its
     `#llvm.target`, then lets LLVM fill in the CPU's features and the data
     layout (`dlti.dl_spec`). Every later step reads the target there:
     idr-eval's JIT compiles for it, idr-entry tells the runtime's entry which
     features to test, and idris-mlir-cc compiles the object for it. The
-    triple and the default CPU are the build's target entry (CMakeLists.txt).
+    triple and the CPU are the build's target entry (CMakeLists.txt).
   }];
-  let options = [
-    Option<"cpu", "cpu", "std::string", "IDRIS_MLIR_TARGET_CPU",
-           "The CPU, an LLVM name for one of the triple's">,
-    Option<"features", "features", "std::string", "\"\"",
-           "Features beyond the CPU's, as LLVM writes them (+avx2,-fma)">,
-  ];
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
 }
 
@@ -230,21 +223,15 @@ def IdrBindingTimes : Pass<"idr-binding-times", "::mlir::ModuleOp"> {
 def IdrInline : Pass<"idr-inline", "::mlir::ModuleOp"> {
   let summary = "Inline calls by MLton's size rule";
   let description = [{
-    MLIR's inliner, which runs `default-pipeline` on each function before
+    MLIR's inliner, which runs `idr-canonicalize` on each function before
     it inlines into it, deciding what to inline as MLton does: a function
     that calls nothing and has at most 40 ops, and any function on no cycle
     of calls for which (calls - 1) * (size - 60) <= 320, sizes counted in
     ops, calls in call sites and in closures that name the function. The
     decisions are taken once, before anything is inlined, from the callees
-    up.
+    up. Simplifying and inlining repeat for each group of functions until
+    an iteration inlines nothing.
   }];
-  let options = [
-    Option<"defaultPipeline", "default-pipeline", "std::string", "\"canonicalize\"",
-           "The pipeline run on each function before inlining into it">,
-    Option<"maxIterations", "max-iterations", "unsigned", "0",
-           "Rounds of simplifying and inlining per group of functions; 0, the "
-           "default, until one inlines nothing">,
-  ];
   let statistics = [
     Statistic<"numInlinable", "inlinable", "Functions the size rule lets inline">,
     Statistic<"numLeaves", "leaves", "Of those, functions that call nothing">,
@@ -504,30 +491,18 @@ def IdrCanonicalize : Pass<"idr-canonicalize"> {
   let summary = "canonicalize, with the rewrites of each pattern counted";
   let description = [{
     Collects the patterns `canonicalize` collects (those of every loaded
-    dialect and every registered op, filtered by the same options) and runs
-    the same greedy driver with the same configuration, so it leaves what
-    `canonicalize` leaves; a listener counts the patterns that apply. The
-    counts by pattern are an `Analysis` remark, and a run that stops before
-    its fixpoint is a `Missed` remark, in the category idr-canonicalize.
+    dialect and every registered op) and runs the same greedy driver with
+    canonicalize's default configuration, so it leaves what `canonicalize`
+    leaves; a listener counts the patterns that apply. The counts by
+    pattern are an `Analysis` remark, and a run that stops before its
+    fixpoint is a `Missed` remark, in the category idr-canonicalize.
   }];
   let options = [
-    Option<"topDownProcessingEnabled", "top-down", "bool", "true",
-           "Seed the worklist in general top-down order">,
-    Option<"regionSimplifyLevel", "region-simplify", "std::string", "\"normal\"",
-           "Control-flow simplification of the region tree: disabled, normal "
-           "or aggressive">,
     Option<"maxIterations", "max-iterations", "int64_t", "10",
            "Max. iterations between applying patterns / simplifying regions">,
-    Option<"maxNumRewrites", "max-num-rewrites", "int64_t", "-1",
-           "Max. number of pattern rewrites within an iteration">,
     Option<"testConvergence", "test-convergence", "bool", "false",
            "Fail the pass when it stops before a fixpoint">,
-    Option<"cseBetweenIterations", "cse-between-iterations", "bool", "false",
-           "Run full CSE between each pattern-application iteration">,
-    ListOption<"filterDialects", "filter-dialects", "std::string",
-               "If non-empty, only collect canonicalization patterns from the "
-               "dialects with the given namespaces, which are loaded">,
-  ] # RewritePassUtils.options;
+  ];
   let statistics = [
     Statistic<"numRewrites", "rewrites", "Rewrites by patterns">,
     Statistic<"numUnconverged", "unconverged", "Runs that stopped before a fixpoint">,
@@ -550,9 +525,6 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
     fixpoint, and an `Analysis` remark with the round's statistics.
   }];
   let options = [
-    Option<"inlineIterations", "inline-iterations", "unsigned", "0",
-           "max-iterations of the inliner in each round; 0, the default, "
-           "until an iteration inlines nothing">,
     Option<"maxRounds", "max-rounds", "unsigned", "64",
            "The round budget: the most rounds a fixpoint may take">,
   ];
@@ -599,7 +571,6 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
   }];
   let options = [
     Option<"reuse", "reuse", "bool", "true", "Reuse the cells of dead boxes">,
-    Option<"borrow", "borrow", "bool", "true", "Infer borrowed parameters">,
     Option<"sink", "sink", "bool", "true",
            "Move an op that consumes an owned value down to its result's first use">,
   ];
@@ -618,17 +589,17 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
 def IdrDemand : Pass<"idr-demand", "::mlir::ModuleOp"> {
   let summary = "Reject a program that breaks a promise it was asked to keep";
   let description = [{
-    Runs after idr-rc, on the grades it wrote, and checks only the promises
-    it is given; with none it does nothing. `in-place`: a parameter of
-    quantity 1 that its function rebuilds in place (an `idr.reuse` takes its
-    token from an `idr.take` of the parameter, or of what a match of it
+    Runs after idr-rc, on the grades it wrote, and checks the promise only
+    when it is asked to; otherwise it does nothing. `in-place`: a parameter
+    of quantity 1 that its function rebuilds in place (an `idr.reuse` takes
+    its token from an `idr.take` of the parameter, or of what a match of it
     binds) must be passed exclusive (`!idr.excl<T>`) by every call. A call
     that passes it shared is the error `unsupported (uniqueness)` at the
     call, with a note at the `idr.dup` that shared it.
   }];
   let options = [
-    ListOption<"promises", "promises", "std::string",
-               "The promises to check: in-place">,
+    Option<"inPlace", "in-place", "bool", "false",
+           "Check the in-place promise">,
   ];
 }
 

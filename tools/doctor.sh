@@ -34,7 +34,7 @@ for tool in git make cc c++ python3 m4 curl tar unzip; do
 done
 echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
 # ccache is optional: tools/bootstrap.sh launches the LLVM builds' compilers
-# through it when there is one (IDRIS_MLIR_CCACHE).
+# through it when there is one.
 echo "ccache: $(host_path ccache || echo 'not found (optional; it caches the LLVM builds: sudo port install ccache)')"
 # The SHA-256 tool the scripts use: tools/host.sh's choice, made by running it.
 sha256 < /dev/null > /dev/null 2>&1 || true

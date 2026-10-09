@@ -1,7 +1,7 @@
-// idr-target: the module's target, decided once. The triple is the build's
-// (the runtime is built for it, and its bitcode joins the program), the CPU
-// and extra features the pass's options; LLVM derives the rest, so the
-// features a CPU name stands for and the data layout are LLVM's own.
+// idr-target: the module's target, decided once. The triple and the CPU are
+// the build's (the runtime is built for the triple, and its bitcode joins
+// the program); LLVM derives the rest, so the features the CPU name stands
+// for and the data layout are LLVM's own.
 
 #include "idr/Idr.h"
 
@@ -24,11 +24,10 @@ struct Target : idr::impl::IdrTargetBase<Target> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
-    auto extra = features.empty() ? LLVM::TargetFeaturesAttr()
-                                  : LLVM::TargetFeaturesAttr::get(ctx, features);
     module->setAttr(LLVM::LLVMDialect::getTargetAttrName(),
                     LLVM::TargetAttr::get(ctx, StringAttr::get(ctx, IDRIS_MLIR_TARGET_TRIPLE),
-                                          StringAttr::get(ctx, cpu), extra));
+                                          StringAttr::get(ctx, IDRIS_MLIR_TARGET_CPU),
+                                          LLVM::TargetFeaturesAttr()));
     OpPassManager derive(ModuleOp::getOperationName());
     derive.addPass(LLVM::createLLVMTargetToTargetFeatures());
     derive.addPass(LLVM::createLLVMTargetToDataLayout());

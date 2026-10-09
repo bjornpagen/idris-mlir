@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 13\n42\n
 module Main
 
 -- Named implementations chosen statically in each branch.

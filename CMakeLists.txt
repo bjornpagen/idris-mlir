@@ -49,17 +49,6 @@ if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "
 	message(FATAL_ERROR "the machine boundary is Linux x86_64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
-option(IDRIS_MLIR_RUNTIME_SANITIZERS
-	"Use runtime ASan+UBSan instead of trap-mode UBSan (the asan-ubsan preset)"
-	OFF
-)
-
-if(IDRIS_MLIR_RUNTIME_SANITIZERS)
-	# PIN(no-sanitizer-runtimes): the pinned toolchain builds compiler-rt's
-	# builtins alone — see PINS.md
-	message(FATAL_ERROR "runtime sanitizers need compiler-rt's sanitizer runtimes, which the pinned toolchain does not build (PINS.md: no-sanitizer-runtimes)")
-endif()
-
 # The production compiler is the stage-2 clang of the pinned
 # llvm-project, with the pinned libc++, for the target its toolchain file
 # names (tools/bootstrap.sh writes it; every preset reads it).
@@ -80,9 +69,8 @@ endforeach()
 # target is one of the entry's, which the build hands to whatever needs it.
 # An entry sets each of these:
 #
-#   IDRIS_MLIR_TARGET_CPU               the CPU programs are compiled for by
-#                                       default (idris-mlir-cc --cpu), an
-#                                       LLVM name
+#   IDRIS_MLIR_TARGET_CPU               the CPU programs are compiled for,
+#                                       an LLVM name
 #   IDRIS_MLIR_RUNTIME_BASELINE         the flags of the CPU runtime code is
 #                                       compiled for, which every machine of
 #                                       the target has (idris-mlir-cc raises
@@ -93,10 +81,6 @@ endforeach()
 #   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
 #                                       as the test spells it and as LLVM
 #                                       does (a runtime/ header)
-#   IDRIS_MLIR_RUNTIME_CPU_INIT         the function the test calls first to
-#                                       fill in the features, or "" where a
-#                                       static constructor of compiler-rt
-#                                       does
 #   IDRIS_MLIR_RUNTIME_DEFINITIONS      what the vendored allocator is told
 #                                       of the system (snmalloc's headers)
 #   IDRIS_MLIR_RUNTIME_BITCODE_FLAGS    the flags that make each member of
@@ -116,9 +100,6 @@ endforeach()
 #                                       forbids them (clang rejects
 #                                       -ffunction-sections with
 #                                       -fembed-bitcode)
-#   IDRIS_MLIR_STACK_ADDRESS_BITS       the bits of a stack address, which
-#                                       the runtime's freeing keeps in a
-#                                       dying cell
 #   IDRIS_MLIR_EXECUTABLE_FLAGS         the link flags that make a program an
 #                                       executable of the target
 #   IDRIS_MLIR_PROGRAM_LINK_FLAGS       the link flags that drop and fold
@@ -163,16 +144,12 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cppm)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
-	set(IDRIS_MLIR_RUNTIME_CPU_INIT "")
 	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
 	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
 	# LTO object's, is excluded from every link.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
 	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION ".llvm.lto")
 	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
-	# User space ends below 2^47 on Linux on x86-64: only an mmap that asks
-	# for a higher address gets one, and no stack does.
-	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
 	# Static-PIE on musl; GMP is the pinned sysroot's, which the pinned
 	# clang's configuration file names.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld -static-pie)
@@ -196,13 +173,11 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
 	# has, and a program compiled for a later one names what an older lacks.
 	# Function multiversioning tests the features at a program's entry, and
-	# compiler-rt reads them from sysctl only when the test asks, in the
-	# resolver this entry names, which may be called any number of times.
+	# compiler-rt reads them from sysctl only when the test asks.
 	set(IDRIS_MLIR_TARGET_CPU "apple-m1")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=apple-m1)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cppm)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
-	set(IDRIS_MLIR_RUNTIME_CPU_INIT __init_cpu_features_resolver)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
 	# Linux headers its defines name do not exist here.
 	set(IDRIS_MLIR_RUNTIME_DEFINITIONS "")
@@ -215,9 +190,6 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -fembed-bitcode=all)
 	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION "")
 	set(IDRIS_MLIR_RUNTIME_SECTIONS "")
-	# macOS user space ends below 2^47 on arm64: only an mmap that asks for
-	# a higher address gets one, and no stack does.
-	set(IDRIS_MLIR_STACK_ADDRESS_BITS 47)
 	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
 	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,-dead_strip -Wl,--icf=all)

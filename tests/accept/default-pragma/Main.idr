@@ -1,5 +1,3 @@
--- exit: 0
--- stdout: 0.5\n
 module Main
 
 -- %default only changes which totality Idris requires.

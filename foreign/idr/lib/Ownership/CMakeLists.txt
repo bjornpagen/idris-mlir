@@ -25,7 +25,6 @@ idr_library(idr_ownership
 		NoConstants.cppm
 		OnlyReads.cppm
 		OpChecks.cppm
-		OwnSignatures.cppm
 		Placement.cppm
 		Rc.cppm
 		ReachesOnlyAtoms.cppm

@@ -6,7 +6,6 @@ import idr.mlir;
 import idr.dialect;
 import idr.target;
 
-import :cpu;
 import :dump;
 import :emit;
 import :linkruntime;
@@ -15,7 +14,6 @@ import :prepare;
 import :report;
 import :retarget;
 import :settarget;
-import :writeoutput;
 
 namespace idr::driver {
 
@@ -60,14 +58,6 @@ int run() {
   // scheduling, and idr-eval may fork.
   context.disableMultithreading();
 
-  if (emitKind != "obj" && emitKind != "asm" && emitKind != "llvm" && emitKind != "mlir") {
-    Report() << "--emit must be obj, asm, llvm or mlir";
-    return usage;
-  }
-  if (checkOnly == !outputPath.empty()) {
-    Report() << "give either -o or --check";
-    return usage;
-  }
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   // The runtime linked into the program carries inline assembly.
@@ -79,11 +69,8 @@ int run() {
     Report() << error;
     return failure;
   }
-  std::optional<Cpu> cpu = selectCpu(*target, triple);
-  if (!cpu)
-    return usage;
   if (prepareRuntime)
-    return prepare(*target, triple, *cpu);
+    return prepare(*target, triple);
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
@@ -109,33 +96,12 @@ int run() {
   mlir::registerBuiltinDialectTranslation(everything);
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
-  if (mlir::failed(setTarget(*module, *cpu)) || verdict.errors) {
+  if (mlir::failed(setTarget(*module)) || verdict.errors) {
     if (!verdict.rejected)
       Report() << "internal error: the module's target could not be set";
     return status(verdict);
   }
 
-  // --remarks prints the remarks of its categories, of every kind;
-  // --remarks-file streams them, or every remark, to a YAML file.
-  if (!remarks.empty() || !remarksFile.empty()) {
-    std::unique_ptr<mlir::remark::detail::MLIRRemarkStreamerBase> streamer;
-    if (!remarksFile.empty()) {
-      auto file = mlir::remark::detail::LLVMRemarkStreamer::createToFile(
-          remarksFile, llvm::remarks::Format::YAML);
-      if (mlir::failed(file)) {
-        Report() << "cannot write the remarks to " << remarksFile;
-        return usage;
-      }
-      streamer = std::move(*file);
-    }
-    // The engine filters only the kinds whose category is set.
-    std::string regex = remarks.empty() ? std::string(".*") : remarks.getValue();
-    mlir::remark::RemarkCategories categories{regex, regex, regex, regex, regex};
-    if (mlir::failed(mlir::remark::enableOptimizationRemarks(
-            context, std::move(streamer), std::make_unique<mlir::remark::RemarkEmittingPolicyAll>(),
-            categories, /*printAsEmitRemarks=*/!remarks.empty())))
-      return usage;
-  }
   // MLIR's action handler: the debug counters (-mlir-debug-counter), or
   // -log-actions-to and -profile-actions-to, which --log-actions-tags
   // narrows. With no tag given every action is logged, which an empty
@@ -169,10 +135,9 @@ int run() {
       next(transform, action);
     });
   }
+  // -mlir-timing, MLIR's own option, times each step and LLVM's stages.
   mlir::DefaultTimingManager timings;
   mlir::applyDefaultTimingManagerCLOptions(timings);
-  if (timing)
-    timings.setEnabled(true);
   mlir::TimingScope rootTiming = timings.getRootScope();
   // --stats, LLVM's own option: the statistics of every pass manager too.
   bool statistics = llvm::AreStatisticsEnabled();
@@ -181,24 +146,17 @@ int run() {
   // misspelling measures nothing by accident.
   llvm::StringSet<> omitted;
   for (const std::string &name : without) {
-    bool mechanism = name == "reuse" || name == "borrow" || name == "sink";
+    bool mechanism = name == "reuse" || name == "sink";
     bool step = name != "idr-lower" && llvm::StringRef(name).starts_with("idr-") &&
                 llvm::any_of(idr::pipelineSteps(),
                              [&](llvm::StringRef s) { return stepName(s) == name; });
     if (!mechanism && !step) {
       Report() << "--without names " << name
-               << ", which is neither a pipeline step nor reuse, borrow or sink";
+               << ", which is neither a pipeline step nor reuse or sink";
       return usage;
     }
     omitted.insert(name);
   }
-  // --demand: in-place is the one promise idr-demand checks, and a
-  // misspelled one would check nothing by accident.
-  for (const std::string &promise : demand)
-    if (promise != "in-place") {
-      Report() << "--demand names " << promise << ", which is not in-place, the one promise";
-      return usage;
-    }
   // Every step is one pass manager, registered the same way: statistics when
   // they are on, MLIR's own pass-manager options, and the step's timer. The
   // step's text is the pipeline it runs.
@@ -213,21 +171,19 @@ int run() {
   unsigned index = 0;
   for (llvm::StringRef step : idr::pipelineSteps()) {
     ++index;
-    if (checkOnly && stepName(step) == "idr-lower")
-      return ok;
     if (omitted.contains(stepName(step)))
       continue;
     std::string text = step.str();
     if (stepName(step) == "idr-rc") {
       llvm::SmallVector<std::string> options;
-      for (const char *mechanism : {"reuse", "borrow", "sink"})
+      for (const char *mechanism : {"reuse", "sink"})
         if (omitted.contains(mechanism))
           options.push_back(std::string(mechanism) + "=false");
       if (!options.empty())
         text = "idr-rc{" + llvm::join(options, " ") + "}";
     }
-    if (stepName(step) == "idr-demand" && !demand.empty())
-      text = "idr-demand{promises=in-place}";
+    if (stepName(step) == "idr-demand" && demandInPlace)
+      text = "idr-demand{in-place=true}";
     // MLIR keys a pass's timer by the pass's address, which a later step's
     // pass may take once this pass manager is gone: under one timer for every
     // step, its time would add to this pass's row, under this pass's name.
@@ -254,17 +210,9 @@ int run() {
     if (!dump(*module, index, stepName(step)))
       return failure;
   }
-  if (emitKind == "mlir")
-    return writeOutput([&](llvm::raw_ostream &os) {
-             module->print(os);
-             return true;
-           })
-               ? ok
-               : failure;
-
   // Step 11: LLVM IR, joined with the runtime into one module; every symbol
   // but main internalized; LLVM's O3 pipeline; object code for the CPU. Each
-  // stage has a timer of its own, so --timing says which one a compilation
+  // stage has a timer of its own, so -mlir-timing says which one a compilation
   // spends its time on.
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
   mlir::TimingScope stage = llvmTiming.nest("translate");
@@ -308,19 +256,7 @@ int run() {
   stage = llvmTiming.nest("optimize");
   idr::target::optimize(*llvmModule, *machine);
   stage = llvmTiming.nest("codegen");
-
-  if (emitKind == "llvm")
-    return writeOutput([&](llvm::raw_ostream &os) {
-             llvmModule->print(os, nullptr);
-             return true;
-           })
-               ? ok
-               : failure;
-  return emit(*llvmModule, *machine,
-              emitKind == "asm" ? llvm::CodeGenFileType::AssemblyFile
-                                : llvm::CodeGenFileType::ObjectFile)
-             ? ok
-             : failure;
+  return emit(*llvmModule, *machine) ? ok : failure;
 }
 
 } // namespace idr::driver
