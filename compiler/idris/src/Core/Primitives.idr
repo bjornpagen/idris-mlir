@@ -36,214 +36,175 @@ unaryOp fn [NPrimVal fc x]
 unaryOp _ _ = Nothing
 
 castString : Vect 1 (NF vars) -> Maybe (NF vars)
-castString = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (Str (prim__cast_IntString i))
-    go (I8 i) = Just (Str (prim__cast_Int8String i))
-    go (I16 i) = Just (Str (prim__cast_Int16String i))
-    go (I32 i) = Just (Str (prim__cast_Int32String i))
-    go (I64 i) = Just (Str (prim__cast_Int64String i))
-    go (BI i) = Just (Str (prim__cast_IntegerString i))
-    go (B8 i) = Just (Str (prim__cast_Bits8String i))
-    go (B16 i) = Just (Str (prim__cast_Bits16String i))
-    go (B32 i) = Just (Str (prim__cast_Bits32String i))
-    go (B64 i) = Just (Str (prim__cast_Bits64String i))
-    go (Ch i) = Just (Str (prim__cast_CharString i))
-    go (Db i) = Just (Str (prim__cast_DoubleString i))
-    go _ = Nothing
+castString [NPrimVal fc (I i)] = Just (NPrimVal fc (Str (prim__cast_IntString i)))
+castString [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Str (prim__cast_Int8String i)))
+castString [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Str (prim__cast_Int16String i)))
+castString [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Str (prim__cast_Int32String i)))
+castString [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Str (prim__cast_Int64String i)))
+castString [NPrimVal fc (BI i)] = Just (NPrimVal fc (Str (prim__cast_IntegerString i)))
+castString [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Str (prim__cast_Bits8String i)))
+castString [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Str (prim__cast_Bits16String i)))
+castString [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Str (prim__cast_Bits32String i)))
+castString [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Str (prim__cast_Bits64String i)))
+castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (prim__cast_CharString i)))
+castString [NPrimVal fc (Db i)] = Just (NPrimVal fc (Str (prim__cast_DoubleString i)))
+castString _ = Nothing
 
 castInteger : Vect 1 (NF vars) -> Maybe (NF vars)
-castInteger = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (BI (prim__cast_IntInteger i))
-    go (I8 i) = Just (BI (prim__cast_Int8Integer i))
-    go (I16 i) = Just (BI (prim__cast_Int16Integer i))
-    go (I32 i) = Just (BI (prim__cast_Int32Integer i))
-    go (I64 i) = Just (BI (prim__cast_Int64Integer i))
-    go (B8 i) = Just (BI (prim__cast_Bits8Integer i))
-    go (B16 i) = Just (BI (prim__cast_Bits16Integer i))
-    go (B32 i) = Just (BI (prim__cast_Bits32Integer i))
-    go (B64 i) = Just (BI (prim__cast_Bits64Integer i))
-    go (Ch i) = Just (BI (prim__cast_CharInteger i))
-    go (Db i) = Just (BI (prim__cast_DoubleInteger i))
-    go (Str i) = Just (BI (prim__cast_StringInteger i))
-    go _ = Nothing
+castInteger [NPrimVal fc (I i)] = Just (NPrimVal fc (BI (prim__cast_IntInteger i)))
+castInteger [NPrimVal fc (I8 i)] = Just (NPrimVal fc (BI (prim__cast_Int8Integer i)))
+castInteger [NPrimVal fc (I16 i)] = Just (NPrimVal fc (BI (prim__cast_Int16Integer i)))
+castInteger [NPrimVal fc (I32 i)] = Just (NPrimVal fc (BI (prim__cast_Int32Integer i)))
+castInteger [NPrimVal fc (I64 i)] = Just (NPrimVal fc (BI (prim__cast_Int64Integer i)))
+castInteger [NPrimVal fc (B8 i)] = Just (NPrimVal fc (BI (prim__cast_Bits8Integer i)))
+castInteger [NPrimVal fc (B16 i)] = Just (NPrimVal fc (BI (prim__cast_Bits16Integer i)))
+castInteger [NPrimVal fc (B32 i)] = Just (NPrimVal fc (BI (prim__cast_Bits32Integer i)))
+castInteger [NPrimVal fc (B64 i)] = Just (NPrimVal fc (BI (prim__cast_Bits64Integer i)))
+castInteger [NPrimVal fc (Ch i)] = Just (NPrimVal fc (BI (prim__cast_CharInteger i)))
+castInteger [NPrimVal fc (Db i)] = Just (NPrimVal fc (BI (prim__cast_DoubleInteger i)))
+castInteger [NPrimVal fc (Str i)] = Just (NPrimVal fc (BI (prim__cast_StringInteger i)))
+castInteger _ = Nothing
 
 castInt : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I8 i) = Just (I (prim__cast_Int8Int i))
-    go (I16 i) = Just (I (prim__cast_Int16Int i))
-    go (I32 i) = Just (I (prim__cast_Int32Int i))
-    go (I64 i) = Just (I (prim__cast_Int64Int i))
-    go (BI i) = Just (I (prim__cast_IntegerInt i))
-    go (B8 i) = Just (I (prim__cast_Bits8Int i))
-    go (B16 i) = Just (I (prim__cast_Bits16Int i))
-    go (B32 i) = Just (I (prim__cast_Bits32Int i))
-    go (B64 i) = Just (I (prim__cast_Bits64Int i))
-    go (Db i) = Just (I (prim__cast_DoubleInt i))
-    go (Ch i) = Just (I (prim__cast_CharInt i))
-    go (Str i) = Just (I (prim__cast_StringInt i))
-    go _ = Nothing
+castInt [NPrimVal fc (I8 i)] = Just (NPrimVal fc (I (prim__cast_Int8Int i)))
+castInt [NPrimVal fc (I16 i)] = Just (NPrimVal fc (I (prim__cast_Int16Int i)))
+castInt [NPrimVal fc (I32 i)] = Just (NPrimVal fc (I (prim__cast_Int32Int i)))
+castInt [NPrimVal fc (I64 i)] = Just (NPrimVal fc (I (prim__cast_Int64Int i)))
+castInt [NPrimVal fc (BI i)] = Just (NPrimVal fc (I (prim__cast_IntegerInt i)))
+castInt [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I (prim__cast_Bits8Int i)))
+castInt [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I (prim__cast_Bits16Int i)))
+castInt [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I (prim__cast_Bits32Int i)))
+castInt [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I (prim__cast_Bits64Int i)))
+castInt [NPrimVal fc (Db i)] = Just (NPrimVal fc (I (prim__cast_DoubleInt i)))
+castInt [NPrimVal fc (Ch i)] = Just (NPrimVal fc (I (prim__cast_CharInt i)))
+castInt [NPrimVal fc (Str i)] = Just (NPrimVal fc (I (prim__cast_StringInt i)))
+castInt _ = Nothing
 
 -- The casts to a fixed-width integer below fold from an integer only, as
 -- they always have; one from a Double, a Char or a String stays applied.
 
 castBits8 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits8 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (B8 (prim__cast_IntBits8 i))
-    go (I8 i) = Just (B8 (prim__cast_Int8Bits8 i))
-    go (I16 i) = Just (B8 (prim__cast_Int16Bits8 i))
-    go (I32 i) = Just (B8 (prim__cast_Int32Bits8 i))
-    go (I64 i) = Just (B8 (prim__cast_Int64Bits8 i))
-    go (BI i) = Just (B8 (prim__cast_IntegerBits8 i))
-    go (B16 i) = Just (B8 (prim__cast_Bits16Bits8 i))
-    go (B32 i) = Just (B8 (prim__cast_Bits32Bits8 i))
-    go (B64 i) = Just (B8 (prim__cast_Bits64Bits8 i))
-    go _ = Nothing
+castBits8 [NPrimVal fc (I i)] = Just (NPrimVal fc (B8 (prim__cast_IntBits8 i)))
+castBits8 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (B8 (prim__cast_Int8Bits8 i)))
+castBits8 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (B8 (prim__cast_Int16Bits8 i)))
+castBits8 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (B8 (prim__cast_Int32Bits8 i)))
+castBits8 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (B8 (prim__cast_Int64Bits8 i)))
+castBits8 [NPrimVal fc (BI i)] = Just (NPrimVal fc (B8 (prim__cast_IntegerBits8 i)))
+castBits8 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (B8 (prim__cast_Bits16Bits8 i)))
+castBits8 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (B8 (prim__cast_Bits32Bits8 i)))
+castBits8 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (B8 (prim__cast_Bits64Bits8 i)))
+castBits8 _ = Nothing
 
 castBits16 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits16 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (B16 (prim__cast_IntBits16 i))
-    go (I8 i) = Just (B16 (prim__cast_Int8Bits16 i))
-    go (I16 i) = Just (B16 (prim__cast_Int16Bits16 i))
-    go (I32 i) = Just (B16 (prim__cast_Int32Bits16 i))
-    go (I64 i) = Just (B16 (prim__cast_Int64Bits16 i))
-    go (BI i) = Just (B16 (prim__cast_IntegerBits16 i))
-    go (B8 i) = Just (B16 (prim__cast_Bits8Bits16 i))
-    go (B32 i) = Just (B16 (prim__cast_Bits32Bits16 i))
-    go (B64 i) = Just (B16 (prim__cast_Bits64Bits16 i))
-    go _ = Nothing
+castBits16 [NPrimVal fc (I i)] = Just (NPrimVal fc (B16 (prim__cast_IntBits16 i)))
+castBits16 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (B16 (prim__cast_Int8Bits16 i)))
+castBits16 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (B16 (prim__cast_Int16Bits16 i)))
+castBits16 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (B16 (prim__cast_Int32Bits16 i)))
+castBits16 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (B16 (prim__cast_Int64Bits16 i)))
+castBits16 [NPrimVal fc (BI i)] = Just (NPrimVal fc (B16 (prim__cast_IntegerBits16 i)))
+castBits16 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (B16 (prim__cast_Bits8Bits16 i)))
+castBits16 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (B16 (prim__cast_Bits32Bits16 i)))
+castBits16 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (B16 (prim__cast_Bits64Bits16 i)))
+castBits16 _ = Nothing
 
 castBits32 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits32 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (B32 (prim__cast_IntBits32 i))
-    go (I8 i) = Just (B32 (prim__cast_Int8Bits32 i))
-    go (I16 i) = Just (B32 (prim__cast_Int16Bits32 i))
-    go (I32 i) = Just (B32 (prim__cast_Int32Bits32 i))
-    go (I64 i) = Just (B32 (prim__cast_Int64Bits32 i))
-    go (BI i) = Just (B32 (prim__cast_IntegerBits32 i))
-    go (B8 i) = Just (B32 (prim__cast_Bits8Bits32 i))
-    go (B16 i) = Just (B32 (prim__cast_Bits16Bits32 i))
-    go (B64 i) = Just (B32 (prim__cast_Bits64Bits32 i))
-    go _ = Nothing
+castBits32 [NPrimVal fc (I i)] = Just (NPrimVal fc (B32 (prim__cast_IntBits32 i)))
+castBits32 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (B32 (prim__cast_Int8Bits32 i)))
+castBits32 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (B32 (prim__cast_Int16Bits32 i)))
+castBits32 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (B32 (prim__cast_Int32Bits32 i)))
+castBits32 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (B32 (prim__cast_Int64Bits32 i)))
+castBits32 [NPrimVal fc (BI i)] = Just (NPrimVal fc (B32 (prim__cast_IntegerBits32 i)))
+castBits32 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (B32 (prim__cast_Bits8Bits32 i)))
+castBits32 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (B32 (prim__cast_Bits16Bits32 i)))
+castBits32 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (B32 (prim__cast_Bits64Bits32 i)))
+castBits32 _ = Nothing
 
 castBits64 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits64 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (B64 (prim__cast_IntBits64 i))
-    go (I8 i) = Just (B64 (prim__cast_Int8Bits64 i))
-    go (I16 i) = Just (B64 (prim__cast_Int16Bits64 i))
-    go (I32 i) = Just (B64 (prim__cast_Int32Bits64 i))
-    go (I64 i) = Just (B64 (prim__cast_Int64Bits64 i))
-    go (BI i) = Just (B64 (prim__cast_IntegerBits64 i))
-    go (B8 i) = Just (B64 (prim__cast_Bits8Bits64 i))
-    go (B16 i) = Just (B64 (prim__cast_Bits16Bits64 i))
-    go (B32 i) = Just (B64 (prim__cast_Bits32Bits64 i))
-    go _ = Nothing
+castBits64 [NPrimVal fc (I i)] = Just (NPrimVal fc (B64 (prim__cast_IntBits64 i)))
+castBits64 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (B64 (prim__cast_Int8Bits64 i)))
+castBits64 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (B64 (prim__cast_Int16Bits64 i)))
+castBits64 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (B64 (prim__cast_Int32Bits64 i)))
+castBits64 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (B64 (prim__cast_Int64Bits64 i)))
+castBits64 [NPrimVal fc (BI i)] = Just (NPrimVal fc (B64 (prim__cast_IntegerBits64 i)))
+castBits64 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (B64 (prim__cast_Bits8Bits64 i)))
+castBits64 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (B64 (prim__cast_Bits16Bits64 i)))
+castBits64 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (B64 (prim__cast_Bits32Bits64 i)))
+castBits64 _ = Nothing
 
 castInt8 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt8 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (I8 (prim__cast_IntInt8 i))
-    go (I16 i) = Just (I8 (prim__cast_Int16Int8 i))
-    go (I32 i) = Just (I8 (prim__cast_Int32Int8 i))
-    go (I64 i) = Just (I8 (prim__cast_Int64Int8 i))
-    go (BI i) = Just (I8 (prim__cast_IntegerInt8 i))
-    go (B8 i) = Just (I8 (prim__cast_Bits8Int8 i))
-    go (B16 i) = Just (I8 (prim__cast_Bits16Int8 i))
-    go (B32 i) = Just (I8 (prim__cast_Bits32Int8 i))
-    go (B64 i) = Just (I8 (prim__cast_Bits64Int8 i))
-    go _ = Nothing
+castInt8 [NPrimVal fc (I i)] = Just (NPrimVal fc (I8 (prim__cast_IntInt8 i)))
+castInt8 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (I8 (prim__cast_Int16Int8 i)))
+castInt8 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (I8 (prim__cast_Int32Int8 i)))
+castInt8 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (I8 (prim__cast_Int64Int8 i)))
+castInt8 [NPrimVal fc (BI i)] = Just (NPrimVal fc (I8 (prim__cast_IntegerInt8 i)))
+castInt8 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I8 (prim__cast_Bits8Int8 i)))
+castInt8 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I8 (prim__cast_Bits16Int8 i)))
+castInt8 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I8 (prim__cast_Bits32Int8 i)))
+castInt8 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I8 (prim__cast_Bits64Int8 i)))
+castInt8 _ = Nothing
 
 castInt16 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt16 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (I16 (prim__cast_IntInt16 i))
-    go (I8 i) = Just (I16 (prim__cast_Int8Int16 i))
-    go (I32 i) = Just (I16 (prim__cast_Int32Int16 i))
-    go (I64 i) = Just (I16 (prim__cast_Int64Int16 i))
-    go (BI i) = Just (I16 (prim__cast_IntegerInt16 i))
-    go (B8 i) = Just (I16 (prim__cast_Bits8Int16 i))
-    go (B16 i) = Just (I16 (prim__cast_Bits16Int16 i))
-    go (B32 i) = Just (I16 (prim__cast_Bits32Int16 i))
-    go (B64 i) = Just (I16 (prim__cast_Bits64Int16 i))
-    go _ = Nothing
+castInt16 [NPrimVal fc (I i)] = Just (NPrimVal fc (I16 (prim__cast_IntInt16 i)))
+castInt16 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (I16 (prim__cast_Int8Int16 i)))
+castInt16 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (I16 (prim__cast_Int32Int16 i)))
+castInt16 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (I16 (prim__cast_Int64Int16 i)))
+castInt16 [NPrimVal fc (BI i)] = Just (NPrimVal fc (I16 (prim__cast_IntegerInt16 i)))
+castInt16 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I16 (prim__cast_Bits8Int16 i)))
+castInt16 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I16 (prim__cast_Bits16Int16 i)))
+castInt16 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I16 (prim__cast_Bits32Int16 i)))
+castInt16 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I16 (prim__cast_Bits64Int16 i)))
+castInt16 _ = Nothing
 
 castInt32 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt32 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (I32 (prim__cast_IntInt32 i))
-    go (I8 i) = Just (I32 (prim__cast_Int8Int32 i))
-    go (I16 i) = Just (I32 (prim__cast_Int16Int32 i))
-    go (I64 i) = Just (I32 (prim__cast_Int64Int32 i))
-    go (BI i) = Just (I32 (prim__cast_IntegerInt32 i))
-    go (B8 i) = Just (I32 (prim__cast_Bits8Int32 i))
-    go (B16 i) = Just (I32 (prim__cast_Bits16Int32 i))
-    go (B32 i) = Just (I32 (prim__cast_Bits32Int32 i))
-    go (B64 i) = Just (I32 (prim__cast_Bits64Int32 i))
-    go _ = Nothing
+castInt32 [NPrimVal fc (I i)] = Just (NPrimVal fc (I32 (prim__cast_IntInt32 i)))
+castInt32 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (I32 (prim__cast_Int8Int32 i)))
+castInt32 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (I32 (prim__cast_Int16Int32 i)))
+castInt32 [NPrimVal fc (I64 i)] = Just (NPrimVal fc (I32 (prim__cast_Int64Int32 i)))
+castInt32 [NPrimVal fc (BI i)] = Just (NPrimVal fc (I32 (prim__cast_IntegerInt32 i)))
+castInt32 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I32 (prim__cast_Bits8Int32 i)))
+castInt32 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I32 (prim__cast_Bits16Int32 i)))
+castInt32 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I32 (prim__cast_Bits32Int32 i)))
+castInt32 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I32 (prim__cast_Bits64Int32 i)))
+castInt32 _ = Nothing
 
 castInt64 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt64 = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (I64 (prim__cast_IntInt64 i))
-    go (I8 i) = Just (I64 (prim__cast_Int8Int64 i))
-    go (I16 i) = Just (I64 (prim__cast_Int16Int64 i))
-    go (I32 i) = Just (I64 (prim__cast_Int32Int64 i))
-    go (BI i) = Just (I64 (prim__cast_IntegerInt64 i))
-    go (B8 i) = Just (I64 (prim__cast_Bits8Int64 i))
-    go (B16 i) = Just (I64 (prim__cast_Bits16Int64 i))
-    go (B32 i) = Just (I64 (prim__cast_Bits32Int64 i))
-    go (B64 i) = Just (I64 (prim__cast_Bits64Int64 i))
-    go _ = Nothing
+castInt64 [NPrimVal fc (I i)] = Just (NPrimVal fc (I64 (prim__cast_IntInt64 i)))
+castInt64 [NPrimVal fc (I8 i)] = Just (NPrimVal fc (I64 (prim__cast_Int8Int64 i)))
+castInt64 [NPrimVal fc (I16 i)] = Just (NPrimVal fc (I64 (prim__cast_Int16Int64 i)))
+castInt64 [NPrimVal fc (I32 i)] = Just (NPrimVal fc (I64 (prim__cast_Int32Int64 i)))
+castInt64 [NPrimVal fc (BI i)] = Just (NPrimVal fc (I64 (prim__cast_IntegerInt64 i)))
+castInt64 [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I64 (prim__cast_Bits8Int64 i)))
+castInt64 [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I64 (prim__cast_Bits16Int64 i)))
+castInt64 [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I64 (prim__cast_Bits32Int64 i)))
+castInt64 [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I64 (prim__cast_Bits64Int64 i)))
+castInt64 _ = Nothing
 
 castDouble : Vect 1 (NF vars) -> Maybe (NF vars)
-castDouble = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (Db (prim__cast_IntDouble i))
-    go (I8 i) = Just (Db (prim__cast_Int8Double i))
-    go (I16 i) = Just (Db (prim__cast_Int16Double i))
-    go (I32 i) = Just (Db (prim__cast_Int32Double i))
-    go (I64 i) = Just (Db (prim__cast_Int64Double i))
-    go (B8 i) = Just (Db (prim__cast_Bits8Double i))
-    go (B16 i) = Just (Db (prim__cast_Bits16Double i))
-    go (B32 i) = Just (Db (prim__cast_Bits32Double i))
-    go (B64 i) = Just (Db (prim__cast_Bits64Double i))
-    go (BI i) = Just (Db (prim__cast_IntegerDouble i))
-    go (Str i) = Just (Db (prim__cast_StringDouble i))
-    go _ = Nothing
+castDouble [NPrimVal fc (I i)] = Just (NPrimVal fc (Db (prim__cast_IntDouble i)))
+castDouble [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Db (prim__cast_Int8Double i)))
+castDouble [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Db (prim__cast_Int16Double i)))
+castDouble [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Db (prim__cast_Int32Double i)))
+castDouble [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Db (prim__cast_Int64Double i)))
+castDouble [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Db (prim__cast_Bits8Double i)))
+castDouble [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Db (prim__cast_Bits16Double i)))
+castDouble [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Db (prim__cast_Bits32Double i)))
+castDouble [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Db (prim__cast_Bits64Double i)))
+castDouble [NPrimVal fc (BI i)] = Just (NPrimVal fc (Db (prim__cast_IntegerDouble i)))
+castDouble [NPrimVal fc (Str i)] = Just (NPrimVal fc (Db (prim__cast_StringDouble i)))
+castDouble _ = Nothing
 
 castChar : Vect 1 (NF vars) -> Maybe (NF vars)
-castChar = unaryOp go
-  where
-    go : Constant -> Maybe Constant
-    go (I i) = Just (Ch (prim__cast_IntChar i))
-    go (I8 i) = Just (Ch (prim__cast_Int8Char i))
-    go (I16 i) = Just (Ch (prim__cast_Int16Char i))
-    go (I32 i) = Just (Ch (prim__cast_Int32Char i))
-    go (I64 i) = Just (Ch (prim__cast_Int64Char i))
-    go (B8 i) = Just (Ch (prim__cast_Bits8Char i))
-    go (B16 i) = Just (Ch (prim__cast_Bits16Char i))
-    go (B32 i) = Just (Ch (prim__cast_Bits32Char i))
-    go (B64 i) = Just (Ch (prim__cast_Bits64Char i))
-    go (BI i) = Just (Ch (prim__cast_IntegerChar i))
-    go _ = Nothing
+castChar [NPrimVal fc (I i)] = Just (NPrimVal fc (Ch (prim__cast_IntChar i)))
+castChar [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Ch (prim__cast_Int8Char i)))
+castChar [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Ch (prim__cast_Int16Char i)))
+castChar [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Ch (prim__cast_Int32Char i)))
+castChar [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Ch (prim__cast_Int64Char i)))
+castChar [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Ch (prim__cast_Bits8Char i)))
+castChar [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Ch (prim__cast_Bits16Char i)))
+castChar [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Ch (prim__cast_Bits32Char i)))
+castChar [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Ch (prim__cast_Bits64Char i)))
+castChar [NPrimVal fc (BI i)] = Just (NPrimVal fc (Ch (prim__cast_IntegerChar i)))
+castChar _ = Nothing
 
 strLength : Vect 1 (NF vars) -> Maybe (NF vars)
 strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (prim__strLength s)))
