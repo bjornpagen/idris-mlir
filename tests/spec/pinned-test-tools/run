@@ -3,10 +3,7 @@
 # FileCheck, not and count of the pinned LLVM first on PATH (`lit`, in
 # tests/lib/lit.sh), shown here with stand-ins for them.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-case $llvm_bin in
-  "$root/.toolchain/llvm-musl/bin") say "the pinned LLVM: .toolchain/llvm-musl/bin" ;;
-  *) say "the pinned LLVM: $llvm_bin" ;;
-esac
+say "the pinned LLVM: ${llvm_bin#"$root"/}"
 llvm_bin=$work/llvm/bin
 mkdir -p "$llvm_bin"
 for tool in FileCheck not count; do

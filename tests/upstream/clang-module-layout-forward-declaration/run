@@ -1,11 +1,13 @@
 #!/bin/sh
-# The upstream bug upstream/11-clang-module-layout-forward-declaration still
-# reproduces with the pinned clang: compiling the report's Escape.cppm in
-# place of foreign/idr/lib/Stack/Escape.cppm, with the build's own command
-# for that unit (after make build), crashes clang with "Cannot get layout of
-# forward declarations". When this fails, the bug is fixed: the PINS.md
-# entry clang-module-layout-forward-declaration, the report and this test
-# go (upstream/README.md).
+# upstream/11-clang-module-layout-forward-declaration, on every target: the
+# pinned clang compiles the report's Escape.cppm in place of
+# foreign/idr/lib/Stack/Escape.cppm, with the build's own command for that
+# unit (after make build), without "Cannot get layout of forward
+# declarations". At llvmorg-23.1.2 that crashed the x86_64 Linux build. The
+# clang of 7208ba24 compiles it on arm64 macOS; this check is where every
+# target says the same. When it passes everywhere, the PINS.md entry
+# clang-module-layout-forward-declaration, the report and this test go
+# (upstream/README.md); where it fails, the crash is reduced and patched.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 crashes_in_place "$root/upstream/11-clang-module-layout-forward-declaration/Escape.cppm" \
   foreign/idr/lib/Stack/CMakeFiles/idr_stack.dir/Escape.cppm.o Escape.cppm \

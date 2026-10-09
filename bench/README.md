@@ -29,7 +29,9 @@ program built by every compiler, best of 5 runs, measured on 2026-10-03
 at 861acdc on a shared development container (x86-64, 4 CPUs, a Xeon at
 2.10 GHz) with LLVM 23.1.2 and Chez Scheme 10.4.1. Its results page holds
 the full table, the compile times and the comparison with the record
-before it. The arm64 macOS record is beside it, below.
+before it. The arm64 macOS record is beside it, below. Both predate the
+LLVM pin at 7208ba24 and proposal 0002; the next records are made on both
+targets with the toolchain of the one recipe.
 
 ![This compiler against clang -O2](runs/2026-10-03-861acdc/vs-c.svg)
 

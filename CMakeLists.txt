@@ -41,19 +41,12 @@ if(TARGET __cmake_cxx26)
 	set_target_properties(__cmake_cxx26 PROPERTIES CXX_CLANG_TIDY "")
 endif()
 
-# PIN(platform-gate-x86_64): cpp-starter's platforms plus Linux x86_64
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	set(IDRIS_MLIR_LINUX TRUE)
-	if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64|arm64)$")
-		message(FATAL_ERROR "the machine boundary is Linux x86_64/arm64 and Darwin arm64 (got Linux ${CMAKE_SYSTEM_PROCESSOR})")
-	endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-	set(IDRIS_MLIR_LINUX FALSE)
-	if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
-		message(FATAL_ERROR "the machine boundary is Linux x86_64/arm64 and Darwin arm64 (got Darwin ${CMAKE_SYSTEM_PROCESSOR})")
-	endif()
-else()
-	message(FATAL_ERROR "the machine boundary is Linux and Darwin (got ${CMAKE_SYSTEM_NAME})")
+# PIN(platform-gate-x86_64): cpp-starter's platforms are Darwin arm64; this
+# project's are the two whose targets the compiler has, Linux x86_64 and
+# Darwin arm64, the same machines tools/bootstrap.sh builds a toolchain on.
+if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+		AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
+	message(FATAL_ERROR "the machine boundary is Linux x86_64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
 option(IDRIS_MLIR_RUNTIME_SANITIZERS
@@ -62,12 +55,14 @@ option(IDRIS_MLIR_RUNTIME_SANITIZERS
 )
 
 if(IDRIS_MLIR_RUNTIME_SANITIZERS)
-	# PIN(no-sanitizer-runtimes): static musl has no sanitizer runtimes — see PINS.md
-	message(FATAL_ERROR "runtime sanitizers need compiler-rt's sanitizer runtimes, which the static musl toolchain does not have (PINS.md: no-sanitizer-runtimes)")
+	# PIN(no-sanitizer-runtimes): the pinned toolchain builds compiler-rt's
+	# builtins alone — see PINS.md
+	message(FATAL_ERROR "runtime sanitizers need compiler-rt's sanitizer runtimes, which the pinned toolchain does not build (PINS.md: no-sanitizer-runtimes)")
 endif()
 
 # The production compiler is the stage-2 clang of the pinned
-# llvm-project, with libc++, for x86_64-unknown-linux-musl (tools/bootstrap.sh).
+# llvm-project, with the pinned libc++, for the target its toolchain file
+# names (tools/bootstrap.sh writes it; every preset reads it).
 # PIN(clang-libcxx) — see PINS.md
 foreach(lang C CXX)
 	if(NOT CMAKE_${lang}_COMPILER_ID STREQUAL "Clang")
@@ -77,10 +72,6 @@ foreach(lang C CXX)
 		message(FATAL_ERROR "production builds require clang ${IDRIS_MLIR_LLVM_SERIES}.x (got ${CMAKE_${lang}_COMPILER_VERSION} for ${lang})")
 	endif()
 endforeach()
-if(IDRIS_MLIR_LINUX AND NOT CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-musl$")
-	message(FATAL_ERROR "Linux builds target musl through the pinned sysroot; configure with a preset (got target '${CMAKE_CXX_COMPILER_TARGET}')")
-endif()
-
 # The target programs are compiled for is decided here and nowhere else. The
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
 # built for too, and selects one entry below. idris-mlir-cc writes the
@@ -152,12 +143,18 @@ endif()
 #                                       check compares with the system's:
 #                                       16384 on Darwin arm64, 4096 on Linux
 #                                       x86-64. Nothing else may assume it.
+#   IDRIS_MLIR_TOOL_COMPILE_FLAGS       the hardening our tools are compiled
+#                                       with beyond the language profile's,
+#                                       that the target has live
+#   IDRIS_MLIR_TOOL_LINK_FLAGS          the link flags that make a tool an
+#                                       executable of the target, hardened
+#   IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS  the Release link's flags: how it
+#                                       takes LLVM's bitcode, and drops
+#                                       unused sections
 #
 # A program's link line is the pinned C compiler with its object, the
 # runtime and -o, then idris-mlir-cc --print-link-flags: --target with the
-# triple, the executable flags, the program link flags and GMP. The tools'
-# own platform flags (hardening, the Release build's LTO link) are in the
-# platform's block below, not here.
+# triple, the executable flags, the program link flags and GMP.
 if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
@@ -187,6 +184,17 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
 	set(IDRIS_MLIR_JIT_LIBRARY_CALLS "")
 	set(IDRIS_MLIR_PAGE_SIZE 4096)
+	# Our tools: PIE code with CET and stack-clash probes; static-PIE on musl,
+	# read-only after relocation, no executable stack. PIN(musl-thread-stacks):
+	# LLVM takes the libc's default thread stack, which musl reads from
+	# PT_GNU_STACK — see PINS.md. The Release link takes the bitcode of
+	# LLVM's fat LTO objects, caches LLVM's ThinLTO backends, and drops
+	# unused sections (lld's ELF spellings).
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection)
+	set(IDRIS_MLIR_TOOL_LINK_FLAGS -static-pie LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
+		LINKER:-z,nodlopen LINKER:-z,stack-size=8388608)
+	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS -Wl,--fat-lto-objects -Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache
+		-Wl,--thinlto-cache-policy=cache_size_bytes=2g LINKER:--gc-sections)
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
 	# has, and a program compiled for a later one names what an older lacks.
@@ -228,6 +236,14 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
 	set(IDRIS_MLIR_JIT_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
 	set(IDRIS_MLIR_PAGE_SIZE 16384)
+	# Our tools: Darwin's PIE executables need nothing beyond the profile.
+	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
+	# plain arm64 Darwin process, and LLVM's libraries are native code here
+	# (no fat LTO objects in Mach-O), so the Release link has no bitcode of
+	# theirs to take — see PINS.md.
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS "")
+	set(IDRIS_MLIR_TOOL_LINK_FLAGS "")
+	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS "")
 else()
 	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it each fact the comment above the entries lists, in CMakeLists.txt")
 endif()
@@ -251,7 +267,7 @@ check_cxx_source_compiles([=[
 int main() { return 0; }
 ]=] IDRIS_MLIR_HAS_LIBCXX)
 if(NOT IDRIS_MLIR_HAS_LIBCXX)
-	message(FATAL_ERROR "production builds require libc++ from the pinned sysroot")
+	message(FATAL_ERROR "production builds require the pinned libc++")
 endif()
 
 # Warnings are errors, for every target with our own C++ (the runtime too).
@@ -277,10 +293,9 @@ target_compile_options(idris_mlir_warnings INTERFACE
 )
 
 # The language profile of our tools. No FP contraction anywhere. The Release
-# build is one LTO domain with LLVM and
+# build of our code is full LTO; on ELF it is one LTO domain with LLVM and
 # MLIR, whose libraries carry bitcode next to native code (fat LTO objects).
-# PIN(stage2-thinlto): our code is full LTO, LLVM's own bitcode ThinLTO — see
-# PINS.md
+# PIN(stage2-thinlto): LLVM's own bitcode is ThinLTO — see PINS.md
 add_library(idris_mlir_language_profile INTERFACE)
 target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
@@ -302,32 +317,14 @@ target_link_options(idris_mlir_language_profile INTERFACE
 	"$<$<CONFIG:Release>:-flto=full>"
 )
 
-# PIN(darwin-inert-mitigations): FORTIFY is inert on musl and Darwin, and branch
-# protection is Linux-only — see PINS.md
-if(IDRIS_MLIR_LINUX)
-	# PIN(platform-gate-x86_64): x86_64 uses CET where arm64 uses PAC/BTI
-	target_compile_options(idris_mlir_language_profile INTERFACE
-		-fPIE
-		"$<IF:$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>,-fcf-protection=full,-mbranch-protection=standard>"
-		-fstack-clash-protection
-	)
-	# lld's ELF spellings: the Release link takes the bitcode of fat LTO
-	# objects, caches LLVM's ThinLTO backends, and drops unused sections.
-	target_link_options(idris_mlir_language_profile INTERFACE
-		"$<$<CONFIG:Release>:-Wl,--fat-lto-objects;-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto.cache;-Wl,--thinlto-cache-policy=cache_size_bytes=2g;LINKER:--gc-sections>"
-	)
-	# Static-PIE on musl. PIN(musl-thread-stacks): LLVM takes the
-	# libc's default thread stack, which musl reads from PT_GNU_STACK — see
-	# PINS.md
-	target_link_options(idris_mlir_language_profile INTERFACE
-		-static-pie
-		LINKER:-z,relro
-		LINKER:-z,now
-		LINKER:-z,noexecstack
-		LINKER:-z,nodlopen
-		LINKER:-z,stack-size=8388608
-	)
-endif()
+# The target's own flags for our tools, from its entry above. FORTIFY is in
+# neither: it is inert on musl and in Apple's SDK for C++
+# (PIN(darwin-inert-mitigations) — see PINS.md).
+target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_TOOL_COMPILE_FLAGS})
+target_link_options(idris_mlir_language_profile INTERFACE
+	${IDRIS_MLIR_TOOL_LINK_FLAGS}
+	"$<$<CONFIG:Release>:${IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS}>"
+)
 
 # The runtime, then the quarantine code that faces MLIR, which records where
 # the runtime's archive is.

@@ -33,6 +33,9 @@ for tool in git make cc c++ python3 m4 curl tar unzip; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done
 echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
+# ccache is optional: tools/bootstrap.sh launches the LLVM builds' compilers
+# through it when there is one (IDRIS_MLIR_CCACHE).
+echo "ccache: $(command -v ccache 2> /dev/null || echo 'not found (optional; it caches the LLVM builds)')"
 echo "SHA-256: $(command -v sha256sum 2> /dev/null || command -v shasum 2> /dev/null || echo 'not found: sha256sum (coreutils) or shasum')"
 case $host_clock in
   date) echo "clock: date's %N" ;;
@@ -71,8 +74,8 @@ fi
 for name in cmake ninja chez llvm sysroot; do
   if "$pins" "$name" 2> /dev/null; then
     case $name in
-      llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; .toolchain/llvm-musl)" ;;
-      sysroot) echo "Pinned sysroot: musl $(lock_field musl version), GMP $(lock_field gmp version), the LLVM runtimes" ;;
+      llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; ${llvm_prefix#"$root"/})" ;;
+      sysroot) echo "Pinned sysroot: the target's C library, the LLVM runtimes, GMP $(lock_field gmp version)" ;;
       *) echo "Pinned $name: $(lock_field "$name" version)" ;;
     esac
   else

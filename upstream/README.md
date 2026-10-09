@@ -71,7 +71,7 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 | 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready |
 | 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
 | 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
-| 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; rerun on x86_64 Linux at the pin (it does not reproduce on arm64 macOS), then reduce, compare with #219926 |
+| 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; its check now runs on every target and expects the unit to compile (it does on arm64 macOS at the pin); where it fails, reduce, compare with #219926 |
 | 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
@@ -82,9 +82,9 @@ Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
 (while-move-if-down-duplicates), backports of fixes main has, and 12
 (clang-module-predeclared-new), whose report's unit main's clang
-compiles on arm64 macOS, where 23.1.2's crashed (verified on arm64 macOS
-only; rechecked on x86_64 Linux when `.toolchain/llvm-musl` is rebuilt at
-the pin); the commit that fixed it is not identified.
+compiles where 23.1.2's crashed (observed on arm64 macOS, where the pin
+was first built; `make build` on each target is the check); the commit
+that fixed it is not identified.
 
 The order runs from least to most arguable. 01 is no code of ours and
 helps a PR a maintainer approved. 02-04 are each one function in one
@@ -186,10 +186,13 @@ entry in one change, and a `submission.md` once it is ready to send.
 
 The LLVM pin is llvm main at 7208ba24ca2894729cd394475a00d2a7b605e642
 (LLVM 24.0.0git, `toolchain.lock.json`), moved from `llvmorg-23.1.2` as
-`proposals/0003-llvm-trunk.md` decides. The arm64 macOS toolchain
-(`.toolchain/llvm-macos`) is built at that commit with every
-`upstream/*/llvm.patch` (02-07, 09 and 15; its stamp records each by
-SHA-256): one stage with Apple clang, about half an hour on 12 cores.
-The x86_64 Linux toolchain (`.toolchain/llvm-musl`) has not been rebuilt
-at this pin yet; `tools/bootstrap.sh llvm` builds it there. That is this
-repository's build, not a precondition for sending anything upstream.
+`proposals/0003-llvm-trunk.md` decides. One recipe builds the toolchain
+on both targets: `tools/bootstrap.sh llvm` (stage 1, the target's C
+library, the runtimes and stage 2, into `.toolchain/llvm`) applies every
+`upstream/*/llvm.patch` in name order, and stage 2's stamp records each by
+SHA-256. The pin was first built on arm64 macOS, with 02-07, 09 and 15,
+by the bootstrap's earlier one-stage Darwin recipe. No toolchain is built
+yet with the patches the tree carries now (02-07, 09, 15, 16 and 19 for
+LLVM; 18 for Idris), on either target, and `make build` refuses until one
+is. That is this repository's build, not a precondition for sending
+anything upstream.

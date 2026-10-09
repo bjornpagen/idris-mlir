@@ -660,16 +660,15 @@ ordered work in `README.md` carries them:
 - **The clang module crash** (PINS
   `clang-module-layout-forward-declaration`): reduce it, then move the pin
   past a fix on main or patch clang in its `upstream/` directory, and
-  delete the workaround in `Stack/Escape.cppm`. It crashes only the x86_64
-  Linux build: its check runs on Linux alone, and the clangs of 23.1.2 and
-  of 7208ba24 compile the report's unit on arm64 macOS. It is unreduced,
-  and no x86_64 Linux toolchain is built at the pin yet to rerun it on;
-  its README records the plan. The second,
+  delete the workaround in `Stack/Escape.cppm`. At 23.1.2 it crashed the
+  x86_64 Linux build; the clang of 7208ba24 compiles the report's unit on
+  arm64 macOS. Its check now runs on every target and expects the unit to
+  compile, so the next build of each target says whether it is gone or
+  must be reduced; its README records the plan. The second,
   `clang-module-predeclared-new`, went with the LLVM pin (20fcfadb):
-  main's clang compiles its unit on arm64 macOS, so `Driver/Retarget.cppm`
-  builds its feature string as `std::string` again, and the report, its
-  check and the workaround are gone. That is rechecked on x86_64 Linux
-  when its toolchain is rebuilt at the pin.
+  main's clang compiles its unit, so `Driver/Retarget.cppm` builds its
+  feature string as `std::string` again, and the report, its check and
+  the workaround are gone.
 - **`idr-dead-values`** ran `remove-dead-values` on a copy and kept the
   module when the copy hashed the same: a workaround for upstream
   behaviour, a call rebuilt when nothing is erased. Proposal 0002 deleted

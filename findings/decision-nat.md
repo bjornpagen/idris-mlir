@@ -91,7 +91,7 @@ narrowing pass, the same inline fast path and the same loop versioning.
     for pointers.
   - It's an invariant of the layout, with a `static_assert` next to the
     packing.
-- **Scope:** arm64 macOS is the next first-class target, and it runs on
+- **Scope:** arm64 macOS is a first-class target, and it runs on
   Apple silicon, where the DMP follows these references. The layout is
   written for it now.
 

@@ -21,18 +21,7 @@ test=$3
 # runtime needs) then holds on each target, with one expectation per
 # target, instead of a skip or a loose check.
 expected=$test/expected
-host_arch=${IDRIS_MLIR_HOST_ARCH:-$(uname -m)}
-case $host_arch in
-  x86_64 | amd64) host_arch=x86-64 ;;
-  arm64 | aarch64) host_arch=aarch64 ;;
-esac
-host_os=$(uname -s)
-case $host_os in
-  Darwin) host_os=macos ;;
-  Linux) host_os=linux ;;
-  *) host_os=$(printf '%s' "$host_os" | tr '[:upper:]' '[:lower:]') ;;
-esac
-for expected_name in "$host_arch" "$host_os"; do
+for expected_name in ${IDRIS_MLIR_HOST_NAMES:?run the tests through make}; do
   if [ -f "$test/expected.$expected_name" ]; then
     expected=$test/expected.$expected_name
     break

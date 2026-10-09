@@ -9,6 +9,21 @@
 # /opt/local/bin, which may not be on a non-interactive shell's PATH, so
 # the GNU spellings are looked for there too.
 
+# host_names: the names a test's `targets` file and its expected.<name>
+# files give this host (tests/Main.idr, tests/runner/one.sh): its
+# architecture, x86-64 or aarch64, then its operating system, linux or
+# macos. The Makefile exports them as IDRIS_MLIR_HOST_NAMES.
+case $(uname -m) in
+  x86_64 | amd64) host_names=x86-64 ;;
+  arm64 | aarch64) host_names=aarch64 ;;
+  *) host_names=$(uname -m) ;;
+esac
+case $(uname -s) in
+  Linux) host_names="$host_names linux" ;;
+  Darwin) host_names="$host_names macos" ;;
+  *) host_names="$host_names $(uname -s | tr '[:upper:]' '[:lower:]')" ;;
+esac
+
 # host_path NAME...: the first of NAME that is on PATH or in MacPorts'
 # bin, printing its path, or nothing.
 host_path() {

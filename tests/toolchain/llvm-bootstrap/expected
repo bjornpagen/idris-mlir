@@ -1,8 +1,10 @@
 tools: all installed
 package: llvm/LLVMConfig.cmake
 package: mlir/MLIRConfig.cmake
-configured: LLVM_TARGETS_TO_BUILD X86
+configured: LLVM_TARGETS_TO_BUILD AArch64;X86
 configured: LLVM_ENABLE_ASSERTIONS ON
 configured: LLVM_ENABLE_RTTI OFF
 configured: LLVM_ENABLE_EH OFF
 configured: LLVM_ENABLE_PLUGINS OFF
+toolchain file: names a target whose configuration file is beside clang
+runtimes: libc++ and its module manifest beside clang

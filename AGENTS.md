@@ -7,16 +7,20 @@ the best fix is usually an MLIR mechanism we are not using yet. Comments
 explain why the code is the way it is; they do not cite documents or rule
 numbers.
 
-- Two first-class targets: x86_64 Linux (musl, static PIE) today, and
-  arm64 macOS (aarch64-apple-darwin) next. The machine you build on
-  happens to be x86_64; that is not the design. Nothing may assume x86,
+- Two first-class targets: x86_64 Linux (musl, static PIE) and arm64
+  macOS (aarch64-apple-darwin, PIE on libSystem). Neither is the
+  default and neither is the port: one recipe builds the toolchain on
+  either (`tools/bootstrap.sh`), and a change, a toolchain bump included,
+  is done when it builds and passes on both. Nothing may assume x86,
   Linux, ELF, musl or a page size outside the one place the target is
   decided (the module's target triple and data layout, which every tool
-  reads). Write each piece so the arm64 macOS port is a new target entry,
-  not a rewrite: intrinsics through LLVM, no inline asm, no cpuid outside
-  the target's startup check, OS calls behind the runtime's platform
-  layer. Heap references stay raw, untagged addresses, which is what
-  Apple's data-memory-dependent prefetcher follows.
+  reads, from the target's entry in CMakeLists.txt; for the toolchain,
+  the bootstrap's target section). Per-target cases elsewhere are bugs.
+  A new target is a new entry, not a rewrite: intrinsics through LLVM,
+  no inline asm, no cpuid outside the target's startup check, OS calls
+  behind the runtime's platform layer. Heap references stay raw, untagged
+  addresses, which is what Apple's data-memory-dependent prefetcher
+  follows.
 - Idris does types; MLIR does programs. The Idris side (`compiler/`: the
   frontend and `Emit`) checks what the compiler accepts, monomorphises and
   decides representations. The `idr` dialect and its passes

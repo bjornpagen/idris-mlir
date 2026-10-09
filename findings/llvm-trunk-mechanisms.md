@@ -11,12 +11,13 @@ trunk mechanism that one of them could use gets a verdict: adopt now, later
 The survey reads the two trees, through `git diff 85ac5602 7208ba24` in
 `.toolchain/llvm-project`. The history between the commits is not fetched,
 so changes are named by file and line, not by commit. The survey was
-written before any toolchain was built from 7208ba24. Since then
-`.toolchain/llvm-macos` has been built at the pin on arm64 macOS
-(2026-10-09, with `upstream/` 02-07, 09 and 15 and
-`LLVM_FORCE_ENABLE_STATS`), and each passage that the build or a run on
-it settled says what it showed, and where. `.toolchain/llvm-musl`
-(x86_64 Linux) is not rebuilt at the pin, so nothing here was run there.
+written before any toolchain was built from 7208ba24. Since then the pin
+has been built once, on arm64 macOS (2026-10-09, with `upstream/` 02-07, 09
+and 15 and `LLVM_FORCE_ENABLE_STATS`), and each passage that the build or
+a run on it settled says what it showed. The toolchain is now one recipe
+for both targets (`tools/bootstrap.sh`, proposal 0003), and `make build`
+and the suites on each target are the check of every passage here, as of
+any change.
 llvm-project paths and line numbers are at 7208ba24 unless a line says
 23.1.2. Claims are marked: read, measured, decision, conjecture.
 
@@ -26,8 +27,7 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
   `LLVM_REQUIRED_CXX_STANDARD 17` (read: `llvm/CMakeLists.txt:93`), so its
   headers are still the ones the entry describes, and the entry's rule was
   to delete it if the stage-2 clang of 7208ba24 compiled `foreign/idr/`
-  with no change for them. It did on arm64 macOS (below, "Adopted in the
-  cutover"); recheck when `.toolchain/llvm-musl` is rebuilt at the pin.
+  with no change for them. It did (below, "Adopted in the cutover").
 - **`llvm-force-enable-stats`: retired in the cutover.** At 7208ba24,
   `Statistic` is still a no-op under `NDEBUG` unless
   `LLVM_FORCE_ENABLE_STATS` is set (read:
@@ -64,10 +64,10 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
   two `-include`s in `foreign/idr/CMakeLists.txt` went. The
   `static_assert` in `lib/Support/Statistics.cppm` stays, as the check.
   **Adopted:** the cutover's stage-2 build was rebuilt once with the
-  option, and `.toolchain/llvm-macos`'s installed `llvm-config.h` defines
+  option, and its installed `llvm-config.h` defines
   `LLVM_FORCE_ENABLE_STATS` as 1 (read); the entry, `EnableStatistics.h`
-  and its `-include`s are gone. The Linux recipe has the option, but
-  `.toolchain/llvm-musl` is not yet built with it.
+  and its `-include`s are gone. Stage 2 passes the option on every
+  target.
 - **`clang-no-reflection`: keep.** The clang of 7208ba24 has the
   `-freflection` flag (read: `clang/include/clang/Options/Options.td:4158-4162`),
   but no P2996:
@@ -115,7 +115,7 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
   which runs on every target, still reproduces at the pin on arm64 macOS
   (measured, 2026-10-09: it printed `nested: still reproduces`; 1,000
   deep parses on an 8 MiB stack, 100,000 deep ends `mlir-opt` with a
-  signal). It has not run on x86_64 Linux at the pin.
+  signal).
 - **`bytecode-deferred-quadratic`: keep the patch.**
   `mlir/lib/Bytecode/Reader/` is identical in the two trees (read). Only the
   writer changed, and only for properties.
@@ -184,10 +184,10 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
   the sources cannot decide these. The UNREACHABLE is still there (read:
   `clang/lib/CodeGen/CGExprCXX.cpp:1434`), but whether the units reach it
   is for `tests/upstream/clang-module-*` to say, run against the stage-2
-  clang. On arm64 macOS that settled one: the report's unit of
+  clang. That settled one: the report's unit of
   `clang-module-predeclared-new` compiles, and the entry is retired.
-  `clang-module-layout-forward-declaration`'s
-  check runs on x86_64 Linux alone and has not run at the pin (below,
+  `clang-module-layout-forward-declaration`'s check runs on every target
+  and expects its unit to compile, as it does on arm64 macOS (below,
   "Adopted in the cutover").
 - **`darwin-ld64-tapi`:** handled in the cutover (main has `arm64e.x1`;
   the `SkipUnknownTriples` change stays).
@@ -385,15 +385,14 @@ listed because the diff showed them:
 ## What the build met
 
 The survey crossed these API and behaviour changes, written before the
-build; the port of `foreign/idr` to main met them on arm64 macOS. The
-list is not complete.
+build; the port of `foreign/idr` to main met them. The list is not
+complete.
 
 - **The toolchain was rebuilt once.** The cutover's stage-2 build was
-  rebuilt with `LLVM_FORCE_ENABLE_STATS=ON` added to both recipes, so
-  that the installed `llvm-config.h` says statistics count (above,
-  `llvm-force-enable-stats`). That build is the one that stands:
-  `.toolchain/llvm-macos`, stamped at 7208ba24 with 02-07, 09 and 15
-  (2026-10-09T04:21Z, 1836 s on 12 jobs).
+  rebuilt with `LLVM_FORCE_ENABLE_STATS=ON`, so that the installed
+  `llvm-config.h` says statistics count (above,
+  `llvm-force-enable-stats`): stamped at 7208ba24 with 02-07, 09 and 15
+  (2026-10-09T04:21Z, 1836 s on 12 jobs, arm64 macOS).
 - **Symbol ops:** `SymbolOpInterface` no longer implements `getNameAttr` or
   `getVisibility` by default (read: `mlir/include/mlir/IR/SymbolInterfaces.td:34`, `:45`).
   - An op with `Symbol` takes the `SymbolName` and `SymbolVisibility`
@@ -411,8 +410,8 @@ list is not complete.
   `mlir/include/mlir/IR/BuiltinOps.td:61`). A test that reads a call's
   `no_inline` from text will see it there.
 - **Inliner:** mechanism 8 can change what `idr-inline` inlines, since its
-  iterations run until nothing is inlined. The suites are the check: on
-  arm64 macOS all of them pass at the pin. The five tests `make test`
+  iterations run until nothing is inlined. The suites are the check: all
+  of them passed at the pin's first build. The five tests `make test`
   first failed there failed the same way on 23.1.2: bugs of ours from the
   lazy-streams merge (2726706c), not the cutover's, fixed on their own.
 - **`scf.for` value bounds:** the closed form of a loop's result now needs
@@ -500,15 +499,12 @@ still `resolveEntry` (read).
   of 7208ba24 compiles the report's `Retarget.cppm` in place on arm64
   macOS, with the build's own command, so the report, its check and the
   `SmallString` workaround went. The fixing commit is not identified.
-  Verified on arm64 macOS only; recheck on x86_64 Linux when
-  `.toolchain/llvm-musl` is rebuilt at the pin.
-- **`clang-module-layout-forward-declaration`:** not rerun on the new pin.
-  It crashes only the x86_64 Linux build (its check runs on Linux alone;
-  the clang of 23.1.2 compiled the unit on arm64 macOS too), and the
-  cutover was built and tested on arm64 macOS. The report stays.
+- **`clang-module-layout-forward-declaration`:** at 23.1.2 it crashed the
+  x86_64 Linux build alone. Its check ran only there and never at the pin;
+  it now runs on every target and expects the unit to compile, as the
+  clang of 7208ba24 does on arm64 macOS. The report stays until the check
+  passes on every target.
 - **`llvm-cxx17-headers`:** retired. The stage-2 clang of 7208ba24
-  compiled all of `foreign/idr` and the runtime on arm64 macOS (the
-  `dev-darwin` preset, 1040 steps) with no change for LLVM's headers; the
-  changes the port made are API changes, listed under "What the build
-  met". Verified on arm64 macOS only; recheck on x86_64 Linux when
-  `.toolchain/llvm-musl` is rebuilt at the pin.
+  compiled all of `foreign/idr` and the runtime (1040 steps) with no
+  change for LLVM's headers; the changes the port made are API changes,
+  listed under "What the build met".

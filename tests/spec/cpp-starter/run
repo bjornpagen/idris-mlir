@@ -19,7 +19,7 @@ else
   say "CMakeLists.txt: no -freflection"
 fi
 # The lint graph runs the clang-tidy of stage 2, the one LLVM.
-if grep -qF '.toolchain/llvm-musl/bin/clang-tidy' "$root/CMakePresets.json"; then
+if grep -qF '.toolchain/llvm/bin/clang-tidy' "$root/CMakePresets.json"; then
   say "CMakePresets.json: lint with the stage-2 clang-tidy"
 else
   say "CMakePresets.json: lint without the stage-2 clang-tidy"

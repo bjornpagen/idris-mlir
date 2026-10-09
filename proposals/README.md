@@ -25,3 +25,6 @@ superseded by NNNN). Nothing here is a specification: the code is.
   become memo sums, compile-time evaluation runs the program's own
   lowering, constants are flat, base's surface becomes runtime
   primitives, and the acyclic-heap and in-place promises become checks.
+- [0003](0003-llvm-trunk.md): the LLVM pin moves from `llvmorg-23.1.2` to
+  a commit of llvm main, so that each patch we carry is its pull request,
+  and the toolchain is one recipe for both targets.

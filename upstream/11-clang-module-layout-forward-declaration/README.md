@@ -61,14 +61,17 @@ fix is known. A patch would be a guess.
 
 ## Upstreaming plan
 
-Status: not ready; not rerun on the pin, llvm main at 7208ba24.
+Status: not ready; whether the clang of the pin, llvm main at 7208ba24,
+still crashes is open until the check has run on every target.
 
-The crash is the x86_64 Linux build's. On arm64 macOS the clang of
-23.1.2 compiled the report's unit, and so does the clang of 7208ba24
-(2026-10-08, in place with the build's own command, and from a copy of
-the units with `-fmodule-output=` per unit). The pin moved on arm64
-macOS, where the check does not run (`targets`), so whether main still
-crashes on x86_64 Linux is open: rerun the check there first.
+At 23.1.2 the crash was the x86_64 Linux build's. On arm64 macOS the
+clang of 23.1.2 compiled the report's unit, and so does the clang of
+7208ba24 (2026-10-08, in place with the build's own command, and from a
+copy of the units with `-fmodule-output=` per unit). The check ran on
+Linux alone (`targets`), and that file is gone: it runs on every target
+and expects the unit to compile. Where it passes on every target, the
+report, the check and the PINS.md entry go; where it fails, this plan
+applies.
 
 - Where: reduce it first (cvise or by hand, over a copy of the units the
   check compiles, keeping `-fmodule-output=` per unit); run the reduction

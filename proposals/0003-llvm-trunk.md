@@ -1,16 +1,23 @@
 # 0003: pin LLVM to a trunk commit
 
-**Status:** decided (2026-10-09); carried out on arm64 macOS on
-2026-10-09: the pin is llvm main 7208ba24, and `.toolchain/llvm-macos`
-is built with `upstream/` 02-07, 09 and 15. There `make build`,
-`make check`, `make test`, `make test-idr` and `make test-mlir-tools`
-pass, once five failures that were bugs of ours from the lazy-streams
-merge (2726706c), which 23.1.2 shows too, were fixed in their own
-commit. Open: `.toolchain/llvm-musl` is not
-rebuilt at the pin, so step 5 is not done on x86_64 Linux, and 11's
-Linux-only check has not run there. `idr-simplify` runs
-`composite-fixed-point-pass` with `on-convergence-failure=silent`, not
-`error` (step 4; PINS.md `simplify-structural-fixpoint`).
+**Status:** decided (2026-10-09). The pin is llvm main 7208ba24. It was
+first built on arm64 macOS, with `upstream/` 02-07, 09 and 15, where
+`make build`, `make check`, `make test`, `make test-idr` and
+`make test-mlir-tools` passed, once five failures that were bugs of ours
+from the lazy-streams merge (2726706c), which 23.1.2 shows too, were fixed
+in their own commit. That build ran the bootstrap's Darwin recipe, and the
+x86_64 Linux recipe was never run at the pin: the cutover held for one
+target. The user ruled per-target cases out, so the toolchain is now one
+recipe for both targets (`tools/bootstrap.sh`: stage 1, the target's C
+library, the runtimes and stage 2, into `.toolchain/llvm`, with only what
+the target's operating system forces decided in one place), one preset set
+reading the toolchain file stage 2 writes, the backends of both targets in
+every LLVM, and every check on every target (11's included). Open: step 5
+on both targets, with the patches the tree carries now (16 and 19 besides
+those above, and Idris's 18); until then no toolchain is current on
+either. `idr-simplify` runs `composite-fixed-point-pass` with
+`on-convergence-failure=silent`, not `error` (step 4; PINS.md
+`simplify-structural-fixpoint`).
 
 ## Decision
 
@@ -110,11 +117,12 @@ Nothing of Rust is built in this cutover.
    still missing. Read the MLIR changes between 23.1.2 and 7208ba24 for
    any other mechanism a PINS entry or a workaround in foreign/idr is
    waiting for, and list them in `findings/` with what was adopted.
-5. **Build and fix.** `tools/bootstrap.sh llvm` (stage 1, the runtimes
-   and stage 2; hours, about 13 GB). Fix foreign/idr against main's
-   API. `make build`, `make check`, `make test`, `make test-idr`,
-   `make test-mlir-tools`, all green. The runtime is rebuilt with
-   fast_float 8.3.1 and snmalloc 0.7.6 (already pinned).
+5. **Build and fix, on each target.** `tools/bootstrap.sh llvm` (stage 1,
+   the target's C library, the runtimes and stage 2; hours), the same
+   recipe on both. Fix foreign/idr against main's API. `make build`,
+   `make check`, `make test`, `make test-idr`, `make test-mlir-tools`,
+   all green on each target. The runtime is rebuilt with fast_float 8.3.1
+   and snmalloc 0.7.6 (already pinned).
 6. **Record.** PINS.md (the pin, every retired entry gone, the bump
    policy: bump when a patch of ours lands, or about monthly, each bump
    one commit with the suites), `sources/` snapshots pointed at the new

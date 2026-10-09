@@ -36,17 +36,18 @@ stays as the check) and `llvm-cxx17-headers` (the stage-2 clang of
 LLVM's C++17 headers, with no change for the headers). Retired because
 main fixed it: `clang-module-predeclared-new`
 (`upstream/12-clang-module-predeclared-new`, its check and its
-workaround; main's clang compiles the report's unit on arm64 macOS,
-where 23.1.2's crashed, so `Driver/Retarget.cppm` builds its feature
-string as `std::string` again). The retirements of `llvm-cxx17-headers`
-and `clang-module-predeclared-new` were verified on arm64 macOS only;
-both are rechecked when `.toolchain/llvm-musl` is rebuilt at the pin.
+workaround; main's clang compiles the report's unit, where 23.1.2's
+crashed, so `Driver/Retarget.cppm` builds its feature string as
+`std::string` again). These retirements were observed where the pin was
+first built, arm64 macOS; `make build` and the suites on each target are
+their check, as for any change.
 
 The LLVM pin is a commit of llvm main, not a release: the patch we carry
 for a bug we send upstream is then its pull request, one diff, not two.
 It moves when a patch of ours lands upstream, or about monthly otherwise.
-Each bump is one commit: the lock, the toolchain rebuilt from it, the
-full suites green on it, and this file's sweep.
+Each bump is one commit: the lock, the toolchain rebuilt from it by the one
+recipe (`tools/bootstrap.sh`) on both targets, the full suites green on
+each, and this file's sweep.
 
 The accepted toolchain release series live only in `toolchain.lock.json`,
 which the top-level CMake configure gate reads.
@@ -438,33 +439,36 @@ which the top-level CMake configure gate reads.
 
 ## clang-module-layout-forward-declaration
 
-- symptom: at llvmorg-23.1.2, clang aborts ("Cannot get layout of forward
-  declarations") generating `DenseMap<Operation *, DenseSetEmpty, ...>` (a
-  `SetVector<Operation *>`'s set) in a module partition that imports a
-  sibling partition holding a `DenseSet<Operation *>`
+- symptom: at llvmorg-23.1.2, the x86_64 Linux clang aborts ("Cannot get
+  layout of forward declarations") generating
+  `DenseMap<Operation *, DenseSetEmpty, ...>` (a `SetVector<Operation *>`'s
+  set) in a module partition that imports a sibling partition holding a
+  `DenseSet<Operation *>`. The clang of 7208ba24 compiles the unit on arm64
+  macOS
 - sites: foreign/idr/lib/Stack/Escape.cppm (the escape analysis's caller
   and worklist sets)
 - workaround: the sets hold `func::FuncOp`, which is what they hold
-- retire: when a patch or the pin lets the pinned clang compile the
-  report's unit (tests/upstream/clang-module-layout-forward-declaration);
-  the sets may stay typed. There is no patch yet: the crash is not reduced.
-  Not re-tested at 7208ba24: the check runs on x86_64 Linux alone, and the
-  cutover ran on arm64 macOS, where the clang of 23.1.2 compiled the unit
-  too
+- retire: tests/upstream/clang-module-layout-forward-declaration runs on
+  every target and expects the pinned clang to compile the report's unit.
+  When it passes on every target, this entry, the report and the check go;
+  the sets may stay typed. Where it fails, the crash is reduced and patched
+  (there is no patch yet)
 - upstream: upstream/11-clang-module-layout-forward-declaration (not reduced
   yet); plan in its README: reduce, then file it, or move the pin past a
   fix on main
 
 ## platform-gate-x86_64
 
-- symptom: cpp-starter's gate accepts arm64 only; this project runs on
-  Linux x86_64 (the user's decision)
-- sites: CMakeLists.txt — the platform gate, and the Linux hardening block,
-  which uses `-fcf-protection=full` (CET) on x86_64 where arm64 uses
-  `-mbranch-protection=standard` (PAC/BTI, which x86_64 compilers reject)
-- workaround: accept Linux x86_64 in addition to cpp-starter's platforms;
-  select the architecture's control-flow protection in CMake
-- retire: never; this is a scope decision. Only Linux x86_64 is tested.
+- symptom: cpp-starter's gate accepts Darwin arm64 only; this project's
+  two first-class targets are x86_64 Linux and arm64 macOS (the user's
+  decision), built by one recipe (`tools/bootstrap.sh`) and checked by the
+  same suites on each
+- sites: CMakeLists.txt — the platform gate, which accepts exactly those
+  two hosts, and each target entry's tool flags (`-fcf-protection=full`,
+  CET, in the x86_64 Linux entry)
+- workaround: accept Linux x86_64 beside cpp-starter's Darwin arm64; each
+  target entry names its own hardening
+- retire: never; this is a scope decision
 - upstream: none
 
 ## versions-in-lock-file
@@ -494,8 +498,9 @@ which the top-level CMake configure gate reads.
 - symptom: `_FORTIFY_SOURCE` does nothing with musl (it has no fortified
   functions) or with Apple's SDK for C++, and `-mbranch-protection=standard`
   executes as NOP in plain-arm64 Darwin processes
-- sites: CMakeLists.txt — the Linux-only hardening block on
-  `idris_mlir_language_profile`, which no longer defines `_FORTIFY_SOURCE`
+- sites: CMakeLists.txt — the target entries' tool flags, which the
+  language profile applies: none define `_FORTIFY_SOURCE`, and the arm64
+  macOS entry names no branch protection
 - workaround: select the live mitigations in CMake, never behind a C++ `#ifdef`
 - retire: as in cpp-starter
 - upstream: none — platform ABI facts
@@ -512,9 +517,12 @@ which the top-level CMake configure gate reads.
   and the next SDK's new target fails the same way. The `TextAPIReader`
   has a `SkipUnknownTriples` option (`llvm/lib/TextAPI/TextStub.cpp:402`),
   but `ld64.lld` never sets it (`lld/MachO/DriverUtils.cpp:267` on main)
-- sites: tools/bootstrap.sh — `config_file_darwin`, whose `-fuse-ld=lld`
+- sites: tools/bootstrap.sh — `config_file_sdk`, whose `-fuse-ld=lld`
   makes every Darwin link the pinned `ld64.lld`'s, as CMakeLists.txt's
-  `arm64-apple-macosx14.0` entry does for programs (with `--icf=all`). The
+  `arm64-apple-macosx14.0` entry does for programs (with `--icf=all`).
+  Stage 1 builds the pristine pin and links stage 2 with its own
+  `ld64.lld`, so an SDK that names a target the pin does not know fails
+  there first; then the pin moves, or stage 1 takes the patch. The
   report, reproducer and check are `upstream/15-ld64-lld-unknown-tapi-target/`
   and `tests/upstream/ld64-lld-unknown-tapi-target/`
 - workaround: `upstream/15-ld64-lld-unknown-tapi-target/llvm.patch`:
@@ -542,12 +550,12 @@ which the top-level CMake configure gate reads.
 ## clang-libcxx
 
 - symptom: cpp-starter's profile is GCC with libstdc++; this project's
-  compiler is the stage-2 clang of the pinned llvm-project with libc++,
-  static on musl. GCC-only diagnostics
+  compiler is the stage-2 clang of the pinned llvm-project with the pinned
+  libc++, statically linked, on both targets. GCC-only diagnostics
   of the profile (`-Wduplicated-cond`, `-Wlogical-op`, `-Wuseless-cast` and
   the like) and libstdc++'s `_GLIBCXX_ASSERTIONS` have no clang spelling
 - sites: CMakeLists.txt — the compiler gate (Clang, the lock's LLVM series,
-  a `-linux-musl` target, libc++), the warning set, and libc++'s extensive
+  libc++, a target with an entry), the warning set, and libc++'s extensive
   hardening mode in place of `_GLIBCXX_ASSERTIONS`
 - workaround: keep every warning clang has; the lint graph (clang-tidy)
   covers what the GCC-only warnings did
@@ -567,15 +575,15 @@ which the top-level CMake configure gate reads.
 ## no-sanitizer-runtimes
 
 - symptom: cpp-starter's `asan-ubsan` preset needs compiler-rt's sanitizer
-  runtimes; the static musl toolchain builds only compiler-rt's builtins, and
-  ASan does not support static executables
+  runtimes; the pinned toolchain builds only compiler-rt's builtins, on both
+  targets, and on x86_64 Linux ASan does not support static executables
 - sites: CMakeLists.txt (`IDRIS_MLIR_RUNTIME_SANITIZERS` fails with this
   pin's name), CMakePresets.json (`asan-ubsan`)
 - workaround: every build keeps trap-mode UBSan (`-fsanitize=undefined
   -fsanitize-trap=all`), which needs no runtime; the preset fails at
   configure time instead of silently building something else
-- retire: when a sanitizer build on musl is worth building compiler-rt's
-  sanitizers (and dynamic executables) for
+- retire: when a sanitizer build is worth building compiler-rt's
+  sanitizers for (and, on musl, dynamic executables)
 - upstream: none
 
 ## musl-thread-stacks
@@ -583,15 +591,16 @@ which the top-level CMake configure gate reads.
 - symptom: musl's default thread stack is 128 KiB unless the executable's
   PT_GNU_STACK asks for more; LLVM and MLIR run deep recursions on threads
   of their own
-- sites: CMakeLists.txt — `-z stack-size=8388608` for our tools
+- sites: CMakeLists.txt — the x86_64 Linux target entry's tool link flags,
+  `-z stack-size=8388608`
 - workaround: 8 MiB, glibc's default, recorded in PT_GNU_STACK
 - retire: never while the tools link musl
 - upstream: none — musl's documented behaviour
 
 ## stage2-thinlto
 
-- symptom: stage 2 (LLVM, MLIR, clang, lld) was meant to be built with
-  `LLVM_ENABLE_LTO=Full`. A full-LTO link is one single-threaded
+- symptom: an ELF stage 2 (LLVM, MLIR, clang, lld) was meant to be built
+  with `LLVM_ENABLE_LTO=Full`. A full-LTO link is one single-threaded
   process over the whole program: for clang, clang-tidy or mlir-opt that is
   roughly 10 GB or more of memory and most of an hour each, on a machine
   with 4 cores and 15 GB that also runs compile jobs, and it has not been
@@ -599,11 +608,14 @@ which the top-level CMake configure gate reads.
 - sites: tools/bootstrap.sh (`IDRIS_MLIR_STAGE2_LTO`, default `Thin`; the
   ThinLTO backends are limited to two threads); CMakeLists.txt, where our
   own code is still `-flto=full`
-- workaround: stage 2 is ThinLTO with fat objects. LLVM's tools are
+- workaround: an ELF stage 2 is ThinLTO with fat objects. LLVM's tools are
   ThinLTO-optimized; our Release build links LLVM's ThinLTO bitcode with
   our full-LTO bitcode, so the two meet in one link but ThinLTO does not
-  import across them. The stamp of stage 2 records the LTO kind, the time,
-  the peak memory and the disk it took
+  import across them. A Mach-O stage 2 is not LTO at all: an object with
+  bitcode beside native code exists in ELF only, and our Debug build links
+  stage 2's libraries without LTO (tools/bootstrap.sh's target section).
+  The stamp of stage 2 records the LTO kind, the time, the peak memory and
+  the disk it took
 - retire: run `IDRIS_MLIR_STAGE2_LTO=Full tools/bootstrap.sh stage2` on a
   machine where it fits, record the numbers here, and make Full the default
 - upstream: none
@@ -646,7 +658,7 @@ which the top-level CMake configure gate reads.
 
 - symptom: musl ships no kernel headers, but libc++ (`<linux/futex.h>`) and
   snmalloc (`<linux/random.h>`, `<linux/futex.h>`) include them
-- sites: tools/bootstrap.sh (step `musl`)
+- sites: tools/bootstrap.sh (step `libc`, on musl)
 - workaround: the host's Linux UAPI headers (`linux/`, `asm/`,
   `asm-generic/`) are copied into the sysroot; the musl stamp records their
   package version and SHA-256. The UAPI is the kernel's stable ABI
@@ -676,9 +688,10 @@ which the top-level CMake configure gate reads.
 ## idris-support-host-cc
 
 - symptom: the pinned toolchain builds everything else with the stage-2
-  clang, but Idris's C support library is a shared object loaded by Chez
-  Scheme, a dynamically linked process of the host's C library (glibc here,
-  libSystem on macOS), which the static musl toolchain cannot build for
+  clang, for the target, but Idris's C support library is a shared object
+  loaded by Chez Scheme, a dynamically linked process of the host's C
+  library (glibc on Linux, libSystem on macOS): a host program, which on
+  Linux the target's C library, musl, is not
 - sites: tools/bootstrap.sh (steps `chez` and `idris`)
 - workaround: the pinned Chez Scheme and Idris 2 are built with the host's C
   compiler; they are host programs and never link into an executable

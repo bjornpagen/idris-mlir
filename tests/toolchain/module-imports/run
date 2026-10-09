@@ -58,7 +58,7 @@ export namespace idr::d { int one(); }'
 # whether it builds, and why not.
 build() {
   if ! bounded "$cmake" -S "$work/project" -B "$work/build-$1" -G Ninja \
-      -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_CXX_COMPILER="$llvm_bin/clang++" \
+      -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_TOOLCHAIN_FILE="${llvm_bin%/bin}/toolchain.cmake" \
       -DIDR="$root/foreign/idr" -DCASE="$1" > "$work/configure.log" 2>&1; then
     say "$2: does not configure"
     show "$work/configure.log"

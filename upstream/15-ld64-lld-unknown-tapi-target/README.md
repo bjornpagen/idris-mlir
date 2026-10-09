@@ -20,7 +20,8 @@ int main(void) { return 0; }
 `unknown` is LLVM's own name for an architecture it does not know, so no
 release of LLVM will know this target, and the reproducer does not depend
 on which targets the linker at hand has learned (the reproduction is for
-`x86_64` so the X86-only Linux build of the pinned LLVM can run it too; the
+`x86_64`, as the check's first version was, and every pinned LLVM has both
+targets' backends; the
 target the macOS 27 SDK actually adds is `arm64e.x1-macos`, and the same
 error stops an arm64 link):
 

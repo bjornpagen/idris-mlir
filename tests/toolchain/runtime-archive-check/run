@@ -71,20 +71,15 @@ check macho-as-elf sh "$root/runtime/check-archive.sh" "$llvm_bin/llvm-nm" "$llv
 # arm64 Mach-O with embedded bitcode, as the Darwin runtime's members carry
 # theirs (-fembed-bitcode=all): the check reads the member's names and
 # sections the same, and the member is a real arm64 Mach-O object readable
-# by idris-mlir-cc's member reader (IRObjectFile) either way. Only where the
-# pinned clang has the AArch64 backend (the Darwin build; the Linux build is
-# X86-only), so its expectation is expected.aarch64.
-case $(uname -m) in
-  arm64 | aarch64)
-    printf '%s\n' "$entry" > "$work/macho-arm64.cc"
-    if bounded "$llvm_bin/clang++" --target=arm64-apple-macosx14.0 -fembed-bitcode=all \
-        -fno-exceptions -c "$work/macho-arm64.cc" -o "$work/macho-arm64.o" > "$work/cc.log" 2>&1; then
-      rm -f "$work/macho-arm64.a"
-      bounded "$llvm_bin/llvm-ar" rcs "$work/macho-arm64.a" "$work/macho-arm64.o"
-      macho_check macho-arm64 "$work/macho-arm64.a"
-    else
-      say "macho-arm64: does not compile"
-      show "$work/cc.log"
-    fi
-    ;;
-esac
+# by idris-mlir-cc's member reader (IRObjectFile) either way. Every pinned
+# LLVM has both targets' backends, so this runs on every host.
+printf '%s\n' "$entry" > "$work/macho-arm64.cc"
+if bounded "$llvm_bin/clang++" --target=arm64-apple-macosx14.0 -fembed-bitcode=all \
+    -fno-exceptions -c "$work/macho-arm64.cc" -o "$work/macho-arm64.o" > "$work/cc.log" 2>&1; then
+  rm -f "$work/macho-arm64.a"
+  bounded "$llvm_bin/llvm-ar" rcs "$work/macho-arm64.a" "$work/macho-arm64.o"
+  macho_check macho-arm64 "$work/macho-arm64.a"
+else
+  say "macho-arm64: does not compile"
+  show "$work/cc.log"
+fi

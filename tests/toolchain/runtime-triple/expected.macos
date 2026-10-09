@@ -1,6 +1,0 @@
-same: exit 0
-spelled: exit 0
-vendor: exit 1
-  | idris-mlir-cc: runtime member vendor.o is compiled for TRIPLE.0, and programs for TARGET
-environment: exit 1
-  | idris-mlir-cc: runtime member environment.o is compiled for TRIPLE, and programs for TARGET

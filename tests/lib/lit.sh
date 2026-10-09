@@ -55,7 +55,10 @@ lit_cc() {
 # bounds itself.
 lit() {
   lit_file=$(cd "$(dirname "$1")" && pwd)/${1##*/}
-  lit_runtime=$("$idris_mlir_cc" --print-runtime)
+  # The runtime is idris-mlir-cc's (make build), asked for only by a test
+  # that names it.
+  lit_runtime=
+  if grep -q '%runtime' "$lit_file"; then lit_runtime=$("$idris_mlir_cc" --print-runtime); fi
   sed -n 's/^[[:space:]]*\/\/[[:space:]]*RUN:[[:space:]]*//p' "$lit_file" |
     awk '{ sub(/[ \t]+$/, "") }
          /\\$/ { sub(/\\$/, ""); joined = joined $0; next }

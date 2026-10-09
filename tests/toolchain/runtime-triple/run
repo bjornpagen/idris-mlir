@@ -11,7 +11,8 @@ arch=${target%%-*}
 
 # prepare NAME TRIPLE: a member compiled for TRIPLE, in an archive of its
 # own, prepared; the exit status and what idris-mlir-cc said, with the
-# work directory's path, TRIPLE and the target's triple taken out.
+# work directory's path, TRIPLE and the target's triple taken out, each
+# however clang normalized its OS version (a trailing .0).
 prepare() {
   printf '%s\n' 'int idris_rt_answer(void) { return 42; }' > "$work/$1.c"
   if ! bounded "$llvm_bin/clang" --target="$2" -flto=full -c "$work/$1.c" -o "$work/$1.o" \
@@ -25,7 +26,7 @@ prepare() {
   bounded "$idris_mlir_cc" --prepare-runtime --runtime="$work/$1.a" -o "$work/$1.prepared.o" \
     > "$work/prepare.log" 2>&1
   say "$1: exit $?"
-  sed "s|$work/||g; s|$2|TRIPLE|g; s|$target|TARGET|g; s/^/  | /" "$work/prepare.log"
+  sed "s|$work/||g; s|$2\\(\\.0\\)*|TRIPLE|g; s|$target\\(\\.0\\)*|TARGET|g; s/^/  | /" "$work/prepare.log"
 }
 
 prepare same "$target"

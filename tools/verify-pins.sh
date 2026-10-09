@@ -11,8 +11,9 @@
 #   idris       the local Idris 2 was built from that checkout, on the pinned
 #               Chez Scheme
 #   llvm        the stage-2 LLVM/MLIR and clang were built at the lock's revision
-#   sysroot     musl, the LLVM runtimes and GMP were built into the sysroot at
-#               the lock's revisions
+#   sysroot     the target's C library, the LLVM runtimes and GMP are the
+#               ones the toolchain was built with: the lock's revisions, and
+#               the SDK the host has now where libSystem is the C library
 #   cmake, ninja, chez
 #               the pinned tool's stamp names the lock's revision
 #
@@ -47,6 +48,11 @@ patched() {
   patched_want=$(patch_stamp "$1") || fail "cannot read upstream/*/$1.patch"
   [ "$patched_got" = "$patched_want" ] ||
     fail "Local $3 was not built with the patches upstream/*/$1.patch carry now; rerun tools/bootstrap.sh $3"
+}
+
+# stamp_value FILE KEY: a string of a provenance stamp.
+stamp_value() {
+  sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1" 2> /dev/null | head -n 1
 }
 
 # lock_field TOOL KEY: a string of toolchain.lock.json. Schemas 3 and 4 both
@@ -110,48 +116,33 @@ check() {
       patched llvm "$prefix/provenance.json" llvm
       ;;
     sysroot)
-      # What programs link against, by host. On Linux the sysroot holds
-      # musl, the LLVM runtimes and GMP, and the stamps of the steps that
-      # filled it (tools/bootstrap.sh), each at the lock's revision of what
-      # it built. On Darwin the C library is libSystem in the SDK and the
-      # runtimes sit in the pinned clang's resource directory; only GMP is
-      # built into the sysroot.
-      case $(uname -s) in
-        Darwin)
-          sdk=$(xcrun --show-sdk-path 2> /dev/null) ||
-            fail "no macOS SDK; run: xcode-select --install"
-          [ -d "$sdk" ] || fail "the macOS SDK path $sdk is not a directory"
-          [ -f "$llvm_prefix/provenance.json" ] ||
-            fail "Build the pinned LLVM/MLIR with tools/bootstrap.sh stage2 first"
-          # The pinned libc++ is installed beside the clang
-          # ($llvm_prefix/lib/libc++.a); compiler-rt's builtins are one OS
-          # library under the clang's resource directory
-          # (lib/clang/<major>/lib/darwin/libclang_rt.osx.a), not the
-          # per-triple libclang_rt.builtins.a Linux installs.
-          [ -f "$llvm_prefix/lib/libc++.a" ] ||
-            fail "the pinned clang has no $llvm_prefix/lib/libc++.a; rerun tools/bootstrap.sh stage2"
-          found=$(find "$llvm_prefix/lib/clang" -name 'libclang_rt.*.a' -print -quit 2> /dev/null)
-          [ -n "$found" ] ||
-            fail "the pinned clang has no libclang_rt.*.a under $llvm_prefix/lib/clang; rerun tools/bootstrap.sh stage2"
-          stamp=$sysroot/provenance/gmp.json
-          [ -f "$stamp" ] || fail "The sysroot has no gmp; run: tools/bootstrap.sh gmp"
-          got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
-          [ "$got" = "$(lock_field gmp revision)" ] ||
-            fail "The sysroot's gmp is stale; rerun tools/bootstrap.sh gmp"
-          patched llvm "$llvm_prefix/provenance.json" stage2
+      # What programs link against, as the steps that made it recorded it
+      # (tools/bootstrap.sh): the target's C library, the runtimes beside the
+      # pinned clang, and GMP in the sysroot. The C library's stamp says
+      # which it is: musl, at the lock's revision, or libSystem in an SDK,
+      # which must be the one the host has now.
+      stamp=$sysroot/provenance/libc.json
+      [ -f "$stamp" ] || fail "The sysroot has no C library; run: tools/bootstrap.sh libc"
+      case $(stamp_value "$stamp" libc) in
+        musl)
+          [ "$(stamp_value "$stamp" revision)" = "$(lock_field musl revision)" ] ||
+            fail "The sysroot's musl is stale; rerun tools/bootstrap.sh libc"
           ;;
-        *)
-          for part in musl:musl runtimes:llvm gmp:gmp; do
-            step=${part%%:*}
-            stamp=$sysroot/provenance/$step.json
-            [ -f "$stamp" ] || fail "The sysroot has no $step; run: tools/bootstrap.sh $step"
-            got=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$stamp" | head -n 1)
-            [ "$got" = "$(lock_field "${part#*:}" revision)" ] ||
-              fail "The sysroot's $step is stale; rerun tools/bootstrap.sh $step"
-          done
-          patched llvm "$sysroot/provenance/runtimes.json" runtimes
+        sdk)
+          [ "$(stamp_value "$stamp" sdk_version)" = "$(xcrun --show-sdk-version 2> /dev/null)" ] ||
+            fail "The toolchain was built against another macOS SDK than the host's; rerun tools/bootstrap.sh libc"
           ;;
+        *) fail "The sysroot's C library stamp names no C library; rerun tools/bootstrap.sh libc" ;;
       esac
+      stamp=$toolchain/runtimes/provenance.json
+      [ -f "$stamp" ] || fail "The LLVM runtimes are missing; run: tools/bootstrap.sh runtimes"
+      [ "$(stamp_value "$stamp" revision)" = "$(lock_field llvm revision)" ] ||
+        fail "The LLVM runtimes are stale; rerun tools/bootstrap.sh runtimes"
+      patched llvm "$stamp" runtimes
+      stamp=$sysroot/provenance/gmp.json
+      [ -f "$stamp" ] || fail "The sysroot has no gmp; run: tools/bootstrap.sh gmp"
+      [ "$(stamp_value "$stamp" revision)" = "$(lock_field gmp revision)" ] ||
+        fail "The sysroot's gmp is stale; rerun tools/bootstrap.sh gmp"
       ;;
     cmake | ninja | chez)
       want=$(lock_field "$1" revision)

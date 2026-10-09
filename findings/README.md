@@ -114,8 +114,9 @@ Each step is a research conclusion made concrete: what changes, and what
 proves it. Every step runs AGENTS.md's checks. W1 to W10 are compiled into
 one swarm packet, `proposals/0002-representation-cutover/`. They are done: the
 packet was integrated in 327c2e30 and 0451b1b8 (upstream/16 retires
-`idr-dead-values`), green on arm64 macOS before its last two changes;
-x86_64 Linux is NotRun, and the packet's qualification is still open.
+`idr-dead-values`), green on arm64 macOS before its last two changes. Its
+qualification is still open: the suites on both targets, with a
+toolchain the one recipe builds (proposal 0003).
 It narrows W6 to its first phase (closure conversion leaves Idris; regions do not yet
 live through the simplify loop), and records the corrections it made to
 `substrate.md` and `concurrency.md`. W0 is this restructure. The
@@ -127,6 +128,9 @@ can run at once.
 - **Change:** reduce the two clang module crashes, carry
   `upstream/<bug>/clang.patch`, and delete the workarounds in
   `Stack/Escape.cppm` and `Driver/Retarget.cppm` with their `PIN` markers.
+  The pin moved past the second (20fcfadb); the first's check runs on every
+  target and expects its unit to compile (PINS.md
+  `clang-module-layout-forward-declaration`).
 - **Proof:** `tests/upstream/clang-module-*` report "no longer crashes"
   against the patched clang, and the build is green with the code written
   plainly.

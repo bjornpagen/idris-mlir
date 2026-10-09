@@ -20,3 +20,5 @@ macho-ctor: exit 1
   |   macho-ctor.a(macho-ctor.o): __mod_init_func
 macho-as-elf: exit 1
   | runtime check: macho-cxx.a defines no idris_rt_start once '' is taken off its names, so nothing was checked
+macho-arm64: exit 0
+  | runtime check: no C++ runtime symbol referenced, no static constructors

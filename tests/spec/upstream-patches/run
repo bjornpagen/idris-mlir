@@ -90,7 +90,7 @@ check_project() {
 llvm_source=$toolchain/llvm-project
 llvm_pin=$("$root/tools/verify-pins.sh" lock llvm revision)
 if [ -n "$(patches llvm)" ] && [ "$(git -C "$llvm_source" rev-parse HEAD 2> /dev/null)" != "$llvm_pin" ]; then
-  say "llvm: $llvm_source is not a checkout at the lock's revision; run: tools/bootstrap.sh stage2"
+  say "llvm: $llvm_source is not a checkout at the lock's revision; run: tools/bootstrap.sh llvm"
 else
   check_project llvm "$llvm_source" "the pinned llvm-project"
 fi

@@ -1007,20 +1007,23 @@ new pool green on both target entries.
 | Compiler: dialect, lowering, driver and runtime | 2–3k |
 | Bootstrap and tests | about 1k |
 
-The bootstrap's rustc build adds roughly an hour to `make bootstrap`
-(conjecture).
+R0 pins an official nightly, so the bootstrap builds no rustc (proposal
+0003). Whatever Rust the bootstrap or the build compiles later goes
+through a compiler cache, as the LLVM builds go through ccache
+(`tools/bootstrap.sh`).
 
 ## 15. Alternatives considered
 
 - **Embedding `rustc_driver` in idris-mlir-cc and querying `layout_of`
   and `fn_abi_of_instance`, to call the unstable Rust ABI directly.**
   Rejected. The driver links only from Rust built by the same nightly, so
-  idris-mlir-cc (C++, static on musl) would host a second LLVM in one
+  idris-mlir-cc (C++, statically linked with LLVM) would host a second LLVM in one
   process. `rustc_private` also changes every six weeks. And it would buy
   nothing: with every value crossing as a word through an `extern "C"`
   shim that LTO inlines, there is no Rust ABI left to compute. rustc
-  stays in the toolchain as a tool. It is pinned and built against our
-  LLVM, and it decides every Rust layout and calling convention itself.
+  stays in the toolchain as a tool: a pinned nightly with its own LLVM
+  (§14 R0), which decides every Rust layout and calling convention
+  itself.
 - **Building MLIR from Rust's LLVM fork instead.** Rejected for now. The
   toolchain's LLVM is an upstream trunk commit (proposal 0003), and
   PINS.md's MLIR workarounds and `upstream/`'s reproducers are pinned to

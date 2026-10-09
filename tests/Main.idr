@@ -37,7 +37,6 @@ import Data.String
 import System
 import System.Directory
 import System.File
-import System.Info
 import System.Path
 
 import Test.Golden
@@ -73,32 +72,18 @@ holdsTests dir = do
   found <- for !(subdirs dir) $ \d => exists (d ++ "/run")
   pure (any id found)
 
-||| The operating system a test's `targets` file names, from the compiler
-||| that built this runner (darwin, linux, ...); `macos` for darwin.
-hostOs : String
-hostOs = case System.Info.os of
-  "darwin" => "macos"
-  other => other
-
-||| The architecture a `targets` file names, from IDRIS_MLIR_HOST_ARCH
-||| (the Makefile exports uname -m; a run script invoked directly gets the
-||| same fallback from tests/testutils.sh).
-hostArch : String -> String
-hostArch raw = case raw of
-  "x86_64" => "x86-64"
-  "amd64" => "x86-64"
-  "arm64" => "aarch64"
-  "aarch64" => "aarch64"
-  other => other
-
 ||| The names this host answers to in a `targets` file: its architecture
-||| and its operating system. A host whose architecture cannot be read
-||| (IDRIS_MLIR_HOST_ARCH unset) answers to its operating system alone.
+||| and its operating system, as tools/host.sh names them and the Makefile
+||| exports them (IDRIS_MLIR_HOST_NAMES). Without them a test with a
+||| `targets` file could run nowhere unnoticed, so the runner refuses to
+||| start.
 hostNames : IO (List String)
 hostNames = do
-  Just raw <- getEnv "IDRIS_MLIR_HOST_ARCH"
-    | Nothing => pure [hostOs]
-  pure (hostArch raw :: [hostOs])
+  Just names <- getEnv "IDRIS_MLIR_HOST_NAMES"
+    | Nothing => do
+        putStrLn "tests: IDRIS_MLIR_HOST_NAMES is unset; run the tests through make"
+        exitWith (ExitFailure 2)
+  pure (words names)
 
 ||| Whether TEST runs here. A test with no `targets` file holds everywhere;
 ||| one with a `targets` file holds only where it names one of this host's

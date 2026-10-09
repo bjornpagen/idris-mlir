@@ -39,8 +39,8 @@ IDRIS2 := $(call toolchain,idris2)
 CMAKE := $(call toolchain,cmake)
 PINNED_CC := $(call toolchain,pinned_cc)
 IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
-# The C++ build's configure preset: dev on Linux, dev-darwin on arm64 macOS
-# (CMakePresets.json, through tools/toolchain.sh).
+# The C++ build's configure preset (CMakePresets.json, through
+# tools/toolchain.sh), the same on every host.
 DEV_PRESET := $(call toolchain,dev_preset)
 COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
 PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
@@ -57,9 +57,10 @@ CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
-# The host's architecture, which a test's `targets` file names and the
-# runner (tests/Main.idr) reads when it builds its pools.
-export IDRIS_MLIR_HOST_ARCH := $(shell uname -m)
+# The names a test's `targets` file and expected.<name> files give this
+# host (tools/host.sh), which the runner (tests/Main.idr) reads when it
+# builds its pools, and tests/runner/one.sh when it picks an expectation.
+export IDRIS_MLIR_HOST_NAMES := $(call toolchain,host_names)
 export CHEZ := $(call toolchain,chez_scheme)
 
 threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)

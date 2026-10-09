@@ -6,39 +6,10 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/.toolchain/llvm/toolchain.cmake",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja",
-        "CMAKE_C_COMPILER": "${sourceDir}/.toolchain/llvm-musl/bin/clang",
-        "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/llvm-musl/bin/clang++",
-        "CMAKE_C_COMPILER_TARGET": "x86_64-unknown-linux-musl",
-        "CMAKE_CXX_COMPILER_TARGET": "x86_64-unknown-linux-musl",
-        "CMAKE_LINKER_TYPE": "LLD",
-        "CMAKE_AR": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-ar",
-        "CMAKE_RANLIB": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-ranlib",
-        "CMAKE_NM": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-nm",
-        "CMAKE_READELF": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-readelf",
-        "CMAKE_OBJDUMP": "${sourceDir}/.toolchain/llvm-musl/bin/llvm-objdump",
-        "MLIR_DIR": "${sourceDir}/.toolchain/llvm-musl/lib/cmake/mlir"
-      }
-    },
-    {
-      "name": "darwin",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja",
-        "CMAKE_C_COMPILER": "${sourceDir}/.toolchain/llvm-macos/bin/clang",
-        "CMAKE_CXX_COMPILER": "${sourceDir}/.toolchain/llvm-macos/bin/clang++",
-        "CMAKE_C_COMPILER_TARGET": "arm64-apple-macosx14.0",
-        "CMAKE_CXX_COMPILER_TARGET": "arm64-apple-macosx14.0",
-        "CMAKE_AR": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-ar",
-        "CMAKE_RANLIB": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-ranlib",
-        "CMAKE_NM": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-nm",
-        "CMAKE_OBJDUMP": "${sourceDir}/.toolchain/llvm-macos/bin/llvm-objdump",
-        "MLIR_DIR": "${sourceDir}/.toolchain/llvm-macos/lib/cmake/mlir"
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja"
       }
     },
     {
@@ -50,33 +21,8 @@
       }
     },
     {
-      "name": "dev-darwin",
-      "displayName": "Debug development build on arm64 macOS",
-      "inherits": "darwin",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "release-darwin",
-      "displayName": "Optimized production build on arm64 macOS",
-      "inherits": "darwin",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "lint-darwin",
-      "displayName": "Debug build on arm64 macOS checked by the pinned clang-tidy",
-      "inherits": "darwin",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm-macos/bin/clang-tidy;--warnings-as-errors=*"
-      }
-    },
-    {
       "name": "release",
-      "displayName": "Optimized production build, one LTO domain with LLVM and MLIR",
+      "displayName": "Optimized production build",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -84,7 +30,7 @@
     },
     {
       "name": "asan-ubsan",
-      "displayName": "AddressSanitizer + UndefinedBehaviorSanitizer (unavailable on static musl; see PINS.md)",
+      "displayName": "AddressSanitizer + UndefinedBehaviorSanitizer (the pinned toolchain has no sanitizer runtimes; see PINS.md)",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -97,7 +43,7 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm-musl/bin/clang-tidy;--warnings-as-errors=*"
+        "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm/bin/clang-tidy;--warnings-as-errors=*"
       }
     }
   ],
@@ -105,9 +51,6 @@
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
     { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
-    { "name": "lint", "configurePreset": "lint" },
-    { "name": "dev-darwin", "configurePreset": "dev-darwin" },
-    { "name": "release-darwin", "configurePreset": "release-darwin" },
-    { "name": "lint-darwin", "configurePreset": "lint-darwin" }
+    { "name": "lint", "configurePreset": "lint" }
   ]
 }

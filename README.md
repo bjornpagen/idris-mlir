@@ -15,13 +15,13 @@ Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation,
     by running the program's own code in a JIT, to a fixpoint
   → defunctionalize (closures and memo sums), reference counting, loops
   → idr-lower, idr-entry → LLVM O3 with the runtime
-  → object → linked as the target entry says (static PIE on musl today)
+  → object → linked as the target entry says (static PIE on musl, PIE on libSystem)
 ```
 
-Targets: x86_64 Linux (musl, static PIE) today; arm64 macOS is the next
-first-class target, and the code is written for both (AGENTS.md). What a
-target is lives in one place, its entry in CMakeLists.txt, whose comment
-lists every fact an entry gives.
+Targets: x86_64 Linux (musl, static PIE) and arm64 macOS, both first
+class: one toolchain recipe, one set of presets, the same suites
+(AGENTS.md). What a target is lives in one place, its entry in
+CMakeLists.txt, whose comment lists every fact an entry gives.
 
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else
@@ -143,17 +143,18 @@ the previous run.
 ## Setup
 
 Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
-LLVM and GMP), the Linux UAPI headers and coreutils' `timeout`. Chez Scheme
-does not come from the host: `make bootstrap` builds the pinned release,
-which Idris 2 runs on, the same on every host. On
-Ubuntu 24.04:
+LLVM and GMP) and coreutils' `timeout`; on Linux, the UAPI headers and
+GMP's headers (Idris's support library is a host program); ccache, if the
+host has it, caches the LLVM builds. Chez Scheme does not come from the
+host: `make bootstrap` builds the pinned release, which Idris 2 runs on,
+the same on every host. On Ubuntu 24.04:
 
 ```sh
-sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev
+sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev libgmp-dev ccache
 ```
 
-The scripts run on arm64 macOS too (`tools/host.sh` holds every
-difference). There the Command Line Tools give the compiler, the SDK,
+On arm64 macOS (`tools/host.sh` holds every difference of the host's
+userland), the Command Line Tools give the compiler, the SDK,
 Make, Git, python3, m4, curl and perl (whose clock times what `date`
 cannot), and MacPorts the rest: coreutils for `gtimeout` and `gsha256sum`:
 
@@ -164,12 +165,16 @@ sudo port install coreutils
 
 `make bootstrap` builds the pinned CMake, Ninja, LLVM/MLIR, GMP, Chez
 Scheme and Idris 2 into `.toolchain/`; the steps and their environment are
-at the top of `tools/bootstrap.sh`. On Linux that is three stages: a
-stage-1 clang, musl and the LLVM runtimes, and then a stage-2 LLVM/MLIR,
-static on musl and libc++, with LTO. On arm64 macOS it is one stage with
-Apple clang, which then builds the pinned runtimes (compiler-rt's builtins
-and a static libc++/libc++abi) beside it. The long builds take hours and
-tens of GB of disk.
+at the top of `tools/bootstrap.sh`. It is one recipe on both hosts: a
+stage-1 clang, the target's C library (musl on Linux, the SDK's libSystem
+on macOS), the LLVM runtimes, and a stage-2 LLVM/MLIR built by stage 1
+against them, with the backends of both targets. Only what the operating
+system forces differs (static or not, LTO with fat objects on ELF). The
+long builds take hours and tens of GB of disk; with ccache, a rebuild
+recompiles only what changed. `make build` itself is incremental through
+Ninja and goes through no compiler cache: its units import C++ modules,
+and a cache would have to key each unit on the module interfaces it
+imports as well as on its text and flags.
 Distribution LLVM packages track release branches, not the pinned commit, so
 they are not used.
 

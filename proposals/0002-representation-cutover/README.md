@@ -2,9 +2,9 @@
 
 **Status:** accepted in part: launched and integrated in 93f5d9c9, 327c2e30
 and 0451b1b8; "Rulings on the swarm" records what changed while it ran.
-Qualification is open: the suites with upstream/16 in the toolchain, the
-bench against the launch base, `tests/upstream-idris` and x86_64 Linux are
-NotRun. Its adversarial review (`review.md`) is folded in: see "Rulings on the
+Qualification is open: the suites on both targets, with the toolchain the
+one recipe builds (proposal 0003), the bench against the launch base and
+`tests/upstream-idris` are NotRun. Its adversarial review (`review.md`) is folded in: see "Rulings on the
 adversarial review". What changed between authoring and launch is
 folded in too: see "Rulings at launch".
 
@@ -588,17 +588,15 @@ The validator refuses these names outside a Delete section.
 
 The coordinator does this after integration.
 
-1. **The suites.** All are green: `make check`, `make build`,
-   `make test`, `make test-idr` and `make test-mlir-tools`, on the
-   patched toolchain, on arm64 macOS, the launch host. A check whose
-   `targets` excludes the host, such as
-   `tests/upstream/clang-module-layout-forward-declaration` (`linux`),
-   is NotRun, not passed. Run them on x86_64 Linux too once
-   `.toolchain/llvm-musl` is built at 7208ba24. Until then say
-   "x86_64 Linux: NotRun", never "green", and name what waits for it:
-   the suites there, U16's Linux branches (C9.6), F-up-1 (C11.1), and
-   the Linux rechecks of the retirements of
-   `clang-module-predeclared-new` and `llvm-cxx17-headers` (`PINS.md`).
+1. **The suites.** All are green on both targets: `make check`,
+   `make build`, `make test`, `make test-idr` and `make test-mlir-tools`,
+   with the toolchain the one recipe builds at the pin (proposal 0003). A
+   target that has not run them is NotRun, never green. A check whose
+   `targets` excludes the host is NotRun there, not passed; after the
+   toolchain sweep the only such checks are a target's own codegen and
+   operating-system tests. This covers U16's Linux branches (C9.6), F-up-1
+   (C11.1: its check now runs on every target) and the retirements of
+   `clang-module-predeclared-new` and `llvm-cxx17-headers`.
 2. **Sensitivity.** Each C12 discriminator fails at the launch base
    (Engagement contract), with the same test files and this tree's
    harness, which compares with no other backend, run once: between
