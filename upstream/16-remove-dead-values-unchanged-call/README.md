@@ -125,7 +125,7 @@ covers every case of its file, and those of `remove-dead-values.mlir` were
 not written to be fixed points of the pass. It uses func and arith only.
 
 The patch touches no file the other patches touch, so it applies to the
-pinned source alone and after 02-07, 09 and 15
+pinned source alone and after 02-07 and 09
 (`tests/spec/upstream-patches`).
 
 ## Testing at the pin
@@ -135,7 +135,7 @@ upstream dialect, extension and pass (no test dialect), and
 `PatternMatch.cpp` with this patch, compiled by Apple clang 21 with the
 toolchain's flags (`-std=c++17 -fno-rtti -fno-exceptions`, assertions on)
 and linked against the static `libMLIR*.a` and `libLLVM*.a` of
-`.toolchain/llvm-macos` (7208ba24 with 02-07, 09 and 15 applied).
+`.toolchain/llvm-macos` (7208ba24 with 02-07 and 09 among its patches).
 
 - Both RUN lines of the new test pass (`mlir-opt | FileCheck` under
   `pipefail`, with the toolchain's `FileCheck`). With the toolchain's

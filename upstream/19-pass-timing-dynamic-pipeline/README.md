@@ -142,8 +142,8 @@ On arm64 macOS, with two scratch `mlir-opt`s: a main that registers every
 upstream dialect, extension and pass (no test dialect or test passes),
 compiled by Apple clang 21 with the toolchain's flags (`-std=c++17
 -fno-rtti -fno-exceptions`, assertions on) and linked against the static
-libraries of `.toolchain/llvm-macos` (7208ba24 with 02-07, 09 and 15
-applied), one with `PassTiming.cpp` as pinned and one with this patch.
+libraries of `.toolchain/llvm-macos` (7208ba24 with 02-07 and 09
+among its patches), one with `PassTiming.cpp` as pinned and one with this patch.
 
 - With the patch, the reproducer's pipeline row is nested in
   `InlinerPass`, with threading and without, and Rest was not negative in

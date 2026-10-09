@@ -830,12 +830,10 @@ CFG
 # upstream clang does not look for itself; compiler-rt's builtins are in
 # this clang's resource directory; GMP is the sysroot beside it, its headers
 # system headers as on Linux; the pinned ld64.lld links dynamic PIE
-# executables. PIN(darwin-ld64-tapi): it reads the SDK's stubs, whose
-# targets a newer SDK may name before LLVM knows them, with the patch that
-# skips those targets; see PINS.md. The pinned libc++ is installed beside
-# the clang, where the Darwin driver takes its headers before the SDK's (as
-# system headers) and CMake's import std finds libc++.modules.json; -L makes
-# -lc++ the static libc++.a there, not the SDK's libc++.tbd.
+# executables. The pinned libc++ is installed beside the clang, where the
+# Darwin driver takes its headers before the SDK's (as system headers) and
+# CMake's import std finds libc++.modules.json; -L makes -lc++ the static
+# libc++.a there, not the SDK's libc++.tbd.
 config_file_sdk() {
   cat << CFG
 # idris-mlir's toolchain for $triple, written by tools/bootstrap.sh:

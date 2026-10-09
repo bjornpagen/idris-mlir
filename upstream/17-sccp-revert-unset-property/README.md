@@ -115,8 +115,8 @@ The pull request is still one we intend to send, drafted as
 
 ## Testing at the pin
 
-On arm64 macOS, with `.toolchain/llvm-macos` (7208ba24 with 02-07, 09 and
-15 applied; none of them touches `ConstantPropagationAnalysis.cpp`):
+On arm64 macOS, with `.toolchain/llvm-macos` (7208ba24 with 02-07 and 09
+among its patches; none of them touches `ConstantPropagationAnalysis.cpp`):
 
 - `pull-request.diff` applies to 7208ba24 (`git apply --check` in
   `.toolchain/llvm-project`), and after 02's change to `sccp.mlir`.

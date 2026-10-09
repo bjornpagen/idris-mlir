@@ -25,8 +25,7 @@ backport of main's 6e714c8d9) and `while-move-if-down-duplicates`
 (`upstream/14-while-move-if-down-duplicates`, a backport of main's
 a65eb8723), with their reports and checks (and idris-mlir-opt's copy of
 upstream's uplift test pass, which only the first's check ran), and the
-backported halves of `int-range-narrowing-exactness` (main's 44a4dbf32)
-and `darwin-ld64-tapi` (`release/23.x`'s 532fa5afb, main's b8007a8e4).
+backported half of `int-range-narrowing-exactness` (main's 44a4dbf32).
 Retired with the same bump, which rebuilt stage 2:
 `llvm-force-enable-stats` (stage 2 is built with
 `LLVM_FORCE_ENABLE_STATS`, so the installed `llvm-config.h` says
@@ -525,35 +524,6 @@ which the top-level CMake configure gate reads.
 - workaround: select the live mitigations in CMake, never behind a C++ `#ifdef`
 - retire: as in cpp-starter
 - upstream: none — platform ABI facts
-
-## darwin-ld64-tapi
-
-- symptom: `ld64.lld`, at llvmorg-23.1.2 and on main at 7208ba24, cannot
-  read a `.tbd` whose `targets` list names a target its LLVM does not know
-  (`could not load TAPI file ...: unknown target`), so an SDK that names a
-  target newer than the pin fails every Darwin link against its stubs —
-  the runtime's, GMP's, and every program's. At 23.1.2 that was the macOS
-  27 SDK's `libSystem.tbd`, which names `arm64e.x1-macos` and
-  `arm64e.x1-maccatalyst`; main knows `arm64e.x1` (b8007a8e4, #222721),
-  and the next SDK's new target fails the same way. The `TextAPIReader`
-  has a `SkipUnknownTriples` option (`llvm/lib/TextAPI/TextStub.cpp:402`),
-  but `ld64.lld` never sets it (`lld/MachO/DriverUtils.cpp:267` on main)
-- sites: tools/bootstrap.sh — `config_file_sdk`, whose `-fuse-ld=lld`
-  makes every Darwin link the pinned `ld64.lld`'s, as CMakeLists.txt's
-  `arm64-apple-macosx14.0` entry does for programs (with `--icf=all`).
-  Stage 1 builds the pristine pin and links stage 2 with its own
-  `ld64.lld`, so an SDK that names a target the pin does not know fails
-  there first; then the pin moves, or stage 1 takes the patch. The
-  report, reproducer and check are `upstream/15-ld64-lld-unknown-tapi-target/`
-  and `tests/upstream/ld64-lld-unknown-tapi-target/`
-- workaround: `upstream/15-ld64-lld-unknown-tapi-target/llvm.patch`:
-  `SkipUnknownTriples = true` in `macho::loadDylib`, so the pinned
-  `ld64.lld` reads a stub that names a target it does not know, skipping
-  that target. No code of ours stands in for it
-- retire: drop the patch when the pin's `ld64.lld` reads a stub with an
-  unknown target
-- upstream: `upstream/15-ld64-lld-unknown-tapi-target/` (not filed); plan
-  in its README: nothing to send, the skip stays local
 
 ## cmake-import-std-uuid
 
