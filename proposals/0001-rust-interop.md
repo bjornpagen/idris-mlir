@@ -15,6 +15,9 @@ Amended 2026-10-09:
   is the intersection of both targets' APIs: §5, §6, §9.3, §13 and §14.
   These come from reading hs-bindgen (§15).
 - No C, by decision: rule 11 of §2, §3, §9.3 and §15.
+- Rust is part of the runtime, statically linked only, and the open
+  questions are decided for the minimum: §1, §5, §7.4, §8.3, §9.5, §14
+  and §16.
 
 The brief: give programs the Rust ecosystem as their way out to the rest
 of the world (databases, HTTP, crypto, parsers, cloud APIs), and reach C
@@ -89,6 +92,20 @@ names it (aliased arguments, a re-entrant callback, an abandoned mutable
 borrow), as an index out of bounds crashes today. The compiler deletes
 each check it proves redundant.
 
+**Rust is part of the runtime, not a bridge to it** (**decision**). A
+program's Rust is compiled to bitcode by the pinned rustc and joined to
+the program and the runtime before O3, as the runtime itself is. There
+is one static image: one allocator (the runtime's), one crash path (a
+panic is a crash), one optimizer pass over Idris, runtime and Rust
+code, and no loader. Rust is only ever linked statically; there is no
+dynamic Rust library, no `dlopen`, and no plugin interface. The one
+exception is test infrastructure: the Chez oracle loads the same shims
+as a shared library, because the stock Chez backend can call nothing
+else, and no program built by this compiler ever does. The design is the
+minimum that makes a call into statically linked Rust as cheap and as
+checked as a call into the runtime, and every decision below picks the
+smaller mechanism.
+
 ## 2. The rules this design keeps
 
 Each is from AGENTS.md or a decision in `findings/`, and each constrains
@@ -162,8 +179,9 @@ the design:
 - **Rust code that calls into Idris from another thread.** The runtime is
   single-threaded and its counts are plain arithmetic (`idris_rt.h`).
 - **Rust types as Idris values without a handle.** The exception is the
-  scalars and strings of §7.2, and the `value` types the manifest copies
-  across (§7.4).
+  scalars and strings of §7.2.
+- **Dynamic linking of Rust,** in any form: a Rust `cdylib`, `dlopen`,
+  plugins. Rust is linked statically into the program, always (§1).
 
 **Later, staged (§14):**
 
@@ -236,15 +254,12 @@ serde_json = true
 [instances]
 WordCounts = "std::collections::HashMap<String, i64>"
 
-# Rust types copied into Idris data instead of held behind a handle:
-# plain structs and enums whose fields are all copyable across (§7.4).
-[values]
-"regex::Match" = { fields = ["start", "end"] }
-
-# What to bind of a crate: "all" (its whole public API, the default for
-# a small crate) or path patterns. Types the selected items mention are
-# bound too (slicing, §6), from whichever crate they live in.
+# What to bind of a crate: path patterns, or "all" for its whole public
+# API. Nothing of a crate is bound unless it is selected here. Types the
+# selected items mention are bound too (slicing, §6), from whichever
+# crate they live in.
 [select]
+regex      = ["regex::Regex::*"]
 serde_json = "all"
 rusqlite   = ["rusqlite::Connection::*", "rusqlite::Statement::*"]
 ```
@@ -265,9 +280,9 @@ rusqlite   = ["rusqlite::Connection::*", "rusqlite::Statement::*"]
   Cargo.lock), which the application commits. `cargo vendor` then puts
   every source under `build/rust/vendor/`, and every later build is
   offline. Generation is the one step that reaches crates.io.
-- **What is bound** is what `[select]` names in a named crate, plus
-  everything slicing pulls in (§6). The default for a named crate is its
-  whole public API. An item that is selected but cannot be mapped is
+- **What is bound** is what `[select]` names, plus everything slicing
+  pulls in (§6). A crate in `[crates]` that `[select]` does not mention
+  contributes only what slicing pulls from it. An item that is selected but cannot be mapped is
   listed in the generator's report with its reason, never silently
   dropped.
 
@@ -464,11 +479,12 @@ insert : (1 _ : Rust WordCountsT) -> String -> Int64 -> Res (Maybe Int64) (const
 - **`Option<T>` → `Maybe T`, `Result<T, E>` → `Either E T`, tuples → pairs,
   for mappable `T` and `E`.** An error type `E` is a `Shared` handle, with
   `Show` from its `Display`.
-- **Value types** named in `[values]` are copied into an Idris record or
-  data type. They must be plain: every field public and mappable, no
-  `Drop` impl, and an enum's variants all mappable. One example is
-  `regex::Match`, as `start` and `end`.
-- **Every other Rust enum is a handle with a generated view**:
+- **A struct is a handle**, with an accessor shim for each public field
+  of a mappable type (`regex::Match` gives `start` and `end`). There is
+  no copying of Rust structs into Idris records: after `linkRust` an
+  accessor inlines to a load, so a copy would buy nothing and would be a
+  second path.
+- **An enum is a handle with a generated view**:
 
   ```idris
   ||| From serde_json::Value.
@@ -640,10 +656,11 @@ this compiler crash alike, with the same message (**decision**):
   are distinct exclusive values.
 - A flag write with no reader in between folds away after inlining.
 
-These are faster lowerings, never different ones. A stricter mode,
-`--static-borrows`, would turn each residual check into a rejection,
-`unsupported (uniqueness)`, naming the operand. That is the same promise
-the README makes for in-place reuse, applied to Rust.
+These are faster lowerings, never different ones. There is one behaviour
+and no mode (**decision**): a check the compiler cannot remove stays in
+the program as a runtime check, on both backends. A flag that turned the
+residual checks into rejections would be a second meaning of the same
+program.
 
 ### 8.4 Panics
 
@@ -828,7 +845,6 @@ New rules in `Rule.idr`, each with a reject fixture:
 |---|---|---|
 | `rust` | the generator, through the driver | an item cannot be bound; the phrase names the item and the reason (`rust pointer`, `rust send`, `rust lifetime`, `rust async`, `rust cfg`) |
 | `rust graph` | the generator, through the driver | two packages' manifests require versions of one crate that no single version satisfies, naming both packages; or a program's packages bring bindings from more than one surface |
-| `uniqueness` | idr-rc, under `--static-borrows` | a residual borrow or move check |
 | `finalizer` | the frontend | `onCollect` with any finalizer other than a registered drop shim (stricter: the finalizer would run inside the release walk) |
 
 ## 10. Brady-style protocols, on top
@@ -884,7 +900,7 @@ problems are open:
 
 1. **Allocation:** solved already. Rust's allocator is the runtime's, and
    the runtime's is the arena in the child.
-2. **Reification:** results must be of Idris types (§7.2 and value types).
+2. **Reification:** results must be of Idris types (§7.2).
    A result that is a foreign cell cannot be reified (`Reifier` has no
    layout for one), so the call stays for runtime, as a result too large
    stays.
@@ -995,14 +1011,14 @@ new pool green on both target entries.
   - **Fixtures:** `regex` and `sha2`, and a library package with a
     manifest used by an application that binds a second crate.
 - **R2, mutation and ownership.** `Rust t`, `freeze`, `&mut`, by-value
-  moves, `&mut` borrows, the slot flag and §8.3 with its fixtures, value
-  types and enum views, inline foreign cells, and the `idr-stack`
+  moves, `&mut` borrows, the slot flag and §8.3 with its fixtures, struct
+  accessors and enum views, inline foreign cells, and the `idr-stack`
   placement of result handles.
   - **Fixtures:** `serde_json`, `rusqlite` with `bundled` (C under Rust,
     built by the pinned clang), and a `HashMap` instance.
 - **R3, generics and callbacks.** `IdrisValue` containers and the
-  cycle-check edge, callbacks through exported apply entries, `i128`, and
-  `--static-borrows`.
+  cycle-check edge, callbacks through exported apply entries, and
+  `i128`.
 - **R4, pure calls at compile time** (§11).
 - **R5, async on the Idris executor** (§12), when the runtime has one.
 
@@ -1091,24 +1107,28 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
   Rejected: layouts are decided per program, and Chez's FFI returns no
   aggregates. Result handles cost nothing after inlining (§7.4).
 
-## 16. Open questions for the user
+## 16. Decisions on the open questions (2026-10-09)
 
-1. **Pure by default, or IO by default?** Default IO is safe, and
-   `[pure]` opts in. The alternative, pure unless an item touches the
-   world, cannot be decided from Rust signatures.
-2. **Should `--static-borrows` become the default once R3 lands?** That
-   would make Rust's borrow rules a compile-time promise, as the README
-   makes in-place reuse one.
-3. **`[values]` copying:** opt-in per type, as above, or automatic for
-   every plain `Copy` struct?
-4. **`Rust.<Crate>` as the namespace of every binding,** or the crate's
-   own path (`Regex`, `SerdeJson`)?
-5. **Selection's default:** a named crate's whole public API (as now), or
-   nothing until `[select]` names it? The first is easier for small
-   crates; the second keeps a large crate from binding thousands of items
-   no program calls. Slicing makes either work.
-6. **The generator in Rust.** It brings a third language into the
-   repository's own sources, with its own profile, recorded in PINS.md as
-   a deviation from cpp-starter. The alternative, a C++ reader of
-   rustdoc's JSON, would re-implement `rustdoc-types` and follow its
-   format version by hand.
+Each picks the smaller mechanism (§1).
+
+1. **IO by default.** Every binding is `IO` unless the manifest's
+   `[pure]` declares its crate or item pure. Purity cannot be read from a
+   Rust signature, and a wrong `pure` is unsound, so it is an explicit
+   claim.
+2. **No `--static-borrows`, and no mode.** A residual borrow or move
+   check stays a runtime check on both backends (§8.3), and the compiler
+   removes every check it proves. The `uniqueness` rule is gone.
+3. **No `[values]` copying.** Every Rust struct and enum is a handle;
+   fields are read through accessor shims, which inline after `linkRust`
+   (§7.4). One path for every compound value.
+4. **`Rust.<Crate>` as the namespace** of every binding module
+   (`Rust.Regex`, `Rust.SerdeJson`), so no binding can collide with an
+   Idris module and every module that came from Rust says so.
+5. **Nothing is bound unless `[select]` names it** (`"all"` is allowed,
+   explicitly). Slicing adds what the selected items need. A large crate
+   never binds thousands of items no program calls (§5).
+6. **The generator is written in Rust**, built by the pinned cargo, and
+   reads rustdoc's JSON through `rustdoc-types` at the version the rustc
+   pin fixes. Rust is a first-class part of the toolchain anyway; a C++
+   reader would re-implement that crate by hand. The deviation from
+   cpp-starter is recorded in PINS.md when R1 adds the generator.
