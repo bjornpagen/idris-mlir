@@ -63,7 +63,8 @@ export LogicalResult inBounds(ModuleOp module, StringRef function) {
   return noneLeft(opsIn(functions, isIndexGuard), property);
 }
 
-// Some array access in the function the argument names keeps its check.
+// Some array access in the function the argument names keeps a check of
+// its index: its own, or one against a size whose result its own takes.
 export LogicalResult boundsChecked(ModuleOp module, StringRef function) {
   constexpr StringRef property = "bounds-checked";
   SmallVector<func::FuncOp> functions = named(module, function, property);

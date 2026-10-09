@@ -58,7 +58,8 @@ prim__index : Int -> Int -> Int
 -- vectorized; any other instance compiles as written. A fold reads a
 -- frozen array, and a loop that makes an array makes a new one, linear:
 -- the arrays it reads are frozen, so that its function may read them at
--- any index. Growing and trimming a backing are such loops too.
+-- any index. Growing and trimming a backing are such loops too: the
+-- backing they read is not frozen, but no operation writes it again.
 
 ||| A new array of `n` elements, element `i` being `f i`: base's primitive
 ||| makes it of a fill, `f 0`, which is element 0, and `f i` is then written
@@ -176,9 +177,10 @@ regrow arr cap x =
     if j < prim__arraySize arr then unsafePerformIO (primIO (prim__arrayGet arr j)) else x)))
 
 ||| The array with `x` after its last element: stored in place while the
-||| backing has room, which neither allocates nor changes a count; else
-||| moved to a backing at least twice as long, whose new slots, the one
-||| after the last element among them, hold `x`.
+||| backing has room, which allocates nothing (the store releases what the
+||| slot held, a fill or a popped element); else moved to a backing at
+||| least twice as long, whose new slots, the one after the last element
+||| among them, hold `x`.
 export
 push : (1 _ : Array a) -> a -> Array a
 push (MkArray n arr) x =
