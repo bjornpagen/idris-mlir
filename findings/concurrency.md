@@ -83,7 +83,7 @@ The table first; the full arguments are in the sections it cites.
 | A count-0 cell is shareable by pointer | `cross-shard.md`, `shards.md` | Not today: a constant suspension is a mutable global. After `substrate.md` S4.2, yes, except a static thunk, which is copied (§4.3). |
 | `llvm.coro.save` is the requirement to delete | `scheduler.md`, `shards.md`, `cross-shard.md` | The requirement to delete is a resume from a foreign thread. A save is needed on one thread too (§3.3). |
 | The memo is the meaning of `Lazy` | all of them | Stock Chez runs `Delay` call-by-name (`substrate.md` §5). The memo is a complexity guarantee. |
-| Thread-per-core needs no change to the threads decision | `shards.md` | It needs a new decision: one world per shard. It is proposed in `README.md`. Base's `System.Concurrency` is to be named under `threads`. Today it falls through to the generic `%foreign` refusal (read: `compiler/src/IdrisMLIR/Registry/Recognized.idr`, which lists only `fork` and `threadWait`). |
+| Thread-per-core needs no change to the threads decision | `shards.md` | It needed a new decision: one world per shard, which the user took (`decision-shards.md` §1). Base's `System.Concurrency` is to be named under `threads`. Today it falls through to the generic `%foreign` refusal (read: `compiler/src/IdrisMLIR/Registry/Recognized.idr`, which lists only `fork` and `threadWait`). |
 
 ## 2. The thunk
 
@@ -225,8 +225,11 @@ a thread-local global's address is not a link-time constant. So the first
 cut keeps one memo cell per process, written once and marked by the thunk
 kind, with the compiler-made release function in place of the list. The
 per-shard copy needs one more indirection, for example static data
-holding a CAF index that a force resolves on the running shard. That is
-decided with the shards work (W14).
+holding a CAF index that a force resolves on the running shard. The copy
+per shard is decided (`decision-shards.md` §6): a top-level constant is
+evaluated at most once per shard that demands it, and one process-wide
+cell behind a once-guard is rejected. The indirection is built with the
+shards work (W14).
 ### 2.5 The memo is decided per thunk
 
 Stock Chez memoizes only 0-ary top-level lazy definitions, and every other
@@ -257,6 +260,11 @@ effect.
 - **A generator coroutine**, one frame suspended many times, is not needed
   in a pure language that fuses. It would be the fallback where fusion
   fails. **conjecture**: no benchmark needs it.
+- **A stream on two shards** crosses by value: each shard forces its own
+  copy (§4.3). One memo shared by shards is not supported, since it would
+  put a test or a fence on every force. A pipe, which evaluates a stream on
+  one shard for a consumer on another with atomics only in its ring, is
+  supportable and not scheduled (`decision-shards.md` §7).
 
 ## 3. The task frame
 
@@ -443,6 +451,8 @@ enqueued, in one walk of the counted graph it reaches.
 | a thunk, `Forced` | copied with its value | a value |
 | a thunk, `Delayed` | copied unforced; its captures are walked | forcing it to send it could diverge where the program would not; the memo is not semantics |
 | a thunk, `Running` | impossible: a thunk is running only on its own shard's stack, inside its force | — |
+| a runtime handle (a file, a directory) | sent as the integer it is | an operation on it hops to its home shard, which the handle names (`decision-shards.md` §4) |
+| a stream whose memo sum can hold `pipe_next` | never sent | a pipe has one consumer (`decision-shards.md` §7); rejected by the send check (§4.6) |
 | a task frame, a world, `Here`, a mutable cell, a `Local` of another shard | never sent | rejected by the send check (§4.6) |
 
 Quantity is not consulted, because a linear binder does not imply unique
@@ -570,7 +580,12 @@ hold:
 
 - a mutable cell (`IOArray`, `IORef`, `Buffer`);
 - a world;
-- a `Local` whose shard index is not the destination.
+- a `Local` whose shard index is not the destination;
+- a lazy key whose memo sum can hold a pipe's `pipe_next` label
+  (`decision-shards.md` §7).
+
+A runtime handle is not rejected: it is an integer, and its operations hop
+to its home shard (`decision-shards.md` §4).
 
 The rejection is `unsupported (send)`, naming the type and the path to it.
 A linear array (`mlir-linear`) is exclusive by type, so it moves. Sending an
@@ -581,18 +596,26 @@ array and getting it back is the data-parallel case.
 - **Fork-join of pure work is deterministic,** and equal to the
   sequential run its definitions describe (§4.4).
 - **Effects on different shards interleave,** which that run never does.
-  **decision**: the standard streams belong to shard 0's world, and another
-  shard writes them by hopping to shard 0. Their order is then the order
-  shard 0 handles messages. A program whose output depends on that order
-  is checked at one shard only.
+  **decision** (`decision-shards.md` §2): effects are causally ordered.
+  Everything a shard did before it posted a message happens before
+  everything the receiver does after taking it, and effects no message
+  orders interleave whole.
+- **The standard streams work on every shard** (`decision-shards.md` §3).
+  Each shard writes standard output through a buffer of its own, with no
+  lock on the write path, and flushes it under the descriptor's lock when
+  it is full, before the shard blocks, before it posts any message, and at
+  its end. Flushing before a post is what makes output causal. Standard
+  input belongs to shard 0; a read on another shard is a blocking hop
+  there. (This replaces an earlier decision that every shard write
+  standard output by hopping to shard 0.)
 - **One set of expected files serves every core count,** because the core
   count is a runtime fact: every fixture runs with `IDRIS_RT_SHARDS=1`
   against its expected files, and with more shards against the one-shard
-  run where the program is deterministic.
-- **The standard streams stay blocking calls on shard 0.** The batch
-  programs this compiler is measured on read standard input in a loop.
-  Making that a wait would colour every one of them for nothing, and a
-  blocking read on shard 0 stalls only shard 0.
+  run where its output is causally ordered (`decision-shards.md` §8).
+- **The standard streams stay blocking calls.** The batch programs this
+  compiler is measured on read standard input in a loop. Making that a
+  wait would colour every one of them for nothing, and a blocking read
+  stalls only the shard that reads.
 
 ### 4.8 The reactor and the platform wait
 

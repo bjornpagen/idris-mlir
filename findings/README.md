@@ -67,6 +67,17 @@ Four rules decide how every design note here is written:
   files are its specification. The Chez comparison, its divergence classes
   and the stock evaluator's `Oracle.idr` proofs go; Chez stays only as the
   host Idris runs on and as a benchmark baseline.
+- **`decision-single-thread-first.md`.** When single-thread and
+  multithreaded performance trade off, single-thread performance wins: the
+  reason for counting, plain counts and one heap per core, stated once.
+- **`decision-shards.md`.** A shard is one more copy of the single-threaded
+  runtime, with its own world. Effects are causally ordered; the standard
+  streams work on every shard (an output buffer per shard, input on shard
+  0); handles hop to their home shard; top-level constants are per shard; a
+  lazy stream crosses shards by value, a shared memo is not supported, and
+  a pipe is supportable and not scheduled.
+- **`decision-tensors.md`.** Pure array programs are tensors until
+  bufferization; arrays mutated in world order stay memrefs.
 - **`decision-threads-pointers.md`.** User threads, collector finalizers,
   raw pointers, `%foreign` and the C ABI are outside the language.
 
@@ -75,12 +86,8 @@ Four rules decide how every design note here is written:
 These change or extend a decision above, or the surface the compiler
 accepts, so they are the user's to take. Each is argued where it is cited.
 
-1. **One world per shard** (`concurrency.md` §4). The runtime starts one
-   reactor per core, each with its own heap, world and plain counts. Values
-   cross between them by move, copy or lend, inside messages. User `fork`,
-   `threadWait`, `System.Future` and base's `System.Concurrency` stay
-   outside the language, by name. This amends `decision-threads-pointers.md`,
-   whose "one world" becomes one per shard.
+1. **One world per shard** (`concurrency.md` §4). Decided by the user on
+   2026-10-09: `decision-shards.md` §1.
 2. **Base's foreign surface is runtime primitives** (`substrate.md` S5.2).
    Files, directories, clock, environment, arguments, errno and terminal
    size are recognized by name, as `Data.Buffer` is, each with one meaning
@@ -91,9 +98,11 @@ accepts, so they are the user's to take. Each is argued where it is cited.
    used once, one-shot when exclusive, memoized when shared. A thunk whose
    body forges a world is never memoized: its effects happen as often as
    its value is demanded.
-4. **The standard streams belong to shard 0** (`concurrency.md` §4.7). A
-   program whose output depends on how shards interleave is checked
-   against its expected files at one shard only.
+4. **The standard streams belong to shard 0** (`concurrency.md` §4.7).
+   Decided otherwise on 2026-10-09: the streams work on every shard, with
+   an output buffer per shard and input on shard 0 (`decision-shards.md`
+   §3). A program whose output depends on how shards interleave is still
+   checked at one shard only (§8).
 5. **Rust bindings are generated primitives**, not `%foreign "rust:"`
    (`concurrency.md` §5.5). This amends proposal 0001 §9.2.
 6. **The in-place promise becomes the default** once the benchmarks pass it
@@ -260,7 +269,9 @@ can run at once.
   - `libs/mlir-shard`, `idr.fork`, `shard.grid`;
   - the send check and the detach walk;
   - the helping join;
-  - shard 0 owning the standard streams;
+  - the standard streams on every shard, and handles hopping to their home
+    (`decision-shards.md` §3, §4);
+  - top-level constants per shard (§6);
   - `scf.forall` lowered to fork and join.
 - **Proof:**
   - every shard fixture at `IDRIS_RT_SHARDS=1` against its expected
@@ -288,7 +299,9 @@ beside everything else.
 - lending (`concurrency.md` §4.3);
 - taking unstarted messages (§4.1);
 - io_uring submission;
-- SPMD through upstream's `shard-partition` (S6);
+- SPMD through upstream's `shard-partition` (S6), once pure array programs
+  are tensors (`decision-tensors.md`);
+- pipes between shards (`decision-shards.md` §7);
 - a generator coroutine as fusion's fallback (§2.6).
 
 ## Questions the corpus does not answer
@@ -303,8 +316,7 @@ beside everything else.
    language as blocking primitives, or outside with signals?
 4. **The cost of colouring.** After CoroElide, does a hot loop of waiting
    calls still allocate a frame per call?
-5. **Tensors.** Should pure array programs exist as tensors before
-   bufferization, which upstream's SPMD partitioning needs, against arrays
-   as memrefs from birth?
+5. **Tensors.** Answered by the user on 2026-10-09: pure array programs
+   are tensors before bufferization (`decision-tensors.md`).
 6. **Rust crates.** Which crates work with this runtime as their I/O
    provider, without tokio's `rt`, `net` and `time` features?

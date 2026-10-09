@@ -13,7 +13,11 @@ raw pointers and a foreign calling convention are not in that subset.
   world's order does not sequence. There is no scheduler, no thread-safe
   runtime and no shared-memory model to add one later without replacing
   that heap. A program that forks is rejected with `unsupported
-  (threads)`, naming the definition.
+  (threads)`, naming the definition. Shards (2026-10-09,
+  `decision-shards.md`) do not reopen this: each shard is a separate
+  single-threaded runtime with a world and a heap of its own, so "one
+  world" is one world per shard, and the structured fork of
+  `libs/mlir-shard` is the only way to use another.
 - **Collector finalizers.** `onCollect` and `onCollectAny` register a
   computation to run when the collector frees a pointer. Release here is
   the counting walk, which runs while the releasing thread still holds the

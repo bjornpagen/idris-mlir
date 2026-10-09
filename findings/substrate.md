@@ -525,8 +525,9 @@ transform-driven tiling, the upstream vectorizer and int-range narrowing
   runtime.
 - **SPMD stays later.** Upstream's SPMD partitioning (`shard-partition`,
   with collectives that `ShardToMPI` lowers) needs tensor programs, and our
-  arrays are memrefs from birth, mutated in world order. It waits until
-  pure array programs exist as tensors, which is open question 5.
+  arrays are memrefs from birth, mutated in world order. Pure array
+  programs become tensors (`decision-tensors.md`, the user's, 2026-10-09);
+  SPMD follows that work.
 
 ## 3. The promises, checked
 
