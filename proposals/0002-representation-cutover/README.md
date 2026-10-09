@@ -2,9 +2,11 @@
 
 **Status:** accepted in part: launched and integrated in 93f5d9c9, 327c2e30
 and 0451b1b8; "Rulings on the swarm" records what changed while it ran.
-Qualification is open: the suites on both targets, with the toolchain the
-one recipe builds (proposal 0003), the bench against the launch base and
-`tests/upstream-idris` are NotRun. Its adversarial review (`review.md`) is folded in: see "Rulings on the
+Qualification is open ("The record so far", under Qualification): the
+suites on both targets with the toolchain the one recipe builds (proposal
+0003), integration step 5, the bench, peak live cells and
+`tests/upstream-idris` are NotRun, and nothing committed after its last
+green round has been built. Its adversarial review (`review.md`) is folded in: see "Rulings on the
 adversarial review". What changed between authoring and launch is
 folded in too: see "Rulings at launch".
 
@@ -645,6 +647,67 @@ The coordinator does this after integration.
    - Then this packet's status line becomes "accepted" (or "accepted in
      part"), and it stays as the record of the reasoning
      (`proposals/README.md`).
+
+### The record so far (2026-10-09)
+
+What the coordinator ran, from its ledger; the logs were in its session's
+scratch directory and are not kept.
+
+- **Suites.** Round 3, on the toolchain of the time (arm64 macOS, 7208ba24
+  with 02-07, 09 and 15) with U01's group set aside: `make build` ok,
+  check 25/25, test 373/373, test-idr 251/251, test-mlir-tools 10/10.
+  Seven checks did not run there: their `targets` named another host, or
+  `linux`, which the runner matched to no host (fixed in f09ecca8, where
+  every one of them runs now). Round 4, a build from scratch to check
+  U06's compile-time fix, was stopped at 693 of 1102 steps; round 5, the
+  bootstrap with upstream/16 (integration step 5), was killed. So step 5
+  is not done, and nothing committed after round 3 has been built:
+  327c2e30's U06 fix, 0451b1b8, e62060f9, d426e24a, e3ccf97f, e0a7a6fd,
+  234fd699, 5144d45c, and every commit since.
+- **Sensitivity.** Against the launch base's build, with this tree's tests:
+  of the 32 program, accept and reject rows, 13 fail at the base and so
+  discriminate (array-of-arrays, lazy-elements, clock-monotonic,
+  directory-listing, environment-arguments, exit-with, files-roundtrip,
+  self-forcing-caf, and the rejections cycle-array-knot, process-system,
+  signal-handler, threads-concurrency, uniqueness-shared-rebuild); 15 pass
+  there by design, as non-regression rows (the five guards-messages-* and
+  the ten leet-*); and 4 pass there without being meant to, so they do not
+  discriminate (memo-shared-stream, thunk-consumes-list,
+  closure-result-roundtrip, deep-list-constant). All 37 idr rows fail at
+  the base. `idr/lower/meter` was not in the run's list: NotRun.
+- **Compile times.** 649 compilations in both runs: 1440.0 s against
+  1551.3 s (x1.08). The largest ratios: `bounds-unrelated-size` x6.18
+  (idr-in-bounds, 8.2 s against 0.22 s: a guard length's `maxsi` and a
+  clamp rule doubling its witnesses, fixed in 327c2e30 and not yet
+  measured), `io-loop-through-helper` x3.09, `every-io-export` x2.10 (the
+  simplify loop on a module 16% larger; not investigated).
+- **Bench.** NotRun. The launch base's record stopped at fannkuch-linear,
+  and this tree's failed there on Chez's column (over 300 s). The launch
+  base's kept build was then deleted, so the baseline is now the owner's
+  choice (a rebuilt launch base, the last darwin record, or each program's
+  ratio to C alone).
+- **Peak live cells** of `thunk-consumes-list`: NotRun. The runtime reports
+  live cells at exit only (`runtime/Io/Ending.cppm`), so this needs a
+  measure first (max RSS is a proxy).
+- **Lines.** `compiler/src` 9479 at the launch base, 10557 now (7672 and
+  7981 without the generated `Dialect/`); `foreign/idr/lib`'s `.cc` and
+  `.cppm` 32364 and 34787.
+- **`tests/upstream-idris`.** NotRun. Its `common.sh` still skips base's
+  pointer and environment functions as raw pointers, which O1 made
+  compile; it is restated before it runs.
+
+**Seams the lanes left** (orchestrator step 8), each in the tree today:
+`Lower/Facts.cppm`'s `isCell` still names `FnType` and `LazyType`;
+`Lower/Lowering.cppm` marks `func.call_indirect` and `func.constant` legal,
+which nothing produces; `Defunctionalize/ByName.cppm`'s `by_name`
+exemptions are a list of op names, where a trait would say it once;
+`ForceOp::verify` looks up its callee's declaration (`Dialect/Ops/Lazy.cc`);
+`Facts/ClosureLabel.cppm`'s `closureLabel` does not see memo labels;
+`--demand` with `--without idr-demand` is accepted silently
+(`Driver/Run.cppm`); an `array.new` fill function that never returns is
+an internal error; a partially applied `castPtr` is still rejected; and
+`idr-canonicalize` runs its inner passes with test-convergence and
+verifies twice per round.
 
 ## Documents
 
