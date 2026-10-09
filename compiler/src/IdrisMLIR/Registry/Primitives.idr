@@ -373,6 +373,25 @@ handles =
             (IOCall HandleString []) [Primitive]
   , cCall "idris2_free" ["System", "FFI"] "prim__free" (ioType [anyPtr] unit) HandleFree ]
 
+||| The module of the in-house string iterator, whose primitives read a
+||| string by byte offset.
+iteratorModule : List String
+iteratorModule = ["Linear", "String", "Iterator"]
+
+||| A pure primitive of the string iterator, declared `%extern` by name: a
+||| string, a byte offset, and what the op gives there.
+iteratorPrimitive : String -> Shape -> IdrPrim -> Entry
+iteratorPrimitive name result p =
+  MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Quantity.Many str (Pi Quantity.Many int result))) (IOCall p []) [Primitive]
+
+||| The in-house string iterator's primitives. An offset is any Int: each
+||| op means something at every one, so its calls have no guard.
+iterators : List Entry
+iterators =
+  [ iteratorPrimitive "prim__scalarAt" (Prim CharP) StrScalarAt
+  , iteratorPrimitive "prim__scalarEnd" int StrScalarEnd
+  , iteratorPrimitive "prim__dropBytes" str StrDropBytes ]
+
 ||| The table: Idris's backend contract as the compiler implements it.
 export
 primitives : List Entry
@@ -505,4 +524,4 @@ primitives =
             (Declared (MkQName ["System", "Info"] "prim__getNProcessors")
                       (Pi One world (ioRes int)))
             (IOCall NProcessors []) [IOPrimitive] ] ++
-  files ++ directories ++ process ++ terminal ++ errors ++ clocks ++ handles
+  files ++ directories ++ process ++ terminal ++ errors ++ clocks ++ handles ++ iterators

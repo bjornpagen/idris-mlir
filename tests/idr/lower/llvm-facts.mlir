@@ -9,7 +9,9 @@
 // Every load and store of a cell states its alignment, which the cell's
 // layout knows. A crash is a cold call, so LLVM lays it out of the way.
 // The range an op states for its result is the runtime's promise too, so a
-// runtime call's result says it: an Int's text starts with '-' or a digit.
+// runtime call's result says it: an Int's text starts with '-' or a digit,
+// a character read at a byte offset is a scalar value or 0, and the offset
+// after it is not negative.
 // CHECK-LABEL: func.func private @head(
 // CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-SAME: -> (!llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull})
@@ -25,6 +27,8 @@
 // LL: call void @idris_rt_crash({{.*}}) #[[COLD:[0-9]+]]
 // LL: define {{.*}}i64 @shade(i8 range(i8 0, 3) %{{[0-9]+}}
 // LL: call range(i32 45, 58) i32 @idris_rt_int_head
+// LL: call range(i32 0, 1114112) i32 @idris_rt_str_scalar_at
+// LL: call range(i64 0, -9223372036854775808) i64 @idris_rt_str_scalar_end
 // LL: attributes #[[COLD]] = { cold noreturn }
 module attributes {idr.program} {
   idr.data @List box {
@@ -60,6 +64,13 @@ module attributes {idr.program} {
     %w = arith.extui %h : i32 to i64
     return %w : i64
   }
+  func.func private @walk(%s: !idr.str, %o: i64) -> i64 {
+    %c = idr.str.scalar_at %s, %o
+    %e = idr.str.scalar_end %s, %o
+    %w = arith.extui %c : i32 to i64
+    %r = arith.addi %w, %e : i64
+    return %r : i64
+  }
   func.func private @unread(%l: !idr.box<@List>, %n: i64) -> i64 {
     return %n : i64
   }
@@ -73,6 +84,8 @@ module attributes {idr.program} {
     %p = ub.poison : !idr.box<@List>
     %u = func.call @unread(%p, %s) : (!idr.box<@List>, i64) -> i64
     %g = func.call @sign(%u) : (i64) -> i64
-    return %g : i64
+    %str = idr.constant "h\C3\A9llo" : !idr.str
+    %k = func.call @walk(%str, %g) : (!idr.str, i64) -> i64
+    return %k : i64
   }
 }

@@ -5,10 +5,10 @@ casts from String: 74 of 74 as idris_rt.h defines them
 doubles read back from their text: 30013 of 30013
 bytes as a string: 16 of 16 as idris_rt.h defines them
 live cells once every result is released: 0
-3080 operations: the results expected-operations holds
+3136 operations: the results expected-operations holds
 rc: exit 0
 stack: 256 KiB
-rc: 70 of 70 checks as idris_rt.h defines them
+rc: 73 of 73 checks as idris_rt.h defines them
 idris-rt: live cells 0
 rc leak, IDRIS_RT_LIVE=1: exit 0
   stderr | idris-rt: live cells 1

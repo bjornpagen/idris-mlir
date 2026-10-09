@@ -313,6 +313,19 @@ int main(void) {
       }
     str(idris_rt_str_substr(s, 1, INT64_MAX));
     line();
+    /* By byte offset, from before the start to past the end, through the
+     * middle of every character's encoding. */
+    for (int64_t offset = -1; offset <= (int64_t)s->bytes + 1; ++offset) {
+      text("offset ");
+      idris_rt_io_put_int_s(offset);
+      text(" scalar_at ");
+      idris_rt_io_put_int_s(idris_rt_str_scalar_at(s, offset));
+      text(" scalar_end ");
+      idris_rt_io_put_int_s(idris_rt_str_scalar_end(s, offset));
+      text(" drop_bytes ");
+      str(idris_rt_str_drop_bytes(s, offset));
+      line();
+    }
     for (int j = 0; j < stringCount; ++j) {
       const idris_rt_str *t = make(strings[j]);
       uint32_t tMade = countOf(t);

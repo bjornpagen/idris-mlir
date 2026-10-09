@@ -43,6 +43,16 @@ void StrLengthOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn s
   setResultRange(getResult(), ops::nonNegative(64, 0, INT64_MAX));
 }
 
+// A scalar value, or 0 at the end.
+void StrScalarAtOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  setResultRange(getResult(), ops::nonNegative(32, 0, 0x10FFFF));
+}
+
+// An offset within the string's bytes.
+void StrScalarEndOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  setResultRange(getResult(), ops::nonNegative(64, 0, INT64_MAX));
+}
+
 // An index past the string's end reads outside it, so it stays below its
 // guard against this string's length, or below the path that proved the
 // guard away.

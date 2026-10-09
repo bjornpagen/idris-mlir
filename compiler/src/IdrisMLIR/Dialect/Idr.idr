@@ -933,6 +933,12 @@ strConsOp : (head : Value) -> (tail : Value) -> (result : MlirType) -> Op
 strConsOp head tail result =
   MkOp "idr.str.cons" [head, tail] [] [] [] [result]
 
+||| `idr.str.drop_bytes`: the characters of a string from a byte offset on
+export
+strDropBytesOp : (str : Value) -> (offset : Value) -> (result : MlirType) -> Op
+strDropBytesOp str offset result =
+  MkOp "idr.str.drop_bytes" [str, offset] [] [] [] [result]
+
 ||| `idr.str.from_char`: the string of one character
 export
 strFromCharOp : (value : Value) -> (result : MlirType) -> Op
@@ -968,6 +974,18 @@ export
 strReverseOp : (str : Value) -> (result : MlirType) -> Op
 strReverseOp str result =
   MkOp "idr.str.reverse" [str] [] [] [] [result]
+
+||| `idr.str.scalar_at`: the character that starts at a byte offset, 0 at the end
+export
+strScalarAtOp : (str : Value) -> (offset : Value) -> (result : MlirType) -> Op
+strScalarAtOp str offset result =
+  MkOp "idr.str.scalar_at" [str, offset] [] [] [] [result]
+
+||| `idr.str.scalar_end`: the byte offset after the character at a byte offset
+export
+strScalarEndOp : (str : Value) -> (offset : Value) -> (result : MlirType) -> Op
+strScalarEndOp str offset result =
+  MkOp "idr.str.scalar_end" [str, offset] [] [] [] [result]
 
 ||| `idr.str.show`: the text of a number, as prim__cast_TString writes it
 export
@@ -1070,6 +1088,9 @@ data IdrPrim
   | StrTail
   | StrLength
   | StrBytesLength
+  | StrScalarAt
+  | StrScalarEnd
+  | StrDropBytes
   | StrIndex
   | StrHead
   | StrToDouble
@@ -1191,6 +1212,9 @@ primPerformsIO StrReverse = False
 primPerformsIO StrTail = False
 primPerformsIO StrLength = False
 primPerformsIO StrBytesLength = False
+primPerformsIO StrScalarAt = False
+primPerformsIO StrScalarEnd = False
+primPerformsIO StrDropBytes = False
 primPerformsIO StrIndex = False
 primPerformsIO StrHead = False
 primPerformsIO StrToDouble = False
@@ -1310,6 +1334,9 @@ primOp StrReverse operands results = MkOp "idr.str.reverse" operands [] [] [] re
 primOp StrTail operands results = MkOp "idr.str.tail" operands [] [] [] results
 primOp StrLength operands results = MkOp "idr.str.length" operands [] [] [] results
 primOp StrBytesLength operands results = MkOp "idr.str.bytes_length" operands [] [] [] results
+primOp StrScalarAt operands results = MkOp "idr.str.scalar_at" operands [] [] [] results
+primOp StrScalarEnd operands results = MkOp "idr.str.scalar_end" operands [] [] [] results
+primOp StrDropBytes operands results = MkOp "idr.str.drop_bytes" operands [] [] [] results
 primOp StrIndex operands results = MkOp "idr.str.index" operands [] [] [] results
 primOp StrHead operands results = MkOp "idr.str.head" operands [] [] [] results
 primOp StrToDouble operands results = MkOp "idr.str.to_double" operands [] [] [] results

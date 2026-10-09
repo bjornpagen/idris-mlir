@@ -1,5 +1,6 @@
 // rt.strings:scalars: a string as its scalars: its length, a scalar at an
-// index, slices, and the reverse.
+// index, slices, and the reverse; and by byte offset, as an iterator walks
+// it.
 // PIN(runtime-quarantine) — see PINS.md
 module;
 #include "idris_rt.h"
@@ -41,6 +42,21 @@ int32_t decode(const char *p) {
   for (size_t k = 1; k < n; ++k)
     value = (value << 6) | (static_cast<unsigned char>(p[k]) & 0x3F);
   return value;
+}
+
+// The boundary an offset stands for: clamped to [0, bytes], then moved back
+// to the start of the scalar whose encoding holds it. Byte 0 starts a
+// scalar, so the walk back stops there at the latest.
+uint64_t boundary(const idris_rt_str *s, int64_t offset) {
+  if (offset <= 0)
+    return 0;
+  auto at = static_cast<uint64_t>(offset);
+  if (at >= s->bytes)
+    return s->bytes;
+  const char *p = idris_rt_str_bytes(s);
+  while (isContinuation(p[at]))
+    --at;
+  return at;
 }
 
 // The scalars [from, to) of s, as a new string.
@@ -98,5 +114,39 @@ extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
     memcpy(to, from + at, next - at);
     at = next;
   }
+  return result;
+}
+
+extern "C" int32_t idris_rt_str_scalar_at(const idris_rt_str *s, int64_t offset) {
+  uint64_t at = boundary(s, offset);
+  return at == s->bytes ? 0 : decode(idris_rt_str_bytes(s) + at);
+}
+
+extern "C" int64_t idris_rt_str_scalar_end(const idris_rt_str *s, int64_t offset) {
+  uint64_t at = boundary(s, offset);
+  if (at == s->bytes)
+    return static_cast<int64_t>(at);
+  if (rt::strings::isAscii(s))
+    return static_cast<int64_t>(at + 1);
+  const char *p = idris_rt_str_bytes(s);
+  ++at;
+  while (at < s->bytes && isContinuation(p[at]))
+    ++at;
+  return static_cast<int64_t>(at);
+}
+
+// A new string of the bytes from the boundary on keeps the flag of `s`, as
+// a slice does: an ASCII flag stays true of every part of an ASCII string.
+extern "C" const idris_rt_str *idris_rt_str_drop_bytes(const idris_rt_str *s, int64_t offset) {
+  uint64_t at = boundary(s, offset);
+  if (at == 0)
+    return rt::strings::shared(s);
+  if (at == s->bytes)
+    return &rt::strings::emptyString;
+  uint64_t n = s->bytes - at;
+  const char *p = idris_rt_str_bytes(s) + at;
+  bool ascii = rt::strings::isAscii(s);
+  idris_rt_str *result = rt::strings::newString(n, ascii ? n : idris_rt_utf8_count(p, n), ascii);
+  memcpy(rt::strings::mutableBytes(result), p, n);
   return result;
 }
