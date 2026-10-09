@@ -11,15 +11,15 @@
 # groups (other backends, the IDE, packages this compiler does not
 # implement) are recorded as skipped when named. Four tests run at once.
 #
-# findings/upstream-idris/results gains that group's lines and keeps every
-# other group's. One line is `pass`, `fail` or `skip`, the test, and for a
-# failure the first error or the output mismatch.
+# build/upstream-idris/results (not committed) gains that group's lines and
+# keeps every other group's. One line is `pass`, `fail` or `skip`, the test,
+# and for a failure the first error or the output mismatch.
 root=$(cd "$(dirname "$0")/../.." && pwd)
 . "$root/tools/toolchain.sh"
 . "$root/tests/upstream-idris/common.sh"
 export IDRIS_MLIR_ROOT=$root
 
-results=$root/findings/upstream-idris/results
+results=$root/build/upstream-idris/results
 threads=4
 upstream=$root/third_party/Idris2/tests
 tab=$(printf '\t')
@@ -46,7 +46,7 @@ fi
 
 parts=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-upstream-group.XXXXXX") || exit 1
 trap 'rm -rf "$parts"; rm -f "$list"' EXIT
-mkdir -p "$root/findings/upstream-idris"
+mkdir -p "$root/build/upstream-idris"
 
 outside=$(outside_reason "$group")
 if [ -n "$outside" ]; then

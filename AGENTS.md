@@ -69,10 +69,9 @@ numbers.
   may not.
 - There is no oracle. A test's committed expected files are its
   specification, and the runtime's documented semantics are the meaning of
-  a primitive (`findings/decision-no-oracle.md`). Do not add a comparison
-  against Idris's Chez backend or stock evaluator, and do not shape a
-  feature so that Chez can run it; Chez is only the host Idris itself runs
-  on.
+  a primitive. Do not add a comparison against Idris's Chez backend or
+  stock evaluator, and do not shape a feature so that Chez can run it; Chez
+  is only the host Idris itself runs on.
 - `%foreign` and the C ABI are outside the language, as threads, collector
   finalizers and raw pointers are. Do not implement `%foreign`, `%extern`
   as a C export, a C calling convention, libffi, or declaring or calling a

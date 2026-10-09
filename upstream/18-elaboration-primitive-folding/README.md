@@ -17,8 +17,8 @@ with `atoi` (`support/refc/casts.c`); Node writes `Infinity`
 (`jsAnyToString`, `src/Compiler/ES/Codegen.idr:472`). The same program
 then prints the evaluator's text when the argument is a literal and the
 backend's when it is a variable. For this compiler, whose runtime is the
-one meaning of every primitive (`findings/decision-primitive-semantics.md`),
-these constants came out as Chez's values:
+one meaning of every primitive, these constants came out as Chez's
+values:
 
 | right-hand side | checked to | the runtime |
 | --- | --- | --- |

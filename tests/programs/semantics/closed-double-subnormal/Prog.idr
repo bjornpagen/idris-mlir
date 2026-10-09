@@ -1,8 +1,7 @@
 module Prog
 
 -- The smallest subnormal's text is its fewest digits that read back,
--- `5e-324` (findings/decision-primitive-semantics.md, "The text of a
--- Double"), without the mantissa width R6RS's printer adds, `5e-324|1`,
+-- `5e-324`, without the mantissa width R6RS's printer adds, `5e-324|1`,
 -- though the argument is a literal.
 
 public export

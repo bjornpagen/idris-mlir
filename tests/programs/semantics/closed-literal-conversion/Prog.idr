@@ -6,7 +6,7 @@ import Prelude
 -- conversion applies mean what the runtime computes: "12.7" through a
 -- FromString that casts it to an Int is 0 (no literal of an Int), and a
 -- Double literal through a FromDouble that writes it is the even one of
--- its two equally near texts (findings/decision-primitive-semantics.md).
+-- its two equally near texts.
 
 public export
 data N = MkN Int

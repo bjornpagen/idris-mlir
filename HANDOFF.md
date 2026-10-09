@@ -6,14 +6,17 @@ the agent's first message. They touch disjoint things: the first works
 in a separate clone of llvm-project and only updates `upstream/` status
 here; the second owns this repository's toolchain and code.
 
-State, updated 2026-10-09 after agent 2's work landed: the LLVM pin is
-llvm main 7208ba24 (`proposals/0003-llvm-trunk.md`), proposal 0002 is
-integrated (accepted in part; its qualification is open), and the
+State, updated 2026-10-09: the LLVM pin is llvm main 7208ba24, and the
 toolchain is one recipe for both targets (`tools/bootstrap.sh`, into
 `.toolchain/llvm`). No toolchain is built yet with the patches the tree
 carries (`upstream/README.md`, "This repository's toolchain"), so
 `make build` refuses on either target until `make bootstrap` runs there.
-The LLVM submissions are in `upstream/`; their status table says which is
+`proposals/README.md` indexes what is open: 0003 keeps only that build
+and the suites on both targets; 0002, integrated, keeps only what its
+qualification has not run or proved; 0004 (tensors) and 0005 (shards)
+are proposed, and 0001 (Rust) waits for a decision. Contiguous runs (one
+run cell for strings, arrays and buffers) has no proposal yet. The LLVM
+submissions are in `upstream/`; their status table says which is
 next.
 
 ## Agent 1: upstreaming
@@ -39,4 +42,5 @@ to main.
 Its two phases landed: the trunk cutover (20fcfadb, 1677b8cb) and proposal
 0002 (93f5d9c9, 327c2e30, 0451b1b8). What it left open is now the
 repository's own: the bootstrap and the suites on both targets at the pin
-(proposal 0003, step 5), and 0002's qualification (its README).
+(`proposals/0003-llvm-trunk.md`), and the rest of 0002's qualification
+(`proposals/0002-representation-cutover/README.md`).

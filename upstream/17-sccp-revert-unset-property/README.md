@@ -87,10 +87,10 @@ cannot change what the compiler computes, so carrying the patch would only
 make every checkout rebuild the toolchain.
 
 - The bug needs a fold that sets an unset property in place. No folder of
-  ours sets a property in place (findings/llvm-trunk-mechanisms.md). In the
-  fold bodies of the upstream dialects the compiler's IR holds where
-  constant propagation runs (arith, math, ub, index, scf, vector, memref,
-  affine, llvm; read at the pin), the properties set in place are required
+  ours sets a property in place. In the fold bodies of the upstream
+  dialects the compiler's IR holds where constant propagation runs
+  (arith, math, ub, index, scf, vector, memref, affine, llvm; read at the
+  pin), the properties set in place are required
   ones, which the attribute form always lists: `arith.cmpi`'s predicate,
   `memref.transpose`'s permutation, the affine delinearize and linearize
   ops' static basis, `llvm.extractvalue`'s position, and

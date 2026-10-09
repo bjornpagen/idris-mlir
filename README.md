@@ -199,10 +199,9 @@ Everything is installed under `.toolchain/`; `make` alone lists the commands.
 The runtime is the one meaning of every primitive; constant folding and
 compile-time evaluation call it too. That meaning comes from Idris's own
 definition first, then the standard the primitive implements (Unicode,
-IEEE 754, POSIX), then a decision of ours written down in
-`findings/decision-primitive-semantics.md`. There is no oracle: each
-test's committed expected files are its specification
-(`findings/decision-no-oracle.md`).
+IEEE 754, POSIX), then a decision of ours, which `runtime/` states where
+it implements the primitive. There is no oracle: each test's committed
+expected files are its specification.
 
 ## Layout
 
@@ -218,8 +217,8 @@ test's committed expected files are its specification
   frontend into `build/idris2` too.
 - `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
   benchmarks against C and Chez.
-- `findings/`: decisions taken (`decision-*.md`) and the design notes
-  with their ordered work; `findings/README.md` is the map.
+- `proposals/`: designs and the decisions taken on them;
+  `proposals/README.md` is the index.
 - `tools/`: the toolchain's bootstrap and the compile chain;
   `tools/bisect.sh SOURCE TAG` finds the action of TAG (an evaluation, a
   clone) after which a program behaves differently than with `--no-eval`.

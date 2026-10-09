@@ -1,13 +1,13 @@
 # Proposal 0001: Rust as the one foreign world
 
 Status: proposed, 2026-10-04, at 6fda6d8. Nothing here changes the
-compiler. Once the user decides on it, it becomes a
-`findings/decision-*.md` note and a staged plan (§14).
+compiler. Once the user decides on it, its decisions are recorded here
+and its staged plan (§14) becomes work.
 
 Amended 2026-10-09:
 
 - A binding is a generated runtime primitive, not a `%foreign "rust:"`
-  convention (`findings/concurrency.md` §5.5): §1, §2, §4, §8.1 and §9.2.
+  convention: §1, §2, §4, §8.1 and §9.2.
 - The LLVM pin is a trunk commit (proposal 0003), and rustc keeps its own
   LLVM: §14 R0 and §15.
 - One crate graph and one surface per program, from the union of every
@@ -18,7 +18,7 @@ Amended 2026-10-09:
 - Rust is part of the runtime, statically linked only, and the open
   questions are decided for the minimum: §1, §5, §7.4, §8.3, §9.5, §14
   and §16.
-- No Chez oracle (`findings/decision-no-oracle.md`): the Chez entries,
+- No Chez oracle (AGENTS.md): the Chez entries,
   `C:` specs, the shared library and the divergence classes are gone, and
   with them the last C ABI path: §1, §2, §4, §6, §7, §8, §9, §13, §14 and
   §15.
@@ -31,7 +31,7 @@ monster we are building, as Zig accepts LLVM. Rust is a library layer. It
 never hosts the runtime: no tokio, and no Rust scheduler. Every runtime
 concern stays in Idris and in `runtime/`.
 
-Claims are marked as in `findings/`. **read**: the path given, at
+Claims are marked. **read**: the path given, at
 6fda6d8. **recalled**: from memory of upstream Rust and its tools, not in
 `sources/`; treat it as approximate and check it at R0. **decision**:
 what this proposal decides, for the user to accept or change.
@@ -75,7 +75,7 @@ package of bindings, and a Rust crate of shims. Each binding is a
 runtime primitive: an Idris declaration in the generated package, plus a
 registry entry the generator writes from the same description, which
 recognizes the definition by its name and origin, as base's foreign
-functions are recognized (`substrate.md` S5.2). The declaration's
+functions are recognized. The declaration's
 `%foreign` spec only labels it with the Rust path, since Idris needs a
 spec on a primitive; nothing reads it. This compiler lowers the primitive to a call of a
 runtime-ABI shim, compiled by the pinned rustc to bitcode and joined to
@@ -109,11 +109,11 @@ smaller mechanism.
 
 ## 2. The rules this design keeps
 
-Each is from AGENTS.md or a decision in `findings/`, and each constrains
+Each is from AGENTS.md or a decision the user took, and each constrains
 the design:
 
 1. **The Idris 2 language does not change**, and third_party/Idris2 stays
-   unmodified (decision-linear-libraries.md). Idris has no pragma for
+   unmodified. Idris has no pragma for
    importing a crate, so crates are declared outside Idris source
    (`rust.toml`), and bindings are an ordinary package.
 2. **User code has no pragmas and no escape hatches**
@@ -125,7 +125,7 @@ the design:
 3. **The binding's meaning is its shim's.** Each binding's generated
    registry entry lowers it to a call of its shim; there is no second
    implementation of a binding, in Idris or anywhere else.
-4. **No oracle** (`findings/decision-no-oracle.md`). The tests' committed
+4. **No oracle** (AGENTS.md). The tests' committed
    expected files are the specification; nothing is shaped so that
    Idris's Chez backend can run it.
 5. **One thing, one representation.** A crate's interface is described
@@ -136,7 +136,7 @@ the design:
    (`!idr.lin`, `!idr.excl`). Ownership modes at a Rust call are grades on
    the callee's parameter types.
 7. **Reject what cannot be compiled, with a named rule; never miscompile.**
-8. **The heap stays acyclic** (decision-acyclic-heap.md). A Rust
+8. **The heap stays acyclic**: a type that could knot it is rejected. A Rust
    container that holds Idris values and can be mutated is a mutable-cell
    edge of the type reachability graph.
 9. **Two first-class targets**, x86_64 Linux (musl, static PIE) and arm64
@@ -710,9 +710,9 @@ whose `t` is a binding's `[external]` phantom to it, through a new hook,
 
 **Registry.** Each binding is a runtime primitive with its own registry
 entry, which `idris-mlir-bind` generates from the surface beside the
-shim (`findings/concurrency.md` §5.5). The entry names the definition
+shim. The entry names the definition
 by its name and its origin (`Library Rust`), as base's foreign functions
-are named (`substrate.md` S5.2), with the hook `RustCall` and the shim's
+are named, with the hook `RustCall` and the shim's
 symbol. `checkReachable` accepts a definition
 with an entry and still rejects every other `%foreign`. The generated
 entries live in the program's build directory and are loaded with the
@@ -752,8 +752,7 @@ the shim is ordinary Rust that rustc lowers as it lowers any Rust.
 
 The world: pure bindings run their calls under `unsafePerformIO` inside
 the trusted package, as `Linear.Array` does. The forged world orders them
-with every other effect, and it keeps compile-time evaluation off them
-(decision-inhouse-linear.md).
+with every other effect, and it keeps compile-time evaluation off them.
 
 ### 9.3 Linking
 
@@ -1066,8 +1065,8 @@ through a compiler cache, as the LLVM builds go through ccache
     compiler already proves and verifies (§2.5).
   - Its error messages were the weak point of Idris 1's `ST`.
   - It would have needed elaborator reflection or a contrib-style
-    library, and neither is available to user code here (§2.2,
-    decision-inhouse-linear.md).
+    library, and neither is available to user code here (§2.2; contrib
+    is no commitment, AGENTS.md).
   - Brady's idea survives where it adds information the grades lack:
     protocol states (§10).
 - **A C FFI, first or ever (clang, header import, ownership
