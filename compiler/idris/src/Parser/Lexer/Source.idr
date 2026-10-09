@@ -297,7 +297,6 @@ mutual
             match (someUntil (exact interpStart) (escapeLexer <|> charLexer)) (\x => StringLit x)
         <|> compose (exact interpStart)
                     (const InterpBegin)
-                    (const ())
                     (\_ => rawTokens)
                     (const $ is '}')
                     (const InterpEnd)
@@ -311,7 +310,6 @@ mutual
       <|> match holeIdent (\x => HoleIdent (assert_total (strTail x)))
       <|> compose (choice $ exact <$> groupSymbols)
                   Symbol
-                  id
                   (\_ => rawTokens)
                   (exact . groupClose)
                   Symbol
@@ -324,15 +322,13 @@ mutual
       <|> match digitsUnderscoredLit (IntegerLit . cast . removeUnderscores)
       <|> compose multilineBegin
                   (\begin => StringBegin (countHashtag begin) Multi)
-                  countHashtag
-                  (stringTokens True)
-                  (exact . multilineEnd)
+                  (\begin => stringTokens True (countHashtag begin))
+                  (\begin => exact (multilineEnd (countHashtag begin)))
                   (const StringEnd)
       <|> compose stringBegin
                   (\begin => StringBegin (countHashtag begin) Single)
-                  countHashtag
-                  (stringTokens False)
-                  (\hashtag => exact (stringEnd hashtag) <+> reject (is '"'))
+                  (\begin => stringTokens False (countHashtag begin))
+                  (\begin => exact (stringEnd (countHashtag begin)) <+> reject (is '"'))
                   (const StringEnd)
       <|> match charLit (CharLit . stripQuotes)
       <|> match dotIdent (\x => DotIdent (assert_total $ strTail x))

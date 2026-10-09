@@ -16,9 +16,8 @@ data Tokenizer : (tokenType : Type) -> Type where
      Match : Lexer -> (String -> tokenType) -> Tokenizer tokenType
      Compose : (begin : Lexer) ->
                (mapBegin : String -> tokenType) ->
-               (tagger : String -> tag) ->
-               (middle : Inf (tag -> Tokenizer tokenType)) ->
-               (end : tag -> Lexer) ->
+               (middle : Inf (String -> Tokenizer tokenType)) ->
+               (end : String -> Lexer) ->
                (mapEnd : String -> tokenType) ->
                Tokenizer tokenType
      Alt : Tokenizer tokenType -> Lazy (Tokenizer tokenType) -> Tokenizer tokenType
@@ -34,14 +33,13 @@ match : Lexer -> (String -> a) -> Tokenizer a
 match = Match
 
 ||| Compose other tokenizer. Language composition should be quoted between
-||| a begin lexer and a end lexer. The begin token can be used to generate
+||| a begin lexer and a end lexer. The begin token is used to generate
 ||| the composition tokenizer and the end lexer.
 export %inline
 compose : (begin : Lexer) ->
           (mapBegin : String -> a) ->
-          (tagger : String -> tag) ->
-          (middle : Inf (tag -> Tokenizer a)) ->
-          (end : tag -> Lexer) ->
+          (middle : Inf (String -> Tokenizer a)) ->
+          (end : String -> Lexer) ->
           (mapEnd : String -> a) ->
           Tokenizer a
 compose = Compose
@@ -100,12 +98,11 @@ tokenise reject tokenizer line col acc str
                 | _ => Left NoRuleApply
               tok' = MkBounded (fn tok) False (MkBounds line col line' col')
            in Right (acc :< tok', line', col', rest)
-    getFirstMatch (Compose begin mapBegin tagger middleFn endFn mapEnd) acc str
+    getFirstMatch (Compose begin mapBegin middleFn endFn mapEnd) acc str
         = let Just (beginTok', line', col' , rest) = getNext begin line col str
                 | Nothing => Left NoRuleApply
-              tag = tagger beginTok'
-              middle = middleFn tag
-              end = endFn tag
+              middle = middleFn beginTok'
+              end = endFn beginTok'
               beginTok'' = MkBounded (mapBegin beginTok') False (MkBounds line col line' col')
               (acc', (reason, line'', col'', rest'')) =
                     assert_total $ tokenise end middle line' col' (acc :< beginTok'') rest

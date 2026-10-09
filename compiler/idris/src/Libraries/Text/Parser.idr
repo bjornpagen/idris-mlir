@@ -70,12 +70,16 @@ choice : Foldable t =>
          Grammar state tok c a
 choice = choiceMap id
 
+-- A grammar is a function, which the totality checker cannot see as a
+-- constructor guarding a recursive call. Each recursion below is guarded by
+-- the input instead: it comes after `p` (or `skip`), which consumes, so it
+-- runs on a shorter input. `assert_total` marks the one call in each cycle.
 mutual
   ||| Parse one or more things
   export
   some : Grammar state tok True a ->
          Grammar state tok True (List1 a)
-  some p = pure (!p ::: !(many p))
+  some p = pure (!p ::: !(assert_total $ many p))
 
   ||| Parse zero or more things (may match the empty input)
   export
@@ -89,7 +93,7 @@ mutual
            (p : Grammar state tok True a) ->
            Grammar state tok True (List a)
   count1 q p = do x <- p
-                  seq (count q p)
+                  seq (assert_total $ count q p)
                       (\xs => pure (x :: xs))
 
   ||| Parse `p`, repeated as specified by `q`, returning the list of values.
@@ -113,7 +117,7 @@ mutual
              (p : Grammar state tok True a) ->
              Grammar state tok True (List1 a)
   someTill {c} end p = do x <- p
-                          seq (manyTill end p)
+                          seq (assert_total $ manyTill end p)
                               (\xs => pure (x ::: xs))
 
   ||| Parse zero or more instances of `p` until `end` succeeds, returning the
@@ -135,7 +139,7 @@ mutual
               (p : Grammar state tok c a) ->
               Grammar state tok True a
   afterSome skip p = do ignore $ skip
-                        afterMany skip p
+                        assert_total $ afterMany skip p
 
   ||| Parse zero or more instance of `skip` until `p` is encountered,
   ||| returning its value.
