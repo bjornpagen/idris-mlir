@@ -25,9 +25,9 @@ All are mandatory.
 - `upstream/11-clang-module-layout-forward-declaration`
 - `upstream/12-clang-module-predeclared-new`
 - `upstream/06-remove-dead-values-unreachable`
-- `T/upstream/11-clang-module-layout-forward-declaration`
-- `T/upstream/12-clang-module-predeclared-new`
-- `T/upstream/06-remove-dead-values-unreachable`
+- `T/upstream/clang-module-layout-forward-declaration`
+- `T/upstream/clang-module-predeclared-new`
+- `T/upstream/remove-dead-values-unreachable`
 - `IDR/Stack/Escape.cppm`
 - `IDR/Driver/Retarget.cppm`
 - `IDR/Simplify`
