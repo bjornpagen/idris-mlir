@@ -106,58 +106,6 @@ unsigned Layouts::alignmentOf(Type component) const {
   return static_cast<unsigned>(target.getTypeABIAlignment(component));
 }
 
-Layouts::Layouts(ModuleOp m) : module(m), target(m) {
-  SymbolTable symbols(module);
-  // A later note that the same label is a suspension sticks: a function
-  // closure of it must not clear that, or the cell would be too small for
-  // the value and the code pointer would never be replaced.
-  auto note = [&](FlatSymbolRefAttr callee, unsigned captures, bool suspension) {
-    auto key = std::make_pair(Attribute(callee), captures);
-    auto fn = symbols.lookup<func::FuncOp>(callee.getAttr());
-    if (!fn)
-      return;
-    auto [it, inserted] = labelIds.try_emplace(key, static_cast<unsigned>(labels.size()));
-    if (inserted)
-      labels.push_back({callee, captures, fn.getFunctionType(), suspension});
-    else if (suspension)
-      labels[it->second].suspension = true;
-  };
-  auto noteValue = [&](auto &self, Attribute value, Type type) -> void {
-    type = unrestricted(type);
-    if (auto closure = dyn_cast<ClosureAttr>(value)) {
-      note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()),
-           isa<LazyType>(type));
-      auto fn = symbols.lookup<func::FuncOp>(closure.getCallee().getAttr());
-      if (!fn)
-        return;
-      for (auto [capture, arg] : llvm::zip(closure.getCaptures(), fn.getArgumentTypes()))
-        self(self, capture, arg);
-      return;
-    }
-    auto con = dyn_cast<ConAttr>(value);
-    if (!con)
-      return;
-    auto data = symbols.lookup<DataOp>(con.getCtor().getRootReference());
-    auto ctor = data ? data.lookupSymbol<CtorOp>(con.getCtor().getLeafReference()) : CtorOp();
-    if (!ctor)
-      return;
-    for (auto [field, fieldType] :
-         llvm::zip(con.getFields(), ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
-      self(self, field, fieldType);
-  };
-  module.walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (auto closure = dyn_cast<ClosureOp>(op))
-      note(closure.getCalleeAttr(), static_cast<unsigned>(closure.getCaptures().size()), false);
-    if (auto suspend = dyn_cast<SuspendOp>(op))
-      note(suspend.getCalleeAttr(), static_cast<unsigned>(suspend.getCaptures().size()), true);
-    if (auto constant = dyn_cast<ConstantOp>(op))
-      noteValue(noteValue, constant.getValue(), constant.getType());
-    op->getAttrDictionary().walk([&](ClosureAttr closure) {
-      note(closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size()), false);
-    });
-  });
-}
-
 FailureOr<Layouts> Layouts::of(ModuleOp m) {
   Layouts layouts(m);
   // The runtime frees a cell by its object slots, which it reads as

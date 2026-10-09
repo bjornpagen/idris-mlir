@@ -98,8 +98,11 @@ void emitMain(ModuleOp module, func::FuncOp root, bool io, Runtime &runtime) {
 
 // A function closure left in a constant. A suspension is a ClosureAttr at
 // !idr.lazy, and it stays: the cell is the value.
-bool functionClosure(Attribute value, Type type, SymbolTable &symbols) {
+bool functionClosure(Attribute value, Type type, SymbolTable &symbols,
+                     llvm::DenseSet<std::pair<Attribute, Type>> &seen) {
   type = unrestricted(type);
+  if (!seen.insert({value, type}).second)
+    return false;
   if (auto closure = dyn_cast<ClosureAttr>(value)) {
     if (!isa<LazyType>(type))
       return true;
@@ -107,7 +110,7 @@ bool functionClosure(Attribute value, Type type, SymbolTable &symbols) {
     if (!fn)
       return true;
     for (auto [capture, arg] : llvm::zip(closure.getCaptures(), fn.getArgumentTypes()))
-      if (functionClosure(capture, arg, symbols))
+      if (functionClosure(capture, arg, symbols, seen))
         return true;
     return false;
   }
@@ -120,7 +123,7 @@ bool functionClosure(Attribute value, Type type, SymbolTable &symbols) {
     return true;
   for (auto [field, fieldType] :
        llvm::zip(con.getFields(), ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
-    if (functionClosure(field, fieldType, symbols))
+    if (functionClosure(field, fieldType, symbols, seen))
       return true;
   return false;
 }
@@ -130,10 +133,11 @@ bool functionClosure(Attribute value, Type type, SymbolTable &symbols) {
 // A suspension is not one.
 LogicalResult checkNoClosures(ModuleOp module) {
   SymbolTable symbols(module);
+  llvm::DenseSet<std::pair<Attribute, Type>> seen;
   WalkResult result = module.walk([&](Operation *op) {
     bool closure = isa<ClosureOp, ApplyOp>(op);
     if (auto constant = dyn_cast<ConstantOp>(op))
-      closure = functionClosure(constant.getValue(), constant.getType(), symbols);
+      closure = functionClosure(constant.getValue(), constant.getType(), symbols, seen);
     if (!closure)
       return WalkResult::advance();
     op->emitError("internal error: idr-lower: a closure is left after idr-defunctionalize");

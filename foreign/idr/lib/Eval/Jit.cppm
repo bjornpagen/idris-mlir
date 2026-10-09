@@ -84,6 +84,7 @@ llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols()
 #define IDRIS_RT_BIND(name) bind(#name, &name)
   return {
       IDRIS_RT_BIND(idris_rt_cell), IDRIS_RT_BIND(idris_rt_arena_alloc),
+      IDRIS_RT_BIND(idris_rt_array_new),
       IDRIS_RT_BIND(idris_rt_eval_crash), IDRIS_RT_BIND(idris_rt_eval_tick),
       IDRIS_RT_BIND(idris_rt_crash), IDRIS_RT_BIND(idris_rt_flush),IDRIS_RT_BIND(idris_rt_io_put_str),
       IDRIS_RT_BIND(idris_rt_io_put_char), IDRIS_RT_BIND(idris_rt_io_put_int_s),

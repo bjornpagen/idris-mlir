@@ -1,0 +1,4 @@
+# Every line the generator builds is fresh cells, wherever its shape is
+# known: reverse turns each cell it visits around in place, without a count
+# or a test.
+idr-rc: reuses-in-place=@Prelude.Types.List.reverseOnto counts-nothing=@Prelude.Types.List.reverseOnto tests-nothing=@Prelude.Types.List.reverseOnto

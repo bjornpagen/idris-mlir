@@ -10,6 +10,7 @@ idr_library(idr_layout
 		Layouts.cppm
 		Sums.cppm
 	UNITS
+		FindLabels.cc
 		PlaceClosures.cc
 	LINKS
 		idr_mlir

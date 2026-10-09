@@ -2,7 +2,8 @@
 // A consumer moves into the regions of a match only where it then folds or
 // canonicalizes against what it meets there. A constructor that holds a
 // value beside a field that is not a constant folds against nothing,
-// wherever it is built.
+// wherever it is built, and a box constructor does not fold into static
+// data.
 
 idr.data @List box {
   idr.ctor @Nil ()
@@ -57,11 +58,13 @@ func.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<@List>) -> !idr.box<
   return %l3 : !idr.box<@List>
 }
 
-// A constructor whose every field is a constant in each region folds
-// there into a constant: it moves, and nothing is built.
+// A box constructor whose every field is a constant in each region stays
+// after the match: folded there it would be static data, which every holder
+// shares, so no consumer could take its cell over. One fresh cell is built.
 // CHECK-LABEL: func.func @all_constant(
-// CHECK: idr.match_lit %{{.*}} -> (!idr.box<@List>)
-// CHECK-NOT: idr.con
+// CHECK: %[[X:.*]] = idr.match_lit %{{.*}} : i64 -> (i32)
+// CHECK: idr.con @List::@Cons(%[[X]], %{{.*}})
+// CHECK-NOT: #idr.con<@List::@Cons
 // CHECK: return
 func.func @all_constant(%a: i64) -> !idr.box<@List> {
   %nil = idr.con @List::@Nil() : () -> !idr.box<@List>

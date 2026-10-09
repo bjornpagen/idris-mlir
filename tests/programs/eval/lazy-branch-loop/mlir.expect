@@ -1,0 +1,5 @@
+# The recursion of `next` is the `else` of an `if`, whose branches are
+# suspensions forced after the match. The force meets the suspension in
+# each case, so each case calls its branch: the loop is a call that a loop
+# breaker cuts, and no cell is built on the way round it.
+idr-simplify: no-closures no-heap-allocation=@Main.next every-cycle-has-breaker

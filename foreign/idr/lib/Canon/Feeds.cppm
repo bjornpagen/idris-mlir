@@ -2,10 +2,11 @@
 // there: the profit of case-of-case and of moving a value into regions. A
 // consumer meets a value where it folds or canonicalizes against it: a match
 // takes the case of a known constructor or literal, a field or tag of a
-// known constructor is read off it, a known closure applied is a call,
-// output takes a string as it is built (a list packed only to be written, as
-// it is walked) and a constant list as the string it folds to, and any other
-// op folds with constants.
+// known constructor is read off it, a known closure applied is a call, a
+// suspension forced where nothing else uses it is the call too, output
+// takes a string as it is built (a list packed only to be written, as it is
+// walked) and a constant list as the string it folds to, and any other op
+// but a box constructor folds with constants.
 // Each copy then shrinks to what its region knows. A consumer that only
 // holds the value gains nothing there: a constructor holding it beside a
 // field that is not constant, a closure capturing it, a call passing it on.
@@ -97,6 +98,18 @@ export namespace idr::canon {
 // constant, a constructor or a closure meets what reads it and a call it
 // is passed to as a function; a constant also meets what folds with it,
 // and a call it closes.
+//
+// A suspension, built there or constant, meets a force when nothing else
+// uses it, as a closure meets its apply: the force is then the call. A
+// shared suspension does not: the force reads its cell. An `if` takes its
+// branches as suspensions and forces after its match the one the match
+// chose; moved into the match, the force is a call in each region.
+//
+// A box constructor of constants folds into static data, which every
+// holder shares: no take gets its cell as a token, so a consumer that
+// rebuilds it in place copies it, and every cell built on it is shared too.
+// Built after the match, it is one fresh cell, exclusive to whoever takes
+// it apart: it meets nothing in the regions.
 bool feeds(Value value, OpOperand &use) {
   if (isa_and_nonnull<func::CallOp>(value.getDefiningOp()))
     return eliminationAt(use).has_value();
@@ -125,12 +138,16 @@ bool feeds(Value value, OpOperand &use) {
     return isa<StrHeadOp>(consumer);
   if (isa<PutListOp>(consumer))
     return static_cast<bool>(constant);
+  if (isa<ForceOp>(consumer))
+    return (constant || isa_and_nonnull<SuspendOp>(def)) && value.hasOneUse();
   if (!constant && !isa_and_nonnull<ConOp, ClosureOp>(def))
     return false;
   if (eliminationAt(use) || isa<MatchOp, MatchLitOp, FieldOp, TagOp>(consumer))
     return true;
   if (isa<func::CallOp>(consumer))
     return isa<FnType>(unrestricted(value.getType())) || (constant && closedWith(read));
+  if (auto con = dyn_cast<ConOp>(consumer); con && isa<BoxType>(unrestricted(con.getType())))
+    return false;
   return constant && foldsWith(read, constant);
 }
 
