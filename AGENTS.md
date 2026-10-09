@@ -56,7 +56,10 @@ numbers.
   as a C export, a C calling convention, libffi, or declaring or calling a
   C symbol from user code. The refusal is `unsupported` and names
   `%foreign` or the extern; never ignore the pragma. A `Data.Buffer`
-  operation is a runtime primitive, with its one meaning in `runtime/`.
+  operation is a runtime primitive, with its one meaning in `runtime/`. There
+  is no C interop now or later: the one foreign world planned is Rust
+  (proposal 0001), and a C library is reached only through a Rust `-sys`
+  crate and the safe crate over it.
 - Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work; a patch to Idris applies

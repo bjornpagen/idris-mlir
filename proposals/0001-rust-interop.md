@@ -14,6 +14,7 @@ Amended 2026-10-09:
   package's manifest; selection and slicing of what is bound; the surface
   is the intersection of both targets' APIs: §5, §6, §9.3, §13 and §14.
   These come from reading hs-bindgen (§15).
+- No C, by decision: rule 11 of §2, §3, §9.3 and §15.
 
 The brief: give programs the Rust ecosystem as their way out to the rest
 of the world (databases, HTTP, crypto, parsers, cloud APIs), and reach C
@@ -125,6 +126,16 @@ the design:
 10. **No primitive has an implementation in Idris.** A shim is the one
     meaning of its Rust call at runtime. Compile-time evaluation reaches
     it only through the JIT (§11), never through an Idris re-implementation.
+11. **No C** (**decision**, 2026-10-09). Rust is the one foreign world.
+    Nothing here reads a C header, binds a C function, or lets a program
+    or a library declare or call a C symbol, and nothing is planned to:
+    no C convention, no C FFI, no header import. A program that needs a C
+    library uses a Rust `-sys` crate and, preferably, the safe Rust crate
+    over it, bound like any other crate. C code exists only inside such
+    crates, as their own build compiles it (§9.3). The `extern "C"` of
+    the shims is the runtime's word-passing calling convention between
+    our own compiled code and our own generated Rust (§9.2), not a way to
+    reach C.
 
 ## 3. Scope
 
@@ -132,14 +143,19 @@ the design:
 
 - synchronous Rust APIs: free functions, inherent methods, trait methods
   of the traits in §7.5, constructors, and the destructor;
-- C reached through Rust (`-sys` crates and their C sources, built by the
-  pinned clang);
+- C libraries, only as Rust crates: a `-sys` crate and the safe crate
+  over it, bound as Rust (rule 11); their C sources are built by the
+  crate's own build with the pinned clang;
 - generic Rust APIs at instances the manifest names, or at Idris element
   types through `IdrisValue` (§7.6);
 - Idris closures passed as Rust callbacks that are called before the call
   returns (§7.7).
 
 **Out, by decision:**
+
+- **C, directly, in any form** (rule 11): C headers, C functions, C
+  types, a C convention, and an Idris package of C bindings. A C library
+  is reached through a Rust crate or not at all.
 
 - **Async Rust executed by a Rust runtime (a tokio "island").** It would
   give a second scheduler and I/O the runtime cannot see.
@@ -780,10 +796,13 @@ On Linux, Rust's self-contained musl objects are not used
 agree with musl 1.2.6's ABI, which R0 checks (recalled: Rust targets musl
 1.2.3 or later).
 
-**C under Rust.** A `-sys` crate's C sources are built by its `cc` build
-script with `CC` set to the pinned clang, the target's sysroot, and
-`-flto=full` (or the entry's bitcode flags), so its bitcode joins as
-well. A build script that downloads anything fails, because the build is
+**C inside `-sys` crates.** This is the only C in a program (rule 11). A
+`-sys` crate's C sources are built by its `cc` build script with `CC` set
+to the pinned clang, the target's sysroot, and `-flto=full` (or the
+entry's bitcode flags), so its bitcode joins as well. The program binds
+the Rust crate, never the C below it: the generator binds no item whose
+signature exposes a raw C type or pointer (`rust pointer` in §9.5), so a
+`-sys` crate's own raw API is not bound, only safe crates over it. A build script that downloads anything fails, because the build is
 offline. That is the rule, and a crate that needs a network build is
 named in the report.
 
@@ -1057,10 +1076,13 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
     decision-inhouse-linear.md).
   - Brady's idea survives where it adds information the grades lack:
     protocol states (§10).
-- **A C FFI first (clang, header import, ownership annotations).**
-  Rejected by the brief. Rust's signatures already state ownership, and
-  C's headers do not. C arrives through Rust's `-sys` crates and their
-  safe wrappers.
+- **A C FFI, first or ever (clang, header import, ownership
+  annotations).** Rejected, permanently (rule 11). Rust's signatures
+  already state ownership, lifetimes and thread-safety, and C's headers
+  state none of them, so every C binding would need annotations a person
+  writes and nothing checks. The Rust ecosystem's `-sys` crates and the
+  safe crates over them have done that work, reviewed and tested; using
+  them is the whole point of this proposal.
 - **A tokio island.** Rejected (§3, §12).
 - **A thaw in place for `Shared` by testing the count.** Rejected for
   divergence: Chez cannot count, so the two backends would crash on
