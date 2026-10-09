@@ -61,6 +61,8 @@
 #                          ccache on PATH or MacPorts' if there is one; a
 #                          path, that ccache; 0, none
 #   IDRIS_MLIR_CCACHE_DIR  its cache (default: .toolchain/ccache)
+#   CCACHE_MAXSIZE         the cache's cap (default: 500G, room for many pins
+#                          and patch sets of LLVM, MLIR and clang)
 #   CC, CXX                the host's C and C++ compilers (default: cc, c++)
 #
 # The host provides: a C and C++ compiler, make, git, python3
@@ -278,7 +280,7 @@ if [ -n "$ccache" ]; then
   CCACHE_DIR=${IDRIS_MLIR_CCACHE_DIR:-$toolchain/ccache}
   CCACHE_BASEDIR=$toolchain
   CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime
-  CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-25G}
+  CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-500G}
   export CCACHE_DIR CCACHE_BASEDIR CCACHE_SLOPPINESS CCACHE_MAXSIZE
   ccache_state="ccache $CCACHE_DIR"
 else
@@ -808,9 +810,11 @@ install_runtimes() {
     while IFS= read -r install_runtimes_file; do rm -f "$1/$install_runtimes_file"; done < "$install_runtimes_list"
   fi
   (cd "$runtimes_prefix" && find . \( -type f -o -type l \) ! -name provenance.json | sed 's|^\./||' | sort) \
-    > "$install_runtimes_list.new"
-  (cd "$runtimes_prefix" && tar -cf - -T "$install_runtimes_list.new") | (cd "$1" && tar -xf -) ||
-    die "cannot install the runtimes into $1"
+    > "$install_runtimes_list.new" || die "cannot list the runtimes in $runtimes_prefix"
+  if [ -s "$install_runtimes_list.new" ]; then
+    (cd "$runtimes_prefix" && tar -cf - -T "$install_runtimes_list.new") | (cd "$1" && tar -xf -) ||
+      die "cannot install the runtimes into $1"
+  fi
   mv "$install_runtimes_list.new" "$install_runtimes_list"
 }
 
@@ -1300,11 +1304,18 @@ step_runtimes() {
   need git python3
   llvm_tree
   build_dir
+  # What an earlier run installed beside stage 1 goes first, so that nothing
+  # is built against it.
   rm -rf "$runtimes_prefix"
+  mkdir -p "$runtimes_prefix"
+  install_runtimes "$stage1"
   eval "set -- $({ args_builtins; ccache_flags; } | quote_lines)"
   run "configure the builtins" "$cmake" -S "$llvm_tree/compiler-rt/lib/builtins" -B "$build/builtins" "$@"
   run "build the builtins" "$ninja" -C "$build/builtins" -j "$jobs"
   run "install the builtins" "$ninja" -C "$build/builtins" install
+  # Stage 1's driver links the builtins from its own resource directory into
+  # every program, the C++ runtimes' configure checks among them.
+  install_runtimes "$stage1"
   eval "set -- $({ args_libcxx; ccache_flags; } | quote_lines)"
   run "configure the C++ runtimes" "$cmake" -S "$llvm_tree/runtimes" -B "$build/runtimes" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)"
