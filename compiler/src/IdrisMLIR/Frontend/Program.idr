@@ -25,6 +25,8 @@ import Data.Maybe
 import Data.String
 import System.File
 
+import Libraries.Data.WithDefault
+
 %default covering
 
 ||| A file of the compilation's. Not being able to write it is the
@@ -59,31 +61,44 @@ isUser : Origin -> Bool
 isUser User = True
 isUser _ = False
 
-||| The function the program runs: the user's one `main`. A library's
-||| `main` is not a program, and two of the user's are two programs.
-entryPoint : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core Name
+||| The function the program runs: `main` as Idris resolves it in the main
+||| file, the one definition of that name visible there, with its module.
+||| That is the main module's own `main` or one it imports; another
+||| module's private `main` is not seen, and two visible ones are ambiguous,
+||| as Idris finds them.
+entryPoint : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core (Name, ModuleIdent)
 entryPoint = do
   defs <- get Ctxt
   found <- lookupCtxtName (UN (Basic programEntry)) (gamma defs)
-  user <- filterM (\(n, _, _) => case n of
-                      NS ns _ => isUser <$> originOf (nsAsModuleIdent ns)
-                      _ => pure False) found
-  case user of
-    [(n, _, _)] => pure n
+  here <- (::) <$> getNS <*> getNestedNS
+  visible <- filterM (visibleFrom here) (map (\(_, _, def) => def) found)
+  case visible of
+    [def] => case fullname def of
+      n@(NS ns _) => pure (n, nsAsModuleIdent ns)
+      n => internal EmptyFC ("main has no module: " ++ show n)
     [] => reject EmptyFC programEntry ProgramShape "the program defines no main"
     ms => reject EmptyFC programEntry ProgramShape
-            ("main is defined in more than one module: " ++ joinBy ", " (map (\(n, _, _) => show n) ms))
+            ("main is ambiguous: " ++ joinBy ", " (map (show . fullname) ms))
+  where
+    visibleFrom : List Namespace -> GlobalDef -> Core Bool
+    visibleFrom here def = case fullname def of
+      n@(NS ns _) =>
+        if !(isVisible ns)
+          then pure (visibleInAny here n (collapseDefault (visibility def)))
+          else pure False
+      _ => pure False
 
-||| Compiles the program Idris has built, whose main file is the module
-||| `mainModule`, into the Core at `corePath` and the module at `mlirPath`.
+||| Compiles the program Idris has built from its main file, whose path
+||| names the module `mainFile`, into the Core at `corePath` and the module
+||| at `mlirPath`.
 export
 program : {auto c : Ref Ctxt Defs} ->
-          (mainModule : ModuleIdent) -> (breakShape : Maybe String) ->
+          (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
           (corePath, mlirPath : String) -> Core ()
 program mainFile breakShape corePath mlirPath = do
   -- Until main is found, an error is at the main file.
   s <- newRef TState (initState (MkFC (PhysicalIdrSrc mainFile) (0, 0) (0, 0)))
-  main <- entryPoint
+  (main, mainIdent) <- entryPoint
   defs <- get Ctxt
   Just mainDef <- lookupCtxtExact main (gamma defs)
     | Nothing => internal EmptyFC "main has no definition"
@@ -91,12 +106,11 @@ program mainFile breakShape corePath mlirPath = do
   put TState (initState fc)
   validated breakShape fc
   -- Every module of the project's is one with source, whose pragmas are
-  -- checked. The main TTC's entry has no name. Library modules outside the
+  -- checked. The main file's module is loaded from its TTC as the module of
+  -- no name, and Idris is in its namespace. Library modules outside the
   -- table may be loaded, but not reached (checkReachable).
-  let mainIdent = case main of
-                    NS ns _ => nsAsModuleIdent ns
-                    _ => moduleIdent mainModule
-  let mods = mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
+  fileIdent <- nsAsModuleIdent <$> getNS
+  let mods = fileIdent :: mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
   user <- filterM (\m => isUser <$> originOf m) (nub mods)
   sources <- for user $ \m => do
     path <- moduleSource fc m

@@ -2,7 +2,7 @@
 ||| backend contract, which the compiler must implement. None of it is
 ||| privileged knowledge: Idris requires it of every backend.
 |||
-||| - The entry convention: the root of a program, and its main module.
+||| - The entry convention: the root of a program, and the function it runs.
 ||| - The IO primitives the libraries declare for backends, keyed by their
 |||   `%foreign` spec (their Idris name and type are the shape validated).
 ||| - Idris's builtins (`PrimFn`) are a closed type the frontend matches on
@@ -17,11 +17,6 @@ import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 %default total
-
-||| The module Idris takes `main` from when none is named.
-export
-mainModule : List String
-mainModule = ["Main"]
 
 ||| The function a program runs: the user's `main`, which the root runs
 ||| under `unsafePerformIO` (`programRoot`).
