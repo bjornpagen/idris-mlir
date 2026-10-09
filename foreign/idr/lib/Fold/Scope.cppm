@@ -17,7 +17,10 @@ export namespace idr::fold {
 // returns is one of its arguments (appending the empty string gives the
 // other argument, with one more reference), so the scope keeps every
 // reference it is given, a repeated one as often as it was given, and
-// releases each once.
+// releases each once; and counts on the context the cells it leaves live,
+// read on the thread that folds: the runtime counts by thread, and a fold
+// never changes thread. Scopes do not nest on one thread; a nested pair
+// would count an inner leak twice.
 class Scope {
 public:
   explicit Scope(mlir::MLIRContext *c);
@@ -34,6 +37,7 @@ public:
 
 private:
   mlir::MLIRContext *ctx;
+  uint64_t liveAtStart;
   llvm::SmallVector<const idris_rt_str *> strings;
   llvm::SmallVector<idris_rt_big> bigs;
 };
@@ -42,13 +46,17 @@ private:
 
 namespace idr::fold {
 
-Scope::Scope(MLIRContext *c) : ctx(c) {}
+Scope::Scope(MLIRContext *c) : ctx(c), liveAtStart(idris_rt_live_cells()) {}
 
 Scope::~Scope() {
   for (const idris_rt_str *s : strings)
     idris_rt_str_release(s);
   for (idris_rt_big b : bigs)
     idris_rt_big_release(b);
+  // What the count gained since the fold began is what it left live. Only
+  // the idr dialect's ops and attributes fold, so the dialect is loaded.
+  if (auto left = static_cast<int64_t>(idris_rt_live_cells() - liveAtStart))
+    ctx->getLoadedDialect<IdrDialect>()->countFoldLeak(left);
 }
 
 const idris_rt_str *Scope::str(StringAttr value) {

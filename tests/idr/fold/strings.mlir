@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --mlir-disable-threading --canonicalize --idr-expect=holds=folds-balanced > %t.mlir
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=folds-balanced > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // A string built from a constant list folds to the constant string: pack
 // of the characters, concat of the strings; the folders release what the

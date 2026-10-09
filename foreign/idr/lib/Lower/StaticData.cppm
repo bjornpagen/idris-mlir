@@ -13,6 +13,7 @@ export module idr.lower:staticData;
 
 import idr.mlir;
 import idr.dialect;
+import idr.fold;
 import idr.layout;
 
 import :words;
@@ -301,16 +302,14 @@ private:
 
   // A big: the runtime reads the decimal text (one semantics for what a
   // big literal denotes); a small result is its tagged word, any other a
-  // static idris_rt_bignum, its limbs in the same global.
+  // static idris_rt_bignum, its limbs in the same global. The folders'
+  // scope holds what the runtime gives and releases it when this returns,
+  // counted as theirs are; the limbs are read before then.
   Value big(OpBuilder &b, Location loc, BigAttr value) {
-    StringRef text = value.getValue();
-    const idris_rt_str *digits = idris_rt_str_from_utf8(text.data(), text.size());
-    idris_rt_big word = idris_rt_big_from_str(digits);
-    idris_rt_str_release(digits);
-    if ((word & 1) != 0) {
-      idris_rt_big_release(word);
+    fold::Scope scope(b.getContext());
+    idris_rt_big word = scope.big(value);
+    if ((word & 1) != 0)
       return i64Constant(b, loc, word);
-    }
     auto key = std::make_pair(Attribute(value), Type(BigType::get(b.getContext())));
     auto it = statics.find(key);
     if (it == statics.end()) {
@@ -321,7 +320,6 @@ private:
       const auto *digitsOf = reinterpret_cast<const uint64_t *>(number + 1);
       for (size_t i = 0; i < count; ++i)
         limbs.push_back(static_cast<int64_t>(digitsOf[i]));
-      idris_rt_big_release(word);
       auto i32 = b.getI32Type();
       auto i64 = b.getI64Type();
       auto limbsType = LLVM::LLVMArrayType::get(i64, count);

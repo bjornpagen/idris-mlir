@@ -3,6 +3,8 @@
 # Cells and static data follow the runtime's C ABI (idris_rt.h), and
 # idr-entry states the CPU features the target enables in the target entry's
 # terms (cpu_features.h), both of whose include directory idris_rt gives.
+# A big literal is read through the folders' scope (idr.fold), so every
+# runtime reference the compiler takes is counted in one place.
 idr_library(idr_lower
 	MODULES
 		Lower.cppm
@@ -46,6 +48,7 @@ idr_library(idr_lower
 		idr_mlir
 		idr_ods
 		idr_graph
+		idr_fold
 		idr_layout
 		idris_rt
 )

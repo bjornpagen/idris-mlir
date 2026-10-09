@@ -23,6 +23,7 @@
 #include "mlir/Pass/Pass.h"
 
 #include <algorithm>
+#include <atomic>
 #include <optional>
 #include <string>
 
@@ -288,6 +289,9 @@ bool fieldReadOnce(mlir::Value value, unsigned index);
 bool holdsLinear(mlir::Value value);
 bool takenOnce(mlir::Value value);
 
+// The dialect holds the chain of the scopes open on its context.
+class SymbolScope;
+
 } // namespace idr
 
 // The attributes come first: the dialect's helpers for its discardable
@@ -440,12 +444,16 @@ bool isMemo(DataOp data);
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
 
-// While a SymbolScope is open on a thread, lookupSymbol (and so lookupData,
-// lookupCtor and the effects of a call) answers a lookup in `op`, a symbol
-// table, from `table` instead of scanning `op`'s body, which takes as long
-// as the module is large. Whoever opens one guarantees that no symbol of
-// `op` is added, erased or renamed while it is open, as the pass manager
-// does for a pass that runs nested under `op`.
+// While a SymbolScope is open on a context, lookupSymbol (and so
+// lookupData, lookupCtor and the effects of a call) answers a lookup in
+// `op`, a symbol table, from `table` on every thread, instead of scanning
+// `op`'s body, which takes as long as the module is large. Only a pass
+// anchored on `op` or above opens one (or the idr dialect's verifier of the
+// module), outside every nested pipeline it starts. Scopes therefore open
+// and close in order, on one thread, while no other thread reads them.
+// The opener adds, erases and renames no symbol of `op` while a lookup may
+// read the table, and the pass manager keeps nested passes from doing so.
+// The context must have the idr dialect loaded.
 class SymbolScope {
 public:
   SymbolScope(mlir::Operation *op, mlir::SymbolTable &table);
@@ -453,7 +461,7 @@ public:
   SymbolScope(const SymbolScope &) = delete;
   SymbolScope &operator=(const SymbolScope &) = delete;
 
-  // The scope open on this thread for `op`, or null.
+  // The scope open on `op`'s context for `op`, or null.
   static SymbolScope *of(mlir::Operation *op);
   mlir::SymbolTable &symbols() const { return table; }
 

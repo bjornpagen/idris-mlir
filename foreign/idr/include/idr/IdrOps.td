@@ -26,6 +26,20 @@ def Idr_Dialect : Dialect {
   let extraClassDeclaration = [{
     ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
     void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
+
+    // The SymbolScopes open on this context, innermost first. Per context,
+    // because a context is one compilation's state and its passes may run
+    // on several threads, each of which must see the scope its pass opened.
+    std::atomic<::idr::SymbolScope *> &symbolScopes() { return scopes; }
+    // The runtime cells the folders left live on this context, summed over
+    // every thread that folded. Per context, because a context is one
+    // compilation's state and its folds may run on several threads.
+    void countFoldLeak(int64_t cells) { foldLeak.fetch_add(cells, std::memory_order_relaxed); }
+    int64_t foldLeakCount() const { return foldLeak.load(std::memory_order_relaxed); }
+
+  private:
+    std::atomic<::idr::SymbolScope *> scopes{nullptr};
+    std::atomic<int64_t> foldLeak{0};
   }];
   let useDefaultAttributePrinterParser = 1;
   let hasConstantMaterializer = 1;

@@ -239,8 +239,8 @@ void idris_rt_free_cell(void *o);
 
 /* The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
  * and has not freed yet, counted by the calling thread: a program is
- * single-threaded, and in idris-mlir-cc each thread that folds counts only
- * its own, with no atomic operation on the allocation path. */
+ * single-threaded, and idris-mlir-cc reads it before and after each fold, on
+ * the thread that folds, with no atomic operation on the allocation path. */
 uint64_t idris_rt_live_cells(void);
 
 /* Ownership at the other entry points. A primitive (the string, big, output,
