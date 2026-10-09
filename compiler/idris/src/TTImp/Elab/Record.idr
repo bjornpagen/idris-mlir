@@ -234,6 +234,7 @@ checkUpdate : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} ->
@@ -251,7 +252,7 @@ checkUpdate rig elabinfo nest env fc upds rec expected
                               InLHS c => inLHS
                               _ => inTerm
          delayOnFailure fc rig env (Just recty) needType RecordUpdate $
-           \delayed =>
+           \dl, delayed =>
              do solveConstraints solvemode Normal
                 exp <- getTerm recty
                 -- We can't just use the old NF on the second attempt,
@@ -262,4 +263,4 @@ checkUpdate rig elabinfo nest env fc upds rec expected
                 logGlueNF "elab.record" 5 (show delayed ++ " record type " ++ show rec) env recty'
                 rcase <- recUpdate rig elabinfo fc nest env upds rec recty'
                 log "elab.record" 5 $ "Record update: " ++ show rcase
-                check rig elabinfo nest env rcase expected
+                check {dl} rig elabinfo nest env rcase expected

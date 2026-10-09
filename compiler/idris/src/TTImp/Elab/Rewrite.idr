@@ -104,6 +104,7 @@ checkRewrite : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
@@ -114,11 +115,11 @@ checkRewrite : {vars : _} ->
 checkRewrite rigc elabinfo nest env fc rule tm Nothing
     = throw (GenericMsg fc "Can't infer a type for rewrite")
 checkRewrite {vars} rigc elabinfo nest env ifc rule tm (Just expected)
-    = delayOnFailure ifc rigc env (Just expected) rewriteErr Rewrite $ \delayed =>
+    = delayOnFailure ifc rigc env (Just expected) rewriteErr Rewrite $ \dl, delayed =>
         do let vfc = virtualiseFC ifc
 
            constart <- getNextEntry
-           (rulev, grulet) <- check erased elabinfo nest env rule Nothing
+           (rulev, grulet) <- check {dl} erased elabinfo nest env rule Nothing
            solveConstraintsAfter constart inTerm Normal
 
            rulet <- getTerm grulet
@@ -143,7 +144,7 @@ checkRewrite {vars} rigc elabinfo nest env ifc rule tm (Just expected)
               inScope vfc (pbind :: env) $ \e' =>
                 inScope {e=e'} vfc env' $ \e'' =>
                   let offset = mkSizeOf [rname, pname] in
-                  check {e = e''} rigc elabinfo (weakenNs offset nest) env'
+                  check {dl} {e = e''} rigc elabinfo (weakenNs offset nest) env'
                     (apply (IVar vfc lemma.name)
                       [ IVar vfc pname
                       , IVar vfc rname

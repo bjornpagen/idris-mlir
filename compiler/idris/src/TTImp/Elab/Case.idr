@@ -140,6 +140,7 @@ caseBlock : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto o : Ref ROpts REPLOpts} ->
@@ -243,12 +244,11 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          -- Start with empty nested names, since we've extended the rhs with
          -- ICaseLocal so they'll get rebuilt with the right environment
          let nest' = MkNested []
-         ust <- get UST
          -- We don't want to keep rechecking delayed elaborators in the
          -- case block, because they're not going to make progress until
          -- we come out again, so save them
-         let olddelayed = delayedElab ust
-         put UST ({ delayedElab := [] } ust)
+         olddelayed <- get DLY
+         put DLY (the DelayedElabs [])
          processDecl [InCase] nest' Env.empty (IDef fc casen alts')
 
          -- If there's no duplication of the scrutinee in the block,
@@ -261,8 +261,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          let inlineOK = maybe False (const True) splitOn
          when inlineOK $ setFlag fc casen Inline
 
-         ust <- get UST
-         put UST ({ delayedElab := olddelayed } ust)
+         put DLY olddelayed
 
          pure (appTm, gnf env caseretty)
   where
@@ -359,22 +358,25 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
               ImpossibleClause loc' (applyNested nest lhs')
 
 
-export
-checkCase : {vars : _} ->
-            {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
-            {auto u : Ref UST UState} ->
-            {auto e : Ref EST (EState vars)} ->
-            {auto s : Ref Syn SyntaxInfo} ->
-            {auto o : Ref ROpts REPLOpts} ->
-            RigCount -> ElabInfo ->
-            NestedNames vars -> Env Term vars ->
-            FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
-            Maybe (Glued vars) ->
-            Core (Term vars, Glued vars)
-checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
-    = delayElab fc rig env exp CaseBlock $
-        do scrty_exp <- case scrty_in of
+-- The delayed elaborator of a case block. It is a function of its own,
+-- given the cell of delayed elaborators, rather than the body of a lambda
+-- in checkCase: a local definition is applied to everything its parent
+-- binds, so one used in the lambda would capture checkCase's cell.
+checkCaseDelayed : {vars : _} ->
+                   {auto c : Ref Ctxt Defs} ->
+                   {auto m : Ref MD Metadata} ->
+                   {auto u : Ref UST UState} ->
+                   {auto dl : Ref DLY DelayedElabs} ->
+                   {auto e : Ref EST (EState vars)} ->
+                   {auto s : Ref Syn SyntaxInfo} ->
+                   {auto o : Ref ROpts REPLOpts} ->
+                   RigCount -> ElabInfo ->
+                   NestedNames vars -> Env Term vars ->
+                   FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
+                   Maybe (Glued vars) ->
+                   Core (Term vars, Glued vars)
+checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
+      = do scrty_exp <- case scrty_in of
                              Implicit {} => guessScrType alts
                              _ => pure scrty_in
            u <- uniVar fc
@@ -448,3 +450,21 @@ checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
                      applyTo defs (IVar fc tyn) tyty
                _ => guessScrType xs
     guessScrType (_ :: xs) = guessScrType xs
+
+export
+checkCase : {vars : _} ->
+            {auto c : Ref Ctxt Defs} ->
+            {auto m : Ref MD Metadata} ->
+            {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
+            {auto e : Ref EST (EState vars)} ->
+            {auto s : Ref Syn SyntaxInfo} ->
+            {auto o : Ref ROpts REPLOpts} ->
+            RigCount -> ElabInfo ->
+            NestedNames vars -> Env Term vars ->
+            FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
+            Maybe (Glued vars) ->
+            Core (Term vars, Glued vars)
+checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
+    = delayElab fc rig env exp CaseBlock $ \dl =>
+        checkCaseDelayed {dl} rig elabinfo nest env fc opts scr scrty_in alts exp

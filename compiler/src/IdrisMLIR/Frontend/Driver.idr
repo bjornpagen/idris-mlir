@@ -158,6 +158,7 @@ errorLine _ = Nothing
 ||| module from its TTC, as the module of no name, when every module built.
 loadMainFile : {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto m : Ref MD Metadata} ->
                {auto o : Ref ROpts REPLOpts} ->
@@ -205,6 +206,7 @@ displayStartupErrors _ = pure ()
 ||| Idris's own intermediate forms: the code generator reads checked TT.
 prepareExp : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto m : Ref MD Metadata} ->
              {auto o : Ref ROpts REPLOpts} ->
@@ -222,6 +224,7 @@ prepareExp ctm = do
 ||| build's directory of executables, first.
 compileMain : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto m : Ref MD Metadata} ->
               {auto o : Ref ROpts REPLOpts} ->
@@ -240,6 +243,7 @@ compileMain outfile = do
 ||| could not be read is not compiled.
 postOptions : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto m : Ref MD Metadata} ->
               {auto o : Ref ROpts REPLOpts} ->
@@ -288,6 +292,7 @@ run opts = do
   flip catch quitWithError $ do
     when (verbose opts) $ setVerbosity InfoLvl
     u <- newRef UST initUState
+    dl <- newRef DLY (the DelayedElabs [])
     origin <- maybe (pure (Virtual Interactive))
                     (\f => PhysicalIdrSrc <$> ctxtPathToNS f) fname
     m <- newRef MD (initMetadata origin)

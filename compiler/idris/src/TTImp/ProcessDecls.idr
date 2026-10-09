@@ -36,6 +36,7 @@ processFailing :
   {auto c : Ref Ctxt Defs} ->
   {auto m : Ref MD Metadata} ->
   {auto u : Ref UST UState} ->
+  {auto dl : Ref DLY DelayedElabs} ->
   {auto s : Ref Syn SyntaxInfo} ->
   {auto o : Ref ROpts REPLOpts} ->
   List ElabOpt ->
@@ -44,6 +45,7 @@ processFailing :
 processFailing eopts nest env fc mmsg decls
     = do -- save the state: the content of a failing block should be discarded
          ust <- get UST
+         dls <- get DLY
          syn <- get Syn
          md <- get MD
 
@@ -88,6 +90,7 @@ processFailing eopts nest env fc mmsg decls
                                      pure (FailingWrongError fc msg (err ::: [])))
          -- Reset the state
          put UST ust
+         put DLY dls
          put Syn syn
          put MD md
          put Ctxt defs
@@ -100,6 +103,7 @@ process : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
           {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
+          {auto dl : Ref DLY DelayedElabs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
           List ElabOpt ->
@@ -137,6 +141,7 @@ processDecls : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
                NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
@@ -148,6 +153,7 @@ processTTImpDecls : {vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
                     {auto m : Ref MD Metadata} ->
                     {auto u : Ref UST UState} ->
+                    {auto dl : Ref DLY DelayedElabs} ->
                     {auto s : Ref Syn SyntaxInfo} ->
                     {auto o : Ref ROpts REPLOpts} ->
                     NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
@@ -183,6 +189,7 @@ export
 processTTImpFile : {auto c : Ref Ctxt Defs} ->
                    {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
+                   {auto dl : Ref DLY DelayedElabs} ->
                    {auto s : Ref Syn SyntaxInfo} ->
                    {auto o : Ref ROpts REPLOpts} ->
                    String -> Core Bool

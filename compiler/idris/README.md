@@ -121,6 +121,29 @@ and restores it, harmlessly.
 - `IdrisPaths`, which upstream's build generates, is written here: the
   version, tagged with the pinned commit. It has no install prefix; the
   driver passes one.
+- The delayed elaborators are not a field of `UState`: they live in a
+  cell of their own, `Ref DLY DelayedElabs` (`Core.UnifyState`), which
+  every elaborator that may delay one is given beside `Ref UST UState`,
+  made where a unification state is made and saved and restored wherever
+  one is (`tryError`, `successful`, `checkTermSub`, the `%failing`
+  blocks, `resetContext`, and `tryUnifyElab` and `handleUnifyElab`, the
+  variants of `tryUnify` and `handleUnify` for what elaborates). A delayed
+  elaborator (`DelayedElab`) is a function given that cell when it is
+  retried, and the elaborator `delayOnFailure` and `delayElab` take is
+  given it too, rather than capturing the cell of its caller: upstream's
+  closures captured `Ref UST UState`, so the cell's type reached itself.
+  The case block's delayed part is `checkCaseDelayed`, a function of its
+  own, because a local definition is applied to everything its parent
+  binds, and one used in the lambda would capture the parent's cell. The
+  other cells (`Defs`, `SyntaxInfo`, `EState`, `Metadata`, `REPLOpts`,
+  `PostSession`) hold no closure that reaches them.
+- `Core` is a function of the world (`PrimIO`), not a record over IO, and
+  only its combinators in `Core.Core` see the world. Two computations in
+  sequence go through the prelude's `io_bind`, which the stock compiler
+  inlines with the incoming world: a world matched out of an `IORes` is
+  erased in its generated code, and an action applied to it is a closed
+  term that common subexpression elimination hoists to the top level,
+  where it runs once, at load time.
 - `ttcVersion` (`Core.Binary`) has eleven digits where stock Idris's have
   ten, so a TTC either one writes is refused by the other when read.
 

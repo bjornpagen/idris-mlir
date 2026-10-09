@@ -114,6 +114,7 @@ export
 elabImplementation : {vars : _} ->
                      {auto c : Ref Ctxt Defs} ->
                      {auto u : Ref UST UState} ->
+                     {auto dl : Ref DLY DelayedElabs} ->
                      {auto s : Ref Syn SyntaxInfo} ->
                      {auto m : Ref MD Metadata} ->
                      {auto o : Ref ROpts REPLOpts} ->
@@ -543,7 +544,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
                  | Nothing => pure ()
              let rhs = IVar vfc mname
              log "elab.implementation" 5 $ show lhs ++ " ==> " ++ show rhs
-             handleUnify
+             handleUnifyElab
                  (processDecl [] nest env
                      (ITransform vfc (UN $ Basic (show meth.nameVal ++ " " ++ show iname)) lhs rhs))
                  (\err =>

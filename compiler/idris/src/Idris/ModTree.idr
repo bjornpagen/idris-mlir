@@ -219,6 +219,7 @@ buildMod loc num len mod
         rebuild <- needsBuilding sourceFile ttcFile depFiles
 
         u <- newRef UST initUState
+        dl <- newRef DLY (the DelayedElabs [])
         m <- newRef MD (initMetadata (PhysicalIdrSrc modNamespace))
         put Syn initSyntax
 
@@ -231,7 +232,7 @@ buildMod loc num len mod
                   = pretty0 mod.buildNS
                     <++> parens (pretty0 sourceFile)
               log "import.file" 10 $ "Processing " ++ sourceFile
-              process {u} {m} msgPrefix buildMsg sourceFile modNamespace
+              process {u} {dl} {m} msgPrefix buildMsg sourceFile modNamespace
 
         ws <- emitWarningsAndErrors (if null errs then ferrs else errs)
         pure (ws ++ if null errs then ferrs else ferrs ++ errs)

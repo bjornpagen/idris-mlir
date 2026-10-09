@@ -20,6 +20,7 @@ localHelper : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
@@ -60,9 +61,8 @@ localHelper {vars} nest env nestdecls_in func
          -- We don't want to keep rechecking delayed elaborators in the
          -- locals block, because they're not going to make progress until
          -- we come out again, so save them
-         ust <- get UST
-         let olddelayed = delayedElab ust
-         put UST ({ delayedElab := [] } ust)
+         olddelayed <- get DLY
+         put DLY (the DelayedElabs [])
          defs <- get Ctxt
          -- store the local hints, so we can reset them after we've elaborated
          -- everything
@@ -72,7 +72,7 @@ localHelper {vars} nest env nestdecls_in func
          log "elab.def.local" 20 $ show nestdecls
 
          traverse_ (processDecl [] nest' env') nestdecls
-         update UST { delayedElab := olddelayed }
+         put DLY olddelayed
          res <- func nest'
          update Ctxt { localHints := oldhints }
          pure res
@@ -154,6 +154,7 @@ checkLocal : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
@@ -183,6 +184,7 @@ checkCaseLocal : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
                  {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
+                 {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
                  {auto s : Ref Syn SyntaxInfo} ->
                  {auto o : Ref ROpts REPLOpts} ->

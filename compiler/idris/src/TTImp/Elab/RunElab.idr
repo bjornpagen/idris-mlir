@@ -71,6 +71,7 @@ elabScript : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
              RigCount -> FC -> NestedNames vars ->
@@ -186,14 +187,14 @@ elabScript rig fc nest env script@(NDCon nfc nm t ar args) exp
              recordWarning $ GenericWarn !(reifyFC defs mbfc) !(reify defs msg')
              scriptRet ()
     elabCon defs "Try" [_, elab1, elab2]
-        = tryUnify (do constart <- getNextEntry
-                       res <- elabScript rig fc nest env !(evalClosure defs elab1) exp
-                       -- We ensure that all of the constraints introduced during the elab script
-                       -- have been solved. This guarantees that we do not mistakenly succeed even
-                       -- though e.g. a proof search got delayed.
-                       solveConstraintsAfter constart inTerm LastChance
-                       pure res)
-                   (elabScript rig fc nest env !(evalClosure defs elab2) exp)
+        = tryUnifyElab (do constart <- getNextEntry
+                           res <- elabScript rig fc nest env !(evalClosure defs elab1) exp
+                           -- We ensure that all of the constraints introduced during the elab script
+                           -- have been solved. This guarantees that we do not mistakenly succeed even
+                           -- though e.g. a proof search got delayed.
+                           solveConstraintsAfter constart inTerm LastChance
+                           pure res)
+                       (elabScript rig fc nest env !(evalClosure defs elab2) exp)
     elabCon defs "LogMsg" [topic, verb, str]
         = do topic' <- evalClosure defs topic
              verb' <- evalClosure defs verb
@@ -356,6 +357,7 @@ checkRunElab : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->

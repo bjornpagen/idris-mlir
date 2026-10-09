@@ -99,12 +99,6 @@ record UState where
   dotConstraints : List (Name, DotReason, Constraint) -- dot pattern constraints
   nextName : Int
   nextConstraint : Int
-  delayedElab : List (DelayReason, Int, NameMap (), Core ClosedTerm)
-                -- Elaborators which we need to try again later, because
-                -- we didn't have enough type information to elaborate
-                -- successfully yet.
-                -- The 'Int' is the resolved name.
-                -- NameMap () is the set of local hints at the point of delay
   logging : Bool
 
 export
@@ -120,12 +114,39 @@ initUState = MkUState
   , dotConstraints = []
   , nextName = 0
   , nextConstraint = 0
-  , delayedElab = []
   , logging = False
   }
 
 export
 data UST : Type where
+
+-- Elaborators which we need to try again later, because we didn't have
+-- enough type information to elaborate successfully yet, live in a cell of
+-- their own, beside the unification state and saved and restored with it.
+-- A delayed elaborator is a function given that cell when it is retried,
+-- since retrying it may delay more: if it captured the cell instead, the
+-- cell would hold closures that hold the cell, and the cell's type would
+-- reach itself. Nothing else in the cell or in what its closures capture
+-- leads back to it.
+export
+data DLY : Type where
+
+public export
+data DelayedElab : Type where
+     MkDelayedElab : (Ref DLY (List (DelayReason, Int, NameMap (), DelayedElab)) ->
+                      Core ClosedTerm) ->
+                     DelayedElab
+
+-- The 'Int' is the resolved name of the hole the elaborator will fill.
+-- NameMap () is the set of local hints at the point of delay
+public export
+DelayedElabs : Type
+DelayedElabs = List (DelayReason, Int, NameMap (), DelayedElab)
+
+export
+runDelayedElab : {auto dl : Ref DLY DelayedElabs} ->
+                 DelayedElab -> Core ClosedTerm
+runDelayedElab {dl} (MkDelayedElab elab) = elab dl
 
 export
 resetNextVar : {auto u : Ref UST UState} ->
@@ -542,6 +563,31 @@ handleUnify elab1 elab2
     = do Right ok <- tryErrorUnify {unResolve} elab1
                | Left err => elab2 err
          pure ok
+
+-- As tryUnify and handleUnify, around a computation that elaborates: the
+-- delayed elaborators are part of the state a failure restores.
+export
+tryUnifyElab : {auto c : Ref Ctxt Defs} ->
+               {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
+               Core a -> Core a -> Core a
+tryUnifyElab elab1 elab2
+    = do dls <- get DLY
+         tryUnify elab1 $
+           do put DLY dls
+              elab2
+
+export
+handleUnifyElab : {auto c : Ref Ctxt Defs} ->
+                  {auto u : Ref UST UState} ->
+                  {auto dl : Ref DLY DelayedElabs} ->
+                  {default False unResolve : Bool} ->
+                  Core a -> (Error -> Core a) -> Core a
+handleUnifyElab elab1 elab2
+    = do dls <- get DLY
+         handleUnify {unResolve} elab1 $ \err =>
+           do put DLY dls
+              elab2 err
 
 -- Note that the given hole name arises from a type declaration, so needs
 -- to be resolved later

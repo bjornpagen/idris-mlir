@@ -350,6 +350,7 @@ checkAlternative : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
                    {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
+                   {auto dl : Ref DLY DelayedElabs} ->
                    {auto e : Ref EST (EState vars)} ->
                    {auto s : Ref Syn SyntaxInfo} ->
                    {auto o : Ref ROpts REPLOpts} ->
@@ -368,7 +369,7 @@ checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
                               InLHS c => inLHS
                               _ => inTerm
          delayOnFailure fc rig env (Just expected) ambiguous Ambiguity $
-             \delayed =>
+             \dl, delayed =>
                do solveConstraints solvemode Normal
                   exp <- getTerm expected
 
@@ -389,20 +390,20 @@ checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
                     ++ " Kept:\n" ++ unlines (map show alts')
 
                   if delayed -- use the default if there's still ambiguity
-                     then try
-                            (exactlyOne' False fc env
+                     then try {dl}
+                            (exactlyOne' {dl} False fc env
                                 (map (\t =>
                                    (getName t,
-                                    checkImp rig (addAmbig alts' (getName t) elabinfo)
+                                    checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
                                              nest env t
                                              (Just exp'))) alts'))
                             (do log "elab.ambiguous" 5 "All failed, running default"
-                                checkImp rig (addAmbig alts' (getName def) elabinfo)
+                                checkImp {dl} rig (addAmbig alts' (getName def) elabinfo)
                                              nest env def (Just exp'))
-                     else exactlyOne' True fc env
+                     else exactlyOne' {dl} True fc env
                            (map (\t =>
                              (getName t,
-                              checkImp rig (addAmbig alts' (getName t) elabinfo)
+                              checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
                                        nest env t (Just exp')))
                               alts')
 checkAlternative rig elabinfo nest env fc uniq alts mexpected
@@ -421,7 +422,7 @@ checkAlternative rig elabinfo nest env fc uniq alts mexpected
                                       InLHS c => inLHS
                                       _ => inTerm
                 delayOnFailure fc rig env (Just expected) ambiguous Ambiguity $
-                     \delayed =>
+                     \dl, delayed =>
                        do exp <- getTerm expected
 
                           -- We can't just use the old NF on the second attempt,
@@ -442,11 +443,11 @@ checkAlternative rig elabinfo nest env fc uniq alts mexpected
                               , "Target type "
                               ]) env exp'
                           let tryall = case uniq of
-                                            FirstSuccess => anyOne fc
-                                            _ => exactlyOne' (not delayed) fc env
+                                            FirstSuccess => anyOne {dl} fc
+                                            _ => exactlyOne' {dl} (not delayed) fc env
                           tryall (map (\t =>
                               (getName t,
-                               do res <- checkImp rig (addAmbig alts' (getName t) elabinfo)
+                               do res <- checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
                                                   nest env t (Just exp')
                                   -- Do it twice for interface resolution;
                                   -- first pass gets the determining argument

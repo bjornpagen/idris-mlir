@@ -100,6 +100,7 @@ emitWarningsAndErrors errs = do
 export
 resetContext : {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto m : Ref MD Metadata} ->
                (origin : OriginDesc) ->
@@ -109,5 +110,6 @@ resetContext origin
          put Ctxt ({ options := clearNames (options defs) } !initDefs)
          addPrimitives
          put UST initUState
+         put DLY (the DelayedElabs [])
          put Syn initSyntax
          put MD (initMetadata origin)
