@@ -205,10 +205,14 @@ data Hook
     ||| the element). Handler: `Frontend.Translate.Types.coreType`.
     ArrayType (Maybe Ty)
   | ||| The length of an array: its calls are the array's dimension
-    ||| (`ArrayLength`) at the element type the call fixes (`Nothing`), or
-    ||| at the fixed element of an array type without a type argument
-    ||| (`Just`). Handler: `Frontend.Translate.application`.
-    ArraySize (Maybe Ty)
+    ||| (`ArrayLength`) at the element type its call's type argument fixes.
+    ||| Handler: `Frontend.Translate.application`.
+    ArraySize
+  | ||| A `%foreign` definition whose calls are this primitive, pure, on the
+    ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes),
+    ||| an index checked against a bound (`IndexBelow`). Handler:
+    ||| `Frontend.Translate.application`.
+    PrimCall Prim
   | ||| A handle that is a foreign constant, as the literal it is: 0 for
     ||| input, 1 for output, 2 for errors, all ones for null, the one
     ||| meaning this compiler's runtime gives a pointer. Handler:
@@ -289,7 +293,8 @@ kind : Hook -> Kind
 kind (IOCall _ _) = Faster
 kind (ArrayCall _) = Faster
 kind (ArrayType _) = Faster
-kind (ArraySize _) = Faster
+kind ArraySize = Faster
+kind (PrimCall _) = Faster
 kind (Handle _) = Faster
 kind (Builds _) = Faster
 kind (Alias _) = Faster

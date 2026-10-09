@@ -389,7 +389,16 @@ primitives =
   , MkEntry (Foreign (MkSpec "scheme" "(lambda (ty v) (vector-length v))"))
             (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
                       (Pi Q0 TypeOfTypes (Pi QW (arrayData Hole) int)))
-            (ArraySize Nothing) [Primitive]
+            ArraySize [Primitive]
+  -- An index checked against a bound, which the backend contract lacks:
+  -- the in-house linear array library checks each index against its
+  -- array's size with it, by Chez's spec, and the compiler gives that spec
+  -- its one meaning, the guard of an index against that integer. The spec
+  -- is the key, so it must be the library's byte for byte; it holds no
+  -- comma, at which a spec's function ends.
+  , MkEntry (Foreign (MkSpec "scheme" "(lambda (i n) (if (and (<= 0 i) (< i n)) i (error #f \"array index out of bounds\")))"))
+            (Declared (MkQName ["Linear", "Array"] "prim__index") (Pi QW int (Pi QW int int)))
+            (PrimCall IndexBelow) [Primitive]
   -- base's Data.Buffer is an array of bytes. A new one is a new array, of
   -- zero bytes: the fill is the zero byte, which base's call does not
   -- pass. Its size is the array's length. A byte is that element
@@ -416,7 +425,7 @@ primitives =
                     (Pi QW buffer (Pi QW int (Pi Q1 world (ioRes bits8)))) ArrayGet
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi QW buffer int))
-            (ArraySize (Just byte)) [Primitive]
+            (PrimCall (ArrayLength byte)) [Primitive]
   , bufferStore "blodwen-buffer-setbits16" "prim__setBits16" (stored (intOf UInt16))
   , bufferLoad "blodwen-buffer-getbits16" "prim__getBits16" (loaded (intOf UInt16))
   , bufferStore "blodwen-buffer-setbits32" "prim__setBits32" (stored (intOf UInt32))
