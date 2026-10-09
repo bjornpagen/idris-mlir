@@ -702,27 +702,33 @@ which the top-level CMake configure gate reads.
 - symptom: the frontend needs upstream Idris 2's elaborator, TTC and
   package code as its own source, so that this compiler can compile it,
   but third_party/Idris2 stays unmodified (it supplies prelude, base and
-  stage 0). Two upstream bugs surfaced while forking: `--clean` looked
+  stage 0). Three upstream bugs surfaced while forking: `--clean` looked
   for TTCs one `ttc` directory too deep and removed nothing
-  (`src/Idris/Package.idr`); and `Core.Unify.search` is defined in
+  (`src/Idris/Package.idr`); `Core.Unify.search` is defined in
   `Core.AutoSearch`, which only the REPL imported, so a driver without the
-  REPL compiled it as a hole. A third upstream bug, found before the fork,
-  is fixed in it too:
+  REPL compiled it as a hole; and `Libraries.Text.Distance.Levenshtein.compute`
+  crashes ("Badly initialised matrix") when either string is empty, because
+  its loops over `[1..0]` count down (latent: the strings it compares are
+  names, never empty in practice). A fourth upstream bug, found before the fork, is fixed in it
+  too:
   elaboration folds a primitive applied to constants with Idris's own
   implementation (elaboration-primitive-folding)
 - sites: compiler/idris (README.md lists every deviation;
   `tools/extract-idris.sh status` prints the files that differ from the
   gitlink), compiler/idris/src/Idris/Package.idr (the `clean` path),
   compiler/idris/src/Idris/ProcessIdr.idr (imports `Core.AutoSearch`),
+  compiler/idris/src/Libraries/Text/Distance/Levenshtein.idr (filled a row
+  at a time, with no matrix to miss),
   compiler/idris/src/Core/{Normalise,Normalise/Eval,Primitives,Value}.idr
   (elaboration-primitive-folding)
 - workaround: none; the fork is our code. Its deviations from upstream are
   deliberate (the REPL, IDE mode, every other code generator and the CExp
-  pipeline are out of scope) except the three bug fixes, which upstream
+  pipeline are out of scope) except the four bug fixes, which upstream
   should take
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
-- upstream: not filed; the `clean` path and the unimported
-  `Core.AutoSearch` are each an issue and a pull request on
+- upstream: not filed; the `clean` path, the unimported
+  `Core.AutoSearch` and Levenshtein's empty strings are each an issue and
+  a pull request (with a test in its `tests/`) on
   idris-lang/Idris2; elaboration's folding is
   upstream/18-elaboration-primitive-folding

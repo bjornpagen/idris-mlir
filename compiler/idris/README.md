@@ -98,8 +98,8 @@ and restores it, harmlessly.
 This compiler compiles the fork, and refuses `believe_me`, `%unsafe`
 definitions and `%foreign` without a primitive, so the fork has none of
 them, and no `idris_crash`. Where upstream coerced, the fork does what the
-coercion claimed, with the same results; `assert_total` and
-`assert_smaller` stay (158 and 31 uses).
+coercion claimed, with the same results (but for one upstream crash,
+below); `assert_total` and `assert_smaller` stay.
 
 - A scope coercion is a traversal that rebuilds every node from the same
   fields, an identity once scopes are erased: `FreelyEmbeddable` has no
@@ -123,7 +123,10 @@ coercion claimed, with the same results; `assert_total` and
   with its `%foreign` declarations, is deleted.
 - `Libraries.Text.Distance.Levenshtein` fills its table a row at a time
   in lists, so no lookup can miss, and `Libraries.Data.IOMatrix` is
-  deleted. `Parser.Unlit` drops the empty string before each candidate
+  deleted. Upstream's `compute` crashed ("Badly initialised matrix")
+  whenever either string was empty, because its loops over `[1..0]` count
+  down; this one returns the other string's length. Between two non-empty
+  strings the distance is upstream's. `Parser.Unlit` drops the empty string before each candidate
   extension's leading dot rather than crashing on its absence.
 - Unused and not expressible honestly, deleted: `VarSet.unsafeToList` and
   `Libraries.System.Directory.Tree`'s `Tree.toRelative`.
