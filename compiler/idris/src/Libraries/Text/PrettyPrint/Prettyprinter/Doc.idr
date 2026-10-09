@@ -389,19 +389,32 @@ prettyBy : Pretty ann1 a => (inj : ann1 -> ann2) -> a -> Doc ann2
 prettyBy inj a = reAnnotate inj (pretty a)
 
 
+||| A document without annotations has every annotation type. This is
+||| `reAnnotate absurd`, written as what it is: no annotation of type Void
+||| exists, so every node is rebuilt from the same fields (an identity once
+||| the annotation type is erased).
+annotateVoid : Doc Void -> Doc ann
+annotateVoid Empty = Empty
+annotateVoid (Chara c) = Chara c
+annotateVoid (Text l t) = Text l t
+annotateVoid Line = Line
+annotateVoid (FlatAlt x y) = FlatAlt (annotateVoid x) (annotateVoid y)
+annotateVoid (Cat x y) = Cat (annotateVoid x) (annotateVoid y)
+annotateVoid (Nest i x) = Nest i (annotateVoid x)
+annotateVoid (Union x y) = Union (annotateVoid x) (annotateVoid y)
+annotateVoid (Column f) = Column (\x => annotateVoid $ f x)
+annotateVoid (WithPageWidth f) = WithPageWidth (\x => annotateVoid $ f x)
+annotateVoid (Nesting f) = Nesting (\x => annotateVoid $ f x)
+annotateVoid (Annotated v _) = absurd v
+
 ||| Sometimes we want to use a document that uses no annotation whatsoever.
-||| This should be equivalent to `reAnnotate absurd`, except that in this
-||| case we do not traverse the document because it should be impossible to
-||| manufacture an annotation of type Void.
 export
 Cast (Doc Void) (Doc ann) where
-  cast = believe_me
+  cast = annotateVoid
 
 
 ||| Sometimes we want to call a subprinter that uses no annotation whatsoever.
-||| This should be equivalent to `prettyBy absurd`, except that in this case
-||| we do not traverse the document because it should be impossible to manufacture
-||| an annotation of type Void.
+||| This is `prettyBy absurd` (see `annotateVoid`).
 export
 pretty0 : Pretty Void a => a -> Doc ann
 pretty0 x = cast (pretty x)

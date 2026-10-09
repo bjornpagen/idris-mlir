@@ -372,6 +372,15 @@ compatIsVar Pre p = p
 compatIsVar (Ext {n} x) First = First
 compatIsVar (Ext {n} x) (Later p) = Later (compatIsVar x p)
 
+||| The variable an index names once the scope's names are renamed: the
+||| same index, under the new name at that position.
+export
+0 renamedIsVar :
+  CompatibleVars xs ys ->
+  {idx : Nat} -> (0 p : IsVar name idx xs) ->
+  Exists (\ n => IsVar n idx ys)
+renamedIsVar ns p = Evidence _ (compatIsVar ns p)
+
 compatVar : CompatibleVars xs ys -> Var xs -> Var ys
 compatVar prf (MkVar p) = MkVar (compatIsVar prf p)
 

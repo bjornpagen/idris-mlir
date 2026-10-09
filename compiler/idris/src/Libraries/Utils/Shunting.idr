@@ -63,9 +63,8 @@ export
   show (Op _ _ op p) = show op ++ " " ++ show p
   show (Expr val) = show val
 
--- Label for the output queue state
-data Out : Type where
-
+-- The output queue is threaded through the algorithm as a value: a stack
+-- of the trees built so far, the most recent first.
 output : List (Tree op a) -> Tok op a ->
          Core (List (Tree op a))
 output [] (Op {}) = throw (InternalError "Invalid input to shunting")
@@ -73,12 +72,6 @@ output (x :: stk) (Op loc opFC str (Prefix _)) = pure $ Pre loc opFC str x :: st
 output (x :: y :: stk) (Op loc opFC str _) = pure $ Infix loc opFC str y x :: stk
 output stk (Expr a) = pure $ Leaf a :: stk
 output _ _ = throw (InternalError "Invalid input to shunting")
-
-emit : {auto o : Ref Out (List (Tree op a))} ->
-       Tok op a -> Core ()
-emit t
-    = do out <- get Out
-         put Out !(output out t)
 
 getPrec : OpPrec -> Nat
 getPrec (AssocL k) = k
@@ -110,36 +103,37 @@ higher loc opl l opr r
     = pure $ (getPrec l > getPrec r) ||
              ((getPrec l == getPrec r) && isLAssoc l)
 
-processStack : Interpolation op => (showLoc : Show op) => {auto o : Ref Out (List (Tree op a))} ->
+processStack : Interpolation op => (showLoc : Show op) =>
+               List (Tree op a) ->
                List (FC, FC, op, OpPrec) -> op -> OpPrec ->
-               Core (List (FC, FC, op, OpPrec))
-processStack [] op prec = pure []
-processStack (x@(loc, opFC, opx, sprec) :: xs) opy prec
+               Core (List (Tree op a), List (FC, FC, op, OpPrec))
+processStack out [] op prec = pure (out, [])
+processStack out (x@(loc, opFC, opx, sprec) :: xs) opy prec
     = if !(higher loc opx sprec opy prec)
-         then do emit (Op loc opFC opx sprec)
-                 processStack xs opy prec
-         else pure (x :: xs)
+         then do out' <- output out (Op loc opFC opx sprec)
+                 processStack out' xs opy prec
+         else pure (out, x :: xs)
 
-shunt : Interpolation op => (showLoc : Show op) => {auto o : Ref Out (List (Tree op a))} ->
+shunt : Interpolation op => (showLoc : Show op) =>
+        List (Tree op a) ->
         (opstk : List (FC, FC, op, OpPrec)) ->
         List (Tok op a) -> Core (Tree op a)
-shunt stk (Expr x :: rest)
-    = do emit (Expr x)
-         shunt stk rest
-shunt stk (Op loc opFC op prec :: rest)
-    = do stk' <- processStack stk op prec
-         shunt ((loc, opFC, op, prec) :: stk') rest
-shunt stk []
-    = do traverse_ (emit . mkOp) stk
-         [out] <- get Out
-             | out => throw (InternalError "Invalid input to shunting")
-         pure out
+shunt out stk (Expr x :: rest)
+    = do out' <- output out (Expr x)
+         shunt out' stk rest
+shunt out stk (Op loc opFC op prec :: rest)
+    = do (out', stk') <- processStack out stk op prec
+         shunt out' ((loc, opFC, op, prec) :: stk') rest
+shunt out stk []
+    = do [tree] <- emitAll out stk
+             | _ => throw (InternalError "Invalid input to shunting")
+         pure tree
   where
-    mkOp : (FC, FC, op, OpPrec) -> Tok op a
-    mkOp (loc, opFC, op, prec) = Op loc opFC op prec
+    emitAll : List (Tree op a) -> List (FC, FC, op, OpPrec) -> Core (List (Tree op a))
+    emitAll out [] = pure out
+    emitAll out ((loc, opFC, op, prec) :: ops)
+        = emitAll !(output out (Op loc opFC op prec)) ops
 
 export
 parseOps : Interpolation op => (showLoc : Show op) => List (Tok op a) -> Core (Tree op a)
-parseOps toks
-    = do o <- newRef {t = List (Tree op a)} Out []
-         shunt [] toks
+parseOps toks = shunt [] [] toks

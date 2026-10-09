@@ -170,7 +170,7 @@ checkConflictingBinding opName foundFixity use_site rhs
     = if isCompatible foundFixity use_site
          then pure ()
          else throw $ OperatorBindingMismatch
-             {print = byShow} opName.fc foundFixity use_site (opNameToEither opName.val) rhs !candidates
+             opName.fc foundFixity (map byShow use_site) (opNameToEither opName.val) (byShow rhs) !candidates
     where
 
       isCompatible : FixityDeclarationInfo -> OperatorLHSInfo PTerm -> Bool

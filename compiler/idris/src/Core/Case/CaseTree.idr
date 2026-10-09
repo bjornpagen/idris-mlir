@@ -49,9 +49,6 @@ mutual
        ||| Catch-all case
        DefaultCase : CaseTree vars -> CaseAlt vars
 
-export
-FreelyEmbeddable CaseTree where
-
 mutual
   public export
   measure : CaseTree vars -> Nat

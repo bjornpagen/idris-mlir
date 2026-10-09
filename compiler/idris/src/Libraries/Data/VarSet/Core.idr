@@ -51,10 +51,6 @@ export %inline
 union : VarSet vs -> VarSet vs -> VarSet vs
 union = NatSet.union
 
-export %inline %unsafe
-unsafeToList : VarSet vs -> List (Var vs)
-unsafeToList = believe_me NatSet.toList
-
 export %inline
 toList : {vs : Scope} -> VarSet vs -> List (Var vs)
 toList = mapMaybe (`isDeBruijn` vs) . NatSet.toList

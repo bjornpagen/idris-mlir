@@ -5,7 +5,6 @@ import Core.CompileExpr
 import Core.TT
 
 import Data.List1
-import Libraries.Data.String.Iterator
 import Data.Vect
 
 %default covering
@@ -103,7 +102,9 @@ Hashable a => Hashable b => Hashable (a, b) where
 
 export
 Hashable String where
-  hashWithSalt h = String.Iterator.foldl hashWithSalt h
+  -- each character in order, as the salt of the next (not `List Char`'s
+  -- hash, which also takes the absolute value at the end)
+  hashWithSalt h str = foldl hashWithSalt h (unpack str)
 
 export
 Hashable Double where

@@ -96,7 +96,6 @@ Libraries/Control/Delayed.idr
 Libraries/Data/ANameMap.idr
 Libraries/Data/Erased.idr
 Libraries/Data/IMaybe.idr
-Libraries/Data/IOMatrix.idr
 Libraries/Data/IntMap.idr
 Libraries/Data/List/Extra.idr
 Libraries/Data/List/HasLength.idr
@@ -115,7 +114,6 @@ Libraries/Data/SnocList/SizeOf.idr
 Libraries/Data/Span.idr
 Libraries/Data/SparseMatrix.idr
 Libraries/Data/String/Extra.idr
-Libraries/Data/String/Iterator.idr
 Libraries/Data/StringMap.idr
 Libraries/Data/StringTrie.idr
 Libraries/Data/Tap.idr

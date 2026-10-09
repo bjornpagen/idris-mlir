@@ -1,7 +1,6 @@
 module Libraries.Text.Distance.Levenshtein
 
 import Data.String
-import Libraries.Data.IOMatrix
 
 %default total
 
@@ -20,48 +19,42 @@ spec a b = loop (fastUnpack a) (fastUnpack b) where
            , loop xs ys        -- substitute y for x
            ]
 
-||| Dynamic programming
+-- here we change Levenshtein slightly so that we may only substitute
+-- alpha / numerical characters for similar ones. This avoids suggesting
+-- "#" as a replacement for an out of scope "n".
+cost : Char -> Char -> Nat
+cost c d
+    = if c == d then 0 else
+      if isAlpha c && isAlpha d then 1 else
+      if isDigit c && isDigit d then 1 else 2
+
+||| Dynamic programming, one row of the table at a time. Row j holds, for
+||| each i from 0 to |a|, the distance between the first i characters of a
+||| and the first j of b. Row 0 is 0, 1, ..., |a| (insertions), and each row
+||| starts with j (deletions).
+distance : List Char -> List Char -> Nat
+distance as bs = lastOf (rows 1 bs [0 .. length as])
+  where
+    -- the cells of row j after the first, from row j-1 and the j-th
+    -- character d of b, with the formula of the specification's `loop`
+    cells : Char -> (left : Nat) -> List Char -> List Nat -> List Nat
+    cells d left (c :: cs) (diag :: up :: ups)
+        = let here = minimum [ 1 + up             -- insert y
+                             , 1 + left           -- delete x
+                             , cost c d + diag    -- equal or substitute y for x
+                             ] in
+              here :: cells d here cs (up :: ups)
+    cells _ _ _ _ = []
+
+    rows : (j : Nat) -> List Char -> List Nat -> List Nat
+    rows j [] row = row
+    rows j (d :: ds) row = rows (S j) ds (j :: cells d j as row)
+
+    -- the last cell of the last row; a row is never empty, and the first
+    -- cell of the last row is |b|
+    lastOf : List Nat -> Nat
+    lastOf = foldl (\ _, x => x) (length bs)
+
 export
 compute : HasIO io => String -> String -> io Nat
-compute a b = do
-  let w = strLength a
-  let h = strLength b
-  -- In mat[i][j], we store the distance between
-  -- * the suffix of a of size i
-  -- * the suffix of b of size j
-  -- So we need a matrix of size (|a|+1) * (|b|+1)
-  mat <- new (w+1) (h+1)
-  -- Whenever one of the two suffixes of interest is empty, the only
-  -- winning move is to:
-  -- * delete all of the first
-  -- * insert all of the second
-  -- i.e. the cost is the length of the non-zero suffix
-  for_ [0..w] $ \ i => write mat i 0 i -- deletions
-  for_ [0..h] $ \ j => write mat 0 j j -- insertions
-
-  -- We introduce a specialised `read` for ease of use
-  let get = \i, j => case !(read {io} mat i j) of
-        Nothing => assert_total $
-          idris_crash "INTERNAL ERROR: compute -> Badly initialised matrix"
-        Just n => pure n
-
-  -- We fill the matrix from the bottom up, using the same formula we used
-  -- in the specification's `loop`.
-  for_ [1..h] $ \ j => do
-    for_ [1..w] $ \ i => do
-      -- here we change Levenshtein slightly so that we may only substitute
-      -- alpha / numerical characters for similar ones. This avoids suggesting
-      -- "#" as a replacement for an out of scope "n".
-      let cost = let c = assert_total $ strIndex a (i-1)
-                     d = assert_total $ strIndex b (j-1)
-                 in if c == d then 0 else
-                    if isAlpha c && isAlpha d then 1 else
-                    if isDigit c && isDigit d then 1 else 2
-      write mat i j $ minimum
-        [ 1    + !(get i (j-1))     -- insert y
-        , 1    + !(get (i-1) j)     -- delete x
-        , cost + !(get (i-1) (j-1)) -- equal or substitute y for x
-        ]
-
-  -- Once the matrix is fully filled, we can simply read the top right corner
-  integerToNat . cast <$> get w h
+compute a b = pure (distance (unpack a) (unpack b))
