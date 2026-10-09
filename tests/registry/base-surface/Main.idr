@@ -3,10 +3,12 @@ module Main
 -- A program that loads the modules of base's surface, so that each of
 -- their registry entries is validated when it compiles: the files, the
 -- directories, the process and its environment, the clocks, errno, the
--- pointers, and the modules ruled out by name (signals, threads). None of
--- them is reached, so nothing is refused.
+-- pointers, the references and state threads, and the modules ruled out by
+-- name (signals, threads). None of them is reached, so nothing is refused.
 
 import Prelude
+import Control.Monad.ST
+import Data.IORef
 import System
 import System.Clock
 import System.Concurrency

@@ -1,0 +1,4 @@
+# The read before the write moves the record out of its IORef, so the
+# record kept after the write is the one reference the cell held: what
+# the program prints shows it was not rebuilt in place.
+idr-rc: moves-out
