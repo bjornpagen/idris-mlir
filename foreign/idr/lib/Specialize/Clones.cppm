@@ -40,6 +40,10 @@ public:
 
   const Clone *lookup(mlir::Attribute key) const;
 
+  // The clone `fn` is, or null for a function that is none (or that shares
+  // its key with a clone the table met first).
+  const Clone *find(mlir::func::FuncOp fn) const;
+
   // The clone `fn` is, if it specializes: calls of it are keyed by its
   // owner's parameters.
   const Clone *specialization(mlir::func::FuncOp fn) const;
@@ -58,6 +62,14 @@ public:
   // `fn`, whose parameters hold the holes their `idr.hole` says, as the
   // clone for `key`.
   const Clone &add(mlir::Attribute key, mlir::func::FuncOp fn);
+
+  // Settles whether `clone`, just made from its callee and simplified, is a
+  // loop breaker. It runs its callee's loop, so it breaks the loop where its
+  // callee does: it keeps the no_inline it was copied with, unless no call
+  // in it can come back to it, because it `unrolls` (a decreasing
+  // parameter, whose keys shrink along the chain of clones) or because it
+  // refers to no function.
+  void settleBreaker(mlir::func::FuncOp clone, bool unrolls);
 
   mlir::SymbolTable &symbols();
 
@@ -141,6 +153,12 @@ const Clone *CloneTable::lookup(Attribute key) const {
   return it == byKey.end() ? nullptr : &it->second;
 }
 
+const Clone *CloneTable::find(func::FuncOp fn) const {
+  Attribute key = keyOf.lookup(fn.getOperation());
+  const Clone *clone = key ? lookup(key) : nullptr;
+  return clone && clone->fn == fn ? clone : nullptr;
+}
+
 const Clone *CloneTable::specialization(func::FuncOp fn) const {
   Attribute key = keyOf.lookup(fn.getOperation());
   return isa_and_nonnull<SpecKeyAttr>(key) ? lookup(key) : nullptr;
@@ -172,6 +190,15 @@ const Clone &CloneTable::add(Attribute key, func::FuncOp fn) {
   assert(clone && "idr-specialize: a clone whose parameters hold no holes in order");
   keyOf[fn.getOperation()] = key;
   return byKey.insert_or_assign(key, std::move(*clone)).first->second;
+}
+
+void CloneTable::settleBreaker(func::FuncOp clone, bool unrolls) {
+  std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&clone.getBody());
+  bool refers = uses && llvm::any_of(*uses, [&](const SymbolTable::SymbolUse &use) {
+    return table.lookup<func::FuncOp>(use.getSymbolRef().getRootReference());
+  });
+  if (unrolls || !refers)
+    clone.setNoInline(false);
 }
 
 SymbolTable &CloneTable::symbols() { return table; }

@@ -12,9 +12,10 @@
 // consumed the same way, which inlining exposes where an action recurs,
 // becomes a self call, and idr-tail-loops makes a tail call a loop. Its
 // parameters are the callee's, then the apply's arguments. It is counted
-// with the clones of its callee's owner, and it keeps no_inline from a loop
-// breaker: it is where the breaker's loop becomes a self call. Its
-// parameters are not its callee's, so it is the owner of its own clones.
+// with the clones of its callee's owner, and it breaks its callee's loop
+// where its callee does (CloneTable::settleBreaker): it is where the
+// breaker's loop becomes a self call. Its parameters are not its callee's,
+// so it is the owner of its own clones.
 //
 // Raising moves the callee's body from the call to its consumer, so nothing
 // may run between them that could tell: the consumer and the projection are
@@ -216,6 +217,7 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
   // (anything, where a label is not known).
   facts::inherit(clone, callee, functions);
   canonicalize(clone);
+  clones.settleBreaker(clone, /*unrolls=*/false);
   work.push_back(clone);
   ++stats.raised;
   return clone;

@@ -241,9 +241,6 @@ LogicalResult Specializer::specialize(func::CallOp call) {
         result = failure();
         return;
       }
-      // A chain of clones on a static shape is acyclic, and inlining it is
-      // what exposes the shape to its consumer: a clone is no loop breaker.
-      made->setNoInline(false);
       substitute(*made, args, composed);
       SmallVector<FlatSymbolRefAttr> named;
       for (const Argument &arg : args)
@@ -259,6 +256,18 @@ LogicalResult Specializer::specialize(func::CallOp call) {
       // its key call it.
       clone = &clones.add(key, *made);
       canonicalize(clone->fn);
+      // A clone runs its callee's loop, so it breaks the loop where its
+      // callee does: a call of the breaker in it becomes a call of it once
+      // inlining, in this round or a later one, shows what consumes the
+      // call. Inlined before that, it would put the call back into its
+      // caller, for which it would be made again: the loop would unroll
+      // once every two rounds, for ever. A clone that unrolls a decreasing
+      // parameter breaks none, since no clone of its chain has its key
+      // again, and inlining the chain shows the static shape to its consumer.
+      clones.settleBreaker(*made, llvm::any_of(args, [](const Argument &arg) {
+                             return !arg.pattern.isHole() &&
+                                    arg.time == BindingTime::Decreasing;
+                           }));
       work.push_back(clone->fn);
     }
     std::optional<SmallVector<Value>> operands = operandsFor(*clone, composed.values);

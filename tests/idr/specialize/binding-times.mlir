@@ -19,6 +19,11 @@
 // what the closure's applies pass may be anything.
 // CHECK-DAG: remark: @loop: fixed
 // CHECK-DAG: remark: @again: fixed, other
+// @loop's raised clone, which applies the closure @loop returns: on no
+// cycle, but @again's call of @loop, applied as the clone applies it,
+// becomes its call once inlining shows the apply. It recurses where @loop
+// does: @loop's parameter, then what the apply passes.
+// CHECK-DAG: remark: @loop$raise$1: fixed, other
 // A function on no cycle specializes on anything.
 // CHECK-DAG: remark: @twice: free, free
 module attributes {idr.program} {
@@ -125,6 +130,10 @@ module attributes {idr.program} {
   func.func private @again(%n: i64, %x: i64) -> i64 {
     %k = func.call @loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %y = idr.apply %k(%x) : !idr.fn<(i64) -> (i64)>
+    return %y : i64
+  }
+  func.func private @loop$raise$1(%n: i64 {idr.hole = 0 : i64}, %x: i64 {idr.hole = 1 : i64}) -> i64 attributes {idr.clone = #idr.clone<@loop$raise$1, #idr.key_apply<"loop", 1>>} {
+    %y = func.call @again(%n, %x) : (i64, i64) -> i64
     return %y : i64
   }
   func.func @Main.main() -> i64 {

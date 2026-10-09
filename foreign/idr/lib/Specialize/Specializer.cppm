@@ -72,7 +72,7 @@ private:
 namespace idr::specialize {
 
 Specializer::Specializer(ModuleOp root)
-    : module(root), clones(root), times(root, clones.symbols()) {}
+    : module(root), clones(root), times(root, clones) {}
 
 LogicalResult Specializer::run() {
   // The functions present when the run starts were read once, before

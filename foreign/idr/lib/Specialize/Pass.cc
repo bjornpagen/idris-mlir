@@ -35,8 +35,8 @@ struct Specialize : idr::impl::IdrSpecializeBase<Specialize> {
 struct ReportBindingTimes : idr::impl::IdrBindingTimesBase<ReportBindingTimes> {
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    SymbolTable symbols(module);
-    BindingTimes times(module, symbols);
+    CloneTable clones(module);
+    BindingTimes times(module, clones);
     for (auto fn : module.getOps<func::FuncOp>()) {
       if (fn.isExternal())
         continue;
