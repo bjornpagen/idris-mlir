@@ -63,9 +63,11 @@ resolved at compile time, `Integer`, `Nat`, `Double`, strings, lists,
 environment and the program's arguments, `System.Clock` and `exitWith`. A
 pointer of base's is a handle of the runtime's, never an address. Signals,
 threads and other processes are refused with a named rule. A suspension is
-a memo cell, which its first force writes. Linear arrays and lists come
-from the compiler's own `libs/mlir-linear`, plain Idris over base's
-primitives. Values
+a memo cell, which its first force writes. Linear arrays and lists, and a
+string iterator with contrib's API, come from the compiler's own
+`libs/mlir-linear`: plain Idris over base's primitives, except for the few
+primitives of the compiler's own that the library declares (an array's
+size; a string read by byte offset). Values
 that remain after the pipeline live in counted cells: `idr-rc` reuses the
 cell of a value that dies, borrows what a function only reads, and the
 verifier checks after every pass that every reference is consumed exactly
@@ -209,7 +211,8 @@ test's committed expected files are its specification
 - `runtime/`: the runtime every program links, and that folding and
   compile-time evaluation call.
 - `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear
-  arrays and lists), installed per checkout under `build/idris2`.
+  arrays and lists, and a linear string iterator), installed per checkout
+  under `build/idris2`.
 - `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
   benchmarks against C and Chez.
 - `findings/`: decisions taken (`decision-*.md`) and the design notes

@@ -137,7 +137,7 @@ suites =
       , pool "programs/stack: loops through calls in tail position in constant stack on long inputs, and recursions a million calls deep" ["programs/stack"]
       , pool "programs/nat: natural numbers" ["programs/nat"]
       , pool "programs/data: data and records at runtime" ["programs/data"]
-      , pool "programs/linear: linear values and the linear library's lists" ["programs/linear"]
+      , pool "programs/linear: linear values, the linear library's lists and its string iterator" ["programs/linear"]
       , pool "programs/arrays: linear arrays, IOArray and Buffer" ["programs/arrays"]
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]

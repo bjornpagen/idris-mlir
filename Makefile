@@ -133,7 +133,7 @@ $(PREFIX_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json)
 # (-p mlir-linear), again whenever one of their sources changes.
 LIBS_STAMP := $(CHECKOUT_PREFIX)/.libs-installed
 libs: $(LIBS_STAMP)
-$(LIBS_STAMP): $(PREFIX_STAMP) $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr)
+$(LIBS_STAMP): $(PREFIX_STAMP) $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr $(ROOT)/libs/mlir-linear/Linear/*/*.idr)
 	@$(PINS) idris
 	cd $(ROOT)/libs/mlir-linear && $(IDRIS2) --install mlir-linear.ipkg
 	@touch $@
