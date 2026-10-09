@@ -1,0 +1,77 @@
+diff --git a/mlir/include/mlir/IR/PatternMatch.h b/mlir/include/mlir/IR/PatternMatch.h
+index 438766f..d98dfa6 100644
+--- a/mlir/include/mlir/IR/PatternMatch.h
++++ b/mlir/include/mlir/IR/PatternMatch.h
+@@ -555,7 +555,8 @@ public:
+   /// Erase the specified results of the given operation. Results cannot be
+   /// erased directly, so the implementation creates a new replacement
+   /// operation and erases the original operation. The new operation is
+-  /// returned.
++  /// returned. If `eraseIndices` selects no result, the operation is left
++  /// unchanged and returned.
+   Operation *eraseOpResults(Operation *op, const BitVector &eraseIndices);
+ 
+   /// Inline the operations of block 'source' into block 'dest' before the given
+diff --git a/mlir/lib/IR/PatternMatch.cpp b/mlir/lib/IR/PatternMatch.cpp
+index 8a24ffa..286688c 100644
+--- a/mlir/lib/IR/PatternMatch.cpp
++++ b/mlir/lib/IR/PatternMatch.cpp
+@@ -279,6 +279,10 @@ Operation *RewriterBase::eraseOpResults(Operation *op,
+                                         const BitVector &eraseIndices) {
+   assert(op->getNumResults() == eraseIndices.size() &&
+          "number of op results and bitvector size must match");
++  // With nothing to erase, keep the operation rather than replacing it with an
++  // identical one, as eraseOperands does.
++  if (eraseIndices.none())
++    return op;
+ 
+   // Gather new result types.
+   SmallVector<Type> newResultTypes;
+diff --git a/mlir/test/Transforms/remove-dead-values-fixed-point.mlir b/mlir/test/Transforms/remove-dead-values-fixed-point.mlir
+new file mode 100644
+index 0000000..1ffcb9f
+--- /dev/null
++++ b/mlir/test/Transforms/remove-dead-values-fixed-point.mlir
+@@ -0,0 +1,42 @@
++// RUN: mlir-opt %s -split-input-file -verify-diagnostics --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=0} max-iterations=2" | FileCheck %s
++// RUN: mlir-opt %s -split-input-file -verify-diagnostics --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=1} max-iterations=2" | FileCheck %s
++
++// The output of remove-dead-values is a fixed point of the pass: running it
++// again erases nothing and replaces no operation. composite-fixed-point-pass
++// compares OperationFingerPrints, which tell a replaced operation from the
++// original even when the two are identical, so under -verify-diagnostics the
++// RUN lines fail on its non-convergence warning unless the second run leaves
++// the IR untouched.
++
++// A call none of whose results is dead is left as it is.
++// CHECK-LABEL: func.func private @live_result(%{{.*}}: i32) -> i32
++// CHECK-LABEL: func.func @call_with_live_result
++// CHECK:         %[[R:.*]] = call @live_result(%{{.*}}) : (i32) -> i32
++// CHECK:         return %[[R]] : i32
++func.func private @live_result(%x: i32) -> i32 {
++  %c1 = arith.constant 1 : i32
++  %y = arith.addi %x, %c1 : i32
++  return %y : i32
++}
++func.func @call_with_live_result(%x: i32) -> i32 {
++  %r = func.call @live_result(%x) : (i32) -> i32
++  return %r : i32
++}
++
++// -----
++
++// A call whose dead result the first run erases is left as it is by the
++// second.
++// CHECK-LABEL: func.func private @one_dead_result(%{{.*}}: i32) -> i32
++// CHECK-LABEL: func.func @call_with_one_dead_result
++// CHECK:         %[[R:.*]] = call @one_dead_result(%{{.*}}) : (i32) -> i32
++// CHECK:         return %[[R]] : i32
++func.func private @one_dead_result(%x: i32) -> (i32, i32) {
++  %c1 = arith.constant 1 : i32
++  %y = arith.addi %x, %c1 : i32
++  return %x, %y : i32, i32
++}
++func.func @call_with_one_dead_result(%x: i32) -> i32 {
++  %r:2 = func.call @one_dead_result(%x) : (i32) -> (i32, i32)
++  return %r#0 : i32
++}

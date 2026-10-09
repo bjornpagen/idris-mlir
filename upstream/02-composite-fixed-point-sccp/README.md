@@ -109,9 +109,9 @@ it is a note here, not sent (see the plan).
 `PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
 (`foreign/idr/lib/Simplify/Pass.cc`) runs `composite-fixed-point-pass` over
 its round, so the fixpoint is that pass's `OperationFingerPrint`. The patch
-stops `sccp` remaking constants. `idr-dead-values` leaves a call
-`remove-dead-values` would rebuild without erasing a result, so a round at
-the fixpoint keeps the fingerprint (`tests/idr/canon/upstream-passes`,
+stops `sccp` remaking constants. `remove-dead-values`, with
+`upstream/16-remove-dead-values-unchanged-call/llvm.patch`, keeps a call it
+erases no result of, so a round at the fixpoint keeps the fingerprint (`tests/idr/canon/upstream-passes`,
 `tests/idr/loops/tail-loop`). Without the patch every module would run to
 the round budget and fail.
 

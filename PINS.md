@@ -110,16 +110,15 @@ which the top-level CMake configure gate reads.
   the null operand (`mlir/lib/Transforms/RemoveDeadValues.cpp:661` on main,
   the region-branch canonicalization at `:862`, `Matchers.h:491`). It drops
   the uses of a dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Simplify/DeadValues.cppm (`idr-dead-values`,
-  which runs the pass on a copy); the patch itself has no other site
+- sites: foreign/idr/lib/Simplify/Round.cppm (the simplify round runs
+  `remove-dead-values{canonicalize=false}`); the patch itself has no other
+  site
 - workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, the
   pull request: every value the pass erases (function argument, block
   argument, result, result of an erased op) gives its remaining uses a
   ub.poison at its definition, through one helper, `replaceUsesWithPoison`;
-  the pass drops no use. The patch still erases no result of a call by
-  building a new call (`eraseOpResults` on an empty set), so
-  `idr-dead-values` runs the pass
-  on a copy and keeps the module when the copy still hashes the same.
+  the pass drops no use. A call the pass erases no result of is
+  `remove-dead-values-unchanged-call`'s.
   Before the patch, idr-prune emptied the
   code the analyses prove unreachable right
   before `remove-dead-values`, and `symbol-dce` ran between them; with the
@@ -132,12 +131,35 @@ which the top-level CMake configure gate reads.
   constant scrutinee selects), so it needs no emptied region
   (foreign/idr/lib/Canon/MatchPatterns.cppm, `EndAfterNoYield`)
 - retire: drop the patch when the pin has our pull request (or #208881
-  together with a fix for block arguments and results); `idr-dead-values`
-  runs the pass on a copy until `remove-dead-values` leaves a call with
-  nothing to erase as it is
+  together with a fix for block arguments and results)
 - upstream: upstream/06-remove-dead-values-unreachable (function arguments
   reported by others, #206920, #203226, open PR #208881); plan in its
   README: a new issue and a pull request against main for all four sites
+
+## remove-dead-values-unchanged-call
+
+- symptom: on main at 7208ba24, `remove-dead-values` replaces every call of
+  a private function that returns a value with an identical new call, even
+  when it erases none of its results: it lists each such call with the
+  results to erase (`mlir/lib/Transforms/RemoveDeadValues.cpp:362-376`),
+  and `RewriterBase::eraseOpResults` builds a new operation even for an
+  empty set (`mlir/lib/IR/PatternMatch.cpp:278-314`). The module prints the
+  same, but `OperationFingerPrint` changes, so a simplify round at its
+  fixpoint would never keep the fingerprint, and every program with such a
+  call would run to the round budget
+- sites: none in our code; the patch. The simplify round runs
+  `remove-dead-values{canonicalize=false}` itself
+  (foreign/idr/lib/Simplify/Round.cppm)
+- workaround: `upstream/16-remove-dead-values-unchanged-call/llvm.patch`, the
+  pull request: `eraseOpResults` returns the operation unchanged when it
+  erases no result, as `eraseOperands` does for operands. It replaces
+  `idr-dead-values`, which ran the pass on a copy and kept the module when
+  the copy hashed the same up to operation identity
+- retire: drop the patch when the pin has the fix (in `eraseOpResults` or in
+  the pass); the round keeps running `remove-dead-values` as it is
+- upstream: upstream/16-remove-dead-values-unchanged-call (not filed;
+  `check-mlir` not run on main); plan in its README: an issue and a pull
+  request
 
 ## remove-dead-values-address-taken
 
@@ -258,8 +280,8 @@ which the top-level CMake configure gate reads.
   keeps the module's fingerprint. `idr-simplify` runs
   `composite-fixed-point-pass` over the round, with `max-iterations` its
   `max-rounds`. A round at the fixpoint keeps the fingerprint: `sccp` no
-  longer remakes constants, and `idr-dead-values` does not rebuild a call
-  `remove-dead-values` would leave unchanged
+  longer remakes constants, and `remove-dead-values` keeps a call it erases
+  no result of (`remove-dead-values-unchanged-call`)
   (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
   upstream pass gives its caller no hook per iteration and, with
   `on-convergence-failure=error`, an error of its own, which is not the

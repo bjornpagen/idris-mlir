@@ -7,6 +7,5 @@ export module idr.simplify;
 
 export import :breakers;
 export import :contify;
-export import :deadvalues;
 export import :round;
 export import :trace;

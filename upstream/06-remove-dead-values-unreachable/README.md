@@ -146,10 +146,10 @@ trunk's `.clang-format`. On main, see Testing on main.
 The patch still rebuilds a call whose set of results to erase is empty:
 the cleanup lists every call of a private function that returns a value,
 and `eraseOpResults` builds a new op even for an empty set. The module
-prints the same, but `OperationFingerPrint` changes, so `idr-dead-values`
-runs the pass on a copy and keeps the module when the copy still hashes
-the same (`foreign/idr/lib/Simplify/DeadValues.cppm`). That is a separate
-matter and not part of this patch.
+prints the same, but `OperationFingerPrint` changes. That is a separate
+bug, `upstream/16-remove-dead-values-unchanged-call`, whose patch makes
+`eraseOpResults` keep an operation it erases no result of; it is not part
+of this patch.
 
 ## Workaround
 

@@ -111,7 +111,7 @@ at 4cfce76, which cb65104 deleted; the open ones are carried here.
 | 15 | Base's foreign surface rejected as `%foreign` | System.File, Directory, Clock, Errno, getArgs, getEnv, Term | 62 foreign definitions in File, Clock, Directory and System; at least 10 upstream tests (read: `findings/upstream-idris/results`) | S5 |
 | 16 | The acyclic-heap decision, not enforced | `decision-acyclic-heap.md`; no `cycle` rule in Rule.idr | 0 checks | §3 |
 | 17 | The in-place promise of README's "Why not Lean 4", not enforced | "the static promise is not" (read: README.md) | 0 checks | §3 |
-| 18 | Two clang-module workarounds in our code instead of patches, contrary to AGENTS' patch rule | PINS `clang-module-layout-forward-declaration`, `clang-module-predeclared-new` | 2 | §6 |
+| 18 | A clang-module workaround in our code instead of a patch, contrary to AGENTS' patch rule | PINS `clang-module-layout-forward-declaration`; `clang-module-predeclared-new`'s went with the LLVM pin (20fcfadb) | 1 (2 at cb65104) | §6 |
 | 19 | The grade as a wrapper type, unwrapped by hand | `unrestricted(` | 98 sites | kept (§7) |
 
 ## 2. The six moves
@@ -340,9 +340,11 @@ C++ code using a poison value to mean "no value".
 - C++ that means "no value" says `std::optional`.
 - A clone that names itself to keep "callers to come" stays as it is.
   Symbol visibility `nested` was proposed here and does not hold:
-  `remove-dead-values` keeps the parameters of a public function only
-  (read: `mlir/lib/Transforms/RemoveDeadValues.cpp:278`), and the
-  verifier allows one public function, the root.
+  `remove-dead-values` keeps the parameters of a function only when it is
+  public or external, or has users outside the pass root (read:
+  `mlir/lib/Transforms/RemoveDeadValues.cpp:280-281`, at 7208ba24), and a
+  `nested` function of the program's module, the pass root, is none of
+  these. The verifier allows one public function, the program's root.
 
 ### S3. One object model and one evaluation mode
 
@@ -475,13 +477,16 @@ in the registry, as `Data.Buffer`'s are, and each gets one meaning in
 - **A `File` is the runtime's small integer.** This is what `AnyPtr`
   already is for the three standard streams (the same decision note), so
   `FilePtr` stays an integer and never becomes an address.
-- **The environment is a primitive returning `Maybe String`.** `getEnv`
-  stops going through the excluded `prim__getString` of a pointer.
+- **The environment goes through base's own code.** Proposal 0002 (owner
+  decision O1) made every pointer of base's a runtime handle, so `getEnv`
+  reads its string through `prim__getString` of a string handle, as base
+  writes it, and no wrapper is recognized by name but `exitWith`.
 - **Signal handlers stay out.** A handler runs an effect at a time the
   world does not name, the finalizer's reason. They get their own named
   rule, `unsupported (signal)`, instead of the generic `%foreign` one.
-- **Process creation (`system`, `popen`) waits for a decision.** It is open
-  question 3 in `README.md`.
+- **Process creation (`system`, `popen`) stays out.** Proposal 0002 (owner
+  decision O4) refuses it by name with its own rule, `unsupported
+  (process)`, as signals and threads are refused.
 
 #### S5.3 The world is per shard; waiting is an effect
 
@@ -581,6 +586,18 @@ stated today; two are enforced.
 | `llvm.intr.coro.*` and `llvm.call_intrinsic` for `coro.done`/`destroy`/`alloc` | waiting frames (`concurrency.md` §3) | — (new) |
 | `createCanonicalizerPass(GreedyRewriteConfig)` with a listener | idr-canonicalize | the copy of canonicalize's options (audit §4.2 #3) |
 | `missed` remarks wherever a pass declines | every pass of ours | silence (MLIR survey §1) |
+| `composite-fixed-point-pass`, silent at its budget | the simplify loop (since 20fcfadb) | `idr-simplify`'s own loop |
+
+`composite-fixed-point-pass` was rejected here for the simplify loop, for
+the measured `sccp` reason in `upstream/02-composite-fixed-point-sccp`.
+That patch removes the reason: `sccp` keeps the constants the module
+already holds. Since the LLVM pin moved to 7208ba24 (20fcfadb),
+`idr-simplify` runs the upstream pass over the round, silent at its
+budget, between two passes of ours that open and close a round, and its
+fixpoint test is the pass's `OperationFingerPrint`
+(`llvm-trunk-mechanisms.md`, "Adopted in the cutover"). A round at the
+fixpoint keeps the fingerprint: `remove-dead-values` now keeps a call it
+erases no result of as well (§6).
 
 ### Rejected, with the reason that holds
 
@@ -609,9 +626,6 @@ heap cells and counted.
 
 **MPI for collectives.** `ShardToMPI` targets processes and MPI. Our shards
 are threads with queues.
-
-**`composite-fixed-point-pass`** stays rejected for the simplify loop, for
-the measured `sccp` reason in `upstream/02-composite-fixed-point-sccp`.
 
 ## 5. Requirements deleted
 
@@ -642,16 +656,28 @@ real, and what replaces it.
 These are known issues of the tree that need no design, listed so that the
 ordered work in `README.md` carries them:
 
-- **The two clang module crashes** (PINS
-  `clang-module-layout-forward-declaration`, `clang-module-predeclared-new`):
-  reduce them, patch clang in `upstream/<bug>/clang.patch`, and delete the
-  workarounds in `Stack/Escape.cppm` and `Driver/Retarget.cppm`. They are
-  unreduced today; their READMEs record the reduction plan.
-- **`idr-dead-values`** runs `remove-dead-values` on a copy and keeps the
-  module when the copy hashes the same (read: Passes.td). It is a
-  workaround for upstream behaviour: a call rebuilt when nothing is erased.
-  It belongs in the existing `remove-dead-values-unreachable` patch, or a
-  report of its own.
+- **The clang module crash** (PINS
+  `clang-module-layout-forward-declaration`): reduce it, then move the pin
+  past a fix on main or patch clang in its `upstream/` directory, and
+  delete the workaround in `Stack/Escape.cppm`. It crashes only the x86_64
+  Linux build: its check runs on Linux alone, and the clangs of 23.1.2 and
+  of 7208ba24 compile the report's unit on arm64 macOS. It is unreduced,
+  and no x86_64 Linux toolchain is built at the pin yet to rerun it on;
+  its README records the plan. The second,
+  `clang-module-predeclared-new`, went with the LLVM pin (20fcfadb):
+  main's clang compiles its unit on arm64 macOS, so `Driver/Retarget.cppm`
+  builds its feature string as `std::string` again, and the report, its
+  check and the workaround are gone. That is rechecked on x86_64 Linux
+  when its toolchain is rebuilt at the pin.
+- **`idr-dead-values`** ran `remove-dead-values` on a copy and kept the
+  module when the copy hashed the same: a workaround for upstream
+  behaviour, a call rebuilt when nothing is erased. Proposal 0002 deleted
+  it. The fix is a report of its own,
+  `upstream/16-remove-dead-values-unchanged-call`, not a hunk of
+  `remove-dead-values-unreachable`'s patch: its `llvm.patch` makes
+  `RewriterBase::eraseOpResults` keep an op it erases no result of, as
+  `eraseOperands` returns early on an empty set. The simplify round runs
+  upstream's `remove-dead-values{canonicalize=false}` directly.
 - **`findings/upstream-idris/`** is the output location of
   `tests/upstream-idris/run` (read: that script, `results=$root/findings/upstream-idris/results`).
   cb65104 deleted its results. This restructure restores the directory from

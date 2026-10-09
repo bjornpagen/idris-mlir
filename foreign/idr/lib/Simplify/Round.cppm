@@ -34,10 +34,13 @@ export SmallVector<std::string> simplifyRound(unsigned inlineIterations) {
       "idr-canonicalize",
       "cse",
       "idr-eval",
-      // idr-dead-values runs remove-dead-values without its own
-      // canonicalization, and leaves a call the pass would rebuild without
-      // changing.
-      "idr-dead-values",
+      // remove-dead-values without its own canonicalization, which folds
+      // region-branch patterns on the matches alone: a field one of them
+      // folds leaves the constructor it read dead but in place, still
+      // holding a world or a linear value that the fold's user now holds
+      // too. The next round's canonicalization runs on everything and
+      // erases what is dead.
+      "remove-dead-values{canonicalize=false}",
       "symbol-dce",
   };
 }

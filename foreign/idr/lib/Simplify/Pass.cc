@@ -16,9 +16,8 @@
 //
 // PIN(simplify-structural-fixpoint) — see PINS.md
 // "Unchanged" is OperationFingerPrint. sccp keeps the constants the module
-// already holds, and idr-dead-values leaves a call remove-dead-values would
-// rebuild without changing, so a round at the fixpoint keeps the
-// fingerprint.
+// already holds, and remove-dead-values keeps a call it erases no result
+// of, so a round at the fixpoint keeps the fingerprint.
 //
 // The round runs in a pipeline of the loop's, whose statistics the pass
 // manager never prints: this pass shows them as its own. Two passes that

@@ -97,11 +97,15 @@ llvm-project paths and line numbers are at 7208ba24 unless a line says
   - it canonicalizes each root region with an explicit scope (`:838-866`).
 
   None of these gives the remaining uses of an erased value a definition.
-  `idr-dead-values` still has to run the pass on a copy:
+  Nor does main keep a call the pass erases no result of:
   `RewriterBase::eraseOpResults` still builds a new op when nothing is to be
-  erased (read: `mlir/lib/IR/PatternMatch.cpp:278-314`, no early return).
-  The pass still calls it for every listed call (read:
-  `RemoveDeadValues.cpp:201-209`, `:733`).
+  erased (read: `mlir/lib/IR/PatternMatch.cpp:278-314`, no early return),
+  and the pass still calls it for every listed call (read:
+  `RemoveDeadValues.cpp:201-209`, `:733`). `idr-dead-values` ran the pass
+  on a copy for that. Proposal 0002 replaced it with a patch of its own,
+  `upstream/16-remove-dead-values-unchanged-call`, which makes
+  `eraseOpResults` keep an op it erases no result of, and the simplify
+  round now runs `remove-dead-values{canonicalize=false}` directly.
 - **`mlir-recursion`: keep.** The parser still recurses per level of
   nesting (read: `mlir/lib/AsmParser/AttributeParser.cpp:49`, `:74`). The
   printer's attribute recursion is unchanged; its diff touches properties,

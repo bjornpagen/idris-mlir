@@ -1,0 +1,33 @@
+#!/bin/sh
+# The pinned mlir-opt, with upstream/16-remove-dead-values-unchanged-call/llvm.patch,
+# no longer shows the bug: remove-dead-values, on a module from which it
+# erases nothing, leaves the call of a private function as it is, so
+# composite-fixed-point-pass over it converges after one run, with the
+# pass's canonicalization and without. An unpatched mlir-opt (main at
+# 7208ba24) replaces the call with an identical one, which the composite
+# pass's fingerprint counts as a change. When the pin's eraseOpResults
+# keeps an operation it erases no result of, the patch goes, and with it
+# the PINS.md entry remove-dead-values-unchanged-call, the report and this
+# test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/16-remove-dead-values-unchanged-call/unchanged-call.mlir
+# The pass has nothing to erase: it prints the module as it was.
+bounded "$llvm_bin/mlir-opt" "$input" > "$work/before.mlir" 2> "$work/err" &&
+  bounded "$llvm_bin/mlir-opt" "$input" --remove-dead-values > "$work/after.mlir" 2>> "$work/err"
+if ! cmp -s "$work/before.mlir" "$work/after.mlir"; then
+  say "remove-dead-values: changes the module, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+for canonicalize in true false; do
+  bounded "$llvm_bin/mlir-opt" "$input" \
+    --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=$canonicalize} max-iterations=1 on-convergence-failure=error" \
+    > /dev/null 2> "$work/err"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    say "canonicalize=$canonicalize: no longer rebuilds (converges after one run)"
+  else
+    say "canonicalize=$canonicalize: rebuilds the call (exit $status)"
+    show "$work/err"
+  fi
+done

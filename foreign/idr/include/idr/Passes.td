@@ -534,24 +534,12 @@ def IdrCanonicalize : Pass<"idr-canonicalize"> {
   ];
 }
 
-def IdrDeadValues : Pass<"idr-dead-values", "::mlir::ModuleOp"> {
-  let summary = "Remove dead values, leaving a call that does not change where it is";
-  let description = [{
-    Runs `remove-dead-values` with its canonicalization off. That pass
-    builds a new call for every call of a private function that returns a
-    value, even when it erases no result, so the module prints the same and
-    `OperationFingerPrint` changes. This pass runs it on a copy and keeps
-    the module when the copy still hashes the same.
-  }];
-  let dependentDialects = ["::mlir::ub::UBDialect"];
-}
-
 def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing";
   let description = [{
     Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
     int-range-optimizations, idr-canonicalize, cse, idr-eval,
-    idr-dead-values and symbol-dce, again and again, until a round
+    remove-dead-values and symbol-dce, again and again, until a round
     leaves every operation where it is. Every member
     of the round is finite, so the rounds end; `max-rounds` asserts it: a
     module that still changes after that many rounds is the error

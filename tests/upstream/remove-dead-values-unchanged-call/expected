@@ -1,0 +1,2 @@
+canonicalize=true: no longer rebuilds (converges after one run)
+canonicalize=false: no longer rebuilds (converges after one run)
