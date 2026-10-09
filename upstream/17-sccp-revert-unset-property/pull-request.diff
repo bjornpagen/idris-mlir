@@ -1,0 +1,69 @@
+diff --git a/mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp b/mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp
+index d067365..a22bffc 100644
+--- a/mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp
+@@ -66,12 +66,21 @@ LogicalResult SparseConstantPropagation::visitOperation(
+     constantOperands.push_back(operandLattice->getValue().getConstantValue());
+   }
+ 
+-  // Save the original operands and attributes just in case the operation
+-  // folds in-place. The constant passed in may not correspond to the real
+-  // runtime value, so in-place updates are not allowed.
++  // Save the original operands, attributes and properties just in case the
++  // operation folds in-place. The constant passed in may not correspond to the
++  // real runtime value, so in-place updates are not allowed. The properties
++  // are copied as stored: restoring them from their attribute form would not
++  // clear a property that the fold set on an operation that had none.
+   SmallVector<Value, 8> originalOperands(op->getOperands());
+   DictionaryAttr originalAttrs = op->getDiscardableAttrDictionary();
+-  Attribute originalProperties = op->getPropertiesAsAttribute();
++  OperationName name = op->getName();
++  void *originalProperties = nullptr;
++  if (PropertyRef properties = op->getPropertiesStorage()) {
++    originalProperties = operator new(op->getPropertiesStorageSize());
++    name.initOpProperties(
++        PropertyRef(name.getOpPropertiesTypeID(), originalProperties),
++        properties);
++  }
+ 
+   // Simulate the result of folding this operation to a constant.
+   SmallVector<OpFoldResult, 8> foldResults;
+@@ -85,9 +94,12 @@ LogicalResult SparseConstantPropagation::visitOperation(
+   if (!llvm::equal(op->getOperands(), originalOperands))
+     op->setOperands(originalOperands);
+   op->setDiscardableAttrs(originalAttrs);
+-  if (originalProperties)
+-    (void)op->setPropertiesFromAttribute(originalProperties,
+-                                         /*emitError=*/nullptr);
++  if (originalProperties) {
++    PropertyRef saved(name.getOpPropertiesTypeID(), originalProperties);
++    op->copyProperties(saved);
++    name.destroyOpProperties(saved);
++    operator delete(originalProperties);
++  }
+ 
+   // If folding failed or was in-place, mark the results as overdefined. We
+   // don't allow in-place folds here: the goal is simulated execution, not
+diff --git a/mlir/test/Transforms/sccp.mlir b/mlir/test/Transforms/sccp.mlir
+index 95f0961..aa89d92 100644
+--- a/mlir/test/Transforms/sccp.mlir
++++ b/mlir/test/Transforms/sccp.mlir
+@@ -366,3 +366,18 @@ func.func @no_inplace_extract_fold_of_speculative_constant(%a: f32, %b: f32) ->
+ ^bb2:
+   return %e : f32
+ }
++
++// -----
++
++// Regression test: SCCP must also revert a property that an in-place fold sets
++// on an operation that had none. The outer `arith.extui` folds in place
++// through the inner one and takes its `nneg` flag.
++
++// CHECK-LABEL: func @no_inplace_fold_of_unset_property
++func.func @no_inplace_fold_of_unset_property(%x: i3) -> i16 {
++  // CHECK: %[[A:.*]] = arith.extui %{{.*}} nneg : i3 to i8
++  %a = arith.extui %x nneg : i3 to i8
++  // CHECK: arith.extui %[[A]] : i8 to i16
++  %b = arith.extui %a : i8 to i16
++  return %b : i16
++}

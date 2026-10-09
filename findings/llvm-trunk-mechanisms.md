@@ -361,8 +361,9 @@ listed because the diff showed them:
     the folder sets `nneg` on `%b` in place
     (read: `mlir/lib/Dialect/Arith/IR/ArithOps.cpp:1813`) and `sccp`
     leaves it there. That is harmless in this case, since `%b`'s operand
-    is a zero extension and so is never negative. Reporting it upstream is
-    separate work.
+    is a zero extension and so is never negative. Reported as
+    `upstream/17-sccp-revert-unset-property`, a pull request not carried
+    and not yet filed; its README says why the compiler is not affected.
   - **The gap was not a live bug** (read, at 0451b1b8). No folder of ours
     changes its op at all: each folder in `Dialect/Ops`,
     `Dialect/Canonicalize/Con.cc` and `Fold` reads its op and returns a

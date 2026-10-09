@@ -1,0 +1,24 @@
+#!/bin/sh
+# The upstream bug upstream/17-sccp-revert-unset-property still reproduces
+# with the pinned mlir-opt: sccp, simulating the fold of an arith.extui of
+# an arith.extui nneg, leaves the inner one's nneg flag on the outer one,
+# which had no property set. Nothing else in the module changes. This
+# repository carries no patch for it (the README says why). When this
+# fails, the bug is fixed: the report and this test go
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/17-sccp-revert-unset-property/unset-property.mlir
+bounded "$llvm_bin/mlir-opt" "$input" > "$work/before.mlir" 2> "$work/err" &&
+  bounded "$llvm_bin/mlir-opt" "$input" --sccp > "$work/after.mlir" 2>> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "sccp: mlir-opt failed (exit $status), which is not this bug"
+  show "$work/err"
+elif cmp -s "$work/before.mlir" "$work/after.mlir"; then
+  say "sccp: no longer reproduces (the module is as it was)"
+elif sed 's/ nneg : i8 to i16$/ : i8 to i16/' "$work/after.mlir" | cmp -s "$work/before.mlir" -; then
+  say "sccp: still reproduces (the outer extui gains nneg)"
+else
+  say "sccp: changes the module otherwise, which is not this bug"
+  diff "$work/before.mlir" "$work/after.mlir" | head -n 20 | sed 's/^/  | /'
+fi

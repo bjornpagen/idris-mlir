@@ -26,7 +26,7 @@ Directory 15 is never filed (see the table).
   llvm-project when it builds the toolchain; `tests/spec/upstream-patches`
   checks they apply.
 - `pull-request.diff`: the pull request for a change this repository does
-  not carry (08), which the bootstrap therefore never applies. Apply
+  not carry (08, 17), which the bootstrap therefore never applies. Apply
   either file with `git apply`; the commit message comes from
   `submission.md`, never from the file's header.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
@@ -68,6 +68,7 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 | 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; rerun on x86_64 Linux at the pin (it does not reproduce on arm64 macOS), then reduce, compare with #219926 |
 | 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
+| 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
