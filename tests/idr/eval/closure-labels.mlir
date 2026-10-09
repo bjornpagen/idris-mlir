@@ -8,10 +8,10 @@
 // they were.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK-NOT: call
-// CHECK-DAG: idr.constant #idr.closure<@f, []> : !idr.fn<(i64, i64, i64) -> (i64)>
-// CHECK-DAG: idr.constant #idr.closure<@f, [7]> : !idr.fn<(i64, i64) -> (i64)>
-// CHECK-DAG: idr.constant #idr.closure<@f, [7, 8]> : !idr.fn<(i64) -> (i64)>
-// CHECK-DAG: idr.constant #idr.closure<@g, ["seven"]> : !idr.fn<(i64) -> (i64)>
+// CHECK-DAG: idr.constant #idr.closure<@f, []> : !idr.fn<(i64, i64, i64) -> i64>
+// CHECK-DAG: idr.constant #idr.closure<@f, [7]> : !idr.fn<(i64, i64) -> i64>
+// CHECK-DAG: idr.constant #idr.closure<@f, [7, 8]> : !idr.fn<(i64) -> i64>
+// CHECK-DAG: idr.constant #idr.closure<@g, ["seven"]> : !idr.fn<(i64) -> i64>
 // CHECK: return
 // REMARK: remark: [Passed] Evaluated
 module {

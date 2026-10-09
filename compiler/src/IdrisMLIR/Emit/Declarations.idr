@@ -55,7 +55,7 @@ function ix root f = do
   let shared = f.arity == 0 && lazyResult f.result
   let fn = Func.funcOp {symVisibility = if f.id == root then Nothing else Just "private",
                         noInline = shared} sym
-                       (functionType (map (\a : Value => a.type) args) [rt])
+                       (FunctionType (MkSignature (map (\a : Value => a.type) args) [rt]))
                        (MkRegion args body)
   pure (MkStatement Nothing ({ attributes := attributes (own f) } fn) (Named f.idrisName f.loc))
   where

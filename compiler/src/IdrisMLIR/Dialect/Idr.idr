@@ -4,17 +4,13 @@
 module IdrisMLIR.Dialect.Idr
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Idr
 
 %default total
 
 ------------------------------------------------------------------------------
 -- Enums
 ------------------------------------------------------------------------------
-
-namespace CmpPredicate
-  ||| a comparison of strings or bigs
-  public export
-  data CmpPredicate = Eq | Lt | Lte | Gt | Gte
 
 -- The value that stands for a CmpPredicate, as the ops below write it.
 cmpPredicateValue : CmpPredicate -> Integer
@@ -25,118 +21,23 @@ cmpPredicateValue CmpPredicate.Gt = 3
 cmpPredicateValue CmpPredicate.Gte = 4
 
 ------------------------------------------------------------------------------
--- Types and attributes
+-- Discardable attributes
 ------------------------------------------------------------------------------
-
-||| `!idr.big`: an Integer
-export
-bigType : MlirType
-bigType = MkMlirType "!idr.big"
-
-||| `!idr.box`: a value of the boxed type declared by idr.data ... box
-export
-boxType : (name : String) -> MlirType
-boxType name = MkMlirType ("!idr.box<" ++ (flatSymbolRefAttr name).text ++ ">")
-
-||| `!idr.data`: a value of the unboxed sum declared by idr.data
-export
-dataType : (name : String) -> MlirType
-dataType name = MkMlirType ("!idr.data<" ++ (flatSymbolRefAttr name).text ++ ">")
-
-||| `!idr.dest`: a field of a cell built without it, to be written exactly once
-export
-destType : (value : MlirType) -> MlirType
-destType value = MkMlirType ("!idr.dest<" ++ value.text ++ ">")
-
-||| `!idr.lazy`: a suspension of one value, forced once into this cell
-export
-lazyType : (value : MlirType) -> MlirType
-lazyType value = MkMlirType ("!idr.lazy<" ++ value.text ++ ">")
-
-||| `!idr.nat`: a natural number: a non-negative big
-export
-natType : MlirType
-natType = MkMlirType "!idr.nat"
-
-||| `!idr.str`: a string (UTF-8)
-export
-strType : MlirType
-strType = MkMlirType "!idr.str"
-
-||| `!idr.token`: the memory of a cell whose fields idr.take moved out, or null
-export
-tokenType : MlirType
-tokenType = MkMlirType "!idr.token"
-
-||| `!idr.world`: the IO world token
-export
-worldType : MlirType
-worldType = MkMlirType "!idr.world"
-
-||| `#idr.big`: an integer of any size, in canonical decimal
-export
-bigAttr : (value : String) -> MlirAttr
-bigAttr value = MkMlirAttr ("#idr.big<" ++ (stringAttr value).text ++ ">")
-
-||| `#idr.clone`: a clone, named, and the key it is the function of
-export
-cloneAttr : (function : String) -> (key : MlirAttr) -> MlirAttr
-cloneAttr function key = MkMlirAttr ("#idr.clone<" ++ (flatSymbolRefAttr function).text ++ ", " ++ key.text ++ ">")
-
-||| `#idr.closure`: a closure of a function with its captures as attributes
-export
-closureAttr : (callee : String) -> (captures : List MlirAttr) -> MlirAttr
-closureAttr callee captures = MkMlirAttr ("#idr.closure<" ++ (flatSymbolRefAttr callee).text ++ ", " ++ (arrayAttr captures).text ++ ">")
-
-||| `#idr.erased`: the erased value
-export
-erasedAttr : MlirAttr
-erasedAttr = MkMlirAttr "#idr.erased"
-
-||| `#idr.key_apply`: the key of a clone that applies its callee's result
-export
-keyApplyAttr : (callee : String) -> (arity : Nat) -> MlirAttr
-keyApplyAttr callee arity = MkMlirAttr ("#idr.key_apply<" ++ (stringAttr callee).text ++ ", " ++ show arity ++ ">")
-
-||| `#idr.key_apply_field`: the key of a clone that applies field `index` of `ctor` of its callee's result
-export
-keyApplyFieldAttr : (callee : String) -> (arity : Nat) -> (ctor : String) -> (index : Nat) -> MlirAttr
-keyApplyFieldAttr callee arity ctor index = MkMlirAttr ("#idr.key_apply_field<" ++ (stringAttr callee).text ++ ", " ++ show arity ++ ", " ++ (stringAttr ctor).text ++ ", " ++ show index ++ ">")
-
-||| `#idr.key_closure`: a closure of `callee` in a key, over the patterns of its captures
-export
-keyClosureAttr : (callee : String) -> (captures : List MlirAttr) -> MlirAttr
-keyClosureAttr callee captures = MkMlirAttr ("#idr.key_closure<" ++ (stringAttr callee).text ++ ", " ++ (arrayAttr captures).text ++ ">")
-
-||| `#idr.key_con`: a constructor `@data::@ctor` in a key, over the patterns of its fields
-export
-keyConAttr : (data' : String) -> (ctor : String) -> (fields : List MlirAttr) -> MlirAttr
-keyConAttr data' ctor fields = MkMlirAttr ("#idr.key_con<" ++ (stringAttr data').text ++ ", " ++ (stringAttr ctor).text ++ ", " ++ (arrayAttr fields).text ++ ">")
-
-||| `#idr.key_hole`: a runtime leaf of a key: the clone's parameter that holds it
-export
-keyHoleAttr : (index : Nat) -> MlirAttr
-keyHoleAttr index = MkMlirAttr ("#idr.key_hole<" ++ show index ++ ">")
-
-||| `#idr.spec_key`: the key of a clone that specializes
-export
-specKeyAttr : (origin : String) -> (patterns : List MlirAttr) -> MlirAttr
-specKeyAttr origin patterns = MkMlirAttr ("#idr.spec_key<" ++ (stringAttr origin).text ++ ", " ++ (arrayAttr patterns).text ++ ">")
 
 ||| The discardable attribute `idr.program`.
 export
 programDiscardable : NamedAttr
-programDiscardable = ("idr.program", unitAttr)
+programDiscardable = ("idr.program", UnitAttr)
 
 ||| The discardable attribute `idr.total`.
 export
 totalDiscardable : NamedAttr
-totalDiscardable = ("idr.total", unitAttr)
+totalDiscardable = ("idr.total", UnitAttr)
 
 ||| The discardable attribute `idr.break_last`.
 export
 breakLastDiscardable : NamedAttr
-breakLastDiscardable = ("idr.break_last", unitAttr)
+breakLastDiscardable = ("idr.break_last", UnitAttr)
 
 ||| The discardable attribute `idr.effects`.
 export
@@ -146,7 +47,7 @@ effectsDiscardable a = ("idr.effects", a)
 ||| The discardable attribute `idr.stack`.
 export
 stackDiscardable : NamedAttr
-stackDiscardable = ("idr.stack", unitAttr)
+stackDiscardable = ("idr.stack", UnitAttr)
 
 ||| The discardable attribute `idr.clone`.
 export
@@ -166,37 +67,37 @@ holeDiscardable a = ("idr.hole", a)
 export
 applyOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> (callee : Value) -> (args : List Value) -> (results : List MlirType) -> Op
 applyOp callee args results =
-  MkOp "idr.apply" (concat [[callee], args]) (attrIf "arg_attrs" arrayAttr argAttrs ++ attrIf "res_attrs" arrayAttr resAttrs) [] [] results
+  MkOp "idr.apply" (concat [[callee], args]) (attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
 
 ||| `idr.array.fold`: an array folded from the left in index order
 export
-arrayFoldOp : (array : Value) -> (init : Value) -> (world : Value) -> (body : Region) -> (result : MlirType) -> (next : MlirType) -> Op
-arrayFoldOp array init world body result next =
-  MkOp "idr.array.fold" [array, init, world] [] [body] [] [result, next]
+arrayFoldOp : (array' : Value) -> (init : Value) -> (world : Value) -> (body : Region) -> (result : MlirType) -> (next : MlirType) -> Op
+arrayFoldOp array' init world body result next =
+  MkOp "idr.array.fold" [array', init, world] [] [body] [] [result, next]
 
 ||| `idr.array.generate`: a new array of the body's value at each index
 export
-arrayGenerateOp : (size : Value) -> (fill : Value) -> (world : Value) -> (body : Region) -> (array : MlirType) -> (next : MlirType) -> Op
-arrayGenerateOp size fill world body array next =
-  MkOp "idr.array.generate" [size, fill, world] [] [body] [] [array, next]
+arrayGenerateOp : (size : Value) -> (fill : Value) -> (world : Value) -> (body : Region) -> (array' : MlirType) -> (next : MlirType) -> Op
+arrayGenerateOp size fill world body array' next =
+  MkOp "idr.array.generate" [size, fill, world] [] [body] [] [array', next]
 
 ||| `idr.array.get`: the element of an array at an index
 export
-arrayGetOp : (array : Value) -> (index : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
-arrayGetOp array index world value next =
-  MkOp "idr.array.get" [array, index, world] [] [] [] [value, next]
+arrayGetOp : (array' : Value) -> (index : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+arrayGetOp array' index world value next =
+  MkOp "idr.array.get" [array', index, world] [] [] [] [value, next]
 
 ||| `idr.array.new`: a new array of `size` copies of `fill`
 export
-arrayNewOp : (size : Value) -> (fill : Value) -> (world : Value) -> (array : MlirType) -> (next : MlirType) -> Op
-arrayNewOp size fill world array next =
-  MkOp "idr.array.new" [size, fill, world] [] [] [] [array, next]
+arrayNewOp : (size : Value) -> (fill : Value) -> (world : Value) -> (array' : MlirType) -> (next : MlirType) -> Op
+arrayNewOp size fill world array' next =
+  MkOp "idr.array.new" [size, fill, world] [] [] [] [array', next]
 
 ||| `idr.array.set`: writes an element of an array at an index
 export
-arraySetOp : (array : Value) -> (index : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
-arraySetOp array index value world next =
-  MkOp "idr.array.set" [array, index, value, world] [] [] [] [next]
+arraySetOp : (array' : Value) -> (index : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+arraySetOp array' index value world next =
+  MkOp "idr.array.set" [array', index, value, world] [] [] [] [next]
 
 ||| `idr.big.add`: the sum of two bigs or two naturals
 export
@@ -214,7 +115,7 @@ bigAndOp lhs rhs result =
 export
 bigCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 bigCmpOp predicate lhs rhs result =
-  MkOp "idr.big.cmp" [lhs, rhs] [("predicate", integerAttr (cmpPredicateValue predicate) (integerType 64))] [] [] [result]
+  MkOp "idr.big.cmp" [lhs, rhs] [("predicate", IntegerAttr (cmpPredicateValue predicate) (IntegerType 64))] [] [] [result]
 
 ||| `idr.big.div`: the quotient of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
@@ -316,49 +217,49 @@ borrowOp value result =
 export
 checkByteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkByteOp value cause checked =
-  MkOp "idr.check.byte" [value] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.byte" [value] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.check.finite`: the value, which must be neither NaN nor infinite, else the program crashes
 export
 checkFiniteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkFiniteOp value cause checked =
-  MkOp "idr.check.finite" [value] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.finite" [value] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.check.in_bounds`: the index, which must be at least 0 and below the length, else the program crashes
 export
 checkInBoundsOp : (index : Value) -> (length' : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkInBoundsOp index length' cause checked =
-  MkOp "idr.check.in_bounds" [index, length'] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.in_bounds" [index, length'] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.check.nonempty`: the string, which must have at least one byte, else the program crashes
 export
 checkNonemptyOp : (str : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkNonemptyOp str cause checked =
-  MkOp "idr.check.nonempty" [str] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.nonempty" [str] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.check.nonzero`: the value, which must not be zero, else the program crashes
 export
 checkNonzeroOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkNonzeroOp value cause checked =
-  MkOp "idr.check.nonzero" [value] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.nonzero" [value] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.check.range`: the offset, whose range of `count` bytes must lie in `size`, else the program crashes
 export
 checkRangeOp : (offset : Value) -> (count : Value) -> (size : Value) -> (cause : String) -> (checked : MlirType) -> Op
 checkRangeOp offset count size cause checked =
-  MkOp "idr.check.range" [offset, count, size] [("cause", stringAttr cause)] [] [] [checked]
+  MkOp "idr.check.range" [offset, count, size] [("cause", StringAttr cause)] [] [] [checked]
 
 ||| `idr.closure`: a closure of a function: its leading parameters are the captures
 export
 closureOp : (callee : String) -> (captures : List Value) -> (result : MlirType) -> Op
 closureOp callee captures result =
-  MkOp "idr.closure" captures [("callee", flatSymbolRefAttr callee)] [] [] [result]
+  MkOp "idr.closure" captures [("callee", SymbolRefAttr (MkSymbolRef callee []))] [] [] [result]
 
 ||| `idr.con`: builds a constructor value
 export
-conOp : (ctor : List String) -> (fields : List Value) -> (result : MlirType) -> Op
+conOp : (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
 conOp ctor fields result =
-  MkOp "idr.con" fields [("ctor", symbolRefAttr ctor)] [] [] [result]
+  MkOp "idr.con" fields [("ctor", SymbolRefAttr ctor)] [] [] [result]
 
 ||| `idr.constant`: a constant: a constructor, closure, string, big or the erased value
 export
@@ -370,7 +271,7 @@ constantOp value result =
 export
 crashOp : (message : String) -> Op
 crashOp message =
-  MkOp "idr.crash" [] [("message", stringAttr message)] [] [] []
+  MkOp "idr.crash" [] [("message", StringAttr message)] [] [] []
 
 ||| `idr.crash_str`: ends the program with a string's text
 export
@@ -382,13 +283,13 @@ crashStrOp message =
 export
 ctorOp : {default False byName : Bool} -> (symName : String) -> (fieldTypes : List MlirType) -> Op
 ctorOp symName fieldTypes =
-  MkOp "idr.ctor" [] ([("sym_name", stringAttr symName), ("field_types", typeArrayAttr fieldTypes)] ++ unitIf "by_name" byName) [] [] []
+  MkOp "idr.ctor" [] ([("sym_name", StringAttr symName), ("field_types", ArrayAttr (map TypeAttr fieldTypes))] ++ unitIf "by_name" byName) [] [] []
 
 ||| `idr.data`: declares a monomorphic data type, unboxed or boxed
 export
 dataOp : {default False box : Bool} -> {default False closures : Bool} -> {default False memo : Bool} -> {default Nothing labels : Maybe (List MlirAttr)} -> (symName : String) -> (body : Region) -> Op
 dataOp symName body =
-  MkOp "idr.data" [] ([("sym_name", stringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" arrayAttr labels) [body] [] []
+  MkOp "idr.data" [] ([("sym_name", StringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" ArrayAttr labels) [body] [] []
 
 ||| `idr.delay`: a suspension whose body is its region; its captures are the values it uses from above
 export
@@ -400,7 +301,7 @@ delayOp body result =
 export
 destOfOp : (value : Value) -> (ctor : String) -> (index : Integer) -> (result : MlirType) -> Op
 destOfOp value ctor index result =
-  MkOp "idr.dest.of" [value] [("ctor", flatSymbolRefAttr ctor), ("index", integerAttr index (integerType 64))] [] [] [result]
+  MkOp "idr.dest.of" [value] [("ctor", SymbolRefAttr (MkSymbolRef ctor [])), ("index", IntegerAttr index (IntegerType 64))] [] [] [result]
 
 ||| `idr.dest.pending`: the operand of a constructor for a field it is built without
 export
@@ -442,7 +343,7 @@ dupOp value result =
 export
 fieldOp : (value : Value) -> (ctor : String) -> (index : Integer) -> (result : MlirType) -> Op
 fieldOp value ctor index result =
-  MkOp "idr.field" [value] [("ctor", flatSymbolRefAttr ctor), ("index", integerAttr index (integerType 64))] [] [] [result]
+  MkOp "idr.field" [value] [("ctor", SymbolRefAttr (MkSymbolRef ctor [])), ("index", IntegerAttr index (IntegerType 64))] [] [] [result]
 
 ||| `idr.force`: the value of a suspension, computed on the first force and shared
 export
@@ -928,13 +829,13 @@ linUseOp linear result =
 export
 matchOp : (scrutinee : Value) -> (cases : List MlirAttr) -> (regions : List Region) -> (results : List MlirType) -> Op
 matchOp scrutinee cases regions results =
-  MkOp "idr.match" [scrutinee] [("cases", arrayAttr cases)] regions [] results
+  MkOp "idr.match" [scrutinee] [("cases", ArrayAttr cases)] regions [] results
 
 ||| `idr.match_lit`: branches on the value of a condition, integer, string, big or natural
 export
 matchLitOp : (scrutinee : Value) -> (cases : List MlirAttr) -> (regions : List Region) -> (results : List MlirType) -> Op
 matchLitOp scrutinee cases regions results =
-  MkOp "idr.match_lit" [scrutinee] [("cases", arrayAttr cases)] regions [] results
+  MkOp "idr.match_lit" [scrutinee] [("cases", ArrayAttr cases)] regions [] results
 
 ||| `idr.may_loop`: marks one iteration of a loop that may not terminate
 export
@@ -968,9 +869,9 @@ osOp result =
 
 ||| `idr.reuse`: builds a boxed constructor in a token's cell, or in a new one when it is null
 export
-reuseOp : (token : Value) -> (ctor : List String) -> (fields : List Value) -> (result : MlirType) -> Op
+reuseOp : (token : Value) -> (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
 reuseOp token ctor fields result =
-  MkOp "idr.reuse" (concat [[token], fields]) [("ctor", symbolRefAttr ctor)] [] [] [result]
+  MkOp "idr.reuse" (concat [[token], fields]) [("ctor", SymbolRefAttr ctor)] [] [] [result]
 
 ||| `idr.share`: gives an owned value on as owned, whatever it alone reached
 export
@@ -1006,7 +907,7 @@ strBytesLengthOp str result =
 export
 strCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 strCmpOp predicate lhs rhs result =
-  MkOp "idr.str.cmp" [lhs, rhs] [("predicate", integerAttr (cmpPredicateValue predicate) (integerType 64))] [] [] [result]
+  MkOp "idr.str.cmp" [lhs, rhs] [("predicate", IntegerAttr (cmpPredicateValue predicate) (IntegerType 64))] [] [] [result]
 
 ||| `idr.str.concat`: the concatenation of a list of strings, built once
 export
@@ -1090,7 +991,7 @@ strToIntOp str result =
 export
 suspendOp : (callee : String) -> (captures : List Value) -> (result : MlirType) -> Op
 suspendOp callee captures result =
-  MkOp "idr.suspend" captures [("callee", flatSymbolRefAttr callee)] [] [] [result]
+  MkOp "idr.suspend" captures [("callee", SymbolRefAttr (MkSymbolRef callee []))] [] [] [result]
 
 ||| `idr.tag`: the constructor tag of a value
 export
@@ -1100,9 +1001,9 @@ tagOp value result =
 
 ||| `idr.take`: consumes a constructor value, each of its fields keeping a reference of its own
 export
-takeOp : (value : Value) -> (ctor : List String) -> (results : List MlirType) -> Op
+takeOp : (value : Value) -> (ctor : SymbolRef) -> (results : List MlirType) -> Op
 takeOp value ctor results =
-  MkOp "idr.take" [value] [("ctor", symbolRefAttr ctor)] [] [] results
+  MkOp "idr.take" [value] [("ctor", SymbolRefAttr ctor)] [] [] results
 
 ||| `idr.to_byte`: an Int from 0 to 255 as a byte
 export
@@ -1510,9 +1411,4 @@ regionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op
 regionOp ArrayGenerate operands body results = MkOp "idr.array.generate" operands [] [body] [] results
 regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [body] [] results
 
--- Not generated:
--- type FnType: its syntax is C++
--- type QType: its parameter `grade` is the C++ `::idr::Grade`
--- attribute ConAttr: its parameter `cells` is the C++ `::llvm::ArrayRef<::mlir::ArrayAttr>`
--- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
 -- fingerprint: 58335236-1069435 71077187-64346

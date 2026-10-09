@@ -17,11 +17,11 @@
 // OUTER-LABEL: func.func private @Main.adder(
 // OUTER-SAME: %[[M:[^:]*]]: !idr.data<@Maybe>, %[[K:[^:]*]]: i64)
 // OUTER: case @Just(%[[J:[^:]*]]: i64) {
-// OUTER-NEXT: %[[C:.*]] = idr.closure @Main.adder$lam{{[0-9]+}}(%[[J]], %[[K]]) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
-// OUTER-NEXT: idr.yield %[[C]] : !idr.fn<(i64) -> (i64)>
+// OUTER-NEXT: %[[C:.*]] = idr.closure @Main.adder$lam{{[0-9]+}}(%[[J]], %[[K]]) : (i64, i64) -> !idr.fn<(i64) -> i64>
+// OUTER-NEXT: idr.yield %[[C]] : !idr.fn<(i64) -> i64>
 // OUTER: default {
-// OUTER-NEXT: %[[D:.*]] = idr.closure @Main.adder$lam{{[0-9]+}}() : () -> !idr.fn<(i64) -> (i64)>
-// OUTER-NEXT: idr.yield %[[D]] : !idr.fn<(i64) -> (i64)>
+// OUTER-NEXT: %[[D:.*]] = idr.closure @Main.adder$lam{{[0-9]+}}() : () -> !idr.fn<(i64) -> i64>
+// OUTER-NEXT: idr.yield %[[D]] : !idr.fn<(i64) -> i64>
 // BODY: func.func private @Main.adder$lam{{[0-9]+}}(%[[J:[^:]*]]: i64, %[[K:[^:]*]]: i64, %[[X:[^:]*]]: i64) -> i64
 // BODY-SAME: attributes {idr.break_last, idr.total}
 // BODY-NEXT: %[[A:.*]] = arith.addi %[[J]], %[[K]] : i64

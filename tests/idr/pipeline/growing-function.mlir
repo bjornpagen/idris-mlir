@@ -5,7 +5,7 @@
 // @iter, and the loop is not specialized on it however static the first
 // closure is: the simplify loop ends with one @iter, which takes closures.
 // CHECK-NOT: $spec$
-// CHECK: func.func private @Main.iter(%{{[a-z0-9_]+}}: !idr.fn<(i64) -> (i64)>
+// CHECK: func.func private @Main.iter(%{{[a-z0-9_]+}}: !idr.fn<(i64) -> i64>
 // CHECK-NOT: $spec$
 module attributes {idr.program} {
   func.func private @Main.inc(%x: i64) -> i64 attributes {idr.total} {

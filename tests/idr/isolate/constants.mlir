@@ -7,7 +7,7 @@
 // enclosing one is, and breaks last only when that one does.
 // OUTER-LABEL: func.func private @Main.scale(
 // OUTER-SAME: %[[X:[^:]*]]: i64)
-// OUTER: idr.closure @Main.scale$lam{{[0-9]+}}(%[[X]]) : (i64) -> !idr.fn<(i64) -> (!idr.str)>
+// OUTER: idr.closure @Main.scale$lam{{[0-9]+}}(%[[X]]) : (i64) -> !idr.fn<(i64) -> !idr.str>
 // BODY: func.func private @Main.scale$lam{{[0-9]+}}(%[[CX:[^:]*]]: i64, %[[Y:[^:]*]]: i64) -> !idr.str
 // BODY-SAME: attributes {idr.total}
 // BODY-DAG: %[[K:.*]] = arith.constant 3 : i64

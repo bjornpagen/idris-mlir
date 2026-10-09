@@ -157,11 +157,13 @@ $(FORK_STAMP): $(FORK_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@touch $@
 
 # The frontend, by the pinned Idris, against the fork (HOST_PREFIX) and the
-# pinned prelude and base; it runs the tools that `paths` records.
+# pinned prelude and base; it runs the tools that `paths` records. Beside
+# it, syntax-samples (base only), which writes one sample of every type and
+# attribute of the generated syntax for tests/compiler/dialect-syntax.
 frontend: fork
 	@$(PINS) idris
 	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
-	  $(IDRIS2) --build idris-mlir.ipkg
+	  $(IDRIS2) --build idris-mlir.ipkg && $(IDRIS2) --build syntax-samples.ipkg
 
 # The frontend's prefix, CHECKOUT_PREFIX: the packages the pinned Idris
 # source ships (its Makefile's IDRIS2_LIBRARIES, in their order: prelude,

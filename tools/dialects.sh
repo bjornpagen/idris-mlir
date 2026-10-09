@@ -1,7 +1,11 @@
 #!/bin/sh
 # The Idris side's vocabulary of the dialects Emit writes, the contract's:
-# one module per dialect, compiler/src/IdrisMLIR/Dialect/<Name>.idr,
-# generated from the dialect's ODS by idris-mlir-tblgen -gen-idris-dialect.
+# two modules per dialect, generated from the dialect's ODS by
+# idris-mlir-tblgen: its syntax, compiler/src/IdrisMLIR/Syntax/<Name>.idr
+# (-gen-idris-syntax: its enums, and its types and attributes, which
+# IdrisMLIR.MLIR's types and attributes hold), and its ops,
+# compiler/src/IdrisMLIR/Dialect/<Name>.idr (-gen-idris-dialect: the
+# builders of its ops and its primitives, over its syntax).
 #
 #     tools/dialects.sh generate   write each module that changed (make build)
 #     tools/dialects.sh check      say whether each module is current
@@ -18,7 +22,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 mlir_include=${llvm_bin%/bin}/include
 generator_source=$root/foreign/idr/tools/idris-mlir-tblgen.cc
-modules=$root/compiler/src/IdrisMLIR/Dialect
+src=$root/compiler/src/IdrisMLIR
 
 usage() {
   echo "usage: tools/dialects.sh generate|check" >&2
@@ -62,48 +66,60 @@ text_fingerprint() {
   cksum < "$1" | awk '{ print $1 "-" $2 }'
 }
 
+# Each dialect's two modules, as generator:directory: its syntax, and its
+# ops, which import the syntax.
+modules="syntax:Syntax dialect:Dialect"
+
 status=0
 dialects > "$work/dialects"
 while read -r name module ods; do
-  path=$modules/$module.idr
   expected=$(fingerprint "$ods") || exit 1
-  if [ "$1" = generate ]; then
-    mkdir -p "$modules"
-    "$idris_mlir_tblgen" -gen-idris-dialect "-idris-dialect=$name" \
-      "-idris-module=IdrisMLIR.Dialect.$module" -I "$mlir_include" \
-      -I "$root/foreign/idr/include" "$ods" -o "$work/$module.idr" || exit 1
-    printf -- '-- fingerprint: %s %s\n' "$expected" "$(text_fingerprint "$work/$module.idr")" \
-      >> "$work/$module.idr"
-    if ! cmp -s "$work/$module.idr" "$path"; then
-      mv "$work/$module.idr" "$path" || exit 1
-      echo "tools/dialects.sh: wrote IdrisMLIR.Dialect.$module"
-    fi
-  else
-    recorded=$(sed -n 's/^-- fingerprint: //p' "$path" 2> /dev/null)
-    sed '/^-- fingerprint: /d' "$path" > "$work/text" 2> /dev/null
-    if [ ! -f "$path" ]; then
-      echo "IdrisMLIR.Dialect.$module: missing (make build writes it)"
-      status=1
-    elif [ "${recorded% *}" != "$expected" ]; then
-      echo "IdrisMLIR.Dialect.$module: stale (make build writes it again)"
-      status=1
-    elif [ "${recorded##* }" != "$(text_fingerprint "$work/text")" ]; then
-      echo "IdrisMLIR.Dialect.$module: edited by hand (make build writes it again)"
-      status=1
+  for pair in $modules; do
+    generator=${pair%%:*}
+    directory=${pair#*:}
+    path=$src/$directory/$module.idr
+    out=$work/$directory-$module.idr
+    if [ "$1" = generate ]; then
+      mkdir -p "$src/$directory"
+      "$idris_mlir_tblgen" "-gen-idris-$generator" "-idris-dialect=$name" \
+        "-idris-module=IdrisMLIR.$directory.$module" \
+        "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" \
+        -I "$root/foreign/idr/include" "$ods" -o "$out" || exit 1
+      printf -- '-- fingerprint: %s %s\n' "$expected" "$(text_fingerprint "$out")" >> "$out"
+      if ! cmp -s "$out" "$path"; then
+        mv "$out" "$path" || exit 1
+        echo "tools/dialects.sh: wrote IdrisMLIR.$directory.$module"
+      fi
     else
-      echo "IdrisMLIR.Dialect.$module: current"
+      recorded=$(sed -n 's/^-- fingerprint: //p' "$path" 2> /dev/null)
+      sed '/^-- fingerprint: /d' "$path" > "$work/text" 2> /dev/null
+      if [ ! -f "$path" ]; then
+        echo "IdrisMLIR.$directory.$module: missing (make build writes it)"
+        status=1
+      elif [ "${recorded% *}" != "$expected" ]; then
+        echo "IdrisMLIR.$directory.$module: stale (make build writes it again)"
+        status=1
+      elif [ "${recorded##* }" != "$(text_fingerprint "$work/text")" ]; then
+        echo "IdrisMLIR.$directory.$module: edited by hand (make build writes it again)"
+        status=1
+      else
+        echo "IdrisMLIR.$directory.$module: current"
+      fi
     fi
-  fi
+  done
 done < "$work/dialects"
 
-# No module of the directory is left from a dialect the contract dropped.
-for path in "$modules"/*.idr; do
-  [ -f "$path" ] || continue
-  module=${path##*/}
-  module=${module%.idr}
-  if ! awk -v m="$module" '$2 == m { found = 1 } END { exit !found }' "$work/dialects"; then
-    echo "IdrisMLIR.Dialect.$module: of no dialect of the contract"
-    status=1
-  fi
+# No module of either directory is left from a dialect the contract dropped.
+for pair in $modules; do
+  directory=${pair#*:}
+  for path in "$src/$directory"/*.idr; do
+    [ -f "$path" ] || continue
+    module=${path##*/}
+    module=${module%.idr}
+    if ! awk -v m="$module" '$2 == m { found = 1 } END { exit !found }' "$work/dialects"; then
+      echo "IdrisMLIR.$directory.$module: of no dialect of the contract"
+      status=1
+    fi
+  done
 done
 exit "$status"

@@ -8,9 +8,9 @@ func.func private @add(%a: i64, %b: i64) -> i64 {
 
 // CHECK-LABEL: func.func @closures(
 // CHECK-SAME: %[[X:.*]]: i64)
-// CHECK-DAG: %[[C:.*]] = idr.constant #idr.closure<@add, [5]> : !idr.fn<(i64) -> (i64)>
-// CHECK-DAG: %[[N:.*]] = idr.constant #idr.closure<@add, []> : !idr.fn<(i64, i64) -> (i64)>
-// CHECK-DAG: %[[R:.*]] = idr.closure @add(%[[X]]) : (i64) -> !idr.fn<(i64) -> (i64)>
+// CHECK-DAG: %[[C:.*]] = idr.constant #idr.closure<@add, [5]> : !idr.fn<(i64) -> i64>
+// CHECK-DAG: %[[N:.*]] = idr.constant #idr.closure<@add, []> : !idr.fn<(i64, i64) -> i64>
+// CHECK-DAG: %[[R:.*]] = idr.closure @add(%[[X]]) : (i64) -> !idr.fn<(i64) -> i64>
 // CHECK: return %[[C]], %[[N]], %[[R]]
 func.func @closures(%x: i64) -> (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64, i64) -> (i64)>,
                                   !idr.fn<(i64) -> (i64)>) {

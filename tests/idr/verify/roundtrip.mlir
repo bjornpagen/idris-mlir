@@ -25,7 +25,7 @@ module attributes {idr.program} {
     idr.ctor @"$58$$58$" (i64, !idr.box<@List>)
   }
   // CHECK: idr.data @Fields {
-  // CHECK-NEXT: idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
+  // CHECK-NEXT: idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
   idr.data @Fields {
     idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world,
                          !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
@@ -47,7 +47,7 @@ module attributes {idr.program} {
     %c0 = idr.constant #idr.con<@Main.Shape::@Rect, [1.0 : f64, 2.0 : f64]> : !idr.data<@Main.Shape>
     // CHECK: idr.constant #idr.con<@List::@"$58$$58$", [7, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
     %c1 = idr.constant #idr.con<@List::@"$58$$58$", [7 : i64, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
-    // CHECK: idr.constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> (i64)>
+    // CHECK: idr.constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
     %c2 = idr.constant #idr.closure<@inc, [1 : i64]> : !idr.fn<(i64) -> (i64)>
     // CHECK: idr.constant #idr.big<"-123456789012345678901234567890"> : !idr.big
     %c3 = idr.constant #idr.big<"-123456789012345678901234567890"> : !idr.big
@@ -180,11 +180,11 @@ module attributes {idr.program} {
 
   // CHECK-LABEL: func.func private @closures
   func.func private @closures(%x: i64) -> i64 {
-    // CHECK: %[[C:.*]] = idr.closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> (i64)>
+    // CHECK: %[[C:.*]] = idr.closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
     %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
-    // CHECK: idr.apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> (i64)>
+    // CHECK: idr.apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> i64>
     %r = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
-    // CHECK: idr.closure @inc() : () -> !idr.fn<(i64, i64) -> (i64)>
+    // CHECK: idr.closure @inc() : () -> !idr.fn<(i64, i64) -> i64>
     %d = idr.closure @inc() : () -> !idr.fn<(i64, i64) -> (i64)>
     return %r : i64
   }

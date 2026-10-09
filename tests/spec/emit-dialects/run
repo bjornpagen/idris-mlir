@@ -7,9 +7,17 @@
 #     the contract's dialects each have one;
 #   - no other module builds an op (`MkOp`), other than MLIR.idr, which
 #     defines and prints it;
-#   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or
-#     CustomSyntax.idr spells an op name, `<dialect>.<op>`, or a prefix
-#     `<dialect>.` or suffix `.<op>` that code completes into one.
+#   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr
+#     spells an op name, `<dialect>.<op>`, or a prefix `<dialect>.` or
+#     suffix `.<op>` that code completes into one.
+# And a type or an attribute of a dialect is a constructor of the sum
+# generated from the dialect's ODS (IdrisMLIR.Syntax.*), so
+#   - every type and attribute of the contract's dialects is generated;
+#   - no string literal outside the syntax modules spells one,
+#     `!<dialect>.` or `#<dialect>.`;
+#   - MLIR.idr holds each generated sum in its types or attributes, and
+#     SyntaxSamples.idr, whose module the round trip reads back, samples
+#     each through the sum's list of mnemonics.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
 contract='idr func arith math ub memref builtin'
@@ -47,7 +55,7 @@ say "places that build an op by hand: $(wc -l < "$work/builders" | tr -d ' ')"
 cat "$work/builders"
 
 : > "$work/names"
-for file in "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/CustomSyntax.idr; do
+for file in "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/MLIR/Text.idr; do
   idris_lex strings "$file" | awk -v file="$file" '
     {
       n = $0; sub(/:.*/, "", n); s = $0; sub(/^[0-9]*:/, "", s)
@@ -57,3 +65,42 @@ for file in "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/CustomSynta
 done
 say "op names spelled by hand: $(wc -l < "$work/names" | tr -d ' ')"
 cat "$work/names"
+
+: > "$work/omitted"
+for file in "$src"/Syntax/*.idr; do
+  grep -E '^-- (type|attribute) ' "$file" | sed "s|^|$file: |" >> "$work/omitted"
+done
+say "types and attributes not generated: $(wc -l < "$work/omitted" | tr -d ' ')"
+cat "$work/omitted"
+
+: > "$work/spelled"
+find "$src" -path "$src/Syntax" -prune -o -name '*.idr' -print | sort | while IFS= read -r file; do
+  idris_lex strings "$file" | grep -E '^[0-9]+:[!#][a-z_]+\.' | sed "s|^|$file:|" >> "$work/spelled"
+done
+say "types and attributes spelled by hand: $(wc -l < "$work/spelled" | tr -d ' ')"
+cat "$work/spelled"
+
+# Each generated sum, with the list of its mnemonics, from the definitions
+# the syntax module gives them.
+: > "$work/sums"
+for file in "$src"/Syntax/*.idr; do
+  for kind in Type Attr; do
+    sum=$(sed -n "s/^data \([A-Za-z]*$kind\) : .*/\1/p" "$file")
+    [ -n "$sum" ] || continue
+    list=$(sed -n "s/^\([a-z][A-Za-z]*${kind}Mnemonics\) : List String\$/\1/p" "$file")
+    printf '%s %s\n' "$sum" "${list:-none}" >> "$work/sums"
+  done
+done
+idris_lex code "$src/MLIR.idr" > "$work/mlir"
+idris_lex code "$src/SyntaxSamples.idr" > "$work/samples"
+: > "$work/unheld"
+: > "$work/unsampled"
+while read -r sum list; do
+  grep -Eq "(^|[^A-Za-z0-9_.])$sum([^A-Za-z0-9_']|\$)" "$work/mlir" || printf '%s\n' "$sum" >> "$work/unheld"
+  grep -Eq "(^|[^A-Za-z0-9_.])$list([^A-Za-z0-9_']|\$)" "$work/samples" ||
+    printf '%s (%s)\n' "$sum" "$list" >> "$work/unsampled"
+done < "$work/sums"
+say "sums not held by MLIR.idr: $(wc -l < "$work/unheld" | tr -d ' ')"
+cat "$work/unheld"
+say "sums not sampled: $(wc -l < "$work/unsampled" | tr -d ' ')"
+cat "$work/unsampled"

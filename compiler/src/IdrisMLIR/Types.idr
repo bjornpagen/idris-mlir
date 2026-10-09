@@ -17,24 +17,6 @@ import IdrisMLIR.MLIR
 -- Uses and integer types
 ------------------------------------------------------------------------------
 
-||| Idris's multiplicities as a type writes them, which the registry's
-||| shapes of library types compare.
-public export
-data Quantity = Q0 | Q1 | QW
-
-export
-Eq Quantity where
-  Q0 == Q0 = True
-  Q1 == Q1 = True
-  QW == QW = True
-  _ == _ = False
-
-export
-Show Quantity where
-  show Q0 = "0"
-  show Q1 = "1"
-  show QW = "w"
-
 ||| How often a runtime value is used, as Idris proved: exactly once
 ||| (multiplicity 1) or any number of times (ω). Multiplicity 0 binds no
 ||| runtime value at all (`Binder`'s `Gone`).

@@ -30,7 +30,7 @@
 // The result of a call may enter a grade on its way to the field: a grade
 // has no runtime form, and goes with the call.
 // CHECK-LABEL: func.func private @copyLin(
-// CHECK: %[[PL:.*]] = idr.dest.pending : !idr.q<1 own, !idr.box<@LList>>
+// CHECK: %[[PL:.*]] = idr.dest.pending : !idr.q<one, own, !idr.box<@LList>>
 // CHECK: idr.con @LList::@LCons(%{{.*}}, %[[PL]])
 // CHECK: func.call @copyLin$trmc(
 // CHECK-LABEL: func.func private @copyLin$trmc(
@@ -68,8 +68,8 @@ module attributes {idr.program} {
     }
     case @LCons(%x: i64, %rest: !idr.box<@LList>) {
       %ys = func.call @copyLin(%rest) : (!idr.box<@LList>) -> !idr.own<!idr.box<@LList>>
-      %l = idr.lin.enter %ys : !idr.q<1 own, !idr.box<@LList>>
-      %c = idr.con @LList::@LCons(%x, %l) : (i64, !idr.q<1 own, !idr.box<@LList>>) -> !idr.own<!idr.box<@LList>>
+      %l = idr.lin.enter %ys : !idr.q<one, own, !idr.box<@LList>>
+      %c = idr.con @LList::@LCons(%x, %l) : (i64, !idr.q<one, own, !idr.box<@LList>>) -> !idr.own<!idr.box<@LList>>
       idr.yield %c : !idr.own<!idr.box<@LList>>
     }
     }

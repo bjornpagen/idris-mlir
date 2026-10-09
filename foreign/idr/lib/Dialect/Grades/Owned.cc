@@ -7,7 +7,7 @@ using namespace idr;
 
 Type idr::owned(Type type) {
   Grade grade = gradeOf(type);
-  if (grade.permission == Permission::None)
+  if (grade.permission == Permission::Plain)
     grade.permission = Permission::Own;
   return graded(grade, unrestricted(type));
 }

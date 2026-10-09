@@ -14,7 +14,7 @@
 // CHECK-DAG: %[[E:.*]] = call @deep(%{{.*}}) : (i64) -> i64
 // CHECK-DAG: %[[G:.*]] = call @grow(%{{.*}}) : (i64) -> !idr.box<@List>
 // CHECK-DAG: %[[L:.*]] = call @loop(%{{.*}}) : (i64) -> i64
-// CHECK-DAG: %[[A:.*]] = call @applyTo(%{{.*}}) : (!idr.fn<(i64) -> (i64)>) -> i64
+// CHECK-DAG: %[[A:.*]] = call @applyTo(%{{.*}}) : (!idr.fn<(i64) -> i64>) -> i64
 // CHECK: return %[[D]], %[[S]], %[[E]], %[[G]], %[[L]], %[[A]]
 // REMARK-DAG: remark: [Passed] Evaluated {{.*}}Function=down
 // REMARK-DAG: remark: [Missed] Unfinished {{.*}}Function=spin{{.*}}budget

@@ -4,6 +4,7 @@
 module IdrisMLIR.Dialect.Builtin
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Builtin
 
 %default total
 
@@ -15,7 +16,7 @@ import IdrisMLIR.MLIR
 export
 moduleOp : {default Nothing symName : Maybe String} -> {default Nothing symVisibility : Maybe String} -> (bodyRegion : Region) -> Op
 moduleOp bodyRegion =
-  MkOp "builtin.module" [] (attrIf "sym_name" stringAttr symName ++ attrIf "sym_visibility" stringAttr symVisibility) [bodyRegion] [] []
+  MkOp "builtin.module" [] (attrIf "sym_name" StringAttr symName ++ attrIf "sym_visibility" StringAttr symVisibility) [bodyRegion] [] []
 
 ||| `builtin.unrealized_conversion_cast`: An unrealized conversion from one set of types to another
 export

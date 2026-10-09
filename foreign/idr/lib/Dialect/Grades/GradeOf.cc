@@ -1,4 +1,4 @@
-// The grade of a type: its own for !idr.q, (w, .) for a plain type.
+// The grade of a type: its own for !idr.q, (many, plain) for a plain type.
 
 #include "idr/Idr.h"
 

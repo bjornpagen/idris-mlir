@@ -6,5 +6,5 @@ using namespace mlir;
 using namespace idr;
 
 Type idr::view(Type type) {
-  return graded({gradeOf(type).quantity, Permission::None}, unrestricted(type));
+  return graded({gradeOf(type).quantity, Permission::Plain}, unrestricted(type));
 }

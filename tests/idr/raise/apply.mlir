@@ -10,7 +10,7 @@
 // applies a known closure of a total function, and the callee is total, so
 // the clone is total. A second run changes nothing.
 // CHECK-LABEL: func.func private @pick(
-// CHECK-SAME: -> !idr.fn<(i64) -> (i64)> attributes {idr.total}
+// CHECK-SAME: -> !idr.fn<(i64) -> i64> attributes {idr.total}
 // CHECK-LABEL: func.func private @use(
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: %[[Y:.*]] = arith.addi %[[X]]

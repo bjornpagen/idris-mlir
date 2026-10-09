@@ -9,7 +9,6 @@ idr_library(idr_ops
 		Constants.cppm
 		Does.cppm
 		Elements.cppm
-		GradeSyntax.cppm
 		Inliner.cppm
 		IoEffects.cppm
 		LinearRanges.cppm

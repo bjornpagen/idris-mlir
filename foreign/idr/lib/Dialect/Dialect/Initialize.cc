@@ -23,38 +23,42 @@ using namespace idr;
 #define GET_TYPEDEF_CLASSES
 #include "idr/IdrTypes.cc.inc"
 
-// The spellings: !idr.lin<T> is (1, ·) of T, !idr.own<T> is (ω, own) of
-// T, !idr.erased is (0, ·) of no carrier, !idr.world is (1, ·) of the
-// world; any other grade is written out as !idr.q. The world's carrier is
-// never written by itself.
+namespace {
+
+// The dialect's spellings of a value at a grade, read and written from this
+// one table: a whole type, or a grade over any value. Any other grade is
+// the generated `!idr.q<quantity, permission, value>`, as is every grade
+// when written out; the world's carrier alone is `!idr.world_carrier`. The
+// wholes come first: the world is (one, plain) too.
+struct Whole {
+  StringRef keyword;
+  Type (*make)(MLIRContext *);
+};
+constexpr Whole wholes[] = {{"erased", idr::erased}, {"world", idr::world}};
+
+struct Over {
+  StringRef keyword;
+  Grade grade;
+};
+constexpr Over overs[] = {{"lin", {Quantity::One, Permission::Plain}},
+                          {"own", {Quantity::Many, Permission::Own}},
+                          {"excl", {Quantity::Many, Permission::Excl}}};
+
+} // namespace
+
 Type IdrDialect::parseType(DialectAsmParser &parser) const {
   llvm::SMLoc loc = parser.getCurrentLocation();
   MLIRContext *ctx = parser.getContext();
-  if (succeeded(parser.parseOptionalKeyword("lin"))) {
-    Type value;
-    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
-      return {};
-    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
-                             Grade{Quantity::One, Permission::None}, value);
-  }
-  if (succeeded(parser.parseOptionalKeyword("own"))) {
-    Type value;
-    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
-      return {};
-    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
-                             Grade{Quantity::Many, Permission::Own}, value);
-  }
-  if (succeeded(parser.parseOptionalKeyword("excl"))) {
-    Type value;
-    if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
-      return {};
-    return QType::getChecked([&] { return parser.emitError(loc); }, ctx,
-                             Grade{Quantity::Many, Permission::Excl}, value);
-  }
-  if (succeeded(parser.parseOptionalKeyword("erased")))
-    return erased(ctx);
-  if (succeeded(parser.parseOptionalKeyword("world")))
-    return world(ctx);
+  for (const Whole &whole : wholes)
+    if (succeeded(parser.parseOptionalKeyword(whole.keyword)))
+      return whole.make(ctx);
+  for (const Over &over : overs)
+    if (succeeded(parser.parseOptionalKeyword(over.keyword))) {
+      Type value;
+      if (parser.parseLess() || parser.parseType(value) || parser.parseGreater())
+        return {};
+      return QType::getChecked([&] { return parser.emitError(loc); }, ctx, over.grade, value);
+    }
   // The generated parser reads the mnemonic itself.
   StringRef mnemonic;
   Type type;
@@ -66,23 +70,17 @@ Type IdrDialect::parseType(DialectAsmParser &parser) const {
 }
 
 void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
-  if (auto q = dyn_cast<QType>(type)) {
-    if (isWorld(q)) {
-      printer << "world";
-    } else if (isErased(q) && q.getGrade().permission == Permission::None) {
-      printer << "erased";
-    } else if (isLinear(q) && q.getGrade().permission == Permission::None) {
-      printer << "lin<" << q.getValue() << '>';
-    } else if (q.getGrade() == Grade{Quantity::Many, Permission::Own}) {
-      printer << "own<" << q.getValue() << '>';
-    } else if (q.getGrade() == Grade{Quantity::Many, Permission::Excl}) {
-      printer << "excl<" << q.getValue() << '>';
-    } else {
-      printer << "q";
-      q.print(printer);
+  for (const Whole &whole : wholes)
+    if (type == whole.make(getContext())) {
+      printer << whole.keyword;
+      return;
     }
-    return;
-  }
+  if (auto q = dyn_cast<QType>(type))
+    for (const Over &over : overs)
+      if (q.getGrade() == over.grade) {
+        printer << over.keyword << '<' << q.getValue() << '>';
+        return;
+      }
   if (failed(generatedTypePrinter(type, printer)))
     llvm_unreachable("a type of the idr dialect");
 }
